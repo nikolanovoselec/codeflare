@@ -24,7 +24,7 @@ const DefaultReset: Component<{ label: string; onReset: () => void }> = props =>
   <button type="button" class="operator-reset-default" aria-label={`Reset ${props.label} to default`} title={`Reset ${props.label} to default`} onClick={props.onReset}>
     <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d={mdiAutorenew} fill="currentColor" /></svg>
   </button>;
-const validSourceBytes = (value: number | undefined, ceiling: number) => Number.isInteger(sourceBytes(value)) && sourceBytes(value) >= 1 && sourceBytes(value) <= ceiling;
+const validSourceBytes = (value: number | undefined, ceiling: number) => Number.isSafeInteger(sourceBytes(value)) && sourceBytes(value) >= 1 && sourceBytes(value) <= ceiling;
 const sourceResponseHelp = 'Includes the HTTP envelope: response body and headers. Does not change request, inference, final-output or SDK history limits.';
 const RECOMMENDED_INFERENCE_REQUEST_BYTES = 1_048_576;
 const SourceResponseField: Component<{ label: string; value?: number; max: number; help?: string; recommended?: number;
@@ -378,7 +378,7 @@ const PolicyFields: Component<{ title: string; profile: 'conductor' | 'dispatche
       capabilities: props.value.capabilities.filter(value => value !== item) })} /><span>{item} · unavailable — deselect to remove</span></label>
   }</For></div></div>
     <Show when={props.profile === 'dispatcher'}><SourceResponseField label={props.title === 'Operator' ? 'Operator source-response ceiling (bytes)' : 'Installation source-response allowance (bytes)'}
-      value={props.value.sourceResponseBytes} max={props.sourceResponseMax} recommended={api.MAX_SOURCE_RESPONSE_BYTES}
+      value={props.value.sourceResponseBytes} max={props.sourceResponseMax} recommended={api.DEFAULT_SOURCE_RESPONSE_BYTES}
       help={props.title === 'Operator'
         ? 'Maximum external response (body + headers) any installation may allow. Sets the operator-wide ceiling; installation allowances may be lower.'
         : 'Maximum external response (body + headers) this installation may read. Tune this first for a confirmed source-response size failure; it cannot exceed the operator ceiling.'}
@@ -411,6 +411,7 @@ const OperatorDetail: Component<{ detail: api.ManagementDetail; choices?: api.Ma
   const [operatorOperationLimit, setOperatorOperationLimit] = createSignal<number>();
   const [operatorInferenceAttemptLimit, setOperatorInferenceAttemptLimit] = createSignal<number>();
   const [operatorSubmissionAttemptLimit, setOperatorSubmissionAttemptLimit] = createSignal<number>();
+  const [operatorCapacities, setOperatorCapacities] = createSignal<api.DispatcherCapacityPolicy>({});
   const [operatorLoggingEnabled, setOperatorLoggingEnabled] = createSignal(true);
   const inferenceFieldId = createUniqueId();
   const operationFieldId = createUniqueId();
@@ -434,6 +435,7 @@ const OperatorDetail: Component<{ detail: api.ManagementDetail; choices?: api.Ma
     setOperatorOperationLimit(props.detail.operator.policy.operationLimit);
     setOperatorInferenceAttemptLimit(props.detail.operator.policy.inferenceAttemptLimit);
     setOperatorSubmissionAttemptLimit(props.detail.operator.policy.submissionAttemptLimit);
+    setOperatorCapacities(api.pickDispatcherCapacities(props.detail.operator.policy));
     setOperatorLoggingEnabled(props.detail.operator.policy.loggingEnabled ?? true);
     setSourceUrl(props.detail.operator.repositoryUrl); setSourcePat('');
   });
@@ -477,7 +479,7 @@ const OperatorDetail: Component<{ detail: api.ManagementDetail; choices?: api.Ma
   const validOperatorSource = () => operator().profile !== 'dispatcher'
     || (validSourceBytes(operatorSourceResponseBytes(), environmentSourceMax()) && validInferenceBytes(operatorInferenceRequestBytes())
       && validOperationLimit(operatorOperationLimit()) && validInferenceAttemptLimit(operatorInferenceAttemptLimit())
-      && validSubmissionAttemptLimit(operatorSubmissionAttemptLimit()));
+      && validSubmissionAttemptLimit(operatorSubmissionAttemptLimit()) && api.validDispatcherCapacities(operatorCapacities()));
   const validInstallationSource = () => operator().profile !== 'dispatcher' || validSourceBytes(policy().sourceResponseBytes, installationSourceMax());
   const allowedCapabilities = () => operator().policy.capabilities.filter(item => props.choices?.ceiling.capabilities.includes(item));
   const allowedProfiles = () => operator().profile !== 'dispatcher' && operator().policy.resourceProfileId && props.choices?.ceiling.resourceProfileIds.includes(operator().policy.resourceProfileId!)
@@ -607,9 +609,10 @@ const OperatorDetail: Component<{ detail: api.ManagementDetail; choices?: api.Ma
           ...(operator().profile === 'dispatcher' && operatorOperationLimit() !== undefined ? { operationLimit: operatorOperationLimit() } : {}),
           ...(operator().profile === 'dispatcher' && operatorInferenceAttemptLimit() !== undefined ? { inferenceAttemptLimit: operatorInferenceAttemptLimit() } : {}),
           ...(operator().profile === 'dispatcher' && operatorSubmissionAttemptLimit() !== undefined ? { submissionAttemptLimit: operatorSubmissionAttemptLimit() } : {}),
+          ...(operator().profile === 'dispatcher' ? api.pickDispatcherCapacities(operatorCapacities()) : {}),
         }), 'Operator capabilities saved. A change disables installed runs until you explicitly re-enable them.', 'operator-capabilities'); }}><fieldset disabled={props.locked}>
           <legend>Operator capabilities</legend><p>Allowed actions remain bounded by Environment. Changing these settings disables enabled installations; review each installation before re-enabling.</p>
-          <Show when={operator().profile === 'dispatcher'}><p>Source-response limits form a hierarchy: Environment maximum → operator ceiling → installation allowance. Inference size is separate: the same operator limit applies to requests sent to the model and responses received. These settings do not change final-output or SDK-history limits.</p></Show>
+          <Show when={operator().profile === 'dispatcher'}><p>Source-response limits form a hierarchy: Environment maximum → operator ceiling → installation allowance. Inference size is separate: the same operator limit applies to requests sent to the model and responses received. Final-output and parent-projection controls are separate below; SDK persistence limits remain independent.</p></Show>
           <div class="admin-checkbox-list"><For each={props.choices?.ceiling.capabilities ?? []}>{capability =>
             <label class="admin-toggle-field"><input type="checkbox" checked={operatorCapabilities().includes(capability)} onChange={event => setOperatorCapabilities(values => event.currentTarget.checked ? [...values, capability] : values.filter(value => value !== capability))} />
               <span class="admin-form-field"><strong>{capabilityTitle[capability] ?? capability}</strong><small>{capabilityHelp[capability] ?? 'Restricted operator action'}</small></span></label>
@@ -617,9 +620,9 @@ const OperatorDetail: Component<{ detail: api.ManagementDetail; choices?: api.Ma
             <label class="admin-toggle-field"><input type="checkbox" checked onChange={() => setOperatorCapabilities(values => values.filter(value => value !== capability))} />
               <span>{capability} · unavailable under current Environment limit; remove before saving</span></label>
           }</For></div>
-          <Show when={operator().profile === 'dispatcher'}><SourceResponseField label="Operator source-response ceiling (bytes)" value={operatorSourceResponseBytes()} max={environmentSourceMax()}
+          <Show when={operator().profile === 'dispatcher'}><div class="operator-runtime-fields"><SourceResponseField label="Operator source-response ceiling (bytes)" value={operatorSourceResponseBytes()} max={environmentSourceMax()}
             help="Maximum external response (body + headers) any installation may allow. Sets the operator-wide ceiling; installation allowances may be lower."
-            recommended={api.MAX_SOURCE_RESPONSE_BYTES} blockedRecommendationHelp="An administrator must first raise the Environment source-response ceiling to use 1 MiB." onChange={setOperatorSourceResponseBytes} />
+            recommended={api.DEFAULT_SOURCE_RESPONSE_BYTES} blockedRecommendationHelp="An administrator must first raise the Environment source-response ceiling to use 1 MiB." onChange={setOperatorSourceResponseBytes} />
             <div class="admin-form-field"><label for={inferenceFieldId}>Inference limit (bytes)</label><div class="operator-value-input"><input id={inferenceFieldId} aria-label="Inference limit (bytes)" aria-describedby={inferenceFieldId + '-help'} type="number" required min="1" step="1" max={api.MAX_INFERENCE_REQUEST_BYTES}
               value={Number.isFinite(inferenceBytes(operatorInferenceRequestBytes())) ? inferenceBytes(operatorInferenceRequestBytes()) : ''}
               onInput={event => setOperatorInferenceRequestBytes(event.currentTarget.valueAsNumber)} />
@@ -647,6 +650,19 @@ const OperatorDetail: Component<{ detail: api.ManagementDetail; choices?: api.Ma
               <DefaultReset label="Submission attempt limit" onReset={() => setOperatorSubmissionAttemptLimit(api.DEFAULT_SUBMISSION_ATTEMPT_LIMIT)} /></div>
               <small id={submissionAttemptFieldId + '-help'}>Maximum SDK submission attempts, including the initial submission. Default: 1,024; use 1 to disable retries. Separate from inference retries; the original operation budget and deadline still apply. Uncertain repository writes are not replayed.</small>
             </div>
+            <For each={api.dispatcherCapacityKeys}>{key => {
+              const field = api.dispatcherCapacityFields[key];
+              const id = createUniqueId();
+              const value = () => operatorCapacities()[key] ?? field.default;
+              return <div class="admin-form-field"><label for={id}>{field.label}</label><div class="operator-value-input">
+                <input id={id} aria-describedby={id + '-help'} type="number" required min="1" step="1"
+                  max={key === 'checkRunPageSize' ? 100 : Number.MAX_SAFE_INTEGER}
+                  value={Number.isFinite(value()) ? value() : ''}
+                  onInput={event => setOperatorCapacities(values => ({ ...values, [key]: event.currentTarget.valueAsNumber }))} />
+                <DefaultReset label={field.label} onReset={() => setOperatorCapacities(values => ({ ...values, [key]: field.default }))} /></div>
+                <small id={id + '-help'}>{field.help} Default: {field.default}. Operator-wide; no installation override.</small>
+              </div>;
+            }}</For></div>
           </Show>
           <label class="admin-toggle-field operator-logging-toggle"><input type="checkbox" checked={operatorLoggingEnabled()} onChange={event => setOperatorLoggingEnabled(event.currentTarget.checked)} /><span class="admin-form-field"><strong>Enable logging</strong><small>Operator execution diagnostics only. Privacy and security audits remain unchanged.</small></span></label>
           <button class="admin-secondary-button" type="submit" disabled={!props.choices || !validOperatorSource() || operatorCapabilities().some(value => !props.choices?.ceiling.capabilities.includes(value))}>Save operator capabilities</button>

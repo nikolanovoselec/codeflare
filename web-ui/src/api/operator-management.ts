@@ -2,6 +2,9 @@
 import { z } from 'zod';
 import { baseFetch } from './fetch-helper';
 import { operatorActivitySummarySchema } from './operator-activities';
+import { dispatcherCapacityShape, type DispatcherCapacityPolicy } from '../../../src/operators/dispatcher-capacity-limits';
+export { dispatcherCapacityFields, dispatcherCapacityKeys, pickDispatcherCapacities, validDispatcherCapacities } from '../../../src/operators/dispatcher-capacity-limits';
+export type { DispatcherCapacityKey, DispatcherCapacityPolicy } from '../../../src/operators/dispatcher-capacity-limits';
 
 const id = z.string().regex(/^[A-Za-z0-9_-]{1,128}$/);
 const revision = z.number().int().positive();
@@ -15,8 +18,8 @@ export const DEFAULT_INFERENCE_ATTEMPT_LIMIT = 4;
 export const DEFAULT_SUBMISSION_ATTEMPT_LIMIT = 1024;
 export const MAX_INFERENCE_REQUEST_BYTES = Number.MAX_SAFE_INTEGER;
 export const DEFAULT_SOURCE_RESPONSE_BYTES = 1_048_576;
-export const MAX_SOURCE_RESPONSE_BYTES = 1_048_576;
-const sourceResponseBytes = z.number().int().positive().optional();
+export const MAX_SOURCE_RESPONSE_BYTES = Number.MAX_SAFE_INTEGER;
+const sourceResponseBytes = z.number().int().positive().max(MAX_SOURCE_RESPONSE_BYTES).optional();
 export const policySchema = z.object({ capabilities: z.array(z.string()).max(32), resourceProfileId: z.string().nullable(), sourceResponseBytes });
 export type ManagementGrant = z.infer<typeof grantSchema>;
 export type ManagementPolicy = z.infer<typeof policySchema>;
@@ -26,7 +29,7 @@ const summarySchema = z.object({ id, name: z.string().optional(), description: z
   profile: z.enum(['conductor', 'dispatcher']), realm: z.enum(['internal', 'external']), enabled: z.boolean() });
 const operatorSchema = summarySchema.extend({ revision, repositoryId: z.number().int().positive(),
   repositoryUrl: z.string(), managers: grantSchema, invokers: grantSchema,
-  policy: policySchema.extend({ inferenceRequestBytes: z.number().int().positive().max(MAX_INFERENCE_REQUEST_BYTES).optional(),
+  policy: policySchema.extend({ ...dispatcherCapacityShape, inferenceRequestBytes: z.number().int().positive().max(MAX_INFERENCE_REQUEST_BYTES).optional(),
     inferenceAttemptLimit: z.number().int().positive().safe().optional(),
     submissionAttemptLimit: z.number().int().positive().safe().optional(),
     operationLimit: z.number().int().positive().max(MAX_DISPATCHER_OPERATION_LIMIT).optional(), loggingEnabled: z.boolean().optional() }),
@@ -86,7 +89,7 @@ export const enableInstallation = (installationId: string, enabled: boolean, rev
   request(`/installations/${segment(installationId)}/enable`, installationSchema, { enabled, revision });
 export const saveOperatorGrants = (operatorId: string, input: { managers: ManagementGrant; invokers: ManagementGrant; revision: number }) =>
   request(`/operators/${segment(operatorId)}/grants`, operatorSchema, input);
-export const saveOperatorCapabilities = (operatorId: string, input: { capabilities: string[]; revision: number; sourceResponseBytes?: number; inferenceRequestBytes?: number; operationLimit?: number; loggingEnabled?: boolean; inferenceAttemptLimit?: number; submissionAttemptLimit?: number }) =>
+export const saveOperatorCapabilities = (operatorId: string, input: DispatcherCapacityPolicy & { capabilities: string[]; revision: number; sourceResponseBytes?: number; inferenceRequestBytes?: number; operationLimit?: number; loggingEnabled?: boolean; inferenceAttemptLimit?: number; submissionAttemptLimit?: number }) =>
   request(`/operators/${segment(operatorId)}/capabilities`, operatorSchema, input);
 
 // Directed execution stays under the existing owner-scoped activity API.

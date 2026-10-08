@@ -319,6 +319,22 @@ describe('entrypoint.sh rclone filter behavior (real) / REQ-MEM-004 (vault in R2
     }
   });
 
+  it('REQ-STOR-011 AC4: excludes only root Pi work-evidence in every sync scope', () => {
+    const evidence = '.pi/agent/work-evidence/investigation/report.json';
+    const adjacent = '.pi/agent/work-evidence.json';
+    const nested = 'Temporary/preserved/.pi/agent/work-evidence/report.json';
+    for (const sessionMode of ['advanced', 'default']) {
+      for (const syncMode of ['none', 'metadata', 'full']) {
+        const v = verdictUnder({ sessionMode, syncMode, defaultDeny: false, extraFixtures: {
+          [evidence]: 'disposable investigation artifact', [adjacent]: 'unrelated user file',
+          [nested]: 'explicit user tray content', '.pi/agent/settings.json': '{"fixture":true}',
+        } });
+        assert.equal(v[evidence], 'EXCLUDED', `${evidence} must not sync in ${sessionMode}/${syncMode}`);
+        for (const keep of [adjacent, nested, '.pi/agent/settings.json']) assert.equal(v[keep], 'INCLUDED');
+      }
+    }
+  });
+
   it('persists user-scoped review completion in every workspace sync mode', () => {
     const marker = '.codeflare/review-state/v1/repo/branch/pr-42-main-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.json';
     for (const sessionMode of ['advanced', 'default']) {

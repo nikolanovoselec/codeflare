@@ -1,3 +1,5 @@
+import { dispatcherCapacities, type DispatcherCapacityPolicy } from './dispatcher-capacity-limits';
+
 /** Parent-only inference attempt wire. Intermediate responses never reach the SDK. */
 export interface DispatcherInferenceResponse { status: number; contentType: string; body: string }
 export interface DispatcherInferenceSelection { routeId: string; reasoningLevel: string | null }
@@ -71,6 +73,7 @@ export function classifyDispatcherInference(response: DispatcherInferenceRespons
 }
 
 /** Durable not-before time is allocated once per successor, never renewed on reconstruction. */
-export function inferenceRetryDelay(index: number): number {
-  return 1000 * 2 ** Math.min(index, 3);
+export function inferenceRetryDelay(index: number, policy?: DispatcherCapacityPolicy): number {
+  const limits = dispatcherCapacities(policy);
+  return Math.min(limits.inferenceRetryMaxMs, limits.inferenceRetryBaseMs * 2 ** Math.max(0, index - 1));
 }

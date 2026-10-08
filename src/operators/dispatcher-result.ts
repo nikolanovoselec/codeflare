@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { Tokenizer, TokenParser, TokenType } from '@streamparser/json';
+import { dispatcherCapacities, type DispatcherCapacities, type DispatcherCapacityPolicy } from './dispatcher-capacity-limits';
 
 /** Exact-submission authority and bounded observations only; SDK history is not a result. */
 export interface DispatcherResultProjection {
@@ -40,31 +41,23 @@ const sealPreflightSchema = z.object({
 }).strict().refine(value => value.operationCount === null || value.operationLimit === null
   || value.operationCount <= value.operationLimit);
 type DispatcherSealPreflight = z.infer<typeof sealPreflightSchema>;
-const MAX_SEAL_PREFLIGHT_BYTES = 512;
-const MAX_SEAL_PREFLIGHT_OBSERVATIONS = 32;
-const MAX_READINESS_BYTES = 512;
-const MAX_READINESS_OBSERVATIONS = 32;
-const MAX_COMPLETION_OBSERVATIONS = 32;
-const MAX_TOOL_OBSERVATIONS = 2048;
 const toolRoles: Record<string, string> = { discover_renovate: 'discover', research_renovate: 'research', decide_renovate: 'decide',
   seal_dispatcher: 'seal', comment_renovate: 'comment', merge_renovate: 'merge', finish_dispatcher: 'finish', finish: 'generic-finish' };
-function observeTool(state: DispatcherResultProjection, id: unknown, name: unknown, outcome: 'pending' | 'succeeded' | 'failed'): void {
+function observeTool(state: DispatcherResultProjection, id: unknown, name: unknown,
+  outcome: 'pending' | 'succeeded' | 'failed', limits: DispatcherCapacities): void {
   const prior = state.tools?.calls.find(call => call.id === id);
   if (prior) { if (outcome !== 'pending') prior.outcome = outcome; return; }
   if (typeof name !== 'string' || !Object.hasOwn(toolRoles, name)) return;
   const observation = state.tools ??= { calls: [], truncated: false };
   if (typeof id !== 'string' || !id || id.length > MAX_COMPLETION_ID_LENGTH) { observation.truncated = true; return; }
-  if (observation.calls.length >= MAX_TOOL_OBSERVATIONS) { observation.truncated = true; return; }
+  if (observation.calls.length >= limits.toolObservationLimit) { observation.truncated = true; return; }
   observation.calls.push({ id, role: toolRoles[name], outcome });
 }
 const MAX_COMPLETION_ID_LENGTH = 256;
-const MAX_UPDATE_PAGE_BYTES = 16 * 1024 * 1024;
-const MAX_PROJECTED_RECORD_BYTES = 1024 * 1024;
-const MAX_RESULT_BYTES = 64 * 1024;
 
-function captureResult(state: DispatcherResultProjection, value: unknown): void {
+function captureResult(state: DispatcherResultProjection, value: unknown, limits: DispatcherCapacities): void {
   if (!z.json().safeParse(value).success || !value || typeof value !== 'object' || Array.isArray(value)
-    || new TextEncoder().encode(JSON.stringify(value)).byteLength > MAX_RESULT_BYTES) {
+    || new TextEncoder().encode(JSON.stringify(value)).byteLength > limits.assessmentBytes) {
     throw new Error('Dispatcher result unavailable');
   }
   if (state.outcome !== undefined) throw new Error('Dispatcher result follows terminal settlement');
@@ -73,49 +66,49 @@ function captureResult(state: DispatcherResultProjection, value: unknown): void 
   state.result = value;
 }
 
-function observeReadiness(state: DispatcherResultProjection, value: unknown): void {
+function observeReadiness(state: DispatcherResultProjection, value: unknown, limits: DispatcherCapacities): void {
   const observation = state.readiness ??= { observations: 0, truncated: false };
-  if (observation.observations >= MAX_READINESS_OBSERVATIONS) { observation.truncated = true; return; }
+  if (observation.observations >= limits.readinessObservationLimit) { observation.truncated = true; return; }
   observation.observations++;
   const parsed = readinessSchema.safeParse(value);
-  if (!parsed.success || new TextEncoder().encode(JSON.stringify(parsed.data)).byteLength > MAX_READINESS_BYTES) {
+  if (!parsed.success || new TextEncoder().encode(JSON.stringify(parsed.data)).byteLength > limits.readinessBytes) {
     observation.truncated = true; return;
   }
   observation.latest = parsed.data;
 }
 
 // Drop every unknown value before persistence/accounting, regardless of JSON member order.
-function normalizeReadinessData(part: Record<string, unknown>): void {
+function normalizeReadinessData(part: Record<string, unknown>, limits: DispatcherCapacities): void {
   const parsed = readinessSchema.safeParse(part.data);
   const valid = !part.dataProjectionOversized && parsed.success
-    && new TextEncoder().encode(JSON.stringify(part.data)).byteLength <= MAX_READINESS_BYTES;
+    && new TextEncoder().encode(JSON.stringify(part.data)).byteLength <= limits.readinessBytes;
   Object.defineProperty(part, 'data', { value: valid && parsed.success ? parsed.data : undefined,
     enumerable: false, configurable: true, writable: true });
   delete part.dataProjectionOversized;
 }
 
-function observeSealPreflight(state: DispatcherResultProjection, value: unknown): void {
+function observeSealPreflight(state: DispatcherResultProjection, value: unknown, limits: DispatcherCapacities): void {
   const observation = state.sealPreflight ??= { observations: 0, truncated: false };
-  if (observation.observations >= MAX_SEAL_PREFLIGHT_OBSERVATIONS) { observation.truncated = true; return; }
+  if (observation.observations >= limits.preflightObservationLimit) { observation.truncated = true; return; }
   observation.observations++;
   const parsed = sealPreflightSchema.safeParse(value);
-  if (!parsed.success || new TextEncoder().encode(JSON.stringify(parsed.data)).byteLength > MAX_SEAL_PREFLIGHT_BYTES) {
+  if (!parsed.success || new TextEncoder().encode(JSON.stringify(parsed.data)).byteLength > limits.preflightBytes) {
     observation.truncated = true; return;
   }
   observation.latest = parsed.data;
 }
 
-function normalizeSealPreflightData(part: Record<string, unknown>): void {
+function normalizeSealPreflightData(part: Record<string, unknown>, limits: DispatcherCapacities): void {
   const parsed = sealPreflightSchema.safeParse(part.data);
   const valid = !part.dataProjectionOversized && parsed.success
-    && new TextEncoder().encode(JSON.stringify(part.data)).byteLength <= MAX_SEAL_PREFLIGHT_BYTES;
+    && new TextEncoder().encode(JSON.stringify(part.data)).byteLength <= limits.preflightBytes;
   Object.defineProperty(part, 'data', { value: valid && parsed.success ? parsed.data : undefined,
     enumerable: false, configurable: true, writable: true });
   delete part.dataProjectionOversized;
 }
 
 function observeCompletion(state: DispatcherResultProjection, id: unknown,
-  outcome: 'pending' | 'succeeded' | 'failed'): void {
+  outcome: 'pending' | 'succeeded' | 'failed', limits: DispatcherCapacities): void {
   const completion = state.completion ??= { calls: [], truncated: false };
   if (typeof id !== 'string' || !id || id.length > MAX_COMPLETION_ID_LENGTH) {
     completion.truncated = true; return;
@@ -123,11 +116,11 @@ function observeCompletion(state: DispatcherResultProjection, id: unknown,
   const previous = completion.calls.find(call => call.id === id);
   if (previous) {
     if (outcome !== 'pending') previous.outcome = outcome;
-  } else if (completion.calls.length < MAX_COMPLETION_OBSERVATIONS) completion.calls.push({ id, outcome });
+  } else if (completion.calls.length < limits.completionObservationLimit) completion.calls.push({ id, outcome });
   else completion.truncated = true;
 }
 
-function project(state: DispatcherResultProjection, value: unknown, submissionId: string): void {
+function project(state: DispatcherResultProjection, value: unknown, submissionId: string, limits: DispatcherCapacities): void {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Dispatcher update unavailable');
   const chunk = value as Record<string, unknown>;
   // The pinned SDK prefixes every updates page with stream identity, not a conversation event.
@@ -165,14 +158,14 @@ function project(state: DispatcherResultProjection, value: unknown, submissionId
       if (message.diagnosticTruncated) (state.completion ??= { calls: [], truncated: false }).truncated = true;
       if (message.toolsTruncated) (state.tools ??= { calls: [], truncated: false }).truncated = true;
       for (const part of message.parts) {
-        if (part.type === 'data-assessment' || part.type === 'data-result') captureResult(state, part.data);
-        if (part.type === 'data-dispatcher-readiness') observeReadiness(state, part.data);
-        if (part.type === 'data-dispatcher-seal-preflight') observeSealPreflight(state, part.data);
+        if (part.type === 'data-assessment' || part.type === 'data-result') captureResult(state, part.data, limits);
+        if (part.type === 'data-dispatcher-readiness') observeReadiness(state, part.data, limits);
+        if (part.type === 'data-dispatcher-seal-preflight') observeSealPreflight(state, part.data, limits);
         if (part.type === 'dynamic-tool') observeTool(state, part.toolCallId, part.toolName,
-          part.state === 'output-available' ? 'succeeded' : part.state === 'output-error' ? 'failed' : 'pending');
+          part.state === 'output-available' ? 'succeeded' : part.state === 'output-error' ? 'failed' : 'pending', limits);
         if (part.type === 'dynamic-tool' && part.toolName === 'finish_dispatcher') {
           observeCompletion(state, part.toolCallId, part.state === 'output-available' ? 'succeeded'
-            : part.state === 'output-error' ? 'failed' : 'pending');
+            : part.state === 'output-error' ? 'failed' : 'pending', limits);
           if (part.diagnosticTruncated) (state.completion ??= { calls: [], truncated: false }).truncated = true;
         }
       }
@@ -184,24 +177,24 @@ function project(state: DispatcherResultProjection, value: unknown, submissionId
     if (typeof chunk.messageId !== 'string' || chunk.messageId.length > 256) throw new Error('Dispatcher message unavailable');
     if (!state.messageIds.includes(chunk.messageId)) state.messageIds.push(chunk.messageId);
   } else if (chunk.type === 'data-part' && (chunk.name === 'assessment' || chunk.name === 'result')) {
-    if (state.messageIds.includes(chunk.messageId as string)) captureResult(state, chunk.data);
+    if (state.messageIds.includes(chunk.messageId as string)) captureResult(state, chunk.data, limits);
     else state.unmatchedAssessment = true;
   } else if (chunk.type === 'data-part' && chunk.name === 'dispatcher-readiness'
     && state.messageIds.includes(chunk.messageId as string)) {
-    observeReadiness(state, chunk.data);
+    observeReadiness(state, chunk.data, limits);
   } else if (chunk.type === 'data-part' && chunk.name === 'dispatcher-seal-preflight'
     && state.messageIds.includes(chunk.messageId as string)) {
-    observeSealPreflight(state, chunk.data);
+    observeSealPreflight(state, chunk.data, limits);
   } else if (chunk.type === 'tool-input' && state.messageIds.includes(chunk.messageId as string)) {
-    observeTool(state, chunk.toolCallId, chunk.toolName, 'pending');
-    if (chunk.toolName === 'finish_dispatcher') observeCompletion(state, chunk.toolCallId, 'pending');
+    observeTool(state, chunk.toolCallId, chunk.toolName, 'pending', limits);
+    if (chunk.toolName === 'finish_dispatcher') observeCompletion(state, chunk.toolCallId, 'pending', limits);
   } else if ((chunk.type === 'tool-output' || chunk.type === 'tool-output-error')
     && state.completion?.calls.some(call => call.id === chunk.toolCallId)) {
-    observeCompletion(state, chunk.toolCallId, chunk.type === 'tool-output' ? 'succeeded' : 'failed');
+    observeCompletion(state, chunk.toolCallId, chunk.type === 'tool-output' ? 'succeeded' : 'failed', limits);
   }
   if ((chunk.type === 'tool-output' || chunk.type === 'tool-output-error')
     && state.tools?.calls.some(call => call.id === chunk.toolCallId)) {
-    observeTool(state, chunk.toolCallId, undefined, chunk.type === 'tool-output' ? 'succeeded' : 'failed');
+    observeTool(state, chunk.toolCallId, undefined, chunk.type === 'tool-output' ? 'succeeded' : 'failed', limits);
   }
   if ((chunk.type === 'submission-settled' && chunk.submissionId === submissionId)
     || (chunk.type === 'conversation-reset' && chunk.outcome !== undefined)) {
@@ -221,9 +214,12 @@ function project(state: DispatcherResultProjection, value: unknown, submissionId
   state.position = next;
 }
 
-/** Project SDK identity, named data, settlements and bounded completion metadata; discard history bodies. */
+/** Project SDK identity, named data, settlements and bounded completion metadata; discard history bodies.
+ * The caller supplies the originally admitted capacity policy, not a refreshed operator policy.
+ */
 export async function readDispatcherUpdates(response: Response, previous: DispatcherResultProjection,
-  submissionId: string, signal?: AbortSignal): Promise<DispatcherResultProjection> {
+  submissionId: string, signal?: AbortSignal, capacityPolicy?: DispatcherCapacityPolicy): Promise<DispatcherResultProjection> {
+  const limits = dispatcherCapacities(capacityPolicy);
   const offset = response.headers.get('stream-next-offset');
   if (response.status !== 200 || !response.body || !offset || offset.length > 2048
     || response.headers.get('content-type')?.split(';')[0] !== 'application/json') throw new Error('Dispatcher updates unavailable');
@@ -294,7 +290,7 @@ export async function readDispatcherUpdates(response: Response, previous: Dispat
         return;
       }
     }
-    if (new TextEncoder().encode(JSON.stringify(value)).byteLength > MAX_RESULT_BYTES) {
+    if (new TextEncoder().encode(JSON.stringify(value)).byteLength > limits.assessmentBytes) {
       // The name/type may follow data. Defer only data's existing denial until attribution.
       if ((path.length === 1 && path[0] === 'data') || (path.length === 6 && path[3] === 'parts' && path[5] === 'data')) {
         put([...path.slice(0, -1), 'dataProjectionOversized'], true, false); return;
@@ -344,14 +340,14 @@ export async function readDispatcherUpdates(response: Response, previous: Dispat
         && frame.path[4] === 'parts') {
         const part = snapshotMessages()?.[frame.path[3] as number]?.parts?.[frame.path[5] as number] as Record<string, unknown> | undefined;
         if (part) {
-          if (part.type === 'data-dispatcher-readiness') normalizeReadinessData(part);
-          else if (part.type === 'data-dispatcher-seal-preflight') normalizeSealPreflightData(part);
+          if (part.type === 'data-dispatcher-readiness') normalizeReadinessData(part, limits);
+          else if (part.type === 'data-dispatcher-seal-preflight') normalizeSealPreflightData(part, limits);
           else if (part.dataProjectionOversized) throw new Error('Dispatcher projected value exceeds limit');
           const completionPart = part.type === 'dynamic-tool' && part.toolName === 'finish_dispatcher';
           const otherTool = part.type === 'dynamic-tool' && typeof part.toolName === 'string'
             && Object.hasOwn(toolRoles, part.toolName) && !completionPart;
-          if (otherTool && toolParts < MAX_TOOL_OBSERVATIONS) { toolParts++; }
-          else if (!completionPart || diagnosticParts >= MAX_COMPLETION_OBSERVATIONS) {
+          if (otherTool && toolParts < limits.toolObservationLimit) { toolParts++; }
+          else if (!completionPart || diagnosticParts >= limits.completionObservationLimit) {
             if (completionPart) put(['snapshot', 'messages', frame.path[3], 'diagnosticTruncated'], true, false);
             if (otherTool) put(['snapshot', 'messages', frame.path[3], 'toolsTruncated'], true, false);
             for (const field of [...diagnosticFields, 'diagnosticTruncated']) delete part[field];
@@ -365,14 +361,14 @@ export async function readDispatcherUpdates(response: Response, previous: Dispat
         toolParts = frame.toolDiagnosticStart ?? toolParts;
       }
       if (frame.path.length === 1) {
-        if (record.type === 'data-part' && record.name === 'dispatcher-readiness') normalizeReadinessData(record);
-        else if (record.type === 'data-part' && record.name === 'dispatcher-seal-preflight') normalizeSealPreflightData(record);
+        if (record.type === 'data-part' && record.name === 'dispatcher-readiness') normalizeReadinessData(record, limits);
+        else if (record.type === 'data-part' && record.name === 'dispatcher-seal-preflight') normalizeSealPreflightData(record, limits);
         else if (record.dataProjectionOversized) throw new Error('Dispatcher projected value exceeds limit');
         if (++records > 65536) throw new Error('Dispatcher update count exceeds limit');
         const snapshot = record.snapshot as { messages?: Array<{ submissionId?: string }> } | undefined;
         if (Array.isArray(snapshot?.messages)) snapshot.messages = snapshot.messages.filter(message => message?.submissionId === submissionId);
-        if (new TextEncoder().encode(JSON.stringify(record)).byteLength > MAX_PROJECTED_RECORD_BYTES) throw new Error('Dispatcher projection exceeds limit');
-        project(state, record, submissionId);
+        if (new TextEncoder().encode(JSON.stringify(record)).byteLength > limits.projectedRecordBytes) throw new Error('Dispatcher projection exceeds limit');
+        project(state, record, submissionId, limits);
         record = Object.create(null);
         diagnosticParts = 0;
         toolParts = 0;
@@ -399,7 +395,7 @@ export async function readDispatcherUpdates(response: Response, previous: Dispat
       if (signal?.aborted) throw signal.reason;
       if (chunk.done) break;
       bytes += chunk.value.byteLength;
-      if (bytes > MAX_UPDATE_PAGE_BYTES) throw new Error('Dispatcher update page exceeds limit');
+      if (bytes > limits.updatePageBytes) throw new Error('Dispatcher update page exceeds limit');
       tokenizer.write(chunk.value);
     }
     tokenizer.end();

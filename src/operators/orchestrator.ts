@@ -9,6 +9,7 @@ import { openOperatorSecret } from './protected-secrets';
 import { parseDispatcherBundle, parseOperatorBundle, parseOperatorManifest } from './distribution';
 import { fetchOperatorBundle } from './distribution-client';
 import { driveDispatcherRuntime, driveOperatorRuntime } from './runtime';
+import { dispatcherCapacities, pickDispatcherCapacities } from './dispatcher-capacity-limits';
 import { createOperatorIntentDigest, type BoundaryActivityBinding, type OperatorRuntimePlan } from './activity';
 import type { ManagementAdmissionReceipt, ManagementExecutionSelection, OperatorAdmissionReceipt,
   OperatorExecutionSelection, OperatorRegistryResult } from './registry';
@@ -182,12 +183,13 @@ export async function runOperatorActivity(
   bindCapability: OperatorCapabilityBinder,
   expectedGeneration?: number,
 ): Promise<void> {
-  const requestDeadline = Date.now() + 25_000;
+  const requestedAt = Date.now();
   if (!env.OPERATOR_REGISTRY || !env.OPERATOR_ACTIVITY) return;
   const activity = env.OPERATOR_ACTIVITY.getByName(activityId);
   const plan = await activity.getRuntimePlan() as OperatorRuntimePlan | null;
   if (!plan) return;
-  const attemptDeadline = Math.min(plan.deadline, requestDeadline);
+  const capacityPolicy = isManagementReceipt(plan.receipt) ? pickDispatcherCapacities(plan.receipt.selection.operator.policy) : undefined;
+  const attemptDeadline = Math.min(plan.deadline, requestedAt + dispatcherCapacities(capacityPolicy).driveTimeoutMs);
   try {
     if (!env.LOADER) throw new Error('Operator Loader unavailable');
     const registry = env.OPERATOR_REGISTRY.getByName('registry');
@@ -227,7 +229,7 @@ export async function runOperatorActivity(
     }
     const invocation = JSON.parse(plan.invocationJson) as unknown;
     const driven = await driveOperatorRuntime({ activity, activityId, deadline: attemptDeadline, loader: env.LOADER, bundle,
-      invocation, expectedGeneration,
+      invocation, expectedGeneration, capacityPolicy,
       bind: async (generation, driveDeadline) => {
         if (isManagementReceipt(plan.receipt) && plan.receipt.selection.operator.profile === 'conductor') {
           const bound = await bindClaimedConductorInvocation({ env, plan, activity, resources, generation, driveDeadline });

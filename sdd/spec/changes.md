@@ -4,6 +4,10 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-10-08
 
+- REQ-STOR-011 AC4: exclude root `.pi/agent/work-evidence/**` from restoration and every bisync scope through the repository common filters. Preserve adjacent configuration, nested user tray content and existing review-receipt persistence. Add real-rclone behavioral coverage; CI and image/runtime activation remain pending. Do not change the running container's filter configuration.
+
+- Add the approved operator-owned Dispatcher capacity controls and defaults (REQ-OPERATOR-045/047/048/049/063/076): message/tool/token counts, transport/text/comment/readback bounds, complete assessment and parent projection bounds, research/drive budgets and retry delays. Every input has descriptive help and a right-edge default-reset icon; runtime controls use one/two/three responsive columns. Preserve original admission policy, source hierarchy, protocol/security fences, immutable responses and unknown-write rules. Remove only the duplicate fixed1MiB source-response platform ceiling, not the configured Environment ceiling. Implement code and behavioral tests together at explicit user direction, stopping before any push. Exact-head CI, deployed rendering and hosted end-to-end acceptance remain unverified; larger settings are not an attributed repair for the historical403.
+
 - At explicit user direction, capture a sanitized first exception line from the synthetic native CI failed response, redacting credential-like values, URLs and identifiers. Do not emit its stack or response body or inspect historical Activities. Category-only probes identified the outer entry-server failure but not its cause; keep all runtime behavior, pins, deadlines and collection assertions unchanged.
 
 - Extend the existing native failed-response inspection with an allowlisted exception class and named public source location only. Miniflare has an outer plain-text exception response path, but the prior CI failure remains unattributed. Do not retain the body, message or stack, change runtime/package behavior, suppress failures or alter deadlines and collection assertions.

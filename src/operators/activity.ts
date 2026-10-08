@@ -14,6 +14,7 @@ import { DEFAULT_SOURCE_RESPONSE_BYTES, sourceResponseBytes } from './dispatcher
 import { producerDiagnosticSchema, sdkPublicReasonCode, type ProducerDiagnostic } from './dispatcher-diagnostic-wire';
 import { submissionAttemptLimit } from './dispatcher-submission-limits';
 import { inferenceRequestBytes, inferenceAttemptLimit } from './dispatcher-inference-limits';
+import { dispatcherCapacities, type DispatcherCapacityPolicy } from './dispatcher-capacity-limits';
 import { classifyDispatcherInference, inferenceAttemptKey, inferenceRetryDelay,
   type DispatcherInferenceAttempt, type DispatcherInferenceChain, type DispatcherInferenceResponse } from './dispatcher-inference-recovery';
 import { DEFAULT_DISPATCHER_OPERATION_LIMIT, dispatcherOperationLimit } from './dispatcher-operation-limits';
@@ -131,15 +132,16 @@ async function putDispatcherEntry(tx: DispatcherJournalTx, journal: DispatcherJo
     unresolved: journal.unresolved + (next.phase === 'completed' ? 0 : 1) - (prior && prior.phase !== 'completed' ? 1 : 0),
   });
 }
-const admittedDispatcherResultSchema = z.strictObject({ repository: z.string(),
+const admittedDispatcherResultSchema = (limits = dispatcherCapacities()) => z.strictObject({ repository: z.string(),
   results: z.tuple([z.strictObject({ pullRequest: z.number().safe().int().positive(),
     headSha: z.string().regex(/^[0-9a-f]{40}$/), decision: z.enum(['MERGE', 'DO_NOT_MERGE']),
-    comment: z.string().min(1).max(2000), outcome: z.enum(['MERGED', 'NOT_MERGED', 'EXECUTION_FAILED']) })]) });
+    comment: z.string().min(1).max(limits.targetCommentChars), outcome: z.enum(['MERGED', 'NOT_MERGED', 'EXECUTION_FAILED']) })]) });
 
 /** Intent-3 output contract: one exact admitted result, never a replacement or aggregate target set. */
-function admittedDispatcherResultMatches(value: unknown, target: DispatcherAdmittedTarget): boolean {
-  const result = admittedDispatcherResultSchema.safeParse(value);
-  if (!result.success || new TextEncoder().encode(JSON.stringify(value)).byteLength > 48 * 1024) return false;
+function admittedDispatcherResultMatches(value: unknown, target: DispatcherAdmittedTarget, policy?: DispatcherCapacityPolicy): boolean {
+  const limits = dispatcherCapacities(policy);
+  const result = admittedDispatcherResultSchema(limits).safeParse(value);
+  if (!result.success || new TextEncoder().encode(JSON.stringify(value)).byteLength > limits.assessmentBytes) return false;
   const item = result.data.results[0];
   return result.data.repository === target.repository && item.pullRequest === target.pullRequest
     && item.headSha === target.headSha && (item.outcome !== 'MERGED' || item.decision === 'MERGE');
@@ -1277,8 +1279,10 @@ export class OperatorActivity extends Agent {
   async commitDrive(generation: number, update: unknown): Promise<OperatorDriveResult> {
     let parsed: z.infer<typeof driveUpdateSchema>;
     try {
+      const admission = await this.ctx.storage.get<AdmissionState>('admission');
+      const limits = dispatcherCapacities(admission && isManagementReceipt(admission.receipt) ? admission.receipt.selection.operator.policy : undefined);
       const json = JSON.stringify(update);
-      if (typeof json !== 'string' || new TextEncoder().encode(json).byteLength > 64 * 1024) {
+      if (typeof json !== 'string' || new TextEncoder().encode(json).byteLength > limits.driveResponseBytes) {
         return { ok: false, reason: 'invalid-update' };
       }
       const result = driveUpdateSchema.safeParse(update);
@@ -1590,7 +1594,8 @@ export class OperatorActivity extends Agent {
           if (!response.ok) throw new Error('Dispatcher status unavailable');
           statusStep = 'body';
           return readDispatcherUpdates(response, lease.projection!, lease.submissionId!,
-            AbortSignal.timeout(Math.max(1, lease.expiresAt - Date.now())));
+            AbortSignal.timeout(Math.max(1, lease.expiresAt - Date.now())),
+            isManagementReceipt(plan.receipt) ? plan.receipt.selection.operator.policy : undefined);
         });
         const projectionSaved = await this.ctx.storage.transaction(async tx => {
           const record = await tx.get<AdmissionState>('admission');
@@ -1702,8 +1707,8 @@ export class OperatorActivity extends Agent {
         if (assessmentParts.length !== 1 || !z.json().safeParse(assessmentParts[0].data).success
           || !assessmentParts[0].data || typeof assessmentParts[0].data !== 'object'
           || Array.isArray(assessmentParts[0].data)
-          || new TextEncoder().encode(JSON.stringify(assessmentParts[0].data)).byteLength > 64 * 1024
-          || (admittedTarget && !admittedDispatcherResultMatches(assessmentParts[0].data, admittedTarget))) {
+          || new TextEncoder().encode(JSON.stringify(assessmentParts[0].data)).byteLength > dispatcherCapacities(isManagementReceipt(plan.receipt) ? plan.receipt.selection.operator.policy : undefined).assessmentBytes
+          || (admittedTarget && !admittedDispatcherResultMatches(assessmentParts[0].data, admittedTarget, isManagementReceipt(plan.receipt) ? plan.receipt.selection.operator.policy : undefined))) {
           inferenceDiagnostic(trace, { stage: 'assessment', outcome: 'denied', failureClass: 'assessment' });
           if (loggingEnabled) dispatcherLog.warn('Dispatcher settlement rejected', { stage: 'assessment' });
           await this.interruptDrive(lease.generation); return;
@@ -1822,6 +1827,7 @@ export class OperatorActivity extends Agent {
     let perform: () => Promise<Response>;
     let sourceBytes = DEFAULT_SOURCE_RESPONSE_BYTES;
     let inferenceBytes = inferenceRequestBytes();
+    let limits = dispatcherCapacities();
     let operationLimit = DEFAULT_DISPATCHER_OPERATION_LIMIT;
     let lease: DispatcherLease | undefined;
     let effectContext: NonNullable<Parameters<typeof createDispatcherOperation>[0]['effectContext']> | undefined;
@@ -1834,9 +1840,11 @@ export class OperatorActivity extends Agent {
       }
       const plan = await this.getRuntimePlan();
       if (!plan) return denied();
-      inferenceBytes = inferenceRequestBytes(isManagementReceipt(plan.receipt) ? plan.receipt.selection.operator.policy : undefined);
+      const capacityPolicy = isManagementReceipt(plan.receipt) ? plan.receipt.selection.operator.policy : undefined;
+      limits = dispatcherCapacities(capacityPolicy);
+      inferenceBytes = inferenceRequestBytes(capacityPolicy);
       operationLimit = dispatcherOperationLimit(isManagementReceipt(plan.receipt) ? plan.receipt.selection.operator.policy : undefined);
-      operation = await this.#boundedDispatcher(lease, () => parseDispatcherOperation(request, inferenceBytes));
+      operation = await this.#boundedDispatcher(lease, () => parseDispatcherOperation(request, inferenceBytes, capacityPolicy));
       preparationStep = 'capability';
       if (operation.path === '/v1/dispatcher/source' && isManagementReceipt(plan.receipt)) {
         sourceBytes = sourceResponseBytes(plan.receipt.selection.installation.policy);
@@ -1999,7 +2007,7 @@ export class OperatorActivity extends Agent {
         bodyReading = true;
         return { status: upstream.status, contentType: upstream.headers.get('content-type') ?? 'application/json',
           body: await readDispatcherBody(upstream, undefined,
-            resource === 'source' ? sourceBytes : resource === 'inference' ? inferenceBytes : undefined) };
+            resource === 'source' ? sourceBytes : resource === 'inference' ? inferenceBytes : limits.dispatcherRequestBytes) };
       });
       let confirmedEffect = false;
       if (resource === 'comment' || resource === 'merge') {
@@ -2176,7 +2184,7 @@ export class OperatorActivity extends Agent {
           if (previous.classification !== 'retryable' && previous.classification !== 'transport') throw new Error('Dispatcher inference cannot recover');
           if (previous.index >= attemptLimit || journal.count >= operationLimit) return { kind: 'exhausted', operationCount: journal.count } as const;
           const attempt: DispatcherInferenceAttempt = { index: previous.index + 1, ordinal: journal.nextOrdinal,
-            phase: 'ready', notBefore: Date.now() + inferenceRetryDelay(previous.index) };
+            phase: 'ready', notBefore: Date.now() + inferenceRetryDelay(previous.index, isManagementReceipt(plan.receipt) ? plan.receipt.selection.operator.policy : undefined) };
           if (attempt.notBefore >= lease.expiresAt) throw new Error('Dispatcher inference deadline reached');
           await tx.put(attemptKey, { ...previous, successor: attempt.index });
           await tx.put(inferenceAttemptKey(generation, operation.operationId, attempt.index), attempt);
@@ -2562,13 +2570,13 @@ export class OperatorActivity extends Agent {
     const assessment = await this.ctx.storage.get<unknown>(`dispatcher:result:${lease!.generation}`);
     if (!assessment || typeof assessment !== 'object' || Array.isArray(assessment)
       || !z.json().safeParse(assessment).success
-      || new TextEncoder().encode(JSON.stringify(assessment)).byteLength > 64 * 1024) return;
+      || new TextEncoder().encode(JSON.stringify(assessment)).byteLength > dispatcherCapacities(isManagementReceipt(state!.receipt) ? state!.receipt.selection.operator.policy : undefined).assessmentBytes) return;
     if (await this.ctx.storage.get<string>('prospective-admission')) {
       try {
         const plan = await this.getRuntimePlan();
         if (!plan) return;
         const { admittedTarget } = await authorizeDispatcherPlan(plan, this.#appEnv);
-        if (admittedTarget && !admittedDispatcherResultMatches(assessment, admittedTarget)) return;
+        if (admittedTarget && !admittedDispatcherResultMatches(assessment, admittedTarget, isManagementReceipt(plan.receipt) ? plan.receipt.selection.operator.policy : undefined)) return;
       } catch { return; }
     }
     const committed = await this.ctx.storage.transaction(async tx => {
@@ -2903,10 +2911,16 @@ export class OperatorDispatcherCapability extends WorkerEntrypoint<Env> {
           || ['authorization', 'cookie', 'cf-access-jwt-assertion', 'x-api-key'].some(name => request.headers.has(name))) {
           return Response.json({ code: 'OPERATOR_CAPABILITY_DENIED' }, { status: 403 });
         }
+        let body: string | undefined;
+        if (request.method !== 'GET') {
+          const admittedPlan = await activity.getRuntimePlan();
+          if (!admittedPlan || !isManagementReceipt(admittedPlan.receipt)) throw new Error('Dispatcher source authority unavailable');
+          body = await readDispatcherBody(request, request.signal, dispatcherCapacities(admittedPlan.receipt.selection.operator.policy).dispatcherRequestBytes);
+        }
         const result = await activity.dispatcherOperation(generation, new Request('https://operator.internal/v1/dispatcher/source', {
           method: 'POST', signal: request.signal, headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ operationId, url: request.url,
-            ...(request.method !== 'GET' ? { method: request.method, body: await readDispatcherBody(request, request.signal) } : {}) }),
+            ...(request.method !== 'GET' ? { method: request.method, body } : {}) }),
         }));
         if (!result.ok) return result;
         const plan = await activity.getRuntimePlan();

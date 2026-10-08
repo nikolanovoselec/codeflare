@@ -9,6 +9,7 @@ export { FixtureFlueRoot, FixtureFlueTransport, FixtureTailProbe, FixtureTailInb
 import { loadOperatorWorker, type OperatorLoaderBinding } from '../../../operators/loader';
 import { parseOperatorBundle, type OperatorBundle } from '../../../operators/distribution';
 import { driveOperatorRuntime } from '../../../operators/runtime';
+import type { DispatcherCapacityPolicy } from '../../../operators/dispatcher-capacity-limits';
 import conductorBundle from './conductor-review.generated.json';
 
 import { OperatorRegistry, type OperatorAdmissionRequest } from '../../../operators/registry';
@@ -77,7 +78,8 @@ export type ActivityFixtureCommand =
   | { action: 'interrupt-drive'; generation: number }
   | { action: 'instance' }
   | { action: 'evict' }
-  | { action: 'drive-runtime'; failure?: 'throw' | 'oversized'; deadline?: number; expectedGeneration?: number };
+  | { action: 'drive-runtime'; failure?: 'throw' | 'oversized'; deadline?: number; expectedGeneration?: number;
+      capacityPolicy?: DispatcherCapacityPolicy; responsePadding?: number; delayMs?: number };
 
 export type RegistryFixtureCommand =
   | { action: 'create'; operatorId: string }
@@ -213,6 +215,7 @@ export default {
               export default { async fetch(request, env) {
                 ${failure === 'throw' ? 'throw new Error("uncertain fixture failure");' : ''}
                 ${failure === 'oversized' ? 'return new Response("x".repeat(65537), {headers:{"content-type":"application/json"}});' : ''}
+                ${command.delayMs === undefined ? '' : `await new Promise(resolve => setTimeout(resolve, ${JSON.stringify(command.delayMs)}));`}
                 const input = await request.json();
                 if (input.schemaVersion !== 1 || input.generation !== await env.OPERATOR.driveGeneration()) {
                   return new Response('invalid generation binding', {status:400});
@@ -220,12 +223,14 @@ export default {
                 const step = (input.checkpoint?.step ?? 0) + 1;
                 return Response.json({schemaVersion:1, status:step === 1 ? 'waiting' : 'completed',
                   checkpoint:{step}, result:{action:input.action, activityId:input.activityId,
-                    principal:await env.OPERATOR.identity('attacker'), isolateCounter:++isolateCounter}});
+                    principal:await env.OPERATOR.identity('attacker'), isolateCounter:++isolateCounter,
+                    ${command.responsePadding === undefined ? '' : `padding:'x'.repeat(${JSON.stringify(command.responsePadding)}),`} }});
               }};
             ` } } };
             return Response.json(await driveOperatorRuntime({
               activity, activityId: url.searchParams.get('activity') ?? 'default',
               deadline: command.deadline ?? Date.now() + 60_000, loader: env.LOADER, bundle: runtimeBundle,
+              capacityPolicy: command.capacityPolicy,
               ...(command.expectedGeneration === undefined ? {} : { expectedGeneration: command.expectedGeneration }),
               bind: generation => ({
                 capability: entrypoints.FixtureCapability({ props: { ...props, generation } }),

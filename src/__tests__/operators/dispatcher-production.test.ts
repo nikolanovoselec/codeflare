@@ -7,6 +7,7 @@ import { driveDispatcherRuntime } from '../../operators/runtime';
 import { runOperatorActivity } from '../../operators/orchestrator';
 import { createOperatorExecutionContext } from '../../operators/execution-context';
 import { parseDispatcherOperation } from '../../operators/operator-runtime-capability';
+import type { DispatcherCapacityPolicy } from '../../operators/dispatcher-capacity-limits';
 import { setLogLevel } from '../../lib/logger';
 import type { DispatcherBundle } from '../../operators/distribution';
 import type { Env } from '../../types';
@@ -344,7 +345,7 @@ async function fixture(test: (f: {
   annotatedTag: (value: unknown) => void;
   moveHeadAfterFiles: () => void;
   moveHeadAfterRelease: () => void; expireAfterRead: () => void;
-  moveBaseAfterContents: () => void; moveBaseAfterGuide: () => void;
+  moveBaseAfterContents: () => void; moveBaseAfterGuide: () => void; exceedComposeDeadline: () => void;
   exceedReleaseDeadline: () => void; exceedGuideDeadline: () => void;
   proof: ProspectiveAdmission; admittedTarget: Record<string, unknown>;
   changeProof: (patch: Record<string, unknown> | null) => void;
@@ -357,7 +358,8 @@ async function fixture(test: (f: {
 }) => Promise<void>, options: { humanLifetimeSeconds?: number; repositoryOnly?: boolean; prospective?: boolean;
   configuredTarget?: { repository: string; repositoryId: number; baseBranch: string };
   legacyProspective?: boolean; inputExtra?: Record<string, unknown>; capabilities?: string[]; pagedStatus?: boolean; githubApiHost?: string;
-  sourceResponseBytes?: number; sourceBody?: string; inferenceBody?: string; inferenceRequestBytes?: number; operationLimit?: number; loggingEnabled?: boolean;
+  sourceResponseBytes?: number; sourceBody?: string; sourceDelayMs?: number; inferenceBody?: string; inferenceRequestBytes?: number; inferenceMessageLimit?: number; operationLimit?: number; loggingEnabled?: boolean;
+  capacityPolicy?: DispatcherCapacityPolicy;
   recovery?: boolean; inferenceAttemptLimit?: number; inferenceTransport?: (request: Request, attempt: number) => Promise<Response> } = {}) {
   callerSessionCurrent = true;
   callerRoute = 'approved';
@@ -380,7 +382,7 @@ async function fixture(test: (f: {
     const selection = { controlsRevision: 1, installation: { id: 'installation', operatorId: fixtureOperatorId, revision: 1,
       enabled: true, policy, configurationJson: options.prospective ? JSON.stringify({ renovate: { repository: configuredTarget.repository, automaticRuns: true, repetitionIntervalSeconds: 900 } }) : '{}', releaseId: 'release' },
     operator: { operatorId: fixtureOperatorId, profile: 'dispatcher', revision: 1, invokers: { users: [human.email], groups: [] },
-      policy: { ...policy, ...(options.inferenceAttemptLimit === undefined ? {} : { inferenceAttemptLimit: options.inferenceAttemptLimit }), ...(options.loggingEnabled === undefined ? {} : { loggingEnabled: options.loggingEnabled }), ...(options.operationLimit === undefined ? {} : { operationLimit: options.operationLimit }), ...(options.inferenceRequestBytes === undefined ? {} : { inferenceRequestBytes: options.inferenceRequestBytes }) } },
+      policy: { ...policy, ...options.capacityPolicy, ...(options.inferenceMessageLimit === undefined ? {} : { inferenceMessageLimit: options.inferenceMessageLimit }), ...(options.inferenceAttemptLimit === undefined ? {} : { inferenceAttemptLimit: options.inferenceAttemptLimit }), ...(options.loggingEnabled === undefined ? {} : { loggingEnabled: options.loggingEnabled }), ...(options.operationLimit === undefined ? {} : { operationLimit: options.operationLimit }), ...(options.inferenceRequestBytes === undefined ? {} : { inferenceRequestBytes: options.inferenceRequestBytes }) } },
     release: { id: 'release', operatorId: fixtureOperatorId, bundleDigest: artifactDigest, sourceCommit: bundle.sourceCommit,
       ...(options.prospective ? { intentVersion: options.legacyProspective ? '2' : '3', coreVersion: '1' } : {}) },
     manifestJson: options.prospective ? JSON.stringify({ schemaVersion: 1, interfaceVersion: 1,
@@ -441,6 +443,7 @@ async function fixture(test: (f: {
     let moveAfterRelease = false;
     let expireAfterRead = false;
     let exceedDeadline = false;
+    let composeElapsed = false;
     const sent: Request[] = [];
     const childSubmissions: Request[] = [];
     const deliveredTail: Array<{ activityId: string; generation: number; stage: string }> = [];
@@ -496,9 +499,12 @@ async function fixture(test: (f: {
             if (stage) deliveredTail.push({ ...props, stage });
           },
         }),
-        EgressController: () => ({ fetch: async () => new Response(sourceBody, {
-          headers: { 'content-type': 'text/plain', etag: 'guide-v3', 'set-cookie': 'private-session' },
-        }) }),
+        EgressController: () => ({ fetch: async () => {
+          if (options.sourceDelayMs) await new Promise(resolve => setTimeout(resolve, options.sourceDelayMs));
+          return new Response(sourceBody, {
+            headers: { 'content-type': 'text/plain', etag: 'guide-v3', 'set-cookie': 'private-session' },
+          });
+        } }),
         GitHubInterceptor: ({ props }: { props: { bucket: string } }) => ({ fetch: async (request: Request) => {
           if (request.url.includes('/repos/community/compiler')) return Response.json({
             tag_name: 'v3.2.1', guidance: props.bucket === 'owner-bucket' ? 'Owned authenticated research' : 'Foreign private data',
@@ -548,6 +554,7 @@ async function fixture(test: (f: {
             const url = new URL(request.url);
             const key = `${url.searchParams.get('ref')}:${decodeURIComponent(url.pathname.split('/contents/')[1])}`;
             const body = composeBodies[key];
+            if (composeElapsed) vi.spyOn(Date, 'now').mockReturnValue(now + 1500);
             if (moveAfterContents) baseSha = 'c'.repeat(40);
             return body instanceof Response ? body : body ? Response.json(body)
               : Response.json({ message: 'Missing' }, { status: 404 });
@@ -682,6 +689,7 @@ async function fixture(test: (f: {
         moveHeadAfterRelease: () => { moveAfterRelease = true; },
         expireAfterRead: () => { expireAfterRead = true; },
         moveBaseAfterContents: () => { moveAfterContents = true; },
+        exceedComposeDeadline: () => { composeElapsed = true; },
         moveBaseAfterGuide: () => { moveBaseAfterGuide = true; },
         exceedReleaseDeadline: () => { exceedDeadline = true; },
         exceedGuideDeadline: () => { exceedDeadline = true; },
@@ -784,6 +792,19 @@ describe('REQ-OPERATOR-047/048: future inference attempt accounting', () => {
     const promise = new Promise<T>(done => { resolve = done; });
     return { promise, resolve };
   }
+
+  it('REQ-OPERATOR-048: configured successor delays finish within the unchanged short admission and retain charged cache', () => fixture(async f => {
+    await start(f, 1000); await anchor(f);
+    const response = await f.capability.fetch(inference());
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe(complete);
+    expect(await budget(f)).toMatchObject({ operationCount: 5, operationLimit: 1024 });
+    f.restart();
+    expect(await (await f.capability.fetch(inference())).text()).toBe(complete);
+    expect(await budget(f)).toMatchObject({ operationCount: 5 });
+  }, { repositoryOnly: true, recovery: true, inferenceAttemptLimit: 4,
+    capacityPolicy: { inferenceRetryBaseMs: 1, inferenceRetryMaxMs: 2 },
+    inferenceTransport: async (_request, attempt) => sse(attempt === 4 ? complete : incomplete) }));
 
   it.each(['incomplete', 'native-error', 'native-error-prefix', '429', '503', 'transport'] as const)(
     'REQ-OPERATOR-048: %s reserves one successor, delivers only its usable bytes and charges both attempts', failure => fixture(async f => {
@@ -1305,6 +1326,18 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
     expect(JSON.stringify(result)).not.toContain('inline-secret');
     expect(JSON.stringify(result)).toContain('DOZZLE_AUTH_TOKEN');
   }));
+  it.each([1000, 2000])('REQ-OPERATOR-047: admitted compose-read timeout %i bounds pinned configuration research', composeReadTimeoutMs => fixture(async f => {
+    await start(f);
+    const path = 'middleware/dozzle/compose.yaml';
+    f.files([changedCompose(path)]);
+    f.compose({ [`${'a'.repeat(40)}:${path}`]: composeBlob(path, 'e'.repeat(40), 'services:\n  dozzle:\n    image: amir20/dozzle:v11.1.1\n'),
+      [`${'b'.repeat(40)}:${path}`]: composeBlob(path, 'd'.repeat(40), 'services:\n  dozzle:\n    image: amir20/dozzle:v11.1.2\n') });
+    f.exceedComposeDeadline();
+    const response = await f.capability.fetch(composeRead());
+    expect(response.status).toBe(composeReadTimeoutMs === 1000 ? 409 : 200);
+    if (response.ok) expect(await response.json()).toMatchObject({ files: [{ path, unchangedConfiguration: true }] });
+  }, { capacityPolicy: { composeReadTimeoutMs } }));
+
   it('reads pinned Compose blobs despite an omitted diff patch without inferring safety', () => fixture(async f => {
     await start(f);
     const path = 'middleware/dozzle/compose.yaml';
@@ -1389,6 +1422,28 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
       `https://api.github.com/repos/amir20/dozzle/contents/docs/guide/agent.md?ref=${'1'.repeat(40)}`);
     expect(f.sent.every(r => !r.headers.has('authorization') && r.redirect === 'manual')).toBe(true);
   }));
+  it.each([8000, 10000])('REQ-OPERATOR-047: admitted release-read timeout %i bounds late complete research', releaseReadTimeoutMs => fixture(async f => {
+    await start(f); f.files(dozzleFiles()); f.exceedReleaseDeadline();
+    const response = await f.capability.fetch(releaseRead());
+    expect(response.status).toBe(releaseReadTimeoutMs === 8000 ? 409 : 200);
+    if (response.ok) expect(await response.json()).toMatchObject({ body: 'No configuration changes', tag: 'v11.1.2' });
+  }, { capacityPolicy: { releaseReadTimeoutMs } }));
+
+  it.each([18000, 20000])('REQ-OPERATOR-047: admitted guide-read timeout %i bounds late verified research', guideReadTimeoutMs => fixture(async f => {
+    await start(f); f.files(dozzleFiles()); f.exceedGuideDeadline();
+    const response = await f.capability.fetch(guideRead());
+    expect(response.status).toBe(guideReadTimeoutMs === 18000 ? 409 : 200);
+    if (response.ok) expect(await response.json()).toMatchObject({ body: guideExcerpt, commitSha: '1'.repeat(40) });
+  }, { capacityPolicy: { guideReadTimeoutMs } }));
+
+  it.each([new TextEncoder().encode(guideExcerpt).byteLength - 1, new TextEncoder().encode(guideExcerpt).byteLength])(
+    'REQ-OPERATOR-047: admitted guide-byte limit %i preserves exact verified text or refuses it', guideBytes => fixture(async f => {
+      await start(f); f.files(dozzleFiles());
+      const response = await f.capability.fetch(guideRead());
+      expect(response.status).toBe(guideBytes < new TextEncoder().encode(guideExcerpt).byteLength ? 409 : 200);
+      if (response.ok) expect(await response.json()).toMatchObject({ body: guideExcerpt, blobSha: guideBlobSha });
+    }, { capacityPolicy: { guideBytes } }));
+
   it('also binds a lightweight tag directly to a pinned guide commit', () => fixture(async f => {
     await start(f); f.files(dozzleFiles());
     f.tag({ ref: 'refs/tags/v11.1.2', object: { type: 'commit', sha: '1'.repeat(40) } });
@@ -1431,7 +1486,7 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
   it('rejects a late guide even when the upstream transport ignores abort', () => fixture(async f => {
     await start(f); f.files(dozzleFiles()); f.exceedGuideDeadline();
     expect((await f.capability.fetch(guideRead())).status).toBe(409);
-  }));
+  }, { capacityPolicy: { guideReadTimeoutMs: 18000 } }));
   it('denies child-selected guide URL, repository and ref before upstream I/O', () => fixture(async f => {
     await start(f); f.files(dozzleFiles());
     for (const extra of [{ url: 'https://evil.invalid/' }, { repository: 'other/repo' }, { ref: 'main' }]) {
@@ -1450,7 +1505,7 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
   it('does not return late upstream notes even when a transport ignores abort', () => fixture(async f => {
     await start(f); f.files(dozzleFiles()); f.exceedReleaseDeadline();
     expect((await f.capability.fetch(releaseRead())).status).toBe(409);
-  }));
+  }, { capacityPolicy: { releaseReadTimeoutMs: 8000 } }));
   it.each([
     { files: [], name: 'no matching diff' },
     { files: [...dozzleFiles(), { filename: 'agent/compose.yaml', status: 'modified', additions: 1,
@@ -1924,14 +1979,14 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
       expect((await f.activity.getBrowserDetail())?.executionStatus).toBe('unknown');
       expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
       expect((await f.activity.getBrowserDetail())?.result).toBeNull();
-    }));
+    }, { capacityPolicy: { assessmentBytes: 65536 } }));
   it('fences a single checks page exceeding the protected 64 KiB response bound', () => fixture(async f => {
     await start(f);
     expect((await f.capability.fetch(read('submission-pull-request'))).status).toBe(200);
     f.oversizedChecks(1, 70_000);
     expect((await f.capability.fetch(read('submission-checks', { resource: 'checks' }))).status).toBe(409);
     expect((await f.activity.getBrowserDetail())?.executionStatus).toBe('unknown');
-  }));
+  }, { capacityPolicy: { dispatcherRequestBytes: 65536 } }));
   it('returns all 76 authorized check conclusions from bounded pages without forwarding large metadata', () => fixture(async f => {
     await start(f); f.oversizedChecks();
     const response = await f.capability.fetch(read('submission-checks', { resource: 'checks' }));
@@ -1944,6 +1999,16 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
     expect(f.sent.some(request => new URL(request.url).searchParams.get('page') === '8')).toBe(true);
     expect((await f.activity.getBrowserDetail())?.executionStatus).toBe('running');
   }));
+  it.each([2, 3])('REQ-OPERATOR-047: configured %i pages of three checks preserves complete conclusions or explicit truncation', checkRunPageLimit => fixture(async f => {
+    await start(f); f.oversizedChecks(7, 0);
+    const response = await f.capability.fetch(read('configured-check-pages', { resource: 'checks' }));
+    expect(response.status).toBe(200);
+    const evidence = await response.json() as { data: { check_runs: unknown[] }; truncated: boolean };
+    expect(evidence.truncated).toBe(checkRunPageLimit === 2);
+    if (checkRunPageLimit === 3) expect(evidence.data.check_runs).toEqual(Array.from({ length: 7 }, (_, index) => ({ name: `check-${index}`, conclusion: 'success' })));
+    else expect(evidence.data.check_runs.length).toBeLessThanOrEqual(6);
+  }, { capacityPolicy: { checkRunPageLimit, checkRunPageSize: 3 } }));
+
   it('marks a check list beyond the 100-run bound as truncated rather than complete', () => fixture(async f => {
     await start(f); f.oversizedChecks(101);
     const response = await f.capability.fetch(read('submission-checks', { resource: 'checks' }));
@@ -1952,7 +2017,7 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
     expect(evidence.truncated).toBe(true);
     expect(evidence.data.check_runs.length).toBeLessThanOrEqual(100);
     expect((await f.activity.getBrowserDetail())?.executionStatus).toBe('running');
-  }));
+  }, { capacityPolicy: { checkRunPageLimit: 10 } }));
   it('marks overlapping check pages incomplete even when the row count matches', () => fixture(async f => {
     await start(f); f.oversizedChecks(20, 3000, true);
     const response = await f.capability.fetch(read('submission-checks', { resource: 'checks' }));
@@ -2076,12 +2141,12 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
   it.each([
     { name: 'missing messages', input: {}, rule: 'inference-messages-shape' },
     { name: 'empty messages', input: { messages: [] }, rule: 'inference-messages-count' },
-    { name: 'message count', input: { messages: Array.from({ length: 129 }, () => ({ role: 'user', content: 'PRIVATE_PROMPT' })) }, rule: 'inference-messages-count' },
+    { name: 'message count', input: { messages: Array.from({ length: 257 }, () => ({})) }, rule: 'inference-messages-count' },
     { name: 'message list shape', input: { messages: 'PRIVATE_PROMPT' }, rule: 'inference-messages-shape' },
-    { name: 'tool count', input: { messages: [{}], tools: Array.from({ length: 33 }, () => ({})) }, rule: 'inference-tools-count' },
+    { name: 'tool count', input: { messages: [{}], tools: Array.from({ length: 129 }, () => ({})) }, rule: 'inference-tools-count' },
     { name: 'tool list shape', input: { messages: [{}], tools: 'PRIVATE_TOOL' }, rule: 'inference-tools-shape' },
     { name: 'completion token field', input: { messages: [{}], max_completion_tokens: 16000 }, rule: 'inference-max-completion-tokens' },
-    { name: 'output token upper bound', input: { messages: [{}], max_tokens: 8193 }, rule: 'inference-token-bound' },
+    { name: 'output token upper bound', input: { messages: [{}], max_tokens: 32769 }, rule: 'inference-token-bound' },
     { name: 'output token lower bound', input: { messages: [{}], max_tokens: 0 }, rule: 'inference-token-bound' },
     { name: 'output token shape', input: { messages: [{}], max_tokens: 1.5 }, rule: 'inference-token-shape' },
     { name: 'temperature bound', input: { messages: [{}], temperature: 3 }, rule: 'inference-temperature' },
@@ -2110,7 +2175,7 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
       expect(emitted.join('\n')).not.toMatch(/PRIVATE_|inline-secret|private\.jwt|owner@example/);
       // Trusted identity is checked exactly above; rejected numeric values must not
       // occur in the remaining diagnostic fields, not arbitrary generated UUID text.
-      expect(JSON.stringify({ ...event!.data, activityId: undefined })).not.toMatch(/8193|16000/);
+      expect(JSON.stringify({ ...event!.data, activityId: undefined })).not.toMatch(/32769|16000/);
       expect((await f.activity.getBrowserDetail())?.executionStatus).toBe('running');
       expect((await f.activity.getBrowserDetail())?.result).toBeNull();
       expect((await f.capability.fetch(genericWire('source', { operationId: 'valid-after-rule-denial',
@@ -2124,8 +2189,8 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
     const spy = vi.spyOn(console, 'warn').mockImplementation(value => { emitted.push(String(value)); });
     try {
       const response = await f.capability.fetch(genericWire('inference', { operationId: 'PRIVATE_OPERATION'.repeat(20), input: {
-        messages: Array.from({ length: 129 }, () => ({ content: 'PRIVATE_PROMPT' })),
-        tools: Array.from({ length: 33 }, () => ({})), max_tokens: 8193, temperature: 3,
+        messages: [],
+        tools: Array.from({ length: 129 }, () => ({})), max_tokens: 32769, temperature: 3,
         stream: 'PRIVATE_STREAM', stream_options: { include_usage: false }, PRIVATE_KEY: 'inline-secret',
       } }));
       expect(response.status).toBe(403);
@@ -2136,7 +2201,7 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
       expect(event?.data).toEqual({ stage: 'preparation', preparationStep: 'parse', failureClass: 'invalid-wire',
         activityId: f.activityId, generation: 1, resource: 'unparsed', deadline: 'current', status: 403,
         wireRules: ['operation-id', 'inference-messages-count', 'inference-tools-count', 'inference-token-bound'], wireRulesTruncated: true });
-      expect(emitted.join('\n')).not.toMatch(/PRIVATE_|inline-secret|private\.jwt|8193|ZodError|too_big/);
+      expect(emitted.join('\n')).not.toMatch(/PRIVATE_|inline-secret|private\.jwt|32769|ZodError|too_big/);
       expect((await f.activity.getBrowserDetail())?.executionStatus).toBe('running');
     } finally { spy.mockRestore(); setLogLevel('silent'); }
   }, { repositoryOnly: true }));
@@ -2224,6 +2289,138 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
     expect((await f.activity.getBrowserDetail())?.executionStatus).toBe('unknown');
     expect(f.sent.map(r => r.method)).toEqual(['GET']);
   }));
+  it.each([
+    { tools: 2, maxTokens: 10, status: 200 },
+    { tools: 3, maxTokens: 10, status: 403 },
+    { tools: 2, maxTokens: 11, status: 403 },
+  ])('REQ-OPERATOR-047: admitted tool/token capacities bound complete inference %j', ({ tools, maxTokens, status }) => fixture(async f => {
+    await start(f);
+    const response = await f.capability.fetch(genericWire('inference', { operationId: 'tool-token-bound', input: {
+      messages: [{ role: 'user', content: 'Synthetic request' }], max_tokens: maxTokens,
+      tools: Array.from({ length: tools }, (_, index) => ({ type: 'function', function: { name: `tool_${index}`, parameters: { type: 'object' } } })),
+    } }));
+    expect(response.status).toBe(status);
+    if (status === 200) expect(await response.text()).toBe('data: [DONE]\n\n');
+    else expect(await response.json()).toEqual({ code: 'OPERATOR_CAPABILITY_DENIED' });
+  }, { repositoryOnly: true, capacityPolicy: { inferenceToolLimit: 2, inferenceTokenLimit: 10, inferenceDefaultTokens: 5 } }));
+
+  it('REQ-OPERATOR-047: admitted default completion tokens are forwarded only when omitted', async () => {
+    for (const maxTokens of [undefined, 9]) await fixture(async f => {
+      await start(f);
+      const response = await f.capability.fetch(genericWire('inference', { operationId: 'default-token-bound', input: {
+        messages: [{ role: 'user', content: 'Synthetic request' }], ...(maxTokens === undefined ? {} : { max_tokens: maxTokens }),
+      } }));
+      expect(response.status).toBe(200);
+      expect(await response.text()).toBe(`data: ${JSON.stringify({ choices: [{ delta: { content: String(maxTokens ?? 5) }, finish_reason: 'stop' }] })}\n\ndata: [DONE]\n\n`);
+    }, { repositoryOnly: true, capacityPolicy: { inferenceTokenLimit: 10, inferenceDefaultTokens: 5 }, inferenceTransport: async request => {
+      const value = await request.json() as { max_tokens: number };
+      return new Response(`data: ${JSON.stringify({ choices: [{ delta: { content: String(value.max_tokens) }, finish_reason: 'stop' }] })}\n\ndata: [DONE]\n\n`, { headers: { 'content-type': 'text/event-stream' } });
+    } });
+  });
+
+  it('REQ-OPERATOR-047: configured non-inference UTF-8 envelope and text bounds retain complete wire values', async () => {
+    const body = { operationId: 'source-bound', url: 'https://docs.example.test/guide', method: 'POST', body: '🙂' };
+    const requestBytes = new TextEncoder().encode(JSON.stringify(body)).byteLength;
+    const allowed = { dispatcherRequestBytes: requestBytes, sourceRequestChars: 2, sourceUrlChars: body.url.length };
+    const wire = () => genericWire('source', body);
+    expect((await parseDispatcherOperation(wire(), undefined, allowed)).body).toEqual(body);
+    for (const denied of [{ ...allowed, dispatcherRequestBytes: requestBytes - 1 },
+      { ...allowed, sourceRequestChars: 1 }, { ...allowed, sourceUrlChars: body.url.length - 1 }]) {
+      await expect(parseDispatcherOperation(wire(), undefined, denied)).rejects.toThrow();
+    }
+    const comment = { operationId: 'comment-bound', target: { pullRequest: 17, headSha: 'b'.repeat(40) }, decision: 'DO_NOT_MERGE', comment: '🙂' };
+    expect((await parseDispatcherOperation(genericWire('github/comment', comment), undefined, { commentChars: 2 })).body).toEqual(comment);
+    await expect(parseDispatcherOperation(genericWire('github/comment', comment), undefined, { commentChars: 1 })).rejects.toThrow();
+    const resolution = { operationId: 'unknown-write', requestDigest: 'a'.repeat(64), readbacks: [
+      { operationId: 'read-1', requestDigest: 'b'.repeat(64), responseDigest: 'c'.repeat(64) },
+      { operationId: 'read-2', requestDigest: 'd'.repeat(64), responseDigest: 'e'.repeat(64) },
+    ] };
+    expect((await parseDispatcherOperation(genericWire('resolve', resolution), undefined, { resolutionReadbackLimit: 2 })).body).toEqual(resolution);
+    await expect(parseDispatcherOperation(genericWire('resolve', resolution), undefined, { resolutionReadbackLimit: 1 })).rejects.toThrow();
+  });
+
+  it.each([
+    { recovery: false, messageCount: 139, inferenceMessageLimit: undefined },
+    { recovery: true, messageCount: 139, inferenceMessageLimit: undefined },
+    { recovery: false, messageCount: 300, inferenceMessageLimit: 300 },
+    { recovery: true, messageCount: 300, inferenceMessageLimit: 300 },
+  ])('REQ-OPERATOR-047: admitted history preserves complete forwarding and cached bytes %j', async ({ recovery, messageCount, inferenceMessageLimit }) => {
+    const input = { messages: Array.from({ length: messageCount }, (_, index) => ({ role: 'user', content: `Synthetic history ${index} 🙂` })),
+      tools: Array.from({ length: 8 }, (_, index) => ({ type: 'function', function: { name: `source_${index}`,
+        parameters: { type: 'object', properties: {} } } })) };
+    const completion = (history: unknown) => `data: ${JSON.stringify({ choices: [{ index: 0,
+      delta: { content: JSON.stringify(history) }, finish_reason: 'stop' }] })}\n\ndata: [DONE]\n\n`;
+    const complete = completion(input);
+    let providerAvailable = true;
+    await fixture(async f => {
+      await start(f);
+      const operation = { operationId: 'complete-history', input };
+      const first = await f.capability.fetch(genericWire('inference', operation));
+      expect(first.status).toBe(200);
+      // Complete forwarded history and exact SSE/cache bytes are the intentional wire contract.
+      expect(await first.text()).toBe(complete);
+      providerAvailable = false;
+      f.restart();
+      const cached = await f.capability.fetch(genericWire('inference', operation));
+      expect(cached.status).toBe(200);
+      expect(await cached.text()).toBe(complete);
+      f.revoke();
+      const denied = await f.capability.fetch(genericWire('inference', operation));
+      expect(denied.status).toBe(403);
+      expect(await denied.json()).toEqual({ code: 'OPERATOR_CAPABILITY_DENIED' });
+    }, { repositoryOnly: true, recovery, inferenceMessageLimit, inferenceTransport: async request => {
+      if (!providerAvailable) return Response.json({ error: 'provider unavailable' }, { status: 503 });
+      const forwarded = await request.json() as { messages: unknown[]; tools: unknown[] };
+      return new Response(completion({ messages: forwarded.messages, tools: forwarded.tools }), {
+        headers: { 'content-type': 'text/event-stream' },
+      });
+    } });
+  });
+
+  it.each([
+    { inferenceMessageLimit: undefined, messageCount: 256, status: 200 },
+    { inferenceMessageLimit: undefined, messageCount: 257, status: 403 },
+    { inferenceMessageLimit: 1, messageCount: 1, status: 200 },
+    { inferenceMessageLimit: 1, messageCount: 2, status: 403 },
+    { inferenceMessageLimit: 128, messageCount: 139, status: 403 },
+    { inferenceMessageLimit: 139, messageCount: 139, status: 200 },
+    { inferenceMessageLimit: 139, messageCount: 140, status: 403 },
+    { inferenceMessageLimit: 300, messageCount: 301, status: 403 },
+  ])('REQ-OPERATOR-045/047: admitted message limit $inferenceMessageLimit bounds $messageCount-message requests',
+    ({ inferenceMessageLimit, messageCount, status }) => fixture(async f => {
+      await start(f);
+      const response = await f.capability.fetch(genericWire('inference', { operationId: 'message-bound', input: {
+        messages: Array.from({ length: messageCount }, (_, index) => ({ role: 'user', content: `History ${index}` })),
+      } }));
+      expect(response.status).toBe(status);
+      if (status === 200) expect(await response.text()).toBe('data: [DONE]\n\n');
+      else expect(await response.json()).toEqual({ code: 'OPERATOR_CAPABILITY_DENIED' });
+    }, { repositoryOnly: true, inferenceMessageLimit }));
+
+  it.each(['envelope', 'input'])('REQ-OPERATOR-047: child %s cannot override the admitted inference message limit', placement => fixture(async f => {
+    await start(f);
+    const input = { messages: [{ role: 'user', content: 'one' }, { role: 'user', content: 'two' }],
+      ...(placement === 'input' ? { inferenceMessageLimit: 256 } : {}) };
+    const response = await f.capability.fetch(genericWire('inference', { operationId: 'child-message-limit', input,
+      ...(placement === 'envelope' ? { inferenceMessageLimit: 256 } : {}) }));
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({ code: 'OPERATOR_CAPABILITY_DENIED' });
+  }, { repositoryOnly: true, inferenceMessageLimit: 1 }));
+
+  it('REQ-OPERATOR-047: 139-message history remains bounded by the exact admitted UTF-8 request allowance', async () => {
+    const operation = { operationId: 'history-byte-bound', input: {
+      messages: Array.from({ length: 139 }, (_, index) => ({ role: 'user', content: `History ${index} 🙂` })),
+    } };
+    const bytes = new TextEncoder().encode(JSON.stringify(operation)).byteLength;
+    for (const limit of [bytes - 1, bytes]) await fixture(async f => {
+      await start(f);
+      const response = await f.capability.fetch(genericWire('inference', operation));
+      expect(response.status).toBe(limit === bytes ? 200 : 403);
+      if (limit === bytes) expect(await response.text()).toBe('data: [DONE]\n\n');
+      else expect(await response.json()).toEqual({ code: 'OPERATOR_CAPABILITY_DENIED' });
+    }, { repositoryOnly: true, recovery: true, inferenceRequestBytes: limit });
+  });
+
   it.each([65537, 1048576])('REQ-OPERATOR-047: admitted operator inference bytes forward %i-byte content without child authority', contentBytes => fixture(async f => {
     await start(f);
     const content = 'x'.repeat(contentBytes);
@@ -2360,6 +2557,15 @@ describe('REQ-OPERATOR-047: package-selected research under managed parent autho
     expect(receipt.status).toBe(200);
     expect(JSON.parse(receipt.body)).toEqual({ tag_name: 'v3.2.1', guidance: 'Owned authenticated research' });
   }, { repositoryOnly: true }));
+  it.each([25, 1000])('REQ-OPERATOR-047: configured source timeout %i refuses late bodies without claiming complete evidence', sourceTimeoutMs => fixture(async f => {
+    await start(f);
+    const response = await f.capability.fetch(genericWire('source', { operationId: 'source-time-bound', url: 'https://docs.example.test/guide' }));
+    expect(response.status).toBe(sourceTimeoutMs === 25 ? 422 : 200);
+    if (response.ok) expect(await response.json()).toMatchObject({ body: 'Official migration guidance' });
+    else expect(await response.json()).toEqual({ code: 'OPERATOR_SOURCE_INCOMPLETE' });
+    expect((await f.activity.getBrowserDetail())?.result).toBeNull();
+  }, { repositoryOnly: true, sourceDelayMs: 100, capacityPolicy: { sourceTimeoutMs } }));
+
   it('returns bounded Internet content and provenance without upstream session cookies', () => fixture(async f => {
     await start(f);
     const response = await f.capability.fetch(sourceRead('source-web', 'https://docs.example.test/migration'));
@@ -2639,7 +2845,8 @@ describe('REQ-OPERATOR-047/048: parent-composed source response allowance', () =
     expect(response.status).toBe(403);
     expect(await response.json()).toEqual({ code: 'OPERATOR_CAPABILITY_DENIED' });
     expect(f.sent).toEqual([]);
-  }, { repositoryOnly: true, sourceResponseBytes: 131072, inferenceRequestBytes: 65536 }));
+  }, { repositoryOnly: true, sourceResponseBytes: 131072, inferenceRequestBytes: 65536,
+    capacityPolicy: { dispatcherRequestBytes: 65536 } }));
 
   it.each([65536, 131072])('REQ-OPERATOR-047: source settings cannot widen the configured %i-byte inference response bound', limit => fixture(async f => {
     await start(f);
@@ -2676,6 +2883,22 @@ describe('REQ-OPERATOR-047/048: parent-composed source response allowance', () =
     }, { repositoryOnly: true, recovery, sourceResponseBytes: 65536, inferenceRequestBytes: responseBytes, inferenceBody: body });
   });
 
+  it.each([1048576, 1048577])('REQ-OPERATOR-048: approved default final assessment preserves complete %i-byte output or refuses collection', resultBytes => fixture(async f => {
+    await start(f);
+    const empty = { repository: 'another/service', results: [], padding: '' };
+    const result = { ...empty, padding: 'x'.repeat(resultBytes - new TextEncoder().encode(JSON.stringify(empty)).byteLength) };
+    f.messages([{ submissionId: 'submission-1', parts: [{ type: 'data-result', data: result }] }]);
+    f.settle(); await f.activity.reconcileDispatcherLease();
+    if (resultBytes === 1048576) {
+      expect(await f.activity.collectBrowserResult()).toMatchObject({ ok: true, detail: { result } });
+      f.restart();
+      expect(await f.activity.collectBrowserResult()).toMatchObject({ ok: true, detail: { result } });
+    } else {
+      expect((await f.activity.getBrowserDetail())?.result).toBeNull();
+      expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
+    }
+  }, { repositoryOnly: true }));
+
   it.each([64512, 65537])('REQ-OPERATOR-048: source allowance preserves final-result admission for %s bytes', resultBytes => fixture(async f => {
     await start(f);
     const empty = { repository: 'another/service', results: [], padding: '' };
@@ -2691,7 +2914,7 @@ describe('REQ-OPERATOR-047/048: parent-composed source response allowance', () =
       expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'unknown', result: null });
       expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
     }
-  }, { repositoryOnly: true, sourceResponseBytes: 131072 }));
+  }, { repositoryOnly: true, sourceResponseBytes: 131072, capacityPolicy: { assessmentBytes: 65536 } }));
 });
 
 // Instrumented production Activity/Fetcher boundary only; compiled connected acceptance is separate.
@@ -2759,6 +2982,18 @@ describe('REQ-OPERATOR-047/048/061/062/071: repository-only prospective parent a
     expect((await f.loaderEnv()).OPERATOR_ADMITTED_TARGET).toBe(loaded.OPERATOR_ADMITTED_TARGET);
     expect(remoteMutations(f)).toEqual([]);
   }, { prospective: true }));
+
+  it.each([1, 2])('REQ-OPERATOR-047: admitted-target comment UTF-16 limit %i admits a complete judgment or denies before effect', targetCommentChars => fixture(async f => {
+    await startProspective(f);
+    const body = JSON.stringify({ body: '🙂' });
+    const response = await f.capability.fetch(genericWire('source', { ...prospectiveComment('comment-text-bound'), body }));
+    expect(response.status).toBe(targetCommentChars === 1 ? 403 : 200);
+    if (response.ok) {
+      const envelope = await response.json() as { status: number; body: string };
+      expect(envelope.status).toBe(201);
+      expect(JSON.parse(envelope.body)).toMatchObject({ body: '🙂' });
+    } else expect(remoteMutations(f)).toEqual([]);
+  }, { prospective: true, capacityPolicy: { targetCommentChars } }));
 
   it('accepts canonical GitHub second-resolution creation time without weakening the immutable cutoff', () => fixture(async f => {
     const createdAt = f.proof.createdAt.replace(/\.\d{3}Z$/, 'Z');

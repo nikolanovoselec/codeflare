@@ -8,6 +8,7 @@ import { resolveBucketName, loadEnterpriseRouteConfig, resolveSessionAccessGroup
 import { getAigConfig } from '../lib/aig-config';
 import { sourceResponseBytes } from './dispatcher-source-limits';
 import { DEFAULT_INFERENCE_REQUEST_BYTES } from './dispatcher-inference-limits';
+import { dispatcherCapacities, type DispatcherCapacityPolicy } from './dispatcher-capacity-limits';
 import { resolveOperatorInference } from './inference-selection';
 import type { DispatcherInferenceSelection } from './dispatcher-inference-recovery';
 import { z } from 'zod';
@@ -26,11 +27,11 @@ export interface DispatcherAdmittedTarget {
   createdAt: string; createdAfter: string; baseBranch: string;
 }
 
-const DEFAULT_DISPATCHER_BODY_BYTES = 64 * 1024;
+const DEFAULT_DISPATCHER_BODY_BYTES = dispatcherCapacities().dispatcherRequestBytes;
 const dispatcherOperationId = z.string().regex(/^[A-Za-z0-9_-]{1,128}$/);
-const dispatcherSourceSchema = z.strictObject({ operationId: dispatcherOperationId,
-  method: z.enum(['GET', 'POST', 'PUT']).optional(), body: z.string().max(64 * 1024).optional(),
-  url: z.string().max(4096).refine(value => {
+const dispatcherSourceSchema = (limits = dispatcherCapacities()) => z.strictObject({ operationId: dispatcherOperationId,
+  method: z.enum(['GET', 'POST', 'PUT']).optional(), body: z.string().max(limits.sourceRequestChars).optional(),
+  url: z.string().max(limits.sourceUrlChars).refine(value => {
     try {
       const url = new URL(value);
       return url.protocol === 'https:' && !url.username && !url.password && !url.hash
@@ -43,23 +44,23 @@ const dispatcherReadSchema = z.strictObject({ operationId: dispatcherOperationId
   resource: z.enum(['pull-request', 'files', 'checks', 'release-notes', 'upstream-guide', 'changed-compose', 'open-pull-requests']),
   target: dispatcherTargetSchema.optional(),
   pullRequest: z.number().safe().int().positive().optional(), headSha: z.string().regex(/^[0-9a-f]{40}$/).optional() });
-const dispatcherCommentSchema = z.strictObject({ operationId: dispatcherOperationId,
+const dispatcherCommentSchema = (limits = dispatcherCapacities()) => z.strictObject({ operationId: dispatcherOperationId,
   target: dispatcherTargetSchema, decision: z.enum(['MERGE', 'DO_NOT_MERGE']),
-  comment: z.string().min(1).max(3500).refine(value => value.trim().length > 0) });
-const dispatcherMergeSchema = dispatcherCommentSchema.extend({ decision: z.literal('MERGE') });
-const dispatcherInferenceSchema = z.strictObject({ operationId: dispatcherOperationId,
+  comment: z.string().min(1).max(limits.commentChars).refine(value => value.trim().length > 0) });
+const dispatcherMergeSchema = (limits = dispatcherCapacities()) => dispatcherCommentSchema(limits).extend({ decision: z.literal('MERGE') });
+const dispatcherInferenceSchema = (limits = dispatcherCapacities()) => z.strictObject({ operationId: dispatcherOperationId,
   input: z.strictObject({
-    messages: z.array(z.json()).min(1).max(128), tools: z.array(z.json()).max(32).optional(),
-    tool_choice: z.json().optional(), max_tokens: z.number().int().min(1).max(8192).optional(),
+    messages: z.array(z.json()).min(1).max(limits.inferenceMessageLimit), tools: z.array(z.json()).max(limits.inferenceToolLimit).optional(),
+    tool_choice: z.json().optional(), max_tokens: z.number().int().min(1).max(limits.inferenceTokenLimit).optional(),
     temperature: z.number().min(0).max(2).optional(), stream: z.boolean().optional(),
     stream_options: z.strictObject({ include_usage: z.literal(true) }).optional(),
   }) });
 
 const dispatcherReceiptSchema = z.strictObject({ operationId: dispatcherOperationId });
-const dispatcherResolutionSchema = z.strictObject({ operationId: dispatcherOperationId,
+const dispatcherResolutionSchema = (limits = dispatcherCapacities()) => z.strictObject({ operationId: dispatcherOperationId,
   requestDigest: z.string().regex(/^[0-9a-f]{64}$/),
   readbacks: z.array(z.strictObject({ operationId: dispatcherOperationId,
-    requestDigest: z.string().regex(/^[0-9a-f]{64}$/), responseDigest: z.string().regex(/^[0-9a-f]{64}$/) })).min(1).max(16),
+    requestDigest: z.string().regex(/^[0-9a-f]{64}$/), responseDigest: z.string().regex(/^[0-9a-f]{64}$/) })).min(1).max(limits.resolutionReadbackLimit),
 });
 
 export function dispatcherGithubApiOrigin(env: Pick<Env, 'GITHUB_API_HOST'>): string {
@@ -101,23 +102,25 @@ export function dispatcherWireRules(error: z.ZodError): { wireRules: string[]; w
 }
 
 /** Bounded transport wire; source reads select a URL, never credentials, identity or transport. */
-export async function parseDispatcherOperation(request: Request, inferenceByteLimit = DEFAULT_INFERENCE_REQUEST_BYTES): Promise<DispatcherOperation> {
+export async function parseDispatcherOperation(request: Request, inferenceByteLimit = DEFAULT_INFERENCE_REQUEST_BYTES,
+  capacityPolicy?: DispatcherCapacityPolicy): Promise<DispatcherOperation> {
+  const limits = dispatcherCapacities(capacityPolicy);
   const url = new URL(request.url);
   if (url.origin !== 'https://operator.internal' || url.search || url.hash || request.method !== 'POST'
     || request.headers.get('content-type')?.split(';')[0].trim() !== 'application/json') throw new Error('Dispatcher request denied');
   const value = JSON.parse(await readDispatcherBody(request, request.signal,
-    url.pathname === '/v1/dispatcher/inference' ? inferenceByteLimit : DEFAULT_DISPATCHER_BODY_BYTES));
+    url.pathname === '/v1/dispatcher/inference' ? inferenceByteLimit : limits.dispatcherRequestBytes));
   const schema = url.pathname === '/v1/dispatcher/github/read' ? dispatcherReadSchema
-    : url.pathname === '/v1/dispatcher/github/comment' ? dispatcherCommentSchema
-    : url.pathname === '/v1/dispatcher/github/merge' ? dispatcherMergeSchema
-    : url.pathname === '/v1/dispatcher/inference' ? dispatcherInferenceSchema
-    : url.pathname === '/v1/dispatcher/source' ? dispatcherSourceSchema
+    : url.pathname === '/v1/dispatcher/github/comment' ? dispatcherCommentSchema(limits)
+    : url.pathname === '/v1/dispatcher/github/merge' ? dispatcherMergeSchema(limits)
+    : url.pathname === '/v1/dispatcher/inference' ? dispatcherInferenceSchema(limits)
+    : url.pathname === '/v1/dispatcher/source' ? dispatcherSourceSchema(limits)
     : url.pathname === '/v1/dispatcher/receipt' ? dispatcherReceiptSchema
-    : url.pathname === '/v1/dispatcher/resolve' ? dispatcherResolutionSchema : null;
+    : url.pathname === '/v1/dispatcher/resolve' ? dispatcherResolutionSchema(limits) : null;
   if (!schema) throw new Error('Dispatcher route denied');
   const body = schema.parse(value);
   if (url.pathname === '/v1/dispatcher/source') {
-    const source = dispatcherSourceSchema.parse(body);
+    const source = dispatcherSourceSchema(limits).parse(body);
     if ((source.method ?? 'GET') === 'GET' && source.body !== undefined) throw new Error('GET body denied');
     if ((source.method ?? 'GET') !== 'GET' && source.body === undefined) throw new Error('Mutation body required');
   }
@@ -232,6 +235,7 @@ export async function createDispatcherOperation(input: {
   pinInferenceSelection?: (selection: DispatcherInferenceSelection) => Promise<void>;
 }): Promise<() => Promise<Response>> {
   const { plan, env, operation } = input;
+  const limits = dispatcherCapacities(isManagementReceipt(plan.receipt) ? plan.receipt.selection.operator.policy : undefined);
   const { authority, parent, policy: installationPolicy, admittedTarget } = await authorizeDispatcherPlan(plan, env);
   const current = async () => {
     await authorizeDispatcherPlan(plan, env);
@@ -250,7 +254,7 @@ export async function createDispatcherOperation(input: {
       }
     };
     await sourceCurrent();
-    const source = dispatcherSourceSchema.parse(operation.body);
+    const source = dispatcherSourceSchema(limits).parse(operation.body);
     const responseBytes = sourceResponseBytes(installationPolicy);
     const url = new URL(source.url);
     const method = source.method ?? 'GET';
@@ -265,7 +269,7 @@ export async function createDispatcherOperation(input: {
       const merge = method === 'PUT' && source.url === `${base}/pulls/${admittedTarget.pullRequest}/merge`;
       if (!comment && !merge) throw new Error('Prospective mutation target denied');
       const body = JSON.parse(source.body!);
-      if (comment) z.strictObject({ body: z.string().min(1).max(2000)
+      if (comment) z.strictObject({ body: z.string().min(1).max(limits.targetCommentChars)
         .refine(value => value.trim().length > 0) }).parse(body);
       else z.strictObject({ sha: z.literal(admittedTarget.headSha), merge_method: z.literal('merge') }).parse(body);
     }
@@ -279,7 +283,7 @@ export async function createDispatcherOperation(input: {
       : { bucket, strict: true } });
     return async () => {
       await sourceCurrent();
-      const timeout = AbortSignal.timeout(Math.max(1, Math.min(8000, plan.deadline - Date.now())));
+      const timeout = AbortSignal.timeout(Math.max(1, Math.min(limits.sourceTimeoutMs, plan.deadline - Date.now())));
       const signal = operation.signal ? AbortSignal.any([timeout, operation.signal]) : timeout;
       if (admittedTarget && method !== 'GET') {
         // Only NEW reserved mutations execute this closure. Cached and unknown receipts do not preflight/replay.
@@ -356,8 +360,8 @@ export async function createDispatcherOperation(input: {
   }
   const phase = operation.path === '/v1/dispatcher/github/comment' ? 'comment'
     : operation.path === '/v1/dispatcher/github/merge' ? 'merge' : undefined;
-  const effect = phase === 'comment' ? dispatcherCommentSchema.parse(operation.body)
-    : phase === 'merge' ? dispatcherMergeSchema.parse(operation.body) : undefined;
+  const effect = phase === 'comment' ? dispatcherCommentSchema(limits).parse(operation.body)
+    : phase === 'merge' ? dispatcherMergeSchema(limits).parse(operation.body) : undefined;
   const read = !inference && !phase ? dispatcherReadSchema.parse(operation.body) : undefined;
   const resource = read?.resource;
   if (admittedTarget && (phase || resource === 'open-pull-requests')) {
@@ -394,7 +398,7 @@ export async function createDispatcherOperation(input: {
       defaultRouteId: routes.defaultRoute, defaultReasoningLevel: routes.defaultReasoning } });
     await input.pinInferenceSelection?.({ routeId: trusted.routeId, reasoningLevel: trusted.reasoningLevel });
     const aig = await getAigConfig(env);
-    const value = dispatcherInferenceSchema.parse(operation.body);
+    const value = dispatcherInferenceSchema(limits).parse(operation.body);
     return async () => {
       await current();
       if (input.pinInferenceSelection) {
@@ -415,7 +419,7 @@ export async function createDispatcherOperation(input: {
           diagnosticContext: input.diagnosticContext } } });
       return await transport.fetch(new Request('https://api.openai.com/v1/chat/completions', { method: 'POST', signal: operation.signal,
         headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ...value.input,
-          max_tokens: value.input.max_tokens ?? 8192, model: trusted.routeId, stream: value.input.stream ?? true }) }));
+          max_tokens: value.input.max_tokens ?? limits.inferenceDefaultTokens, model: trusted.routeId, stream: value.input.stream ?? true }) }));
     };
   }
   if (!input.exports.GitHubInterceptor) throw new Error('GitHub interceptor unavailable');
@@ -424,11 +428,12 @@ export async function createDispatcherOperation(input: {
   const host = env.GITHUB_API_HOST?.trim() || 'api.github.com';
   if (!/^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/.test(host)) throw new Error('GitHub host invalid');
   const base = `https://${host}/repos/${parent.repository}`;
-  const readDeadline = resource === 'release-notes' ? Date.now() + 8000
-    : resource === 'upstream-guide' || resource === 'changed-compose' ? Date.now() + 18_000 : null;
+  const readTimeout = resource === 'release-notes' ? limits.releaseReadTimeoutMs
+    : resource === 'upstream-guide' ? limits.guideReadTimeoutMs
+    : resource === 'changed-compose' ? limits.composeReadTimeoutMs : undefined;
+  const readDeadline = readTimeout === undefined ? null : Math.min(plan.deadline, Date.now() + readTimeout);
   const readSignal = () => {
-    if (readDeadline === null) return AbortSignal.timeout(8000);
-    const remaining = readDeadline - Date.now();
+    const remaining = Math.min(plan.deadline, readDeadline ?? Date.now() + limits.sourceTimeoutMs) - Date.now();
     if (remaining <= 0) throw new Error('Dispatcher evidence deadline exceeded');
     return AbortSignal.timeout(remaining);
   };
@@ -442,7 +447,7 @@ export async function createDispatcherOperation(input: {
     if (resource === 'open-pull-requests') return Response.json(await discoverRenovatePulls(parent.repository, get));
     const pull = await get(`/pulls/${pullRequest}`);
     if (!pull.ok) return pull;
-    const pullBody = await readDispatcherBody(pull);
+    const pullBody = await readDispatcherBody(pull, undefined, limits.dispatcherRequestBytes);
     const observed = JSON.parse(pullBody);
     if (target?.headSha && observed?.head?.sha !== target.headSha) throw new Error('Pull request head changed');
     if (parent.pullRequest === undefined || phase) {
@@ -470,7 +475,7 @@ export async function createDispatcherOperation(input: {
     if (resource === 'release-notes' || resource === 'upstream-guide') {
       const files = await get(`/pulls/${pullRequest}/files?per_page=100&page=1`);
       if (!files.ok || /rel="next"/.test(files.headers.get('link') ?? '')) throw new Error('Release diff unavailable');
-      const changes = JSON.parse(await readDispatcherBody(files));
+      const changes = JSON.parse(await readDispatcherBody(files, undefined, limits.dispatcherRequestBytes));
       if (!Array.isArray(changes) || changes.length > 100) throw new Error('Release diff unavailable');
       const targets: string[] = [];
       for (const file of changes) {
@@ -498,7 +503,7 @@ export async function createDispatcherOperation(input: {
       const assertHead = async () => {
         const response = await get(`/pulls/${pullRequest}`);
         if (!response.ok) throw new Error('Upstream PR revision unavailable');
-        const reread = JSON.parse(await readDispatcherBody(response));
+        const reread = JSON.parse(await readDispatcherBody(response, undefined, limits.dispatcherRequestBytes));
         if (reread?.head?.sha !== observed.head.sha
           || (resource === 'upstream-guide' && reread?.base?.sha !== observed?.base?.sha)) {
           throw new Error('Upstream PR revision changed');
@@ -516,7 +521,7 @@ export async function createDispatcherOperation(input: {
         };
         const tagResponse = await upstreamGet(`/git/ref/tags/${tag}`);
         if (tagResponse.status !== 200) throw new Error('Upstream guide tag unavailable');
-        const tagIdentity = JSON.parse(await readDispatcherBody(tagResponse));
+        const tagIdentity = JSON.parse(await readDispatcherBody(tagResponse, undefined, limits.dispatcherRequestBytes));
         const reference = tagIdentity?.object;
         if (tagIdentity?.ref !== `refs/tags/${tag}` || !/^[0-9a-f]{40}$/.test(reference?.sha ?? '')
           || !['tag', 'commit'].includes(reference?.type)) throw new Error('Upstream guide tag unverified');
@@ -524,7 +529,7 @@ export async function createDispatcherOperation(input: {
         if (reference.type === 'tag') {
           const annotated = await upstreamGet(`/git/tags/${reference.sha}`);
           if (annotated.status !== 200) throw new Error('Upstream guide annotated tag unavailable');
-          const tagged = JSON.parse(await readDispatcherBody(annotated));
+          const tagged = JSON.parse(await readDispatcherBody(annotated, undefined, limits.dispatcherRequestBytes));
           if (tagged?.tag !== tag || tagged?.object?.type !== 'commit'
             || !/^[0-9a-f]{40}$/.test(tagged?.object?.sha ?? '')) {
             throw new Error('Upstream guide commit unverified');
@@ -534,10 +539,10 @@ export async function createDispatcherOperation(input: {
         const path = 'docs/guide/agent.md';
         const guideResponse = await upstreamGet(`/contents/${path}?ref=${commitSha}`);
         if (guideResponse.status !== 200) throw new Error('Upstream agent guide unavailable');
-        const guide = JSON.parse(await readDispatcherBody(guideResponse));
+        const guide = JSON.parse(await readDispatcherBody(guideResponse, undefined, limits.dispatcherRequestBytes));
         if (guide?.path !== path || guide?.type !== 'file' || guide?.encoding !== 'base64'
           || !/^[0-9a-f]{40}$/.test(guide?.sha ?? '') || typeof guide?.content !== 'string'
-          || !Number.isSafeInteger(guide?.size) || guide.size < 1 || guide.size > 24 * 1024) {
+          || !Number.isSafeInteger(guide?.size) || guide.size < 1 || guide.size > limits.guideBytes) {
           throw new Error('Upstream agent guide unverified');
         }
         const encoded = guide.content.replace(/\s/g, '');
@@ -566,7 +571,7 @@ export async function createDispatcherOperation(input: {
         },
       }));
       if (release.status !== 200) throw new Error('Release notes unavailable');
-      const evidence = JSON.parse(await readDispatcherBody(release));
+      const evidence = JSON.parse(await readDispatcherBody(release, undefined, limits.dispatcherRequestBytes));
       const source = `https://github.com/amir20/dozzle/releases/tag/${tag}`;
       if (evidence?.tag_name !== tag || evidence?.html_url !== source || typeof evidence?.body !== 'string'
         || !evidence.body.trim()) throw new Error('Release notes unverified');
@@ -582,7 +587,7 @@ export async function createDispatcherOperation(input: {
       if (response.status !== 200 || /rel="next"/.test(response.headers.get('link') ?? '')) {
         throw new Error('Compose file list incomplete');
       }
-      const files = JSON.parse(await readDispatcherBody(response));
+      const files = JSON.parse(await readDispatcherBody(response, undefined, limits.dispatcherRequestBytes));
       if (!Array.isArray(files) || files.length === 0 || files.length > 100) throw new Error('Compose file list incomplete');
       const changed = files.filter(file => /(?:^|\/)compose[^/]*\.ya?ml$/.test(file?.filename ?? ''));
       if (!changed.length || changed.length > 20) throw new Error('Compose scope unavailable');
@@ -600,7 +605,7 @@ export async function createDispatcherOperation(input: {
         const encoded = file.filename.split('/').map(encodeURIComponent).join('/');
         const blobResponse = await get(`/contents/${encoded}?ref=${ref}`);
         if (blobResponse.status !== 200) throw new Error('Compose blob unavailable');
-        const body = JSON.parse(await readDispatcherBody(blobResponse));
+        const body = JSON.parse(await readDispatcherBody(blobResponse, undefined, limits.dispatcherRequestBytes));
         if (body?.path !== file.filename || body?.type !== 'file' || body?.encoding !== 'base64'
           || !/^[0-9a-f]{40}$/.test(body?.sha ?? '') || typeof body?.content !== 'string'
           || !Number.isSafeInteger(body?.size) || body.size < 0 || body.size > 32 * 1024) {
@@ -624,7 +629,7 @@ export async function createDispatcherOperation(input: {
       }));
       const reread = await get(`/pulls/${pullRequest}`);
       if (reread.status !== 200) throw new Error('Compose revision unavailable');
-      const currentPull = JSON.parse(await readDispatcherBody(reread));
+      const currentPull = JSON.parse(await readDispatcherBody(reread, undefined, limits.dispatcherRequestBytes));
       if (currentPull?.head?.sha !== observed.head.sha || currentPull?.base?.sha !== baseSha) {
         throw new Error('Compose revision moved');
       }
@@ -639,23 +644,22 @@ export async function createDispatcherOperation(input: {
     if (resource === 'files') {
       const response = await get(`/pulls/${pullRequest}/files?per_page=100&page=1`);
       if (!response.ok) return response;
-      const data = projectDispatcherFiles(JSON.parse(await readDispatcherBody(response)));
+      const data = projectDispatcherFiles(JSON.parse(await readDispatcherBody(response, undefined, limits.dispatcherRequestBytes)));
       return Response.json({ data, observedHead: observed.head.sha,
         truncated: /rel="next"/.test(response.headers.get('link') ?? '') });
     }
-    // GitHub check-run pages carry verbose output that can exceed the protected
-    // 64 KiB response bound. Read at most 100 runs in small pages, then pass only
-    // the fields the installed Dispatcher uses to assess completeness.
+    // Bounded check-run pages retain only the fields used to assess completeness;
+    // incomplete pagination stays explicitly truncated.
     const checkRuns: Array<{ name: string; conclusion: string | null }> = [];
     const seenCheckIds = new Set<number>();
     let total: number | null = null;
     let truncated = false;
-    for (let page = 1; page <= 10; page++) {
-      const response = await get(`/commits/${observed.head.sha}/check-runs?per_page=10&page=${page}`);
+    for (let page = 1; page <= limits.checkRunPageLimit; page++) {
+      const response = await get(`/commits/${observed.head.sha}/check-runs?per_page=${limits.checkRunPageSize}&page=${page}`);
       if (!response.ok) return response;
-      const data = JSON.parse(await readDispatcherBody(response));
+      const data = JSON.parse(await readDispatcherBody(response, undefined, limits.dispatcherRequestBytes));
       if (!Number.isSafeInteger(data?.total_count) || data.total_count < 0
-        || !Array.isArray(data.check_runs) || data.check_runs.length > 10
+        || !Array.isArray(data.check_runs) || data.check_runs.length > limits.checkRunPageSize
         || data.check_runs.some((run: { name?: unknown; conclusion?: unknown }) => !run
           || typeof run.name !== 'string' || (run.conclusion !== null && typeof run.conclusion !== 'string'))) {
         throw new Error('Check evidence unavailable');
@@ -669,10 +673,10 @@ export async function createDispatcherOperation(input: {
         checkRuns.push({ name: run.name, conclusion: run.conclusion });
       }
       if (truncated) break;
-      if (expectedTotal > 100 || checkRuns.length > expectedTotal) { truncated = true; break; }
+      if (expectedTotal > limits.checkRunPageLimit * limits.checkRunPageSize || checkRuns.length > expectedTotal) { truncated = true; break; }
       const more = /rel="next"/.test(response.headers.get('link') ?? '');
       if (checkRuns.length === expectedTotal) { truncated = more; break; }
-      if (data.check_runs.length !== 10 || !more) { truncated = true; break; }
+      if (data.check_runs.length !== limits.checkRunPageSize || !more) { truncated = true; break; }
     }
     return Response.json({ data: { check_runs: checkRuns }, observedHead: observed.head.sha,
       truncated: truncated || checkRuns.length !== total });

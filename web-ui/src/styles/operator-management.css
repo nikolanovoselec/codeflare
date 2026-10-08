@@ -106,15 +106,25 @@
 .operator-facts dd { margin: 0; font-family: var(--font-mono); font-size: var(--text-sm); }
 .operator-installation { border-top: 1px solid var(--color-border-subtle); padding-block: var(--space-4); }
 .operator-result { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 60vh; overflow: auto; padding: var(--space-3); background: var(--color-bg-base); }
+.operator-runtime-fields { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-4); align-items: start; }
+.operator-runtime-fields > .admin-form-field { min-width: 0; }
 .operator-value-input { position: relative; min-width: 0; }
-.operator-value-input input { width: 100%; min-width: 0; min-height: 44px; padding-inline-end: 5.5rem; }
+.operator-value-input input { width: 100%; min-width: 0; min-height: 44px; padding-inline-end: 3rem; appearance: textfield; }
+.operator-value-input input::-webkit-inner-spin-button,
+.operator-value-input input::-webkit-outer-spin-button { appearance: none; margin: 0; }
 .operator-value-input .operator-reset-default {
-  position: absolute; inset-inline-end: 1.5rem; top: 0; bottom: 0;
+  position: absolute; inset-inline-end: 1px; top: 0; bottom: 0;
   width: 44px; min-height: 44px; padding: 0; display: grid; place-items: center;
   border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--color-text-secondary); cursor: pointer;
 }
 .operator-value-input .operator-reset-default:hover:not(:disabled) { color: var(--color-accent); background: var(--color-bg-tertiary); }
 .operator-value-input .operator-reset-default:disabled { opacity: 0.5; cursor: not-allowed; }
+@media (min-width: 768px) {
+  .operator-runtime-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (min-width: 1280px) {
+  .operator-runtime-fields { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
 @media (max-width: 900px) {
   .operator-filters { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .operator-management .admin-page-header { flex-wrap: wrap; }

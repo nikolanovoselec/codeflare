@@ -6,6 +6,7 @@ import worker from '../../index';
 import type { Env } from '../../types';
 import { OperatorRegistry, type ManagementPolicy, type ManagementInstallation } from '../../operators/registry';
 import { MAX_SOURCE_RESPONSE_BYTES } from '../../operators/dispatcher-source-limits';
+import { dispatcherCapacityFields, dispatcherCapacityKeys } from '../../operators/dispatcher-capacity-limits';
 import { createMockKV } from '../helpers/mock-kv';
 import { SETUP_KEYS } from '../../lib/kv-keys';
 import { createOperatorGitHubFixture } from '../helpers/operator-github-fixture';
@@ -292,6 +293,123 @@ describe('REQ-OPERATOR-045: delegated management and invocation', () => {
     expect(await initialOnly.json()).toMatchObject({ revision: revision + 2, policy: { inferenceAttemptLimit: 1 } });
   }));
 
+  it.each(dispatcherCapacityKeys)('REQ-OPERATOR-045: capacity %s is operator-only revision-fenced and preserves independent settings', async key => withApi(async request => {
+    vi.stubGlobal('fetch', (await createOperatorGitHubFixture({ repositoryName: 'release-operator', profile: 'dispatcher' })).fetcher);
+    await delegate(request);
+    const created = await request('/api/operator-management/operators', 'POST', { ...registration, profile: 'dispatcher' });
+    expect(created.status).toBe(201);
+    const operator = await created.json() as { id: string; revision: number };
+    const id = await enabledInstallation(request, operator);
+    const detailPath = `/api/operator-management/operators/${operator.id}`;
+    const path = `${detailPath}/capabilities`;
+    type Detail = { operator: { revision: number; policy: Record<string, unknown> }; installations: ManagementInstallation[]; grants: unknown };
+    const before = await (await request(detailPath)).json() as Detail;
+    const revision = before.operator.revision;
+    const defaultValue = dispatcherCapacityFields[key].default;
+    expect((await request(path, 'POST', { revision, capabilities: [], [key]: defaultValue })).status).toBe(200);
+    expect(await (await request(detailPath)).json()).toEqual(before);
+    const value = defaultValue + 1;
+    for (const invalid of [0, -1, 1.5, null, '1', Number.MAX_SAFE_INTEGER + 1]) {
+      expect((await request(path, 'POST', { revision, capabilities: [], [key]: invalid })).status).toBe(400);
+    }
+    expect((await request(path, 'POST', { revision: revision + 1, capabilities: [], [key]: value })).status).toBe(409);
+    expect((await request(path, 'POST', { revision, capabilities: [], [key]: value }, false)).status).toBe(403);
+    expect((await request(`/api/operator-management/installations/${id}/configure`, 'POST', {
+      revision: before.installations[0]!.revision, configuration: {}, policy: { ...registration.policy, [key]: value },
+    })).status).toBe(400);
+    const changed = await request(path, 'POST', { revision, capabilities: [], [key]: value });
+    expect(changed.status).toBe(200);
+    expect(await changed.json()).toMatchObject({ revision: revision + 1, policy: { ...registration.policy, [key]: value } });
+    const after = await (await request(detailPath)).json() as Detail;
+    expect(after.grants).toEqual(before.grants);
+    expect(after.installations[0]).toMatchObject({ id, policy: before.installations[0]!.policy,
+      releaseId: before.installations[0]!.releaseId, approvedSourceRevision: before.installations[0]!.approvedSourceRevision,
+      enabled: false, revision: before.installations[0]!.revision + 1 });
+    expect((await request(path, 'POST', { revision: revision + 1, capabilities: [] })).status).toBe(200);
+    expect(await (await request(detailPath)).json()).toEqual(after);
+    expect((await request(path, 'POST', { revision: revision + 1, capabilities: [], [key]: value })).status).toBe(200);
+    expect(await (await request(detailPath)).json()).toEqual(after);
+  }));
+
+  it('REQ-OPERATOR-045: rejects incompatible capacity pairs without mutating current policy', async () => withApi(async request => {
+    await delegate(request);
+    const created = await request('/api/operator-management/operators', 'POST', { ...registration, profile: 'dispatcher' });
+    expect(created.status).toBe(201);
+    const operator = await created.json() as { id: string; revision: number };
+    const detailPath = `/api/operator-management/operators/${operator.id}`;
+    const path = `${detailPath}/capabilities`;
+    const before = await (await request(detailPath)).json();
+    for (const policy of [{ inferenceTokenLimit: 1 }, { inferenceDefaultTokens: 32769 },
+      { inferenceRetryBaseMs: 8001 }, { inferenceRetryMaxMs: 1 }, { checkRunPageSize: 101 }]) {
+      expect((await request(path, 'POST', { revision: operator.revision, capabilities: [], ...policy })).status).toBe(400);
+    }
+    expect(await (await request(detailPath)).json()).toEqual(before);
+    expect((await request(path, 'POST', { revision: operator.revision, capabilities: [], inferenceTokenLimit: 1, inferenceDefaultTokens: 1 })).status).toBe(200);
+  }));
+
+  it('REQ-OPERATOR-045: persists operator inference message limit with revision fencing and unchanged installation policy', async () => withApi(async request => {
+    vi.stubGlobal('fetch', (await createOperatorGitHubFixture({ repositoryName: 'release-operator', profile: 'dispatcher' })).fetcher);
+    await delegate(request);
+    const created = await request('/api/operator-management/operators', 'POST', { ...registration, profile: 'dispatcher' });
+    expect(created.status).toBe(201);
+    const operator = await created.json() as { id: string; revision: number };
+    const id = await enabledInstallation(request, operator);
+    const detailPath = `/api/operator-management/operators/${operator.id}`;
+    const path = `${detailPath}/capabilities`;
+    type Detail = { operator: { revision: number; policy: ManagementPolicy & { inferenceMessageLimit?: number } };
+      installations: ManagementInstallation[]; grants: unknown };
+    const before = await (await request(detailPath)).json() as Detail;
+    const revision = before.operator.revision;
+    expect((await request(`/api/operator-management/installations/${id}/configure`, 'POST', {
+      revision: before.installations[0]!.revision, configuration: {},
+      policy: { ...before.installations[0]!.policy, inferenceMessageLimit: 1 },
+    })).status).toBe(400);
+    const noOp = await request(path, 'POST', { revision, capabilities: [], inferenceMessageLimit: 256 });
+    expect(noOp.status).toBe(200);
+    expect(await noOp.json()).toMatchObject({ revision, policy: registration.policy });
+    expect((await (await request(detailPath)).json() as Detail).installations).toEqual(before.installations);
+    for (const inferenceMessageLimit of [0, -1, 1.5, null, '256', Number.MAX_SAFE_INTEGER + 1]) {
+      expect((await request(path, 'POST', { revision, capabilities: [], inferenceMessageLimit })).status).toBe(400);
+    }
+    expect((await request(path, 'POST', { revision, capabilities: [], inferenceMessageLimit: 139 }, false)).status).toBe(403);
+    expect((await request(path, 'POST', { revision: revision + 1, capabilities: [], inferenceMessageLimit: 139 })).status).toBe(409);
+    actor.email = 'other@example.test'; actor.groups = [];
+    expect((await request(path, 'POST', { revision, capabilities: [], inferenceMessageLimit: 139 })).status).toBe(404);
+    actor.email = 'manager@example.test'; actor.groups = ['operators'];
+    expect(await (await request(detailPath)).json()).toEqual(before);
+    const changed = await request(path, 'POST', { revision, capabilities: [], inferenceMessageLimit: Number.MAX_SAFE_INTEGER });
+    expect(changed.status).toBe(200);
+    expect(await changed.json()).toMatchObject({ revision: revision + 1,
+      policy: { ...registration.policy, inferenceMessageLimit: Number.MAX_SAFE_INTEGER } });
+    const after = await (await request(detailPath)).json() as Detail;
+    expect(after.grants).toEqual(before.grants);
+    expect(after.installations[0]).toMatchObject({ id, releaseId: before.installations[0]!.releaseId,
+      approvedSourceRevision: before.installations[0]!.approvedSourceRevision,
+      policy: before.installations[0]!.policy, enabled: false, revision: before.installations[0]!.revision + 1 });
+    const omitted = await request(path, 'POST', { revision: revision + 1, capabilities: [] });
+    expect(omitted.status).toBe(200);
+    expect(await omitted.json()).toMatchObject({ revision: revision + 1, policy: { inferenceMessageLimit: Number.MAX_SAFE_INTEGER } });
+    expect((await request(`/api/operator-management/installations/${id}/enable`, 'POST', {
+      revision: after.installations[0]!.revision, enabled: true,
+    })).status).toBe(200);
+    const enabled = await (await request(detailPath)).json() as Detail;
+    expect((await request(path, 'POST', { revision: revision + 1, capabilities: [], inferenceMessageLimit: Number.MAX_SAFE_INTEGER })).status).toBe(200);
+    expect(await (await request(detailPath)).json()).toEqual(enabled);
+    const oneMessage = await request(path, 'POST', { revision: revision + 1, capabilities: [], inferenceMessageLimit: 1 });
+    expect(oneMessage.status).toBe(200);
+    expect(await oneMessage.json()).toMatchObject({ revision: revision + 2, policy: { inferenceMessageLimit: 1 } });
+  }));
+
+  it('REQ-OPERATOR-045: Dispatcher inference message limits are not accepted for Conductor', async () => withApi(async request => {
+    await delegate(request);
+    const created = await request('/api/operator-management/operators', 'POST', registration);
+    expect(created.status).toBe(201);
+    const operator = await created.json() as { id: string; revision: number };
+    expect((await request(`/api/operator-management/operators/${operator.id}/capabilities`, 'POST', {
+      revision: operator.revision, capabilities: [], inferenceMessageLimit: 256,
+    })).status).toBe(400);
+  }));
+
   it('REQ-OPERATOR-045: persists operator submission attempt limit with revision fencing and unchanged installation policy', async () => withApi(async request => {
     vi.stubGlobal('fetch', (await createOperatorGitHubFixture({ repositoryName: 'release-operator', profile: 'dispatcher' })).fetcher);
     await delegate(request);
@@ -423,6 +541,24 @@ describe('REQ-OPERATOR-045: delegated management and invocation', () => {
     actor.email = 'invoker@example.test'; actor.groups = [];
     expect((await request('/api/operator-activities', 'POST', { installationId: id,
       invocation: conductorInvocation(operator.id) })).status).toBe(404);
+  }));
+
+  it('REQ-OPERATOR-045/047: authorized source allowances above one MiB retain the Environment hierarchy', async () => withApi(async request => {
+    actor.role = 'admin';
+    expect((await request('/api/operator-management/access', 'POST', { revision: 0, managers: registration.managers,
+      ceiling: { capabilities: [], resourceProfileIds: [], sourceResponseBytes: 2097152 } })).status).toBe(200);
+    actor.role = 'user';
+    const policy = { ...registration.policy, sourceResponseBytes: 1572864 };
+    const created = await request('/api/operator-management/operators', 'POST', { ...registration, policy });
+    expect(created.status).toBe(201);
+    const operator = await created.json() as { id: string; revision: number };
+    const id = await enabledInstallation(request, operator, policy);
+    const detailPath = `/api/operator-management/operators/${operator.id}`;
+    const before = await (await request(detailPath)).json() as { operator: { revision: number; policy: ManagementPolicy }; installations: ManagementInstallation[] };
+    expect(before.operator.policy.sourceResponseBytes).toBe(1572864);
+    expect(before.installations[0]).toMatchObject({ id, enabled: true, policy });
+    expect((await request(`${detailPath}/capabilities`, 'POST', { revision: before.operator.revision, capabilities: [], sourceResponseBytes: 2097153 })).status).toBe(400);
+    expect(await (await request(detailPath)).json()).toEqual(before);
   }));
 
   it('patches source bytes through capabilities, preserving omitted bytes and fencing stale/no-op changes without altering pins or grants', async () => withApi(async request => {

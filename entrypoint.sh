@@ -563,6 +563,9 @@ RCLONE_FILTERS_COMMON=(
     # /tmp is not synced in the first place, so no filter needed; the
     # ~/.memory/ tree is no longer written to by the capture hook.
 
+    # Pi — local investigation artifacts are not persistent agent configuration.
+    --filter "- /.pi/agent/work-evidence/**"
+
     # Pi — subagent task logs within sessions (equivalent to .claude/projects/**/subagents/**)
     # Main session JSONL transcripts ARE synced for --resume; task subdirs and disposable
     # rclone conflict copies are excluded so remote leftovers cannot be restored or nested.

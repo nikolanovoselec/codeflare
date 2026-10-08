@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { readDispatcherUpdates, type DispatcherResultProjection } from '../../operators/dispatcher-result';
+import type { DispatcherCapacityPolicy } from '../../operators/dispatcher-capacity-limits';
 
+const jsonBytes = (value: unknown): number => new TextEncoder().encode(JSON.stringify(value)).byteLength;
 const initial = (): DispatcherResultProjection => ({ offset: 'admission-offset', messageIds: [], writes: 0 });
 const event = (index: number, body: Record<string, unknown>) => ({ conversationId: 'conversation', position: { batch: 1, index }, ...body });
 const response = (events: unknown[], offset = 'next-offset') => new Response(JSON.stringify(events), {
@@ -36,7 +38,7 @@ describe('Dispatcher exact-submission public Flue updates contract', () => {
     const snapshot = { conversationId: 'conversation', messages: [{ id: 'answer', submissionId: 'requested', parts: [
       ...parts, { type: 'dynamic-tool', toolName: 'finish_dispatcher', toolCallId: 'finish', state: 'output-available' },
       { type: 'data-assessment', data: result }] }], settlements: [{ submissionId: 'requested', outcome: 'completed' }] };
-    const final = await readDispatcherUpdates(response([event(1, { type: 'conversation-reset', snapshot })]), initial(), 'requested');
+    const final = await readDispatcherUpdates(response([event(1, { type: 'conversation-reset', snapshot })]), initial(), 'requested', undefined, { toolObservationLimit: 2048 });
     expect(final.tools?.calls).toHaveLength(2048);
     expect(final.tools?.truncated).toBe(true);
     expect(final.completion).toEqual({ calls: [{ id: 'finish', outcome: 'succeeded' }], truncated: false });
@@ -49,7 +51,7 @@ describe('Dispatcher exact-submission public Flue updates contract', () => {
     const snapshot = { conversationId: 'conversation', messages: [foreign, { id: 'answer', submissionId: 'requested', parts: [
       { type: 'dynamic-tool', toolName: 'research_renovate', toolCallId: 'requested-tool', state: 'output-available' },
       { type: 'data-assessment', data: result }] }], settlements: [{ submissionId: 'requested', outcome: 'completed' }] };
-    const final = await readDispatcherUpdates(response([event(1, { type: 'conversation-reset', snapshot })]), initial(), 'requested');
+    const final = await readDispatcherUpdates(response([event(1, { type: 'conversation-reset', snapshot })]), initial(), 'requested', undefined, { toolObservationLimit: 2048 });
     expect(final.tools).toEqual({ calls: [{ id: 'requested-tool', role: 'research', outcome: 'succeeded' }], truncated: false });
     expect(final).toMatchObject({ writes: 1, result, outcome: 'completed' });
     expect(final.completion).toBeUndefined();
@@ -97,7 +99,7 @@ describe('Dispatcher exact-submission public Flue updates contract', () => {
       toolName: 'finish_dispatcher', toolCallId: `finish-${index}` }));
     const final = await readDispatcherUpdates(response([start, ...inputs,
       event(41, { ...data, position: undefined }), event(42, { ...settled, position: undefined }),
-    ].map((item, index) => ({ ...item, position: { batch: 1, index } }))), initial(), 'requested');
+    ].map((item, index) => ({ ...item, position: { batch: 1, index } }))), initial(), 'requested', undefined, { completionObservationLimit: 32 });
     const diagnostics = Reflect.get(final, 'completion') as { calls: unknown[]; truncated: boolean };
     expect(diagnostics.calls).toHaveLength(32);
     expect(diagnostics.truncated).toBe(true);
@@ -122,7 +124,7 @@ describe('Dispatcher exact-submission public Flue updates contract', () => {
       conversationId: 'conversation', messages: [{ id: 'answer', submissionId: 'requested',
         parts: [...parts, { type: 'data-result', data: result }] }],
       settlements: [{ submissionId: 'requested', outcome: 'completed' }],
-    } })]), initial(), 'requested');
+    } })]), initial(), 'requested', undefined, { completionObservationLimit: 32 });
     expect(final.completion).toEqual({ calls: parts.slice(0, 32).map(part => ({ id: part.toolCallId,
       outcome: mode === 'overflow' ? 'succeeded' : 'pending' })), truncated: true });
     expect(final).toMatchObject({ result, writes: 1, outcome: 'completed' });
@@ -139,7 +141,7 @@ describe('Dispatcher exact-submission public Flue updates contract', () => {
         { id: 'answer', submissionId: 'requested', parts: [{ type: 'dynamic-tool', toolName: 'other_tool',
           toolCallId: null, state: false }, { type: 'data-result', data: result }] },
       ], settlements: [{ submissionId: 'requested', outcome: 'completed' }],
-    } })]), initial(), 'requested');
+    } })]), initial(), 'requested', undefined, { completionObservationLimit: 32 });
     expect(final.completion).toBeUndefined();
     expect(final).toMatchObject({ result, writes: 1, outcome: 'completed' });
   });
@@ -162,12 +164,12 @@ describe('Dispatcher exact-submission public Flue updates contract', () => {
             : { id: 'answer', submissionId: 'requested', parts: requestedParts },
         ], settlements: [{ submissionId: 'requested', outcome: 'completed' }],
       } });
-      const final = await readDispatcherUpdates(response([reset]), initial(), 'requested');
+      const final = await readDispatcherUpdates(response([reset]), initial(), 'requested', undefined, { completionObservationLimit: 32 });
       expect(final.completion).toEqual({ calls: [{ id: 'requested-finish',
         outcome: state === 'output-available' ? 'succeeded' : 'failed' }], truncated: false });
       expect(final).toMatchObject({ result, writes: 1, outcome: 'completed', messageIds: ['answer'] });
       expect(JSON.stringify(final)).not.toMatch(/foreign-|PRIVATE_TOOL/);
-      expect(await readDispatcherUpdates(response([reset]), final, 'requested')).toEqual(final);
+      expect(await readDispatcherUpdates(response([reset]), final, 'requested', undefined, { completionObservationLimit: 32 })).toEqual(final);
     });
   it.each([false, true])('REQ-OPERATOR-063: reset completion cap remains shared across requested messages (parts first=%s)', async partsFirst => {
     const messages = [0, 1].map(messageIndex => {
@@ -180,7 +182,7 @@ describe('Dispatcher exact-submission public Flue updates contract', () => {
       conversationId: 'conversation', messages: [...messages,
         { id: 'assessment', submissionId: 'requested', parts: [{ type: 'data-result', data: result }] }],
       settlements: [{ submissionId: 'requested', outcome: 'completed' }],
-    } })]), initial(), 'requested');
+    } })]), initial(), 'requested', undefined, { completionObservationLimit: 32 });
     expect(final.completion).toEqual({ calls: Array.from({ length: 32 }, (_, index) =>
       ({ id: `requested-${index}`, outcome: 'succeeded' })), truncated: true });
     expect(final).toMatchObject({ result, writes: 1, outcome: 'completed' });
@@ -225,7 +227,7 @@ describe('Dispatcher exact-submission public Flue updates contract', () => {
   it('collects compact result despite more than 64 KiB of unrelated SDK tool history', async () => {
     const projection = await readDispatcherUpdates(response([start,
       event(1, { type: 'tool-output', messageId: 'answer', output: 'x'.repeat(45000) }),
-      event(2, { type: 'tool-output', messageId: 'answer', output: 'y'.repeat(45000) }), data, settled]), initial(), 'requested');
+      event(2, { type: 'tool-output', messageId: 'answer', output: 'y'.repeat(45000) }), data, settled]), initial(), 'requested', undefined, { assessmentBytes: 65536 });
     expect(projection.result).toEqual(result);
     expect(projection.outcome).toBe('completed');
     expect(JSON.stringify(projection).length).toBeLessThan(1000);
@@ -311,7 +313,7 @@ describe('Dispatcher exact-submission public Flue updates contract', () => {
     const stream = new ReadableStream<Uint8Array>({ start(controller) { controller.enqueue(new TextEncoder().encode('[')); } });
     const body = new Response(stream, { headers: { 'content-type': 'application/json', 'stream-next-offset': 'next' } });
     const controller = new AbortController();
-    const pending = readDispatcherUpdates(body, initial(), 'requested', controller.signal);
+    const pending = readDispatcherUpdates(body, initial(), 'requested', controller.signal, { updatePageBytes: 128 });
     controller.abort(new Error('Parent deadline expired'));
     await expect(pending).rejects.toThrow('Parent deadline expired');
     const reader = stream.getReader();
@@ -344,8 +346,8 @@ describe('Dispatcher exact-submission public Flue updates contract', () => {
     expect(JSON.stringify(projection).length).toBeLessThan(1000);
   });
   it('rejects aggregate pages and final results beyond their distinct byte contracts', async () => {
-    await expect(readDispatcherUpdates(response([event(0, { type: 'tool-output', output: 'x'.repeat(16 * 1024 * 1024) })]), initial(), 'requested')).rejects.toThrow('Dispatcher update page exceeds limit');
-    await expect(readDispatcherUpdates(response([start, { ...data, data: { text: 'x'.repeat(65536) } }]), initial(), 'requested')).rejects.toThrow('Dispatcher projected value exceeds limit');
+    await expect(readDispatcherUpdates(response([event(0, { type: 'tool-output', output: 'x'.repeat(16 * 1024 * 1024) })]), initial(), 'requested', undefined, { updatePageBytes: 16 * 1024 * 1024, assessmentBytes: 65536 })).rejects.toThrow('Dispatcher update page exceeds limit');
+    await expect(readDispatcherUpdates(response([start, { ...data, data: { text: 'x'.repeat(65536) } }]), initial(), 'requested', undefined, { updatePageBytes: 16 * 1024 * 1024, assessmentBytes: 65536 })).rejects.toThrow('Dispatcher projected value exceeds limit');
   });
   // Intentional seal-preflight.v1 closed wire: never an assessment or authority.
   const sealReady = { category: 'ready', targetCount: 1, decisionCount: 1, operationCount: 10,
@@ -455,7 +457,7 @@ describe('Dispatcher exact-submission public Flue updates contract', () => {
       event(42, { type: 'data-part', messageId: 'answer', name: 'dispatcher-readiness', data: {
         discovered: true, sealed: true, targetCount: 1, decisionCount: 1, resultCount: 1, unknownOperationCount: 0, category: 'ready' } }),
       event(43, { type: 'submission-settled', submissionId: 'requested', outcome: 'completed' }),
-    ]), initial(), 'requested');
+    ]), initial(), 'requested', undefined, { preflightObservationLimit: 32 });
     expect(Reflect.get(final, 'sealPreflight')).toEqual({ latest: { ...sealReady, operationCount: 32 }, observations: 32, truncated: true });
     expect(Reflect.get(final, 'readiness')).toMatchObject({ observations: 1, truncated: false });
     expect(final).toMatchObject({ writes: 1, result, outcome: 'completed' });
@@ -470,9 +472,9 @@ describe('Dispatcher exact-submission public Flue updates contract', () => {
     expect(final).toMatchObject({ writes: 1, result, outcome: 'completed' });
   });
   it('REQ-OPERATOR-076: seal-preflight.v1 never relaxes oversized actual assessment denial', async () => {
-    const first = await readDispatcherUpdates(response([start, sealPart(1)]), initial(), 'requested');
+    const first = await readDispatcherUpdates(response([start, sealPart(1)]), initial(), 'requested', undefined, { assessmentBytes: 65536 });
     await expect(readDispatcherUpdates(response([event(2, { data: { body: 'x'.repeat(100000) }, messageId: 'answer',
-      name: 'assessment', type: 'data-part' })]), first, 'requested')).rejects.toThrow('Dispatcher projected value exceeds limit');
+      name: 'assessment', type: 'data-part' })]), first, 'requested', undefined, { assessmentBytes: 65536 })).rejects.toThrow('Dispatcher projected value exceeds limit');
   });
 
   // Intentional readiness.v1 wire: closed producer metadata is not an assessment or authority.
@@ -553,7 +555,7 @@ describe('Dispatcher exact-submission public Flue updates contract', () => {
     const final = await readDispatcherUpdates(response([start, ...parts,
       event(41, { type: 'data-part', messageId: 'answer', name: 'assessment', data: result }),
       event(42, { type: 'submission-settled', submissionId: 'requested', outcome: 'completed' }),
-    ]), initial(), 'requested');
+    ]), initial(), 'requested', undefined, { readinessObservationLimit: 32 });
     expect(Reflect.get(final, 'readiness')).toEqual({ latest: { ...ready, resultCount: 31, category: 'incomplete-results' },
       observations: 32, truncated: true });
     expect(final).toMatchObject({ writes: 1, result, outcome: 'completed' });
@@ -573,11 +575,180 @@ describe('Dispatcher exact-submission public Flue updates contract', () => {
     const reset = event(5, { type: 'conversation-reset', snapshot: { conversationId: 'conversation', messages: [
       { parts: [{ data: ready, type: 'data-dispatcher-readiness' }], submissionId: 'requested', id: 'answer' },
     ], settlements: [] } });
-    const projected = await readDispatcherUpdates(response([reset]), initial(), 'requested');
+    const projected = await readDispatcherUpdates(response([reset]), initial(), 'requested', undefined, { assessmentBytes: 65536 });
     expect(Reflect.get(projected, 'readiness')).toEqual({ latest: ready, observations: 1, truncated: false });
     expect(projected.writes).toBe(0); expect(projected.result).toBeUndefined();
     const oversizedAssessment = event(6, { data: { body: 'x'.repeat(100000) }, messageId: 'answer', name: 'assessment', type: 'data-part' });
-    await expect(readDispatcherUpdates(response([oversizedAssessment]), projected, 'requested')).rejects.toThrow('Dispatcher projected value exceeds limit');
+    await expect(readDispatcherUpdates(response([oversizedAssessment]), projected, 'requested', undefined, { assessmentBytes: 65536 })).rejects.toThrow('Dispatcher projected value exceeds limit');
   });
+
+  it.each([false, true])('admitted assessment bytes accept the complete UTF-8 boundary and fail closed above it (reset=%s)', async reset => {
+    const assessment = { repository: 'owner/project', comment: '🙂 quoted " evidence', results: [] };
+    const events = reset ? [event(5, { type: 'conversation-reset', snapshot: {
+      conversationId: 'conversation', messages: [{ id: 'answer', submissionId: 'requested',
+        parts: [{ data: assessment, type: 'data-assessment' }] }],
+      settlements: [{ submissionId: 'requested', outcome: 'completed' }],
+    } })] : [start, { ...data, data: assessment }, settled];
+    const previous = initial();
+    const exact = await readDispatcherUpdates(response(events), previous, 'requested', undefined,
+      { assessmentBytes: jsonBytes(assessment) });
+    expect(exact).toMatchObject({ result: assessment, writes: 1, outcome: 'completed' });
+    await expect(readDispatcherUpdates(response(events), previous, 'requested', undefined,
+      { assessmentBytes: jsonBytes(assessment) - 1 })).rejects.toThrow('Dispatcher projected value exceeds limit');
+    expect(previous).toEqual(initial());
+  });
+  it('omitted capacity policy collects a complete assessment larger than the former 64 KiB default', async () => {
+    const assessment = { ...result, comment: 'x'.repeat(65536) };
+    const final = await readDispatcherUpdates(response([start, { ...data, data: assessment }, settled]), initial(), 'requested');
+    expect(final).toMatchObject({ result: assessment, writes: 1, outcome: 'completed' });
+  });
+  it('admitted update-page bytes include discarded history and UTF-8 transport overhead at the exact boundary', async () => {
+    const events = [start, event(1, { type: 'tool-output', output: '🙂 private history' }), data, settled];
+    const policy = { updatePageBytes: jsonBytes(events) };
+    const final = await readDispatcherUpdates(response(events), initial(), 'requested', undefined, policy);
+    expect(final).toMatchObject({ result, writes: 1, outcome: 'completed' });
+    expect(JSON.stringify(final)).not.toContain('private history');
+    const previous = initial();
+    await expect(readDispatcherUpdates(response(events), previous, 'requested', undefined,
+      { updatePageBytes: policy.updatePageBytes - 1 })).rejects.toThrow('Dispatcher update page exceeds limit');
+    expect(previous).toEqual(initial());
+  });
+  it('admitted projected-record bytes retain the entire assessment or reject without advancing prior evidence', async () => {
+    const assessment = { ...result, comment: '🙂'.repeat(40) };
+    const assessmentEvent = { ...data, data: assessment };
+    const previous = await readDispatcherUpdates(response([start], 'started'), initial(), 'requested');
+    const final = await readDispatcherUpdates(response([assessmentEvent, settled]), previous, 'requested', undefined,
+      { projectedRecordBytes: jsonBytes(assessmentEvent) });
+    expect(final).toMatchObject({ result: assessment, writes: 1, outcome: 'completed' });
+    await expect(readDispatcherUpdates(response([assessmentEvent, settled]), previous, 'requested', undefined,
+      { projectedRecordBytes: jsonBytes(assessmentEvent) - 1 })).rejects.toThrow('Dispatcher projection exceeds limit');
+    expect(previous).toMatchObject({ offset: 'started', writes: 0, messageIds: ['answer'] });
+    expect(previous.result).toBeUndefined();
+  });
+  it.each([false, true].flatMap(reset => [false, true].map(completion => ({ reset, completion }))))(
+    'admitted observation count accepts the exact bound, preserves outcomes across pages and marks overflow (reset=$reset/completion=$completion)',
+    async ({ reset, completion }) => {
+      const toolName = completion ? 'finish_dispatcher' : 'decide_renovate';
+      const policy: DispatcherCapacityPolicy = completion
+        ? { completionObservationLimit: 2, toolObservationLimit: 4 } : { toolObservationLimit: 2 };
+      const call = (index: number) => ({ type: 'tool-input', messageId: 'answer', toolName, toolCallId: `call-${index}` });
+      const snapshot = (count: number, complete: boolean) => ({ conversationId: 'conversation',
+        messages: [{ parts: [
+          ...Array.from({ length: count }, (_, index) => ({ type: 'dynamic-tool', toolName, toolCallId: `call-${index}`,
+            state: complete ? index === 1 ? 'output-error' : 'output-available' : 'input-available' })),
+          ...(complete ? [{ type: 'data-assessment', data: result }] : []),
+        ], submissionId: 'requested', id: 'answer' }],
+        settlements: complete ? [{ submissionId: 'requested', outcome: 'completed' }] : [],
+      });
+      const first = await readDispatcherUpdates(response(reset
+        ? [event(1, { type: 'conversation-reset', snapshot: snapshot(2, false) })]
+        : [start, event(1, call(0)), event(2, call(1))], 'first'), initial(), 'requested', undefined, policy);
+      const observed = completion ? first.completion : first.tools;
+      expect(observed?.calls.map(({ id, outcome }) => ({ id, outcome }))).toEqual([
+        { id: 'call-0', outcome: 'pending' }, { id: 'call-1', outcome: 'pending' },
+      ]);
+      expect(observed?.truncated).toBe(false);
+      expect(first.result).toBeUndefined();
+      expect(first.outcome).toBeUndefined();
+      const final = await readDispatcherUpdates(response(reset
+        ? [event(6, { type: 'conversation-reset', snapshot: snapshot(3, true) })]
+        : [event(3, call(2)), event(4, { type: 'tool-output', toolCallId: 'call-0' }),
+          event(5, { type: 'tool-output-error', toolCallId: 'call-1' }),
+          { ...data, position: { batch: 1, index: 6 } }, { ...settled, position: { batch: 1, index: 7 } }]),
+      first, 'requested', undefined, policy);
+      const finalObserved = completion ? final.completion : final.tools;
+      expect(finalObserved?.calls.map(({ id, outcome }) => ({ id, outcome }))).toEqual([
+        { id: 'call-0', outcome: 'succeeded' }, { id: 'call-1', outcome: 'failed' },
+      ]);
+      expect(finalObserved?.truncated).toBe(true);
+      expect(final).toMatchObject({ result, writes: 1, outcome: 'completed' });
+      expect(observed?.truncated).toBe(false);
+    },
+  );
+  it('omitted observation policies retain more than the former 32 completion correlations', async () => {
+    const calls = Array.from({ length: 40 }, (_, index) => event(index + 1, { type: 'tool-input',
+      messageId: 'answer', toolName: 'finish_dispatcher', toolCallId: `finish-${index}` }));
+    const final = await readDispatcherUpdates(response([start, ...calls,
+      { ...data, position: { batch: 1, index: 41 } }, { ...settled, position: { batch: 1, index: 42 } }]), initial(), 'requested');
+    expect(final.completion?.calls).toHaveLength(40);
+    expect(final.completion?.truncated).toBe(false);
+    expect(final.tools?.calls).toHaveLength(40);
+    expect(final.tools?.truncated).toBe(false);
+    expect(final).toMatchObject({ result, writes: 1, outcome: 'completed' });
+  });
+  it('concurrent projections keep their admitted capacities independent', async () => {
+    const calls = Array.from({ length: 3 }, (_, index) => event(index + 1, { type: 'tool-input',
+      messageId: 'answer', toolName: 'finish_dispatcher', toolCallId: `finish-${index}` }));
+    const events = [start, ...calls, { ...data, position: { batch: 1, index: 4 } },
+      { ...settled, position: { batch: 1, index: 5 } }];
+    const [small, large] = await Promise.all([1, 3].map(limit => readDispatcherUpdates(response(events), initial(),
+      'requested', undefined, { completionObservationLimit: limit, toolObservationLimit: limit })));
+    expect(small.completion?.calls).toHaveLength(1);
+    expect(small.tools?.calls).toHaveLength(1);
+    expect(small.completion?.truncated).toBe(true);
+    expect(small.tools?.truncated).toBe(true);
+    expect(large.completion?.calls).toHaveLength(3);
+    expect(large.tools?.calls).toHaveLength(3);
+    expect(large.completion?.truncated).toBe(false);
+    expect(large.tools?.truncated).toBe(false);
+    for (const final of [small, large]) expect(final).toMatchObject({ result, writes: 1, outcome: 'completed' });
+  });
+  it.each([256, 257])('completion correlation length remains a 256-character protocol constraint with larger capacities (%i)', async length => {
+    const final = await readDispatcherUpdates(response([start, event(1, { type: 'tool-input', messageId: 'answer',
+      toolName: 'finish_dispatcher', toolCallId: 'x'.repeat(length) }), data, settled]), initial(), 'requested', undefined,
+    { completionObservationLimit: 1024, toolObservationLimit: 1024 });
+    expect(final.completion).toEqual({ calls: length === 256 ? [{ id: 'x'.repeat(length), outcome: 'pending' }] : [],
+      truncated: length > 256 });
+    expect(final).toMatchObject({ result, writes: 1, outcome: 'completed' });
+  });
+
+  const metadataCases = [
+    { name: 'seal-preflight', wireName: 'dispatcher-seal-preflight', projection: 'sealPreflight', value: sealReady,
+      byteKey: 'preflightBytes', countKey: 'preflightObservationLimit' },
+    { name: 'readiness', wireName: 'dispatcher-readiness', projection: 'readiness', value: ready,
+      byteKey: 'readinessBytes', countKey: 'readinessObservationLimit' },
+  ] as const;
+  it.each(metadataCases.flatMap(metadata => [false, true].map(reset => ({ ...metadata, reset }))))(
+    'admitted $name bytes accept the exact boundary and only truncate diagnostic overflow (reset=$reset)',
+    async ({ wireName, projection, value, byteKey, reset }) => {
+      const events = reset ? [event(5, { type: 'conversation-reset', snapshot: {
+        conversationId: 'conversation', messages: [{ parts: [
+          { data: value, type: `data-${wireName}` }, { type: 'data-assessment', data: result },
+        ], submissionId: 'requested', id: 'answer' }], settlements: [{ submissionId: 'requested', outcome: 'completed' }],
+      } })] : [start, event(1, { data: value, messageId: 'answer', name: wireName, type: 'data-part' }), data, settled];
+      const exact = await readDispatcherUpdates(response(events), initial(), 'requested', undefined,
+        { [byteKey]: jsonBytes(value) });
+      expect(exact[projection]).toEqual({ latest: value, observations: 1, truncated: false });
+      const overflow = await readDispatcherUpdates(response(events), initial(), 'requested', undefined,
+        { [byteKey]: jsonBytes(value) - 1 });
+      expect(overflow[projection]).toEqual({ observations: 1, truncated: true });
+      for (const final of [exact, overflow]) expect(final).toMatchObject({ result, writes: 1, outcome: 'completed' });
+    },
+  );
+  it.each(metadataCases.flatMap(metadata => [false, true].map(reset => ({ ...metadata, reset }))))(
+    'admitted $name counts stay bounded across pages and resets without granting result authority (reset=$reset)',
+    async ({ wireName, projection, value, countKey, reset }) => {
+      const policy: DispatcherCapacityPolicy = { [countKey]: 2 };
+      const first = await readDispatcherUpdates(response([start,
+        event(1, { type: 'data-part', messageId: 'answer', name: wireName, data: value })], 'first'),
+      initial(), 'requested', undefined, policy);
+      const secondEvents = reset ? [event(2, { type: 'conversation-reset', snapshot: {
+        conversationId: 'conversation', messages: [{ parts: [{ data: value, type: `data-${wireName}` }],
+          submissionId: 'requested', id: 'answer' }], settlements: [],
+      } })] : [event(2, { type: 'data-part', messageId: 'answer', name: wireName, data: value })];
+      const second = await readDispatcherUpdates(response(secondEvents, 'second'), first, 'requested', undefined, policy);
+      expect(second[projection]).toEqual({ latest: value, observations: 2, truncated: false });
+      expect(second.writes).toBe(0);
+      expect(second.result).toBeUndefined();
+      expect(second.outcome).toBeUndefined();
+      const final = await readDispatcherUpdates(response([...secondEvents,
+        event(3, { type: 'data-part', messageId: 'answer', name: wireName, data: { ...value, targetCount: 2 } }),
+        { ...data, position: { batch: 1, index: 4 } }, { ...settled, position: { batch: 1, index: 5 } }]),
+      second, 'requested', undefined, policy);
+      expect(final[projection]).toEqual({ latest: value, observations: 2, truncated: true });
+      expect(final).toMatchObject({ result, writes: 1, outcome: 'completed' });
+      expect(second[projection]).toEqual({ latest: value, observations: 2, truncated: false });
+    },
+  );
 
 });

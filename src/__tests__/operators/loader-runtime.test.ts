@@ -374,6 +374,29 @@ describe('REQ-OPERATOR-017: durable drive generation and checkpoint', () => {
 });
 
 describe('REQ-OPERATOR-018: activity-driven Worker execution', () => {
+  it('REQ-OPERATOR-018: configured drive response capacity preserves complete valid output above 64 KiB', async () => {
+    const { activityId } = await queuedActivity();
+    const padding = 'x'.repeat(131072);
+    expect(await activity(activityId, { action: 'drive-runtime', responsePadding: padding.length,
+      capacityPolicy: { driveResponseBytes: 200000 } })).toMatchObject({ ok: true, state: {
+      status: 'waiting', result: { padding },
+    } });
+  });
+
+  it('REQ-OPERATOR-018: configured drive byte denial fences valid oversized output without replay', async () => {
+    const { activityId } = await queuedActivity();
+    expect(await activity(activityId, { action: 'drive-runtime', responsePadding: 2000,
+      capacityPolicy: { driveResponseBytes: 1000 } })).toMatchObject({ ok: true, state: { status: 'unknown' } });
+    expect(await activity(activityId, { action: 'drive-runtime' })).toEqual({ ok: false, reason: 'drive-settled' });
+  });
+
+  it('REQ-OPERATOR-018: configured drive timeout fences late output without extending original authority', async () => {
+    const { activityId } = await queuedActivity();
+    expect(await activity(activityId, { action: 'drive-runtime', delayMs: 150,
+      capacityPolicy: { driveTimeoutMs: 50 } })).toMatchObject({ ok: true, state: { status: 'unknown' } });
+    expect(await activity(activityId, { action: 'drive-runtime' })).toEqual({ ok: false, reason: 'drive-settled' });
+  });
+
   it('starts approved code and resumes a durable checkpoint in a fresh Worker after activity eviction', async () => {
     const { activityId } = await queuedActivity();
     expect(await activity(activityId, { action: 'drive-runtime' })).toMatchObject({ ok: true, state: {

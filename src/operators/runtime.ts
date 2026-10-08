@@ -8,6 +8,7 @@
 import type { OperatorActivity, OperatorDriveResult } from './activity';
 import type { DispatcherBundle, OperatorBundle } from './distribution';
 import { loadOperatorWorker, type OperatorLoaderBinding } from './loader';
+import { dispatcherCapacities, type DispatcherCapacityPolicy } from './dispatcher-capacity-limits';
 
 /** Parent-selected activity/artifact and generation-bound capability construction. */
 interface OperatorRuntimeOptions {
@@ -18,6 +19,7 @@ interface OperatorRuntimeOptions {
   loader: OperatorLoaderBinding;
   bundle: OperatorBundle;
   invocation?: unknown;
+  capacityPolicy?: DispatcherCapacityPolicy;
   bind: (generation: number, driveDeadline: number) => { capability: Fetcher; outbound: Fetcher | null }
     | Promise<{ capability: Fetcher; outbound: Fetcher | null }>;
 }
@@ -56,13 +58,14 @@ export async function driveOperatorRuntime(options: OperatorRuntimeOptions): Pro
   const reserved = await options.activity.beginDrive(options.expectedGeneration);
   if (!reserved.ok) return reserved;
   const { generation, checkpoint } = reserved.state;
+  const limits = dispatcherCapacities(options.capacityPolicy);
   const controller = new AbortController();
   let timer: ReturnType<typeof setTimeout> | undefined;
   let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
   let response: Response | undefined;
   let consumed = false;
   try {
-    const driveDeadline = Math.min(options.deadline, Date.now() + 30_000);
+    const driveDeadline = Math.min(options.deadline, Date.now() + limits.driveTimeoutMs);
     const remaining = driveDeadline - Date.now();
     if (remaining <= 0) throw new Error('Expired drive');
     const timeout = new Promise<never>((_resolve, reject) => {
@@ -94,7 +97,7 @@ export async function driveOperatorRuntime(options: OperatorRuntimeOptions): Pro
         const chunk = await reader.read();
         if (chunk.done) break;
         size += chunk.value.byteLength;
-        if (size > 64 * 1024 || controller.signal.aborted) throw new Error('Runtime response exceeded bounds');
+        if (size > limits.driveResponseBytes || controller.signal.aborted) throw new Error('Runtime response exceeded bounds');
         chunks.push(chunk.value);
       }
       consumed = true;
