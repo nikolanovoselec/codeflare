@@ -201,8 +201,11 @@ export function registerNativeDispatcherCases(
       const action = (value as { action?: unknown }).action;
       const phase = ['start', 'observe', 'collect', 'evict', 'release', 'revoke', 'cancel', 'change-submission-policy'].includes(String(action))
         ? String(action) : 'other';
+      const observationId = phase === 'observe' && id.startsWith('large-evidence-') ? crypto.randomUUID() : undefined;
       const send = (command: unknown) => harness.fetch(`/dispatcher-composed?activity=${id}`, {
-        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(command), signal: AbortSignal.timeout(20_000),
+        method: 'POST', headers: { 'content-type': 'application/json',
+          ...(observationId ? { 'x-codeflare-fixture-observation-id': observationId } : {}) },
+        body: JSON.stringify(command), signal: AbortSignal.timeout(20_000),
       });
       let boundary: 'fetch-rejected' | 'response-not-json' | 'http-rejected' = 'fetch-rejected';
       let status: number | undefined;
@@ -214,8 +217,11 @@ export function registerNativeDispatcherCases(
       try {
         const response = await send(value);
         status = response.status;
+        if (observationId) console.info(`[native-flue] observe-client=${JSON.stringify({ observationId, boundary: 'response-headers', status })}`);
         boundary = 'response-not-json';
         const text = await response.text();
+        if (observationId) console.info(`[native-flue] observe-client=${JSON.stringify({ observationId, boundary: 'body-completed',
+          bytes: new TextEncoder().encode(text).byteLength })}`);
         try { body = JSON.parse(text); }
         catch (error) {
           // Match fixed platform error templates in memory; never retain the response.

@@ -49,6 +49,12 @@ const wire = (chunks: unknown[]) => new Response(chunks.map(value => `data: ${JS
 let identityService: (() => { identity(): Promise<Response> }) | undefined;
 let diagnosticActivity: string | undefined;
 const diagnostics: Array<Record<string, string | number | boolean | null>> = [];
+// CI-only original-request trace; error level survives the harness's error-only logger.
+const observeBoundary = (observationId: string | undefined,
+  boundary: 'rpc-started' | 'reconcile-started' | 'reconcile-completed' | 'detail-completed'
+    | 'external-completed' | 'activity-return-ready' | 'rpc-completed' | 'json-started' | 'json-completed') => {
+  if (observationId) console.error(`[native-flue] observe-boundary=${JSON.stringify({ observationId, boundary })}`);
+};
 export type CanonicalAppendObservation = { category: 'canonical-append-oversized' | 'canonical-append-other'; largestRecordType?: 'state_write' };
 type SdkObservation = { stage: 'sdk-submission-running' | 'sdk-submission-exhausted'; submissionDigest: string; attemptCount: number; maxAttempts: number };
 type RetainedObservation = {
@@ -389,12 +395,26 @@ export class OperatorActivity extends ProductionActivity {
     return { ...result, diagnostics: [...diagnostics] };
 
   }
-  async observeComposed() {
+  async observeComposed(observationId?: string) {
+    observeBoundary(observationId, 'reconcile-started');
     await this.reconcileDispatcherLease();
-    return { instance: this.instance, detail: await this.getBrowserDetail(), external: await services(this.fixtureEnv).observe(),
-      diagnostics: [...diagnostics] };
+    observeBoundary(observationId, 'reconcile-completed');
+    const detail = await this.getBrowserDetail();
+    observeBoundary(observationId, 'detail-completed');
+    const external = await services(this.fixtureEnv).observe();
+    observeBoundary(observationId, 'external-completed');
+    const retained = [...diagnostics];
+    observeBoundary(observationId, 'activity-return-ready');
+    return { instance: this.instance, detail, external, diagnostics: retained };
   }
   async diagnoseComposed() {
+    // Snapshot existing settlement evidence before journal inspection can evict it from the ring.
+    const settlementBoundaries = diagnostics.flatMap(entry => {
+      if (!['settlement', 'assessment', 'sdk-release'].includes(String(entry.stage))
+        || !['started', 'completed', 'observed', 'pending', 'failed', 'unknown', 'denied'].includes(String(entry.outcome))) return [];
+      return [{ stage: entry.stage, outcome: entry.outcome,
+        ...(entry.boundary === 'recheck' ? { boundary: 'recheck' } : {}) }];
+    });
     // Read retained owner/service evidence without reconciling or fetching the child.
     const detail = await this.getBrowserDetail();
     const external = await services(this.fixtureEnv).observe();
@@ -402,7 +422,7 @@ export class OperatorActivity extends ProductionActivity {
       collectionStatus: detail?.collectionStatus ?? 'unavailable', firstAppend: external.firstAppend,
       sdkSubmissions: external.sdkSubmissions,
       sdkErrorTypes: [...new Set(diagnostics.flatMap(entry => typeof entry.sdkErrorType === 'string' ? [entry.sdkErrorType] : []))],
-      inferenceCount: external.inference.length, commentCount: external.comments.length };
+      inferenceCount: external.inference.length, commentCount: external.comments.length, settlementBoundaries };
   }
   evictComposed(): void { this.ctx.abort('CI composed Activity reset'); }
 }
@@ -456,7 +476,18 @@ export async function composedFixture(request: Request, env: FixtureEnv): Promis
     return Response.json(await activity.startComposed(id, command.artifact!, command.digest!));
   }
   if (command.action === 'change-submission-policy') { await services(env).changeSubmissionPolicy(command.submissionAttemptLimit!); return Response.json({ ok: true }); }
-  if (command.action === 'observe') return Response.json(await activity.observeComposed());
+  if (command.action === 'observe') {
+    const candidate = request.headers.get('x-codeflare-fixture-observation-id');
+    const observationId = id.startsWith('large-evidence-') && candidate
+      && /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/.test(candidate) ? candidate : undefined;
+    observeBoundary(observationId, 'rpc-started');
+    const value = await activity.observeComposed(observationId);
+    observeBoundary(observationId, 'rpc-completed');
+    observeBoundary(observationId, 'json-started');
+    const response = Response.json(value);
+    observeBoundary(observationId, 'json-completed');
+    return response;
+  }
   if (command.action === 'diagnose') return Response.json(await activity.diagnoseComposed());
   if (command.action === 'collect') return Response.json(await activity.collectBrowserResult());
   if (command.action === 'evict') { await activity.evictComposed().catch(() => {}); return Response.json({ evicted: true }); }
