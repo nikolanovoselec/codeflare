@@ -189,6 +189,14 @@ export function registerNativeDispatcherCases(
       const initial = entries.find(entry => entry.stage === 'sdk-submission-running' && entry.attemptCount === 1);
       return initial ? entries.filter(entry => entry.submissionDigest === initial.submissionDigest) : [];
     }
+    function closedTransportFailure(error: unknown) {
+      const item = error && typeof error === 'object' ? error as { name?: unknown; code?: unknown; cause?: { code?: unknown } } : undefined;
+      const name = item?.name;
+      const code = item?.code ?? item?.cause?.code;
+      return { errorClass: typeof name === 'string' && ['Error', 'TypeError', 'SyntaxError', 'AbortError', 'TimeoutError'].includes(name) ? name : 'other',
+        transportCode: typeof code === 'string' && ['UND_ERR_ABORTED', 'UND_ERR_CONNECT_TIMEOUT', 'UND_ERR_HEADERS_TIMEOUT',
+          'UND_ERR_BODY_TIMEOUT', 'UND_ERR_SOCKET', 'ECONNRESET', 'ECONNREFUSED', 'ETIMEDOUT'].includes(code) ? code : 'other' };
+    }
     async function composed<T>(id: string, value: unknown): Promise<T> {
       const action = (value as { action?: unknown }).action;
       const phase = ['start', 'observe', 'collect', 'evict', 'release', 'revoke', 'cancel', 'change-submission-policy'].includes(String(action))
@@ -208,15 +216,15 @@ export function registerNativeDispatcherCases(
           boundary = 'http-rejected';
           throw new Error('Native composed fixture rejected');
         }
-      } catch {
-        console.info(`[native-flue] composed transport=${JSON.stringify({ phase, boundary, status })}`);
+      } catch (error) {
+        console.info(`[native-flue] composed transport=${JSON.stringify({ phase, boundary, status, ...closedTransportFailure(error) })}`);
         // One independent, read-only retained-evidence read; never repeat the failed command.
         try {
           const diagnostic = await send({ action: 'diagnose' });
           if (diagnostic.status === 200) {
             console.info(`[native-flue] composed retained=${JSON.stringify(await diagnostic.json())}`);
           } else console.info('[native-flue] composed retained=unavailable');
-        } catch { console.info('[native-flue] composed retained=unavailable'); }
+        } catch (error) { console.info(`[native-flue] composed retained=${JSON.stringify({ available: false, ...closedTransportFailure(error) })}`); }
         throw new Error(`Native composed transport failed: ${boundary}`);
       }
       expect(status, JSON.stringify({ phase, status })).toBe(200);

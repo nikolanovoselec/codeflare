@@ -127,6 +127,10 @@ const capture = (value: unknown) => {
       const item = entry.data[key];
       if (item === null || ['string', 'number', 'boolean'].includes(typeof item)) observation[key] = item;
     }
+    const sdkErrorType = entry.data.sdkErrorType;
+    if (typeof sdkErrorType === 'string' && ['cloudflare_ai_binding_error', 'invalid_request', 'tool_input_validation',
+      'tool_output_validation', 'operation_failed', 'submission_timeout', 'submission_aborted',
+      'internal_error', 'submission_retry_exhausted', 'other'].includes(sdkErrorType)) observation.sdkErrorType = sdkErrorType;
     diagnostics.push(observation);
     if (diagnostics.length > 64) diagnostics.shift();
   } catch { /* Only selected fields from the existing closed diagnostic wire are retained. */ }
@@ -397,6 +401,7 @@ export class OperatorActivity extends ProductionActivity {
     return { executionStatus: detail?.executionStatus ?? 'unprepared',
       collectionStatus: detail?.collectionStatus ?? 'unavailable', firstAppend: external.firstAppend,
       sdkSubmissions: external.sdkSubmissions,
+      sdkErrorTypes: [...new Set(diagnostics.flatMap(entry => typeof entry.sdkErrorType === 'string' ? [entry.sdkErrorType] : []))],
       inferenceCount: external.inference.length, commentCount: external.comments.length };
   }
   evictComposed(): void { this.ctx.abort('CI composed Activity reset'); }
