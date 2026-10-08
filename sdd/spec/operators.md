@@ -33,7 +33,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-AUTH-003](authentication.md#req-auth-003-cf-access-mode-for-all-other-deployments)
 
-**Verification:** Signed-token behavioral tests: RED at `28c40a97` (CI 35119689823), GREEN at `18960850` (CI 35120031781). Actual enterprise operator admission remains separately required by REQ-OPERATOR-002/003; this primitive is not deployed operator acceptance.
+**Verification:** Signed-token behavioral tests; enterprise admission is separate and this primitive does not establish deployed Operator acceptance.
 
 **Status:** Implemented
 
@@ -60,7 +60,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-011](#req-operator-011-serialized-operator-admission)
 
-**Verification:** Protected execution-context behavior is covered by the adjacent tests.
+**Verification:** Automated test: Protected execution-context behavior is covered by the adjacent tests.
 
 **Status:** Implemented
 
@@ -88,7 +88,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-002](#req-operator-002-enterprise-distribution-registration)
 
-**Verification:** Policy parsing and immutable policy snapshots are covered by the adjacent tests. Runtime enforcement and deployed allowed/denied acceptance remain separate requirements.
+**Verification:** Automated test: Policy parsing and immutable policy snapshots are covered by the adjacent tests. Runtime enforcement and deployed allowed/denied acceptance remain separate requirements.
 
 **Status:** Implemented
 
@@ -120,7 +120,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-003](#req-operator-003-principal-bound-activity-context), [REQ-OPERATOR-014](#req-operator-014-restrictive-operator-policy)
 
-**Verification:** Shared interception and Browser denial are covered by the adjacent transport tests. Deployed direct and session egress acceptance remains unverified.
+**Verification:** Automated test: Shared interception and Browser denial are covered by the adjacent transport tests. Deployed direct and session egress acceptance remains unverified.
 
 **Status:** Implemented
 
@@ -150,7 +150,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-004](#req-operator-004-shared-restrictive-interception)
 
-**Verification:** Selection and interceptor behavior is covered by the adjacent tests. Exact-head CI 35172865340 at `d51d0039` is GREEN. Actual provider-request acceptance remains unverified.
+**Verification:** Automated test: Selection and interceptor behavior is covered by the adjacent tests. Exact-head CI 35172865340 at `d51d0039` is GREEN. Actual provider-request acceptance remains unverified.
 
 **Status:** Implemented
 
@@ -177,7 +177,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-004](#req-operator-004-shared-restrictive-interception), [REQ-OPERATOR-028](#req-operator-028-access-jwt-stamping-configuration)
 
-**Verification:** JWT-stamping behavior is covered by the adjacent transport tests. Exact-head CI 35159474090 at `3c7731e6` is GREEN. Deployed relying-party acceptance remains unverified.
+**Verification:** Automated test: JWT-stamping behavior is covered by the adjacent transport tests. Exact-head CI 35159474090 at `3c7731e6` is GREEN. Deployed relying-party acceptance remains unverified.
 
 **Status:** Implemented
 
@@ -202,7 +202,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-013](#req-operator-013-enterprise-operator-administration-authorization)
 
-**Verification:** Configuration preview, apply, reload and UI behavior are covered by the adjacent tests.
+**Verification:** Automated test: Configuration preview, apply, reload and UI behavior are covered by the adjacent tests.
 
 **Status:** Implemented
 
@@ -235,7 +235,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-001](#req-operator-001-verified-human-access-claims)
 
-**Verification:** Legacy internal distribution and protected-secret invariants are covered by the adjacent tests. The historical exact-head CI 35148669515 at `c9fd121d` predates retirement of the test HTTP surface.
+**Verification:** Automated test: Legacy internal distribution and protected-secret invariants are covered by the adjacent tests. The historical exact-head CI 35148669515 at `c9fd121d` predates retirement of the test HTTP surface.
 
 **Status:** Implemented
 
@@ -263,7 +263,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-001](#req-operator-001-verified-human-access-claims), [REQ-OPERATOR-002](#req-operator-002-enterprise-distribution-registration), [REQ-OPERATOR-034](#req-operator-034-authenticated-discovery-transport)
 
-**Verification:** Discovery and bundle parser behavior passed exact-head CI 35285707512 at `137ffcb5`; historical fixture registration does not prove current installed-release execution.
+**Verification:** Automated test: Discovery and bundle parser behavior passed exact-head CI 35285707512 at `137ffcb5`; historical fixture registration does not prove current installed-release execution.
 
 **Status:** Implemented
 
@@ -296,7 +296,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-010](#req-operator-010-bounded-operator-discovery-document)
 
-**Verification:** Approved bundle validation is covered by the adjacent parser and Loader tests.
+**Verification:** Automated test: Approved bundle validation is covered by the adjacent parser and Loader tests.
 
 **Status:** Implemented
 
@@ -325,7 +325,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-001](#req-operator-001-verified-human-access-claims), [REQ-OPERATOR-002](#req-operator-002-enterprise-distribution-registration)
 
-**Verification:** Authenticated bounded discovery transport is covered by the adjacent tests.
+**Verification:** Automated test: Authenticated bounded discovery transport is covered by the adjacent tests.
 
 **Status:** Implemented
 
@@ -354,7 +354,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-030](#req-operator-030-immutable-approved-bundle-validation), [REQ-OPERATOR-034](#req-operator-034-authenticated-discovery-transport)
 
-**Verification:** Authenticated approved artifact download is covered by the adjacent tests.
+**Verification:** Automated test: Authenticated approved artifact download is covered by the adjacent tests.
 
 **Status:** Implemented
 
@@ -383,7 +383,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-001](#req-operator-001-verified-human-access-claims), [REQ-OPERATOR-002](#req-operator-002-enterprise-distribution-registration)
 
-**Verification:** The retired route is absent in active Enterprise mode; management authorization and mutation tests remain separate.
+**Verification:** Automated test: The retired route is absent in active Enterprise mode; management authorization and mutation tests remain separate.
 
 **Status:** Implemented
 
@@ -409,7 +409,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-012](#req-operator-012-protected-operator-webhook-keys), [REQ-OPERATOR-013](#req-operator-013-enterprise-operator-administration-authorization)
 
-**Verification:** Management projections, retired-route denial, and internal default-entrypoint readback are covered by the adjacent tests.
+**Verification:** Automated test: Management projections, retired-route denial, and internal default-entrypoint readback are covered by the adjacent tests.
 
 **Status:** Implemented
 
@@ -436,7 +436,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-030](#req-operator-030-immutable-approved-bundle-validation)
 
-**Verification:** Adjacent catalog and package-resource tests cover the delivered behavior; exact-head CI and deployed restore evidence remain outstanding.
+**Verification:** Automated test: Adjacent catalog and package-resource tests cover the delivered behavior; exact-head CI and deployed restore evidence remain outstanding.
 
 **Status:** Partial
 
@@ -470,7 +470,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-030](#req-operator-030-immutable-approved-bundle-validation), [REQ-OPERATOR-043](#req-operator-043-catalog-and-installations)
 
-**Verification:** Existing acquisition, compiler and retention suites cover the baseline. Artifact-only host-family boundary regression coverage and final exact-head GREEN CI remain required; no new host is authorized by this prose correction, and live installation is a separate acceptance receipt.
+**Verification:** Automated test: Existing acquisition, compiler and retention suites cover the baseline. Artifact-only host-family boundary regression coverage and final exact-head GREEN CI remain required; no new host is authorized by this prose correction, and live installation is a separate acceptance receipt.
 
 **Status:** Planned
 
@@ -523,7 +523,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-013](#req-operator-013-enterprise-operator-administration-authorization), [REQ-OPERATOR-043](#req-operator-043-catalog-and-installations)
 
-**Verification:** Access/management and real identity/source regression passed host CI; live sourceHTTP200 was observed in47aa5357. Configurable response-ceiling tests and complete live acceptance remain pending.
+**Verification:** Automated test: Access/management and real identity/source regression passed host CI; live sourceHTTP200 was observed in47aa5357. Configurable response-ceiling tests and complete live acceptance remain pending.
 
 **Status:** Implemented
 
@@ -550,7 +550,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-044](#req-operator-044-github-immutable-package-acquisition)
 
-**Verification:** Adjacent promotion tests cover the delivered behavior; exact-head CI remains outstanding.
+**Verification:** Automated test: Adjacent promotion tests cover the delivered behavior; exact-head CI remains outstanding.
 
 **Status:** Partial
 
@@ -578,7 +578,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-002](#req-operator-002-enterprise-distribution-registration), [REQ-OPERATOR-014](#req-operator-014-restrictive-operator-policy)
 
-**Verification:** Manifest snapshots and SQLite admission ordering are covered by the adjacent tests.
+**Verification:** Automated test: Manifest snapshots and SQLite admission ordering are covered by the adjacent tests.
 
 **Status:** Implemented
 
@@ -604,7 +604,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-003](#req-operator-003-principal-bound-activity-context), [REQ-OPERATOR-030](#req-operator-030-immutable-approved-bundle-validation), [REQ-OPERATOR-035](#req-operator-035-approved-artifact-transport)
 
-**Verification:** Worker Loader runtime-boundary behavior is covered by the adjacent tests. Deployed acceptance remains unverified.
+**Verification:** Automated test: Worker Loader runtime-boundary behavior is covered by the adjacent tests. Deployed acceptance remains unverified.
 
 **Status:** Implemented
 
@@ -633,7 +633,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-011](#req-operator-011-serialized-operator-admission), [REQ-OPERATOR-003](#req-operator-003-principal-bound-activity-context)
 
-**Verification:** Activity admission behavior is covered by the adjacent tests. Physical owned-compute cessation, cleanup and post-expiry uploads remain unverified; no unknown activity is replayed for this check.
+**Verification:** Automated test: Activity admission behavior is covered by the adjacent tests. Physical owned-compute cessation, cleanup and post-expiry uploads remain unverified; no unknown activity is replayed for this check.
 
 **Status:** Planned
 
@@ -662,7 +662,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-016](#req-operator-016-durable-activity-admission-and-cleanup)
 
-**Verification:** Durable drive generation and checkpoint behavior is covered by the adjacent tests.
+**Verification:** Automated test: Durable drive generation and checkpoint behavior is covered by the adjacent tests.
 
 **Status:** Implemented
 
@@ -691,7 +691,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-015](#req-operator-015-isolated-approved-worker-loading), [REQ-OPERATOR-017](#req-operator-017-durable-drive-generations)
 
-**Verification:** Runtime-driver and request-attached orchestration behavior is covered by the adjacent tests. Legacy Gate 1 preparation and already-prepared execution are denied by separate retirement tests; deployment readback remains a separate release gate.
+**Verification:** Automated test: Runtime-driver and request-attached orchestration behavior is covered by the adjacent tests. Legacy Gate 1 preparation and already-prepared execution are denied by separate retirement tests; deployment readback remains a separate release gate.
 
 **Status:** Implemented
 
@@ -716,7 +716,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-018](#req-operator-018-request-attached-operator-orchestration)
 
-**Verification:** Behavioral admission, already-prepared execution and deploy-graph tests cover retirement; exact-head CI and Enterprise Integration rollout remain release gates.
+**Verification:** Automated test: Behavioral admission, already-prepared execution and deploy-graph tests cover retirement; exact-head CI and Enterprise Integration rollout remain release gates.
 
 **Status:** Implemented
 
@@ -752,7 +752,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-003](#req-operator-003-principal-bound-activity-context), [REQ-OPERATOR-043](#req-operator-043-catalog-and-installations)
 
-**Verification:** Pre-repair host coverage passed exact-head PR Checks `37663588762` at `ecc09497a21c`. New inference-attempt accounting and composed native recovery tests are added but await exact-head CI. Live research, judgments, authenticated effects, settlement/collection and physical cleanup remain separate acceptance gates.
+**Verification:** Historical host tests; new inference-attempt accounting and composed native recovery coverage awaits exact-head CI. Live research, judgments, effects, settlement/collection and physical cleanup remain separate gates.
 
 **Status:** Implemented
 
@@ -790,7 +790,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-015](#req-operator-015-isolated-approved-worker-loading), [REQ-OPERATOR-017](#req-operator-017-durable-drive-generations), [REQ-OPERATOR-047](#req-operator-047-generic-directed-profile-admission)
 
-**Verification:** The new native fixture composes the real `OperatorActivity` SQL journal and exact pinned v0.1.17 Flue facet through `driveDispatcherRuntime`. It adds valid, incomplete/error-stream, live-duplicate, reset-beforecommit, commit-beforeconsumption and exhaustion cases, with real result/collection and external-effect observations. Identity, catalog and external interceptor responses remain fixtures. These tests have not run; exact-head CI, live acceptance and physical-cleanup proof remain outstanding. <!-- @test: src/__tests__/operators/fixtures/flue-native-cases.ts (REQ-OPERATOR-048: composed %s inference reaches a real collected assessment with one repository effect) --> <!-- @test: src/__tests__/operators/fixtures/flue-native-cases.ts (REQ-OPERATOR-048: composed persistent interruption exhausts the configured %i attempts without an effect or collection) -->
+**Verification:** Automated test: composed real Activity SQL journal and pinned v0.1.17 Flue runtime coverage is authored but unrun; identity, catalog and external interceptor responses remain fixtures. Exact-head CI, live result/collection/effect acceptance and physical cleanup remain unproven. <!-- @test: src/__tests__/operators/fixtures/flue-native-cases.ts (REQ-OPERATOR-048: composed %s inference reaches a real collected assessment with one repository effect) --> <!-- @test: src/__tests__/operators/fixtures/flue-native-cases.ts (REQ-OPERATOR-048: composed persistent interruption exhausts the configured %i attempts without an effect or collection) -->
 
 **Status:** Planned
 
@@ -900,7 +900,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-078](#req-operator-078-correlated-inference-pipeline-diagnostics), [REQ-OPERATOR-049](#req-operator-049-operators-management-interface)
 
-**Verification:** Named producer-wire, SDK-tool, settlement and management tests above retain their existing test names; authored coverage is bounded, and hosted CI, reviewed deployment and genuine end-to-end acceptance remain separate gates.
+**Verification:** Automated test: adjacent bounded producer-wire, SDK-tool, settlement and management coverage; hosted CI, reviewed deployment and genuine end-to-end acceptance remain separate gates.
 
 **Status:** Implemented
 
@@ -938,7 +938,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-063](#req-operator-063-bounded-dispatcher-diagnostics), [REQ-OPERATOR-049](#req-operator-049-operators-management-interface)
 
-**Verification:** Named pipeline, lifecycle, native and owner-inspection tests above; hosted CI and deployed acceptance remain separate.
+**Verification:** Automated test: Named pipeline, lifecycle, native and owner-inspection tests above; hosted CI and deployed acceptance remain separate.
 
 **Status:** Implemented
 
@@ -966,7 +966,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-048](#req-operator-048-dispatcher-execution)
 
-**Verification:** Named projection/production/native tests above.
+**Verification:** Automated test: Named projection/production/native tests above.
 
 **Status:** Implemented
 
@@ -1002,7 +1002,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-063](#req-operator-063-bounded-dispatcher-diagnostics).
 
-**Verification:** Named projection/production tests above; authentic generated SDK emission uses [flue-native-cases.ts](../../src/__tests__/operators/fixtures/flue-native-cases.ts). <!-- @test: src/__tests__/operators/fixtures/flue-native-cases.ts (REQ-OPERATOR-076: authentic SDK emits seal observations across refused, ordinary, overflow and retry journeys) --> <!-- @test: src/__tests__/operators/fixtures/flue-native-cases.ts (REQ-OPERATOR-076: authentic failed seal emits closed undiscovered preflight without effects or assessment) --> Hosted RED closure37432344160 verified missing diagnostics; hosted GREEN, official artifact identity/release/installation, live effects, validated collection, SDK release and cleanup are separate gates.
+**Verification:** Projection/production and authentic generated SDK emission tests; historical RED established missing diagnostics. Hosted GREEN, official artifact/release/installation identity, live effects, validated collection, SDK release and cleanup remain separate gates. <!-- @test: src/__tests__/operators/fixtures/flue-native-cases.ts (REQ-OPERATOR-076: authentic SDK emits seal observations across refused, ordinary, overflow and retry journeys) --> <!-- @test: src/__tests__/operators/fixtures/flue-native-cases.ts (REQ-OPERATOR-076: authentic failed seal emits closed undiscovered preflight without effects or assessment) -->
 
 **Status:** Implemented
 
@@ -1033,7 +1033,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-004](#req-operator-004-shared-restrictive-interception)
 
-**Verification:** Owned-session and container-context behavior is covered by the adjacent tests. Deployed stop and concurrency acceptance remain unverified.
+**Verification:** Automated test: Owned-session and container-context behavior is covered by the adjacent tests. Deployed stop and concurrency acceptance remain unverified.
 
 **Status:** Implemented
 
@@ -1062,7 +1062,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-005](#req-operator-005-owned-operator-session-lifecycle)
 
-**Verification:** Structured Pi conversation behavior is covered by the adjacent host tests.
+**Verification:** Automated test: Structured Pi conversation behavior is covered by the adjacent host tests.
 
 **Status:** Implemented
 
@@ -1091,7 +1091,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-005](#req-operator-005-owned-operator-session-lifecycle), [REQ-OPERATOR-021](#req-operator-021-structured-owned-pi-conversation)
 
-**Verification:** Restricted startup and shutdown selection is covered by the adjacent tests. Deployed stop acceptance remains unverified.
+**Verification:** Automated test: Restricted startup and shutdown selection is covered by the adjacent tests. Deployed stop acceptance remains unverified.
 
 **Status:** Implemented
 
@@ -1117,7 +1117,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-004](#req-operator-004-shared-restrictive-interception)
 
-**Verification:** R2 transport behavior passed exact-head CI 35285707512 at `137ffcb5` and deployed activity `e44f0abe-8097-46d5-9265-8a4750024b8e` independently verified the exact uploaded marker bytes.
+**Verification:** Automated test: R2 transport behavior passed exact-head CI 35285707512 at `137ffcb5` and deployed activity `e44f0abe-8097-46d5-9265-8a4750024b8e` independently verified the exact uploaded marker bytes.
 
 **Status:** Implemented
 
@@ -1145,7 +1145,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-020](#req-operator-020-operator-scoped-r2-interception), [REQ-OPERATOR-022](#req-operator-022-restricted-operator-container-lifecycle)
 
-**Verification:** Explicit-sync behavior is covered by the adjacent host tests.
+**Verification:** Automated test: Explicit-sync behavior is covered by the adjacent host tests.
 
 **Status:** Implemented
 
@@ -1172,7 +1172,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-023](#req-operator-023-explicit-operator-synchronization)
 
-**Verification:** Independent byte verification is covered by the adjacent tests. Exact-head CI 35169456503 at `0ce22c80` is GREEN. Deployed file-to-R2 restoration remains unverified.
+**Verification:** Automated test: Independent byte verification is covered by the adjacent tests. Exact-head CI 35169456503 at `0ce22c80` is GREEN. Deployed file-to-R2 restoration remains unverified.
 
 **Status:** Implemented
 
@@ -1207,7 +1207,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-047](#req-operator-047-generic-directed-profile-admission), [REQ-OPERATOR-005](#req-operator-005-owned-operator-session-lifecycle)
 
-**Verification:** Adjacent capability, attachment and owned-session tests cover the delivered generic boundary. The claimed packet path and compiled Conductor fixture are candidates pending exact-head CI; no deployed protected Action or live restore receipt is proven.
+**Verification:** Automated test: Adjacent capability, attachment and owned-session tests cover the delivered generic boundary. The claimed packet path and compiled Conductor fixture are candidates pending exact-head CI; no deployed protected Action or live restore receipt is proven.
 
 **Status:** Partial
 
@@ -1236,7 +1236,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-030](#req-operator-030-immutable-approved-bundle-validation), [REQ-OPERATOR-050](#req-operator-050-generic-conductor-capability)
 
-**Verification:** Adjacent package, attachment and startup tests cover the delivered behavior; exact-head CI remains outstanding.
+**Verification:** Automated test: Adjacent package, attachment and startup tests cover the delivered behavior; exact-head CI remains outstanding.
 
 **Status:** Partial
 
@@ -1268,7 +1268,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-021](#req-operator-021-structured-owned-pi-conversation), [REQ-OPERATOR-024](#req-operator-024-independent-synchronization-verification), [REQ-OPERATOR-025](#req-operator-025-optional-encrypted-webhook-handoff), [REQ-OPERATOR-027](#req-operator-027-owned-activity-user-surface)
 
-**Verification:** Consumer invocation acceptance, immutable reconciliation and session-origin behavior are covered by the adjacent behavioral tests.
+**Verification:** Automated test: Consumer invocation acceptance, immutable reconciliation and session-origin behavior are covered by the adjacent behavioral tests.
 
 **Status:** Implemented
 
@@ -1297,7 +1297,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-009](#req-operator-009-reusable-platform-interfaces-and-bounded-consumer-fixtures)
 
-**Verification:** Attachment bounds, canonical names and authority rejection are covered by the adjacent consumer-contract tests.
+**Verification:** Automated test: Attachment bounds, canonical names and authority rejection are covered by the adjacent consumer-contract tests.
 
 **Status:** Implemented
 
@@ -1327,7 +1327,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-009](#req-operator-009-reusable-platform-interfaces-and-bounded-consumer-fixtures), [REQ-OPERATOR-037](#req-operator-037-bounded-operator-consumer-inputs)
 
-**Verification:** Direct, session, webhook and local-review regression fixtures are covered by the adjacent tests.
+**Verification:** Automated test: Direct, session, webhook and local-review regression fixtures are covered by the adjacent tests.
 
 **Status:** Implemented
 
@@ -1355,7 +1355,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-002](#req-operator-002-enterprise-distribution-registration)
 
-**Verification:** Webhook-key generation, rotation and protected storage are covered by the adjacent tests.
+**Verification:** Automated test: Webhook-key generation, rotation and protected storage are covered by the adjacent tests.
 
 **Status:** Implemented
 
@@ -1388,7 +1388,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-016](#req-operator-016-durable-activity-admission-and-cleanup), [REQ-OPERATOR-018](#req-operator-018-request-attached-operator-orchestration)
 
-**Verification:** Capability consumption and activity-result behavior is covered by the adjacent tests.
+**Verification:** Automated test: Capability consumption and activity-result behavior is covered by the adjacent tests.
 
 **Status:** Implemented
 
@@ -1415,7 +1415,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-006](#req-operator-006-capability-authenticated-webhook-activity), [REQ-OPERATOR-012](#req-operator-012-protected-operator-webhook-keys)
 
-**Verification:** Optional encrypted webhook handoff is covered by the adjacent tests. Public-host callback acceptance in both handoff modes remains unverified.
+**Verification:** Automated test: Optional encrypted webhook handoff is covered by the adjacent tests. Public-host callback acceptance in both handoff modes remains unverified.
 
 **Status:** Implemented
 
@@ -1441,7 +1441,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-006](#req-operator-006-capability-authenticated-webhook-activity)
 
-**Verification:** Managed bypass behavior is covered by the adjacent tests. Exact-head CI 35171737437 at `2ac5a5c0` is GREEN.
+**Verification:** Automated test: Managed bypass behavior is covered by the adjacent tests. Exact-head CI 35171737437 at `2ac5a5c0` is GREEN.
 
 **Status:** Implemented
 
@@ -1468,7 +1468,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-006](#req-operator-006-capability-authenticated-webhook-activity), [REQ-OPERATOR-026](#req-operator-026-managed-webhook-edge-bypass)
 
-**Verification:** Webhook edge behavior is covered by the adjacent route tests.
+**Verification:** Automated test: Webhook edge behavior is covered by the adjacent route tests.
 
 **Status:** Implemented
 
@@ -1492,7 +1492,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-006](#req-operator-006-capability-authenticated-webhook-activity)
 
-**Verification:** Non-consuming status and not-ready behavior is covered by the adjacent activity test.
+**Verification:** Automated test: Non-consuming status and not-ready behavior is covered by the adjacent activity test.
 
 **Status:** Implemented
 
@@ -1525,7 +1525,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-013](#req-operator-013-enterprise-operator-administration-authorization), [REQ-OPERATOR-045](#req-operator-045-delegated-management-and-invocation), [REQ-OPERATOR-049](#req-operator-049-operators-management-interface), [REQ-OPERATOR-032](#req-operator-032-secret-safe-administration-readback)
 
-**Verification:** Enterprise operator administration is covered by the adjacent component and client tests.
+**Verification:** Automated test: Enterprise operator administration is covered by the adjacent component and client tests.
 
 **Status:** Implemented
 
@@ -1565,7 +1565,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-045](#req-operator-045-delegated-management-and-invocation), [REQ-OPERATOR-046](#req-operator-046-explicit-release-promotion)
 
-**Verification:** The remaining management criteria have current route and UI test anchors and were present in the earlier CI-proven management surface. Catalog Enabled/Disabled copy passed exact-head PR Checks `36497242563` at `5eaae7d470a4123fee0e0259bb702cadb61b3464` (frontend shard-3, Typecheck, aggregate). The guided-launcher acceptance still pending is owned by REQ-OPERATOR-058; Enterprise Integration responsive visual acceptance remains a separate release gate.
+**Verification:** Management route/UI tests; historical Enabled/Disabled copy coverage passed. Guided-launcher acceptance remains pending under REQ-OPERATOR-058; responsive Enterprise Integration visual acceptance is separate.
 
 **Status:** Implemented
 
@@ -1595,7 +1595,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-049](#req-operator-049-operators-management-interface), [REQ-OPERATOR-045](#req-operator-045-delegated-management-and-invocation)
 
-**Verification:** Schema-derived journey/legacy guidance and behavioral wire/copy tests are implemented locally but have not run at this correction head. The earlier failed PR Checks 36363151786 is historical, not verification of this candidate. Exact-head CI and responsive Enterprise Integration acceptance remain pending.
+**Verification:** Schema-derived journey/legacy wire and copy tests are authored but unrun at the correction head; exact-head CI and responsive Enterprise Integration acceptance remain pending.
 
 **Status:** Implemented
 
@@ -1625,7 +1625,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-008](#req-operator-008-enterprise-operator-administration-surface), [REQ-OPERATOR-049](#req-operator-049-operators-management-interface)
 
-**Verification:** Installed-selection and first-installation tests at the adjacent anchors; retained release metadata/fallback rendering remains manual, with current-head regression/CI pending.
+**Verification:** Automated test: Installed-selection and first-installation tests at the adjacent anchors; retained release metadata/fallback rendering remains manual, with current-head regression/CI pending.
 
 **Status:** Implemented
 
@@ -1649,7 +1649,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-008](#req-operator-008-enterprise-operator-administration-surface), [REQ-OPERATOR-049](#req-operator-049-operators-management-interface)
 
-**Verification:** Configured-identity selection is covered by the adjacent public form/save test. Explanatory action/resource wording remains manual, not established by selector or source assertions; current-head CI is pending.
+**Verification:** Automated test: Configured-identity selection is covered by the adjacent public form/save test. Explanatory action/resource wording remains manual, not established by selector or source assertions; current-head CI is pending.
 
 **Status:** Implemented
 
@@ -1787,7 +1787,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-006](#req-operator-006-capability-authenticated-webhook-activity), [REQ-OPERATOR-016](#req-operator-016-durable-activity-admission-and-cleanup)
 
-**Verification:** Earlier activity behavior passed exact-head CI 35174509964 at `e03c48ec`. The current five-entry owner history, unread and overview behavior passed exact-head PR Checks `36494117864` at `369e11db3824ee1973a79a67da7463a0df44881d`. Authenticated Enterprise Integration browser observations covered mobile/desktop guided prefill, in-app owner detail, and header paging 5→5→5→4 and back, but older persisted summaries displayed UUID titles. Historical metadata RED at `7730c0526c151555f63cab0ff263e636f2893f80` / PR Checks `36533355151` failed the expected missing Activity summary method and missing owner-page enrichment, alongside six typing errors in the new route tests, corrected before implementation; the bounded correction at `b2f25cf7da48372a70a8440d38b1f062d06e6815` passed exact-head PR Checks `36534633865` attempt 2, including the owner-route/Activity tests, Typecheck, Node-Flue and aggregate. Attempt 1 failed only because Wrangler returned a non-JSON `Error: Net...` response in the unchanged malformed-model Node-Flue test; its root cause remains unproved. Enterprise Integration rollout `36536119109` deployed the correction at `05ab38a4d3851fc6f4db2f5d43ef79aeb432c590` with inline exact-tree CI. On the Access-protected Enterprise Integration origin `https://enterprise.codeflare.ch`, fresh authenticated DOM/content inspection showed historical Renovate Dispatcher and Codeflare Gate 1 fixture names rather than UUIDs, with available `repository · PR` context at 390×844; its 19 entries paged 5→5→5→4 and back. The completed owned Activity opened readable in-app assessment detail; the 1440×900 header retained resolved labels. Measured horizontal overflow was absent in both viewports. Mobile and desktop screenshots showed readable historical labels and owned detail; long repository/PR context wrapped within the desktop card without clipping. This verifies the observed visual presentation, not the untested admission and isolation edges. A later, separately authorized one-off Komodo #1299 admission created Activity `b4375b9f-f985-4c01-af35-4ef973e9d5b0`: the header unread badge showed 1, opening the dropdown acknowledged it, and the owner row and detail showed waiting execution with a saved checkpoint and pending result. This is natural new-admission and unread-acknowledgement evidence, not settled execution or a fabricated UI test. The 20-per-operator edge is unverified, and the user elected to test second-account isolation themselves; neither may be claimed from this one-account observation.
+**Verification:** Activity, owner-route and UI tests; historical mobile/desktop observations covered labels, paging, readable detail and fresh-admission unread acknowledgment, not settlement. The 20-per-operator edge, second-account isolation and other admission/isolation edges remain unverified.
 
 **Status:** Implemented
 
@@ -1813,7 +1813,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-027](#req-operator-027-owned-activity-user-surface), [REQ-OPERATOR-041](#req-operator-041-owned-activity-browser-reads)
 
-**Verification:** New behavior awaits exact-head CI and Enterprise Integration desktop/mobile inspection.
+**Verification:** Automated test: New behavior awaits exact-head CI and Enterprise Integration desktop/mobile inspection.
 
 **Status:** Planned
 
@@ -1842,7 +1842,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-027](#req-operator-027-owned-activity-user-surface), [REQ-OPERATOR-041](#req-operator-041-owned-activity-browser-reads)
 
-**Verification:** Exact-head PR Checks `36494117864` at `369e11db3824ee1973a79a67da7463a0df44881d` passed current in-app Review and nested Dispatcher-result tests, Typecheck and aggregate. The cited compatibility assessment is not merge authorization. Mobile result navigation on Enterprise Integration remains unverified under separate acceptance tasks.
+**Verification:** In-app Review and nested Dispatcher-result tests passed historically; compatibility evidence is not merge authorization. Enterprise Integration mobile result navigation remains unverified.
 
 **Status:** Implemented
 
@@ -1873,7 +1873,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-027](#req-operator-027-owned-activity-user-surface)
 
-**Verification:** Placement and copy are covered by adjacent component tests (`Dashboard.test.tsx`, `Header.test.tsx`, `OperatorActivityButton.test.tsx`). AC5 and AC6 are owner-verified manually.
+**Verification:** Automated test: Placement and copy are covered by adjacent component tests (`Dashboard.test.tsx`, `Header.test.tsx`, `OperatorActivityButton.test.tsx`). AC5 and AC6 are owner-verified manually.
 
 **Status:** Implemented
 
@@ -1928,7 +1928,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-006](#req-operator-006-capability-authenticated-webhook-activity), [REQ-OPERATOR-016](#req-operator-016-durable-activity-admission-and-cleanup)
 
-**Verification:** Server ownership is covered by the route tests. In-app client/result tests are added for GREEN; RED PR Checks 36362489370 failed before the client existed, so final exact-head verification is pending.
+**Verification:** Automated test: adjacent ownership route tests; in-app client/result coverage is authored, with final exact-head verification pending.
 
 **Status:** Implemented
 
@@ -1957,7 +1957,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-006](#req-operator-006-capability-authenticated-webhook-activity), [REQ-OPERATOR-016](#req-operator-016-durable-activity-admission-and-cleanup), [REQ-OPERATOR-027](#req-operator-027-owned-activity-user-surface)
 
-**Verification:** Owner-scoped cancellation and CSRF-protected browser start are covered by the adjacent route tests. The browser client test proves rejected mutations are attempted once.
+**Verification:** Automated test: Owner-scoped cancellation and CSRF-protected browser start are covered by the adjacent route tests. The browser client test proves rejected mutations are attempted once.
 
 **Status:** Implemented
 
@@ -1985,7 +1985,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-027](#req-operator-027-owned-activity-user-surface)
 
-**Verification:** Component and owner-route behavior is automated; actual account-switch and activity-surface mobile acceptance remain pending. Operators catalog mobile acceptance does not establish this activity-surface criterion.
+**Verification:** Automated test: Component and owner-route behavior is automated; actual account-switch and activity-surface mobile acceptance remain pending. Operators catalog mobile acceptance does not establish this activity-surface criterion.
 
 **Status:** Planned
 
@@ -2055,7 +2055,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-047](#req-operator-047-generic-directed-profile-admission), [REQ-OPERATOR-050](#req-operator-050-generic-conductor-capability), [REQ-OPERATOR-029](#req-operator-029-capability-authenticated-webhook-edge)
 
-**Verification:** Dedicated-extension test-only RED at `3a561549` failed the expected missing selector/consumer and published-read cases in `36447403897`. The first GREEN candidate `b6133eb0` failed exact-head Test `36452540739`: three new suites were erroneously assigned to the Worker rather than Node lane, backend Typecheck and two Host checks failed. The original local-only Review source is restored from the verified `f588867d^` blob; the dedicated selector and published-result consumer passed full exact-head Test `36457559457` at `65d1512409449b5e18a31ad36ba0dff17eafc597`. The finding-linked rejection test-only RED `2981b57c` failed its intended cases in Test `36461468216`, with a separate test typing error also observed. The first candidate `1cfde761` failed Test `36465802906` on generated seed drift, a TypeScript option and stale compiled-fixture fields. Corrected `73ec5e570f0d29c5955698cb24c53d2a202c199e` passed full exact-head Test `36467129972`, including compiled Conductor native fixture, generated-seed guard, Typecheck, Host and backend tests; this remains dormant evidence, not installed Action proof. None of these checks establishes runtime activation or an end-to-end live receipt. Generation-fenced webhook continuation passed exact-head Codeflare PR Checks at `c4b0cbc9` (run `35855161432`). The Conductor collector's scoped tests passed at `60257e1` (run `35857563056`), while that package workflow remained red for absent Action/publisher modules. Authenticated preparation and Pi remote selection passed exact-head PR Checks at `96d136a0` (run `35892316489`); the Action claim RED suite ran at `e4cbc923` (run `35896387844`) and its automated claim/Stop behavior passed exact-head PR Checks at `6812f243` (run `35903787791`). Earlier preparation checks `35890471868` and `35891520587` failed; the historical local Pi path carries bounded untrusted triage excerpts when a completed prior local round exists, otherwise explicitly reports unavailable evidence. The new dedicated remote path separately requires authenticated publisher readback, and neither an untrusted excerpt nor the precommit lifecycle checks establish clearance or an Action-redeemable handoff. Protected Action installer behavior had test-only RED at `00a213b5`; dormant proposal, pinned reusable-runtime validation and inactive protected-base trust passed exact-head Codeflare Test `36467842514` at `ef28440738b0ff095f697f072b8f60290dab7e48`. A real target-repository workflow installation, sandbox claim, independent publication, compiled production-owner execution and current-head Enterprise Integration proof remain pending.
+**Verification:** Selector, preparation, continuation, claim/Stop and compiled Conductor tests; historical passes establish dormant coverage only. Local triage excerpts grant no clearance or handoff; remote reads require authenticated publisher evidence. Target workflow installation, sandbox claim, independent publication, compiled production-owner execution, activation and current-head Enterprise Integration end-to-end proof remain pending.
 
 **Status:** Planned
 
@@ -2087,7 +2087,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-053](#req-operator-053-enterprise-pr-boundary-review-handoff), [REQ-SESSION-018](session-lifecycle.md#req-session-018-d1-lifecycle-evidence-is-generation-fenced)
 
-**Verification:** The test-only RED suite ran at `e4cbc923` (PR Checks `35896387844`). Implementation heads `0818d60f`, `8f673c87`, `eff95b47` and `93ed85e8` failed exact-head CI; claim/Stop and restart tests passed exact-head PR Checks at `6812f243` (run `35903787791`). Protected Action sandbox claim remains unproven; this requirement remains Planned.
+**Verification:** Automated test: adjacent claim/Stop and restart tests passed historical exact-head PR Checks `35903787791` at `6812f243`. Protected Action sandbox claim remains unproven.
 
 **Status:** Planned
 
@@ -2115,7 +2115,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-053](#req-operator-053-enterprise-pr-boundary-review-handoff), [REQ-OPERATOR-054](#req-operator-054-protected-action-claim-and-stop-fence)
 
-**Verification:** Owner journal and protected route behavior passed exact-head Codeflare PR Checks `36165253903` at `1f59d8b142857490c81ed7a5560d781485627922`. The independent publisher's separate Conductor Test `36165671477` passed at `03ea03189df882deb58288106c09746f4cddc178`. Neither run proves installed protected Action execution or external publication readback.
+**Verification:** Owner-journal, protected-route and separate package-publisher tests; historical passes do not prove installed protected Action execution or external publication readback.
 
 **Status:** Planned
 
@@ -2151,7 +2151,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-053](#req-operator-053-enterprise-pr-boundary-review-handoff), [REQ-OPERATOR-055](#req-operator-055-pr-wide-publication-ordering)
 
-**Verification:** Codeflare's frozen-owner projection and route passed PR Checks `36165253903` at `1f59d8b142857490c81ed7a5560d781485627922`. Conductor's publisher, artifact/history reader and ledger tests passed Test `36165671477` at `03ea03189df882deb58288106c09746f4cddc178`. The workflow is not installed; there is no live protected job, exact-ID GitHub receipt or shadow clearance proof. This requirement remains Planned.
+**Verification:** Frozen-owner projection, route and separate package publisher/history/ledger tests; historical passes do not establish an installed workflow, live protected job, exact-ID GitHub receipt or shadow clearance.
 
 **Status:** Planned
 
@@ -2238,7 +2238,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-053](#req-operator-053-enterprise-pr-boundary-review-handoff)
 
-**Verification:** Automated publication-reader and read-only projection tests at the adjacent anchors. Current-head reader regressions and live publication receipts remain pending.
+**Verification:** Automated test: Publication-reader and read-only projection tests at the adjacent anchors. Current-head reader regressions and live publication receipts remain pending.
 
 **Status:** Planned
 
@@ -2299,7 +2299,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-048](#req-operator-048-dispatcher-execution)
 
-**Verification:** Assessment test-only RED at `ba7cf5c1` dispatched ordinary Test `36416699933`; the existing bounded release-read slice previously passed. RED runs `36409071181` and `36410197692` failed intended parent release-evidence cases; parent correction exact-head Test `36410922334` passed at `72456a74`. Dispatcher package Test `36411884907` passed at `453d14f`, and its missing-patch correction passed `36412984001` at `2d8df70`; compiled-bridge RED run `36411798335` failed its missing-citation assertion at `f385d6c3`. A second test-only run `36412555479` could not reach its added missing-patch case after that prior failure. The pinned compiled child and parent evidence tests passed Codeflare exact-head Test `36413314483` at `bcf083d0` (cited release and omitted-patch unknown outcomes). Dispatcher package Test `36419749747` passed at `ae5a050`; Codeflare's prior structured-declaration candidate `aba3428a` passed exact-head Test `36422322395`, including privacy and incomplete-settlement fencing. That candidate did not establish normal upstream-prose reasoning; corrected test-only RED heads `fda6de6` (Dispatcher `36425054534`) and `109e0420` (Codeflare `36425083563`) failed the intended cases. Dispatcher exact-head Test `36426967071` passed 36 tests at `838086026f6a859db822fa04fce5a56ce24ce344`; its official compiled bundle SHA-256 is `59657efc915abc07c707725f00066779a575feb609d3c2d80bdd349ea1a10ac4`. Codeflare compiled-parent Test `36429791230` passed node-native, node-Flue, backend shard-5, Typecheck and aggregate at `17313b1b5ddd4846893b1fae3550c7336e79ca5a`. Live #1299 assessment and any conditional effect are separate, still-unverified gates.
+**Verification:** Parent-evidence and pinned compiled-child tests; historical suites passed, but earlier structured-declaration coverage did not prove normal upstream-prose reasoning. Live #1299 assessment and conditional effects remain unverified.
 
 **Status:** Implemented
 
@@ -2328,7 +2328,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-051](#req-operator-051-renovate-dispatcher-assessment)
 
-**Verification:** Test-only RED `8c4c6af0` failed the intended publisher and route cases in PR Checks `36432738228`. Final code head `7006520a9b00a8ee9982f287fda886d7ee0458c8` passed PR Checks `36436401592`, including backend publisher and route tests, node-native/Flue, Typecheck and aggregate. The pinned compiled-output interoperability RED at `4335bb313ad6485f9bb8b78e46c27b02a24b2307` failed the expected parser and publisher cases in PR Checks `36505023626`. The first correction `4ab7ada6` failed PR Checks `36505696468` only because the prospective-scan test still injected a flattened synthetic child result; the fixture was corrected without relaxing the publication boundary. Exact-head `b5c5e30d90fce91fbd999a2473f07f9bd1972b1c` passed PR Checks `36506071749`, including Node-Flue, backend shards 3 and 7, Typecheck and aggregate. The compiled producer-to-parser assertion, synthetic settled snapshot through real Activity collection, and real publisher against mocked GitHub effects are complementary, not a single live end-to-end run. No live Komodo #1299 assessment, comment, approval, merge, activation or deployment occurred. The prospective post-cutoff scheduler remains separate.
+**Verification:** Publisher/route and compiled-output interoperability tests passed historically; compiled producer/parser, synthetic settlement through real Activity collection and mocked GitHub effects are not one live end-to-end run. Live #1299 assessment, comment, approval, merge, activation and deployment remain unproven; prospective scheduling is separate.
 
 **Status:** Implemented
 
@@ -2395,23 +2395,21 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-051](#req-operator-051-renovate-dispatcher-assessment), [REQ-OPERATOR-060](#req-operator-060-fenced-renovate-publication)
 
-**Verification:** Previous-contract evidence only: exact-head PR Checks `36490796134` at `188aee1162326fe817dfa11e745cf32e9dbdb500` passed Typecheck, backend Container, Registry, publisher and route shards, and the aggregate gate after test-only RED run `36485684846` failed on absent behavior. Tests exercise authenticated activation, concurrent durable admission, the scheduled callback contract with simulated SDK delivery, lost scheduling/start responses, an unchanged uncertain Activity, the real Activity collector on a synthetic settled-waiting snapshot, Activity-bound read/inference revocation and restricted publication. The connected fixture substitutes the child settlement and does not run a compiled Dispatcher, prove model judgment, activate scanning or demonstrate a naturally arriving post-activation Komodo PR; those remain separate acceptance boundaries.
-
-The configured-run implementation passed exact-head PR Checks `37663588762` at `ecc09497a21c` and was delivered to Integration (`37664462803`) and Enterprise Integration (`37664467033`). Configured manual invocation was observed, but its live Dispatcher did not complete. The new repeat-control presentation remains a local candidate awaiting CI and visual verification; neither prior delivery nor these fixtures establish end-to-end success.
+**Verification:** Configured-run, admission, callback and publication tests passed historically and were delivered to Integration environments. Earlier connected fixtures simulated SDK scheduling and child settlement, not compiled Dispatcher/model judgment or natural post-activation PRs. Observed manual invocation did not complete; repeat-control CI/visual verification and end-to-end success remain pending.
 
 **Status:** Planned
 
 <a id="operator-registry-contract"></a>
 ## Normative appendix: Operator Registry contract
 
-This appendix retains the shared registry, management API, package and directed-profile contract formerly owned by `operator-registry-contract.md`. It adds no authority, backend or public behavior. Codeflare owns generic Interface, Loader, lifecycle, resources, sessions, synchronization, GitHub/inference boundaries and publication fencing; Conductor owns Review business behavior. Codeflare retains generic host-side Pi sandbox/security confinement and distributes the Conductor Review Pi extensions, skills and references used for per-repository GitHub Actions. No Review-specific Activity or adapter is introduced.
+The shared registry, management API, package and directed-profile contracts grant no additional authority. Codeflare owns generic Interface, Loader, lifecycle, resources, sessions, synchronization, GitHub/inference boundaries and publication fencing; Conductor owns Review business behavior. Codeflare retains generic host-side Pi sandbox/security confinement and distributes the Conductor Review Pi extensions, skills and references used for per-repository GitHub Actions. No Review-specific Activity or adapter is introduced.
 
-The original “frozen before RED” timing is historical, not a claim that later requirements are absent. REQ-OPERATOR-002/013/032/039 supersede the old summary that endpoint registration and Gate 1 remain unchanged: historical internal records/default-entrypoint compatibility remain, while legacy HTTP administration and new Gate 1 execution are retired. REQ-OPERATOR-062 extends repository-only transport and exact prospective target fencing; current package-owned effects do not relax the retained read-only legacy assessment or its independently fenced parent publisher. Verification/status qualifiers in each record remain unchanged.
+Under REQ-OPERATOR-002/013/032/039, historical internal records/default-entrypoint compatibility remain, while legacy HTTP administration and new Gate 1 execution are retired. REQ-OPERATOR-062 extends repository-only transport and exact prospective target fencing; current package-owned effects do not relax the retained read-only legacy assessment or its independently fenced parent publisher. Verification/status qualifiers in each record remain unchanged.
 
 <a id="records"></a>
 ### Records
 
-The complete original shared data shapes are retained, with the already-delivered optional response allowance added to the policy shape. These are shared records, not permission grants or an exhaustive serialization of every private helper.
+These shared records are not permission grants or an exhaustive serialization of private helpers.
 
 ```ts
 type OperatorProfile = 'conductor' | 'dispatcher';
@@ -2434,7 +2432,7 @@ type OperatorInstallation = {
 
 The acquisition PAT is registration/source-replacement input only, write-only and never returned. Repository URL is also validated input but remains public source metadata; it is not a secret. Release approval and enablement are separate. Retained default-entrypoint state uses its compatibility adapter and cannot reinstate retired registration routes or Gate 1.
 
-Current retained release metadata includes verified `tagName?: string` and `publishedAt?: string`; older gaps remain distinguishable. Name/description are verified display projections, not changes to immutable release identity. REQ-OPERATOR-044/049/066 preserve those semantics. Current installation RPC stores configuration as bounded `configurationJson: string` and public readback parses it into the configuration object; this does not replace the shared policy/revision/release shape.
+Current retained release metadata includes verified `tagName?: string` and `publishedAt?: string`; older gaps remain distinguishable. Name/description are verified display projections, not changes to immutable release identity. REQ-OPERATOR-044/049/066 preserve those semantics. Installation configuration is bounded and public readback returns a configuration object without replacing the shared policy/revision/release shape.
 
 <a id="management-api"></a>
 ### Management API
@@ -2452,7 +2450,7 @@ Missing controls mean revision 0 and empty grants/ceiling. Only a current verifi
 
 The optional `sourceResponseBytes` field is a positive safe integer in management validation; the configured Environment ceiling remains mandatory. Every omitted value means1048576 (1 MiB), including older saved records; installation allowance ≤ operator allowance ≤ Environment ceiling, without implicit raised inheritance or clamping. Edits preserve pins, scope, grants and saved installation policies, disable enabled installations and require explicit re-enablement. Out-of-ceiling policies cannot be enabled or admitted. The source allowance does not increase request, inference, result or SDK-history bounds.
 
-The three byte fields default to1048576 (1 MiB), not extra model context. Input-adjacent autorenew icons reset drafts to these defaults; saving uses the same authorization, validation and revision fences. Confirmed source-response failures tune installation allowance first, then operator/Environment ceilings if necessary; inference request/response body-limit failures tune operator inference bytes. Token-context, authentication and SDK-history failures need separate remedies. <!-- @impl: web-ui/src/components/OperatorManagement.tsx::OperatorManagement --> <!-- @test: web-ui/src/__tests__/operators/operator-source-response-suite.tsx (REQ-OPERATOR-045/049: explains limit ownership and resets inference to its default without changing other fields) -->
+The three byte fields default to1048576 (1 MiB), not extra model context. Input-adjacent autorenew icons reset drafts to these defaults; saving uses the same authorization, validation and revision fences. <!-- @impl: web-ui/src/components/OperatorManagement.tsx::OperatorManagement --> <!-- @test: web-ui/src/__tests__/operators/operator-source-response-suite.tsx (REQ-OPERATOR-045/049: explains limit ownership and resets inference to its default without changing other fields) -->
 
 | Method and route | Body / result |
 |---|---|
@@ -2518,7 +2516,7 @@ These optional operator policy fields also belong to the revision-fenced capabil
 
 Positive safe integers are required. All research/drive waits remain bounded by original authority. Source responses retain installation ≤ operator ≤ Environment and default1MiB; no additional fixed1MiB platform ceiling blocks an authorized higher Environment allowance. These controls do not alter SDK persistence, package/compiler bytes, source mappings, identifier formats, model context or result authority. Configurable projection bounds preserve overflow/truncation markers rather than advertising incomplete evidence as successful completion.
 
-Implementation and behavioral coverage are local; exact-head CI, browser rendering and hosted end-to-end acceptance are unverified at this pre-push checkpoint. <!-- @impl: src/operators/dispatcher-capacity-limits.ts::dispatcherCapacities --> <!-- @impl: src/operators/operator-runtime-capability.ts::parseDispatcherOperation --> <!-- @impl: src/operators/dispatcher-result.ts::readDispatcherUpdates --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-047: configured non-inference UTF-8 envelope and text bounds retain complete wire values) --> <!-- @test: src/__tests__/operators/dispatcher-result.test.ts -->
+Verification: local implementation and behavioral coverage only; exact-head CI, browser rendering and hosted end-to-end acceptance remain unverified. <!-- @impl: src/operators/dispatcher-capacity-limits.ts::dispatcherCapacities --> <!-- @impl: src/operators/operator-runtime-capability.ts::parseDispatcherOperation --> <!-- @impl: src/operators/dispatcher-result.ts::readDispatcherUpdates --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-047: configured non-inference UTF-8 envelope and text bounds retain complete wire values) --> <!-- @test: src/__tests__/operators/dispatcher-result.test.ts -->
 
 ### Future inference recovery contract
 
@@ -2573,14 +2571,14 @@ There must be 1–16 unique references. Parent verifies original unknown mutatio
 <a id="package-release-files"></a>
 ### Package release files
 
-Each immutable GitHub release supplies exactly `operator-manifest.json`, `operator-bundle.json` and `operator-provenance.json`. Manifest extends existing v1 metadata with profile, declared input/output schemas and requested capability names. Parent verifies repository identity, approved workflow/ref, source commit and asset/bundle digests before approval. Package requests never grant capability. Compiler deterministically emits existing approved schemas, exact resource digests/sizes and matching discovery manifest; it rejects unsafe paths and package-supplied policy, bindings, credentials, environment or outbound authority. This documentation move changes no compiler/package ABI or exact compiler pin.
+Each immutable GitHub release supplies exactly `operator-manifest.json`, `operator-bundle.json` and `operator-provenance.json`. Manifest extends existing v1 metadata with profile, declared input/output schemas and requested capability names. Parent verifies repository identity, approved workflow/ref, source commit and asset/bundle digests before approval. Package requests never grant capability. Compiler deterministically emits existing approved schemas, exact resource digests/sizes and matching discovery manifest; it rejects unsafe paths and package-supplied policy, bindings, credentials, environment or outbound authority. The compiler/package ABI and exact compiler pin remain unchanged.
 
 <a id="dispatcher-durable-host"></a>
 ### Dispatcher durable host
 
-REQ-OPERATOR-047/048/051 extend existing 015–018 owners, not a second lifecycle service. `OperatorActivity` owns admission, protected operation receipts and one Activity-private facet containing real Flue code and isolated SQLite. Package CI builds generated Flue Durable Object class; Codeflare selects approved class export through Worker Loader, never arbitrary caller export. Legacy default-entrypoint bundles remain valid. Vite is package build tooling, not a new Codeflare build pipeline.
+REQ-OPERATOR-047/048/051 extend existing 015–018 owners, not a second lifecycle service. `OperatorActivity` owns admission, protected operation receipts and one Activity-private facet containing real Flue code and isolated SQLite. Codeflare selects the approved generated Flue Durable Object class export through Worker Loader, never an arbitrary caller export. Legacy default-entrypoint bundles remain valid.
 
-Facets have no independent physical alarm. Reuse pinned Agents SDK root alarm/fiber machinery in existing Activity with a narrowly scoped dynamic-facet/root bridge. SDK-internal resolution/init seams must be pinned and proven in native fixture before production base-class integration. No copied scheduler, new DO namespace/migration, per-operator deployment, container, full Activity stub or unrestricted namespace binding. Bundle compatibility is child-specific; any parent compatibility change requires demonstrated API need and regression tests.
+Facets have no independent physical alarm; scheduling uses the pinned Agents SDK root alarm/fiber machinery in the existing Activity through a narrowly scoped dynamic-facet/root bridge. SDK-internal resolution/init seams require pinned compatibility and native-fixture proof. No copied scheduler, new DO namespace/migration, per-operator deployment, container, full Activity stub or unrestricted namespace binding. Bundle compatibility is child-specific; any parent compatibility change requires demonstrated API need and regression tests.
 
 One durable execution lease binds generation, submission, input/release digests, expiry and state. Async admission leaves execution running: HTTP return/status polling cannot commit false `waiting`, increment generation or renew lease. Only persisted safe quiescent checkpoint permits explicit continuation. Each effect carries original generation and stable operation ID/digest. Recheck current human eligibility/policy, expiry/cancellation and result generation; never upgrade stale warmed caller. Complete receipts reconcile and changed digests conflict. Unknown mutations never replay; only explicitly future-eligible inference receives separately charged successors under the recovery contract above. Fence cancellation before signaling Flue; alarm recovery/settlement grants no new execution authority. No discretionary whole-assessment cap overrides authorized work; original human deadline still fences late settlement. Legacy exact completed assessment settles to waiting before terminal collection; repository-only exact completed result settles to completed without checkpoint. Both require one bounded result and no unresolved operation.
 
