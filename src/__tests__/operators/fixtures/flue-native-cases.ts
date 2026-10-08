@@ -209,6 +209,7 @@ export function registerNativeDispatcherCases(
       let body: unknown;
       let responseCategory: string | undefined;
       let responseErrorClass: string | undefined;
+      let responseMessage: string | undefined;
       let responseSource: { file: string; line: number; column: number } | undefined;
       try {
         const response = await send(value);
@@ -219,6 +220,15 @@ export function registerNativeDispatcherCases(
         catch (error) {
           // Match fixed platform error templates in memory; never retain the response.
           responseErrorClass = /^(Error|TypeError|RangeError|SyntaxError|ReferenceError|AbortError|TimeoutError):/m.exec(text)?.[1] ?? 'other';
+          // Authorized synthetic CI exception only: redact values, never emit its stack or body.
+          const firstLine = text.split(/\r?\n/, 1)[0];
+          if (/^(Error|TypeError|RangeError|SyntaxError|ReferenceError|AbortError|TimeoutError):/.test(firstLine)) {
+            responseMessage = firstLine
+              .replace(/Bearer\s+\S+/gi, 'Bearer <redacted>')
+              .replace(/\bhttps?:\/\/\S+/gi, '<url>')
+              .replace(/\b[a-f\d]{8}(?:-[a-f\d]{4}){3}-[a-f\d]{12}\b/gi, '<id>')
+              .replace(/[A-Za-z\d_+/=-]{40,}/g, '<value>');
+          }
           // Only locations in named public sources may leave this in-memory response.
           const location = /\b(entry\.worker\.js|activity\.ts|loader-worker\.ts|dispatcher-composed-fixture\.ts):(\d{1,7}):(\d{1,7})\b/.exec(text);
           if (location) responseSource = { file: location[1], line: Number(location[2]), column: Number(location[3]) };
@@ -237,7 +247,7 @@ export function registerNativeDispatcherCases(
           throw new Error('Native composed fixture rejected');
         }
       } catch (error) {
-        console.info(`[native-flue] composed transport=${JSON.stringify({ phase, boundary, status, responseCategory, responseErrorClass, responseSource, ...closedTransportFailure(error) })}`);
+        console.info(`[native-flue] composed transport=${JSON.stringify({ phase, boundary, status, responseCategory, responseErrorClass, responseMessage, responseSource, ...closedTransportFailure(error) })}`);
         // One independent, read-only retained-evidence read; never repeat the failed command.
         try {
           const diagnostic = await send({ action: 'diagnose' });

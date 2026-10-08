@@ -4,6 +4,8 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-10-08
 
+- At explicit user direction, capture a sanitized first exception line from the synthetic native CI failed response, redacting credential-like values, URLs and identifiers. Do not emit its stack or response body or inspect historical Activities. Category-only probes identified the outer entry-server failure but not its cause; keep all runtime behavior, pins, deadlines and collection assertions unchanged.
+
 - Extend the existing native failed-response inspection with an allowlisted exception class and named public source location only. Miniflare has an outer plain-text exception response path, but the prior CI failure remains unattributed. Do not retain the body, message or stack, change runtime/package behavior, suppress failures or alter deadlines and collection assertions.
 
 - Classify native composed non-JSON failures against fixed platform error templates in memory, retaining only a closed category. The unchanged-head rerun repeated an observation HTTP 500 despite retained completion and seven comments; its cause remains unidentified. Preserve failure propagation, assertions, deadlines and package pins; log no response body or stack.
