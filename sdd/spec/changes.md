@@ -4,6 +4,8 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-10-08
 
+- Classify native composed non-JSON failures against fixed platform error templates in memory, retaining only a closed category. The unchanged-head rerun repeated an observation HTTP 500 despite retained completion and seven comments; its cause remains unidentified. Preserve failure propagation, assertions, deadlines and package pins; log no response body or stack.
+
 - Correct the native one-attempt interruption check to verify retained behavior: one inference, no same-submission replacement attempt, no writes and unavailable collection. Public SDK observation is live-only and cannot promise terminal telemetry after hard eviction. Keep ordinary completion/collection, positive recovery-limit checks, persistence assertions and deadlines unchanged; host CI and hosted acceptance remain pending.
 
 - REQ-OPERATOR-011/048: pin verified packageed9f16b with synchronous, digest-correlated public SDK lifecycle logging; global observers are not awaited by terminal settlement. Package Test37763846695 passed with unchanged SDK/compiler and existing nodejs_compat. Add closed transport error/code classifications and retained SDK failure categories without raw errors or identifiers. Prior host CI37761855092 passed Typecheck and51/52 native cases, including32 complete research receipts, seven comments/outcomes and stable collection; one-attempt interrupted observation still awaited exhaustion evidence. Preserve all assertions and deadlines; exact-head host GREEN, official delivery and hosted acceptance remain pending.

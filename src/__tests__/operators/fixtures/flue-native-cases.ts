@@ -207,17 +207,31 @@ export function registerNativeDispatcherCases(
       let boundary: 'fetch-rejected' | 'response-not-json' | 'http-rejected' = 'fetch-rejected';
       let status: number | undefined;
       let body: unknown;
+      let responseCategory: string | undefined;
       try {
         const response = await send(value);
         status = response.status;
         boundary = 'response-not-json';
-        body = await response.json();
+        const text = await response.text();
+        try { body = JSON.parse(text); }
+        catch (error) {
+          // Match fixed platform error templates in memory; never retain the response.
+          const normalized = text.toLowerCase();
+          responseCategory = [
+            ['cross-request-io', 'cannot perform i/o on behalf of a different request'],
+            ['memory-limit', 'script exceeded memory limit'],
+            ['cpu-limit', 'exceeded cpu time limit'],
+            ['subrequest-limit', 'too many subrequests'],
+            ['unresolved-response', 'the script will never generate a response'],
+          ].find(([, template]) => normalized.includes(template))?.[0] ?? 'unclassified';
+          throw error;
+        }
         if (status !== 200) {
           boundary = 'http-rejected';
           throw new Error('Native composed fixture rejected');
         }
       } catch (error) {
-        console.info(`[native-flue] composed transport=${JSON.stringify({ phase, boundary, status, ...closedTransportFailure(error) })}`);
+        console.info(`[native-flue] composed transport=${JSON.stringify({ phase, boundary, status, responseCategory, ...closedTransportFailure(error) })}`);
         // One independent, read-only retained-evidence read; never repeat the failed command.
         try {
           const diagnostic = await send({ action: 'diagnose' });
