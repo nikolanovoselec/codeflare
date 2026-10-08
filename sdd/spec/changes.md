@@ -4,6 +4,8 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-10-07
 
+- Extend existing owner-triggered journal inspection with a closed retained SDK failure category (REQ-OPERATOR-063 AC2), including pinned `submission_retry_exhausted`. Preserve exact generation/input/artifact attribution, unknown fences, logging OFF and best-effort delivery; expose no new endpoint/result property or raw error and perform no child I/O. Corrected RED `a2c02c35c803` / CI37704923275 reaches both missing classification assertions; implementation GREEN, delivery and same-Activity diagnosis remain pending.
+
 - Add future-only, parent-owned Dispatcher inference recovery (REQ-OPERATOR-047/048): separately charged bounded attempts, immutable receipts, owner fencing, live duplicate joining and unchanged mutation uncertainty. Expose operator-only Max inference attempts (REQ-OPERATOR-045/049), default4 including the initial request;1 disables retries. Preserve authority, route pins, byte/operation limits, deadlines and historical Activities. Add closed attempt diagnostics (REQ-OPERATOR-078) and production-journal/pinned-Flue composition regressions. Possible duplicate model cost is explicit; CI, live success and physical cleanup are not yet verified.
 
 - Replace the Automatic runs checkbox with an accessible MDI repeat draft toggle immediately after Enable/Disable (REQ-OPERATOR-061/049). Save run settings remains explicit; OFF hides interval/help without discarding its value. Shorten limit descriptions and add standard spacing above Enable logging. Configured-run delivery at `ecc09497a21c` is already complete; these new presentation changes await CI and visual verification.

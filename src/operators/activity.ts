@@ -2479,14 +2479,26 @@ export class OperatorActivity extends Agent {
         || state.receipt.selection.operator.profile !== 'dispatcher') return;
       const journal = await this.ctx.storage.get<DispatcherJournal>(DISPATCHER_JOURNAL);
       if (!journal) return;
+      const lease = await this.ctx.storage.get<DispatcherLease>(DISPATCHER_LEASE);
       let generation = state.drive.generation;
       if (journal.generation !== generation) {
-        const lease = await this.ctx.storage.get<DispatcherLease>(DISPATCHER_LEASE);
         if (state.drive.status !== 'unknown' || !lease || lease.status !== 'unknown'
           || generation !== lease.generation + 1 || journal.generation !== lease.generation
           || lease.inputDigest !== state.receipt.intentDigest
           || lease.artifactDigest !== state.receipt.selection.release.bundleDigest) return;
         generation = lease.generation;
+      }
+      if (state.drive.status === 'unknown' && lease?.status === 'unknown' && lease.generation === generation
+        && lease.inputDigest === state.receipt.intentDigest
+        && lease.artifactDigest === state.receipt.selection.release.bundleDigest
+        && lease.submissionId && lease.projection?.outcome === 'failed') {
+        const type = lease.projection.error?.type ?? '';
+        const sdkErrorType = ['cloudflare_ai_binding_error', 'invalid_request', 'tool_input_validation',
+          'tool_output_validation', 'operation_failed', 'submission_timeout', 'submission_aborted',
+          'internal_error', 'submission_retry_exhausted'].includes(type) ? type : 'other';
+        inferenceDiagnostic({ activityId: state.intent.activityId, generation,
+          loggingEnabled: executionLoggingEnabled(state.receipt) },
+        { stage: 'journal-inspection', boundary: 'projection', outcome: 'failed', sdkErrorType });
       }
       const prefix = `dispatcher:operation:${generation}:`;
       let after: string | undefined;
