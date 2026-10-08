@@ -15,7 +15,7 @@ import conductorBundle from './conductor-review.generated.json';
 import { OperatorRegistry, type OperatorAdmissionRequest } from '../../../operators/registry';
 import { OperatorActivity as ProductionActivity, type OperatorActivityPreparation } from '../../../operators/activity';
 import { OperatorDispatcherTail as ProductionDispatcherTail } from '../../../operators/activity';
-import { composedFixture, fixtureOperatorDispatcherTail, fixtureSubmissionRunning, type RecoveryServices } from './dispatcher-composed-fixture';
+import { composedFixture, fixtureObservationId, observeBoundary, fixtureOperatorDispatcherTail, fixtureSubmissionRunning, type RecoveryServices } from './dispatcher-composed-fixture';
 
 /** Capture closed fixture evidence in its external DO, not a shared-isolate assumption. */
 export class OperatorDispatcherTail extends ProductionDispatcherTail {
@@ -183,6 +183,8 @@ async function loadConductorBundle(env: FixtureEnv, capability: Fetcher): Promis
 
 export default {
   async fetch(request: Request, env: FixtureEnv, ctx: ExecutionContext): Promise<Response> {
+    const observationId = fixtureObservationId(request);
+    observeBoundary(observationId, 'worker-entered');
     const entrypoints = (ctx as unknown as { exports: Record<string,
       (options: { props: { principal: string; generation?: number } }) => Fetcher> }).exports;
     const props = { principal: 'fixture-owner' };
@@ -192,6 +194,7 @@ export default {
         try { return await composedFixture(request, env as unknown as Parameters<typeof composedFixture>[1]); }
         catch {
           // Retain a closed asynchronous failure boundary, never its raw exception.
+          observeBoundary(observationId, 'worker-rejected');
           console.warn('Native composed fixture failed', { category: 'composed-fixture-rejected', status: 500 });
           return Response.json({ category: 'composed-fixture-rejected' }, { status: 500 });
         }

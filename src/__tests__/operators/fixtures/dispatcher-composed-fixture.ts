@@ -50,8 +50,15 @@ let identityService: (() => { identity(): Promise<Response> }) | undefined;
 let diagnosticActivity: string | undefined;
 const diagnostics: Array<Record<string, string | number | boolean | null>> = [];
 // CI-only original-request trace; error level survives the harness's error-only logger.
-const observeBoundary = (observationId: string | undefined,
-  boundary: 'rpc-started' | 'reconcile-started' | 'reconcile-completed' | 'detail-completed'
+export const fixtureObservationId = (request: Request): string | undefined => {
+  const candidate = request.headers.get('x-codeflare-fixture-observation-id');
+  return new URL(request.url).searchParams.get('activity')?.startsWith('large-evidence-') && candidate
+    && /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/.test(candidate) ? candidate : undefined;
+};
+export const observeBoundary = (observationId: string | undefined,
+  boundary: 'worker-entered' | 'worker-rejected' | 'composed-entered' | 'request-body-started'
+    | 'request-body-completed' | 'agent-lookup-started' | 'agent-lookup-completed'
+    | 'rpc-started' | 'reconcile-started' | 'reconcile-completed' | 'detail-completed'
     | 'external-completed' | 'activity-return-ready' | 'rpc-completed' | 'json-started' | 'json-completed') => {
   if (observationId) console.error(`[native-flue] observe-boundary=${JSON.stringify({ observationId, boundary })}`);
 };
@@ -467,19 +474,22 @@ export class EgressController extends WorkerEntrypoint<FixtureEnv> {
   fetch(request: Request) { return services(this.env).source(request); }
 }
 export async function composedFixture(request: Request, env: FixtureEnv): Promise<Response> {
+  const observationId = fixtureObservationId(request);
+  observeBoundary(observationId, 'composed-entered');
   identityService = () => services(env);
+  observeBoundary(observationId, 'request-body-started');
   const command = await request.json<{ action: string; artifact?: DispatcherBundle; digest?: string; scenario?: RecoveryScenario; attemptLimit?: number; submissionAttemptLimit?: number }>();
+  observeBoundary(observationId, 'request-body-completed');
   const id = new URL(request.url).searchParams.get('activity')!;
+  observeBoundary(observationId, 'agent-lookup-started');
   const activity = await getAgentByName(env.OPERATOR_ACTIVITY, id);
+  observeBoundary(observationId, 'agent-lookup-completed');
   if (command.action === 'start') {
     await services(env).configure(command.artifact!, command.digest!, command.scenario ?? 'ordinary', command.attemptLimit ?? 4, command.submissionAttemptLimit, id);
     return Response.json(await activity.startComposed(id, command.artifact!, command.digest!));
   }
   if (command.action === 'change-submission-policy') { await services(env).changeSubmissionPolicy(command.submissionAttemptLimit!); return Response.json({ ok: true }); }
   if (command.action === 'observe') {
-    const candidate = request.headers.get('x-codeflare-fixture-observation-id');
-    const observationId = id.startsWith('large-evidence-') && candidate
-      && /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/.test(candidate) ? candidate : undefined;
     observeBoundary(observationId, 'rpc-started');
     const value = await activity.observeComposed(observationId);
     observeBoundary(observationId, 'rpc-completed');

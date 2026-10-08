@@ -204,7 +204,7 @@ export function registerNativeDispatcherCases(
       const observationId = phase === 'observe' && id.startsWith('large-evidence-') ? crypto.randomUUID() : undefined;
       const send = (command: unknown) => harness.fetch(`/dispatcher-composed?activity=${id}`, {
         method: 'POST', headers: { 'content-type': 'application/json',
-          ...(observationId ? { 'x-codeflare-fixture-observation-id': observationId } : {}) },
+          ...(observationId && command === value ? { 'x-codeflare-fixture-observation-id': observationId } : {}) },
         body: JSON.stringify(command), signal: AbortSignal.timeout(20_000),
       });
       let boundary: 'fetch-rejected' | 'response-not-json' | 'http-rejected' = 'fetch-rejected';
