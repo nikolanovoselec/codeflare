@@ -540,16 +540,22 @@ jobs:
       - name: Stop and publish temporary native connection metadata
         if: always() && matrix.group == 'flue'
         run: |
+          # Publish even when termination fails; preserve the cleanup exit status.
+          trap 'if test -f "$RUNNER_TEMP/native-transport.jsonl"; then cat "$RUNNER_TEMP/native-transport.jsonl"; fi' EXIT
           if test -s "$RUNNER_TEMP/native-transport.pid"; then
-            sudo -n kill -TERM "$(cat "$RUNNER_TEMP/native-transport.pid")"
-            for attempt in $(seq 1 50); do
-              if ! test -e "$RUNNER_TEMP/native-transport.pid"; then break; fi
-              sleep 0.1
-            done
-            test ! -e "$RUNNER_TEMP/native-transport.pid"
-          fi
-          if test -f "$RUNNER_TEMP/native-transport.jsonl"; then
-            cat "$RUNNER_TEMP/native-transport.jsonl"
+            if pid=$(cat "$RUNNER_TEMP/native-transport.pid" 2>/dev/null); then
+              if ! sudo -n kill -TERM "$pid"; then
+                # The probe removes its PID file on normal independent expiry.
+                test ! -e "$RUNNER_TEMP/native-transport.pid"
+              fi
+              for attempt in $(seq 1 50); do
+                if ! test -e "$RUNNER_TEMP/native-transport.pid"; then break; fi
+                sleep 0.1
+              done
+              test ! -e "$RUNNER_TEMP/native-transport.pid"
+            else
+              test ! -e "$RUNNER_TEMP/native-transport.pid"
+            fi
           fi
 
   workflow-audit:
