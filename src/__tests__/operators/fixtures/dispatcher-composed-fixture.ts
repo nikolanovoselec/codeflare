@@ -50,6 +50,16 @@ let identityService: (() => { identity(): Promise<Response> }) | undefined;
 let diagnosticActivity: string | undefined;
 const diagnostics: Array<Record<string, string | number | boolean | null>> = [];
 export type CanonicalAppendObservation = { category: 'canonical-append-oversized' | 'canonical-append-other'; largestRecordType?: 'state_write' };
+type SdkObservation = { stage: 'sdk-submission-running' | 'sdk-submission-exhausted'; submissionDigest: string; attemptCount: number; maxAttempts: number };
+type RetainedObservation = {
+  inference: Array<{ inputDigest: string; turn: number }>;
+  comments: Array<{ id: number; body: string; user: { id: number; login: string; type: string }; issue_url: string }>;
+  sourceRequests: Array<{ url: string; method: string }>; held: boolean;
+  duplicates: Array<{ statuses: number[]; digests: string[] }>;
+  budget?: { operationCount: number; operationLimit: number };
+  evidence: Array<{ index: number; complete: boolean }>; batches: string[][];
+  firstAppend: CanonicalAppendObservation | null; sdkSubmissions: SdkObservation[];
+};
 /** Pure fixture-only classifier: public SDK errors in, closed evidence out. */
 export function fixtureOperatorDispatcherTail(events: unknown): CanonicalAppendObservation | null {
   let first: CanonicalAppendObservation | null = null;
@@ -81,19 +91,21 @@ export function fixtureOperatorDispatcherTail(events: unknown): CanonicalAppendO
   return first;
 }
 
-/** Only the documented submission-running counts emitted by the compiled app. */
-export function fixtureSubmissionRunning(events: unknown): Array<{ attemptCount: number; maxAttempts: number }> {
-  const entries: Array<{ attemptCount: number; maxAttempts: number }> = [];
+/** Public running/exhaustion counts correlated by the compiled app's opaque digest. */
+export function fixtureSubmissionRunning(events: unknown): SdkObservation[] {
+  const entries: SdkObservation[] = [];
   const visit = (value: unknown): void => {
     if (typeof value === 'string' && /^\s*[[{]/.test(value)) {
       try { visit(JSON.parse(value)); } catch { /* No raw text retained. */ }
     } else if (Array.isArray(value)) value.forEach(visit);
     else if (value && typeof value === 'object') {
       const item = value as Record<string, unknown>;
-      if (item.stage === 'sdk-submission-running' && typeof item.attemptCount === 'number' && typeof item.maxAttempts === 'number'
+      if ((item.stage === 'sdk-submission-running' || item.stage === 'sdk-submission-exhausted')
+        && typeof item.submissionDigest === 'string' && /^[a-f0-9]{64}$/.test(item.submissionDigest)
+        && typeof item.attemptCount === 'number' && typeof item.maxAttempts === 'number'
         && Number.isSafeInteger(item.attemptCount) && Number.isSafeInteger(item.maxAttempts)
         && item.attemptCount > 0 && item.maxAttempts >= item.attemptCount) {
-        entries.push({ attemptCount: item.attemptCount, maxAttempts: item.maxAttempts });
+        entries.push({ stage: item.stage, submissionDigest: item.submissionDigest, attemptCount: item.attemptCount, maxAttempts: item.maxAttempts });
       }
       Object.values(item).forEach(visit);
     }
@@ -210,17 +222,22 @@ export class RecoveryServices extends DurableObject<FixtureEnv> {
   async sourceId() { return await this.ctx.storage.get<string>('sourceId'); }
   async budget(value: { operationCount: number; operationLimit: number }) { await this.ctx.storage.put('budget', value); }
   async recordTail(activityId: string, generation: number, firstAppend: CanonicalAppendObservation | null,
-    sdkSubmissions: Array<{ attemptCount: number; maxAttempts: number }>) {
+    sdkSubmissions: SdkObservation[]) {
     if (generation !== 1 || activityId !== await this.ctx.storage.get('activityId')) return;
     if (firstAppend && !await this.ctx.storage.get('firstAppend')) await this.ctx.storage.put('firstAppend', firstAppend);
     for (const entry of sdkSubmissions) await this.append('sdkSubmissions', entry);
   }
-  async observe() {
-    return { inference: await this.ctx.storage.get('inference'), comments: await this.ctx.storage.get('comments'),
-      sourceRequests: await this.ctx.storage.get('sourceRequests'), held: await this.ctx.storage.get('held') ?? false,
-      duplicates: await this.ctx.storage.get('duplicates'), budget: await this.ctx.storage.get('budget'),
-      evidence: await this.ctx.storage.get('evidence') ?? [], batches: await this.ctx.storage.get('batches') ?? [],
-      firstAppend: await this.ctx.storage.get('firstAppend') ?? null, sdkSubmissions: await this.ctx.storage.get('sdkSubmissions') ?? [] };
+  async observe(): Promise<RetainedObservation> {
+    return { inference: await this.ctx.storage.get<RetainedObservation['inference']>('inference') ?? [],
+      comments: await this.ctx.storage.get<RetainedObservation['comments']>('comments') ?? [],
+      sourceRequests: await this.ctx.storage.get<RetainedObservation['sourceRequests']>('sourceRequests') ?? [],
+      held: await this.ctx.storage.get<boolean>('held') ?? false,
+      duplicates: await this.ctx.storage.get<RetainedObservation['duplicates']>('duplicates') ?? [],
+      budget: await this.ctx.storage.get<RetainedObservation['budget']>('budget'),
+      evidence: await this.ctx.storage.get<RetainedObservation['evidence']>('evidence') ?? [],
+      batches: await this.ctx.storage.get<RetainedObservation['batches']>('batches') ?? [],
+      firstAppend: await this.ctx.storage.get<CanonicalAppendObservation | null>('firstAppend') ?? null,
+      sdkSubmissions: await this.ctx.storage.get<SdkObservation[]>('sdkSubmissions') ?? [] };
   }
   async inference(request: Request): Promise<Response> {
     const body = await request.text();
@@ -380,8 +397,7 @@ export class OperatorActivity extends ProductionActivity {
     return { executionStatus: detail?.executionStatus ?? 'unprepared',
       collectionStatus: detail?.collectionStatus ?? 'unavailable', firstAppend: external.firstAppend,
       sdkSubmissions: external.sdkSubmissions,
-      inferenceCount: (external.inference as unknown[] | undefined)?.length ?? 0,
-      commentCount: (external.comments as unknown[] | undefined)?.length ?? 0 };
+      inferenceCount: external.inference.length, commentCount: external.comments.length };
   }
   evictComposed(): void { this.ctx.abort('CI composed Activity reset'); }
 }

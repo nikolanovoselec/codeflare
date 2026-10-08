@@ -183,7 +183,12 @@ export function registerNativeDispatcherCases(
         budget?: { operationCount: number; operationLimit: number };
         evidence?: Array<{ index: number; complete: boolean }>; batches?: string[][];
         firstAppend?: { category: 'canonical-append-oversized' | 'canonical-append-other'; largestRecordType?: 'state_write' } | null;
-        sdkSubmissions?: Array<{ attemptCount: number; maxAttempts: number }> } };
+        sdkSubmissions?: Array<{ stage: 'sdk-submission-running' | 'sdk-submission-exhausted'; submissionDigest: string; attemptCount: number; maxAttempts: number }> } };
+    function originalSdk(value: Composed) {
+      const entries = value.external.sdkSubmissions ?? [];
+      const initial = entries.find(entry => entry.stage === 'sdk-submission-running' && entry.attemptCount === 1);
+      return initial ? entries.filter(entry => entry.submissionDigest === initial.submissionDigest) : [];
+    }
     async function composed<T>(id: string, value: unknown): Promise<T> {
       const action = (value as { action?: unknown }).action;
       const phase = ['start', 'observe', 'collect', 'evict', 'release', 'revoke', 'cancel', 'change-submission-policy'].includes(String(action))
@@ -191,7 +196,7 @@ export function registerNativeDispatcherCases(
       const send = (command: unknown) => harness.fetch(`/dispatcher-composed?activity=${id}`, {
         method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(command), signal: AbortSignal.timeout(20_000),
       });
-      let boundary: 'fetch-rejected' | 'response-not-json' = 'fetch-rejected';
+      let boundary: 'fetch-rejected' | 'response-not-json' | 'http-rejected' = 'fetch-rejected';
       let status: number | undefined;
       let body: unknown;
       try {
@@ -199,6 +204,10 @@ export function registerNativeDispatcherCases(
         status = response.status;
         boundary = 'response-not-json';
         body = await response.json();
+        if (status !== 200) {
+          boundary = 'http-rejected';
+          throw new Error('Native composed fixture rejected');
+        }
       } catch {
         console.info(`[native-flue] composed transport=${JSON.stringify({ phase, boundary, status })}`);
         // One independent, read-only retained-evidence read; never repeat the failed command.
@@ -221,33 +230,59 @@ export function registerNativeDispatcherCases(
         commentCount: value.external.comments.length });
       if (closed !== lastClosedObservation) console.info(`[native-flue] composed closed=${closed}`);
       lastClosedObservation = closed;
+      return closed;
     }
-    async function observed(id: string, predicate: (value: Composed) => boolean) {
+    async function observed(id: string, predicate: (value: Composed) => boolean, terminalEvidence = false) {
       const deadline = Date.now() + 60_000;
       let value: Composed;
       lastClosedObservation = undefined;
       do {
         value = await composed<Composed>(id, { action: 'observe' });
         reportObservation(value);
-        if (predicate(value) || ['unknown', 'failed', 'cancel-requested'].includes(value.detail.executionStatus)) break;
+        if (predicate(value) || (!terminalEvidence && ['unknown', 'failed', 'cancel-requested'].includes(value.detail.executionStatus))) break;
         await new Promise(resolve => setTimeout(resolve, 100));
       } while (Date.now() < deadline);
-      expect(predicate(value!), JSON.stringify(value!)).toBe(true);
+      expect(predicate(value!), reportObservation(value!)).toBe(true);
       return value!;
     }
     it.each([1, 17, undefined])('REQ-OPERATOR-045/011/048: SDK admits the saved submission limit %s independently of inference retries', async limit => {
       const pinned = await pinnedArtifact(true, true);
       const id = `submission-limit-${crypto.randomUUID()}`;
-      expect(await composed(id, { action: 'start', ...pinned, scenario: 'ordinary', attemptLimit: 4,
+      expect(await composed(id, { action: 'start', ...pinned, scenario: limit === 1 ? 'ordinary' : 'precommit-reset', attemptLimit: 4,
         ...(limit === undefined ? {} : { submissionAttemptLimit: limit }) })).toMatchObject({ ok: true });
       const expected = limit ?? 1024;
+      if (limit !== 1) {
+        await observed(id, value => value.external.held);
+        await composed(id, { action: 'evict' });
+        await composed(id, { action: 'release' });
+      }
+      // The SDK's first running event precedes input application; replacement
+      // attempts expose the effective pinned budget on that same submission.
       const result = await observed(id, value => value.detail.executionStatus === 'completed'
-        && !!value.external.sdkSubmissions?.some(entry => entry.attemptCount === 1 && entry.maxAttempts === expected));
-      expect(result.external.sdkSubmissions).toEqual(expect.arrayContaining([{ attemptCount: 1, maxAttempts: expected }]));
+        && originalSdk(value).some(entry => entry.stage === 'sdk-submission-running'
+          && (limit === 1 ? entry.attemptCount === 1 : entry.attemptCount > 1 && entry.maxAttempts === expected)));
+      expect(originalSdk(result).length).toBeGreaterThan(0);
       expect(result.external.comments).toHaveLength(1);
       expect(await composed(id, { action: 'collect' })).toMatchObject({ ok: true, detail: { result: {
         repository: 'authorized/project', results: [expect.objectContaining({ outcome: 'NOT_MERGED' })],
       } } });
+      if (limit === 1) {
+        // Also verify that the saved one-attempt budget really disables recovery.
+        await harness.reset();
+        const interruptedId = `submission-disabled-${crypto.randomUUID()}`;
+        expect(await composed(interruptedId, { action: 'start', ...pinned, scenario: 'precommit-reset',
+          attemptLimit: 4, submissionAttemptLimit: 1 })).toMatchObject({ ok: true });
+        await observed(interruptedId, value => value.external.held);
+        await composed(interruptedId, { action: 'evict' });
+        await composed(interruptedId, { action: 'release' });
+        const exhausted = await observed(interruptedId, value => value.detail.executionStatus === 'unknown'
+          && originalSdk(value).some(entry => entry.stage === 'sdk-submission-exhausted'
+            && entry.attemptCount === 1 && entry.maxAttempts === 1), true);
+        expect(exhausted.external.inference).toHaveLength(1);
+        expect(exhausted.external.comments).toEqual([]);
+        expect(exhausted.external.sourceRequests.filter(entry => entry.method !== 'GET')).toEqual([]);
+        expect(await composed(interruptedId, { action: 'collect' })).toMatchObject({ ok: false });
+      }
     }, 60_000);
 
     it('REQ-OPERATOR-011/048: a recovered SDK submission retains its original admitted attempt limit', async () => {
@@ -260,9 +295,10 @@ export function registerNativeDispatcherCases(
       await composed(id, { action: 'evict' });
       await composed(id, { action: 'release' });
       const result = await observed(id, value => value.detail.executionStatus === 'completed'
-        && !!value.external.sdkSubmissions?.some(entry => entry.attemptCount > 1));
-      expect(result.external.sdkSubmissions!.every(entry => entry.maxAttempts === 17),
-        JSON.stringify(result.external.sdkSubmissions)).toBe(true);
+        && originalSdk(value).some(entry => entry.stage === 'sdk-submission-running' && entry.attemptCount > 1));
+      const replacements = originalSdk(result).filter(entry => entry.stage === 'sdk-submission-running' && entry.attemptCount > 1);
+      expect(replacements.length).toBeGreaterThan(0);
+      expect(replacements.every(entry => entry.maxAttempts === 17), JSON.stringify(replacements)).toBe(true);
       expect(result.external.comments).toHaveLength(1);
       expect(await composed(id, { action: 'collect' })).toMatchObject({ ok: true });
     }, 60_000);

@@ -186,7 +186,14 @@ export default {
     const props = { principal: 'fixture-owner' };
     try {
       const url = new URL(request.url);
-      if (url.pathname === '/dispatcher-composed') return composedFixture(request, env as unknown as Parameters<typeof composedFixture>[1]);
+      if (url.pathname === '/dispatcher-composed') {
+        try { return await composedFixture(request, env as unknown as Parameters<typeof composedFixture>[1]); }
+        catch {
+          // Retain a closed asynchronous failure boundary, never its raw exception.
+          console.warn('Native composed fixture failed', { category: 'composed-fixture-rejected', status: 500 });
+          return Response.json({ category: 'composed-fixture-rejected' }, { status: 500 });
+        }
+      }
       if (url.pathname === '/flue') {
         return await flueFixture(request, env as unknown as Parameters<typeof flueFixture>[1]);
       }

@@ -4,6 +4,8 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-10-08
 
+- REQ-OPERATOR-011/048 and package REQ-DISPATCHER-002: pin verified compiled repair candidate28b1f90 after CI37757580162 retained an oversized canonical append with largest category `state_write`. Complete immutable research artifacts now have separate package-owned persistent state; mutable bookkeeping no longer carries their bodies. Correct concrete fixture RPC types, correlate public SDK lifecycle counts by opaque submission digest, and verify effective limits on replacement attempts or retry exhaustion rather than the pre-input initial event. Preserve complete seven-comment/outcome/collection assertions, deadlines, authority and unknown-write fences. Package Test37760427510 passed; host native GREEN, official delivery and fresh hosted acceptance remain pending.
+
 - Add operator-owned SDK submission attempts to existing REQ-OPERATOR-045/049 controls, default1024 with positive-safe-integer validation and1 disabling retries. Preserve original admission pins (REQ-OPERATOR-011/048), independent inference/operation budgets, revision fencing and explicit re-enablement. Correct the native test helper and unused fixture export. First-append observation remains closed and Activity-correlated; the large-evidence persistence defect is not yet proven or repaired. Compatible package artifacts, exact-head CI and live acceptance remain pending.
 
 ## 2026-10-07
