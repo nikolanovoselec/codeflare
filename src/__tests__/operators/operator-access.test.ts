@@ -557,7 +557,7 @@ describe('REQ-OPERATOR-045: delegated management and invocation', () => {
     const before = await (await request(detailPath)).json() as { operator: { revision: number; policy: ManagementPolicy }; installations: ManagementInstallation[] };
     expect(before.operator.policy.sourceResponseBytes).toBe(1572864);
     expect(before.installations[0]).toMatchObject({ id, enabled: true, policy });
-    expect((await request(`${detailPath}/capabilities`, 'POST', { revision: before.operator.revision, capabilities: [], sourceResponseBytes: 2097153 })).status).toBe(400);
+    expect((await request(`${detailPath}/capabilities`, 'POST', { revision: before.operator.revision, capabilities: [], sourceResponseBytes: 2097153 })).status).toBe(404);
     expect(await (await request(detailPath)).json()).toEqual(before);
   }));
 
@@ -616,7 +616,7 @@ describe('REQ-OPERATOR-045: delegated management and invocation', () => {
     expect((await (await request('/api/operator-management/access')).json() as { ceiling: object }).ceiling).not.toHaveProperty('sourceResponseBytes');
     actor.role = 'user';
     expect((await request('/api/operator-management/operators', 'POST', { ...registration,
-      policy: { ...registration.policy, sourceResponseBytes: 1048577 } })).status).toBe(400);
+      policy: { ...registration.policy, sourceResponseBytes: 1048577 } })).status).toBe(404);
     const created = await request('/api/operator-management/operators', 'POST', registration);
     expect(created.status).toBe(201);
     const operator = await created.json() as { id: string; revision: number; policy: ManagementPolicy };

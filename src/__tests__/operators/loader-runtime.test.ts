@@ -374,13 +374,13 @@ describe('REQ-OPERATOR-017: durable drive generation and checkpoint', () => {
 });
 
 describe('REQ-OPERATOR-018: activity-driven Worker execution', () => {
-  it('REQ-OPERATOR-018: configured drive response capacity preserves complete valid output above 64 KiB', async () => {
+  it('REQ-OPERATOR-018: runtime-only capacity cannot widen an admitted legacy response bound or replay rejected output', async () => {
     const { activityId } = await queuedActivity();
-    const padding = 'x'.repeat(131072);
-    expect(await activity(activityId, { action: 'drive-runtime', responsePadding: padding.length,
+    expect(await activity(activityId, { action: 'drive-runtime', responsePadding: 131072,
       capacityPolicy: { driveResponseBytes: 200000 } })).toMatchObject({ ok: true, state: {
-      status: 'waiting', result: { padding },
+      status: 'unknown', result: null,
     } });
+    expect(await activity(activityId, { action: 'drive-runtime' })).toEqual({ ok: false, reason: 'drive-settled' });
   });
 
   it('REQ-OPERATOR-018: configured drive byte denial fences valid oversized output without replay', async () => {

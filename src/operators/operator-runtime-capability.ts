@@ -30,8 +30,8 @@ export interface DispatcherAdmittedTarget {
 const DEFAULT_DISPATCHER_BODY_BYTES = dispatcherCapacities().dispatcherRequestBytes;
 const dispatcherOperationId = z.string().regex(/^[A-Za-z0-9_-]{1,128}$/);
 const dispatcherSourceSchema = (limits = dispatcherCapacities()) => z.strictObject({ operationId: dispatcherOperationId,
-  method: z.enum(['GET', 'POST', 'PUT']).optional(), body: z.string().max(limits.sourceRequestChars).optional(),
-  url: z.string().max(limits.sourceUrlChars).refine(value => {
+  method: z.enum(['GET', 'POST', 'PUT']).optional(), body: z.string().refine(value => value.length <= limits.sourceRequestChars).optional(),
+  url: z.string().refine(value => value.length <= limits.sourceUrlChars).refine(value => {
     try {
       const url = new URL(value);
       return url.protocol === 'https:' && !url.username && !url.password && !url.hash
@@ -46,7 +46,7 @@ const dispatcherReadSchema = z.strictObject({ operationId: dispatcherOperationId
   pullRequest: z.number().safe().int().positive().optional(), headSha: z.string().regex(/^[0-9a-f]{40}$/).optional() });
 const dispatcherCommentSchema = (limits = dispatcherCapacities()) => z.strictObject({ operationId: dispatcherOperationId,
   target: dispatcherTargetSchema, decision: z.enum(['MERGE', 'DO_NOT_MERGE']),
-  comment: z.string().min(1).max(limits.commentChars).refine(value => value.trim().length > 0) });
+  comment: z.string().min(1).refine(value => value.length <= limits.commentChars).refine(value => value.trim().length > 0) });
 const dispatcherMergeSchema = (limits = dispatcherCapacities()) => dispatcherCommentSchema(limits).extend({ decision: z.literal('MERGE') });
 const dispatcherInferenceSchema = (limits = dispatcherCapacities()) => z.strictObject({ operationId: dispatcherOperationId,
   input: z.strictObject({
@@ -269,7 +269,7 @@ export async function createDispatcherOperation(input: {
       const merge = method === 'PUT' && source.url === `${base}/pulls/${admittedTarget.pullRequest}/merge`;
       if (!comment && !merge) throw new Error('Prospective mutation target denied');
       const body = JSON.parse(source.body!);
-      if (comment) z.strictObject({ body: z.string().min(1).max(limits.targetCommentChars)
+      if (comment) z.strictObject({ body: z.string().min(1).refine(value => value.length <= limits.targetCommentChars)
         .refine(value => value.trim().length > 0) }).parse(body);
       else z.strictObject({ sha: z.literal(admittedTarget.headSha), merge_method: z.literal('merge') }).parse(body);
     }

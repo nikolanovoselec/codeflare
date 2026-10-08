@@ -773,6 +773,7 @@ async function start(f: Parameters<Parameters<typeof fixture>[0]>[0], lifetimeMs
 }
 
 describe('REQ-OPERATOR-047/048: future inference attempt accounting', () => {
+  const accountingRetryPolicy = { inferenceRetryBaseMs: 1, inferenceRetryMaxMs: 2 };
   const inference = (text = 'PRIVATE_INFERENCE_PROMPT') => genericWire('inference', { operationId: 'logical-inference',
     input: { messages: [{ role: 'user', content: text }] } });
   const complete = 'data: {"choices":[{"delta":{"content":"answer"},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n';
@@ -818,7 +819,7 @@ describe('REQ-OPERATOR-047/048: future inference attempt accounting', () => {
       expect(await (await f.capability.fetch(inference())).text()).toBe(complete);
       expect(await budget(f)).toMatchObject({ operationCount: 3 });
       expect(paid(f)).toHaveLength(2);
-    }, { repositoryOnly: true, recovery: true, inferenceAttemptLimit: 2,
+    }, { repositoryOnly: true, recovery: true, capacityPolicy: accountingRetryPolicy, inferenceAttemptLimit: 2,
       inferenceTransport: async (_request, attempt) => {
         if (attempt > 1) return sse();
         if (failure === 'transport') throw new Error('PRIVATE_UPSTREAM_ERROR');
@@ -844,7 +845,7 @@ describe('REQ-OPERATOR-047/048: future inference attempt accounting', () => {
       ])); else expect(observations).toEqual([]);
       expect(logs.join('')).not.toMatch(/PRIVATE_INFERENCE_PROMPT|PRIVATE_UPSTREAM_ERROR/);
     } finally { spy.mockRestore(); setLogLevel('silent'); }
-  }, { repositoryOnly: true, recovery: true, loggingEnabled, inferenceAttemptLimit: 2, inferenceTransport: async (_request, attempt) => {
+  }, { repositoryOnly: true, recovery: true, capacityPolicy: accountingRetryPolicy, loggingEnabled, inferenceAttemptLimit: 2, inferenceTransport: async (_request, attempt) => {
     if (attempt === 1) throw new Error('PRIVATE_UPSTREAM_ERROR');
     return sse();
   } }));
@@ -878,7 +879,7 @@ describe('REQ-OPERATOR-047/048: future inference attempt accounting', () => {
     expect((await f.capability.fetch(inference())).status).toBe(403);
     expect(paid(f)).toHaveLength(limit);
     expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'unknown', result: null, collectionStatus: 'unavailable' });
-  }, { repositoryOnly: true, recovery: true, inferenceAttemptLimit: limit, inferenceTransport: async () => sse(incomplete) }));
+  }, { repositoryOnly: true, recovery: true, capacityPolicy: accountingRetryPolicy, inferenceAttemptLimit: limit, inferenceTransport: async () => sse(incomplete) }));
 
   it.each([{ limit: undefined, attempts: 4 }, { limit: 5, attempts: 5 }])(
     'REQ-OPERATOR-048: the default is four, not a ceiling ($attempts attempts)', ({ limit, attempts }) => fixture(async f => {
@@ -886,7 +887,7 @@ describe('REQ-OPERATOR-047/048: future inference attempt accounting', () => {
       expect(await (await f.capability.fetch(inference())).text()).toBe(complete);
       expect(paid(f)).toHaveLength(attempts);
       expect(await budget(f)).toMatchObject({ operationCount: attempts + 1 });
-    }, { repositoryOnly: true, recovery: true, inferenceAttemptLimit: limit,
+    }, { repositoryOnly: true, recovery: true, capacityPolicy: accountingRetryPolicy, inferenceAttemptLimit: limit,
       inferenceTransport: async (_request, attempt) => sse(attempt === attempts ? complete : incomplete) }), 60_000);
 
   it('REQ-OPERATOR-047: the shared operation budget denies a successor even with inference attempts remaining', () => fixture(async f => {
@@ -959,7 +960,7 @@ describe('REQ-OPERATOR-047/048: future inference attempt accounting', () => {
       expect(await budget(f)).toMatchObject({ operationCount: 3 });
       expect(await (await f.capability.fetch(inference())).text()).toBe(complete);
       expect(paid(f)).toHaveLength(2);
-    }, { repositoryOnly: true, recovery: true, inferenceTransport: async (_request, attempt) => {
+    }, { repositoryOnly: true, recovery: true, capacityPolicy: accountingRetryPolicy, inferenceTransport: async (_request, attempt) => {
       if (attempt === 1) { firstEntered.resolve(); return firstRelease.promise; }
       secondEntered.resolve(); return secondRelease.promise;
     } });
@@ -970,7 +971,7 @@ describe('REQ-OPERATOR-047/048: future inference attempt accounting', () => {
     expect(await (await f.capability.fetch(inference())).text()).toBe(complete);
     expect(await budget(f)).toMatchObject({ operationCount: 3 });
     expect(paid(f)).toHaveLength(2);
-  }, { repositoryOnly: true, recovery: true, inferenceTransport: async (_request, attempt) => sse(attempt === 1 ? incomplete : complete) }));
+  }, { repositoryOnly: true, recovery: true, capacityPolicy: accountingRetryPolicy, inferenceTransport: async (_request, attempt) => sse(attempt === 1 ? incomplete : complete) }));
 
   it('REQ-OPERATOR-048: a reconstructed owner consumes the retained unclaimed successor without allocating another attempt', async () => {
     const entered = gate<void>(); const release = gate<Response>();
@@ -986,7 +987,7 @@ describe('REQ-OPERATOR-047/048: future inference attempt accounting', () => {
       expect(await (await successor!).text()).toBe(complete);
       expect(paid(f)).toHaveLength(2);
       expect(await budget(f)).toMatchObject({ operationCount: 3 });
-    }, { repositoryOnly: true, recovery: true, inferenceTransport: async (_request, attempt) => {
+    }, { repositoryOnly: true, recovery: true, capacityPolicy: accountingRetryPolicy, inferenceTransport: async (_request, attempt) => {
       if (attempt === 1) return sse(incomplete);
       entered.resolve(); return release.promise;
     } });
@@ -1004,7 +1005,7 @@ describe('REQ-OPERATOR-047/048: future inference attempt accounting', () => {
     expect(await receipt.json()).toMatchObject({ phase: 'unknown', operationCount: 4 });
     expect(f.sent.filter(request => request.url.endsWith('/comments') && request.method === 'POST')).toHaveLength(1);
     expect(paid(f)).toHaveLength(2);
-  }, { repositoryOnly: true, recovery: true, inferenceTransport: async (_request, attempt) => sse(attempt === 1 ? incomplete : complete) }));
+  }, { repositoryOnly: true, recovery: true, capacityPolicy: accountingRetryPolicy, inferenceTransport: async (_request, attempt) => sse(attempt === 1 ? incomplete : complete) }));
 
   it('REQ-OPERATOR-048: historical admissions retain their original cached error bytes despite the new default policy', () => fixture(async f => {
     await start(f);
@@ -1530,7 +1531,7 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
   ])('rejects unverified, redirecting or oversized upstream notes', ({ value, status }) => fixture(async f => {
     await start(f); f.files(dozzleFiles()); f.release(value, status);
     expect((await f.capability.fetch(releaseRead())).status).toBe(409);
-  }));
+  }, { capacityPolicy: { dispatcherRequestBytes: 65536 } }));
   it('denies child URL, repository and credential selection on release read', () => fixture(async f => {
     await start(f); f.files(dozzleFiles());
     expect((await f.capability.fetch(releaseRead('release-foreign', { url: 'https://evil.test/' }))).status).toBe(403);
@@ -2122,7 +2123,7 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
       if (!revoked) expect((await f.capability.fetch(genericWire('source', { operationId: 'valid-after-denial',
         url: 'https://api.github.com/repos/another/service' }))).status).toBe(200);
     } finally { spy.mockRestore(); setLogLevel('silent'); }
-  }, { repositoryOnly: true, capabilities }));
+  }, { repositoryOnly: true, capabilities, capacityPolicy: { dispatcherRequestBytes: 65536 } }));
   it('REQ-OPERATOR-063: preparation logging outage preserves denial and later authorized work', () => fixture(async f => {
     await start(f);
     setLogLevel('warn');
@@ -2328,6 +2329,11 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
       { ...allowed, sourceRequestChars: 1 }, { ...allowed, sourceUrlChars: body.url.length - 1 }]) {
       await expect(parseDispatcherOperation(wire(), undefined, denied)).rejects.toThrow();
     }
+    const unicodeUrl = { ...body, url: 'https://docs.example.test/🙂' };
+    expect((await parseDispatcherOperation(genericWire('source', unicodeUrl), undefined,
+      { sourceUrlChars: unicodeUrl.url.length })).body).toEqual(unicodeUrl);
+    await expect(parseDispatcherOperation(genericWire('source', unicodeUrl), undefined,
+      { sourceUrlChars: unicodeUrl.url.length - 1 })).rejects.toThrow();
     const comment = { operationId: 'comment-bound', target: { pullRequest: 17, headSha: 'b'.repeat(40) }, decision: 'DO_NOT_MERGE', comment: '🙂' };
     expect((await parseDispatcherOperation(genericWire('github/comment', comment), undefined, { commentChars: 2 })).body).toEqual(comment);
     await expect(parseDispatcherOperation(genericWire('github/comment', comment), undefined, { commentChars: 1 })).rejects.toThrow();
@@ -2412,13 +2418,14 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
       messages: Array.from({ length: 139 }, (_, index) => ({ role: 'user', content: `History ${index} 🙂` })),
     } };
     const bytes = new TextEncoder().encode(JSON.stringify(operation)).byteLength;
+    const inferenceBody = 'data: {"choices":[{"delta":{"content":"complete"},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n';
     for (const limit of [bytes - 1, bytes]) await fixture(async f => {
       await start(f);
       const response = await f.capability.fetch(genericWire('inference', operation));
       expect(response.status).toBe(limit === bytes ? 200 : 403);
-      if (limit === bytes) expect(await response.text()).toBe('data: [DONE]\n\n');
+      if (limit === bytes) expect(await response.text()).toBe(inferenceBody);
       else expect(await response.json()).toEqual({ code: 'OPERATOR_CAPABILITY_DENIED' });
-    }, { repositoryOnly: true, recovery: true, inferenceRequestBytes: limit });
+    }, { repositoryOnly: true, recovery: true, inferenceRequestBytes: limit, inferenceBody });
   });
 
   it.each([65537, 1048576])('REQ-OPERATOR-047: admitted operator inference bytes forward %i-byte content without child authority', contentBytes => fixture(async f => {
@@ -2898,6 +2905,17 @@ describe('REQ-OPERATOR-047/048: parent-composed source response allowance', () =
       expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
     }
   }, { repositoryOnly: true }));
+
+  it('REQ-OPERATOR-018/048: admitted Dispatcher commit and reconstruction preserve complete non-SDK output above 64 KiB', () => fixture(async f => {
+    const drive = await f.activity.beginDrive();
+    if (!drive.ok) throw new Error('Admitted drive unavailable');
+    const result = { padding: 'x'.repeat(131072) };
+    const update = { schemaVersion: 1, status: 'waiting', checkpoint: null, result };
+    expect(await f.activity.commitDrive(drive.state.generation, update)).toMatchObject({ ok: true,
+      state: { generation: drive.state.generation, status: 'waiting', result } });
+    f.restart();
+    expect(await f.activity.getBrowserDetail()).toMatchObject({ result });
+  }, { repositoryOnly: true, capacityPolicy: { driveResponseBytes: 200000 } }));
 
   it('REQ-OPERATOR-048: SDK assessment collection is independent of a smaller non-SDK drive envelope', () => fixture(async f => {
     await start(f);

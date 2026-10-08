@@ -40,7 +40,7 @@ export function dispatcherCapacities(policy?: DispatcherCapacityPolicy): Dispatc
 }
 export function validDispatcherCapacities(policy?: DispatcherCapacityPolicy): boolean {
   if (policy !== undefined && (!policy || typeof policy !== 'object' || Array.isArray(policy))) return false;
-  if (!Object.entries(policy ?? {}).every(([key, value]) => Object.hasOwn(dispatcherCapacityFields, key)
+  if (!Object.entries(policy ?? {}).every(([key, value]) => Object.prototype.hasOwnProperty.call(dispatcherCapacityFields, key)
     && (value === undefined || (Number.isSafeInteger(value) && value > 0 && (key !== 'checkRunPageSize' || value <= 100))))) return false;
   const limits = dispatcherCapacities(policy);
   return limits.inferenceDefaultTokens <= limits.inferenceTokenLimit && limits.inferenceRetryBaseMs <= limits.inferenceRetryMaxMs;
