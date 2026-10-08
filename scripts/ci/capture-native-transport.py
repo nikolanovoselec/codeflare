@@ -38,17 +38,19 @@ def capture():
         try:
             while running and time.monotonic() < deadline and count < 5000:
                 if time.monotonic() >= next_listeners:
-                    result = subprocess.run(["ss", "-H", "-lntp"], check=True,
+                    result = subprocess.run(["ss", "-H", "-antp"], check=True,
                                             capture_output=True, text=True, timeout=2)
                     current = set()
                     for line in result.stdout.splitlines():
                         fields = line.split(None, 5)
                         if len(fields) < 6 or not fields[3].startswith("127.0.0.1:"):
                             continue
+                        if fields[0] != "LISTEN" and not fields[4].startswith("127.0.0.1:"):
+                            continue
                         for name, pid in re.findall(r'"(node|workerd)",pid=(\d+)', fields[5]):
-                            current.add((fields[3], name, int(pid)))
+                            current.add((fields[3], fields[4], fields[0], name, int(pid)))
                     if current != listeners:
-                        emit("listeners", sockets=sorted(current))
+                        emit("sockets", sockets=sorted(current))
                         listeners = current
                     next_listeners = time.monotonic() + 0.5
                 try:
