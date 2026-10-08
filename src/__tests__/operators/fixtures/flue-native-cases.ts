@@ -180,7 +180,10 @@ export function registerNativeDispatcherCases(
     type Composed = { instance: string; detail: { executionStatus: string; collectionStatus: string; result: unknown; sdkCleanupReleased?: boolean };
       external: { held: boolean; inference: Array<{ inputDigest: string; turn: number }>; comments: Array<{ body: string }>;
         sourceRequests: Array<{ url: string; method: string }>; duplicates: Array<{ statuses: number[]; digests: string[] }>;
-        budget?: { operationCount: number; operationLimit: number } } };
+        budget?: { operationCount: number; operationLimit: number };
+        evidence?: Array<{ index: number; complete: boolean }>; batches?: string[][];
+        firstAppend?: { category: 'canonical-append-oversized' | 'canonical-append-other'; largestRecordType?: 'state_write' } | null;
+        sdkSubmissions?: Array<{ attemptCount: number; maxAttempts: number }> } };
     async function composed<T>(id: string, value: unknown): Promise<T> {
       const response = await harness.fetch(`/dispatcher-composed?activity=${id}`, {
         method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(value), signal: AbortSignal.timeout(20_000),
@@ -200,6 +203,85 @@ export function registerNativeDispatcherCases(
       expect(predicate(value!), JSON.stringify(value!)).toBe(true);
       return value!;
     }
+    it.each([1, 17, undefined])('REQ-OPERATOR-045/011/048: SDK admits the saved submission limit %s independently of inference retries', async limit => {
+      const pinned = await pinnedArtifact(true, true);
+      const id = `submission-limit-${crypto.randomUUID()}`;
+      expect(await composed(id, { action: 'start', ...pinned, scenario: 'ordinary', attemptLimit: 4,
+        ...(limit === undefined ? {} : { submissionAttemptLimit: limit }) })).toMatchObject({ ok: true });
+      const expected = limit ?? 1024;
+      const result = await waitComposed(id, value => value.detail.executionStatus === 'completed'
+        && !!value.external.sdkSubmissions?.some(entry => entry.attemptCount === 1 && entry.maxAttempts === expected));
+      expect(result.external.sdkSubmissions).toEqual(expect.arrayContaining([{ attemptCount: 1, maxAttempts: expected }]));
+      expect(result.external.comments).toHaveLength(1);
+      expect(await composed(id, { action: 'collect' })).toMatchObject({ ok: true, detail: { result: {
+        repository: 'authorized/project', results: [expect.objectContaining({ outcome: 'NOT_MERGED' })],
+      } } });
+    }, 60_000);
+
+    it('REQ-OPERATOR-011/048: a recovered SDK submission retains its original admitted attempt limit', async () => {
+      const pinned = await pinnedArtifact(true, true);
+      const id = `submission-pin-${crypto.randomUUID()}`;
+      expect(await composed(id, { action: 'start', ...pinned, scenario: 'precommit-reset', attemptLimit: 4,
+        submissionAttemptLimit: 17 })).toMatchObject({ ok: true });
+      await waitComposed(id, value => value.external.held);
+      await composed(id, { action: 'change-submission-policy', submissionAttemptLimit: 1 });
+      await composed(id, { action: 'evict' });
+      await composed(id, { action: 'release' });
+      const result = await waitComposed(id, value => value.detail.executionStatus === 'completed'
+        && !!value.external.sdkSubmissions?.some(entry => entry.attemptCount > 1));
+      expect(result.external.sdkSubmissions!.every(entry => entry.maxAttempts === 17)).toBe(true);
+      expect(result.external.comments).toHaveLength(1);
+      expect(await composed(id, { action: 'collect' })).toMatchObject({ ok: true });
+    }, 60_000);
+
+    it('REQ-DISPATCHER-001 AC2 / 002 AC2/3/4/5/7/10: large-evidence-comment-batch completes seven cited outcomes and exactly seven repository comments', async () => {
+      const pinned = await pinnedArtifact(true, true);
+      const id = `large-evidence-${crypto.randomUUID()}`;
+      expect(await composed(id, { action: 'start', ...pinned, scenario: 'large-evidence-comment-batch',
+        attemptLimit: 32, submissionAttemptLimit: 3 })).toMatchObject({ ok: true, state: { generation: 1, status: 'running' } });
+      // Capture causal evidence before the success assertion can bail. Exhaustion alone
+      // is deliberately not classified as an append failure.
+      const deadline = Date.now() + 60_000;
+      let result: Composed;
+      do {
+        result = await composed<Composed>(id, { action: 'observe' });
+        if (result.detail.executionStatus !== 'running') break;
+        await new Promise(resolve => setTimeout(resolve, 100));
+      } while (Date.now() < deadline);
+      console.info(`[native-flue] large-evidence firstAppend=${JSON.stringify(result!.external.firstAppend ?? null)}`);
+      if (result!.detail.executionStatus === 'running') await composed(id, { action: 'cancel' });
+      expect(result!.detail.executionStatus, JSON.stringify({ firstAppend: result!.external.firstAppend ?? null,
+        batches: result!.external.batches, evidence: result!.external.evidence })).toBe('completed');
+      expect(result!.external.evidence).toEqual(Array.from({ length: 32 }, (_, index) => ({ index, complete: true })));
+
+      const targets = Array.from({ length: 7 }, (_, index) => ({ pullRequest: 17 + index, headSha: (index + 1).toString(16).repeat(40) }));
+      const expected = targets.map((target, index) => ({ ...target, decision: 'DO_NOT_MERGE', outcome: 'NOT_MERGED',
+        comment: `Migration compatibility for PR ${target.pullRequest}, evidence ${index}, remains unverified. Source: https://docs.example.test/migration-${index}` }));
+      const collected = await composed<{ ok: boolean; detail: { result: { results: typeof expected }; checkpoint: unknown } }>(id, { action: 'collect' });
+      expect(collected).toMatchObject({ ok: true, detail: { executionStatus: 'completed', result: { repository: 'authorized/project' } } });
+      expect(collected.detail.result.results).toHaveLength(7);
+      expect(new Set(collected.detail.result.results.map(item => `${item.pullRequest}:${item.headSha}`)).size).toBe(7);
+      expect(collected.detail.result.results).toEqual(expect.arrayContaining(expected));
+      expect(result!.external.comments).toHaveLength(7);
+      for (const outcome of expected) {
+        expect(result!.external.comments.filter(item => Reflect.get(item, 'issue_url') === `https://api.github.com/repos/authorized/project/issues/${outcome.pullRequest}`))
+          .toEqual([expect.objectContaining({ body: outcome.comment, user: { id: 42, login: 'fixture-publisher', type: 'User' } })]);
+      }
+      const mutations = result!.external.sourceRequests.filter(item => item.method !== 'GET');
+      expect(mutations).toHaveLength(7);
+      expect(mutations).toEqual(expect.arrayContaining(targets.map(target => ({ method: 'POST',
+        url: `https://api.github.com/repos/authorized/project/issues/${target.pullRequest}/comments` }))));
+      const research = result!.external.sourceRequests.filter(item => item.url.startsWith('https://docs.example.test/migration-'));
+      expect(research).toHaveLength(32);
+      expect(new Set(research.map(item => item.url)).size).toBe(32);
+      // Complete ASCII source bodies: 28*8192 + 4*20480 = 311296 characters;
+      // each source receipt is comfortably below the unchanged 48 KiB ceiling.
+      expect(await composed(id, { action: 'collect' })).toMatchObject({ ok: true, detail: {
+        result: collected.detail.result, checkpoint: collected.detail.checkpoint,
+      } });
+      expect((await composed<Composed>(id, { action: 'observe' })).external).toEqual(result!.external);
+    }, 90_000);
+
     it.each(['ordinary', 'incomplete', 'native-error', 'duplicate', 'precommit-reset', 'committed-reset'] as const)(
       'REQ-OPERATOR-048: composed %s inference reaches a real collected assessment with one repository effect', async scenario => {
         const pinned = await pinnedArtifact(true, true);

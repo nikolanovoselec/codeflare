@@ -13,7 +13,7 @@ let operator: ManagementDetail['operator'];
 let installation: ManagementDetail['installations'][number];
 let access: ManagementAccess;
 let rejectSave: boolean;
-let saved: { revision: number; policy?: ManagementDetail['operator']['policy']; configuration?: unknown; capabilities?: string[]; sourceResponseBytes?: number; inferenceRequestBytes?: number; operationLimit?: number; inferenceAttemptLimit?: number; loggingEnabled?: boolean; ceiling?: ManagementAccess['ceiling']; managers?: ManagementAccess['managers'] };
+let saved: { revision: number; policy?: ManagementDetail['operator']['policy']; configuration?: unknown; capabilities?: string[]; sourceResponseBytes?: number; inferenceRequestBytes?: number; operationLimit?: number; inferenceAttemptLimit?: number; submissionAttemptLimit?: number; loggingEnabled?: boolean; ceiling?: ManagementAccess['ceiling']; managers?: ManagementAccess['managers'] };
 let holdSave: Promise<void> | undefined;
 beforeEach(() => {
   window.history.replaceState({}, '', '/operators');
@@ -38,6 +38,7 @@ beforeEach(() => {
           ...(saved.sourceResponseBytes === undefined ? {} : { sourceResponseBytes: saved.sourceResponseBytes }),
           ...(saved.operationLimit === undefined ? {} : { operationLimit: saved.operationLimit }),
           ...(saved.inferenceAttemptLimit === undefined ? {} : { inferenceAttemptLimit: saved.inferenceAttemptLimit }),
+          ...(saved.submissionAttemptLimit === undefined ? {} : { submissionAttemptLimit: saved.submissionAttemptLimit }),
           ...(saved.inferenceRequestBytes === undefined ? {} : { inferenceRequestBytes: saved.inferenceRequestBytes }) } };
         if (installation.enabled) installation = { ...installation, revision: installation.revision + 1, enabled: false };
         return response(operator);
@@ -95,6 +96,42 @@ describe('Dispatcher source response allowance', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Manage Dispatcher' }));
     await screen.findByRole('group', { name: 'Operator capabilities' });
     expect(screen.queryByRole('spinbutton', { name: 'Max inference attempts' })).not.toBeInTheDocument();
+  });
+  it.each([1, 7, Number.MAX_SAFE_INTEGER])('REQ-OPERATOR-045/049: submission attempts %i persist independently and reset to 1024', async limit => {
+    await open();
+    const field = screen.getByRole('spinbutton', { name: 'Max submission attempts' });
+    expect(field).toHaveValue(1024);
+    expect(field).toHaveAccessibleDescription(/including the initial submission.*1 to disable retries.*operation budget.*deadline/i);
+    fireEvent.input(field, { target: { value: String(limit) } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save operator capabilities' }));
+    await waitFor(() => expect(operator.policy).toMatchObject({ submissionAttemptLimit: limit }));
+    expect(saved).toEqual({ revision: 1, capabilities: ['fetch'], loggingEnabled: true, sourceResponseBytes: 131072, submissionAttemptLimit: limit });
+    expect(installation).toMatchObject({ enabled: false, releaseId: release.id, policy: explicitInstallationPolicy });
+    cleanup(); await open();
+    expect(screen.getByRole('spinbutton', { name: 'Max submission attempts' })).toHaveValue(limit);
+    expect(screen.getByRole('spinbutton', { name: 'Operation limit per run' })).toHaveValue(1024);
+    expect(screen.getByRole('spinbutton', { name: 'Inference limit (bytes)' })).toHaveValue(1048576);
+    fireEvent.click(screen.getByRole('button', { name: 'Reset Max submission attempts to default' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save operator capabilities' }));
+    await waitFor(() => expect(operator.policy).toMatchObject({ submissionAttemptLimit: 1024 }));
+  });
+
+  it.each(['', '0', '-1', '1.5', '9007199254740992'])('REQ-OPERATOR-045/049: invalid submission attempt limit %s prevents mutation', async value => {
+    await open();
+    const before = structuredClone(operator);
+    fireEvent.input(screen.getByRole('spinbutton', { name: 'Max submission attempts' }), { target: { value } });
+    const save = screen.getByRole('button', { name: 'Save operator capabilities' });
+    expect(save).toBeDisabled();
+    fireEvent.submit(save.closest('form')!);
+    expect(operator).toEqual(before);
+  });
+
+  it('REQ-OPERATOR-049: Conductor does not offer an submission attempt setting', async () => {
+    operator.profile = 'conductor';
+    render(() => <OperatorManagement />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Manage Dispatcher' }));
+    await screen.findByRole('group', { name: 'Operator capabilities' });
+    expect(screen.queryByRole('spinbutton', { name: 'Max submission attempts' })).not.toBeInTheDocument();
   });
   it('REQ-OPERATOR-045/049: explains limit ownership and resets inference to its default without changing other fields', async () => {
     operator.policy.inferenceRequestBytes = 2097152;

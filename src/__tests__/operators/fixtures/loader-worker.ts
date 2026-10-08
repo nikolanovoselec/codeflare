@@ -13,8 +13,20 @@ import conductorBundle from './conductor-review.generated.json';
 
 import { OperatorRegistry, type OperatorAdmissionRequest } from '../../../operators/registry';
 import { OperatorActivity as ProductionActivity, type OperatorActivityPreparation } from '../../../operators/activity';
-export { OperatorDispatcherTail } from '../../../operators/activity';
-import { composedFixture } from './dispatcher-composed-fixture';
+import { OperatorDispatcherTail as ProductionDispatcherTail } from '../../../operators/activity';
+import { composedFixture, fixtureOperatorDispatcherTail, fixtureSubmissionRunning, type RecoveryServices } from './dispatcher-composed-fixture';
+
+/** Capture closed fixture evidence in its external DO, not a shared-isolate assumption. */
+export class OperatorDispatcherTail extends ProductionDispatcherTail {
+  override async tail(events: unknown): Promise<void> {
+    const props = this.ctx.props as { activityId?: unknown; generation?: unknown };
+    if (typeof props?.activityId === 'string' && typeof props.generation === 'number') {
+      const env = this.env as unknown as { RECOVERY_SERVICES: DurableObjectNamespace<RecoveryServices> };
+      await env.RECOVERY_SERVICES.getByName('services').recordTail(props.activityId, props.generation, fixtureOperatorDispatcherTail(events), fixtureSubmissionRunning(events));
+    }
+    await super.tail(events);
+  }
+}
 export { OperatorActivity, OperatorDispatcherCapability, RecoveryServices, LlmInterceptor, GitHubInterceptor, EgressController } from './dispatcher-composed-fixture';
 /** Native eviction fixture proves state survives a new DO instance, not isolate memory. */
 export class FixtureActivity extends ProductionActivity {
