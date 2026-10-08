@@ -1280,14 +1280,20 @@ export class OperatorActivity extends Agent {
     let parsed: z.infer<typeof driveUpdateSchema>;
     try {
       const admission = await this.ctx.storage.get<AdmissionState>('admission');
-      const limits = dispatcherCapacities(admission && isManagementReceipt(admission.receipt) ? admission.receipt.selection.operator.policy : undefined);
-      const json = JSON.stringify(update);
-      if (typeof json !== 'string' || new TextEncoder().encode(json).byteLength > limits.driveResponseBytes) {
-        return { ok: false, reason: 'invalid-update' };
-      }
+      const receipt = admission?.receipt;
+      const dispatcher = receipt && isManagementReceipt(receipt) && receipt.selection.operator.profile === 'dispatcher';
+      const limits = dispatcherCapacities(dispatcher ? receipt.selection.operator.policy : undefined);
+      const lease = dispatcher ? await this.ctx.storage.get<DispatcherLease>(DISPATCHER_LEASE) : undefined;
       const result = driveUpdateSchema.safeParse(update);
       if (!result.success) return { ok: false, reason: 'invalid-update' };
       parsed = result.data;
+      // SDK settlement owns its assessment allowance, not the non-SDK response envelope.
+      const sdkSettlement = lease?.generation === generation;
+      const json = JSON.stringify(sdkSettlement ? { ...parsed, result: null } : parsed);
+      if (new TextEncoder().encode(json).byteLength > (sdkSettlement || !dispatcher ? 64 * 1024 : limits.driveResponseBytes)
+        || (sdkSettlement && new TextEncoder().encode(JSON.stringify(parsed.result ?? null)).byteLength > limits.assessmentBytes)) {
+        return { ok: false, reason: 'invalid-update' };
+      }
     } catch {
       return { ok: false, reason: 'invalid-update' };
     }
@@ -2570,7 +2576,7 @@ export class OperatorActivity extends Agent {
     const assessment = await this.ctx.storage.get<unknown>(`dispatcher:result:${lease!.generation}`);
     if (!assessment || typeof assessment !== 'object' || Array.isArray(assessment)
       || !z.json().safeParse(assessment).success
-      || new TextEncoder().encode(JSON.stringify(assessment)).byteLength > dispatcherCapacities(isManagementReceipt(state!.receipt) ? state!.receipt.selection.operator.policy : undefined).assessmentBytes) return;
+      || new TextEncoder().encode(JSON.stringify(assessment)).byteLength > dispatcherCapacities(state!.receipt && isManagementReceipt(state!.receipt) ? state!.receipt.selection.operator.policy : undefined).assessmentBytes) return;
     if (await this.ctx.storage.get<string>('prospective-admission')) {
       try {
         const plan = await this.getRuntimePlan();

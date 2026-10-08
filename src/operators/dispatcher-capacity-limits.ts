@@ -1,5 +1,3 @@
-import { z } from 'zod';
-
 /** Operator-owned capacities. Defaults are shared by the parent, management wire and UI reset controls. */
 export const dispatcherCapacityFields = {
   inferenceMessageLimit: { default: 256, label: 'Max inference messages', help: 'Maximum complete JSON messages per inference request. The independent inference byte limit and model context still apply.' },
@@ -37,15 +35,13 @@ export type DispatcherCapacityKey = keyof typeof dispatcherCapacityFields;
 export type DispatcherCapacityPolicy = Partial<Record<DispatcherCapacityKey, number>>;
 export type DispatcherCapacities = Record<DispatcherCapacityKey, number>;
 export const dispatcherCapacityKeys = Object.keys(dispatcherCapacityFields) as DispatcherCapacityKey[];
-export const dispatcherCapacityShape = Object.fromEntries(dispatcherCapacityKeys.map(key => [key,
-  (key === 'checkRunPageSize' ? z.number().int().positive().max(100) : z.number().int().positive().safe()).optional(),
-])) as { [K in DispatcherCapacityKey]: z.ZodOptional<z.ZodNumber> };
-export const dispatcherCapacityPolicySchema = z.strictObject(dispatcherCapacityShape);
 export function dispatcherCapacities(policy?: DispatcherCapacityPolicy): DispatcherCapacities {
   return Object.fromEntries(dispatcherCapacityKeys.map(key => [key, policy?.[key] ?? dispatcherCapacityFields[key].default])) as DispatcherCapacities;
 }
 export function validDispatcherCapacities(policy?: DispatcherCapacityPolicy): boolean {
-  if (!dispatcherCapacityPolicySchema.safeParse(policy ?? {}).success) return false;
+  if (policy !== undefined && (!policy || typeof policy !== 'object' || Array.isArray(policy))) return false;
+  if (!Object.entries(policy ?? {}).every(([key, value]) => Object.hasOwn(dispatcherCapacityFields, key)
+    && (value === undefined || (Number.isSafeInteger(value) && value > 0 && (key !== 'checkRunPageSize' || value <= 100))))) return false;
   const limits = dispatcherCapacities(policy);
   return limits.inferenceDefaultTokens <= limits.inferenceTokenLimit && limits.inferenceRetryBaseMs <= limits.inferenceRetryMaxMs;
 }

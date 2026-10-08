@@ -58,7 +58,8 @@ export async function driveOperatorRuntime(options: OperatorRuntimeOptions): Pro
   const reserved = await options.activity.beginDrive(options.expectedGeneration);
   if (!reserved.ok) return reserved;
   const { generation, checkpoint } = reserved.state;
-  const limits = dispatcherCapacities(options.capacityPolicy);
+  const limits = options.capacityPolicy === undefined ? { driveTimeoutMs: 25_000, driveResponseBytes: 64 * 1024 }
+    : dispatcherCapacities(options.capacityPolicy);
   const controller = new AbortController();
   let timer: ReturnType<typeof setTimeout> | undefined;
   let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;

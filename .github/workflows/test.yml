@@ -114,7 +114,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-          fetch-depth: 0
+          # PR filtering uses the files API; retain the merge and parents, not every ref/tag.
+          # Push filtering still requires its existing history; fallback fetches missing exact SHAs.
+          fetch-depth: ${{ github.event_name == 'pull_request' && 2 || 0 }}
       - id: filter
         # Diff-based filtering needs a diff: when the nightly wrapper calls this
         # workflow, and on manual dispatch, every lane runs unconditionally, so
@@ -260,6 +262,7 @@ jobs:
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          GH_TOKEN: ${{ github.token }}
         run: scripts/ci/path-filter-fallback.sh
 
   quality:

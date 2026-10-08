@@ -16,8 +16,9 @@ import { MAX_SOURCE_RESPONSE_BYTES, sourceResponseBytes as effectiveSourceRespon
 import { submissionAttemptLimit as effectiveSubmissionAttemptLimit } from './dispatcher-submission-limits';
 import { inferenceRequestBytes as effectiveInferenceRequestBytes, inferenceAttemptLimit as effectiveInferenceAttemptLimit } from './dispatcher-inference-limits';
 import { dispatcherOperationLimit as effectiveOperationLimit } from './dispatcher-operation-limits';
-import { dispatcherCapacities, dispatcherCapacityKeys, dispatcherCapacityPolicySchema, pickDispatcherCapacities, validDispatcherCapacities,
+import { dispatcherCapacities, dispatcherCapacityKeys, pickDispatcherCapacities, validDispatcherCapacities,
   type DispatcherCapacityPolicy } from './dispatcher-capacity-limits';
+import { dispatcherCapacityPolicySchema } from './dispatcher-capacity-schema';
 import type { OperatorBrowserSummary } from './browser-activity';
 import type { BoundaryActionBinding } from './boundary-action-trust';
 import { canInvokeOperator, operatorAccessSessionCurrent, resolveOperatorGroupIdentity } from '../lib/access';

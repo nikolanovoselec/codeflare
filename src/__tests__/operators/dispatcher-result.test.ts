@@ -709,6 +709,23 @@ describe('Dispatcher exact-submission public Flue updates contract', () => {
       byteKey: 'readinessBytes', countKey: 'readinessObservationLimit' },
   ] as const;
   it.each(metadataCases.flatMap(metadata => [false, true].map(reset => ({ ...metadata, reset }))))(
+    'small assessment allowance does not cap SDK identities or independent $name data (reset=$reset)',
+    async ({ wireName, projection, value, reset }) => {
+      const assessment = { ok: true };
+      const messageId = 'm'.repeat(128);
+      const events = reset ? [event(5, { type: 'conversation-reset', snapshot: {
+        conversationId: 'conversation', messages: [{ parts: [
+          { data: value, type: `data-${wireName}` }, { data: assessment, type: 'data-assessment' },
+        ], submissionId: 'requested', id: messageId }], settlements: [{ submissionId: 'requested', outcome: 'completed' }],
+      } })] : [{ ...start, messageId }, event(1, { data: value, messageId, name: wireName, type: 'data-part' }),
+        { ...data, messageId, data: assessment }, settled];
+      const final = await readDispatcherUpdates(response(events), initial(), 'requested', undefined,
+        { assessmentBytes: jsonBytes(assessment) });
+      expect(final).toMatchObject({ messageIds: [messageId], result: assessment, writes: 1, outcome: 'completed' });
+      expect(final[projection]).toEqual({ latest: value, observations: 1, truncated: false });
+    },
+  );
+  it.each(metadataCases.flatMap(metadata => [false, true].map(reset => ({ ...metadata, reset }))))(
     'admitted $name bytes accept the exact boundary and only truncate diagnostic overflow (reset=$reset)',
     async ({ wireName, projection, value, byteKey, reset }) => {
       const events = reset ? [event(5, { type: 'conversation-reset', snapshot: {

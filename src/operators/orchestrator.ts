@@ -188,8 +188,10 @@ export async function runOperatorActivity(
   const activity = env.OPERATOR_ACTIVITY.getByName(activityId);
   const plan = await activity.getRuntimePlan() as OperatorRuntimePlan | null;
   if (!plan) return;
-  const capacityPolicy = isManagementReceipt(plan.receipt) ? pickDispatcherCapacities(plan.receipt.selection.operator.policy) : undefined;
-  const attemptDeadline = Math.min(plan.deadline, requestedAt + dispatcherCapacities(capacityPolicy).driveTimeoutMs);
+  const capacityPolicy = isManagementReceipt(plan.receipt) && plan.receipt.selection.operator.profile === 'dispatcher'
+    ? pickDispatcherCapacities(plan.receipt.selection.operator.policy) : undefined;
+  const attemptDeadline = Math.min(plan.deadline,
+    requestedAt + (capacityPolicy === undefined ? 25_000 : dispatcherCapacities(capacityPolicy).driveTimeoutMs));
   try {
     if (!env.LOADER) throw new Error('Operator Loader unavailable');
     const registry = env.OPERATOR_REGISTRY.getByName('registry');

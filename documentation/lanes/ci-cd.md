@@ -148,7 +148,7 @@ Application suites are not rerun after exact-tree verification. Packaged-image s
 
 After classification every affected workload starts directly; required summary is the fan-in. Backend/frontend/host matrices expose their configured legs concurrently. REQ-OPS-045's affected exact-head feedback target is under three minutes, not a user-runtime guarantee.
 
-- **changes:** backend, webui, landing, host, pi, ide, workflows and production dependencies; `full` means no filtering. If GitHub diff fails, verify exact checked-out base/head and select all lanes, never silently skip. <!-- @impl: scripts/ci/path-filter-fallback.sh::changed_files --> <!-- @test: host/__tests__/nightly-pr-checks-routing.test.js (REQ-OPS-003: executes the fallback against exact commits and emits every lane) --> Nightly skips filtering under its distinct identity.
+- **changes:** backend, webui, landing, host, pi, ide, workflows and production dependencies; `full` means no filtering. PR checkout uses depth2; push filtering retains full history. If GitHub diff fails, fetch any missing exact base/head commits at depth1, verify both and select all lanes, never silently skip. <!-- @impl: scripts/ci/path-filter-fallback.sh::changed_files --> <!-- @test: host/__tests__/nightly-pr-checks-routing.test.js (REQ-OPS-003: executes the fallback against exact commits and emits every lane) --> Nightly skips filtering under its distinct identity.
 - **quality:** seed drift, backend/frontend oxlint/knip, `bash -n` over tracked shell scripts (REQ-OPS-003).
 - **typecheck:** Wrangler types and backend/frontend `tsc --noEmit`.
 - **backend-tests:** twelve duration-weighted Workers shards plus native/flue/rest Node legs through the shared suite action.

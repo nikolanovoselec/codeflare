@@ -2,10 +2,14 @@
 import { z } from 'zod';
 import { baseFetch } from './fetch-helper';
 import { operatorActivitySummarySchema } from './operator-activities';
-import { dispatcherCapacityShape, type DispatcherCapacityPolicy } from '../../../src/operators/dispatcher-capacity-limits';
+import { dispatcherCapacityKeys, type DispatcherCapacityKey, type DispatcherCapacityPolicy } from '../../../src/operators/dispatcher-capacity-limits';
 export { dispatcherCapacityFields, dispatcherCapacityKeys, pickDispatcherCapacities, validDispatcherCapacities } from '../../../src/operators/dispatcher-capacity-limits';
 export type { DispatcherCapacityKey, DispatcherCapacityPolicy } from '../../../src/operators/dispatcher-capacity-limits';
 
+// Use this package's Zod instance; shared metadata stays independent of backend dependencies.
+const dispatcherCapacityShape = Object.fromEntries(dispatcherCapacityKeys.map(key => [key,
+  (key === 'checkRunPageSize' ? z.number().int().positive().max(100) : z.number().int().positive().safe()).optional(),
+])) as { [K in DispatcherCapacityKey]: z.ZodOptional<z.ZodNumber> };
 const id = z.string().regex(/^[A-Za-z0-9_-]{1,128}$/);
 const revision = z.number().int().positive();
 const digest = z.string().regex(/^[a-f0-9]{64}$/);

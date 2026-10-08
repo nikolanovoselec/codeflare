@@ -2899,6 +2899,16 @@ describe('REQ-OPERATOR-047/048: parent-composed source response allowance', () =
     }
   }, { repositoryOnly: true }));
 
+  it('REQ-OPERATOR-048: SDK assessment collection is independent of a smaller non-SDK drive envelope', () => fixture(async f => {
+    await start(f);
+    const result = { repository: 'another/service', results: [], padding: 'x'.repeat(4096) };
+    f.messages([{ submissionId: 'submission-1', parts: [{ type: 'data-result', data: result }] }]);
+    f.settle(); await f.activity.reconcileDispatcherLease();
+    expect(await f.activity.collectBrowserResult()).toMatchObject({ ok: true, detail: { result } });
+    f.restart();
+    expect(await f.activity.collectBrowserResult()).toMatchObject({ ok: true, detail: { result } });
+  }, { repositoryOnly: true, capacityPolicy: { driveResponseBytes: 128 } }));
+
   it.each([64512, 65537])('REQ-OPERATOR-048: source allowance preserves final-result admission for %s bytes', resultBytes => fixture(async f => {
     await start(f);
     const empty = { repository: 'another/service', results: [], padding: '' };

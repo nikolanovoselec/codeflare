@@ -290,9 +290,13 @@ export async function readDispatcherUpdates(response: Response, previous: Dispat
         return;
       }
     }
-    if (new TextEncoder().encode(JSON.stringify(value)).byteLength > limits.assessmentBytes) {
-      // The name/type may follow data. Defer only data's existing denial until attribution.
-      if ((path.length === 1 && path[0] === 'data') || (path.length === 6 && path[3] === 'parts' && path[5] === 'data')) {
+    const dataValue = (path.length === 1 && path[0] === 'data')
+      || (path.length === 6 && path[3] === 'parts' && path[5] === 'data');
+    // Name/type can follow data. Retain only enough for any independently bounded named value.
+    const valueLimit = dataValue ? Math.max(limits.assessmentBytes, limits.readinessBytes, limits.preflightBytes)
+      : limits.projectedRecordBytes;
+    if (new TextEncoder().encode(JSON.stringify(value)).byteLength > valueLimit) {
+      if (dataValue) {
         put([...path.slice(0, -1), 'dataProjectionOversized'], true, false); return;
       }
       throw new Error('Dispatcher projected value exceeds limit');
@@ -342,7 +346,6 @@ export async function readDispatcherUpdates(response: Response, previous: Dispat
         if (part) {
           if (part.type === 'data-dispatcher-readiness') normalizeReadinessData(part, limits);
           else if (part.type === 'data-dispatcher-seal-preflight') normalizeSealPreflightData(part, limits);
-          else if (part.dataProjectionOversized) throw new Error('Dispatcher projected value exceeds limit');
           const completionPart = part.type === 'dynamic-tool' && part.toolName === 'finish_dispatcher';
           const otherTool = part.type === 'dynamic-tool' && typeof part.toolName === 'string'
             && Object.hasOwn(toolRoles, part.toolName) && !completionPart;
@@ -363,10 +366,23 @@ export async function readDispatcherUpdates(response: Response, previous: Dispat
       if (frame.path.length === 1) {
         if (record.type === 'data-part' && record.name === 'dispatcher-readiness') normalizeReadinessData(record, limits);
         else if (record.type === 'data-part' && record.name === 'dispatcher-seal-preflight') normalizeSealPreflightData(record, limits);
-        else if (record.dataProjectionOversized) throw new Error('Dispatcher projected value exceeds limit');
+        else if (record.dataProjectionOversized || (record.type === 'data-part'
+          && (record.name === 'assessment' || record.name === 'result')
+          && new TextEncoder().encode(JSON.stringify(record.data)).byteLength > limits.assessmentBytes)) {
+          throw new Error('Dispatcher projected value exceeds limit');
+        }
         if (++records > 65536) throw new Error('Dispatcher update count exceeds limit');
-        const snapshot = record.snapshot as { messages?: Array<{ submissionId?: string }> } | undefined;
-        if (Array.isArray(snapshot?.messages)) snapshot.messages = snapshot.messages.filter(message => message?.submissionId === submissionId);
+        const snapshot = record.snapshot as { messages?: Array<{ submissionId?: string; parts?: Array<Record<string, unknown>> }> } | undefined;
+        if (Array.isArray(snapshot?.messages)) {
+          snapshot.messages = snapshot.messages.filter(message => message?.submissionId === submissionId);
+          for (const message of snapshot.messages) for (const part of message.parts ?? []) {
+            if ((part.type === 'data-assessment' || part.type === 'data-result')
+              && (part.dataProjectionOversized
+                || new TextEncoder().encode(JSON.stringify(part.data)).byteLength > limits.assessmentBytes)) {
+              throw new Error('Dispatcher projected value exceeds limit');
+            }
+          }
+        }
         if (new TextEncoder().encode(JSON.stringify(record)).byteLength > limits.projectedRecordBytes) throw new Error('Dispatcher projection exceeds limit');
         project(state, record, submissionId, limits);
         record = Object.create(null);

@@ -508,6 +508,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
         revision: 1, enabled: true, releaseId: 'release',
         configurationJson: JSON.stringify({ renovate: { repository: 'acme/updates', automaticRuns: true, repetitionIntervalSeconds: 3600 } }), policy: { capabilities: ['fetch'], resourceProfileId: null } },
         operator: { id: 'dispatcher', operatorId: 'dispatcher', revision: 1, profile: 'dispatcher',
+          policy: { capabilities: ['fetch'], resourceProfileId: null },
           invokers: { users: [human.email], groups: [] } },
         release: { id: 'release', bundleDigest, sourceCommit: bundle.sourceCommit }, manifestJson: JSON.stringify({
           id: 'renovate-dispatcher', profile: 'dispatcher', intentVersion: '3' }) };
