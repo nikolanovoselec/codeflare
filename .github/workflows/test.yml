@@ -522,6 +522,7 @@ jobs:
         run: |
           command -v python3
           command -v ss
+          command -v lldb-18
           sudo -n python3 -u scripts/ci/capture-native-transport.py "$RUNNER_TEMP/native-transport.pid" > "$RUNNER_TEMP/native-transport.jsonl" 2>&1 &
           for attempt in $(seq 1 50); do
             if test -s "$RUNNER_TEMP/native-transport.pid"; then break; fi
@@ -541,14 +542,14 @@ jobs:
         if: always() && matrix.group == 'flue'
         run: |
           # Publish even when termination fails; preserve the cleanup exit status.
-          trap 'if test -f "$RUNNER_TEMP/native-transport.jsonl"; then cat "$RUNNER_TEMP/native-transport.jsonl"; fi' EXIT
+          trap 'for name in native-transport native-close; do if test -f "$RUNNER_TEMP/$name.jsonl"; then cat "$RUNNER_TEMP/$name.jsonl"; fi; done' EXIT
           if test -s "$RUNNER_TEMP/native-transport.pid"; then
             if pid=$(cat "$RUNNER_TEMP/native-transport.pid" 2>/dev/null); then
               if ! sudo -n kill -TERM "$pid"; then
                 # The probe removes its PID file on normal independent expiry.
                 test ! -e "$RUNNER_TEMP/native-transport.pid"
               fi
-              for attempt in $(seq 1 50); do
+              for attempt in $(seq 1 80); do
                 if ! test -e "$RUNNER_TEMP/native-transport.pid"; then break; fi
                 sleep 0.1
               done
@@ -557,6 +558,20 @@ jobs:
               test ! -e "$RUNNER_TEMP/native-transport.pid"
             fi
           fi
+          python3 - "$RUNNER_TEMP/native-close.jsonl" "$RUNNER_TEMP/native-transport.jsonl" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+          trace = [json.loads(line) for line in Path(sys.argv[1]).read_text().splitlines()]
+          events = {record['event'] for record in trace}
+          if not {'native-attached', 'native-trace-ended'} <= events:
+              raise SystemExit('Native trace did not complete')
+          if 'native-trace-error' in events or any(record.get('success') is False for record in trace):
+              raise SystemExit('Native trace failed')
+          transport = [json.loads(line) for line in Path(sys.argv[2]).read_text().splitlines()]
+          if any(record['event'] == 'native-trace-cleanup-error' for record in transport):
+              raise SystemExit('Native trace cleanup failed')
+          PY
 
   workflow-audit:
     name: Workflow audit
