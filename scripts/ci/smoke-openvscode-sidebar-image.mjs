@@ -255,6 +255,21 @@ export async function verifyJsYamlRuntime({
   return runtimePath;
 }
 
+export async function verifyShellQuoteRuntime({
+  runtimePath = '/opt/code-server/lib/vscode/node_modules/shell-quote',
+  expectedVersion = '1.12.0',
+} = {}) {
+  const manifest = JSON.parse(await readFile(join(runtimePath, 'package.json'), 'utf8'));
+  assert.equal(manifest.version, expectedVersion, `${runtimePath} must contain shell-quote ${expectedVersion}`);
+  const require = createRequire(import.meta.url);
+  const shellQuote = require(runtimePath);
+  assert.equal(typeof shellQuote.quote, 'function', `${runtimePath} must load shell-quote quote()`);
+  assert.equal(typeof shellQuote.parse, 'function', `${runtimePath} must load shell-quote parse()`);
+  const args = ['', 'two words', "single'quote", '"double"', '$HOME', '$(printf unsafe); & | < >', '\\backslash'];
+  assert.deepEqual(shellQuote.parse(shellQuote.quote(args)), args, `${runtimePath}: shell-quote argument round trip`);
+  return runtimePath;
+}
+
 export async function verifyNodeTarRuntimes({
   runtimePaths = [
     '/usr/local/lib/node_modules/npm/node_modules/tar',
@@ -383,6 +398,7 @@ async function main() {
   const developerTools = verifyDeveloperTools();
   const codeServerRuntime = await verifyCodeServerRuntime();
   const jsYamlRuntime = await verifyJsYamlRuntime();
+  await verifyShellQuoteRuntime();
   const nodeTarRuntimes = await verifyNodeTarRuntimes();
   const pacoteRuntime = await verifyPacoteRuntime();
   await verifyBundledSecurityRuntimes();

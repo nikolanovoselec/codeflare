@@ -10,6 +10,7 @@ import {
   activateExtensionWithVscode,
   createVscodeSmokeApi,
   verifyJsYamlRuntime,
+  verifyShellQuoteRuntime,
   verifyNodeTarRuntimes,
   verifyPacoteRuntime,
   verifyOxlintRuntime,
@@ -179,6 +180,33 @@ describe('REQ-OPS-038: deployment coding-agent selection', () => {
       assert.equal(await verifyJsYamlRuntime({ runtimePath }), runtimePath);
       await assert.rejects(verifyJsYamlRuntime({ runtimePath: brokenRuntime }), /must load js-yaml load/);
       await assert.rejects(verifyJsYamlRuntime({ runtimePath: wrongVersionRuntime }), /must contain js-yaml 5\.4\.1/);
+    } finally {
+      rmSync(fixture, { recursive: true, force: true });
+    }
+  });
+
+  it('REQ-OPS-046 AC2-AC3: packaged-image smoke accepts fixed shell-quote and rejects broken overlays', async () => {
+    const fixture = mkdtempSync(join(tmpdir(), 'shell-quote-runtime-smoke-'));
+    try {
+      // These modules exercise the smoke gate, not the vendor implementation;
+      // the packaged image loads and exercises the actual integrity-pinned copy.
+      const working = 'exports.quote = JSON.stringify; exports.parse = JSON.parse;\n';
+      const cases = [
+        ['working', '1.12.0', working, null],
+        ['wrong-version', '1.11.0', working, /must contain shell-quote 1\.12\.0/],
+        ['missing-api', '1.12.0', 'exports.quote = JSON.stringify;\n', /must load shell-quote parse/],
+        ['broken-quote', '1.12.0', 'exports.quote = () => "[]"; exports.parse = JSON.parse;\n', /shell-quote argument round trip/],
+        ['broken-parse', '1.12.0', 'exports.quote = JSON.stringify; exports.parse = () => [];\n', /shell-quote argument round trip/],
+        ['unloadable', '1.12.0', 'throw new Error("fixture shell-quote unloadable");\n', /fixture shell-quote unloadable/],
+      ];
+      for (const [name, version, source, failure] of cases) {
+        const runtimePath = join(fixture, name);
+        mkdirSync(runtimePath);
+        writeFileSync(join(runtimePath, 'package.json'), JSON.stringify({ name: 'shell-quote', version, main: 'index.cjs' }));
+        writeFileSync(join(runtimePath, 'index.cjs'), source);
+        if (failure) await assert.rejects(verifyShellQuoteRuntime({ runtimePath }), failure);
+        else assert.equal(await verifyShellQuoteRuntime({ runtimePath }), runtimePath);
+      }
     } finally {
       rmSync(fixture, { recursive: true, force: true });
     }
