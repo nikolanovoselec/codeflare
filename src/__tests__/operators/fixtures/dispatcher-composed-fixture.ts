@@ -58,7 +58,7 @@ export const fixtureObservationId = (request: Request): string | undefined => {
 export const observeBoundary = (observationId: string | undefined,
   boundary: 'worker-entered' | 'worker-rejected' | 'composed-entered' | 'request-body-started'
     | 'request-body-completed' | 'agent-lookup-started' | 'agent-lookup-completed'
-    | 'rpc-started' | 'reconcile-started' | 'reconcile-completed' | 'detail-completed'
+    | 'rpc-started' | 'detail-completed'
     | 'external-completed' | 'activity-return-ready' | 'rpc-completed' | 'json-started' | 'json-completed' | 'diagnose-started') => {
   if (observationId) console.error(`[native-flue] observe-boundary=${JSON.stringify({ observationId, boundary })}`);
 };
@@ -403,9 +403,7 @@ export class OperatorActivity extends ProductionActivity {
 
   }
   async observeComposed(observationId?: string) {
-    observeBoundary(observationId, 'reconcile-started');
-    await this.reconcileDispatcherLease();
-    observeBoundary(observationId, 'reconcile-completed');
+    // Match production status reads; drive/alarm paths own reconciliation.
     const detail = await this.getBrowserDetail();
     observeBoundary(observationId, 'detail-completed');
     const external = await services(this.fixtureEnv).observe();
