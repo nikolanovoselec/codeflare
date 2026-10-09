@@ -453,6 +453,55 @@ export function registerNativeDispatcherCases(
       expect(await composed(id, { action: 'collect' })).toMatchObject({ ok: false });
       expect((await composed<Composed>(id, { action: 'observe' })).external.inference).toEqual(result.external.inference);
     }, 90_000);
+
+    it('REQ-OPERATOR-048 AC2/4: thirty-target original-read recovery survives SDK eviction without duplicate effects', async () => {
+      const pinned = await pinnedArtifact(true, true);
+      const id = `thirty-evidence-${crypto.randomUUID()}`;
+      expect(await composed(id, { action: 'start', ...pinned, scenario: 'thirty-target-original-evidence-recovery',
+        attemptLimit: 32, submissionAttemptLimit: 3 })).toMatchObject({ ok: true, state: { generation: 1, status: 'running' } });
+      const held = await observed(id, value => value.external.held);
+      // A fresh failed read returned before the next explicit model/tool call.
+      expect(held.external.comments).toHaveLength(29);
+      expect(held.external.sourceRequests.filter(item => item.url === 'https://api.github.com/user')).toHaveLength(30);
+      expect(held.external.evidence).toEqual(Array.from({ length: 36 }, (_, index) => ({ index, complete: true })));
+      expect(await composed(id, { action: 'evict' })).toEqual({ evicted: true });
+      expect(await composed(id, { action: 'release' })).toEqual({ released: true });
+      const result = await observed(id, value => value.detail.executionStatus === 'completed');
+      expect(result.instance).not.toBe(held.instance);
+      expect(originalSdk(result).some(entry => entry.stage === 'sdk-submission-running'
+        && entry.attemptCount > 1 && entry.maxAttempts === 3)).toBe(true);
+      expect(result.external.sourceRequests.filter(item => item.url === 'https://api.github.com/user')).toHaveLength(31);
+      expect(result.external.evidence).toEqual(Array.from({ length: 36 }, (_, index) => ({ index, complete: true })));
+      const expected = Array.from({ length: 30 }, (_, index) => ({ pullRequest: 17 + index,
+        headSha: (index + 1).toString(16).padStart(40, '0'), decision: 'DO_NOT_MERGE', outcome: 'NOT_MERGED',
+        comment: `Migration compatibility for PR ${17 + index}, evidence ${index}, remains unverified. Source: https://docs.example.test/migration-${index} ${'Missing verified configuration and migration evidence. '.repeat(16)}` }));
+      const collected = await composed<{ ok: boolean; detail: { result: { repository: string; results: typeof expected }; checkpoint: unknown } }>(id, { action: 'collect' });
+      expect(collected).toMatchObject({ ok: true, detail: { executionStatus: 'completed', result: { repository: 'authorized/project' } } });
+      expect(collected.detail.result.results).toHaveLength(30);
+      expect(new Set(collected.detail.result.results.map(item => `${item.pullRequest}:${item.headSha}`)).size).toBe(30);
+      expect(collected.detail.result.results).toEqual(expect.arrayContaining(expected));
+      expect(result.external.comments).toHaveLength(30);
+      for (const outcome of expected) {
+        const old = held.external.comments.find(item => Reflect.get(item, 'issue_url') === `https://api.github.com/repos/authorized/project/issues/${outcome.pullRequest}`);
+        expect(result.external.comments.filter(item => Reflect.get(item, 'issue_url') === `https://api.github.com/repos/authorized/project/issues/${outcome.pullRequest}`))
+          .toEqual([old ?? expect.objectContaining({ body: outcome.comment,
+            user: { id: 43, login: 'replacement-publisher', type: 'User' } })]);
+        if (old) expect(old).toMatchObject({ body: outcome.comment, user: { id: 42, login: 'fixture-publisher', type: 'User' } });
+      }
+      const mutations = result.external.sourceRequests.filter(item => item.method !== 'GET');
+      expect(mutations).toHaveLength(30);
+      expect(mutations).toEqual(expect.arrayContaining(expected.map(item => ({ method: 'POST',
+        url: `https://api.github.com/repos/authorized/project/issues/${item.pullRequest}/comments` }))));
+      const research = result.external.sourceRequests.filter(item => item.url.startsWith('https://docs.example.test/migration-'));
+      expect(research).toHaveLength(36);
+      expect(new Set(research.map(item => item.url)).size).toBe(36);
+      expect(await composed(id, { action: 'collect' })).toMatchObject({ ok: true, detail: {
+        result: collected.detail.result, checkpoint: collected.detail.checkpoint,
+      } });
+      const after = await composed<Composed>(id, { action: 'observe' });
+      expect(after.external).toEqual(result.external);
+      expect(after.detail.sdkCleanupReleased).toBe(true);
+    }, 90_000);
   });
 
   if (group === 'authority') describe('REQ-OPERATOR-048: separate pinned native journey compatibility', () => {

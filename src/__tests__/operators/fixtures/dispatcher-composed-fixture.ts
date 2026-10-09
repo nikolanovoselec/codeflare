@@ -14,7 +14,7 @@ import { connectionFingerprint } from '../../../lib/reasoning-verification';
 import { PI_WIRE_CANARY_VERSION } from '../../../lib/reasoning-discovery';
 import { setLogLevel } from '../../../lib/logger';
 
-type RecoveryScenario = 'ordinary' | 'incomplete' | 'native-error' | 'precommit-reset' | 'committed-reset' | 'duplicate' | 'persistent' | 'large-evidence-comment-batch';
+type RecoveryScenario = 'ordinary' | 'incomplete' | 'native-error' | 'precommit-reset' | 'committed-reset' | 'duplicate' | 'persistent' | 'large-evidence-comment-batch' | 'thirty-target-original-evidence-recovery';
 interface FixtureEnv {
   KV: KVNamespace;
   LOADER: NonNullable<Env['LOADER']>;
@@ -43,6 +43,17 @@ const largeEvidence = Array.from({ length: 32 }, (_, index) => {
   return { target, url, quote, body: quote + 'x'.repeat(length - quote.length), kind: 'upstream' as const };
 });
 const largeComment = (index: number) => `${largeEvidence[index].quote} Source: ${largeEvidence[index].url}`;
+const thirtyTargets = Array.from({ length: 30 }, (_, index) => ({
+  pullRequest: 17 + index, headSha: (index + 1).toString(16).padStart(40, '0'),
+}));
+const thirtyEvidence = Array.from({ length: 36 }, (_, index) => {
+  const target = thirtyTargets[index % 30];
+  const url = `https://docs.example.test/migration-${index}`;
+  const quote = `Migration compatibility for PR ${target.pullRequest}, evidence ${index}, remains unverified.`;
+  const length = index < 28 ? 8192 : 20480;
+  return { target, url, quote, body: quote + 'x'.repeat(length - quote.length), kind: 'upstream' as const };
+});
+const thirtyComment = (index: number) => `${thirtyEvidence[index].quote} Source: ${thirtyEvidence[index].url} ${'Missing verified configuration and migration evidence. '.repeat(16)}`;
 const services = (env: FixtureEnv) => env.RECOVERY_SERVICES.getByName('services');
 const hash = async (value: string) => Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value))), b => b.toString(16).padStart(2, '0')).join('');
 const wire = (chunks: unknown[]) => new Response(chunks.map(value => `data: ${JSON.stringify(value)}\n\n`).join('') + 'data: [DONE]\n\n', { headers: { 'content-type': 'text/event-stream' } });
@@ -259,7 +270,10 @@ export class RecoveryServices extends DurableObject<FixtureEnv> {
   async inference(request: Request): Promise<Response> {
     const body = await request.text();
     const input = JSON.parse(body) as { messages: Array<{ tool_calls?: Array<{ function?: { name?: string } }> }> };
-    if (await this.ctx.storage.get('scenario') === 'large-evidence-comment-batch') return this.largeInference(input, body);
+    const scenario = await this.ctx.storage.get('scenario');
+    if (scenario === 'large-evidence-comment-batch' || scenario === 'thirty-target-original-evidence-recovery') {
+      return this.largeInference(input, body, scenario === 'thirty-target-original-evidence-recovery');
+    }
     const names = input.messages.flatMap(message => message.tool_calls?.map(tool => tool.function?.name) ?? []);
     const sequence = ['discover_renovate', 'research_renovate', 'decide_renovate', 'seal_dispatcher', 'comment_renovate', 'finish_dispatcher'];
     const turn = Math.max(-1, ...names.map(name => sequence.indexOf(name ?? ''))) + 1;
@@ -278,7 +292,10 @@ export class RecoveryServices extends DurableObject<FixtureEnv> {
     return wire([{ choices: [{ index: 0, delta: { tool_calls: [{ index: 0, id: `composed-${turn}`, type: 'function', function: { name: tool, arguments: JSON.stringify(args) } }] }, finish_reason: null }] },
       { choices: [{ index: 0, delta: {}, finish_reason: 'tool_calls' }] }]);
   }
-  private async largeInference(input: { messages: unknown[] }, body: string): Promise<Response> {
+  private async largeInference(input: { messages: unknown[] }, body: string, recovery = false): Promise<Response> {
+    const expectedTargets = recovery ? thirtyTargets : largeEvidenceTargets;
+    const expectedEvidence = recovery ? thirtyEvidence : largeEvidence;
+    const expectedComment = recovery ? thirtyComment : largeComment;
     const calls: Array<{ name: string; arguments: string }> = [];
     const artifacts = new Map<string, Record<string, unknown>>();
     const visit = (value: unknown): void => {
@@ -296,9 +313,10 @@ export class RecoveryServices extends DurableObject<FixtureEnv> {
     const researched = calls.filter(item => item.name === 'research_renovate').length;
     const decided = calls.filter(item => item.name === 'decide_renovate').length;
     const sealed = calls.some(item => item.name === 'seal_dispatcher');
-    const commented = calls.some(item => item.name === 'comment_renovate');
+    const commentCalls = calls.filter(item => item.name === 'comment_renovate').length;
+    const commented = recovery ? commentCalls >= expectedTargets.length * 2 : commentCalls > 0;
     const observed = [];
-    for (const [index, expected] of largeEvidence.entries()) {
+    for (const [index, expected] of expectedEvidence.entries()) {
       const id = `artifact-${(await hash(JSON.stringify({ target: expected.target, url: expected.url, kind: expected.kind }))).slice(0, 24)}`;
       const actual = artifacts.get(id);
       if (!actual) continue;
@@ -310,22 +328,24 @@ export class RecoveryServices extends DurableObject<FixtureEnv> {
     await this.ctx.storage.put('evidence', observed);
     let batch: Array<{ name: string; args: unknown }>;
     if (!calls.some(item => item.name === 'discover_renovate')) batch = [{ name: 'discover_renovate', args: {} }];
-    else if (researched < 32) batch = largeEvidence.slice(researched, researched + 4).map(item => ({
+    else if (researched < expectedEvidence.length) batch = expectedEvidence.slice(researched, researched + 4).map(item => ({
       name: 'research_renovate', args: { target: item.target, url: item.url, kind: item.kind },
     }));
     else if (!decided) {
       // A model answer cannot bypass incomplete/truncated/misattributed research.
-      if (observed.length !== 32 || observed.some(item => !item.complete)) return new Response(null, { status: 422 });
-      batch = largeEvidenceTargets.map((target, index) => ({ name: 'decide_renovate', args: {
-        target, decision: 'DO_NOT_MERGE', comment: largeComment(index),
-        claims: [{ artifactId: [...artifacts.keys()].find(id => artifacts.get(id)?.url === largeEvidence[index].url),
-          quote: largeEvidence[index].quote, relevance: 'target-specific migration uncertainty', authority: 'publisher guidance' }],
+      if (observed.length !== expectedEvidence.length || observed.some(item => !item.complete)) return new Response(null, { status: 422 });
+      batch = expectedTargets.map((target, index) => ({ name: 'decide_renovate', args: {
+        target, decision: 'DO_NOT_MERGE', comment: expectedComment(index),
+        claims: [{ artifactId: [...artifacts.keys()].find(id => artifacts.get(id)?.url === expectedEvidence[index].url),
+          quote: expectedEvidence[index].quote, relevance: 'target-specific migration uncertainty', authority: 'publisher guidance' }],
         analysis: { changedUsage: 'unverified', configuration: 'unverified', interoperability: 'unverified',
           migration: 'unverified', gaps: ['No verified compatibility declaration'] },
       } }));
     } else if (!sealed) batch = [{ name: 'seal_dispatcher', args: {} }];
-    else if (!commented) batch = largeEvidenceTargets.map(target => ({ name: 'comment_renovate', args: { target } }));
+    else if (!commented) batch = expectedTargets.map(target => ({ name: 'comment_renovate', args: { target } }));
     else batch = [{ name: 'finish_dispatcher', args: {} }];
+    // The next model turn explicitly reissues tools; a fresh source failure never retries itself.
+    if (recovery && commentCalls === expectedTargets.length && !await this.ctx.storage.get('held')) await this.hold();
     await this.append('inference', { inputDigest: await hash(body), turn: calls.length });
     await this.append('batches', batch.map(item => item.name));
     return wire([{ choices: [{ index: 0, delta: { tool_calls: batch.map((item, index) => ({ index,
@@ -335,13 +355,17 @@ export class RecoveryServices extends DurableObject<FixtureEnv> {
   async source(request: Request): Promise<Response> {
     await this.append('sourceRequests', { url: request.url, method: request.method });
     const bot = { id: 29139614, login: 'renovate[bot]', type: 'Bot' };
-    const actor = { id: 42, login: 'fixture-publisher', type: 'User' };
+    const scenario = await this.ctx.storage.get('scenario');
+    const recovery = scenario === 'thirty-target-original-evidence-recovery';
+    const actor = recovery && await this.ctx.storage.get('held')
+      ? { id: 43, login: 'replacement-publisher', type: 'User' } : { id: 42, login: 'fixture-publisher', type: 'User' };
     const base = `https://api.github.com/repos/${repository}`;
-    const large = await this.ctx.storage.get('scenario') === 'large-evidence-comment-batch';
-    const selected = large ? largeEvidenceTargets.find(item => new URL(request.url).pathname.match(/\/(?:pulls|issues)\/(\d+)/)?.[1] === String(item.pullRequest)) ?? target : target;
+    const large = scenario === 'large-evidence-comment-batch' || recovery;
+    const targets = recovery ? thirtyTargets : largeEvidenceTargets;
+    const selected = large ? targets.find(item => new URL(request.url).pathname.match(/\/(?:pulls|issues)\/(\d+)/)?.[1] === String(item.pullRequest)) ?? target : target;
     const pull = { number: selected.pullRequest, state: 'open', draft: false, created_at: new Date(Date.now() - 86400000).toISOString(),
       user: bot, head: { sha: selected.headSha }, base: { sha: 'b'.repeat(40), ref: 'main', repo: { id: 123, full_name: repository } } };
-    const evidence = large && largeEvidence.find(item => item.url === request.url);
+    const evidence = large && (recovery ? thirtyEvidence : largeEvidence).find(item => item.url === request.url);
     if (evidence) return new Response(evidence.body, { headers: { 'content-type': 'text/plain' } });
     if (request.url === researchUrl) return new Response(quote, { headers: { 'content-type': 'text/plain' } });
     if (request.url === `${base}/issues/${selected.pullRequest}/comments` && request.method === 'POST') {
@@ -350,12 +374,15 @@ export class RecoveryServices extends DurableObject<FixtureEnv> {
       await this.append('comments', entry); return Response.json(entry, { status: 201 });
     }
     if (request.method !== 'GET') return new Response(null, { status: 403 });
+    if (recovery && request.url === 'https://api.github.com/user' && await this.claimFault('thirty-target-original-evidence-recovery')) {
+      return Response.json({ error: 'Synthetic upstream read failure', code: 'GITHUB_FETCH_FAILED' }, { status: 502 });
+    }
     if (large && request.url.startsWith(`${base}/pulls?`)) {
       const page = Number(new URL(request.url).searchParams.get('page'));
-      const item = largeEvidenceTargets[page - 1];
+      const item = targets[page - 1];
       return Response.json(item ? [{ ...pull, number: item.pullRequest, head: { sha: item.headSha },
-        created_at: new Date(Date.now() - (page + 1) * 86400000).toISOString() }] : [],
-        { headers: page < 7 ? { link: `<${base}/pulls?page=${page + 1}>; rel="next"` } : {} });
+        created_at: new Date(Date.now() - (page + 1) * (recovery ? 3600000 : 86400000)).toISOString() }] : [],
+        { headers: page < targets.length ? { link: `<${base}/pulls?page=${page + 1}>; rel="next"` } : {} });
     }
     const paths: Record<string, unknown> = {
       [base]: { id: 123, full_name: repository, default_branch: 'main' },
