@@ -43,6 +43,7 @@ type Snapshot = {
 };
 type Harness = {
   fetch(path: string, init?: RequestInit): Promise<Response>;
+  armRuntimeProbe?(): void;
   reset(): Promise<void>;
   queuedActivity(patch?: Partial<OperatorActivityPreparation>): Promise<OperatorActivityPreparation>;
   activity(id: string, command: ActivityFixtureCommand): Promise<unknown>;
@@ -197,16 +198,43 @@ export function registerNativeDispatcherCases(
         transportCode: typeof code === 'string' && ['UND_ERR_ABORTED', 'UND_ERR_CONNECT_TIMEOUT', 'UND_ERR_HEADERS_TIMEOUT',
           'UND_ERR_BODY_TIMEOUT', 'UND_ERR_SOCKET', 'ECONNRESET', 'ECONNREFUSED', 'ETIMEDOUT'].includes(code) ? code : 'other' };
     }
+    let largeObservationCount = 0;
     async function composed<T>(id: string, value: unknown): Promise<T> {
       const action = (value as { action?: unknown }).action;
       const phase = ['start', 'observe', 'collect', 'evict', 'release', 'revoke', 'cancel', 'change-submission-policy'].includes(String(action))
         ? String(action) : 'other';
       const observationId = phase === 'observe' && id.startsWith('large-evidence-') ? crypto.randomUUID() : undefined;
-      const send = (command: unknown) => harness.fetch(`/dispatcher-composed?activity=${id}`, {
-        method: 'POST', headers: { 'content-type': 'application/json',
-          ...(observationId && command === value ? { 'x-codeflare-fixture-observation-id': observationId } : {}) },
-        body: JSON.stringify(command), signal: AbortSignal.timeout(20_000),
-      });
+      // CI-only metadata preparation precedes serialization and the original abort clock.
+      if (phase === 'start' && id.startsWith('large-evidence-')) {
+        largeObservationCount = 0;
+        harness.armRuntimeProbe?.();
+      }
+      if (observationId) largeObservationCount += 1;
+      const compare = observationId !== undefined && largeObservationCount === 2 && process.env.GITHUB_ACTIONS === 'true';
+      const send = (command: unknown, correlationId = command === value ? observationId : undefined) =>
+        harness.fetch(`/dispatcher-composed?activity=${id}`, {
+          method: 'POST', headers: { 'content-type': 'application/json',
+            ...(correlationId ? { 'x-codeflare-fixture-observation-id': correlationId } : {}) },
+          body: JSON.stringify(command), signal: AbortSignal.timeout(20_000),
+        });
+      const diagnose = async (correlationId?: string): Promise<void> => {
+        try {
+          const diagnostic = await send({ action: 'diagnose' }, correlationId);
+          if (correlationId) console.info(`[native-flue] diagnostic-client=${JSON.stringify({ observationId: correlationId,
+            boundary: 'response-headers', status: diagnostic.status })}`);
+          if (diagnostic.status === 200) {
+            const text = await diagnostic.text();
+            if (correlationId) console.info(`[native-flue] diagnostic-client=${JSON.stringify({ observationId: correlationId,
+              boundary: 'body-completed', bytes: new TextEncoder().encode(text).byteLength })}`);
+            console.info(`[native-flue] composed retained=${JSON.stringify(JSON.parse(text))}`);
+          } else console.info('[native-flue] composed retained=unavailable');
+        } catch (error) {
+          console.info(`[native-flue] composed retained=${JSON.stringify({ available: false, ...closedTransportFailure(error) })}`);
+        }
+      };
+      let originalPending = true;
+      let comparisonTimer: ReturnType<typeof setTimeout> | undefined;
+      let comparison: Promise<void> | undefined;
       let boundary: 'fetch-rejected' | 'response-not-json' | 'http-rejected' = 'fetch-rejected';
       let status: number | undefined;
       let body: unknown;
@@ -215,7 +243,17 @@ export function registerNativeDispatcherCases(
       let responseMessage: string | undefined;
       let responseSource: { file: string; line: number; column: number } | undefined;
       try {
-        const response = await send(value);
+        const original = send(value);
+        if (compare) comparisonTimer = setTimeout(() => {
+          if (!originalPending) return;
+          const diagnosticObservationId = crypto.randomUUID();
+          console.info(`[native-flue] observe-comparison=${JSON.stringify({ originalObservationId: observationId,
+            diagnosticObservationId, boundary: 'dispatched', delayMs: 500 })}`);
+          comparison = diagnose(diagnosticObservationId);
+        }, 500);
+        const response = await original;
+        originalPending = false;
+        if (comparisonTimer) clearTimeout(comparisonTimer);
         status = response.status;
         if (observationId) console.info(`[native-flue] observe-client=${JSON.stringify({ observationId, boundary: 'response-headers', status })}`);
         boundary = 'response-not-json';
@@ -254,14 +292,14 @@ export function registerNativeDispatcherCases(
         }
       } catch (error) {
         console.info(`[native-flue] composed transport=${JSON.stringify({ phase, boundary, status, responseCategory, responseErrorClass, responseMessage, responseSource, ...closedTransportFailure(error) })}`);
-        // One independent, read-only retained-evidence read; never repeat the failed command.
-        try {
-          const diagnostic = await send({ action: 'diagnose' });
-          if (diagnostic.status === 200) {
-            console.info(`[native-flue] composed retained=${JSON.stringify(await diagnostic.json())}`);
-          } else console.info('[native-flue] composed retained=unavailable');
-        } catch (error) { console.info(`[native-flue] composed retained=${JSON.stringify({ available: false, ...closedTransportFailure(error) })}`); }
+        // Reuse the in-flight comparison, never diagnose twice or repeat the failed command.
+        if (!compare) await diagnose();
         throw new Error(`Native composed transport failed: ${boundary}`);
+      } finally {
+        originalPending = false;
+        if (comparisonTimer) clearTimeout(comparisonTimer);
+        // Drain only after the original response/error was handled; it cannot replace that outcome.
+        if (comparison) await comparison;
       }
       expect(status, JSON.stringify({ phase, status })).toBe(200);
       return body as T;

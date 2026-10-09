@@ -1,9 +1,8 @@
-"""Temporary loopback connection metadata; never read beyond base IPv4/TCP headers."""
+"""Temporary loopback/header and procfs metadata; no payload or debugger attachment."""
 import json
 import os
 from pathlib import Path
 import re
-import shlex
 import signal
 import socket
 import struct
@@ -29,31 +28,34 @@ def capture():
     next_listeners = 0
     count = 0
     reason = "error"
-    trace = None
-    trace_user_pid = None
-    trace_pairs = set()
-    directory = pidfile.parent
-    arm = directory / "native-close-arm.json"
-    stop_trace = directory / "native-close-stop"
+    user_pid = None
+    user_start = None
+    runtime_deadline = None
+    runtime_ended = False
+    pairs = set()
+    arm = pidfile.parent / "native-runtime-arm.json"
+    ticks_per_second = os.sysconf("SC_CLK_TCK")
+    page_size = os.sysconf("SC_PAGE_SIZE")
+    schedstats_file = Path("/proc/sys/kernel/sched_schedstats")
+    schedstats_enabled = schedstats_file.exists() and schedstats_file.read_text().strip() == "1"
 
-    def connection_pairs(sockets, user_pid):
-        listening = {(local, pid) for local, _peer, state, name, pid in sockets
+    def connection_pairs(sockets, pid):
+        listening = {(local, owner) for local, _peer, state, name, owner in sockets
                      if state == "LISTEN" and name == "workerd"}
-        connected = {(local, peer): pid for local, peer, state, name, pid in sockets
+        connected = {(local, peer): owner for local, peer, state, name, owner in sockets
                      if state == "ESTAB" and name == "workerd"}
         return {(int(local.rsplit(":", 1)[1]), int(peer.rsplit(":", 1)[1]))
                 for (local, peer), owner in connected.items()
-                if owner == user_pid and (local, owner) in listening
+                if owner == pid and (local, owner) in listening
                 and connected.get((peer, local)) not in (None, owner)}
 
-    def start_trace(sockets):
-        nonlocal trace_user_pid
-        # The receiving workerd owns a listening endpoint whose connected peer
-        # belongs to the other workerd. This is the proved Proxy -> User edge.
+    def select_runtime(sockets):
+        # The receiving workerd owns the listening side of the Proxy -> User
+        # connection. Require the armed fixture Node parent and repo executable.
         node_pid = json.loads(arm.read_text(encoding="ascii"))["nodePid"]
         if (type(node_pid) is not int or node_pid <= 1
                 or Path(f"/proc/{node_pid}/exe").readlink().name != "node"):
-            raise ValueError("Invalid native trace owner")
+            raise ValueError("Invalid native runtime owner")
         listening = {(local, pid) for local, _peer, state, name, pid in sockets
                      if state == "LISTEN" and name == "workerd"}
         connected = {(local, peer): pid for local, peer, state, name, pid in sockets
@@ -66,20 +68,45 @@ def capture():
                     fields = Path(f"/proc/{pid}/stat").read_text().rpartition(")")[2].split()
                     executable = Path(f"/proc/{pid}/exe").readlink()
                 except (FileNotFoundError, ProcessLookupError):
-                    continue  # Other files' independently owned runtimes can exit.
+                    continue  # Independently owned runtimes can exit.
                 modules = Path(__file__).resolve().parents[2] / "node_modules"
                 if (int(fields[1]) == node_pid and executable.name == "workerd"
                         and executable.is_relative_to(modules)):
-                    candidates.add(pid)
+                    candidates.add((pid, int(fields[19])))
         if len(candidates) != 1:
             return None
-        pid = candidates.pop()
-        trace_user_pid = pid
-        script = Path(__file__).resolve().with_name("native_close_trace.py")
-        return subprocess.Popen(["lldb-18", "--no-lldbinit", "--batch", "-o",
-                                 "command script import " + shlex.quote(str(script)), "-o",
-                                 f"script native_close_trace.run({pid}, {str(directory)!r})"],
-                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        pid, started = candidates.pop()
+        emit("runtime-selected", pid=pid, node_pid=node_pid,
+             ticks_per_second=ticks_per_second, schedstats_enabled=schedstats_enabled,
+             sample_interval_ms=500, window_seconds=80)
+        return pid, started
+
+    def sample_runtime():
+        nonlocal runtime_ended
+        if runtime_ended:
+            return
+        if time.monotonic() >= runtime_deadline:
+            emit("runtime-ended", pid=user_pid, reason="window")
+            runtime_ended = True
+            return
+        try:
+            process = Path(f"/proc/{user_pid}/stat").read_text().rpartition(")")[2].split()
+            main = Path(f"/proc/{user_pid}/task/{user_pid}/stat").read_text().rpartition(")")[2].split()
+            schedule = Path(f"/proc/{user_pid}/task/{user_pid}/schedstat").read_text().split()
+        except (FileNotFoundError, ProcessLookupError):
+            emit("runtime-ended", pid=user_pid, reason="exited")
+            runtime_ended = True
+            return
+        if int(process[19]) != user_start:
+            raise ValueError("Native runtime PID reused")
+        # Fixed numeric/state fields only: no argv, thread names, stacks, locals,
+        # file contents, credentials, request headers or application values.
+        emit("runtime-process", pid=user_pid, main_state=main[0],
+             main_cpu_ticks=int(main[11]) + int(main[12]),
+             process_cpu_ticks=int(process[11]) + int(process[12]),
+             main_run_ns=int(schedule[0]),
+             main_runqueue_wait_ns=int(schedule[1]) if schedstats_enabled else None,
+             resident_bytes=int(process[21]) * page_size, threads=int(process[17]))
 
     # SOCK_RAW/IPPROTO_TCP receives IP packets, without an Ethernet header.
     # recv(40) copies at most 20 IPv4 + 20 TCP bytes. IP options are rejected.
@@ -105,10 +132,14 @@ def capture():
                     if current != listeners:
                         emit("sockets", sockets=sorted(current))
                         listeners = current
-                    if trace is None and arm.exists() and time.time() - arm.stat().st_mtime < 10:
-                        trace = start_trace(current)
-                    if trace is not None and trace.poll() is None:
-                        trace_pairs = connection_pairs(current, trace_user_pid)
+                    if user_pid is None and arm.exists() and time.time() - arm.stat().st_mtime < 10:
+                        selected = select_runtime(current)
+                        if selected is not None:
+                            user_pid, user_start = selected
+                            runtime_deadline = time.monotonic() + 80
+                    if user_pid is not None:
+                        sample_runtime()
+                        pairs = set() if runtime_ended else connection_pairs(current, user_pid)
                     next_listeners = time.monotonic() + 0.5
                 try:
                     packet = stream.recv(40)
@@ -123,10 +154,10 @@ def capture():
                 flags = packet[33] & 0x07
                 source, destination, sequence, acknowledgement = struct.unpack_from("!HHII", packet, 20)
                 # Derive payload LENGTH solely from the copied base headers.
-                # Scope data-arrival metadata to the one traced User runtime.
+                # Scope data-arrival metadata to the identified User runtime.
                 data_bytes = struct.unpack_from("!H", packet, 2)[0] - 20 - (packet[32] >> 4) * 4
-                if (trace is not None and trace.poll() is None and data_bytes > 0
-                        and ((source, destination) in trace_pairs or (destination, source) in trace_pairs)):
+                if (data_bytes > 0
+                        and ((source, destination) in pairs or (destination, source) in pairs)):
                     emit("tcp-data-header", source=source, destination=destination,
                          sequence=sequence, acknowledgement=acknowledgement, data_bytes=data_bytes)
                     count += 1
@@ -136,14 +167,8 @@ def capture():
                     count += 1
             reason = "signal" if not running else "limit" if count == 5000 else "deadline"
         finally:
-            stop_trace.touch()
-            if trace is not None:
-                try:
-                    trace.wait(timeout=3)
-                except subprocess.TimeoutExpired:
-                    # Never kill an attached debugger/inferior. Its own deadline
-                    # still performs detach; disclose incomplete cleanup.
-                    emit("native-trace-cleanup-error", stage="detach-deadline")
+            if user_pid is not None and not runtime_ended:
+                emit("runtime-ended", pid=user_pid, reason="probe-ended")
             emit("ended", packets=count, reason=reason)
             pidfile.unlink(missing_ok=True)
 

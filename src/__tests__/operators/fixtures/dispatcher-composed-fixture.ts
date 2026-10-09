@@ -59,7 +59,7 @@ export const observeBoundary = (observationId: string | undefined,
   boundary: 'worker-entered' | 'worker-rejected' | 'composed-entered' | 'request-body-started'
     | 'request-body-completed' | 'agent-lookup-started' | 'agent-lookup-completed'
     | 'rpc-started' | 'reconcile-started' | 'reconcile-completed' | 'detail-completed'
-    | 'external-completed' | 'activity-return-ready' | 'rpc-completed' | 'json-started' | 'json-completed') => {
+    | 'external-completed' | 'activity-return-ready' | 'rpc-completed' | 'json-started' | 'json-completed' | 'diagnose-started') => {
   if (observationId) console.error(`[native-flue] observe-boundary=${JSON.stringify({ observationId, boundary })}`);
 };
 export type CanonicalAppendObservation = { category: 'canonical-append-oversized' | 'canonical-append-other'; largestRecordType?: 'state_write' };
@@ -414,7 +414,8 @@ export class OperatorActivity extends ProductionActivity {
     observeBoundary(observationId, 'activity-return-ready');
     return { instance: this.instance, detail, external, diagnostics: retained };
   }
-  async diagnoseComposed() {
+  async diagnoseComposed(observationId?: string) {
+    observeBoundary(observationId, 'diagnose-started');
     // Snapshot existing settlement evidence before journal inspection can evict it from the ring.
     const settlementBoundaries = diagnostics.flatMap(entry => {
       if (!['settlement', 'assessment', 'sdk-release'].includes(String(entry.stage))
@@ -424,7 +425,10 @@ export class OperatorActivity extends ProductionActivity {
     });
     // Read retained owner/service evidence without reconciling or fetching the child.
     const detail = await this.getBrowserDetail();
+    observeBoundary(observationId, 'detail-completed');
     const external = await services(this.fixtureEnv).observe();
+    observeBoundary(observationId, 'external-completed');
+    observeBoundary(observationId, 'activity-return-ready');
     return { executionStatus: detail?.executionStatus ?? 'unprepared',
       collectionStatus: detail?.collectionStatus ?? 'unavailable', firstAppend: external.firstAppend,
       sdkSubmissions: external.sdkSubmissions,
@@ -498,7 +502,15 @@ export async function composedFixture(request: Request, env: FixtureEnv): Promis
     observeBoundary(observationId, 'json-completed');
     return response;
   }
-  if (command.action === 'diagnose') return Response.json(await activity.diagnoseComposed());
+  if (command.action === 'diagnose') {
+    observeBoundary(observationId, 'rpc-started');
+    const value = await activity.diagnoseComposed(observationId);
+    observeBoundary(observationId, 'rpc-completed');
+    observeBoundary(observationId, 'json-started');
+    const response = Response.json(value);
+    observeBoundary(observationId, 'json-completed');
+    return response;
+  }
   if (command.action === 'collect') return Response.json(await activity.collectBrowserResult());
   if (command.action === 'evict') { await activity.evictComposed().catch(() => {}); return Response.json({ evicted: true }); }
   if (command.action === 'release') { await services(env).release(); return Response.json({ released: true }); }

@@ -153,7 +153,7 @@ PR classification checks out depth2; push filtering keeps full history. When Git
 - **changes:** backend, webui, landing, host, pi, ide, workflows and production dependencies; `full` means no filtering. Nightly skips filtering under its distinct identity.
 - **quality:** seed drift, backend/frontend oxlint/knip, `bash -n` over tracked shell scripts (REQ-OPS-003).
 - **typecheck:** Wrangler types and backend/frontend `tsc --noEmit`.
-- **backend-tests:** twelve duration-weighted Workers shards plus native/flue/rest Node legs through the shared suite action.
+- **backend-tests:** twelve duration-weighted Workers shards plus native/flue/rest Node legs through the shared suite action. The temporary Flue metadata probe requires Python3, `ss` and Linux procfs; its always-running cleanup publishes the log and fails closed on incomplete runtime selection/sampling or termination. Functional assertions remain required; diagnostic completion is not Dispatcher acceptance. See [diagnostic limits](operators.md#repository-only-transport-and-recovery). <!-- @impl: .github/workflows/test.yml::backend-node-tests -->
 - **frontend-tests:** four duration-weighted test groups through the same action. Dispatcher capacity-validation matrices and remaining controls register separately, preserving all373 cases; historical measured weights guide assignment, not a verified post-partition runtime. <!-- @impl: .github/workflows/test.yml::frontend-tests -->
 - **frontend-build:** independent frontend production-build gate, separate from the test matrix. <!-- @impl: .github/workflows/test.yml::frontend-build -->
 - **landing-tests:** rendering/unit tests plus Astro production build.
