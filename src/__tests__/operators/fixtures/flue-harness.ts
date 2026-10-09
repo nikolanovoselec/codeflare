@@ -1,6 +1,4 @@
 import { createHash } from 'node:crypto';
-import { renameSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
 import { fileURLToPath, URL } from 'node:url';
 import { afterAll, expect } from 'vitest';
 import { unstable_startWorker } from 'wrangler';
@@ -13,7 +11,6 @@ type FixtureWorker = Awaited<ReturnType<typeof unstable_startWorker>>;
 /** Each test file owns a separate workerd; every owned case still resets it. */
 export function registerFlueShard(index: number) {
   let worker: FixtureWorker | undefined;
-  let probeArmed = false;
   async function startWorker() {
     // Pinned unstable_dev ignores experimental.watch; this API honors dev.watch.
     worker = await unstable_startWorker({
@@ -65,15 +62,6 @@ export function registerFlueShard(index: number) {
   }
 
   registerNativeDispatcherCases({
-    armRuntimeProbe: () => {
-      // Called before the caller constructs its original AbortSignal.
-      if (index === 1 && !probeArmed && process.env.GITHUB_ACTIONS === 'true' && process.env.RUNNER_TEMP) {
-        probeArmed = true;
-        const arm = join(process.env.RUNNER_TEMP, 'native-runtime-arm.json');
-        writeFileSync(`${arm}.tmp`, JSON.stringify({ nodePid: process.pid }), { flag: 'wx' });
-        renameSync(`${arm}.tmp`, arm);
-      }
-    },
     fetch: async (path, init): Promise<Response> =>
       (await worker!.fetch(new URL(path, 'http://placeholder'), init as unknown as Parameters<FixtureWorker['fetch']>[1])) as unknown as Response,
     // No redundant beforeAll boot: the first owned case starts its fresh worker here.

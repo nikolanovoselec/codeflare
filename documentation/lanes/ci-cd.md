@@ -166,8 +166,6 @@ PR classification checks out depth2; push filtering keeps full history. When Git
 - **coverage:** affected-package and full-run global floors plus bounded changed-production-line LCOV floors, backend 80%, frontend 70% (REQ-OPS-022).
 - **summary:** rejects failed/cancelled relevant lanes, accepts unaffected skipped lanes, reconciles suite evidence and publishes exact-tree receipt.
 
-The temporary Flue metadata probe requires Python3, `ss` and Linux procfs; its always-running cleanup publishes the log and fails closed on incomplete runtime selection/sampling or termination. Functional assertions remain required; diagnostic completion is not Dispatcher acceptance. See [diagnostic limits](operators.md#repository-only-transport-and-recovery). <!-- @impl: .github/workflows/test.yml::backend-node-tests -->
-
 PR Dependency Review is dependency-security evidence for that reviewed tree and its main squash result; post-merge checks do not repeat registry-backed audits. Explicit full dispatch retains bounded one-minute fail-closed lockfile-only registry audits. Tool archives cache by OS/architecture/version/checksum and reject restored mismatch before execution (REQ-OPS-045).
 
 Shared pipeline/manifests/config/selection rules occur in broad filters so a meaning-changing file reselects all lanes. Container inputs select source IDE/host/shell validation but construction waits for Deploy. Workers are workerd/miniflare isolates; shard parallelism divides per-file setup/transform work that extra local workers cannot eliminate.

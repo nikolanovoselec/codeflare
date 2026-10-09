@@ -517,18 +517,6 @@ jobs:
       - name: Create assets directory (wrangler.toml requires web-ui/dist)
         run: mkdir -p web-ui/dist
 
-      - name: Start temporary native connection metadata capture
-        if: matrix.group == 'flue'
-        run: |
-          command -v python3
-          command -v ss
-          sudo -n python3 -u scripts/ci/capture-native-transport.py "$RUNNER_TEMP/native-transport.pid" > "$RUNNER_TEMP/native-transport.jsonl" 2>&1 &
-          for attempt in $(seq 1 50); do
-            if test -s "$RUNNER_TEMP/native-transport.pid"; then break; fi
-            sleep 0.1
-          done
-          test -s "$RUNNER_TEMP/native-transport.pid"
-
       - name: Run suite (fail-closed gate)
         uses: ./.github/actions/vitest-suite
         with:
@@ -536,38 +524,6 @@ jobs:
           artifact-name: backend-node-${{ matrix.slug }}
           pre-run: npm run pretest
           human-reporter: ${{ matrix.group != 'rest' && 'verbose' || 'dot' }}
-
-      - name: Stop and publish temporary native connection metadata
-        if: always() && matrix.group == 'flue'
-        run: |
-          # Publish even when termination fails; preserve the cleanup exit status.
-          trap 'if test -f "$RUNNER_TEMP/native-transport.jsonl"; then cat "$RUNNER_TEMP/native-transport.jsonl"; fi' EXIT
-          if test -s "$RUNNER_TEMP/native-transport.pid"; then
-            if pid=$(cat "$RUNNER_TEMP/native-transport.pid" 2>/dev/null); then
-              if ! sudo -n kill -TERM "$pid"; then
-                # The probe removes its PID file on normal independent expiry.
-                test ! -e "$RUNNER_TEMP/native-transport.pid"
-              fi
-              for attempt in $(seq 1 80); do
-                if ! test -e "$RUNNER_TEMP/native-transport.pid"; then break; fi
-                sleep 0.1
-              done
-              test ! -e "$RUNNER_TEMP/native-transport.pid"
-            else
-              test ! -e "$RUNNER_TEMP/native-transport.pid"
-            fi
-          fi
-          python3 - "$RUNNER_TEMP/native-transport.jsonl" <<'PY'
-          import json
-          import sys
-          from pathlib import Path
-          records = [json.loads(line) for line in Path(sys.argv[1]).read_text().splitlines()]
-          events = {record['event'] for record in records}
-          if not {'started', 'runtime-selected', 'runtime-process', 'runtime-ended', 'ended'} <= events:
-              raise SystemExit('Native runtime metadata did not complete')
-          if any(record.get('reason') == 'error' for record in records):
-              raise SystemExit('Native runtime metadata failed')
-          PY
 
   workflow-audit:
     name: Workflow audit
