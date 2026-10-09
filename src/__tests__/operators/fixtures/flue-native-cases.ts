@@ -291,9 +291,11 @@ export function registerNativeDispatcherCases(
           throw new Error('Native composed fixture rejected');
         }
       } catch (error) {
+        originalPending = false;
+        if (comparisonTimer) clearTimeout(comparisonTimer);
         console.info(`[native-flue] composed transport=${JSON.stringify({ phase, boundary, status, responseCategory, responseErrorClass, responseMessage, responseSource, ...closedTransportFailure(error) })}`);
-        // Reuse the in-flight comparison, never diagnose twice or repeat the failed command.
-        if (!compare) await diagnose();
+        // Reuse a dispatched comparison; otherwise retain one failure-time diagnostic.
+        if (!comparison) await diagnose();
         throw new Error(`Native composed transport failed: ${boundary}`);
       } finally {
         originalPending = false;
