@@ -765,3 +765,16 @@ GHSA-hrxh-6v49-42gf
 # embeds x/mod 0.40.0 or newer:
 CVE-2026-56864
 CVE-2026-56865
+
+# Owner-authorized CLI exception, 2026-10-09; review by 2026-10-16.
+# Go stdlib: HTTP file-server Range parsing CPU exhaustion and TLS-server ECH
+# outer-extension memory amplification. The platform HTTP/TLS servers are Node/
+# Workers, not gh or lazygit. This accepts residual risk in session CLI processes,
+# not a claim that the vulnerable standard library has been patched.
+# Latest verified gh 2.102.0 and lazygit 0.66.0 artifacts still embed Go 1.27.1
+# and 1.25.14 respectively, so a release bump does not fix these findings.
+# rclone is rebuilt with fixed Go 1.27.2. These CVE-level entries apply across
+# scanner targets; reassess if a Go server is introduced. Remove when the pinned
+# CLI artifacts embed Go >=1.26.9 or >=1.27.2 on their respective release lines.
+CVE-2026-78667
+CVE-2026-97031

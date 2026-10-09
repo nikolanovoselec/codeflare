@@ -22,8 +22,8 @@ RUN npm prune --omit=dev
 # ---- Pinned rclone with verified per-side bisync bookkeeping ----
 FROM mirror.gcr.io/library/node:26-bookworm-slim@sha256:662933cf47f013bc8e4beb31a6116448427a82057ba7c42c97e4c5ba766504c2 AS rclone-builder
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl python3 && rm -rf /var/lib/apt/lists/*
-RUN curl -fsSL https://go.dev/dl/go1.27.1.linux-amd64.tar.gz -o /tmp/go.tar.gz \
-    && echo "63d339f0da5ab53635a56f2490a7984dfe12dfcff22ad749f63edaf590168445  /tmp/go.tar.gz" | sha256sum -c - \
+RUN curl -fsSL https://go.dev/dl/go1.27.2.linux-amd64.tar.gz -o /tmp/go.tar.gz \
+    && echo "ecbadb99091a3f46e31f5f934b068b1864eafa7995211b39eaddf76996045fe5  /tmp/go.tar.gz" | sha256sum -c - \
     && tar -C /usr/local -xzf /tmp/go.tar.gz && rm /tmp/go.tar.gz
 ENV PATH="/usr/local/go/bin:${PATH}" CGO_ENABLED=0 GOTOOLCHAIN=local
 WORKDIR /src/rclone
@@ -218,6 +218,11 @@ RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-reco
     && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' perl)" ge '5.36.0-7+deb12u4' \
     && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' perl-base)" ge '5.36.0-7+deb12u4' \
     && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' perl-modules-5.36)" ge '5.36.0-7+deb12u4' \
+    && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' libpython3.11-minimal)" ge '3.11.2-6+deb12u9' \
+    && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' libpython3.11-stdlib)" ge '3.11.2-6+deb12u9' \
+    && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' python3.11)" ge '3.11.2-6+deb12u9' \
+    && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' python3.11-minimal)" ge '3.11.2-6+deb12u9' \
+    && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' python3.11-venv)" ge '3.11.2-6+deb12u9' \
     && rm -rf /var/lib/apt/lists/* \
     # Symlinks for Debian-renamed binaries
     && ln -s "$(which fdfind)" /usr/local/bin/fd \
@@ -331,6 +336,8 @@ RUN CODE_SERVER_VERSION="4.140.0" && \
     UNDICI_IDE_SHA512="764ad05de1d26a86a69c8b6561b9b31b4c0562b3346700f108883403b68a8d3cb2861f6cbd1cc234513357e566d39ff27a18c2ce30d9df52977c6123612ced0d" && \
     PACOTE_VERSION="21.5.1" && \
     PACOTE_SHA512="2af709f62cb772bcac0ac82a738f8f9271ffc3a8e4ae9f09377ea6a5904fc0d6834704df3190f7ed8cd16b336cb626543a1b85e699e8f5fefc9fd9842416afc2" && \
+    SHELL_QUOTE_VERSION="1.12.0" && \
+    SHELL_QUOTE_SHA512="3dc072a8dc93ff7f05da40cd8b4d3a1c031125a50bb81ceafc53acc37a9d66f5ff180f56fe36a60da46c9201e3b9b1e27ed5cae6c205c4b364beb5d4c1ca1fe9" && \
     curl -fsSL --retry 3 --retry-delay 5 --connect-timeout 30 --max-time 600 \
       "https://github.com/coder/code-server/releases/download/v${CODE_SERVER_VERSION}/code-server-${CODE_SERVER_VERSION}-linux-amd64.tar.gz" \
       -o /tmp/code-server.tar.gz && \
@@ -367,15 +374,21 @@ RUN CODE_SERVER_VERSION="4.140.0" && \
     curl -fsSL --retry 3 --retry-delay 5 --connect-timeout 30 --max-time 300 \
       "https://registry.npmjs.org/undici/-/undici-${UNDICI_IDE_VERSION}.tgz" -o /tmp/undici-ide.tgz && \
     echo "${UNDICI_IDE_SHA512}  /tmp/undici-ide.tgz" | sha512sum -c - && \
+    curl -fsSL --retry 3 --retry-delay 5 --connect-timeout 30 --max-time 300 \
+      "https://registry.npmjs.org/shell-quote/-/shell-quote-${SHELL_QUOTE_VERSION}.tgz" -o /tmp/shell-quote.tgz && \
+    echo "${SHELL_QUOTE_SHA512}  /tmp/shell-quote.tgz" | sha512sum -c - && \
     for SECURITY_PAIR in \
       '/usr/local/share/codeflare-brace-expansion.tgz:/usr/local/lib/node_modules/npm/node_modules/brace-expansion' \
       '/tmp/undici-npm.tgz:/usr/local/lib/node_modules/npm/node_modules/undici' \
-      '/tmp/undici-ide.tgz:/opt/code-server/lib/vscode/node_modules/undici'; do \
+      '/tmp/undici-ide.tgz:/opt/code-server/lib/vscode/node_modules/undici' \
+      '/tmp/shell-quote.tgz:/opt/code-server/lib/vscode/node_modules/shell-quote'; do \
       SECURITY_ARCHIVE="${SECURITY_PAIR%%:*}" && SECURITY_DIR="${SECURITY_PAIR#*:}" && \
       test -f "$SECURITY_DIR/package.json" && \
       rm -rf "$SECURITY_DIR" && mkdir -p "$SECURITY_DIR" && \
       tar -xzf "$SECURITY_ARCHIVE" -C "$SECURITY_DIR" --strip-components=1 || exit 1; \
     done && \
+    test "$(jq -r .version /opt/code-server/lib/vscode/node_modules/shell-quote/package.json)" = "$SHELL_QUOTE_VERSION" && \
+    rm /tmp/shell-quote.tgz && \
     npm --version >/dev/null && \
     ln -sf /opt/code-server/bin/code-server /usr/local/bin/code-server && \
     test -x /opt/code-server/bin/code-server && \
