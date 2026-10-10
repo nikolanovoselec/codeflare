@@ -66,13 +66,13 @@ describe('native capture completeness wire contract', () => {
       for (const [roleIndex, role] of ['proxy', 'user'].entries()) {
         const pid = 5000 + index * 2 + roleIndex;
         const entry = { scope, role, pid, nodePid: 4900 };
-        lifecycle.push(...[
+        lifecycle.push(
           { ...entry, stage: 'spawn', at: base },
           { ...entry, stage: 'ready', at: base + 100, port: role === 'user' ? Number(port) : Number(port) + 100 },
           { ...entry, stage: 'attached', at: base + 200 },
           { ...entry, stage: 'exit', at: base + 1000, code: 0, signal: null },
           { ...entry, stage: 'tracer-close', at: base + 1001, code: 0, signal: null },
-        ]);
+        );
         let rows = [timed(250, 'socket(AF_INET, SOCK_STREAM, IPPROTO_TCP) = 8'),
           ...(index === 0 && role === 'user' ? (options.clone ?? []).map((line, i) => timed(600 + i, line)) : []),
           timed(900, 'close(8) = 0'), timed(999, 'exit_group(0) = ?'), timed(1000, '+++ exited with 0 +++')];
