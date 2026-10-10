@@ -199,6 +199,7 @@ export function registerNativeDispatcherCases(
         isolationFaults: Array<{ kind: string; pullRequest: number; status?: number }>;
         duplicates: Array<{ statuses: number[]; digests: string[] }>;
         budget?: { operationCount: number; operationLimit: number };
+        firstInferenceDenial?: { status: number; messages: number | null; tools: number | null; bodyBytes: number | null } | null;
         evidence?: Array<{ index: number; complete: boolean }>; batches?: string[][];
         firstAppend?: { category: 'canonical-append-oversized' | 'canonical-append-other'; largestRecordType?: 'state_write' } | null;
         sdkSubmissions?: Array<{ stage: 'sdk-submission-running' | 'sdk-submission-exhausted'; submissionDigest: string; attemptCount: number; maxAttempts: number }> } };
@@ -430,6 +431,7 @@ export function registerNativeDispatcherCases(
         sdkSubmissions: value.external.sdkSubmissions ?? [], fiberEvents: value.fiberEvents,
         inferenceCount: value.external.inference.length,
         commentCount: value.external.comments.length,
+        firstInferenceDenial: value.external.firstInferenceDenial ?? null,
         operationDenials: (value.diagnostics ?? []).filter(entry => entry.outcome === 'denied' || entry.stage === 'preparation')
           .map(entry => ({ module: entry.module, stage: entry.stage, outcome: entry.outcome, status: entry.status,
             failureClass: entry.failureClass, preparationStep: entry.preparationStep, wireRules: entry.wireRules })) });

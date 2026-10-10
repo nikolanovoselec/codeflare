@@ -121,7 +121,9 @@ export async function fixtureFiberLifecycle(events: unknown): Promise<FiberObser
   }
   return entries.length ? entries : null;
 }
+type InferenceDenialShape = { status: number; messages: number | null; tools: number | null; bodyBytes: number | null };
 type RetainedObservation = {
+  firstInferenceDenial: InferenceDenialShape | null;
   phases: Array<{ context: DispatcherPhaseContext; commentCount: number }>;
   inference: Array<{ inputDigest: string; turn: number; phase?: DispatcherPhase }>;
   comments: Array<{ id: number; body: string; user: { id: number; login: string; type: string }; issue_url: string }>;
@@ -239,7 +241,7 @@ export class RecoveryServices extends DurableObject<FixtureEnv> {
     await parseDispatcherBundle(bytes, digest);
     for (let offset = 0; offset < bytes.length; offset += 48 * 1024) await this.ctx.storage.put(`bundle:${offset}`, bytes.slice(offset, offset + 48 * 1024));
     await this.ctx.storage.put({ bundleSize: bytes.length, scenario, attemptLimit, revoked: false,
-      inference: [], comments: [], sourceRequests: [], sourceDeliveries: [], isolationFaults: [], duplicates: [], firstAppend: null, sdkSubmissions: [], fiberEvents: null, activityId: activityId ?? null });
+      inference: [], comments: [], sourceRequests: [], sourceDeliveries: [], isolationFaults: [], duplicates: [], firstAppend: null, firstInferenceDenial: null, sdkSubmissions: [], fiberEvents: null, activityId: activityId ?? null });
     const intentVersion = artifact.sourceCommit === intent4Source ? '4' : '3';
     // Only this reviewed package revision uses the new host contract. Older
     // packages and the separate native fixture-mode path keep their old admission.
@@ -318,6 +320,11 @@ export class RecoveryServices extends DurableObject<FixtureEnv> {
   }
 
   async budget(value: { operationCount: number; operationLimit: number }) { await this.ctx.storage.put('budget', value); }
+  async recordInferenceDenial(value: InferenceDenialShape) {
+    await this.ctx.storage.transaction(async tx => {
+      if (!await tx.get('firstInferenceDenial')) await tx.put('firstInferenceDenial', value);
+    });
+  }
   async recordTail(activityId: string, generation: number, firstAppend: CanonicalAppendObservation | null,
     sdkSubmissions: SdkObservation[], fiberEvents: FiberObservation[] | null) {
     if (generation !== 1 || activityId !== await this.ctx.storage.get('activityId')) return;
@@ -346,7 +353,8 @@ export class RecoveryServices extends DurableObject<FixtureEnv> {
     });
   }
   async observe(): Promise<RetainedObservation> {
-    return { phases: await this.ctx.storage.get<RetainedObservation['phases']>('phases') ?? [],
+    return { firstInferenceDenial: await this.ctx.storage.get<InferenceDenialShape>('firstInferenceDenial') ?? null,
+      phases: await this.ctx.storage.get<RetainedObservation['phases']>('phases') ?? [],
       inference: await this.ctx.storage.get<RetainedObservation['inference']>('inference') ?? [],
       comments: await this.ctx.storage.get<RetainedObservation['comments']>('comments') ?? [],
       sourceRequests: await this.ctx.storage.get<RetainedObservation['sourceRequests']>('sourceRequests') ?? [],
@@ -735,11 +743,35 @@ export class OperatorDispatcherCapability extends ProductionCapability {
       await control.duplicate(responses.map(response => response.status), await Promise.all(responses.map(async response => hash(await response.clone().text()))));
       return responses[0];
     }
-    const upstream = await super.fetch(request);
-    // Own the exact response bytes before ancillary fault-control RPCs; do not retain their live stream.
-    const response = new Response(await upstream.arrayBuffer(), {
-      status: upstream.status, statusText: upstream.statusText, headers: upstream.headers,
-    });
+    // Observe the original denied wire only; no protected request is repeated or changed.
+    const snapshot = request.clone();
+    let response: Response;
+    try {
+      const upstream = await super.fetch(request);
+      // Own the exact response bytes before ancillary fault-control RPCs; do not retain their live stream.
+      response = new Response(await upstream.arrayBuffer(), {
+        status: upstream.status, statusText: upstream.statusText, headers: upstream.headers,
+      });
+      if (!response.ok) {
+        const shape: InferenceDenialShape = { status: response.status, messages: null, tools: null, bodyBytes: null };
+        try {
+          const bytes = await snapshot.arrayBuffer();
+          shape.bodyBytes = bytes.byteLength;
+          const value = JSON.parse(new TextDecoder().decode(bytes));
+          const input = value && typeof value === 'object' && !Array.isArray(value) ? value.input : undefined;
+          if (input && typeof input === 'object' && !Array.isArray(input)) {
+            if (Array.isArray(input.messages)) shape.messages = input.messages.length;
+            if (Array.isArray(input.tools)) shape.tools = input.tools.length;
+          }
+        } catch { /* Missing or malformed measurements remain unknown, not zero. */ }
+        try { await control.recordInferenceDenial(shape); } catch { /* Diagnostics never replace the original denial. */ }
+      }
+    } finally {
+      // Cancel both unused branches together if authority refused before reading.
+      // A single tee cancellation can otherwise wait for its unread sibling.
+      await Promise.all([snapshot.body?.cancel().catch(() => {}),
+        !request.bodyUsed ? request.body?.cancel().catch(() => {}) : undefined]);
+    }
     const operationId = await control.sourceId();
     if (response.ok && operationId) {
       const receipt = await super.fetch(new Request('https://operator.internal/v1/dispatcher/receipt', { method: 'POST',
