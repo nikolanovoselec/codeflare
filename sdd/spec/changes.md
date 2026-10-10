@@ -4,6 +4,8 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-10-10
 
+- At user direction, retire the two failing Miniflare workload cases and temporary tracing; remove their acceptance references without claiming a repair ([REQ-OPERATOR-048](operators.md#req-operator-048-dispatcher-execution)). Keep sequential behavior Planned pending reviewed CI, package publication/install and Enterprise Integration hosted acceptance.
+
 - Specify serial PR-isolated SDK responses and complete deferred-aware collection while preserving uncertainty ([REQ-OPERATOR-048/062](operators.md#req-operator-048-dispatcher-execution)). Require freshly authorized due-interval retry of still-open failed/deferred PRs ([REQ-OPERATOR-061](operators.md#req-operator-061-prospective-admin-session-renovate-scan)); acceptance remains Planned.
 
 ## 2026-10-08
