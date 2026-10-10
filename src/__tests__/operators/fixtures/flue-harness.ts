@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { createRequire } from 'node:module';
 import { fileURLToPath, URL } from 'node:url';
 import { afterAll, expect } from 'vitest';
 import { unstable_startWorker } from 'wrangler';
@@ -12,6 +13,10 @@ type FixtureWorker = Awaited<ReturnType<typeof unstable_startWorker>>;
 export function registerFlueShard(index: number) {
   let worker: FixtureWorker | undefined;
   const tracing = process.env.CI === 'true';
+  const nativeCapture = tracing ? createRequire(import.meta.url)('../../../../scripts/ci/native-connection-capture.cjs') as {
+    setScope(value?: string): void;
+    drain(): Promise<unknown>;
+  } : undefined;
   let epoch = 0; // Harness correlation only, never an SDK identity or cessation receipt.
   const runtimeEvent = (stage: string, currentEpoch: number, event?: unknown) => {
     if (!tracing) return;
@@ -34,6 +39,9 @@ export function registerFlueShard(index: number) {
   async function startWorker() {
     const currentEpoch = ++epoch;
     runtimeEvent('start', currentEpoch);
+    const name = expect.getState().currentTestName ?? '';
+    nativeCapture?.setScope(['large-evidence-comment-batch completes seven', 'thirty-target original-read recovery']
+      .some(target => name.includes(target)) ? `${index}:${currentEpoch}` : undefined);
     // Pinned unstable_dev ignores experimental.watch; this API honors dev.watch.
     worker = await unstable_startWorker({
       entrypoint: fileURLToPath(new URL('./loader-worker.ts', import.meta.url)),
@@ -53,7 +61,10 @@ export function registerFlueShard(index: number) {
     await worker.ready;
     runtimeEvent('ready', currentEpoch);
   }
-  afterAll(async () => { await disposeWorker(); });
+  afterAll(async () => {
+    await disposeWorker();
+    await nativeCapture?.drain(); // Flush only owned diagnostic tracers after original runtime disposal.
+  });
 
   async function command(path: string, value: unknown): Promise<unknown> {
     const response = await worker!.fetch(new URL(path, 'http://placeholder'), {

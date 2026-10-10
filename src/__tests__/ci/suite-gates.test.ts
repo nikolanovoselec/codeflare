@@ -5,6 +5,7 @@
 //
 // REQ-OPS-003: PR checks run lint, test, typecheck and security audit.
 import { spawnSync } from 'node:child_process';
+import { createRequire } from 'node:module';
 import { chmodSync, copyFileSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, relative, resolve } from 'node:path';
@@ -21,6 +22,28 @@ import { updateCodeServerPins } from '../../../scripts/ci/update-code-server-pin
 import { updateSilverBulletPins } from '../../../scripts/ci/update-silverbullet-pins.mjs';
 
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
+const { normalize: normalizeNativeEvent } = createRequire(import.meta.url)('../../../scripts/ci/native-connection-capture.cjs') as {
+  normalize(line: string): Record<string, unknown> | null;
+};
+
+describe('native capture metadata-only privacy contract', () => {
+  it('retains kernel socket/read outcomes without buffer contents', () => {
+    expect(normalizeNativeEvent('1791646679.468000 accept4(6, {sa_family=AF_INET, sin_port=htons(42715), sin_addr=inet_addr("127.0.0.1")}, [16], SOCK_CLOEXEC) = 8'))
+      .toMatchObject({ kind: 'syscall', call: 'accept4', argument0: 6, result: 8, address: '127.0.0.1', port: 42715 });
+    expect(normalizeNativeEvent('1791646679.469000 read(0xd, 0x7feba000, 0x200) = 19'))
+      .toMatchObject({ call: 'read', argument0: 13, result: 19, decodedIo: false });
+  });
+  it('refuses decoded message payloads and never exports them or unapproved calls', () => {
+    const secret = 'Bearer PRIVATE_CAPTURE_INPUT';
+    const result = normalizeNativeEvent(`1791646679.470000 sendmsg(13, {msg_iov=[{iov_base="${secret}"}]}, 0) = 28`);
+    expect(result).toMatchObject({ call: 'sendmsg', decodedIo: true });
+    expect(JSON.stringify(result)).not.toContain(secret);
+    expect(normalizeNativeEvent(`1791646679.471000 execve("${secret}", [], []) = 0`)).toBeNull();
+    const resumed = normalizeNativeEvent(`1791646679.472000 <... recvmsg resumed>{msg_iov=[{iov_base="${secret}"}]}) = 28`);
+    expect(resumed).toMatchObject({ call: 'recvmsg', decodedIo: true, resumed: true });
+    expect(JSON.stringify(resumed)).not.toContain(secret);
+  });
+});
 const COMPLETENESS = join(REPO, 'scripts/ci/check-suite-completeness.mjs');
 const REPORT_GATE = join(REPO, 'scripts/ci/check-vitest-report.mjs');
 const COVERAGE_GATE = join(REPO, 'scripts/ci/check-coverage-result.mjs');

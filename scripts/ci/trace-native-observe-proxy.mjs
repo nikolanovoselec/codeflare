@@ -56,3 +56,30 @@ if (parsed.status !== 0) throw new Error('Native proxy trace generated syntax in
 writeFileSync(path, source);
 console.log(JSON.stringify({ diagnostic: 'native-observe-proxy', version: manifest.version, originalDigest,
   tracedDigest: createHash('sha256').update(source).digest('hex') }));
+
+// Authorized native capture: observe the original child processes, never wrap/replace workerd.
+if (process.env.MINIFLARE_WORKERD_PATH) throw new Error('Native capture refuses runtime replacement');
+const miniflare = resolve(directory, 'node_modules/miniflare');
+if (JSON.parse(readFileSync(resolve(miniflare, 'package.json'), 'utf8')).version !== '5.20260921.0-alpha') {
+  throw new Error('Native capture Miniflare version mismatch');
+}
+const runtimePath = resolve(miniflare, 'dist/src/index.js');
+let runtime = readFileSync(runtimePath, 'utf8');
+const runtimeDigest = '77558908028e88c4a6e4db3cfaf80baf81984ee4b53715afff5b7c3cbbfff067';
+if (createHash('sha256').update(runtime).digest('hex') !== runtimeDigest) throw new Error('Native capture source mismatch');
+const collector = JSON.stringify(resolve('scripts/ci/native-connection-capture.cjs'));
+function replaceRuntime(before, after) {
+  if (runtime.split(before).length !== 2) throw new Error('Native capture anchor mismatch');
+  runtime = runtime.replace(before, after);
+}
+replaceRuntime('    const startupLogBuffer = new StartupLogBuffer();\n    this.#process = runtimeProcess;',
+  `    const nativeCapture = require(${collector});\n    nativeCapture.started(runtimeProcess, workerNames);\n    const startupLogBuffer = new StartupLogBuffer();\n    this.#process = runtimeProcess;`);
+replaceRuntime('    return ports;\n  }\n  dispose() {\n    const runtimeProcess = this.#process;',
+  '    nativeCapture.ready(runtimeProcess, ports?.get(SOCKET_ENTRY));\n    return ports;\n  }\n  dispose() {\n    const runtimeProcess = this.#process;');
+replaceRuntime('    this.#process = void 0;\n    runtimeProcess.stdin?.destroy();',
+  `    require(${collector}).disposing(runtimeProcess);\n    this.#process = void 0;\n    runtimeProcess.stdin?.destroy();`);
+const runtimeParsed = spawnSync(process.execPath, ['--input-type=commonjs', '--check'], { input: runtime, encoding: 'utf8' });
+if (runtimeParsed.status !== 0) throw new Error('Native capture generated syntax invalid');
+writeFileSync(runtimePath, runtime);
+console.log(JSON.stringify({ diagnostic: 'native-connection-capture', originalDigest: runtimeDigest,
+  tracedDigest: createHash('sha256').update(runtime).digest('hex') }));
