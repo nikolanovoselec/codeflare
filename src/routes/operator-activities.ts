@@ -1,9 +1,11 @@
+import { parseRenovateRunSettings, prospectiveRenovatePackageSupported } from '../operators/renovate-run-settings';
+import { resolveProspectiveRenovateRepository } from '../operators/renovate-prospective';
 /** Authenticated browser adapter for owner-scoped operator activity projections. */
 import { Hono, type Context } from 'hono';
 import { z } from 'zod';
 import type { Env } from '../types';
 import { authenticateRequest, canInvokeOperator, operatorAccessSessionCurrent,
-  requireOperatorHumanContext } from '../lib/access';
+  requireOperatorHumanContext, resolveOperatorGroupIdentity } from '../lib/access';
 import { getContainer } from '@cloudflare/containers';
 import type { container as SessionContainer } from '../container/index';
 import { D1SessionRepository } from '../lib/session-repository';
@@ -120,7 +122,8 @@ app.get('/installations/:installationId/preview', async c => {
   const guidedMode = !official ? null : repositoryOnly.safeParse(inputSchema).success ? 'repository'
     : legacy.safeParse(inputSchema).success ? 'legacy-pull-request' : null;
   return c.json({ name, version: release.tagName ?? `GitHub release #${release.githubReleaseId}`,
-    guidedAssessment: guidedMode !== null, guidedMode });
+    guidedAssessment: guidedMode !== null, guidedMode,
+    ...(guidedMode === 'repository' ? { configuredRepository: parseRenovateRunSettings(selected.value.installation.configurationJson)?.repository } : {}) });
 });
 app.post('/', async c => {
   const body = await parseJsonBody(c, preparationBody);
@@ -144,11 +147,44 @@ app.post('/renovate/activation', async c => {
   }
   const selected = await c.get('registry').resolveManagementExecution(command.installationId);
   if (!selected.ok || selected.value.operator.profile !== 'dispatcher'
+    || selected.value.installation.policy.resourceProfileId !== null
     || !canInvokeOperator(authority.human, selected.value.operator)) {
     throw new AppError('FORBIDDEN', 403, 'Dispatcher installation unavailable');
   }
+  if (!prospectiveRenovatePackageSupported(selected.value.manifestJson)) throw new AppError('FORBIDDEN', 403, 'Prospective package unavailable');
+  const configured = parseRenovateRunSettings(selected.value.installation.configurationJson);
+  if (!configured?.automaticRuns) throw new AppError('FORBIDDEN', 403, 'Automatic runs are not configured');
+  const expectedManagement = { controlsRevision: selected.value.controlsRevision,
+    installationRevision: selected.value.installation.revision, operatorRevision: selected.value.operator.revision,
+    releaseId: selected.value.release.id, bundleDigest: selected.value.release.bundleDigest };
+  const current = async () => {
+    const [fresh, liveSession, liveAccess, liveUser] = await Promise.all([
+      c.get('registry').resolveManagementExecution(command.installationId),
+      new D1SessionRepository(c.env.USAGE_DB).getSession(authenticated.bucketName, command.sessionId),
+      operatorAccessSessionCurrent(authority.human, authority.accessJwt), authenticateRequest(c.req.raw, c.env),
+    ]);
+    if (!fresh.ok || !liveAccess || liveUser.user.role !== 'admin'
+      || liveUser.user.email.toLowerCase() !== authority.human.email.toLowerCase()
+      || liveUser.bucketName !== authenticated.bucketName || liveSession?.lifecycleState !== 'running'
+      || liveSession.lifecycleGeneration !== command.sessionGeneration
+      || fresh.value.controlsRevision !== expectedManagement.controlsRevision
+      || fresh.value.installation.revision !== expectedManagement.installationRevision
+      || fresh.value.operator.revision !== expectedManagement.operatorRevision
+      || fresh.value.release.id !== expectedManagement.releaseId
+      || fresh.value.release.bundleDigest !== expectedManagement.bundleDigest
+      || !canInvokeOperator(await resolveOperatorGroupIdentity(authority.human, authority.accessJwt), fresh.value.operator)) return false;
+    const settings = parseRenovateRunSettings(fresh.value.installation.configurationJson);
+    return !!settings?.automaticRuns && settings.repository === configured.repository
+      && settings.repetitionIntervalSeconds === configured.repetitionIntervalSeconds;
+  };
+  const exports = (c.executionCtx as unknown as { exports?: Record<string,
+    (input: { props: Record<string, unknown> }) => Fetcher> }).exports;
+  if (!exports) throw new AppError('UNAVAILABLE', 503, 'Repository transport unavailable');
+  const repository = await resolveProspectiveRenovateRepository({ env: c.env, exports,
+    repository: configured.repository, human: authority.human, bucket: authenticated.bucketName, current });
+  if (!await current()) throw new AppError('FORBIDDEN', 403, 'Prospective authority changed');
   const registration = await c.get('registry').activateProspectiveRenovate({ ...command,
-    bucket: authenticated.bucketName, ...authority });
+    bucket: authenticated.bucketName, ...authority, repository, expectedManagement });
   if (!registration.ok) throw new AppError('FORBIDDEN', 403, 'Prospective activation unavailable');
   if (!c.env.CONTAINER) throw new AppError('UNAVAILABLE', 503, 'Admin session container unavailable');
   const container = getContainer(c.env.CONTAINER,
@@ -156,7 +192,7 @@ app.post('/renovate/activation', async c => {
   const armed = await container.armRenovateScan({ ...command, registrationId: registration.registrationId,
     bucket: authenticated.bucketName });
   if (!armed.ok) throw new AppError('UNAVAILABLE', 503, 'Prospective scan schedule unavailable');
-  return c.json({ activatedAt: registration.activatedAt, repositoryId: 973175879 }, 202);
+  return c.json({ activatedAt: registration.activatedAt, repositoryId: registration.repositoryId }, 202);
 });
 
 async function owned(registry: DurableObjectStub<OperatorRegistry>, ownerKey: string, activityId: string) {

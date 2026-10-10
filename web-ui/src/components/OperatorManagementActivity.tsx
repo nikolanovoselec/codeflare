@@ -74,7 +74,8 @@ const OperatorManagementActivity: Component<{ installationId?: string; onBackToC
   function invoke() {
     const mode = preview()?.guidedMode;
     if (!preview()?.guidedAssessment || !mode) return;
-    const target = repository().trim();
+    const target = mode === 'repository' ? preview()?.configuredRepository ?? '' : repository().trim();
+    if (mode === 'repository' && !target) { setError('Repository is not configured. Configure run settings before starting.'); return; }
     const number = Number(pullRequest());
     if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(target) || target.length > (mode === 'repository' ? 201 : 256)) {
       setError('Repository must be an owner/repository name you can read.'); return;
@@ -110,12 +111,13 @@ const OperatorManagementActivity: Component<{ installationId?: string; onBackToC
           <p>{value().guidedMode === 'repository'
             ? 'This discovers recent Renovate pull requests, researches dependency changes, and may post comments and conditionally merge eligible pull requests using your own invocation grant, repository access and inference route. Nothing runs until you start it.'
             : 'This starts a real read-only assessment using your own invocation grant, repository read access and inference route. It will not merge or change the pull request. Nothing runs until you start it.'}</p>
+          <Show when={value().guidedMode === 'repository' && !value().configuredRepository}><p role="status">Repository is not configured. Configure run settings before starting.</p></Show>
           <form onSubmit={event => { event.preventDefault(); invoke(); }}><fieldset disabled={busy() || uncertain()}>
             <div class="admin-form-grid">
-              <label class="admin-form-field"><span>Repository</span><input aria-label="Repository" type="text" required maxlength={value().guidedMode === 'repository' ? 201 : 256} autocomplete="off" placeholder="owner/repository" value={repository()} onInput={event => setRepository(event.currentTarget.value)} /><small>Enter a repository you can read, in owner/repository format.</small></label>
+              <label class="admin-form-field"><span>Repository</span><input aria-label="Repository" type="text" required maxlength={value().guidedMode === 'repository' ? 201 : 256} autocomplete="off" placeholder="owner/repository" readonly={value().guidedMode === 'repository'} value={value().guidedMode === 'repository' ? value().configuredRepository ?? '' : repository()} onInput={event => { if (value().guidedMode !== 'repository') setRepository(event.currentTarget.value); }} /><small>{value().guidedMode === 'repository' ? 'Uses the saved target; this form cannot override it.' : 'Enter a repository you can read, in owner/repository format.'}</small></label>
               <Show when={value().guidedMode === 'legacy-pull-request'}><label class="admin-form-field"><span>Pull request number</span><input aria-label="Pull request number" type="number" required min="1" step="1" max="9007199254740991" value={pullRequest()} onInput={event => setPullRequest(event.currentTarget.value)} /><small>Choose a Renovate pull request in that repository.</small></label></Show>
             </div>
-            <div class="operator-actions"><button type="submit" class="admin-primary-button">Start assessment</button><a href="/operators" onClick={props.onBackToCatalog}>Back to operators</a></div></fieldset></form>
+            <div class="operator-actions"><button type="submit" class="admin-primary-button" disabled={value().guidedMode === 'repository' && !value().configuredRepository}>Start assessment</button><a href="/operators" onClick={props.onBackToCatalog}>Back to operators</a></div></fieldset></form>
         </Show>}</Show>
         <Show when={preparedId()}><p>Prepared activity: <button class="admin-secondary-button" disabled={busy()} onClick={() => void read(preparedId())}>{preparedId()}</button>. If submission was interrupted, inspect its state before preparing more work.</p></Show>
       </section>

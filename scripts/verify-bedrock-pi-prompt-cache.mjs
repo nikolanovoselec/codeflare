@@ -14,10 +14,21 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { resolve } from 'node:path';
-import { pathToFileURL } from 'node:url';
-import { buildBedrockAnthropicRequest, adaptBedrockAnthropicResponse } from '../src/lib/bedrock-anthropic-native-adapter.ts';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { build } from 'esbuild';
 import { getBuiltInProfile, translateRuntimeReasoningRequest } from '../src/lib/reasoning-profiles.ts';
 import { compatibilityRequest, compatibilityResponse } from '../src/lib/ai-capability-discovery/compatibility-wire.ts';
+
+// Compile the real adapter and its source dependencies with the repository's
+// pinned bundler. Node's strip-only loader cannot resolve extensionless TS
+// imports; no adapter or diagnostic implementation is substituted here.
+const { outputFiles } = await build({
+  entryPoints: [fileURLToPath(new URL('../src/lib/bedrock-anthropic-native-adapter.ts', import.meta.url))],
+  bundle: true, write: false, platform: 'node', format: 'esm', target: 'es2022',
+});
+const { buildBedrockAnthropicRequest, adaptBedrockAnthropicResponse } = await import(
+  `data:text/javascript;base64,${Buffer.from(outputFiles[0].contents).toString('base64')}`,
+);
 
 const piRoot = resolve(process.argv[2] ?? 'preseed/agents/pi/node_modules/@earendil-works/pi-ai');
 const { stream } = await import(pathToFileURL(resolve(piRoot, 'dist/api/openai-completions.js')).href);

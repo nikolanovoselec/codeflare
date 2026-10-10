@@ -15,8 +15,6 @@ import { codingAgentProjectionIdentity } from '../../scripts/ci/coding-agent-sel
 import type { JwtStampingAuthority } from './jwt-stamping';
 import type { OperatorSessionBootstrap } from './owned-session-runtime';
 
-const logger = createLogger('operator-session-bootstrap');
-
 function needsReconciliation(env: Env, preferences: UserPreferences | null, mode: string,
   active: Awaited<ReturnType<typeof getActiveManagedRelease>>, projectionIdentity: string): boolean {
   const applied = preferences?.managedEnvironmentApplied;
@@ -55,8 +53,10 @@ export async function bootstrapOperatorSession(input: {
   env: Env;
   authority: JwtStampingAuthority;
   ownerBucket: string;
+  loggingEnabled?: boolean;
 }): Promise<{ user: AccessUser; bootstrap: OperatorSessionBootstrap }> {
   const { env, authority, ownerBucket } = input;
+  const logger = createLogger('operator-session-bootstrap', undefined, input.loggingEnabled !== false);
   const { user, bucketName } = await resolveUser(env, authority);
   if (bucketName !== ownerBucket) throw new Error('Operator bootstrap bucket mismatch');
 

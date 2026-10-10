@@ -9,13 +9,29 @@ export { FixtureFlueRoot, FixtureFlueTransport, FixtureTailProbe, FixtureTailInb
 import { loadOperatorWorker, type OperatorLoaderBinding } from '../../../operators/loader';
 import { parseOperatorBundle, type OperatorBundle } from '../../../operators/distribution';
 import { driveOperatorRuntime } from '../../../operators/runtime';
+import type { DispatcherCapacityPolicy } from '../../../operators/dispatcher-capacity-limits';
 import conductorBundle from './conductor-review.generated.json';
 
 import { OperatorRegistry, type OperatorAdmissionRequest } from '../../../operators/registry';
-import { OperatorActivity, type OperatorActivityPreparation } from '../../../operators/activity';
-export { OperatorDispatcherTail } from '../../../operators/activity';
+import { OperatorActivity as ProductionActivity, type OperatorActivityPreparation } from '../../../operators/activity';
+import { OperatorDispatcherTail as ProductionDispatcherTail } from '../../../operators/activity';
+import { composedFixture, fixtureObservationId, observeBoundary, fixtureOperatorDispatcherTail, fixtureSubmissionRunning, fixtureFiberLifecycle, type RecoveryServices } from './dispatcher-composed-fixture';
+
+/** Capture closed fixture evidence in its external DO, not a shared-isolate assumption. */
+export class OperatorDispatcherTail extends ProductionDispatcherTail {
+  override async tail(events: unknown): Promise<void> {
+    const props = this.ctx.props as { activityId?: unknown; generation?: unknown };
+    if (typeof props?.activityId === 'string' && typeof props.generation === 'number') {
+      const env = this.env as unknown as { RECOVERY_SERVICES: DurableObjectNamespace<RecoveryServices> };
+      await env.RECOVERY_SERVICES.getByName('services').recordTail(props.activityId, props.generation,
+        fixtureOperatorDispatcherTail(events), fixtureSubmissionRunning(events), await fixtureFiberLifecycle(events));
+    }
+    await super.tail(events);
+  }
+}
+export { OperatorActivity, OperatorDispatcherCapability, RecoveryServices, LlmInterceptor, GitHubInterceptor, EgressController } from './dispatcher-composed-fixture';
 /** Native eviction fixture proves state survives a new DO instance, not isolate memory. */
-export class FixtureActivity extends OperatorActivity {
+export class FixtureActivity extends ProductionActivity {
   private readonly instanceId = crypto.randomUUID();
   getInstanceId(): string { return this.instanceId; }
   /** Fixture-private owner read; this capability is never bound into the child. */
@@ -29,6 +45,11 @@ export class FixtureActivity extends OperatorActivity {
     if (!record || typeof generation !== 'number' || !Number.isSafeInteger(generation) || generation < 1
       || typeof status !== 'string' || typeof deadline !== 'number' || !Number.isFinite(deadline)) return null;
     return { generation, status, deadline };
+  }
+  /** Fixture-owner read avoids transporting opaque checkpoint/result values over RPC. */
+  async journeySession(): Promise<{ sessionId: string | null } | null> {
+    const detail = await this.getBrowserDetail();
+    return detail ? { sessionId: detail.sessionId } : null;
   }
   evictForTest(): void { this.ctx.abort('Operator checkpoint fixture eviction'); }
 }
@@ -58,7 +79,8 @@ export type ActivityFixtureCommand =
   | { action: 'interrupt-drive'; generation: number }
   | { action: 'instance' }
   | { action: 'evict' }
-  | { action: 'drive-runtime'; failure?: 'throw' | 'oversized'; deadline?: number; expectedGeneration?: number };
+  | { action: 'drive-runtime'; failure?: 'throw' | 'oversized'; deadline?: number; expectedGeneration?: number;
+      capacityPolicy?: DispatcherCapacityPolicy; responsePadding?: number; delayMs?: number };
 
 export type RegistryFixtureCommand =
   | { action: 'create'; operatorId: string }
@@ -162,11 +184,22 @@ async function loadConductorBundle(env: FixtureEnv, capability: Fetcher): Promis
 
 export default {
   async fetch(request: Request, env: FixtureEnv, ctx: ExecutionContext): Promise<Response> {
+    const observationId = fixtureObservationId(request);
+    observeBoundary(observationId, 'worker-entered');
     const entrypoints = (ctx as unknown as { exports: Record<string,
       (options: { props: { principal: string; generation?: number } }) => Fetcher> }).exports;
     const props = { principal: 'fixture-owner' };
     try {
       const url = new URL(request.url);
+      if (url.pathname === '/dispatcher-composed') {
+        try { return await composedFixture(request, env as unknown as Parameters<typeof composedFixture>[1]); }
+        catch {
+          // Retain a closed asynchronous failure boundary, never its raw exception.
+          observeBoundary(observationId, 'worker-rejected');
+          console.warn('Native composed fixture failed', { category: 'composed-fixture-rejected', status: 500 });
+          return Response.json({ category: 'composed-fixture-rejected' }, { status: 500 });
+        }
+      }
       if (url.pathname === '/flue') {
         return await flueFixture(request, env as unknown as Parameters<typeof flueFixture>[1]);
       }
@@ -186,6 +219,7 @@ export default {
               export default { async fetch(request, env) {
                 ${failure === 'throw' ? 'throw new Error("uncertain fixture failure");' : ''}
                 ${failure === 'oversized' ? 'return new Response("x".repeat(65537), {headers:{"content-type":"application/json"}});' : ''}
+                ${command.delayMs === undefined ? '' : `await new Promise(resolve => setTimeout(resolve, ${JSON.stringify(command.delayMs)}));`}
                 const input = await request.json();
                 if (input.schemaVersion !== 1 || input.generation !== await env.OPERATOR.driveGeneration()) {
                   return new Response('invalid generation binding', {status:400});
@@ -193,12 +227,14 @@ export default {
                 const step = (input.checkpoint?.step ?? 0) + 1;
                 return Response.json({schemaVersion:1, status:step === 1 ? 'waiting' : 'completed',
                   checkpoint:{step}, result:{action:input.action, activityId:input.activityId,
-                    principal:await env.OPERATOR.identity('attacker'), isolateCounter:++isolateCounter}});
+                    principal:await env.OPERATOR.identity('attacker'), isolateCounter:++isolateCounter,
+                    ${command.responsePadding === undefined ? '' : `padding:'x'.repeat(${JSON.stringify(command.responsePadding)}),`} }});
               }};
             ` } } };
             return Response.json(await driveOperatorRuntime({
               activity, activityId: url.searchParams.get('activity') ?? 'default',
               deadline: command.deadline ?? Date.now() + 60_000, loader: env.LOADER, bundle: runtimeBundle,
+              capacityPolicy: command.capacityPolicy,
               ...(command.expectedGeneration === undefined ? {} : { expectedGeneration: command.expectedGeneration }),
               bind: generation => ({
                 capability: entrypoints.FixtureCapability({ props: { ...props, generation } }),

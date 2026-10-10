@@ -1,3 +1,4 @@
+import { configuredRenovateInvocation, prospectiveRenovatePackageSupported } from './renovate-run-settings';
 import { z } from 'zod';
 import type { Env } from '../types';
 import type { VerifiedHumanAccessClaims } from '../lib/jwt';
@@ -8,11 +9,13 @@ import { openOperatorSecret } from './protected-secrets';
 import { parseDispatcherBundle, parseOperatorBundle, parseOperatorManifest } from './distribution';
 import { fetchOperatorBundle } from './distribution-client';
 import { driveDispatcherRuntime, driveOperatorRuntime } from './runtime';
+import { dispatcherCapacities, pickDispatcherCapacities } from './dispatcher-capacity-limits';
 import { createOperatorIntentDigest, type BoundaryActivityBinding, type OperatorRuntimePlan } from './activity';
 import type { ManagementAdmissionReceipt, ManagementExecutionSelection, OperatorAdmissionReceipt,
   OperatorExecutionSelection, OperatorRegistryResult } from './registry';
 import { parseOperatorConsumerInvocation } from './consumer-contracts';
-import { projectOperatorPackageResources } from './package-resources';
+import { projectOperatorPackageResources, type OperatorPackageResourceProjection } from './package-resources';
+import { bindClaimedConductorInvocation } from './conductor-production';
 
 const ID = z.string().regex(/^[A-Za-z0-9_-]{1,128}$/);
 const invocationSchema = z.json();
@@ -63,7 +66,7 @@ export async function prepareOperatorActivity(input: unknown, authority: {
   }
   // Only the parent passes a Registry-reserved ID. The caller's invocation cannot choose it.
   const activityId = parentReservation?.activityId ?? crypto.randomUUID();
-  const bounded = boundedInvocation(parsed.data.invocation);
+  let bounded = boundedInvocation(parsed.data.invocation);
   const registry = env.OPERATOR_REGISTRY.getByName('registry');
   const installationId = 'installationId' in parsed.data ? parsed.data.installationId : null;
   const requestedOperatorId = 'operatorId' in parsed.data ? parsed.data.operatorId : null;
@@ -94,6 +97,9 @@ export async function prepareOperatorActivity(input: unknown, authority: {
   const operatorId = managementSelection ? managementSelection.operator.operatorId : requestedOperatorId!;
   if (operatorId === 'codeflare-gate1-fixture') {
     throw new AppError('NOT_FOUND', 404, 'Operator is not available for execution');
+  }
+  if (managementSelection?.operator.profile === 'dispatcher' && prospectiveRenovatePackageSupported(managementSelection.manifestJson)) {
+    bounded = configuredRenovateInvocation(managementSelection.installation.configurationJson, bounded);
   }
   const usesConsumerContract = managementSelection?.operator.profile === 'conductor';
   const invocation = usesConsumerContract
@@ -177,16 +183,20 @@ export async function runOperatorActivity(
   bindCapability: OperatorCapabilityBinder,
   expectedGeneration?: number,
 ): Promise<void> {
-  const requestDeadline = Date.now() + 25_000;
+  const requestedAt = Date.now();
   if (!env.OPERATOR_REGISTRY || !env.OPERATOR_ACTIVITY) return;
   const activity = env.OPERATOR_ACTIVITY.getByName(activityId);
   const plan = await activity.getRuntimePlan() as OperatorRuntimePlan | null;
   if (!plan) return;
-  const attemptDeadline = Math.min(plan.deadline, requestDeadline);
+  const capacityPolicy = isManagementReceipt(plan.receipt) && plan.receipt.selection.operator.profile === 'dispatcher'
+    ? pickDispatcherCapacities(plan.receipt.selection.operator.policy) : undefined;
+  const attemptDeadline = Math.min(plan.deadline,
+    requestedAt + (capacityPolicy === undefined ? 25_000 : dispatcherCapacities(capacityPolicy).driveTimeoutMs));
   try {
     if (!env.LOADER) throw new Error('Operator Loader unavailable');
     const registry = env.OPERATOR_REGISTRY.getByName('registry');
     let bundle;
+    let resources: OperatorPackageResourceProjection | null = null;
     if (isManagementReceipt(plan.receipt)) {
       const bytes = await registry.getManagementBundle(plan.receipt.selection.release.bundleDigest);
       if (!bytes) throw new Error('Pinned runtime input unavailable');
@@ -202,7 +212,7 @@ export async function runOperatorActivity(
         return;
       }
       bundle = await parseOperatorBundle(bytes, plan.receipt.selection.release.bundleDigest);
-      const resources = await projectOperatorPackageResources(bundle, plan.receipt.selection.release.bundleDigest);
+      resources = await projectOperatorPackageResources(bundle, plan.receipt.selection.release.bundleDigest);
       if (resources) await activity.savePackageResources(resources);
     } else {
       const distribution = await registry.getPinnedDistribution(activityId);
@@ -216,13 +226,20 @@ export async function runOperatorActivity(
       }
       bundle = await fetchOperatorBundle(distribution.endpoint, manifest, { ...authority, connectionSecret },
         attemptDeadline);
-      const resources = await projectOperatorPackageResources(bundle, plan.receipt.artifactDigest);
+      resources = await projectOperatorPackageResources(bundle, plan.receipt.artifactDigest);
       if (resources) await activity.savePackageResources(resources);
     }
     const invocation = JSON.parse(plan.invocationJson) as unknown;
     const driven = await driveOperatorRuntime({ activity, activityId, deadline: attemptDeadline, loader: env.LOADER, bundle,
-      invocation, expectedGeneration,
-      bind: async (generation, driveDeadline) => ({ capability: bindCapability(activityId, generation, driveDeadline), outbound: null }),
+      invocation, expectedGeneration, capacityPolicy,
+      bind: async (generation, driveDeadline) => {
+        if (isManagementReceipt(plan.receipt) && plan.receipt.selection.operator.profile === 'conductor') {
+          const bound = await bindClaimedConductorInvocation({ env, plan, activity, resources, generation, driveDeadline });
+          // Mutate only this drive's parsed copy, never the persisted invocation or intent digest.
+          if (bound) Object.assign(invocation as object, bound);
+        }
+        return { capability: bindCapability(activityId, generation, driveDeadline), outbound: null };
+      },
     });
     if (!driven.ok && driven.reason === 'authority-expired') await activity.fenceRuntimeFailure(expectedGeneration);
   } catch {

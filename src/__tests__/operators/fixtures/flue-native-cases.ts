@@ -2,6 +2,8 @@ import { readFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { beforeEach, describe, expect, it as vitestIt, vi } from 'vitest';
 import { createFlueCaseShard } from './flue-case-shard';
+import type { DispatcherPhaseContext } from '../../../operators/dispatcher-phases';
+import type { FiberObservation } from './dispatcher-composed-fixture';
 import type { DispatcherResultProjection } from '../../../operators/dispatcher-result';
 // The Node harness exercises the pure publication parser; the Worker read transport is not loaded here.
 vi.mock('../../../operators/operator-runtime-capability', () => ({ readDispatcherBody: () => {
@@ -10,7 +12,8 @@ vi.mock('../../../operators/operator-runtime-capability', () => ({ readDispatche
 import type { OperatorActivityPreparation } from '../../../operators/activity';
 import { parsePublishableAssessment } from '../../../operators/renovate-publication';
 import type { ActivityFixtureCommand } from './loader-worker';
-import type { ExternalAttempt, ExternalReceipt, FlueFixtureCommand, NativeArtifact, NativeDelivery, NativeJourneyDiagnostic } from './flue-native-fixture';
+import type { ExternalAttempt, ExternalReceipt, FlueFixtureCommand, NativeArtifact, NativeDelivery, NativeJourneyDiagnostic,
+  NativeJourneyObservation, NativeJourneyScenario } from './flue-native-fixture';
 
 type Assessment = NativeDelivery & {
   result: { status: number; body: { accepted?: boolean; evidence?: unknown } };
@@ -112,13 +115,21 @@ export function registerNativeDispatcherCases(
     expect(predicate(value), JSON.stringify(value)).toBe(true);
     return value;
   }
-  async function pinnedArtifact(journey = false) {
-    const path = journey ? process.env.DISPATCHER_JOURNEY_NATIVE_ARTIFACT : process.env.DISPATCHER_NATIVE_ARTIFACT;
-    const expectedDigest = journey ? process.env.DISPATCHER_JOURNEY_NATIVE_SHA256 : process.env.DISPATCHER_NATIVE_SHA256;
-    const expectedSource = journey ? process.env.DISPATCHER_JOURNEY_NATIVE_SOURCE_SHA : process.env.DISPATCHER_NATIVE_SOURCE_SHA;
+  async function pinnedArtifact(journey = false, steering = false, intent4 = false) {
+    const path = intent4 ? process.env.DISPATCHER_INTENT4_NATIVE_ARTIFACT
+      : steering ? process.env.DISPATCHER_STEERING_NATIVE_ARTIFACT
+      : journey ? process.env.DISPATCHER_JOURNEY_NATIVE_ARTIFACT : process.env.DISPATCHER_NATIVE_ARTIFACT;
+    const expectedDigest = intent4 ? process.env.DISPATCHER_INTENT4_NATIVE_SHA256
+      : steering ? process.env.DISPATCHER_STEERING_NATIVE_SHA256
+      : journey ? process.env.DISPATCHER_JOURNEY_NATIVE_SHA256 : process.env.DISPATCHER_NATIVE_SHA256;
+    const expectedSource = intent4 ? process.env.DISPATCHER_INTENT4_NATIVE_SOURCE_SHA
+      : steering ? process.env.DISPATCHER_STEERING_NATIVE_SOURCE_SHA
+      : journey ? process.env.DISPATCHER_JOURNEY_NATIVE_SOURCE_SHA : process.env.DISPATCHER_NATIVE_SOURCE_SHA;
     expect(path, 'CI must supply the real profile-built artifact').toBeTruthy();
     expect(expectedDigest, 'CI must bind the approved artifact bytes, not calculate and trust a new pin').toMatch(/^[a-f0-9]{64}$/);
     expect(expectedSource, 'CI must pin the profile source revision').toMatch(/^[a-f0-9]{40}$/);
+    if (intent4) expect(expectedSource, 'Only the reviewed intent4 PUSH artifact may select phase admission')
+      .toBe('05d817914086bc01cabba6496f0e8e2715b87255');
     const bytes = await readFile(path!);
     expect(createHash('sha256').update(bytes).digest('hex')).toBe(expectedDigest);
     const artifact = JSON.parse(bytes.toString()) as NativeArtifact;
@@ -171,8 +182,565 @@ export function registerNativeDispatcherCases(
     return { id, value };
   }
 
+  if (group === 'flue') describe('REQ-OPERATOR-047/048: production Activity plus pinned Flue recovery', () => {
+    beforeEach(() => harness.reset(), 60_000);
+    type Composed = { instance: string; fiberEvents: FiberObservation[] | null;
+      diagnostics?: Array<{ module: string; stage?: string; outcome?: string; status?: number;
+        failureClass?: string; preparationStep?: string; wireRules?: string;
+        messages?: number; tools?: number | null; messageMinimum?: number; messageMaximum?: number;
+        messageCountViolation?: 'below-minimum' | 'above-maximum' }>;
+      journal?: { generation: number; unresolved: number; operationId: string; receipt: {
+        generation: number; phase: string; requestDigest: string; responseDigest?: string; resolution?: unknown;
+        request?: { method: string; url: string };
+        phaseBinding?: { submissionId: string; deliveryToken: string; phase: DispatcherPhaseContext['phase'] };
+      } } | null;
+      detail: { executionStatus: string; collectionStatus: string; result: unknown; sdkCleanupReleased?: boolean };
+      external: { held: boolean; phases: Array<{ context: DispatcherPhaseContext; commentCount: number }>; inference: Array<{ inputDigest: string; turn: number; phase?: DispatcherPhaseContext['phase'] }>; comments: Array<{ body: string }>;
+        sourceRequests: Array<{ url: string; method: string }>;
+        sourceDeliveries: Array<{ operationId: string; url: string; method: string }>;
+        isolationFaults: Array<{ kind: string; pullRequest: number; status?: number }>;
+        duplicates: Array<{ statuses: number[]; digests: string[] }>;
+        budget?: { operationCount: number; operationLimit: number };
+        evidence?: Array<{ index: number; complete: boolean }>; batches?: string[][];
+        firstAppend?: { category: 'canonical-append-oversized' | 'canonical-append-other'; largestRecordType?: 'state_write' } | null;
+        sdkSubmissions?: Array<{ stage: 'sdk-submission-running' | 'sdk-submission-exhausted'; submissionDigest: string; attemptCount: number; maxAttempts: number }> } };
+    // Acceptance requires genuine Tail delivery, including original opaque IDs.
+    // These sets describe ONLY observed callbacks, never submissions or subtree liveness.
+    function fiberEvidenceSettled(value: Composed, recovery = false) {
+      const events = value.fiberEvents;
+      if (!events?.length) return false;
+      const starts = new Set(events.filter(row => row.type === 'fiber:run:started').map(row => row.fiberDigest));
+      const endings = new Set(events.filter(row => row.type === 'fiber:run:completed' || row.type === 'fiber:run:failed'
+        || recovery && row.type === 'fiber:run:interrupted').map(row => row.fiberDigest));
+      return starts.size > 0 && events.some(row => row.type === 'fiber:run:completed')
+        && starts.size === endings.size && [...starts].every(id => endings.has(id));
+    }
+    function observedInterruptedFiber(value: Composed) {
+      const events = value.fiberEvents;
+      return events?.some(row => row.type === 'fiber:run:interrupted'
+        && events.some(start => start.type === 'fiber:run:started' && start.fiberDigest === row.fiberDigest)) === true;
+    }
+    function assertFiberEvidence(value: Composed, recovery = false) {
+      expect(value.fiberEvents, 'Required actual agents:fiber Tail delivery; unavailable is not cessation proof').not.toBeNull();
+      expect(fiberEvidenceSettled(value, recovery), JSON.stringify(value.fiberEvents)).toBe(true);
+      if (recovery) expect(observedInterruptedFiber(value), 'Recovery must observe an original started fiber ID as interrupted').toBe(true);
+      // completed/failed means callback unwound; interrupted means restart found
+      // the original row. Neither means runtime abort emitted completion, nor
+      // proves every descendant/provider is gone. listFibers is not evidence.
+    }
+    function originalSdk(value: Composed) {
+      const entries = value.external.sdkSubmissions ?? [];
+      const initial = entries.find(entry => entry.stage === 'sdk-submission-running' && entry.attemptCount === 1);
+      return initial ? entries.filter(entry => entry.submissionDigest === initial.submissionDigest) : [];
+    }
+    // Intentional intent4 wire contract, observed through the real capability.
+    // Completed predecessors here are the host's SDK-settled lineage, not model claims.
+    function assertSerialPhases(value: Composed, targets: Array<{ pullRequest: number; headSha: string }>) {
+      const phases = value.external.phases;
+      expect(phases).toHaveLength(targets.length + 2);
+      const first = phases[0].context;
+      const ids = phases.map(row => row.context.submissionId);
+      expect(new Set(ids).size).toBe(phases.length);
+      expect(new Set(phases.map(row => row.context.deliveryToken)).size).toBe(phases.length);
+      phases.forEach(({ context, commentCount }, index) => {
+        expect(context).toMatchObject({ version: 1, scope: 'submission', generation: 1,
+          deadline: first.deadline, releaseDigest: first.releaseDigest, authorityDigest: first.authorityDigest });
+        expect(context.phase).toEqual(index === 0 ? { kind: 'discovery' }
+          : index === phases.length - 1 ? { kind: 'final' } : { kind: 'target', index: index - 1, target: targets[index - 1] });
+        expect(context.previous ?? []).toEqual(phases.slice(0, index).map(row => ({
+          submissionId: row.context.submissionId, phase: row.context.phase, outcome: 'completed',
+        })));
+        // The next PR is never admitted before the preceding PR's actual comment.
+        expect(commentCount).toBe(Math.max(0, index - 1));
+      });
+    }
+    function sdkForSubmission(value: Composed, submissionId: string) {
+      const digest = createHash('sha256').update(submissionId).digest('hex');
+      return (value.external.sdkSubmissions ?? []).filter(entry => entry.submissionDigest === digest);
+    }
+    // REQ-OPERATOR-048 AC2/4 and062 AC2: additional bounded native work
+    // within the ordinary table identity, AFTER all its original assertions.
+    async function runTargetIsolation(pinned: Awaited<ReturnType<typeof pinnedArtifact>>) {
+      const targets = [{ pullRequest: 17, headSha: 'a'.repeat(40) }, { pullRequest: 18, headSha: 'c'.repeat(40) }];
+      const citedComment = (pullRequest: number) => `Migration compatibility for PR ${pullRequest} remains unverified. Source: https://docs.example.test/isolation-${pullRequest}`;
+      for (const scenario of ['target-response-failed', 'target-comment-unknown'] as const) {
+        await harness.reset(); // Existing file-owned runtime; never another shard or server.
+        const id = `isolation-${crypto.randomUUID()}`;
+        expect(await composed(id, { action: 'start', ...pinned, scenario, attemptLimit: 2 }))
+          .toMatchObject({ ok: true, state: { generation: 1, status: 'running' } });
+        const result = await observed(id, value => value.detail.executionStatus === 'completed');
+        const phases = result.external.phases;
+        expect(phases).toHaveLength(4);
+        expect(new Set(phases.map(row => row.context.submissionId)).size).toBe(4);
+        expect(new Set(phases.map(row => row.context.deliveryToken)).size).toBe(4);
+        const first = phases[0].context;
+        const terminal = scenario === 'target-response-failed' ? 'failed' : 'completed';
+        phases.forEach(({ context, commentCount }, index) => {
+          expect(context).toMatchObject({ version: 1, scope: 'submission', generation: 1,
+            deadline: first.deadline, releaseDigest: first.releaseDigest, authorityDigest: first.authorityDigest });
+          expect(context.phase).toEqual(index === 0 ? { kind: 'discovery' } : index === 3 ? { kind: 'final' }
+            : { kind: 'target', index: index - 1, target: targets[index - 1] });
+          // Actual SDK terminal lineage returned by production phase-context.
+          expect(context.previous ?? []).toEqual(phases.slice(0, index).map((row, prior) => ({
+            submissionId: row.context.submissionId, phase: row.context.phase, outcome: prior === 1 ? terminal : 'completed',
+          })));
+          expect(commentCount).toBe((scenario === 'target-response-failed' ? [0, 0, 0, 1] : [0, 0, 1, 2])[index]);
+        });
+        const expected = { repository: 'authorized/project', results: [scenario === 'target-response-failed'
+          ? { ...targets[0], outcome: 'DEFERRED', reason: 'response-failed' }
+          : { ...targets[0], decision: 'DO_NOT_MERGE', comment: citedComment(17), outcome: 'DEFERRED', reason: 'comment-uncertain' },
+        { ...targets[1], decision: 'DO_NOT_MERGE', comment: citedComment(18), outcome: 'NOT_MERGED' }] };
+        const collected = await composed<{ ok: boolean; detail: { result: unknown; checkpoint: unknown } }>(id, { action: 'collect' });
+        expect(collected).toMatchObject({ ok: true, detail: { executionStatus: 'completed' } });
+        // Exact rows: failed response has NO invented decision/comment; unknown
+        // write preserves its actual judgment but never claims posting certainty.
+        expect(collected.detail.result).toEqual(expected);
+        const effectTargets = scenario === 'target-response-failed' ? [targets[1]] : targets;
+        expect(result.external.comments).toEqual(effectTargets.map(target => expect.objectContaining({ body: citedComment(target.pullRequest),
+          issue_url: `https://api.github.com/repos/authorized/project/issues/${target.pullRequest}`,
+          user: { id: 42, login: 'fixture-publisher', type: 'User' } })));
+        expect(result.external.sourceRequests.filter(row => row.method !== 'GET')).toEqual(effectTargets.map(target => ({
+          method: 'POST', url: `https://api.github.com/repos/authorized/project/issues/${target.pullRequest}/comments`,
+        })));
+        // Observe both the protected original IDs and the external requests: an
+        // unknown first POST is neither reissued under its ID nor under a new ID.
+        expect(result.external.sourceDeliveries.filter(row => row.method !== 'GET')).toEqual(effectTargets.map(target => ({
+          operationId: `submission-pr-${target.pullRequest}-comment`, method: 'POST',
+          url: `https://api.github.com/repos/authorized/project/issues/${target.pullRequest}/comments`,
+        })));
+        expect(result.external.sourceRequests.filter(row => row.url.startsWith('https://docs.example.test/isolation-')))
+          .toEqual(effectTargets.map(target => ({ method: 'GET', url: `https://docs.example.test/isolation-${target.pullRequest}` })));
+        expect(result.external.evidence).toEqual(effectTargets.map(target => ({ index: target.pullRequest - 17, complete: true })));
+        if (scenario === 'target-response-failed') {
+          expect(result.external.isolationFaults).toEqual([{ kind: 'model-rejected', pullRequest: 17, status: 422 }]);
+          expect(result.external.inference.filter(row => row.phase?.kind === 'target' && row.phase.index === 0)).toHaveLength(1);
+        } else {
+          expect(result.external.isolationFaults).toEqual([
+            { kind: 'comment-response-lost', pullRequest: 17 },
+            { kind: 'comment-readback-unavailable', pullRequest: 17, status: 502 },
+          ]);
+          expect(result.journal).toMatchObject({ generation: 1, unresolved: 1, operationId: 'submission-pr-17-comment', receipt: {
+            generation: 1, phase: 'unknown', requestDigest: expect.stringMatching(/^[a-f0-9]{64}$/),
+            request: { method: 'POST', url: 'https://api.github.com/repos/authorized/project/issues/17/comments' },
+            phaseBinding: { submissionId: phases[1].context.submissionId, deliveryToken: phases[1].context.deliveryToken, phase: phases[1].context.phase },
+          } });
+          expect(result.journal!.receipt.resolution).toBeUndefined();
+        }
+        expect(await composed(id, { action: 'collect' })).toMatchObject({ ok: true, detail: {
+          result: expected, checkpoint: collected.detail.checkpoint,
+        } });
+        const repeated = await composed<Composed>(id, { action: 'observe' });
+        expect(repeated.external).toEqual(result.external);
+        expect(repeated.journal).toEqual(result.journal);
+        if (scenario === 'target-comment-unknown') {
+          // Reconstruction must retain the uncertain original receipt as well
+          // as immutable collection; this is root+facet, not child-only eviction.
+          expect(await composed(id, { action: 'evict' })).toEqual({ evicted: true });
+          expect(await composed(id, { action: 'collect' })).toMatchObject({ ok: true, detail: {
+            result: expected, checkpoint: collected.detail.checkpoint,
+          } });
+          const reconstructed = await composed<Composed>(id, { action: 'observe' });
+          expect(reconstructed.instance).not.toBe(result.instance);
+          expect(reconstructed.external).toEqual(result.external);
+          expect(reconstructed.journal).toEqual(result.journal);
+        }
+      }
+    }
+    function closedTransportFailure(error: unknown) {
+      const item = error && typeof error === 'object' ? error as { name?: unknown; code?: unknown; cause?: { code?: unknown } } : undefined;
+      const name = item?.name;
+      const code = item?.code ?? item?.cause?.code;
+      return { errorClass: typeof name === 'string' && ['Error', 'TypeError', 'SyntaxError', 'AbortError', 'TimeoutError'].includes(name) ? name : 'other',
+        transportCode: typeof code === 'string' && ['UND_ERR_ABORTED', 'UND_ERR_CONNECT_TIMEOUT', 'UND_ERR_HEADERS_TIMEOUT',
+          'UND_ERR_BODY_TIMEOUT', 'UND_ERR_SOCKET', 'ECONNRESET', 'ECONNREFUSED', 'ETIMEDOUT'].includes(code) ? code : 'other' };
+    }
+    async function composed<T>(id: string, value: unknown): Promise<T> {
+      const action = (value as { action?: unknown }).action;
+      const phase = ['start', 'observe', 'collect', 'evict', 'release', 'revoke', 'cancel', 'change-submission-policy'].includes(String(action))
+        ? String(action) : 'other';
+      const observationId = phase === 'observe' && ['large-evidence-', 'thirty-evidence-', 'isolation-'].some(prefix => id.startsWith(prefix))
+        ? crypto.randomUUID() : undefined;
+      const send = (command: unknown) => harness.fetch(`/dispatcher-composed?activity=${id}`, {
+        method: 'POST', headers: { 'content-type': 'application/json',
+          ...(observationId && command === value ? { 'x-codeflare-fixture-observation-id': observationId } : {}) },
+        body: JSON.stringify(command), signal: AbortSignal.timeout(20_000),
+      });
+      let boundary: 'fetch-rejected' | 'response-not-json' | 'http-rejected' = 'fetch-rejected';
+      let status: number | undefined;
+      let body: unknown;
+      let responseCategory: string | undefined;
+      let responseErrorClass: string | undefined;
+      let responseMessage: string | undefined;
+      let responseSource: { file: string; line: number; column: number } | undefined;
+      try {
+        const response = await send(value);
+        status = response.status;
+        if (observationId) console.info(`[native-flue] observe-client=${JSON.stringify({ observationId, boundary: 'response-headers', status })}`);
+        boundary = 'response-not-json';
+        const text = await response.text();
+        if (observationId) console.info(`[native-flue] observe-client=${JSON.stringify({ observationId, boundary: 'body-completed',
+          bytes: new TextEncoder().encode(text).byteLength })}`);
+        try { body = JSON.parse(text); }
+        catch (error) {
+          // Match fixed platform error templates in memory; never retain the response.
+          responseErrorClass = /^(Error|TypeError|RangeError|SyntaxError|ReferenceError|AbortError|TimeoutError):/m.exec(text)?.[1] ?? 'other';
+          // Authorized synthetic CI exception only: redact values, never emit its stack or body.
+          const firstLine = text.split(/\r?\n/, 1)[0];
+          if (/^(Error|TypeError|RangeError|SyntaxError|ReferenceError|AbortError|TimeoutError):/.test(firstLine)) {
+            responseMessage = firstLine
+              .replace(/Bearer\s+\S+/gi, 'Bearer <redacted>')
+              .replace(/\bhttps?:\/\/\S+/gi, '<url>')
+              .replace(/\b[a-f\d]{8}(?:-[a-f\d]{4}){3}-[a-f\d]{12}\b/gi, '<id>')
+              .replace(/[A-Za-z\d_+/=-]{40,}/g, '<value>');
+          }
+          // Only locations in named public sources may leave this in-memory response.
+          const location = /\b(entry\.worker\.js|activity\.ts|loader-worker\.ts|dispatcher-composed-fixture\.ts):(\d{1,7}):(\d{1,7})\b/.exec(text);
+          if (location) responseSource = { file: location[1], line: Number(location[2]), column: Number(location[3]) };
+          const normalized = text.toLowerCase();
+          responseCategory = [
+            ['cross-request-io', 'cannot perform i/o on behalf of a different request'],
+            ['memory-limit', 'script exceeded memory limit'],
+            ['cpu-limit', 'exceeded cpu time limit'],
+            ['subrequest-limit', 'too many subrequests'],
+            ['unresolved-response', 'the script will never generate a response'],
+          ].find(([, template]) => normalized.includes(template))?.[0] ?? 'unclassified';
+          throw error;
+        }
+        if (status !== 200) {
+          boundary = 'http-rejected';
+          throw new Error('Native composed fixture rejected');
+        }
+      } catch (error) {
+        console.info(`[native-flue] composed transport=${JSON.stringify({ phase, boundary, status, responseCategory, responseErrorClass, responseMessage, responseSource, ...closedTransportFailure(error) })}`);
+        // One independent retained-evidence read after failure; never retry the failed command.
+        try {
+          const diagnostic = await send({ action: 'diagnose' });
+          if (diagnostic.status === 200) console.info(`[native-flue] composed retained=${JSON.stringify(await diagnostic.json())}`);
+          else console.info('[native-flue] composed retained=unavailable');
+        } catch (diagnosticError) {
+          console.info(`[native-flue] composed retained=${JSON.stringify({ available: false, ...closedTransportFailure(diagnosticError) })}`);
+        }
+        throw new Error(`Native composed transport failed: ${boundary}`);
+      }
+      expect(status, JSON.stringify({ phase, status })).toBe(200);
+      return body as T;
+    }
+    let lastClosedObservation: string | undefined;
+    function reportObservation(value: Composed) {
+      const closed = JSON.stringify({ executionStatus: value.detail.executionStatus,
+        collectionStatus: value.detail.collectionStatus, firstAppend: value.external.firstAppend ?? null,
+        sdkSubmissions: value.external.sdkSubmissions ?? [], fiberEvents: value.fiberEvents,
+        inferenceCount: value.external.inference.length,
+        commentCount: value.external.comments.length,
+        operationDenials: (value.diagnostics ?? []).filter(entry => entry.outcome === 'denied' || entry.stage === 'preparation')
+          .map(entry => ({ module: entry.module, stage: entry.stage, outcome: entry.outcome, status: entry.status,
+            failureClass: entry.failureClass, preparationStep: entry.preparationStep, wireRules: entry.wireRules,
+            messages: entry.messages, tools: entry.tools, messageMinimum: entry.messageMinimum,
+            messageMaximum: entry.messageMaximum, messageCountViolation: entry.messageCountViolation })) });
+      if (closed !== lastClosedObservation) console.info(`[native-flue] composed closed=${closed}`);
+      lastClosedObservation = closed;
+      return closed;
+    }
+    async function observed(id: string, predicate: (value: Composed) => boolean) {
+      const deadline = Date.now() + 60_000;
+      let value: Composed;
+      lastClosedObservation = undefined;
+      do {
+        value = await composed<Composed>(id, { action: 'observe' });
+        reportObservation(value);
+        if (predicate(value) || ['unknown', 'failed', 'cancel-requested'].includes(value.detail.executionStatus)) break;
+        await new Promise(resolve => setTimeout(resolve, 100));
+      } while (Date.now() < deadline);
+      expect(predicate(value!), reportObservation(value!)).toBe(true);
+      return value!;
+    }
+    it.each([1, 17, undefined])('REQ-OPERATOR-045/011/048: SDK admits the saved submission limit %s independently of inference retries', async limit => {
+      const pinned = await pinnedArtifact(false, false, true);
+      const id = `submission-limit-${crypto.randomUUID()}`;
+      expect(await composed(id, { action: 'start', ...pinned, scenario: limit === 1 ? 'ordinary' : 'precommit-reset', attemptLimit: 4,
+        ...(limit === undefined ? {} : { submissionAttemptLimit: limit }) })).toMatchObject({ ok: true });
+      const expected = limit ?? 1024;
+      if (limit !== 1) {
+        await observed(id, value => value.external.held);
+        await composed(id, { action: 'evict' });
+        await composed(id, { action: 'release' });
+      }
+      // The SDK's first running event precedes input application; replacement
+      // attempts expose the effective pinned budget on that same submission.
+      const result = await observed(id, value => value.detail.executionStatus === 'completed'
+        && originalSdk(value).some(entry => entry.stage === 'sdk-submission-running'
+          && (limit === 1 ? entry.attemptCount === 1 : entry.attemptCount > 1 && entry.maxAttempts === expected)));
+      expect(originalSdk(result).length).toBeGreaterThan(0);
+      expect(result.external.comments).toHaveLength(1);
+      expect(await composed(id, { action: 'collect' })).toMatchObject({ ok: true, detail: { result: {
+        repository: 'authorized/project', results: [expect.objectContaining({ outcome: 'NOT_MERGED' })],
+      } } });
+      if (limit === 1) {
+        // Also verify that the saved one-attempt budget really disables recovery.
+        await harness.reset();
+        const interruptedId = `submission-disabled-${crypto.randomUUID()}`;
+        expect(await composed(interruptedId, { action: 'start', ...pinned, scenario: 'precommit-reset',
+          attemptLimit: 4, submissionAttemptLimit: 1 })).toMatchObject({ ok: true });
+        await observed(interruptedId, value => value.external.held);
+        await composed(interruptedId, { action: 'evict' });
+        await composed(interruptedId, { action: 'release' });
+        // observe() is live-only; hard eviction cannot promise delivery of its
+        // terminal event. Verify disabled recovery through retained outcomes.
+        const exhausted = await observed(interruptedId, value => value.detail.executionStatus === 'unknown');
+        expect(originalSdk(exhausted).some(entry => entry.stage === 'sdk-submission-running' && entry.attemptCount === 1)).toBe(true);
+        expect(originalSdk(exhausted).filter(entry => entry.stage === 'sdk-submission-running' && entry.attemptCount > 1)).toEqual([]);
+        expect(exhausted.external.inference).toHaveLength(1);
+        expect(exhausted.external.comments).toEqual([]);
+        expect(exhausted.external.sourceRequests.filter(entry => entry.method !== 'GET')).toEqual([]);
+        expect(await composed(interruptedId, { action: 'collect' })).toMatchObject({ ok: false });
+      }
+    }, 60_000);
+
+    it('REQ-OPERATOR-011/048: a recovered SDK submission retains its original admitted attempt limit', async () => {
+      const pinned = await pinnedArtifact(false, false, true);
+      const id = `submission-pin-${crypto.randomUUID()}`;
+      expect(await composed(id, { action: 'start', ...pinned, scenario: 'precommit-reset', attemptLimit: 4,
+        submissionAttemptLimit: 17 })).toMatchObject({ ok: true });
+      await observed(id, value => value.external.held);
+      await composed(id, { action: 'change-submission-policy', submissionAttemptLimit: 1 });
+      await composed(id, { action: 'evict' });
+      await composed(id, { action: 'release' });
+      const result = await observed(id, value => value.detail.executionStatus === 'completed'
+        && originalSdk(value).some(entry => entry.stage === 'sdk-submission-running' && entry.attemptCount > 1));
+      const replacements = originalSdk(result).filter(entry => entry.stage === 'sdk-submission-running' && entry.attemptCount > 1);
+      expect(replacements.length).toBeGreaterThan(0);
+      expect(replacements.every(entry => entry.maxAttempts === 17), JSON.stringify(replacements)).toBe(true);
+      expect(result.external.comments).toHaveLength(1);
+      expect(await composed(id, { action: 'collect' })).toMatchObject({ ok: true });
+    }, 60_000);
+
+    it('REQ-DISPATCHER-001 AC2 / 002 AC2/3/4/5/7/10: large-evidence-comment-batch completes seven cited outcomes and exactly seven repository comments', async () => {
+      const pinned = await pinnedArtifact(false, false, true);
+      const id = `large-evidence-${crypto.randomUUID()}`;
+      expect(await composed(id, { action: 'start', ...pinned, scenario: 'large-evidence-comment-batch',
+        attemptLimit: 32, submissionAttemptLimit: 3 })).toMatchObject({ ok: true, state: { generation: 1, status: 'running' } });
+      // Capture causal evidence before the success assertion can bail. Exhaustion alone
+      // is deliberately not classified as an append failure.
+      const deadline = Date.now() + 60_000;
+      let result: Composed;
+      lastClosedObservation = undefined;
+      do {
+        result = await composed<Composed>(id, { action: 'observe' });
+        reportObservation(result);
+        if (result.detail.executionStatus !== 'running'
+          && (result.detail.executionStatus !== 'completed' || fiberEvidenceSettled(result))) break;
+        await new Promise(resolve => setTimeout(resolve, 100));
+      } while (Date.now() < deadline);
+      console.info(`[native-flue] large-evidence firstAppend=${JSON.stringify(result!.external.firstAppend ?? null)}`);
+      if (result!.detail.executionStatus === 'running') await composed(id, { action: 'cancel' });
+      expect(result!.detail.executionStatus, JSON.stringify({ firstAppend: result!.external.firstAppend ?? null,
+        batches: result!.external.batches, evidence: result!.external.evidence })).toBe('completed');
+      assertFiberEvidence(result!);
+      expect(result!.external.evidence).toEqual(Array.from({ length: 32 }, (_, index) => ({ index, complete: true })));
+
+      const targets = Array.from({ length: 7 }, (_, index) => ({ pullRequest: 17 + index, headSha: (index + 1).toString(16).repeat(40) }));
+      assertSerialPhases(result!, targets);
+      expect(result!.external.batches?.every(batch => batch.length === 1)).toBe(true);
+      const expected = targets.map((target, index) => ({ ...target, decision: 'DO_NOT_MERGE', outcome: 'NOT_MERGED',
+        comment: `Migration compatibility for PR ${target.pullRequest}, evidence ${index}, remains unverified. Source: https://docs.example.test/migration-${index}` }));
+      const collected = await composed<{ ok: boolean; detail: { result: { results: typeof expected }; checkpoint: unknown } }>(id, { action: 'collect' });
+      expect(collected).toMatchObject({ ok: true, detail: { executionStatus: 'completed', result: { repository: 'authorized/project' } } });
+      expect(collected.detail.result.results).toHaveLength(7);
+      expect(new Set(collected.detail.result.results.map(item => `${item.pullRequest}:${item.headSha}`)).size).toBe(7);
+      expect(collected.detail.result.results).toEqual(expect.arrayContaining(expected));
+      expect(result!.external.comments).toHaveLength(7);
+      for (const outcome of expected) {
+        expect(result!.external.comments.filter(item => Reflect.get(item, 'issue_url') === `https://api.github.com/repos/authorized/project/issues/${outcome.pullRequest}`))
+          .toEqual([expect.objectContaining({ body: outcome.comment, user: { id: 42, login: 'fixture-publisher', type: 'User' } })]);
+      }
+      const mutations = result!.external.sourceRequests.filter(item => item.method !== 'GET');
+      expect(mutations).toHaveLength(7);
+      expect(mutations).toEqual(expect.arrayContaining(targets.map(target => ({ method: 'POST',
+        url: `https://api.github.com/repos/authorized/project/issues/${target.pullRequest}/comments` }))));
+      const research = result!.external.sourceRequests.filter(item => item.url.startsWith('https://docs.example.test/migration-'));
+      expect(research).toHaveLength(32);
+      expect(new Set(research.map(item => item.url)).size).toBe(32);
+      // Complete ASCII source bodies: 28*8192 + 4*20480 = 311296 characters;
+      // each source receipt is comfortably below the unchanged 48 KiB ceiling.
+      expect(await composed(id, { action: 'collect' })).toMatchObject({ ok: true, detail: {
+        result: collected.detail.result, checkpoint: collected.detail.checkpoint,
+      } });
+      const recollected = await composed<Composed>(id, { action: 'observe' });
+      assertFiberEvidence(recollected);
+      expect(recollected.fiberEvents).toEqual(result!.fiberEvents);
+      expect(recollected.external).toEqual(result!.external);
+    }, 90_000);
+
+    it.each(['ordinary', 'incomplete', 'native-error', 'duplicate', 'precommit-reset', 'committed-reset'] as const)(
+      'REQ-OPERATOR-048: composed %s inference reaches a real collected assessment with one repository effect', async scenario => {
+        const pinned = await pinnedArtifact(false, false, true);
+        const id = `composed-${crypto.randomUUID()}`;
+        const admission = await composed(id, { action: 'start', ...pinned, scenario, attemptLimit: 2 });
+        expect(admission, JSON.stringify(admission)).toMatchObject({ ok: true, state: { generation: 1, status: 'running' } });
+        let originalInstance: string | undefined;
+        if (scenario.endsWith('-reset')) {
+          const held = await observed(id, value => value.external.held);
+          originalInstance = held.instance;
+          expect(held.external.inference).toHaveLength(1);
+          expect(await composed(id, { action: 'evict' })).toEqual({ evicted: true });
+          expect(await composed(id, { action: 'release' })).toEqual({ released: true });
+        }
+        const result = await observed(id, value => value.detail.executionStatus === 'completed'
+          && (scenario !== 'ordinary' || fiberEvidenceSettled(value)));
+        if (scenario === 'ordinary') assertFiberEvidence(result);
+        if (originalInstance) expect(result.instance).not.toBe(originalInstance);
+        const firstTurn = result.external.inference.filter(item => item.turn === 0);
+        const recovered = ['incomplete', 'native-error', 'precommit-reset'].includes(scenario);
+        expect(firstTurn).toHaveLength(recovered ? 2 : 1);
+        expect(new Set(firstTurn.map(item => item.inputDigest)).size).toBe(1);
+        expect(result.external.comments).toEqual([expect.objectContaining({ body: 'Migration compatibility remains unverified. Source: https://docs.example.test/migration' })]);
+        expect(result.external.sourceRequests.filter(item => item.method !== 'GET')).toEqual([
+          { method: 'POST', url: 'https://api.github.com/repos/authorized/project/issues/17/comments' },
+        ]);
+        expect(result.external.budget).toEqual({ operationCount: result.external.inference.length + result.external.sourceRequests.length, operationLimit: 1024 });
+        if (scenario === 'duplicate') {
+          expect(result.external.duplicates).toEqual([{ statuses: [200, 200], digests: [expect.any(String), expect.any(String)] }]);
+          expect(new Set(result.external.duplicates[0].digests).size).toBe(1);
+        }
+        assertSerialPhases(result, [{ pullRequest: 17, headSha: 'a'.repeat(40) }]);
+        const collected = await composed<{ ok: true; detail: { result: unknown; checkpoint: unknown } }>(id, { action: 'collect' });
+        expect(collected).toMatchObject({ ok: true, detail: { executionStatus: 'completed', result: {
+          repository: 'authorized/project', results: [{ pullRequest: 17, headSha: 'a'.repeat(40), decision: 'DO_NOT_MERGE', outcome: 'NOT_MERGED' }],
+        } } });
+        expect(await composed(id, { action: 'collect' })).toMatchObject({ ok: true, detail: {
+          result: collected.detail.result, checkpoint: collected.detail.checkpoint,
+        } });
+        const after = await composed<Composed>(id, { action: 'observe' });
+        expect(after.external).toEqual(result.external);
+        expect(after.detail.sdkCleanupReleased).toBe(true); // Bookkeeping release, not physical-provider cleanup proof.
+        if (scenario === 'ordinary') {
+          assertFiberEvidence(after);
+          expect(after.fiberEvents).toEqual(result.fiberEvents);
+        }
+        if (scenario === 'ordinary') await runTargetIsolation(pinned);
+      }, 90_000);
+
+    it.each([1, 2])('REQ-OPERATOR-048: composed persistent interruption exhausts the configured %i attempts without an effect or collection', async attemptLimit => {
+      const pinned = await pinnedArtifact(false, false, true);
+      const id = `exhausted-${crypto.randomUUID()}`;
+      const admission = await composed(id, { action: 'start', ...pinned, scenario: 'persistent', attemptLimit });
+      expect(admission, JSON.stringify(admission)).toMatchObject({ ok: true, state: { generation: 1, status: 'running' } });
+      const result = await observed(id, value => value.detail.executionStatus === 'unknown');
+      expect(result.external.inference, JSON.stringify(result)).toHaveLength(attemptLimit);
+      expect(result.external.comments).toEqual([]);
+      expect(result.detail.result).toBeNull();
+      expect(await composed(id, { action: 'collect' })).toMatchObject({ ok: false });
+      expect((await composed<Composed>(id, { action: 'observe' })).external.inference).toEqual(result.external.inference);
+    }, 90_000);
+
+    it('REQ-OPERATOR-048 AC2/4: thirty-target original-read recovery survives SDK eviction without duplicate effects', async () => {
+      const pinned = await pinnedArtifact(false, false, true);
+      const id = `thirty-evidence-${crypto.randomUUID()}`;
+      expect(await composed(id, { action: 'start', ...pinned, scenario: 'thirty-target-original-evidence-recovery',
+        attemptLimit: 32, submissionAttemptLimit: 3 })).toMatchObject({ ok: true, state: { generation: 1, status: 'running' } });
+      const held = await observed(id, value => value.external.held);
+      // A fresh failed read returned before the next explicit model/tool call.
+      expect(held.external.comments).toHaveLength(29);
+      expect(held.external.sourceRequests.filter(item => item.url === 'https://api.github.com/user')).toHaveLength(30);
+      expect(held.external.evidence).toEqual(Array.from({ length: 36 }, (_, index) => ({ index, complete: true })));
+      const active = held.external.phases.at(-1)!.context;
+      expect(active.phase).toEqual({ kind: 'target', index: 29, target: {
+        pullRequest: 46, headSha: (30).toString(16).padStart(40, '0'),
+      } });
+      expect(held.external.phases.some(row => row.context.phase.kind === 'final')).toBe(false);
+      expect(held.detail.result).toBeNull();
+      expect(await composed(id, { action: 'collect' })).toMatchObject({ ok: false });
+      expect(await composed(id, { action: 'evict-child' })).toEqual({ evicted: true });
+      const childRecovered = await observed(id, value => sdkForSubmission(value, active.submissionId)
+        .some(entry => entry.stage === 'sdk-submission-running' && entry.attemptCount > 1)
+        && observedInterruptedFiber(value));
+      // Independently observed original start/interruption pair, NOT attribution
+      // to the active SID or proof that runtime abort emitted a callback ending.
+      expect(observedInterruptedFiber(childRecovered), JSON.stringify(childRecovered.fiberEvents)).toBe(true);
+      expect(childRecovered.instance).toBe(held.instance);
+      expect(childRecovered.external.phases.at(-1)!.context).toEqual(active);
+      expect(childRecovered.external.comments).toEqual(held.external.comments);
+      expect(childRecovered.detail.result).toBeNull();
+      // Keep the original separate root-plus-facet reconstruction proof as well.
+      expect(await composed(id, { action: 'evict' })).toEqual({ evicted: true });
+      expect(await composed(id, { action: 'release' })).toEqual({ released: true });
+      const result = await observed(id, value => value.detail.executionStatus === 'completed'
+        && fiberEvidenceSettled(value, true) && observedInterruptedFiber(value));
+      assertFiberEvidence(result, true);
+      expect(result.instance).not.toBe(held.instance);
+      // Replacement belongs to the still-active thirtieth response, not discovery.
+      expect(sdkForSubmission(result, active.submissionId).some(entry => entry.stage === 'sdk-submission-running'
+        && entry.attemptCount > 1 && entry.maxAttempts === 3)).toBe(true);
+      expect(result.external.sourceRequests.filter(item => item.url === 'https://api.github.com/user')).toHaveLength(31);
+      expect(result.external.evidence).toEqual(Array.from({ length: 36 }, (_, index) => ({ index, complete: true })));
+      const expected = Array.from({ length: 30 }, (_, index) => ({ pullRequest: 17 + index,
+        headSha: (index + 1).toString(16).padStart(40, '0'), decision: 'DO_NOT_MERGE', outcome: 'NOT_MERGED',
+        comment: `Migration compatibility for PR ${17 + index}, evidence ${index}, remains unverified. Source: https://docs.example.test/migration-${index} ${'Missing verified configuration and migration evidence. '.repeat(16)}` }));
+      assertSerialPhases(result, expected.map(({ pullRequest, headSha }) => ({ pullRequest, headSha })));
+      expect(result.external.phases[30].context).toEqual(active);
+      expect(result.external.batches?.every(batch => batch.length === 1)).toBe(true);
+      const collected = await composed<{ ok: boolean; detail: { result: { repository: string; results: typeof expected }; checkpoint: unknown } }>(id, { action: 'collect' });
+      expect(collected).toMatchObject({ ok: true, detail: { executionStatus: 'completed', result: { repository: 'authorized/project' } } });
+      expect(collected.detail.result.results).toHaveLength(30);
+      expect(new Set(collected.detail.result.results.map(item => `${item.pullRequest}:${item.headSha}`)).size).toBe(30);
+      expect(collected.detail.result.results).toEqual(expect.arrayContaining(expected));
+      expect(result.external.comments).toHaveLength(30);
+      for (const outcome of expected) {
+        const old = held.external.comments.find(item => Reflect.get(item, 'issue_url') === `https://api.github.com/repos/authorized/project/issues/${outcome.pullRequest}`);
+        expect(result.external.comments.filter(item => Reflect.get(item, 'issue_url') === `https://api.github.com/repos/authorized/project/issues/${outcome.pullRequest}`))
+          .toEqual([old ?? expect.objectContaining({ body: outcome.comment,
+            user: { id: 43, login: 'replacement-publisher', type: 'User' } })]);
+        if (old) expect(old).toMatchObject({ body: outcome.comment, user: { id: 42, login: 'fixture-publisher', type: 'User' } });
+      }
+      const mutations = result.external.sourceRequests.filter(item => item.method !== 'GET');
+      expect(mutations).toHaveLength(30);
+      expect(mutations).toEqual(expect.arrayContaining(expected.map(item => ({ method: 'POST',
+        url: `https://api.github.com/repos/authorized/project/issues/${item.pullRequest}/comments` }))));
+      const research = result.external.sourceRequests.filter(item => item.url.startsWith('https://docs.example.test/migration-'));
+      expect(research).toHaveLength(36);
+      expect(new Set(research.map(item => item.url)).size).toBe(36);
+      expect(await composed(id, { action: 'collect' })).toMatchObject({ ok: true, detail: {
+        result: collected.detail.result, checkpoint: collected.detail.checkpoint,
+      } });
+      const after = await composed<Composed>(id, { action: 'observe' });
+      expect(after.external).toEqual(result.external);
+      expect(after.detail.sdkCleanupReleased).toBe(true);
+      assertFiberEvidence(after, true);
+      expect(after.fiberEvents).toEqual(result.fiberEvents);
+    }, 90_000);
+  });
+
   if (group === 'authority') describe('REQ-OPERATOR-048: separate pinned native journey compatibility', () => {
     beforeEach(() => harness.reset(), 60_000);
+    it('REQ-OPERATOR-048: authentic SDK finish steering continues the original invocation to exact assessment', async () => {
+      const pinned = await pinnedArtifact(true, true);
+      const intent = await harness.queuedActivity();
+      const id = intent.activityId;
+      expect(await harness.activity(id, { action: 'begin-drive' })).toMatchObject({ ok: true });
+      expect(await command(id, { action: 'configure', ...pinned, journey: true, journeyScenario: 'premature-stop-once' })).toMatchObject({ ok: true });
+      const admission = await command<{ status: number; body: { submissionId: string } }>(id, {
+        action: 'send', delivery: { repository: 'authorized/project' },
+      });
+      expect(admission.status).toBe(202);
+      let projection: DispatcherResultProjection = { offset: '-1', messageIds: [], writes: 0 };
+      const end = Date.now() + 20_000;
+      do {
+        projection = await command(id, { action: 'journey-updates', submissionId: admission.body.submissionId, previous: projection });
+        if (projection.outcome) break;
+        await new Promise(resolve => setTimeout(resolve, 50));
+      } while (Date.now() < end);
+      expect(projection).toMatchObject({ outcome: 'completed', writes: 1, result: { repository: 'authorized/project', results: [] } });
+      const evidence = await snapshot(id);
+      const operations = Object.values(evidence.journeyOperations ?? {});
+      expect(operations.filter(item => item.path === '/v1/dispatcher/source').map(item => item.body.url)).toEqual([
+        'https://api.github.com/repos/authorized/project',
+        'https://api.github.com/users/renovate%5Bbot%5D',
+        'https://api.github.com/repos/authorized/project/pulls?state=open&sort=created&direction=desc&per_page=1&page=1',
+      ]);
+      expect(evidence.external).toEqual([]);
+      expect(evidence.activity.sessionId).toBeNull();
+    }, 35_000);
+
     it.each([false, true])('REQ-OPERATOR-048: projects one exact empty discovery result through real SDK updates with oversized source metadata=%s', async oversizedSourceMetadata => {
       const pinned = await pinnedArtifact(true);
       const intent = await harness.queuedActivity();
@@ -207,6 +775,278 @@ export function registerNativeDispatcherCases(
       expect(evidence.external).toEqual([]);
       expect(evidence.activity.sessionId).toBeNull();
     }, 30_000);
+  });
+
+  if (group === 'authority') describe('REQ-OPERATOR-048: authentic pinned SDK inference producer compatibility', () => {
+    beforeEach(() => harness.reset(), 60_000);
+
+    // SDK-real + production-parser-real + synthetic upstream only. In particular,
+    // this fixture does NOT exercise Activity's cached HTTP200 interruption replay,
+    // full reservation/recovery, or collection. Root owns that separate boundary.
+    async function runProducerJourney(scenario: NativeJourneyScenario, observationMs: number) {
+      const pinned = await pinnedArtifact(true);
+      const intent = await harness.queuedActivity();
+      const id = intent.activityId;
+      const now = Date.now();
+      const createdAt = new Date(now - 86400000).toISOString();
+      const target = { pullRequest: 17, headSha: 'a'.repeat(40) };
+      const admittedTarget = JSON.stringify({ repository: 'authorized/project', repositoryId: 123, ...target,
+        createdAt, createdAfter: new Date(now - 2 * 86400000).toISOString(), baseBranch: 'main' });
+      expect(await harness.activity(id, { action: 'begin-drive' })).toMatchObject({ ok: true });
+      expect(await command(id, { action: 'configure', ...pinned, journey: true, researchBodyBytes: 131072,
+        admittedTarget, journeyFacts: { createdAt, unrelatedCreatedAt: new Date(now - 3600000).toISOString() },
+        journeyScenario: scenario, admittedInferenceBytes: 1048576,
+      })).toMatchObject({ ok: true });
+      const admission = await command<{ status: number; body: { submissionId: string } }>(id, {
+        action: 'send', delivery: { repository: 'authorized/project' },
+      });
+      expect(admission).toMatchObject({ status: 202, body: { submissionId: expect.any(String) } });
+      let projection: DispatcherResultProjection = { offset: '-1', messageIds: [], writes: 0 };
+      let observation: NativeJourneyObservation;
+      const end = Date.now() + observationMs;
+      do {
+        projection = await command(id, { action: 'journey-updates', submissionId: admission.body.submissionId, previous: projection });
+        observation = await command(id, { action: 'journey-observation' });
+        // RED stops on actual no-tools summary rejection, not generic SDK failure.
+        if (projection.outcome || observation.wire.some(item => item.stage === 'summary' && item.admission === 'rejected')) break;
+        await new Promise(resolve => setTimeout(resolve, 50));
+      } while (Date.now() < end);
+      console.info(`[native-flue] producer=${scenario} wire=${JSON.stringify(observation!.wire)}`);
+      return { id, target, submissionId: admission.body.submissionId, projection, observation: observation! };
+    }
+
+    function assertCitedCompletion(run: Awaited<ReturnType<typeof runProducerJourney>>) {
+      const comment = 'Migration compatibility remains unverified. Source: https://docs.example.test/large-migration';
+      expect(run.projection).toMatchObject({ outcome: 'completed', writes: 1 });
+      // Intentional diagnostic wire, observed from the authentic pinned SDK's public stream.
+      expect(Reflect.get(run.projection, 'completion')).toMatchObject({
+        calls: [expect.objectContaining({ outcome: 'succeeded' })], truncated: false,
+      });
+      expect(Reflect.get(run.projection, 'readiness')).toEqual({ observations: 1, truncated: false, latest: {
+        discovered: true, sealed: true, targetCount: 1, decisionCount: 1, resultCount: 1,
+        unknownOperationCount: 0, category: 'ready',
+      } });
+      expect(Reflect.get(run.projection, 'sealPreflight')).toEqual({ observations: expect.any(Number), truncated: false, latest: {
+        category: 'ready', targetCount: 1, decisionCount: 1, operationCount: expect.any(Number),
+        operationLimit: 1024, requiredOperationCount: 5, sealed: true,
+      } });
+      const seal = Reflect.get(run.projection, 'sealPreflight') as { observations: number; latest: { operationCount: number } };
+      // Observations count accepted stream records, not unique producer tool calls.
+      expect(Number.isSafeInteger(seal.observations)).toBe(true);
+      expect(seal.observations).toBeGreaterThanOrEqual(1);
+      expect(seal.observations).toBeLessThanOrEqual(32);
+      expect(Number.isSafeInteger(seal.latest.operationCount)).toBe(true);
+      expect(seal.latest.operationCount).toBeGreaterThanOrEqual(1);
+      expect(seal.latest.operationCount).toBeLessThanOrEqual(123);
+      expect(run.projection.result).toEqual({ repository: 'authorized/project', results: [{
+        ...run.target, decision: 'DO_NOT_MERGE', comment, outcome: 'NOT_MERGED',
+      }] });
+      expect(new TextEncoder().encode(JSON.stringify(run.projection.result)).byteLength).toBeLessThanOrEqual(48 * 1024);
+      expect(run.observation.effects).toEqual({ commentRequests: 1, otherMutationRequests: 0,
+        commentMatches: true, researchSourceRequests: 1 });
+      expect(run.observation.sessionId).toBeNull();
+      for (const wire of run.observation.wire) {
+        expect(wire.admission).toBe('accepted');
+        expect(wire.messages).toBeGreaterThanOrEqual(1);
+        expect(wire.messages).toBeLessThanOrEqual(128);
+        expect(wire.tools).toBeLessThanOrEqual(32);
+        if (wire.outputBudget !== null) {
+          expect(Number.isInteger(wire.outputBudget)).toBe(true);
+          expect(wire.outputBudget).toBeGreaterThan(0);
+          expect(wire.outputBudget).toBeLessThanOrEqual(8192);
+        }
+      }
+    }
+
+    it('REQ-OPERATOR-076: authentic SDK emits seal observations across refused, ordinary, overflow and retry journeys', async () => {
+      const runs = [];
+      // Retain the global native bail fence. Run the full diagnostic scenario batch before asserting metadata.
+      for (const scenario of ['seal-undiscovered', 'ordinary', 'overflow-once', 'transient-interruption-once'] as const) {
+        runs.push({ scenario, run: await runProducerJourney(scenario, scenario === 'overflow-once' ? 45_000 : 25_000) });
+      }
+      for (const { scenario, run } of runs) {
+        expect(run.projection.outcome).toBe('completed');
+        if (scenario === 'seal-undiscovered') {
+          expect(run.projection.writes).toBe(0); expect(run.projection.result).toBeUndefined();
+          expect(run.observation.effects).toEqual({ commentRequests: 0, otherMutationRequests: 0,
+            commentMatches: false, researchSourceRequests: 0 });
+          expect.soft(Reflect.get(run.projection, 'sealPreflight'), scenario).toEqual({ observations: 1, truncated: false, latest: {
+            category: 'undiscovered', targetCount: 0, decisionCount: 0, operationCount: null,
+            operationLimit: null, requiredOperationCount: null, sealed: false,
+          } });
+        } else {
+          expect(run.projection.writes).toBe(1);
+          expect(run.projection.result).toMatchObject({ repository: 'authorized/project', results: [{
+            ...run.target, decision: 'DO_NOT_MERGE', outcome: 'NOT_MERGED',
+          }] });
+          expect(run.observation.effects).toEqual({ commentRequests: 1, otherMutationRequests: 0,
+            commentMatches: true, researchSourceRequests: 1 });
+          expect.soft(Reflect.get(run.projection, 'sealPreflight'), scenario).toEqual({ observations: expect.any(Number), truncated: false, latest: {
+            category: 'ready', targetCount: 1, decisionCount: 1, operationCount: expect.any(Number),
+            operationLimit: 1024, requiredOperationCount: 5, sealed: true,
+          } });
+          const seal = Reflect.get(run.projection, 'sealPreflight') as { observations: number } | undefined;
+          expect.soft(Number.isSafeInteger(seal?.observations), scenario).toBe(true);
+          expect.soft(seal?.observations, scenario).toBeGreaterThanOrEqual(1);
+          expect.soft(seal?.observations, scenario).toBeLessThanOrEqual(32);
+        }
+        for (const wire of run.observation.wire) expect(wire.admission).toBe('accepted');
+      }
+    }, 150_000);
+
+    it('REQ-OPERATOR-076: authentic failed seal emits closed undiscovered preflight without effects or assessment', async () => {
+      const run = await runProducerJourney('seal-undiscovered', 25_000);
+      expect(run.projection).toMatchObject({ outcome: 'completed', writes: 0 });
+      expect(run.projection.result).toBeUndefined();
+      expect(Reflect.get(run.projection, 'sealPreflight')).toEqual({ observations: 1, truncated: false, latest: {
+        category: 'undiscovered', targetCount: 0, decisionCount: 0, operationCount: null,
+        operationLimit: null, requiredOperationCount: null, sealed: false,
+      } });
+      expect(Reflect.get(run.projection, 'completion')).toMatchObject({
+        calls: [expect.objectContaining({ outcome: 'failed' })], truncated: false,
+      });
+      expect(Reflect.get(run.projection, 'readiness')).toMatchObject({ observations: 1, truncated: false,
+        latest: { category: 'undiscovered', discovered: false, sealed: false } });
+      expect(run.observation.effects).toEqual({ commentRequests: 0, otherMutationRequests: 0,
+        commentMatches: false, researchSourceRequests: 0 });
+      for (const wire of run.observation.wire) expect(wire.admission).toBe('accepted');
+    }, 45_000);
+
+    it('REQ-OPERATOR-063: authentic failed finish emits undiscovered readiness but no assessment or effects', async () => {
+      const run = await runProducerJourney('finish-undiscovered', 25_000);
+      expect(run.projection).toMatchObject({ outcome: 'completed', writes: 0 });
+      expect(run.projection.result).toBeUndefined();
+      expect(Reflect.get(run.projection, 'completion')).toMatchObject({
+        calls: [expect.objectContaining({ outcome: 'failed' })], truncated: false,
+      });
+      expect(Reflect.get(run.projection, 'readiness')).toEqual({ observations: 1, truncated: false, latest: {
+        discovered: false, sealed: false, targetCount: 0, decisionCount: 0, resultCount: 0,
+        unknownOperationCount: 0, category: 'undiscovered',
+      } });
+      expect(run.observation.effects).toEqual({ commentRequests: 0, otherMutationRequests: 0,
+        commentMatches: false, researchSourceRequests: 0 });
+      for (const wire of run.observation.wire) expect(wire.admission).toBe('accepted');
+    }, 45_000);
+
+    it('REQ-OPERATOR-048: repeated identical successful comment requests violate the exactly-one-comment observation contract', async () => {
+      const intent = await harness.queuedActivity();
+      const id = intent.activityId;
+      expect(await harness.activity(id, { action: 'begin-drive' })).toMatchObject({ ok: true });
+      expect(await command(id, { action: 'configure', ...await pinnedArtifact(true), journey: true,
+        researchBodyBytes: 131072 })).toMatchObject({ ok: true });
+      // The command helper verifies transport HTTP200; the envelope verifies
+      // synthetic source201. Both deliveries carry the same operation/input.
+      for (let attempt = 0; attempt < 2; attempt++) {
+        expect(await command(id, { action: 'journey-comment-request' })).toMatchObject({ status: 201 });
+      }
+      const observation = await command<NativeJourneyObservation>(id, { action: 'journey-observation' });
+      expect(observation.effects).toEqual({ commentRequests: 2, otherMutationRequests: 0,
+        commentMatches: false, researchSourceRequests: 0 });
+      expect(observation.effects).not.toMatchObject({ commentRequests: 1, commentMatches: true });
+    }, 30_000);
+
+    it('REQ-OPERATOR-048: ordinary repository-only SDK requests pass the real parser and complete one cited result without extra effects', async () => {
+      const run = await runProducerJourney('ordinary', 25_000);
+      expect(run.observation.wire.length).toBeGreaterThan(0);
+      expect(run.observation.wire.every(item => item.stage === 'normal' && item.tools > 0
+        && item.tokenField === 'absent' && item.outputBudget === null)).toBe(true);
+      assertCitedCompletion(run);
+    }, 45_000);
+
+    it('REQ-OPERATOR-048: admitted overflow produces a real no-tools SDK summary, then continues the same submission to one cited complete result', async () => {
+      const run = await runProducerJourney('overflow-once', 45_000);
+      const wire = run.observation.wire;
+      const firstSummary = wire.findIndex(item => item.stage === 'summary');
+      expect(firstSummary, 'Overflow must reach an authentic SDK summary, not fail generically').toBeGreaterThan(0);
+      // Discover + 24 successive genuine 2000-character research tool results
+      // leave >8000 retained tokens and a valid cut point without 128 messages.
+      expect(wire[firstSummary - 1]).toMatchObject({ admission: 'accepted', stage: 'normal' });
+      expect(wire[firstSummary - 1].messages).toBeGreaterThanOrEqual(50);
+      const summaries = wire.filter(item => item.stage === 'summary');
+      expect(summaries.every(item => item.tools === 0 && item.messages === 2)).toBe(true);
+      // Installed v0.1.8 RED must print completion-alias + actual budget (the
+      // prefix can be 10000, not necessarily 16000), with parser=rejected.
+      // Root's official rebuilt package must instead emit canonical <=8192.
+      expect(summaries.map(item => item.admission), `Authentic summary parser admission: ${JSON.stringify(summaries)}`)
+        .toEqual(summaries.map(() => 'accepted'));
+      for (const summary of summaries) {
+        expect(summary.tokenField).toBe('canonical');
+        expect(summary.outputBudget).not.toBeNull();
+        expect(Number.isInteger(summary.outputBudget)).toBe(true);
+        expect(summary.outputBudget).toBeGreaterThan(0);
+        expect(summary.outputBudget).toBeLessThanOrEqual(8192);
+      }
+      expect(wire.slice(firstSummary + 1).some(item => item.stage === 'normal' && item.admission === 'accepted' && item.tools > 0),
+        'A happy journey with no SDK normal continuation is not recovery coverage').toBe(true);
+      // The host answers continuation only if the real SDK wire carries the
+      // summary response. Projection is scoped to the original submitted ID.
+      assertCitedCompletion(run);
+      const collectedAgain = await command<DispatcherResultProjection>(run.id, { action: 'journey-updates',
+        submissionId: run.submissionId, previous: run.projection });
+      expect(collectedAgain).toEqual(run.projection);
+    }, 65_000);
+
+    it('REQ-OPERATOR-048: a genuine SDK transient interruption retry has compatible normal wire and completes only in the parser-real synthetic upstream', async () => {
+      const run = await runProducerJourney('transient-interruption-once', 40_000);
+      const wire = run.observation.wire;
+      expect(wire.every(item => item.stage === 'normal' && item.tokenField === 'absent' && item.tools > 0)).toBe(true);
+      // Only closed booleans cross the observation boundary. Internal content
+      // digests bind the actual post-interruption request to its original wire.
+      expect(run.observation).toMatchObject({ interruptionObserved: true, retryIdentityMatched: true });
+      assertCitedCompletion(run);
+    }, 60_000);
+  });
+
+  if (group === 'authority') describe('REQ-OPERATOR-048/062: admitted-target compiled entry compatibility', () => {
+    beforeEach(() => harness.reset(), 60_000);
+    // Actual pinned generated class + SDK tools/updates, with synthetic parent
+    // metadata and remote facts. Not Registry/scanner, production Loader or live cleanup proof.
+    it('completes a cited negative singleton journey without selecting the unrelated Renovate PR', async () => {
+      // Root must replace the existing journey artifact/pins with corrected
+      // official-CI bytes; unchanged old bytes are not a compatible candidate.
+      const pinned = await pinnedArtifact(true);
+      const intent = await harness.queuedActivity();
+      const id = intent.activityId;
+      const now = Date.now();
+      const createdAt = new Date(now - 86400000).toISOString();
+      const target = { pullRequest: 17, headSha: 'a'.repeat(40) };
+      const admittedTarget = JSON.stringify({ repository: 'authorized/project', repositoryId: 123, ...target,
+        createdAt, createdAfter: new Date(now - 2 * 86400000).toISOString(), baseBranch: 'main' });
+      expect(await harness.activity(id, { action: 'begin-drive' })).toMatchObject({ ok: true });
+      expect(await command(id, { action: 'configure', ...pinned, journey: true, researchBodyBytes: 131072,
+        admittedTarget, journeyFacts: { createdAt, unrelatedCreatedAt: new Date(now - 3600000).toISOString() },
+      })).toMatchObject({ ok: true });
+      // Public submission remains repository-only; target metadata is env-only.
+      const admission = await command<{ status: number; body: { submissionId: string } }>(id, {
+        action: 'send', delivery: { repository: 'authorized/project' },
+      });
+      expect(admission).toMatchObject({ status: 202, body: { submissionId: expect.any(String) } });
+      let projection: DispatcherResultProjection = { offset: '-1', messageIds: [], writes: 0 };
+      const end = Date.now() + 25_000;
+      do {
+        projection = await command(id, { action: 'journey-updates', submissionId: admission.body.submissionId, previous: projection });
+        if (projection.outcome) break;
+        await new Promise(resolve => setTimeout(resolve, 50));
+      } while (Date.now() < end);
+      const url = 'https://docs.example.test/large-migration';
+      const comment = `Migration compatibility remains unverified. Source: ${url}`;
+      expect(projection).toMatchObject({ outcome: 'completed', writes: 1 });
+      expect(projection.result).toEqual({ repository: 'authorized/project', results: [{
+        ...target, decision: 'DO_NOT_MERGE', comment, outcome: 'NOT_MERGED',
+      }] });
+      const evidence = await snapshot(id);
+      const sources = Object.values(evidence.journeyOperations ?? {}).filter(item => item.path === '/v1/dispatcher/source');
+      expect(sources.some(item => item.body.url === url)).toBe(true);
+      expect(sources.some(item => item.body.url === 'https://api.github.com/repos/authorized/project/pulls/17')).toBe(true);
+      // Accepted source wires observe the actual compiled tool effects, not private calls.
+      expect(sources.filter(item => /\/(?:pulls|issues)\/\d+(?:\/|$)/.test(item.body.url ?? ''))
+        .every(item => /\/(?:pulls|issues)\/17(?:\/|$)/.test(item.body.url!))).toBe(true);
+      expect(sources.filter(item => (item.body.method ?? 'GET') !== 'GET').map(item => item.body)).toEqual([{
+        operationId: 'submission-pr-17-comment',
+        url: 'https://api.github.com/repos/authorized/project/issues/17/comments', method: 'POST',
+        body: JSON.stringify({ body: comment }),
+      }]);
+    }, 45_000);
   });
 
   if (group === 'authority') describe('REQ-OPERATOR-047/048: native large research artifact windows', () => {

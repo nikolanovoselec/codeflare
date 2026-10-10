@@ -148,11 +148,13 @@ Application suites are not rerun after exact-tree verification. Packaged-image s
 
 After classification every affected workload starts directly; required summary is the fan-in. Backend/frontend/host matrices expose their configured legs concurrently. REQ-OPS-045's affected exact-head feedback target is under three minutes, not a user-runtime guarantee.
 
-- **changes:** backend, webui, landing, host, pi, ide, workflows and production dependencies; `full` means no filtering. If GitHub diff fails, verify exact checked-out base/head and select all lanes, never silently skip. <!-- @impl: scripts/ci/path-filter-fallback.sh::changed_files --> <!-- @test: host/__tests__/nightly-pr-checks-routing.test.js (REQ-OPS-003: executes the fallback against exact commits and emits every lane) --> Nightly skips filtering under its distinct identity.
+PR classification checks out depth2; push filtering keeps full history. When GitHub diff fails, fallback fetches missing exact base/head commits at depth1, verifies both, records changed files and selects every lane. Missing or malformed commits fail closed. <!-- @impl: scripts/ci/path-filter-fallback.sh::changed_files --> <!-- @test: host/__tests__/nightly-pr-checks-routing.test.js (REQ-OPS-003: executes the fallback against exact commits and emits every lane) -->
+
+- **changes:** backend, webui, landing, host, pi, ide, workflows and production dependencies; `full` means no filtering. Nightly skips filtering under its distinct identity.
 - **quality:** seed drift, backend/frontend oxlint/knip, `bash -n` over tracked shell scripts (REQ-OPS-003).
 - **typecheck:** Wrangler types and backend/frontend `tsc --noEmit`.
 - **backend-tests:** twelve duration-weighted Workers shards plus native/flue/rest Node legs through the shared suite action.
-- **frontend-tests:** four duration-weighted test groups through the same action. <!-- @impl: .github/workflows/test.yml::frontend-tests -->
+- **frontend-tests:** four duration-weighted test groups through the same action. Dispatcher capacity-validation matrices and remaining controls register separately, preserving all373 cases; historical measured weights guide assignment, not a verified post-partition runtime. <!-- @impl: .github/workflows/test.yml::frontend-tests -->
 - **frontend-build:** independent frontend production-build gate, separate from the test matrix. <!-- @impl: .github/workflows/test.yml::frontend-build -->
 - **landing-tests:** rendering/unit tests plus Astro production build.
 - **host-tests:** nonempty, nonzero-assertion Node-runner selection reconciled against `ci-excluded.txt`; rclone for real sync-filter behavior. Approved Ubuntu sandbox package sources and real sandbox probe remain required.

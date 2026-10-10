@@ -253,6 +253,10 @@ Fixable findings have two reviewed exception paths. Trivy first applies CVE-leve
 
 The executable validator then accepts only its separately listed exact vulnerability/package/path/PURL tuples and fails on unexpected, missing, duplicate, or drifted identities. Dated scan occurrences belong to CI evidence rather than current policy. <!-- @impl: scripts/ci/validate-trivy-result.mjs::validateTrivyResult -->
 
+The October 9 deployment correction requires Debian Python 3.11 packages at least `3.11.2-6+deb12u9`, rebuilds rclone with verified Go 1.27.2, locks MCP SDK 1.32.1/client+core 2.3.1, and replaces only the IDE's shell-quote copy with integrity-pinned 1.12.0. Before scanning or push, packaged-image smoke loads that exact shell-quote copy and verifies its version and an argument quote/parse round trip. These target the observed findings without weakening the vulnerability gate; successful image scanning remains required. See [image pins](../../Dockerfile) and [runtime locks](../../preseed/agents/pi/package-lock.json). <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::verifyShellQuoteRuntime -->
+
+CVE-2026-78667 and CVE-2026-97031 are owner-authorized CVE-level exceptions for Go server-path findings in session CLIs, reviewed by October 16. Verified latest gh/lazygit artifacts still embed affected Go versions; bumping those releases alone does not fix them. Residual CLI-process risk is accepted, not disproved. The entries affect every scanner target; reassess any new Go server and retire when pinned CLI builds use fixed Go. See [scope and removal conditions](../../.trivyignore).
+
 Historical provenance: retirement of the `gh` CVE-2026-56852 occurrence was verified by workflow run `30612952117` at head `82244a1d117194227c0082b9555f3654f903fbd2`. This receipt is immutable evidence for that occurrence, not a current scanner result.
 
 <a id="keyless-source-release-identity"></a>

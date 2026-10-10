@@ -2,15 +2,28 @@
 import { z } from 'zod';
 import { baseFetch } from './fetch-helper';
 import { operatorActivitySummarySchema } from './operator-activities';
+import { dispatcherCapacityKeys, type DispatcherCapacityKey, type DispatcherCapacityPolicy } from '../../../src/operators/dispatcher-capacity-limits';
+export { dispatcherCapacityFields, dispatcherCapacityKeys, pickDispatcherCapacities, validDispatcherCapacities } from '../../../src/operators/dispatcher-capacity-limits';
+export type { DispatcherCapacityKey, DispatcherCapacityPolicy } from '../../../src/operators/dispatcher-capacity-limits';
 
+// Use this package's Zod instance; shared metadata stays independent of backend dependencies.
+const dispatcherCapacityShape = Object.fromEntries(dispatcherCapacityKeys.map(key => [key,
+  (key === 'checkRunPageSize' ? z.number().int().positive().max(100) : z.number().int().positive().safe()).optional(),
+])) as { [K in DispatcherCapacityKey]: z.ZodOptional<z.ZodNumber> };
 const id = z.string().regex(/^[A-Za-z0-9_-]{1,128}$/);
 const revision = z.number().int().positive();
 const digest = z.string().regex(/^[a-f0-9]{64}$/);
 export const grantSchema = z.object({ users: z.array(z.string()).max(128),
   groups: z.array(z.object({ issuer: z.string(), id: z.string() })).max(128) });
-export const DEFAULT_SOURCE_RESPONSE_BYTES = 65_536;
-export const MAX_SOURCE_RESPONSE_BYTES = 1_048_576;
-const sourceResponseBytes = z.number().int().positive().optional();
+export const DEFAULT_DISPATCHER_OPERATION_LIMIT = 1024;
+export const MAX_DISPATCHER_OPERATION_LIMIT = Number.MAX_SAFE_INTEGER;
+export const DEFAULT_INFERENCE_REQUEST_BYTES = 1_048_576;
+export const DEFAULT_INFERENCE_ATTEMPT_LIMIT = 4;
+export const DEFAULT_SUBMISSION_ATTEMPT_LIMIT = 1024;
+export const MAX_INFERENCE_REQUEST_BYTES = Number.MAX_SAFE_INTEGER;
+export const DEFAULT_SOURCE_RESPONSE_BYTES = 1_048_576;
+export const MAX_SOURCE_RESPONSE_BYTES = Number.MAX_SAFE_INTEGER;
+const sourceResponseBytes = z.number().int().positive().max(MAX_SOURCE_RESPONSE_BYTES).optional();
 export const policySchema = z.object({ capabilities: z.array(z.string()).max(32), resourceProfileId: z.string().nullable(), sourceResponseBytes });
 export type ManagementGrant = z.infer<typeof grantSchema>;
 export type ManagementPolicy = z.infer<typeof policySchema>;
@@ -19,7 +32,11 @@ const summarySchema = z.object({ id, name: z.string().optional(), description: z
   installationCount: z.number().int().nonnegative().optional(), repositoryUrl: z.string().optional(), repositoryId: z.number().int().positive().optional(),
   profile: z.enum(['conductor', 'dispatcher']), realm: z.enum(['internal', 'external']), enabled: z.boolean() });
 const operatorSchema = summarySchema.extend({ revision, repositoryId: z.number().int().positive(),
-  repositoryUrl: z.string(), managers: grantSchema, invokers: grantSchema, policy: policySchema,
+  repositoryUrl: z.string(), managers: grantSchema, invokers: grantSchema,
+  policy: policySchema.extend({ ...dispatcherCapacityShape, inferenceRequestBytes: z.number().int().positive().max(MAX_INFERENCE_REQUEST_BYTES).optional(),
+    inferenceAttemptLimit: z.number().int().positive().safe().optional(),
+    submissionAttemptLimit: z.number().int().positive().safe().optional(),
+    operationLimit: z.number().int().positive().max(MAX_DISPATCHER_OPERATION_LIMIT).optional(), loggingEnabled: z.boolean().optional() }),
   source: z.object({ kind: z.literal('github-release'), repositoryUrl: z.string(), repositoryId: z.number().int().positive(),
     credentialConfigured: z.boolean(), approvedWorkflow: z.object({ id: z.number().int().positive(), ref: z.string() }).nullable() }),
 });
@@ -76,7 +93,7 @@ export const enableInstallation = (installationId: string, enabled: boolean, rev
   request(`/installations/${segment(installationId)}/enable`, installationSchema, { enabled, revision });
 export const saveOperatorGrants = (operatorId: string, input: { managers: ManagementGrant; invokers: ManagementGrant; revision: number }) =>
   request(`/operators/${segment(operatorId)}/grants`, operatorSchema, input);
-export const saveOperatorCapabilities = (operatorId: string, input: { capabilities: string[]; revision: number; sourceResponseBytes?: number }) =>
+export const saveOperatorCapabilities = (operatorId: string, input: DispatcherCapacityPolicy & { capabilities: string[]; revision: number; sourceResponseBytes?: number; inferenceRequestBytes?: number; operationLimit?: number; loggingEnabled?: boolean; inferenceAttemptLimit?: number; submissionAttemptLimit?: number }) =>
   request(`/operators/${segment(operatorId)}/capabilities`, operatorSchema, input);
 
 // Directed execution stays under the existing owner-scoped activity API.
@@ -88,7 +105,7 @@ function activityRequest<T>(suffix: string, schema: z.ZodType<T>, body?: unknown
 export const getOwnedActivities = () => activityRequest('', z.object({ items: z.array(operatorActivitySummarySchema).max(100) }));
 export const getInstallationActivityPreview = (installationId: string) => activityRequest(`/installations/${segment(installationId)}/preview`,
   z.object({ name: z.string(), version: z.string(), guidedAssessment: z.boolean(),
-    guidedMode: z.enum(['repository', 'legacy-pull-request']).nullable() }));
+    guidedMode: z.enum(['repository', 'legacy-pull-request']).nullable(), configuredRepository: z.string().max(201).optional() }));
 export const prepareInstallationActivity = (installationId: string, invocation: unknown) => activityRequest('',
   z.object({ activityId: id, startCapability: z.string().min(43).max(128), startExpiresAt: z.number() }), { installationId, invocation });
 export const startInstallationActivity = (activityId: string, capability: string) =>

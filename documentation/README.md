@@ -32,6 +32,10 @@ When public workflows or consumers change, update the owning document in the [pr
 
 **Managed curation:** to add or change a deployment-managed skill, rule, hook, agent, script, plugin, or company extension requirement, clone [codeflare-curation](https://github.com/nikolanovoselec/codeflare-curation) and push the change there. That private repository is the runtime master for Managed Environment content; `preseed/agents/**` in this repository is only the image-baked fallback baseline, and editing it does not change what deployments with Managed Environment curation active receive. Edit the fallback here only when the task is explicitly about it. Compiler, transform, seed ABI, and Pi runtime-lock changes are the exception: they land in this repository first, and only then does the curation repo advance its compiler pin. See [Managed curation ownership](lanes/preseed.md#managed-curation-ownership).
 
+## Pending delivery
+
+[Dispatcher serial execution and retry](pending.md) records the intent4 lifecycle candidate, not yet verified or deployed, and its verification boundary. Current operational behavior remains in the Operator lane.
+
 ## Audience Guide
 
 | Audience | Start here |

@@ -83,8 +83,8 @@ vi.mock('@cloudflare/containers', () => ({
     async getActivityInfo(): Promise<any> {
       return null;
     }
-    async schedule(seconds: number, method: string) {
-      return { taskId: 'mock-schedule', callback: method, payload: '', type: 'delayed' as const,
+    async schedule(seconds: number, method: string, payload?: unknown) {
+      return { taskId: 'mock-schedule', callback: method, payload, type: 'delayed' as const,
         time: Math.floor(Date.now() / 1000) + seconds, delayInSeconds: seconds };
     }
     async listSchedules(_method: string): Promise<unknown[]> { return []; }
@@ -175,6 +175,211 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
     };
   });
 
+  describe('REQ-OPERATOR-061: configured Renovate run settings', () => {
+    function scheduler(interval = 900) {
+      const stored = new Map<string, unknown>();
+      mockStorage.get.mockImplementation(async (key: string) => stored.get(key));
+      mockStorage.put.mockImplementation(async (key: string, value: unknown) => { stored.set(key, value); });
+      const binding = { installationId: 'dispatcher-install', registrationId: 'scan-generation-one',
+        bucket: 'owner-bucket', sessionId: 'session0001', sessionGeneration: 3 };
+      let current: Record<string, unknown> | null = { ...binding, repository: 'acme/updates', repositoryId: 424242,
+        baseBranch: 'trunk', automaticRuns: true, repetitionIntervalSeconds: interval,
+        activatedAt: '2026-09-28T00:00:00.000Z', human: { email: 'admin@example.test' } };
+      const reads: Request[] = [], admissions: unknown[] = [];
+      mockEnv.CONTAINER = { idFromName: () => ({ toString: () => 'test-do-id-hex' }) };
+      mockEnv.OPERATOR_ACTIVITY = {};
+      mockEnv.OPERATOR_REGISTRY = { getByName: () => ({
+        retainedProspectiveRenovateRetryTargets: async () => [],
+        currentProspectiveRenovateRegistration: async (id: string) => current?.registrationId === id ? current : null,
+        reserveProspectiveRenovateActivity: async (input: unknown) => { admissions.push(input); return { ok: false }; },
+      }) };
+      let readHook: (() => Promise<void>) | undefined;
+      (mockCtx as any).exports = { GitHubInterceptor: () => ({ fetch: async (request: Request) => {
+        reads.push(request); await readHook?.();
+        return request.url.endsWith('/repos/acme/updates') ? Response.json({ id: 424242,
+          full_name: 'acme/updates', default_branch: 'trunk' }) : Response.json([]);
+      } }) };
+      const instance = new ContainerClass(mockCtx as any, mockEnv);
+      type Row = { taskId: string; callback: string; payload: unknown; type: 'delayed'; time: number; delayInSeconds: number };
+      const rows: Row[] = [{ taskId: 'metrics', callback: 'collectMetrics', payload: '', type: 'delayed',
+        time: Math.floor(Date.now() / 1000) + 60, delayInSeconds: 60 }];
+      let lost = false, sequence = 0;
+      vi.spyOn(instance, 'listSchedules').mockImplementation(async method => rows.filter(row => !method || row.callback === method) as never);
+      vi.spyOn(instance, 'deleteSchedules').mockImplementation(method => {
+        for (let index = rows.length - 1; index >= 0; index--) if (rows[index].callback === method) rows.splice(index, 1);
+      });
+      vi.spyOn(instance, 'schedule').mockImplementation(async (delay, callback, payload) => {
+        const row: Row = { taskId: `task-${++sequence}`, callback, payload, type: 'delayed',
+          time: Math.floor(Date.now() / 1000) + Number(delay), delayInSeconds: Number(delay) };
+        rows.push(row);
+        if (lost) { lost = false; throw Error('accepted schedule response lost'); }
+        return row as never;
+      });
+      const scans = () => rows.filter(row => row.callback === 'scanRenovate');
+      const deliver = async (row: Row) => {
+        if (Date.now() < row.time * 1000) throw Error('not due');
+        await (instance.scanRenovate as unknown as (payload: unknown) => Promise<void>)(row.payload);
+        const index = rows.indexOf(row); if (index >= 0) rows.splice(index, 1);
+      };
+      return { instance, binding, rows, reads, admissions, scans, deliver,
+        change: (patch: Record<string, unknown> | null) => { current = patch === null ? null : { ...current, ...patch }; },
+        loseAck: () => { lost = true; }, onRead: (hook: () => Promise<void>) => { readHook = hook; } };
+    }
+    it.each([900, 7200, 3600])('delivers a registered %i-second scan and one same-interval successor without touching metrics', async interval => {
+      const f = scheduler(interval), now = Date.now();
+      const clock = vi.spyOn(Date, 'now').mockReturnValue(now);
+      try {
+        expect(await f.instance.armRenovateScan(f.binding)).toEqual({ ok: true });
+        expect(f.scans().map(row => row.time)).toEqual([Math.floor(now / 1000) + interval]);
+        await expect(f.deliver(f.scans()[0])).rejects.toThrow('not due');
+        expect(f.reads).toEqual([]);
+        clock.mockReturnValue(f.scans()[0].time * 1000);
+        await f.deliver(f.scans()[0]);
+        expect(f.reads.map(request => request.url)).toEqual(['https://api.github.com/repos/acme/updates',
+          'https://api.github.com/repos/acme/updates/pulls?state=open&per_page=100&page=1']);
+        expect(f.scans().map(row => row.time)).toEqual([Math.floor(Date.now() / 1000) + interval]);
+        expect(f.rows.find(row => row.taskId === 'metrics')).toMatchObject({ callback: 'collectMetrics', delayInSeconds: 60 });
+      } finally { clock.mockRestore(); }
+    });
+    it.each([900, 7200])('reconciles lost acknowledgement at %i seconds without duplication or postponement', async interval => {
+      const f = scheduler(interval); f.loseAck();
+      const clock = vi.spyOn(Date, 'now').mockReturnValue(Date.now());
+      try {
+        await expect(f.instance.armRenovateScan(f.binding)).rejects.toThrow();
+        const accepted = structuredClone(f.scans());
+        clock.mockReturnValue(Date.now() + 10_000);
+        expect(await Promise.all([f.instance.armRenovateScan(f.binding), f.instance.armRenovateScan(f.binding)]))
+          .toEqual([{ ok: true }, { ok: true }]);
+        expect(f.scans()).toEqual(accepted);
+      } finally { clock.mockRestore(); }
+    });
+    it('automatic off makes an already-delivered callback inert with no protected reads admission or successor', async () => {
+      const f = scheduler(); await f.instance.armRenovateScan(f.binding);
+      const due = f.scans()[0]; f.change(null);
+      const clock = vi.spyOn(Date, 'now').mockReturnValue(due.time * 1000);
+      try { await f.deliver(due); } finally { clock.mockRestore(); }
+      expect(f.reads).toEqual([]); expect(f.admissions).toEqual([]); expect(f.scans()).toEqual([]);
+    });
+    it('explicit new-generation activation replaces the due row and an old delivered payload cannot borrow the new arm', async () => {
+      const f = scheduler(); await f.instance.armRenovateScan(f.binding);
+      const old = f.scans()[0], newer = { ...f.binding, registrationId: 'scan-generation-two' };
+      const clock = vi.spyOn(Date, 'now').mockReturnValue(old.time * 1000);
+      try {
+        f.change({ registrationId: newer.registrationId, repetitionIntervalSeconds: 7200 });
+        expect(await f.instance.armRenovateScan(newer)).toEqual({ ok: true });
+        const accepted = structuredClone(f.scans());
+        expect(accepted.map(row => row.time)).toEqual([Math.floor(Date.now() / 1000) + 7200]);
+        await f.deliver(old);
+        expect(f.reads).toEqual([]); expect(f.admissions).toEqual([]); expect(f.scans()).toEqual(accepted);
+      } finally { clock.mockRestore(); }
+    });
+    it('a payload-less legacy callback cannot execute the latest armed registration', async () => {
+      const f = scheduler(); await f.instance.armRenovateScan(f.binding);
+      const accepted = structuredClone(f.scans());
+      await (f.instance.scanRenovate as unknown as (payload?: unknown) => Promise<void>)();
+      expect(f.reads).toEqual([]); expect(f.admissions).toEqual([]); expect(f.scans()).toEqual(accepted);
+    });
+    it('a delivered old scan cannot rearm its stale generation after activation wins during metadata I/O', async () => {
+      const f = scheduler(); await f.instance.armRenovateScan(f.binding);
+      const old = f.scans()[0]; let changed = false;
+      const clock = vi.spyOn(Date, 'now').mockReturnValue(old.time * 1000);
+      try {
+        f.onRead(async () => {
+          if (changed) return; changed = true;
+          f.change({ registrationId: 'scan-generation-two', repetitionIntervalSeconds: 7200 });
+          await f.instance.armRenovateScan({ ...f.binding, registrationId: 'scan-generation-two' });
+        });
+        await f.deliver(old).catch(() => {});
+        expect(f.admissions).toEqual([]);
+        expect(f.scans().map(row => row.delayInSeconds)).toEqual([7200]);
+      } finally { clock.mockRestore(); }
+    });
+  });
+
+  it.each(['preparation', 'start'])('REQ-OPERATOR-061 AC2/7: a lost %s acknowledgement retains original Activity and actor at later configured scans', async lost => {
+    const stored = new Map<string, unknown>();
+    mockStorage.get.mockImplementation(async (key: string) => stored.get(key));
+    mockStorage.put.mockImplementation(async (key: string, value: unknown) => { stored.set(key, value); });
+    mockEnv.ENCRYPTION_KEY = btoa('k'.repeat(32));
+    mockEnv.CONTAINER = { idFromName: () => ({ toString: () => 'test-do-id-hex' }) };
+    const human = { subject: 'admin', email: 'admin@example.test', issuer: 'https://owner.cloudflareaccess.com',
+      audiences: ['audience'], issuedAt: Math.floor(Date.now() / 1000) - 20,
+      expiresAt: Math.floor(Date.now() / 1000) + 14_400 };
+    const pin = { installationId: 'dispatcher-install', registrationId: 'original-admin',
+      bucket: 'owner-bucket', sessionId: 'session0001', sessionGeneration: 3 };
+    const actor = { registrationId: pin.registrationId, bucket: pin.bucket,
+      sessionId: pin.sessionId, sessionGeneration: pin.sessionGeneration };
+    const current = { ...pin, repository: 'acme/updates', repositoryId: 424242, baseBranch: 'trunk',
+      repetitionIntervalSeconds: 900, controlsRevision: 1, installationRevision: 1, operatorRevision: 1,
+      releaseId: 'release', bundleDigest: 'c'.repeat(64), activatedAt: '2026-09-28T00:00:00.000Z', human, accessJwt: 'a-jwt' };
+    const retained = { repositoryId: 424242, pullRequest: 1300, head: 'a'.repeat(40), createdAt: '2026-09-27T00:00:00.000Z' };
+    let reservedId: string | undefined;
+    let state: 'absent' | 'prepared' | 'queued' = 'absent';
+    const history: Array<{ activityId: string; effect: string; invocation?: string }> = [];
+    const selection = { controlsRevision: 1,
+      installation: { id: pin.installationId, operatorId: 'dispatcher', revision: 1, enabled: true,
+        releaseId: 'release', policy: { capabilities: ['fetch'], resourceProfileId: null },
+        configurationJson: JSON.stringify({ renovate: { repository: current.repository, automaticRuns: true, repetitionIntervalSeconds: 900 } }) },
+      operator: { operatorId: 'dispatcher', profile: 'dispatcher', revision: 1,
+        invokers: { users: [human.email], groups: [] } },
+      release: { id: 'release', bundleDigest: current.bundleDigest },
+      manifestJson: JSON.stringify({ id: 'renovate-dispatcher', profile: 'dispatcher', intentVersion: '4' }) };
+    mockEnv.OPERATOR_REGISTRY = { getByName: () => ({
+      resolveManagementExecution: async () => ({ ok: true, value: selection }),
+      currentProspectiveRenovateRegistration: async () => current,
+      retainedProspectiveRenovateRetryTargets: async () => [retained],
+      reserveProspectiveRenovateActivity: async (input: { activityId: string; pullRequest: number }) => {
+        if (input.pullRequest !== retained.pullRequest) throw Error('Cutoff exception widened');
+        reservedId ??= input.activityId;
+        return { ok: true, activityId: reservedId, actor };
+      },
+      readProspectiveRenovateAdmission: async (id: string) => ({ ...retained, activityId: id, actor }),
+    }) };
+    mockEnv.OPERATOR_ACTIVITY = { getByName: (id: string) => {
+      if (id !== reservedId) throw Error('Replacement Activity');
+      return { bindProspectiveRenovateAdmission: async () => true,
+        getRuntimePlan: async () => null,
+        getBrowserDetail: async () => state === 'absent' ? null : ({ executionStatus: state }),
+        prepareAuthorized: async (intent: { activityId: string }, _context: unknown, invocation: string) => {
+          state = 'prepared'; history.push({ activityId: intent.activityId, effect: 'prepared', invocation });
+          if (lost === 'preparation') throw Error('Accepted preparation acknowledgement lost');
+          return { ok: true };
+        },
+        start: async () => { state = 'queued'; history.push({ activityId: id, effect: 'started' });
+          throw Error('Accepted start acknowledgement lost'); },
+      };
+    } };
+    (mockCtx as any).exports = { GitHubInterceptor: () => ({ fetch: async (request: Request) =>
+      request.url.endsWith('/repos/acme/updates') ? Response.json({ id: 424242, full_name: 'acme/updates', default_branch: 'trunk' })
+        : Response.json([{ number: 1300, state: 'open', draft: false, created_at: retained.createdAt,
+          user: { id: 29139614, login: 'renovate[bot]', type: 'Bot' }, head: { sha: retained.head },
+          base: { ref: 'trunk', sha: 'b'.repeat(40), repo: { id: 424242, full_name: 'acme/updates' } } }]) }) };
+    const session = new ContainerClass(mockCtx as any, mockEnv);
+    const rows: Array<{ payload: unknown; delay: number }> = [];
+    vi.spyOn(session, 'listSchedules').mockResolvedValue([]);
+    vi.spyOn(session, 'deleteSchedules').mockImplementation(() => {});
+    vi.spyOn(session, 'schedule').mockImplementation(async (delay, _method, payload) => {
+      rows.push({ payload, delay: Number(delay) });
+      return { taskId: 'scan', callback: 'scanRenovate', payload, type: 'delayed',
+        time: Math.floor(Date.now() / 1000) + Number(delay), delayInSeconds: Number(delay) };
+    });
+    expect(await session.armRenovateScan(pin)).toEqual({ ok: true });
+    const now = Date.now(), clock = vi.spyOn(Date, 'now');
+    try {
+      clock.mockReturnValue(now + 900_000);
+      await session.scanRenovate(pin);
+      const originalHistory = structuredClone(history);
+      expect(originalHistory).toEqual([{ activityId: reservedId, effect: 'prepared',
+        invocation: JSON.stringify({ repository: current.repository }) },
+        ...(lost === 'start' ? [{ activityId: reservedId, effect: 'started' }] : [])]);
+      clock.mockReturnValue(now + 1_800_000);
+      await session.scanRenovate(pin);
+      expect(history).toEqual(originalHistory);
+      expect(state).toBe(lost === 'preparation' ? 'prepared' : 'queued');
+      expect(rows.map(row => row.delay)).toEqual([900, 900, 900]);
+    } finally { clock.mockRestore(); }
+  });
+
   it('REQ-OPERATOR-061: a lost scheduler acknowledgement is reconciled without creating another hourly callback', async () => {
     const saved = new Map<string, unknown>();
     mockStorage.get.mockImplementation(async (key: string) => saved.get(key));
@@ -183,14 +388,15 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       name === 'owner-bucket-session0001' ? 'test-do-id-hex' : 'foreign-do' }) };
     mockEnv.OPERATOR_ACTIVITY = {};
     mockEnv.OPERATOR_REGISTRY = { getByName: () => ({
-      currentProspectiveRenovateRegistration: async () => ({ installationId: 'dispatcher-install',
+      retainedProspectiveRenovateRetryTargets: async () => [],
+      currentProspectiveRenovateRegistration: async () => ({ repository: 'nikolanovoselec/komodo', repositoryId: 973175879, baseBranch: 'main', repetitionIntervalSeconds: 3600, installationId: 'dispatcher-install',
         registrationId: 'registered-admin', bucket: 'owner-bucket', sessionId: 'session0001', sessionGeneration: 3 }),
     }) };
     const instance = new ContainerClass(mockCtx as any, mockEnv);
-    const scheduled: Array<{ callback: string; due: number }> = [];
+    const scheduled: Array<{ callback: string; due: number; payload?: unknown }> = [];
     vi.spyOn(instance, 'listSchedules').mockImplementation(async () => scheduled as never);
-    vi.spyOn(instance, 'schedule').mockImplementation(async (_delay, callback) => {
-      scheduled.push({ callback, due: Date.now() + 3_600_000 });
+    vi.spyOn(instance, 'schedule').mockImplementation(async (_delay, callback, payload) => {
+      scheduled.push({ callback, due: Date.now() + 3_600_000, payload });
       throw Error('Scheduler accepted callback but response was lost');
     });
     const binding = { registrationId: 'registered-admin', installationId: 'dispatcher-install',
@@ -198,24 +404,24 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
     await expect(instance.armRenovateScan(binding)).rejects.toThrow();
     const retries = await Promise.all([instance.armRenovateScan(binding), instance.armRenovateScan(binding)]);
     expect(retries).toEqual([{ ok: true }, { ok: true }]);
-    expect(scheduled).toEqual([{ callback: 'scanRenovate', due: expect.any(Number) }]);
+    expect(scheduled).toEqual([{ callback: 'scanRenovate', due: expect.any(Number), payload: expect.any(Object) }]);
     // Overlapping first-time activation requests start with no persisted row.
     const fresh = new ContainerClass(mockCtx as any, mockEnv);
-    const initiallyEmpty: Array<{ callback: string; due: number }> = [];
+    const initiallyEmpty: Array<{ callback: string; due: number; payload?: unknown }> = [];
     vi.spyOn(fresh, 'listSchedules').mockImplementation(async () => initiallyEmpty as never);
-    vi.spyOn(fresh, 'schedule').mockImplementation(async (_delay, callback) => {
+    vi.spyOn(fresh, 'schedule').mockImplementation(async (_delay, callback, payload) => {
       await Promise.resolve();
-      initiallyEmpty.push({ callback, due: Date.now() + 3_600_000 });
-      return { taskId: 'future', callback, payload: '', type: 'delayed',
+      initiallyEmpty.push({ callback, due: Date.now() + 3_600_000, payload });
+      return { taskId: 'future', callback, payload, type: 'delayed',
         time: Math.floor(Date.now() / 1000) + 3600, delayInSeconds: 3600 };
     });
     expect(await Promise.all([fresh.armRenovateScan(binding), fresh.armRenovateScan(binding)]))
       .toEqual([{ ok: true }, { ok: true }]);
-    expect(initiallyEmpty).toEqual([{ callback: 'scanRenovate', due: expect.any(Number) }]);
+    expect(initiallyEmpty).toEqual([{ callback: 'scanRenovate', due: expect.any(Number), payload: expect.any(Object) }]);
     // SDK still exposes its due row during the callback and deletes it afterward.
-    await fresh.scanRenovate();
+    await (fresh.scanRenovate as unknown as (payload: unknown) => Promise<void>)(initiallyEmpty[0].payload);
     initiallyEmpty.shift(); // SDK deletion of the previously due row.
-    expect(initiallyEmpty).toEqual([{ callback: 'scanRenovate', due: expect.any(Number) }]);
+    expect(initiallyEmpty).toEqual([{ callback: 'scanRenovate', due: expect.any(Number), payload: expect.any(Object) }]);
   });
 
   it('REQ-OPERATOR-061: an armed admin-session callback scans complete post-cutoff Komodo pages', async () => {
@@ -239,19 +445,21 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
     mockEnv.OPERATOR_REGISTRY = { getByName: () => ({
       resolveManagementExecution: async () => ({ ok: true, value: {
         controlsRevision: 1, installation: { id: 'dispatcher-install', operatorId: 'dispatcher', revision: 1,
+          configurationJson: JSON.stringify({ renovate: { repository: 'nikolanovoselec/komodo', automaticRuns: true, repetitionIntervalSeconds: 3600 } }),
           enabled: true, policy: { capabilities: ['fetch'], resourceProfileId: null }, releaseId: 'release' },
         operator: { operatorId: 'dispatcher', revision: 1, profile: 'dispatcher',
           invokers: { users: ['admin@example.test'], groups: [] } },
-        release: { id: 'release', bundleDigest: 'c'.repeat(64) }, manifestJson: '{}',
+        release: { id: 'release', bundleDigest: 'c'.repeat(64) }, manifestJson: JSON.stringify({ id: 'renovate-dispatcher', profile: 'dispatcher', intentVersion: '3' }),
       } }),
-      currentProspectiveRenovateRegistration: async () => ({ activatedAt, installationId: 'dispatcher-install',
+      retainedProspectiveRenovateRetryTargets: async () => [],
+      currentProspectiveRenovateRegistration: async () => ({ repository: 'nikolanovoselec/komodo', repositoryId: 973175879, baseBranch: 'main', repetitionIntervalSeconds: 3600, controlsRevision: 1, installationRevision: 1, operatorRevision: 1, releaseId: 'release', bundleDigest: 'c'.repeat(64), activatedAt, installationId: 'dispatcher-install',
         registrationId: 'active-admin', bucket: 'owner-bucket', sessionId: 'session0001', sessionGeneration: 3,
         human: { subject: 'admin', email: 'admin@example.test', issuer: 'https://owner.cloudflareaccess.com',
           audiences: ['audience'], issuedAt: Math.floor(Date.now() / 1000) - 10,
           expiresAt: Math.floor(Date.now() / 1000) + 14_400 }, accessJwt: 'sealed-jwt' }),
       reserveProspectiveRenovateActivity: reserve,
       readProspectiveRenovateAdmission: async (id: string) => id === reservedActivityId ? {
-        activityId: id, repositoryId: 973175879, pullRequest: 1302, head: 'c'.repeat(40),
+        activityId: id, repository: 'nikolanovoselec/komodo', baseBranch: 'main', repositoryId: 973175879, pullRequest: 1302, head: 'c'.repeat(40),
         actor: { registrationId: 'active-admin', bucket: 'owner-bucket', sessionId: 'session0001',
           sessionGeneration: 3 },
       } : null,
@@ -276,27 +484,27 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
           state: 'open', created_at: activatedAt, updated_at: '2026-09-29T00:00:00.000Z',
           body: 'Release notes and update links '.repeat(40),
           user: { id: 29139614, login: 'renovate[bot]', type: 'Bot' },
-          head: { sha: 'a'.repeat(40) }, base: { ref: 'main', sha: 'b'.repeat(40) } })),
+          head: { sha: 'a'.repeat(40) }, draft: false, base: { ref: 'main', sha: 'b'.repeat(40), repo: { id: 973175879, full_name: 'nikolanovoselec/komodo' } } })),
           { number: 1302, created_at: '2026-09-28T00:00:00.001Z', state: 'open',
             user: { id: 29139614, login: 'renovate[bot]', type: 'Bot' },
-            head: { sha: 'c'.repeat(40) }, base: { ref: 'main', sha: 'b'.repeat(40) } }]
+            head: { sha: 'c'.repeat(40) }, draft: false, base: { ref: 'main', sha: 'b'.repeat(40), repo: { id: 973175879, full_name: 'nikolanovoselec/komodo' } } }]
         : [{ number: 1303, created_at: '2026-09-28T00:00:00.002Z', state: 'open',
           user: { id: 1, login: 'renovate[bot]', type: 'Bot' }, head: { sha: 'd'.repeat(40) },
-          base: { ref: 'main', sha: 'b'.repeat(40) } },
+          draft: false, base: { ref: 'main', sha: 'b'.repeat(40), repo: { id: 973175879, full_name: 'nikolanovoselec/komodo' } } },
         { number: 1304, created_at: '2026-09-28T00:00:00.003Z', state: 'open',
           user: { id: 29139614, login: 'renovate[bot]', type: 'Bot' }, head: { sha: 'e'.repeat(40) },
-          base: { ref: 'release', sha: 'b'.repeat(40) } }]);
+          draft: false, base: { ref: 'release', sha: 'b'.repeat(40), repo: { id: 973175879, full_name: 'nikolanovoselec/komodo' } } }]);
       throw Error(`Unexpected GitHub read ${url.pathname}`);
     } }) };
     const instance = new ContainerClass(mockCtx as any, mockEnv);
     let deliver: (() => Promise<void>) | undefined;
-    vi.spyOn(instance, 'schedule').mockImplementation(async (delay, method) => {
+    vi.spyOn(instance, 'schedule').mockImplementation(async (delay, method, payload) => {
       const due = Date.now() + Number(delay) * 1000;
       deliver = async () => {
         if (Date.now() < due) throw Error('Scheduled scan not due');
-        await (instance as unknown as Record<string, () => Promise<void>>)[method]();
+        await (instance as unknown as Record<string, (payload: unknown) => Promise<void>>)[method](payload);
       };
-      return { taskId: 'prospective-scan', callback: method, payload: '',
+      return { taskId: 'prospective-scan', callback: method, payload,
         type: 'delayed', time: Math.floor(due / 1000), delayInSeconds: Number(delay) };
     });
     const arm = (instance as unknown as { armRenovateScan: (input: unknown) => Promise<{ ok: boolean }> }).armRenovateScan;
@@ -330,7 +538,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       return Response.json(Array.from({ length: 100 }, (_, index) => ({ number: index + 1,
         created_at: '2026-09-28T00:00:00.001Z', state: 'open',
         user: { id: 29139614, login: 'renovate[bot]', type: 'Bot' },
-        head: { sha: 'c'.repeat(40) }, base: { ref: 'main', sha: 'b'.repeat(40) } })));
+        head: { sha: 'c'.repeat(40) }, draft: false, base: { ref: 'main', sha: 'b'.repeat(40), repo: { id: 973175879, full_name: 'nikolanovoselec/komodo' } } })));
     } });
     const nextClock = vi.spyOn(Date, 'now').mockReturnValue(activatedClock + 10_800_001);
     try { await deliver?.().catch(() => {}); }
@@ -346,7 +554,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       const rows = Array.from({ length: 100 }, (_, index) => ({ number: 1302 + index,
         created_at: '2026-09-28T00:00:00.001Z', state: 'open',
         user: { id: 29139614, login: 'renovate[bot]', type: 'Bot' },
-        head: { sha: 'c'.repeat(40) }, base: { ref: 'main', sha: 'b'.repeat(40) } }));
+        head: { sha: 'c'.repeat(40) }, draft: false, base: { ref: 'main', sha: 'b'.repeat(40), repo: { id: 973175879, full_name: 'nikolanovoselec/komodo' } } }));
       return Response.json(url.searchParams.get('page') === '1' ? rows
         : [{ ...rows[0], body: 'x'.repeat(2 * 1024 * 1024 + 1) }]);
     } });
@@ -355,7 +563,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
     expect(seen).toEqual([]);
   });
 
-  it('REQ-OPERATOR-061: a winning scan reconciles lost start and publishes a simulated result from one real Activity', async () => {
+  it.each(['valid', 'empty', 'extra-target', 'duplicate-target', 'wrong-head', 'foreign-pr', 'wrong-repository'])('REQ-OPERATOR-061/048: a winning scan retains repository-only admission and fences %s simulated singleton collection without parent publication', async resultCase => {
     const namespace = (env as unknown as { OPERATOR_ACTIVITY: DurableObjectNamespace }).OPERATOR_ACTIVITY;
     await runInDurableObject(namespace.get(namespace.newUniqueId()), async (_instance, native) => {
       const stored = new Map<string, unknown>();
@@ -384,16 +592,20 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       const bundleDigest = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', bundleBytes)))
         .map(byte => byte.toString(16).padStart(2, '0')).join('');
       const selection = { controlsRevision: 1, installation: { id: 'dispatcher-install', operatorId: 'dispatcher',
-        revision: 1, enabled: true, releaseId: 'release', policy: { capabilities: ['fetch'], resourceProfileId: null } },
+        revision: 1, enabled: true, releaseId: 'release',
+        configurationJson: JSON.stringify({ renovate: { repository: 'acme/updates', automaticRuns: true, repetitionIntervalSeconds: 3600 } }), policy: { capabilities: ['fetch'], resourceProfileId: null } },
         operator: { id: 'dispatcher', operatorId: 'dispatcher', revision: 1, profile: 'dispatcher',
+          policy: { capabilities: ['fetch'], resourceProfileId: null },
           invokers: { users: [human.email], groups: [] } },
-        release: { id: 'release', bundleDigest, sourceCommit: bundle.sourceCommit }, manifestJson: '{}' };
+        release: { id: 'release', bundleDigest, sourceCommit: bundle.sourceCommit }, manifestJson: JSON.stringify({
+          id: 'renovate-dispatcher', profile: 'dispatcher', intentVersion: '3' }) };
       let reservedActivityId: string | null = null;
       const registry = { resolveManagementExecution: async () => ({ ok: true, value: selection }),
         getManagementBundle: async () => bundleBytes,
         admitManagement: async (request: object) => ({ ok: true, value: { ...request,
           admittedAt: Date.now(), selection } }), upsertOwnedActivity: async () => {},
-        currentProspectiveRenovateRegistration: async () => ({ registrationId: 'registered-admin',
+        retainedProspectiveRenovateRetryTargets: async () => [],
+        currentProspectiveRenovateRegistration: async () => ({ repository: 'acme/updates', repositoryId: 424242, baseBranch: 'trunk', repetitionIntervalSeconds: 3600, controlsRevision: 1, installationRevision: 1, operatorRevision: 1, releaseId: 'release', bundleDigest, registrationId: 'registered-admin',
           activatedAt: '2026-09-28T00:00:00.000Z', installationId: 'dispatcher-install', bucket: 'owner-bucket',
           sessionId: 'session0001', sessionGeneration: 3, human, accessJwt: 'sealed-admin' }),
         reserveProspectiveRenovateActivity: async (input: { activityId: string }) => {
@@ -403,7 +615,8 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
               sessionId: 'session0001', sessionGeneration: 3 } };
         },
         readProspectiveRenovateAdmission: async (id: string) => id !== reservedActivityId ? null : ({ activityId: id,
-          installationId: 'dispatcher-install', repositoryId: 973175879, pullRequest: 1302,
+          installationId: 'dispatcher-install', repository: 'acme/updates', baseBranch: 'trunk', repositoryId: 424242, pullRequest: 1302,
+          controlsRevision: 1, installationRevision: 1, operatorRevision: 1, releaseId: 'release', bundleDigest,
           head: 'c'.repeat(40), ownerKey: await (await import('../../operators/browser-activity')).operatorOwnerKey(human),
           activatedAt: '2026-09-28T00:00:00.000Z', createdAt: '2026-09-28T00:00:00.001Z',
           actor: { registrationId: 'registered-admin', bucket: 'owner-bucket', sessionId: 'session0001',
@@ -422,13 +635,13 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
             return Response.json({ id: 801 });
           }
           if (url.pathname === '/user') return Response.json({ id: 9, login: 'admin' });
-          if (url.pathname === '/repos/nikolanovoselec/komodo/') return Response.json({
-            id: 973175879, full_name: 'nikolanovoselec/komodo', default_branch: 'main',
+          if (url.pathname === '/repos/acme/updates' || url.pathname === '/repos/acme/updates/') return Response.json({
+            id: 424242, full_name: 'acme/updates', default_branch: 'trunk',
             permissions: { admin: true } });
-          if (url.pathname === '/repos/nikolanovoselec/komodo/pulls/1302') return Response.json({
+          if (url.pathname === '/repos/acme/updates/pulls/1302') return Response.json({
             number: 1302, state: 'open', mergeable: true, mergeable_state: 'clean',
             created_at: '2026-09-28T00:00:00.001Z', user: { id: 29139614, login: 'renovate[bot]', type: 'Bot' },
-            head: { sha: 'c'.repeat(40) }, base: { sha: 'b'.repeat(40), ref: 'main' } });
+            head: { sha: 'c'.repeat(40) }, base: { sha: 'b'.repeat(40), ref: 'trunk', repo: { id: 424242, full_name: 'acme/updates' } } });
           if (url.pathname.endsWith('/comments')) return Response.json(writes.map(() => ({ id: 801,
             body: `<!-- Codeflare Renovate ${'activity-id'} -->`, user: { id: 9, login: 'admin' } })));
           throw Error(`Unexpected publisher GitHub route ${url.pathname}`);
@@ -455,24 +668,22 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       const pending: Promise<unknown>[] = [];
       (mockCtx as any).waitUntil = (work: Promise<unknown>) => { pending.push(work); };
       scanRuntime.enabled = true;
-      scanRuntime.result = { repository: 'nikolanovoselec/komodo', pullRequest: 1302,
-        observedHead: 'c'.repeat(40), readOnly: true,
-        evidence: { complete: false, stale: false, truncated: false, bot: 'renovate[bot]' },
-        bounds: { files: 1, checks: 0 },
-        assessment: { classification: 'unknown', observedHead: 'c'.repeat(40), baseSha: 'b'.repeat(40),
-          checks: { state: 'unavailable', observedHead: 'c'.repeat(40) },
-          reasons: ['Upstream compatibility is not established'],
-          compatibility: 'The release and configuration evidence is incomplete.',
-          citations: [], gaps: ['Missing upstream compatibility evidence'] } };
+      const terminal = { pullRequest: 1302, headSha: 'c'.repeat(40), decision: 'DO_NOT_MERGE',
+        comment: 'Missing authoritative upgrade evidence.', outcome: 'NOT_MERGED' };
+      scanRuntime.result = { repository: resultCase === 'wrong-repository' ? 'foreign/repo' : 'acme/updates', results:
+        resultCase === 'empty' ? [] : resultCase === 'duplicate-target' ? [terminal, terminal]
+          : resultCase === 'extra-target' ? [terminal, { ...terminal, pullRequest: 1303 }]
+          : [{ ...terminal, ...(resultCase === 'wrong-head' ? { headSha: 'd'.repeat(40) } : {}),
+            ...(resultCase === 'foreign-pr' ? { pullRequest: 1303 } : {}) }] };
       (mockCtx as any).exports = { OperatorRuntimeCapability: () => ({ fetch: async () => Response.json({}) }),
         GitHubInterceptor: () => ({ fetch: async (request: Request) => {
         const url = new URL(request.url);
-        if (url.pathname === '/repos/nikolanovoselec/komodo') return Response.json({ id: 973175879,
-          full_name: 'nikolanovoselec/komodo', default_branch: 'main' });
-        if (url.pathname === '/repos/nikolanovoselec/komodo/pulls') return Response.json(url.searchParams.get('page') === '1'
+        if (url.pathname === '/repos/acme/updates') return Response.json({ id: 424242,
+          full_name: 'acme/updates', default_branch: 'trunk' });
+        if (url.pathname === '/repos/acme/updates/pulls') return Response.json(url.searchParams.get('page') === '1'
           ? [{ number: 1302, state: 'open', created_at: '2026-09-28T00:00:00.001Z',
             user: { id: 29139614, login: 'renovate[bot]', type: 'Bot' },
-            head: { sha: 'c'.repeat(40) }, base: { ref: 'main', sha: 'b'.repeat(40) } }] : []);
+            head: { sha: 'c'.repeat(40) }, draft: false, base: { ref: 'trunk', sha: 'b'.repeat(40), repo: { id: 424242, full_name: 'acme/updates' } } }] : []);
         throw Error('Unexpected GitHub route');
       } }) };
       const originalFetch = globalThis.fetch;
@@ -485,13 +696,13 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       try {
       const session = new ContainerClass(mockCtx as any, mockEnv);
       let deliver: (() => Promise<void>) | undefined;
-      vi.spyOn(session, 'schedule').mockImplementation(async (delay, method) => {
+      vi.spyOn(session, 'schedule').mockImplementation(async (delay, method, payload) => {
         const due = Date.now() + Number(delay) * 1000;
         deliver = async () => {
           if (Date.now() < due) throw Error('Scheduled scan not due');
-          await (session as unknown as Record<string, () => Promise<void>>)[method]();
+          await (session as unknown as Record<string, (payload: unknown) => Promise<void>>)[method](payload);
         };
-        return { taskId: 'prospective-scan', callback: method, payload: '',
+        return { taskId: 'prospective-scan', callback: method, payload,
           type: 'delayed', time: Math.floor(due / 1000), delayInSeconds: Number(delay) };
       });
       const armed = await (session as unknown as { armRenovateScan: (input: unknown) => Promise<unknown> })
@@ -508,10 +719,10 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       expect(['queued', 'running', 'completed']).toContain(detail?.executionStatus);
       const pinned = await activity.getRuntimePlan();
       expect(pinned).toMatchObject({ invocationJson: JSON.stringify({
-        repository: 'nikolanovoselec/komodo', pullRequest: 1302 }),
+        repository: 'acme/updates' }),
         executionContext: { owner: { subject: human.subject, email: human.email } } });
-      // Seed the simulated child's durable output, then exercise the real collector
-      // and publication fences. This case is not native SDK settlement evidence.
+      // Seed only simulated SDK settlement, then exercise actual Activity collection.
+      // This is a focused scanner/collector test, not native compiled journey or effect evidence.
       const saved = await native.storage.get<{ drive: { generation: number }; receipt: { intentDigest: string } }>('admission');
       await native.storage.put('admission', { ...saved, drive: { generation: saved!.drive.generation,
         status: 'waiting', checkpoint: { submissionId: 'submission-1',
@@ -537,14 +748,20 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       try { await deliver?.(); await Promise.all(pending.splice(0)); }
       finally { nextClock.mockRestore(); }
       expect((await activity.getBrowserDetail())?.activityId).toBe(detail?.activityId);
-      expect((await activity.getBrowserDetail())?.executionStatus).toBe('completed');
-      expect((await activity.getBrowserDetail())?.result).toMatchObject({ assessment: { classification: 'unknown' } });
-      expect(writes).toEqual(['comment']);
+      if (resultCase === 'valid') {
+        expect((await activity.getBrowserDetail())?.executionStatus).toBe('completed');
+        expect((await activity.getBrowserDetail())?.result).toEqual(scanRuntime.result);
+      } else {
+        expect((await activity.getBrowserDetail())?.executionStatus).not.toBe('completed');
+        expect((await activity.getBrowserDetail())?.result).toBeNull();
+      }
+      expect(writes).toEqual([]);
       const publishClock = vi.spyOn(Date, 'now').mockReturnValue(activatedClock + 10_800_001);
       try { await deliver?.(); await Promise.all(pending.splice(0)); }
       finally { publishClock.mockRestore(); }
-      expect(writes).toEqual(['comment']);
-      expect((await activity.getBrowserDetail())?.executionStatus).toBe('completed');
+      expect(writes).toEqual([]);
+      if (resultCase === 'valid') expect((await activity.getBrowserDetail())?.executionStatus).toBe('completed');
+      else expect((await activity.getBrowserDetail())?.executionStatus).not.toBe('completed');
       } finally { globalThis.fetch = originalFetch; scanRuntime.enabled = false; scanRuntime.result = null; }
     });
   });

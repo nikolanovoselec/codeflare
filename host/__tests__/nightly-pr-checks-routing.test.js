@@ -4,7 +4,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { describe, it } from 'node:test';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { parse as parseYaml } from 'yaml';
 
 const ROOT = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
@@ -55,7 +55,8 @@ describe('nightly PR Checks routing', () => {
     const filter = changes.steps.find((step) => step.id === 'filter');
     const fallback = changes.steps.find((step) => step.id === 'filter_fallback');
 
-    assert.equal(checkout.with['fetch-depth'], 0);
+    // Intentional checkout-cost contract: shallow PR history, unchanged push history.
+    assert.equal(checkout.with['fetch-depth'], "${{ github.event_name == 'pull_request' && 2 || 0 }}");
     assert.equal(filter['continue-on-error'], true);
     assert.equal(fallback.if, "steps.filter.outcome == 'failure'");
     assert.equal(fallback.run, 'scripts/ci/path-filter-fallback.sh');
@@ -114,6 +115,19 @@ describe('nightly PR Checks routing', () => {
       });
       assert.notEqual(malformed.status, 0);
       assert.equal(readFileSync(output, 'utf8'), '');
+
+      // A shallow checkout must recover the exact missing base, not silently skip lanes.
+      const shallow = join(repository, 'shallow');
+      execFileSync('git', ['clone', '-q', '--depth=1', pathToFileURL(repository).href, shallow]);
+      assert.notEqual(spawnSync('git', ['cat-file', '-e', `${base}^{commit}`], { cwd: shallow }).status, 0);
+      execFileSync(join(ROOT, 'scripts', 'ci', 'path-filter-fallback.sh'), [], {
+        cwd: shallow,
+        env: { ...process.env, BASE_SHA: base, HEAD_SHA: head, GITHUB_OUTPUT: output, RUNNER_TEMP: runnerTemp },
+      });
+      assert.deepEqual(readFileSync(output, 'utf8').trim().split('\n'),
+        ['backend', 'webui', 'landing', 'host', 'pi', 'ide', 'workflows', 'dependencies'].map(lane => `${lane}=true`));
+      assert.equal(readFileSync(join(runnerTemp, 'changed-files.txt'), 'utf8'), 'fixture.txt\n');
+      assert.equal(execFileSync('git', ['rev-parse', 'HEAD'], { cwd: shallow, encoding: 'utf8' }).trim(), head);
     } finally {
       rmSync(repository, { recursive: true, force: true });
     }
