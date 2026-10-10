@@ -129,7 +129,7 @@ export function registerNativeDispatcherCases(
     expect(expectedDigest, 'CI must bind the approved artifact bytes, not calculate and trust a new pin').toMatch(/^[a-f0-9]{64}$/);
     expect(expectedSource, 'CI must pin the profile source revision').toMatch(/^[a-f0-9]{40}$/);
     if (intent4) expect(expectedSource, 'Only the reviewed intent4 PUSH artifact may select phase admission')
-      .toBe('fcb572b0839388f03940dc73813330eb331b049d');
+      .toBe('05d817914086bc01cabba6496f0e8e2715b87255');
     const bytes = await readFile(path!);
     expect(createHash('sha256').update(bytes).digest('hex')).toBe(expectedDigest);
     const artifact = JSON.parse(bytes.toString()) as NativeArtifact;

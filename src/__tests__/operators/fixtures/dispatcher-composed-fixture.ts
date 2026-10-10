@@ -16,7 +16,7 @@ import { setLogLevel } from '../../../lib/logger';
 import type { DispatcherPhaseContext, DispatcherPhase } from '../../../operators/dispatcher-phases';
 import intent4Manifest from './dispatcher-intent4-native.manifest.json';
 
-const intent4Source = 'fcb572b0839388f03940dc73813330eb331b049d';
+const intent4Source = '05d817914086bc01cabba6496f0e8e2715b87255';
 
 type RecoveryScenario = 'ordinary' | 'incomplete' | 'native-error' | 'precommit-reset' | 'committed-reset' | 'duplicate' | 'persistent' | 'large-evidence-comment-batch' | 'thirty-target-original-evidence-recovery' | 'target-response-failed' | 'target-comment-unknown';
 interface FixtureEnv {
