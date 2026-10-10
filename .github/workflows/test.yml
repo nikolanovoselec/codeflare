@@ -523,6 +523,10 @@ jobs:
       - name: Create assets directory (wrangler.toml requires web-ui/dist)
         run: mkdir -p web-ui/dist
 
+      - name: Trace original native observation forwarding (CI-only)
+        if: matrix.group == 'flue'
+        run: node scripts/ci/trace-native-observe-proxy.mjs
+
       - name: Run suite (fail-closed gate)
         uses: ./.github/actions/vitest-suite
         with:

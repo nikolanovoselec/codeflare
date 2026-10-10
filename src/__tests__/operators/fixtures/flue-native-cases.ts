@@ -358,7 +358,7 @@ export function registerNativeDispatcherCases(
       const action = (value as { action?: unknown }).action;
       const phase = ['start', 'observe', 'collect', 'evict', 'release', 'revoke', 'cancel', 'change-submission-policy'].includes(String(action))
         ? String(action) : 'other';
-      const observationId = phase === 'observe' && ['large-evidence-', 'thirty-evidence-'].some(prefix => id.startsWith(prefix))
+      const observationId = phase === 'observe' && ['large-evidence-', 'thirty-evidence-', 'isolation-'].some(prefix => id.startsWith(prefix))
         ? crypto.randomUUID() : undefined;
       const send = (command: unknown) => harness.fetch(`/dispatcher-composed?activity=${id}`, {
         method: 'POST', headers: { 'content-type': 'application/json',

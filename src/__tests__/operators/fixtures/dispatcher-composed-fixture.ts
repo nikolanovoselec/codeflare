@@ -76,7 +76,7 @@ const diagnostics: Array<Record<string, string | number | boolean | null>> = [];
 export const fixtureObservationId = (request: Request): string | undefined => {
   const candidate = request.headers.get('x-codeflare-fixture-observation-id');
   const activity = new URL(request.url).searchParams.get('activity');
-  return ['large-evidence-', 'thirty-evidence-'].some(prefix => activity?.startsWith(prefix)) && candidate
+  return ['large-evidence-', 'thirty-evidence-', 'isolation-'].some(prefix => activity?.startsWith(prefix)) && candidate
     && /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/.test(candidate) ? candidate : undefined;
 };
 export const observeBoundary = (observationId: string | undefined,
