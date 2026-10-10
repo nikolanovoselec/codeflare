@@ -259,7 +259,7 @@ export type OperatorRegistryResult<T> = { ok: true; value: T } | {
  * HTTP authorization and runtime policy enforcement belong to their respective
  * callers; persisted restrictions never replace current human authority.
  */
-export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }> {
+export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string; OPERATOR_ACTIVITY?: Env['OPERATOR_ACTIVITY'] }> {
   /**
    * Parent-authorized rotation. Encrypt outside the transaction, then atomically
    * compare the revision and replace the ciphertext. Only the winner receives

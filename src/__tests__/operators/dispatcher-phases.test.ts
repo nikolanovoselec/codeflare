@@ -18,9 +18,9 @@ const targets = (n: number): DispatcherTarget[] => Array.from({ length: n }, (_,
   pullRequest: i + 1, headSha: (i + 1).toString(16).padStart(40, '0'),
 }));
 const deferred = (target: DispatcherTarget): DispatcherJourneyResult => ({ ...target, outcome: 'DEFERRED', reason: 'response-failed' });
-const ordinary = (target: DispatcherTarget, comment = 'actual judgment'): DispatcherJourneyResult => ({
+const ordinary = (target: DispatcherTarget, comment = 'actual judgment') => ({
   ...target, outcome: 'NOT_MERGED', decision: 'DO_NOT_MERGE', comment,
-});
+} satisfies DispatcherJourneyResult);
 const receipt = (n: number) => ({ submissionId: `sdk-${n}`, uid: 'actual-instance-uid', offset: `cursor-${n}` });
 const create = () => createDispatcherPhaseState(authority.scope, authority.authorityDigest, delivery(0));
 const bind = (state: DispatcherPhaseState, n: number) => bindDispatcherPhaseReceipt(state, authority, state.current.deliveryToken, receipt(n));
@@ -215,7 +215,7 @@ describe('intent4 exact serial phase contract candidate', () => {
   it('accepts deferred judgment absent or paired; denies partial pairs, unknown reasons, and inconsistent ordinary outcomes', () => {
     const frozen = targets(1), state = discover(frozen);
     const base = deferred(frozen[0]);
-    for (const row of [base, { ...base, decision: 'MERGE', comment: 'actual judgment' }]) {
+    for (const row of [base, { ...base, decision: 'MERGE' as const, comment: 'actual judgment' }]) {
       const final = bind(step(state, reply(state, 'completed', { 'dispatcher-progress': [progress(state, frozen, [row])] }), 2), 2);
       expect(finish(final, [row]).results).toEqual([row]);
     }
@@ -368,7 +368,8 @@ describe('intent4 exact serial phase contract candidate', () => {
     const inputs = [state, authority, response, nextDelivery], before = JSON.stringify(inputs);
     const advanced = advanceDispatcherPhase(state, authority, state.current.deliveryToken, response, nextDelivery);
     expect(JSON.stringify(inputs)).toBe(before);
-    checkpoint.targets![0].headSha = 'f'.repeat(40);
+    if (!('targets' in checkpoint)) throw new Error('Discovery checkpoint expected');
+    checkpoint.targets[0].headSha = 'f'.repeat(40);
     expect(advanced.targets).toEqual(targets(1));
     const actual = receipt(1), bound = bindDispatcherPhaseReceipt(advanced, authority, 'token_1', actual);
     actual.uid = 'mutated-input';

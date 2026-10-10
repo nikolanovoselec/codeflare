@@ -185,6 +185,8 @@ export function registerNativeDispatcherCases(
   if (group === 'flue') describe('REQ-OPERATOR-047/048: production Activity plus pinned Flue recovery', () => {
     beforeEach(() => harness.reset(), 60_000);
     type Composed = { instance: string; fiberEvents: FiberObservation[] | null;
+      diagnostics?: Array<{ module: string; stage?: string; outcome?: string; status?: number;
+        failureClass?: string; preparationStep?: string; wireRules?: string }>;
       journal?: { generation: number; unresolved: number; operationId: string; receipt: {
         generation: number; phase: string; requestDigest: string; responseDigest?: string; resolution?: unknown;
         request?: { method: string; url: string };
@@ -427,7 +429,10 @@ export function registerNativeDispatcherCases(
         collectionStatus: value.detail.collectionStatus, firstAppend: value.external.firstAppend ?? null,
         sdkSubmissions: value.external.sdkSubmissions ?? [], fiberEvents: value.fiberEvents,
         inferenceCount: value.external.inference.length,
-        commentCount: value.external.comments.length });
+        commentCount: value.external.comments.length,
+        operationDenials: (value.diagnostics ?? []).filter(entry => entry.outcome === 'denied' || entry.stage === 'preparation')
+          .map(entry => ({ module: entry.module, stage: entry.stage, outcome: entry.outcome, status: entry.status,
+            failureClass: entry.failureClass, preparationStep: entry.preparationStep, wireRules: entry.wireRules })) });
       if (closed !== lastClosedObservation) console.info(`[native-flue] composed closed=${closed}`);
       lastClosedObservation = closed;
       return closed;

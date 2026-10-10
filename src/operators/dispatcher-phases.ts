@@ -50,8 +50,8 @@ export type DispatcherJourneyResult = z.infer<typeof resultSchema>;
 export type DispatcherJourney = z.infer<typeof journeySchema>;
 export type DispatcherPhase = z.infer<typeof phaseSchema>;
 export type DispatcherPhaseDelivery = z.infer<typeof deliverySchema>;
-export type DispatcherPhaseReceipt = z.infer<typeof receiptSchema>;
-export type DispatcherPhaseTerminal = z.infer<typeof terminalSchema>;
+type DispatcherPhaseReceipt = z.infer<typeof receiptSchema>;
+type DispatcherPhaseTerminal = z.infer<typeof terminalSchema>;
 export type DispatcherPhaseState = z.infer<typeof stateSchema>;
 /** Original Activity lease/context authority, NOT renewed or persisted by this helper.
  * Activity owns live authorization, generation, release/input binding, deadline and budgets,

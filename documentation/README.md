@@ -34,7 +34,7 @@ When public workflows or consumers change, update the owning document in the [pr
 
 ## Pending delivery
 
-[Dispatcher serial execution and retry](pending.md) records the approved, unimplemented intent4 lifecycle and its verification boundary. Current operational behavior remains in the Operator lane.
+[Dispatcher serial execution and retry](pending.md) records the intent4 lifecycle candidate, not yet verified or deployed, and its verification boundary. Current operational behavior remains in the Operator lane.
 
 ## Audience Guide
 

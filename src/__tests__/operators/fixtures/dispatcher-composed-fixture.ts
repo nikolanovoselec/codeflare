@@ -196,11 +196,17 @@ const capture = (value: unknown) => {
     if (!diagnosticActivity || (!identityDenial && (!['operator-inference', 'dispatcher-settlement'].includes(entry.module)
       || entry.data?.activityId !== diagnosticActivity))) return;
     const observation: Record<string, string | number | boolean | null> = { module: entry.module };
-    for (const key of ['stage', 'outcome', 'boundary', 'status', 'failureClass', 'inferenceOutcome',
+    for (const key of ['stage', 'outcome', 'boundary', 'status', 'failureClass', 'preparationStep', 'inferenceOutcome',
       'inferenceAttempt', 'operationOrdinal', 'operationCount', 'reasonCode', 'reasonDigest', 'reasonBytes',
       'errorType', 'lastToolRole', 'lastToolOutcome', 'reason', 'messages', 'tools']) {
       const item = entry.data[key];
       if (item === null || ['string', 'number', 'boolean'].includes(typeof item)) observation[key] = item;
+    }
+    // Retain only the existing closed parser labels, never rejected wire data.
+    const wireRules = entry.data.wireRules;
+    if (Array.isArray(wireRules) && wireRules.length <= 4 && wireRules.every(rule => typeof rule === 'string'
+      && /^(?:operation-id|envelope-field|inference-(?:messages-count|messages-shape|tools-count|tools-shape|token-bound|token-shape|temperature|stream|stream-options|max-completion-tokens|unsupported-field|input))$/.test(rule))) {
+      observation.wireRules = wireRules.join(',');
     }
     const sdkErrorType = entry.data.sdkErrorType;
     if (typeof sdkErrorType === 'string' && ['cloudflare_ai_binding_error', 'invalid_request', 'tool_input_validation',
@@ -737,7 +743,10 @@ export class OperatorDispatcherCapability extends ProductionCapability {
     const operationId = await control.sourceId();
     if (response.ok && operationId) {
       const receipt = await super.fetch(new Request('https://operator.internal/v1/dispatcher/receipt', { method: 'POST',
-        headers: { 'content-type': 'application/json' }, body: JSON.stringify({ operationId }) }));
+        headers: { 'content-type': 'application/json',
+          ...(request.headers.has('x-codeflare-dispatcher-delivery')
+            ? { 'x-codeflare-dispatcher-delivery': request.headers.get('x-codeflare-dispatcher-delivery')! } : {}) },
+        body: JSON.stringify({ operationId }) }));
       if (receipt.ok) {
         const { operationCount, operationLimit } = await receipt.json<{ operationCount: number; operationLimit: number }>();
         await control.budget({ operationCount, operationLimit });
