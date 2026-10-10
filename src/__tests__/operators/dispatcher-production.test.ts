@@ -360,7 +360,8 @@ async function fixture(test: (f: {
   legacyProspective?: boolean; inputExtra?: Record<string, unknown>; capabilities?: string[]; pagedStatus?: boolean; githubApiHost?: string;
   sourceResponseBytes?: number; sourceBody?: string; sourceDelayMs?: number; inferenceBody?: string; inferenceRequestBytes?: number; inferenceMessageLimit?: number; operationLimit?: number; loggingEnabled?: boolean;
   capacityPolicy?: DispatcherCapacityPolicy;
-  recovery?: boolean; inferenceAttemptLimit?: number; inferenceTransport?: (request: Request, attempt: number) => Promise<Response> } = {}) {
+  recovery?: boolean; intent4?: boolean; losePhaseAdmission?: number;
+  inferenceAttemptLimit?: number; inferenceTransport?: (request: Request, attempt: number) => Promise<Response> } = {}) {
   callerSessionCurrent = true;
   callerRoute = 'approved';
   const configuredTarget = options.configuredTarget ?? { repository: 'nikolanovoselec/komodo', repositoryId: 973175879, baseBranch: 'main' };
@@ -377,17 +378,17 @@ async function fixture(test: (f: {
       audiences: ['audience'], issuedAt: Math.floor(now / 1000) - 1, expiresAt };
     const policy = { capabilities: options.capabilities ?? ['fetch', 'inference'], resourceProfileId: null,
       ...(options.sourceResponseBytes === undefined ? {} : { sourceResponseBytes: options.sourceResponseBytes }) };
-    const fixtureOperatorId = options.prospective ? 'renovate-dispatcher' : 'operator';
+    const fixtureOperatorId = options.prospective || options.intent4 ? 'renovate-dispatcher' : 'operator';
     let inferenceAttempts = 0;
     const selection = { controlsRevision: 1, installation: { id: 'installation', operatorId: fixtureOperatorId, revision: 1,
       enabled: true, policy, configurationJson: options.prospective ? JSON.stringify({ renovate: { repository: configuredTarget.repository, automaticRuns: true, repetitionIntervalSeconds: 900 } }) : '{}', releaseId: 'release' },
     operator: { operatorId: fixtureOperatorId, profile: 'dispatcher', revision: 1, invokers: { users: [human.email], groups: [] },
       policy: { ...policy, ...options.capacityPolicy, ...(options.inferenceMessageLimit === undefined ? {} : { inferenceMessageLimit: options.inferenceMessageLimit }), ...(options.inferenceAttemptLimit === undefined ? {} : { inferenceAttemptLimit: options.inferenceAttemptLimit }), ...(options.loggingEnabled === undefined ? {} : { loggingEnabled: options.loggingEnabled }), ...(options.operationLimit === undefined ? {} : { operationLimit: options.operationLimit }), ...(options.inferenceRequestBytes === undefined ? {} : { inferenceRequestBytes: options.inferenceRequestBytes }) } },
     release: { id: 'release', operatorId: fixtureOperatorId, bundleDigest: artifactDigest, sourceCommit: bundle.sourceCommit,
-      ...(options.prospective ? { intentVersion: options.legacyProspective ? '2' : '3', coreVersion: '1' } : {}) },
-    manifestJson: options.prospective ? JSON.stringify({ schemaVersion: 1, interfaceVersion: 1,
+      ...(options.prospective || options.intent4 ? { intentVersion: options.intent4 ? '4' : options.legacyProspective ? '2' : '3', coreVersion: '1' } : {}) },
+    manifestJson: options.prospective || options.intent4 ? JSON.stringify({ schemaVersion: 1, interfaceVersion: 1,
       id: 'renovate-dispatcher', name: 'Renovate Dispatcher', description: 'Prospective singleton fixture',
-      coreVersion: '1', intentVersion: options.legacyProspective ? '2' : '3', profile: 'dispatcher',
+      coreVersion: '1', intentVersion: options.intent4 ? '4' : options.legacyProspective ? '2' : '3', profile: 'dispatcher',
       inputSchema: { type: 'object', additionalProperties: false,
         required: options.legacyProspective ? ['repository', 'pullRequest'] : ['repository'],
         properties: { repository: { type: 'string', pattern: '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$' },
@@ -450,6 +451,8 @@ async function fixture(test: (f: {
     let configuredTail: Promise<{ tail(events: unknown): Promise<void> }> | undefined;
     const pending: Promise<unknown>[] = [];
     let activity: OperatorActivity;
+    const phaseAdmissions = new Map<string, { submissionId: string; offset: string }>();
+    let phaseAcknowledgementLost = false;
     const child = {
       _cf_initAsFacet: async () => {},
       _cf_checkRunFibersForFacet: async () => 0,
@@ -461,6 +464,23 @@ async function fixture(test: (f: {
         }
         if (request.method === 'POST') {
           childSubmissions.push(request.clone());
+          if (options.intent4) {
+            const wire = await request.json() as { idempotencyKey: string; uid: string | null };
+            const retained = phaseAdmissions.get(wire.idempotencyKey);
+            if (!retained && (phaseAdmissions.size === 0 ? wire.uid !== null : wire.uid !== 'fixture-incarnation')) {
+              return Response.json({ code: 'agent_instance_not_found' }, { status: 404 });
+            }
+            const receipt = retained ?? { submissionId: `submission-${phaseAdmissions.size + 1}`, offset: streamOffset() };
+            phaseAdmissions.set(wire.idempotencyKey, receipt);
+            // Fault AFTER SDK admission: replay must adopt that original receipt, not a replacement input.
+            if (!phaseAcknowledgementLost && options.losePhaseAdmission === phaseAdmissions.size && !retained) {
+              phaseAcknowledgementLost = true;
+              throw new Error('Fixture lost phase admission acknowledgement');
+            }
+            const offset = retained ? '-1' : receipt.offset;
+            return Response.json({ ...receipt, offset, uid: 'fixture-incarnation', streamUrl: request.url,
+              ...(retained ? { deduplicated: true } : {}) }, { status: 202, headers: { 'stream-next-offset': offset } });
+          }
           return Response.json({ submissionId: 'submission-1', offset: streamOffset(),
             uid: 'fixture-incarnation', streamUrl: request.url }, { status: 202, headers: { 'stream-next-offset': streamOffset() } });
         }
@@ -488,7 +508,7 @@ async function fixture(test: (f: {
     // Agent validates the native DurableObjectState brand and SQLite capability.
     // Keep that real owner while replacing only the fixture's child/interceptor seams.
     Object.defineProperties(native, {
-      facets: { configurable: true, value: { get: () => child } },
+      facets: { configurable: true, value: { get: () => child, abort: () => {} } },
       exports: { configurable: true, value: {
         OperatorDispatcherCapability: ({ props }: { props: { activityId: string; generation: number } }) =>
           new OperatorDispatcherCapability({ props } as unknown as ExecutionContext,
@@ -3625,4 +3645,220 @@ describe('REQ-OPERATOR-061: configured Renovate run settings', () => {
     expect(f.sent).toEqual(outbound);
     expect(remoteMutations(f)).toEqual([]);
   }, { prospective: true, configuredTarget }));
+});
+
+
+// Intentional intent4 admission/progress wire contracts; the child seam is mocked here.
+// Real generated-class SDK/effect/eviction proof remains in the preserved native suite.
+describe('REQ-OPERATOR-048: original-lease serial SDK phase ownership', () => {
+  type Context = { scope: string; generation: number; deadline: string; releaseDigest: string;
+    authorityDigest: string; submissionId: string; phase: { kind: string; index?: number; target?: { pullRequest: number; headSha: string } };
+    deliveryToken: string; previous?: Array<{ submissionId: string; phase: unknown; outcome: string }> };
+  const frozen = [17, 18].map((pullRequest, index) => ({ pullRequest, headSha: String(index + 1).repeat(40) }));
+  const wire = (path: string, body: unknown, token: string) => new Request(`https://operator.internal/v1/dispatcher/${path}`, {
+    method: 'POST', headers: { 'content-type': 'application/json', 'x-codeflare-dispatcher-delivery': token }, body: JSON.stringify(body),
+  });
+  const latestDelivery = async (f: DispatcherFixture) => {
+    const input = await f.childSubmissions.at(-1)!.clone().json() as { kind: string; type: string; body: string;
+      attributes: { deliveryToken: string }; idempotencyKey: string; uid: string | null };
+    expect(input.kind).toBe('signal'); expect(input.type).toBe('dispatcher-phase');
+    expect(input.body).toBe(JSON.stringify(f.input));
+    return input;
+  };
+  const context = async (f: DispatcherFixture, suppliedToken?: string): Promise<Context> => {
+    const token = suppliedToken ?? (await latestDelivery(f)).attributes.deliveryToken;
+    const response = await f.capability.fetch(wire('phase-context', { deliveryToken: token }, token));
+    expect(response.status).toBe(200);
+    return response.json();
+  };
+  const progress = (f: DispatcherFixture, stamp: Context, next: unknown, payload: object) => {
+    f.messages([{ submissionId: stamp.submissionId, parts: [{ type: 'data-dispatcher-progress', data: {
+      version: 1, scope: stamp.scope, generation: stamp.generation, submissionId: stamp.submissionId,
+      phase: stamp.phase, next, ...payload,
+    } }] }]);
+    f.settle(stamp.submissionId);
+  };
+  const discovery = async (f: DispatcherFixture) => {
+    const first = await context(f);
+    expect(first.scope).toBe('submission'); expect(first.phase).toEqual({ kind: 'discovery' });
+    expect(first.previous).toBeUndefined();
+    progress(f, first, { kind: 'target', index: 0, target: frozen[0] }, { targets: frozen });
+    await f.activity.reconcileDispatcherLease();
+    return first;
+  };
+
+  it('failed PR1 advances only after its exact SDK settlement; PR2 supplies actual complete data and immutable final collection', () => fixture(async f => {
+    await start(f);
+    const original = await discovery(f);
+    const first = await context(f);
+    expect(first.phase).toEqual({ kind: 'target', index: 0, target: frozen[0] });
+    f.messages([]); f.settle(first.submissionId, 'failed', { type: 'operation_failed', meta: { reason: 'fixture provider failure' } });
+    await f.activity.reconcileDispatcherLease();
+    const second = await context(f);
+    expect(second.phase).toEqual({ kind: 'target', index: 1, target: frozen[1] });
+    expect(second.previous).toEqual([{ submissionId: original.submissionId, phase: original.phase, outcome: 'completed' },
+      { submissionId: first.submissionId, phase: first.phase, outcome: 'failed' }]);
+    for (const key of ['scope', 'generation', 'deadline', 'releaseDigest', 'authorityDigest'] as const) expect(second[key]).toBe(original[key]);
+    const rows = [{ ...frozen[0], outcome: 'DEFERRED', reason: 'response-failed' },
+      { ...frozen[1], decision: 'DO_NOT_MERGE', comment: 'Actual recorded judgment', outcome: 'NOT_MERGED' }];
+    progress(f, second, { kind: 'final' }, { results: rows });
+    await f.activity.reconcileDispatcherLease();
+    const final = await context(f);
+    expect(final.phase).toEqual({ kind: 'final' });
+    expect((await f.activity.getBrowserDetail())!.executionStatus).toBe('running');
+    const result = { ...(f.input as { repository: string }), results: rows };
+    f.messages([{ submissionId: final.submissionId, parts: [{ type: 'data-assessment', data: result }] }]);
+    f.settle(final.submissionId); await f.activity.reconcileDispatcherLease();
+    expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'completed', result });
+    const collected = await f.activity.collectBrowserResult();
+    expect(collected).toMatchObject({ ok: true, detail: { result, sdkCleanupReleased: true } });
+    expect(await f.activity.collectBrowserResult()).toMatchObject({ ok: true, detail: { result, sdkCleanupReleased: true } });
+    expect((await latestDelivery(f)).uid).toBe('fixture-incarnation');
+  }, { repositoryOnly: true, intent4: true, loggingEnabled: false }));
+
+  it.each(['read-failure', 'unknown-write', 'domain-uncertain'] as const)('REQ-OPERATOR-061: only original settled and collected singleton deferral supplies immutable scheduled-retry proof: %s', scenario => fixture(async f => {
+    await start(f);
+    const coordinates = { repositoryId: f.proof.repositoryId, pullRequest: f.proof.pullRequest, head: f.proof.head };
+    expect(await f.activity.readProspectiveRenovateRetryProof(coordinates)).toBeNull();
+    const original = await context(f);
+    const target = { pullRequest: coordinates.pullRequest, headSha: coordinates.head };
+    progress(f, original, { kind: 'target', index: 0, target }, { targets: [target] });
+    await f.activity.reconcileDispatcherLease();
+    const current = await context(f);
+    if (scenario === 'unknown-write') {
+      f.loseResponse();
+      const unknown = await f.capability.fetch(wire('source', { operationId: 'original-uncertain-comment', method: 'POST',
+        url: `${prospectiveBase}/issues/${target.pullRequest}/comments`, body: '{"body":"Original intended comment"}' }, current.deliveryToken));
+      expect(unknown.status).toBe(409);
+      expect(await unknown.json()).toEqual({ code: 'OPERATOR_OPERATION_UNKNOWN' });
+      f.restoreTransport();
+    }
+    const result = { repository: f.proof.repository, results: [scenario === 'domain-uncertain'
+      ? { ...target, outcome: 'DEFERRED', reason: 'comment-uncertain', decision: 'DO_NOT_MERGE', comment: 'Actual recorded judgment' }
+      : { ...target, outcome: 'DEFERRED', reason: 'response-failed' }] };
+    if (scenario === 'domain-uncertain') progress(f, current, { kind: 'final' }, { results: result.results });
+    else { f.messages([]); f.settle(current.submissionId, 'failed', { type: 'operation_failed' }); }
+    await f.activity.reconcileDispatcherLease();
+    const final = await context(f);
+    expect(await f.activity.readProspectiveRenovateRetryProof(coordinates)).toBeNull();
+    f.messages([{ submissionId: final.submissionId, parts: [{ type: 'data-assessment', data: result }] }]);
+    f.settle(final.submissionId); await f.activity.reconcileDispatcherLease();
+    const proof = await f.activity.readProspectiveRenovateRetryProof(coordinates);
+    if (scenario === 'read-failure') expect(proof).toMatchObject({ ...coordinates, activityId: f.proof.activityId, generation: final.generation,
+      repository: f.proof.repository, baseBranch: f.proof.baseBranch, artifactDigest: f.proof.bundleDigest,
+      createdAt: f.proof.createdAt, sdkSubmissionId: final.submissionId, terminalAt: expect.any(Number),
+      collected: true, settled: true, disposition: 'DEFERRED' });
+    else expect(proof).toBeNull(); // Complete collection never grants permission to repeat an uncertain effect.
+    f.restart();
+    expect(await f.activity.readProspectiveRenovateRetryProof(coordinates)).toEqual(proof);
+    expect(await f.activity.collectBrowserResult()).toMatchObject({ ok: true, detail: { result } });
+    expect(await f.activity.readProspectiveRenovateRetryProof(coordinates)).toEqual(proof);
+    expect(await f.activity.readProspectiveRenovateRetryProof({ ...coordinates, repositoryId: coordinates.repositoryId + 1 })).toBeNull();
+    expect(await f.activity.readProspectiveRenovateRetryProof({ ...coordinates, head: 'c'.repeat(40) })).toBeNull();
+    f.changeProof({ head: 'c'.repeat(40) });
+    expect(await f.activity.readProspectiveRenovateRetryProof(coordinates)).toBeNull();
+  }, { prospective: true, intent4: true }));
+
+  it.each([1, 2])('lost phase %i acknowledgement reattaches the original keyed admission without replacing UID/SID', lost => fixture(async f => {
+    await start(f);
+    if (lost === 2) await discovery(f);
+    const retainedWire = await latestDelivery(f);
+    const recovered = await context(f, retainedWire.attributes.deliveryToken);
+    expect(recovered.submissionId).toBe(`submission-${lost}`);
+    expect(await latestDelivery(f)).toEqual(retainedWire);
+    expect(await context(f, retainedWire.attributes.deliveryToken)).toEqual(recovered);
+    expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'running', result: null });
+    expect(f.sent).toEqual([]);
+  }, { repositoryOnly: true, intent4: true, losePhaseAdmission: lost }));
+
+  it('old delivery tokens cannot fetch context or protected sources, and do not fence the next phase', () => fixture(async f => {
+    await start(f); const original = await discovery(f); const current = await context(f);
+    const before = await f.activity.getBrowserDetail();
+    const stale = await f.capability.fetch(wire('source', { operationId: 'old-read', url: 'https://api.github.com/repos/another/service' }, original.deliveryToken));
+    expect(stale.status).toBe(403);
+    expect(await stale.json()).toEqual({ code: 'OPERATOR_CAPABILITY_DENIED' });
+    expect((await f.capability.fetch(wire('phase-context', { deliveryToken: original.deliveryToken }, original.deliveryToken))).status).toBe(403);
+    expect(await f.activity.getBrowserDetail()).toEqual(before);
+    const read = await f.capability.fetch(wire('source', { operationId: 'current-read', url: 'https://api.github.com/repos/another/service' }, current.deliveryToken));
+    expect(read.status).toBe(200);
+    expect(await context(f)).toEqual(current);
+  }, { repositoryOnly: true, intent4: true }));
+
+  it.each([true, false])('exact deferred coverage of a lost comment response permits collection=%s without replay or clearing uncertainty', covered => fixture(async f => {
+    await start(f); await discovery(f);
+    const first = await context(f);
+    const mutation = { operationId: 'uncertain-original-comment', method: 'POST',
+      url: 'https://api.github.com/repos/another/service/issues/17/comments', body: JSON.stringify({ body: 'Original intended comment' }) };
+    f.loseResponse();
+    const response = await f.capability.fetch(wire('source', mutation, first.deliveryToken));
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({ code: 'OPERATOR_OPERATION_UNKNOWN' });
+    f.restoreTransport();
+    const originalReceipt = await f.capability.fetch(wire('receipt', { operationId: mutation.operationId }, first.deliveryToken));
+    expect(await originalReceipt.json()).toMatchObject({ phase: 'unknown', method: 'POST', url: mutation.url, operationCount: 1 });
+    f.messages([]); f.settle(first.submissionId, 'failed', { type: 'operation_failed' });
+    await f.activity.reconcileDispatcherLease();
+    const second = await context(f);
+    // A failed SDK response cannot invent the missing judgment. Its original target's
+    // response-failed disposition accounts for the retained original unknown operation.
+    const rows = [covered ? { ...frozen[0], outcome: 'DEFERRED', reason: 'response-failed' }
+      : { ...frozen[0], decision: 'DO_NOT_MERGE', comment: 'Invalid definite outcome', outcome: 'NOT_MERGED' },
+      { ...frozen[1], decision: 'DO_NOT_MERGE', comment: 'Unrelated actual fixture judgment', outcome: 'NOT_MERGED' }];
+    const readback = await f.capability.fetch(wire('source', { operationId: 'independent-readback', url: mutation.url }, second.deliveryToken));
+    expect(readback.status).toBe(200);
+    expect(JSON.parse((await readback.json() as { body: string }).body)).toEqual([
+      { id: 91, body: 'Original intended comment', user: { id: 42 } },
+    ]);
+    progress(f, second, { kind: 'final' }, { results: rows });
+    await f.activity.reconcileDispatcherLease();
+    const final = await context(f);
+    const result = { ...(f.input as { repository: string }), results: rows };
+    f.messages([{ submissionId: final.submissionId, parts: [{ type: 'data-assessment', data: result }] }]);
+    f.settle(final.submissionId); await f.activity.reconcileDispatcherLease();
+    if (covered) {
+      expect(await f.activity.collectBrowserResult()).toMatchObject({ ok: true, detail: { result } });
+      expect(await f.activity.collectBrowserResult()).toMatchObject({ ok: true, detail: { result } });
+    } else {
+      expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
+      expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'unknown', result: null });
+    }
+    expect((await f.capability.fetch(wire('source', mutation, first.deliveryToken))).status).toBe(403);
+  }, { repositoryOnly: true, intent4: true }));
+
+  it('a late predecessor inference failure cannot commit into or interrupt its successor', async () => {
+    let entered!: () => void;
+    let release!: () => void;
+    const enteredPromise = new Promise<void>(resolve => { entered = resolve; });
+    const held = new Promise<void>(resolve => { release = resolve; });
+    await fixture(async f => {
+      await start(f); await discovery(f); const first = await context(f);
+      const late = f.capability.fetch(wire('inference', { operationId: 'held-pr1-model',
+        input: { messages: [{ role: 'user', content: 'PR1 fixture input' }] } }, first.deliveryToken));
+      await enteredPromise;
+      f.messages([]); f.settle(first.submissionId, 'failed', { type: 'operation_failed' });
+      await f.activity.reconcileDispatcherLease();
+      const second = await context(f);
+      release(); expect((await late).status).toBe(403);
+      expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'running', result: null });
+      const source = await f.capability.fetch(wire('source', { operationId: 'pr2-after-late-failure',
+        url: 'https://api.github.com/repos/another/service' }, second.deliveryToken));
+      expect(source.status).toBe(200); expect(await context(f)).toEqual(second);
+    }, { repositoryOnly: true, intent4: true, recovery: true,
+      inferenceTransport: async () => { entered(); await held; throw new Error('Late PR1 transport failure'); } });
+  });
+
+  it('the current phase cannot mutate a different PR or a different merge head', () => fixture(async f => {
+    await start(f); await discovery(f); const current = await context(f);
+    for (const body of [
+      { operationId: 'foreign-phase-comment', method: 'POST', url: 'https://api.github.com/repos/another/service/issues/18/comments', body: '{"body":"wrong PR"}' },
+      { operationId: 'wrong-phase-head', method: 'PUT', url: 'https://api.github.com/repos/another/service/pulls/17/merge', body: JSON.stringify({ sha: '9'.repeat(40), merge_method: 'merge' }) },
+    ]) expect((await f.capability.fetch(wire('source', body, current.deliveryToken))).status).toBe(403);
+    expect(f.sent).toEqual([]); expect(await context(f)).toEqual(current);
+  }, { repositoryOnly: true, intent4: true }));
+
+  it('rejects a parent output allowance below the package reservation bound before protected work', () => fixture(async f => {
+    await start(f);
+    expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'unknown', result: null });
+    expect(f.sent).toEqual([]);
+  }, { repositoryOnly: true, intent4: true, capacityPolicy: { assessmentBytes: 48 * 1024 - 1 } }));
 });

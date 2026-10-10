@@ -225,6 +225,12 @@ The Dispatcher operator's **Operation limit per run** defaults to 1024 and accep
 
 Capability changes require a revision-fenced save and explicit installation re-enablement; effective no-ops preserve revisions/enablement. <!-- @impl: src/operators/registry.ts::OperatorRegistry.setManagementCapabilities --> <!-- @test: src/__tests__/operators/operator-access.test.ts (REQ-OPERATOR-045: persists operator operation limit with revision fencing and unchanged installation policy) -->
 
+### Sequential PR processing and failure isolation
+
+The deployed intent3 journey seals all decisions before effects and rejects collection with unresolved operations. That behavior does not satisfy the revised [Dispatcher execution contract](../../sdd/spec/operators.md#req-operator-048-dispatcher-execution). The coordinated intent4 change is described in [pending delivery](../pending.md); no support is inferred from the existing manifest or installation.
+
+The deployed automatic admission owner permanently deduplicates an unchanged PR head. [Configured retry](../../sdd/spec/operators.md#req-operator-061-prospective-admin-session-renovate-scan) now requires terminal-proof pickup at the existing due interval. Uncertain starts and historical writes remain distinct from a completed run's deferred PR. This is not an instruction to activate automation or replay old Activities.
+
 ### How do inference retries work?
 
 See [REQ-OPERATOR-048](../../sdd/spec/operators.md#req-operator-048-dispatcher-execution).

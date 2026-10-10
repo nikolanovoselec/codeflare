@@ -233,6 +233,8 @@ export async function createDispatcherOperation(input: {
   effectContext?: { authorize: () => Promise<void>; reconcileOnly: boolean };
   diagnosticContext?: InferenceDiagnosticContext;
   pinInferenceSelection?: (selection: DispatcherInferenceSelection) => Promise<void>;
+  /** Parent-owned serial delivery, not a model/package request field. */
+  phase?: { repository: string; value: import('./dispatcher-phases').DispatcherPhase };
 }): Promise<() => Promise<Response>> {
   const { plan, env, operation } = input;
   const limits = dispatcherCapacities(isManagementReceipt(plan.receipt) ? plan.receipt.selection.operator.policy : undefined);
@@ -262,16 +264,23 @@ export async function createDispatcherOperation(input: {
     if (method !== 'GET' && (!github || url.origin !== dispatcherGithubApiOrigin(env))) {
       throw new Error('Mutation transport denied');
     }
-    if (admittedTarget && method !== 'GET') {
-      const base = `${dispatcherGithubApiOrigin(env)}/repos/${admittedTarget.repository}`;
+    if (input.phase && method !== 'GET' && input.phase.value.kind !== 'target') throw new Error('Dispatcher phase mutation denied');
+    const phaseTarget = input.phase?.value.kind === 'target'
+      ? { repository: input.phase.repository, ...input.phase.value.target } : admittedTarget;
+    if (admittedTarget && phaseTarget && (phaseTarget.repository !== admittedTarget.repository
+      || phaseTarget.pullRequest !== admittedTarget.pullRequest || phaseTarget.headSha !== admittedTarget.headSha)) {
+      throw new Error('Dispatcher phase admission target changed');
+    }
+    if (phaseTarget && method !== 'GET') {
+      const base = `${dispatcherGithubApiOrigin(env)}/repos/${phaseTarget.repository}`;
       // Compare the original wire, not URL-normalized aliases (queries, encodings or traversal).
-      const comment = method === 'POST' && source.url === `${base}/issues/${admittedTarget.pullRequest}/comments`;
-      const merge = method === 'PUT' && source.url === `${base}/pulls/${admittedTarget.pullRequest}/merge`;
+      const comment = method === 'POST' && source.url === `${base}/issues/${phaseTarget.pullRequest}/comments`;
+      const merge = method === 'PUT' && source.url === `${base}/pulls/${phaseTarget.pullRequest}/merge`;
       if (!comment && !merge) throw new Error('Prospective mutation target denied');
       const body = JSON.parse(source.body!);
       if (comment) z.strictObject({ body: z.string().min(1).refine(value => value.length <= limits.targetCommentChars)
         .refine(value => value.trim().length > 0) }).parse(body);
-      else z.strictObject({ sha: z.literal(admittedTarget.headSha), merge_method: z.literal('merge') }).parse(body);
+      else z.strictObject({ sha: z.literal(phaseTarget.headSha), merge_method: z.literal('merge') }).parse(body);
     }
     const entrypoint = github ? input.exports.GitHubInterceptor : input.exports.EgressController;
     if (!entrypoint) throw new Error('Dispatcher source transport unavailable');
@@ -333,7 +342,8 @@ export async function createDispatcherOperation(input: {
         return Response.json({ code: 'OPERATOR_SOURCE_INCOMPLETE' }, { status: 422 });
       }
       await sourceCurrent();
-      if (method !== 'GET' && (signal.aborted || response.status >= 500 || (response.status >= 300 && response.status < 400))) {
+      if (method !== 'GET' && (signal.aborted || response.status >= 500
+        || input.phase !== undefined && response.status === 408 || (response.status >= 300 && response.status < 400))) {
         throw new Error('Mutation outcome unknown');
       }
       if (signal.aborted) return Response.json({ code: 'OPERATOR_SOURCE_UNAVAILABLE' }, { status: 422 });
@@ -358,6 +368,7 @@ export async function createDispatcherOperation(input: {
       return new Response(envelope, { headers: { 'content-type': 'application/json' } });
     };
   }
+  if (input.phase && !inference) throw new Error('Dispatcher serial legacy endpoint denied');
   const phase = operation.path === '/v1/dispatcher/github/comment' ? 'comment'
     : operation.path === '/v1/dispatcher/github/merge' ? 'merge' : undefined;
   const effect = phase === 'comment' ? dispatcherCommentSchema(limits).parse(operation.body)

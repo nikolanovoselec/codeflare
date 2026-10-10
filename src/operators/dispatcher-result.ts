@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { Tokenizer, TokenParser, TokenType } from '@streamparser/json';
 import { dispatcherCapacities, type DispatcherCapacities, type DispatcherCapacityPolicy } from './dispatcher-capacity-limits';
+import { sameDispatcherPhaseValue } from './dispatcher-phases';
 
 /** Exact-submission authority and bounded observations only; SDK history is not a result. */
 export interface DispatcherResultProjection {
@@ -11,6 +12,12 @@ export interface DispatcherResultProjection {
   messageIds: string[];
   result?: unknown;
   writes: number;
+  /** Parent-stamped intent4 projection; legacy aliases keep their historical behavior. */
+  serialPhase?: true;
+  assessmentWrites?: number;
+  /** Functional phase checkpoint, never an assessment or a settlement receipt. */
+  progress?: unknown;
+  progressWrites?: number;
   outcome?: 'completed' | 'failed' | 'aborted';
   error?: { type?: string; meta?: { reason?: string; operation?: string } };
   position?: { batch: number; index: number };
@@ -55,7 +62,7 @@ function observeTool(state: DispatcherResultProjection, id: unknown, name: unkno
 }
 const MAX_COMPLETION_ID_LENGTH = 256;
 
-function captureResult(state: DispatcherResultProjection, value: unknown, limits: DispatcherCapacities): void {
+function captureResult(state: DispatcherResultProjection, value: unknown, limits: DispatcherCapacities, name: string): void {
   if (!z.json().safeParse(value).success || !value || typeof value !== 'object' || Array.isArray(value)
     || new TextEncoder().encode(JSON.stringify(value)).byteLength > limits.assessmentBytes) {
     throw new Error('Dispatcher result unavailable');
@@ -64,6 +71,18 @@ function captureResult(state: DispatcherResultProjection, value: unknown, limits
   state.writes++;
   if (state.writes !== 1) throw new Error('Dispatcher result duplicated');
   state.result = value;
+  if (state.serialPhase && name === 'assessment') state.assessmentWrites = (state.assessmentWrites ?? 0) + 1;
+}
+
+function captureProgress(state: DispatcherResultProjection, value: unknown, limits: DispatcherCapacities): void {
+  if (!z.json().safeParse(value).success || !value || typeof value !== 'object' || Array.isArray(value)
+    || new TextEncoder().encode(JSON.stringify(value)).byteLength > limits.assessmentBytes) {
+    throw new Error('Dispatcher progress unavailable');
+  }
+  if (state.outcome !== undefined) throw new Error('Dispatcher progress follows terminal settlement');
+  state.progressWrites = (state.progressWrites ?? 0) + 1;
+  if (state.progressWrites !== 1) throw new Error('Dispatcher progress duplicated');
+  state.progress = value;
 }
 
 function observeReadiness(state: DispatcherResultProjection, value: unknown, limits: DispatcherCapacities): void {
@@ -137,6 +156,7 @@ function project(state: DispatcherResultProjection, value: unknown, submissionId
   state.conversationId = chunk.conversationId;
   const previousOutcome = state.outcome;
   const previousResult = state.result;
+  const previousProgress = state.progress;
   const position = chunk.position as { batch?: unknown; index?: unknown } | undefined;
   if (!position || !Number.isSafeInteger(position.batch) || !Number.isSafeInteger(position.index)
     || (position.batch as number) < 0 || (position.index as number) < 0) throw new Error('Dispatcher update position unavailable');
@@ -151,6 +171,8 @@ function project(state: DispatcherResultProjection, value: unknown, submissionId
     if (!snapshot || !Array.isArray(snapshot.messages) || !Array.isArray(snapshot.settlements)
       || (chunk.snapshot as { conversationId?: unknown }).conversationId !== chunk.conversationId) throw new Error('Dispatcher reset unavailable');
     state.messageIds = []; state.writes = 0; delete state.result; delete state.outcome; delete state.error;
+    delete state.assessmentWrites;
+    delete state.progress; delete state.progressWrites;
     for (const message of snapshot.messages) {
       if (message.submissionId !== submissionId) continue;
       if (typeof message.id !== 'string' || !Array.isArray(message.parts)) throw new Error('Dispatcher reset message unavailable');
@@ -158,7 +180,8 @@ function project(state: DispatcherResultProjection, value: unknown, submissionId
       if (message.diagnosticTruncated) (state.completion ??= { calls: [], truncated: false }).truncated = true;
       if (message.toolsTruncated) (state.tools ??= { calls: [], truncated: false }).truncated = true;
       for (const part of message.parts) {
-        if (part.type === 'data-assessment' || part.type === 'data-result') captureResult(state, part.data, limits);
+        if (part.type === 'data-assessment' || part.type === 'data-result') captureResult(state, part.data, limits, part.type.slice(5));
+        if (part.type === 'data-dispatcher-progress') captureProgress(state, part.data, limits);
         if (part.type === 'data-dispatcher-readiness') observeReadiness(state, part.data, limits);
         if (part.type === 'data-dispatcher-seal-preflight') observeSealPreflight(state, part.data, limits);
         if (part.type === 'dynamic-tool') observeTool(state, part.toolCallId, part.toolName,
@@ -177,8 +200,11 @@ function project(state: DispatcherResultProjection, value: unknown, submissionId
     if (typeof chunk.messageId !== 'string' || chunk.messageId.length > 256) throw new Error('Dispatcher message unavailable');
     if (!state.messageIds.includes(chunk.messageId)) state.messageIds.push(chunk.messageId);
   } else if (chunk.type === 'data-part' && (chunk.name === 'assessment' || chunk.name === 'result')) {
-    if (state.messageIds.includes(chunk.messageId as string)) captureResult(state, chunk.data, limits);
+    if (state.messageIds.includes(chunk.messageId as string)) captureResult(state, chunk.data, limits, chunk.name as string);
     else state.unmatchedAssessment = true;
+  } else if (chunk.type === 'data-part' && chunk.name === 'dispatcher-progress'
+    && state.messageIds.includes(chunk.messageId as string)) {
+    captureProgress(state, chunk.data, limits);
   } else if (chunk.type === 'data-part' && chunk.name === 'dispatcher-readiness'
     && state.messageIds.includes(chunk.messageId as string)) {
     observeReadiness(state, chunk.data, limits);
@@ -210,6 +236,8 @@ function project(state: DispatcherResultProjection, value: unknown, submissionId
   if (previousOutcome !== undefined && state.outcome !== previousOutcome) throw new Error('Dispatcher terminal settlement changed');
   if (previousResult !== undefined
     && JSON.stringify(previousResult) !== JSON.stringify(state.result)) throw new Error('Dispatcher immutable result changed');
+  if (previousProgress !== undefined
+    && !sameDispatcherPhaseValue(previousProgress, state.progress)) throw new Error('Dispatcher immutable progress changed');
   if (state.messageIds.length > 128) throw new Error('Dispatcher message bound exceeded');
   state.position = next;
 }
@@ -276,7 +304,8 @@ export async function readDispatcherUpdates(response: Response, previous: Dispat
       if (path[3] === 'parts' && path[5] === 'data') {
         const part = message?.parts?.[path[4] as number] as { type?: string } | undefined;
         if (part?.type !== undefined && part.type !== 'data-assessment' && part.type !== 'data-result'
-          && part.type !== 'data-dispatcher-readiness' && part.type !== 'data-dispatcher-seal-preflight') return;
+          && part.type !== 'data-dispatcher-readiness' && part.type !== 'data-dispatcher-seal-preflight'
+          && part.type !== 'data-dispatcher-progress') return;
       }
     }
     const diagnostic = (path.length === 1 && diagnosticFields.includes(String(path[0])))
@@ -367,7 +396,7 @@ export async function readDispatcherUpdates(response: Response, previous: Dispat
         if (record.type === 'data-part' && record.name === 'dispatcher-readiness') normalizeReadinessData(record, limits);
         else if (record.type === 'data-part' && record.name === 'dispatcher-seal-preflight') normalizeSealPreflightData(record, limits);
         else if (record.dataProjectionOversized || (record.type === 'data-part'
-          && (record.name === 'assessment' || record.name === 'result')
+          && (record.name === 'assessment' || record.name === 'result' || record.name === 'dispatcher-progress')
           && new TextEncoder().encode(JSON.stringify(record.data)).byteLength > limits.assessmentBytes)) {
           throw new Error('Dispatcher projected value exceeds limit');
         }
@@ -376,7 +405,7 @@ export async function readDispatcherUpdates(response: Response, previous: Dispat
         if (Array.isArray(snapshot?.messages)) {
           snapshot.messages = snapshot.messages.filter(message => message?.submissionId === submissionId);
           for (const message of snapshot.messages) for (const part of message.parts ?? []) {
-            if ((part.type === 'data-assessment' || part.type === 'data-result')
+            if ((part.type === 'data-assessment' || part.type === 'data-result' || part.type === 'data-dispatcher-progress')
               && (part.dataProjectionOversized
                 || new TextEncoder().encode(JSON.stringify(part.data)).byteLength > limits.assessmentBytes)) {
               throw new Error('Dispatcher projected value exceeds limit');

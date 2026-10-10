@@ -32,6 +32,9 @@ import type { Env } from '../types';
 import { parseRenovateRunSettings, renovateRepositoryIdentity, prospectiveRenovatePackageSupported,
   type RenovateRunSettings, type RenovateRepositoryIdentity } from './renovate-run-settings';
 export { prospectiveRenovatePackageSupported } from './renovate-run-settings';
+import { prospectiveRenovateRetryProof,
+  type ProspectiveRenovateRetryProof,
+  type RetainedRenovateRetryTarget } from './renovate-retry-proof';
 const scanId = /^[A-Za-z0-9_-]{1,128}$/;
 const sha = /^[0-9a-f]{40}$/;
 const scanSession = /^[a-z0-9]{8,24}$/;
@@ -189,7 +192,7 @@ interface ProspectiveRegistration extends RenovateRepositoryIdentity, Prospectiv
   sessionGeneration: number; revision: number; context: OperatorExecutionContext; repetitionIntervalSeconds: number;
 }
 export interface ProspectiveAdmission extends RenovateRepositoryIdentity, ProspectiveSelectionPin {
-  activityId: string; installationId: string;
+  activityId: string; installationId: string; admittedAt?: number; attempt?: number; previousActivityId?: string;
   pullRequest: number; head: string; createdAt: string; activatedAt: string; ownerKey: string;
   actor: { registrationId: string; bucket: string; sessionId: string; sessionGeneration: number;
     subject: string; issuer: string; email: string; audiences: readonly string[] };
@@ -1700,12 +1703,17 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
     const created = prospectiveRenovateTimestamp(input.createdAt);
     const cutoff = activation ? prospectiveRenovateTimestamp(activation.activatedAt) : null;
     if (created === null) return { ok: false, reason: 'invalid-target' };
-    if (!activation || activation.repositoryId !== input.repositoryId || cutoff === null || created <= cutoff) {
+    if (!activation || activation.repositoryId !== input.repositoryId || cutoff === null) {
       return { ok: false, reason: 'pre-activation' };
     }
     const key = `renovate-admission:${input.repositoryId}:${input.pullRequest}:${input.head}`;
     const existing = await this.ctx.storage.get<ProspectiveAdmission>(key);
-    if (existing) return { ok: true, activityId: existing.activityId, actor: existing.actor };
+    if (existing && existing.createdAt !== input.createdAt) return { ok: false, reason: 'invalid-target' };
+    const retry = existing ? await this.prospectiveRetryProof(existing) : null;
+    if (existing && !retry) return { ok: true, activityId: existing.activityId, actor: existing.actor };
+    if (created <= cutoff && (!existing || !retry || existing.createdAt !== input.createdAt)) {
+      return { ok: false, reason: 'pre-activation' };
+    }
     const election = await this.ctx.storage.get<number>('renovate-election-revision') ?? 0;
     const registrations = await this.ctx.storage.list<ProspectiveRegistration>({ prefix: 'renovate-registration:' });
     if (registrations.size > 32) return { ok: false, reason: 'registration-limit' };
@@ -1721,13 +1729,23 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
         .localeCompare(`${right.human.issuer}:${right.human.subject}:${right.record.sessionId}:${right.record.sessionGeneration}`));
     const winner = candidates[0];
     if (!winner) return { ok: false, reason: 'no-current-admin' };
+    if (existing && !this.prospectiveRetryDue(existing, retry!, winner.record.repetitionIntervalSeconds)) {
+      return { ok: true, activityId: existing.activityId, actor: existing.actor };
+    }
     const actor: ProspectiveAdmission['actor'] = { registrationId: winner.record.registrationId,
       bucket: winner.record.bucket, sessionId: winner.record.sessionId,
       sessionGeneration: winner.record.sessionGeneration, subject: winner.human.subject,
       issuer: winner.human.issuer, email: winner.human.email, audiences: [...winner.human.audiences] };
     return this.ctx.storage.transaction(async tx => {
       const prior = await tx.get<ProspectiveAdmission>(key);
-      if (prior) return { ok: true, activityId: prior.activityId, actor: prior.actor } as const;
+      // The head entry is only a pointer; original Activity admissions are immutable.
+      // A concurrent winner (or uncertain new preparation) always retains its actor/attempt.
+      if (prior && (!existing || prior.activityId !== existing.activityId || !retry)) {
+        return { ok: true, activityId: prior.activityId, actor: prior.actor } as const;
+      }
+      if (existing && (!prior || !this.prospectiveRetryDue(prior, retry!, winner.record.repetitionIntervalSeconds))) {
+        return { ok: false, reason: 'stale-retry' } as const;
+      }
       const [stillActivated, stillRegistered, collision, currentElection] = await Promise.all([
         tx.get<ProspectiveActivation>('renovate-activation'),
         tx.get<ProspectiveRegistration>(`renovate-registration:${actor.registrationId}`),
@@ -1737,9 +1755,12 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
       if (collision) return { ok: false, reason: 'activity-conflict' } as const;
       if (stillActivated?.activatedAt !== activation.activatedAt || stillActivated.repositoryId !== activation.repositoryId
         || stillActivated.repository !== activation.repository || stillActivated.baseBranch !== activation.baseBranch
+        || stillActivated.installationId !== activation.installationId
         || currentElection !== election || stillRegistered?.revision !== winner.record.revision
         || !await this.prospectiveAuthority(winner.record)) return { ok: false, reason: 'stale-election' } as const;
-      const admission: ProspectiveAdmission = { activityId: input.activityId,
+      const admission: ProspectiveAdmission = { activityId: input.activityId, admittedAt: Date.now(),
+        attempt: (existing?.attempt ?? (existing ? 1 : 0)) + 1,
+        ...(existing ? { previousActivityId: existing.activityId } : {}),
         installationId: activation.installationId, repository: activation.repository, repositoryId: activation.repositoryId,
         baseBranch: activation.baseBranch, controlsRevision: winner.record.controlsRevision,
         installationRevision: winner.record.installationRevision, operatorRevision: winner.record.operatorRevision,
@@ -1750,6 +1771,51 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string }>
       await tx.put(`renovate-activity:${input.activityId}`, admission);
       return { ok: true, activityId: input.activityId, actor } as const;
     });
+  }
+
+  private async prospectiveRetryProof(admission: ProspectiveAdmission): Promise<ProspectiveRenovateRetryProof | null> {
+    if (!this.env.OPERATOR_ACTIVITY) return null;
+    try {
+      const value = await this.env.OPERATOR_ACTIVITY.getByName(admission.activityId)
+        .readProspectiveRenovateRetryProof({ repositoryId: admission.repositoryId,
+          pullRequest: admission.pullRequest, head: admission.head });
+      const parsed = prospectiveRenovateRetryProof.safeParse(value);
+      if (!parsed.success) return null;
+      const proof = parsed.data;
+      return proof.activityId === admission.activityId && proof.repositoryId === admission.repositoryId
+        && proof.repository === admission.repository && proof.baseBranch === admission.baseBranch
+        && proof.pullRequest === admission.pullRequest && proof.head === admission.head
+        && proof.createdAt === admission.createdAt && proof.artifactDigest === admission.bundleDigest
+        && proof.terminalAt <= Date.now() ? proof : null;
+    } catch { return null; } // Unknown/uncollected history cannot elect replacement work.
+  }
+
+  private prospectiveRetryDue(admission: ProspectiveAdmission, proof: ProspectiveRenovateRetryProof, interval: number): boolean {
+    // Legacy admissions lack a reservation timestamp; use their proven terminal time conservatively.
+    const started = admission.admittedAt ?? proof.terminalAt;
+    return Number.isSafeInteger(started) && started >= 0 && started <= proof.terminalAt
+      && Date.now() >= started + interval * 1000;
+  }
+
+  /** Exact retained heads only. Complete authenticated discovery must still re-observe every target. */
+  async retainedProspectiveRenovateRetryTargets(registrationId: string): Promise<RetainedRenovateRetryTarget[]> {
+    const current = await this.currentProspectiveRenovateRegistration(registrationId);
+    if (!current) return [];
+    const admissions = await this.ctx.storage.list<ProspectiveAdmission>({ prefix: 'renovate-activity:' });
+    const targets: RetainedRenovateRetryTarget[] = [];
+    for (const admission of admissions.values()) {
+      if (admission.installationId !== current.installationId || admission.repositoryId !== current.repositoryId
+        || admission.repository !== current.repository || admission.baseBranch !== current.baseBranch) continue;
+      const latest = await this.ctx.storage.get<ProspectiveAdmission>(
+        `renovate-admission:${admission.repositoryId}:${admission.pullRequest}:${admission.head}`);
+      if (latest?.activityId !== admission.activityId) continue;
+      const proof = await this.prospectiveRetryProof(admission);
+      if (proof && this.prospectiveRetryDue(admission, proof, current.repetitionIntervalSeconds)) {
+        targets.push({ repositoryId: admission.repositoryId, pullRequest: admission.pullRequest,
+          head: admission.head, createdAt: admission.createdAt });
+      }
+    }
+    return await this.currentProspectiveRenovateRegistration(registrationId) ? targets : [];
   }
 
   async readProspectiveRenovateAdmission(activityId: string): Promise<ProspectiveAdmission | null> {

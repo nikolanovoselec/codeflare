@@ -2,6 +2,8 @@ import { readFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { beforeEach, describe, expect, it as vitestIt, vi } from 'vitest';
 import { createFlueCaseShard } from './flue-case-shard';
+import type { DispatcherPhaseContext } from '../../../operators/dispatcher-phases';
+import type { FiberObservation } from './dispatcher-composed-fixture';
 import type { DispatcherResultProjection } from '../../../operators/dispatcher-result';
 // The Node harness exercises the pure publication parser; the Worker read transport is not loaded here.
 vi.mock('../../../operators/operator-runtime-capability', () => ({ readDispatcherBody: () => {
@@ -113,16 +115,21 @@ export function registerNativeDispatcherCases(
     expect(predicate(value), JSON.stringify(value)).toBe(true);
     return value;
   }
-  async function pinnedArtifact(journey = false, steering = false) {
-    const path = steering ? process.env.DISPATCHER_STEERING_NATIVE_ARTIFACT
+  async function pinnedArtifact(journey = false, steering = false, intent4 = false) {
+    const path = intent4 ? process.env.DISPATCHER_INTENT4_NATIVE_ARTIFACT
+      : steering ? process.env.DISPATCHER_STEERING_NATIVE_ARTIFACT
       : journey ? process.env.DISPATCHER_JOURNEY_NATIVE_ARTIFACT : process.env.DISPATCHER_NATIVE_ARTIFACT;
-    const expectedDigest = steering ? process.env.DISPATCHER_STEERING_NATIVE_SHA256
+    const expectedDigest = intent4 ? process.env.DISPATCHER_INTENT4_NATIVE_SHA256
+      : steering ? process.env.DISPATCHER_STEERING_NATIVE_SHA256
       : journey ? process.env.DISPATCHER_JOURNEY_NATIVE_SHA256 : process.env.DISPATCHER_NATIVE_SHA256;
-    const expectedSource = steering ? process.env.DISPATCHER_STEERING_NATIVE_SOURCE_SHA
+    const expectedSource = intent4 ? process.env.DISPATCHER_INTENT4_NATIVE_SOURCE_SHA
+      : steering ? process.env.DISPATCHER_STEERING_NATIVE_SOURCE_SHA
       : journey ? process.env.DISPATCHER_JOURNEY_NATIVE_SOURCE_SHA : process.env.DISPATCHER_NATIVE_SOURCE_SHA;
     expect(path, 'CI must supply the real profile-built artifact').toBeTruthy();
     expect(expectedDigest, 'CI must bind the approved artifact bytes, not calculate and trust a new pin').toMatch(/^[a-f0-9]{64}$/);
     expect(expectedSource, 'CI must pin the profile source revision').toMatch(/^[a-f0-9]{40}$/);
+    if (intent4) expect(expectedSource, 'Only the reviewed intent4 PUSH artifact may select phase admission')
+      .toBe('fcb572b0839388f03940dc73813330eb331b049d');
     const bytes = await readFile(path!);
     expect(createHash('sha256').update(bytes).digest('hex')).toBe(expectedDigest);
     const artifact = JSON.parse(bytes.toString()) as NativeArtifact;
@@ -177,17 +184,163 @@ export function registerNativeDispatcherCases(
 
   if (group === 'flue') describe('REQ-OPERATOR-047/048: production Activity plus pinned Flue recovery', () => {
     beforeEach(() => harness.reset(), 60_000);
-    type Composed = { instance: string; detail: { executionStatus: string; collectionStatus: string; result: unknown; sdkCleanupReleased?: boolean };
-      external: { held: boolean; inference: Array<{ inputDigest: string; turn: number }>; comments: Array<{ body: string }>;
-        sourceRequests: Array<{ url: string; method: string }>; duplicates: Array<{ statuses: number[]; digests: string[] }>;
+    type Composed = { instance: string; fiberEvents: FiberObservation[] | null;
+      journal?: { generation: number; unresolved: number; operationId: string; receipt: {
+        generation: number; phase: string; requestDigest: string; responseDigest?: string; resolution?: unknown;
+        request?: { method: string; url: string };
+        phaseBinding?: { submissionId: string; deliveryToken: string; phase: DispatcherPhaseContext['phase'] };
+      } } | null;
+      detail: { executionStatus: string; collectionStatus: string; result: unknown; sdkCleanupReleased?: boolean };
+      external: { held: boolean; phases: Array<{ context: DispatcherPhaseContext; commentCount: number }>; inference: Array<{ inputDigest: string; turn: number; phase?: DispatcherPhaseContext['phase'] }>; comments: Array<{ body: string }>;
+        sourceRequests: Array<{ url: string; method: string }>;
+        sourceDeliveries: Array<{ operationId: string; url: string; method: string }>;
+        isolationFaults: Array<{ kind: string; pullRequest: number; status?: number }>;
+        duplicates: Array<{ statuses: number[]; digests: string[] }>;
         budget?: { operationCount: number; operationLimit: number };
         evidence?: Array<{ index: number; complete: boolean }>; batches?: string[][];
         firstAppend?: { category: 'canonical-append-oversized' | 'canonical-append-other'; largestRecordType?: 'state_write' } | null;
         sdkSubmissions?: Array<{ stage: 'sdk-submission-running' | 'sdk-submission-exhausted'; submissionDigest: string; attemptCount: number; maxAttempts: number }> } };
+    // Acceptance requires genuine Tail delivery, including original opaque IDs.
+    // These sets describe ONLY observed callbacks, never submissions or subtree liveness.
+    function fiberEvidenceSettled(value: Composed, recovery = false) {
+      const events = value.fiberEvents;
+      if (!events?.length) return false;
+      const starts = new Set(events.filter(row => row.type === 'fiber:run:started').map(row => row.fiberDigest));
+      const endings = new Set(events.filter(row => row.type === 'fiber:run:completed' || row.type === 'fiber:run:failed'
+        || recovery && row.type === 'fiber:run:interrupted').map(row => row.fiberDigest));
+      return starts.size > 0 && events.some(row => row.type === 'fiber:run:completed')
+        && starts.size === endings.size && [...starts].every(id => endings.has(id));
+    }
+    function observedInterruptedFiber(value: Composed) {
+      const events = value.fiberEvents;
+      return events?.some(row => row.type === 'fiber:run:interrupted'
+        && events.some(start => start.type === 'fiber:run:started' && start.fiberDigest === row.fiberDigest)) === true;
+    }
+    function assertFiberEvidence(value: Composed, recovery = false) {
+      expect(value.fiberEvents, 'Required actual agents:fiber Tail delivery; unavailable is not cessation proof').not.toBeNull();
+      expect(fiberEvidenceSettled(value, recovery), JSON.stringify(value.fiberEvents)).toBe(true);
+      if (recovery) expect(observedInterruptedFiber(value), 'Recovery must observe an original started fiber ID as interrupted').toBe(true);
+      // completed/failed means callback unwound; interrupted means restart found
+      // the original row. Neither means runtime abort emitted completion, nor
+      // proves every descendant/provider is gone. listFibers is not evidence.
+    }
     function originalSdk(value: Composed) {
       const entries = value.external.sdkSubmissions ?? [];
       const initial = entries.find(entry => entry.stage === 'sdk-submission-running' && entry.attemptCount === 1);
       return initial ? entries.filter(entry => entry.submissionDigest === initial.submissionDigest) : [];
+    }
+    // Intentional intent4 wire contract, observed through the real capability.
+    // Completed predecessors here are the host's SDK-settled lineage, not model claims.
+    function assertSerialPhases(value: Composed, targets: Array<{ pullRequest: number; headSha: string }>) {
+      const phases = value.external.phases;
+      expect(phases).toHaveLength(targets.length + 2);
+      const first = phases[0].context;
+      const ids = phases.map(row => row.context.submissionId);
+      expect(new Set(ids).size).toBe(phases.length);
+      expect(new Set(phases.map(row => row.context.deliveryToken)).size).toBe(phases.length);
+      phases.forEach(({ context, commentCount }, index) => {
+        expect(context).toMatchObject({ version: 1, scope: 'submission', generation: 1,
+          deadline: first.deadline, releaseDigest: first.releaseDigest, authorityDigest: first.authorityDigest });
+        expect(context.phase).toEqual(index === 0 ? { kind: 'discovery' }
+          : index === phases.length - 1 ? { kind: 'final' } : { kind: 'target', index: index - 1, target: targets[index - 1] });
+        expect(context.previous ?? []).toEqual(phases.slice(0, index).map(row => ({
+          submissionId: row.context.submissionId, phase: row.context.phase, outcome: 'completed',
+        })));
+        // The next PR is never admitted before the preceding PR's actual comment.
+        expect(commentCount).toBe(Math.max(0, index - 1));
+      });
+    }
+    function sdkForSubmission(value: Composed, submissionId: string) {
+      const digest = createHash('sha256').update(submissionId).digest('hex');
+      return (value.external.sdkSubmissions ?? []).filter(entry => entry.submissionDigest === digest);
+    }
+    // REQ-OPERATOR-048 AC2/4 and062 AC2: additional bounded native work
+    // within the ordinary table identity, AFTER all its original assertions.
+    async function runTargetIsolation(pinned: Awaited<ReturnType<typeof pinnedArtifact>>) {
+      const targets = [{ pullRequest: 17, headSha: 'a'.repeat(40) }, { pullRequest: 18, headSha: 'c'.repeat(40) }];
+      const citedComment = (pullRequest: number) => `Migration compatibility for PR ${pullRequest} remains unverified. Source: https://docs.example.test/isolation-${pullRequest}`;
+      for (const scenario of ['target-response-failed', 'target-comment-unknown'] as const) {
+        await harness.reset(); // Existing file-owned runtime; never another shard or server.
+        const id = `isolation-${crypto.randomUUID()}`;
+        expect(await composed(id, { action: 'start', ...pinned, scenario, attemptLimit: 2 }))
+          .toMatchObject({ ok: true, state: { generation: 1, status: 'running' } });
+        const result = await observed(id, value => value.detail.executionStatus === 'completed');
+        const phases = result.external.phases;
+        expect(phases).toHaveLength(4);
+        expect(new Set(phases.map(row => row.context.submissionId)).size).toBe(4);
+        expect(new Set(phases.map(row => row.context.deliveryToken)).size).toBe(4);
+        const first = phases[0].context;
+        const terminal = scenario === 'target-response-failed' ? 'failed' : 'completed';
+        phases.forEach(({ context, commentCount }, index) => {
+          expect(context).toMatchObject({ version: 1, scope: 'submission', generation: 1,
+            deadline: first.deadline, releaseDigest: first.releaseDigest, authorityDigest: first.authorityDigest });
+          expect(context.phase).toEqual(index === 0 ? { kind: 'discovery' } : index === 3 ? { kind: 'final' }
+            : { kind: 'target', index: index - 1, target: targets[index - 1] });
+          // Actual SDK terminal lineage returned by production phase-context.
+          expect(context.previous ?? []).toEqual(phases.slice(0, index).map((row, prior) => ({
+            submissionId: row.context.submissionId, phase: row.context.phase, outcome: prior === 1 ? terminal : 'completed',
+          })));
+          expect(commentCount).toBe((scenario === 'target-response-failed' ? [0, 0, 0, 1] : [0, 0, 1, 2])[index]);
+        });
+        const expected = { repository: 'authorized/project', results: [scenario === 'target-response-failed'
+          ? { ...targets[0], outcome: 'DEFERRED', reason: 'response-failed' }
+          : { ...targets[0], decision: 'DO_NOT_MERGE', comment: citedComment(17), outcome: 'DEFERRED', reason: 'comment-uncertain' },
+        { ...targets[1], decision: 'DO_NOT_MERGE', comment: citedComment(18), outcome: 'NOT_MERGED' }] };
+        const collected = await composed<{ ok: boolean; detail: { result: unknown; checkpoint: unknown } }>(id, { action: 'collect' });
+        expect(collected).toMatchObject({ ok: true, detail: { executionStatus: 'completed' } });
+        // Exact rows: failed response has NO invented decision/comment; unknown
+        // write preserves its actual judgment but never claims posting certainty.
+        expect(collected.detail.result).toEqual(expected);
+        const effectTargets = scenario === 'target-response-failed' ? [targets[1]] : targets;
+        expect(result.external.comments).toEqual(effectTargets.map(target => expect.objectContaining({ body: citedComment(target.pullRequest),
+          issue_url: `https://api.github.com/repos/authorized/project/issues/${target.pullRequest}`,
+          user: { id: 42, login: 'fixture-publisher', type: 'User' } })));
+        expect(result.external.sourceRequests.filter(row => row.method !== 'GET')).toEqual(effectTargets.map(target => ({
+          method: 'POST', url: `https://api.github.com/repos/authorized/project/issues/${target.pullRequest}/comments`,
+        })));
+        // Observe both the protected original IDs and the external requests: an
+        // unknown first POST is neither reissued under its ID nor under a new ID.
+        expect(result.external.sourceDeliveries.filter(row => row.method !== 'GET')).toEqual(effectTargets.map(target => ({
+          operationId: `submission-pr-${target.pullRequest}-comment`, method: 'POST',
+          url: `https://api.github.com/repos/authorized/project/issues/${target.pullRequest}/comments`,
+        })));
+        expect(result.external.sourceRequests.filter(row => row.url.startsWith('https://docs.example.test/isolation-')))
+          .toEqual(effectTargets.map(target => ({ method: 'GET', url: `https://docs.example.test/isolation-${target.pullRequest}` })));
+        expect(result.external.evidence).toEqual(effectTargets.map(target => ({ index: target.pullRequest - 17, complete: true })));
+        if (scenario === 'target-response-failed') {
+          expect(result.external.isolationFaults).toEqual([{ kind: 'model-rejected', pullRequest: 17, status: 422 }]);
+          expect(result.external.inference.filter(row => row.phase?.kind === 'target' && row.phase.index === 0)).toHaveLength(1);
+        } else {
+          expect(result.external.isolationFaults).toEqual([
+            { kind: 'comment-response-lost', pullRequest: 17 },
+            { kind: 'comment-readback-unavailable', pullRequest: 17, status: 502 },
+          ]);
+          expect(result.journal).toMatchObject({ generation: 1, unresolved: 1, operationId: 'submission-pr-17-comment', receipt: {
+            generation: 1, phase: 'unknown', requestDigest: expect.stringMatching(/^[a-f0-9]{64}$/),
+            request: { method: 'POST', url: 'https://api.github.com/repos/authorized/project/issues/17/comments' },
+            phaseBinding: { submissionId: phases[1].context.submissionId, deliveryToken: phases[1].context.deliveryToken, phase: phases[1].context.phase },
+          } });
+          expect(result.journal!.receipt.resolution).toBeUndefined();
+        }
+        expect(await composed(id, { action: 'collect' })).toMatchObject({ ok: true, detail: {
+          result: expected, checkpoint: collected.detail.checkpoint,
+        } });
+        const repeated = await composed<Composed>(id, { action: 'observe' });
+        expect(repeated.external).toEqual(result.external);
+        expect(repeated.journal).toEqual(result.journal);
+        if (scenario === 'target-comment-unknown') {
+          // Reconstruction must retain the uncertain original receipt as well
+          // as immutable collection; this is root+facet, not child-only eviction.
+          expect(await composed(id, { action: 'evict' })).toEqual({ evicted: true });
+          expect(await composed(id, { action: 'collect' })).toMatchObject({ ok: true, detail: {
+            result: expected, checkpoint: collected.detail.checkpoint,
+          } });
+          const reconstructed = await composed<Composed>(id, { action: 'observe' });
+          expect(reconstructed.instance).not.toBe(result.instance);
+          expect(reconstructed.external).toEqual(result.external);
+          expect(reconstructed.journal).toEqual(result.journal);
+        }
+      }
     }
     function closedTransportFailure(error: unknown) {
       const item = error && typeof error === 'object' ? error as { name?: unknown; code?: unknown; cause?: { code?: unknown } } : undefined;
@@ -272,7 +425,8 @@ export function registerNativeDispatcherCases(
     function reportObservation(value: Composed) {
       const closed = JSON.stringify({ executionStatus: value.detail.executionStatus,
         collectionStatus: value.detail.collectionStatus, firstAppend: value.external.firstAppend ?? null,
-        sdkSubmissions: value.external.sdkSubmissions ?? [], inferenceCount: value.external.inference.length,
+        sdkSubmissions: value.external.sdkSubmissions ?? [], fiberEvents: value.fiberEvents,
+        inferenceCount: value.external.inference.length,
         commentCount: value.external.comments.length });
       if (closed !== lastClosedObservation) console.info(`[native-flue] composed closed=${closed}`);
       lastClosedObservation = closed;
@@ -292,7 +446,7 @@ export function registerNativeDispatcherCases(
       return value!;
     }
     it.each([1, 17, undefined])('REQ-OPERATOR-045/011/048: SDK admits the saved submission limit %s independently of inference retries', async limit => {
-      const pinned = await pinnedArtifact(true, true);
+      const pinned = await pinnedArtifact(false, false, true);
       const id = `submission-limit-${crypto.randomUUID()}`;
       expect(await composed(id, { action: 'start', ...pinned, scenario: limit === 1 ? 'ordinary' : 'precommit-reset', attemptLimit: 4,
         ...(limit === undefined ? {} : { submissionAttemptLimit: limit }) })).toMatchObject({ ok: true });
@@ -334,7 +488,7 @@ export function registerNativeDispatcherCases(
     }, 60_000);
 
     it('REQ-OPERATOR-011/048: a recovered SDK submission retains its original admitted attempt limit', async () => {
-      const pinned = await pinnedArtifact(true, true);
+      const pinned = await pinnedArtifact(false, false, true);
       const id = `submission-pin-${crypto.randomUUID()}`;
       expect(await composed(id, { action: 'start', ...pinned, scenario: 'precommit-reset', attemptLimit: 4,
         submissionAttemptLimit: 17 })).toMatchObject({ ok: true });
@@ -352,7 +506,7 @@ export function registerNativeDispatcherCases(
     }, 60_000);
 
     it('REQ-DISPATCHER-001 AC2 / 002 AC2/3/4/5/7/10: large-evidence-comment-batch completes seven cited outcomes and exactly seven repository comments', async () => {
-      const pinned = await pinnedArtifact(true, true);
+      const pinned = await pinnedArtifact(false, false, true);
       const id = `large-evidence-${crypto.randomUUID()}`;
       expect(await composed(id, { action: 'start', ...pinned, scenario: 'large-evidence-comment-batch',
         attemptLimit: 32, submissionAttemptLimit: 3 })).toMatchObject({ ok: true, state: { generation: 1, status: 'running' } });
@@ -364,16 +518,20 @@ export function registerNativeDispatcherCases(
       do {
         result = await composed<Composed>(id, { action: 'observe' });
         reportObservation(result);
-        if (result.detail.executionStatus !== 'running') break;
+        if (result.detail.executionStatus !== 'running'
+          && (result.detail.executionStatus !== 'completed' || fiberEvidenceSettled(result))) break;
         await new Promise(resolve => setTimeout(resolve, 100));
       } while (Date.now() < deadline);
       console.info(`[native-flue] large-evidence firstAppend=${JSON.stringify(result!.external.firstAppend ?? null)}`);
       if (result!.detail.executionStatus === 'running') await composed(id, { action: 'cancel' });
       expect(result!.detail.executionStatus, JSON.stringify({ firstAppend: result!.external.firstAppend ?? null,
         batches: result!.external.batches, evidence: result!.external.evidence })).toBe('completed');
+      assertFiberEvidence(result!);
       expect(result!.external.evidence).toEqual(Array.from({ length: 32 }, (_, index) => ({ index, complete: true })));
 
       const targets = Array.from({ length: 7 }, (_, index) => ({ pullRequest: 17 + index, headSha: (index + 1).toString(16).repeat(40) }));
+      assertSerialPhases(result!, targets);
+      expect(result!.external.batches?.every(batch => batch.length === 1)).toBe(true);
       const expected = targets.map((target, index) => ({ ...target, decision: 'DO_NOT_MERGE', outcome: 'NOT_MERGED',
         comment: `Migration compatibility for PR ${target.pullRequest}, evidence ${index}, remains unverified. Source: https://docs.example.test/migration-${index}` }));
       const collected = await composed<{ ok: boolean; detail: { result: { results: typeof expected }; checkpoint: unknown } }>(id, { action: 'collect' });
@@ -398,12 +556,15 @@ export function registerNativeDispatcherCases(
       expect(await composed(id, { action: 'collect' })).toMatchObject({ ok: true, detail: {
         result: collected.detail.result, checkpoint: collected.detail.checkpoint,
       } });
-      expect((await composed<Composed>(id, { action: 'observe' })).external).toEqual(result!.external);
+      const recollected = await composed<Composed>(id, { action: 'observe' });
+      assertFiberEvidence(recollected);
+      expect(recollected.fiberEvents).toEqual(result!.fiberEvents);
+      expect(recollected.external).toEqual(result!.external);
     }, 90_000);
 
     it.each(['ordinary', 'incomplete', 'native-error', 'duplicate', 'precommit-reset', 'committed-reset'] as const)(
       'REQ-OPERATOR-048: composed %s inference reaches a real collected assessment with one repository effect', async scenario => {
-        const pinned = await pinnedArtifact(true, true);
+        const pinned = await pinnedArtifact(false, false, true);
         const id = `composed-${crypto.randomUUID()}`;
         const admission = await composed(id, { action: 'start', ...pinned, scenario, attemptLimit: 2 });
         expect(admission, JSON.stringify(admission)).toMatchObject({ ok: true, state: { generation: 1, status: 'running' } });
@@ -415,7 +576,9 @@ export function registerNativeDispatcherCases(
           expect(await composed(id, { action: 'evict' })).toEqual({ evicted: true });
           expect(await composed(id, { action: 'release' })).toEqual({ released: true });
         }
-        const result = await observed(id, value => value.detail.executionStatus === 'completed');
+        const result = await observed(id, value => value.detail.executionStatus === 'completed'
+          && (scenario !== 'ordinary' || fiberEvidenceSettled(value)));
+        if (scenario === 'ordinary') assertFiberEvidence(result);
         if (originalInstance) expect(result.instance).not.toBe(originalInstance);
         const firstTurn = result.external.inference.filter(item => item.turn === 0);
         const recovered = ['incomplete', 'native-error', 'precommit-reset'].includes(scenario);
@@ -430,6 +593,7 @@ export function registerNativeDispatcherCases(
           expect(result.external.duplicates).toEqual([{ statuses: [200, 200], digests: [expect.any(String), expect.any(String)] }]);
           expect(new Set(result.external.duplicates[0].digests).size).toBe(1);
         }
+        assertSerialPhases(result, [{ pullRequest: 17, headSha: 'a'.repeat(40) }]);
         const collected = await composed<{ ok: true; detail: { result: unknown; checkpoint: unknown } }>(id, { action: 'collect' });
         expect(collected).toMatchObject({ ok: true, detail: { executionStatus: 'completed', result: {
           repository: 'authorized/project', results: [{ pullRequest: 17, headSha: 'a'.repeat(40), decision: 'DO_NOT_MERGE', outcome: 'NOT_MERGED' }],
@@ -440,10 +604,15 @@ export function registerNativeDispatcherCases(
         const after = await composed<Composed>(id, { action: 'observe' });
         expect(after.external).toEqual(result.external);
         expect(after.detail.sdkCleanupReleased).toBe(true); // Bookkeeping release, not physical-provider cleanup proof.
+        if (scenario === 'ordinary') {
+          assertFiberEvidence(after);
+          expect(after.fiberEvents).toEqual(result.fiberEvents);
+        }
+        if (scenario === 'ordinary') await runTargetIsolation(pinned);
       }, 90_000);
 
     it.each([1, 2])('REQ-OPERATOR-048: composed persistent interruption exhausts the configured %i attempts without an effect or collection', async attemptLimit => {
-      const pinned = await pinnedArtifact(true, true);
+      const pinned = await pinnedArtifact(false, false, true);
       const id = `exhausted-${crypto.randomUUID()}`;
       const admission = await composed(id, { action: 'start', ...pinned, scenario: 'persistent', attemptLimit });
       expect(admission, JSON.stringify(admission)).toMatchObject({ ok: true, state: { generation: 1, status: 'running' } });
@@ -456,7 +625,7 @@ export function registerNativeDispatcherCases(
     }, 90_000);
 
     it('REQ-OPERATOR-048 AC2/4: thirty-target original-read recovery survives SDK eviction without duplicate effects', async () => {
-      const pinned = await pinnedArtifact(true, true);
+      const pinned = await pinnedArtifact(false, false, true);
       const id = `thirty-evidence-${crypto.randomUUID()}`;
       expect(await composed(id, { action: 'start', ...pinned, scenario: 'thirty-target-original-evidence-recovery',
         attemptLimit: 32, submissionAttemptLimit: 3 })).toMatchObject({ ok: true, state: { generation: 1, status: 'running' } });
@@ -465,17 +634,42 @@ export function registerNativeDispatcherCases(
       expect(held.external.comments).toHaveLength(29);
       expect(held.external.sourceRequests.filter(item => item.url === 'https://api.github.com/user')).toHaveLength(30);
       expect(held.external.evidence).toEqual(Array.from({ length: 36 }, (_, index) => ({ index, complete: true })));
+      const active = held.external.phases.at(-1)!.context;
+      expect(active.phase).toEqual({ kind: 'target', index: 29, target: {
+        pullRequest: 46, headSha: (30).toString(16).padStart(40, '0'),
+      } });
+      expect(held.external.phases.some(row => row.context.phase.kind === 'final')).toBe(false);
+      expect(held.detail.result).toBeNull();
+      expect(await composed(id, { action: 'collect' })).toMatchObject({ ok: false });
+      expect(await composed(id, { action: 'evict-child' })).toEqual({ evicted: true });
+      const childRecovered = await observed(id, value => sdkForSubmission(value, active.submissionId)
+        .some(entry => entry.stage === 'sdk-submission-running' && entry.attemptCount > 1)
+        && observedInterruptedFiber(value));
+      // Independently observed original start/interruption pair, NOT attribution
+      // to the active SID or proof that runtime abort emitted a callback ending.
+      expect(observedInterruptedFiber(childRecovered), JSON.stringify(childRecovered.fiberEvents)).toBe(true);
+      expect(childRecovered.instance).toBe(held.instance);
+      expect(childRecovered.external.phases.at(-1)!.context).toEqual(active);
+      expect(childRecovered.external.comments).toEqual(held.external.comments);
+      expect(childRecovered.detail.result).toBeNull();
+      // Keep the original separate root-plus-facet reconstruction proof as well.
       expect(await composed(id, { action: 'evict' })).toEqual({ evicted: true });
       expect(await composed(id, { action: 'release' })).toEqual({ released: true });
-      const result = await observed(id, value => value.detail.executionStatus === 'completed');
+      const result = await observed(id, value => value.detail.executionStatus === 'completed'
+        && fiberEvidenceSettled(value, true) && observedInterruptedFiber(value));
+      assertFiberEvidence(result, true);
       expect(result.instance).not.toBe(held.instance);
-      expect(originalSdk(result).some(entry => entry.stage === 'sdk-submission-running'
+      // Replacement belongs to the still-active thirtieth response, not discovery.
+      expect(sdkForSubmission(result, active.submissionId).some(entry => entry.stage === 'sdk-submission-running'
         && entry.attemptCount > 1 && entry.maxAttempts === 3)).toBe(true);
       expect(result.external.sourceRequests.filter(item => item.url === 'https://api.github.com/user')).toHaveLength(31);
       expect(result.external.evidence).toEqual(Array.from({ length: 36 }, (_, index) => ({ index, complete: true })));
       const expected = Array.from({ length: 30 }, (_, index) => ({ pullRequest: 17 + index,
         headSha: (index + 1).toString(16).padStart(40, '0'), decision: 'DO_NOT_MERGE', outcome: 'NOT_MERGED',
         comment: `Migration compatibility for PR ${17 + index}, evidence ${index}, remains unverified. Source: https://docs.example.test/migration-${index} ${'Missing verified configuration and migration evidence. '.repeat(16)}` }));
+      assertSerialPhases(result, expected.map(({ pullRequest, headSha }) => ({ pullRequest, headSha })));
+      expect(result.external.phases[30].context).toEqual(active);
+      expect(result.external.batches?.every(batch => batch.length === 1)).toBe(true);
       const collected = await composed<{ ok: boolean; detail: { result: { repository: string; results: typeof expected }; checkpoint: unknown } }>(id, { action: 'collect' });
       expect(collected).toMatchObject({ ok: true, detail: { executionStatus: 'completed', result: { repository: 'authorized/project' } } });
       expect(collected.detail.result.results).toHaveLength(30);
@@ -502,6 +696,8 @@ export function registerNativeDispatcherCases(
       const after = await composed<Composed>(id, { action: 'observe' });
       expect(after.external).toEqual(result.external);
       expect(after.detail.sdkCleanupReleased).toBe(true);
+      assertFiberEvidence(after, true);
+      expect(after.fiberEvents).toEqual(result.fiberEvents);
     }, 90_000);
   });
 

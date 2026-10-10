@@ -15,7 +15,7 @@ import conductorBundle from './conductor-review.generated.json';
 import { OperatorRegistry, type OperatorAdmissionRequest } from '../../../operators/registry';
 import { OperatorActivity as ProductionActivity, type OperatorActivityPreparation } from '../../../operators/activity';
 import { OperatorDispatcherTail as ProductionDispatcherTail } from '../../../operators/activity';
-import { composedFixture, fixtureObservationId, observeBoundary, fixtureOperatorDispatcherTail, fixtureSubmissionRunning, type RecoveryServices } from './dispatcher-composed-fixture';
+import { composedFixture, fixtureObservationId, observeBoundary, fixtureOperatorDispatcherTail, fixtureSubmissionRunning, fixtureFiberLifecycle, type RecoveryServices } from './dispatcher-composed-fixture';
 
 /** Capture closed fixture evidence in its external DO, not a shared-isolate assumption. */
 export class OperatorDispatcherTail extends ProductionDispatcherTail {
@@ -23,7 +23,8 @@ export class OperatorDispatcherTail extends ProductionDispatcherTail {
     const props = this.ctx.props as { activityId?: unknown; generation?: unknown };
     if (typeof props?.activityId === 'string' && typeof props.generation === 'number') {
       const env = this.env as unknown as { RECOVERY_SERVICES: DurableObjectNamespace<RecoveryServices> };
-      await env.RECOVERY_SERVICES.getByName('services').recordTail(props.activityId, props.generation, fixtureOperatorDispatcherTail(events), fixtureSubmissionRunning(events));
+      await env.RECOVERY_SERVICES.getByName('services').recordTail(props.activityId, props.generation,
+        fixtureOperatorDispatcherTail(events), fixtureSubmissionRunning(events), await fixtureFiberLifecycle(events));
     }
     await super.tail(events);
   }

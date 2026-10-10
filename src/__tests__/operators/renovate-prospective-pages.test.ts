@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { listProspectiveRenovatePrs } from '../../operators/renovate-prospective';
 import type { CurrentProspectiveRegistration } from '../../operators/registry';
 import type { Env } from '../../types';
+import type { RetainedRenovateRetryTarget } from '../../operators/renovate-retry-proof';
 
 const root = 'https://api.github.com/repos/acme/updates';
 const row = (number: number) => ({ number, state: 'open', created_at: '2026-09-28T00:00:00Z',
@@ -9,12 +10,12 @@ const row = (number: number) => ({ number, state: 'open', created_at: '2026-09-2
   draft: false, head: { sha: 'a'.repeat(40) }, base: { ref: 'trunk', sha: 'b'.repeat(40), repo: { id: 424242, full_name: 'acme/updates' } } });
 const next = `${root}/pulls?state=open&per_page=100&page=2`;
 function scan(pages: Array<{ rows: unknown[]; link?: string }>, metadata: unknown = { id: 424242, full_name: 'acme/updates', default_branch: 'trunk' }, current: () => Promise<boolean> = async () => true,
-  onResponse: (request: Request) => void = () => {}) {
+  onResponse: (request: Request) => void = () => {}, retainedRetryTargets: RetainedRenovateRetryTarget[] = []) {
   return listProspectiveRenovatePrs({ env: {} as Env,
     registration: { bucket: 'owner', human: { email: 'owner@example.test' },
       activatedAt: '2026-09-27T00:00:00.000Z', repository: 'acme/updates', repositoryId: 424242, baseBranch: 'trunk',
       repetitionIntervalSeconds: 900 } as unknown as CurrentProspectiveRegistration,
-    current,
+    current, retainedRetryTargets,
     exports: { GitHubInterceptor: () => ({ fetch: async (request: Request) => {
       const url = new URL(request.url);
       if (url.href === root) {
@@ -85,5 +86,26 @@ describe('REQ-OPERATOR-061: configured Renovate run settings', () => {
   it('preserves the ten-page bound rather than accepting an incomplete large scan', async () => {
     await expect(scan(Array.from({ length: 10 }, () => ({ rows: Array.from({ length: 100 }, (_, i) => row(i + 1)) }))))
       .rejects.toThrow();
+  });
+});
+
+describe('REQ-OPERATOR-061 AC2: retained failed-target cutoff exception', () => {
+  const retained = { repositoryId: 424242, pullRequest: 2, head: 'a'.repeat(40), createdAt: '2026-09-26T00:00:00.000Z' };
+  const old = { ...row(2), created_at: retained.createdAt };
+  it('re-observes only the exact retained failed head without widening the cutoff, bot, repository or base authority', async () => {
+    const candidates = await scan([{ rows: [row(1), old,
+      { ...old, number: 3 }, { ...old, head: { sha: 'b'.repeat(40) } },
+      { ...old, draft: true }, { ...old, user: { ...old.user, id: 1 } },
+      { ...old, base: { ...old.base, ref: 'main' } },
+      { ...old, base: { ...old.base, repo: { id: 1, full_name: 'acme/updates' } } }] }],
+      undefined, undefined, undefined, [retained]);
+    expect(candidates.map(value => [value.pullRequest, value.head])).toEqual([[1, 'a'.repeat(40)], [2, 'a'.repeat(40)]]);
+  });
+  it('does not admit a retained target absent from the complete authenticated open-PR observation', async () => {
+    expect(await scan([{ rows: [] }], undefined, undefined, undefined, [retained])).toEqual([]);
+  });
+  it('refuses retained failures in an incomplete observation', async () => {
+    await expect(scan([{ rows: [old], link: `<${next}>; rel="next"` }],
+      undefined, undefined, undefined, [retained])).rejects.toThrow();
   });
 });

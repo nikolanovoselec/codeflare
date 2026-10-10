@@ -11,12 +11,13 @@ import * as access from '../../lib/access';
 import activityRoutes from '../../routes/operator-activities';
 import { listProspectiveRenovatePrs } from '../../operators/renovate-prospective';
 import type { Env } from '../../types';
+import type { ProspectiveRenovateRetryProof } from '../../operators/renovate-retry-proof';
 
 const repoId = 424242, head = 'a'.repeat(40), newerHead = 'b'.repeat(40);
 const at = new Date().toISOString();
-const claims = (email: string) => ({ subject: email, email, issuer: 'https://owner.cloudflareaccess.com',
+const claims = (email: string, lifetimeSeconds = 300) => ({ subject: email, email, issuer: 'https://owner.cloudflareaccess.com',
   audiences: ['audience'], issuedAt: Math.floor(Date.now() / 1000) - 20,
-  expiresAt: Math.floor(Date.now() / 1000) + 300 });
+  expiresAt: Math.floor(Date.now() / 1000) + lifetimeSeconds });
 type Registration = { ok: true; activatedAt: string; registrationId: string } | { ok: false; reason: string };
 type Reservation = { ok: true; activityId: string; actor: { registrationId: string; bucket: string;
   sessionId: string; sessionGeneration: number } } | { ok: false; reason: string };
@@ -28,10 +29,11 @@ type Prospective = {
   reserveProspectiveRenovateActivity(input: { registrationId: string; repositoryId: number;
     pullRequest: number; head: string; createdAt: string; activityId: string }): Promise<Reservation>;
   readProspectiveRenovateAdmission(activityId: string): Promise<unknown | null>;
+  retainedProspectiveRenovateRetryTargets(registrationId: string): Promise<unknown[]>;
 };
 
 async function fixture(run: (context: { registry: Prospective; restart: () => Prospective;
-  native: DurableObjectState; environment: Env; selection: object;
+  native: DurableObjectState; environment: Env; selection: object; proofs: Map<string, unknown>;
   state: { sessions: Map<string, { generation: number; status: string }>;
     roles: Map<string, string>; revoked: Set<string>; enabled: boolean } }) => Promise<void>) {
   const namespace = (env as unknown as { OPERATOR_REGISTRY: DurableObjectNamespace }).OPERATOR_REGISTRY;
@@ -52,7 +54,10 @@ async function fixture(run: (context: { registry: Prospective; restart: () => Pr
     } }) }) };
     kv.get = vi.fn(async (key: string) => key.startsWith('user:')
       ? JSON.stringify({ role: state.roles.get(key.slice(5)) ?? 'user' }) : null) as typeof kv.get;
-    const environment = { ENCRYPTION_KEY: btoa('k'.repeat(32)),
+    const proofs = new Map<string, unknown>();
+    const environment = { OPERATOR_ACTIVITY: { getByName: (id: string) => ({
+      readProspectiveRenovateRetryProof: async () => proofs.get(id) ?? null,
+    }) }, ENCRYPTION_KEY: btoa('k'.repeat(32)),
       USAGE_DB: database, KV: kv } as unknown as Env;
     const registry = new OperatorRegistry(native, environment);
     const selection = { controlsRevision: 1, installation: { id: 'dispatcher-install', operatorId: 'dispatcher',
@@ -80,13 +85,13 @@ async function fixture(run: (context: { registry: Prospective; restart: () => Pr
         email: `${token.slice(0, 1)}@example.test`, groups: [] });
     };
     try { await run({ registry: registry as unknown as Prospective, restart, native,
-      environment, selection, state }); }
+      environment, selection, state, proofs }); }
     finally { globalThis.fetch = originalFetch; }
   });
 }
-async function enroll(registry: Prospective, user: 'a' | 'z', generation = user === 'a' ? 3 : 4, repository = { repository: 'acme/updates', repositoryId: repoId, baseBranch: 'trunk' }) {
+async function enroll(registry: Prospective, user: 'a' | 'z', generation = user === 'a' ? 3 : 4, repository = { repository: 'acme/updates', repositoryId: repoId, baseBranch: 'trunk' }, lifetimeSeconds = 300) {
   return registry.activateProspectiveRenovate({ installationId: 'dispatcher-install', bucket: 'owner-bucket',
-    sessionId: `${user}session01`, sessionGeneration: generation, human: claims(`${user}@example.test`), accessJwt: `${user}-jwt`, repository });
+    sessionId: `${user}session01`, sessionGeneration: generation, human: claims(`${user}@example.test`, lifetimeSeconds), accessJwt: `${user}-jwt`, repository });
 }
 function pr(registrationId: string, activatedAt: string, patch: Record<string, unknown> = {}) {
   return { registrationId, repository: 'acme/updates', baseBranch: 'trunk', repositoryId: repoId, pullRequest: 1300, head,
@@ -97,7 +102,7 @@ describe('REQ-OPERATOR-061: durable prospective activation and admission', () =>
   it.each(['old-intent', 'future-intent', 'foreign-package', 'malformed-manifest'])('REQ-OPERATOR-061: unsupported %s cannot activate a prospective current-package registration or retain its cutoff', fault => fixture(async ({ registry, selection }) => {
     const manifest = { id: 'renovate-dispatcher', profile: 'dispatcher', intentVersion: '3' };
     if (fault === 'old-intent') manifest.intentVersion = '2';
-    if (fault === 'future-intent') manifest.intentVersion = '4';
+    if (fault === 'future-intent') manifest.intentVersion = '5';
     if (fault === 'foreign-package') manifest.id = 'foreign-dispatcher';
     const selected = selection as { manifestJson: string };
     selected.manifestJson = fault === 'malformed-manifest' ? '{' : JSON.stringify(manifest);
@@ -434,4 +439,121 @@ describe('REQ-OPERATOR-061: configured Renovate run settings', () => {
     } finally { globalThis.fetch = original; }
   }));
 
+});
+
+function terminalProof(activityId: string, createdAt: string, terminalAt: number): ProspectiveRenovateRetryProof {
+  return { activityId, generation: 1, repository: 'acme/updates', repositoryId: repoId, baseBranch: 'trunk',
+    pullRequest: 1300, head, artifactDigest: 'c'.repeat(64), createdAt, terminalAt,
+    collected: true, settled: true, sdkSubmissionId: 'original-sid', disposition: 'DEFERRED' };
+}
+
+describe('REQ-OPERATOR-061 AC2/6/7: terminal-proof configured retry', () => {
+  // These fresh actors remain authorized across the 900-second due boundary.
+  // Existing enrollment/expiry cases retain their original 300-second lifetime.
+  const enrollRetry = (registry: Prospective, user: 'a' | 'z') => enroll(registry, user, undefined, undefined, 7200);
+  it.each(['3', '4'])('admits the existing first-party intent%s contract', intentVersion => fixture(async ({ registry, selection }) => {
+    (selection as { manifestJson: string }).manifestJson = JSON.stringify({ id: 'renovate-dispatcher', profile: 'dispatcher', intentVersion });
+    expect(await enrollRetry(registry, 'a')).toMatchObject({ ok: true });
+  }));
+  it.each(['EXECUTION_FAILED', 'DEFERRED'] as const)('elects one fresh unchanged-head %s attempt exactly at the configured due boundary and preserves original history', disposition => fixture(async ({ registry, restart, proofs }) => {
+    const now = Date.now(), clock = vi.spyOn(Date, 'now').mockReturnValue(now);
+    try {
+      const a = await enrollRetry(registry, 'a'), z = await enrollRetry(registry, 'z');
+      if (!a.ok || !z.ok) throw Error('Activation unavailable');
+      const observed = pr(a.registrationId, a.activatedAt);
+      const original = await registry.reserveProspectiveRenovateActivity(observed);
+      const journal = await registry.readProspectiveRenovateAdmission('activity-1');
+      proofs.set('activity-1', { ...terminalProof('activity-1', observed.createdAt, now + 1000), disposition });
+      clock.mockReturnValue(now + 900_000 - 1);
+      expect(await registry.reserveProspectiveRenovateActivity({ ...observed, activityId: 'not-due' })).toEqual(original);
+      expect(await registry.retainedProspectiveRenovateRetryTargets(a.registrationId)).toEqual([]);
+      clock.mockReturnValue(now + 900_000);
+      expect(await registry.retainedProspectiveRenovateRetryTargets(a.registrationId)).toEqual([{
+        repositoryId: repoId, pullRequest: 1300, head, createdAt: observed.createdAt }]);
+      const outcomes = await Promise.all([registry.reserveProspectiveRenovateActivity({ ...observed, activityId: 'retry-a' }),
+        registry.reserveProspectiveRenovateActivity({ ...observed, registrationId: z.registrationId, activityId: 'retry-z' })]);
+      expect(outcomes[0]).toEqual(outcomes[1]);
+      expect(outcomes[0]).toMatchObject({ ok: true, actor: { registrationId: a.registrationId } });
+      if (!outcomes[0].ok) throw Error('Retry unavailable');
+      expect(outcomes[0].activityId).not.toBe('activity-1');
+      expect(await restart().readProspectiveRenovateAdmission(outcomes[0].activityId)).toMatchObject({
+        attempt: 2, previousActivityId: 'activity-1', admittedAt: now + 900_000, head });
+      expect(await restart().readProspectiveRenovateAdmission('activity-1')).toEqual(journal);
+      // A lost preparation/start response supplies no terminal proof for the winner.
+      clock.mockReturnValue(now + 1_800_000);
+      expect(await restart().reserveProspectiveRenovateActivity({ ...observed, activityId: 'lost-ack-replacement' })).toEqual(outcomes[0]);
+      expect(await restart().readProspectiveRenovateAdmission('lost-ack-replacement')).toBeNull();
+    } finally { clock.mockRestore(); }
+  }));
+  it('does not borrow refreshed session or installation authority for a due retry', () => fixture(async ({ registry, proofs, state, selection }) => {
+    const now = Date.now(), clock = vi.spyOn(Date, 'now').mockReturnValue(now);
+    try {
+      const a = await enrollRetry(registry, 'a'); if (!a.ok) throw Error('Activation unavailable');
+      const observed = pr(a.registrationId, a.activatedAt);
+      await registry.reserveProspectiveRenovateActivity(observed);
+      const original = await registry.readProspectiveRenovateAdmission('activity-1');
+      proofs.set('activity-1', terminalProof('activity-1', observed.createdAt, now + 1000));
+      clock.mockReturnValue(now + 900_000);
+      state.sessions.set('asession01', { generation: 4, status: 'running' });
+      expect(await registry.reserveProspectiveRenovateActivity({ ...observed, activityId: 'stale-retry' }))
+        .toEqual({ ok: false, reason: 'no-current-admin' });
+      state.sessions.set('asession01', { generation: 3, status: 'running' });
+      (selection as { installation: { revision: number } }).installation.revision++;
+      expect(await registry.reserveProspectiveRenovateActivity({ ...observed, activityId: 'stale-retry' }))
+        .toEqual({ ok: false, reason: 'no-current-admin' });
+      expect(await registry.readProspectiveRenovateAdmission('activity-1')).toEqual(original);
+      expect(await registry.readProspectiveRenovateAdmission('stale-retry')).toBeNull();
+    } finally { clock.mockRestore(); }
+  }));
+  it('retains a proven historical target without moving the cutoff and refuses changed or unretained pre-cutoff heads', () => fixture(async ({ registry, proofs, native }) => {
+    const now = Date.now(), clock = vi.spyOn(Date, 'now').mockReturnValue(now);
+    try {
+      const a = await enrollRetry(registry, 'a'); if (!a.ok) throw Error('Activation unavailable');
+      const observed = pr(a.registrationId, a.activatedAt);
+      await registry.reserveProspectiveRenovateActivity(observed);
+      const oldCreatedAt = new Date(now - 1000).toISOString();
+      const admission = { ...await registry.readProspectiveRenovateAdmission('activity-1') as object, createdAt: oldCreatedAt };
+      // Retained historical admission fixture; ordinary scans cannot create this pre-cutoff record.
+      await native.storage.put('renovate-activity:activity-1', admission);
+      await native.storage.put(`renovate-admission:${repoId}:1300:${head}`, admission);
+      proofs.set('activity-1', terminalProof('activity-1', oldCreatedAt, now + 1000));
+      clock.mockReturnValue(now + 900_000);
+      expect(await registry.retainedProspectiveRenovateRetryTargets(a.registrationId)).toEqual([{
+        repositoryId: repoId, pullRequest: 1300, head, createdAt: oldCreatedAt }]);
+      expect(await registry.reserveProspectiveRenovateActivity({ ...observed, createdAt: oldCreatedAt, head: newerHead, activityId: 'changed-old-head' }))
+        .toMatchObject({ ok: false, reason: 'pre-activation' });
+      expect(await registry.reserveProspectiveRenovateActivity({ ...observed, createdAt: oldCreatedAt, pullRequest: 1301, activityId: 'unretained-old-pr' }))
+        .toMatchObject({ ok: false, reason: 'pre-activation' });
+      expect(await registry.reserveProspectiveRenovateActivity({ ...observed, createdAt: oldCreatedAt, activityId: 'retained-retry' }))
+        .toMatchObject({ ok: true, activityId: 'retained-retry' });
+      expect(await registry.currentProspectiveRenovateRegistration(a.registrationId)).toMatchObject({ activatedAt: a.activatedAt });
+      expect(await registry.readProspectiveRenovateAdmission('activity-1')).toEqual(admission);
+    } finally { clock.mockRestore(); }
+  }));
+  it.each(['absent', 'unknown', 'uncollected', 'unsettled', 'foreign-activity', 'foreign-repository', 'foreign-head', 'foreign-package', 'success', 'future-terminal', 'unavailable'])
+    ('refuses %s proof without replacing or refreshing the original actor', fault => fixture(async ({ registry, restart, proofs, environment }) => {
+      const now = Date.now(), clock = vi.spyOn(Date, 'now').mockReturnValue(now);
+      try {
+        const a = await enrollRetry(registry, 'a'); if (!a.ok) throw Error('Activation unavailable');
+        const observed = pr(a.registrationId, a.activatedAt);
+        const original = await registry.reserveProspectiveRenovateActivity(observed);
+        const proof: Record<string, unknown> = { ...terminalProof('activity-1', observed.createdAt, now + 1000) };
+        if (fault === 'unknown') proof.disposition = 'UNKNOWN';
+        if (fault === 'uncollected') proof.collected = false;
+        if (fault === 'unsettled') proof.settled = false;
+        if (fault === 'foreign-activity') proof.activityId = 'other-activity';
+        if (fault === 'foreign-repository') proof.repositoryId = 1;
+        if (fault === 'foreign-head') proof.head = newerHead;
+        if (fault === 'foreign-package') proof.artifactDigest = 'd'.repeat(64);
+        if (fault === 'success') proof.disposition = 'MERGED';
+        if (fault === 'future-terminal') proof.terminalAt = now + 1_800_001;
+        if (fault !== 'absent') proofs.set('activity-1', proof);
+        if (fault === 'unavailable') (environment as unknown as { OPERATOR_ACTIVITY: unknown }).OPERATOR_ACTIVITY = {
+          getByName: () => ({ readProspectiveRenovateRetryProof: async () => { throw Error('Unavailable'); } }) };
+        clock.mockReturnValue(now + 900_000);
+        expect(await restart().reserveProspectiveRenovateActivity({ ...observed, activityId: 'replacement' })).toEqual(original);
+        expect(await restart().readProspectiveRenovateAdmission('replacement')).toBeNull();
+        expect(await registry.retainedProspectiveRenovateRetryTargets(a.registrationId)).toEqual([]);
+      } finally { clock.mockRestore(); }
+    }));
 });

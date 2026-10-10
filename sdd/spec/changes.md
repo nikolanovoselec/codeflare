@@ -2,6 +2,10 @@
 
 Semantic changes to the specification. Git history captures diffs; this file captures intent.
 
+## 2026-10-10
+
+- Specify serial PR-isolated SDK responses and complete deferred-aware collection while preserving uncertainty ([REQ-OPERATOR-048/062](operators.md#req-operator-048-dispatcher-execution)). Require freshly authorized due-interval retry of still-open failed/deferred PRs ([REQ-OPERATOR-061](operators.md#req-operator-061-prospective-admin-session-renovate-scan)); acceptance remains Planned.
+
 ## 2026-10-08
 
 - At explicit user approval, run one CI-only native harness isolation experiment (REQ-OPS-045; existing REQ-OPERATOR-047/048/063 acceptance). Pinned Wrangler ignores `unstable_dev`'s experimental watch option; use its supported `unstable_startWorker` API with `dev.watch: false`, explicit readiness and awaited per-case disposal. Its fetch waits for pending proxy runtime messages before the same dev-proxy-to-UserWorker path. Preserve three concurrent file-owned runtimes, all52 native cases, complete evidence/effects/outcomes/collection/recollection assertions, original deadlines and all existing gates. Change no dependency/compiler pins or production behavior and add no retries. No matched runtime reload or initiating cause has been established; exact-head CI, complete GREEN under three minutes and hosted acceptance remain pending.

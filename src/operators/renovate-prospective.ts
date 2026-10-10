@@ -2,6 +2,7 @@ import { z } from 'zod';
 import type { Env } from '../types';
 import { parseOperatorPolicy } from './policy';
 import type { CurrentProspectiveRegistration } from './registry';
+import type { RetainedRenovateRetryTarget } from './renovate-retry-proof';
 import { renovateRepositoryIdentity, type RenovateRepositoryIdentity } from './renovate-run-settings';
 
 type ParentScanTransport = {
@@ -72,7 +73,7 @@ const pr = z.object({ number: z.number().int().positive().safe(), state: z.liter
     repo: z.object({ id: z.number().int().positive().safe(), full_name: z.string() }) }) });
 export async function listProspectiveRenovatePrs(input: {
   env: Env; exports: ParentScanTransport['exports']; registration: CurrentProspectiveRegistration;
-  current: () => Promise<boolean>;
+  current: () => Promise<boolean>; retainedRetryTargets?: readonly RetainedRenovateRetryTarget[];
 }): Promise<Array<RenovateRepositoryIdentity & { pullRequest: number; head: string; createdAt: string }>> {
   const { registration } = input;
   const identity = renovateRepositoryIdentity.safeParse({ repository: registration.repository,
@@ -111,7 +112,9 @@ export async function listProspectiveRenovatePrs(input: {
         || row.base.repo.full_name.toLowerCase() !== identity.data.repository.toLowerCase()
         || row.user.id !== 29139614 || row.user.login !== 'renovate[bot]' || row.user.type !== 'Bot') continue;
       const createdAt = new Date(row.created_at).toISOString();
-      if (createdAt > registration.activatedAt) found.push({ ...identity.data,
+      const retained = input.retainedRetryTargets?.some(target => target.repositoryId === identity.data.repositoryId
+        && target.pullRequest === row.number && target.head === row.head.sha && target.createdAt === createdAt);
+      if (createdAt > registration.activatedAt || retained) found.push({ ...identity.data,
         pullRequest: row.number, head: row.head.sha, createdAt });
     }
     if (rows.length < 100) { complete = true; break; }

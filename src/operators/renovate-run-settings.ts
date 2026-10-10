@@ -45,6 +45,6 @@ export function prospectiveRenovatePackageSupported(manifestJson: string): boole
   try {
     const manifest = JSON.parse(manifestJson);
     return manifest !== null && typeof manifest === 'object' && !Array.isArray(manifest)
-      && manifest.id === 'renovate-dispatcher' && manifest.profile === 'dispatcher' && manifest.intentVersion === '3';
+      && manifest.id === 'renovate-dispatcher' && manifest.profile === 'dispatcher' && (manifest.intentVersion === '3' || manifest.intentVersion === '4');
   } catch { return false; }
 }

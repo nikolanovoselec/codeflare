@@ -189,6 +189,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       mockEnv.CONTAINER = { idFromName: () => ({ toString: () => 'test-do-id-hex' }) };
       mockEnv.OPERATOR_ACTIVITY = {};
       mockEnv.OPERATOR_REGISTRY = { getByName: () => ({
+        retainedProspectiveRenovateRetryTargets: async () => [],
         currentProspectiveRenovateRegistration: async (id: string) => current?.registrationId === id ? current : null,
         reserveProspectiveRenovateActivity: async (input: unknown) => { admissions.push(input); return { ok: false }; },
       }) };
@@ -295,6 +296,90 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
     });
   });
 
+  it.each(['preparation', 'start'])('REQ-OPERATOR-061 AC2/7: a lost %s acknowledgement retains original Activity and actor at later configured scans', async lost => {
+    const stored = new Map<string, unknown>();
+    mockStorage.get.mockImplementation(async (key: string) => stored.get(key));
+    mockStorage.put.mockImplementation(async (key: string, value: unknown) => { stored.set(key, value); });
+    mockEnv.ENCRYPTION_KEY = btoa('k'.repeat(32));
+    mockEnv.CONTAINER = { idFromName: () => ({ toString: () => 'test-do-id-hex' }) };
+    const human = { subject: 'admin', email: 'admin@example.test', issuer: 'https://owner.cloudflareaccess.com',
+      audiences: ['audience'], issuedAt: Math.floor(Date.now() / 1000) - 20,
+      expiresAt: Math.floor(Date.now() / 1000) + 14_400 };
+    const pin = { installationId: 'dispatcher-install', registrationId: 'original-admin',
+      bucket: 'owner-bucket', sessionId: 'session0001', sessionGeneration: 3 };
+    const actor = { registrationId: pin.registrationId, bucket: pin.bucket,
+      sessionId: pin.sessionId, sessionGeneration: pin.sessionGeneration };
+    const current = { ...pin, repository: 'acme/updates', repositoryId: 424242, baseBranch: 'trunk',
+      repetitionIntervalSeconds: 900, controlsRevision: 1, installationRevision: 1, operatorRevision: 1,
+      releaseId: 'release', bundleDigest: 'c'.repeat(64), activatedAt: '2026-09-28T00:00:00.000Z', human, accessJwt: 'a-jwt' };
+    const retained = { repositoryId: 424242, pullRequest: 1300, head: 'a'.repeat(40), createdAt: '2026-09-27T00:00:00.000Z' };
+    let reservedId: string | undefined;
+    let state: 'absent' | 'prepared' | 'queued' = 'absent';
+    const history: Array<{ activityId: string; effect: string; invocation?: string }> = [];
+    const selection = { controlsRevision: 1,
+      installation: { id: pin.installationId, operatorId: 'dispatcher', revision: 1, enabled: true,
+        releaseId: 'release', policy: { capabilities: ['fetch'], resourceProfileId: null },
+        configurationJson: JSON.stringify({ renovate: { repository: current.repository, automaticRuns: true, repetitionIntervalSeconds: 900 } }) },
+      operator: { operatorId: 'dispatcher', profile: 'dispatcher', revision: 1,
+        invokers: { users: [human.email], groups: [] } },
+      release: { id: 'release', bundleDigest: current.bundleDigest },
+      manifestJson: JSON.stringify({ id: 'renovate-dispatcher', profile: 'dispatcher', intentVersion: '4' }) };
+    mockEnv.OPERATOR_REGISTRY = { getByName: () => ({
+      resolveManagementExecution: async () => ({ ok: true, value: selection }),
+      currentProspectiveRenovateRegistration: async () => current,
+      retainedProspectiveRenovateRetryTargets: async () => [retained],
+      reserveProspectiveRenovateActivity: async (input: { activityId: string; pullRequest: number }) => {
+        if (input.pullRequest !== retained.pullRequest) throw Error('Cutoff exception widened');
+        reservedId ??= input.activityId;
+        return { ok: true, activityId: reservedId, actor };
+      },
+      readProspectiveRenovateAdmission: async (id: string) => ({ ...retained, activityId: id, actor }),
+    }) };
+    mockEnv.OPERATOR_ACTIVITY = { getByName: (id: string) => {
+      if (id !== reservedId) throw Error('Replacement Activity');
+      return { bindProspectiveRenovateAdmission: async () => true,
+        getRuntimePlan: async () => null,
+        getBrowserDetail: async () => state === 'absent' ? null : ({ executionStatus: state }),
+        prepareAuthorized: async (intent: { activityId: string }, _context: unknown, invocation: string) => {
+          state = 'prepared'; history.push({ activityId: intent.activityId, effect: 'prepared', invocation });
+          if (lost === 'preparation') throw Error('Accepted preparation acknowledgement lost');
+          return { ok: true };
+        },
+        start: async () => { state = 'queued'; history.push({ activityId: id, effect: 'started' });
+          throw Error('Accepted start acknowledgement lost'); },
+      };
+    } };
+    (mockCtx as any).exports = { GitHubInterceptor: () => ({ fetch: async (request: Request) =>
+      request.url.endsWith('/repos/acme/updates') ? Response.json({ id: 424242, full_name: 'acme/updates', default_branch: 'trunk' })
+        : Response.json([{ number: 1300, state: 'open', draft: false, created_at: retained.createdAt,
+          user: { id: 29139614, login: 'renovate[bot]', type: 'Bot' }, head: { sha: retained.head },
+          base: { ref: 'trunk', sha: 'b'.repeat(40), repo: { id: 424242, full_name: 'acme/updates' } } }]) }) };
+    const session = new ContainerClass(mockCtx as any, mockEnv);
+    const rows: Array<{ payload: unknown; delay: number }> = [];
+    vi.spyOn(session, 'listSchedules').mockResolvedValue([]);
+    vi.spyOn(session, 'deleteSchedules').mockImplementation(() => {});
+    vi.spyOn(session, 'schedule').mockImplementation(async (delay, _method, payload) => {
+      rows.push({ payload, delay: Number(delay) });
+      return { taskId: 'scan', callback: 'scanRenovate', payload, type: 'delayed',
+        time: Math.floor(Date.now() / 1000) + Number(delay), delayInSeconds: Number(delay) };
+    });
+    expect(await session.armRenovateScan(pin)).toEqual({ ok: true });
+    const now = Date.now(), clock = vi.spyOn(Date, 'now');
+    try {
+      clock.mockReturnValue(now + 900_000);
+      await session.scanRenovate(pin);
+      const originalHistory = structuredClone(history);
+      expect(originalHistory).toEqual([{ activityId: reservedId, effect: 'prepared',
+        invocation: JSON.stringify({ repository: current.repository }) },
+        ...(lost === 'start' ? [{ activityId: reservedId, effect: 'started' }] : [])]);
+      clock.mockReturnValue(now + 1_800_000);
+      await session.scanRenovate(pin);
+      expect(history).toEqual(originalHistory);
+      expect(state).toBe(lost === 'preparation' ? 'prepared' : 'queued');
+      expect(rows.map(row => row.delay)).toEqual([900, 900, 900]);
+    } finally { clock.mockRestore(); }
+  });
+
   it('REQ-OPERATOR-061: a lost scheduler acknowledgement is reconciled without creating another hourly callback', async () => {
     const saved = new Map<string, unknown>();
     mockStorage.get.mockImplementation(async (key: string) => saved.get(key));
@@ -303,6 +388,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       name === 'owner-bucket-session0001' ? 'test-do-id-hex' : 'foreign-do' }) };
     mockEnv.OPERATOR_ACTIVITY = {};
     mockEnv.OPERATOR_REGISTRY = { getByName: () => ({
+      retainedProspectiveRenovateRetryTargets: async () => [],
       currentProspectiveRenovateRegistration: async () => ({ repository: 'nikolanovoselec/komodo', repositoryId: 973175879, baseBranch: 'main', repetitionIntervalSeconds: 3600, installationId: 'dispatcher-install',
         registrationId: 'registered-admin', bucket: 'owner-bucket', sessionId: 'session0001', sessionGeneration: 3 }),
     }) };
@@ -365,6 +451,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
           invokers: { users: ['admin@example.test'], groups: [] } },
         release: { id: 'release', bundleDigest: 'c'.repeat(64) }, manifestJson: JSON.stringify({ id: 'renovate-dispatcher', profile: 'dispatcher', intentVersion: '3' }),
       } }),
+      retainedProspectiveRenovateRetryTargets: async () => [],
       currentProspectiveRenovateRegistration: async () => ({ repository: 'nikolanovoselec/komodo', repositoryId: 973175879, baseBranch: 'main', repetitionIntervalSeconds: 3600, controlsRevision: 1, installationRevision: 1, operatorRevision: 1, releaseId: 'release', bundleDigest: 'c'.repeat(64), activatedAt, installationId: 'dispatcher-install',
         registrationId: 'active-admin', bucket: 'owner-bucket', sessionId: 'session0001', sessionGeneration: 3,
         human: { subject: 'admin', email: 'admin@example.test', issuer: 'https://owner.cloudflareaccess.com',
@@ -517,6 +604,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
         getManagementBundle: async () => bundleBytes,
         admitManagement: async (request: object) => ({ ok: true, value: { ...request,
           admittedAt: Date.now(), selection } }), upsertOwnedActivity: async () => {},
+        retainedProspectiveRenovateRetryTargets: async () => [],
         currentProspectiveRenovateRegistration: async () => ({ repository: 'acme/updates', repositoryId: 424242, baseBranch: 'trunk', repetitionIntervalSeconds: 3600, controlsRevision: 1, installationRevision: 1, operatorRevision: 1, releaseId: 'release', bundleDigest, registrationId: 'registered-admin',
           activatedAt: '2026-09-28T00:00:00.000Z', installationId: 'dispatcher-install', bucket: 'owner-bucket',
           sessionId: 'session0001', sessionGeneration: 3, human, accessJwt: 'sealed-admin' }),

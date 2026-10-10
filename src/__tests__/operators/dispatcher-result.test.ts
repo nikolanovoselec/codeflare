@@ -14,6 +14,101 @@ const data = event(3, { type: 'data-part', messageId: 'answer', name: 'assessmen
 const settled = event(4, { type: 'submission-settled', submissionId: 'requested', outcome: 'completed' });
 
 describe('Dispatcher exact-submission public Flue updates contract', () => {
+  // Intent4 functional wire: an owned phase checkpoint is neither assessment nor terminal proof.
+  const checkpointTarget = { pullRequest: 17, headSha: 'a'.repeat(40) };
+  const checkpoint = { version: 1, scope: 'submission', generation: 1, submissionId: 'requested',
+    phase: { kind: 'discovery' }, targets: [checkpointTarget], next: { kind: 'target', index: 0, target: checkpointTarget } };
+  const progress = (index: number, value: unknown = checkpoint) => event(index, {
+    type: 'data-part', messageId: 'answer', name: 'dispatcher-progress', data: value,
+  });
+  it('REQ-OPERATOR-048: functional progress survives paging without inventing assessment or settlement', async () => {
+    const first = await readDispatcherUpdates(response([start, progress(1)], 'first'), initial(), 'requested');
+    expect(first).toMatchObject({ progress: checkpoint, progressWrites: 1, writes: 0 });
+    expect(first.result).toBeUndefined(); expect(first.outcome).toBeUndefined();
+    const final = await readDispatcherUpdates(response([settled], 'terminal'), first, 'requested');
+    expect(final).toMatchObject({ progress: checkpoint, progressWrites: 1, writes: 0, outcome: 'completed' });
+    expect(final.result).toBeUndefined();
+    expect(await readDispatcherUpdates(response([settled], 'terminal'), final, 'requested')).toEqual(final);
+  });
+  it('REQ-OPERATOR-048: a failed SDK phase retains failed settlement despite its progress checkpoint', async () => {
+    const final = await readDispatcherUpdates(response([start, progress(1), event(2, {
+      type: 'submission-settled', submissionId: 'requested', outcome: 'failed',
+    })]), initial(), 'requested');
+    expect(final).toMatchObject({ progress: checkpoint, progressWrites: 1, writes: 0, outcome: 'failed' });
+    expect(final.result).toBeUndefined();
+  });
+  it('REQ-OPERATOR-048: unassociated functional progress cannot authorize the requested phase', async () => {
+    const final = await readDispatcherUpdates(response([
+      event(0, { type: 'message-started', messageId: 'foreign', submissionId: 'another' }),
+      event(1, { type: 'data-part', messageId: 'foreign', name: 'dispatcher-progress', data: checkpoint }),
+      settled,
+    ]), initial(), 'requested');
+    expect(final.progress).toBeUndefined(); expect(final.progressWrites).toBeUndefined();
+    expect(final).toMatchObject({ writes: 0, outcome: 'completed' });
+  });
+  it('REQ-OPERATOR-048: duplicate functional progress refuses phase collection', async () => {
+    await expect(readDispatcherUpdates(response([start, progress(1), progress(2)]), initial(), 'requested'))
+      .rejects.toThrow('progress duplicated');
+  });
+  it.each([null, [], 1, 'checkpoint'])('REQ-OPERATOR-048: malformed functional progress %j cannot authorize a phase', async value => {
+    await expect(readDispatcherUpdates(response([start, progress(1, value)]), initial(), 'requested'))
+      .rejects.toThrow('progress unavailable');
+  });
+  it('REQ-OPERATOR-048: functional progress after terminal settlement is refused', async () => {
+    await expect(readDispatcherUpdates(response([start, settled, progress(5)]), initial(), 'requested'))
+      .rejects.toThrow('progress follows terminal');
+  });
+  it.each([false, true])('REQ-OPERATOR-048: reset progress binds only the exact submission with parts-first=%s', async partsFirst => {
+    const ownedParts = [{ type: 'data-dispatcher-progress', data: checkpoint }];
+    const foreignParts = [{ data: { PRIVATE_FOREIGN_VALUE: true }, type: 'data-dispatcher-progress' }];
+    const owned = partsFirst ? { parts: ownedParts, id: 'answer', submissionId: 'requested' }
+      : { id: 'answer', submissionId: 'requested', parts: ownedParts };
+    const foreign = partsFirst ? { parts: foreignParts, id: 'foreign', submissionId: 'another' }
+      : { id: 'foreign', submissionId: 'another', parts: foreignParts };
+    const reset = event(5, { type: 'conversation-reset', snapshot: { conversationId: 'conversation',
+      messages: [foreign, owned], settlements: [{ submissionId: 'requested', outcome: 'completed' }],
+    } });
+    const final = await readDispatcherUpdates(response([reset]), initial(), 'requested');
+    expect(final).toMatchObject({ progress: checkpoint, progressWrites: 1, writes: 0, outcome: 'completed' });
+    expect(JSON.stringify(final)).not.toContain('PRIVATE_FOREIGN_VALUE');
+    expect(final.result).toBeUndefined();
+  });
+  it('REQ-OPERATOR-048: JSON member order cannot change a witnessed functional checkpoint', async () => {
+    const first = await readDispatcherUpdates(response([start, progress(1)]), initial(), 'requested');
+    const reordered = { next: { target: { headSha: checkpointTarget.headSha, pullRequest: checkpointTarget.pullRequest },
+      index: 0, kind: 'target' }, targets: [{ headSha: checkpointTarget.headSha, pullRequest: checkpointTarget.pullRequest }],
+      phase: { kind: 'discovery' }, submissionId: 'requested', generation: 1, scope: 'submission', version: 1 };
+    const reset = event(5, { type: 'conversation-reset', snapshot: { conversationId: 'conversation',
+      messages: [{ id: 'answer', submissionId: 'requested', parts: [{ type: 'data-dispatcher-progress', data: reordered }] }],
+      settlements: [{ submissionId: 'requested', outcome: 'completed' }],
+    } });
+    const reconstructed = await readDispatcherUpdates(response([reset]), first, 'requested');
+    expect(reconstructed.progress).toEqual(checkpoint);
+    expect(reconstructed).toMatchObject({ progressWrites: 1, writes: 0, outcome: 'completed' });
+  });
+  it('REQ-OPERATOR-048: reset cannot change an already observed functional checkpoint', async () => {
+    const first = await readDispatcherUpdates(response([start, progress(1)]), initial(), 'requested');
+    const reset = event(5, { type: 'conversation-reset', snapshot: { conversationId: 'conversation',
+      messages: [{ id: 'answer', submissionId: 'requested', parts: [
+        { type: 'data-dispatcher-progress', data: { ...checkpoint, next: { kind: 'final' } } },
+      ] }], settlements: [],
+    } });
+    await expect(readDispatcherUpdates(response([reset]), first, 'requested')).rejects.toThrow('immutable progress changed');
+  });
+  it('REQ-OPERATOR-048: functional checkpoint obeys the exact encoded UTF8 bound regardless of data member order', async () => {
+    const allowance = 512;
+    const base = { next: 'target', padding: '' };
+    const remaining = allowance - jsonBytes(base);
+    const exact = { ...base, padding: 'é'.repeat(Math.floor(remaining / 2)) + 'x'.repeat(remaining % 2) };
+    const dataFirst = (value: unknown) => event(1, { data: value, name: 'dispatcher-progress',
+      messageId: 'answer', type: 'data-part' });
+    expect(jsonBytes(exact)).toBe(allowance);
+    const accepted = await readDispatcherUpdates(response([start, dataFirst(exact)]), initial(), 'requested',
+      undefined, { assessmentBytes: allowance });
+    expect(accepted.progress).toEqual(exact);
+    await expect(readDispatcherUpdates(response([start, dataFirst({ ...exact, padding: exact.padding + 'x' })]),
+      initial(), 'requested', undefined, { assessmentBytes: allowance })).rejects.toThrow('exceeds limit');
+  });
   it.each(['tool-output', 'tool-output-error'])('REQ-OPERATOR-078: observes domain SDK %s outside callback boundaries without private input or error content', async type => {
     const first = await readDispatcherUpdates(response([start, event(1, { type: 'tool-input', messageId: 'answer',
       toolCallId: 'decision-1', toolName: 'decide_renovate', input: { comment: 'PRIVATE_TOOL_INPUT' } })]), initial(), 'requested');

@@ -476,6 +476,9 @@ jobs:
       DISPATCHER_STEERING_NATIVE_ARTIFACT: ${{ github.workspace }}/src/__tests__/operators/fixtures/dispatcher-steering-native.generated.json
       DISPATCHER_STEERING_NATIVE_SHA256: 4b53733af033472d9f63700d584150e8720d97614bc27dba04705d0114432eb5
       DISPATCHER_STEERING_NATIVE_SOURCE_SHA: fc2f9f7482ea59dcf887e56c332bfa4a4de2ec14
+      DISPATCHER_INTENT4_NATIVE_ARTIFACT: ${{ github.workspace }}/src/__tests__/operators/fixtures/dispatcher-intent4-native.generated.json
+      DISPATCHER_INTENT4_NATIVE_SHA256: 148cb74b8b8afe29d6a2a606613911d5f6b891458776669433339f29818ea983
+      DISPATCHER_INTENT4_NATIVE_SOURCE_SHA: fcb572b0839388f03940dc73813330eb331b049d
       VITEST_NODE_SUITE_GROUP: ${{ matrix.group }}
     if: >-
       needs.changes.outputs.full == 'true' ||
@@ -509,6 +512,9 @@ jobs:
           grep -qF '"sourceCommit":"5d57fe2fcce9cd8768fc44f2d2c9ed4256f7b0e7"' src/__tests__/operators/fixtures/dispatcher-native.generated.json
           echo '4b53733af033472d9f63700d584150e8720d97614bc27dba04705d0114432eb5  src/__tests__/operators/fixtures/dispatcher-steering-native.generated.json' | sha256sum --check --strict
           grep -qF '"sourceCommit":"fc2f9f7482ea59dcf887e56c332bfa4a4de2ec14"' src/__tests__/operators/fixtures/dispatcher-steering-native.generated.json
+          echo '148cb74b8b8afe29d6a2a606613911d5f6b891458776669433339f29818ea983  src/__tests__/operators/fixtures/dispatcher-intent4-native.generated.json' | sha256sum --check --strict
+          grep -qF '"sourceCommit":"fcb572b0839388f03940dc73813330eb331b049d"' src/__tests__/operators/fixtures/dispatcher-intent4-native.generated.json
+          echo '61e06e73a8a90c9ea7f5236e26c52abd6a9131007e7a4af37766b1115cbc7a44  src/__tests__/operators/fixtures/dispatcher-intent4-native.manifest.json' | sha256sum --check --strict
 
       - uses: ./.github/actions/install-deps
         with:

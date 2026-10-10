@@ -590,7 +590,9 @@ export class container extends Container<Env> implements ContainerEnvState {
       const exports = (this.ctx as unknown as { exports?: Record<string,
         (input: { props: Record<string, unknown> }) => Fetcher> }).exports;
       if (!exports) return;
-      const candidates = await listProspectiveRenovatePrs({ env: this.env, exports, registration: initial,
+      const retainedRetryTargets = await registry.retainedProspectiveRenovateRetryTargets(pin.registrationId);
+      if (!await registration()) return;
+      const candidates = await listProspectiveRenovatePrs({ retainedRetryTargets, env: this.env, exports, registration: initial,
         current: async () => !!await registration() });
       for (const candidate of candidates) {
         if (!await registration()) return;

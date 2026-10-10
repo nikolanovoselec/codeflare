@@ -13,8 +13,12 @@ import { getBuiltInProfile, getBuiltInProfileRef } from '../../../lib/reasoning-
 import { connectionFingerprint } from '../../../lib/reasoning-verification';
 import { PI_WIRE_CANARY_VERSION } from '../../../lib/reasoning-discovery';
 import { setLogLevel } from '../../../lib/logger';
+import type { DispatcherPhaseContext, DispatcherPhase } from '../../../operators/dispatcher-phases';
+import intent4Manifest from './dispatcher-intent4-native.manifest.json';
 
-type RecoveryScenario = 'ordinary' | 'incomplete' | 'native-error' | 'precommit-reset' | 'committed-reset' | 'duplicate' | 'persistent' | 'large-evidence-comment-batch' | 'thirty-target-original-evidence-recovery';
+const intent4Source = 'fcb572b0839388f03940dc73813330eb331b049d';
+
+type RecoveryScenario = 'ordinary' | 'incomplete' | 'native-error' | 'precommit-reset' | 'committed-reset' | 'duplicate' | 'persistent' | 'large-evidence-comment-batch' | 'thirty-target-original-evidence-recovery' | 'target-response-failed' | 'target-comment-unknown';
 interface FixtureEnv {
   KV: KVNamespace;
   LOADER: NonNullable<Env['LOADER']>;
@@ -54,6 +58,14 @@ const thirtyEvidence = Array.from({ length: 36 }, (_, index) => {
   return { target, url, quote, body: quote + 'x'.repeat(length - quote.length), kind: 'upstream' as const };
 });
 const thirtyComment = (index: number) => `${thirtyEvidence[index].quote} Source: ${thirtyEvidence[index].url} ${'Missing verified configuration and migration evidence. '.repeat(16)}`;
+// Small supplemental scopes only; the seven/thirty workloads remain unchanged.
+const isolationTargets = [target, { pullRequest: 18, headSha: 'c'.repeat(40) }];
+const isolationEvidence = isolationTargets.map(target => {
+  const quote = `Migration compatibility for PR ${target.pullRequest} remains unverified.`;
+  return { target, url: `https://docs.example.test/isolation-${target.pullRequest}`, quote, body: quote, kind: 'upstream' as const };
+});
+const isolationComment = (index: number) => `${isolationEvidence[index].quote} Source: ${isolationEvidence[index].url}`;
+const isIsolation = (scenario: unknown) => scenario === 'target-response-failed' || scenario === 'target-comment-unknown';
 const services = (env: FixtureEnv) => env.RECOVERY_SERVICES.getByName('services');
 const hash = async (value: string) => Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value))), b => b.toString(16).padStart(2, '0')).join('');
 const wire = (chunks: unknown[]) => new Response(chunks.map(value => `data: ${JSON.stringify(value)}\n\n`).join('') + 'data: [DONE]\n\n', { headers: { 'content-type': 'text/event-stream' } });
@@ -76,14 +88,52 @@ export const observeBoundary = (observationId: string | undefined,
 };
 export type CanonicalAppendObservation = { category: 'canonical-append-oversized' | 'canonical-append-other'; largestRecordType?: 'state_write' };
 type SdkObservation = { stage: 'sdk-submission-running' | 'sdk-submission-exhausted'; submissionDigest: string; attemptCount: number; maxAttempts: number };
+export type FiberObservation = {
+  type: 'fiber:run:started' | 'fiber:run:completed' | 'fiber:run:failed' | 'fiber:run:interrupted';
+  fiberDigest: string;
+};
+// Fixture-only bound; overflow is an evidence failure, never a truncated success.
+const fiberEvidenceLimit = 512;
+/** Agents0.20.1 docs/observability.md Tail wire + BaseEvent payload contract.
+ * No recursive log parsing, submission attribution, or synthetic endings.
+ */
+export async function fixtureFiberLifecycle(events: unknown): Promise<FiberObservation[] | null> {
+  if (!Array.isArray(events)) throw new Error('Fixture Tail trace array unavailable');
+  if (events.length > 64) throw new Error('Fixture Tail trace evidence bound exceeded');
+  const entries: FiberObservation[] = [];
+  let inspected = 0;
+  for (const trace of events) {
+    if (!trace || typeof trace !== 'object') throw new Error('Fixture Tail trace malformed');
+    // Absence is retained as unavailable, not interpreted as no active fibers.
+    if (!Object.hasOwn(trace, 'diagnosticsChannelEvents')) continue;
+    if (!Array.isArray(trace.diagnosticsChannelEvents)) throw new Error('Fixture Tail diagnostic array malformed');
+    for (const diagnostic of trace.diagnosticsChannelEvents) {
+      if (++inspected > 1024) throw new Error('Fixture Tail diagnostic evidence bound exceeded');
+      if (diagnostic?.channel !== 'agents:fiber') continue;
+      const event = diagnostic.message;
+      if (!event || typeof event !== 'object' || Array.isArray(event)) throw new Error('Fixture SDK fiber event malformed');
+      if (!['fiber:run:started', 'fiber:run:completed', 'fiber:run:failed', 'fiber:run:interrupted'].includes(event.type)) continue;
+      const id: unknown = event.payload?.fiberId;
+      if (typeof id !== 'string' || !id.length || id.length > 1024) throw new Error('Fixture SDK fiber identity unavailable');
+      if (entries.length >= fiberEvidenceLimit) throw new Error('Fixture SDK fiber evidence bound exceeded');
+      entries.push({ type: event.type as FiberObservation['type'], fiberDigest: await hash(id) });
+    }
+  }
+  return entries.length ? entries : null;
+}
 type RetainedObservation = {
-  inference: Array<{ inputDigest: string; turn: number }>;
+  phases: Array<{ context: DispatcherPhaseContext; commentCount: number }>;
+  inference: Array<{ inputDigest: string; turn: number; phase?: DispatcherPhase }>;
   comments: Array<{ id: number; body: string; user: { id: number; login: string; type: string }; issue_url: string }>;
   sourceRequests: Array<{ url: string; method: string }>; held: boolean;
+  sourceDeliveries: Array<{ operationId: string; url: string; method: string }>;
+  isolationFaults: Array<{ kind: string; pullRequest: number; status?: number }>;
+
   duplicates: Array<{ statuses: number[]; digests: string[] }>;
   budget?: { operationCount: number; operationLimit: number };
   evidence: Array<{ index: number; complete: boolean }>; batches: string[][];
   firstAppend: CanonicalAppendObservation | null; sdkSubmissions: SdkObservation[];
+  fiberEvents: FiberObservation[] | null;
 };
 /** Pure fixture-only classifier: public SDK errors in, closed evidence out. */
 export function fixtureOperatorDispatcherTail(events: unknown): CanonicalAppendObservation | null {
@@ -183,11 +233,17 @@ export class RecoveryServices extends DurableObject<FixtureEnv> {
     await parseDispatcherBundle(bytes, digest);
     for (let offset = 0; offset < bytes.length; offset += 48 * 1024) await this.ctx.storage.put(`bundle:${offset}`, bytes.slice(offset, offset + 48 * 1024));
     await this.ctx.storage.put({ bundleSize: bytes.length, scenario, attemptLimit, revoked: false,
-      inference: [], comments: [], sourceRequests: [], duplicates: [], firstAppend: null, sdkSubmissions: [], activityId: activityId ?? null });
+      inference: [], comments: [], sourceRequests: [], sourceDeliveries: [], isolationFaults: [], duplicates: [], firstAppend: null, sdkSubmissions: [], fiberEvents: null, activityId: activityId ?? null });
+    const intentVersion = artifact.sourceCommit === intent4Source ? '4' : '3';
+    // Only this reviewed package revision uses the new host contract. Older
+    // packages and the separate native fixture-mode path keep their old admission.
+    const manifestJson = intentVersion === '4' ? JSON.stringify({ ...intent4Manifest,
+      artifact: { ...intent4Manifest.artifact, sha256: digest } }) : '{}';
+    await this.ctx.storage.put({ intentVersion, phases: [], ...(intentVersion === '4' ? { evidence: [], batches: [] } : {}) });
     const policy = { capabilities: ['fetch', 'inference'], resourceProfileId: null };
     const grants = { users: [email], groups: [] };
     const selection: ManagementExecutionSelection = {
-      controlsRevision: 1, manifestJson: '{}',
+      controlsRevision: 1, manifestJson,
       installation: { id: 'composed-installation', operatorId: 'composed-dispatcher', revision: 1, enabled: true,
         name: 'fixture', releaseId: 'composed-release', approvedSourceRevision: 1, policy,
         configurationJson: JSON.stringify({ renovate: { repository, automaticRuns: false, repetitionIntervalSeconds: 3600 } }) },
@@ -196,8 +252,8 @@ export class RecoveryServices extends DurableObject<FixtureEnv> {
         managers: grants, invokers: grants, policy: { ...policy, inferenceAttemptLimit: attemptLimit, ...(submissionAttemptLimit === undefined ? {} : { submissionAttemptLimit }) },
         source: { kind: 'github-release', repositoryUrl: 'https://github.com/example/dispatcher', repositoryId: 1, credentialConfigured: true, approvedWorkflow: null } },
       release: { id: 'composed-release', operatorId: 'composed-dispatcher', githubReleaseId: 1, sourceCommit: artifact.sourceCommit,
-        manifestDigest: 'b'.repeat(64), bundleDigest: digest, interfaceVersion: 1, approved: true,
-        repositoryId: 1, sourceRevision: 1, coreVersion: '1', intentVersion: '3', requestedCapabilities: ['fetch', 'inference'], assets: [],
+        manifestDigest: intentVersion === '4' ? await hash(manifestJson) : 'b'.repeat(64), bundleDigest: digest, interfaceVersion: 1, approved: true,
+        repositoryId: 1, sourceRevision: 1, coreVersion: '1', intentVersion, requestedCapabilities: ['fetch', 'inference'], assets: [],
         provenance: { workflowId: 1, workflowRef: 'refs/heads/develop', runId: 1, runAttempt: 1, artifactId: 1, artifactDigest: 'c'.repeat(64) } },
     };
     await this.ctx.storage.put('selection', selection);
@@ -249,29 +305,61 @@ export class RecoveryServices extends DurableObject<FixtureEnv> {
   async duplicate(statuses: number[], digests: string[]) { await this.append('duplicates', { statuses, digests }); }
   async rememberSource(operationId: string) { if (!await this.ctx.storage.get('sourceId')) await this.ctx.storage.put('sourceId', operationId); }
   async sourceId() { return await this.ctx.storage.get<string>('sourceId'); }
+  async recordSourceDelivery(value: { operationId: string; url: string; method?: string }) {
+    if (isIsolation(await this.ctx.storage.get('scenario'))) await this.append('sourceDeliveries', {
+      operationId: value.operationId, url: value.url, method: value.method ?? 'GET',
+    });
+  }
+
   async budget(value: { operationCount: number; operationLimit: number }) { await this.ctx.storage.put('budget', value); }
   async recordTail(activityId: string, generation: number, firstAppend: CanonicalAppendObservation | null,
-    sdkSubmissions: SdkObservation[]) {
+    sdkSubmissions: SdkObservation[], fiberEvents: FiberObservation[] | null) {
     if (generation !== 1 || activityId !== await this.ctx.storage.get('activityId')) return;
     if (firstAppend && !await this.ctx.storage.get('firstAppend')) await this.ctx.storage.put('firstAppend', firstAppend);
     for (const entry of sdkSubmissions) await this.append('sdkSubmissions', entry);
+    if (fiberEvents && await this.ctx.storage.get('intentVersion') === '4') {
+      await this.ctx.storage.transaction(async tx => {
+        const retained = await tx.get<FiberObservation[] | null>('fiberEvents') ?? [];
+        for (const entry of fiberEvents) {
+          // Tail retries/reordering do not invent another run or replace its ID.
+          if (retained.some(row => row.type === entry.type && row.fiberDigest === entry.fiberDigest)) continue;
+          if (retained.length >= fiberEvidenceLimit) throw new Error('Fixture retained fiber evidence bound exceeded');
+          retained.push(entry);
+        }
+        await tx.put('fiberEvents', retained);
+      });
+    }
+  }
+  async recordPhase(context: DispatcherPhaseContext) {
+    await this.ctx.storage.transaction(async tx => {
+      const phases = await tx.get<RetainedObservation['phases']>('phases') ?? [];
+      // Record actual capability responses only. Exact repeated intake is not a
+      // new phase; changed stamps remain visible and fail the lineage assertions.
+      if (phases.some(row => JSON.stringify(row.context) === JSON.stringify(context))) return;
+      await tx.put('phases', [...phases, { context, commentCount: (await tx.get<unknown[]>('comments') ?? []).length }]);
+    });
   }
   async observe(): Promise<RetainedObservation> {
-    return { inference: await this.ctx.storage.get<RetainedObservation['inference']>('inference') ?? [],
+    return { phases: await this.ctx.storage.get<RetainedObservation['phases']>('phases') ?? [],
+      inference: await this.ctx.storage.get<RetainedObservation['inference']>('inference') ?? [],
       comments: await this.ctx.storage.get<RetainedObservation['comments']>('comments') ?? [],
       sourceRequests: await this.ctx.storage.get<RetainedObservation['sourceRequests']>('sourceRequests') ?? [],
+      sourceDeliveries: await this.ctx.storage.get<RetainedObservation['sourceDeliveries']>('sourceDeliveries') ?? [],
+      isolationFaults: await this.ctx.storage.get<RetainedObservation['isolationFaults']>('isolationFaults') ?? [],
       held: await this.ctx.storage.get<boolean>('held') ?? false,
       duplicates: await this.ctx.storage.get<RetainedObservation['duplicates']>('duplicates') ?? [],
       budget: await this.ctx.storage.get<RetainedObservation['budget']>('budget'),
       evidence: await this.ctx.storage.get<RetainedObservation['evidence']>('evidence') ?? [],
       batches: await this.ctx.storage.get<RetainedObservation['batches']>('batches') ?? [],
       firstAppend: await this.ctx.storage.get<CanonicalAppendObservation | null>('firstAppend') ?? null,
-      sdkSubmissions: await this.ctx.storage.get<SdkObservation[]>('sdkSubmissions') ?? [] };
+      sdkSubmissions: await this.ctx.storage.get<SdkObservation[]>('sdkSubmissions') ?? [],
+      fiberEvents: await this.ctx.storage.get<FiberObservation[] | null>('fiberEvents') ?? null };
   }
   async inference(request: Request): Promise<Response> {
     const body = await request.text();
     const input = JSON.parse(body) as { messages: Array<{ tool_calls?: Array<{ function?: { name?: string } }> }> };
     const scenario = await this.ctx.storage.get('scenario');
+    if (await this.ctx.storage.get('intentVersion') === '4') return this.phaseInference(input, body, scenario);
     if (scenario === 'large-evidence-comment-batch' || scenario === 'thirty-target-original-evidence-recovery') {
       return this.largeInference(input, body, scenario === 'thirty-target-original-evidence-recovery');
     }
@@ -291,6 +379,120 @@ export class RecoveryServices extends DurableObject<FixtureEnv> {
         analysis: { changedUsage: 'unverified', configuration: 'unverified', interoperability: 'unverified', migration: 'unverified', gaps: ['No verified compatibility declaration'] } }
       : tool === 'comment_renovate' ? { target } : {};
     return wire([{ choices: [{ index: 0, delta: { tool_calls: [{ index: 0, id: `composed-${turn}`, type: 'function', function: { name: tool, arguments: JSON.stringify(args) } }] }, finish_reason: null }] },
+      { choices: [{ index: 0, delta: {}, finish_reason: 'tool_calls' }] }]);
+  }
+  private async phaseInference(input: { messages: unknown[] }, body: string, scenario: unknown): Promise<Response> {
+    // Select work ONLY from the compiled journey's public active-phase signal in
+    // the genuine SDK model context. Service-held phase stamps are observation,
+    // never model policy, SDK settlement, or an alternative driving path.
+    let phase: DispatcherPhase | undefined;
+    let currentMessages: unknown[] = [];
+    const phaseText = (value: unknown): DispatcherPhase | undefined => {
+      if (typeof value === 'string') {
+        const text = value.replaceAll('&quot;', '"').replaceAll('&amp;', '&');
+        let latest: DispatcherPhase | undefined;
+        for (const signal of text.matchAll(/<signal type="dispatcher-active-phase"[^>]*>\n(.*?)\n<\/signal>/gs)) {
+          const match = /^Current parent-admitted phase: (\{.*?\})\.(?: Immutable target coordinates:| Do only this phase\.)/.exec(signal[1]);
+          if (match) latest = JSON.parse(match[1]) as DispatcherPhase;
+        }
+        return latest;
+      }
+      const fields = Array.isArray(value) ? value : value && typeof value === 'object' ? Object.values(value) : [];
+      return fields.map(phaseText).filter((item): item is DispatcherPhase => item !== undefined).at(-1);
+    };
+    for (const message of input.messages) {
+      const latest = phaseText(message);
+      if (latest) { phase = latest; currentMessages = []; }
+      currentMessages.push(message);
+    }
+    if (!phase) return new Response(null, { status: 422 });
+    const recovery = scenario === 'thirty-target-original-evidence-recovery';
+    const large = scenario === 'large-evidence-comment-batch' || recovery;
+    const isolation = isIsolation(scenario);
+    const expectedTargets = isolation ? isolationTargets : large ? recovery ? thirtyTargets : largeEvidenceTargets : [target];
+    const expectedEvidence = isolation ? isolationEvidence : large ? recovery ? thirtyEvidence : largeEvidence
+      : [{ target, url: researchUrl, quote, body: quote, kind: 'upstream' as const }];
+    const expectedComment = isolation ? isolationComment : large ? recovery ? thirtyComment : largeComment : () => comment;
+    if (scenario === 'target-response-failed' && phase.kind === 'target' && phase.index === 0) {
+      // A genuine nonrecoverable provider response, only after successful
+      // discovery and before this PR's research/judgment. Parent preserves422;
+      // the compiled provider and SDK, not this service, terminalize the response.
+      await this.append('inference', { inputDigest: await hash(body), turn: 1, phase });
+      await this.append('isolationFaults', { kind: 'model-rejected', pullRequest: phase.target.pullRequest, status: 422 });
+      return Response.json({ error: { type: 'invalid_request_error', code: 'FIXTURE_TARGET_REJECTED',
+        message: 'The fixture target assessment is rejected.' } }, { status: 422 });
+    }
+    const calls: Array<{ name: string; arguments: string }> = [];
+    const artifacts = new Map<string, Record<string, unknown>>();
+    const visit = (value: unknown): void => {
+      if (typeof value === 'string' && /^\s*[[{]/.test(value)) {
+        try { visit(JSON.parse(value)); } catch { /* Plain source text is not wire data. */ }
+      } else if (Array.isArray(value)) value.forEach(visit);
+      else if (value && typeof value === 'object') {
+        const item = value as Record<string, unknown>;
+        if (typeof item.name === 'string' && typeof item.arguments === 'string') calls.push(item as { name: string; arguments: string });
+        if (typeof item.id === 'string' && typeof item.body === 'string' && typeof item.digest === 'string') artifacts.set(item.id, item);
+        Object.values(item).forEach(visit);
+      }
+    };
+    visit(currentMessages);
+    const observed = new Map((await this.ctx.storage.get<RetainedObservation['evidence']>('evidence') ?? []).map(row => [row.index, row]));
+    for (const [index, expected] of expectedEvidence.entries()) {
+      const id = `artifact-${(await hash(JSON.stringify({ target: expected.target, url: expected.url, kind: expected.kind }))).slice(0, 24)}`;
+      const actual = artifacts.get(id);
+      if (!actual) continue;
+      observed.set(index, { index, complete: actual.complete === true && actual.status === 200 && actual.body === expected.body
+        && actual.digest === await hash(expected.body) && actual.bodyOffset === 0 && actual.bodyLength === expected.body.length
+        && actual.bodyTruncated === false && JSON.stringify(actual.target) === JSON.stringify(expected.target)
+        && actual.url === expected.url && expected.body.includes(expected.quote) });
+    }
+    // Retain proofs of complete immutable bytes actually seen in earlier PR
+    // responses; do not demand their bodies be recopied into every model turn.
+    await this.ctx.storage.put('evidence', [...observed.values()].sort((a, b) => a.index - b.index));
+    let tool: string;
+    let args: unknown = {};
+    if (phase.kind === 'discovery') tool = 'discover_renovate';
+    else if (phase.kind === 'final') tool = 'finish_dispatcher';
+    else {
+      const active = expectedTargets[phase.index];
+      if (JSON.stringify(active) !== JSON.stringify(phase.target)) return new Response(null, { status: 422 });
+      const evidence = expectedEvidence.map((item, index) => ({ item, index }))
+        .filter(({ item }) => item.target.pullRequest === active.pullRequest && item.target.headSha === active.headSha);
+      const researched = calls.filter(call => call.name === 'research_renovate').length;
+      if (researched < evidence.length) {
+        const { item } = evidence[researched];
+        tool = 'research_renovate'; args = { target: active, url: item.url, kind: item.kind };
+      } else if (!calls.some(call => call.name === 'decide_renovate')) {
+        if (evidence.some(({ index }) => observed.get(index)?.complete !== true)) return new Response(null, { status: 422 });
+        const cited = expectedEvidence[phase.index];
+        tool = 'decide_renovate'; args = { target: active, decision: 'DO_NOT_MERGE', comment: expectedComment(phase.index),
+          claims: [{ artifactId: [...artifacts.keys()].find(id => artifacts.get(id)?.url === cited.url), quote: cited.quote,
+            relevance: 'target-specific migration uncertainty', authority: 'publisher guidance' }],
+          analysis: { changedUsage: 'unverified', configuration: 'unverified', interoperability: 'unverified',
+            migration: 'unverified', gaps: ['No verified compatibility declaration'] } };
+      } else if (!calls.some(call => call.name === 'seal_dispatcher')) tool = 'seal_dispatcher';
+      else {
+        const commentCalls = calls.filter(call => call.name === 'comment_renovate').length;
+        // After the original publisher502, the next genuine model call remains
+        // on PR30. Hold it before its explicit comment recovery; no deferral or
+        // advance, no phantom completed result, and no revisit of PR1..29.
+        if (recovery && phase.index === 29 && commentCalls === 1 && !await this.ctx.storage.get('held')) await this.hold();
+        if (commentCalls === 0 || recovery && phase.index === 29 && commentCalls === 1) {
+          tool = 'comment_renovate'; args = { target: active };
+        } else tool = 'defer_renovate'; // The real tool emits progress from its receipt-backed existing disposition.
+      }
+    }
+    const turn = !large ? ['discover_renovate', 'research_renovate', 'decide_renovate', 'seal_dispatcher',
+      'comment_renovate', 'defer_renovate', 'finish_dispatcher'].indexOf(tool) : calls.length;
+    await this.append('inference', { inputDigest: await hash(body), turn, phase });
+    if (await this.claimFault('precommit-reset')) await this.hold();
+    if (await this.claimFault('incomplete') || scenario === 'persistent') return wire([{ choices: [{ delta: {}, finish_reason: null }] }]);
+    if (await this.claimFault('native-error')) return wire([{ error: { code: 'NATIVE_BEDROCK_STREAM_ERROR' } }]);
+    await this.append('batches', [tool]);
+    // One domain tool at a time: the package explicitly refuses concurrent
+    // current-target calls, rather than silently serializing an all-PR batch.
+    return wire([{ choices: [{ index: 0, delta: { tool_calls: [{ index: 0, id: `phase-${phase.kind}-${phase.kind === 'target' ? phase.index : 0}-${calls.length}`,
+      type: 'function', function: { name: tool, arguments: JSON.stringify(args) } }] }, finish_reason: null }] },
       { choices: [{ index: 0, delta: {}, finish_reason: 'tool_calls' }] }]);
   }
   private async largeInference(input: { messages: unknown[] }, body: string, recovery = false): Promise<Response> {
@@ -361,21 +563,41 @@ export class RecoveryServices extends DurableObject<FixtureEnv> {
     const actor = recovery && await this.ctx.storage.get('held')
       ? { id: 43, login: 'replacement-publisher', type: 'User' } : { id: 42, login: 'fixture-publisher', type: 'User' };
     const base = `https://api.github.com/repos/${repository}`;
-    const large = scenario === 'large-evidence-comment-batch' || recovery;
-    const targets = recovery ? thirtyTargets : largeEvidenceTargets;
+    const isolation = isIsolation(scenario);
+    const large = scenario === 'large-evidence-comment-batch' || recovery || isolation;
+    const targets = isolation ? isolationTargets : recovery ? thirtyTargets : largeEvidenceTargets;
     const selected = large ? targets.find(item => new URL(request.url).pathname.match(/\/(?:pulls|issues)\/(\d+)/)?.[1] === String(item.pullRequest)) ?? target : target;
     const pull = { number: selected.pullRequest, state: 'open', draft: false, created_at: new Date(Date.now() - 86400000).toISOString(),
       user: bot, head: { sha: selected.headSha }, base: { sha: 'b'.repeat(40), ref: 'main', repo: { id: 123, full_name: repository } } };
-    const evidence = large && (recovery ? thirtyEvidence : largeEvidence).find(item => item.url === request.url);
+    const evidence = large && (isolation ? isolationEvidence : recovery ? thirtyEvidence : largeEvidence).find(item => item.url === request.url);
     if (evidence) return new Response(evidence.body, { headers: { 'content-type': 'text/plain' } });
     if (request.url === researchUrl) return new Response(quote, { headers: { 'content-type': 'text/plain' } });
     if (request.url === `${base}/issues/${selected.pullRequest}/comments` && request.method === 'POST') {
       const value = await request.json<{ body: string }>();
       const entry = { id: 91 + (await this.ctx.storage.get<unknown[]>('comments') ?? []).length, body: value.body, user: actor, issue_url: `${base}/issues/${selected.pullRequest}` };
-      await this.append('comments', entry); return Response.json(entry, { status: 201 });
+      await this.append('comments', entry);
+      if (scenario === 'target-comment-unknown' && selected.pullRequest === target.pullRequest
+        && await this.claimFault('target-comment-unknown')) {
+        // Persist the actual upstream effect before losing its acknowledgement.
+        // No receipt/success/failure is supplied in place of the lost response.
+        await this.append('isolationFaults', { kind: 'comment-response-lost', pullRequest: selected.pullRequest });
+        throw new Error('Fixture comment acknowledgement lost');
+      }
+      return Response.json(entry, { status: 201 });
     }
     if (request.method !== 'GET') return new Response(null, { status: 403 });
-    if (recovery && request.url === 'https://api.github.com/user' && await this.claimFault('thirty-target-original-evidence-recovery')) {
+    if (scenario === 'target-comment-unknown' && selected.pullRequest === target.pullRequest
+      && request.url === `${base}/issues/${selected.pullRequest}/comments?per_page=100`
+      && (await this.ctx.storage.get<Array<{ issue_url: string }>>('comments') ?? [])
+        .some(row => row.issue_url === `${base}/issues/${selected.pullRequest}`)) {
+      // Baseline reads were real and successful. The later original readback
+      // is genuinely unavailable, so it cannot positively resolve the write.
+      await this.append('isolationFaults', { kind: 'comment-readback-unavailable', pullRequest: selected.pullRequest, status: 502 });
+      return Response.json({ error: 'Fixture comment readback unavailable' }, { status: 502 });
+    }
+    if (recovery && request.url === 'https://api.github.com/user'
+      && (await this.ctx.storage.get('intentVersion') !== '4' || (await this.ctx.storage.get<unknown[]>('comments') ?? []).length === 29)
+      && await this.claimFault('thirty-target-original-evidence-recovery')) {
       return Response.json({ error: 'Synthetic upstream read failure', code: 'GITHUB_FETCH_FAILED' }, { status: 502 });
     }
     if (large && request.url.startsWith(`${base}/pulls?`)) {
@@ -434,11 +656,25 @@ export class OperatorActivity extends ProductionActivity {
     // Match production status reads; drive/alarm paths own reconciliation.
     const detail = await this.getBrowserDetail();
     observeBoundary(observationId, 'detail-completed');
-    const external = await services(this.fixtureEnv).observe();
+    const { fiberEvents, ...external } = await services(this.fixtureEnv).observe();
     observeBoundary(observationId, 'external-completed');
+    const original = external.sourceDeliveries.find(row => row.method === 'POST'
+      && row.url === `https://api.github.com/repos/${repository}/issues/${target.pullRequest}/comments`);
+    const journal = original ? await this.ctx.storage.transaction(async tx => {
+      const summary = await tx.get<{ generation: number; unresolved: number }>('dispatcher:journal');
+      if (!summary) return null;
+      const receipt = await tx.get<{ generation: number; phase: string; requestDigest: string; responseDigest?: string;
+        resolution?: unknown; request?: { method: string; url: string };
+        phaseBinding?: { submissionId: string; deliveryToken: string; phase: DispatcherPhase } }>(
+        `dispatcher:operation:${summary.generation}:${original.operationId}`);
+      // Existing owner ledger only: retain missing evidence as missing. This
+      // fixture observation creates neither a receipt nor a second journal.
+      return receipt ? { generation: summary.generation, unresolved: summary.unresolved,
+        operationId: original.operationId, receipt } : null;
+    }) : undefined;
     const retained = [...diagnostics];
     observeBoundary(observationId, 'activity-return-ready');
-    return { instance: this.instance, detail, external, diagnostics: retained };
+    return { instance: this.instance, detail, external, fiberEvents, diagnostics: retained, ...(original ? { journal } : {}) };
   }
   async diagnoseComposed(observationId?: string) {
     observeBoundary(observationId, 'diagnose-started');
@@ -457,11 +693,15 @@ export class OperatorActivity extends ProductionActivity {
     observeBoundary(observationId, 'activity-return-ready');
     return { executionStatus: detail?.executionStatus ?? 'unprepared',
       collectionStatus: detail?.collectionStatus ?? 'unavailable', firstAppend: external.firstAppend,
-      sdkSubmissions: external.sdkSubmissions,
+      sdkSubmissions: external.sdkSubmissions, fiberEvents: external.fiberEvents,
       sdkErrorTypes: [...new Set(diagnostics.flatMap(entry => typeof entry.sdkErrorType === 'string' ? [entry.sdkErrorType] : []))],
       inferenceCount: external.inference.length, commentCount: external.comments.length, settlementBoundaries };
   }
   evictComposed(): void { this.ctx.abort('CI composed Activity reset'); }
+  evictChildComposed(): void {
+    // Supported runtime facet abort: retain the root and all original durable storage.
+    this.abortDispatcherFacet('CI composed child-only reset');
+  }
 }
 
 /** Production capability plus transparent fault delivery, never a substitute journal or SDK settlement. */
@@ -469,7 +709,20 @@ export class OperatorDispatcherCapability extends ProductionCapability {
   override async fetch(request: Request): Promise<Response> {
     const control = services(this.env as unknown as FixtureEnv);
     const path = new URL(request.url).pathname;
-    if (path === '/v1/dispatcher/source') await control.rememberSource((await request.clone().json<{ operationId: string }>()).operationId);
+    if (path === '/v1/dispatcher/source') {
+      const value = await request.clone().json<{ operationId: string; url: string; method?: string }>();
+      await control.rememberSource(value.operationId);
+      await control.recordSourceDelivery(value);
+    }
+    if (path === '/v1/dispatcher/phase-context') {
+      const upstream = await super.fetch(request);
+      // Transparent receipt observation, not a fabricated context response.
+      const response = new Response(await upstream.arrayBuffer(), {
+        status: upstream.status, statusText: upstream.statusText, headers: upstream.headers,
+      });
+      if (response.ok) await control.recordPhase(await response.clone().json<DispatcherPhaseContext>());
+      return response;
+    }
     if (path !== '/v1/dispatcher/inference') return super.fetch(request);
     if (await control.claimFault('duplicate')) {
       const responses = await Promise.all([super.fetch(request.clone()), super.fetch(request)]);
@@ -539,6 +792,7 @@ export async function composedFixture(request: Request, env: FixtureEnv): Promis
   }
   if (command.action === 'collect') return Response.json(await activity.collectBrowserResult());
   if (command.action === 'evict') { await activity.evictComposed().catch(() => {}); return Response.json({ evicted: true }); }
+  if (command.action === 'evict-child') { await activity.evictChildComposed(); return Response.json({ evicted: true }); }
   if (command.action === 'release') { await services(env).release(); return Response.json({ released: true }); }
   if (command.action === 'revoke') { await services(env).revoke(); return Response.json({ revoked: true }); }
   if (command.action === 'cancel') return Response.json(await activity.cancelDrive());
