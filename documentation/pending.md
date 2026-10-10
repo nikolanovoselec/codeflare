@@ -24,4 +24,6 @@ Behavioral coverage includes serial advancement, provider failure followed by an
 
 All 53 native cases, complete 7/32 and 30/36 workloads, three runtimes, original 20-second aborts, immutable collection/recollection and the 180-second workflow gate remain. Authored child-only reconstruction supplements root/facet eviction. Intent4 retires the actual child through runtime facet abort; bookkeeping release alone is not cessation proof. Same-run original-GET recovery is not replaced with next-run retry. No sequential candidate is an attributed repair for the current HTTP500 or abort.
 
+Message-count diagnosis is authored using structural counts, admitted bounds and closed direction labels from the existing bounded parser. It adds no body read, clone, timeout or protected request. Exact-head verification remains pending; context projection is not yet a demonstrated repair.
+
 Package publication/installation, both Integration rollouts, actual-scope hosted outcomes and failure isolation, configured retry, durable SDK release and independently verified physical cessation are separate acceptance gates. Historical unknown Activities remain fenced; no Production deployment is implied.

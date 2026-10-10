@@ -198,9 +198,13 @@ const capture = (value: unknown) => {
     const observation: Record<string, string | number | boolean | null> = { module: entry.module };
     for (const key of ['stage', 'outcome', 'boundary', 'status', 'failureClass', 'preparationStep', 'inferenceOutcome',
       'inferenceAttempt', 'operationOrdinal', 'operationCount', 'reasonCode', 'reasonDigest', 'reasonBytes',
-      'errorType', 'lastToolRole', 'lastToolOutcome', 'reason', 'messages', 'tools']) {
+      'errorType', 'lastToolRole', 'lastToolOutcome', 'reason', 'messages', 'tools', 'messageMinimum', 'messageMaximum']) {
       const item = entry.data[key];
       if (item === null || ['string', 'number', 'boolean'].includes(typeof item)) observation[key] = item;
+    }
+    const messageCountViolation = entry.data.messageCountViolation;
+    if (messageCountViolation === 'below-minimum' || messageCountViolation === 'above-maximum') {
+      observation.messageCountViolation = messageCountViolation;
     }
     // Retain only the existing closed parser labels, never rejected wire data.
     const wireRules = entry.data.wireRules;

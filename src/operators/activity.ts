@@ -19,7 +19,8 @@ import { classifyDispatcherInference, inferenceAttemptKey, inferenceRetryDelay,
   type DispatcherInferenceAttempt, type DispatcherInferenceChain, type DispatcherInferenceResponse } from './dispatcher-inference-recovery';
 import { DEFAULT_DISPATCHER_OPERATION_LIMIT, dispatcherOperationLimit } from './dispatcher-operation-limits';
 import { authorizeDispatcherPlan, createDispatcherOperation, parseDispatcherOperation,
-  readDispatcherBody, dispatcherGithubApiOrigin, dispatcherWireRules, type DispatcherAdmittedTarget } from './operator-runtime-capability';
+  readDispatcherBody, dispatcherGithubApiOrigin, dispatcherWireRules, type DispatcherAdmittedTarget,
+  type DispatcherInferenceCountObservation } from './operator-runtime-capability';
 import { z } from 'zod';
 import { readDispatcherUpdates, type DispatcherResultProjection } from './dispatcher-result';
 import { createDispatcherPhaseState, dispatcherPhaseWire, bindDispatcherPhaseReceipt, dispatcherPhaseContext,
@@ -2107,6 +2108,7 @@ export class OperatorActivity extends Agent {
     let lease: DispatcherLease | undefined;
     let effectContext: NonNullable<Parameters<typeof createDispatcherOperation>[0]['effectContext']> | undefined;
     let preparationStep: 'parse' | 'capability' = 'parse';
+    let inferenceCountObservation: DispatcherInferenceCountObservation | undefined;
     try {
       lease = await this.ctx.storage.get<DispatcherLease>(DISPATCHER_LEASE);
       if (!lease) {
@@ -2119,7 +2121,8 @@ export class OperatorActivity extends Agent {
       limits = dispatcherCapacities(capacityPolicy);
       inferenceBytes = inferenceRequestBytes(capacityPolicy);
       operationLimit = dispatcherOperationLimit(isManagementReceipt(plan.receipt) ? plan.receipt.selection.operator.policy : undefined);
-      operation = await this.#boundedDispatcher(lease, () => parseDispatcherOperation(request, inferenceBytes, capacityPolicy));
+      operation = await this.#boundedDispatcher(lease, () => parseDispatcherOperation(request, inferenceBytes, capacityPolicy,
+        loggingEnabled ? value => { inferenceCountObservation = value; } : undefined));
       preparationStep = 'capability';
       if (operation.path === '/v1/dispatcher/source' && isManagementReceipt(plan.receipt)) {
         sourceBytes = sourceResponseBytes(plan.receipt.selection.installation.policy);
@@ -2195,7 +2198,8 @@ export class OperatorActivity extends Agent {
           // Fixed diagnostic wire only: no request, exception text or child identity.
           if (loggingEnabled) dispatcherLog.warn('Dispatcher operation rejected', { stage: 'preparation', preparationStep, failureClass,
             activityId: state.intent.activityId, generation, resource: 'unparsed', deadline: deadline(lease), status: 403,
-            ...(preparationStep === 'parse' && error instanceof z.ZodError ? dispatcherWireRules(error) : {}) });
+            ...(preparationStep === 'parse' && error instanceof z.ZodError ? { ...dispatcherWireRules(error),
+              ...inferenceCountObservation } : {}) });
         }
       } catch { /* Observability cannot replace the original denial. */ }
       return denied();

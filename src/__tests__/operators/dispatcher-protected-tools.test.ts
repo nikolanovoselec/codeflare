@@ -29,6 +29,17 @@ describe('REQ-OPERATOR-047: bounded source body lifecycle', () => {
   });
 });
 
+describe('REQ-OPERATOR-063: bounded inference count observation', () => {
+  it('preserves schema refusal when its diagnostic observer fails and accepts later valid input', async () => {
+    await expect(parseDispatcherOperation(wire('inference', { operationId: 'denied', input: { messages: [] } }),
+      undefined, undefined, () => { throw new Error('Diagnostic observer unavailable'); }))
+      .rejects.toMatchObject({ issues: expect.arrayContaining([expect.objectContaining({ code: 'too_small', minimum: 1 })]) });
+    const body = { operationId: 'valid', input: { messages: [{ role: 'user', content: 'authorized work' }] } };
+    await expect(parseDispatcherOperation(wire('inference', body), undefined, undefined,
+      () => { throw new Error('Diagnostic observer unavailable'); })).resolves.toMatchObject({ body });
+  });
+});
+
 describe('REQ-OPERATOR-051: repository-only protected Dispatcher tools', () => {
   it('accepts nested exact-head targets and legacy reads but rejects arbitrary destinations and atomic execution', async () => {
     for (const body of [{ operationId: 'one', resource: 'open-pull-requests' },

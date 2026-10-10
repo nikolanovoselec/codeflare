@@ -2144,13 +2144,15 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
         url: 'https://api.github.com/repos/another/service' }))).status).toBe(200);
     } finally { spy.mockRestore(); setLogLevel('silent'); }
   }, { repositoryOnly: true, capabilities, capacityPolicy: { dispatcherRequestBytes: 65536 } }));
-  it('REQ-OPERATOR-063: preparation logging outage preserves denial and later authorized work', () => fixture(async f => {
+  it.each([
+    { name: 'invalid envelope', input: { messages: [{ role: 'user', content: 'PRIVATE_PROMPT' }], actor: 'CHILD_ACTIVITY' } },
+    { name: 'message count', input: { messages: [] } },
+  ])('REQ-OPERATOR-063: preparation logging outage preserves denial and later authorized work ($name)', ({ input }) => fixture(async f => {
     await start(f);
     setLogLevel('warn');
     const spy = vi.spyOn(console, 'warn').mockImplementation(() => { throw Error('PRIVATE_LOGGING_FAILURE'); });
     try {
-      const response = await f.capability.fetch(genericWire('inference', { operationId: 'PRIVATE_OPERATION',
-        input: { messages: [{ role: 'user', content: 'PRIVATE_PROMPT' }], actor: 'CHILD_ACTIVITY' } }));
+      const response = await f.capability.fetch(genericWire('inference', { operationId: 'PRIVATE_OPERATION', input }));
       expect(response.status).toBe(403);
       expect(await response.json()).toEqual({ code: 'OPERATOR_CAPABILITY_DENIED' });
       expect((await f.activity.getBrowserDetail())?.executionStatus).toBe('running');
@@ -2161,8 +2163,14 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
   }, { repositoryOnly: true }));
   it.each([
     { name: 'missing messages', input: {}, rule: 'inference-messages-shape' },
-    { name: 'empty messages', input: { messages: [] }, rule: 'inference-messages-count' },
-    { name: 'message count', input: { messages: Array.from({ length: 257 }, () => ({})) }, rule: 'inference-messages-count' },
+    { name: 'empty messages', input: { messages: [] }, rule: 'inference-messages-count',
+      countObservation: { messages: 0, tools: null, messageMinimum: 1, messageMaximum: 256, messageCountViolation: 'below-minimum' } },
+    { name: 'message count', input: { messages: Array.from({ length: 257 }, () => ({ content: 'PRIVATE_PROMPT' })), tools: [{ PRIVATE_TOOL: 'inline-secret' }] }, rule: 'inference-messages-count',
+      countObservation: { messages: 257, tools: 1, messageMinimum: 1, messageMaximum: 256, messageCountViolation: 'above-maximum' } },
+    { name: 'admitted message bound', capacityPolicy: { inferenceMessageLimit: 2 }, input: { messages: [{}, {}, {}], tools: [] }, rule: 'inference-messages-count',
+      countObservation: { messages: 3, tools: 0, messageMinimum: 1, messageMaximum: 2, messageCountViolation: 'above-maximum' } },
+    { name: 'unknown tool shape at message refusal', input: { messages: [], tools: 'PRIVATE_TOOL' }, rule: ['inference-messages-count', 'inference-tools-shape'],
+      countObservation: { messages: 0, tools: null, messageMinimum: 1, messageMaximum: 256, messageCountViolation: 'below-minimum' } },
     { name: 'message list shape', input: { messages: 'PRIVATE_PROMPT' }, rule: 'inference-messages-shape' },
     { name: 'tool count', input: { messages: [{}], tools: Array.from({ length: 129 }, () => ({})) }, rule: 'inference-tools-count' },
     { name: 'tool list shape', input: { messages: [{}], tools: 'PRIVATE_TOOL' }, rule: 'inference-tools-shape' },
@@ -2176,7 +2184,7 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
     { name: 'private nested option key', input: { messages: [{}], stream_options: { include_usage: true, PRIVATE_KEY: 'inline-secret' } }, rule: 'inference-stream-options' },
     { name: 'private input key', input: { messages: [{}], PRIVATE_KEY: 'private.jwt' }, rule: 'inference-unsupported-field' },
     { name: 'input shape', input: null, rule: 'inference-input' },
-  ])('REQ-OPERATOR-063: identifies $name without exposing rejected data or changing authority', ({ input, rule }) => fixture(async f => {
+  ])('REQ-OPERATOR-063: identifies $name without exposing rejected data or changing authority', ({ input, rule, countObservation, capacityPolicy }) => fixture(async f => {
     await start(f);
     const emitted: string[] = [];
     setLogLevel('warn');
@@ -2192,17 +2200,17 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
         .find(value => value.module === 'dispatcher-settlement' && value.data?.stage === 'preparation');
       expect(event?.data).toEqual({ stage: 'preparation', preparationStep: 'parse', failureClass: 'invalid-wire',
         activityId: f.activityId, generation: 1, resource: 'unparsed', deadline: 'current', status: 403,
-        wireRules: [rule], wireRulesTruncated: false });
+        wireRules: Array.isArray(rule) ? rule : [rule], wireRulesTruncated: false, ...countObservation });
       expect(emitted.join('\n')).not.toMatch(/PRIVATE_|inline-secret|private\.jwt|owner@example/);
-      // Trusted identity is checked exactly above; rejected numeric values must not
-      // occur in the remaining diagnostic fields, not arbitrary generated UUID text.
+      // Structural counts are intentional observations, not rejected token values.
+      // Exclude trusted UUID text when checking that token values remain private.
       expect(JSON.stringify({ ...event!.data, activityId: undefined })).not.toMatch(/32769|16000/);
       expect((await f.activity.getBrowserDetail())?.executionStatus).toBe('running');
       expect((await f.activity.getBrowserDetail())?.result).toBeNull();
       expect((await f.capability.fetch(genericWire('source', { operationId: 'valid-after-rule-denial',
         url: 'https://api.github.com/repos/another/service' }))).status).toBe(200);
     } finally { spy.mockRestore(); setLogLevel('silent'); }
-  }, { repositoryOnly: true }));
+  }, { repositoryOnly: true, capacityPolicy }));
   it('REQ-OPERATOR-063: bounds multiple rejected rules without retaining arbitrary issue paths or values', () => fixture(async f => {
     await start(f);
     const emitted: string[] = [];
@@ -2221,7 +2229,8 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
         .find(value => value.module === 'dispatcher-settlement' && value.data?.stage === 'preparation');
       expect(event?.data).toEqual({ stage: 'preparation', preparationStep: 'parse', failureClass: 'invalid-wire',
         activityId: f.activityId, generation: 1, resource: 'unparsed', deadline: 'current', status: 403,
-        wireRules: ['operation-id', 'inference-messages-count', 'inference-tools-count', 'inference-token-bound'], wireRulesTruncated: true });
+        wireRules: ['operation-id', 'inference-messages-count', 'inference-tools-count', 'inference-token-bound'], wireRulesTruncated: true,
+        messages: 0, tools: 129, messageMinimum: 1, messageMaximum: 256, messageCountViolation: 'below-minimum' });
       expect(emitted.join('\n')).not.toMatch(/PRIVATE_|inline-secret|private\.jwt|32769|ZodError|too_big/);
       expect((await f.activity.getBrowserDetail())?.executionStatus).toBe('running');
     } finally { spy.mockRestore(); setLogLevel('silent'); }

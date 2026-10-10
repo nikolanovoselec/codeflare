@@ -186,7 +186,9 @@ export function registerNativeDispatcherCases(
     beforeEach(() => harness.reset(), 60_000);
     type Composed = { instance: string; fiberEvents: FiberObservation[] | null;
       diagnostics?: Array<{ module: string; stage?: string; outcome?: string; status?: number;
-        failureClass?: string; preparationStep?: string; wireRules?: string }>;
+        failureClass?: string; preparationStep?: string; wireRules?: string;
+        messages?: number; tools?: number | null; messageMinimum?: number; messageMaximum?: number;
+        messageCountViolation?: 'below-minimum' | 'above-maximum' }>;
       journal?: { generation: number; unresolved: number; operationId: string; receipt: {
         generation: number; phase: string; requestDigest: string; responseDigest?: string; resolution?: unknown;
         request?: { method: string; url: string };
@@ -432,7 +434,9 @@ export function registerNativeDispatcherCases(
         commentCount: value.external.comments.length,
         operationDenials: (value.diagnostics ?? []).filter(entry => entry.outcome === 'denied' || entry.stage === 'preparation')
           .map(entry => ({ module: entry.module, stage: entry.stage, outcome: entry.outcome, status: entry.status,
-            failureClass: entry.failureClass, preparationStep: entry.preparationStep, wireRules: entry.wireRules })) });
+            failureClass: entry.failureClass, preparationStep: entry.preparationStep, wireRules: entry.wireRules,
+            messages: entry.messages, tools: entry.tools, messageMinimum: entry.messageMinimum,
+            messageMaximum: entry.messageMaximum, messageCountViolation: entry.messageCountViolation })) });
       if (closed !== lastClosedObservation) console.info(`[native-flue] composed closed=${closed}`);
       lastClosedObservation = closed;
       return closed;

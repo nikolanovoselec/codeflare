@@ -74,6 +74,10 @@ export function dispatcherGithubApiOrigin(env: Pick<Env, 'GITHUB_API_HOST'>): st
 }
 
 export type DispatcherOperation = { operationId: string; path: string; body: unknown; signal?: AbortSignal };
+export type DispatcherInferenceCountObservation = {
+  messages: number; tools: number | null; messageMinimum: number; messageMaximum: number;
+  messageCountViolation: 'below-minimum' | 'above-maximum';
+};
 
 /** Closed private diagnostic labels only; never export Zod paths, keys or values. */
 export function dispatcherWireRules(error: z.ZodError): { wireRules: string[]; wireRulesTruncated: boolean } {
@@ -103,12 +107,13 @@ export function dispatcherWireRules(error: z.ZodError): { wireRules: string[]; w
 
 /** Bounded transport wire; source reads select a URL, never credentials, identity or transport. */
 export async function parseDispatcherOperation(request: Request, inferenceByteLimit = DEFAULT_INFERENCE_REQUEST_BYTES,
-  capacityPolicy?: DispatcherCapacityPolicy): Promise<DispatcherOperation> {
+  capacityPolicy?: DispatcherCapacityPolicy,
+  onInferenceCountRejected?: (value: DispatcherInferenceCountObservation) => void): Promise<DispatcherOperation> {
   const limits = dispatcherCapacities(capacityPolicy);
   const url = new URL(request.url);
   if (url.origin !== 'https://operator.internal' || url.search || url.hash || request.method !== 'POST'
     || request.headers.get('content-type')?.split(';')[0].trim() !== 'application/json') throw new Error('Dispatcher request denied');
-  const value = JSON.parse(await readDispatcherBody(request, request.signal,
+  const value: unknown = JSON.parse(await readDispatcherBody(request, request.signal,
     url.pathname === '/v1/dispatcher/inference' ? inferenceByteLimit : limits.dispatcherRequestBytes));
   const schema = url.pathname === '/v1/dispatcher/github/read' ? dispatcherReadSchema
     : url.pathname === '/v1/dispatcher/github/comment' ? dispatcherCommentSchema(limits)
@@ -118,7 +123,28 @@ export async function parseDispatcherOperation(request: Request, inferenceByteLi
     : url.pathname === '/v1/dispatcher/receipt' ? dispatcherReceiptSchema
     : url.pathname === '/v1/dispatcher/resolve' ? dispatcherResolutionSchema(limits) : null;
   if (!schema) throw new Error('Dispatcher route denied');
-  const body = schema.parse(value);
+  const parsed = schema.safeParse(value);
+  if (!parsed.success) {
+    // Structural counts from the already bounded parse only; never reread the body
+    // or retain request values. Diagnostics cannot replace the original Zod denial.
+    if (onInferenceCountRejected && url.pathname === '/v1/dispatcher/inference'
+      && value && typeof value === 'object' && !Array.isArray(value) && 'input' in value) {
+      const input = value.input;
+      if (input && typeof input === 'object' && !Array.isArray(input) && 'messages' in input
+        && Array.isArray(input.messages)) {
+        const messages = input.messages.length;
+        if (messages < 1 || messages > limits.inferenceMessageLimit) {
+          try { onInferenceCountRejected({ messages,
+            tools: 'tools' in input && Array.isArray(input.tools) ? input.tools.length : null,
+            messageMinimum: 1, messageMaximum: limits.inferenceMessageLimit,
+            messageCountViolation: messages < 1 ? 'below-minimum' : 'above-maximum' }); }
+          catch { /* Best-effort observation does not change validation or authority. */ }
+        }
+      }
+    }
+    throw parsed.error;
+  }
+  const body = parsed.data;
   if (url.pathname === '/v1/dispatcher/source') {
     const source = dispatcherSourceSchema(limits).parse(body);
     if ((source.method ?? 'GET') === 'GET' && source.body !== undefined) throw new Error('GET body denied');
