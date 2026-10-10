@@ -28,7 +28,9 @@ function normalize(line) {
   const at = Number(prefix[1]) * 1000;
   if (!Number.isFinite(at)) return null;
   const text = prefix[2];
-  const signal = /^--- (SIG[A-Z]+)\b/.exec(text) ?? /^\+\+\+ killed by (SIG[A-Z]+)\b/.exec(text);
+  const killed = /^\+\+\+ killed by (SIG[A-Z]+)\b/.exec(text);
+  if (killed) return { at, kind: 'exit', signal: signals.has(killed[1]) ? killed[1] : 'OTHER' };
+  const signal = /^--- (SIG[A-Z]+)\b/.exec(text);
   if (signal) return { at, kind: 'signal', signal: signals.has(signal[1]) ? signal[1] : 'OTHER' };
   const ended = /^\+\+\+ exited with (\d+) \+\+\+$/.exec(text);
   if (ended) return { at, kind: 'exit', code: Number(ended[1]) };
@@ -44,10 +46,33 @@ function normalize(line) {
     argument0: integer(first?.[1]), result: result && result[1] !== '?' ? Number(result[1]) : null,
     errno: result?.[2] ? errors.has(result[2]) ? result[2] : 'OTHER' : null,
     address: address?.[1] ?? null, port: port && Number(port[1]) <= 65535 ? Number(port[1]) : null,
-    threadClone: name === 'clone' || name === 'clone3' ? text.includes('CLONE_THREAD') : null,
+    threadClone: (name === 'clone' || name === 'clone3') && !text.startsWith('<...') && /\bflags\s*=/.test(text)
+      ? text.includes('CLONE_THREAD') : null,
     decodedIo: rawNames.has(name) && /"|iov_base|msg_iov|msg_control/.test(text) };
 }
 exports.normalize = normalize;
+
+function normalizeStream(lines) {
+  let pendingClone;
+  let complete = lines.length > 0;
+  const rows = lines.map(line => {
+    const row = normalize(line);
+    if (!row) { complete = false; return null; }
+    if (row.call === 'clone' || row.call === 'clone3') {
+      if (row.resumed) {
+        if (pendingClone?.call === row.call) row.threadClone = pendingClone.threadClone;
+        else complete = false;
+        pendingClone = undefined;
+      } else if (row.unfinished) {
+        if (pendingClone) complete = false;
+        pendingClone = row;
+      }
+      if (row.result > 0 && row.threadClone !== true) complete = false;
+    }
+    return row;
+  });
+  return { rows, complete: complete && !pendingClone };
+}
 function record(value) {
   try {
     if (!directory || process.env.CI !== 'true') return;
@@ -119,16 +144,20 @@ if (require.main === module) {
       && [0, terminal.code, terminal.signal ? 128 + constants.signals[terminal.signal] : null].includes(tracerTerminal.code));
     const prefix = `${entry.scope.replace(':', '-')}-${entry.role}-${entry.pid}.strace.`;
     const traces = names.filter(name => name.startsWith(prefix) && /^\d+$/.test(name.slice(prefix.length)));
-    if (!traces.length) complete = false;
+    if (!traces.includes(prefix + entry.pid)) complete = false;
     for (const name of traces) {
       const path = join(privateDirectory, name);
       bytes += statSync(path).size;
       if (bytes > 16 * 1024 * 1024) throw new Error('Native capture evidence bound exceeded');
       const rows = readFileSync(path, 'utf8').split('\n').filter(Boolean);
       const tid = Number(name.slice(prefix.length));
-      const normalized = rows.map(normalize);
+      const stream = normalizeStream(rows);
+      const normalized = stream.rows;
       if (normalized.some(row => row?.decodedIo)) throw new Error('Native capture payload decoding refused');
-      if (normalized.some(row => !row || row.threadClone === false && row.result > 0)) complete = false;
+      const last = normalized.at(-1);
+      complete &&= stream.complete && last?.kind === 'exit'
+        && (tid !== entry.pid || Boolean(terminal && (terminal.signal
+          ? last.signal === terminal.signal : last.code === terminal.code)));
       const data = normalized.filter(Boolean).map(row => JSON.stringify({ ...entry, tid, ...row })).join('\n') + '\n';
       const output = name + '.jsonl';
       writeFileSync(join(evidence, output), data, { mode: 0o600 });
@@ -139,32 +168,45 @@ if (require.main === module) {
   // Attachment must precede each original observation; PID identity is not inferred from port alone.
   const log = readFileSync(join(process.env.RUNNER_TEMP, 'backend-node-flue.log'), 'utf8');
   const correlations = [];
+  const expected = [];
+  const forwards = [];
   for (const line of log.split('\n')) {
-    const marker = '[native-flue] proxy-observe=';
-    if (!line.includes(marker)) continue;
+    const harnessMarker = '[native-flue] harness-observe=';
+    const proxyMarker = '[native-flue] proxy-observe=';
+    const marker = line.includes(harnessMarker) ? harnessMarker : line.includes(proxyMarker) ? proxyMarker : null;
+    if (!marker) continue;
     let observation;
     try { observation = JSON.parse(line.slice(line.indexOf(marker) + marker.length).replace(/\x1b\[[0-9;]*m/g, '')); }
     catch { throw new Error('Native capture correlation malformed'); }
-    if (observation.stage !== 'forward-start' || !scopes.has(observation.harnessEpoch)) continue;
+    if (!scopes.has(observation.harnessEpoch) || marker === proxyMarker && observation.stage !== 'forward-start') continue;
     if (!/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/.test(observation.observationId)
-      || !Number.isSafeInteger(observation.at) || !/^[0-9]{1,5}$/.test(observation.destinationPort)
-      || Number(observation.destinationPort) < 1 || Number(observation.destinationPort) > 65535) {
+      || !Number.isSafeInteger(observation.at) || marker === proxyMarker && (!/^[0-9]{1,5}$/.test(observation.destinationPort)
+      || Number(observation.destinationPort) < 1 || Number(observation.destinationPort) > 65535)) {
       throw new Error('Native capture correlation fields refused');
     }
+    (marker === harnessMarker ? expected : forwards).push(observation);
+  }
+  const sameObservation = (left, right) => left.observationId === right.observationId && left.harnessEpoch === right.harnessEpoch;
+  for (const observation of expected) {
+    const matches = forwards.filter(forward => sameObservation(forward, observation));
+    const forward = matches.length === 1 ? matches[0] : null;
     const alive = spawned.filter(entry => entry.scope === observation.harnessEpoch
       && entry.at <= observation.at
-      && !events.some(event => event.pid === entry.pid && event.stage === 'exit' && event.at < observation.at));
-    const users = alive.filter(entry => entry.role === 'user'
-      && events.some(event => event.pid === entry.pid && event.stage === 'ready' && String(event.port) === observation.destinationPort));
-    const proxies = alive.filter(entry => entry.role === 'proxy');
-    const covered = users.length === 1 && proxies.length === 1 && [users[0], proxies[0]]
-      .every(entry => events.some(event => event.pid === entry.pid && event.stage === 'attached' && event.at <= observation.at)
-        && !events.some(event => event.pid === entry.pid && event.stage === 'tracer-close' && event.at < observation.at));
+      && !events.some(event => event.pid === entry.pid && event.stage === 'exit' && event.at < (forward?.at ?? observation.at)));
+    const users = forward ? alive.filter(entry => entry.role === 'user'
+      && events.some(event => event.pid === entry.pid && event.stage === 'ready' && String(event.port) === forward.destinationPort)) : [];
+    const proxies = forward ? alive.filter(entry => entry.role === 'proxy') : [];
+    const covered = Boolean(forward && observation.at <= forward.at
+      && expected.filter(item => sameObservation(item, observation)).length === 1
+      && users.length === 1 && proxies.length === 1 && [users[0], proxies[0]]
+        .every(entry => events.some(event => event.pid === entry.pid && event.stage === 'attached' && event.at <= observation.at)
+          && !events.some(event => event.pid === entry.pid && event.stage === 'tracer-close' && event.at < forward.at)));
     complete &&= covered;
     correlations.push({ observationId: observation.observationId, scope: observation.harnessEpoch,
-      at: observation.at, destinationPort: Number(observation.destinationPort), covered,
+      at: observation.at, forwardAt: forward?.at ?? null, destinationPort: forward ? Number(forward.destinationPort) : null, covered,
       userPid: users.length === 1 ? users[0].pid : null, proxyPid: proxies.length === 1 ? proxies[0].pid : null });
   }
+  complete &&= forwards.every(forward => expected.some(observation => sameObservation(forward, observation)));
   complete &&= [...scopes].every(value => correlations.some(row => row.scope === value));
   writeFileSync(join(evidence, 'verified.json'), JSON.stringify({ diagnostic: 'native-connection-capture', complete,
     calls, raw, bytes, processes: spawned, correlations, files: manifest, boundary: 'kernel events, not parsed HTTP dispatch' }, null, 2) + '\n');

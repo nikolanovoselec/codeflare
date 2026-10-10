@@ -44,6 +44,92 @@ describe('native capture metadata-only privacy contract', () => {
     expect(JSON.stringify(resumed)).not.toContain(secret);
   });
 });
+describe('native capture completeness wire contract', () => {
+  const base = 1791654000000;
+  const missingId = '33333333-3333-4333-8333-333333333333';
+  type Fault = 'empty' | 'missing-principal' | 'truncated' | 'signal-only' | 'terminal-conflict';
+  function verifyFixture(options: { fault?: Fault; missingForward?: boolean; clone?: string[] } = {}) {
+    const directory = join(work, 'native-connection-capture');
+    const evidence = join(directory, 'evidence');
+    const privateDirectory = join(directory, 'private');
+    mkdirSync(evidence, { recursive: true });
+    mkdirSync(privateDirectory, { recursive: true });
+    const lifecycle: Record<string, unknown>[] = [];
+    const log: string[] = [];
+    const timed = (offset: number, text: string) => `${((base + offset) / 1000).toFixed(6)} ${text}`;
+    for (const [index, scope] of ['1:2', '1:5'].entries()) {
+      const port = String(42001 + index);
+      const observationId = index === 0 ? '11111111-1111-4111-8111-111111111111' : '22222222-2222-4222-8222-222222222222';
+      log.push(`[native-flue] harness-observe=${JSON.stringify({ observationId, harnessEpoch: scope, at: base + 300 })}`);
+      log.push(`[native-flue] proxy-observe=${JSON.stringify({ observationId, harnessEpoch: scope, at: base + 301, stage: 'forward-start', destinationPort: port })}`);
+      if (index === 0 && options.missingForward) log.push(`[native-flue] harness-observe=${JSON.stringify({ observationId: missingId, harnessEpoch: scope, at: base + 500 })}`);
+      for (const [roleIndex, role] of ['proxy', 'user'].entries()) {
+        const pid = 5000 + index * 2 + roleIndex;
+        const entry = { scope, role, pid, nodePid: 4900 };
+        lifecycle.push(...[
+          { ...entry, stage: 'spawn', at: base },
+          { ...entry, stage: 'ready', at: base + 100, port: role === 'user' ? Number(port) : Number(port) + 100 },
+          { ...entry, stage: 'attached', at: base + 200 },
+          { ...entry, stage: 'exit', at: base + 1000, code: 0, signal: null },
+          { ...entry, stage: 'tracer-close', at: base + 1001, code: 0, signal: null },
+        ]);
+        let rows = [timed(250, 'socket(AF_INET, SOCK_STREAM, IPPROTO_TCP) = 8'),
+          ...(index === 0 && role === 'user' ? (options.clone ?? []).map((line, i) => timed(600 + i, line)) : []),
+          timed(900, 'close(8) = 0'), timed(999, 'exit_group(0) = ?'), timed(1000, '+++ exited with 0 +++')];
+        let tid = pid;
+        if (index === 0 && role === 'user') {
+          if (options.fault === 'empty') rows = [];
+          if (options.fault === 'missing-principal') tid = 5999;
+          if (options.fault === 'truncated') rows.pop();
+          if (options.fault === 'signal-only') rows[rows.length - 1] = timed(1000, '--- SIGTERM {si_signo=SIGTERM} ---');
+          if (options.fault === 'terminal-conflict') rows[rows.length - 1] = timed(1000, '+++ killed by SIGKILL +++');
+        }
+        writeFileSync(join(privateDirectory, `${scope.replace(':', '-')}-${role}-${pid}.strace.${tid}`), rows.join('\n') + (rows.length ? '\n' : ''));
+      }
+    }
+    writeFileSync(join(evidence, 'lifecycle-4900.jsonl'), lifecycle.map(row => JSON.stringify(row)).join('\n') + '\n');
+    writeFileSync(join(work, 'backend-node-flue.log'), log.join('\n') + '\n');
+    const result = spawnSync(process.execPath, [join(REPO, 'scripts/ci/native-connection-capture.cjs'), 'verify'], {
+      encoding: 'utf8', env: { ...process.env, CI: 'true', RUNNER_TEMP: work, GITHUB_OUTPUT: join(work, 'capture-output') },
+    });
+    const receipt = JSON.parse(readFileSync(join(evidence, 'verified.json'), 'utf8')) as {
+      complete: boolean; correlations: { observationId: string; covered: boolean; forwardAt: number | null }[];
+    };
+    return { result, receipt };
+  }
+
+  it('qualifies complete principal streams and original observation coverage', () => {
+    const { result, receipt } = verifyFixture();
+    expect(result.status, result.stderr).toBe(0);
+    expect(receipt.complete).toBe(true);
+  });
+  it.each(['empty', 'missing-principal', 'truncated', 'signal-only', 'terminal-conflict'] as const)(
+    'retains safe %s evidence without qualifying it as complete', fault => {
+      const { result, receipt } = verifyFixture({ fault });
+      expect(result.status).not.toBe(0);
+      expect(receipt.complete).toBe(false);
+      expect(readFileSync(join(work, 'capture-output'), 'utf8').trim()).toBe('safe=true');
+    });
+  it('accounts for an original observation missing its proxy forwarding marker', () => {
+    const { result, receipt } = verifyFixture({ missingForward: true });
+    expect(result.status).not.toBe(0);
+    expect(receipt.complete).toBe(false);
+    expect(receipt.correlations).toContainEqual(expect.objectContaining({ observationId: missingId, covered: false, forwardAt: null }));
+  });
+  it.each(['clone', 'clone3'])('pairs split %s thread flags with the returned TID', call => {
+    const { result, receipt } = verifyFixture({ clone: [
+      `${call}({flags=CLONE_VM|CLONE_THREAD}, 88 <unfinished ...>`, `<... ${call} resumed>) = 7000`,
+    ] });
+    expect(result.status, result.stderr).toBe(0);
+    expect(receipt.complete).toBe(true);
+  });
+  it.each(['clone3({flags=SIGCHLD}, 88) = 7000', '<... clone3 resumed>) = 7000', 'clone3({flags=CLONE_THREAD}, 88 <unfinished ...>'])(
+    'does not qualify a non-thread child or unresolved clone: %s', line => {
+      const { result, receipt } = verifyFixture({ clone: [line] });
+      expect(result.status).not.toBe(0);
+      expect(receipt.complete).toBe(false);
+    });
+});
 const COMPLETENESS = join(REPO, 'scripts/ci/check-suite-completeness.mjs');
 const REPORT_GATE = join(REPO, 'scripts/ci/check-vitest-report.mjs');
 const COVERAGE_GATE = join(REPO, 'scripts/ci/check-coverage-result.mjs');
