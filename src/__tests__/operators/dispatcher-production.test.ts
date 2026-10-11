@@ -3852,6 +3852,13 @@ describe('REQ-OPERATOR-048: original-lease serial SDK phase ownership', () => {
     f.restoreTransport();
     const originalReceipt = await f.capability.fetch(wire('receipt', { operationId: mutation.operationId }, first.deliveryToken));
     expect(await originalReceipt.json()).toMatchObject({ phase: 'unknown', method: 'POST', url: mutation.url, operationCount: 1 });
+    const admitted = await latestDelivery(f);
+    f.statusFault(() => { throw new Error('Observation unavailable'); });
+    await f.activity.reconcileDispatcherLease();
+    expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'running', collectionStatus: 'unavailable', result: null });
+    expect(await context(f)).toEqual(first); expect(await latestDelivery(f)).toEqual(admitted);
+    const retained = await f.capability.fetch(wire('receipt', { operationId: mutation.operationId }, first.deliveryToken));
+    expect(await retained.json()).toMatchObject({ phase: 'unknown', operationCount: 1 });
     f.messages([]); f.settle(first.submissionId, 'failed', { type: 'operation_failed' });
     await f.activity.reconcileDispatcherLease();
     const second = await context(f);
@@ -3891,6 +3898,13 @@ describe('REQ-OPERATOR-048: original-lease serial SDK phase ownership', () => {
       const late = f.capability.fetch(wire('inference', { operationId: 'held-pr1-model',
         input: { messages: [{ role: 'user', content: 'PR1 fixture input' }] } }, first.deliveryToken));
       await enteredPromise;
+      const admitted = await latestDelivery(f);
+      f.statusFault(() => { throw new Error('Observation unavailable'); });
+      await f.activity.reconcileDispatcherLease();
+      expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'running', collectionStatus: 'unavailable', result: null });
+      expect(await context(f)).toEqual(first); expect(await latestDelivery(f)).toEqual(admitted);
+      const receipt = await f.capability.fetch(wire('receipt', { operationId: 'held-pr1-model' }, first.deliveryToken));
+      expect(await receipt.json()).toMatchObject({ phase: 'reserved', operationCount: 1 });
       f.messages([]); f.settle(first.submissionId, 'failed', { type: 'operation_failed' });
       await f.activity.reconcileDispatcherLease();
       const second = await context(f);
