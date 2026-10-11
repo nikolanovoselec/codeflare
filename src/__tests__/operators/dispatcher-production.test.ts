@@ -355,6 +355,8 @@ async function fixture(test: (f: {
   afterRegistryResolve: (action: () => Promise<void>) => void;
   changeInferenceAuthority: (field: 'route' | 'installation' | 'digest') => void;
   loseAllocationAcknowledgement: (afterCommit?: () => Promise<void>) => void;
+  statusFault: (fault: () => Response | Promise<Response>) => void;
+  changeRetiredPin: (field: 'inputDigest' | 'artifactDigest') => Promise<void>;
 }) => Promise<void>, options: { humanLifetimeSeconds?: number; repositoryOnly?: boolean; prospective?: boolean;
   configuredTarget?: { repository: string; repositoryId: number; baseBranch: string };
   legacyProspective?: boolean; inputExtra?: Record<string, unknown>; capabilities?: string[]; pagedStatus?: boolean; githubApiHost?: string;
@@ -453,6 +455,7 @@ async function fixture(test: (f: {
     let activity: OperatorActivity;
     const phaseAdmissions = new Map<string, { submissionId: string; offset: string }>();
     let phaseAcknowledgementLost = false;
+    let statusFault: (() => Response | Promise<Response>) | undefined;
     const child = {
       _cf_initAsFacet: async () => {},
       _cf_checkRunFibersForFacet: async () => 0,
@@ -483,6 +486,10 @@ async function fixture(test: (f: {
           }
           return Response.json({ submissionId: 'submission-1', offset: streamOffset(),
             uid: 'fixture-incarnation', streamUrl: request.url }, { status: 202, headers: { 'stream-next-offset': streamOffset() } });
+        }
+        if (request.method === 'GET' && new URL(request.url).searchParams.get('view') === 'updates') {
+          const fault = statusFault; statusFault = undefined;
+          if (fault) return await fault();
         }
         const snapshot = { v: 1, conversationId: 'fixture-conversation', offset: streamOffset(), settlements,
           messages: messages.map((value, index) => ({ id: `fixture-message-${index}`, role: 'assistant',
@@ -660,6 +667,12 @@ async function fixture(test: (f: {
       environment as unknown as ConstructorParameters<typeof OperatorDispatcherCapability>[1]);
     try {
       await test({ activity, capability, staleCapability, environment, artifactDigest, activityId, deliveredTail,
+        statusFault: fault => { statusFault = fault; },
+        changeRetiredPin: async field => {
+          const lease = await native.storage.get<Record<string, unknown>>('dispatcher:lease');
+          if (!lease) throw new Error('Fixture lease missing');
+          await native.storage.put('dispatcher:lease', { ...lease, [field]: 'e'.repeat(64) });
+        },
         deliverTail: async events => { if (!configuredTail) throw new Error('No configured Dispatcher tail');
           await (await configuredTail).tail(events); }, sent, childSubmissions,
         settle: (id = 'submission-1', outcome = 'completed', error?: unknown) => {
@@ -3702,6 +3715,12 @@ describe('REQ-OPERATOR-048: original-lease serial SDK phase ownership', () => {
     const first = await context(f);
     expect(first.phase).toEqual({ kind: 'target', index: 0, target: frozen[0] });
     f.messages([]); f.settle(first.submissionId, 'failed', { type: 'operation_failed', meta: { reason: 'fixture provider failure' } });
+    const admitted = await latestDelivery(f);
+    f.statusFault(() => { throw new Error('Observation unavailable'); });
+    await f.activity.reconcileDispatcherLease();
+    expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'running', collectionStatus: 'unavailable', result: null });
+    expect(await context(f)).toEqual(first);
+    expect(await latestDelivery(f)).toEqual(admitted);
     await f.activity.reconcileDispatcherLease();
     const second = await context(f);
     expect(second.phase).toEqual({ kind: 'target', index: 1, target: frozen[1] });
@@ -3723,6 +3742,34 @@ describe('REQ-OPERATOR-048: original-lease serial SDK phase ownership', () => {
     expect(collected).toMatchObject({ ok: true, detail: { result, sdkCleanupReleased: true } });
     expect(await f.activity.collectBrowserResult()).toMatchObject({ ok: true, detail: { result, sdkCleanupReleased: true } });
     expect((await latestDelivery(f)).uid).toBe('fixture-incarnation');
+  }, { repositoryOnly: true, intent4: true, loggingEnabled: false }));
+
+  it.each(['expired', 'HTTP-rejected'] as const)('REQ-OPERATOR-048: %s status observation cannot keep original work alive', fault => fixture(async f => {
+    await start(f); await discovery(f); const original = await context(f);
+    f.statusFault(() => {
+      if (fault === 'HTTP-rejected') return new Response('', { status: 503 });
+      f.advanceClock(300_000); throw new Error('Observation unavailable');
+    });
+    await f.activity.reconcileDispatcherLease();
+    expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'unknown', result: null, collectionStatus: 'unavailable' });
+    expect(await f.activity.dispatcherGenerationCurrent(original.generation)).toBe(false);
+    expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
+  }, { repositoryOnly: true, intent4: true, loggingEnabled: false }));
+
+  it.each(['unknown', 'cancel-requested'] as const)('REQ-OPERATOR-016/041: %s exposes only its exact retired SDK receipt', status => fixture(async f => {
+    await start(f);
+    if (status === 'unknown') await f.activity.interruptDrive(1); else await f.activity.cancelDrive();
+    expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: status, sdkCleanupReleased: true,
+      collectionStatus: 'unavailable', result: null, cleanupStatus: status === 'unknown' ? 'pending' : 'stopping' });
+    expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
+    const denied = await f.capability.fetch(genericWire('source', { operationId: 'retired-effect', method: 'POST',
+      url: 'https://api.github.com/repos/another/service/issues/17/comments', body: '{"body":"must not publish"}' }));
+    expect(denied.status).toBe(403);
+  }, { repositoryOnly: true, intent4: true, loggingEnabled: false }));
+
+  it.each(['inputDigest', 'artifactDigest'] as const)('REQ-OPERATOR-041: a retired receipt with mismatched %s is not exposed', field => fixture(async f => {
+    await start(f); await f.activity.interruptDrive(1); await f.changeRetiredPin(field);
+    expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'unknown', sdkCleanupReleased: false, result: null });
   }, { repositoryOnly: true, intent4: true, loggingEnabled: false }));
 
   it.each(['read-failure', 'unknown-write', 'domain-uncertain'] as const)('REQ-OPERATOR-061: only original settled and collected singleton deferral supplies immutable scheduled-retry proof: %s', scenario => fixture(async f => {

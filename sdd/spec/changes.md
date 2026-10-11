@@ -2,6 +2,10 @@
 
 Semantic changes to the specification. Git history captures diffs; this file captures intent.
 
+## 2026-10-11
+
+- Preserve the original authorized Dispatcher submission across unavailable status reads while retaining shared safety fences ([REQ-OPERATOR-048](operators.md#req-operator-048-dispatcher-execution)); expose its exact retired SDK-release receipt without implying physical cleanup ([REQ-OPERATOR-016/041](operators.md#req-operator-016-durable-activity-admission-and-cleanup)).
+
 ## 2026-10-10
 
 - Specify serial PR-isolated SDK responses and complete deferred-aware collection while preserving uncertainty ([REQ-OPERATOR-048/062](operators.md#req-operator-048-dispatcher-execution)). Require freshly authorized due-interval retry of still-open failed/deferred PRs ([REQ-OPERATOR-061](operators.md#req-operator-061-prospective-admin-session-renovate-scan)); acceptance remains Planned.
