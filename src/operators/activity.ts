@@ -24,7 +24,7 @@ import { authorizeDispatcherPlan, createDispatcherOperation, parseDispatcherOper
 import { z } from 'zod';
 import { readDispatcherUpdates, type DispatcherResultProjection } from './dispatcher-result';
 import { createDispatcherPhaseState, dispatcherPhaseWire, bindDispatcherPhaseReceipt, dispatcherPhaseContext,
-  advanceDispatcherPhase, collectDispatcherFinal, DISPATCHER_JOURNEY_RESULT_BYTES,
+  advanceDispatcherPhase, collectDispatcherFinal, sameDispatcherPhaseValue, DISPATCHER_JOURNEY_RESULT_BYTES,
   type DispatcherPhaseState, type DispatcherPhaseAuthority, type DispatcherPhaseReply } from './dispatcher-phases';
 import type { OperatorAdmissionRequest, OperatorAdmissionReceipt, ManagementAdmissionReceipt } from './registry';
 import type { VerifiedHumanAccessClaims } from '../lib/jwt';
@@ -1799,7 +1799,10 @@ export class OperatorActivity extends Agent {
       // Historical executions without an admission cursor are never re-read or replayed.
       if (pendingLease.status !== 'running' || !pendingLease.submissionId || !pendingLease.projection) return;
       const lease = pendingLease;
-      const loggingEnabled = executionLoggingEnabled((await this.ctx.storage.get<AdmissionState>('admission'))?.receipt);
+      const admission = await this.ctx.storage.get<AdmissionState>('admission');
+      const loggingEnabled = executionLoggingEnabled(admission?.receipt);
+      const operationLimit = dispatcherOperationLimit(admission?.receipt && isManagementReceipt(admission.receipt)
+        ? admission.receipt.selection.operator.policy : undefined);
       let stage = 'status';
       let statusStep = 'plan';
       let activityId: string | undefined;
@@ -2010,6 +2013,43 @@ export class OperatorActivity extends Agent {
           await this.interruptDrive(lease.generation);
         }
       } catch (error) {
+        if (stage === 'status' && statusStep === 'fetch' && lease.serial?.current.receipt) {
+          try {
+            const latest = await this.ctx.storage.get<DispatcherLease>(DISPATCHER_LEASE);
+            // A late observation cannot retire a different generation or phase.
+            if (latest && (latest.generation !== lease.generation || latest.submissionId !== lease.submissionId
+              || latest.serial?.current.deliveryToken !== lease.serial.current.deliveryToken)) return;
+            const authorized = await this.#dispatcherDeliveryCurrent(lease.generation, lease.serial.current.deliveryToken);
+            const unchanged = authorized && await this.ctx.storage.transaction(async tx => {
+              const record = await tx.get<AdmissionState>('admission');
+              const current = await tx.get<DispatcherLease>(DISPATCHER_LEASE);
+              if (!this.#leaseMatches(record, current, lease.generation) || current!.status !== 'running'
+                || current!.submissionId !== lease.submissionId || current!.expiresAt !== lease.expiresAt
+                || current!.inputDigest !== lease.inputDigest || current!.artifactDigest !== lease.artifactDigest
+                || !sameDispatcherPhaseValue(current!.serial, lease.serial)
+                || !sameDispatcherPhaseValue(current!.projection, lease.projection)) return false;
+              const journal = await loadDispatcherJournal(tx, lease.generation);
+              if (journal.count >= operationLimit) return false;
+              let startAfter: string | undefined;
+              for (;;) {
+                const page = await tx.list<DispatcherOperationRecord>({ prefix: `dispatcher:operation:${lease.generation}:`, limit: 128,
+                  ...(startAfter ? { startAfter } : {}) });
+                for (const [key, entry] of page) {
+                  startAfter = key;
+                  if (entry.phase === 'completed') continue;
+                  const binding = entry.phaseBinding;
+                  if (entry.generation !== lease.generation || !binding) return false;
+                  if (entry.phase !== 'unknown') continue;
+                  if (binding.phase.kind !== 'target'
+                    || !sameDispatcherPhaseValue(current!.serial?.targets?.[binding.phase.index], binding.phase.target)) return false;
+                }
+                if (page.size < 128) break;
+              }
+              return true;
+            });
+            if (unchanged) { await this.#scheduleDispatcherRecheck(lease); return; }
+          } catch { /* An unavailable authority/integrity check still takes the existing fence. */ }
+        }
         const message = error instanceof Error ? error.message : '';
         const failureClass = message === 'Dispatcher body exceeds limit' ? 'body-limit'
           : message === 'Dispatcher lease expired' ? 'lease-expired'
@@ -2793,7 +2833,10 @@ export class OperatorActivity extends Agent {
   private sdkCleanupReleased(state: AdmissionState, lease?: DispatcherLease): boolean | undefined {
     if (!state.drive || !state.receipt || !isManagementReceipt(state.receipt)
       || state.receipt.selection.operator.profile !== 'dispatcher') return undefined;
-    return !!lease && lease.generation === state.drive.generation && lease.inputDigest === state.receipt.intentDigest
+    return !!lease && (lease.generation === state.drive.generation
+      || (state.drive.status === 'unknown' || state.drive.status === 'cancel-requested')
+        && lease.status === 'unknown' && state.drive.generation === lease.generation + 1)
+      && lease.inputDigest === state.receipt.intentDigest
       && lease.artifactDigest === state.receipt.selection.release.bundleDigest && lease.sdkReleased === true;
   }
 

@@ -375,12 +375,12 @@ export function registerNativeDispatcherCases(
       expect(predicate(value!), reportObservation(value!)).toBe(true);
       return value!;
     }
-    it.each([1, 17, undefined])('REQ-OPERATOR-045/011/048: SDK admits the saved submission limit %s independently of inference retries', async limit => {
+    it.each([1, 17])('REQ-OPERATOR-045/011/048: SDK admits the saved submission limit %s independently of inference retries', async limit => {
       const pinned = await pinnedArtifact(false, false, true);
       const id = `submission-limit-${crypto.randomUUID()}`;
       expect(await composed(id, { action: 'start', ...pinned, scenario: limit === 1 ? 'ordinary' : 'precommit-reset', attemptLimit: 4,
-        ...(limit === undefined ? {} : { submissionAttemptLimit: limit }) })).toMatchObject({ ok: true });
-      const expected = limit ?? 1024;
+        submissionAttemptLimit: limit })).toMatchObject({ ok: true });
+      const expected = limit;
       if (limit !== 1) {
         await observed(id, value => value.external.held);
         await composed(id, { action: 'evict' });

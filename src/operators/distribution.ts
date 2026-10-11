@@ -75,9 +75,10 @@ const bundleSchema = z.strictObject({
 const dispatcherBundleSchema = z.strictObject({
   schemaVersion: z.literal(1),
   sourceCommit: z.string().regex(/^[0-9a-f]{40}$/),
-  versions: z.strictObject({
-    runtime: z.literal('2.1.0'), vitePlugin: z.literal('2.1.0'), agents: z.literal('0.20.1'),
-  }),
+  versions: z.union([
+    z.strictObject({ runtime: z.literal('2.1.0'), vitePlugin: z.literal('2.1.0'), agents: z.literal('0.20.1') }),
+    z.strictObject({ runtime: z.literal('2.2.2'), vitePlugin: z.literal('2.2.2'), agents: z.literal('0.20.1') }),
+  ]),
   className: z.literal('FlueDispatcherAgent'),
   compatibilityDate: z.literal('2026-09-10'),
   compatibilityFlags: z.tuple([z.literal('nodejs_compat')]),
