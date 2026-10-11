@@ -3904,7 +3904,8 @@ describe('REQ-OPERATOR-048: original-lease serial SDK phase ownership', () => {
       expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'running', collectionStatus: 'unavailable', result: null });
       expect(await context(f)).toEqual(first); expect(await latestDelivery(f)).toEqual(admitted);
       const receipt = await f.capability.fetch(wire('receipt', { operationId: 'held-pr1-model' }, first.deliveryToken));
-      expect(await receipt.json()).toMatchObject({ phase: 'reserved', operationCount: 1 });
+      expect(receipt.status).toBe(403);
+      expect(await receipt.json()).toEqual({ code: 'OPERATOR_CAPABILITY_DENIED' });
       f.messages([]); f.settle(first.submissionId, 'failed', { type: 'operation_failed' });
       await f.activity.reconcileDispatcherLease();
       const second = await context(f);
