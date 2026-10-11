@@ -4,6 +4,8 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-10-11
 
+- Support the user-authorized Flue 2.2.2 SDK upgrade through exact compiler and bundle-validation tuples while retaining immutable 2.1.0 packages, existing authority checks and package ABI ([REQ-OPERATOR-044](operators.md#req-operator-044-github-immutable-package-acquisition), [REQ-OPERATOR-048](operators.md#req-operator-048-dispatcher-execution)). New-version runtime acceptance remains a separate CI and installation gate.
+
 - Preserve the original authorized Dispatcher submission across unavailable status reads while retaining shared safety fences ([REQ-OPERATOR-048](operators.md#req-operator-048-dispatcher-execution)); expose its exact retired SDK-release receipt without implying physical cleanup ([REQ-OPERATOR-016/041](operators.md#req-operator-016-durable-activity-admission-and-cleanup)).
 
 ## 2026-10-10
