@@ -1,6 +1,14 @@
 # Trivy vulnerability suppressions
 # Review monthly and remove entries when upstream fixes are available.
 #
+# Owner-authorized accepted risk, 2026-10-12: CVE-2026-78669 in the Go
+# dependencies embedded in gh, rclone and lazygit. Integration deployment
+# scans 38295109713 and 38295113082 reported four findings for x/net 0.58.0
+# and Go stdlib 1.26.7/1.25.14. Reachability is not disproved; this entry
+# accepts the residual vulnerability rather than claiming a dependency fix.
+# Review by 2026-10-19 and remove after patched binaries pass the image scan.
+CVE-2026-78669
+#
 # NOTE: the deploy Trivy scan runs with `ignore-unfixed: true`, so CVEs with no
 # available fix (blank Fixed Version) no longer need an entry here — they are
 # skipped automatically. This file is now for FIXABLE CVEs we consciously accept
