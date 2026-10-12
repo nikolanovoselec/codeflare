@@ -434,8 +434,11 @@ export class OperatorActivity extends Agent {
     ctx.blockConcurrencyWhile(async () => {
       const lease = await ctx.storage.get<DispatcherLease>(DISPATCHER_LEASE);
       if (lease?.status === 'admitting') {
-        // The POST may have reached Flue. Never resubmit when its receipt was lost.
-        ctx.waitUntil(this.interruptDrive(lease.generation));
+        // Keyed serial admission reattaches only its persisted delivery identity.
+        // Historical unkeyed uncertainty still fences instead of resubmitting.
+        ctx.waitUntil(lease.serial
+          ? this.reconcileDispatcherLease({ generation: lease.generation })
+          : this.interruptDrive(lease.generation));
       } else if (lease && lease.status !== 'running' && !lease.sdkReleased) {
         ctx.waitUntil(this.#releaseDispatcherSdk());
       }
