@@ -128,13 +128,14 @@ export function registerNativeDispatcherCases(
     expect(path, 'CI must supply the real profile-built artifact').toBeTruthy();
     expect(expectedDigest, 'CI must bind the approved artifact bytes, not calculate and trust a new pin').toMatch(/^[a-f0-9]{64}$/);
     expect(expectedSource, 'CI must pin the profile source revision').toMatch(/^[a-f0-9]{40}$/);
-    if (intent4) expect(expectedSource, 'Only the reviewed intent4 PUSH artifact may select phase admission')
-      .toBe('05d817914086bc01cabba6496f0e8e2715b87255');
+    if (intent4) expect(expectedSource, 'Only the verified intent4 release artifact may select phase admission')
+      .toBe('382005334f12b0005befe0c8720caee6336dde3e');
     const bytes = await readFile(path!);
     expect(createHash('sha256').update(bytes).digest('hex')).toBe(expectedDigest);
     const artifact = JSON.parse(bytes.toString()) as NativeArtifact;
     expect(artifact).toMatchObject({ schemaVersion: 1, sourceCommit: expectedSource,
-      className: 'FlueDispatcherAgent', versions: { runtime: '2.1.0', vitePlugin: '2.1.0', agents: '0.20.1' } });
+      className: 'FlueDispatcherAgent', versions: { runtime: intent4 ? '2.2.2' : '2.1.0',
+        vitePlugin: intent4 ? '2.2.2' : '2.1.0', agents: '0.20.1' } });
     // The compiler-produced file is pinned by its byte digest above; the facet
     // hashes its JSON-serialized object after parsing (which drops file formatting).
     return { artifact, digest: createHash('sha256').update(JSON.stringify(artifact)).digest('hex') };
