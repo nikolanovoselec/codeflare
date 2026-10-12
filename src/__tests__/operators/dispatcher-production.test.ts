@@ -355,6 +355,7 @@ async function fixture(test: (f: {
   changeTarget: (patch: Record<string, unknown>) => void;
   afterTargetRead: (action: () => void | Promise<void>) => void; revokeGrant: () => void;
   afterRegistryResolve: (action: () => Promise<void>) => void;
+  afterBundleRead: (action: () => Promise<void>) => void;
   changeInferenceAuthority: (field: 'route' | 'installation' | 'digest') => void;
   loseAllocationAcknowledgement: (afterCommit?: () => Promise<void>) => void;
   statusFault: (fault: () => Response | Promise<Response>) => void;
@@ -419,6 +420,7 @@ async function fixture(test: (f: {
     let targetPatch: Record<string, unknown> = {};
     let afterTargetRead: (() => void | Promise<void>) | undefined;
     let afterRegistryResolve: (() => Promise<void>) | undefined;
+    let afterBundleRead: (() => Promise<void>) | undefined;
     let revoked = false;
     let settlements: unknown[] = [];
     let messages: unknown[] = [];
@@ -675,7 +677,11 @@ async function fixture(test: (f: {
     });
     const context = native;
     const encryption = { ENCRYPTION_KEY: btoa('a'.repeat(32)) };
-    const registry = { getManagementBundle: async () => bytes,
+    const registry = { getManagementBundle: async () => {
+      const action = afterBundleRead; afterBundleRead = undefined;
+      await action?.();
+      return bytes;
+    },
       resolveManagementExecution: async () => {
         const action = afterRegistryResolve; afterRegistryResolve = undefined;
         await action?.();
@@ -724,6 +730,7 @@ async function fixture(test: (f: {
     try {
       await test({ activity, capability, staleCapability, environment, artifactDigest, activityId, deliveredTail,
         statusFault: fault => { statusFault = fault; },
+        afterBundleRead: action => { afterBundleRead = action; },
         changeRetiredPin: async field => {
           const lease = await native.storage.get<Record<string, unknown>>('dispatcher:lease');
           if (!lease) throw new Error('Fixture lease missing');
@@ -3904,6 +3911,30 @@ describe('REQ-OPERATOR-048: original-lease serial SDK phase ownership', () => {
     await f.activity.getBrowserDetail();
     await f.activity.reconcileDispatcherLease();
     await cancellationFences(f, stamp.deliveryToken);
+    await noOwnedRuntimeRead(f);
+  }, { repositoryOnly: true, intent4: true, facetContract: true }));
+
+  it('REQ-OPERATOR-017: AC4 pending intent4 preparation cannot recreate an owned runtime after cancellation', () => fixture(async f => {
+    await start(f);
+    const first = await context(f);
+    await liveChildRead(f);
+    let enter!: () => void;
+    let release!: () => void;
+    const entered = new Promise<void>(resolve => { enter = resolve; });
+    const held = new Promise<void>(resolve => { release = resolve; });
+    // Pause the external bundle response for the next original-lease phase,
+    // after the first real parent-owned runtime has been observed callable.
+    f.afterBundleRead(async () => { enter(); await held; });
+    progress(f, first, { kind: 'target', index: 0, target: frozen[0] }, { targets: frozen });
+    const preparation = f.activity.reconcileDispatcherLease();
+    try {
+      await entered;
+      expect(await f.activity.cancelDrive()).toMatchObject({ ok: true, state: {
+        generation: 2, status: 'cancel-requested',
+      } });
+    } finally { release(); }
+    await preparation;
+    await cancellationFences(f, first.deliveryToken);
     await noOwnedRuntimeRead(f);
   }, { repositoryOnly: true, intent4: true, facetContract: true }));
 
