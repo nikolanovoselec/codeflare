@@ -4137,6 +4137,7 @@ describe('REQ-OPERATOR-048: original-lease serial SDK phase ownership', () => {
       else if (status === 'unknown') await f.activity.interruptDrive(1);
       else await f.activity.cancelDrive();
       const before = await f.activity.getBrowserDetail();
+      if (!before) throw new Error('Prepared fixture browser detail unavailable');
       const history = [...f.childSubmissions];
       const cold = await coldOwner(f);
       for (let alarm = 0; alarm < 2; alarm++) {
