@@ -321,11 +321,11 @@ RUN SILVERBULLET_VERSION="2.11.1" && \
 # 21.5.0 affected by CVE-2026-9496; an integrity-pinned 21.5.1 artifact replaces
 # that runtime copy. Drop each overlay after its upstream artifact contains at
 # least the pinned fixed version.
-RUN CODE_SERVER_VERSION="4.140.0" && \
-    CODE_SERVER_SHA256="864c5d01c808ade57e4d12c708717be7a187219fded60428f263b9e2da9f6b48" && \
-    CODE_SERVER_COMMIT="ccc19adc2e8992e18b14dd25eb1e646f5b9ef7cf" && \
-    CODE_SERVER_CODE_VERSION="1.140.0" && \
-    CODE_SERVER_VSCODE_COMMIT="07f806f999227108933c2e30515b26eecc1fda74" && \
+RUN CODE_SERVER_VERSION="4.141.0" && \
+    CODE_SERVER_SHA256="NEEDS_UPDATE_SEE_PR_BODY" && \
+    CODE_SERVER_COMMIT="8b41915d25547e2edd553bab03ea4cbd621f98c5" && \
+    CODE_SERVER_CODE_VERSION="1.141.0" && \
+    CODE_SERVER_VSCODE_COMMIT="2a59476c9bfcb90b3ddc372c36762471b7dfad1c" && \
     NODE_TAR_VERSION="7.5.21" && \
     NODE_TAR_SHA512="5dd86d0af94ccb0c31a425bc604ab794e5c126950f4d1d8e1c77302cf3b71f0b09a8e1dad8e93fa09eebb86ce9f89acaa113d50b327001d123a8b5bfbcd44f1c" && \
     BRACE_EXPANSION_VERSION="5.0.12" && \
