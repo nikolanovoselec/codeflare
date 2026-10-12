@@ -1,4 +1,14 @@
-# Dispatcher supplemental native RED handoff
+# Dispatcher native qualification
+
+## Current intent4 artifact selection
+
+[REQ-OPERATOR-048 AC1/6/7](../../../../sdd/spec/operators.md#req-operator-048-dispatcher-execution) qualification selects the exact published [v0.1.23](https://github.com/nikolanovoselec/codeflare-operator-dispatcher/releases/tag/v0.1.23) bundle, manifest and provenance in `dispatcher-v023-native.*`. The existing intent4 selectors pin source `382005334f12b0005befe0c8720caee6336dde3e` and Flue runtime/plugin2.2.2 with Agents0.20.1; no platform-side rebuild occurs. <!-- @impl: src/__tests__/operators/fixtures/flue-native-cases.ts::pinnedArtifact --> <!-- @impl: src/__tests__/operators/fixtures/dispatcher-composed-fixture.ts -->
+
+The existing50-case population is unchanged:11 composed cases select2.2.2 and39 retain historical2.1.0 controls. All historical JSON files remain byte-identical. The three file-owned runtimes, original assertions, request aborts, case budgets and180-second whole-workflow target remain unchanged; exact-head runtime/timing evidence is pending. Retired seven-/thirty-target workloads and the saved submission-limit `undefined` case remain absent. Native success does not establish hosted collection, SDK release or physical cessation.
+
+## Historical supplemental native RED handoff
+
+The following records the original2.1.0 handoff, not the current host's implementation or current artifact qualification.
 
 This fixture extends `loader-runtime.test.ts` in **Backend tests (node)**. The existing Wrangler process, Gate 1 and legacy Activity cases remain in that suite. No new runner, deployment or production migration is involved. The parent fixture compatibility date remains `2026-02-05`; only the generated child carries `2026-09-10` (the newest date supported by the pinned CI workerd). Do not increase the parent date without native evidence.
 
