@@ -359,12 +359,15 @@ async function fixture(test: (f: {
   loseAllocationAcknowledgement: (afterCommit?: () => Promise<void>) => void;
   statusFault: (fault: () => Response | Promise<Response>) => void;
   changeRetiredPin: (field: 'inputDigest' | 'artifactDigest') => Promise<void>;
+  ownedChildReadbacks: () => Array<() => Promise<Response>>;
+  failOwnedAbort: () => void;
+  seedCancelledReleased: () => Promise<void>;
 }) => Promise<void>, options: { humanLifetimeSeconds?: number; repositoryOnly?: boolean; prospective?: boolean;
   configuredTarget?: { repository: string; repositoryId: number; baseBranch: string };
   legacyProspective?: boolean; inputExtra?: Record<string, unknown>; capabilities?: string[]; pagedStatus?: boolean; githubApiHost?: string;
   sourceResponseBytes?: number; sourceBody?: string; sourceDelayMs?: number; inferenceBody?: string; inferenceRequestBytes?: number; inferenceMessageLimit?: number; operationLimit?: number; loggingEnabled?: boolean;
   capacityPolicy?: DispatcherCapacityPolicy;
-  recovery?: boolean; intent4?: boolean; losePhaseAdmission?: number;
+  recovery?: boolean; intent4?: boolean; losePhaseAdmission?: number; facetContract?: boolean;
   inferenceAttemptLimit?: number; inferenceTransport?: (request: Request, attempt: number) => Promise<Response> } = {}) {
   callerSessionCurrent = true;
   callerRoute = 'approved';
@@ -525,6 +528,40 @@ async function fixture(test: (f: {
         return Response.json(snapshot, { headers: { 'stream-next-offset': streamOffset(), 'stream-up-to-date': 'true' } });
       },
     };
+    // External Cloudflare contract: abort invalidates existing stubs; get may
+    // create a new runtime. SDK conversation data above outlives each runtime.
+    // These callable outcomes test parent orchestration, not hosted cessation.
+    const ownedChildReadbacks: Array<() => Promise<Response>> = [];
+    let ownedRuntime: { valid: boolean; stub: typeof child } | undefined;
+    let failOwnedAbort = false;
+    const facets = options.facetContract ? {
+      get: () => {
+        if (!ownedRuntime?.valid) {
+          const runtime = { valid: true, stub: undefined as unknown as typeof child };
+          const callable = <T>(action: () => Promise<T>): Promise<T> => {
+            if (!runtime.valid) return Promise.reject(new Error('Owned facet stub invalidated'));
+            return action();
+          };
+          runtime.stub = {
+            _cf_initAsFacet: () => callable(() => child._cf_initAsFacet()),
+            _cf_checkRunFibersForFacet: () => callable(() => child._cf_checkRunFibersForFacet()),
+            _cf_dispatchScheduledCallback: () => callable(() => child._cf_dispatchScheduledCallback()),
+            fetch: request => callable(() => child.fetch(request)),
+          };
+          ownedChildReadbacks.push(() => runtime.stub.fetch(new Request(
+            'https://flue.internal/agents/Dispatcher/dispatcher?view=snapshot')));
+          ownedRuntime = runtime;
+        }
+        return ownedRuntime.stub;
+      },
+      abort: () => {
+        if (failOwnedAbort) {
+          failOwnedAbort = false;
+          throw new Error('Controlled owned facet abort unavailable');
+        }
+        if (ownedRuntime) ownedRuntime.valid = false;
+      },
+    } : { get: () => child, abort: () => {} };
     // Agent validates the native DurableObjectState brand and SQLite capability.
     // Keep that real owner while replacing only the fixture's child/interceptor seams.
     Object.defineProperties(native, {
@@ -533,7 +570,7 @@ async function fixture(test: (f: {
         pending.push(promise);
         return promise;
       } },
-      facets: { configurable: true, value: { get: () => child, abort: () => {} } },
+      facets: { configurable: true, value: facets },
       exports: { configurable: true, value: {
         OperatorDispatcherCapability: ({ props }: { props: { activityId: string; generation: number } }) =>
           new OperatorDispatcherCapability({ props } as unknown as ExecutionContext,
@@ -796,8 +833,25 @@ async function fixture(test: (f: {
           await native.storage.put('dispatcher:operations', operations);
         },
         nextAlarm: () => native.storage.getAlarm(),
+        ownedChildReadbacks: () => [...ownedChildReadbacks],
+        failOwnedAbort: () => { failOwnedAbort = true; },
+        seedCancelledReleased: async () => {
+          // Historical previous-version cleanup snapshot, not an assertion oracle.
+          await native.storage.transaction(async tx => {
+            const admission = await tx.get<{ drive: { generation: number; status: string } }>('admission');
+            const lease = await tx.get<Record<string, unknown>>('dispatcher:lease');
+            if (!admission?.drive || !lease?.serial || lease.generation !== admission.drive.generation) {
+              throw new Error('Fixture requires the original admitted intent4 generation');
+            }
+            await tx.put('admission', { ...admission, drive: {
+              ...admission.drive, generation: admission.drive.generation + 1, status: 'cancel-requested',
+            } });
+            await tx.put('dispatcher:lease', { ...lease, status: 'unknown', sdkReleased: true });
+          });
+        },
       });
     } finally {
+      failOwnedAbort = false;
       await activity.cancelDrive();
       vi.restoreAllMocks();
       await Promise.allSettled(pending);
@@ -3808,6 +3862,99 @@ describe('REQ-OPERATOR-048: original-lease serial SDK phase ownership', () => {
     return await response.json() as { phase: string; requestDigest: string; responseDigest?: string;
       method: string; url: string; operationCount: number };
   };
+
+  const liveChildRead = async (f: DispatcherFixture) => {
+    const readback = f.ownedChildReadbacks().at(-1);
+    if (!readback) throw new Error('Fixture has no owned child stub');
+    expect(await (await readback()).json()).toMatchObject({ conversationId: 'fixture-conversation' });
+    return readback;
+  };
+  const noOwnedRuntimeRead = async (f: DispatcherFixture) => {
+    // Probe every parent-created incarnation, without test-originated get().
+    // A new callable stub would witness forbidden post-cancel recreation.
+    for (const readback of f.ownedChildReadbacks()) await expect(readback()).rejects.toThrow();
+  };
+  const cancellationFences = async (f: DispatcherFixture, token: string) => {
+    for (const request of protectedRequests(token)) await deny(await f.capability.fetch(request));
+    expect(await f.activity.commitDrive(1, { schemaVersion: 1, status: 'completed', checkpoint: null,
+      result: finalResult(f) })).toMatchObject({ ok: false, reason: 'stale-drive' });
+    expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
+    expect(await f.activity.getBrowserDetail()).toMatchObject({ activityId: f.activityId,
+      executionStatus: 'cancel-requested', cleanupStatus: 'stopping', collectionStatus: 'unavailable', result: null });
+  };
+
+  it('REQ-OPERATOR-048: AC2 retiring an uncertain keyed admission invalidates its owned child without replacing original work', () => fixture(async f => {
+    await start(f);
+    const token = (await latestDelivery(f)).attributes.deliveryToken;
+    const original = await liveChildRead(f);
+    const remote = await f.readRemoteComments();
+    expect(await f.activity.cancelDrive()).toMatchObject({ ok: true, state: { generation: 2, status: 'cancel-requested' } });
+    await cancellationFences(f, token);
+    await expect(original()).rejects.toThrow();
+    await noOwnedRuntimeRead(f);
+    expect(await f.readRemoteComments()).toEqual(remote);
+  }, { repositoryOnly: true, intent4: true, losePhaseAdmission: 1, facetContract: true }));
+
+  it('REQ-OPERATOR-017: AC4 intent4 cancellation does not restart its retired owned runtime', () => fixture(async f => {
+    await start(f);
+    const stamp = await context(f);
+    const original = await liveChildRead(f);
+    expect(await f.activity.cancelDrive()).toMatchObject({ ok: true, state: { generation: 2, status: 'cancel-requested' } });
+    await expect(original()).rejects.toThrow();
+    await f.activity.getBrowserDetail();
+    await f.activity.reconcileDispatcherLease();
+    await cancellationFences(f, stamp.deliveryToken);
+    await noOwnedRuntimeRead(f);
+  }, { repositoryOnly: true, intent4: true, facetContract: true }));
+
+  it('REQ-OPERATOR-048: retirement cleanup finishes an already released cancelled generation without new authority', () => fixture(async f => {
+    await start(f);
+    const stamp = await context(f);
+    const original = await liveChildRead(f);
+    const remote = await f.readRemoteComments();
+    await f.seedCancelledReleased();
+    const cold = await coldOwner(f);
+    await cold.activity.reconcileDispatcherLease();
+    // Read-only reconstruction does not itself finish authorized cancellation.
+    expect(await (await original()).json()).toMatchObject({ conversationId: 'fixture-conversation' });
+    const cancelled = { ok: true, state: { generation: 2, status: 'cancel-requested' } };
+    expect(await cold.activity.cancelDrive()).toMatchObject(cancelled);
+    await cancellationFences(cold, stamp.deliveryToken);
+    await expect(original()).rejects.toThrow();
+    await noOwnedRuntimeRead(cold);
+    expect(await cold.activity.cancelDrive()).toMatchObject(cancelled);
+    await noOwnedRuntimeRead(cold);
+    expect(await cold.readRemoteComments()).toEqual(remote);
+  }, { repositoryOnly: true, intent4: true, facetContract: true }));
+
+  it.each([false, true])('REQ-OPERATOR-048: failed owned-child retirement cannot reopen fenced work; bookkeeping released=%s', released => fixture(async f => {
+    await start(f);
+    const stamp = await context(f);
+    const original = await liveChildRead(f);
+    if (released) await f.seedCancelledReleased();
+    f.failOwnedAbort();
+    await expect(f.activity.cancelDrive()).rejects.toThrow();
+    await cancellationFences(f, stamp.deliveryToken);
+    expect(await f.activity.getBrowserDetail()).toMatchObject({ sdkCleanupReleased: released });
+    expect(await (await original()).json()).toMatchObject({ conversationId: 'fixture-conversation' });
+    expect(await f.activity.cancelDrive()).toMatchObject({ ok: true, state: { generation: 2, status: 'cancel-requested' } });
+    await cancellationFences(f, stamp.deliveryToken);
+    await expect(original()).rejects.toThrow();
+    await noOwnedRuntimeRead(f);
+  }, { repositoryOnly: true, intent4: true, facetContract: true }));
+
+  it('REQ-OPERATOR-048: AC7 historical unkeyed cancellation preserves SDK abort delivery and original fences', () => fixture(async f => {
+    await start(f);
+    const remote = await f.readRemoteComments();
+    expect(await f.activity.cancelDrive()).toMatchObject({ ok: true, state: { generation: 2, status: 'cancel-requested' } });
+    expect(f.abortStatus()).toBe('cancel-requested');
+    expect((await f.capability.fetch(genericWire('source', { operationId: 'historical-cancelled-read',
+      method: 'GET', url: 'https://api.github.com/repos/another/service/issues/17/comments' }))).status).toBe(403);
+    expect(await f.activity.commitDrive(1, { schemaVersion: 1, status: 'waiting', checkpoint: null }))
+      .toMatchObject({ ok: false, reason: 'stale-drive' });
+    expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
+    expect(await f.readRemoteComments()).toEqual(remote);
+  }, { repositoryOnly: true, facetContract: true }));
 
   it.each([{ phase: 'discovery', lost: 1 }, { phase: 'target', lost: 2 }, { phase: 'final', lost: 4 }])(
     'REQ-OPERATOR-048: AC2 cold $phase lost acknowledgement adopts the exact original wire and collects its final settlement; REQ-OPERATOR-017 AC1/2',
