@@ -1757,7 +1757,8 @@ export class OperatorActivity extends Agent {
 
   async #dispatcherFacet(lease: DispatcherLease, approved?: DispatcherBundle): Promise<DispatcherFacet> {
     if (this.#dispatcher?.generation === lease.generation) return this.#dispatcher.facet;
-    const facet: Promise<DispatcherFacet> = (async () => {
+    let facet!: Promise<DispatcherFacet>;
+    facet = (async () => {
       const plan = await this.getRuntimePlan();
       const loader = this.#appEnv.LOADER;
       const activities = this.#appEnv.OPERATOR_ACTIVITY;
