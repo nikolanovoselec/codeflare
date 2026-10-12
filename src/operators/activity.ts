@@ -1757,7 +1757,7 @@ export class OperatorActivity extends Agent {
 
   async #dispatcherFacet(lease: DispatcherLease, approved?: DispatcherBundle): Promise<DispatcherFacet> {
     if (this.#dispatcher?.generation === lease.generation) return this.#dispatcher.facet;
-    const facet = (async () => {
+    const facet: Promise<DispatcherFacet> = (async () => {
       const plan = await this.getRuntimePlan();
       const loader = this.#appEnv.LOADER;
       const activities = this.#appEnv.OPERATOR_ACTIVITY;
@@ -1789,6 +1789,11 @@ export class OperatorActivity extends Agent {
         isManagementReceipt(plan.receipt) ? sourceResponseBytes(plan.receipt.selection.installation.policy) : undefined,
         admittedTarget ? JSON.stringify(admittedTarget) : undefined, executionLoggingEnabled(plan.receipt),
         isManagementReceipt(plan.receipt) ? submissionAttemptLimit(plan.receipt.selection.operator.policy) : undefined);
+      // Preparation may outlive retirement. Abort clears this exact cached
+      // promise; recheck it after the awaited authority read, before get can
+      // synchronously instantiate a replacement owned runtime.
+      if (lease.serial && (!await this.dispatcherGenerationCurrent(lease.generation)
+        || this.#dispatcher?.facet !== facet)) throw new Error('Stale Dispatcher facet creation');
       const child = context.facets.get('dispatcher', () => ({ class: dynamicClass,
         id: activities.idFromName('dispatcher') }));
       await child._cf_initAsFacet('dispatcher', [{ className: 'OperatorActivity', name: plan.activityId }], 'dispatcher');

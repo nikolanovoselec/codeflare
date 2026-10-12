@@ -14,9 +14,11 @@ Only newly supported intent4 results can account for PR-local unknown mutations.
 
 ## Explicit cancellation completion
 
-Cancellation fences commits before stopping the owned intent4 facet. The correction removes receipt-persistence gating and post-abort facet reacquisition. An authenticated owner may explicitly finish the same cancel-requested original lease after bookkeeping release or an abort failure, without another generation or execution restart. Historical SDK abort delivery remains unchanged; unknown and completed drives gain no retry authority. Actual abort errors propagate, while browser cleanup still truthfully reports stopping rather than claiming physical cessation.
+Cancellation fences commits before stopping the owned intent4 facet. The correction removes receipt-persistence gating and post-abort facet reacquisition. Pending factory preparation rechecks the original generation and its abort-invalidated cache identity immediately before facet creation. An authenticated owner may explicitly finish the same cancel-requested original lease after bookkeeping release or an abort failure, without another generation or execution restart. Historical SDK abort delivery remains unchanged; unknown and completed drives gain no retry authority. Actual abort errors propagate, while browser cleanup still truthfully reports stopping rather than claiming physical cessation.
 
 [RED38316163398](https://github.com/nikolanovoselec/codeflare/actions/runs/38316163398) demonstrated five parent contract failures and a passing historical control; all471 existing parent cases and50 native cases passed. Its203-second whole workflow missed the unchanged180-second target. These adapter tests do not prove hosted shutdown or complete effect reconciliation. Correction GREEN, delivery and supported owner-command verification remain pending.
+
+The accepted creation race has separate [RED38319941360](https://github.com/nikolanovoselec/codeflare/actions/runs/38319941360): one callable-stub failure after cancellation,477 other parent passes and50 native passes. Its189-second workflow missed the180-second target. Earlier38318857428 is retained as an unclassified setup failure, not RED; the corrected test holds actual factory preparation after parent reconstruction. Current-head race correction GREEN remains pending.
 
 ## Configured automatic retry
 
