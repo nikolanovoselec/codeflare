@@ -14,9 +14,9 @@ import { connectionFingerprint } from '../../../lib/reasoning-verification';
 import { PI_WIRE_CANARY_VERSION } from '../../../lib/reasoning-discovery';
 import { setLogLevel } from '../../../lib/logger';
 import type { DispatcherPhaseContext, DispatcherPhase } from '../../../operators/dispatcher-phases';
-import intent4Manifest from './dispatcher-v023-native.manifest.json';
+import intent4Manifest from './dispatcher-v024-native.manifest.json';
 
-const intent4Source = '382005334f12b0005befe0c8720caee6336dde3e';
+const intent4Source = '987af47fb295147d445436b428a410b90cb09be0';
 
 type RecoveryScenario = 'ordinary' | 'incomplete' | 'native-error' | 'precommit-reset' | 'committed-reset' | 'duplicate' | 'persistent' | 'large-evidence-comment-batch' | 'thirty-target-original-evidence-recovery' | 'target-response-failed' | 'target-comment-unknown';
 interface FixtureEnv {
