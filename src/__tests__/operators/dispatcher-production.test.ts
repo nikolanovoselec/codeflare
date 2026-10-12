@@ -3918,24 +3918,24 @@ describe('REQ-OPERATOR-048: original-lease serial SDK phase ownership', () => {
     await start(f);
     const first = await context(f);
     await liveChildRead(f);
+    const cold = await coldOwner(f);
     let enter!: () => void;
     let release!: () => void;
     const entered = new Promise<void>(resolve => { enter = resolve; });
     const held = new Promise<void>(resolve => { release = resolve; });
-    // Pause the external bundle response for the next original-lease phase,
-    // after the first real parent-owned runtime has been observed callable.
+    // The reconstructed parent's cache is empty while the original child
+    // remains live; pause its actual external factory preparation.
     f.afterBundleRead(async () => { enter(); await held; });
-    progress(f, first, { kind: 'target', index: 0, target: frozen[0] }, { targets: frozen });
-    const preparation = f.activity.reconcileDispatcherLease();
+    const preparation = cold.activity.reconcileDispatcherLease();
     try {
       await entered;
-      expect(await f.activity.cancelDrive()).toMatchObject({ ok: true, state: {
+      expect(await cold.activity.cancelDrive()).toMatchObject({ ok: true, state: {
         generation: 2, status: 'cancel-requested',
       } });
     } finally { release(); }
     await preparation;
-    await cancellationFences(f, first.deliveryToken);
-    await noOwnedRuntimeRead(f);
+    await cancellationFences(cold, first.deliveryToken);
+    await noOwnedRuntimeRead(cold);
   }, { repositoryOnly: true, intent4: true, facetContract: true }));
 
   it('REQ-OPERATOR-048: retirement cleanup finishes an already released cancelled generation without new authority', () => fixture(async f => {
