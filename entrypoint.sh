@@ -3016,7 +3016,7 @@ const required = [
   'npm:@gotgenes/pi-subagents@21.8.1',
   // Pi tool extensions, always enabled (in `required`) so they are available
   // independently of the context-mode toggle — toggling /ctx never disables them.
-  'npm:@juicesharp/rpiv-advisor@2.11.0',
+  'npm:@juicesharp/rpiv-advisor@2.12.0',
   'npm:@juicesharp/rpiv-ask-user-question@2.11.0',
   'npm:@juicesharp/rpiv-todo@2.11.0',
   'npm:pi-web-access@0.34.0',
