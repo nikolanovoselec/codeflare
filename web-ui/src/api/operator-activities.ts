@@ -68,7 +68,7 @@ const selectedReceipts = z.strictObject({ ...receiptHeader, generation: receiptI
     && value.unclassifiedEntries <= value.inspectedEntries
     && (value.scan !== 'complete' || value.inspectedEntries === value.journalCount && value.unclassifiedEntries === 0)
     && (value.pageStatus !== 'complete' || value.scan === 'complete')
-    && (value.pageStatus === 'more' ? value.items.length === 8 && value.nextAfterOrdinal === value.items.at(-1)!.ordinal
+    && (value.pageStatus === 'more' ? value.items.length === 8 && value.nextAfterOrdinal === value.items[value.items.length - 1].ordinal
       : value.nextAfterOrdinal === null)
     && value.items.every((row, index) => index === 0 || row.ordinal > value.items[index - 1].ordinal),
   'Contradictory receipt completeness');

@@ -372,7 +372,7 @@ async function fixture(test: (f: {
 }) => Promise<void>, options: { humanLifetimeSeconds?: number; repositoryOnly?: boolean; prospective?: boolean;
   configuredTarget?: { repository: string; repositoryId: number; baseBranch: string };
   legacyProspective?: boolean; inputExtra?: Record<string, unknown>; capabilities?: string[]; pagedStatus?: boolean; githubApiHost?: string;
-  sourceResponseBytes?: number; sourceBody?: string; sourceDelayMs?: number; inferenceBody?: string; inferenceRequestBytes?: number; inferenceMessageLimit?: number; operationLimit?: number; loggingEnabled?: boolean;
+  sourceResponseBytes?: number; installationSourceResponseBytes?: number; sourceBody?: string; sourceDelayMs?: number; inferenceBody?: string; inferenceRequestBytes?: number; inferenceMessageLimit?: number; operationLimit?: number; loggingEnabled?: boolean;
   capacityPolicy?: DispatcherCapacityPolicy;
   recovery?: boolean; intent4?: boolean; losePhaseAdmission?: number; facetContract?: boolean; receiptFixture?: boolean;
   inferenceAttemptLimit?: number; inferenceTransport?: (request: Request, attempt: number) => Promise<Response> } = {}) {
@@ -395,7 +395,9 @@ async function fixture(test: (f: {
     const fixtureOperatorId = options.prospective || options.intent4 ? 'renovate-dispatcher' : 'operator';
     let inferenceAttempts = 0;
     const selection = { controlsRevision: 1, installation: { id: 'installation', operatorId: fixtureOperatorId, revision: 1,
-      enabled: true, policy, configurationJson: options.prospective ? JSON.stringify({ renovate: { repository: configuredTarget.repository, automaticRuns: true, repetitionIntervalSeconds: 900 } }) : '{}', releaseId: 'release' },
+      enabled: true, policy: options.installationSourceResponseBytes === undefined ? policy
+        : { ...policy, sourceResponseBytes: options.installationSourceResponseBytes },
+      configurationJson: options.prospective ? JSON.stringify({ renovate: { repository: configuredTarget.repository, automaticRuns: true, repetitionIntervalSeconds: 900 } }) : '{}', releaseId: 'release' },
     operator: { operatorId: fixtureOperatorId, profile: 'dispatcher', revision: 1, invokers: { users: [human.email], groups: [] },
       policy: { ...policy, ...options.capacityPolicy, ...(options.inferenceMessageLimit === undefined ? {} : { inferenceMessageLimit: options.inferenceMessageLimit }), ...(options.inferenceAttemptLimit === undefined ? {} : { inferenceAttemptLimit: options.inferenceAttemptLimit }), ...(options.loggingEnabled === undefined ? {} : { loggingEnabled: options.loggingEnabled }), ...(options.operationLimit === undefined ? {} : { operationLimit: options.operationLimit }), ...(options.inferenceRequestBytes === undefined ? {} : { inferenceRequestBytes: options.inferenceRequestBytes }) } },
     release: { id: 'release', operatorId: fixtureOperatorId, bundleDigest: artifactDigest, sourceCommit: bundle.sourceCommit,
@@ -4748,6 +4750,22 @@ describe('REQ-OPERATOR-048: original-lease serial SDK phase ownership', () => {
         expect(JSON.stringify(body.effectReceipts)).not.toContain('PRIVATE_ERROR');
         expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
       }, options));
+
+    it('REQ-OPERATOR-041: AC5 original installation ceiling rejects an otherwise valid cached receipt', () => fixture(async f => {
+      await setup(f); const remote = await f.readRemoteComments(); await f.activity.cancelDrive();
+      await faultWrite(f, async (record, storage, key) => {
+        const responseKey = `dispatcher:response:${key.slice('dispatcher:operation:1:'.length)}`;
+        const response = await storage.get<{ status: number; contentType: string; body: string }>(responseKey);
+        // JSON whitespace keeps the original success identity intact while violating only the retained installation ceiling.
+        const body = response!.body + ' '.repeat(65536);
+        await storage.put(responseKey, { ...response, body });
+        return { ...record, responseDigest: await digest(body) };
+      });
+      const body = await read(browser(f));
+      expect(body.effectReceipts!.items).toMatchObject([{ binding: 'unresolved' }]);
+      expect(body.effectReceipts!.items[0]).not.toHaveProperty('observedResponse');
+      expect(await f.readRemoteComments()).toEqual(remote);
+    }, { ...options, sourceResponseBytes: 131072, installationSourceResponseBytes: 65536 }));
 
     it('REQ-OPERATOR-041: AC5 unknown write cannot borrow a success from external state', () => fixture(async f => {
       await start(f); await discovery(f); const stamp = await context(f); f.loseResponse();

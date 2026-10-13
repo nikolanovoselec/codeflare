@@ -76,6 +76,25 @@ describe('REQ-OPERATOR-041: AC7 retired-effect-receipts.v1 client wire', () => {
       vi.stubGlobal('fetch', async () => response({ ...detail, effectReceipts: invalid }));
       await expect(getOperatorActivity('activity-1')).rejects.toBeDefined();
     });
+  it.each(['ordinalOutsideCompleteJournal', 'itemInEmptyJournal', 'itemsExceedInspectedMetadata']) (
+    'REQ-OPERATOR-041: AC7 rejects impossible receipt coordinates: %s', async fault => {
+      const invalid = structuredClone(receipt);
+      if (fault === 'ordinalOutsideCompleteJournal') invalid.items[0].ordinal = 1;
+      if (fault === 'itemInEmptyJournal') { invalid.journalCount = 0; invalid.inspectedEntries = 0; }
+      if (fault === 'itemsExceedInspectedMetadata') {
+        invalid.journalCount = 2;
+        invalid.scan = 'partial'; invalid.pageStatus = 'partial';
+        invalid.items = [invalid.items[0], { ...structuredClone(invalid.items[0]), ordinal: 1 }];
+      }
+      vi.stubGlobal('fetch', async () => response({ ...detail, effectReceipts: invalid }));
+      await expect(getOperatorActivity('activity-1')).rejects.toBeDefined();
+    });
+  it('REQ-OPERATOR-041: AC7 preserves explicitly partial evidence with inconsistent journal counters', async () => {
+    const partial = structuredClone(receipt);
+    partial.scan = 'partial'; partial.pageStatus = 'partial'; partial.items[0].ordinal = 2;
+    vi.stubGlobal('fetch', async () => response({ ...detail, effectReceipts: partial }));
+    expect(await getOperatorActivity('activity-1')).toMatchObject({ result: detail.result, effectReceipts: partial });
+  });
   it('accepts explicit unavailable evidence without fabricating successful effects', async () => {
     const unavailable = { version: 1, activityId: 'activity-1', scan: 'unavailable', pageStatus: 'unavailable',
       journalCount: null, inspectedEntries: 0, unresolvedJournalEntries: null, unclassifiedEntries: 0,
