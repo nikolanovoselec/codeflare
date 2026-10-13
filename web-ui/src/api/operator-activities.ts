@@ -66,7 +66,9 @@ const selectedReceipts = z.strictObject({ ...receiptHeader, generation: receiptI
   unclassifiedEntries: receiptInteger, nextAfterOrdinal: receiptInteger.nullable(), items: z.array(receiptItem).max(8) })
   .refine(value => value.unresolvedJournalEntries <= value.journalCount
     && value.unclassifiedEntries <= value.inspectedEntries
-    && (value.scan !== 'complete' || value.inspectedEntries === value.journalCount && value.unclassifiedEntries === 0)
+    && value.items.length <= value.inspectedEntries
+    && (value.scan !== 'complete' || value.inspectedEntries === value.journalCount && value.unclassifiedEntries === 0
+      && value.items.every(row => row.ordinal < value.journalCount))
     && (value.pageStatus !== 'complete' || value.scan === 'complete')
     && (value.pageStatus === 'more' ? value.items.length === 8 && value.nextAfterOrdinal === value.items[value.items.length - 1].ordinal
       : value.nextAfterOrdinal === null)

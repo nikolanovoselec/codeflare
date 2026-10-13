@@ -3028,7 +3028,7 @@ export class OperatorActivity extends Agent {
         const response = await this.ctx.storage.get<NonNullable<DispatcherOperationRecord['response']>>(
           `dispatcher:response:${key.slice(prefix.length)}`);
         if (!response || response.status !== 200 || typeof response.body !== 'string'
-          || new TextEncoder().encode(response.body).byteLength > sourceResponseBytes(receipt.selection.operator.policy)
+          || new TextEncoder().encode(response.body).byteLength > sourceResponseBytes(receipt.selection.installation.policy)
           || await sha256(response.body) !== entry.responseDigest) continue;
         let envelope: { url?: unknown; status?: unknown; body?: unknown };
         let body: { id?: unknown; body?: unknown; merged?: unknown; sha?: unknown };
