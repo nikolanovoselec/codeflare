@@ -1931,17 +1931,26 @@ Pending-creation [RED38319941360](https://github.com/nikolanovoselec/codeflare/a
 1. Authenticated activity-detail requests expose only account-owned activities. <!-- @impl: src/routes/operator-activities.ts::owned --> <!-- @impl: src/routes/operator-activities.ts::browserDetail --> <!-- @impl: src/operators/registry.ts::listOwnedActivities --> <!-- @impl: src/operators/activity.ts::getBrowserDetail --> <!-- @test: src/__tests__/routes/operator-activities.test.ts (REQ-OPERATOR-041: reads detail and result only after the durable index proves exact ownership without mutation) -->
 2. Authenticated result requests expose only account-owned activities, including the in-app result read. <!-- @impl: src/routes/operator-activities.ts::owned --> <!-- @impl: src/routes/operator-activities.ts::browserDetail --> <!-- @impl: web-ui/src/api/operator-activities.ts::getOperatorActivity --> <!-- @test: src/__tests__/routes/operator-activities.test.ts (REQ-OPERATOR-041: browser result stays owner-scoped even when another account knows the ID) --> <!-- @test: web-ui/src/__tests__/api/operator-activities.test.ts (reads owned result through the authenticated non-consuming GET) --> <!-- @test: web-ui/src/__tests__/components/OperatorActivityButton.test.tsx (opens an in-app owner-scoped readable result, with diagnostics and a way back, without collecting or restarting) -->
 3. Activity GET requests are non-effectful. <!-- @impl: src/routes/operator-activities.ts::handleBrowserDetail --> <!-- @test: src/__tests__/routes/operator-activities.test.ts (REQ-OPERATOR-041: reads detail and result only after the durable index proves exact ownership without mutation) -->
+4. Result GETs expose original persisted protected-write response associations from the exact immediately retired cancel-requested or unknown intent4 lease, without child or remote-source I/O, authority renewal or state changes. <!-- @impl: src/operators/activity.ts::OperatorActivity.retiredEffectReceipts --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-041: AC4 cancelled original comment remains attributable over HTTP) --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-041: AC4 original merge success binds the frozen head and remote SHA) -->
+5. Receipt pages present stable, bounded original history with truthful completeness and unresolved-evidence states. <!-- @impl: src/operators/activity.ts::OperatorActivity.retiredEffectReceipts --> <!-- @impl: src/routes/operator-activities.ts::handleBrowserDetail --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-041: AC5 reconstructed receipt pages are stable and do not consume results) --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-041: AC5 eight-item pages preserve ascending exhaustive coverage) --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-041: AC5 selection changed during awaited storage reads is unavailable) -->
+6. Receipt output includes only validated public effect identities, original pins and opaque identity hashes, never private payloads, headers, tokens or raw execution identities. <!-- @impl: src/operators/activity.ts::OperatorActivity.retiredEffectReceipts --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-041: AC6 validated public identity is returned without private content) -->
+7. The strict client accepts the optional versioned receipt wire and rejects malformed claims. <!-- @impl: web-ui/src/api/operator-activities.ts::getOperatorActivity --> <!-- @test: web-ui/src/__tests__/api/operator-activities.test.ts (accepts validated optional receipts without consuming or losing original result data) -->
 
 **Constraints:**
 
 - Data routes are enterprise-only.
-- Data routes are owner-scoped.
+- Data routes are owner-scoped; receipt reads add no additional ownership restriction.
+- Receipt reads never migrate, replay, resolve, resume, collect or change journals, SDK storage, charges, lifecycle or execution fences.
+- Each receipt GET scans at most1,024 metadata entries and selects at most8 mutation responses; incomplete enumeration cannot claim complete attribution.
+- Selection and integrity gaps fail closed; missing original responses, unknown/reserved writes and resolution-only records remain unresolved.
+- Plain detail, collection and historical read contracts remain unchanged. <!-- @impl: src/routes/operator-activities.ts::handleBrowserDetail --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-041: AC7 result-only scope preserves detail and collection responses) -->
+- Comment response-body digests identify returned text, not missing submitted request bodies; historical delivery hashes do not establish unavailable token-history equality.
 
 **Priority:** P0
 
 **Dependencies:** [REQ-OPERATOR-006](#req-operator-006-capability-authenticated-webhook-activity), [REQ-OPERATOR-016](#req-operator-016-durable-activity-admission-and-cleanup)
 
-**Verification:** Automated test: adjacent ownership route tests; in-app client/result coverage is authored, with final exact-head verification pending.
+**Verification:** Automated test: Adjacent route, Activity and browser-client tests cover ownership, non-consuming reads, original receipt binding, bounded paging, integrity/privacy failures, strict client validation and unchanged execution fences. Manual test: Verify stored receipts against the exact hosted effects without restarting the retired Activity or replaying writes; hosted attribution remains unverified.
 
 **Status:** Implemented
 

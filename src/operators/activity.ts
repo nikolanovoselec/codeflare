@@ -104,6 +104,21 @@ const DISPATCHER_LEASE = 'dispatcher:lease';
 const DISPATCHER_OPERATIONS = 'dispatcher:operations';
 const DISPATCHER_JOURNAL = 'dispatcher:journal';
 interface DispatcherJournal { generation: number; count: number; nextOrdinal: number; unresolved: number }
+interface RetiredEffectItem {
+  ordinal: number; operationDigest: string; requestDigest?: string; responseDigest?: string;
+  journalPhase: 'reserved' | 'completed' | 'unknown'; binding: 'verified' | 'unresolved';
+  method: 'POST' | 'PUT'; effect: 'comment' | 'merge'; phaseIndex?: number;
+  submissionDigest?: string; deliveryDigest?: string;
+  target?: { repository: string; pullRequest: number; headSha: string };
+  observedResponse?: { kind: 'comment'; status: 201; commentId: number; responseBodyDigest: string }
+    | { kind: 'merge'; status: 200; merged: true; mergeSha: string };
+}
+export interface RetiredEffectReceipts {
+  version: 1; activityId: string; generation?: number; inputDigest?: string; artifactDigest?: string; admissionDigest?: string;
+  scan: 'complete' | 'partial' | 'unavailable'; pageStatus: 'complete' | 'more' | 'partial' | 'unavailable';
+  journalCount: number | null; inspectedEntries: number; unresolvedJournalEntries: number | null;
+  unclassifiedEntries: number; nextAfterOrdinal: number | null; items: RetiredEffectItem[];
+}
 type DispatcherJournalTx = Pick<DurableObjectTransaction, 'get' | 'put' | 'delete'>;
 const dispatcherEntryKey = (journal: DispatcherJournal, operationId: string) =>
   `dispatcher:operation:${journal.generation}:${operationId}`;
@@ -2926,16 +2941,140 @@ export class OperatorActivity extends Agent {
     } catch { /* Inspection failure cannot change an authorized owner's status read. */ }
   }
 
-  async getBrowserDetail(): Promise<(OperatorBrowserSummary & { checkpoint: unknown; result: unknown;
-    sdkCleanupReleased?: boolean }) | null> {
+  /** Immutable response observation only. No SDK, authorization renewal, diagnostics or journal mutation. */
+  private async retiredEffectReceipts(state: AdmissionState, lease: DispatcherLease | undefined,
+    after?: number): Promise<RetiredEffectReceipts> {
+    const unavailable: RetiredEffectReceipts = { version: 1, activityId: state.intent.activityId,
+      scan: 'unavailable', pageStatus: 'unavailable', journalCount: null, inspectedEntries: 0,
+      unresolvedJournalEntries: null, unclassifiedEntries: 0, nextAfterOrdinal: null, items: [] };
+    const integer = (value: unknown): value is number => typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
+    const digest = (value: unknown): value is string => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
+    try {
+      const receipt = state.receipt;
+      const journal = await this.ctx.storage.get<DispatcherJournal>(DISPATCHER_JOURNAL);
+      if (!receipt || !isManagementReceipt(receipt) || receipt.selection.operator.profile !== 'dispatcher'
+        || receipt.selection.release.intentVersion !== '4' || !state.drive || !lease?.serial || !journal
+        || !['cancel-requested', 'unknown'].includes(state.drive.status) || lease.status !== 'unknown'
+        || !integer(lease.generation) || lease.generation < 1 || state.drive.generation !== lease.generation + 1
+        || journal.generation !== lease.generation || receipt.activityId !== state.intent.activityId
+        || receipt.intentDigest !== state.intent.intentDigest || lease.inputDigest !== receipt.intentDigest
+        || !digest(lease.inputDigest) || !digest(lease.artifactDigest)
+        || lease.artifactDigest !== receipt.selection.release.bundleDigest
+        || state.executionContext?.artifactDigest !== lease.artifactDigest
+        || !integer(journal.count) || !integer(journal.nextOrdinal) || !integer(journal.unresolved)
+        || journal.unresolved > journal.count || !state.invocationJson) return unavailable;
+      const admissionDigest = await sha256(JSON.stringify(receipt));
+      const authority: DispatcherPhaseAuthority = { scope: 'submission', generation: lease.generation,
+        deadline: new Date(lease.expiresAt).toISOString(), releaseDigest: lease.artifactDigest,
+        authorityDigest: admissionDigest, repositoryJson: state.invocationJson,
+        assessmentBytes: dispatcherCapacities(receipt.selection.operator.policy).assessmentBytes };
+      // Reuse the strict, pure reconstruction check, never a live SDK/status read.
+      const context = dispatcherPhaseContext(lease.serial, authority, lease.serial.current.deliveryToken);
+      if (context.submissionId !== lease.submissionId) return unavailable;
+      const repository = JSON.parse(state.invocationJson).repository as string;
+      const prefix = `dispatcher:operation:${lease.generation}:`;
+      const entries: Array<{ key: string; record: DispatcherOperationRecord }> = [];
+      let startAfter: string | undefined;
+      let exhausted = false;
+      for (let page = 0; page < 32; page++) {
+        const rows = await this.ctx.storage.list<DispatcherOperationRecord>({ prefix, limit: 32,
+          ...(startAfter ? { startAfter } : {}) });
+        for (const [key, record] of rows) { entries.push({ key, record }); startAfter = key; }
+        if (rows.size < 32) { exhausted = true; break; }
+      }
+      const ordinals = new Set<number>();
+      let damaged = journal.nextOrdinal !== journal.count;
+      let unclassifiedEntries = 0;
+      const candidates: typeof entries = [];
+      for (const row of entries) {
+        const entry = row.record;
+        if (!entry || !integer(entry.ordinal) || entry.ordinal >= journal.nextOrdinal
+          || ordinals.has(entry.ordinal) || entry.generation !== lease.generation) { damaged = true; continue; }
+        ordinals.add(entry.ordinal);
+        if (entry.request?.method === 'POST' || entry.request?.method === 'PUT') candidates.push(row);
+        else if (entry.request?.method !== 'GET' && !entry.inference) unclassifiedEntries++;
+      }
+      const complete = exhausted && !damaged && unclassifiedEntries === 0
+        && entries.length === journal.count && ordinals.size === journal.count;
+      if (after !== undefined && (!integer(after) || !ordinals.has(after))) return unavailable;
+      candidates.sort((a, b) => a.record.ordinal! - b.record.ordinal!);
+      const remaining = candidates.filter(row => after === undefined || row.record.ordinal! > after);
+      const items: RetiredEffectItem[] = [];
+      for (const { key, record: entry } of remaining.slice(0, 8)) {
+        const method = entry.request!.method as 'POST' | 'PUT';
+        const item: RetiredEffectItem = { ordinal: entry.ordinal!, operationDigest: await sha256(key.slice(prefix.length)),
+          journalPhase: ['reserved', 'completed', 'unknown'].includes(entry.phase) ? entry.phase : 'unknown',
+          binding: 'unresolved', method, effect: method === 'POST' ? 'comment' : 'merge',
+          ...(digest(entry.requestDigest) ? { requestDigest: entry.requestDigest } : {}),
+          ...(digest(entry.responseDigest) ? { responseDigest: entry.responseDigest } : {}) };
+        items.push(item);
+        const binding = entry.phaseBinding;
+        if (!binding || binding.resource !== 'source' || binding.phase.kind !== 'target'
+          || !integer(binding.phase.index) || typeof binding.submissionId !== 'string'
+          || typeof binding.deliveryToken !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(binding.deliveryToken)) continue;
+        const phase = binding.phase;
+        const frozen = lease.serial.targets?.[phase.index];
+        const original = binding.submissionId === context.submissionId ? context.phase
+          : lease.serial.previous.find(row => row.submissionId === binding.submissionId)?.phase;
+        if (!frozen || !original || !sameDispatcherPhaseValue(original, phase)
+          || !sameDispatcherPhaseValue(frozen, phase.target)
+          || binding.submissionId === context.submissionId && binding.deliveryToken !== context.deliveryToken) continue;
+        const expectedUrl = `${dispatcherGithubApiOrigin(this.#appEnv)}/repos/${repository}/${method === 'POST'
+          ? `issues/${frozen.pullRequest}/comments` : `pulls/${frozen.pullRequest}/merge`}`;
+        if (entry.request!.url !== expectedUrl) continue;
+        Object.assign(item, { phaseIndex: phase.index, submissionDigest: await sha256(binding.submissionId),
+          deliveryDigest: await sha256(binding.deliveryToken), target: { repository, ...frozen } });
+        if (entry.phase !== 'completed' || !digest(entry.requestDigest) || !digest(entry.responseDigest)) continue;
+        const response = await this.ctx.storage.get<NonNullable<DispatcherOperationRecord['response']>>(
+          `dispatcher:response:${key.slice(prefix.length)}`);
+        if (!response || response.status !== 200 || typeof response.body !== 'string'
+          || new TextEncoder().encode(response.body).byteLength > sourceResponseBytes(receipt.selection.installation.policy)
+          || await sha256(response.body) !== entry.responseDigest) continue;
+        let envelope: { url?: unknown; status?: unknown; body?: unknown };
+        let body: { id?: unknown; body?: unknown; merged?: unknown; sha?: unknown };
+        try { envelope = JSON.parse(response.body); body = JSON.parse(envelope.body as string); }
+        catch { continue; }
+        if (!envelope || !body || envelope.url !== expectedUrl || typeof envelope.body !== 'string') continue;
+        if (method === 'POST' && envelope.status === 201 && integer(body.id) && body.id > 0 && typeof body.body === 'string') {
+          item.observedResponse = { kind: 'comment', status: 201, commentId: body.id, responseBodyDigest: await sha256(body.body) };
+        } else if (method === 'PUT' && envelope.status === 200 && body.merged === true
+          && typeof body.sha === 'string' && /^[a-f0-9]{40}$/.test(body.sha)) {
+          item.observedResponse = { kind: 'merge', status: 200, merged: true, mergeSha: body.sha };
+        } else continue;
+        item.binding = 'verified';
+      }
+      // A racing retirement/selection change cannot publish the pre-await association.
+      const [freshState, freshLease, freshJournal] = await Promise.all([
+        this.ctx.storage.get<AdmissionState>('admission'), this.ctx.storage.get<DispatcherLease>(DISPATCHER_LEASE),
+        this.ctx.storage.get<DispatcherJournal>(DISPATCHER_JOURNAL) ]);
+      if (JSON.stringify(freshState) !== JSON.stringify(state) || JSON.stringify(freshLease) !== JSON.stringify(lease)
+        || JSON.stringify(freshJournal) !== JSON.stringify(journal)) return unavailable;
+      const more = remaining.length > 8;
+      return { version: 1, activityId: state.intent.activityId, generation: lease.generation,
+        inputDigest: lease.inputDigest, artifactDigest: lease.artifactDigest, admissionDigest,
+        scan: complete ? 'complete' : 'partial', pageStatus: more ? 'more' : complete ? 'complete' : 'partial',
+        journalCount: journal.count, inspectedEntries: entries.length, unresolvedJournalEntries: journal.unresolved,
+        unclassifiedEntries, nextAfterOrdinal: more ? items.at(-1)!.ordinal : null, items };
+    } catch { return unavailable; }
+  }
+
+  async getBrowserDetail(options?: { effectReceipts: true; receiptAfter?: number }): Promise<(OperatorBrowserSummary & {
+    checkpoint: unknown; result: unknown; sdkCleanupReleased?: boolean; effectReceipts?: RetiredEffectReceipts }) | null> {
     const state = await this.ctx.storage.get<AdmissionState>('admission');
     if (!state) return null;
-    await this.inspectDispatcherJournal(state);
-    const released = state.drive && state.receipt && isManagementReceipt(state.receipt)
-      && state.receipt.selection.operator.profile === 'dispatcher'
-      ? this.sdkCleanupReleased(state, await this.ctx.storage.get<DispatcherLease>(DISPATCHER_LEASE)) : undefined;
-    return { ...this.browserSummary(state), checkpoint: state.drive?.checkpoint ?? null,
-      result: state.drive?.result ?? null, ...(released === undefined ? {} : { sdkCleanupReleased: released }) };
+    const dispatcher = state.drive && state.receipt && isManagementReceipt(state.receipt)
+      && state.receipt.selection.operator.profile === 'dispatcher';
+    const lease = dispatcher && options?.effectReceipts
+      ? await this.ctx.storage.get<DispatcherLease>(DISPATCHER_LEASE) : undefined;
+    const retired = options?.effectReceipts && dispatcher && ['unknown', 'cancel-requested'].includes(state.drive!.status)
+      && ((state.receipt as ManagementAdmissionReceipt).selection.release.intentVersion === '4' || lease?.serial);
+    // The receipt path replaces (not adds to) the metadata diagnostic scan and its response reads.
+    if (!retired) await this.inspectDispatcherJournal(state);
+    const effectReceipts = retired ? await this.retiredEffectReceipts(state, lease, options?.receiptAfter) : undefined;
+    const released = dispatcher ? this.sdkCleanupReleased(state,
+      retired ? lease : await this.ctx.storage.get<DispatcherLease>(DISPATCHER_LEASE)) : undefined;
+    return { ...this.browserSummary(state), checkpoint: state.drive?.checkpoint ?? null, result: state.drive?.result ?? null,
+      ...(released === undefined ? {} : { sdkCleanupReleased: released }), ...(effectReceipts ? { effectReceipts } : {}) };
   }
 
   /** Read one already-settled Dispatcher assessment; never resume or re-admit its submission. */

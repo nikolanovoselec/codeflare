@@ -14,7 +14,7 @@ import { isEnterpriseMode } from '../lib/subscription';
 import { AppError } from '../lib/error-types';
 import { operatorOwnerKey, type OperatorBrowserSummary } from '../operators/browser-activity';
 import type { ManagementExecutionSelection, OperatorRegistry, OperatorRegistryResult } from '../operators/registry';
-import type { OperatorActivity } from '../operators/activity';
+import type { OperatorActivity, RetiredEffectReceipts } from '../operators/activity';
 import { parseJsonBody } from '../lib/request-helpers';
 import { bindOperatorRuntimeCapability, prepareOperatorActivity, runOperatorActivity } from '../operators/orchestrator';
 
@@ -35,7 +35,7 @@ const publicationBody = z.strictObject({ sessionId: identifier,
 const prospectiveBody = z.strictObject({ installationId: identifier,
   sessionId: z.string().regex(/^[a-z0-9]{8,24}$/),
   sessionGeneration: z.number().int().positive().safe() });
-type BrowserDetail = OperatorBrowserSummary & { checkpoint: unknown; result: unknown };
+type BrowserDetail = OperatorBrowserSummary & { checkpoint: unknown; result: unknown; effectReceipts?: RetiredEffectReceipts };
 type BrowserCollection = { ok: true; detail: BrowserDetail } | { ok: false; reason: 'not-ready' | 'not-admitted' };
 const jsonSummary = (summary: OperatorBrowserSummary) => structuredClone(summary);
 
@@ -199,18 +199,27 @@ async function owned(registry: DurableObjectStub<OperatorRegistry>, ownerKey: st
   if (!ID.test(activityId)) return null;
   return registry.getOwnedActivity(ownerKey, activityId);
 }
-async function browserDetail(stub: DurableObjectStub<OperatorActivity>): Promise<BrowserDetail | null> {
-  return await stub.getBrowserDetail() as BrowserDetail | null;
+async function browserDetail(stub: DurableObjectStub<OperatorActivity>,
+  options?: { effectReceipts: true; receiptAfter?: number }): Promise<BrowserDetail | null> {
+  return await stub.getBrowserDetail(options) as BrowserDetail | null;
 }
 
-async function handleBrowserDetail(c: Context<ActivityRouteEnv>) {
+async function handleBrowserDetail(c: Context<ActivityRouteEnv>, resultOnly: boolean) {
   const activityId = c.req.param('activityId');
   if (!activityId || !await owned(c.get('registry'), c.get('ownerKey'), activityId)) return c.notFound();
-  const detail = await browserDetail(c.env.OPERATOR_ACTIVITY!.getByName(activityId));
+  const cursors = resultOnly ? c.req.queries('receiptAfter') : undefined;
+  const invalidCursor = () => c.json({ error: 'Invalid receipt cursor' }, 400);
+  if (cursors && (cursors.length !== 1 || !/^(0|[1-9][0-9]*)$/.test(cursors[0])
+    || !Number.isSafeInteger(Number(cursors[0])))) return invalidCursor();
+  const receiptAfter = cursors ? Number(cursors[0]) : undefined;
+  const detail = await browserDetail(c.env.OPERATOR_ACTIVITY!.getByName(activityId), resultOnly
+    ? { effectReceipts: true, ...(receiptAfter === undefined ? {} : { receiptAfter }) } : undefined);
+  if (receiptAfter !== undefined && (detail?.effectReceipts?.journalCount == null
+    || receiptAfter >= detail.effectReceipts.journalCount)) return invalidCursor();
   return detail ? c.json({ ...detail, updatedAt: new Date(detail.updatedAt).toISOString() }) : c.notFound();
 }
-app.get('/:activityId', handleBrowserDetail);
-app.get('/:activityId/result', handleBrowserDetail);
+app.get('/:activityId', c => handleBrowserDetail(c, false));
+app.get('/:activityId/result', c => handleBrowserDetail(c, true));
 app.post('/:activityId/result', async c => {
   const activityId = c.req.param('activityId');
   if (!await owned(c.get('registry'), c.get('ownerKey'), activityId)) return c.notFound();
