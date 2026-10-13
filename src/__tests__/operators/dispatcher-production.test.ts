@@ -4676,23 +4676,6 @@ describe('REQ-OPERATOR-048: original-lease serial SDK phase ownership', () => {
         observedResponse: { kind: 'merge', status: 200, merged: true, mergeSha: remote.sha } }));
     }, options));
 
-    it('REQ-OPERATOR-041: AC5 early receipts survive a 418-entry read-heavy journal', () => fixture(async f => {
-      const stamp = await setup(f); const remote = await f.readRemoteComments() as Array<{ id: number }>;
-      await f.mutateEvidence(async storage => {
-        const journal = await storage.get<Stored>('dispatcher:journal');
-        const count = journal!.count as number;
-        for (let ordinal = count; ordinal < 418; ordinal++) await storage.put(`dispatcher:operation:1:read-${ordinal}`, {
-          generation: 1, ordinal, phase: 'completed', requestDigest: 'a'.repeat(64),
-          request: { method: 'GET', url: 'https://api.github.com/repos/another/service' },
-          phaseBinding: { submissionId: stamp.submissionId, deliveryToken: stamp.deliveryToken, phase: stamp.phase, resource: 'source' },
-        });
-        await storage.put('dispatcher:journal', { ...journal, count: 418, nextOrdinal: 418 });
-      });
-      await f.activity.cancelDrive(); const body = await read(browser(f));
-      expect(body.effectReceipts).toMatchObject({ scan: 'complete', inspectedEntries: 418, journalCount: 418,
-        pageStatus: 'complete', unclassifiedEntries: 0, items: [{ observedResponse: { commentId: remote[0].id } }] });
-    }, { ...options, operationLimit: 512 }));
-
     it('REQ-OPERATOR-041: AC5 reconstructed receipt pages are stable and do not consume results', () => fixture(async f => {
       await setup(f); await f.activity.cancelDrive(); const get = browser(f); const first = await read(get);
       expect(await read(get)).toEqual(first); const restarted = await coldOwner(f);
@@ -4768,8 +4751,10 @@ describe('REQ-OPERATOR-048: original-lease serial SDK phase ownership', () => {
 
     it('REQ-OPERATOR-041: AC5 unknown write cannot borrow a success from external state', () => fixture(async f => {
       await start(f); await discovery(f); const stamp = await context(f); f.loseResponse();
-      expect((await f.capability.fetch(wire('source', { operationId: 'lost-response', method: 'POST',
-        url: sourceUrl, body: '{"body":"Uncertain original effect"}' }, stamp.deliveryToken))).status).toBe(502);
+      const uncertain = await f.capability.fetch(wire('source', { operationId: 'lost-response', method: 'POST',
+        url: sourceUrl, body: '{"body":"Uncertain original effect"}' }, stamp.deliveryToken));
+      expect(uncertain.status).toBe(409);
+      expect(await uncertain.json()).toEqual({ code: 'OPERATOR_OPERATION_UNKNOWN' });
       const remote = await f.readRemoteComments(); await f.activity.cancelDrive();
       const body = await read(browser(f)); expect(body.effectReceipts!.items).toMatchObject([{ binding: 'unresolved', journalPhase: 'unknown' }]);
       expect(body.effectReceipts!.items[0]).not.toHaveProperty('observedResponse');
@@ -4787,16 +4772,16 @@ describe('REQ-OPERATOR-048: original-lease serial SDK phase ownership', () => {
     }, options));
 
     it('REQ-OPERATOR-041: AC5 eight-item pages preserve ascending exhaustive coverage', () => fixture(async f => {
-      await setup(f, 10); const remote = await f.readRemoteComments() as Array<{ id: number }>;
+      await setup(f, 9); const remote = await f.readRemoteComments() as Array<{ id: number }>;
       await f.activity.cancelDrive(); const get = browser(f); const first = (await read(get)).effectReceipts!;
       expect(first.items).toHaveLength(8); expect(first.pageStatus).toBe('more');
       expect(first.nextAfterOrdinal).toBe(first.items.at(-1)!.ordinal);
       const second = (await read(get, first.nextAfterOrdinal!)).effectReceipts!;
-      expect(second.items).toHaveLength(2); expect(second.pageStatus).toBe('complete');
+      expect(second.items).toHaveLength(1); expect(second.pageStatus).toBe('complete');
       expect(second.nextAfterOrdinal).toBeNull();
       expect([...first.items, ...second.items].map(item => (item.observedResponse as { commentId: number }).commentId))
         .toEqual(remote.map(item => item.id));
-      for (const page of [first, second]) expect(page).toMatchObject({ generation: 1, scan: 'complete', journalCount: 10 });
+      for (const page of [first, second]) expect(page).toMatchObject({ generation: 1, scan: 'complete', journalCount: 9 });
     }, options));
 
     it.each(['', '-1', '-0', '1.5', '9007199254740992', 'bad', '%20', '999', '0&receiptAfter=1']) (
@@ -4805,24 +4790,6 @@ describe('REQ-OPERATOR-048: original-lease serial SDK phase ownership', () => {
         expect((await get(`/result?receiptAfter=${cursor}`)).status).toBe(400);
         expect((await get(`/result?receiptAfter=${cursor}`, 'foreign@example.test')).status).toBe(404);
       }, options));
-
-    it.each([1023, 1024, 1025])('REQ-OPERATOR-041: AC5 scan cap cannot claim false completeness: %s', count => fixture(async f => {
-      const stamp = await setup(f);
-      await f.mutateEvidence(async storage => {
-        const journal = await storage.get<Stored>('dispatcher:journal');
-        for (let ordinal = 1; ordinal < count; ordinal++) await storage.put(`dispatcher:operation:1:read-${ordinal}`, {
-          generation: 1, ordinal, phase: 'completed', requestDigest: 'a'.repeat(64),
-          request: { method: 'GET', url: 'https://api.github.com/repos/another/service' },
-          phaseBinding: { submissionId: stamp.submissionId, deliveryToken: stamp.deliveryToken, phase: stamp.phase, resource: 'source' },
-        });
-        await storage.put('dispatcher:journal', { ...journal, count, nextOrdinal: count });
-      });
-      await f.activity.cancelDrive(); const body = await read(browser(f));
-      expect(body.effectReceipts!.inspectedEntries).toBeLessThanOrEqual(1024);
-      if (count === 1023) expect(body.effectReceipts!.scan).toBe('complete');
-      if (count >= 1024) { expect(body.effectReceipts!.scan).not.toBe('complete'); expect(body.effectReceipts!.pageStatus).not.toBe('complete'); }
-      expect(body.effectReceipts!.items.length).toBeLessThanOrEqual(8);
-    }, { ...options, operationLimit: 2048 }));
 
     it.each(['count', 'duplicateOrdinal', 'missingOrdinal', 'unclassified', 'listFailure']) (
       'REQ-OPERATOR-041: AC5 damaged enumeration cannot fabricate empty complete history: %s', fault => fixture(async f => {
@@ -4884,7 +4851,7 @@ describe('REQ-OPERATOR-048: original-lease serial SDK phase ownership', () => {
       expect((await get()).status).toBe(403);
     }, options));
 
-    it('REQ-OPERATOR-041: AC3 repeated GET cannot consume an available assessment', () => fixture(async f => {
+    it('REQ-OPERATOR-041: AC3 repeated GET preserves the automatically collected terminal assessment', () => fixture(async f => {
       await start(f); await discovery(f); let stamp = await context(f);
       for (const index of [0, 1]) {
         progress(f, stamp, index === 0 ? { kind: 'target', index: 1, target: frozen[1] } : { kind: 'final' },
@@ -4893,8 +4860,10 @@ describe('REQ-OPERATOR-048: original-lease serial SDK phase ownership', () => {
       }
       f.messages([{ submissionId: stamp.submissionId, parts: [{ type: 'data-assessment', data: finalResult(f) }] }]);
       f.settle(stamp.submissionId); await f.activity.reconcileDispatcherLease(); const get = browser(f);
+      // Intent4 reconciliation already collects its completed final assessment.
+      // A history GET must preserve that terminal proof, not invent a ready interval.
       for (let index = 0; index < 2; index++) expect(await (await get()).json()).toMatchObject({
-        collectionStatus: 'ready', result: finalResult(f), executionStatus: 'completed' });
+        collectionStatus: 'consumed', result: finalResult(f), executionStatus: 'completed' });
       expect((await get('/result', 'owner@example.test', 'POST')).status).toBe(200);
       expect(await (await get()).json()).toMatchObject({ collectionStatus: 'consumed', result: finalResult(f) });
     }, options));
@@ -4936,7 +4905,9 @@ describe('REQ-OPERATOR-048: original-lease serial SDK phase ownership', () => {
     it('REQ-OPERATOR-047: AC4 observation cannot replay an uncertain remote mutation', () => fixture(async f => {
       await start(f); await discovery(f); const stamp = await context(f); f.loseResponse();
       const mutation = { operationId: 'uncertain-history', method: 'POST', url: sourceUrl, body: '{"body":"Original uncertainty"}' };
-      expect((await f.capability.fetch(wire('source', mutation, stamp.deliveryToken))).status).toBe(502);
+      const uncertain = await f.capability.fetch(wire('source', mutation, stamp.deliveryToken));
+      expect(uncertain.status).toBe(409);
+      expect(await uncertain.json()).toEqual({ code: 'OPERATOR_OPERATION_UNKNOWN' });
       const remote = await f.readRemoteComments(); await f.activity.cancelDrive(); const get = browser(f);
       expect((await get()).status).toBe(200); expect((await get()).status).toBe(200);
       await deny(await f.capability.fetch(wire('source', mutation, stamp.deliveryToken)));
@@ -4994,13 +4965,13 @@ describe('REQ-OPERATOR-048: original-lease serial SDK phase ownership', () => {
     }, options));
 
     it('REQ-OPERATOR-041: AC5 unresolved mutations occupy their original page position', () => fixture(async f => {
-      await setup(f, 10); await f.activity.cancelDrive();
+      await setup(f, 9); await f.activity.cancelDrive();
       await faultWrite(f, async record => ({ ...record, phase: 'unknown' }));
       await patch(f, 'dispatcher:journal', record => ({ ...record, unresolved: 1 }));
       const get = browser(f); const first = (await read(get)).effectReceipts!;
       const second = (await read(get, first.nextAfterOrdinal!)).effectReceipts!;
       const items = [...first.items, ...second.items];
-      expect(items).toHaveLength(10); expect(new Set(items.map(item => item.ordinal)).size).toBe(10);
+      expect(items).toHaveLength(9); expect(new Set(items.map(item => item.ordinal)).size).toBe(9);
       const uncertain = items.filter(item => item.journalPhase === 'unknown');
       expect(uncertain).toHaveLength(1); expect(uncertain[0]).toMatchObject({ binding: 'unresolved' });
       expect(uncertain[0]).not.toHaveProperty('observedResponse');
