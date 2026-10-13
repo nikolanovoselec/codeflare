@@ -2,6 +2,10 @@
 import { describe, expect, it, vi } from 'vitest';
 import { env, runInDurableObject } from 'cloudflare:test';
 import { Agent } from 'agents';
+import { Hono } from 'hono';
+import * as access from '../../lib/access';
+import activityRoutes from '../../routes/operator-activities';
+import { AppError } from '../../lib/error-types';
 import { OperatorActivity, OperatorDispatcherCapability, OperatorDispatcherTail, createOperatorIntentDigest } from '../../operators/activity';
 import { driveDispatcherRuntime } from '../../operators/runtime';
 import { runOperatorActivity } from '../../operators/orchestrator';
@@ -334,6 +338,8 @@ async function fixture(test: (f: {
     phase: 'reserved' | 'completed' | 'unknown'; ordinal: number; response?: unknown }>) => Promise<void>;
   revoke: () => void; sent: Request[]; childSubmissions: Request[]; abortStatus: () => string | undefined;
   readRemoteComments: () => Promise<unknown>;
+  readRemoteMerge: () => unknown;
+  mutateEvidence: (change: (storage: DurableObjectStorage) => Promise<void>) => Promise<void>;
   restart: () => OperatorActivity; drainBackground: () => Promise<void>; seedHistoricalAdmitting: () => Promise<void>;
   loseResponse: () => void; restoreTransport: () => void; throwTransport: () => void;
   emptyResponse: () => void; upstreamConflict: (enabled: boolean) => void; nextAlarm: () => Promise<number | null>;
@@ -368,7 +374,7 @@ async function fixture(test: (f: {
   legacyProspective?: boolean; inputExtra?: Record<string, unknown>; capabilities?: string[]; pagedStatus?: boolean; githubApiHost?: string;
   sourceResponseBytes?: number; sourceBody?: string; sourceDelayMs?: number; inferenceBody?: string; inferenceRequestBytes?: number; inferenceMessageLimit?: number; operationLimit?: number; loggingEnabled?: boolean;
   capacityPolicy?: DispatcherCapacityPolicy;
-  recovery?: boolean; intent4?: boolean; losePhaseAdmission?: number; facetContract?: boolean;
+  recovery?: boolean; intent4?: boolean; losePhaseAdmission?: number; facetContract?: boolean; receiptFixture?: boolean;
   inferenceAttemptLimit?: number; inferenceTransport?: (request: Request, attempt: number) => Promise<Response> } = {}) {
   callerSessionCurrent = true;
   callerRoute = 'approved';
@@ -430,6 +436,7 @@ async function fixture(test: (f: {
     let aborted: string | undefined;
     let uncertain = false;
     const genericComments: Array<{ id: number; body: string; user: { id: number } }> = [];
+    let remoteMerge: unknown = null;
     let genericReadback: unknown;
     let loadedEnvironment: Promise<Record<string, unknown>> | undefined;
     let loadedOutbound: Promise<Fetcher | null> | undefined;
@@ -612,11 +619,16 @@ async function fixture(test: (f: {
           }
           if (request.url.endsWith('/issues/17/comments') && request.method === 'POST') {
             const data = await request.json() as { body: string };
-            genericComments.push({ id: 91, body: data.body, user: { id: 42 } });
+            genericComments.push({ id: 91 + (options.receiptFixture ? genericComments.length : 0), body: data.body, user: { id: 42 } });
             if (uncertain) throw new Error('Lost mutation response');
-            return Response.json(genericComments[0], { status: 201 });
+            return Response.json(options.receiptFixture ? genericComments.at(-1) : genericComments[0], { status: 201 });
           }
           if (request.url.endsWith('/issues/17/comments') && request.method === 'GET') return Response.json(genericReadback ?? genericComments);
+          if (options.receiptFixture && request.url.endsWith('/pulls/17/merge') && request.method === 'PUT') {
+            remoteMerge = { sha: '8'.repeat(40), merged: true, message: 'Pull Request successfully merged' };
+            if (uncertain) throw new Error('Lost mutation response');
+            return Response.json(remoteMerge);
+          }
           if (transportThrows) throw new Error('private transport failure');
           if (emptyResponse) return new Response(null, { status: 200 });
           if (uncertain) return Response.json({ error: 'lost response' }, { status: 502 });
@@ -689,6 +701,8 @@ async function fixture(test: (f: {
       },
       admitManagement: async (input: unknown) => ({ ok: true, value: { ...input as object, admittedAt: now, selection } }),
       upsertOwnedActivity: async () => {},
+      getOwnedActivity: async (ownerKey: string, requestedId: string) =>
+        requestedId === activityId ? activity.getBrowserSummary(ownerKey) : null,
       readProspectiveRenovateAdmission: async () => structuredClone(currentProof),
       currentProspectiveRenovateRegistration: async () => structuredClone(currentRegistration),
     };
@@ -794,6 +808,8 @@ async function fixture(test: (f: {
         revoke: () => { revoked = true; },
         abortStatus: () => aborted, restart: () => (activity = new OperatorActivity(context, activityEnvironment)),
         drainBackground,
+        readRemoteMerge: () => structuredClone(remoteMerge),
+        mutateEvidence: change => change(native.storage),
         readRemoteComments: async () => {
           // Independent remote readback: bypass the Activity journal/capability so a
           // cached parent response cannot conceal duplicate repository effects.
@@ -4567,4 +4583,428 @@ describe('REQ-OPERATOR-048: original-lease serial SDK phase ownership', () => {
     expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'unknown', result: null });
     expect(f.sent).toEqual([]);
   }, { repositoryOnly: true, intent4: true, capacityPolicy: { assessmentBytes: 48 * 1024 - 1 } }));
+
+  describe('REQ-OPERATOR-041: immutable retired effect response wire', () => {
+    const options = { repositoryOnly: true, intent4: true, recovery: true, receiptFixture: true };
+    const sourceUrl = 'https://api.github.com/repos/another/service/issues/17/comments';
+    type Stored = Record<string, unknown>;
+    type Receipts = { version: number; generation?: number; inputDigest?: string; artifactDigest?: string;
+      admissionDigest?: string; scan: string; pageStatus: string; journalCount: number | null;
+      inspectedEntries: number; unresolvedJournalEntries: number | null; unclassifiedEntries: number;
+      nextAfterOrdinal: number | null; items: Array<Record<string, unknown>> };
+    const browser = (f: DispatcherFixture) => {
+      vi.spyOn(access, 'requireOperatorHumanContext').mockImplementation(async (_request, _env, email) => ({
+        human: { subject: email === 'owner@example.test' ? 'owner' : 'foreign', email,
+          issuer: 'https://access.example.test', audiences: ['audience'], issuedAt: Math.floor(Date.now() / 1000),
+          expiresAt: Math.floor(Date.now() / 1000) + 600 }, accessJwt: 'PRIVATE_BROWSER_JWT',
+      }));
+      const app = new Hono<{ Bindings: Env }>();
+      app.onError((error, c) => error instanceof AppError
+        ? c.json({ code: error.code }, error.statusCode as 400) : c.json({ code: 'INTERNAL_ERROR' }, 500));
+      app.route('/api/operator-activities', activityRoutes);
+      return (suffix = '/result', email = 'owner@example.test', method = 'GET') => app.request(
+        `/api/operator-activities/${f.activityId}${suffix}`, { method, headers: {
+          'cf-access-authenticated-user-email': email, 'X-Requested-With': 'XMLHttpRequest',
+        } }, f.environment);
+    };
+    const setup = async (f: DispatcherFixture, count = 1) => {
+      await start(f); await discovery(f); const stamp = await context(f);
+      for (let index = 0; index < count; index++) {
+        const response = await f.capability.fetch(wire('source', { operationId: `PRIVATE_OPERATION_${index}`,
+          method: 'POST', url: sourceUrl, body: JSON.stringify({ body: `PRIVATE_HTTP_BODY_${index}` }) }, stamp.deliveryToken));
+        expect(response.status).toBe(200);
+        expect((await response.json() as { status: number }).status).toBe(201);
+      }
+      return stamp;
+    };
+    const read = async (get: ReturnType<typeof browser>, after?: number) => {
+      const response = await get(`/result${after === undefined ? '' : `?receiptAfter=${after}`}`);
+      expect(response.status).toBe(200);
+      const body = await response.json() as { effectReceipts?: Receipts; executionStatus: string; result: unknown;
+        checkpoint: unknown; cleanupStatus: string; collectionStatus: string; updatedAt: string };
+      expect(body.effectReceipts).toBeDefined();
+      return body;
+    };
+    const patch = async (f: DispatcherFixture, key: string, change: (value: Stored) => Stored) => {
+      await f.mutateEvidence(async storage => {
+        const value = await storage.get<Stored>(key);
+        if (!value) throw new Error('Controlled snapshot missing');
+        await storage.put(key, change(value));
+      });
+    };
+    const faultWrite = async (f: DispatcherFixture, change: (record: Stored, storage: DurableObjectStorage,
+      key: string) => Promise<Stored>, method = 'POST') => f.mutateEvidence(async storage => {
+      const entries = await storage.list<Stored>({ prefix: 'dispatcher:operation:1:' });
+      const found = [...entries].find(([, value]) => (value.request as Stored | undefined)?.method === method);
+      if (!found) throw new Error('Controlled write snapshot missing');
+      await storage.put(found[0], await change(found[1], storage, found[0]));
+    });
+    const unavailable = (body: Awaited<ReturnType<typeof read>>) => {
+      expect(body.effectReceipts).toMatchObject({ scan: 'unavailable', pageStatus: 'unavailable', items: [],
+        journalCount: null, inspectedEntries: 0, nextAfterOrdinal: null });
+      expect(body.effectReceipts).not.toHaveProperty('generation');
+      expect(body.effectReceipts).not.toHaveProperty('inputDigest');
+    };
+
+    it('REQ-OPERATOR-041: AC4 cancelled original comment remains attributable over HTTP', () => fixture(async f => {
+      const stamp = await setup(f); const remote = await f.readRemoteComments() as Array<{ id: number; body: string }>;
+      await f.activity.cancelDrive(); const get = browser(await coldOwner(f)); const body = await read(get);
+      expect(body).toMatchObject({ executionStatus: 'cancel-requested', result: null, collectionStatus: 'unavailable' });
+      expect(body.effectReceipts).toMatchObject({ version: 1, generation: 1, artifactDigest: f.artifactDigest,
+        scan: 'complete', pageStatus: 'complete', items: [{ binding: 'verified', journalPhase: 'completed',
+          effect: 'comment', method: 'POST', target: { repository: 'another/service', ...frozen[0] },
+          observedResponse: { kind: 'comment', status: 201, commentId: remote[0].id,
+            responseBodyDigest: await digest(remote[0].body) } }] });
+      const row = body.effectReceipts!.items[0];
+      for (const field of ['operationDigest', 'requestDigest', 'responseDigest', 'submissionDigest', 'deliveryDigest'])
+        expect(row[field]).toMatch(/^[a-f0-9]{64}$/);
+      await deny(await f.capability.fetch(wire('source', { operationId: 'after-read', method: 'POST',
+        url: sourceUrl, body: '{"body":"must not replay"}' }, stamp.deliveryToken)));
+      expect(await f.readRemoteComments()).toEqual(remote);
+      expect((await get('/result', 'owner@example.test', 'POST')).status).toBe(409);
+    }, options));
+
+    it('REQ-OPERATOR-041: AC4 original merge success binds the frozen head and remote SHA', () => fixture(async f => {
+      const stamp = await setup(f);
+      const response = await f.capability.fetch(wire('source', { operationId: 'original-merge', method: 'PUT',
+        url: 'https://api.github.com/repos/another/service/pulls/17/merge',
+        body: JSON.stringify({ sha: frozen[0].headSha, merge_method: 'merge' }) }, stamp.deliveryToken));
+      expect(response.status).toBe(200); const remote = f.readRemoteMerge() as { sha: string };
+      await f.activity.cancelDrive(); const body = await read(browser(f));
+      expect(body.effectReceipts!.items).toContainEqual(expect.objectContaining({ effect: 'merge', binding: 'verified',
+        target: { repository: 'another/service', ...frozen[0] },
+        observedResponse: { kind: 'merge', status: 200, merged: true, mergeSha: remote.sha } }));
+    }, options));
+
+    it('REQ-OPERATOR-041: AC5 early receipts survive a 418-entry read-heavy journal', () => fixture(async f => {
+      const stamp = await setup(f); const remote = await f.readRemoteComments() as Array<{ id: number }>;
+      await f.mutateEvidence(async storage => {
+        const journal = await storage.get<Stored>('dispatcher:journal');
+        const count = journal!.count as number;
+        for (let ordinal = count; ordinal < 418; ordinal++) await storage.put(`dispatcher:operation:1:read-${ordinal}`, {
+          generation: 1, ordinal, phase: 'completed', requestDigest: 'a'.repeat(64),
+          request: { method: 'GET', url: 'https://api.github.com/repos/another/service' },
+          phaseBinding: { submissionId: stamp.submissionId, deliveryToken: stamp.deliveryToken, phase: stamp.phase, resource: 'source' },
+        });
+        await storage.put('dispatcher:journal', { ...journal, count: 418, nextOrdinal: 418 });
+      });
+      await f.activity.cancelDrive(); const body = await read(browser(f));
+      expect(body.effectReceipts).toMatchObject({ scan: 'complete', inspectedEntries: 418, journalCount: 418,
+        pageStatus: 'complete', unclassifiedEntries: 0, items: [{ observedResponse: { commentId: remote[0].id } }] });
+    }, { ...options, operationLimit: 512 }));
+
+    it('REQ-OPERATOR-041: AC5 reconstructed receipt pages are stable and do not consume results', () => fixture(async f => {
+      await setup(f); await f.activity.cancelDrive(); const get = browser(f); const first = await read(get);
+      expect(await read(get)).toEqual(first); const restarted = await coldOwner(f);
+      expect(await read(browser(restarted))).toEqual(first);
+      expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
+    }, options));
+
+    it.each(['inputDigest', 'artifactDigest', 'executionArtifact', 'authorityDigest', 'intentVersion',
+      'journalGeneration', 'leaseGeneration', 'leaseStatus', 'serialMissing', 'duplicateSubmission'] as const)(
+      'REQ-OPERATOR-041: AC5 mismatched original selection is unavailable: %s', fault => fixture(async f => {
+        await setup(f); await f.activity.cancelDrive();
+        if (fault === 'journalGeneration') await patch(f, 'dispatcher:journal', value => ({ ...value, generation: 99 }));
+        else if (fault === 'executionArtifact') await patch(f, 'admission', value => ({ ...value,
+          executionContext: { ...(value.executionContext as Stored), artifactDigest: 'e'.repeat(64) } }));
+        else if (fault === 'intentVersion') await patch(f, 'admission', value => {
+          const receipt = value.receipt as Stored; const selection = receipt.selection as Stored;
+          return { ...value, receipt: { ...receipt, selection: { ...selection,
+            release: { ...(selection.release as Stored), intentVersion: '3' } } } };
+        });
+        else await patch(f, 'dispatcher:lease', value => {
+          if (fault === 'inputDigest' || fault === 'artifactDigest') return { ...value, [fault]: 'e'.repeat(64) };
+          if (fault === 'leaseGeneration') return { ...value, generation: 99 };
+          if (fault === 'leaseStatus') return { ...value, status: 'running' };
+          if (fault === 'serialMissing') return { ...value, serial: undefined };
+          const serial = value.serial as Stored;
+          if (fault === 'authorityDigest') return { ...value, serial: { ...serial, authorityDigest: 'e'.repeat(64) } };
+          return { ...value, serial: { ...serial, previous: [...serial.previous as unknown[], serial.current] } };
+        });
+        const body = await read(browser(f)); unavailable(body);
+        expect(body.executionStatus).toBe('cancel-requested'); expect(body.result).toBeNull();
+      }, options));
+
+    it.each(['missingCache', 'changedBody', 'missingDigest', 'wrongDigest', 'foreignUrl', 'malformed',
+      'overflow', 'upstreamError', 'invalidId', 'resolutionOnly', 'foreignSubmission', 'foreignTarget',
+      'missingBinding', 'foreignResource', 'encodedUrl'] as const)(
+      'REQ-OPERATOR-041: AC5 invalid stored response or association stays unresolved: %s', fault => fixture(async f => {
+        await setup(f); await f.activity.cancelDrive();
+        await faultWrite(f, async (record, storage, key) => {
+          const responseKey = `dispatcher:response:${key.slice('dispatcher:operation:1:'.length)}`;
+          if (fault === 'missingCache') { await storage.delete(responseKey); return record; }
+          if (fault === 'missingDigest') return { ...record, responseDigest: undefined };
+          if (fault === 'wrongDigest') return { ...record, responseDigest: 'e'.repeat(64) };
+          if (fault === 'missingBinding') return { ...record, phaseBinding: undefined };
+          if (fault === 'foreignResource') return { ...record, phaseBinding: { ...(record.phaseBinding as Stored), resource: 'inference' } };
+          if (fault === 'encodedUrl') return { ...record, request: { ...(record.request as Stored),
+            url: sourceUrl.replace('/17/', '/%31%37/') } };
+          if (fault === 'foreignSubmission' || fault === 'foreignTarget') {
+            const binding = record.phaseBinding as Stored;
+            return { ...record, phaseBinding: { ...binding, ...(fault === 'foreignSubmission'
+              ? { submissionId: 'PRIVATE_FOREIGN_SUBMISSION' } : { phase: { kind: 'target', index: 1, target: frozen[1] } }) } };
+          }
+          const response = await storage.get<{ status: number; contentType: string; body: string }>(responseKey);
+          let body = response!.body;
+          if (fault === 'changedBody') body += 'PRIVATE_ERROR';
+          else if (fault === 'malformed') body = 'PRIVATE_ERROR';
+          else if (fault === 'overflow') body = 'x'.repeat(2 * 1024 * 1024);
+          else if (fault === 'resolutionOnly') body = JSON.stringify({ resolved: true, operationId: 'PRIVATE_OPERATION' });
+          else { const envelope = JSON.parse(body) as { url: string; status: number; body: string };
+            if (fault === 'foreignUrl') envelope.url = 'https://api.github.com/repos/foreign/repo/issues/17/comments';
+            if (fault === 'upstreamError') { envelope.status = 403; envelope.body = 'PRIVATE_ERROR'; }
+            if (fault === 'invalidId') envelope.body = JSON.stringify({ id: Number.MAX_SAFE_INTEGER + 1, body: 'PRIVATE_HTTP_BODY' });
+            body = JSON.stringify(envelope);
+          }
+          await storage.put(responseKey, { ...response, body });
+          return fault === 'changedBody' ? record : { ...record, responseDigest: await digest(body) };
+        });
+        const body = await read(browser(f));
+        expect(body.effectReceipts!.items).toMatchObject([{ binding: 'unresolved' }]);
+        expect(body.effectReceipts!.items[0]).not.toHaveProperty('observedResponse');
+        expect(JSON.stringify(body.effectReceipts)).not.toContain('PRIVATE_ERROR');
+        expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
+      }, options));
+
+    it('REQ-OPERATOR-041: AC5 unknown write cannot borrow a success from external state', () => fixture(async f => {
+      await start(f); await discovery(f); const stamp = await context(f); f.loseResponse();
+      expect((await f.capability.fetch(wire('source', { operationId: 'lost-response', method: 'POST',
+        url: sourceUrl, body: '{"body":"Uncertain original effect"}' }, stamp.deliveryToken))).status).toBe(502);
+      const remote = await f.readRemoteComments(); await f.activity.cancelDrive();
+      const body = await read(browser(f)); expect(body.effectReceipts!.items).toMatchObject([{ binding: 'unresolved', journalPhase: 'unknown' }]);
+      expect(body.effectReceipts!.items[0]).not.toHaveProperty('observedResponse');
+      expect(await f.readRemoteComments()).toEqual(remote);
+      await deny(await f.capability.fetch(wire('resolve', { operationId: 'lost-response', readbacks: ['other'] }, stamp.deliveryToken)));
+    }, options));
+
+    it('REQ-OPERATOR-041: AC6 validated public identity is returned without private content', () => fixture(async f => {
+      const stamp = await setup(f); const remote = await f.readRemoteComments() as Array<{ id: number }>;
+      await f.activity.cancelDrive(); const body = await read(browser(f));
+      expect(body.effectReceipts!.items[0]).toMatchObject({ observedResponse: { commentId: remote[0].id } });
+      for (const secret of ['PRIVATE_OPERATION', 'PRIVATE_HTTP_BODY', 'PRIVATE_BROWSER_JWT', 'private.jwt',
+        'parent-only', stamp.deliveryToken, stamp.submissionId, 'https://api.github.com'])
+        expect(JSON.stringify(body.effectReceipts)).not.toContain(secret);
+    }, options));
+
+    it('REQ-OPERATOR-041: AC5 eight-item pages preserve ascending exhaustive coverage', () => fixture(async f => {
+      await setup(f, 10); const remote = await f.readRemoteComments() as Array<{ id: number }>;
+      await f.activity.cancelDrive(); const get = browser(f); const first = (await read(get)).effectReceipts!;
+      expect(first.items).toHaveLength(8); expect(first.pageStatus).toBe('more');
+      expect(first.nextAfterOrdinal).toBe(first.items.at(-1)!.ordinal);
+      const second = (await read(get, first.nextAfterOrdinal!)).effectReceipts!;
+      expect(second.items).toHaveLength(2); expect(second.pageStatus).toBe('complete');
+      expect(second.nextAfterOrdinal).toBeNull();
+      expect([...first.items, ...second.items].map(item => (item.observedResponse as { commentId: number }).commentId))
+        .toEqual(remote.map(item => item.id));
+      for (const page of [first, second]) expect(page).toMatchObject({ generation: 1, scan: 'complete', journalCount: 10 });
+    }, options));
+
+    it.each(['', '-1', '-0', '1.5', '9007199254740992', 'bad', '%20', '999', '0&receiptAfter=1']) (
+      'REQ-OPERATOR-041: AC5 invalid receipt ordinal is rejected: %s', cursor => fixture(async f => {
+        await setup(f); await f.activity.cancelDrive(); const get = browser(f);
+        expect((await get(`/result?receiptAfter=${cursor}`)).status).toBe(400);
+        expect((await get(`/result?receiptAfter=${cursor}`, 'foreign@example.test')).status).toBe(404);
+      }, options));
+
+    it.each([1023, 1024, 1025])('REQ-OPERATOR-041: AC5 scan cap cannot claim false completeness: %s', count => fixture(async f => {
+      const stamp = await setup(f);
+      await f.mutateEvidence(async storage => {
+        const journal = await storage.get<Stored>('dispatcher:journal');
+        for (let ordinal = 1; ordinal < count; ordinal++) await storage.put(`dispatcher:operation:1:read-${ordinal}`, {
+          generation: 1, ordinal, phase: 'completed', requestDigest: 'a'.repeat(64),
+          request: { method: 'GET', url: 'https://api.github.com/repos/another/service' },
+          phaseBinding: { submissionId: stamp.submissionId, deliveryToken: stamp.deliveryToken, phase: stamp.phase, resource: 'source' },
+        });
+        await storage.put('dispatcher:journal', { ...journal, count, nextOrdinal: count });
+      });
+      await f.activity.cancelDrive(); const body = await read(browser(f));
+      expect(body.effectReceipts!.inspectedEntries).toBeLessThanOrEqual(1024);
+      if (count === 1023) expect(body.effectReceipts!.scan).toBe('complete');
+      if (count >= 1024) { expect(body.effectReceipts!.scan).not.toBe('complete'); expect(body.effectReceipts!.pageStatus).not.toBe('complete'); }
+      expect(body.effectReceipts!.items.length).toBeLessThanOrEqual(8);
+    }, { ...options, operationLimit: 2048 }));
+
+    it.each(['count', 'duplicateOrdinal', 'missingOrdinal', 'unclassified', 'listFailure']) (
+      'REQ-OPERATOR-041: AC5 damaged enumeration cannot fabricate empty complete history: %s', fault => fixture(async f => {
+        await setup(f, 2); await f.activity.cancelDrive();
+        if (fault === 'count') await patch(f, 'dispatcher:journal', value => ({ ...value, count: 99 }));
+        else if (fault === 'listFailure') await f.mutateEvidence(async storage => {
+          const list = storage.list.bind(storage);
+          vi.spyOn(storage, 'list').mockImplementation(async input => {
+            if (input?.prefix?.startsWith('dispatcher:operation:')) throw new Error('PRIVATE_STORAGE_ERROR');
+            return list(input);
+          });
+        });
+        else await faultWrite(f, async (record, storage, key) => {
+          const other = [...await storage.list<Stored>({ prefix: 'dispatcher:operation:1:' })].find(([id]) => id !== key);
+          return { ...record, ...(fault === 'duplicateOrdinal' ? { ordinal: other![1].ordinal }
+            : fault === 'missingOrdinal' ? { ordinal: undefined } : { request: undefined, inference: undefined }) };
+        });
+        const body = await read(browser(f));
+        expect(body.executionStatus).toBe('cancel-requested');
+        if (fault === 'unclassified') expect(body.effectReceipts!.unclassifiedEntries).toBeGreaterThan(0);
+        else expect(body.effectReceipts!.scan).not.toBe('complete');
+        expect(JSON.stringify(body)).not.toContain('PRIVATE_STORAGE_ERROR');
+      }, options));
+
+    it('REQ-OPERATOR-041: AC5 selection changed during awaited storage reads is unavailable', () => fixture(async f => {
+      await setup(f); await f.activity.cancelDrive();
+      await f.mutateEvidence(async storage => {
+        const list = storage.list.bind(storage); let changed = false;
+        vi.spyOn(storage, 'list').mockImplementation(async input => {
+          const entries = await list(input);
+          if (!changed && input?.prefix?.startsWith('dispatcher:operation:')) {
+            changed = true; const lease = await storage.get<Stored>('dispatcher:lease');
+            await storage.put('dispatcher:lease', { ...lease, inputDigest: 'e'.repeat(64) });
+          }
+          return entries;
+        });
+      });
+      unavailable(await read(browser(f)));
+    }, options));
+
+    it('REQ-OPERATOR-041: AC7 result-only scope preserves detail and collection responses', () => fixture(async f => {
+      await setup(f); const get = browser(f);
+      expect(await (await get()).json()).not.toHaveProperty('effectReceipts');
+      await f.activity.cancelDrive(); const detail = await (await get('')).json();
+      expect(detail).not.toHaveProperty('effectReceipts');
+      expect((await get('/result', 'owner@example.test', 'POST')).status).toBe(409);
+      expect((await get('/result', 'foreign@example.test')).status).toBe(404);
+      expect((await get('/result', '')).status).toBe(401);
+      expect(await f.activity.commitDrive(1, { schemaVersion: 1, status: 'completed', checkpoint: null,
+        result: finalResult(f) })).toMatchObject({ ok: false, reason: 'stale-drive' });
+    }, options));
+
+    it('REQ-OPERATOR-041: AC2 existing access and ownership gates still protect receipt reads', () => fixture(async f => {
+      await setup(f); await f.activity.cancelDrive(); const get = browser(f);
+      expect((await get()).status).toBe(200);
+      expect((await get('/result', 'foreign@example.test')).status).toBe(404);
+      expect((await get('/result', '')).status).toBe(401);
+      vi.spyOn(access, 'requireOperatorHumanContext').mockRejectedValue(new AppError('FORBIDDEN', 403, 'Authentication rejected'));
+      expect((await get()).status).toBe(403);
+    }, options));
+
+    it('REQ-OPERATOR-041: AC3 repeated GET cannot consume an available assessment', () => fixture(async f => {
+      await start(f); await discovery(f); let stamp = await context(f);
+      for (const index of [0, 1]) {
+        progress(f, stamp, index === 0 ? { kind: 'target', index: 1, target: frozen[1] } : { kind: 'final' },
+          { results: rows.slice(0, index + 1) });
+        await f.activity.reconcileDispatcherLease(); stamp = await context(f);
+      }
+      f.messages([{ submissionId: stamp.submissionId, parts: [{ type: 'data-assessment', data: finalResult(f) }] }]);
+      f.settle(stamp.submissionId); await f.activity.reconcileDispatcherLease(); const get = browser(f);
+      for (let index = 0; index < 2; index++) expect(await (await get()).json()).toMatchObject({
+        collectionStatus: 'ready', result: finalResult(f), executionStatus: 'completed' });
+      expect((await get('/result', 'owner@example.test', 'POST')).status).toBe(200);
+      expect(await (await get()).json()).toMatchObject({ collectionStatus: 'consumed', result: finalResult(f) });
+    }, options));
+
+    it('REQ-OPERATOR-017: AC4 history reads cannot restart a cancelled original drive', () => fixture(async f => {
+      const stamp = await setup(f); await f.activity.cancelDrive(); const get = browser(await coldOwner(f));
+      expect((await get()).status).toBe(200); expect((await get()).status).toBe(200);
+      expect((await get('/continue', 'owner@example.test', 'POST')).status).toBe(409);
+      await deny(await f.capability.fetch(wire('source', { operationId: 'old-after-history', method: 'POST',
+        url: sourceUrl, body: '{"body":"must not restart"}' }, stamp.deliveryToken)));
+      expect(await f.readRemoteComments()).toMatchObject([{ id: 91 }]);
+    }, options));
+
+    it('REQ-OPERATOR-017: AC5 late original completion stays stale after history reads', () => fixture(async f => {
+      await setup(f); await f.activity.cancelDrive(); const get = browser(f); expect((await get()).status).toBe(200);
+      expect(await f.activity.commitDrive(1, { schemaVersion: 1, status: 'completed', checkpoint: null,
+        result: finalResult(f) })).toMatchObject({ ok: false, reason: 'stale-drive' });
+      expect(await (await get()).json()).toMatchObject({ executionStatus: 'cancel-requested', result: null, collectionStatus: 'unavailable' });
+    }, options));
+
+    it('REQ-OPERATOR-048: AC5 cancelled delivery cannot use protected operations after a receipt GET', () => fixture(async f => {
+      const stamp = await setup(f); const remote = await f.readRemoteComments(); await f.activity.cancelDrive();
+      expect((await browser(f)()).status).toBe(200);
+      for (const request of [...protectedRequests(stamp.deliveryToken),
+        wire('receipt', { operationId: 'PRIVATE_OPERATION_0' }, stamp.deliveryToken),
+        wire('resolve', { operationId: 'PRIVATE_OPERATION_0', readbacks: [] }, stamp.deliveryToken)])
+        await deny(await f.capability.fetch(request));
+      expect(await f.readRemoteComments()).toEqual(remote);
+    }, options));
+
+    it('REQ-OPERATOR-048: AC3 history authentication cannot renew the original execution expiry', () => fixture(async f => {
+      const stamp = await setup(f); await f.activity.cancelDrive(); f.expire(); const get = browser(f);
+      expect((await get()).status).toBe(200);
+      for (const request of protectedRequests(stamp.deliveryToken)) await deny(await f.capability.fetch(request));
+      expect((await get('/continue', 'owner@example.test', 'POST')).status).toBe(409);
+      expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
+    }, options));
+
+    it('REQ-OPERATOR-047: AC4 observation cannot replay an uncertain remote mutation', () => fixture(async f => {
+      await start(f); await discovery(f); const stamp = await context(f); f.loseResponse();
+      const mutation = { operationId: 'uncertain-history', method: 'POST', url: sourceUrl, body: '{"body":"Original uncertainty"}' };
+      expect((await f.capability.fetch(wire('source', mutation, stamp.deliveryToken))).status).toBe(502);
+      const remote = await f.readRemoteComments(); await f.activity.cancelDrive(); const get = browser(f);
+      expect((await get()).status).toBe(200); expect((await get()).status).toBe(200);
+      await deny(await f.capability.fetch(wire('source', mutation, stamp.deliveryToken)));
+      await deny(await f.capability.fetch(wire('source', { ...mutation, body: '{"body":"Changed uncertainty"}' }, stamp.deliveryToken)));
+      expect(await f.readRemoteComments()).toEqual(remote);
+    }, options));
+
+    it('REQ-OPERATOR-047: AC5 immutable cached response bytes survive non-consuming history reads', () => fixture(async f => {
+      await start(f); await discovery(f); const stamp = await context(f);
+      const mutation = { operationId: 'immutable-history', method: 'POST', url: sourceUrl, body: '{"body":"Immutable response contract"}' };
+      const first = await f.capability.fetch(wire('source', mutation, stamp.deliveryToken)); const bytes = await first.text();
+      expect((await browser(f)()).status).toBe(200);
+      expect(await (await f.capability.fetch(wire('source', mutation, stamp.deliveryToken))).text()).toBe(bytes);
+      expect(await f.readRemoteComments()).toMatchObject([{ id: 91, body: 'Immutable response contract' }]);
+      await f.activity.cancelDrive(); expect((await browser(f)()).status).toBe(200);
+      expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
+    }, options));
+
+    it('REQ-OPERATOR-048: AC7 historical unkeyed reads do not gain serial receipt authority', () => fixture(async f => {
+      await start(f); await f.activity.cancelDrive(); const get = browser(f);
+      const body = await (await get()).json(); expect(body).not.toHaveProperty('effectReceipts');
+      expect(body).toMatchObject({ executionStatus: 'cancel-requested', result: null });
+      expect((await f.capability.fetch(genericWire('source', { operationId: 'historical-after-read', url: sourceUrl }))).status).toBe(403);
+    }, { repositoryOnly: true }));
+
+    it.each(['notMerged', 'invalidSha', 'wrongStatus']) (
+      'REQ-OPERATOR-041: AC5 a merge cache cannot counterfeit success: %s', fault => fixture(async f => {
+        const stamp = await setup(f);
+        expect((await f.capability.fetch(wire('source', { operationId: 'merge-fault', method: 'PUT',
+          url: 'https://api.github.com/repos/another/service/pulls/17/merge',
+          body: JSON.stringify({ sha: frozen[0].headSha, merge_method: 'merge' }) }, stamp.deliveryToken))).status).toBe(200);
+        await f.activity.cancelDrive();
+        await faultWrite(f, async (record, storage, key) => {
+          const responseKey = `dispatcher:response:${key.slice('dispatcher:operation:1:'.length)}`;
+          const response = await storage.get<{ status: number; contentType: string; body: string }>(responseKey);
+          const envelope = JSON.parse(response!.body) as { status: number; body: string };
+          const upstream = JSON.parse(envelope.body) as { sha: string; merged: boolean };
+          if (fault === 'notMerged') upstream.merged = false;
+          if (fault === 'invalidSha') upstream.sha = 'not-a-sha';
+          if (fault === 'wrongStatus') envelope.status = 201;
+          envelope.body = JSON.stringify(upstream); const body = JSON.stringify(envelope);
+          await storage.put(responseKey, { ...response, body }); return { ...record, responseDigest: await digest(body) };
+        }, 'PUT');
+        const body = await read(browser(f)); const item = body.effectReceipts!.items.find(row => row.method === 'PUT');
+        expect(item).toMatchObject({ binding: 'unresolved' }); expect(item).not.toHaveProperty('observedResponse');
+      }, options));
+
+    it('REQ-OPERATOR-041: AC5 a reserved mutation cannot adopt an intact cached success', () => fixture(async f => {
+      await setup(f); await f.activity.cancelDrive();
+      await faultWrite(f, async record => ({ ...record, phase: 'reserved' }));
+      await patch(f, 'dispatcher:journal', record => ({ ...record, unresolved: 1 }));
+      const body = await read(browser(f)); expect(body.effectReceipts!.items).toMatchObject([{ journalPhase: 'reserved', binding: 'unresolved' }]);
+      expect(body.effectReceipts!.items[0]).not.toHaveProperty('observedResponse');
+      expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
+    }, options));
+
+    it('REQ-OPERATOR-041: AC5 unresolved mutations occupy their original page position', () => fixture(async f => {
+      await setup(f, 10); await f.activity.cancelDrive();
+      await faultWrite(f, async record => ({ ...record, phase: 'unknown' }));
+      await patch(f, 'dispatcher:journal', record => ({ ...record, unresolved: 1 }));
+      const get = browser(f); const first = (await read(get)).effectReceipts!;
+      const second = (await read(get, first.nextAfterOrdinal!)).effectReceipts!;
+      const items = [...first.items, ...second.items];
+      expect(items).toHaveLength(10); expect(new Set(items.map(item => item.ordinal)).size).toBe(10);
+      const uncertain = items.filter(item => item.journalPhase === 'unknown');
+      expect(uncertain).toHaveLength(1); expect(uncertain[0]).toMatchObject({ binding: 'unresolved' });
+      expect(uncertain[0]).not.toHaveProperty('observedResponse');
+      expect(second).toMatchObject({ pageStatus: 'complete', unresolvedJournalEntries: 1 });
+    }, options));
+  });
 });

@@ -40,3 +40,47 @@ describe('REQ-OPERATOR-041: in-app owned result read', () => {
     await expect(getOperatorActivity('foreign-activity')).rejects.toMatchObject({ status: 404 });
   });
 });
+
+describe('REQ-OPERATOR-041: AC7 retired-effect-receipts.v1 client wire', () => {
+  const receipt = { version: 1, activityId: 'activity-1', generation: 1, inputDigest: 'a'.repeat(64),
+    artifactDigest: 'b'.repeat(64), admissionDigest: 'c'.repeat(64), scan: 'complete', pageStatus: 'complete',
+    journalCount: 1, inspectedEntries: 1, unresolvedJournalEntries: 0, unclassifiedEntries: 0,
+    nextAfterOrdinal: null, items: [{ ordinal: 0, operationDigest: 'd'.repeat(64), requestDigest: 'e'.repeat(64),
+      responseDigest: 'f'.repeat(64), journalPhase: 'completed', binding: 'verified', method: 'POST', effect: 'comment',
+      phaseIndex: 0, submissionDigest: '1'.repeat(64), deliveryDigest: '2'.repeat(64),
+      target: { repository: 'owner/repo', pullRequest: 17, headSha: '3'.repeat(40) },
+      observedResponse: { kind: 'comment', status: 201, commentId: 91, responseBodyDigest: '4'.repeat(64) } }] };
+  const response = (value: unknown) => new Response(JSON.stringify(value), {
+    status: 200, headers: { 'content-type': 'application/json' },
+  });
+  it('accepts validated optional receipts without consuming or losing original result data', async () => {
+    vi.stubGlobal('fetch', async (url: string, init?: RequestInit) => {
+      if (url !== '/api/operator-activities/activity-1/result' || init?.credentials !== 'same-origin' || init?.method === 'POST')
+        return new Response(null, { status: 403 });
+      return response({ ...detail, effectReceipts: receipt });
+    });
+    expect(await getOperatorActivity('activity-1')).toMatchObject({ result: detail.result, effectReceipts: receipt });
+  });
+  it.each(['extra', 'digest', 'id', 'sha', 'version', 'tooMany', 'falseSuccess', 'foreignActivity', 'badCursor']) (
+    'rejects malformed or contradictory receipt claims: %s', async fault => {
+      const invalid = structuredClone(receipt);
+      if (fault === 'extra') Object.assign(invalid.items[0], { privateBody: 'PRIVATE_VALUE' });
+      if (fault === 'digest') invalid.inputDigest = 'invalid';
+      if (fault === 'id') invalid.items[0].observedResponse.commentId = Number.MAX_SAFE_INTEGER + 1;
+      if (fault === 'sha') invalid.items[0].target.headSha = 'invalid';
+      if (fault === 'version') invalid.version = 2;
+      if (fault === 'tooMany') invalid.items = Array.from({ length: 9 }, () => structuredClone(receipt.items[0]));
+      if (fault === 'falseSuccess') invalid.items[0].journalPhase = 'unknown';
+      if (fault === 'foreignActivity') invalid.activityId = 'foreign-activity';
+      if (fault === 'badCursor') Object.assign(invalid, { pageStatus: 'more', nextAfterOrdinal: null });
+      vi.stubGlobal('fetch', async () => response({ ...detail, effectReceipts: invalid }));
+      await expect(getOperatorActivity('activity-1')).rejects.toBeDefined();
+    });
+  it('accepts explicit unavailable evidence without fabricating successful effects', async () => {
+    const unavailable = { version: 1, activityId: 'activity-1', scan: 'unavailable', pageStatus: 'unavailable',
+      journalCount: null, inspectedEntries: 0, unresolvedJournalEntries: null, unclassifiedEntries: 0,
+      items: [], nextAfterOrdinal: null };
+    vi.stubGlobal('fetch', async () => response({ ...detail, effectReceipts: unavailable }));
+    expect(await getOperatorActivity('activity-1')).toMatchObject({ result: detail.result, effectReceipts: unavailable });
+  });
+});
