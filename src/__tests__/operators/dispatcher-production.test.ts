@@ -726,7 +726,7 @@ async function fixture(test: (f: {
     if (options.prospective) expect(await activity.bindProspectiveRenovateAdmission(activityId)).toBe(true);
     const invocationJson = JSON.stringify(fixtureInvocation);
     const execution = await createOperatorExecutionContext({ activityId, operatorId: fixtureOperatorId, artifactDigest,
-      policyDigest: await digest(JSON.stringify(policy)), human, accessJwt: 'private.jwt' }, encryption);
+      policyDigest: await digest(JSON.stringify(selection.installation.policy)), human, accessJwt: 'private.jwt' }, encryption);
     await activity.prepareAuthorized({ activityId, operatorId: fixtureOperatorId, installationId: 'installation',
       intentDigest: await createOperatorIntentDigest(fixtureOperatorId, activityId, invocationJson),
       expectedRevision: 1, expectedInstallationRevision: 1, expectedControlsRevision: 1,
