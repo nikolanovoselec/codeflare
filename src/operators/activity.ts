@@ -1346,14 +1346,31 @@ export class OperatorActivity extends Agent {
     return committed;
   }
 
-  /** Fence future commits; this is not confirmation that owned compute has stopped. */
+  /** Fence future commits, then retire owned intent4 compute without recreating it. */
   async cancelDrive(): Promise<OperatorDriveResult> {
-    const result = await this.fenceDrive('cancel-requested');
+    let result = await this.fenceDrive('cancel-requested');
+    if (!result.ok && result.reason === 'drive-settled') {
+      const [record, lease] = await Promise.all([
+        this.ctx.storage.get<AdmissionState>('admission'), this.ctx.storage.get<DispatcherLease>(DISPATCHER_LEASE),
+      ]);
+      // Explicit completion of this cancellation only: no resumption, new
+      // generation or authority for unknown/terminal/historical drives.
+      if (record?.phase === 'queued' && record.drive?.status === 'cancel-requested'
+        && lease?.serial && (lease.status === 'unknown' || lease.status === 'settled')
+        && record.drive.generation === lease.generation + 1
+        && lease.inputDigest === record.receipt?.intentDigest
+        && lease.artifactDigest === record.executionContext?.artifactDigest) {
+        result = { ok: true, state: structuredClone(record.drive) };
+      }
+    }
     if (result.ok) {
+      const lease = await this.ctx.storage.get<DispatcherLease>(DISPATCHER_LEASE);
+      // A previous bookkeeping receipt cannot substitute for actual shutdown.
+      // cancel-requested cannot begin another drive while this abort completes.
+      if (lease?.serial && lease.sdkReleased) this.abortDispatcherFacet('Dispatcher generation retired');
       await this.#releaseDispatcherSdk();
       await this.publishBrowserSummary();
-      const lease = await this.ctx.storage.get<DispatcherLease>(DISPATCHER_LEASE);
-      if (lease) {
+      if (lease && !lease.serial) {
         // Fence is durable before any abort delivery. Delivery is not proof of stopped compute.
         let timer: ReturnType<typeof setTimeout> | undefined;
         try {
@@ -1740,7 +1757,8 @@ export class OperatorActivity extends Agent {
 
   async #dispatcherFacet(lease: DispatcherLease, approved?: DispatcherBundle): Promise<DispatcherFacet> {
     if (this.#dispatcher?.generation === lease.generation) return this.#dispatcher.facet;
-    const facet = (async () => {
+    let facet!: Promise<DispatcherFacet>;
+    facet = (async () => {
       const plan = await this.getRuntimePlan();
       const loader = this.#appEnv.LOADER;
       const activities = this.#appEnv.OPERATOR_ACTIVITY;
@@ -1772,6 +1790,11 @@ export class OperatorActivity extends Agent {
         isManagementReceipt(plan.receipt) ? sourceResponseBytes(plan.receipt.selection.installation.policy) : undefined,
         admittedTarget ? JSON.stringify(admittedTarget) : undefined, executionLoggingEnabled(plan.receipt),
         isManagementReceipt(plan.receipt) ? submissionAttemptLimit(plan.receipt.selection.operator.policy) : undefined);
+      // Preparation may outlive retirement. Abort clears this exact cached
+      // promise; recheck it after the awaited authority read, before get can
+      // synchronously instantiate a replacement owned runtime.
+      if (lease.serial && (!await this.dispatcherGenerationCurrent(lease.generation)
+        || this.#dispatcher?.facet !== facet)) throw new Error('Stale Dispatcher facet creation');
       const child = context.facets.get('dispatcher', () => ({ class: dynamicClass,
         id: activities.idFromName('dispatcher') }));
       await child._cf_initAsFacet('dispatcher', [{ className: 'OperatorActivity', name: plan.activityId }], 'dispatcher');
@@ -2664,7 +2687,7 @@ export class OperatorActivity extends Agent {
     try {
     // Intent4 only: after the durable generation fence, stop its actual owned child,
     // including descendants. Bookkeeping cleanup alone cannot stop an SDK callback.
-    if (lease.serial && lease.serial.current.receipt) this.abortDispatcherFacet('Dispatcher generation retired');
+    if (lease.serial) this.abortDispatcherFacet('Dispatcher generation retired');
     await super._cf_cleanupFacetPrefix([{ className: 'OperatorActivity', name: admission.intent.activityId },
       { className: 'FlueDispatcherAgent', name: 'dispatcher' }]);
     const tokens = await this.ctx.storage.get<Record<string, number>>('dispatcher:keepalive') ?? {};
