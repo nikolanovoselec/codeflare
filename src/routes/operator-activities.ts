@@ -220,6 +220,14 @@ async function handleBrowserDetail(c: Context<ActivityRouteEnv>, resultOnly: boo
 }
 app.get('/:activityId', c => handleBrowserDetail(c, false));
 app.get('/:activityId/result', c => handleBrowserDetail(c, true));
+app.get('/:activityId/diagnostics', async c => {
+  c.header('Cache-Control', 'no-store');
+  const activityId = c.req.param('activityId');
+  if (!await owned(c.get('registry'), c.get('ownerKey'), activityId)) return c.notFound();
+  if (Object.keys(c.req.query()).length) return c.json({ error: 'Invalid diagnostics request' }, 400);
+  const snapshot = await c.env.OPERATOR_ACTIVITY!.getByName(activityId).getDispatcherDiagnostics(c.get('ownerKey'));
+  return snapshot?.activityId === activityId ? c.json(snapshot) : c.notFound();
+});
 app.post('/:activityId/result', async c => {
   const activityId = c.req.param('activityId');
   if (!await owned(c.get('registry'), c.get('ownerKey'), activityId)) return c.notFound();

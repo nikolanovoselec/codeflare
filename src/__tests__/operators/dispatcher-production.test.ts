@@ -3827,6 +3827,8 @@ describe('REQ-OPERATOR-048: original-lease serial SDK phase ownership', () => {
 
   const coldOwner = async (f: DispatcherFixture): Promise<DispatcherFixture> => {
     const activity = f.restart();
+    // Existing recovery scenarios exercise an ordinary owner wake, not diagnostics.
+    await activity.getAdmission();
     await f.drainBackground();
     return { ...f, activity };
   };
@@ -4090,8 +4092,16 @@ describe('REQ-OPERATOR-048: original-lease serial SDK phase ownership', () => {
     expect(f.childSubmissions).toEqual([]);
     expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'running', result: null });
     const deadline = await deadlineSchedule(f);
-    const cold = await coldOwner(f);
-    // Constructor-owned recovery, BEFORE a context request can cause repair.
+    const cold = { ...f, activity: f.restart() };
+    const diagnostic = await cold.activity.getDispatcherDiagnostics(await operatorOwnerKey(plan.executionContext.human));
+    expect(diagnostic).toMatchObject({ version: 1, consistency: 'stable-binding',
+      parent: { executionStatus: 'running', lease: { generation: 1, status: 'admitting', receiptPresent: false } },
+      sdk: { status: 'unavailable', reason: 'unbound' } });
+    await f.drainBackground();
+    expect(f.childSubmissions).toEqual([]);
+    // The first ordinary owner entry still recovers before a phase-context request.
+    await cold.activity.getAdmission();
+    await f.drainBackground();
     expect(f.childSubmissions).toHaveLength(1);
     expect(await cold.activity.dispatcherGenerationCurrent(1)).toBe(true);
     const delivered = await latestDelivery(cold);
