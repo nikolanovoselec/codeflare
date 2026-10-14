@@ -34,7 +34,7 @@ When public workflows or consumers change, update the owning document in the [pr
 
 ## Pending delivery
 
-[Dispatcher serial execution and retry](pending.md) distinguishes already-delivered intent4 lifecycle repairs from remaining receipt-delivery, retry and hosted acceptance gates. It does not claim this receipt extension delivered or v0.1.24 hosted installation accepted. Current operational behavior remains in the Operator lane.
+[Dispatcher serial execution and retry](pending.md) distinguishes delivered intent4 lifecycle repairs and retired-response receipts from pending retry, diagnostics hosted acceptance and whole-run acceptance. Receipt delivery and Enterprise retained-receipt read acceptance are complete; v0.1.24 is installed/enabled in Enterprise Integration. Dispatcher failure attribution, completion and cleanup remain unverified. Current operational behavior remains in the Operator lane.
 
 ## Audience Guide
 
