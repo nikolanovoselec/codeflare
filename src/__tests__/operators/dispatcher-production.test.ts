@@ -373,7 +373,7 @@ async function fixture(test: (f: {
   configuredTarget?: { repository: string; repositoryId: number; baseBranch: string };
   legacyProspective?: boolean; inputExtra?: Record<string, unknown>; capabilities?: string[]; pagedStatus?: boolean; githubApiHost?: string;
   sourceResponseBytes?: number; installationSourceResponseBytes?: number; sourceBody?: string; sourceDelayMs?: number; inferenceBody?: string; inferenceRequestBytes?: number; inferenceMessageLimit?: number; operationLimit?: number; loggingEnabled?: boolean;
-  capacityPolicy?: DispatcherCapacityPolicy;
+  capacityPolicy?: DispatcherCapacityPolicy; runtimeVersion?: '2.1.0' | '2.2.2';
   recovery?: boolean; intent4?: boolean; losePhaseAdmission?: number; facetContract?: boolean; receiptFixture?: boolean;
   inferenceAttemptLimit?: number; inferenceTransport?: (request: Request, attempt: number) => Promise<Response> } = {}) {
   callerSessionCurrent = true;
@@ -382,10 +382,12 @@ async function fixture(test: (f: {
   const fixtureInvocation = options.prospective ? { repository: configuredTarget.repository,
     ...(options.legacyProspective ? { pullRequest: 17 } : {}), ...options.inputExtra }
     : options.repositoryOnly ? { repository: 'another/service' } : invocation;
+  const fixtureBytes = options.runtimeVersion ? new TextEncoder().encode(JSON.stringify({ ...bundle,
+    versions: { ...bundle.versions, runtime: options.runtimeVersion, vitePlugin: options.runtimeVersion } })) : bytes;
   const namespace = (env as unknown as { OPERATOR_ACTIVITY: DurableObjectNamespace }).OPERATOR_ACTIVITY;
   await runInDurableObject(namespace.getByName(`dispatcher-${crypto.randomUUID()}`), async (_instance, native) => {
     const activityId = `activity-${crypto.randomUUID()}`;
-    const artifactDigest = await digest(bytes);
+    const artifactDigest = await digest(fixtureBytes);
     const now = Date.now();
     const expiresAt = Math.floor(now / 1000) + (options.humanLifetimeSeconds ?? 300);
     const human = { subject: 'owner', email: 'owner@example.test', issuer: 'https://access.example.test',
@@ -487,6 +489,8 @@ async function fixture(test: (f: {
       _cf_initAsFacet: async () => {},
       _cf_checkRunFibersForFacet: async () => 0,
       _cf_dispatchScheduledCallback: async () => true,
+      sql: async (strings: readonly string[], ...values: (string | number | null)[]) =>
+        native.storage.sql.exec(strings.join('?'), ...values).toArray(),
       fetch: async (request: Request) => {
         if (new URL(request.url).pathname.endsWith('/abort')) {
           aborted = (await activity.getBrowserDetail())?.executionStatus;
@@ -557,6 +561,7 @@ async function fixture(test: (f: {
             _cf_initAsFacet: () => callable(() => child._cf_initAsFacet()),
             _cf_checkRunFibersForFacet: () => callable(() => child._cf_checkRunFibersForFacet()),
             _cf_dispatchScheduledCallback: () => callable(() => child._cf_dispatchScheduledCallback()),
+            sql: (strings, ...values) => callable(() => child.sql(strings, ...values)),
             fetch: request => callable(() => child.fetch(request)),
           };
           ownedChildReadbacks.push(() => runtime.stub.fetch(new Request(
@@ -694,7 +699,7 @@ async function fixture(test: (f: {
     const registry = { getManagementBundle: async () => {
       const action = afterBundleRead; afterBundleRead = undefined;
       await action?.();
-      return bytes;
+      return fixtureBytes;
     },
       resolveManagementExecution: async () => {
         const action = afterRegistryResolve; afterRegistryResolve = undefined;
@@ -4113,6 +4118,57 @@ describe('REQ-OPERATOR-048: original-lease serial SDK phase ownership', () => {
     expect(stamp).toMatchObject({ generation: 1, phase: { kind: 'discovery' }, submissionId: 'submission-1',
       releaseDigest: f.artifactDigest, authorityDigest: await digest(JSON.stringify(plan.receipt)),
       deadline: new Date(plan.deadline).toISOString(), deliveryToken: delivered.attributes.deliveryToken });
+    const privateMetadata = 'PRIVATE_SDK_DIAGNOSTIC_VALUE';
+    const attemptId = `${privateMetadata}-attempt`;
+    const timestamp = new Date().toISOString();
+    // SDK-shaped fixture storage exercises the fixed SQLite read, not hosted SDK RPC or cold-child qualification.
+    await f.mutateEvidence(async storage => {
+      storage.sql.exec(`CREATE TABLE flue_agent_submissions (submission_id TEXT PRIMARY KEY, session_key TEXT,
+        status TEXT, sequence INTEGER, attempt_count INTEGER, max_attempts INTEGER, accepted_at INTEGER,
+        canonical_ready_at INTEGER, input_applied_at INTEGER, abort_requested_at INTEGER, started_at INTEGER,
+        settled_at INTEGER, timeout_at INTEGER, lease_expires_at INTEGER, attempt_id TEXT, owner_id TEXT,
+        joined_into TEXT, error TEXT, settlement_record_id TEXT, settlement_record TEXT)`);
+      storage.sql.exec(`CREATE TABLE flue_conversation_streams (path TEXT PRIMARY KEY, identity_json TEXT,
+        incarnation TEXT, next_offset INTEGER, producer_epoch INTEGER, next_producer_sequence INTEGER, producer_id TEXT)`);
+      storage.sql.exec(`CREATE TABLE flue_conversation_stream_batches (path TEXT, seq INTEGER, data TEXT,
+        submission_id TEXT, attempt_id TEXT, PRIMARY KEY (path, seq))`);
+      const acceptedAt = Date.now();
+      storage.sql.exec(`INSERT INTO flue_agent_submissions (submission_id, session_key, status, sequence,
+        attempt_count, max_attempts, accepted_at, canonical_ready_at, input_applied_at, started_at,
+        lease_expires_at, attempt_id, owner_id) VALUES (?, ?, 'running', 1, 1, 1024, ?, ?, ?, ?, ?, ?, ?)`,
+      stamp.submissionId, 'agent-session:["Dispatcher","dispatcher"]', acceptedAt, acceptedAt, acceptedAt,
+      acceptedAt, plan.deadline, attemptId, privateMetadata);
+      storage.sql.exec(`INSERT INTO flue_conversation_streams VALUES
+        ('fixture-stream', ?, 'fixture-stream-incarnation', 1, 1, 1, ?)`,
+      JSON.stringify({ agentName: 'Dispatcher', instanceId: 'dispatcher' }), privateMetadata);
+      storage.sql.exec(`INSERT INTO flue_conversation_stream_batches VALUES ('fixture-stream', 0, ?, ?, ?)`,
+      JSON.stringify([
+        { type: 'conversation_created', kind: 'root', uid: 'fixture-incarnation' },
+        { type: 'assistant_tool_call', timestamp, id: `${privateMetadata}-call-record`,
+          submissionId: stamp.submissionId, attemptId, toolCallId: `${privateMetadata}-call`,
+          toolName: `${privateMetadata}-tool`, arguments: { content: privateMetadata } },
+        { type: 'tool_outcome', timestamp, id: `${privateMetadata}-outcome-record`,
+          submissionId: stamp.submissionId, attemptId, toolCallId: `${privateMetadata}-call`,
+          toolName: `${privateMetadata}-tool`, data: { content: privateMetadata }, isError: false },
+      ]), stamp.submissionId, attemptId);
+    });
+    const boundDiagnostic = await cold.activity.getDispatcherDiagnostics(f.proof.ownerKey);
+    expect(boundDiagnostic).toMatchObject({ consistency: 'stable-binding',
+      parent: { resultPresent: false, checkpointPresent: false,
+        lease: { generation: 1, status: 'running', receiptPresent: true, submissionDigest: await digest(stamp.submissionId) } },
+      sdk: { status: 'available', submission: { status: 'running', attemptCount: 1, maxAttempts: 1024,
+        attemptDigest: await digest(attemptId), ownerPresent: true, errorPresent: false, settlementRecordPresent: false },
+      stream: { nextOffset: 1, producerPresent: true }, canonical: { scope: 'latest-instance-batches',
+        contentRecordsExcluded: true, inlineMetadataComplete: true,
+        batches: [{ sequence: 0, submissionDigest: await digest(stamp.submissionId), attemptDigest: await digest(attemptId) }],
+        records: [
+          { type: 'assistant_tool_call', scope: 'requested', toolCallDigest: await digest(`${privateMetadata}-call`),
+            nameDigest: await digest(`${privateMetadata}-tool`) },
+          { type: 'tool_outcome', scope: 'requested', dataPresent: true, error: false,
+            toolCallDigest: await digest(`${privateMetadata}-call`), nameDigest: await digest(`${privateMetadata}-tool`) },
+        ] } } });
+    expect(JSON.stringify(boundDiagnostic)).not.toContain(privateMetadata);
+    expect(JSON.stringify(boundDiagnostic)).not.toContain('fixture-incarnation');
     expect(stamp.previous).toBeUndefined();
     expect(await context(cold)).toEqual(stamp);
     expect(await latestDelivery(cold)).toEqual(delivered);
@@ -4121,7 +4177,7 @@ describe('REQ-OPERATOR-048: original-lease serial SDK phase ownership', () => {
     expect(await cold.activity.beginDrive()).toEqual({ ok: false, reason: 'drive-active' });
     await finish(cold);
     expect(await f.readRemoteComments()).toEqual([]);
-  }, { repositoryOnly: true, intent4: true, loggingEnabled: false }));
+  }, { repositoryOnly: true, intent4: true, loggingEnabled: false, runtimeVersion: '2.2.2' }));
 
   it.each(['pending', 'unavailable'] as const)(
     'REQ-OPERATOR-048: AC3 cold recovered %s observations retain one bounded wake and consume only exact settlement without renewing expiry', mode => fixture(async f => {
