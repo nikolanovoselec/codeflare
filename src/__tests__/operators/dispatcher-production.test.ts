@@ -382,8 +382,8 @@ async function fixture(test: (f: {
   const fixtureInvocation = options.prospective ? { repository: configuredTarget.repository,
     ...(options.legacyProspective ? { pullRequest: 17 } : {}), ...options.inputExtra }
     : options.repositoryOnly ? { repository: 'another/service' } : invocation;
-  const fixtureBundle = options.runtimeVersion ? { ...bundle,
-    versions: { ...bundle.versions, runtime: options.runtimeVersion, vitePlugin: options.runtimeVersion } } : bundle;
+  const fixtureBundle: DispatcherBundle = options.runtimeVersion === '2.2.2' ? { ...bundle,
+    versions: { ...bundle.versions, runtime: '2.2.2', vitePlugin: '2.2.2' } } : bundle;
   const fixtureBytes = options.runtimeVersion ? new TextEncoder().encode(JSON.stringify(fixtureBundle)) : bytes;
   const namespace = (env as unknown as { OPERATOR_ACTIVITY: DurableObjectNamespace }).OPERATOR_ACTIVITY;
   await runInDurableObject(namespace.getByName(`dispatcher-${crypto.randomUUID()}`), async (_instance, native) => {
