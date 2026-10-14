@@ -2,6 +2,10 @@
 
 Semantic changes to the specification. Git history captures diffs; this file captures intent.
 
+## 2026-10-14
+
+- Extend owned Dispatcher lifecycle readback with bounded stored operation/request/response and hashed phase/submission/delivery correlations, plus distinct current host-attempt metadata ([REQ-OPERATOR-080](operators.md#req-operator-080-owned-dispatcher-lifecycle-readback)). Select eight highest logical ordinals within a1,024-entry scan; charged retries do not determine enumeration completeness. Preserve ownership, original bindings, privacy, the shared response-wait deadline and passive read behavior. Missing or omitted metadata does not establish child receipt, SDK persistence, completion or replay authority.
+
 ## 2026-10-13
 
 - Add reusable authenticated Dispatcher Activity lifecycle readback ([REQ-OPERATOR-080](operators.md#req-operator-080-owned-dispatcher-lifecycle-readback)). Preserve account ownership, original facet/artifact/generation, private-content exclusion and result collection. Diagnostics-only cold wakes do not enter recovery; ordinary owner/execution entries and alarms retain original keyed recovery and deadline fences. Bounded metadata, unavailable storage and incomplete/changed bindings never grant execution or replay authority.

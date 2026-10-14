@@ -23,10 +23,37 @@ export interface DispatcherActivityDiagnostics {
       previousPhases: number; targetCount: number | null; resultCount: number | null;
     };
     journal: null | { generation: number; count: number; unresolved: number; nextOrdinal: number };
+    operations: DispatcherOperationDiagnostics;
     reconciliationInFlight: boolean;
     facetCachePresent: boolean;
   };
   sdk: DispatcherSdkDiagnostics;
+}
+/** A bounded logical-operation tail, not an inference-attempt or response-body history. */
+export interface DispatcherOperationDiagnostics {
+  status: 'available' | 'unavailable';
+  reason?: 'not-dispatcher' | 'no-journal' | 'binding-mismatch' | 'read-failed' | 'read-timeout' | 'changed-binding';
+  generation: number | null;
+  selection: 'highest-logical-ordinals';
+  scan: 'complete' | 'bounded' | 'unavailable';
+  inspectedEntries: number;
+  omittedEntries: boolean;
+  records: Array<{
+    operationDigest: string; ordinal: number | null; status: 'reserved' | 'completed' | 'unknown';
+    requestDigest: string | null; responseDigest: string | null;
+    binding: null | {
+      scope: 'requested' | 'other'; submissionDigest: string; deliveryDigest: string;
+      phase: 'discovery' | 'target' | 'final'; phaseIndex: number | null;
+      resource: 'inference' | 'source' | 'comment' | 'merge' | 'pull-request' | 'files' | 'checks'
+        | 'release-notes' | 'upstream-guide' | 'changed-compose' | 'open-pull-requests' | 'unknown';
+    };
+    /** Current retained host attempt only. This index/ordinal is never an SDK attempt identity. */
+    hostInference: null | {
+      index: number; ordinal: number; status: 'ready' | 'in-flight' | 'completed' | 'unknown';
+      classification: 'usable' | 'final-error' | 'retryable' | 'permanent' | 'transport' | 'unknown';
+      responseDigest: string | null;
+    };
+  }>;
 }
 export interface DispatcherSdkDiagnostics {
   status: 'available' | 'unavailable';
@@ -142,6 +169,9 @@ function known<T extends readonly string[]>(value: unknown, values: T): T[number
 }
 export const sdkUnavailable = (reason: NonNullable<DispatcherSdkDiagnostics['reason']>): DispatcherSdkDiagnostics =>
   ({ status: 'unavailable', reason });
+export const operationsUnavailable = (reason: NonNullable<DispatcherOperationDiagnostics['reason']>,
+  generation: number | null = null): DispatcherOperationDiagnostics => ({ status: 'unavailable', reason, generation,
+  selection: 'highest-logical-ordinals', scan: 'unavailable', inspectedEntries: 0, omittedEntries: true, records: [] });
 
 /** No initialization, fetch, fiber inspection, or recovery method is called here. */
 export async function readDispatcherSdkDiagnostics(facet: DispatcherSqlFacet, submissionId: string, instanceUid: string,

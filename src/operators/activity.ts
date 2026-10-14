@@ -23,8 +23,8 @@ import { authorizeDispatcherPlan, createDispatcherOperation, parseDispatcherOper
   type DispatcherInferenceCountObservation } from './operator-runtime-capability';
 import { z } from 'zod';
 import { readDispatcherUpdates, type DispatcherResultProjection } from './dispatcher-result';
-import { readDispatcherSdkDiagnostics, sdkUnavailable, type DispatcherActivityDiagnostics,
-  type DispatcherSqlFacet } from './dispatcher-runtime-diagnostics';
+import { readDispatcherSdkDiagnostics, sdkUnavailable, operationsUnavailable, type DispatcherActivityDiagnostics,
+  type DispatcherOperationDiagnostics, type DispatcherSqlFacet } from './dispatcher-runtime-diagnostics';
 import { createDispatcherPhaseState, dispatcherPhaseWire, bindDispatcherPhaseReceipt, dispatcherPhaseContext,
   advanceDispatcherPhase, collectDispatcherFinal, sameDispatcherPhaseValue, DISPATCHER_JOURNEY_RESULT_BYTES,
   type DispatcherPhaseState, type DispatcherPhaseAuthority, type DispatcherPhaseReply } from './dispatcher-phases';
@@ -2962,12 +2962,84 @@ export class OperatorActivity extends Agent {
       journal: values.get(DISPATCHER_JOURNAL) as DispatcherJournal | undefined };
   }
 
+  /** Fixed metadata enumeration only; never open response caches or migrate the legacy journal. */
+  async #dispatcherOperationDiagnostics(admission: AdmissionState, lease: DispatcherLease | undefined,
+    journal: DispatcherJournal | undefined, inspectionDeadline: number): Promise<DispatcherOperationDiagnostics> {
+    const unavailable = (reason: NonNullable<DispatcherOperationDiagnostics['reason']>) =>
+      operationsUnavailable(reason, journal?.generation ?? null);
+    if (!admission.receipt || !isManagementReceipt(admission.receipt)
+      || admission.receipt.selection.operator.profile !== 'dispatcher') return unavailable('not-dispatcher');
+    if (!journal) return unavailable('no-journal');
+    if (!lease || journal.generation !== lease.generation
+      || admission.receipt.intentDigest !== lease.inputDigest
+      || admission.receipt.selection.release.bundleDigest !== lease.artifactDigest
+      || admission.executionContext?.artifactDigest !== lease.artifactDigest
+      || !admission.drive || admission.drive.generation !== lease.generation
+        && !(admission.drive.generation === lease.generation + 1 && lease.status === 'unknown'
+          && ['unknown', 'cancel-requested'].includes(admission.drive.status))) return unavailable('binding-mismatch');
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      return await Promise.race([(async (): Promise<DispatcherOperationDiagnostics> => {
+        const prefix = `dispatcher:operation:${journal.generation}:`;
+        const latest: Array<{ key: string; record: DispatcherOperationRecord }> = [];
+        let after: string | undefined;
+        let inspectedEntries = 0;
+        let complete = false;
+        for (let page = 0; page < 32; page++) {
+          if (Date.now() >= inspectionDeadline) return unavailable('read-timeout');
+          const entries = await this.ctx.storage.list<DispatcherOperationRecord>({ prefix, limit: 32,
+            ...(after ? { startAfter: after } : {}) });
+          for (const [key, record] of entries) {
+            if (record.generation !== journal.generation) return unavailable('binding-mismatch');
+            inspectedEntries++;
+            latest.push({ key, record });
+            latest.sort((a, b) => (b.record.ordinal ?? -1) - (a.record.ordinal ?? -1));
+            if (latest.length > 8) latest.pop();
+            after = key;
+          }
+          if (entries.size < 32) { complete = true; break; }
+        }
+        const records: DispatcherOperationDiagnostics['records'] = [];
+        const digest = (value: string | undefined) => syncDigest.safeParse(value).success ? value! : null;
+        for (const { key, record } of latest) {
+          if (Date.now() >= inspectionDeadline) return unavailable('read-timeout');
+          const operationId = key.slice(prefix.length);
+          const current = record.inference?.version === 1
+            ? await this.ctx.storage.get<DispatcherInferenceAttempt>(inferenceAttemptKey(journal.generation,
+              operationId, record.inference.attempt)) : undefined;
+          const attempt = current?.index === record.inference?.attempt ? current : undefined;
+          const phaseBinding = record.phaseBinding;
+          records.push({ operationDigest: await sha256(operationId), ordinal: record.ordinal ?? null,
+            status: record.phase, requestDigest: digest(record.requestDigest), responseDigest: digest(record.responseDigest),
+            binding: phaseBinding ? {
+              scope: phaseBinding.submissionId === lease.submissionId ? 'requested' : 'other',
+              submissionDigest: await sha256(phaseBinding.submissionId), deliveryDigest: await sha256(phaseBinding.deliveryToken),
+              phase: phaseBinding.phase.kind, phaseIndex: phaseBinding.phase.kind === 'target' ? phaseBinding.phase.index : null,
+              resource: (['inference', 'source', 'comment', 'merge', 'pull-request', 'files', 'checks',
+                'release-notes', 'upstream-guide', 'changed-compose', 'open-pull-requests'] as const)
+                .find(resource => resource === phaseBinding.resource) ?? 'unknown',
+            } : null,
+            hostInference: attempt ? { index: attempt.index, ordinal: attempt.ordinal, status: attempt.phase,
+              classification: attempt.classification ?? 'unknown', responseDigest: digest(attempt.responseDigest) } : null });
+        }
+        // Charged retries increase journal.count without creating logical operation entries.
+        return { status: 'available', generation: journal.generation, selection: 'highest-logical-ordinals',
+          scan: complete ? 'complete' : 'bounded', inspectedEntries,
+          omittedEntries: !complete || inspectedEntries > records.length, records };
+      })(), new Promise<DispatcherOperationDiagnostics>(resolve => {
+        timer = setTimeout(() => resolve(unavailable('read-timeout')), Math.max(0, inspectionDeadline - Date.now()));
+      })]);
+    } catch { return unavailable('read-failed'); }
+    finally { clearTimeout(timer); }
+  }
+
   /** Protected storage snapshot; deliberately not an ordinary execution entrypoint. */
   async getDispatcherDiagnostics(ownerKey: string): Promise<DispatcherActivityDiagnostics | null> {
     if (!syncDigest.safeParse(ownerKey).success) return null;
     const before = await this.#dispatcherDiagnosticState();
     const { admission, lease, journal } = before;
     if (!admission || admission.ownerKey !== ownerKey) return null;
+    const inspectionDeadline = Date.now() + 10_000;
     const binding = (state: typeof before) => JSON.stringify([state.admission?.ownerKey,
       state.admission?.intent, state.admission?.phase, state.admission?.receipt?.intentDigest,
       state.admission?.executionContext?.artifactDigest, state.admission?.drive?.generation,
@@ -2991,10 +3063,12 @@ export class OperatorActivity extends Agent {
         resultCount: lease.serial?.results.length ?? null } : null,
       journal: journal ? { generation: journal.generation, count: journal.count,
         unresolved: journal.unresolved, nextOrdinal: journal.nextOrdinal } : null,
+      operations: operationsUnavailable('no-journal', journal?.generation ?? null),
       reconciliationInFlight: this.#reconciling !== undefined,
       facetCachePresent: this.#dispatcher !== undefined,
     };
     const capturedAt = new Date().toISOString();
+    parent.operations = await this.#dispatcherOperationDiagnostics(admission, lease, journal, inspectionDeadline);
     let sdk = sdkUnavailable('unbound');
     if (!admission.receipt || !isManagementReceipt(admission.receipt)
       || admission.receipt.selection.operator.profile !== 'dispatcher') sdk = sdkUnavailable('not-dispatcher');
@@ -3006,9 +3080,9 @@ export class OperatorActivity extends Agent {
       && admission.receipt.selection.release.bundleDigest === lease.artifactDigest
       && lease.serial.current.receipt.submissionId === lease.submissionId) {
       let timer: ReturnType<typeof setTimeout> | undefined;
-      const inspectionDeadline = Date.now() + 10_000;
       try {
         sdk = await Promise.race([(async () => {
+          if (Date.now() >= inspectionDeadline) return sdkUnavailable('read-timeout');
           const activities = this.#appEnv.OPERATOR_ACTIVITY;
           if (!activities || !this.#appEnv.LOADER) return sdkUnavailable('runtime-unavailable');
           const bytes = await this.#appEnv.OPERATOR_REGISTRY.getByName('registry').getManagementBundle(lease.artifactDigest);
@@ -3030,7 +3104,7 @@ export class OperatorActivity extends Agent {
           // Do not use #dispatcherFacet, fetch, _cf_initAsFacet or fixtureSnapshot here.
           return readDispatcherSdkDiagnostics(child, lease.submissionId!, lease.serial!.current.receipt!.uid, sha256);
         })(), new Promise<ReturnType<typeof sdkUnavailable>>(resolve => {
-          timer = setTimeout(() => resolve(sdkUnavailable('read-timeout')), 10_000);
+          timer = setTimeout(() => resolve(sdkUnavailable('read-timeout')), Math.max(0, inspectionDeadline - Date.now()));
         })]);
       } catch { sdk = sdkUnavailable('read-failed'); }
       finally { clearTimeout(timer); }
@@ -3038,7 +3112,10 @@ export class OperatorActivity extends Agent {
     const after = await this.#dispatcherDiagnosticState();
     if (after.admission?.ownerKey !== ownerKey || after.admission.intent.activityId !== admission.intent.activityId) return null;
     const consistency = binding(after) === original ? 'stable-binding' : 'changed-binding';
-    if (consistency === 'changed-binding') sdk = sdkUnavailable('changed-binding');
+    if (consistency === 'changed-binding') {
+      sdk = sdkUnavailable('changed-binding');
+      parent.operations = operationsUnavailable('changed-binding', journal?.generation ?? null);
+    }
     const snapshot: DispatcherActivityDiagnostics = { version: 1, activityId: admission.intent.activityId,
       capturedAt, consistency, parent, sdk };
     if (new TextEncoder().encode(JSON.stringify(snapshot)).byteLength > 64 * 1024) snapshot.sdk = sdkUnavailable('response-limit');
