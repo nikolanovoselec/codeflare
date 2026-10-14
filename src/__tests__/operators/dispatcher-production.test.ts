@@ -955,6 +955,17 @@ describe('REQ-OPERATOR-047/048: future inference attempt accounting', () => {
     expect(response.status).toBe(200);
     expect(await response.text()).toBe(complete);
     expect(await budget(f)).toMatchObject({ operationCount: 5, operationLimit: 1024 });
+    // REQ-OPERATOR-080: logical operation identity is not the latest host-attempt ordinal.
+    const diagnostic = await f.activity.getDispatcherDiagnostics(f.proof.ownerKey);
+    expect(diagnostic).toMatchObject({ parent: { operations: { status: 'available', generation: 1,
+      selection: 'highest-logical-ordinals', scan: 'complete', inspectedEntries: 2, omittedEntries: false,
+      records: [
+        { operationDigest: await digest('logical-inference'), ordinal: 1, status: 'completed', binding: null,
+          responseDigest: await digest(complete), hostInference: { index: 4, ordinal: 4,
+            status: 'completed', classification: 'usable', responseDigest: await digest(complete) } },
+        { operationDigest: await digest('budget-anchor'), ordinal: 0, hostInference: null },
+      ] } } });
+    expect(JSON.stringify(diagnostic)).not.toMatch(/PRIVATE_INFERENCE_PROMPT|logical-inference|budget-anchor|api\.github\.com/);
     f.restart();
     expect(await (await f.capability.fetch(inference())).text()).toBe(complete);
     expect(await budget(f)).toMatchObject({ operationCount: 5 });
@@ -4560,6 +4571,17 @@ describe('REQ-OPERATOR-048: original-lease serial SDK phase ownership', () => {
     expect(await f.activity.getBrowserDetail()).toEqual(before);
     const read = await f.capability.fetch(wire('source', { operationId: 'current-read', url: 'https://api.github.com/repos/another/service' }, current.deliveryToken));
     expect(read.status).toBe(200);
+    const retained = await receipt(f, 'current-read', current.deliveryToken);
+    const diagnostic = await f.activity.getDispatcherDiagnostics(f.proof.ownerKey);
+    expect(diagnostic).toMatchObject({ parent: { operations: { status: 'available', scan: 'complete',
+      inspectedEntries: 1, records: [{ operationDigest: await digest('current-read'), ordinal: 0,
+        status: 'completed', requestDigest: retained.requestDigest, responseDigest: retained.responseDigest,
+        binding: { scope: 'requested', submissionDigest: await digest(current.submissionId),
+          deliveryDigest: await digest(current.deliveryToken), phase: 'target', phaseIndex: 0, resource: 'source' },
+        hostInference: null }] } } });
+    for (const secret of ['current-read', current.submissionId, current.deliveryToken, 'https://api.github.com'])
+      expect(JSON.stringify(diagnostic)).not.toContain(secret);
+    expect(await f.activity.getDispatcherDiagnostics('f'.repeat(64))).toBeNull();
     expect(await context(f)).toEqual(current);
   }, { repositoryOnly: true, intent4: true }));
 
@@ -4595,6 +4617,18 @@ describe('REQ-OPERATOR-048: original-lease serial SDK phase ownership', () => {
     expect(JSON.parse((await readback.json() as { body: string }).body)).toEqual([
       { id: 91, body: 'Original intended comment', user: { id: 42 } },
     ]);
+    // REQ-OPERATOR-080: the tail contains different phases; association is explicit, not inferred.
+    const diagnostic = await f.activity.getDispatcherDiagnostics(f.proof.ownerKey);
+    expect(diagnostic).toMatchObject({ parent: { operations: { scan: 'complete', inspectedEntries: 2,
+      records: [
+        { operationDigest: await digest('independent-readback'), ordinal: 1, status: 'completed',
+          binding: { scope: 'requested', phase: 'target', phaseIndex: 1,
+            submissionDigest: await digest(second.submissionId), deliveryDigest: await digest(second.deliveryToken) } },
+        { operationDigest: await digest(mutation.operationId), ordinal: 0, status: 'unknown',
+          binding: { scope: 'other', phase: 'target', phaseIndex: 0,
+            submissionDigest: await digest(first.submissionId), deliveryDigest: await digest(first.deliveryToken) } },
+      ] } } });
+    expect(JSON.stringify(diagnostic)).not.toMatch(/Original intended comment|uncertain-original-comment|independent-readback|api\.github\.com/);
     progress(f, second, { kind: 'final' }, { results: rows });
     await f.activity.reconcileDispatcherLease();
     const final = await context(f);
@@ -4870,6 +4904,14 @@ describe('REQ-OPERATOR-048: original-lease serial SDK phase ownership', () => {
       expect([...first.items, ...second.items].map(item => (item.observedResponse as { commentId: number }).commentId))
         .toEqual(remote.map(item => item.id));
       for (const page of [first, second]) expect(page).toMatchObject({ generation: 1, scan: 'complete', journalCount: 9 });
+      const diagnostic = await f.activity.getDispatcherDiagnostics(f.proof.ownerKey);
+      expect(diagnostic).toMatchObject({ sdk: { status: 'unavailable', reason: 'retired' }, parent: { operations: {
+        status: 'available', generation: 1, selection: 'highest-logical-ordinals', scan: 'complete',
+        inspectedEntries: 9, omittedEntries: true,
+        records: Array.from({ length: 8 }, (_, index) => ({ ordinal: 8 - index, status: 'completed' })),
+      } } });
+      expect(new TextEncoder().encode(JSON.stringify(diagnostic)).byteLength).toBeLessThanOrEqual(64 * 1024);
+      expect(JSON.stringify(diagnostic)).not.toMatch(/PRIVATE_OPERATION|PRIVATE_HTTP_BODY|private\.jwt|parent-only|api\.github\.com/);
     }, options));
 
     it.each(['', '-1', '-0', '1.5', '9007199254740992', 'bad', '%20', '999', '0&receiptAfter=1']) (
