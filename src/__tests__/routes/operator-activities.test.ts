@@ -49,6 +49,9 @@ function fixture() {
     cancelDrive: vi.fn(async () => ({ ok: true, state: { status: 'cancel-requested' } })),
     getBrowserDetail: vi.fn(async (): Promise<typeof summary & { checkpoint: unknown; result: unknown }> =>
       ({ ...summary, checkpoint: { step: 1 }, result: null })),
+    getDispatcherDiagnostics: vi.fn(async (ownerKey: string) => ownerKey === await operatorOwnerKey(claims)
+      ? { version: 1, activityId: summary.activityId, consistency: 'stable-binding',
+        parent: { executionStatus: 'running' }, sdk: { status: 'unavailable', reason: 'unbound' } } : null),
     getBrowserSummary: vi.fn(async (_ownerKey: string): Promise<(typeof summary & {
       operatorName?: string; context?: string }) | null> => null),
     collectBrowserResult: vi.fn(async () => ({ ok: true, detail: { ...summary, executionStatus: 'completed', result: { report: 'ready' } } })),
@@ -217,6 +220,12 @@ describe('REQ-OPERATOR-027: authenticated owned activity browser surfaces', () =
     const result = await request('/activity-1/result');
     expect(result.status).toBe(200);
     expect(await result.json()).toMatchObject({ activityId: 'activity-1', checkpoint: { step: 1 }, result: null });
+    const diagnostics = await request('/activity-1/diagnostics');
+    expect(diagnostics.status).toBe(200);
+    expect(diagnostics.headers.get('cache-control')).toBe('no-store');
+    expect(await diagnostics.json()).toMatchObject({ version: 1, activityId: 'activity-1',
+      consistency: 'stable-binding', sdk: { status: 'unavailable', reason: 'unbound' } });
+    expect((await request('/activity-1/diagnostics?sql=SELECT+1')).status).toBe(400);
 
     registry.getOwnedActivity.mockResolvedValueOnce(null);
     expect((await request('/another-owner/result')).status).toBe(404);
@@ -233,6 +242,7 @@ describe('REQ-OPERATOR-027: authenticated owned activity browser surfaces', () =
     registry.getOwnedActivity.mockResolvedValue(null);
     const denied = await request('/activity-1/result');
     expect(denied.status).toBe(404);
+    expect((await request('/activity-1/diagnostics')).status).toBe(404);
     expect(activity.getBrowserDetail).not.toHaveBeenCalled();
     expect(activity.collectBrowserResult).not.toHaveBeenCalled();
   });

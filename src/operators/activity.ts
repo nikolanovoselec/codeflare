@@ -23,6 +23,8 @@ import { authorizeDispatcherPlan, createDispatcherOperation, parseDispatcherOper
   type DispatcherInferenceCountObservation } from './operator-runtime-capability';
 import { z } from 'zod';
 import { readDispatcherUpdates, type DispatcherResultProjection } from './dispatcher-result';
+import { readDispatcherSdkDiagnostics, sdkUnavailable, type DispatcherActivityDiagnostics,
+  type DispatcherSqlFacet } from './dispatcher-runtime-diagnostics';
 import { createDispatcherPhaseState, dispatcherPhaseWire, bindDispatcherPhaseReceipt, dispatcherPhaseContext,
   advanceDispatcherPhase, collectDispatcherFinal, sameDispatcherPhaseValue, DISPATCHER_JOURNEY_RESULT_BYTES,
   type DispatcherPhaseState, type DispatcherPhaseAuthority, type DispatcherPhaseReply } from './dispatcher-phases';
@@ -442,25 +444,38 @@ export class OperatorActivity extends Agent {
   #inferenceOwner?: { generation: number; epoch: Promise<number> };
   #inferenceFlights = new Map<string, { digest: string; controller: AbortController; result: Promise<DispatcherInferenceResponse> }>();
   #phaseAdmissions = new Map<string, Promise<void>>();
+  #coldDispatcherLease?: DispatcherLease;
 
   constructor(ctx: DurableObjectState, env: AppEnv) {
     super(ctx, env as unknown as Env);
     this.#appEnv = env as AppEnv & { OPERATOR_REGISTRY: NonNullable<AppEnv['OPERATOR_REGISTRY']> };
+    // A diagnostics-only cold wake must not enter admission recovery or cleanup.
     ctx.blockConcurrencyWhile(async () => {
-      const lease = await ctx.storage.get<DispatcherLease>(DISPATCHER_LEASE);
-      if (lease?.status === 'admitting') {
-        // Keyed serial admission reattaches only its persisted delivery identity.
-        // Historical unkeyed uncertainty still fences instead of resubmitting.
-        ctx.waitUntil(lease.serial
-          ? this.reconcileDispatcherLease({ generation: lease.generation })
-          : this.interruptDrive(lease.generation));
-      } else if (lease && lease.status !== 'running' && !lease.sdkReleased) {
-        ctx.waitUntil(this.#releaseDispatcherSdk());
-      }
+      this.#coldDispatcherLease = await ctx.storage.get<DispatcherLease>(DISPATCHER_LEASE);
     });
   }
 
+  /** Original cold recovery, once on an ordinary entry; never awaited by a child callback. */
+  #resumeDispatcherOnEntry(reconciliationStarting = false, expectedGeneration?: number): void {
+    const lease = this.#coldDispatcherLease;
+    this.#coldDispatcherLease = undefined;
+    if (lease?.status === 'admitting') {
+      if (!lease.serial) this.ctx.waitUntil(this.interruptDrive(lease.generation));
+      else if (!reconciliationStarting || expectedGeneration !== undefined && expectedGeneration !== lease.generation) {
+        this.ctx.waitUntil(this.reconcileDispatcherLease({ generation: lease.generation }));
+      }
+    } else if (lease && lease.status !== 'running' && !lease.sdkReleased) {
+      this.ctx.waitUntil(this.#releaseDispatcherSdk());
+    }
+  }
+
+  override async onStart(): Promise<void> {
+    this.#resumeDispatcherOnEntry();
+    await super.onStart();
+  }
+
   override async alarm(): Promise<void> {
+    this.#resumeDispatcherOnEntry();
     await super.alarm();
     await this.reconcileDispatcherLease();
   }
@@ -469,6 +484,7 @@ export class OperatorActivity extends Agent {
   async prepareAuthorized(intent: OperatorActivityPreparation,
     executionContext: OperatorExecutionContext, invocationJson = 'null',
     boundary?: BoundaryActivityBinding): Promise<ActivityAdmissionResult> {
+    this.#resumeDispatcherOnEntry();
     if (boundary && !boundaryBindingSchema.safeParse(boundary).success) {
       return { ok: false, reason: 'admission-denied' };
     }
@@ -496,6 +512,7 @@ export class OperatorActivity extends Agent {
 
   /** Parent-only read for a stopping session; contains no human or start credentials. */
   async getBoundaryStartBinding(activityId: string): Promise<BoundaryActivityBinding | null> {
+    this.#resumeDispatcherOnEntry();
     const state = await this.ctx.storage.get<AdmissionState>('admission');
     return state?.intent.activityId === activityId && state.boundary
       ? structuredClone(state.boundary) : null;
@@ -504,6 +521,7 @@ export class OperatorActivity extends Agent {
   /** Parent-only non-driving terminal metadata; no result bytes, JWT or capability leaves this read. */
   async getBoundaryPublicationState(activityId: string): Promise<{ binding: BoundaryActivityBinding;
     generation: number; status: 'completed' | 'failed'; collected: boolean } | null> {
+    this.#resumeDispatcherOnEntry();
     const state = await this.ctx.storage.get<AdmissionState>('admission');
     if (state?.intent.activityId !== activityId || !state.boundary || !state.drive
       || state.drive.generation < 1 || state.phase !== 'queued'
@@ -520,6 +538,7 @@ export class OperatorActivity extends Agent {
     resultDigest: string; packets: Array<{ lane: string; name: string; mediaType: string;
       size: number; sha256: string; locator: string }>;
   } | null> {
+    this.#resumeDispatcherOnEntry();
     const state = await this.ctx.storage.get<AdmissionState>('admission');
     if (!state?.boundary || state.intent.activityId !== activityId || state.phase !== 'queued'
       || !state.webhook?.consumed || !state.drive || !['completed', 'failed'].includes(state.drive.status)
@@ -547,6 +566,7 @@ export class OperatorActivity extends Agent {
 
   /** Stop's exact binding wins durably over prepared, admitting and queued starts. */
   async cancelBoundaryStart(binding: BoundaryActivityBinding): Promise<{ ok: boolean }> {
+    this.#resumeDispatcherOnEntry();
     if (!boundaryBindingSchema.safeParse(binding).success) return { ok: false };
     const result = await this.ctx.storage.transaction(async tx => {
       const state = await tx.get<AdmissionState>('admission');
@@ -605,6 +625,7 @@ export class OperatorActivity extends Agent {
 
   /** Replace protected authority only through same-owner reauthentication. */
   async reauthenticate(human: VerifiedHumanAccessClaims, accessJwt: string): Promise<OperatorExecutionProjection> {
+    this.#resumeDispatcherOnEntry();
     const record = await this.ctx.storage.get<AdmissionState>('admission');
     if (!record?.executionContext) throw new AppError('NOT_FOUND', 404, 'Operator execution context not found');
     const previous = record.executionContext;
@@ -625,6 +646,7 @@ export class OperatorActivity extends Agent {
 
   /** Authorize the pre-index start gap from the durable owner binding, without exposing prepared state. */
   async ownsPrepared(ownerKey: string): Promise<boolean> {
+    this.#resumeDispatcherOnEntry();
     if (!syncDigest.safeParse(ownerKey).success) return false;
     const state = await this.ctx.storage.get<AdmissionState>('admission');
     return state?.ownerKey === ownerKey && (state.phase === 'prepared' || state.phase === 'admitting');
@@ -632,18 +654,21 @@ export class OperatorActivity extends Agent {
 
   /** Parent-safe discriminator used to require live installation authorization at start. */
   async getPreparedInstallationId(): Promise<string | null> {
+    this.#resumeDispatcherOnEntry();
     const intent = (await this.ctx.storage.get<AdmissionState>('admission'))?.intent;
     return intent && 'installationId' in intent ? intent.installationId : null;
   }
 
   /** Parent-safe activity identity read; no credential ciphertext or token. */
   async getExecutionContext(): Promise<OperatorExecutionProjection | null> {
+    this.#resumeDispatcherOnEntry();
     const context = (await this.ctx.storage.get<AdmissionState>('admission'))?.executionContext;
     return context ? projectOperatorExecution(context) : null;
   }
 
   /** Bind the existing Registry reservation before any prospective preparation. */
   async bindProspectiveRenovateAdmission(activityId: string): Promise<boolean> {
+    this.#resumeDispatcherOnEntry();
     if (!/^[A-Za-z0-9_-]{1,128}$/.test(activityId) || !this.#appEnv.OPERATOR_ACTIVITY
       || this.#appEnv.OPERATOR_ACTIVITY.idFromName(activityId).toString() !== this.ctx.id.toString()) return false;
     const proof = await this.#appEnv.OPERATOR_REGISTRY.getByName('registry')
@@ -661,6 +686,7 @@ export class OperatorActivity extends Agent {
 
   /** Parent-only runtime input; never returned by browser, webhook, or child capabilities. */
   async getRuntimePlan(): Promise<OperatorRuntimePlan | null> {
+    this.#resumeDispatcherOnEntry();
     const state = await this.ctx.storage.get<AdmissionState>('admission');
     if (!state?.executionContext || !state.receipt || state.phase !== 'queued'
       || !await this.boundaryCurrent(state)) return null;
@@ -673,6 +699,7 @@ export class OperatorActivity extends Agent {
 
   /** Persist only the projection derived from the exact admitted bundle digest. */
   async savePackageResources(input: unknown): Promise<void> {
+    this.#resumeDispatcherOnEntry();
     const projection = parseOperatorPackageResourceProjection(input);
     const plan = await this.getRuntimePlan();
     if (!plan) throw new Error('Package resource digest mismatch');
@@ -683,6 +710,7 @@ export class OperatorActivity extends Agent {
   }
 
   async getPackageResources(): Promise<OperatorPackageResourceProjection | null> {
+    this.#resumeDispatcherOnEntry();
     const value = await this.ctx.storage.get<unknown>('packageResources');
     return value == null ? null : structuredClone(parseOperatorPackageResourceProjection(value));
   }
@@ -704,6 +732,7 @@ export class OperatorActivity extends Agent {
   /** Parent-only accepted packet identity; no candidate bytes are stored in Activity state. */
   async saveApprovedPacketAttachment(input: unknown): Promise<{ ok: true; preparationId: string;
     attachment: ApprovedPacketRecord['attachment'] } | { ok: false }> {
+    this.#resumeDispatcherOnEntry();
     const parsed = approvedPacketSchema.safeParse(input);
     if (!parsed.success || parsed.data.bytes.byteLength !== parsed.data.size) return { ok: false };
     const actual = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', Uint8Array.from(parsed.data.bytes))))
@@ -749,6 +778,7 @@ export class OperatorActivity extends Agent {
   /** The container receives only descriptors accepted for this still-current boundary. */
   async readApprovedPacketAttachments(): Promise<{ schemaVersion: 1; activityId: string;
     files: ApprovedPacketRecord['attachment'][] }> {
+    this.#resumeDispatcherOnEntry();
     const state = await this.ctx.storage.get<AdmissionState>('admission');
     if (!state) return { schemaVersion: 1, activityId: '', files: [] };
     if (!state.boundary || !await this.boundaryCurrent(state) || !await this.approvedPacketClaimsCurrent(state)) {
@@ -760,6 +790,7 @@ export class OperatorActivity extends Agent {
 
   /** Activity-owned session state; immutable identity and profile, monotonic finite transitions. */
   async saveOwnedSession(input: unknown): Promise<{ ok: true } | { ok: false; reason: 'invalid' | 'conflict' }> {
+    this.#resumeDispatcherOnEntry();
     const value = input as Partial<OwnedOperatorSessionState>;
     const statuses = ['reserved', 'configuring', 'configured', 'starting', 'ready', 'stopping', 'stopped', 'unknown'];
     let profile;
@@ -843,11 +874,13 @@ export class OperatorActivity extends Agent {
   }
 
   async getOwnedSession(): Promise<OwnedOperatorSessionState | null> {
+    this.#resumeDispatcherOnEntry();
     const state = await this.ctx.storage.get<OwnedOperatorSessionState>('ownedSession');
     return state ? structuredClone(state) : null;
   }
 
   async prepare(intent: OperatorActivityPreparation): Promise<ActivityAdmissionResult> {
+    this.#resumeDispatcherOnEntry();
     return this.ctx.storage.transaction<ActivityAdmissionResult>(async tx => {
       if (await tx.get('admission')) return { ok: false, reason: 'already-prepared' };
       await tx.put<AdmissionState>('admission', { intent, phase: 'prepared', receipt: null });
@@ -857,11 +890,13 @@ export class OperatorActivity extends Agent {
 
   /** Validate before registry I/O; consume and queue together only after receipt. */
   async start(capability: string): Promise<ActivityAdmissionResult> {
+    this.#resumeDispatcherOnEntry();
     return this.consumeStart(capability, false);
   }
 
   /** External start winner receives a distinct read capability exactly once. */
   async startWebhook(capability: string): Promise<WebhookStartResult> {
+    this.#resumeDispatcherOnEntry();
     return this.consumeStart(capability, true) as Promise<WebhookStartResult>;
   }
 
@@ -947,6 +982,7 @@ export class OperatorActivity extends Agent {
 
   /** Non-consuming status validates the read capability even after execution authority expiry. */
   async getWebhookStatus(capability: string): Promise<WebhookReadResult> {
+    this.#resumeDispatcherOnEntry();
     const checked = await this.readWebhook(capability);
     if (!checked.ok) return checked;
     return { ok: true, terminal: checked.terminal, status: checked.status, generation: checked.generation,
@@ -955,6 +991,7 @@ export class OperatorActivity extends Agent {
 
   /** Claim one observed waiting generation; a read or delayed callback never drives a later one. */
   async continueWebhook(capability: string, expectedGeneration: number): Promise<WebhookContinueResult> {
+    this.#resumeDispatcherOnEntry();
     if (!/^[A-Za-z0-9_-]{43}$/.test(capability)) return { ok: false, reason: 'invalid-capability' };
     if (!Number.isSafeInteger(expectedGeneration) || expectedGeneration < 1) {
       return { ok: false, reason: 'stale-generation' };
@@ -975,6 +1012,7 @@ export class OperatorActivity extends Agent {
 
   /** A not-ready read is non-consuming; one terminal transaction wins before delivery. */
   async redeemWebhookResult(capability: string): Promise<WebhookReadResult> {
+    this.#resumeDispatcherOnEntry();
     if (!/^[A-Za-z0-9_-]{43}$/.test(capability)) return { ok: false, reason: 'invalid-capability' };
     const verifier = await capabilityVerifier(capability);
     return this.ctx.storage.transaction<WebhookReadResult>(async tx => {
@@ -1020,6 +1058,7 @@ export class OperatorActivity extends Agent {
 
   /** Persist a stable parent-authorized upload scope before host-side effects. */
   async prepareSync(input: unknown): Promise<OperatorSyncResult> {
+    this.#resumeDispatcherOnEntry();
     const parsed = syncPreparationSchema.safeParse(input);
     if (!parsed.success || !canonicalSyncPrefix(parsed.data.prefix, parsed.data.operationId)
       || new Set(parsed.data.keys).size !== parsed.data.keys.length
@@ -1051,6 +1090,7 @@ export class OperatorActivity extends Agent {
 
   /** The R2 interceptor calls this before each write; uploaded/verified is sealed. */
   async authorizeSyncWrite(operationId: string, key: string): Promise<{ ok: true } | { ok: false; reason: 'not-prepared' | 'sealed' | 'authority-expired' | 'invalid-scope' }> {
+    this.#resumeDispatcherOnEntry();
     const record = await this.ctx.storage.get<AdmissionState>('admission');
     const operation = record?.syncOperations?.[operationId];
     if (!operation) return { ok: false, reason: 'not-prepared' };
@@ -1064,6 +1104,7 @@ export class OperatorActivity extends Agent {
 
   /** Read only independently verified objects declared by this activity. */
   async authorizeSyncRead(key: string, maxBytes: number): Promise<{ ok: true } | { ok: false }> {
+    this.#resumeDispatcherOnEntry();
     if (!canonicalSyncKey(key) || !Number.isSafeInteger(maxBytes) || maxBytes < 1 || maxBytes > 8 * 1024 * 1024) {
       return { ok: false };
     }
@@ -1077,6 +1118,7 @@ export class OperatorActivity extends Agent {
 
   /** Recording uploaded bytes seals the namespace before independent reads. */
   async recordSyncUploaded(operationId: string, manifestDigest: string): Promise<OperatorSyncResult> {
+    this.#resumeDispatcherOnEntry();
     if (!syncIdentity.safeParse(operationId).success || !syncDigest.safeParse(manifestDigest).success) {
       return { ok: false, reason: 'invalid-scope' };
     }
@@ -1099,6 +1141,7 @@ export class OperatorActivity extends Agent {
   /** Commit only evidence matching the already sealed manifest identity. */
   async recordSyncVerified(operationId: string,
     evidence: { manifestDigest: string; filesVerified: number; bytesVerified: number }): Promise<OperatorSyncResult> {
+    this.#resumeDispatcherOnEntry();
     if (!syncIdentity.safeParse(operationId).success || !syncDigest.safeParse(evidence?.manifestDigest).success
       || !Number.isSafeInteger(evidence?.filesVerified) || evidence.filesVerified < 0 || evidence.filesVerified > 128
       || !Number.isSafeInteger(evidence?.bytesVerified) || evidence.bytesVerified < 0
@@ -1120,6 +1163,7 @@ export class OperatorActivity extends Agent {
 
   /** Parent-safe durable receipt projection; contains no authority or bucket credentials. */
   async getSync(operationId: string): Promise<OperatorSyncState | null> {
+    this.#resumeDispatcherOnEntry();
     if (!syncIdentity.safeParse(operationId).success) return null;
     const operation = (await this.ctx.storage.get<AdmissionState>('admission'))?.syncOperations?.[operationId];
     return operation ? structuredClone(operation) : null;
@@ -1127,6 +1171,7 @@ export class OperatorActivity extends Agent {
 
   /** Bind one admitted Review generation to immutable source, package and packet identities. */
   async prepareReviewState(input: unknown): Promise<OperatorReviewResult> {
+    this.#resumeDispatcherOnEntry();
     const parsed = reviewPreparationStateSchema.safeParse(input);
     if (!parsed.success || new Set(parsed.data.requiredLanes).size !== parsed.data.requiredLanes.length) {
       return { ok: false, reason: 'invalid' };
@@ -1150,6 +1195,7 @@ export class OperatorActivity extends Agent {
 
   /** Accept only a package-declared lane result for the exact current generation and head. */
   async recordReviewLane(generation: number, head: string, lane: string, resultDigest: string): Promise<OperatorReviewResult> {
+    this.#resumeDispatcherOnEntry();
     if (!reviewLaneIdentity.safeParse(lane).success || !syncDigest.safeParse(resultDigest).success) {
       return { ok: false, reason: 'invalid' };
     }
@@ -1169,6 +1215,7 @@ export class OperatorActivity extends Agent {
 
   /** Seal Review only after every declared lane and the existing sync operation are verified. */
   async sealReview(generation: number, head: string, operationId: string): Promise<OperatorReviewResult> {
+    this.#resumeDispatcherOnEntry();
     if (!syncIdentity.safeParse(operationId).success) return { ok: false, reason: 'invalid' };
     return this.ctx.storage.transaction(async tx => {
       const record = await tx.get<AdmissionState>('admission'); const review = record?.review;
@@ -1187,6 +1234,7 @@ export class OperatorActivity extends Agent {
   /** Reserve publication before GitHub I/O; changed payloads conflict and unknown work cannot be replayed. */
   async reserveReviewPublication(generation: number, head: string, operationId: string,
     requestDigest: string): Promise<OperatorReviewResult> {
+    this.#resumeDispatcherOnEntry();
     if (!syncIdentity.safeParse(operationId).success || !syncDigest.safeParse(requestDigest).success) {
       return { ok: false, reason: 'invalid' };
     }
@@ -1210,11 +1258,13 @@ export class OperatorActivity extends Agent {
 
   async markReviewPublicationUnknown(generation: number, head: string, operationId: string,
     requestDigest: string): Promise<OperatorReviewResult> {
+    this.#resumeDispatcherOnEntry();
     return this.updateReviewPublication(generation, head, operationId, requestDigest, 'unknown');
   }
 
   async completeReviewPublication(generation: number, head: string, operationId: string,
     requestDigest: string, receipt: { checkId: number; recordId: number }): Promise<OperatorReviewResult> {
+    this.#resumeDispatcherOnEntry();
     if (!Number.isSafeInteger(receipt?.checkId) || receipt.checkId < 1
       || !Number.isSafeInteger(receipt?.recordId) || receipt.recordId < 1) return { ok: false, reason: 'invalid' };
     return this.updateReviewPublication(generation, head, operationId, requestDigest, 'completed', receipt, false);
@@ -1223,6 +1273,7 @@ export class OperatorActivity extends Agent {
   /** Complete an unknown write only from an exact external reconciliation receipt. */
   async reconcileReviewPublication(generation: number, head: string, operationId: string,
     requestDigest: string, receipt: { checkId: number; recordId: number }): Promise<OperatorReviewResult> {
+    this.#resumeDispatcherOnEntry();
     if (!Number.isSafeInteger(receipt?.checkId) || receipt.checkId < 1
       || !Number.isSafeInteger(receipt?.recordId) || receipt.recordId < 1) return { ok: false, reason: 'invalid' };
     return this.updateReviewPublication(generation, head, operationId, requestDigest, 'completed', receipt, true);
@@ -1248,6 +1299,7 @@ export class OperatorActivity extends Agent {
   }
 
   async getReviewState(): Promise<OperatorReviewState | null> {
+    this.#resumeDispatcherOnEntry();
     const review = (await this.ctx.storage.get<AdmissionState>('admission'))?.review;
     return review ? structuredClone(review) : null;
   }
@@ -1258,6 +1310,7 @@ export class OperatorActivity extends Agent {
    * The parent binds the returned generation to its child capabilities.
    */
   async beginDrive(expectedGeneration?: number): Promise<OperatorDriveResult> {
+    this.#resumeDispatcherOnEntry();
     const result = await this.ctx.storage.transaction<OperatorDriveResult>(async tx => {
       const record = await tx.get<AdmissionState>('admission');
       if (!record || record.phase !== 'queued') return { ok: false, reason: 'not-admitted' };
@@ -1288,6 +1341,7 @@ export class OperatorActivity extends Agent {
 
   /** Generic child-effect fence for the exact admitted, live generation. */
   async operatorGenerationCurrent(generation: number): Promise<boolean> {
+    this.#resumeDispatcherOnEntry();
     if (!Number.isSafeInteger(generation) || generation < 1) return false;
     const record = await this.ctx.storage.get<AdmissionState>('admission');
     return !!record && record.phase === 'queued' && record.intent.deadline > Date.now()
@@ -1297,6 +1351,7 @@ export class OperatorActivity extends Agent {
 
   /** Parent-only checkpoint read for the live generation; browser projections do not grant execution authority. */
   async getCurrentDriveCheckpointJson(generation: number): Promise<string | null> {
+    this.#resumeDispatcherOnEntry();
     if (!await this.operatorGenerationCurrent(generation)) return null;
     const state = await this.ctx.storage.get<AdmissionState>('admission');
     if (state?.drive?.status !== 'running' || state.drive.generation !== generation
@@ -1307,6 +1362,7 @@ export class OperatorActivity extends Agent {
 
   /** Validate bounded child output before committing the current generation only. */
   async commitDrive(generation: number, update: unknown): Promise<OperatorDriveResult> {
+    this.#resumeDispatcherOnEntry();
     let parsed: z.infer<typeof driveUpdateSchema>;
     try {
       const admission = await this.ctx.storage.get<AdmissionState>('admission');
@@ -1363,6 +1419,7 @@ export class OperatorActivity extends Agent {
 
   /** Fence future commits, then retire owned intent4 compute without recreating it. */
   async cancelDrive(): Promise<OperatorDriveResult> {
+    this.#resumeDispatcherOnEntry();
     let result = await this.fenceDrive('cancel-requested');
     if (!result.ok && result.reason === 'drive-settled') {
       const [record, lease] = await Promise.all([
@@ -1403,6 +1460,7 @@ export class OperatorActivity extends Agent {
 
   /** Parent reports an interrupted drive; its uncertain effects cannot be replayed. */
   async interruptDrive(generation: number): Promise<OperatorDriveResult> {
+    this.#resumeDispatcherOnEntry();
     const result = await this.fenceDrive('unknown', generation);
     if (result.ok) {
       await this.#releaseDispatcherSdk();
@@ -1413,6 +1471,7 @@ export class OperatorActivity extends Agent {
 
   /** Fence a queued request whose one attached runtime attempt failed before loading code. */
   async fenceRuntimeFailure(expectedGeneration?: number): Promise<OperatorDriveResult> {
+    this.#resumeDispatcherOnEntry();
     const result = await this.fenceDrive('unknown', expectedGeneration, true);
     if (result.ok) {
       await this.#releaseDispatcherSdk();
@@ -1449,6 +1508,7 @@ export class OperatorActivity extends Agent {
   /** REQ-OPERATOR-048: bind one already-reserved drive to immutable code/input and one Flue submission. */
   async admitDispatcher(generation: number, bundle: DispatcherBundle, artifactDigest: string,
     invocation: unknown): Promise<OperatorDriveResult> {
+    this.#resumeDispatcherOnEntry();
     let trace: InferenceDiagnosticContext | undefined;
     let boundary = 'authority';
     try {
@@ -1699,6 +1759,7 @@ export class OperatorActivity extends Agent {
 
   /** Private binding only. Wait for the original ADMISSION receipt, never for this response's settlement. */
   async dispatcherPhaseContext(generation: number, request: Request): Promise<Response> {
+    this.#resumeDispatcherOnEntry();
     const denied = () => Response.json({ code: 'OPERATOR_CAPABILITY_DENIED' }, { status: 403 });
     try {
       const url = new URL(request.url);
@@ -1741,6 +1802,7 @@ export class OperatorActivity extends Agent {
 
   /** Parent-only local fence checked by the restricted binding before every SDK call and effect. */
   async dispatcherGenerationCurrent(generation: number): Promise<boolean> {
+    this.#resumeDispatcherOnEntry();
     if (!Number.isSafeInteger(generation) || generation < 1) return false;
     const [record, lease] = await Promise.all([this.ctx.storage.get<AdmissionState>('admission'),
       this.ctx.storage.get<DispatcherLease>(DISPATCHER_LEASE)]);
@@ -1785,26 +1847,8 @@ export class OperatorActivity extends Agent {
         if (!bytes) throw new Error('Dispatcher artifact unavailable');
         bundle = await parseDispatcherBundle(bytes, lease.artifactDigest);
       }
-      const context = this.ctx as unknown as {
-        exports: {
-          OperatorDispatcherCapability(options: { props: { activityId: string; generation: number } }): Fetcher;
-          OperatorDispatcherTail(options: { props: { activityId: string; generation: number } }): OperatorDispatcherTail;
-        };
-        facets: { get(name: string, init: () => unknown): DispatcherFacet };
-      };
-      const props = { activityId: plan.activityId, generation: lease.generation,
-        ...(executionLoggingEnabled(plan.receipt) ? {} : { loggingEnabled: false }) };
-      const capability = context.exports.OperatorDispatcherCapability({ props });
-      const tail = context.exports.OperatorDispatcherTail({ props });
-      const admittedTarget = plan.prospectiveAdmissionId
-        ? (await authorizeDispatcherPlan(plan, this.#appEnv)).admittedTarget : undefined;
-      const dynamicClass = loadOperatorDispatcherClass(loader, bundle, lease.artifactDigest,
-        plan.activityId, lease.generation, capability, tail,
-        JSON.parse(plan.invocationJson).pullRequest === undefined ? capability : null,
-        JSON.parse(plan.invocationJson).pullRequest === undefined ? dispatcherGithubApiOrigin(this.#appEnv) : undefined,
-        isManagementReceipt(plan.receipt) ? sourceResponseBytes(plan.receipt.selection.installation.policy) : undefined,
-        admittedTarget ? JSON.stringify(admittedTarget) : undefined, executionLoggingEnabled(plan.receipt),
-        isManagementReceipt(plan.receipt) ? submissionAttemptLimit(plan.receipt.selection.operator.policy) : undefined);
+      const context = this.ctx as unknown as { facets: { get(name: string, init: () => unknown): DispatcherFacet } };
+      const dynamicClass = await this.#dispatcherClass(lease, plan, bundle);
       // Preparation may outlive retirement. Abort clears this exact cached
       // promise; recheck it after the awaited authority read, before get can
       // synchronously instantiate a replacement owned runtime.
@@ -1819,8 +1863,32 @@ export class OperatorActivity extends Agent {
     return facet;
   }
 
+  /** Original class/env binding shared by execution and passive SQL, without acquiring or initializing a facet. */
+  async #dispatcherClass(lease: DispatcherLease, plan: OperatorRuntimePlan, bundle: DispatcherBundle): Promise<unknown> {
+    const loader = this.#appEnv.LOADER;
+    if (!loader) throw new Error('Dispatcher host unavailable');
+    const context = this.ctx as unknown as { exports: {
+      OperatorDispatcherCapability(options: { props: { activityId: string; generation: number } }): Fetcher;
+      OperatorDispatcherTail(options: { props: { activityId: string; generation: number } }): OperatorDispatcherTail;
+    } };
+    const props = { activityId: plan.activityId, generation: lease.generation,
+      ...(executionLoggingEnabled(plan.receipt) ? {} : { loggingEnabled: false }) };
+    const capability = context.exports.OperatorDispatcherCapability({ props });
+    const tail = context.exports.OperatorDispatcherTail({ props });
+    const admittedTarget = plan.prospectiveAdmissionId
+      ? (await authorizeDispatcherPlan(plan, this.#appEnv)).admittedTarget : undefined;
+    return loadOperatorDispatcherClass(loader, bundle, lease.artifactDigest,
+      plan.activityId, lease.generation, capability, tail,
+      JSON.parse(plan.invocationJson).pullRequest === undefined ? capability : null,
+      JSON.parse(plan.invocationJson).pullRequest === undefined ? dispatcherGithubApiOrigin(this.#appEnv) : undefined,
+      isManagementReceipt(plan.receipt) ? sourceResponseBytes(plan.receipt.selection.installation.policy) : undefined,
+      admittedTarget ? JSON.stringify(admittedTarget) : undefined, executionLoggingEnabled(plan.receipt),
+      isManagementReceipt(plan.receipt) ? submissionAttemptLimit(plan.receipt.selection.operator.policy) : undefined);
+  }
+
   /** SDK deadline callback and alarm/reconstruction reconciliation. Only exact persisted settlement can wait. */
   async reconcileDispatcherLease(expected?: { generation: number }): Promise<void> {
+    this.#resumeDispatcherOnEntry(true, expected?.generation);
     if (this.#reconciling) return this.#reconciling;
     this.#reconciling = (async () => {
       let pendingLease = await this.ctx.storage.get<DispatcherLease>(DISPATCHER_LEASE);
@@ -2116,6 +2184,7 @@ export class OperatorActivity extends Agent {
   /** REQ-OPERATOR-047: durable intent precedes protected I/O; uncertain effects are never replayed. */
   /** Supplemental, non-authorizing child telemetry; never reserves a protected operation. */
   async dispatcherDiagnosticReport(generation: number, request: Request): Promise<Response> {
+    this.#resumeDispatcherOnEntry();
     const denied = () => Response.json({ code: 'OPERATOR_CAPABILITY_DENIED' }, { status: 403 });
     try {
       if (!await this.dispatcherGenerationCurrent(generation)) return denied();
@@ -2159,6 +2228,7 @@ export class OperatorActivity extends Agent {
   }
 
   async dispatcherOperation(generation: number, request: Request): Promise<Response> {
+    this.#resumeDispatcherOnEntry();
     const diagnosticState = await this.ctx.storage.get<AdmissionState>('admission').catch(() => undefined);
     const loggingEnabled = executionLoggingEnabled(diagnosticState?.receipt);
     const trace: InferenceDiagnosticContext | undefined = diagnosticState ? { activityId: diagnosticState.intent.activityId, generation, loggingEnabled } : undefined;
@@ -2738,6 +2808,7 @@ export class OperatorActivity extends Agent {
 
   /** The exact pinned SDK list, never a general RPC reflector. Original generation is rechecked here. */
   async dispatcherBridge(generation: number, method: DispatcherSdkMethod, args: unknown[]): Promise<unknown> {
+    this.#resumeDispatcherOnEntry();
     if (!DISPATCHER_SDK_METHODS.includes(method) || !Array.isArray(args)
       || new TextEncoder().encode(JSON.stringify(args)).byteLength > 64 * 1024
       || !await this.dispatcherGenerationCurrent(generation)) throw new Error('Dispatcher SDK authority denied');
@@ -2804,6 +2875,7 @@ export class OperatorActivity extends Agent {
 
   /** SDK alarm dispatch stays on the one dynamically loaded activity-private child. */
   override async _cf_dispatchScheduledCallback(ownerPath: DispatcherFacetPath, row: unknown): Promise<boolean> {
+    this.#resumeDispatcherOnEntry();
     await this.#dispatcherPath(ownerPath);
     const lease = await this.ctx.storage.get<DispatcherLease>(DISPATCHER_LEASE);
     if (!lease || !await this.dispatcherGenerationCurrent(lease.generation)) return false;
@@ -2811,6 +2883,7 @@ export class OperatorActivity extends Agent {
   }
 
   override async _cf_checkRunFibersForFacet(ownerPath: DispatcherFacetPath): Promise<number> {
+    this.#resumeDispatcherOnEntry();
     await this.#dispatcherPath(ownerPath);
     const lease = await this.ctx.storage.get<DispatcherLease>(DISPATCHER_LEASE);
     if (!lease || !await this.dispatcherGenerationCurrent(lease.generation)) return 0;
@@ -2881,7 +2954,99 @@ export class OperatorActivity extends Agent {
       && lease.artifactDigest === state.receipt.selection.release.bundleDigest && lease.sdkReleased === true;
   }
 
+  async #dispatcherDiagnosticState(): Promise<{ admission?: AdmissionState; lease?: DispatcherLease; journal?: DispatcherJournal }> {
+    const values = await this.ctx.storage.get<AdmissionState | DispatcherLease | DispatcherJournal>(
+      ['admission', DISPATCHER_LEASE, DISPATCHER_JOURNAL]);
+    return { admission: values.get('admission') as AdmissionState | undefined,
+      lease: values.get(DISPATCHER_LEASE) as DispatcherLease | undefined,
+      journal: values.get(DISPATCHER_JOURNAL) as DispatcherJournal | undefined };
+  }
+
+  /** Protected storage snapshot; deliberately not an ordinary execution entrypoint. */
+  async getDispatcherDiagnostics(ownerKey: string): Promise<DispatcherActivityDiagnostics | null> {
+    if (!syncDigest.safeParse(ownerKey).success) return null;
+    const before = await this.#dispatcherDiagnosticState();
+    const { admission, lease, journal } = before;
+    if (!admission || admission.ownerKey !== ownerKey) return null;
+    const binding = (state: typeof before) => JSON.stringify([state.admission?.ownerKey,
+      state.admission?.intent, state.admission?.phase, state.admission?.receipt?.intentDigest,
+      state.admission?.executionContext?.artifactDigest, state.admission?.drive?.generation,
+      state.admission?.drive?.status, state.lease, state.journal]);
+    const original = binding(before);
+    const parent: DispatcherActivityDiagnostics['parent'] = {
+      admissionPhase: admission.phase, driveGeneration: admission.drive?.generation ?? null,
+      executionStatus: admission.drive?.status ?? 'queued', updatedAt: admission.updatedAt ?? null,
+      checkpointPresent: admission.drive?.checkpoint != null, resultPresent: admission.drive?.result != null,
+      lease: lease ? { generation: lease.generation, status: lease.status,
+        artifactDigest: lease.artifactDigest, inputDigest: lease.inputDigest, expiresAt: lease.expiresAt,
+        expired: lease.expiresAt <= Date.now(), sdkReleased: lease.sdkReleased === true,
+        projectionPresent: lease.projection !== undefined,
+        submissionDigest: lease.submissionId ? await sha256(lease.submissionId) : null,
+        settledSubmissionDigest: lease.settledSubmissionId ? await sha256(lease.settledSubmissionId) : null,
+        phase: lease.serial?.current.phase.kind ?? 'single',
+        phaseIndex: lease.serial?.current.phase.kind === 'target' ? lease.serial.current.phase.index : null,
+        deliveryDigest: lease.serial ? await sha256(lease.serial.current.deliveryToken) : null,
+        receiptPresent: !!lease.serial?.current.receipt || !!lease.submissionId,
+        previousPhases: lease.serial?.previous.length ?? 0, targetCount: lease.serial?.targets?.length ?? null,
+        resultCount: lease.serial?.results.length ?? null } : null,
+      journal: journal ? { generation: journal.generation, count: journal.count,
+        unresolved: journal.unresolved, nextOrdinal: journal.nextOrdinal } : null,
+      reconciliationInFlight: this.#reconciling !== undefined,
+      facetCachePresent: this.#dispatcher !== undefined,
+    };
+    const capturedAt = new Date().toISOString();
+    let sdk = sdkUnavailable('unbound');
+    if (!admission.receipt || !isManagementReceipt(admission.receipt)
+      || admission.receipt.selection.operator.profile !== 'dispatcher') sdk = sdkUnavailable('not-dispatcher');
+    else if (lease?.sdkReleased || lease && (lease.status === 'unknown' || lease.status === 'settled')
+      || lease && admission.drive?.generation !== lease.generation) sdk = sdkUnavailable('retired');
+    else if (lease?.status === 'running' && lease.submissionId && lease.serial?.current.receipt
+      && admission.executionContext?.artifactDigest === lease.artifactDigest
+      && admission.receipt.intentDigest === lease.inputDigest
+      && admission.receipt.selection.release.bundleDigest === lease.artifactDigest
+      && lease.serial.current.receipt.submissionId === lease.submissionId) {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const inspectionDeadline = Date.now() + 10_000;
+      try {
+        sdk = await Promise.race([(async () => {
+          const activities = this.#appEnv.OPERATOR_ACTIVITY;
+          if (!activities || !this.#appEnv.LOADER) return sdkUnavailable('runtime-unavailable');
+          const bytes = await this.#appEnv.OPERATOR_REGISTRY.getByName('registry').getManagementBundle(lease.artifactDigest);
+          if (!bytes) return sdkUnavailable('runtime-unavailable');
+          const bundle = await parseDispatcherBundle(bytes, lease.artifactDigest);
+          if (bundle.versions.runtime !== '2.2.2' || bundle.versions.agents !== '0.20.1') return sdkUnavailable('unsupported-storage');
+          if (Date.now() >= inspectionDeadline) return sdkUnavailable('read-timeout');
+          const prospectiveAdmissionId = await this.ctx.storage.get<string>('prospective-admission');
+          const plan: OperatorRuntimePlan = { activityId: admission.intent.activityId, deadline: admission.intent.deadline,
+            invocationJson: admission.invocationJson ?? 'null', receipt: admission.receipt!,
+            executionContext: admission.executionContext!, ...(prospectiveAdmissionId ? { prospectiveAdmissionId } : {}) };
+          const dynamicClass = await this.#dispatcherClass(lease, plan, bundle);
+          // Retirement while the bundle/class is loading must not reconstruct a retired child.
+          if (binding(await this.#dispatcherDiagnosticState()) !== original) return sdkUnavailable('changed-binding');
+          if (Date.now() >= inspectionDeadline) return sdkUnavailable('read-timeout');
+          const context = this.ctx as unknown as { facets: { get(name: string, init: () => unknown): DispatcherSqlFacet } };
+          const child = context.facets.get('dispatcher', () => ({ class: dynamicClass, id: activities.idFromName('dispatcher') }));
+          // Agents.sql is a base storage method, not a startup-wrapped custom method.
+          // Do not use #dispatcherFacet, fetch, _cf_initAsFacet or fixtureSnapshot here.
+          return readDispatcherSdkDiagnostics(child, lease.submissionId!, lease.serial!.current.receipt!.uid, sha256);
+        })(), new Promise<ReturnType<typeof sdkUnavailable>>(resolve => {
+          timer = setTimeout(() => resolve(sdkUnavailable('read-timeout')), 10_000);
+        })]);
+      } catch { sdk = sdkUnavailable('read-failed'); }
+      finally { clearTimeout(timer); }
+    }
+    const after = await this.#dispatcherDiagnosticState();
+    if (after.admission?.ownerKey !== ownerKey || after.admission.intent.activityId !== admission.intent.activityId) return null;
+    const consistency = binding(after) === original ? 'stable-binding' : 'changed-binding';
+    if (consistency === 'changed-binding') sdk = sdkUnavailable('changed-binding');
+    const snapshot: DispatcherActivityDiagnostics = { version: 1, activityId: admission.intent.activityId,
+      capturedAt, consistency, parent, sdk };
+    if (new TextEncoder().encode(JSON.stringify(snapshot)).byteLength > 64 * 1024) snapshot.sdk = sdkUnavailable('response-limit');
+    return snapshot;
+  }
+
   async getBrowserSummary(ownerKey: string): Promise<OperatorBrowserSummary | null> {
+    this.#resumeDispatcherOnEntry();
     const state = await this.ctx.storage.get<AdmissionState>('admission');
     return state?.ownerKey && state.ownerKey === ownerKey ? this.browserSummary(state) : null;
   }
@@ -3060,6 +3225,7 @@ export class OperatorActivity extends Agent {
 
   async getBrowserDetail(options?: { effectReceipts: true; receiptAfter?: number }): Promise<(OperatorBrowserSummary & {
     checkpoint: unknown; result: unknown; sdkCleanupReleased?: boolean; effectReceipts?: RetiredEffectReceipts }) | null> {
+    this.#resumeDispatcherOnEntry();
     const state = await this.ctx.storage.get<AdmissionState>('admission');
     if (!state) return null;
     const dispatcher = state.drive && state.receipt && isManagementReceipt(state.receipt)
@@ -3122,6 +3288,7 @@ export class OperatorActivity extends Agent {
 
   async collectBrowserResult(): Promise<{ ok: true; detail: OperatorBrowserSummary & { checkpoint: unknown; result: unknown;
     sdkCleanupReleased?: boolean } } | { ok: false; reason: 'not-ready' | 'not-admitted' }> {
+    this.#resumeDispatcherOnEntry();
     await this.completeSettledDispatcherAssessment();
     const before = await this.ctx.storage.get<AdmissionState>('admission');
     if (before?.drive?.status === 'completed' && before.receipt && isManagementReceipt(before.receipt)
@@ -3152,6 +3319,7 @@ export class OperatorActivity extends Agent {
   /** Existing Registry reads original terminal proof. Never drives, re-admits or collects history. */
   async readProspectiveRenovateRetryProof(input: { repositoryId: number; pullRequest: number; head: string }):
     Promise<ProspectiveRenovateRetryProof | null> {
+    this.#resumeDispatcherOnEntry();
     if (!Number.isSafeInteger(input.repositoryId) || input.repositoryId < 1
       || !Number.isSafeInteger(input.pullRequest) || input.pullRequest < 1 || !/^[a-f0-9]{40}$/.test(input.head)) return null;
     const bound = await this.ctx.storage.get<string>('prospective-admission');
@@ -3201,6 +3369,7 @@ export class OperatorActivity extends Agent {
   async publishRenovateAssessment(command: { bucket: string; sessionId: string; sessionGeneration: number;
     operationId: string }, authority: { human: VerifiedHumanAccessClaims; accessJwt: string; platformAdmin: boolean }):
     Promise<{ ok: true; phase: 'completed'; effect: RenovateEffect; mergeSha?: string } | { ok: false; reason: string }> {
+    this.#resumeDispatcherOnEntry();
     const validId = /^[A-Za-z0-9_-]{1,128}$/;
     if (!authority.platformAdmin || !validId.test(command.sessionId) || !validId.test(command.operationId)
       || !/^[A-Za-z0-9._-]{1,128}$/.test(command.bucket)
@@ -3412,6 +3581,7 @@ export class OperatorActivity extends Agent {
 
   /** Parent-only projection excludes the capability verifier; readback grants no authority. */
   async getAdmission(): Promise<ActivityAdmissionProjection | null> {
+    this.#resumeDispatcherOnEntry();
     const state = await this.ctx.storage.get<AdmissionState>('admission');
     return state ? { activityId: state.intent.activityId, phase: state.phase, receipt: state.receipt } : null;
   }

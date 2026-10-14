@@ -2,6 +2,10 @@
 
 Semantic changes to the specification. Git history captures diffs; this file captures intent.
 
+## 2026-10-13
+
+- Add reusable authenticated Dispatcher Activity lifecycle readback ([REQ-OPERATOR-080](operators.md#req-operator-080-owned-dispatcher-lifecycle-readback)). Preserve account ownership, original facet/artifact/generation, private-content exclusion and result collection. Diagnostics-only cold wakes do not enter recovery; ordinary owner/execution entries and alarms retain original keyed recovery and deadline fences. Bounded metadata, unavailable storage and incomplete/changed bindings never grant execution or replay authority.
+
 ## 2026-10-11
 
 - Retire the default-budget saved-submission-limit Miniflare case at explicit user instruction after CI38179925093's ProxyWorker network failure ([REQ-OPERATOR-048](operators.md#req-operator-048-dispatcher-execution)). Do not recreate or replace retired native workloads; deletion is not recovery or default-budget proof, and Enterprise Integration end-to-end acceptance remains required.
