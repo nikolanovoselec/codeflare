@@ -330,7 +330,7 @@ async function digest(value: string | Uint8Array) {
 /** Instrumented SDK owner, not native Flue proof: native cases remain in loader-runtime.test.ts. */
 async function fixture(test: (f: {
   activity: OperatorActivity; capability: OperatorDispatcherCapability; staleCapability: OperatorDispatcherCapability; environment: Env;
-  artifactDigest: string; activityId: string; deliverTail: (events: unknown) => Promise<void>;
+  bundle: DispatcherBundle; artifactDigest: string; activityId: string; deliverTail: (events: unknown) => Promise<void>;
   deliveredTail: Array<{ activityId: string; generation: number; stage: string }>;
   settle: (id?: string, outcome?: string, error?: unknown) => void; expire: () => void;
   advanceClock: (milliseconds: number) => void;
@@ -382,8 +382,9 @@ async function fixture(test: (f: {
   const fixtureInvocation = options.prospective ? { repository: configuredTarget.repository,
     ...(options.legacyProspective ? { pullRequest: 17 } : {}), ...options.inputExtra }
     : options.repositoryOnly ? { repository: 'another/service' } : invocation;
-  const fixtureBytes = options.runtimeVersion ? new TextEncoder().encode(JSON.stringify({ ...bundle,
-    versions: { ...bundle.versions, runtime: options.runtimeVersion, vitePlugin: options.runtimeVersion } })) : bytes;
+  const fixtureBundle = options.runtimeVersion ? { ...bundle,
+    versions: { ...bundle.versions, runtime: options.runtimeVersion, vitePlugin: options.runtimeVersion } } : bundle;
+  const fixtureBytes = options.runtimeVersion ? new TextEncoder().encode(JSON.stringify(fixtureBundle)) : bytes;
   const namespace = (env as unknown as { OPERATOR_ACTIVITY: DurableObjectNamespace }).OPERATOR_ACTIVITY;
   await runInDurableObject(namespace.getByName(`dispatcher-${crypto.randomUUID()}`), async (_instance, native) => {
     const activityId = `activity-${crypto.randomUUID()}`;
@@ -749,7 +750,7 @@ async function fixture(test: (f: {
     const staleCapability = new OperatorDispatcherCapability({ props: { activityId, generation: 2 } } as unknown as ExecutionContext,
       environment as unknown as ConstructorParameters<typeof OperatorDispatcherCapability>[1]);
     try {
-      await test({ activity, capability, staleCapability, environment, artifactDigest, activityId, deliveredTail,
+      await test({ activity, capability, staleCapability, environment, bundle: fixtureBundle, artifactDigest, activityId, deliveredTail,
         statusFault: fault => { statusFault = fault; },
         afterBundleRead: action => { afterBundleRead = action; },
         changeRetiredPin: async field => {
@@ -923,7 +924,7 @@ function read(operationId = 'read-1', extra = {}) {
 }
 async function start(f: Parameters<Parameters<typeof fixture>[0]>[0], lifetimeMs = 25_000) {
   return driveDispatcherRuntime({ activity: f.activity, deadline: Date.now() + lifetimeMs,
-    bundle, artifactDigest: f.artifactDigest, invocation: f.input });
+    bundle: f.bundle, artifactDigest: f.artifactDigest, invocation: f.input });
 }
 
 describe('REQ-OPERATOR-047/048: future inference attempt accounting', () => {
