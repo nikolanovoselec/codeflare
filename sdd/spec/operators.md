@@ -895,7 +895,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 - Original authority, policy and deadlines remain unchanged; reads grant no admission, retry or effect authority.
 - SDK inspection supports only Flue 2.2.2/Agents 0.20.1 and the original owned artifact/class/facet; retired or unbound work is not reconstructed.
 - Fixed metadata SELECTs use no startup handshake, custom fixture method or replacement reader class.
-- Parent scans cap at1,024 metadata entries/eight highest logical ordinals; no response bodies or legacy migration. Phase bindings never supply SDK attempt IDs.
+- Parent scans cap at1,024 metadata entries/eight highest logical ordinals; no response bodies or legacy migration; phase bindings never supply SDK attempt IDs.
 - Export limits are 64 KiB, 32 recent batches and 64 selected lifecycle records; parent enumeration and SDK access share a10-second response-wait deadline.
 - Private bodies, raw errors and state/tool/output values are excluded; identifier correlations are SHA-256 hashes.
 - Parent binding is checked before and after child access; single-facet SQL atomicity implies no cross-object atomicity or completion.
