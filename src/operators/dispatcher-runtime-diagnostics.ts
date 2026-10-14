@@ -93,9 +93,15 @@ const SNAPSHOT_SQL = `WITH
   lane AS (SELECT CASE WHEN substr(session_key, 1, 14) = 'agent-session:'
     AND json_valid(substr(session_key, 15)) THEN substr(session_key, 15) ELSE '[]' END AS identity FROM requested),
   stream AS (SELECT s.* FROM flue_conversation_streams s, lane
-    WHERE s.incarnation = ?
-      AND json_extract(s.identity_json, '$.agentName') = json_extract(lane.identity, '$[0]')
-      AND json_extract(s.identity_json, '$.instanceId') = json_extract(lane.identity, '$[1]') LIMIT 2),
+    WHERE json_extract(s.identity_json, '$.agentName') = json_extract(lane.identity, '$[0]')
+      AND json_extract(s.identity_json, '$.instanceId') = json_extract(lane.identity, '$[1]')
+      AND EXISTS (SELECT 1 FROM flue_conversation_stream_batches birth,
+        json_each(CASE WHEN json_valid(birth.data) THEN CASE WHEN json_type(birth.data) = 'array'
+          THEN birth.data ELSE '[]' END ELSE '[]' END) e
+        WHERE birth.path = s.path AND birth.seq = 0
+          AND json_extract(e.value, '$.type') = 'conversation_created'
+          AND json_extract(e.value, '$.kind') = 'root'
+          AND json_extract(e.value, '$.uid') = ?) LIMIT 2),
   tail AS (SELECT b.seq, b.data, b.submission_id, b.attempt_id FROM flue_conversation_stream_batches b
     JOIN stream s ON s.path = b.path ORDER BY b.seq DESC LIMIT 33),
   events AS (SELECT b.seq, e.key AS record_index, e.value AS event FROM
@@ -138,11 +144,12 @@ export const sdkUnavailable = (reason: NonNullable<DispatcherSdkDiagnostics['rea
   ({ status: 'unavailable', reason });
 
 /** No initialization, fetch, fiber inspection, or recovery method is called here. */
-export async function readDispatcherSdkDiagnostics(facet: DispatcherSqlFacet, submissionId: string, uid: string,
+export async function readDispatcherSdkDiagnostics(facet: DispatcherSqlFacet, submissionId: string, instanceUid: string,
   hash: (value: string) => Promise<string>): Promise<DispatcherSdkDiagnostics> {
   try {
+    // The receipt UID belongs to the root birth record, not the stream incarnation.
     // Agents.sql accepts template segments, inserting its own bound placeholders.
-    const raw = await facet.sql(SNAPSHOT_SQL.split('?'), submissionId, uid);
+    const raw = await facet.sql(SNAPSHOT_SQL.split('?'), submissionId, instanceUid);
     const rows = z.array(rowSchema).max(101).parse(raw);
     if (new TextEncoder().encode(JSON.stringify(rows)).byteLength > 256 * 1024) return sdkUnavailable('response-limit');
     const submissions = rows.filter(row => row.tag === 'submission');

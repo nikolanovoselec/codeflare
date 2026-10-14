@@ -4,7 +4,7 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-10-13
 
-- Add reusable authenticated Dispatcher Activity lifecycle readback ([REQ-OPERATOR-063 AC8–9](operators.md#req-operator-063-bounded-dispatcher-diagnostics)). Preserve account ownership, original facet/artifact/generation, private-content exclusion and result collection. Diagnostics-only cold wakes do not enter recovery; ordinary owner/execution entries and alarms retain original keyed recovery and deadline fences. Bounded metadata, unavailable storage and incomplete/changed bindings never grant execution or replay authority.
+- Add reusable authenticated Dispatcher Activity lifecycle readback ([REQ-OPERATOR-080](operators.md#req-operator-080-owned-dispatcher-lifecycle-readback)). Preserve account ownership, original facet/artifact/generation, private-content exclusion and result collection. Diagnostics-only cold wakes do not enter recovery; ordinary owner/execution entries and alarms retain original keyed recovery and deadline fences. Bounded metadata, unavailable storage and incomplete/changed bindings never grant execution or replay authority.
 
 ## 2026-10-11
 

@@ -768,7 +768,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 **Acceptance Criteria:**
 
 1. The delegated Loader executes only the pinned generated Flue artifact. <!-- @impl: src/operators/loader.ts::loadOperatorDispatcherClass --> <!-- @test: src/__tests__/operators/loader-runtime.test.ts (REQ-OPERATOR-015: Worker Loader runtime boundary) -->
-2. One lease binds a serial chain of exact SDK submissions to the original generation, input, release and human expiry. Uncertain admission retains its delivery identity across cold reconstruction; observation failure cannot advance phases or create replacement work. <!-- @impl: src/operators/activity.ts::OperatorActivity --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-047/048) -->
+2. One lease binds exact serial SDK submissions to the original generation, input, release and human expiry. Ordinary wakes recover uncertain keyed admission using its persisted delivery identity; observation failures neither advance phases nor create replacement work. <!-- @impl: src/operators/activity.ts::OperatorActivity --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-047/048) -->
 3. Pending or unavailable settlement observations keep at most one bounded recheck under the original lease; observation and repeated alarms cannot renew authority. <!-- @impl: src/operators/runtime.ts::driveDispatcherRuntime --> <!-- @impl: src/operators/activity.ts::OperatorActivity --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-047/048) --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-048: repeated SDK alarms retain one pending recheck and the original deadline) -->
 4. Collection requires one complete bounded assessment from the designated final completed settlement; intent4 additionally requires exact deferred coverage of every PR-local unknown mutation. <!-- @impl: src/operators/activity.ts::OperatorActivity.reconcileDispatcherLease --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (fences a completed model turn with no submitted assessment instead of advertising waiting) --> <!-- @test: src/__tests__/operators/fixtures/flue-native-cases.ts (completes a publishable second-turn assessment only after all parallel research receipts are released) --> <!-- @test: src/__tests__/operators/fixtures/flue-native-cases.ts (settles a cited second-turn assessment after the former child timeout without extending human authority) --> <!-- @test: src/__tests__/operators/fixtures/flue-native-cases.ts (REQ-OPERATOR-048: authentic SDK finish steering continues the original invocation to exact assessment) --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-063: terminal diagnostic wire distinguishes) --> <!-- @test: src/__tests__/operators/dispatcher-result.test.ts (REQ-OPERATOR-063: unassociated assessment) -->
 5. Cancellation, expiry, revocation and stale warmed callers deny protected work. <!-- @impl: src/operators/activity.ts::OperatorActivity --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-047/048) -->
@@ -785,7 +785,8 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 - Abort failures propagate; unknown, completed, failed, waiting and historical drives gain no cleanup-retry authority. <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-048: failed owned-child retirement cannot reopen fenced work) -->
 - Observed callback endings and SDK bookkeeping release do not establish full physical cessation.
 - Generated metadata accepts only Flue runtime/plugin `2.1.0/2.1.0` or `2.2.2/2.2.2`, each with Agents `0.20.1`; mixed, unknown and authority-bearing tuples are rejected. <!-- @impl: src/operators/distribution.ts::parseDispatcherBundle --> <!-- @impl: scripts/operator-package/compiler.mjs::buildBundle --> <!-- @test: src/__tests__/operators/distribution.test.ts (REQ-OPERATOR-048: production Dispatcher bundle boundary) --> <!-- @test: src/__tests__/operators/operator-package-compiler.test.ts (shared operator package compiler) -->
-- Cold keyed admission reuses only its persisted serial wire under existing reconciliation; historical unkeyed admitting uncertainty still fences. Constructors open storage without starting recovery; ordinary Activity execution/owner entrypoints, startup and alarms enter the existing nonblocking recovery, while the dedicated diagnostics read does not. <!-- @impl: src/operators/activity.ts::OperatorActivity --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-048: AC2 cold) --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-017: AC4 cold historical unkeyed) -->
+- Cold keyed admission reuses only its persisted serial wire under existing reconciliation; historical unkeyed admitting uncertainty still fences. <!-- @impl: src/operators/activity.ts::OperatorActivity --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-048: AC2 cold) --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-017: AC4 cold historical unkeyed) -->
+- Ordinary entries, startup and alarms retain nonblocking recovery without making child callbacks await reconciliation. <!-- @impl: src/operators/activity.ts::OperatorActivity -->
 - Collection never resubmits; historical contracts retain their original unknown-effect fences.
 - Unavailable status reads retain only the same admitted submission, phase, cursor, pins and deadline after current authority and shared-fence checks; HTTP/body integrity failures remain terminal. <!-- @impl: src/operators/activity.ts::OperatorActivity.reconcileDispatcherLease --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (failed PR1 advances only after its exact SDK settlement; PR2 supplies actual complete data and immutable final collection) --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-048: %s status observation cannot keep original work alive) -->
 - Recovery requires a parent-stamped future admission and lease; historical admissions, unversioned operations and terminal unknown Activities remain strict. <!-- @impl: src/operators/activity.ts::OperatorActivity --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-048: historical admissions retain their original cached error bytes despite the new default policy) -->
@@ -841,7 +842,7 @@ Pending-creation [RED38319941360](https://github.com/nikolanovoselec/codeflare/a
 <a id="req-operator-063-bounded-dispatcher-diagnostics"></a>
 ### REQ-OPERATOR-063: Bounded Dispatcher diagnostics
 
-**Intent:** Diagnostics explain observed execution and rejection boundaries, including owner-requested durable lifecycle readback, without becoming authority.
+**Intent:** Diagnostics explain observed execution and rejection boundaries without becoming authority.
 
 **Applies To:** User
 
@@ -855,8 +856,6 @@ Pending-creation [RED38319941360](https://github.com/nikolanovoselec/codeflare/a
 6. Pre-reservation parsing/capability failures report fixed categories, bounded validation-rule labels and parent-owned Activity/generation without logging credentials, prompts, bodies, arbitrary child values or exception text. <!-- @impl: src/operators/activity.ts::OperatorActivity.dispatcherOperation --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-063: preparation rejection $name preserves denial and private diagnostic wire) --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-063: identifies $name without exposing rejected data or changing authority) --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-063: bounds multiple rejected rules without retaining arbitrary issue paths or values) -->
 
 7. Terminal settlement diagnostics distinguish observed completion-tool outcomes from assessment projection using trusted Activity/generation and bounded counters. <!-- @impl: src/operators/activity.ts::OperatorActivity.reconcileDispatcherLease --> <!-- @impl: src/operators/dispatcher-result.ts::readDispatcherUpdates --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-063: terminal diagnostic wire) --> <!-- @test: src/__tests__/operators/dispatcher-result.test.ts (REQ-OPERATOR-063: observes completion) --> <!-- @test: src/__tests__/operators/fixtures/flue-native-cases.ts (REQ-OPERATOR-048: authentic pinned SDK inference producer compatibility) -->
-8. Authenticated, account-owned diagnostics GET returns versioned parent lease/phase/binding and bounded compatible-SDK submission, canonical/tool/finish/output/settlement metadata. Private content and identities are excluded; unavailable, incomplete and changed-binding evidence is explicit. The endpoint accepts no caller SQL or selection parameters and does not consume results. <!-- @impl: src/routes/operator-activities.ts --> <!-- @impl: src/operators/activity.ts::OperatorActivity.getDispatcherDiagnostics --> <!-- @impl: src/operators/dispatcher-runtime-diagnostics.ts::readDispatcherSdkDiagnostics --> <!-- @test: src/__tests__/routes/operator-activities.test.ts (REQ-OPERATOR-041: reads detail and result only after the durable index proves exact ownership without mutation) --> <!-- @test: src/__tests__/routes/operator-activities.test.ts (REQ-OPERATOR-041: browser result stays owner-scoped even when another account knows the ID) -->
-9. A diagnostics-only cold wake neither recovers admission nor initializes, resumes or retires SDK work. Ordinary wakeups retain existing original-generation keyed recovery and deadline fences; child callbacks never wait for reconciliation. <!-- @impl: src/operators/activity.ts::OperatorActivity --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-048: AC2 cold before-POST uncertainty admits original-generation discovery with unchanged input release and human expiry) -->
 
 **Constraints:**
 
@@ -871,9 +870,6 @@ Pending-creation [RED38319941360](https://github.com/nikolanovoselec/codeflare/a
 - Producer readiness observations follow [REQ-OPERATOR-077](#req-operator-077-bounded-producer-readiness-diagnostics).
 - Exclude bodies, assessment values, prompts, tool inputs/outputs, raw errors, credentials and opaque identifiers; never assessment/settlement authority.
 - Diagnostic data excluded from existing projected-result accounting; page/record/result/source bounds unchanged; operation capacity follows admitted policy.
-- On-demand readback selects existing functional storage, produces no new execution logs, and adds no reservation, retry, authority renewal, collection, or lifecycle mutation. SDK SQL is restricted to the supported pinned runtime and original owned class/facet; no startup handshake, custom fixture method, replacement reader class or retired-facet reconstruction.
-- Readback is at most64KiB, with a10-second SDK-read deadline, at most32 recent canonical batches and64 selected lifecycle records. Private payloads, errors, state values and tool content are never selected for export; opaque correlations are SHA-256 hashes. Omitted older/content records and chunked batches remain explicit gaps, never absent-history proof.
-- Parent binding is checked before child storage access and after the read. The SDK SELECT is atomic within that facet; `stable-binding` is not a claim of cross-object atomicity or execution completion.
 
 **Priority:** P0
 
@@ -882,6 +878,44 @@ Pending-creation [RED38319941360](https://github.com/nikolanovoselec/codeflare/a
 **Verification:** Automated test: [dispatcher-production.test.ts](../../src/__tests__/operators/dispatcher-production.test.ts), [flue-native-cases.ts](../../src/__tests__/operators/fixtures/flue-native-cases.ts), [dispatcher-native.test.ts](../../src/__tests__/operators/dispatcher-native.test.ts), [dispatcher-tail.test.ts](../../src/__tests__/operators/dispatcher-tail.test.ts).
 
 **Status:** Implemented
+
+---
+
+<a id="req-operator-080-owned-dispatcher-lifecycle-readback"></a>
+### REQ-OPERATOR-080: Owned Dispatcher lifecycle readback
+
+**Intent:** Owners inspect durable Dispatcher lifecycle metadata without changing execution or mistaking incomplete evidence for a diagnosis.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Authenticated, account-owned reads return versioned stored parent lease, phase and binding metadata. <!-- @impl: src/operators/activity.ts::OperatorActivity.getDispatcherDiagnostics --> <!-- @test: src/__tests__/routes/operator-activities.test.ts (REQ-OPERATOR-041: reads detail and result only after the durable index proves exact ownership without mutation) --> <!-- @test: src/__tests__/routes/operator-activities.test.ts (REQ-OPERATOR-041: browser result stays owner-scoped even when another account knows the ID) -->
+2. Compatible SDK readback returns bound submission/attempt/settlement metadata and attributed instance-wide canonical/tool/finish/output metadata. <!-- @impl: src/operators/dispatcher-runtime-diagnostics.ts::readDispatcherSdkDiagnostics -->
+3. Exported snapshots exclude private content and expose only closed metadata and opaque correlations. <!-- @impl: src/operators/dispatcher-runtime-diagnostics.ts::readDispatcherSdkDiagnostics -->
+4. Unavailable, incomplete and changed-binding evidence remains explicit rather than proving absent history or completion. <!-- @impl: src/operators/activity.ts::OperatorActivity.getDispatcherDiagnostics --> <!-- @impl: src/operators/dispatcher-runtime-diagnostics.ts::readDispatcherSdkDiagnostics -->
+5. Caller SQL and selection parameters are rejected. <!-- @impl: src/routes/operator-activities.ts::app --> <!-- @test: src/__tests__/routes/operator-activities.test.ts (REQ-OPERATOR-041: reads detail and result only after the durable index proves exact ownership without mutation) -->
+6. Diagnostics reads do not consume execution results. <!-- @impl: src/operators/activity.ts::OperatorActivity.getDispatcherDiagnostics --> <!-- @test: src/__tests__/routes/operator-activities.test.ts (REQ-OPERATOR-041: reads detail and result only after the durable index proves exact ownership without mutation) -->
+7. A diagnostics-only cold wake neither recovers admission nor initializes, resumes or retires SDK work. <!-- @impl: src/operators/activity.ts::OperatorActivity --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-048: AC2 cold before-POST uncertainty admits original-generation discovery with unchanged input release and human expiry) -->
+
+**Constraints:**
+
+- Original authority, policy and deadlines remain unchanged; reads grant no admission, retry or effect authority.
+- Only Flue 2.2.2/Agents 0.20.1 storage and the original owned artifact/class/facet are inspected; retired or unbound work is not reconstructed.
+- Fixed metadata SELECTs use no startup handshake, custom fixture method or replacement reader class.
+- Export limits are 64 KiB, 32 recent batches and 64 selected lifecycle records, with a 10-second response-wait deadline.
+- Private bodies, raw errors and state/tool/output values are excluded; identifier correlations are SHA-256 hashes.
+- Parent binding is checked before and after child access; single-facet SQL atomicity implies no cross-object atomicity or completion.
+- Omitted content, older records and chunked batches remain explicit gaps, never absent-history proof.
+- Readback creates no execution logs, reservations or lifecycle mutations.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-OPERATOR-041](#req-operator-041-owned-activity-browser-reads), [REQ-OPERATOR-048](#req-operator-048-dispatcher-execution), [REQ-OPERATOR-063](#req-operator-063-bounded-dispatcher-diagnostics)
+
+**Verification:** Maintained owner-route cases cover ownership, response forwarding and parameter rejection; the cold-parent case covers passive unbound reads and ordinary-entry recovery. These cases do not qualify SDK SQL, metadata privacy/completeness, deadlines, bounds, changed-binding handling or cold-child passivity; native acceptance requires authorized same-Activity Enterprise Integration readback.
+
+**Status:** Planned
 
 ---
 

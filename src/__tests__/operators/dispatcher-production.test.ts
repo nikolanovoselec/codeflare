@@ -3827,6 +3827,8 @@ describe('REQ-OPERATOR-048: original-lease serial SDK phase ownership', () => {
 
   const coldOwner = async (f: DispatcherFixture): Promise<DispatcherFixture> => {
     const activity = f.restart();
+    // Direct fixture calls bypass the platform's cold-constructor RPC gate.
+    await f.drainBackground();
     // Existing recovery scenarios exercise an ordinary owner wake, not diagnostics.
     await activity.getAdmission();
     await f.drainBackground();
@@ -4093,7 +4095,8 @@ describe('REQ-OPERATOR-048: original-lease serial SDK phase ownership', () => {
     expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'running', result: null });
     const deadline = await deadlineSchedule(f);
     const cold = { ...f, activity: f.restart() };
-    const diagnostic = await cold.activity.getDispatcherDiagnostics(await operatorOwnerKey(plan.executionContext.human));
+    await f.drainBackground();
+    const diagnostic = await cold.activity.getDispatcherDiagnostics(f.proof.ownerKey);
     expect(diagnostic).toMatchObject({ version: 1, consistency: 'stable-binding',
       parent: { executionStatus: 'running', lease: { generation: 1, status: 'admitting', receiptPresent: false } },
       sdk: { status: 'unavailable', reason: 'unbound' } });
