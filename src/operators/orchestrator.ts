@@ -1,5 +1,6 @@
 import { configuredRenovateInvocation, prospectiveRenovatePackageSupported } from './renovate-run-settings';
 import { z } from 'zod';
+import { captureError, type Boundary, type ReasonCode } from './dispatcher-diagnostics-wire';
 import type { Env } from '../types';
 import type { VerifiedHumanAccessClaims } from '../lib/jwt';
 import { AppError, ValidationError } from '../lib/error-types';
@@ -192,8 +193,11 @@ export async function runOperatorActivity(
     ? pickDispatcherCapacities(plan.receipt.selection.operator.policy) : undefined;
   const attemptDeadline = Math.min(plan.deadline,
     requestedAt + (capacityPolicy === undefined ? 25_000 : dispatcherCapacities(capacityPolicy).driveTimeoutMs));
+  let failureBoundary: Boundary = 'construction';
+  let failureCode: ReasonCode = 'startup-failed';
   try {
     if (!env.LOADER) throw new Error('Operator Loader unavailable');
+    failureBoundary = 'artifact'; failureCode = 'artifact-unavailable';
     const registry = env.OPERATOR_REGISTRY.getByName('registry');
     let bundle;
     let resources: OperatorPackageResourceProjection | null = null;
@@ -202,13 +206,16 @@ export async function runOperatorActivity(
       if (!bytes) throw new Error('Pinned runtime input unavailable');
       if (plan.receipt.selection.operator.profile === 'dispatcher') {
         const artifactDigest = plan.receipt.selection.release.bundleDigest;
+        failureCode = 'artifact-mismatch';
         const dispatcher = await parseDispatcherBundle(bytes, artifactDigest);
         if (dispatcher.sourceCommit !== plan.receipt.selection.release.sourceCommit) {
           throw new Error('Pinned Dispatcher source mismatch');
         }
+        failureBoundary = 'admission'; failureCode = 'admission-denied';
         const driven = await driveDispatcherRuntime({ activity, deadline: attemptDeadline,
           bundle: dispatcher, artifactDigest, invocation: JSON.parse(plan.invocationJson), expectedGeneration });
-        if (!driven.ok && driven.reason === 'authority-expired') await activity.fenceRuntimeFailure(expectedGeneration);
+        if (!driven.ok && driven.reason === 'authority-expired') await activity.fenceRuntimeFailure(expectedGeneration,
+          { boundary: 'admission', code: 'authority-expired' });
         return;
       }
       bundle = await parseOperatorBundle(bytes, plan.receipt.selection.release.bundleDigest);
@@ -241,8 +248,11 @@ export async function runOperatorActivity(
         return { capability: bindCapability(activityId, generation, driveDeadline), outbound: null };
       },
     });
-    if (!driven.ok && driven.reason === 'authority-expired') await activity.fenceRuntimeFailure(expectedGeneration);
-  } catch {
-    await activity.fenceRuntimeFailure(expectedGeneration).catch(() => {});
+    if (!driven.ok && driven.reason === 'authority-expired') await activity.fenceRuntimeFailure(expectedGeneration,
+      { boundary: 'admission', code: 'authority-expired' });
+  } catch (error) {
+    // Sanitize the original throw at its actual host source before the existing fence transformation.
+    await activity.fenceRuntimeFailure(expectedGeneration, { boundary: failureBoundary, code: failureCode,
+      error: captureError(error) }).catch(() => {});
   }
 }

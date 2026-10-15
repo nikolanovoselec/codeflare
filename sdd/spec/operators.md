@@ -873,6 +873,44 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 ---
 
+<a id="req-operator-081-retained-dispatcher-causal-evidence"></a>
+### REQ-OPERATOR-081: Retained Dispatcher causal evidence
+
+**Intent:** Owners identify observed failures and unfulfilled handoffs from retained, use-case-independent evidence without replaying work or manufacturing missing history.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Normal execution retains ordered, source-bound lifecycle evidence across admission, startup, scheduling, delivery, model/provider, tool/effect, settlement, continuation, fencing and release boundaries. Logical operations, charged host attempts, diagnostic sequence, SDK submission/root and independently observed SDK attempts remain distinct. A common accepted SDK binding does not depend on serial or Renovate phase state. <!-- @impl: src/operators/activity.ts::OperatorActivity --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-081: AC1/4/5 summary retains original binding and nonserial receipt root after retirement) -->
+2. Failure observations preserve the original execution result or thrown value, closed public reasons, bounded cause fingerprints and verified public source provenance. Original and catching boundaries are distinguished; duplicate copies do not merge independent attempts, and recovered failures do not become a successful successor's terminal cause. <!-- @impl: src/operators/dispatcher-diagnostics-wire.ts::captureError --> <!-- @impl: src/operators/dispatcher-diagnostics-store.ts::appendDiagnostic --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-081: AC1/2/4 independent recovered failures exhaust capsules without merging attempts or changing output) -->
+3. The authoritative fence and its closed operational reason commit atomically under the original generation before SDK release. Logging OFF suppresses detailed diagnostic capture but not this essential fence state. Optional recorder failure cannot prevent fencing, replace the original outcome, refresh authority or replay an uncertain effect. <!-- @impl: src/operators/activity.ts::OperatorActivity.fenceDrive --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-081: AC3 essential logging-OFF cancellation reason is readable before SDK cleanup completes) -->
+4. Finite, explicitly bounded history, reserved failure/terminal evidence and recorder health survive reconstruction, SDK retirement and result collection for the Activity's retained lifetime. Deterministic overflow reports loss; missing storage or uncaptured legacy evidence never becomes zero loss or proof of absence. <!-- @impl: src/operators/dispatcher-diagnostics-store.ts::appendDiagnostic --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-081: AC2/4/5 routine eviction preserves pinned originating failure and invalidates old epoch cursor) --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-081: AC4/5 retained diagnostics survive final automatic collection without changing v1) -->
+5. Additive version2 owner summary, history, record-detail and multipart export GETs provide resumable access to all retained metadata under authenticated binding/high-water cursors. Reads remain passive, bounded, no-store and exact-owner scoped, reject invalid selectors and changed bindings, and neither migrate journals nor open retired SDK work. Version1 readback remains unchanged. <!-- @impl: src/operators/dispatcher-diagnostics-read.ts::readActivityDiagnostics --> <!-- @impl: src/routes/operator-activities.ts::app --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-081: AC5 sealed history cursor survives reconstruction and fencing but fixes high-water) --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-081: AC3/5 passive v2 reads cannot reopen retired facets consume results or replay uncertainty) -->
+6. The existing Activity surface presents the observed cause or precise evidence gap, last confirmed success, a retained failed/unfulfilled transition, source/attempt distinctions, uncertainty, affected effects and a safe next evidence action. It explicitly distinguishes that retained reference from an independently established earliest or originating failure. Its accessible timeline, details and paged export expose provenance, retention loss and capabilities without adding execution or replay controls. <!-- @impl: web-ui/src/components/OperatorActivityDiagnostics.tsx::OperatorActivityDiagnostics --> <!-- @test: web-ui/src/__tests__/operators/operator-management-activity.test.tsx (opens diagnostics manually for the selected Activity via authenticated GET without changing execution or its original result) --> <!-- @test: web-ui/src/__tests__/operators/operator-management-activity.test.tsx (requires correlated platform evidence for platform-only termination instead of inventing a JavaScript cause) -->
+7. Observable tests qualify supported capture using actual SDK receipt/application/commit/settlement evidence and distinct serial/nonserial use cases. Platform-only termination requires authoritative correlated platform evidence or an explicit missing-evidence classification. Host implementation, SDK artifact activation, hosted qualification and historical-case resolution remain separate claims. <!-- @impl: src/__tests__/operators/fixtures/dispatcher-sdk-qualification.ts::qualifyImportedSdk --> <!-- @test: src/__tests__/operators/fixtures/flue-native-cases.ts (REQ-OPERATOR-048: composed %s inference reaches a real collected assessment with one repository effect) -->
+
+**Constraints:**
+
+- The existing fixed endpoint, selection/scan semantics, ten-second wait and64KiB response limit follow [REQ-OPERATOR-080](#req-operator-080-owned-dispatcher-lifecycle-readback) unchanged.
+- Version2 routes are `/diagnostics/v2`, `/diagnostics/v2/history`, `/diagnostics/v2/records/:recordId` and `/diagnostics/v2/export` beneath the owned Activity. Only history/export accept one optional opaque cursor; no SQL, caller-selected tables, body selectors or executable probes are accepted.
+- Each ordered event is at most4096 UTF-8 bytes. Routine retention reserves1536 events;64 independent failure and64 generation-terminal capsules reserve at most8192 bytes each. Pinned event copies and index/health state keep the total diagnostic value allocation at most8MiB per Activity, excluding storage-engine overhead.
+- Pages contain at most32 records and65536 serialized UTF-8 bytes, stopping earlier on byte exhaustion and making progress for every valid retained record. Cursor plaintext is authenticated and encrypted, bound to owner/Activity/original generation/artifact/input/index/high-water/retention epoch; it exposes no reversible private storage identity.
+- Routine eviction cannot consume reserved failure/terminal capacity. Capsule exhaustion, rejected/oversized events and unavailable storage remain explicit. No new TTL, cleanup scheduler or deletion authority is introduced.
+- No prompts, tool/state/output/response bodies, credentials, signed URLs, private identifiers or arbitrary raw errors enter exported evidence. Unknown labels/paths/errors remain opaque; allowed correlations are digests and closed metadata.
+- No awaited diagnostic I/O after final authorization, awaited reentrant child-to-parent diagnostic callback, invented acknowledgement, execution renewal, SDK resurrection or speculative execution repair. A completed inference is not proof of child receipt, canonical persistence, settlement or physical cessation.
+- Source-owned SDK instrumentation has explicit immutable patch/artifact provenance; it does not silently replace published SDK identity. Historical artifacts and successful or uncertain effects remain unchanged.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-OPERATOR-017](#req-operator-017-durable-drive-generations), [REQ-OPERATOR-041](#req-operator-041-owned-activity-browser-reads), [REQ-OPERATOR-063](#req-operator-063-bounded-dispatcher-diagnostics), [REQ-OPERATOR-079](#req-operator-079-shared-execution-diagnostic-control), [REQ-OPERATOR-080](#req-operator-080-owned-dispatcher-lifecycle-readback)
+
+**Verification:** Complete observable behavioral coverage and exact-source CI are required before implementation qualification. Existing version1 delivery is not version2 evidence. Hosted template activation and distinct-use-case qualification require their own receipts; legacy v24 failure identification cannot be inferred from future instrumentation.
+
+**Status:** Planned
+
+---
+
 <a id="req-operator-080-owned-dispatcher-lifecycle-readback"></a>
 ### REQ-OPERATOR-080: Owned Dispatcher lifecycle readback
 

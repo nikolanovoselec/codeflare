@@ -540,3 +540,45 @@ describe('REQ-OPERATOR-061: configured Renovate run settings', () => {
     expect((await f.request('/renovate/activation', 'POST', f.command)).status).not.toBe(202);
   });
 });
+
+// REQ-OPERATOR-081 AC5 boundary-only controls. Retention/readback is deliberately
+// exercised by dispatcher-production.test.ts through real Hono + Activity SQLite,
+// not by installing nonexistent v2 methods on this route-unit stub.
+describe('REQ-OPERATOR-081: v2 owner HTTP boundary', () => {
+  const paths = ['/diagnostics/v2', '/diagnostics/v2/history',
+    '/diagnostics/v2/records/e-1', '/diagnostics/v2/export'];
+  const assertError = async (response: Response, status: number) => {
+    expect(response.status).toBe(status);
+    expect(response.headers.get('cache-control')).toBe('no-store');
+    expect(await response.text()).not.toMatch(/private\.access\.jwt|owner-subject|owner@example/);
+  };
+  it.each(paths)('REQ-OPERATOR-081: AC5 verified human Access is mandatory and no-store at %s', async path => {
+    const f = fixture(); accessState.active = false;
+    await assertError(await f.request(`/activity-1${path}`), 403);
+  });
+  it.each(paths)('REQ-OPERATOR-081: AC5 missing authenticated account is denied no-store at %s', async path => {
+    const f = fixture(); const email = claims.email;
+    try { claims.email = ''; await assertError(await f.request(`/activity-1${path}`), 401); }
+    finally { claims.email = email; }
+  });
+  it.each(paths)('REQ-OPERATOR-081: AC5 owner-index denial precedes invalid selectors at %s', async path => {
+    const f = fixture(); f.registry.getOwnedActivity.mockResolvedValue(null);
+    await assertError(await f.request(`/activity-1${path}?sql=SELECT+private`), 404);
+    await assertError(await f.request(`/absent${path}?cursor=invalid&cursor=duplicate`), 404);
+  });
+  it.each(paths)('REQ-OPERATOR-081: AC5 exact owner rejects arbitrary selectors no-store at %s', async path => {
+    const f = fixture();
+    for (const query of ['limit=1', 'sql=SELECT+1', 'table=private', 'body=true', 'generation=2', 'receiptAfter=0'])
+      await assertError(await f.request(`/activity-1${path}?${query}`), 400);
+  });
+  it.each(['/diagnostics/v2', '/diagnostics/v2/records/e-1'])(
+    'REQ-OPERATOR-081: AC5 summary/detail refuse even one cursor at %s', async path => {
+      await assertError(await fixture().request(`/activity-1${path}?cursor=valid-looking`), 400);
+    });
+  it.each(['/diagnostics/v2/history', '/diagnostics/v2/export'])(
+    'REQ-OPERATOR-081: AC5 history/export reject empty duplicate and overlong cursors at %s', async path => {
+      const f = fixture();
+      for (const query of ['cursor=', 'cursor=A&cursor=A', `cursor=${'A'.repeat(4097)}`, 'cursor=not%2Bbase64url'])
+        await assertError(await f.request(`/activity-1${path}?${query}`), 400);
+    });
+});

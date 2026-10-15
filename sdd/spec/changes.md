@@ -2,6 +2,10 @@
 
 Semantic changes to the specification. Git history captures diffs; this file captures intent.
 
+## 2026-10-15
+
+- Add retained Dispatcher causal evidence and passive owner-only version2 summary, history, record detail and resumable export ([REQ-OPERATOR-081](operators.md#req-operator-081-retained-dispatcher-causal-evidence)). Preserve version1, original-generation fences, distinct operation/SDK identities, bounded private-safe retention and truthful import loss. Manual Activity diagnostics expose observed failures or precise evidence gaps without replay controls; exact-source SDK qualification, hosted acceptance and historical failure identification remain separate gates.
+
 ## 2026-10-14
 
 - Extend owned Dispatcher lifecycle readback with bounded stored operation/request/response and hashed phase/submission/delivery correlations, plus distinct current host-attempt metadata ([REQ-OPERATOR-080](operators.md#req-operator-080-owned-dispatcher-lifecycle-readback)). Select eight highest logical ordinals within a1,024-entry scan; charged retries do not determine enumeration completeness. Preserve ownership, original bindings, privacy, the shared response-wait deadline and passive read behavior. Missing or omitted metadata does not establish child receipt, SDK persistence, completion or replay authority.

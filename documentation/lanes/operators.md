@@ -21,6 +21,7 @@
 - [Owned sessions, resources and persistence](#owned-session-and-structured-pi)
 - [Webhook capabilities](#webhook-capability-handoff)
 - [Owned activity presentation](#owner-scoped-activity-surface)
+- [Retained Dispatcher causal evidence](#retained-dispatcher-causal-evidence)
 - [Protected Review boundary](#consumer-contract-and-dependency-inventory)
 - [Separately fenced Renovate publication](#fenced-renovate-publication)
 - [Preserved contract details](#preserved-contract-details)
@@ -373,6 +374,35 @@ Parent rejection stages are `reservation`, `effect`, `authority`, `upstream`, `f
 Forwarded HTTP409 preserves its body/running lease and differs from parent-fenced409; unreadable/rejected transport or nested release/guide pre-response failure is effect, not inferred historical cause. Failed settlement telemetry uses trusted Activity/generation and exact allowlisted error/operation/failure; `direct(<submission id>)` maps to fixed direct only for current validated submission, foreign/malformed becomes unknown. Telemetry is not new durable authority, collection/replay/continuation or past-cause proof. <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (emits bounded $name diagnostic with its fenced response) -->
 
 Dispatcher-only Tail examines ≤64 events/128 log records and forwards ≤8 exact child-reported fetch-rejected or http-rejected integer300–599; arbitrary logs/exceptions/extra fields/prompts/bodies/IDs drop. Missing/delayed Tail proves nothing. The legacy variants of explicit POST `/v1/dispatcher/diagnostic` carry the same exact two JSON forms, ≤256 bytes/250ms and ≤8 valid logs per live instance/generation (transient reset on eviction, no durable ledger). Trusted binding correlates; wrong route/method/type/syntax/status/size/unfinished/stale denies. Best-effort failure cannot replace original inference error, postpone settlement indefinitely, renew authority or mutate cleanup/results. <!-- @impl: src/operators/activity.ts::readDispatcherDiagnostic --> <!-- @impl: src/operators/activity.ts::OperatorActivity.dispatcherDiagnosticReport -->
+
+<a id="retained-dispatcher-causal-evidence"></a>
+## Retained Dispatcher causal evidence
+
+[REQ-OPERATOR-081](../../sdd/spec/operators.md#req-operator-081-retained-dispatcher-causal-evidence) adds retained causal evidence independently of the delivered version1 tail. The increment is under implementation; exact-source CI, reviewed rollout and hosted qualification remain pending. [API contracts](api-reference.md#retained-causal-diagnostics-version2) own version2 paths, selectors, fields and response bounds.
+
+### Interpret the handoff, not just the last message
+
+Follow original Activity/generation/artifact/input → logical operation/request/response → actual SDK root/submission/attempt → canonical application/commit → operational settlement. Diagnostic persistence sequence, host attempt index, charged ordinal, SDK attempt, root UID and stream incarnation remain distinct. Host HTTP success is not child receipt or persistence; an early live terminal event is not operational finalization. Stable binding is not cross-object atomicity or physical cessation.
+
+The Activity surface prioritizes the observed cause or precise gap, last confirmed success, failed/unfulfilled transition and a safe next evidence check. Expand timeline/source/attempt details, then request further retained pages or export parts explicitly. Recovered errors remain associated with their failed attempt rather than becoming a successful successor's terminal cause. No diagnostic control grants replay, renewal, collection, execution or another owner's access.
+
+### What survives retirement
+
+Normal execution records bounded, body-free events. Reserved failure and generation-terminal capsules retain original binding, reason/error lineage, last host-persisted evidence and affected-effect uncertainty. The essential closed fence reason commits with authoritative admission state before ordinary SDK release even when logging is OFF. Detailed events/errors/outbox capture obey admitted logging and remain optional; recorder failure cannot replace the execution outcome or permit an uncertain effect.
+
+Routine metadata evicts deterministically without consuming failure/terminal reserves. Its count ceiling and individual-value byte bound both apply; earlier byte-bound eviction reports loss rather than silently expanding storage. Exhaustion, oversized/rejected records, missing/corrupt index and import loss stay explicit. Evidence follows the existing Activity lifetime and survives collection or SDK release; there is no new TTL or cleanup authority. An authorized continuation retains prior-generation records and their actual identities, advances the snapshot binding/epoch, and invalidates old cursors. It does not relabel an earlier attempt as the new run. Complete traversal means all retained metadata has been enumerated, not that every historical observation was captured. Never derive enumeration completeness from charged journal counters.
+
+### Source-owned SDK observations
+
+Future derived artifacts retain official base versions Flue runtime/plugin2.2.2 and Agents0.20.1 plus an explicit immutable Codeflare patch-set identity. Compiler50 remains pinned. A fixed text provenance module binds original/transformed SDK hashes, patch/source/applicator identities and observation capabilities into the existing compiled artifact digest. An official version label alone does not identify patched executable bytes, and old artifacts do not acquire new capture capabilities.
+
+Supported observations/interceptors cover available SDK boundaries; narrow source seams capture original thrown values at parser/provider/writer/coordinator boundaries and contained cleanup failures before lossy wrapping. Parser origin, catching boundaries and patch-boundary mappings are labelled separately. Confirmed append coordinates are emitted only after the real SDK transaction; input application and settlement finalization remain separate facts. Unknown paths/errors stay opaque. Public evidence includes only closed codes, bounded fingerprints and verified immutable source mappings, never raw errors, prompts, tool/state/output/response bodies, credentials or private SDK identifiers.
+
+### Persistence and platform limits
+
+Source capture first uses a bounded Activity-private SQLite outbox, then nonawaited protected delivery imports into the host. Only a completed host diagnostic transaction establishes host retention. A child may be aborted after local capture but before import; `sdk-import-incomplete` remains an honest gap. After retirement, a fully imported last observed watermark still cannot prove that subsequent child cleanup capture reached the host. Optional `health.sdkImportReason: retirement-tail-unwitnessed` identifies that uncertainty specifically; it is not an observed dropped-record count. Known retained receipt/application/commit/finalization records remain usable, but do not close an unwitnessed tail. Neither fire-and-forget delivery nor `waitUntil` is a cross-isolate persistence barrier. No last-minute scrape, awaited reentrant callback, delayed retirement or retired-child resurrection is added to hide this race.
+
+CPU/memory hard kills, restarts and pre-code termination may lack a JavaScript origin. Their diagnosis requires authoritative platform events correlated by Activity, service, emitting revision, time and trace, or a clear platform-required evidence gap. A wrapper frame, nearby deadline or missing bounded-tail record cannot supply that origin. Future capability qualification and identification of an uncaptured historical failure are independent outcomes.
 
 <a id="owned-session-and-structured-pi"></a>
 ## Owned sessions, resources and persistence

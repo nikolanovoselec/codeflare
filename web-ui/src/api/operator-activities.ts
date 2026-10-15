@@ -1,6 +1,9 @@
 /** Authenticated, owner-scoped browser projections for operator activity UI. */
 import { z } from 'zod';
-import { baseFetch } from './fetch-helper';
+import { ApiError, baseFetch } from './fetch-helper';
+import { diagnosticBindingSchema, diagnosticCursorSchema, diagnosticRecordIdSchema,
+  diagnosticSummarySchema, diagnosticHistorySchema, diagnosticDetailSchema, diagnosticExportSchema,
+  sameDiagnosticBinding, type DiagnosticSnapshot } from './operator-diagnostics-wire';
 
 const status = z.enum(['queued', 'running', 'waiting', 'completed', 'failed', 'cancel-requested', 'unknown']);
 const cleanup = z.enum(['pending', 'stopping', 'stopped', 'unknown']);
@@ -87,3 +90,31 @@ export function cancelOperatorActivity(activityId: string): Promise<OperatorActi
   return baseFetch(`/api/operator-activities/${encodeURIComponent(activityId)}/cancel`, { method: 'POST', body: '{}' },
     { credentials: 'same-origin', schema: operatorActivitySummarySchema });
 }
+
+/** Read-only v2 boundary. Neither response text nor schema errors are user copy. */
+async function diagnosticRead<T extends DiagnosticSnapshot>(activityId: string, suffix: string, schema: z.ZodType<T>,
+  snapshot?: DiagnosticSnapshot, resumed = false): Promise<T> {
+  operatorActivitySummarySchema.shape.activityId.parse(activityId);
+  if (snapshot) diagnosticBindingSchema.parse(snapshot.binding);
+  const value = await baseFetch<T>(new URL(`/api/operator-activities/${encodeURIComponent(activityId)}/diagnostics/v2${suffix}`,
+    window.location.origin).href, { method: 'GET', cache: 'no-store' }, { credentials: 'same-origin', schema });
+  if (value.activityId !== activityId) throw new Error('Invalid diagnostics activity');
+  if (snapshot && (snapshot.activityId !== activityId || !sameDiagnosticBinding(value.binding, snapshot.binding)))
+    throw new ApiError('Diagnostic snapshot binding changed.', 409, 'Conflict');
+  if (snapshot && resumed && (value.highWater.events !== snapshot.highWater.events
+    || value.highWater.operations !== snapshot.highWater.operations || value.retention.epoch !== snapshot.retention.epoch))
+    throw new ApiError('Diagnostic snapshot or retention epoch changed.', 409, 'Conflict');
+  return value;
+}
+function diagnosticCursorQuery(cursor: string | null): string {
+  return cursor === null ? '' : `?cursor=${encodeURIComponent(diagnosticCursorSchema.parse(cursor))}`;
+}
+export const getOperatorActivityDiagnostics = (activityId: string) =>
+  diagnosticRead(activityId, '', diagnosticSummarySchema);
+export const getOperatorActivityDiagnosticHistory = (activityId: string, cursor: string | null, snapshot: DiagnosticSnapshot) =>
+  diagnosticRead(activityId, `/history${diagnosticCursorQuery(cursor)}`, diagnosticHistorySchema, snapshot, cursor !== null);
+export const getOperatorActivityDiagnosticRecord = (activityId: string, recordId: string, snapshot: DiagnosticSnapshot) =>
+  diagnosticRead(activityId, `/records/${encodeURIComponent(diagnosticRecordIdSchema.parse(recordId))}`, diagnosticDetailSchema, snapshot)
+    .then(value => { if (value.record.id !== recordId) throw new Error('Invalid diagnostic record'); return value; });
+export const exportOperatorActivityDiagnostics = (activityId: string, cursor: string | null, snapshot: DiagnosticSnapshot) =>
+  diagnosticRead(activityId, `/export${diagnosticCursorQuery(cursor)}`, diagnosticExportSchema, snapshot, cursor !== null);

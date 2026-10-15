@@ -31,11 +31,15 @@ describe('Dispatcher exact-submission public Flue updates contract', () => {
     expect(await readDispatcherUpdates(response([settled], 'terminal'), final, 'requested')).toEqual(final);
   });
   it('REQ-OPERATOR-048: a failed SDK phase retains failed settlement despite its progress checkpoint', async () => {
+  // REQ-OPERATOR-081: additive retained-evidence assertions; original anchor/title preserved.
     const final = await readDispatcherUpdates(response([start, progress(1), event(2, {
       type: 'submission-settled', submissionId: 'requested', outcome: 'failed',
+      error: { type: 'operation_failed', meta: { operation: 'prompt', reason: 'PRIVATE_SDK_SETTLEMENT_REASON' } },
     })]), initial(), 'requested');
     expect(final).toMatchObject({ progress: checkpoint, progressWrites: 1, writes: 0, outcome: 'failed' });
     expect(final.result).toBeUndefined();
+    // This projection is persisted by the host. It is not proof of an SDK commit.
+    expect(JSON.stringify(final)).not.toContain('PRIVATE_SDK_SETTLEMENT_REASON');
   });
   it('REQ-OPERATOR-048: unassociated functional progress cannot authorize the requested phase', async () => {
     const final = await readDispatcherUpdates(response([
@@ -306,6 +310,26 @@ describe('Dispatcher exact-submission public Flue updates contract', () => {
     expect(Reflect.get(final, 'completion')).toBeUndefined();
     expect(final).toMatchObject({ result, writes: 1, outcome: 'completed' });
     expect(JSON.stringify(final)).not.toContain('PRIVATE_TOOL');
+  });
+  it.each([false, true])('REQ-OPERATOR-081: AC2 real-shaped failed settlement projection preserves position and outcome without raw error bodies (reset=%s)', async reset => {
+    const privateReason = 'PRIVATE_PROVIDER_REASON 🙂'.repeat(500);
+    const error = { type: 'operation_failed', meta: { operation: 'direct(requested)', reason: privateReason },
+      message: 'PRIVATE_ERROR_MESSAGE', stack: '/private/workspace/PRIVATE_SOURCE_PATH:12:3',
+      cause: { message: 'PRIVATE_INNER_CAUSE' }, payload: { body: 'PRIVATE_MODEL_BODY' } };
+    const position = { batch: 27, index: 4 };
+    const chunks = reset ? [event(4, { position, type: 'conversation-reset', snapshot: {
+      conversationId: 'conversation', messages: [{ id: 'answer', submissionId: 'requested', parts: [] }],
+      settlements: [{ submissionId: 'foreign', outcome: 'failed', error: { type: 'PRIVATE_FOREIGN_TYPE' } },
+        { submissionId: 'requested', outcome: 'failed', error }],
+    } })] : [start, event(4, { position, type: 'submission-settled', submissionId: 'requested', outcome: 'failed', error })];
+    const previous = initial();
+    const projected = await readDispatcherUpdates(response(chunks), previous, 'requested');
+    expect(projected).toMatchObject({ position, outcome: 'failed', writes: 0, messageIds: ['answer'] });
+    expect(projected.result).toBeUndefined();
+    expect(previous).toEqual(initial());
+    expect(JSON.stringify(projected)).not.toMatch(/PRIVATE_|\/private\/workspace/);
+    expect(jsonBytes(projected)).toBeLessThanOrEqual(8192);
+    expect(await readDispatcherUpdates(response(chunks), projected, 'requested')).toEqual(projected);
   });
   it('accepts pinned SDK page checkpoints and retains immutable stream identity across reads', async () => {
     const checkpoint = { type: 'stream-checkpoint', incarnation: 'original-stream' };
@@ -863,4 +887,106 @@ describe('Dispatcher exact-submission public Flue updates contract', () => {
     },
   );
 
+});
+
+// Synthetic protected observations qualify parsing/association/privacy only.
+// Native SDK tests own whether these source captures actually occurred.
+describe('REQ-OPERATOR-081: SDK response evidence projection', () => {
+  const hash = async (value: string) => Array.from(new Uint8Array(await crypto.subtle.digest(
+    'SHA-256', new TextEncoder().encode(value))), byte => byte.toString(16).padStart(2, '0')).join('');
+  const encode = (value: unknown) => btoa(Array.from(new TextEncoder().encode(JSON.stringify(value)),
+    byte => String.fromCharCode(byte)).join('')).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  const observation = async (sequence: number, boundary: string, attemptId = 'PRIVATE_ATTEMPT_1') => ({
+    version: 1, captureId: await hash(`projection-capture-${sequence}`), sequence, timestamp: 1_900_000_000_000 + sequence,
+    boundary, outcome: boundary === 'canonical-commit' ? 'committed' : boundary === 'settlement' ? 'completed' : 'applied',
+    code: 'none', origin: 'originating', source: { package: '@flue/runtime', boundary, baseVersion: '2.2.2',
+      patchSetDigest: 'd'.repeat(64), status: 'partial', frames: [] },
+    sdk: { rootUid: 'PRIVATE_ROOT', submissionId: 'requested', attemptId, streamIncarnation: 'PRIVATE_STREAM',
+      batchSequence: 17, producerEpoch: 5, producerSequence: 23, recordIndex: sequence,
+      recordType: boundary === 'canonical-commit' ? 'message_data_write' : boundary === 'settlement'
+        ? 'submission_settled' : 'signal', inputApplied: boundary === 'delivery',
+      settlement: boundary === 'settlement' ? 'finalized' : boundary === 'canonical-commit' ? 'canonical' : 'unknown' },
+    local: { through: sequence, dropped: 0, status: 'captured' },
+  });
+  const withHeader = (records: unknown[], events: unknown[] = [start, data, settled], dropped = 0) => {
+    const value = response([{ type: 'stream-checkpoint', incarnation: 'PRIVATE_STREAM' }, ...events]);
+    value.headers.set('x-codeflare-sdk-diagnostics', encode({ version: 1, records,
+      outbox: { through: records.length, dropped, status: dropped ? 'loss' : 'available' } }));
+    return value;
+  };
+  type Evidence = { version: number; status: string; attemptDigests: string[];
+    canonical: Array<Record<string, unknown>>; inputApplication: string; finalization: string; metadataComplete: boolean };
+  const evidence = (projection: DispatcherResultProjection): Evidence => {
+    const value = Reflect.get(projection, 'sdkEvidence');
+    expect(value).toMatchObject({ version: 1 }); // baseline fails here, not a field-access TypeError
+    return value as Evidence;
+  };
+  const unavailable = (projection: DispatcherResultProjection) => {
+    expect(evidence(projection)).toMatchObject({ status: 'unavailable', attemptDigests: [], canonical: [],
+      inputApplication: 'unavailable', finalization: 'unavailable', metadataComplete: false });
+    expect(projection).toMatchObject({ result, writes: 1, outcome: 'completed' });
+  };
+
+  it('REQ-OPERATOR-081: AC1/7 supplied SDK attempts and canonical coordinates remain distinct from update position', async () => {
+    const input = await observation(1, 'delivery');
+    const canonical = await observation(2, 'canonical-commit');
+    const finalized = await observation(3, 'settlement', 'PRIVATE_ATTEMPT_2');
+    const projected = await readDispatcherUpdates(withHeader([input, canonical, finalized]), initial(), 'requested');
+    expect(projected).toMatchObject({ result, writes: 1, outcome: 'completed', position: { batch: 1, index: 4 } });
+    const retained = evidence(projected);
+    expect(retained).toMatchObject({ status: 'observed', inputApplication: 'observed', finalization: 'observed',
+      metadataComplete: true, attemptDigests: [await hash('PRIVATE_ATTEMPT_1'), await hash('PRIVATE_ATTEMPT_2')] });
+    expect(retained.canonical).toContainEqual({ batchSequence: 17, recordIndex: 2, type: 'message_data_write',
+      recordDigest: null, attemptDigest: await hash('PRIVATE_ATTEMPT_1'), submissionDigest: await hash('requested'),
+      producerEpoch: 5, producerSequence: 23, streamIncarnationDigest: await hash('PRIVATE_STREAM') });
+    // No record identifier was supplied: coordinates cannot manufacture its digest.
+    expect(JSON.stringify(retained)).not.toMatch(/PRIVATE_|requested|message body/);
+  });
+
+  it('REQ-OPERATOR-081: AC1/7 early live settlement and reserved append cannot invent commit or operational finalization', async () => {
+    const early = await observation(1, 'settlement'); early.sdk.settlement = 'reserved';
+    const rejected = await observation(2, 'canonical-commit'); rejected.outcome = 'failed';
+    rejected.code = 'canonical-append-failed'; rejected.sdk.settlement = 'reserved';
+    const projected = await readDispatcherUpdates(withHeader([early, rejected]), initial(), 'requested');
+    expect(projected).toMatchObject({ result, writes: 1, outcome: 'completed' });
+    expect(evidence(projected)).toMatchObject({ canonical: [], finalization: 'unavailable', inputApplication: 'unavailable' });
+  });
+
+  it('REQ-OPERATOR-081: AC1/2/7 replay preserves separately sourced attempts while excluding foreign submission and stream', async () => {
+    const first = await observation(1, 'canonical-commit');
+    const second = await observation(2, 'canonical-commit', 'PRIVATE_ATTEMPT_2'); second.sdk.batchSequence = 19;
+    const foreign = await observation(3, 'canonical-commit', 'PRIVATE_FOREIGN_ATTEMPT'); foreign.sdk.submissionId = 'foreign';
+    const otherStream = await observation(4, 'canonical-commit', 'PRIVATE_OTHER_STREAM_ATTEMPT');
+    otherStream.sdk.streamIncarnation = 'PRIVATE_OTHER_STREAM';
+    const page = [first, second, foreign, otherStream];
+    const projected = await readDispatcherUpdates(withHeader(page), initial(), 'requested');
+    const retained = evidence(projected);
+    expect(retained.attemptDigests).toEqual([await hash('PRIVATE_ATTEMPT_1'), await hash('PRIVATE_ATTEMPT_2')]);
+    expect(retained.canonical.map(record => record.batchSequence)).toEqual([17, 19]);
+    expect(await readDispatcherUpdates(withHeader(page), projected, 'requested')).toEqual(projected);
+    expect(JSON.stringify(retained)).not.toMatch(/PRIVATE_|foreign/);
+  });
+
+  it.each(['absent', 'null', 'malformed', 'padding', 'overlong', 'unknown-field', 'unknown-version'])(
+    'REQ-OPERATOR-081: AC1/7 %s SDK side channel is unavailable without changing valid execution output', async fault => {
+      const page = response([start, data, settled]);
+      if (fault === 'null') page.headers.set('x-codeflare-sdk-diagnostics', encode(null));
+      if (fault === 'malformed') page.headers.set('x-codeflare-sdk-diagnostics', 'not+base64url');
+      if (fault === 'padding') page.headers.set('x-codeflare-sdk-diagnostics', encode({ version: 1, records: [],
+        outbox: { through: 0, dropped: 0, status: 'available' } }) + '=');
+      if (fault === 'overlong') page.headers.set('x-codeflare-sdk-diagnostics', 'A'.repeat(16385));
+      if (fault === 'unknown-field') page.headers.set('x-codeflare-sdk-diagnostics', encode({ version: 1, records: [],
+        outbox: { through: 0, dropped: 0, status: 'available' }, message: 'PRIVATE_HEADER_BODY' }));
+      if (fault === 'unknown-version') page.headers.set('x-codeflare-sdk-diagnostics', encode({ version: 2, records: [],
+        outbox: { through: 0, dropped: 0, status: 'available' } }));
+      unavailable(await readDispatcherUpdates(page, initial(), 'requested'));
+    });
+
+  it('REQ-OPERATOR-081: AC4/7 declared outbox loss prevents complete evidence without replacing the result', async () => {
+    const record = await observation(1, 'canonical-commit');
+    const projected = await readDispatcherUpdates(withHeader([record], [start, data, settled], 36), initial(), 'requested');
+    expect(projected).toMatchObject({ result, writes: 1, outcome: 'completed' });
+    expect(evidence(projected)).toMatchObject({ status: 'observed', metadataComplete: false });
+    expect(evidence(projected).canonical).toHaveLength(1);
+  });
 });

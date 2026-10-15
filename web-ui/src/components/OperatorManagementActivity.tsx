@@ -2,6 +2,7 @@ import { For, Show, createEffect, createSignal, onCleanup, type Component } from
 import * as api from '../api/operator-management';
 import type { OperatorActivitySummary } from '../api/operator-activities';
 import { ApiError } from '../api/fetch-helper';
+import OperatorActivityDiagnostics from './OperatorActivityDiagnostics';
 
 const working = new Set(['queued', 'running', 'waiting', 'cancel-requested', 'unknown']);
 function message(error: unknown) {
@@ -143,6 +144,7 @@ const OperatorManagementActivity: Component<{ installationId?: string; onBackToC
       <Show when={value().checkpoint != null}><h3>Progress</h3><pre class="operator-result">{JSON.stringify(value().checkpoint, null, 2)}</pre></Show>
       <Show when={value().result != null} fallback={<p>No result available.</p>}><h3>Result</h3><pre class="operator-result">{JSON.stringify(value().result, null, 2)}</pre></Show>
       <Show when={value().sessionId}><a href={`/app?session=${encodeURIComponent(value().sessionId!)}`}>Open owned session</a></Show>
+      <OperatorActivityDiagnostics activityId={value().activityId} />
     </section>}</Show>
   </>;
 };

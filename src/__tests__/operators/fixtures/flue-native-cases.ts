@@ -2,8 +2,10 @@ import { readFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { beforeEach, describe, expect, it as vitestIt, vi } from 'vitest';
 import { createFlueCaseShard } from './flue-case-shard';
+import { diagnosticsQualificationAssets, qualifyImportedSdk, qualifyWithheldSdk, type SdkQualificationAssets } from './dispatcher-sdk-qualification';
+import type { DispatcherBundle } from '../../../operators/distribution';
 import type { DispatcherPhaseContext } from '../../../operators/dispatcher-phases';
-import type { FiberObservation } from './dispatcher-composed-fixture';
+import type { FiberObservation, NativeFaultImport, NativeFaultSettlement, NativeImportOmission } from './dispatcher-composed-fixture';
 import type { DispatcherResultProjection } from '../../../operators/dispatcher-result';
 // The Node harness exercises the pure publication parser; the Worker read transport is not loaded here.
 vi.mock('../../../operators/operator-runtime-capability', () => ({ readDispatcherBody: () => {
@@ -186,6 +188,7 @@ export function registerNativeDispatcherCases(
   if (group === 'flue') describe('REQ-OPERATOR-047/048: production Activity plus pinned Flue recovery', () => {
     beforeEach(() => harness.reset(), 60_000);
     type Composed = { instance: string; fiberEvents: FiberObservation[] | null;
+      nativeSettlement?: NativeFaultSettlement | null; nativeImport?: NativeFaultImport | null; nativeOmission?: NativeImportOmission | null;
       diagnostics?: Array<{ module: string; stage?: string; outcome?: string; status?: number;
         failureClass?: string; preparationStep?: string; wireRules?: string;
         messages?: number; tools?: number | null; messageMinimum?: number; messageMaximum?: number;
@@ -352,6 +355,38 @@ export function registerNativeDispatcherCases(
       expect(response.status, JSON.stringify(body)).toBe(200);
       return body as T;
     }
+    // Supplemental nonserial work belongs to the existing ordinary case, not a
+    // new native test identity, shard, runtime, historical control or live Activity.
+    async function qualifyReleaseBrief(pinned: SdkQualificationAssets['brief']) {
+      await harness.reset();
+      const id = `release-brief-${crypto.randomUUID()}`;
+      expect(await composed(id, { action: 'start', artifact: pinned.artifact, digest: pinned.digest,
+        qualificationManifest: pinned.qualificationManifest, scenario: 'ordinary', attemptLimit: 2 }))
+        .toMatchObject({ ok: true, state: { generation: 1, status: 'running' } });
+      const result = await observed(id, value => value.detail.executionStatus === 'completed');
+      expect(result.external.phases).toEqual([]);
+      expect(result.external.comments).toEqual([]);
+      expect(result.external.sourceRequests).toEqual([{ method: 'GET', url: 'https://api.github.com/repos/authorized/project/releases/latest' }]);
+      const collected = await composed<{ ok: true; detail: { result: unknown; checkpoint: unknown } }>(id, { action: 'collect' });
+      expect(collected).toMatchObject({ ok: true, detail: { result: {
+        repository: 'authorized/project', tag: 'v2.4.0', summary: 'This release adds CSV export.', quote: 'Added CSV export',
+        source: 'https://api.github.com/repos/authorized/project/releases/latest',
+      } } });
+      const retained = await qualifyImportedSdk(path => harness.fetch(path, { signal: AbortSignal.timeout(20_000) }),
+        id, pinned.digest, [], pinned.sdkProvenance);
+      expect(await composed(id, { action: 'evict' })).toEqual({ evicted: true });
+      const reconstructed = await qualifyImportedSdk(path => harness.fetch(path, { signal: AbortSignal.timeout(20_000) }),
+        id, pinned.digest, [], pinned.sdkProvenance);
+      expect(reconstructed.value.binding).toEqual(retained.value.binding);
+      expect(reconstructed.value.sdkBinding).toEqual(retained.value.sdkBinding);
+      expect(reconstructed.records).toEqual(expect.arrayContaining(retained.records));
+      expect(await composed(id, { action: 'collect' })).toMatchObject({ ok: true,
+        detail: { result: collected.detail.result, checkpoint: collected.detail.checkpoint } });
+      const after = await composed<Composed>(id, { action: 'observe' });
+      expect(after.instance).not.toBe(result.instance);
+      expect(after.external).toEqual(result.external);
+      expect(after.detail.sdkCleanupReleased).toBe(true);
+    }
     function reportObservation(value: Composed) {
       const closed = JSON.stringify({ executionStatus: value.detail.executionStatus,
         collectionStatus: value.detail.collectionStatus, firstAppend: value.external.firstAppend ?? null,
@@ -438,51 +473,130 @@ export function registerNativeDispatcherCases(
 
     it.each(['ordinary', 'incomplete', 'native-error', 'duplicate', 'precommit-reset', 'committed-reset'] as const)(
       'REQ-OPERATOR-048: composed %s inference reaches a real collected assessment with one repository effect', async scenario => {
-        const pinned = await pinnedArtifact(false, false, true);
-        const id = `composed-${crypto.randomUUID()}`;
-        const admission = await composed(id, { action: 'start', ...pinned, scenario, attemptLimit: 2 });
-        expect(admission, JSON.stringify(admission)).toMatchObject({ ok: true, state: { generation: 1, status: 'running' } });
-        let originalInstance: string | undefined;
-        if (scenario.endsWith('-reset')) {
-          const held = await observed(id, value => value.external.held);
-          originalInstance = held.instance;
-          expect(held.external.inference).toHaveLength(1);
-          expect(await composed(id, { action: 'evict' })).toEqual({ evicted: true });
-          expect(await composed(id, { action: 'release' })).toEqual({ released: true });
+        const original = await pinnedArtifact(false, false, true);
+        async function run(pinned: { artifact: NativeArtifact | DispatcherBundle; digest: string; qualificationManifest?: string; diagnosticCandidate?: boolean },
+          qualification?: SdkQualificationAssets['native'], withholdSdkImports = false) {
+          const id = `composed-${crypto.randomUUID()}`;
+          const admission = await composed(id, { action: 'start', ...pinned, scenario, attemptLimit: 2,
+            ...(withholdSdkImports ? { withholdSdkImports: true } : {}) });
+          expect(admission, JSON.stringify(admission)).toMatchObject({ ok: true, state: { generation: 1, status: 'running' } });
+          let originalInstance: string | undefined;
+          if (qualification) {
+            // The existing candidate discovery provider barrier owns arming.
+            // No SDK artifact edit, synthetic capture or new native identity.
+            const held = await observed(id, value => value.external.held);
+            expect(held.external.phases.map(row => row.context.phase)).toEqual([{ kind: 'discovery' }]);
+            expect(await composed(id, { action: 'arm-native-faults' })).toEqual({ armed: true });
+            if (scenario === 'ordinary') expect(await composed(id, { action: 'release' })).toEqual({ released: true });
+          }
+          if (scenario.endsWith('-reset')) {
+            const held = await observed(id, value => value.external.held);
+            originalInstance = held.instance;
+            expect(held.external.inference).toHaveLength(1);
+            expect(await composed(id, { action: 'evict' })).toEqual({ evicted: true });
+            expect(await composed(id, { action: 'release' })).toEqual({ released: true });
+            // Candidate replacement rejection disarms only on its genuine
+            // local recovery catch. Existing SDK drains/wakes own the next
+            // pass; do not race an already-started replacement with eviction.
+          }
+          const result = await observed(id, value => value.detail.executionStatus === 'completed'
+            && (scenario !== 'ordinary' || fiberEvidenceSettled(value)));
+          if (scenario === 'ordinary') assertFiberEvidence(result);
+          if (originalInstance) expect(result.instance).not.toBe(originalInstance);
+          const firstTurn = result.external.inference.filter(item => item.turn === 0);
+          const recovered = ['incomplete', 'native-error', 'precommit-reset'].includes(scenario);
+          expect(firstTurn).toHaveLength(recovered ? 2 : 1);
+          expect(new Set(firstTurn.map(item => item.inputDigest)).size).toBe(1);
+          expect(result.external.comments).toEqual([expect.objectContaining({ body: 'Migration compatibility remains unverified. Source: https://docs.example.test/migration' })]);
+          expect(result.external.sourceRequests.filter(item => item.method !== 'GET')).toEqual([
+            { method: 'POST', url: 'https://api.github.com/repos/authorized/project/issues/17/comments' },
+          ]);
+          expect(result.external.budget).toEqual({ operationCount: result.external.inference.length + result.external.sourceRequests.length, operationLimit: 1024 });
+          if (scenario === 'duplicate') {
+            expect(result.external.duplicates).toEqual([{ statuses: [200, 200], digests: [expect.any(String), expect.any(String)] }]);
+            expect(new Set(result.external.duplicates[0].digests).size).toBe(1);
+          }
+          assertSerialPhases(result, [{ pullRequest: 17, headSha: 'a'.repeat(40) }]);
+          const collected = await composed<{ ok: true; detail: { result: unknown; checkpoint: unknown } }>(id, { action: 'collect' });
+          expect(collected).toMatchObject({ ok: true, detail: { executionStatus: 'completed', result: {
+            repository: 'authorized/project', results: [{ pullRequest: 17, headSha: 'a'.repeat(40), decision: 'DO_NOT_MERGE', outcome: 'NOT_MERGED' }],
+          } } });
+          expect(await composed(id, { action: 'collect' })).toMatchObject({ ok: true, detail: {
+            result: collected.detail.result, checkpoint: collected.detail.checkpoint,
+          } });
+          const after = await composed<Composed>(id, { action: 'observe' });
+          expect(after.external).toEqual(result.external);
+          expect(after.detail.sdkCleanupReleased).toBe(true); // Bookkeeping release, not physical-provider cleanup proof.
+          if (scenario === 'ordinary') {
+            assertFiberEvidence(after);
+            expect(after.fiberEvents).toEqual(result.fiberEvents);
+          }
+          if (qualification && withholdSdkImports) {
+            const read = (path: string) => harness.fetch(path, { signal: AbortSignal.timeout(20_000) });
+            const submissions = result.external.phases.map(row => row.context.submissionId);
+            expect(after.nativeImport, 'Unobserved source counts are unavailable, not zero-loss evidence').toBeNull();
+            const retained = await qualifyWithheldSdk(read, id, pinned.digest, submissions, qualification.sdkProvenance,
+              result.nativeOmission ?? null);
+            expect(await composed(id, { action: 'evict' })).toEqual({ evicted: true });
+            const owner = await composed<Composed>(id, { action: 'observe' });
+            const reconstructed = await qualifyWithheldSdk(read, id, pinned.digest, submissions, qualification.sdkProvenance,
+              owner.nativeOmission ?? null);
+            expect(reconstructed.value.binding).toEqual(retained.value.binding);
+            expect(reconstructed.value.sdkBinding).toEqual(retained.value.sdkBinding);
+            expect(reconstructed.value.fence).toEqual(retained.value.fence);
+            expect(reconstructed.value.health).toEqual(retained.value.health);
+            expect(reconstructed.records).toEqual(expect.arrayContaining(retained.records));
+            expect(owner.instance).not.toBe(after.instance);
+            expect(owner.nativeOmission).toEqual(result.nativeOmission);
+            expect(owner.nativeImport).toBeNull();
+            expect(owner.external).toEqual(after.external);
+            expect(owner.detail.result).toEqual(after.detail.result);
+            expect(owner.detail.sdkCleanupReleased).toBe(true);
+            expect(await composed(id, { action: 'collect' })).toMatchObject({ ok: true, detail: {
+              result: collected.detail.result, checkpoint: collected.detail.checkpoint,
+            } });
+          } else if (qualification) {
+            const read = (path: string) => harness.fetch(path, { signal: AbortSignal.timeout(20_000) });
+            const submissions = result.external.phases.map(row => row.context.submissionId);
+            const faults = { scenario: scenario as 'ordinary' | 'precommit-reset', settlement: result.nativeSettlement ?? null,
+              importWindow: after.nativeImport ?? null };
+            const retained = await qualifyImportedSdk(read, id, pinned.digest, submissions, qualification.sdkProvenance,
+              scenario === 'precommit-reset', faults);
+            expect(await composed(id, { action: 'evict' })).toEqual({ evicted: true });
+            const reconstructedObservation = await composed<Composed>(id, { action: 'observe' });
+            const reconstructed = await qualifyImportedSdk(read, id, pinned.digest, submissions, qualification.sdkProvenance,
+              scenario === 'precommit-reset', { ...faults, importWindow: reconstructedObservation.nativeImport ?? null });
+            expect(reconstructed.value.binding).toEqual(retained.value.binding);
+            expect(reconstructed.value.sdkBinding).toEqual(retained.value.sdkBinding);
+            expect(reconstructed.records).toEqual(expect.arrayContaining(retained.records));
+            const owner = await composed<Composed>(id, { action: 'observe' });
+            expect(owner.instance).not.toBe(after.instance);
+            expect(owner.external).toEqual(after.external); // No replay/effect from diagnostics or reconstruction.
+            expect(owner.nativeSettlement).toEqual(result.nativeSettlement);
+            expect(owner.detail.result).toEqual(after.detail.result);
+            expect(owner.detail.sdkCleanupReleased).toBe(true);
+          }
+          return { result: collected.detail.result, checkpoint: collected.detail.checkpoint,
+            comments: after.external.comments, sourceRequests: after.external.sourceRequests,
+            inferenceCount: after.external.inference.length, sdkCleanupReleased: after.detail.sdkCleanupReleased };
         }
-        const result = await observed(id, value => value.detail.executionStatus === 'completed'
-          && (scenario !== 'ordinary' || fiberEvidenceSettled(value)));
-        if (scenario === 'ordinary') assertFiberEvidence(result);
-        if (originalInstance) expect(result.instance).not.toBe(originalInstance);
-        const firstTurn = result.external.inference.filter(item => item.turn === 0);
-        const recovered = ['incomplete', 'native-error', 'precommit-reset'].includes(scenario);
-        expect(firstTurn).toHaveLength(recovered ? 2 : 1);
-        expect(new Set(firstTurn.map(item => item.inputDigest)).size).toBe(1);
-        expect(result.external.comments).toEqual([expect.objectContaining({ body: 'Migration compatibility remains unverified. Source: https://docs.example.test/migration' })]);
-        expect(result.external.sourceRequests.filter(item => item.method !== 'GET')).toEqual([
-          { method: 'POST', url: 'https://api.github.com/repos/authorized/project/issues/17/comments' },
-        ]);
-        expect(result.external.budget).toEqual({ operationCount: result.external.inference.length + result.external.sourceRequests.length, operationLimit: 1024 });
-        if (scenario === 'duplicate') {
-          expect(result.external.duplicates).toEqual([{ statuses: [200, 200], digests: [expect.any(String), expect.any(String)] }]);
-          expect(new Set(result.external.duplicates[0].digests).size).toBe(1);
+        await run(original); // Always the immutable official v24 control, even with candidate selectors present.
+        if (scenario === 'ordinary') await runTargetIsolation(original);
+        if (scenario === 'ordinary' || scenario === 'precommit-reset') {
+          const assets = await diagnosticsQualificationAssets();
+          if (assets) {
+            await harness.reset();
+            const candidate = { artifact: assets.native.artifact, digest: assets.native.digest,
+              qualificationManifest: assets.native.qualificationManifest, diagnosticCandidate: true };
+            const positive = await run(candidate, assets.native);
+            if (scenario === 'ordinary') {
+              await harness.reset();
+              const withheld = await run(candidate, assets.native, true);
+              expect(withheld, 'Withheld SDK diagnostics cannot change collection, effects, inference work or release').toEqual(positive);
+              await qualifyReleaseBrief(assets.brief);
+            }
+          }
         }
-        assertSerialPhases(result, [{ pullRequest: 17, headSha: 'a'.repeat(40) }]);
-        const collected = await composed<{ ok: true; detail: { result: unknown; checkpoint: unknown } }>(id, { action: 'collect' });
-        expect(collected).toMatchObject({ ok: true, detail: { executionStatus: 'completed', result: {
-          repository: 'authorized/project', results: [{ pullRequest: 17, headSha: 'a'.repeat(40), decision: 'DO_NOT_MERGE', outcome: 'NOT_MERGED' }],
-        } } });
-        expect(await composed(id, { action: 'collect' })).toMatchObject({ ok: true, detail: {
-          result: collected.detail.result, checkpoint: collected.detail.checkpoint,
-        } });
-        const after = await composed<Composed>(id, { action: 'observe' });
-        expect(after.external).toEqual(result.external);
-        expect(after.detail.sdkCleanupReleased).toBe(true); // Bookkeeping release, not physical-provider cleanup proof.
-        if (scenario === 'ordinary') {
-          assertFiberEvidence(after);
-          expect(after.fiberEvents).toEqual(result.fiberEvents);
-        }
-        if (scenario === 'ordinary') await runTargetIsolation(pinned);
       }, 90_000);
 
     it.each([1, 2])('REQ-OPERATOR-048: composed persistent interruption exhausts the configured %i attempts without an effect or collection', async attemptLimit => {

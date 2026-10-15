@@ -15,6 +15,9 @@ import { PI_WIRE_CANARY_VERSION } from '../../../lib/reasoning-discovery';
 import { setLogLevel } from '../../../lib/logger';
 import type { DispatcherPhaseContext, DispatcherPhase } from '../../../operators/dispatcher-phases';
 import intent4Manifest from './dispatcher-v024-native.manifest.json';
+import { fixtureBrowserAccessUpstream, fixtureOwnerDiagnostics } from './dispatcher-owner-diagnostics';
+import type { OperatorBrowserSummary } from '../../../operators/browser-activity';
+import { readSdkProvenance, runtimeSchema } from '../../../operators/dispatcher-diagnostics-wire';
 
 const intent4Source = '987af47fb295147d445436b428a410b90cb09be0';
 
@@ -88,6 +91,60 @@ export const observeBoundary = (observationId: string | undefined,
 };
 export type CanonicalAppendObservation = { category: 'canonical-append-oversized' | 'canonical-append-other'; largestRecordType?: 'state_write' };
 type SdkObservation = { stage: 'sdk-submission-running' | 'sdk-submission-exhausted'; submissionDigest: string; attemptCount: number; maxAttempts: number };
+export type NativeFaultSettlement = {
+  submissionDigest: string; attemptDigest: string; obligationDigest: string;
+  batchSequence: number; recordIndex: number; producerEpoch: number; producerSequence: number;
+  canonicalSequence: number; failureSequence: number; finalizedSequence: number;
+};
+export type NativeFaultImport = {
+  generation: number; events: number; indexSdkImport: string; through: number; localThrough: number;
+  dropped: number; pendingSequences: number[] | null; gaps: string[]; armedThrough: number;
+};
+export type NativeImportOmission = {
+  captureDigest: string; submissionDigest: string; attemptDigest: string; rootDigest: string; patchSetDigest: string;
+  failureSequence: number; canonicalSequence: number; recoveredSequence: number;
+  batchSequence: number; recordIndex: number; producerEpoch: number; producerSequence: number;
+  localThrough: number; localDropped: number; imported: false;
+};
+type NativeFaultArm = { scenario: 'ordinary' | 'precommit-reset'; submissionId: string; prefix: string; watermark: number; withholdSdkImports?: boolean };
+type FixtureSqlFacet = { sql(strings: string[], ...values: unknown[]): Promise<Record<string, unknown>[]> };
+const sqlIdentifier = (name: string) => {
+  if (!/^[A-Za-z_][A-Za-z0-9_]{0,254}$/.test(name)) throw new Error('Fixture SDK table name unavailable');
+  return `"${name}"`;
+};
+const sqlLiteral = (value: string) => `'${value.replaceAll("'", "''")}'`;
+/** Decorate collaborators only: native accessors and callable methods retain their
+ * original receiver, including SQL, facet initialization, alarms and abort. */
+function delegateNative<T extends object>(native: T,
+  decorate: (key: PropertyKey, invoke: (...args: unknown[]) => unknown) => (...args: unknown[]) => unknown): T {
+  const methods = new Map<PropertyKey, { original: unknown; delegated: (...args: unknown[]) => unknown }>();
+  return new Proxy(native, { get(target, key) {
+    const original = Reflect.get(target, key, target);
+    if (typeof original !== 'function') return original;
+    let method = methods.get(key);
+    if (!method || method.original !== original) {
+      const descriptor = Reflect.getOwnPropertyDescriptor(target, key);
+      if (descriptor && !descriptor.configurable && 'writable' in descriptor && !descriptor.writable) {
+        throw new Error('Native facet method cannot be safely decorated');
+      }
+      method = { original, delegated: decorate(key, (...args) => Reflect.apply(original, target, args)) };
+      methods.set(key, method);
+    }
+    return method.delegated;
+  } });
+}
+function withoutSdkHeader(response: Response): Response {
+  if (!response.headers.has('x-codeflare-sdk-diagnostics')) return response;
+  try {
+    response.headers.delete('x-codeflare-sdk-diagnostics');
+    return response; // Preserve genuine response identity whenever mutable.
+  } catch {
+    const headers = new Headers(response.headers);
+    headers.delete('x-codeflare-sdk-diagnostics');
+    // Transfer the untouched stream, never buffer/clone/parse execution bytes.
+    return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
+  }
+}
 export type FiberObservation = {
   type: 'fiber:run:started' | 'fiber:run:completed' | 'fiber:run:failed' | 'fiber:run:interrupted';
   fiberDigest: string;
@@ -228,9 +285,16 @@ const externalFetch = globalThis.fetch;
 // Synthetic Access upstream only. Production identity parsing, subject/email/grant checks remain real.
 globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
   const request = new Request(input, init);
-  if (request.url === `${issuer}/cdn-cgi/access/get-identity`) {
-    return identityService && request.redirect === 'manual' && request.headers.get('cookie') === `CF_Authorization=${accessJwt}`
-      ? identityService().identity() : Promise.resolve(new Response(null, { status: 401 }));
+  if (request.url === `${issuer}/cdn-cgi/access/certs` || request.url === `${issuer}/cdn-cgi/access/get-identity`) {
+    return (async () => {
+      const browser = await fixtureBrowserAccessUpstream(request);
+      if (browser) return browser;
+      if (request.url === `${issuer}/cdn-cgi/access/get-identity`) {
+        return identityService && request.redirect === 'manual' && request.headers.get('cookie') === `CF_Authorization=${accessJwt}`
+          ? identityService().identity() : new Response(null, { status: 401 });
+      }
+      return externalFetch(input, init);
+    })();
   }
   return externalFetch(input, init);
 }) as typeof fetch;
@@ -238,17 +302,37 @@ globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
 /** External service owns fault barriers; evicting the Activity does not erase paid-attempt observations. */
 export class RecoveryServices extends DurableObject<FixtureEnv> {
   private releaseBarrier?: () => void;
-  async configure(artifact: DispatcherBundle, digest: string, scenario: RecoveryScenario, attemptLimit: number, submissionAttemptLimit?: number, activityId?: string) {
+  async configure(artifact: DispatcherBundle, digest: string, scenario: RecoveryScenario, attemptLimit: number, submissionAttemptLimit?: number, activityId?: string, qualificationManifest?: string, diagnosticCandidate = false, withholdSdkImports = false) {
     const bytes = new TextEncoder().encode(JSON.stringify(artifact));
     await parseDispatcherBundle(bytes, digest);
     for (let offset = 0; offset < bytes.length; offset += 48 * 1024) await this.ctx.storage.put(`bundle:${offset}`, bytes.slice(offset, offset + 48 * 1024));
     await this.ctx.storage.put({ bundleSize: bytes.length, scenario, attemptLimit, revoked: false,
       inference: [], comments: [], sourceRequests: [], sourceDeliveries: [], isolationFaults: [], duplicates: [], firstAppend: null, sdkSubmissions: [], fiberEvents: null, activityId: activityId ?? null });
-    const intentVersion = artifact.sourceCommit === intent4Source ? '4' : '3';
-    // Only this reviewed package revision uses the new host contract. Older
-    // packages and the separate native fixture-mode path keep their old admission.
-    const manifestJson = intentVersion === '4' ? JSON.stringify({ ...intent4Manifest,
-      artifact: { ...intent4Manifest.artifact, sha256: digest } }) : '{}';
+    const releaseBrief = qualificationManifest !== undefined && !diagnosticCandidate;
+    if (diagnosticCandidate && (!qualificationManifest || !readSdkProvenance(artifact)
+      || artifact.versions.runtime !== '2.2.2' || artifact.versions.vitePlugin !== '2.2.2'
+      || artifact.versions.agents !== '0.20.1')) {
+      throw new Error('Diagnostic candidate requires its verified manifest and exact derived intent4 SDK');
+    }
+    const intentVersion = releaseBrief ? '1' : diagnosticCandidate || artifact.sourceCommit === intent4Source ? '4' : '3';
+    if (qualificationManifest !== undefined) {
+      const manifest = JSON.parse(qualificationManifest);
+      if (manifest.intentVersion !== intentVersion || manifest.profile !== 'dispatcher'
+        || manifest.artifact?.sha256 !== digest || releaseBrief && manifest.id !== 'release-brief-dispatcher-ci') {
+        throw new Error('CI qualification manifest mismatch');
+      }
+    }
+    if (diagnosticCandidate && scenario !== 'ordinary' && scenario !== 'precommit-reset') {
+      throw new Error('Native faults are limited to the two approved candidate supplements');
+    }
+    if (withholdSdkImports && (!diagnosticCandidate || scenario !== 'ordinary')) {
+      throw new Error('SDK import withholding requires the ordinary native candidate');
+    }
+    await this.ctx.storage.put({ releaseBrief, diagnosticCandidate, withholdSdkImports });
+    // Official v24 stays immutable. An explicitly CI-pinned diagnostic candidate
+    // retains intent4; historical artifacts keep their original admission.
+    const manifestJson = qualificationManifest ?? (intentVersion === '4' ? JSON.stringify({ ...intent4Manifest,
+      artifact: { ...intent4Manifest.artifact, sha256: digest } }) : '{}');
     await this.ctx.storage.put({ intentVersion, phases: [], ...(intentVersion === '4' ? { evidence: [], batches: [] } : {}) });
     const policy = { capabilities: ['fetch', 'inference'], resourceProfileId: null };
     const grants = { users: [email], groups: [] };
@@ -262,7 +346,7 @@ export class RecoveryServices extends DurableObject<FixtureEnv> {
         managers: grants, invokers: grants, policy: { ...policy, inferenceAttemptLimit: attemptLimit, ...(submissionAttemptLimit === undefined ? {} : { submissionAttemptLimit }) },
         source: { kind: 'github-release', repositoryUrl: 'https://github.com/example/dispatcher', repositoryId: 1, credentialConfigured: true, approvedWorkflow: null } },
       release: { id: 'composed-release', operatorId: 'composed-dispatcher', githubReleaseId: 1, sourceCommit: artifact.sourceCommit,
-        manifestDigest: intentVersion === '4' ? await hash(manifestJson) : 'b'.repeat(64), bundleDigest: digest, interfaceVersion: 1, approved: true,
+        manifestDigest: releaseBrief || intentVersion === '4' ? await hash(manifestJson) : 'b'.repeat(64), bundleDigest: digest, interfaceVersion: 1, approved: true,
         repositoryId: 1, sourceRevision: 1, coreVersion: '1', intentVersion, requestedCapabilities: ['fetch', 'inference'], assets: [],
         provenance: { workflowId: 1, workflowRef: 'refs/heads/develop', runId: 1, runAttempt: 1, artifactId: 1, artifactDigest: 'c'.repeat(64) } },
     };
@@ -276,6 +360,24 @@ export class RecoveryServices extends DurableObject<FixtureEnv> {
         scope: 'single-model', checkedAt: new Date().toISOString() } } },
       fallbackRouting: { enabled: true, routes: ['approved'], defaultRoute: 'approved', reasoning: 'off' } }));
     return { ok: true };
+  }
+  async sdkImportsWithheld(activityId: string, generation: number) {
+    return generation === 1 && activityId === await this.ctx.storage.get('activityId')
+      && await this.ctx.storage.get('withholdSdkImports') === true;
+  }
+  async nativeQualification() {
+    if (!await this.ctx.storage.get('diagnosticCandidate')) return null;
+    const scenario = await this.ctx.storage.get<RecoveryScenario>('scenario');
+    if (scenario !== 'ordinary' && scenario !== 'precommit-reset') throw new Error('Native fault scenario denied');
+    return { scenario, phases: await this.ctx.storage.get<RetainedObservation['phases']>('phases') ?? [],
+      withholdSdkImports: await this.ctx.storage.get('withholdSdkImports') === true };
+  }
+  async holdNativeQualification(phase: DispatcherPhase) {
+    const candidate = await this.nativeQualification();
+    if (candidate?.scenario !== 'ordinary' || phase.kind !== 'discovery'
+      || await this.ctx.storage.get('nativeBarrier')) return;
+    await this.ctx.storage.put('nativeBarrier', true);
+    await this.hold();
   }
   async changeSubmissionPolicy(submissionAttemptLimit: number) {
     const selection = (await this.ctx.storage.get<ManagementExecutionSelection>('selection'))!;
@@ -291,7 +393,13 @@ export class RecoveryServices extends DurableObject<FixtureEnv> {
   async admitManagement(request: ManagementAdmissionRequest) {
     return { ok: true, value: { ...request, admittedAt: Date.now(), selection: (await this.ctx.storage.get<ManagementExecutionSelection>('selection'))! } };
   }
-  async upsertOwnedActivity(_owner: string, _summary: unknown) { /* Projection is read from the real owner in these cases. */ }
+  async upsertOwnedActivity(owner: string, summary: OperatorBrowserSummary) {
+    await this.ctx.storage.put(`fixture:owner:${summary.activityId}`, { owner, summary });
+  }
+  async getOwnedActivity(owner: string, activityId: string) {
+    const row = await this.ctx.storage.get<{ owner: string; summary: OperatorBrowserSummary }>(`fixture:owner:${activityId}`);
+    return row?.owner === owner ? row.summary : null;
+  }
   async getManagementBundle(_digest: string) {
     const size = (await this.ctx.storage.get<number>('bundleSize'))!;
     const bytes = new Uint8Array(size);
@@ -369,6 +477,16 @@ export class RecoveryServices extends DurableObject<FixtureEnv> {
     const body = await request.text();
     const input = JSON.parse(body) as { messages: Array<{ tool_calls?: Array<{ function?: { name?: string } }> }> };
     const scenario = await this.ctx.storage.get('scenario');
+    if (await this.ctx.storage.get('releaseBrief')) {
+      const names = input.messages.flatMap(message => message.tool_calls?.map(tool => tool.function?.name) ?? []);
+      const turn = names.includes('read_release') ? 1 : 0;
+      await this.append('inference', { inputDigest: await hash(body), turn });
+      const name = turn ? 'finish_release' : 'read_release';
+      const args = turn ? { summary: 'This release adds CSV export.', quote: 'Added CSV export' } : {};
+      return wire([{ choices: [{ index: 0, delta: { tool_calls: [{ index: 0, id: `release-${turn}`, type: 'function',
+        function: { name, arguments: JSON.stringify(args) } }] }, finish_reason: null }] },
+      { choices: [{ index: 0, delta: {}, finish_reason: 'tool_calls' }] }]);
+    }
     if (await this.ctx.storage.get('intentVersion') === '4') return this.phaseInference(input, body, scenario);
     if (scenario === 'large-evidence-comment-batch' || scenario === 'thirty-target-original-evidence-recovery') {
       return this.largeInference(input, body, scenario === 'thirty-target-original-evidence-recovery');
@@ -495,6 +613,7 @@ export class RecoveryServices extends DurableObject<FixtureEnv> {
     const turn = !large ? ['discover_renovate', 'research_renovate', 'decide_renovate', 'seal_dispatcher',
       'comment_renovate', 'defer_renovate', 'finish_dispatcher'].indexOf(tool) : calls.length;
     await this.append('inference', { inputDigest: await hash(body), turn, phase });
+    await this.holdNativeQualification(phase);
     if (await this.claimFault('precommit-reset')) await this.hold();
     if (await this.claimFault('incomplete') || scenario === 'persistent') return wire([{ choices: [{ delta: {}, finish_reason: null }] }]);
     if (await this.claimFault('native-error')) return wire([{ error: { code: 'NATIVE_BEDROCK_STREAM_ERROR' } }]);
@@ -567,6 +686,10 @@ export class RecoveryServices extends DurableObject<FixtureEnv> {
   }
   async source(request: Request): Promise<Response> {
     await this.append('sourceRequests', { url: request.url, method: request.method });
+    if (await this.ctx.storage.get('releaseBrief')) return request.method === 'GET'
+      && request.url === `https://api.github.com/repos/${repository}/releases/latest`
+      ? Response.json({ tag_name: 'v2.4.0', body: 'Added CSV export', draft: false, prerelease: false })
+      : new Response(null, { status: 403 });
     const bot = { id: 29139614, login: 'renovate[bot]', type: 'Bot' };
     const scenario = await this.ctx.storage.get('scenario');
     const recovery = scenario === 'thirty-target-original-evidence-recovery';
@@ -642,7 +765,8 @@ export class OperatorActivity extends ProductionActivity {
     } as unknown as Env);
     this.fixtureEnv = env;
   }
-  async startComposed(id: string, artifact: DispatcherBundle, digest: string) {
+  async startComposed(id: string, artifact: DispatcherBundle, digest: string, withholdSdkImports = false) {
+    if (withholdSdkImports) this.#withholdNativeHeaders();
     diagnosticActivity = id; diagnostics.length = 0; setLogLevel('info');
     const now = Math.floor(Date.now() / 1000);
     const human = { subject: 'fixture-owner', email, issuer, audiences: ['fixture'], issuedAt: now - 1, expiresAt: now + 180 };
@@ -662,7 +786,234 @@ export class OperatorActivity extends ProductionActivity {
     return { ...result, diagnostics: [...diagnostics] };
 
   }
+  #withholdNativeHeaders() {
+    const context = this.ctx as unknown as { facets: object };
+    const children = new WeakMap<object, object>();
+    const facets = delegateNative(context.facets, (key, invoke) => key !== 'get' ? invoke : (...args) => {
+      const child = invoke(...args);
+      if (args[0] !== 'dispatcher') return child;
+      if (!child || typeof child !== 'object') throw new Error('Native facet collaborator unavailable');
+      let decorated = children.get(child);
+      if (!decorated) {
+        decorated = delegateNative(child, (method, call) => method !== 'fetch' ? call : async (...values) => {
+          const response = await call(...values);
+          if (!(response instanceof Response)) throw new Error('Native facet response unavailable');
+          return withoutSdkHeader(response);
+        });
+        children.set(child, decorated);
+      }
+      return decorated;
+    });
+    try { Object.defineProperty(context, 'facets', { configurable: true, value: facets }); }
+    catch { throw new Error('Native context facets cannot be safely decorated'); }
+  }
+  // Only an already-live execution facet may be used here. Agents0.20.1's
+  // base sql(strings, ...values) executes in that facet's isolated SQLite scope.
+  // A cache miss fails closed: this fixture never constructs a diagnostic child.
+  #liveNativeSql(): FixtureSqlFacet {
+    const context = this.ctx as unknown as { facets: { get(name: string, init: () => never): FixtureSqlFacet } };
+    return context.facets.get('dispatcher', () => { throw new Error('Fixture live SDK storage unavailable'); });
+  }
+  #nativeQuery(child: FixtureSqlFacet, query: string, ...values: unknown[]) {
+    return child.sql(query.split('?'), ...values);
+  }
+  async armNativeFaults() {
+    const candidate = await services(this.fixtureEnv).nativeQualification();
+    if (!candidate || candidate.phases.length !== 1 || candidate.phases[0].context.phase.kind !== 'discovery'
+      || !await this.dispatcherGenerationCurrent(1) || await this.ctx.storage.get('fixture:native-fault')) {
+      throw new Error('Native candidate fault arming denied');
+    }
+    const submissionId = candidate.phases[0].context.submissionId;
+    if (!submissionId || submissionId.length > 512 || submissionId.includes('?')) throw new Error('Fixture submission unavailable');
+    const child = this.#liveNativeSql();
+    const query = (text: string, ...values: unknown[]) => this.#nativeQuery(child, text, ...values);
+    const names = await query("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name LIMIT 129");
+    if (names.length > 128) throw new Error('Fixture SDK schema bound exceeded');
+    const tables = ['flue_agent_submissions', 'flue_conversation_stream_batches',
+      'codeflare_sdk_diagnostic_outbox', 'codeflare_sdk_diagnostic_index'] as const;
+    // Normally these are logical unprefixed names (isolated facet storage).
+    // If the runtime exposes physical names, accept only a single validated,
+    // common prefix with ALL pinned tables and the actual selected submission.
+    const prefixes: string[] = [];
+    for (const row of names) {
+      if (typeof row.name !== 'string' || !row.name.endsWith(tables[0])) continue;
+      sqlIdentifier(row.name);
+      const prefix = row.name.slice(0, -tables[0].length);
+      if (prefix && !/^[A-Za-z_][A-Za-z0-9_]*_$/.test(prefix)) continue;
+      if (!tables.every(table => names.some(item => item.name === prefix + table))) continue;
+      const selected = await query(`SELECT attempt_id FROM ${sqlIdentifier(prefix + tables[0])}
+        WHERE submission_id = ? AND status = 'running' AND attempt_id IS NOT NULL`, submissionId);
+      if (selected.length === 1 && typeof selected[0].attempt_id === 'string') prefixes.push(prefix);
+    }
+    if (prefixes.length !== 1) throw new Error('Fixture shared SDK tables unavailable or ambiguous');
+    const prefix = prefixes[0];
+    const required = [['submission_id', 'attempt_id', 'status', 'settlement_record_id', 'settlement_record', 'settled_at'],
+      ['path', 'seq', 'data', 'submission_id', 'attempt_id', 'producer_epoch', 'producer_sequence'],
+      ['sequence', 'envelope', 'imported'], ['id', 'through_sequence']] as const;
+    for (const [index, table] of tables.entries()) {
+      const columns = await query(`PRAGMA table_info(${sqlIdentifier(prefix + table)})`);
+      if (!required[index].every(column => columns.some(row => row.name === column))) {
+        throw new Error('Fixture pinned SDK columns unavailable');
+      }
+    }
+    const outbox = sqlIdentifier(prefix + tables[2]);
+    const index = await query(`SELECT through_sequence FROM ${sqlIdentifier(prefix + tables[3])} WHERE id = 1`);
+    const watermark = index[0]?.through_sequence;
+    const actual = await query(`SELECT sequence FROM ${outbox} WHERE json_extract(envelope, '$.sdk.submissionId') = ?
+      AND json_extract(envelope, '$.boundary') = 'submission' AND json_extract(envelope, '$.outcome') = 'started'`, submissionId);
+    if (index.length !== 1 || !Number.isSafeInteger(watermark) || (watermark as number) < 1 || !actual.length) {
+      throw new Error('Fixture actual source outbox unavailable');
+    }
+    const selected = sqlLiteral(submissionId);
+    const captured = (boundary: string, code: string) => `EXISTS (SELECT 1 FROM ${outbox}
+      WHERE sequence > ${watermark} AND json_extract(envelope, '$.sdk.submissionId') = ${selected}
+      AND json_extract(envelope, '$.boundary') = '${boundary}' AND json_extract(envelope, '$.outcome') = 'failed'
+      AND json_extract(envelope, '$.code') = '${code}')`;
+    // RAISE(ABORT) rolls back the SDK transaction. There is deliberately no
+    // failure counter in it: only genuine synchronous capture OUTSIDE that
+    // failed transaction disarms each trigger, before the SDK's normal retry.
+    if (candidate.scenario === 'ordinary') {
+      await query(`CREATE TRIGGER codeflare_fixture_reject_append BEFORE INSERT ON ${sqlIdentifier(prefix + tables[1])}
+        WHEN NEW.submission_id = ${selected} AND NOT ${captured('canonical-commit', 'canonical-append-failed')}
+        BEGIN SELECT RAISE(ABORT, 'Fixture canonical SQLite rejection'); END`);
+      if (!candidate.withholdSdkImports) {
+        await query(`CREATE TRIGGER codeflare_fixture_reject_finalization BEFORE UPDATE OF status ON ${sqlIdentifier(prefix + tables[0])}
+          WHEN OLD.submission_id = ${selected} AND OLD.status = 'terminalizing' AND NEW.status = 'settled'
+          AND NOT ${captured('submission', 'submission-failed')}
+          BEGIN SELECT RAISE(ABORT, 'Fixture operational finalization rejection'); END`);
+        await this.ctx.storage.put('fixture:native-cleanup-armed', true);
+      }
+    } else {
+      await query(`CREATE TRIGGER codeflare_fixture_reject_replacement BEFORE UPDATE OF attempt_id ON ${sqlIdentifier(prefix + tables[0])}
+        WHEN OLD.submission_id = ${selected} AND OLD.status = 'running' AND NEW.status = 'running'
+        AND OLD.attempt_id IS NOT NULL AND NEW.attempt_id != OLD.attempt_id
+        AND NOT ${captured('recovery', 'submission-failed')}
+        BEGIN SELECT RAISE(ABORT, 'Fixture interrupted replacement rejection'); END`);
+    }
+    await this.ctx.storage.put<NativeFaultArm>('fixture:native-fault', {
+      scenario: candidate.scenario, submissionId, prefix, watermark: watermark as number,
+      withholdSdkImports: candidate.withholdSdkImports,
+    });
+    return { armed: true };
+  }
+  async #nativeImportObservation(): Promise<NativeFaultImport | null> {
+    // Root ledger metadata only, including AFTER retirement. This is an
+    // observation of the known imported window, never a child scrape, flush,
+    // fabricated acknowledgement or witness for an unobserved retirement tail.
+    return this.ctx.storage.transaction(async tx => {
+      const arm = await tx.get<NativeFaultArm>('fixture:native-fault');
+      // With both channels withheld, initial parent counters do not witness
+      // source through/drop counts. Keep that unavailable, not guessed zero.
+      if (!arm || arm.withholdSdkImports) return null;
+      const index = await tx.get<{ generation: number; nextSequence: number; sdkImport: string }>('dispatcher:diagnostics:index');
+      const health = await tx.get<{ sdkThrough: number; sdkLocalThrough: number; sdkDropped: number;
+        pendingSequences?: number[]; gaps: string[] }>('dispatcher:diagnostics:health');
+      if (!index || !health) return null;
+      return { generation: index.generation, events: index.nextSequence - 1, indexSdkImport: index.sdkImport, through: health.sdkThrough,
+        localThrough: health.sdkLocalThrough, dropped: health.sdkDropped, pendingSequences: health.pendingSequences ?? null,
+        gaps: health.gaps, armedThrough: arm.watermark };
+    });
+  }
+  async captureNativeSettlement() {
+    const arm = await this.ctx.storage.get<NativeFaultArm>('fixture:native-fault');
+    if (!arm || arm.scenario !== 'ordinary') return;
+    if (arm.withholdSdkImports) { await this.#captureNativeOmission(arm); return; }
+    if (await this.ctx.storage.get('fixture:native-settlement')) return;
+    const candidate = await services(this.fixtureEnv).nativeQualification();
+    if (!candidate || candidate.phases.length < 2) return; // Initial discovery is still running.
+    if (!await this.dispatcherGenerationCurrent(1)) throw new Error('Native settlement observation denied');
+    const child = this.#liveNativeSql();
+    const query = (text: string, ...values: unknown[]) => this.#nativeQuery(child, text, ...values);
+    // Read only real canonical metadata for the retained settlement obligation.
+    // The small discovery batch is not spilled; absent JSON fails qualification.
+    const rows = await query(`SELECT s.attempt_id, s.settlement_record_id, b.seq, b.producer_epoch, b.producer_sequence,
+      r.key AS record_index FROM ${sqlIdentifier(arm.prefix + 'flue_agent_submissions')} s
+      JOIN ${sqlIdentifier(arm.prefix + 'flue_conversation_stream_batches')} b ON b.submission_id = s.submission_id AND b.attempt_id = s.attempt_id
+      JOIN json_each(b.data) r ON json_extract(r.value, '$.id') = s.settlement_record_id
+      WHERE s.submission_id = ? AND s.status = 'settled' AND s.settled_at IS NOT NULL
+      AND json_extract(r.value, '$.type') = 'submission_settled' AND json_extract(r.value, '$.outcome') = 'completed'`, arm.submissionId);
+    if (rows.length !== 1) throw new Error('Actual canonical/finalized discovery obligation unavailable');
+    const row = rows[0];
+    const captured = await query(`SELECT envelope FROM ${sqlIdentifier(arm.prefix + 'codeflare_sdk_diagnostic_outbox')}
+      WHERE sequence > ? AND json_extract(envelope, '$.sdk.submissionId') = ? ORDER BY sequence`, arm.watermark, arm.submissionId);
+    const envelopes = captured.map(item => JSON.parse(String(item.envelope)));
+    const canonical = envelopes.find(item => item.boundary === 'canonical-commit' && item.outcome === 'committed'
+      && item.sdk?.recordType === 'submission_settled' && item.sdk?.attemptId === row.attempt_id
+      && item.sdk?.batchSequence === row.seq && item.sdk?.recordIndex === Number(row.record_index));
+    const failed = envelopes.find(item => item.boundary === 'submission' && item.outcome === 'failed' && item.code === 'submission-failed');
+    const finalized = envelopes.find(item => item.boundary === 'settlement' && item.outcome === 'completed'
+      && item.sdk?.attemptId === row.attempt_id);
+    if (!canonical || !failed || !finalized || !(canonical.sequence < failed.sequence && failed.sequence < finalized.sequence)) {
+      throw new Error('Actual canonical/failure/finalization source ordering unavailable');
+    }
+    const evidence: NativeFaultSettlement = { submissionDigest: await hash(arm.submissionId),
+      attemptDigest: await hash(String(row.attempt_id)), obligationDigest: await hash(String(row.settlement_record_id)),
+      batchSequence: Number(row.seq), recordIndex: Number(row.record_index), producerEpoch: Number(row.producer_epoch),
+      producerSequence: Number(row.producer_sequence), canonicalSequence: canonical.sequence,
+      failureSequence: failed.sequence, finalizedSequence: finalized.sequence };
+    await this.ctx.storage.put('fixture:native-settlement', evidence);
+  }
+  async #captureNativeOmission(arm: NativeFaultArm) {
+    if (await this.ctx.storage.get('fixture:native-omission')) return;
+    const candidate = await services(this.fixtureEnv).nativeQualification();
+    if (!candidate || candidate.phases.length < 2) return;
+    if (!await this.dispatcherGenerationCurrent(1)) throw new Error('Native omission live observation missed');
+    const child = this.#liveNativeSql();
+    const query = (text: string, ...values: unknown[]) => this.#nativeQuery(child, text, ...values);
+    // The source outbox is durable SQL, not Tail or a synthetic source envelope.
+    // Only bounded digests/coordinates survive this already-live observation.
+    const rows = await query(`SELECT envelope, imported FROM ${sqlIdentifier(arm.prefix + 'codeflare_sdk_diagnostic_outbox')}
+      WHERE sequence > ? AND json_extract(envelope, '$.sdk.submissionId') = ? ORDER BY sequence LIMIT 65`, arm.watermark, arm.submissionId);
+    if (rows.length > 64) throw new Error('Native omission evidence bound exceeded');
+    const captured = rows.map(row => {
+      if (typeof row.envelope !== 'string' || new TextEncoder().encode(row.envelope).byteLength > 4096 || row.imported !== 0) {
+        throw new Error('Native unimported source capture unavailable');
+      }
+      return runtimeSchema.parse(JSON.parse(row.envelope));
+    });
+    const failures = captured.filter(row => row.boundary === 'canonical-commit' && row.outcome === 'failed'
+      && row.code === 'canonical-append-failed');
+    if (failures.length !== 1) throw new Error('Native selected append failure capture unavailable');
+    const failure = failures[0];
+    const recovered = captured.find(row => row.boundary === 'canonical-commit' && row.outcome === 'recovered'
+      && row.code === failure.code && row.sdk?.attemptId === failure.sdk?.attemptId && row.sequence > failure.sequence);
+    const canonical = captured.find(row => row.boundary === 'canonical-commit' && row.outcome === 'committed'
+      && row.sdk?.attemptId === failure.sdk?.attemptId && row.sequence > failure.sequence
+      && recovered && row.sequence < recovered.sequence);
+    if (!failure.error || failure.origin !== 'catching' || !failure.sdk?.attemptId || !failure.sdk.rootUid
+      || !recovered || !canonical) throw new Error('Native real failure/recovery coordinates unavailable');
+    const sdk = canonical.sdk!;
+    const coordinates = [sdk.batchSequence, sdk.recordIndex, sdk.producerEpoch, sdk.producerSequence];
+    if (!coordinates.every(value => Number.isSafeInteger(value) && value! >= 0)) throw new Error('Native committed coordinates unavailable');
+    const index = await query(`SELECT through_sequence, dropped FROM ${sqlIdentifier(arm.prefix + 'codeflare_sdk_diagnostic_index')} WHERE id = 1`);
+    if (index.length !== 1 || ![index[0].through_sequence, index[0].dropped].every(value => Number.isSafeInteger(value) && Number(value) >= 0)
+      || Number(index[0].through_sequence) < recovered.sequence) throw new Error('Native local outbox watermark unavailable');
+    const witness: NativeImportOmission = { captureDigest: await hash(failure.captureId), patchSetDigest: failure.source.patchSetDigest!,
+      submissionDigest: await hash(arm.submissionId), attemptDigest: await hash(failure.sdk.attemptId), rootDigest: await hash(failure.sdk.rootUid),
+      failureSequence: failure.sequence, canonicalSequence: canonical.sequence, recoveredSequence: recovered.sequence,
+      batchSequence: sdk.batchSequence!, recordIndex: sdk.recordIndex!, producerEpoch: sdk.producerEpoch!, producerSequence: sdk.producerSequence!,
+      localThrough: Number(index[0].through_sequence), localDropped: Number(index[0].dropped), imported: false };
+    await this.ctx.storage.put('fixture:native-omission', witness);
+  }
+  override async dispatcherBridge(generation: number, method: Parameters<ProductionActivity['dispatcherBridge']>[1], args: unknown[]): Promise<unknown> {
+    const result = await super.dispatcherBridge(generation, method, args);
+    const reject = method === '_cf_releaseFacetKeepAlive' && await this.ctx.storage.transaction(async tx => {
+      if (!await tx.get('fixture:native-cleanup-armed')) return false;
+      await tx.delete('fixture:native-cleanup-armed');
+      return true;
+    });
+    if (reject) {
+      // Bookkeeping already succeeded. The actual Agents disposer catches this
+      // one fixed Error, captures cleanup-error, and preserves the fiber result.
+      throw new Error('Fixture swallowed facet cleanup rejection');
+    }
+    return result;
+  }
   async observeComposed(observationId?: string) {
+    // Native-only evidence observation is driven by the existing external test
+    // observer, never an awaited child/capability -> parent callback. It does
+    // not hold execution or retirement open; a missed live window fails closed.
+    await this.captureNativeSettlement();
     // Match production status reads; drive/alarm paths own reconciliation.
     const detail = await this.getBrowserDetail();
     observeBoundary(observationId, 'detail-completed');
@@ -684,7 +1035,10 @@ export class OperatorActivity extends ProductionActivity {
     }) : undefined;
     const retained = [...diagnostics];
     observeBoundary(observationId, 'activity-return-ready');
-    return { instance: this.instance, detail, external, fiberEvents, diagnostics: retained, ...(original ? { journal } : {}) };
+    return { instance: this.instance, detail, external, fiberEvents, diagnostics: retained,
+      nativeSettlement: await this.ctx.storage.get<NativeFaultSettlement>('fixture:native-settlement') ?? null,
+      nativeOmission: await this.ctx.storage.get<NativeImportOmission>('fixture:native-omission') ?? null,
+      nativeImport: await this.#nativeImportObservation(), ...(original ? { journal } : {}) };
   }
   async diagnoseComposed(observationId?: string) {
     observeBoundary(observationId, 'diagnose-started');
@@ -719,6 +1073,15 @@ export class OperatorDispatcherCapability extends ProductionCapability {
   override async fetch(request: Request): Promise<Response> {
     const control = services(this.env as unknown as FixtureEnv);
     const path = new URL(request.url).pathname;
+    const props = this.ctx.props as { activityId?: unknown; generation?: unknown } | undefined;
+    if (request.method === 'POST' && request.url === 'https://operator.internal/v1/dispatcher/diagnostic/runtime'
+      && typeof props?.activityId === 'string' && typeof props.generation === 'number'
+      && await control.sdkImportsWithheld(props.activityId, props.generation)) {
+      // Stall only diagnostic delivery before the parent transaction. Never
+      // acknowledge it or release it as an execution/retirement barrier: the
+      // actual SDK must finish while its bounded deliveries remain pending.
+      return new Promise<Response>(() => {});
+    }
     if (path === '/v1/dispatcher/source') {
       const value = await request.clone().json<{ operationId: string; url: string; method?: string }>();
       await control.rememberSource(value.operationId);
@@ -773,16 +1136,22 @@ export async function composedFixture(request: Request, env: FixtureEnv): Promis
   const observationId = fixtureObservationId(request);
   observeBoundary(observationId, 'composed-entered');
   identityService = () => services(env);
-  observeBoundary(observationId, 'request-body-started');
-  const command = await request.json<{ action: string; artifact?: DispatcherBundle; digest?: string; scenario?: RecoveryScenario; attemptLimit?: number; submissionAttemptLimit?: number }>();
-  observeBoundary(observationId, 'request-body-completed');
   const id = new URL(request.url).searchParams.get('activity')!;
+  if (request.method === 'GET' && new URL(request.url).searchParams.has('diagnostics')) {
+    return fixtureOwnerDiagnostics(request, { ...env, ...encryption, ENTERPRISE_MODE: 'active',
+      OPERATOR_REGISTRY: { getByName: () => services(env) },
+      CONTAINER: { idFromName: (name: string) => name, get: () => ({ claimBucketOwner: async () => 'owned' }) },
+    } as unknown as Env, id);
+  }
+  observeBoundary(observationId, 'request-body-started');
+  const command = await request.json<{ action: string; artifact?: DispatcherBundle; digest?: string; scenario?: RecoveryScenario; attemptLimit?: number; submissionAttemptLimit?: number; qualificationManifest?: string; diagnosticCandidate?: boolean; withholdSdkImports?: boolean }>();
+  observeBoundary(observationId, 'request-body-completed');
   observeBoundary(observationId, 'agent-lookup-started');
   const activity = await getAgentByName(env.OPERATOR_ACTIVITY, id);
   observeBoundary(observationId, 'agent-lookup-completed');
   if (command.action === 'start') {
-    await services(env).configure(command.artifact!, command.digest!, command.scenario ?? 'ordinary', command.attemptLimit ?? 4, command.submissionAttemptLimit, id);
-    return Response.json(await activity.startComposed(id, command.artifact!, command.digest!));
+    await services(env).configure(command.artifact!, command.digest!, command.scenario ?? 'ordinary', command.attemptLimit ?? 4, command.submissionAttemptLimit, id, command.qualificationManifest, command.diagnosticCandidate, command.withholdSdkImports);
+    return Response.json(await activity.startComposed(id, command.artifact!, command.digest!, command.withholdSdkImports));
   }
   if (command.action === 'change-submission-policy') { await services(env).changeSubmissionPolicy(command.submissionAttemptLimit!); return Response.json({ ok: true }); }
   if (command.action === 'observe') {
@@ -803,6 +1172,7 @@ export async function composedFixture(request: Request, env: FixtureEnv): Promis
     observeBoundary(observationId, 'json-completed');
     return response;
   }
+  if (command.action === 'arm-native-faults') return Response.json(await activity.armNativeFaults());
   if (command.action === 'collect') return Response.json(await activity.collectBrowserResult());
   if (command.action === 'evict') { await activity.evictComposed().catch(() => {}); return Response.json({ evicted: true }); }
   if (command.action === 'evict-child') { await activity.evictChildComposed(); return Response.json({ evicted: true }); }

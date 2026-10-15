@@ -479,6 +479,18 @@ jobs:
       DISPATCHER_INTENT4_NATIVE_ARTIFACT: ${{ github.workspace }}/src/__tests__/operators/fixtures/dispatcher-v024-native.generated.json
       DISPATCHER_INTENT4_NATIVE_SHA256: 2659d01cba80d2d86d12919e080bc3a94d4cff1b723effb133337786149e2006
       DISPATCHER_INTENT4_NATIVE_SOURCE_SHA: 987af47fb295147d445436b428a410b90cb09be0
+      # Supplemental CI-only packages from exact-source operator push run38660653278.
+      # Original v24/historical controls above remain required and unchanged.
+      DISPATCHER_DIAGNOSTICS_QUALIFICATION_REQUIRED: '1'
+      DISPATCHER_DIAGNOSTICS_NATIVE_PACKAGE: ${{ github.workspace }}/src/__tests__/operators/fixtures/dispatcher-diagnostics-native
+      DISPATCHER_DIAGNOSTICS_NATIVE_SOURCE_SHA: 63ecd84e283591503631a8a1a8b58df457da5d13
+      DISPATCHER_DIAGNOSTICS_NATIVE_BUNDLE_SHA256: a4749764879b80adcb7fa38fcdfa04ccfd60ef5008b2399a80a519ffd1f2e4fb
+      DISPATCHER_DIAGNOSTICS_NATIVE_MANIFEST_SHA256: 748b41b8c31cf25594df0d7c0b8e52a4100dc5975fde5cad1c995e2f2b60a3b0
+      DISPATCHER_DIAGNOSTICS_NATIVE_PROVENANCE_SHA256: 259478ee5ed6fac49e2addd26dd0898ec403f1dd1586e8cd296e64a05e08cb22
+      DISPATCHER_RELEASE_BRIEF_PACKAGE: ${{ github.workspace }}/src/__tests__/operators/fixtures/dispatcher-release-brief
+      DISPATCHER_RELEASE_BRIEF_BUNDLE_SHA256: 69e9126dd8364193ec59f408638d3c05c0fdb49716e6c1954ac19064820f61f4
+      DISPATCHER_RELEASE_BRIEF_MANIFEST_SHA256: 007a5dda419d9c60b78edea81295fd42821f40400ce39068a39bf79df03c0ef0
+      DISPATCHER_RELEASE_BRIEF_PROVENANCE_SHA256: 4bc9e1e6368d349fc9dfd15bab23601113a25543b7487bd89e90760411e71e95
       VITEST_NODE_SUITE_GROUP: ${{ matrix.group }}
     if: >-
       needs.changes.outputs.full == 'true' ||
@@ -516,6 +528,16 @@ jobs:
           grep -qF '"sourceCommit":"987af47fb295147d445436b428a410b90cb09be0"' src/__tests__/operators/fixtures/dispatcher-v024-native.generated.json
           echo '6195b14d9e914ebae28f98f1f1470cacbb57893a9009f0a8dd12bb3db18be32a  src/__tests__/operators/fixtures/dispatcher-v024-native.manifest.json' | sha256sum --check --strict
           echo '6e29f86a41f4d202ada319f04b523bcb794d2da5a9942307567285d622d6ae6e  src/__tests__/operators/fixtures/dispatcher-v024-native.provenance.json' | sha256sum --check --strict
+
+      - name: Verify supplemental derived SDK package bytes
+        if: matrix.group != 'rest'
+        run: |
+          echo 'a4749764879b80adcb7fa38fcdfa04ccfd60ef5008b2399a80a519ffd1f2e4fb  src/__tests__/operators/fixtures/dispatcher-diagnostics-native/operator-bundle.json' | sha256sum --check --strict
+          echo '748b41b8c31cf25594df0d7c0b8e52a4100dc5975fde5cad1c995e2f2b60a3b0  src/__tests__/operators/fixtures/dispatcher-diagnostics-native/operator-manifest.json' | sha256sum --check --strict
+          echo '259478ee5ed6fac49e2addd26dd0898ec403f1dd1586e8cd296e64a05e08cb22  src/__tests__/operators/fixtures/dispatcher-diagnostics-native/operator-provenance.json' | sha256sum --check --strict
+          echo '69e9126dd8364193ec59f408638d3c05c0fdb49716e6c1954ac19064820f61f4  src/__tests__/operators/fixtures/dispatcher-release-brief/operator-bundle.json' | sha256sum --check --strict
+          echo '007a5dda419d9c60b78edea81295fd42821f40400ce39068a39bf79df03c0ef0  src/__tests__/operators/fixtures/dispatcher-release-brief/operator-manifest.json' | sha256sum --check --strict
+          echo '4bc9e1e6368d349fc9dfd15bab23601113a25543b7487bd89e90760411e71e95  src/__tests__/operators/fixtures/dispatcher-release-brief/operator-provenance.json' | sha256sum --check --strict
 
       - uses: ./.github/actions/install-deps
         with:

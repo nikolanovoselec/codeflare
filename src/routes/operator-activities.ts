@@ -39,6 +39,12 @@ type BrowserDetail = OperatorBrowserSummary & { checkpoint: unknown; result: unk
 type BrowserCollection = { ok: true; detail: BrowserDetail } | { ok: false; reason: 'not-ready' | 'not-admitted' };
 const jsonSummary = (summary: OperatorBrowserSummary) => structuredClone(summary);
 
+// Set before authentication so even rejected owner/session responses are never cached.
+app.use('*', async (c, next) => {
+  if (/\/diagnostics\/v2(?:\/|$)/.test(new URL(c.req.url).pathname)) c.header('Cache-Control', 'no-store');
+  return next();
+});
+
 app.use('*', async (c, next) => isEnterpriseMode(c.env) ? next() : c.notFound());
 app.use('*', async (c, next) => {
   if (!c.env.OPERATOR_REGISTRY || !c.env.OPERATOR_ACTIVITY) throw new AppError('UNAVAILABLE', 503, 'Operator activity unavailable');
@@ -228,6 +234,30 @@ app.get('/:activityId/diagnostics', async c => {
   const snapshot = await c.env.OPERATOR_ACTIVITY!.getByName(activityId).getDispatcherDiagnostics(c.get('ownerKey'));
   return snapshot?.activityId === activityId ? c.json(snapshot) : c.notFound();
 });
+async function handleDiagnosticsV2(c: Context<ActivityRouteEnv>, view: 'summary' | 'history' | 'detail' | 'export') {
+  c.header('Cache-Control', 'no-store');
+  const activityId = c.req.param('activityId');
+  if (!activityId || !await owned(c.get('registry'), c.get('ownerKey'), activityId)) return c.notFound();
+  const query = new URL(c.req.url).searchParams;
+  const cursors = query.getAll('cursor');
+  if ([...query.keys()].some(key => key !== 'cursor') || cursors.length > 1
+    || cursors.length && (view !== 'history' && view !== 'export'
+      || !/^[A-Za-z0-9_-]{1,4096}$/.test(cursors[0]))) return c.json({ code: 'INVALID_DIAGNOSTICS_REQUEST' }, 400);
+  const recordId = view === 'detail' ? c.req.param('recordId') : undefined;
+  if (view === 'detail' && (!recordId || !/^(e-[1-9][0-9]*|o-(0|[1-9][0-9]*)-[a-f0-9]{64})$/.test(recordId)
+    || recordId.length > 84)) return c.json({ code: 'INVALID_DIAGNOSTICS_REQUEST' }, 400);
+  try {
+    const result = await c.env.OPERATOR_ACTIVITY!.getByName(activityId).getDispatcherDiagnosticsV2(c.get('ownerKey'),
+      { view, ...(cursors.length ? { cursor: cursors[0] } : {}), ...(recordId ? { recordId } : {}) });
+    if (result.status !== 200) return c.json({ code: result.code }, result.status);
+    return result.value.activityId === activityId ? c.json(result.value) : c.notFound();
+  } catch { return c.json({ code: 'DIAGNOSTICS_UNAVAILABLE' }, 503); }
+}
+app.get('/:activityId/diagnostics/v2', c => handleDiagnosticsV2(c, 'summary'));
+app.get('/:activityId/diagnostics/v2/history', c => handleDiagnosticsV2(c, 'history'));
+app.get('/:activityId/diagnostics/v2/records/:recordId', c => handleDiagnosticsV2(c, 'detail'));
+app.get('/:activityId/diagnostics/v2/export', c => handleDiagnosticsV2(c, 'export'));
+
 app.post('/:activityId/result', async c => {
   const activityId = c.req.param('activityId');
   if (!await owned(c.get('registry'), c.get('ownerKey'), activityId)) return c.notFound();

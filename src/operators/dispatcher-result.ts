@@ -1,4 +1,6 @@
 import { z } from 'zod';
+import { captureError, hashDiagnostic, diagnosticBytes, readSdkDiagnosticHeader, type ErrorMetadata, type RuntimeEnvelope } from './dispatcher-diagnostics-wire';
+import { sdkPublicReasonCode } from './dispatcher-diagnostic-wire';
 import { Tokenizer, TokenParser, TokenType } from '@streamparser/json';
 import { dispatcherCapacities, type DispatcherCapacities, type DispatcherCapacityPolicy } from './dispatcher-capacity-limits';
 import { sameDispatcherPhaseValue } from './dispatcher-phases';
@@ -20,6 +22,8 @@ export interface DispatcherResultProjection {
   progressWrites?: number;
   outcome?: 'completed' | 'failed' | 'aborted';
   error?: { type?: string; meta?: { reason?: string; operation?: string } };
+  errorMetadata?: ErrorMetadata;
+  sdkEvidence?: DispatcherSdkEvidence;
   position?: { batch: number; index: number };
   /** Observation only; opaque correlations never enter owner logs or result authority. */
   completion?: { calls: Array<{ id: string; outcome: 'pending' | 'succeeded' | 'failed' }>; truncated: boolean };
@@ -28,6 +32,52 @@ export interface DispatcherResultProjection {
   readiness?: { latest?: DispatcherReadiness; observations: number; truncated: boolean };
   sealPreflight?: { latest?: DispatcherSealPreflight; observations: number; truncated: boolean };
 }
+export interface DispatcherSdkEvidence {
+  version: 1; status: 'observed' | 'unavailable'; attemptDigests: string[];
+  canonical: Array<{ batchSequence: number; recordIndex: number; type: string; recordDigest: string | null;
+    attemptDigest: string; submissionDigest: string; producerEpoch: number | null; producerSequence: number | null;
+    streamIncarnationDigest: string | null }>;
+  inputApplication: 'observed' | 'unavailable'; finalization: 'observed' | 'unavailable'; metadataComplete: boolean;
+}
+
+/** Exact matching source captures only; update positions/live terminal events cannot synthesize SDK coordinates. */
+function projectSdkEvidence(response: Response, state: DispatcherResultProjection, submissionId: string,
+  validate?: (record: RuntimeEnvelope) => boolean): void {
+  const header = readSdkDiagnosticHeader(response);
+  const empty = (): DispatcherSdkEvidence => ({ version: 1, status: 'unavailable', attemptDigests: [], canonical: [],
+    inputApplication: 'unavailable', finalization: 'unavailable', metadataComplete: false });
+  if (!header) { state.sdkEvidence ??= empty(); return; }
+  const evidence = state.sdkEvidence?.status === 'observed' ? state.sdkEvidence : empty();
+  let complete = !header.outbox.dropped && header.outbox.status === 'available';
+  for (const record of header.records) {
+    const sdk = record.sdk;
+    if (validate && !validate(record) || !sdk || sdk.submissionId !== submissionId || !sdk.attemptId || !state.incarnation
+      || sdk.streamIncarnation !== state.incarnation) { complete = false; continue; }
+    const attemptDigest = hashDiagnostic(sdk.attemptId);
+    if (!evidence.attemptDigests.includes(attemptDigest)) {
+      if (evidence.attemptDigests.length >= 64) { complete = false; continue; }
+      evidence.attemptDigests.push(attemptDigest);
+    }
+    evidence.status = 'observed';
+    if (record.boundary === 'delivery' && record.outcome === 'applied' && sdk.inputApplied === true) evidence.inputApplication = 'observed';
+    if (record.boundary === 'settlement' && record.outcome === 'completed' && sdk.settlement === 'finalized') evidence.finalization = 'observed';
+    if (record.boundary === 'canonical-commit' && record.outcome === 'committed' && (sdk.settlement === 'canonical' || sdk.settlement === undefined)
+      && sdk.batchSequence !== undefined && sdk.recordIndex !== undefined && sdk.recordType) {
+      const canonical = { batchSequence: sdk.batchSequence, recordIndex: sdk.recordIndex, type: sdk.recordType,
+        recordDigest: null, attemptDigest, submissionDigest: hashDiagnostic(sdk.submissionId), producerEpoch: sdk.producerEpoch ?? null,
+        producerSequence: sdk.producerSequence ?? null, streamIncarnationDigest: hashDiagnostic(sdk.streamIncarnation) };
+      if (!evidence.canonical.some(prior => prior.batchSequence === canonical.batchSequence && prior.recordIndex === canonical.recordIndex
+        && prior.attemptDigest === attemptDigest && prior.streamIncarnationDigest === canonical.streamIncarnationDigest)) {
+        if (evidence.canonical.length >= 64 || diagnosticBytes({ ...evidence, canonical: [...evidence.canonical, canonical] }) > 8192) complete = false;
+        else evidence.canonical.push(canonical);
+      }
+    }
+    if (record.local.dropped || record.local.status !== 'captured') complete = false;
+  }
+  evidence.metadataComplete = evidence.status === 'observed' && complete;
+  state.sdkEvidence = evidence;
+}
+
 const readinessSchema = z.object({
   discovered: z.boolean(), sealed: z.boolean(),
   targetCount: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
@@ -227,11 +277,20 @@ function project(state: DispatcherResultProjection, value: unknown, submissionId
     if (!['completed', 'failed', 'aborted'].includes(chunk.outcome as string)) throw new Error('Dispatcher settlement unavailable');
     state.outcome = chunk.outcome as DispatcherResultProjection['outcome'];
     const error = chunk.error as { type?: unknown; meta?: { reason?: unknown; operation?: unknown } } | undefined;
-    if (error && typeof error === 'object' && !Array.isArray(error)) state.error = {
-      ...(typeof error.type === 'string' && error.type.length <= 128 ? { type: error.type } : {}),
-      meta: { ...(typeof error.meta?.reason === 'string' ? { reason: error.meta.reason.slice(0, 2048) } : {}),
-        ...(typeof error.meta?.operation === 'string' ? { operation: error.meta.operation.slice(0, 256) } : {}) },
-    };
+    if (error && typeof error === 'object' && !Array.isArray(error)) {
+      const publicTypes = ['cloudflare_ai_binding_error', 'invalid_request', 'tool_input_validation', 'tool_output_validation',
+        'operation_failed', 'submission_timeout', 'submission_aborted', 'internal_error'];
+      const publicReasons = ['Stream ended without finish_reason (retryable_interruption)',
+        'the session advanced past this input before it completed', 'the input could not be persisted'];
+      state.error = { ...(typeof error.type === 'string' && publicTypes.includes(error.type) ? { type: error.type } : {}),
+        meta: { ...(typeof error.meta?.reason === 'string' && publicReasons.includes(error.meta.reason) ? { reason: error.meta.reason } : {}),
+          ...(error.meta?.operation === 'prompt' ? { operation: 'prompt' }
+            : error.meta?.operation === `direct(${submissionId})` ? { operation: 'direct' } : {}) } };
+      const message = typeof error.meta?.reason === 'string' ? error.meta.reason : undefined;
+      state.errorMetadata = captureError({ ...error, message: Reflect.get(error, 'message') ?? message });
+      const publicCode = message === undefined ? 'unknown' : sdkPublicReasonCode(message);
+      if (publicCode !== 'unknown') state.errorMetadata.publicCode = publicCode;
+    }
   }
   if (previousOutcome !== undefined && state.outcome !== previousOutcome) throw new Error('Dispatcher terminal settlement changed');
   if (previousResult !== undefined
@@ -246,7 +305,8 @@ function project(state: DispatcherResultProjection, value: unknown, submissionId
  * The caller supplies the originally admitted capacity policy, not a refreshed operator policy.
  */
 export async function readDispatcherUpdates(response: Response, previous: DispatcherResultProjection,
-  submissionId: string, signal?: AbortSignal, capacityPolicy?: DispatcherCapacityPolicy): Promise<DispatcherResultProjection> {
+  submissionId: string, signal?: AbortSignal, capacityPolicy?: DispatcherCapacityPolicy,
+  validateSdkEnvelope?: (record: RuntimeEnvelope) => boolean): Promise<DispatcherResultProjection> {
   const limits = dispatcherCapacities(capacityPolicy);
   const offset = response.headers.get('stream-next-offset');
   if (response.status !== 200 || !response.body || !offset || offset.length > 2048
@@ -448,6 +508,12 @@ export async function readDispatcherUpdates(response: Response, previous: Dispat
     state.upToDate = response.headers.get('stream-up-to-date') === 'true';
     if (!state.upToDate && offset === previous.offset) throw new Error('Dispatcher update cursor stalled');
     state.offset = offset;
+    try { projectSdkEvidence(response, state, submissionId, validateSdkEnvelope); }
+    catch {
+      // Additive observation/validation failure must not replace valid execution output.
+      state.sdkEvidence = { version: 1, status: 'unavailable', attemptDigests: [], canonical: [],
+        inputApplication: 'unavailable', finalization: 'unavailable', metadataComplete: false };
+    }
     return state;
   } finally {
     signal?.removeEventListener('abort', abort);

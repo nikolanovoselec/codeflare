@@ -152,3 +152,41 @@
   .operator-overview .admin-editor-layout { grid-template-columns: minmax(0, 1fr); }
   .operator-actions > :is(button, a) { min-height: 44px; }
 }
+
+/* Read-only Activity diagnostics shares the Activity's existing visual system. */
+.operator-diagnostics { min-width: 0; margin-top: var(--space-4); border-top: 1px solid var(--color-border-subtle); }
+.operator-diagnostic-panel { min-width: 0; }
+.operator-diagnostic-panel :is(h3, h4, h5) { color: var(--color-text-primary); overflow-wrap: anywhere; }
+.operator-diagnostic-panel h3 { margin-block: var(--space-4); }
+.operator-diagnostic-panel h4 { margin: 0 0 var(--space-3); }
+.operator-diagnostic-diagnosis { border-inline-start: 3px solid var(--color-accent); padding-inline-start: var(--space-4); }
+.operator-diagnostic-diagnosis .operator-state { color: var(--color-text-primary); }
+.operator-diagnostic-retention,
+.operator-diagnostic-history,
+.operator-diagnostic-detail,
+.operator-diagnostic-coverage,
+.operator-diagnostic-export { padding-block: var(--space-4); border-top: 1px solid var(--color-border-subtle); margin-top: var(--space-4); }
+.operator-diagnostic-facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-3) var(--space-6); margin-block: var(--space-3); }
+.operator-diagnostic-facts > div { min-width: 0; }
+.operator-diagnostic-facts dt { color: var(--color-text-secondary); font-size: var(--text-sm); }
+.operator-diagnostic-facts dd { margin: var(--space-1) 0 0; font-family: var(--font-mono); font-size: var(--text-sm); overflow-wrap: anywhere; }
+.operator-diagnostic-digest { font-family: var(--font-mono); font-size: var(--text-sm); overflow-wrap: anywhere; }
+.operator-diagnostic-timeline { padding-inline-start: var(--space-6); margin-block: var(--space-4); }
+.operator-diagnostic-timeline > li { padding: var(--space-3) 0 var(--space-4) var(--space-2); border-bottom: 1px solid var(--color-border-subtle); }
+.operator-diagnostic-timeline > li::marker { color: var(--color-text-secondary); }
+.operator-diagnostic-event-heading { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-2) var(--space-3); }
+.operator-diagnostic-operations, .operator-diagnostic-capabilities { list-style: none; padding: 0; margin-block: var(--space-3); }
+.operator-diagnostic-operations > li { padding-block: var(--space-4); border-bottom: 1px solid var(--color-border-subtle); }
+.operator-diagnostic-capabilities { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-3) var(--space-6); }
+.operator-diagnostic-capabilities > li { min-width: 0; display: flex; flex-direction: column; gap: var(--space-1); }
+.operator-diagnostic-capabilities span { color: var(--color-text-secondary); font-size: var(--text-sm); }
+.operator-diagnostic-sources { padding-inline-start: var(--space-6); }
+.operator-diagnostic-sources a, .operator-diagnostic-downloads a { display: inline-flex; align-items: center; min-height: 44px; max-width: 100%; overflow-wrap: anywhere; }
+.operator-diagnostic-downloads { list-style: none; padding: 0; margin-block: var(--space-3); }
+.operator-diagnostic-capsule { padding: var(--space-4); margin-top: var(--space-4); background: var(--color-bg-tertiary); border-radius: var(--radius-md); }
+@media (max-width: 600px) {
+  .operator-diagnostic-facts, .operator-diagnostic-capabilities { grid-template-columns: minmax(0, 1fr); }
+  .operator-diagnostic-panel .operator-actions > button { width: 100%; }
+  .operator-diagnostic-timeline { padding-inline-start: var(--space-4); }
+  .operator-diagnostic-capsule { padding: var(--space-3); }
+}

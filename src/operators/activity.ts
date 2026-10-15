@@ -6,6 +6,12 @@
  * See sdd/spec/operators.md and documentation/lanes/operators.md for acceptance boundaries.
  */
 import { WorkerEntrypoint } from 'cloudflare:workers';
+import { captureError, hashDiagnostic, hostSource, readSdkProvenance, readSdkDiagnosticHeader, runtimeSchema, sourceMatches,
+  type SdkProvenance, type Boundary, type ReasonCode, type Correlation, type RuntimeEnvelope, type DiagnosticBinding, type ErrorMetadata } from './dispatcher-diagnostics-wire';
+import { appendDiagnostic, initializeDiagnostics, diagnosticLoss, observeOutbox,
+  type FailureObservation, type FenceReason, type EventObservation, type DiagnosticCapsule } from './dispatcher-diagnostics-store';
+import { readActivityDiagnostics, DiagnosticReadError, type DiagnosticReadOptions, type DiagnosticReadState,
+  type OperationRecord } from './dispatcher-diagnostics-read';
 import { Agent, type RetryOptions, type Schedule, type ScheduleCriteria } from 'agents';
 import type { Env as AppEnv } from '../types';
 import { parseDispatcherBundle, type DispatcherBundle } from './distribution';
@@ -84,6 +90,8 @@ type DispatcherFacet = Fetcher & {
 interface DispatcherLease {
   generation: number; artifactDigest: string; inputDigest: string; expiresAt: number;
   submissionId: string | null; settledSubmissionId?: string; sdkReleased?: boolean;
+  rootDigest?: string;
+  sdkProvenance?: SdkProvenance;
   projection?: DispatcherResultProjection;
   /** Future intent4 admission only; never inferred from a historical lease. */
   serial?: DispatcherPhaseState;
@@ -328,6 +336,10 @@ interface AdmissionState {
   executionContext?: OperatorExecutionContext;
   invocationJson?: string;
   inferenceRecoveryVersion?: 1;
+  diagnosticsVersion?: 1;
+  diagnosticBinding?: DiagnosticBinding;
+  diagnosticFence?: FenceReason;
+  diagnosticRecorderUnavailable?: boolean;
   drive?: OperatorDriveState;
   syncOperations?: Record<string, OperatorSyncState>;
   approvedPackets?: Record<string, ApprovedPacketRecord>;
@@ -445,6 +457,7 @@ export class OperatorActivity extends Agent {
   #inferenceFlights = new Map<string, { digest: string; controller: AbortController; result: Promise<DispatcherInferenceResponse> }>();
   #phaseAdmissions = new Map<string, Promise<void>>();
   #coldDispatcherLease?: DispatcherLease;
+  #diagnosticQueue: Promise<void> = Promise.resolve();
 
   constructor(ctx: DurableObjectState, env: AppEnv) {
     super(ctx, env as unknown as Env);
@@ -452,6 +465,62 @@ export class OperatorActivity extends Agent {
     // A diagnostics-only cold wake must not enter admission recovery or cleanup.
     ctx.blockConcurrencyWhile(async () => {
       this.#coldDispatcherLease = await ctx.storage.get<DispatcherLease>(DISPATCHER_LEASE);
+    });
+  }
+
+  /** Optional recorder work is isolated from every execution outcome and authorization. */
+  #enqueueDiagnostic(run: () => Promise<void>): void {
+    const next = this.#diagnosticQueue.then(run).catch(async () => {
+      try {
+        await this.ctx.storage.transaction(async tx => {
+          const state = await tx.get<AdmissionState>('admission');
+          if (state?.diagnosticsVersion === 1 && !state.diagnosticRecorderUnavailable) {
+            await tx.put('admission', { ...state, diagnosticRecorderUnavailable: true });
+          }
+        });
+      } catch { /* Recorder failure cannot replace execution, even if loss-marker persistence fails. */ }
+    });
+    this.#diagnosticQueue = next;
+    this.ctx.waitUntil(next);
+  }
+
+  #recordDiagnostic(generation: number, boundary: Boundary, outcome: EventObservation['outcome'], code: ReasonCode = 'none',
+    error?: unknown, correlation: Correlation = {}, owner: EventObservation['owner'] = 'host', terminalGeneration?: number,
+    capturedError?: ErrorMetadata, affectedOperations?: DiagnosticCapsule['affectedOperations'],
+    capturedErrorOrigin: EventObservation['origin'] = 'catching'): void {
+    // Capture the original value now, before any transformation/await. It never enters the queued closure.
+    const metadata = capturedError ?? (error === undefined ? undefined : captureError(error));
+    const observation: EventObservation = { timestamp: Date.now(), boundary, outcome, code, owner,
+      evidence: 'observed', origin: metadata ? capturedErrorOrigin : 'state-transition', source: hostSource(boundary),
+      correlation, ...(metadata ? { error: metadata } : {}) };
+    this.#enqueueDiagnostic(async () => {
+      await this.ctx.storage.transaction(async tx => {
+        const state = await tx.get<AdmissionState>('admission');
+        const lease = await tx.get<DispatcherLease>(DISPATCHER_LEASE);
+        const binding = lease ?? state?.diagnosticBinding;
+        if (!state || !binding || binding.generation !== generation || state.diagnosticsVersion !== 1
+          || !executionLoggingEnabled(state.receipt)) return;
+        let affected = affectedOperations;
+        let omitted: number | null = null;
+        if (terminalGeneration !== undefined && !affected) {
+          affected = [];
+          const prefix = `dispatcher:operation:${generation}:`;
+          const entries = await tx.list<DispatcherOperationRecord>({ prefix, limit: 32 });
+          for (const [key, entry] of entries) {
+            if (entry.generation !== generation || entry.phase === 'completed' || affected.length >= 8) continue;
+            affected.push({ operationDigest: hashDiagnostic(key.slice(prefix.length)),
+              effect: entry.request?.method === 'GET' ? 'read' : entry.request ? 'write'
+                : entry.inference ? 'none' : ['comment', 'merge'].includes(entry.phaseBinding?.resource ?? '') ? 'write' : 'unknown',
+              status: 'unknown' });
+          }
+          const journal = await tx.get<DispatcherJournal>(DISPATCHER_JOURNAL);
+          if (journal?.generation === generation && Number.isSafeInteger(journal.unresolved) && journal.unresolved >= affected.length) {
+            omitted = journal.unresolved - affected.length;
+          }
+        }
+        await appendDiagnostic(tx, binding, observation, { ...(terminalGeneration === undefined ? {} : { terminalGeneration }),
+          ...(affected ? { affectedOperations: affected, affectedOperationsOmitted: omitted } : {}) });
+      });
     });
   }
 
@@ -1318,6 +1387,7 @@ export class OperatorActivity extends Agent {
         || !await this.boundaryCurrent(record)) {
         return { ok: false, reason: 'authority-expired' };
       }
+      if (record.drive?.status === 'waiting') this.#recordDiagnostic(record.drive.generation, 'continuation', 'started');
       if (expectedGeneration !== undefined && (!Number.isSafeInteger(expectedGeneration)
         || expectedGeneration < 1 || record.drive?.status !== 'waiting'
         || record.drive.generation !== expectedGeneration
@@ -1459,9 +1529,9 @@ export class OperatorActivity extends Agent {
   }
 
   /** Parent reports an interrupted drive; its uncertain effects cannot be replayed. */
-  async interruptDrive(generation: number): Promise<OperatorDriveResult> {
+  async interruptDrive(generation: number, failure?: FailureObservation): Promise<OperatorDriveResult> {
     this.#resumeDispatcherOnEntry();
-    const result = await this.fenceDrive('unknown', generation);
+    const result = await this.fenceDrive('unknown', generation, false, failure);
     if (result.ok) {
       await this.#releaseDispatcherSdk();
       await this.publishBrowserSummary();
@@ -1470,9 +1540,9 @@ export class OperatorActivity extends Agent {
   }
 
   /** Fence a queued request whose one attached runtime attempt failed before loading code. */
-  async fenceRuntimeFailure(expectedGeneration?: number): Promise<OperatorDriveResult> {
+  async fenceRuntimeFailure(expectedGeneration?: number, failure?: FailureObservation): Promise<OperatorDriveResult> {
     this.#resumeDispatcherOnEntry();
-    const result = await this.fenceDrive('unknown', expectedGeneration, true);
+    const result = await this.fenceDrive('unknown', expectedGeneration, true, failure ?? { boundary: 'artifact', code: 'artifact-unavailable' });
     if (result.ok) {
       await this.#releaseDispatcherSdk();
       await this.publishBrowserSummary();
@@ -1481,7 +1551,9 @@ export class OperatorActivity extends Agent {
   }
 
   private async fenceDrive(status: 'cancel-requested' | 'unknown', generation?: number,
-    allowWaiting = false): Promise<OperatorDriveResult> {
+    allowWaiting = false, failure?: FailureObservation): Promise<OperatorDriveResult> {
+    let originalGeneration: number | undefined;
+    let reason: FenceReason | undefined;
     const result = await this.ctx.storage.transaction<OperatorDriveResult>(async tx => {
       const record = await tx.get<AdmissionState>('admission');
       if (!record || record.phase !== 'queued') return { ok: false, reason: 'not-admitted' };
@@ -1496,12 +1568,35 @@ export class OperatorActivity extends Agent {
         generation: (record.drive?.generation ?? 0) + 1, status,
         checkpoint: record.drive?.checkpoint ?? null, result: record.drive?.result ?? null,
       };
-      await tx.put<AdmissionState>('admission', { ...record, drive: state, updatedAt: Date.now() });
       const lease = await tx.get<DispatcherLease>(DISPATCHER_LEASE);
+      originalGeneration = lease?.generation ?? record.drive?.generation ?? 0;
+      const expired = record.intent.deadline <= Date.now() || !!lease && lease.expiresAt <= Date.now();
+      reason = { generation: originalGeneration, timestamp: Date.now(), boundary: status === 'cancel-requested' || expired ? 'fence'
+        : failure?.boundary ?? 'platform', code: status === 'cancel-requested' ? 'cancelled' : expired ? 'deadline-expired'
+          : failure?.code ?? 'platform-evidence-required', uncertain: status === 'unknown' };
+      // Essential reason shares the authoritative fence transaction, independent of logging/optional ledger.
+      const preLeaseBinding = !lease && record.receipt && isManagementReceipt(record.receipt)
+        && record.receipt.selection.operator.profile === 'dispatcher' && record.executionContext
+        ? { generation: originalGeneration, artifactDigest: record.executionContext.artifactDigest, inputDigest: record.receipt.intentDigest } : undefined;
+      await tx.put<AdmissionState>('admission', { ...record, drive: state, diagnosticFence: reason,
+        ...(preLeaseBinding ? { diagnosticsVersion: 1, diagnosticBinding: preLeaseBinding } : {}), updatedAt: Date.now() });
       if (lease && lease.status !== 'settled') await tx.put(DISPATCHER_LEASE, { ...lease, status: 'unknown' });
       return { ok: true, state };
     });
-    if (result.ok) for (const flight of this.#inferenceFlights.values()) flight.controller.abort();
+    if (result.ok) {
+      for (const flight of this.#inferenceFlights.values()) flight.controller.abort();
+      if (originalGeneration !== undefined && reason) {
+        this.#enqueueDiagnostic(async () => {
+          await this.ctx.storage.transaction(async tx => {
+            const record = await tx.get<AdmissionState>('admission');
+            if (record?.diagnosticBinding && !await tx.get(DISPATCHER_LEASE)) await initializeDiagnostics(tx, record.diagnosticBinding, false);
+          });
+        });
+        if (failure?.error) this.#recordDiagnostic(originalGeneration, failure.boundary, 'failed', failure.code,
+          undefined, {}, 'host', undefined, failure.error);
+        this.#recordDiagnostic(originalGeneration, reason.boundary, 'unknown', reason.code, undefined, {}, 'host', reason.generation);
+      }
+    }
     return result;
   }
 
@@ -1538,9 +1633,11 @@ export class OperatorActivity extends Agent {
       inferenceDiagnostic(trace, { stage: 'drive', outcome: 'observed', boundary });
       inferenceDiagnostic(trace, { stage: 'drive', outcome: 'started', operationLimit: dispatcherOperationLimit(plan.receipt.selection.operator.policy), inferenceRequestBytes: inferenceRequestBytes(plan.receipt.selection.operator.policy) });
       const attemptLimit = inferenceAttemptLimit(plan.receipt.selection.operator.policy);
+      const sdkProvenance = readSdkProvenance(approved);
       const lease: DispatcherLease = { generation, artifactDigest, inputDigest: plan.receipt.intentDigest,
         expiresAt: Math.floor(plan.deadline / 1000) * 1000,
         submissionId: null, status: 'admitting',
+        ...(sdkProvenance ? { sdkProvenance } : {}),
         ...(serial ? { serial: createDispatcherPhaseState('submission', await sha256(JSON.stringify(plan.receipt)),
           { deliveryToken: crypto.randomUUID(), idempotencyKey: crypto.randomUUID() }) } : {}) };
       boundary = 'lease';
@@ -1557,16 +1654,24 @@ export class OperatorActivity extends Agent {
           version: 1, attemptLimit,
         };
         await tx.put(DISPATCHER_LEASE, lease);
+        await tx.put('admission', { ...record, diagnosticsVersion: 1 });
         // Old completed entries remain isolated; a continued generation reserves its own reads.
         await tx.put<DispatcherJournal>(DISPATCHER_JOURNAL, { generation, count: 0, nextOrdinal: 0, unresolved: 0 });
       });
+      this.#enqueueDiagnostic(async () => {
+        await this.ctx.storage.transaction(tx => initializeDiagnostics(tx, lease, !!lease.sdkProvenance));
+      });
+      this.#recordDiagnostic(generation, 'artifact', 'accepted');
+      this.#recordDiagnostic(generation, 'admission', 'accepted');
       // SDK scheduling owns the physical alarm; this is a one-shot deadline, not a new scheduler.
+      boundary = 'scheduling';
       await this.schedule(new Date(lease.expiresAt), 'reconcileDispatcherLease', { generation }, { idempotent: true });
+      this.#recordDiagnostic(generation, 'scheduling', 'completed');
       if (lease.serial) {
         // Lost admission acknowledgement leaves THIS persisted identity eligible for reattachment.
         // It neither invents an SDK receipt nor replaces a submission.
         try { await this.#admitDispatcherPhase(generation, lease.serial.current.deliveryToken, approved); }
-        catch { /* Original lease reconciles the same keyed admission, not repository effects. */ }
+        catch (error) { this.#recordDiagnostic(generation, 'submission', 'failed', 'submission-failed', error); /* Same keyed recovery, never effects. */ }
         if (!await this.dispatcherGenerationCurrent(generation)) return this.interruptDrive(generation);
         await this.#scheduleDispatcherRecheck(lease);
         const record = await this.ctx.storage.get<AdmissionState>('admission');
@@ -1591,7 +1696,8 @@ export class OperatorActivity extends Agent {
         boundary = 'cursor';
         const offset = response.headers.get('stream-next-offset') ?? value.offset;
         if (typeof offset !== 'string' || !offset || offset.length > 2048) throw new Error('Dispatcher admission cursor invalid');
-        return { submissionId: value.submissionId as string, offset };
+        return { submissionId: value.submissionId as string, offset, response,
+          ...(typeof value.uid === 'string' && value.uid.length > 0 && value.uid.length <= 512 ? { rootUid: value.uid } : {}) };
       });
       boundary = 'commit';
       const result = await this.ctx.storage.transaction<OperatorDriveResult>(async tx => {
@@ -1601,15 +1707,24 @@ export class OperatorActivity extends Agent {
           return { ok: false, reason: 'stale-drive' };
         }
         await tx.put<DispatcherLease>(DISPATCHER_LEASE, { ...current!, submissionId: admitted.submissionId,
+          ...(admitted.rootUid ? { rootDigest: hashDiagnostic(admitted.rootUid) } : {}),
           projection: { offset: admitted.offset, messageIds: [], writes: 0 }, status: 'running' });
         return { ok: true, state: record!.drive! };
       });
       if (!result.ok) return this.interruptDrive(generation);
       inferenceDiagnostic(trace, { stage: 'drive', outcome: 'completed', boundary });
+      this.#recordDiagnostic(generation, 'submission', 'accepted');
+      this.#observeSdkHeader(generation, admitted.response);
       return result;
-    } catch {
+    } catch (error) {
+      const family: Boundary = boundary === 'artifact' ? 'artifact' : boundary === 'loader' ? 'construction'
+        : boundary === 'scheduling' ? 'scheduling' : ['admission', 'cursor', 'commit'].includes(boundary) ? 'submission' : 'admission';
+      const code: ReasonCode = family === 'artifact' ? (error instanceof Error && error.message === 'Dispatcher artifact unavailable'
+        ? 'artifact-unavailable' : 'artifact-mismatch') : family === 'construction' ? 'startup-failed'
+          : family === 'submission' ? 'submission-failed' : family === 'scheduling' ? 'unclassified' : 'authority-denied';
+      this.#recordDiagnostic(generation, family, 'failed', code, error);
       inferenceDiagnostic(trace, { stage: 'drive', outcome: 'failed', boundary });
-      return this.interruptDrive(generation);
+      return this.interruptDrive(generation, { boundary: family, code, error: captureError(error) });
     }
   }
 
@@ -1701,8 +1816,15 @@ export class OperatorActivity extends Agent {
 
   async #scheduleDispatcherRecheck(lease: DispatcherLease, upToDate = true): Promise<void> {
     const remaining = Math.floor((lease.expiresAt - Date.now() - 1_000) / 1_000);
-    if (remaining > 0) await this.schedule(Math.min(upToDate ? 5 : 1, remaining),
-      'reconcileDispatcherLease', { generation: lease.generation }, { idempotent: true });
+    if (remaining > 0) {
+      try {
+        await this.schedule(Math.min(upToDate ? 5 : 1, remaining), 'reconcileDispatcherLease', { generation: lease.generation }, { idempotent: true });
+        this.#recordDiagnostic(lease.generation, 'scheduling', 'completed');
+      } catch (error) {
+        this.#recordDiagnostic(lease.generation, 'scheduling', 'failed', 'unclassified', error);
+        throw error;
+      }
+    }
   }
 
   async #admitDispatcherPhase(generation: number, token: string, approved?: DispatcherBundle): Promise<void> {
@@ -1719,6 +1841,7 @@ export class OperatorActivity extends Agent {
       await authorizeDispatcherPlan(plan, this.#appEnv);
       const authority = this.#phaseAuthority(lease, plan);
       const wire = dispatcherPhaseWire(lease.serial, authority);
+      let admissionResponse: Response | undefined;
       const receipt = await this.#boundedDispatcher(lease, async () => {
         const child = await this.#dispatcherFacet(lease, approved);
         if (!await this.dispatcherGenerationCurrent(generation)
@@ -1728,6 +1851,7 @@ export class OperatorActivity extends Agent {
         const response = await child.fetch(new Request('https://flue.internal/agents/Dispatcher/dispatcher', {
           method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(wire),
         }));
+        admissionResponse = response;
         if (response.status !== 202) throw new Error('Dispatcher phase admission unavailable');
         const value = JSON.parse(await readDispatcherBody(response));
         const offset = response.headers.get('stream-next-offset') ?? value.offset;
@@ -1745,10 +1869,16 @@ export class OperatorActivity extends Agent {
         // A replay may start at -1 only when the original cursor was never bound. Never rewind
         // a retained projection after eviction or an acknowledgement loss.
         await tx.put<DispatcherLease>(DISPATCHER_LEASE, { ...current!, serial, status: 'running',
-          submissionId: serial.current.receipt!.submissionId,
+          submissionId: serial.current.receipt!.submissionId, rootDigest: hashDiagnostic(serial.current.receipt!.uid),
           projection: current!.projection ?? { offset: serial.current.receipt!.offset, messageIds: [], writes: 0, serialPhase: true } });
       });
-    })().finally(() => {
+      this.#recordDiagnostic(generation, 'submission', 'accepted');
+      this.#recordDiagnostic(generation, 'delivery', 'accepted');
+      if (admissionResponse) this.#observeSdkHeader(generation, admissionResponse);
+    })().catch(error => {
+      this.#recordDiagnostic(generation, 'submission', 'failed', 'submission-failed', error);
+      throw error;
+    }).finally(() => {
       // Every joining caller observes cleanup before rejection. A lost acknowledgement
       // cannot leave an already-rejected flight blocking same-key receipt recovery.
       if (this.#phaseAdmissions.get(key) === admission) this.#phaseAdmissions.delete(key);
@@ -1857,6 +1987,7 @@ export class OperatorActivity extends Agent {
       const child = context.facets.get('dispatcher', () => ({ class: dynamicClass,
         id: activities.idFromName('dispatcher') }));
       await child._cf_initAsFacet('dispatcher', [{ className: 'OperatorActivity', name: plan.activityId }], 'dispatcher');
+      this.#recordDiagnostic(lease.generation, 'construction', 'completed');
       return child;
     })();
     this.#dispatcher = { generation: lease.generation, facet };
@@ -1928,13 +2059,16 @@ export class OperatorActivity extends Agent {
           url.searchParams.set('view', 'updates');
           url.searchParams.set('offset', lease.projection!.offset);
           const response = await child.fetch(new Request(url));
+          this.#observeSdkHeader(lease.generation, response);
           statusStep = 'http';
           statusHttpStatus = response.status;
           if (!response.ok) throw new Error('Dispatcher status unavailable');
           statusStep = 'body';
           return readDispatcherUpdates(response, lease.projection!, lease.submissionId!,
             AbortSignal.timeout(Math.max(1, lease.expiresAt - Date.now())),
-            isManagementReceipt(plan.receipt) ? plan.receipt.selection.operator.policy : undefined);
+            isManagementReceipt(plan.receipt) ? plan.receipt.selection.operator.policy : undefined,
+            envelope => !!lease.sdkProvenance && sourceMatches(envelope.source, lease.sdkProvenance)
+              && this.#runtimeCoordinatesBound(lease, envelope));
         });
         const projectionSaved = await this.ctx.storage.transaction(async tx => {
           const record = await tx.get<AdmissionState>('admission');
@@ -1948,6 +2082,9 @@ export class OperatorActivity extends Agent {
         });
         if (!projectionSaved) return;
         const settlement = value.outcome ? { outcome: value.outcome, error: value.error } : null;
+        if (settlement) this.#recordDiagnostic(lease.generation, 'settlement', settlement.outcome === 'completed' ? 'completed' : 'failed',
+          settlement.outcome === 'completed' ? 'none' : 'settlement-failed', undefined, {}, 'host', undefined,
+          value.errorMetadata, undefined, 'state-transition');
         if (!settlement || !value.upToDate) {
           stage = 'recheck';
           inferenceDiagnostic({ activityId: plan.activityId, generation: lease.generation, loggingEnabled }, { stage: 'settlement', outcome: 'pending', boundary: stage });
@@ -2050,7 +2187,7 @@ export class OperatorActivity extends Agent {
           const label = settlement.error?.meta?.operation;
           const operation = errorType !== 'operation_failed' ? 'unknown'
             : label === 'prompt' ? 'prompt'
-              : label === `direct(${lease.submissionId})` ? 'direct' : 'unknown';
+              : label === 'direct' ? 'direct' : 'unknown';
           const failureClass = operation === 'unknown' ? 'unknown'
             : reason === 'Stream ended without finish_reason (retryable_interruption)' ? 'model-completion'
               : reason === 'the session advanced past this input before it completed' ? 'superseded'
@@ -2080,7 +2217,7 @@ export class OperatorActivity extends Agent {
               /\b(tool|function)\b/i.test(reason) ? 'tool' : null,
               /\b(undefined|not a function|cannot read properties)\b/i.test(reason) ? 'runtime-shape' : null,
             ].filter(Boolean).join(',') || 'none' });
-          await this.interruptDrive(lease.generation); return;
+          await this.interruptDrive(lease.generation, { boundary: 'settlement', code: 'settlement-failed' }); return;
         }
         stage = 'assessment';
         const assessmentParts = value.writes === 1 ? [{ data: value.result }] : [];
@@ -2092,14 +2229,16 @@ export class OperatorActivity extends Agent {
           || (admittedTarget && !admittedDispatcherResultMatches(assessmentParts[0].data, admittedTarget, isManagementReceipt(plan.receipt) ? plan.receipt.selection.operator.policy : undefined))) {
           inferenceDiagnostic(trace, { stage: 'assessment', outcome: 'denied', failureClass: 'assessment' });
           if (loggingEnabled) dispatcherLog.warn('Dispatcher settlement rejected', { stage: 'assessment' });
-          await this.interruptDrive(lease.generation); return;
+          this.#recordDiagnostic(lease.generation, 'settlement', 'failed', 'settlement-failed');
+          await this.interruptDrive(lease.generation, { boundary: 'settlement', code: 'settlement-failed' }); return;
         }
         stage = 'operations';
         // An unsettled protected operation is not a safe checkpoint, even if Flue says completed.
         const journal = await this.ctx.storage.transaction(tx => loadDispatcherJournal(tx, lease.generation));
         if (journal.unresolved !== 0) {
           if (loggingEnabled) dispatcherLog.warn('Dispatcher settlement rejected', { stage: 'operations' });
-          await this.interruptDrive(lease.generation); return;
+          this.#recordDiagnostic(lease.generation, 'settlement', 'failed', 'settlement-failed');
+          await this.interruptDrive(lease.generation, { boundary: 'settlement', code: 'settlement-failed' }); return;
         }
         await this.ctx.storage.transaction(async tx => {
           const record = await tx.get<AdmissionState>('admission');
@@ -2119,9 +2258,11 @@ export class OperatorActivity extends Agent {
           result: legacy ? null : assessmentParts[0].data });
         if (!committed.ok) {
           if (loggingEnabled) dispatcherLog.warn('Dispatcher settlement rejected', { stage: 'commit', reason: committed.reason });
-          await this.interruptDrive(lease.generation);
+          this.#recordDiagnostic(lease.generation, 'settlement', 'failed', 'settlement-failed');
+          await this.interruptDrive(lease.generation, { boundary: 'settlement', code: 'settlement-failed' });
         }
       } catch (error) {
+        this.#recordDiagnostic(lease.generation, 'settlement', 'failed', 'settlement-failed', error);
         if (stage === 'status' && statusStep === 'fetch' && lease.serial?.current.receipt) {
           try {
             const latest = await this.ctx.storage.get<DispatcherLease>(DISPATCHER_LEASE);
@@ -2169,7 +2310,7 @@ export class OperatorActivity extends Agent {
         if (loggingEnabled) dispatcherLog.warn('Dispatcher settlement rejected', { stage, activityId, generation: lease.generation,
           ...(stage === 'status' ? { statusStep, failureClass,
             ...(statusHttpStatus === undefined ? {} : { statusHttpStatus }) } : {}) });
-        await this.interruptDrive(lease.generation);
+        await this.interruptDrive(lease.generation, { boundary: 'settlement', code: 'settlement-failed', error: captureError(error) });
       }
     })();
     try { await this.#reconciling; } finally {
@@ -2183,6 +2324,85 @@ export class OperatorActivity extends Agent {
 
   /** REQ-OPERATOR-047: durable intent precedes protected I/O; uncertain effects are never replayed. */
   /** Supplemental, non-authorizing child telemetry; never reserves a protected operation. */
+  /** Original-bound, diagnostic-only import. Does not resume or authorize work, including after retirement. */
+  async dispatcherRuntimeDiagnostic(generation: number, request: Request): Promise<Response> {
+    const response = (status: number) => new Response(null, { status, headers: { 'cache-control': 'no-store' } });
+    const state = await this.ctx.storage.get<AdmissionState>('admission').catch(() => undefined);
+    const lease = await this.ctx.storage.get<DispatcherLease>(DISPATCHER_LEASE).catch(() => undefined);
+    if (!state || !lease || !this.#diagnosticBindingValid(state, lease) || lease.generation !== generation) return response(409);
+    if (!lease.sdkProvenance) return response(403);
+    if (request.method !== 'POST' || new URL(request.url).href !== 'https://operator.internal/v1/dispatcher/diagnostic/runtime'
+      || request.headers.get('content-type')?.split(';')[0].trim() !== 'application/json') return response(400);
+    let value: unknown;
+    try { value = JSON.parse(await readDispatcherBody(request, AbortSignal.timeout(250), 8192)); }
+    catch (error) {
+      this.#enqueueDiagnostic(() => this.ctx.storage.transaction(tx => diagnosticLoss(tx, lease, 'rejected')));
+      return response(error instanceof Error && error.message === 'Dispatcher body exceeds limit' ? 413 : 400);
+    }
+    const parsed = runtimeSchema.safeParse(value);
+    if (!parsed.success) {
+      this.#enqueueDiagnostic(() => this.ctx.storage.transaction(tx => diagnosticLoss(tx, lease, 'rejected')));
+      return response(400);
+    }
+    if (!sourceMatches(parsed.data.source, lease.sdkProvenance) || !this.#runtimeCoordinatesBound(lease, parsed.data)) return response(409);
+    if (!executionLoggingEnabled(state.receipt)) return response(204);
+    try { await this.#diagnosticQueue; await this.#importRuntimeEnvelope(generation, parsed.data); return response(204); }
+    catch { return response(503); }
+  }
+
+  #diagnosticBindingValid(state: AdmissionState, lease: DispatcherLease): boolean {
+    return !!state.receipt && isManagementReceipt(state.receipt) && state.receipt.selection.operator.profile === 'dispatcher'
+      && state.receipt.intentDigest === lease.inputDigest && state.receipt.selection.release.bundleDigest === lease.artifactDigest
+      && state.executionContext?.artifactDigest === lease.artifactDigest;
+  }
+
+  #runtimeCoordinatesBound(lease: DispatcherLease, envelope: RuntimeEnvelope): boolean {
+    const sdk = envelope.sdk;
+    const rootDigest = lease.rootDigest ?? (lease.serial?.uid ? hashDiagnostic(lease.serial.uid) : undefined);
+    if (sdk?.rootUid !== undefined && hashDiagnostic(sdk.rootUid) !== rootDigest) return false;
+    if (sdk?.submissionId !== undefined && sdk.submissionId !== lease.submissionId
+      && !lease.serial?.previous.some(previous => previous.submissionId === sdk.submissionId)) return false;
+    return true;
+  }
+
+  async #importRuntimeEnvelope(generation: number, envelope: RuntimeEnvelope): Promise<void> {
+    await this.ctx.storage.transaction(async tx => {
+      const state = await tx.get<AdmissionState>('admission');
+      const lease = await tx.get<DispatcherLease>(DISPATCHER_LEASE);
+      if (!state || !lease || !this.#diagnosticBindingValid(state, lease) || lease.generation !== generation
+        || !lease.sdkProvenance || !sourceMatches(envelope.source, lease.sdkProvenance)
+        || !this.#runtimeCoordinatesBound(lease, envelope)) throw new Error('Diagnostic binding changed');
+      if (!executionLoggingEnabled(state.receipt)) return;
+      const sdk = envelope.sdk;
+      const correlation: Correlation = {};
+      if (sdk?.rootUid) correlation.rootDigest = hashDiagnostic(sdk.rootUid);
+      if (sdk?.submissionId) correlation.submissionDigest = hashDiagnostic(sdk.submissionId);
+      if (sdk?.attemptId) correlation.sdkAttemptDigest = hashDiagnostic(sdk.attemptId);
+      if (sdk?.streamIncarnation) correlation.streamIncarnationDigest = hashDiagnostic(sdk.streamIncarnation);
+      if (sdk?.batchSequence !== undefined) correlation.sdkBatchSequence = sdk.batchSequence;
+      if (sdk?.producerEpoch !== undefined) correlation.sdkProducerEpoch = sdk.producerEpoch;
+      if (sdk?.producerSequence !== undefined) correlation.sdkProducerSequence = sdk.producerSequence;
+      if (sdk?.recordIndex !== undefined) correlation.sdkRecordIndex = sdk.recordIndex;
+      await appendDiagnostic(tx, lease, { timestamp: envelope.timestamp, boundary: envelope.boundary, outcome: envelope.outcome,
+        code: envelope.code, origin: envelope.origin, source: envelope.source, owner: 'sdk', evidence: 'observed', correlation,
+        ...(envelope.error ? { error: envelope.error } : {}) }, { captureId: envelope.captureId, runtime: envelope });
+    });
+  }
+
+  #observeSdkHeader(generation: number, response: Response): void {
+    const header = readSdkDiagnosticHeader(response);
+    if (!header) return;
+    this.#enqueueDiagnostic(async () => {
+      for (const envelope of header.records) await this.#importRuntimeEnvelope(generation, envelope);
+      await this.ctx.storage.transaction(async tx => {
+        const state = await tx.get<AdmissionState>('admission');
+        const lease = await tx.get<DispatcherLease>(DISPATCHER_LEASE);
+        if (state && lease?.generation === generation && this.#diagnosticBindingValid(state, lease)
+          && lease.sdkProvenance && executionLoggingEnabled(state.receipt)) await observeOutbox(tx, lease, header.outbox);
+      });
+    });
+  }
+
   async dispatcherDiagnosticReport(generation: number, request: Request): Promise<Response> {
     this.#resumeDispatcherOnEntry();
     const denied = () => Response.json({ code: 'OPERATOR_CAPABILITY_DENIED' }, { status: 403 });
@@ -2211,6 +2431,27 @@ export class OperatorActivity extends Agent {
           if (this.#producerReports >= 2048) return new Response(null, { status: 429 });
           this.#producerReports++;
         }
+        const lineage = diagnostic.errorKind && diagnostic.errorKind !== 'none' ? {
+          kind: diagnostic.errorKind, publicCode: diagnostic.code, messageDigest: diagnostic.errorDigest ?? null,
+          stackDigest: diagnostic.errorStackDigest ?? null, causes: (diagnostic.errorCauseDigests ?? []).map(messageDigest =>
+            ({ kind: 'other' as const, messageDigest, stackDigest: null })), loss: diagnostic.errorCaptureLoss ?? [],
+          fingerprintScope: diagnostic.errorCaptureLoss?.length ? 'bounded' as const : 'full' as const,
+        } : undefined;
+        const family: Boundary = diagnostic.phase === 'finish' || diagnostic.role === 'finish' ? 'settlement'
+          : diagnostic.role === 'provider' ? 'model' : 'tool';
+        const code: ReasonCode = diagnostic.outcome === 'failed' ? family === 'model' ? 'provider-failed'
+          : family === 'settlement' ? 'settlement-failed' : 'tool-failed' : 'none';
+        this.#enqueueDiagnostic(async () => {
+          await this.ctx.storage.transaction(async tx => {
+            const state = await tx.get<AdmissionState>('admission');
+            const lease = await tx.get<DispatcherLease>(DISPATCHER_LEASE);
+            if (!state || lease?.generation !== generation || !executionLoggingEnabled(state.receipt)) return;
+            await appendDiagnostic(tx, lease, { timestamp: Date.now(), owner: 'producer', boundary: family,
+              outcome: diagnostic.outcome === 'unavailable' ? 'unknown' : diagnostic.outcome, code, origin: 'catching',
+              evidence: 'observed', source: { ...hostSource(family), package: '@codeflare/operator-dispatcher' }, correlation: {},
+              ...(lineage ? { error: lineage } : {}) });
+          });
+        });
         const observation = { activityId: plan.activityId, generation, ...diagnostic };
         if (diagnostic.outcome === 'failed' || diagnostic.outcome === 'unavailable') {
           dispatcherReportLog.warn('Dispatcher producer diagnostic', observation);
@@ -2247,6 +2488,7 @@ export class OperatorActivity extends Agent {
         ...(upstreamStatus === undefined ? {} : { upstreamStatus }) });
     };
     if (!await this.#dispatcherDeliveryCurrent(generation, deliveryToken)) {
+      this.#recordDiagnostic(generation, 'admission', 'failed', 'authority-denied');
       rejected('authority', 'unparsed', await this.ctx.storage.get<DispatcherLease>(DISPATCHER_LEASE).catch(() => undefined), 403);
       return denied();
     }
@@ -2339,6 +2581,8 @@ export class OperatorActivity extends Agent {
         current: () => this.#dispatcherDeliveryCurrent(generation, deliveryToken),
         exports: (this.ctx as unknown as { exports: Parameters<typeof createDispatcherOperation>[0]['exports'] }).exports });
     } catch (error) {
+      this.#recordDiagnostic(generation, preparationStep === 'parse' ? 'tool' : 'admission', 'failed',
+        preparationStep === 'parse' ? 'tool-failed' : 'authority-denied', error);
       try {
         const state = await this.ctx.storage.get<AdmissionState>('admission');
         if (state) {
@@ -2394,6 +2638,7 @@ export class OperatorActivity extends Agent {
       return { kind: 'reserved', lease: lease!, ordinal: journal.nextOrdinal, operationCount: journal.count + 1 } as const;
     });
     if (reserved.kind === 'denied') {
+      this.#recordDiagnostic(generation, 'admission', 'failed', reserved.reason === 'operation-limit' ? 'capacity-exhausted' : 'authority-denied');
       inferenceDiagnostic(trace, { stage: 'journal', outcome: 'denied', resource, operationLimit, ...('operationCount' in reserved ? { operationCount: reserved.operationCount } : {}) });
       try {
         if (loggingEnabled) dispatcherLog.warn('Dispatcher operation rejected', { stage: 'reservation', reason: reserved.reason,
@@ -2404,6 +2649,10 @@ export class OperatorActivity extends Agent {
       return denied();
     }
     if ('ordinal' in reserved && trace) trace.operationOrdinal = reserved.ordinal;
+    const operationCorrelation: Correlation = { requestDigest, ...('ordinal' in reserved && reserved.ordinal !== undefined
+      ? { logicalOrdinal: reserved.ordinal } : {}) };
+    this.#recordDiagnostic(generation, 'effect', reserved.kind === 'completed' ? 'completed' : reserved.kind === 'unknown' ? 'unknown' : 'started',
+      reserved.kind === 'unknown' ? 'effect-unknown' : 'none', undefined, operationCorrelation);
     inferenceDiagnostic(trace, { stage: 'journal', outcome: reserved.kind === 'completed' ? 'cached' : reserved.kind,
       resource, operationLimit, ...('operationCount' in reserved ? { operationCount: reserved.operationCount } : {}),
       ...(reserved.kind === 'completed' ? { ...inferenceResponseObservation(reserved.response), responseDigest: reserved.responseDigest } : {}) });
@@ -2480,10 +2729,16 @@ export class OperatorActivity extends Agent {
           { ...prior, phase: effectUnknown ? 'unknown' : 'completed', responseDigest: committedResponseDigest });
         return result;
       });
+      this.#recordDiagnostic(generation, resource === 'inference' ? 'inference-response' : 'effect', 'committed', 'none', undefined,
+        { ...operationCorrelation, ...(committedResponseDigest ? { responseDigest: committedResponseDigest } : {}) });
       inferenceDiagnostic(trace, { stage: 'response-commit', outcome: 'completed', resource, status: committedResult.status, ...inferenceResponseObservation(committedResult), responseDigest: committedResponseDigest, elapsedMs: performance.now() - began });
       if (committedResult.status >= 400) rejected('forwarded-upstream', resource, lease, committedResult.status);
       return response(committedResult);
     } catch (error) {
+      this.#recordDiagnostic(generation, resource === 'inference' ? 'model' : 'effect', 'failed',
+        resource === 'inference' ? 'provider-failed' : 'effect-unknown', error, operationCorrelation, 'host', undefined, undefined,
+        [{ operationDigest: hashDiagnostic(operation.operationId), effect: resource === 'inference' ? 'none'
+          : genericMutation || resource === 'comment' || resource === 'merge' ? 'write' : 'read', status: 'unknown' }]);
       await this.ctx.storage.transaction(async tx => {
         const live = await tx.get<DispatcherLease>(DISPATCHER_LEASE);
         if (live?.generation !== generation || !this.#phaseTokenMatches(live, deliveryToken, false)) return;
@@ -2503,7 +2758,9 @@ export class OperatorActivity extends Agent {
       const local = current?.serial?.current.phase.kind === 'target'
         && await this.#dispatcherDeliveryCurrent(generation, deliveryToken) && journal.count < operationLimit;
       if (!local && ((!genericMutation && resource !== 'comment' && resource !== 'merge')
-        || !await this.#dispatcherDeliveryCurrent(generation, deliveryToken))) await this.interruptDrive(generation);
+        || !await this.#dispatcherDeliveryCurrent(generation, deliveryToken))) await this.interruptDrive(generation,
+          { boundary: stage === 'authority' ? 'admission' : resource === 'inference' ? 'model' : 'effect',
+            code: stage === 'authority' ? 'authority-denied' : resource === 'inference' ? 'provider-failed' : 'effect-unknown', error: captureError(error) });
       inferenceDiagnostic(trace, { stage: 'response-commit', outcome: 'unknown', resource, failureClass: stage === 'authority' ? 'authority' : stage === 'commit' ? 'commit' : upstreamStatus !== undefined ? 'upstream-status' : bodyReading && error instanceof Error && error.message === 'Dispatcher body exceeds limit' ? 'body-limit' : bodyReading ? 'body-read' : 'unknown', elapsedMs: performance.now() - began });
       rejected(stage, resource, lease, 409, upstreamStatus);
       return Response.json({ code: 'OPERATOR_OPERATION_UNKNOWN' }, { status: 409 });
@@ -2616,12 +2873,12 @@ export class OperatorActivity extends Agent {
             await putDispatcherEntry(tx, journal, operation.operationId, undefined,
               { generation, requestDigest, phase: 'reserved', ordinal: attempt.ordinal, inference: { version: 1, attempt: 1 },
                 ...(lease.serial ? { phaseBinding: this.#operationPhase(lease, 'inference') } : {}) });
-            return { kind: 'ready', attempt, operationCount: journal.count + 1 } as const;
+            return { kind: 'ready', attempt, logicalOrdinal: attempt.ordinal, operationCount: journal.count + 1 } as const;
           }
           const attemptKey = inferenceAttemptKey(generation, operation.operationId, record.inference!.attempt);
           let previous = await tx.get<DispatcherInferenceAttempt>(attemptKey);
           if (!previous) throw new Error('Dispatcher inference attempt missing');
-          if (previous.phase === 'ready') return { kind: 'ready', attempt: previous, operationCount: journal.count } as const;
+          if (previous.phase === 'ready') return { kind: 'ready', attempt: previous, logicalOrdinal: record.ordinal, operationCount: journal.count } as const;
           if (previous.phase === 'in-flight') {
             if (previous.owner === undefined || previous.owner >= epoch!) throw new Error('Dispatcher inference owner conflict');
             previous = { ...previous, phase: 'unknown', classification: 'transport' };
@@ -2636,7 +2893,7 @@ export class OperatorActivity extends Agent {
           await tx.put(inferenceAttemptKey(generation, operation.operationId, attempt.index), attempt);
           await putDispatcherEntry(tx, journal, operation.operationId, record,
             { ...record, inference: { ...record.inference!, attempt: attempt.index } }, 1);
-          return { kind: 'ready', attempt, operationCount: journal.count + 1 } as const;
+          return { kind: 'ready', attempt, logicalOrdinal: record.ordinal, operationCount: journal.count + 1 } as const;
         }).catch(async error => this.ctx.storage.transaction(async tx => {
           // A lost allocation acknowledgement is not a second allocation. Only an
           // independently retained, unclaimed reservation (or final cache) reconciles it.
@@ -2650,10 +2907,11 @@ export class OperatorActivity extends Agent {
           }
           const attempt = await tx.get<DispatcherInferenceAttempt>(inferenceAttemptKey(generation, operation.operationId, record.inference.attempt));
           if (record.phase !== 'reserved' || attempt?.phase !== 'ready' || attempt.owner !== undefined) throw error;
-          return { kind: 'ready', attempt, operationCount: journal.count } as const;
+          return { kind: 'ready', attempt, logicalOrdinal: record.ordinal, operationCount: journal.count } as const;
         }));
         if (next.kind === 'conflict') return rejected('OPERATOR_OPERATION_CONFLICT');
         if (next.kind === 'capacity' || next.kind === 'exhausted') {
+          this.#recordDiagnostic(generation, 'admission', 'failed', 'capacity-exhausted');
           inferenceDiagnostic(trace, { stage: 'journal', outcome: 'denied', resource: 'inference',
             operationCount: next.operationCount, operationLimit, inferenceAttemptLimit: attemptLimit });
           if (next.kind === 'capacity') return rejected('OPERATOR_CAPABILITY_DENIED', 403);
@@ -2665,6 +2923,8 @@ export class OperatorActivity extends Agent {
           return next.response;
         }
         const attempt = next.attempt;
+        const attemptCorrelation: Correlation = { requestDigest, ...(next.logicalOrdinal === undefined ? {} : { logicalOrdinal: next.logicalOrdinal }),
+          hostAttemptIndex: attempt.index, chargedOrdinal: attempt.ordinal };
         const attemptTrace = trace ? { ...trace, operationOrdinal: attempt.ordinal } : undefined;
         if (attempt.notBefore > Date.now()) await this.#boundedDispatcher(lease, () => new Promise<void>((resolve, reject) => {
           const abort = () => { clearTimeout(timer); controller.signal.removeEventListener('abort', abort); reject(new Error('Dispatcher inference cancelled')); };
@@ -2681,6 +2941,7 @@ export class OperatorActivity extends Agent {
           if (current?.phase !== 'ready') throw new Error('Dispatcher inference already claimed');
           await tx.put(attemptKey, { ...current, phase: 'in-flight', owner: epoch });
         });
+        this.#recordDiagnostic(generation, 'model', 'started', 'none', undefined, attemptCorrelation);
         inferenceDiagnostic(attemptTrace, { stage: 'inference-attempt', outcome: 'started', resource: 'inference',
           inferenceAttempt: attempt.index, inferenceAttemptLimit: attemptLimit, operationCount: next.operationCount, operationLimit });
         let response: DispatcherInferenceResponse | undefined;
@@ -2694,6 +2955,8 @@ export class OperatorActivity extends Agent {
           });
           classification = classifyDispatcherInference(response, (operation.body as { input: { stream?: boolean } }).input.stream !== false);
         } catch (error) {
+          this.#recordDiagnostic(generation, 'model', 'failed', 'provider-failed', error, attemptCorrelation, 'host', undefined, undefined,
+            [{ operationDigest: hashDiagnostic(operation.operationId), effect: 'none', status: 'unavailable' }]);
           responseFailure = error instanceof Error && error.message === 'Dispatcher body exceeds limit' ? 'body-limit' : 'body-read';
           if (error instanceof Error && ['Dispatcher body exceeds limit', 'Dispatcher body encoding invalid'].includes(error.message)) classification = 'permanent';
         }
@@ -2718,6 +2981,10 @@ export class OperatorActivity extends Agent {
             await putDispatcherEntry(tx, journal, operation.operationId, record, { ...record, phase: 'completed', responseDigest });
           }
         });
+        this.#recordDiagnostic(generation, classification === 'usable' ? 'inference-response' : 'model',
+          classification === 'usable' ? 'completed' : response ? 'failed' : 'unknown', classification === 'usable' ? 'none' : 'response-unusable',
+          undefined, { ...attemptCorrelation, ...(responseDigest ? { responseDigest } : {}) });
+        if (classification === 'usable' && attempt.index > 1) this.#recordDiagnostic(generation, 'recovery', 'recovered', 'none', undefined, attemptCorrelation);
         inferenceDiagnostic(attemptTrace, { stage: 'inference-attempt', outcome: classification === 'usable' ? 'completed' : response ? 'failed' : 'unknown',
           resource: 'inference', inferenceAttempt: attempt.index, inferenceAttemptLimit: attemptLimit,
           operationCount: next.operationCount, operationLimit, inferenceOutcome: classification,
@@ -2726,7 +2993,9 @@ export class OperatorActivity extends Agent {
         if ((classification === 'usable' || classification === 'final-error') && response) return response;
         if (classification === 'permanent') { failureClass = responseFailure ?? 'model-completion'; throw new Error('Dispatcher inference permanent failure'); }
       }
-    } catch {
+    } catch (error) {
+      this.#recordDiagnostic(generation, failureClass === 'authority' ? 'admission' : 'recovery', 'failed',
+        failureClass === 'authority' ? 'authority-denied' : terminalCode === 'OPERATOR_INFERENCE_RECOVERY_EXHAUSTED' ? 'capacity-exhausted' : 'provider-failed', error, { requestDigest });
       // A replaced owner's late failure cannot fence its successor. Persistence ambiguity never authorizes I/O.
       let owns = false;
       try {
@@ -2747,7 +3016,9 @@ export class OperatorActivity extends Agent {
           const local = current?.serial?.current.phase.kind === 'target'
             && (terminalCode === 'OPERATOR_INFERENCE_RECOVERY_EXHAUSTED' || ['model-completion', 'body-limit', 'body-read'].includes(failureClass))
             && journal.count < operationLimit && await this.#dispatcherDeliveryCurrent(generation, deliveryToken);
-          if (!local) await this.interruptDrive(generation);
+          if (!local) await this.interruptDrive(generation, { boundary: failureClass === 'authority' ? 'admission'
+            : terminalCode === 'OPERATOR_INFERENCE_RECOVERY_EXHAUSTED' ? 'recovery' : 'model',
+            code: failureClass === 'authority' ? 'authority-denied' : terminalCode === 'OPERATOR_INFERENCE_RECOVERY_EXHAUSTED' ? 'capacity-exhausted' : 'provider-failed' });
         }
       } catch { /* No fresh inference follows a journal or fence failure. */ }
       inferenceDiagnostic(trace, { stage: 'response-commit', outcome: 'unknown', resource: 'inference', failureClass });
@@ -2769,6 +3040,7 @@ export class OperatorActivity extends Agent {
     if (!admission) return;
     const trace = { activityId: admission.intent.activityId, generation: lease.generation, loggingEnabled: executionLoggingEnabled(admission.receipt) };
     inferenceDiagnostic(trace, { stage: 'sdk-release', outcome: 'started' });
+    this.#recordDiagnostic(lease.generation, 'release', 'started');
     try {
     // Intent4 only: after the durable generation fence, stop its actual owned child,
     // including descendants. Bookkeeping cleanup alone cannot stop an SDK callback.
@@ -2789,8 +3061,10 @@ export class OperatorActivity extends Agent {
       return false;
     });
     inferenceDiagnostic(trace, { stage: 'sdk-release', outcome: released ? 'completed' : 'unknown', sdkReleased: released });
+    this.#recordDiagnostic(lease.generation, 'release', released ? 'completed' : 'unknown');
     } catch (error) {
       inferenceDiagnostic(trace, { stage: 'sdk-release', outcome: 'failed', failureClass: 'sdk-cleanup' });
+      this.#recordDiagnostic(lease.generation, 'release', 'failed', 'cleanup-failed', error);
       throw error;
     }
   }
@@ -2808,6 +3082,18 @@ export class OperatorActivity extends Agent {
 
   /** The exact pinned SDK list, never a general RPC reflector. Original generation is rechecked here. */
   async dispatcherBridge(generation: number, method: DispatcherSdkMethod, args: unknown[]): Promise<unknown> {
+    const family: Boundary = method === '_cf_releaseFacetKeepAlive' || method === '_cf_unregisterFacetRun' ? 'release' : 'scheduling';
+    try {
+      const result = await this.#dispatcherBridgeBound(generation, method, args);
+      this.#recordDiagnostic(generation, family, 'completed');
+      return result;
+    } catch (error) {
+      this.#recordDiagnostic(generation, family, 'failed', family === 'release' ? 'cleanup-failed' : 'unclassified', error);
+      throw error;
+    }
+  }
+
+  async #dispatcherBridgeBound(generation: number, method: DispatcherSdkMethod, args: unknown[]): Promise<unknown> {
     this.#resumeDispatcherOnEntry();
     if (!DISPATCHER_SDK_METHODS.includes(method) || !Array.isArray(args)
       || new TextEncoder().encode(JSON.stringify(args)).byteLength > 64 * 1024
@@ -3031,6 +3317,74 @@ export class OperatorActivity extends Agent {
       })]);
     } catch { return unavailable('read-failed'); }
     finally { clearTimeout(timer); }
+  }
+
+  /** Owner v2 reads use only original retained parent metadata; never acquire a child or renew authority. */
+  async getDispatcherDiagnosticsV2(ownerKey: string, options: DiagnosticReadOptions): Promise<
+    { status: 200; value: Record<string, unknown> } | { status: 400 | 404 | 409 | 503; code: string }> {
+    if (!syncDigest.safeParse(ownerKey).success) return { status: 404, code: 'NOT_FOUND' };
+    try {
+      const value = await readActivityDiagnostics({ storage: this.ctx.storage, env: this.#appEnv, ownerKey,
+        state: async (): Promise<DiagnosticReadState | null> => {
+          await this.#diagnosticQueue;
+          const { admission, lease, journal } = await this.#dispatcherDiagnosticState();
+          if (!admission || admission.ownerKey !== ownerKey) return null;
+          const artifactDigest = lease?.artifactDigest ?? admission.diagnosticBinding?.artifactDigest ?? admission.executionContext?.artifactDigest;
+          const inputDigest = lease?.inputDigest ?? admission.diagnosticBinding?.inputDigest ?? admission.receipt?.intentDigest;
+          if (!artifactDigest || !inputDigest) return null;
+          return { ownerKey: admission.ownerKey, activityId: admission.intent.activityId,
+            binding: { generation: lease?.generation ?? admission.diagnosticBinding?.generation ?? admission.drive?.generation ?? 0, artifactDigest, inputDigest },
+            bindingValid: lease ? this.#diagnosticBindingValid(admission, lease) : !!admission.diagnosticBinding
+              && artifactDigest === admission.executionContext?.artifactDigest && inputDigest === admission.receipt?.intentDigest,
+            expectedIndex: admission.diagnosticsVersion === 1,
+            logging: executionLoggingEnabled(admission.receipt), status: admission.drive?.status,
+            operations: journal?.generation === lease?.generation && typeof journal?.count === 'number'
+              && Number.isSafeInteger(journal.count) && journal.count >= 0 ? journal.count : null,
+            provenance: lease?.sdkProvenance ?? null, rootDigest: lease?.rootDigest
+              ?? (lease?.serial?.current.receipt?.uid ? hashDiagnostic(lease.serial.current.receipt.uid) : undefined),
+            submissionId: lease?.submissionId, fence: admission.diagnosticFence,
+            recorderUnavailable: admission.diagnosticRecorderUnavailable,
+            sdkRetired: !!lease && (lease.sdkReleased === true || lease.status === 'unknown' || lease.status === 'settled'
+              || admission.drive?.generation !== lease.generation) };
+        },
+        projectOperation: async (id, raw, legacy, state, generation): Promise<OperationRecord> => {
+          if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new Error('Invalid operation metadata');
+          const entry = raw as DispatcherOperationRecord;
+          if (!Number.isSafeInteger(generation) || generation < 0 || generation > state.binding.generation
+            || entry.generation !== generation || !['reserved', 'completed', 'unknown'].includes(entry.phase)) throw new Error('Invalid operation binding');
+          const safeNumber = (value: unknown) => typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : null;
+          const digest = (value: unknown) => syncDigest.safeParse(value).success ? value as string : null;
+          const operationDigest = hashDiagnostic(id);
+          const phase = entry.phaseBinding;
+          let binding: DispatcherOperationDiagnostics['records'][number]['binding'] = null;
+          if (phase && typeof phase.submissionId === 'string' && phase.submissionId.length <= 512
+            && typeof phase.deliveryToken === 'string' && phase.deliveryToken.length <= 512
+            && ['discovery', 'target', 'final'].includes(phase.phase?.kind)) {
+            binding = { scope: phase.submissionId === state.submissionId ? 'requested' : 'other',
+              submissionDigest: hashDiagnostic(phase.submissionId), deliveryDigest: hashDiagnostic(phase.deliveryToken),
+              phase: phase.phase.kind, phaseIndex: phase.phase.kind === 'target' ? safeNumber(phase.phase.index) : null,
+              resource: (['inference', 'source', 'comment', 'merge', 'pull-request', 'files', 'checks', 'release-notes',
+                'upstream-guide', 'changed-compose', 'open-pull-requests'] as const).find(resource => resource === phase.resource) ?? 'unknown' };
+          }
+          let hostInference: DispatcherOperationDiagnostics['records'][number]['hostInference'] = null;
+          if (entry.inference?.version === 1 && safeNumber(entry.inference.attempt) !== null) {
+            const attempt = await this.ctx.storage.get<DispatcherInferenceAttempt>(inferenceAttemptKey(generation, id, entry.inference.attempt));
+            if (attempt?.index === entry.inference.attempt && safeNumber(attempt.ordinal) !== null
+              && ['ready', 'in-flight', 'completed', 'unknown'].includes(attempt.phase)) hostInference = {
+              index: attempt.index, ordinal: attempt.ordinal, status: attempt.phase,
+              classification: (['usable', 'final-error', 'retryable', 'permanent', 'transport', 'unknown'] as const)
+                .find(value => value === attempt.classification) ?? 'unknown', responseDigest: digest(attempt.responseDigest) };
+          }
+          return { kind: 'operation', id: `o-${generation}-${operationDigest}`, generation,
+            operationDigest, ordinal: safeNumber(entry.ordinal), status: entry.phase, requestDigest: digest(entry.requestDigest),
+            responseDigest: digest(entry.responseDigest), binding, hostInference, availability: 'retained',
+            association: legacy ? 'legacy' : binding ? 'verified' : 'unassociated' };
+        } }, options);
+      return value ? { status: 200, value } : { status: 404, code: 'NOT_FOUND' };
+    } catch (error) {
+      return error instanceof DiagnosticReadError ? { status: error.status, code: error.code }
+        : { status: 503, code: 'DIAGNOSTICS_UNAVAILABLE' };
+    }
   }
 
   /** Protected storage snapshot; deliberately not an ordinary execution entrypoint. */
@@ -3757,6 +4111,9 @@ export class OperatorDispatcherCapability extends WorkerEntrypoint<Env> {
           || Array.isArray(source.headers)) throw new Error('Dispatcher source receipt unavailable');
         return new Response([204, 205, 304].includes(source.status) ? null : source.body,
           { status: source.status, headers: source.headers });
+      }
+      if (new URL(request.url).pathname === '/v1/dispatcher/diagnostic/runtime') {
+        return await activity.dispatcherRuntimeDiagnostic(generation, request);
       }
       if (new URL(request.url).pathname === '/v1/dispatcher/phase-context') {
         return await activity.dispatcherPhaseContext(generation, request);
