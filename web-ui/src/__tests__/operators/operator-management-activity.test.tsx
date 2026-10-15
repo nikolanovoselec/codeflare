@@ -220,7 +220,7 @@ describe('REQ-OPERATOR-049: human-owned invocation and activity', () => {
   });
 });
 
-// REQ-OPERATOR-081 AC6: public v2 metadata fixtures qualify presentation, not actual SDK capture.
+// REQ-OPERATOR-084 AC1: public v2 metadata fixtures qualify presentation, not actual SDK capture.
 // Every success below is gated by the real GET wire; no new client API is imported or mocked.
 const diagnosticJson = (value: unknown, status = 200) => new Response(JSON.stringify(value), {
   status, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' },
@@ -283,6 +283,13 @@ const diagnosticPath = '/api/operator-activities/activity-1/diagnostics/v2';
 const diagnosticButtonName = /^(?:View diagnostics|Diagnostics)$/i;
 type DiagnosticRoute = () => Response | Promise<Response>;
 function ownedDiagnosticFixture() {
+  // Keep browser download URLs in this fixture: Node's inherited object-URL
+  // implementation cannot accept jsdom Blobs. Fetch/wire validation is unchanged.
+  let downloadNumber = 0;
+  vi.stubGlobal('URL', class extends URL {
+    static createObjectURL = vi.fn((_blob: Blob) => `blob:diagnostics-${++downloadNumber}`);
+    static revokeObjectURL = vi.fn();
+  });
   const state = { summary: diagnosticSummary(), history: diagnosticHistory(), detail: diagnosticDetail(),
     export: diagnosticExport(), mutations: [] as Array<{ path: string; method: string }>,
     activities: [{ ...summary, executionStatus: 'failed', cleanupStatus: 'stopped' }] };
@@ -331,7 +338,7 @@ function deferredDiagnosticResponse() {
   return { promise, resolve };
 }
 
-// All scenarios below map to the complete planned REQ-OPERATOR-081 AC6, including passive UI safeguards.
+// All scenarios below map to planned REQ-OPERATOR-084 AC1 and its passive UI Constraints.
 describe('REQ-OPERATOR-081: AC6 retained Dispatcher diagnostics in Activity detail', () => {
   afterEach(() => vi.useRealTimers());
 

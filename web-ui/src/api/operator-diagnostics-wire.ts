@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-// REQ-OPERATOR-081 AC6: closed public metadata contract, deliberately independent
+// REQ-OPERATOR-084 AC1: closed public metadata contract, deliberately independent
 // of the private runtime envelope and backend's Zod instance.
 const integer = z.number().int().nonnegative().safe();
 const positive = integer.positive();

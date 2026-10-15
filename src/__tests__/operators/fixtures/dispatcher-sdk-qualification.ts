@@ -194,15 +194,29 @@ export async function qualifyImportedSdk(fetch: (path: string) => Promise<Respon
     'Early live terminal publication alone is not operational finalization on the committed attempt').toBe(true);
   }
   if (recovered) {
-    const attemptsBySubmission = submissionDigests.map(submissionDigest => new Set(sdk
-      .filter(row => row.boundary === 'submission' && row.outcome === 'started'
-        && row.correlation.rootDigest === value.sdkBinding.rootDigest && row.correlation.submissionDigest === submissionDigest)
-      .map(row => row.correlation.sdkAttemptDigest).filter(attempt => hash.test(attempt ?? ''))).size);
+    const attemptsBySubmission = submissionDigests.map(submissionDigest => {
+      // The pinned coordinator emits attempt-running with its actual submission
+      // and attempt IDs BEFORE processSubmissionEntry reads the canonical root.
+      // Require independently rooted evidence for that same attempt, rather
+      // than inventing a root on the earlier started capture or discarding it.
+      const started = sdk.filter(row => row.boundary === 'submission' && row.outcome === 'started'
+        && row.correlation.submissionDigest === submissionDigest && hash.test(row.correlation.sdkAttemptDigest ?? ''));
+      for (const row of started) {
+        expect(row.source).toMatchObject({ package: '@flue/runtime', status: 'verified' });
+        expect(row.source.frames.length).toBeGreaterThan(0);
+        if (row.correlation.rootDigest !== undefined) expect(row.correlation.rootDigest).toBe(value.sdkBinding.rootDigest);
+        expect(sdk.some(observed => observed.correlation.rootDigest === value.sdkBinding.rootDigest
+          && observed.correlation.submissionDigest === submissionDigest
+          && observed.correlation.sdkAttemptDigest === row.correlation.sdkAttemptDigest),
+        'Each actual started attempt needs independently observed evidence on the accepted root and SAME submission').toBe(true);
+      }
+      return new Set(started.map(row => row.correlation.sdkAttemptDigest)).size;
+    });
     expect(attemptsBySubmission.some(count => count >= 2),
       'Eviction must retain two actual SDK attempts of the SAME submission, not two serial phases').toBe(true);
   }
   if (faults) {
-    // REQ081 AC1/3/7; Dispatcher007 AC1/4/7: qualify genuine caught
+    // REQ081 AC1/3 + REQ082 AC1; Dispatcher007 AC1/4/7: qualify genuine caught
     // faults AND their unchanged successful outcomes, never synthetic envelopes.
     const selected = submissionDigests[0]; // Actual first/discovery phase response.
     const window = faults.importWindow;

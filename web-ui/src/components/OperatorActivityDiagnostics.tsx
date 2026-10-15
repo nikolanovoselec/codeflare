@@ -248,7 +248,7 @@ const OperatorActivityDiagnostics: Component<{ activityId: string }> = props => 
             <p role="status">Metadata export part {partCount()} read. {part().nextCursor ? 'More parts remain.'
               : part().pageStatus === 'complete' ? 'Export traversal exhausted: all retained metadata parts read.'
               : 'Export traversal unavailable; retained evidence cannot be claimed complete.'}</p>
-            <p>Export retention status: {part().retainedStatus}. {part().retainedStatus === 'loss' ? 'Retained evidence loss remains even after traversal exhaustion.' : 'Traversal completeness does not describe complete execution history.'}</p>
+            <p>Export retention status: {part().retainedStatus}. {part().retainedStatus === 'loss' ? 'Retained evidence loss remains even after traversal exhaustion. ' : ''}Traversal completeness does not describe complete execution history.</p>
             <dl class="operator-diagnostic-facts"><div><dt>Snapshot digest</dt><dd>{part().snapshotDigest}</dd></div>
               <div><dt>Part digest</dt><dd>{part().partDigest}</dd></div></dl>
             <ul class="operator-diagnostic-downloads" aria-label="Metadata downloads"><For each={downloads()}>{saved => <li>

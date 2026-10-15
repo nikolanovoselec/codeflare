@@ -1549,7 +1549,10 @@ describe('REQ-OPERATOR-081: deterministic recorder integrity and budgets', () =>
           expect(unavailable.highWater.events).toBeNull();
           expect(unavailable.retention.evictedRoutine).toBeNull();
           expect(unavailable.retention.lastSequence).toBeNull();
-          await errorStatus(await get('/diagnostics/v2/history'), 503);
+          const response = await get('/diagnostics/v2/history');
+          expect(response.status).toBe(503);
+          expect(response.headers.get('cache-control')).toBe('no-store');
+          expect(await response.text()).not.toMatch(/PRIVATE_|private\.jwt|parent-only/);
         }
       }
     }, options));
@@ -2472,7 +2475,7 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
       .toEqual({ ok: false, reason: 'invalid-update' });
     f.settle('foreign'); await f.activity.reconcileDispatcherLease();
     expect((await f.activity.getBrowserDetail())?.executionStatus).toBe('running');
-    // REQ-OPERATOR-081 AC1/4/5: real protected operations and the actual
+    // REQ-OPERATOR-081 AC1 and REQ-OPERATOR-083 AC1/2: real protected operations and the actual
     // waiting/continuation path, not a synthetic generation/index snapshot.
     for (let index = 0; index < 16; index++) {
       expect((await f.capability.fetch(read(index === 0 ? 'read-1' : `continuation-read-${index}`))).status).toBe(200);
@@ -6119,17 +6122,19 @@ describe('REQ-OPERATOR-048: original-lease serial SDK phase ownership', () => {
         expect(unrelated).toBeDefined();
         await seedDiagnosticSnapshot(f, [failed, { ...unrelated, id: 'e-9001', sequence: 9001 }]);
         expect((await diagnosticSummary(f)).diagnosis).toMatchObject({ state: 'observed-failure', failedId: failed.id });
-        await seedDiagnosticSnapshot(f, [failed, { ...unrelated, id: 'e-9001', sequence: 9001,
-          boundary: 'recovery', outcome: 'recovered' }]);
+        // Controlled recovery metadata must keep its event/source boundary consistent.
+        const unrelatedRecovery = { ...unrelated, id: 'e-9001', sequence: 9001, boundary: 'recovery', outcome: 'recovered',
+          source: { ...(unrelated.source as Record<string, unknown>), boundary: 'recovery' } };
+        await seedDiagnosticSnapshot(f, [failed, unrelatedRecovery]);
         expect((await diagnosticSummary(f)).diagnosis).toMatchObject({ state: 'observed-failure', failedId: failed.id });
         const correlatedFailure = { ...failed, correlation: { ...failed.correlation, sdkAttemptDigest: 'a'.repeat(64) } };
-        const conflictingRecovery = { ...unrelated, id: 'e-9001', sequence: 9001, boundary: 'recovery', outcome: 'recovered',
+        const conflictingRecovery = { ...unrelatedRecovery,
           correlation: { ...correlatedFailure.correlation, sdkAttemptDigest: 'b'.repeat(64) } };
         await seedDiagnosticSnapshot(f, [correlatedFailure, conflictingRecovery]);
         expect((await diagnosticSummary(f)).diagnosis.state).toBe('observed-failure');
         const matchingRecovery = { ...conflictingRecovery, correlation: { ...correlatedFailure.correlation, hostAttemptIndex: 2 } };
         await seedDiagnosticSnapshot(f, [correlatedFailure, matchingRecovery,
-          { ...unrelated, id: 'e-9002', sequence: 9002, boundary: 'recovery', outcome: 'recovered' }]);
+          { ...unrelatedRecovery, id: 'e-9002', sequence: 9002 }]);
         expect((await diagnosticSummary(f)).diagnosis.state).toBe('recovered-failure');
       }, { repositoryOnly: true, recovery: true, inferenceAttemptLimit: 2, operationLimit: 256,
         capacityPolicy: { inferenceRetryBaseMs: 1, inferenceRetryMaxMs: 1 },

@@ -541,7 +541,7 @@ describe('REQ-OPERATOR-061: configured Renovate run settings', () => {
   });
 });
 
-// REQ-OPERATOR-081 AC5 boundary-only controls. Retention/readback is deliberately
+// REQ-OPERATOR-083 AC2 boundary-only controls. Retention/readback is deliberately
 // exercised by dispatcher-production.test.ts through real Hono + Activity SQLite,
 // not by installing nonexistent v2 methods on this route-unit stub.
 describe('REQ-OPERATOR-081: v2 owner HTTP boundary', () => {

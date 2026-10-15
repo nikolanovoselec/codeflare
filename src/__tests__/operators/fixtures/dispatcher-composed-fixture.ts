@@ -944,6 +944,22 @@ export class OperatorActivity extends ProductionActivity {
     const finalized = envelopes.find(item => item.boundary === 'settlement' && item.outcome === 'completed'
       && item.sdk?.attemptId === row.attempt_id);
     if (!canonical || !failed || !finalized || !(canonical.sequence < failed.sequence && failed.sequence < finalized.sequence)) {
+      // The 64-row source outbox is not historical retention. Preserve only
+      // closed presence/count/coordinate evidence at this failing observation;
+      // never guess which capture is missing, waive ordering, or flush the SDK.
+      try {
+        const local = await query(`SELECT through_sequence, dropped,
+          (SELECT MIN(sequence) FROM ${sqlIdentifier(arm.prefix + 'codeflare_sdk_diagnostic_outbox')}) AS retained_from
+          FROM ${sqlIdentifier(arm.prefix + 'codeflare_sdk_diagnostic_index')} WHERE id = 1`);
+        console.error('[native-flue] native-settlement-source', {
+          armedThrough: arm.watermark, captured: envelopes.length,
+          retainedFrom: local[0]?.retained_from ?? null, localThrough: local[0]?.through_sequence ?? null,
+          localDropped: local[0]?.dropped ?? null,
+          batchSequence: row.seq, recordIndex: Number(row.record_index),
+          canonicalSequence: canonical?.sequence ?? null, failureSequence: failed?.sequence ?? null,
+          finalizedSequence: finalized?.sequence ?? null,
+        });
+      } catch { /* Optional failure evidence cannot replace the original qualification error. */ }
       throw new Error('Actual canonical/failure/finalization source ordering unavailable');
     }
     const evidence: NativeFaultSettlement = { submissionDigest: await hash(arm.submissionId),
