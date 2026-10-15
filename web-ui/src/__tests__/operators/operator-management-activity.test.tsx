@@ -373,7 +373,8 @@ describe('REQ-OPERATOR-081: AC6 retained Dispatcher diagnostics in Activity deta
     pending.resolve(diagnosticJson(state.summary));
     const panel = within(await screen.findByRole('region', { name: /^(?:Activity )?Diagnostics$/i }));
     expect(await panel.findByText(/canonical.*(?:fail|could not)|(?:fail|could not).*canonical/i)).toBeInTheDocument();
-    expect(screen.queryByText(/loading.*diagnostic/i)).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText(/loading.*diagnostic/i)).not.toBeInTheDocument());
+    expect(button).not.toBeDisabled();
     expect(state.mutations).toEqual([]);
   });
 
@@ -459,22 +460,24 @@ describe('REQ-OPERATOR-081: AC6 retained Dispatcher diagnostics in Activity deta
     state.history.nextCursor = 'history-page-two';
     state.history.pageStatus = 'more';
     const pending = deferredDiagnosticResponse();
-    const next = diagnosticHistory([diagnosticOperation('a'.repeat(64), 91), diagnosticOperation('b'.repeat(64), 4)]);
+    // Distinct from the original artifact/input digests already disclosed in the summary.
+    const firstOperationDigest = 'ab'.repeat(32), secondOperationDigest = 'bc'.repeat(32);
+    const next = diagnosticHistory([diagnosticOperation(firstOperationDigest, 91), diagnosticOperation(secondOperationDigest, 4)]);
     next.highWater.operations = 2;
     routes.set(`${diagnosticPath}/history?cursor=history-page-two`, () => pending.promise);
     render(() => <OperatorManagement />);
     await selectDiagnosticActivity();
     const panel = await openDiagnostics();
     expect(await panel.findByRole('list', { name: /timeline/i })).toHaveTextContent(/canonical/i);
-    expect(panel.queryByText('a'.repeat(64))).not.toBeInTheDocument();
+    expect(panel.queryByText(firstOperationDigest)).not.toBeInTheDocument();
     const more = await panel.findByRole('button', { name: /(?:load|view|show).*(?:more|next)|next.*(?:page|records)/i });
     fireEvent.click(more);
     expect(await panel.findByRole('status')).toHaveTextContent(/loading.*(?:more|next|history|records)/i);
     expect(more).toBeDisabled();
     expect(panel.getByRole('list', { name: /timeline/i })).toHaveTextContent(/canonical/i);
     pending.resolve(diagnosticJson(next));
-    expect(await panel.findByText('a'.repeat(64))).toBeInTheDocument();
-    expect(panel.getByText('b'.repeat(64))).toBeInTheDocument();
+    expect(await panel.findByText(firstOperationDigest)).toBeInTheDocument();
+    expect(panel.getByText(secondOperationDigest)).toBeInTheDocument();
     const operations = within(panel.getByRole('list', { name: /(?:retained )?operations/i })).getAllByRole('listitem');
     expect(operations[0]).toHaveTextContent(/(?:logical.*ordinal|ordinal).*91/i);
     expect(operations[1]).toHaveTextContent(/(?:logical.*ordinal|ordinal).*4/i);
@@ -500,14 +503,22 @@ describe('REQ-OPERATOR-081: AC6 retained Dispatcher diagnostics in Activity deta
     render(() => <OperatorManagement />);
     await selectDiagnosticActivity();
     const panel = await openDiagnostics();
-    fireEvent.click(await panel.findByRole('button', { name: /^(?:export|download)(?: diagnostics)?(?: metadata)?(?: part)?$/i }));
+    const exportButton = await panel.findByRole('button', { name: /^(?:export|download)(?: diagnostics)?(?: metadata)?(?: part)?$/i });
+    await waitFor(() => expect(exportButton).not.toBeDisabled());
+    fireEvent.click(exportButton);
+    await waitFor(() => expect(panel.queryByText(/loading.*export/i)).not.toBeInTheDocument());
     expect(await panel.findByText(/(?:metadata|export).*part|part.*(?:metadata|export)/i)).toBeInTheDocument();
     expect(panel.getByText(/(?:more|next).*part|part.*(?:more|next)/i)).toBeInTheDocument();
     expect(panel.queryByText(/export complete|all retained.*exported/i)).not.toBeInTheDocument();
-    fireEvent.click(await panel.findByRole('button', { name: /(?:export|download).*next.*part|next.*export.*part/i }));
+    const nextPart = await panel.findByRole('button', { name: /(?:export|download).*next.*part|next.*export.*part/i });
+    await waitFor(() => expect(nextPart).not.toBeDisabled());
+    fireEvent.click(nextPart);
     expect(await panel.findByText(/(?:all retained.*(?:exported|read)|export.*(?:complete|exhausted))/i)).toBeInTheDocument();
     expect(panel.getByText(/(?:retention|retained).*loss|evicted.*5|5.*evicted/i)).toBeInTheDocument();
-    expect(panel.queryByText(/complete execution history|no evidence loss/i)).not.toBeInTheDocument();
+    expect(panel.getByText(/does not describe complete execution history/i)).toBeInTheDocument();
+    // Reject completeness claims, not the explicit disclaimer of execution-history completeness.
+    expect(panel.queryByText(text => /complete execution history|no evidence loss/i.test(
+      text.replace(/does not describe complete execution history/i, '')))).not.toBeInTheDocument();
     expect(panel.queryByRole('button', { name: /(?:export|download).*next.*part|next.*export.*part/i })).not.toBeInTheDocument();
     expect(state.mutations).toEqual([]);
   });
@@ -525,7 +536,7 @@ describe('REQ-OPERATOR-081: AC6 retained Dispatcher diagnostics in Activity deta
     await selectDiagnosticActivity();
     const panel = await openDiagnostics();
     expect(await panel.findByText(/recovered failure|failure.*recovered/i)).toBeInTheDocument();
-    expect(panel.getByRole('list', { name: /timeline/i })).toHaveTextContent(/settlement.*completed|completed.*settlement/i);
+    expect(await panel.findByRole('list', { name: /timeline/i })).toHaveTextContent(/settlement.*completed|completed.*settlement/i);
     expect(panel.queryByText(/terminal cause.*provider|activity failed.*provider/i)).not.toBeInTheDocument();
     expect(state.mutations).toEqual([]);
   });
@@ -547,7 +558,8 @@ describe('REQ-OPERATOR-081: AC6 retained Dispatcher diagnostics in Activity deta
     render(() => <OperatorManagement />);
     await selectDiagnosticActivity();
     const panel = await openDiagnostics();
-    expect(await panel.findByText(/legacy.*(?:uncaptured|not captured|unavailable)|(?:uncaptured|not captured).*legacy/i)).toBeInTheDocument();
+    expect(await panel.findByText(/legacy.*(?:uncaptured|not captured|unavailable)|(?:uncaptured|not captured).*legacy/i,
+      { selector: 'p' })).toBeInTheDocument();
     expect(panel.getByText(/(?:inspect|check).*original.*binding/i)).toBeInTheDocument();
     expect(panel.queryByText(/no failure (?:occurred|observed)|no evidence loss/i)).not.toBeInTheDocument();
     expect(screen.getByText(/Original result for activity-1/)).toBeInTheDocument();
@@ -637,7 +649,7 @@ describe('REQ-OPERATOR-081: AC6 retained Dispatcher diagnostics in Activity deta
     await selectDiagnosticActivity();
     const panel = await openDiagnostics();
     expect(await panel.findByText(/SDK.*import.*(?:pending|incomplete)|(?:pending|incomplete).*SDK.*import/i)).toBeInTheDocument();
-    expect(panel.getByText(/(?:local|child).*captur.*(?:not|does not|unavailable).*host|host.persist.*(?:not|unconfirmed|unavailable).*cause/i)).toBeInTheDocument();
+    expect(panel.getByText(/(?:local|child).*captur.*(?:not|does not|unavailable).*host.persisted.*cause|host.persist.*(?:not|unconfirmed|unavailable).*cause/i)).toBeInTheDocument();
     expect(panel.getByText(/last confirmed.*e-1/i)).toBeInTheDocument();
     expect(panel.getByText(/(?:inspect|check|view).*SDK.*import/i)).toBeInTheDocument();
     expect(panel.queryByText(/canonical.*append.*failed|TypeError/i)).not.toBeInTheDocument();
@@ -801,8 +813,12 @@ describe('REQ-OPERATOR-081: AC6 retained Dispatcher diagnostics in Activity deta
     render(() => <OperatorManagement />);
     await selectDiagnosticActivity();
     const panel = await openDiagnostics();
-    fireEvent.click(await panel.findByRole('button', { name: /^(?:export|download)(?: diagnostics)?(?: metadata)?(?: part)?$/i }));
-    fireEvent.click(await panel.findByRole('button', { name: /(?:export|download).*next.*part|next.*export.*part/i }));
+    const exportButton = await panel.findByRole('button', { name: /^(?:export|download)(?: diagnostics)?(?: metadata)?(?: part)?$/i });
+    await waitFor(() => expect(exportButton).not.toBeDisabled());
+    fireEvent.click(exportButton);
+    const nextPart = await panel.findByRole('button', { name: /(?:export|download).*next.*part|next.*export.*part/i });
+    await waitFor(() => expect(nextPart).not.toBeDisabled());
+    fireEvent.click(nextPart);
     expect(await screen.findByRole('alert')).toHaveTextContent(/retention.*(?:changed|expired)|snapshot.*(?:expired|invalid|discard)/i);
     expect(panel.queryByText(/export complete|all retained.*exported/i)).not.toBeInTheDocument();
     expect(panel.queryByRole('button', { name: /(?:export|download).*next.*part|next.*export.*part/i })).not.toBeInTheDocument();

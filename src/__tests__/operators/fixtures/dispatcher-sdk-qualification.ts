@@ -134,7 +134,7 @@ export async function qualifyImportedSdk(fetch: (path: string) => Promise<Respon
   const cursors = new Set<string>();
   // Existing finite retention budget, not a new workload or a claim that 16 pages exhaust all evidence.
   for (let request = 0; request < 128; request++) {
-    const page = await read<Page>(`${address}&diagnostics=history${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`);
+    const page: Page = await read<Page>(`${address}&diagnostics=history${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`);
     expect(page).toMatchObject({ version: 2, binding: value.binding,
       retainedStatus: page.health.gaps.length ? 'loss' : 'complete' });
     qualifyImportHealth(page.health);
@@ -375,7 +375,7 @@ export async function qualifyWithheldSdk(fetch: (path: string) => Promise<Respon
   let cursor: string | null = null;
   let exhausted = false;
   for (let request = 0; request < 128; request++) {
-    const page = await read<Page>(`${address}&diagnostics=history${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`);
+    const page: Page = await read<Page>(`${address}&diagnostics=history${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`);
     expect(page).toMatchObject({ version: 2, binding: value.binding, highWater: value.highWater, retainedStatus: 'loss' });
     qualifyHealth(page.health);
     qualifyRetention(page.retention);

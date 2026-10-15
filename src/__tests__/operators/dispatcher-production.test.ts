@@ -1035,11 +1035,13 @@ type DiagnosticSummary = Omit<DiagnosticPage, 'records' | 'nextCursor' | 'pageSt
   fence: null | { generation: number; timestamp: number; boundary: string; code: string; uncertain: boolean };
   diagnosis: { state: string; code: string; lastConfirmedId: string | null; failedId: string | null; nextCheck: string } };
 function diagnosticsBrowser(f: DispatcherFixture) {
-  vi.spyOn(access, 'requireOperatorHumanContext').mockImplementation(async (_request, _env, email) => ({
-    human: { subject: email === 'owner@example.test' ? 'owner' : 'foreign', email,
+  vi.spyOn(access, 'requireOperatorHumanContext').mockImplementation(async (_request, _env, email) => {
+    // This fixture replaces JWT/principal verification, including its current-session denial.
+    if (!callerSessionCurrent) throw new AppError('FORBIDDEN', 403, 'Authentication rejected');
+    return { human: { subject: email === 'owner@example.test' ? 'owner' : 'foreign', email,
       issuer: 'https://access.example.test', audiences: ['audience'], issuedAt: Math.floor(Date.now() / 1000),
-      expiresAt: Math.floor(Date.now() / 1000) + 600 }, accessJwt: 'PRIVATE_BROWSER_JWT',
-  }));
+      expiresAt: Math.floor(Date.now() / 1000) + 600 }, accessJwt: 'PRIVATE_BROWSER_JWT' };
+  });
   const app = new Hono<{ Bindings: Env }>();
   app.onError((error, c) => error instanceof AppError
     ? c.json({ code: error.code }, error.statusCode as 400) : c.json({ code: 'INTERNAL_ERROR' }, 500));
@@ -1324,7 +1326,8 @@ describe('REQ-OPERATOR-081: protected synthetic SDK runtime import', () => {
     const assessment = { readOnly: true, observedHead: 'b'.repeat(40), assessment: { classification: 'unknown' } };
     f.messages([{ submissionId: 'submission-1', parts: [{ type: 'data-assessment', data: assessment }] }]);
     f.settle(); await f.activity.reconcileDispatcherLease(); await f.drainBackground();
-    expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'waiting', sdkCleanupReleased: true });
+    // Background reconciliation performs the existing automatic collection; the header must not change it.
+    expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'completed', sdkCleanupReleased: true, result: assessment });
     expect(await f.activity.collectBrowserResult()).toMatchObject({ ok: true, detail: { result: assessment, executionStatus: 'completed' } });
     f.restart(); await f.drainBackground();
     expect(await sdkRecords(f)).toHaveLength(1);
@@ -1505,7 +1508,8 @@ describe('REQ-OPERATOR-081: deterministic recorder integrity and budgets', () =>
 
   it.each(['missing', 'null', 'version', 'foreign-binding', 'invalid-counter', 'overflow-list'])(
     'REQ-OPERATOR-081: AC4 expected %s index reconstructs as unavailable rather than legacy or zero loss', fault => fixture(async f => {
-      await start(f); await diagnosticSummary(f); await seedDiagnosticSnapshot(f);
+      await start(f); await diagnosticSummary(f);
+      const { index: healthyIndex } = await seedDiagnosticSnapshot(f);
       await f.mutateEvidence(async storage => {
         const index = await storage.get<FixtureDiagnosticIndex>(diagnosticIndexKey);
         if (fault === 'missing') await storage.delete(diagnosticIndexKey);
@@ -1521,6 +1525,7 @@ describe('REQ-OPERATOR-081: deterministic recorder integrity and budgets', () =>
       expect(summary.health).toMatchObject({ status: 'unavailable', sdkImport: 'unavailable' });
       expect(summary.health.gaps).toContain('recorder-unavailable');
       expect(summary.diagnosis.state).toBe('evidence-incomplete');
+      expect(summary.highWater.events).toBeNull();
       for (const key of ['epoch', 'firstSequence', 'lastSequence', 'evictedRoutine', 'droppedFailure',
         'droppedTerminal', 'oversized', 'rejected'] as const) expect(summary.retention[key]).toBeNull();
       for (const route of ['/diagnostics/v2/history', '/diagnostics/v2/export']) {
@@ -1530,6 +1535,23 @@ describe('REQ-OPERATOR-081: deterministic recorder integrity and budgets', () =>
       }
       expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'running', result: null });
       expect(await f.readRemoteComments()).toEqual([]);
+      if (fault === 'missing') {
+        // A valid index cannot turn missing/corrupt recorder health into known zero loss.
+        for (const health of [undefined, { version: 99 }]) {
+          await f.mutateEvidence(async storage => {
+            await storage.put(diagnosticIndexKey, healthyIndex);
+            if (health === undefined) await storage.delete('dispatcher:diagnostics:health');
+            else await storage.put('dispatcher:diagnostics:health', health);
+          });
+          const unavailable = await diagnosticSummary(f);
+          expect(unavailable.capture).toBe('unavailable');
+          expect(unavailable.health).toMatchObject({ status: 'unavailable', sdkImport: 'unavailable' });
+          expect(unavailable.highWater.events).toBeNull();
+          expect(unavailable.retention.evictedRoutine).toBeNull();
+          expect(unavailable.retention.lastSequence).toBeNull();
+          await errorStatus(await get('/diagnostics/v2/history'), 503);
+        }
+      }
     }, options));
 
   it('REQ-OPERATOR-081: AC4/5 maximal admissible metadata stops on bytes and advances through every retained event', () => fixture(async f => {
@@ -1537,7 +1559,8 @@ describe('REQ-OPERATOR-081: deterministic recorder integrity and budgets', () =>
     // Controlled public-shaped metadata, not evidence of SDK execution or source-frame capture.
     const records = Array.from({ length: 40 }, (_, index) => maximalDiagnosticEvent(2000 + index));
     for (const record of records) (record.source as Record<string, unknown>).patchSetDigest = f.sdkPatchSetDigest;
-    await seedDiagnosticSnapshot(f, records, { sdkImport: 'pending' });
+    // This is a complete synthetic retained snapshot, not a pending SDK outbox import.
+    await seedDiagnosticSnapshot(f, records, { sdkImport: 'host-persisted' });
     const get = diagnosticsBrowser(f);
     const first = await diagnosticJson<DiagnosticPage>(await get('/diagnostics/v2/history'));
     expect(first.records.length).toBeGreaterThan(0);
@@ -1549,6 +1572,12 @@ describe('REQ-OPERATOR-081: deterministic recorder integrity and budgets', () =>
     expect(history.pages.at(-1)?.retainedStatus).toBe('complete');
     const exported = await diagnosticTraversal(get, '/diagnostics/v2/export');
     expect(exported.records).toEqual(history.records);
+    await seedDiagnosticSnapshot(f, records, { sdkImport: 'unavailable', evictedRoutine: 1 });
+    const loss = await diagnosticSummary(f);
+    expect(loss.health).toMatchObject({ status: 'loss', sdkImport: 'unavailable' });
+    expect(loss.health.gaps).toEqual(expect.arrayContaining(['routine-evicted', 'sdk-import-incomplete']));
+    expect(loss.retention.evictedRoutine).toBe(1);
+    expect((await diagnosticTraversal(get)).pages.at(-1)?.retainedStatus).toBe('loss');
   }, options));
 
   it('REQ-OPERATOR-081: AC2/4 oversized valid metadata is rejected with a truthful counter without changing execution', () => fixture(async f => {
@@ -1946,7 +1975,19 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
       expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
       expect((await f.activity.getBrowserDetail())?.executionStatus).toBe('unknown');
       expect(output.filter(value => /operator-inference|dispatcher-settlement|dispatcher-inference-report/.test(value))).toEqual([]);
+      const assertSuppressedProjection = async () => f.mutateEvidence(async storage => {
+        // Durable projection privacy is the logging-OFF contract, independent of console filtering.
+        const lease = await storage.get<{ projection?: Record<string, unknown> }>('dispatcher:lease');
+        expect(lease?.projection).toMatchObject({ outcome: 'failed' });
+        for (const field of ['errorMetadata', 'settlementDiagnostic', 'sdkEvidence']) {
+          expect(lease!.projection).not.toHaveProperty(field);
+        }
+        const admission = await storage.get<{ diagnosticFence?: unknown }>('admission');
+        expect(admission?.diagnosticFence).toMatchObject({ generation: 1, code: 'settlement-failed', boundary: 'settlement' });
+      });
+      await assertSuppressedProjection();
       const retained = await retainedFence(f, 'settlement-failed', 'settlement');
+      await assertSuppressedProjection();
       expect(retained.capture).toBe('disabled');
       const history = await diagnosticTraversal(diagnosticsBrowser(f));
       expect(history.records.filter(record => record.kind === 'event' && record.error !== undefined)).toEqual([]);
@@ -2856,6 +2897,26 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
       expect((await f.activity.getBrowserDetail())?.executionStatus).toBe('unknown');
       expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
       expect(await start(f)).toEqual({ ok: false, reason: 'drive-settled' });
+      const assertFingerprintProjection = async () => f.mutateEvidence(async storage => {
+        const lease = await storage.get<{ projection?: Record<string, unknown> }>('dispatcher:lease');
+        expect(lease?.projection).toMatchObject({ outcome: 'failed',
+          errorMetadata: { publicCode: 'citation-provenance', messageDigest: report.data.reasonDigest },
+          settlementDiagnostic: { reasonAvailable: true, reasonCode: 'citation-provenance',
+            reasonDigest: report.data.reasonDigest, reasonBytes: 31, reasonClass: 'none' } });
+        expect(JSON.stringify(lease?.projection)).not.toContain('Citation provenance unavailable');
+      });
+      await assertFingerprintProjection();
+      const before = await f.activity.getBrowserDetail();
+      const fence = (await diagnosticSummary(f)).fence;
+      expect(fence).toMatchObject({ generation: 1, code: 'settlement-failed', boundary: 'settlement' });
+      const logsBeforeRestart = [...emitted];
+      f.restart(); await f.drainBackground();
+      await assertFingerprintProjection();
+      expect(await f.activity.getBrowserDetail()).toEqual(before);
+      expect((await diagnosticSummary(f)).fence).toEqual(fence);
+      expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
+      expect(await start(f)).toEqual({ ok: false, reason: 'drive-settled' });
+      expect(emitted).toEqual(logsBeforeRestart);
     } finally { spy.mockRestore(); setLogLevel('silent'); }
   }));
   it('collects the settled pinned assessment once as a terminal result without another submission', () => fixture(async f => {
@@ -5761,10 +5822,10 @@ describe('REQ-OPERATOR-048: original-lease serial SDK phase ownership', () => {
         // Metadata-only legacy fixture: no new native 1023–1025 workloads or external effects.
         const entries = Array.from({ length: 1100 }, (_, index) => ({
           body: { operationId: `PRIVATE_LEGACY_${index}`, url: 'https://api.github.com/repos/another/service' },
-          phase: 'completed' as const, ordinal: index,
+          phase: 'completed' as const, ordinal: index + 11,
           response: { url: 'https://api.github.com/repos/another/service', status: 200, headers: {}, body: 'PRIVATE_BODY' },
         }));
-        await f.seedLegacyJournal(entries); await f.activity.cancelDrive();
+        await f.seedLegacyJournal(entries); await f.activity.cancelDrive(); await f.drainBackground();
         await f.mutateEvidence(async storage => {
           // Forbidden write/body access fails observably; this is fault injection, not a call-count assertion.
           vi.spyOn(storage, 'put').mockImplementation(async () => { throw new Error('PRIVATE_GET_MIGRATION'); });
@@ -5775,8 +5836,14 @@ describe('REQ-OPERATOR-048: original-lease serial SDK phase ownership', () => {
             return read(key as string);
           }) as typeof storage.get);
         });
+        const get = diagnosticsBrowser(f); let firstCursor: string | null = null;
         try {
-          const { pages, records } = await diagnosticTraversal(diagnosticsBrowser(f));
+          const first = await diagnosticJson<DiagnosticPage>(await get('/diagnostics/v2/history'));
+          expect(first.records.length).toBeGreaterThan(0);
+          // The empty keyed journal is not the immutable legacy map's ordinal watermark.
+          expect(first.highWater.operations).toBe(0);
+          firstCursor = first.nextCursor;
+          const { pages, records } = await diagnosticTraversal(get, '/diagnostics/v2/history', first);
           const expected = await Promise.all([...entries].sort((a, b) => a.body.operationId.localeCompare(b.body.operationId))
             .map(entry => digest(entry.body.operationId)));
           expect(new Set(records.filter(record => record.kind === 'operation').map(record => record.id)))
@@ -5785,6 +5852,24 @@ describe('REQ-OPERATOR-048: original-lease serial SDK phase ownership', () => {
           expect(pages.at(-1)?.pageStatus).toBe('complete');
           expect(await f.readRemoteComments()).toEqual([]);
         } finally { vi.restoreAllMocks(); }
+        expect(firstCursor).toEqual(expect.any(String));
+        // Replace the aggregate with sparse keyed metadata from the same population.
+        // The retained ordinal is not its cardinality/charged count, and an old legacy
+        // cursor cannot silently cross this segment change under the same Activity binding.
+        const retained = entries.at(-1)!;
+        await f.mutateEvidence(async storage => {
+          const legacy = await storage.get<Record<string, unknown>>('dispatcher:operations');
+          await storage.put(`dispatcher:operation:1:${retained.body.operationId}`, legacy![retained.body.operationId]);
+          await storage.put('dispatcher:journal', { generation: 1, count: 1, nextOrdinal: retained.ordinal + 1, unresolved: 0 });
+          await storage.delete('dispatcher:operations');
+        });
+        const freshGet = diagnosticsBrowser(f);
+        await errorStatus(await freshGet(`/diagnostics/v2/history?cursor=${encodeURIComponent(firstCursor!)}`), 409);
+        const fresh = await diagnosticTraversal(freshGet);
+        expect(fresh.pages[0].highWater.operations).toBe(retained.ordinal + 1);
+        expect(fresh.records.filter(record => record.kind === 'operation')).toMatchObject([
+          { id: `o-1-${await digest(retained.body.operationId)}`, ordinal: retained.ordinal },
+        ]);
       }, { repositoryOnly: true, operationLimit: 2048 }));
 
       it('REQ-OPERATOR-081: AC2/4/5 detail returns retained failure capsule without private error or cache reads', () => fixture(async f => {
@@ -6024,6 +6109,28 @@ describe('REQ-OPERATOR-048: original-lease serial SDK phase ownership', () => {
         expect(failures.at(-1)?.capsuleId).toBeUndefined();
         expect(history.pages.at(-1)?.retainedStatus).toBe('loss');
         expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'running', result: null });
+        // Controlled retained snapshots isolate causality: another operation's later
+        // completion or recovery cannot settle this independent originating failure.
+        const failed = { ...failures.at(-1)!, id: 'e-9000', sequence: 9000 };
+        delete failed.capsuleId;
+        const unrelated = history.records.find(record => record.kind === 'event' && record.outcome === 'completed'
+          && record.correlation?.logicalOrdinal !== undefined
+          && record.correlation.logicalOrdinal !== failed.correlation?.logicalOrdinal)!;
+        expect(unrelated).toBeDefined();
+        await seedDiagnosticSnapshot(f, [failed, { ...unrelated, id: 'e-9001', sequence: 9001 }]);
+        expect((await diagnosticSummary(f)).diagnosis).toMatchObject({ state: 'observed-failure', failedId: failed.id });
+        await seedDiagnosticSnapshot(f, [failed, { ...unrelated, id: 'e-9001', sequence: 9001,
+          boundary: 'recovery', outcome: 'recovered' }]);
+        expect((await diagnosticSummary(f)).diagnosis).toMatchObject({ state: 'observed-failure', failedId: failed.id });
+        const correlatedFailure = { ...failed, correlation: { ...failed.correlation, sdkAttemptDigest: 'a'.repeat(64) } };
+        const conflictingRecovery = { ...unrelated, id: 'e-9001', sequence: 9001, boundary: 'recovery', outcome: 'recovered',
+          correlation: { ...correlatedFailure.correlation, sdkAttemptDigest: 'b'.repeat(64) } };
+        await seedDiagnosticSnapshot(f, [correlatedFailure, conflictingRecovery]);
+        expect((await diagnosticSummary(f)).diagnosis.state).toBe('observed-failure');
+        const matchingRecovery = { ...conflictingRecovery, correlation: { ...correlatedFailure.correlation, hostAttemptIndex: 2 } };
+        await seedDiagnosticSnapshot(f, [correlatedFailure, matchingRecovery,
+          { ...unrelated, id: 'e-9002', sequence: 9002, boundary: 'recovery', outcome: 'recovered' }]);
+        expect((await diagnosticSummary(f)).diagnosis.state).toBe('recovered-failure');
       }, { repositoryOnly: true, recovery: true, inferenceAttemptLimit: 2, operationLimit: 256,
         capacityPolicy: { inferenceRetryBaseMs: 1, inferenceRetryMaxMs: 1 },
         inferenceTransport: async (_request, attempt) => {

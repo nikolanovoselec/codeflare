@@ -2068,7 +2068,7 @@ export class OperatorActivity extends Agent {
             AbortSignal.timeout(Math.max(1, lease.expiresAt - Date.now())),
             isManagementReceipt(plan.receipt) ? plan.receipt.selection.operator.policy : undefined,
             envelope => !!lease.sdkProvenance && sourceMatches(envelope.source, lease.sdkProvenance)
-              && this.#runtimeCoordinatesBound(lease, envelope));
+              && this.#runtimeCoordinatesBound(lease, envelope), loggingEnabled);
         });
         const projectionSaved = await this.ctx.storage.transaction(async tx => {
           const record = await tx.get<AdmissionState>('admission');
@@ -2207,7 +2207,7 @@ export class OperatorActivity extends Agent {
               sdkToolsTruncated: value.tools.truncated,
               lastToolRole: value.tools.calls.at(-1)?.role ?? 'none',
               lastToolOutcome: value.tools.calls.at(-1)?.outcome ?? 'none' } : {}),
-            reasonAvailable: reason.length > 0, reasonDigest,
+            ...(value.settlementDiagnostic ?? { reasonAvailable: reason.length > 0, reasonDigest,
             reasonCode: sdkPublicReasonCode(reason), reasonBytes: new TextEncoder().encode(reason).length,
             reasonClass: [
               /\b(model|provider|api key|cloudflare_ai)\b/i.test(reason) ? 'model' : null,
@@ -2216,7 +2216,7 @@ export class OperatorActivity extends Agent {
               /\b(conversation|stream|persist|storage)\b/i.test(reason) ? 'state' : null,
               /\b(tool|function)\b/i.test(reason) ? 'tool' : null,
               /\b(undefined|not a function|cannot read properties)\b/i.test(reason) ? 'runtime-shape' : null,
-            ].filter(Boolean).join(',') || 'none' });
+            ].filter(Boolean).join(',') || 'none' }) });
           await this.interruptDrive(lease.generation, { boundary: 'settlement', code: 'settlement-failed' }); return;
         }
         stage = 'assessment';
@@ -3338,8 +3338,8 @@ export class OperatorActivity extends Agent {
               && artifactDigest === admission.executionContext?.artifactDigest && inputDigest === admission.receipt?.intentDigest,
             expectedIndex: admission.diagnosticsVersion === 1,
             logging: executionLoggingEnabled(admission.receipt), status: admission.drive?.status,
-            operations: journal?.generation === lease?.generation && typeof journal?.count === 'number'
-              && Number.isSafeInteger(journal.count) && journal.count >= 0 ? journal.count : null,
+            operations: journal?.generation === lease?.generation && typeof journal?.nextOrdinal === 'number'
+              && Number.isSafeInteger(journal.nextOrdinal) && journal.nextOrdinal >= 0 ? journal.nextOrdinal : null,
             provenance: lease?.sdkProvenance ?? null, rootDigest: lease?.rootDigest
               ?? (lease?.serial?.current.receipt?.uid ? hashDiagnostic(lease.serial.current.receipt.uid) : undefined),
             submissionId: lease?.submissionId, fence: admission.diagnosticFence,

@@ -27,11 +27,14 @@ function browserAccess() {
   return access ??= (async () => {
     const pair = await crypto.subtle.generateKey({ name: 'RSASSA-PKCS1-v1_5', modulusLength: 2048,
       publicExponent: new Uint8Array([1, 0, 1]), hash: 'SHA-256' }, true, ['sign', 'verify']);
+    if (!('privateKey' in pair) || !('publicKey' in pair)) throw new Error('Expected RSA key pair');
     const now = Math.floor(Date.now() / 1000);
     const signed = `${json({ alg: 'RS256', kid: 'fixture-browser' })}.${json({ type: 'app', sub: 'fixture-owner',
       email, iss: issuer, aud: ['fixture'], iat: now - 1, exp: now + 180 })}`;
     const signature = await crypto.subtle.sign('RSASSA-PKCS1-v1_5', pair.privateKey, new TextEncoder().encode(signed));
-    return { jwt: `${signed}.${base64url(new Uint8Array(signature))}`, jwk: await crypto.subtle.exportKey('jwk', pair.publicKey) };
+    const jwk = await crypto.subtle.exportKey('jwk', pair.publicKey);
+    if (jwk instanceof ArrayBuffer) throw new Error('Expected JWK export');
+    return { jwt: `${signed}.${base64url(new Uint8Array(signature))}`, jwk };
   })();
 }
 /** Exact fixture upstream only. Returns undefined for every unrelated request. */

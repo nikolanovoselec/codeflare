@@ -38,6 +38,10 @@ const prospectiveBody = z.strictObject({ installationId: identifier,
 type BrowserDetail = OperatorBrowserSummary & { checkpoint: unknown; result: unknown; effectReceipts?: RetiredEffectReceipts };
 type BrowserCollection = { ok: true; detail: BrowserDetail } | { ok: false; reason: 'not-ready' | 'not-admitted' };
 const jsonSummary = (summary: OperatorBrowserSummary) => structuredClone(summary);
+const diagnosticsResultSchema = z.union([
+  z.object({ status: z.literal(200), value: z.record(z.string(), z.unknown()) }),
+  z.object({ status: z.union([z.literal(400), z.literal(404), z.literal(409), z.literal(503)]), code: z.string() }),
+]);
 
 // Set before authentication so even rejected owner/session responses are never cached.
 app.use('*', async (c, next) => {
@@ -247,8 +251,8 @@ async function handleDiagnosticsV2(c: Context<ActivityRouteEnv>, view: 'summary'
   if (view === 'detail' && (!recordId || !/^(e-[1-9][0-9]*|o-(0|[1-9][0-9]*)-[a-f0-9]{64})$/.test(recordId)
     || recordId.length > 84)) return c.json({ code: 'INVALID_DIAGNOSTICS_REQUEST' }, 400);
   try {
-    const result = await c.env.OPERATOR_ACTIVITY!.getByName(activityId).getDispatcherDiagnosticsV2(c.get('ownerKey'),
-      { view, ...(cursors.length ? { cursor: cursors[0] } : {}), ...(recordId ? { recordId } : {}) });
+    const result = diagnosticsResultSchema.parse(await c.env.OPERATOR_ACTIVITY!.getByName(activityId).getDispatcherDiagnosticsV2(c.get('ownerKey'),
+      { view, ...(cursors.length ? { cursor: cursors[0] } : {}), ...(recordId ? { recordId } : {}) }));
     if (result.status !== 200) return c.json({ code: result.code }, result.status);
     return result.value.activityId === activityId ? c.json(result.value) : c.notFound();
   } catch { return c.json({ code: 'DIAGNOSTICS_UNAVAILABLE' }, 503); }

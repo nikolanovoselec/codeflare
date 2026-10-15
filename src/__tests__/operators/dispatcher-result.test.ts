@@ -329,7 +329,18 @@ describe('Dispatcher exact-submission public Flue updates contract', () => {
     expect(previous).toEqual(initial());
     expect(JSON.stringify(projected)).not.toMatch(/PRIVATE_|\/private\/workspace/);
     expect(jsonBytes(projected)).toBeLessThanOrEqual(8192);
+    expect(projected.errorMetadata).toMatchObject({ messageDigest: expect.stringMatching(/^[a-f0-9]{64}$/) });
+    expect(projected.settlementDiagnostic).toMatchObject({ reasonAvailable: true,
+      reasonBytes: new TextEncoder().encode(privateReason).length, reasonCode: 'unknown' });
     expect(await readDispatcherUpdates(response(chunks), projected, 'requested')).toEqual(projected);
+    const disabled = await readDispatcherUpdates(response(chunks), initial(), 'requested', undefined, undefined, undefined, false);
+    expect(disabled).toMatchObject({ position, outcome: 'failed', writes: 0, messageIds: ['answer'], error: projected.error });
+    expect(disabled.errorMetadata).toBeUndefined(); expect(disabled.settlementDiagnostic).toBeUndefined();
+    expect(disabled.sdkEvidence).toBeUndefined();
+    // Even an older persisted projection cannot carry optional capture into OFF.
+    const disabledReplay = await readDispatcherUpdates(response(chunks), projected, 'requested', undefined, undefined, undefined, false);
+    expect(disabledReplay).toEqual(disabled);
+    expect(JSON.stringify(disabledReplay)).not.toMatch(/PRIVATE_|\/private\/workspace/);
   });
   it('accepts pinned SDK page checkpoints and retains immutable stream identity across reads', async () => {
     const checkpoint = { type: 'stream-checkpoint', incarnation: 'original-stream' };

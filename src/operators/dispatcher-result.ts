@@ -23,6 +23,9 @@ export interface DispatcherResultProjection {
   outcome?: 'completed' | 'failed' | 'aborted';
   error?: { type?: string; meta?: { reason?: string; operation?: string } };
   errorMetadata?: ErrorMetadata;
+  /** Optional closed telemetry, computed before raw settlement text is discarded. */
+  settlementDiagnostic?: { reasonAvailable: boolean; reasonDigest: string | null;
+    reasonCode: ReturnType<typeof sdkPublicReasonCode>; reasonBytes: number; reasonClass: string };
   sdkEvidence?: DispatcherSdkEvidence;
   position?: { batch: number; index: number };
   /** Observation only; opaque correlations never enter owner logs or result authority. */
@@ -32,7 +35,7 @@ export interface DispatcherResultProjection {
   readiness?: { latest?: DispatcherReadiness; observations: number; truncated: boolean };
   sealPreflight?: { latest?: DispatcherSealPreflight; observations: number; truncated: boolean };
 }
-export interface DispatcherSdkEvidence {
+interface DispatcherSdkEvidence {
   version: 1; status: 'observed' | 'unavailable'; attemptDigests: string[];
   canonical: Array<{ batchSequence: number; recordIndex: number; type: string; recordDigest: string | null;
     attemptDigest: string; submissionDigest: string; producerEpoch: number | null; producerSequence: number | null;
@@ -189,7 +192,8 @@ function observeCompletion(state: DispatcherResultProjection, id: unknown,
   else completion.truncated = true;
 }
 
-function project(state: DispatcherResultProjection, value: unknown, submissionId: string, limits: DispatcherCapacities): void {
+function project(state: DispatcherResultProjection, value: unknown, submissionId: string, limits: DispatcherCapacities,
+  captureDiagnostics: boolean): void {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Dispatcher update unavailable');
   const chunk = value as Record<string, unknown>;
   // The pinned SDK prefixes every updates page with stream identity, not a conversation event.
@@ -221,6 +225,7 @@ function project(state: DispatcherResultProjection, value: unknown, submissionId
     if (!snapshot || !Array.isArray(snapshot.messages) || !Array.isArray(snapshot.settlements)
       || (chunk.snapshot as { conversationId?: unknown }).conversationId !== chunk.conversationId) throw new Error('Dispatcher reset unavailable');
     state.messageIds = []; state.writes = 0; delete state.result; delete state.outcome; delete state.error;
+    delete state.errorMetadata; delete state.settlementDiagnostic;
     delete state.assessmentWrites;
     delete state.progress; delete state.progressWrites;
     for (const message of snapshot.messages) {
@@ -279,17 +284,33 @@ function project(state: DispatcherResultProjection, value: unknown, submissionId
     const error = chunk.error as { type?: unknown; meta?: { reason?: unknown; operation?: unknown } } | undefined;
     if (error && typeof error === 'object' && !Array.isArray(error)) {
       const publicTypes = ['cloudflare_ai_binding_error', 'invalid_request', 'tool_input_validation', 'tool_output_validation',
-        'operation_failed', 'submission_timeout', 'submission_aborted', 'internal_error'];
+        'operation_failed', 'submission_timeout', 'submission_aborted', 'internal_error', 'submission_retry_exhausted'];
       const publicReasons = ['Stream ended without finish_reason (retryable_interruption)',
         'the session advanced past this input before it completed', 'the input could not be persisted'];
       state.error = { ...(typeof error.type === 'string' && publicTypes.includes(error.type) ? { type: error.type } : {}),
         meta: { ...(typeof error.meta?.reason === 'string' && publicReasons.includes(error.meta.reason) ? { reason: error.meta.reason } : {}),
           ...(error.meta?.operation === 'prompt' ? { operation: 'prompt' }
             : error.meta?.operation === `direct(${submissionId})` ? { operation: 'direct' } : {}) } };
-      const message = typeof error.meta?.reason === 'string' ? error.meta.reason : undefined;
-      state.errorMetadata = captureError({ ...error, message: Reflect.get(error, 'message') ?? message });
-      const publicCode = message === undefined ? 'unknown' : sdkPublicReasonCode(message);
-      if (publicCode !== 'unknown') state.errorMetadata.publicCode = publicCode;
+      if (captureDiagnostics) {
+        const reason = typeof error.meta?.reason === 'string' ? error.meta.reason : '';
+        state.errorMetadata = captureError({ ...error,
+          message: Reflect.get(error, 'message') ?? (typeof error.meta?.reason === 'string' ? reason : undefined) });
+        const publicCode = sdkPublicReasonCode(reason);
+        if (publicCode !== 'unknown') state.errorMetadata.publicCode = publicCode;
+        // Parsed SDK data is bounded by the page/record limits; never retain its raw reason.
+        const reasonFingerprint = captureError(reason);
+        state.settlementDiagnostic = { reasonAvailable: reason.length > 0,
+          reasonDigest: reason ? reasonFingerprint.messageDigest : null, reasonCode: publicCode,
+          reasonBytes: new TextEncoder().encode(reason).length,
+          reasonClass: [
+            /\b(model|provider|api key|cloudflare_ai)\b/i.test(reason) ? 'model' : null,
+            /\b(facet|rpc|schedule|bridge)\b/i.test(reason) ? 'bridge' : null,
+            /\b(fetch|network|gateway|http)\b/i.test(reason) ? 'transport' : null,
+            /\b(conversation|stream|persist|storage)\b/i.test(reason) ? 'state' : null,
+            /\b(tool|function)\b/i.test(reason) ? 'tool' : null,
+            /\b(undefined|not a function|cannot read properties)\b/i.test(reason) ? 'runtime-shape' : null,
+          ].filter(Boolean).join(',') || 'none' };
+      }
     }
   }
   if (previousOutcome !== undefined && state.outcome !== previousOutcome) throw new Error('Dispatcher terminal settlement changed');
@@ -306,12 +327,15 @@ function project(state: DispatcherResultProjection, value: unknown, submissionId
  */
 export async function readDispatcherUpdates(response: Response, previous: DispatcherResultProjection,
   submissionId: string, signal?: AbortSignal, capacityPolicy?: DispatcherCapacityPolicy,
-  validateSdkEnvelope?: (record: RuntimeEnvelope) => boolean): Promise<DispatcherResultProjection> {
+  validateSdkEnvelope?: (record: RuntimeEnvelope) => boolean, captureDiagnostics = true): Promise<DispatcherResultProjection> {
   const limits = dispatcherCapacities(capacityPolicy);
   const offset = response.headers.get('stream-next-offset');
   if (response.status !== 200 || !response.body || !offset || offset.length > 2048
     || response.headers.get('content-type')?.split(';')[0] !== 'application/json') throw new Error('Dispatcher updates unavailable');
   const state = structuredClone(previous);
+  if (!captureDiagnostics) {
+    delete state.errorMetadata; delete state.settlementDiagnostic; delete state.sdkEvidence;
+  }
   const reader = response.body.getReader();
   const tokenizer = new Tokenizer();
   const diagnosticFields = ['toolName', 'toolCallId', 'state'];
@@ -473,7 +497,7 @@ export async function readDispatcherUpdates(response: Response, previous: Dispat
           }
         }
         if (new TextEncoder().encode(JSON.stringify(record)).byteLength > limits.projectedRecordBytes) throw new Error('Dispatcher projection exceeds limit');
-        project(state, record, submissionId, limits);
+        project(state, record, submissionId, limits, captureDiagnostics);
         record = Object.create(null);
         diagnosticParts = 0;
         toolParts = 0;
@@ -508,7 +532,7 @@ export async function readDispatcherUpdates(response: Response, previous: Dispat
     state.upToDate = response.headers.get('stream-up-to-date') === 'true';
     if (!state.upToDate && offset === previous.offset) throw new Error('Dispatcher update cursor stalled');
     state.offset = offset;
-    try { projectSdkEvidence(response, state, submissionId, validateSdkEnvelope); }
+    try { if (captureDiagnostics) projectSdkEvidence(response, state, submissionId, validateSdkEnvelope); }
     catch {
       // Additive observation/validation failure must not replace valid execution output.
       state.sdkEvidence = { version: 1, status: 'unavailable', attemptDigests: [], canonical: [],

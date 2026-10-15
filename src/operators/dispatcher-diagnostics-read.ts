@@ -22,9 +22,10 @@ export type OperationRecord = DispatcherOperationDiagnostics['records'][number] 
 type PublicRecord = DiagnosticEvent | OperationRecord;
 const cursorSchema = z.strictObject({ version: z.literal(1), ownerScope: digestSchema, activityId: z.string().regex(/^[A-Za-z0-9_-]{1,128}$/),
   binding: bindingSchema, highWater: z.strictObject({ events: counter.nullable(), operations: counter.nullable() }), epoch: counter,
-  segment: z.enum(['events', 'operations', 'legacy', 'complete']), lastSequence: counter, position: z.string().max(1024).nullable() });
+  segment: z.enum(['events', 'operations', 'legacy', 'complete']), lastSequence: counter, position: z.string().max(1024).nullable(),
+  legacyMarker: digestSchema.nullable() });
 type Cursor = z.infer<typeof cursorSchema>;
-export type DiagnosticReadView = 'summary' | 'history' | 'detail' | 'export';
+type DiagnosticReadView = 'summary' | 'history' | 'detail' | 'export';
 export interface DiagnosticReadOptions { view: DiagnosticReadView; cursor?: string; recordId?: string }
 export async function readActivityDiagnostics(input: {
   storage: DurableObjectStorage; env: { ENCRYPTION_KEY?: string }; ownerKey: string;
@@ -56,19 +57,27 @@ export async function readActivityDiagnostics(input: {
     const retiredSdk = before.sdkRetired && before.logging && !!before.provenance;
     const retirementTailUnwitnessed = retiredSdk && index?.sdkImport === 'host-persisted' && gapList.length === 0;
     if (retiredSdk && index && index.sdkImport !== 'legacy' && !gapList.includes('sdk-import-incomplete')) gapList.push('sdk-import-incomplete');
-    const health = { status: unavailable ? 'unavailable' : gapList.some(gap => !['legacy-uncaptured', 'logging-disabled'].includes(gap)) ? 'loss' : 'available',
+    const knownLoss = !!index && (index.evictedRoutine > 0 || index.droppedFailure > 0 || index.droppedTerminal > 0
+      || index.oversized > 0 || index.rejected > 0 || gapList.some(gap => !['legacy-uncaptured', 'logging-disabled'].includes(gap)));
+    const health = { status: knownLoss ? 'loss' : unavailable ? 'unavailable' : 'available',
       sdkImport: unavailable ? 'unavailable' : retiredSdk && index?.sdkImport === 'host-persisted' ? 'pending' : index?.sdkImport ?? 'legacy',
       gaps: gapList, ...(retirementTailUnwitnessed ? { sdkImportReason: 'retirement-tail-unwitnessed' as const } : {}) };
     const retention = { epoch: index?.epoch ?? null, firstSequence: index?.firstSequence ?? null,
       lastSequence: index ? index.nextSequence - 1 : null, routineLimit: 1536, failureLimit: 64, terminalLimit: 64,
       evictedRoutine: index?.evictedRoutine ?? null, droppedFailure: index?.droppedFailure ?? null,
       droppedTerminal: index?.droppedTerminal ?? null, oversized: index?.oversized ?? null, rejected: index?.rejected ?? null };
+    const legacyRaw = options.view === 'summary' ? undefined : await input.storage.get<Record<string, unknown>>('dispatcher:operations'); ensureLive();
+    const legacy = legacyRaw && typeof legacyRaw === 'object' && !Array.isArray(legacyRaw) ? legacyRaw : null;
+    // Current execution writers migrate/delete the entire legacy map before writing
+    // keyed entries. Its immutable key set is a separate snapshot segment, not an ordinal counter.
+    const legacyIds = legacy ? Object.keys(legacy).sort() : [];
+    const legacyMarker = legacy ? hashDiagnostic(canonicalDiagnostic(legacyIds)) : null;
     let highWater = { events: index ? index.nextSequence - 1 : null, operations: before.operations };
     const ownerScope = hashDiagnostic(input.ownerKey);
     const aad = `operator-diagnostics-v2:${ownerScope}:${before.activityId}`;
     let cryptoKey: CryptoKey | null = null;
     let cursor: Cursor = { version: 1, ownerScope, activityId: before.activityId, binding: before.binding,
-      highWater, epoch: index?.epoch ?? 0, segment: 'events', lastSequence: 0, position: null };
+      highWater, epoch: index?.epoch ?? 0, segment: 'events', lastSequence: 0, position: null, legacyMarker };
     if (options.view === 'history' || options.view === 'export') {
       try { cryptoKey = await getOrImportKey(input.env); } catch { throw new DiagnosticReadError(503, 'DIAGNOSTICS_UNAVAILABLE'); }
       if (!cryptoKey) throw new DiagnosticReadError(503, 'DIAGNOSTICS_UNAVAILABLE');
@@ -82,7 +91,8 @@ export async function readActivityDiagnostics(input: {
         if (canonicalDiagnostic(cursor) !== plaintext) throw new Error('Noncanonical cursor');
         if (cursor.ownerScope !== ownerScope || cursor.activityId !== before.activityId) throw new Error('Foreign cursor');
       } catch { throw new DiagnosticReadError(400, 'INVALID_DIAGNOSTICS_CURSOR'); }
-      if (!sameBinding(cursor.binding, before.binding) || cursor.epoch !== (index?.epoch ?? 0)) throw new DiagnosticReadError(409, 'DIAGNOSTICS_BINDING_CHANGED');
+      if (!sameBinding(cursor.binding, before.binding) || cursor.epoch !== (index?.epoch ?? 0)
+        || cursor.legacyMarker !== legacyMarker) throw new DiagnosticReadError(409, 'DIAGNOSTICS_BINDING_CHANGED');
       if (cursor.highWater.events !== null && (highWater.events === null || cursor.highWater.events > highWater.events)
         || cursor.highWater.events === null && highWater.events !== null || cursor.highWater.operations !== null
         && (highWater.operations === null || cursor.highWater.operations > highWater.operations)) throw new DiagnosticReadError(409, 'DIAGNOSTICS_BINDING_CHANGED');
@@ -105,29 +115,36 @@ export async function readActivityDiagnostics(input: {
     if (options.view === 'summary') {
       let failure: DiagnosticEvent | undefined;
       let confirmed: DiagnosticEvent | undefined;
-      let recovered: DiagnosticEvent | undefined;
+      const recoveries: DiagnosticEvent[] = [];
       // Finite retained-index bound; read only metadata, not the child/journal/cache.
-      const pointers = index ? await diagnosticPointers(input.storage) : [];
+      const pointers = index && !unavailable ? await diagnosticPointers(input.storage) : [];
       const selected = [...new Set([...pointers.filter(id => eventIds.includes(id)), ...eventIds.slice(-29)])]
         .sort((a, b) => Number(a.slice(2)) - Number(b.slice(2)));
       for (const id of selected) {
         const record = await readEvent(id);
         if (record.outcome === 'failed' || record.code === 'effect-unknown') failure = record;
         if (['accepted', 'applied', 'committed', 'completed', 'released'].includes(record.outcome)) confirmed = record;
-        if (record.outcome === 'recovered') recovered = record;
+        if (record.outcome === 'recovered') recoveries.push(record);
       }
       const fenced = before.fence;
       const incomplete = unavailable || before.recorderUnavailable || health.status === 'loss' || !before.logging
         || !index || ['unknown', 'failed', 'cancel-requested'].includes(before.status ?? '') && !fenced;
       const sameOperation = (a: DiagnosticEvent, b: DiagnosticEvent) => a.generation === b.generation
         && (a.correlation.logicalOrdinal !== undefined && a.correlation.logicalOrdinal === b.correlation.logicalOrdinal
-          || a.correlation.sdkAttemptDigest !== undefined && a.correlation.sdkAttemptDigest === b.correlation.sdkAttemptDigest);
-      const recoveredFailure = failure && !fenced && (recovered && recovered.sequence > failure.sequence && sameOperation(failure, recovered)
+          || a.correlation.sdkAttemptDigest !== undefined && a.correlation.sdkAttemptDigest === b.correlation.sdkAttemptDigest)
+        && (['logicalOrdinal', 'sdkAttemptDigest', 'submissionDigest', 'requestDigest'] as const).every(key =>
+          a.correlation[key] === undefined || b.correlation[key] === undefined || a.correlation[key] === b.correlation[key]);
+      const recoveredFailure = failure && !fenced && (recoveries.some(record => !!failure && record.sequence > failure.sequence && sameOperation(failure, record))
         || confirmed && failure.boundary === 'release' && failure.code === 'cleanup-failed'
           && confirmed.boundary === 'release' && confirmed.outcome === 'completed'
           && confirmed.sequence > failure.sequence && confirmed.generation === failure.generation);
-      const state = unavailable || fenced?.code === 'platform-evidence-required' ? 'evidence-incomplete' : fenced || failure && !recoveredFailure ? 'observed-failure'
-        : recoveredFailure ? 'recovered-failure' : incomplete ? 'evidence-incomplete' : 'no-failure-observed';
+      // A retained failure can outlive its routine recovery observation. Loss is not
+      // proof that the old failure is still terminal, nor that later unrelated work recovered it.
+      const recoveryUnretained = failure && index && index.evictedRoutine > 0
+        && pointers.some(id => !!failure && Number(id.slice(2)) > failure.sequence && !eventIds.includes(id));
+      const state = unavailable || fenced?.code === 'platform-evidence-required' ? 'evidence-incomplete' : fenced ? 'observed-failure'
+        : recoveredFailure ? 'recovered-failure' : recoveryUnretained ? 'evidence-incomplete'
+          : failure ? 'observed-failure' : incomplete ? 'evidence-incomplete' : 'no-failure-observed';
       response = { ...common(), capture: unavailable ? 'unavailable' : !before.logging ? 'disabled' : index ? 'enabled' : 'legacy',
         provenance: { hostRevision: null, sdkBaseRuntime: before.provenance?.basePackages.find(pkg => pkg.name === '@flue/runtime')?.version ?? null,
           sdkBaseAgents: before.provenance?.basePackages.find(pkg => pkg.name === 'agents')?.version ?? null, patchSetDigest: before.provenance?.patchSetDigest ?? null },
@@ -140,22 +157,27 @@ export async function readActivityDiagnostics(input: {
         fence: fenced ?? null, diagnosis: { state, code: fenced?.code ?? failure?.code ?? 'none',
           lastConfirmedId: confirmed?.id ?? null, failedId: failure?.id ?? null,
           nextCheck: fenced?.code === 'platform-evidence-required' ? 'inspect-platform-events'
-            : fenced || failure && !recoveredFailure ? 'inspect-failure' : gapList.includes('sdk-import-incomplete') ? 'inspect-sdk-import'
+            : fenced || failure && !recoveredFailure && !recoveryUnretained ? 'inspect-failure' : gapList.includes('sdk-import-incomplete') ? 'inspect-sdk-import'
             : gapList.includes('platform-evidence-required') ? 'inspect-platform-events' : incomplete ? 'inspect-retention-gap' : 'none' } };
     } else {
       if (unavailable || before.recorderUnavailable) throw new DiagnosticReadError(503, 'DIAGNOSTICS_UNAVAILABLE');
       const prefix = 'dispatcher:operation:';
       let inspected = 0;
       let pages = 0;
+      let probe: { position: string | undefined; entries: Map<string, unknown> } | undefined;
       const operationPage = async (position?: string, limit = 32) => {
+        if (probe && probe.position === position) { const entries = probe.entries; probe = undefined; return entries; }
         if (pages >= 32 || inspected >= 1024) return null;
         const entries = await input.storage.list<unknown>({ prefix, limit: Math.min(limit, 1024 - inspected),
           ...(position ? { startAfter: position } : {}) }); ensureLive();
         pages++; inspected += entries.size;
         return entries;
       };
-      // The probe shares the same enumeration budget as both traversal segments.
-      await operationPage(undefined, 1);
+      // Probe once for the passive read boundary, then consume that same page rather
+      // than enumerating/counting it again. Both segments share the 1024-entry/32-page budget.
+      const probePosition = cursor.segment === 'operations' ? cursor.position ?? undefined : undefined;
+      const probeEntries = await operationPage(probePosition);
+      if (probeEntries) probe = { position: probePosition, entries: probeEntries };
       const operationIdentity = (key: string, raw: unknown, old: boolean) => {
         const stored = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw as { generation?: unknown } : null;
         const match = old ? null : /^dispatcher:operation:(0|[1-9][0-9]*):(.+)$/.exec(key);
@@ -167,8 +189,6 @@ export async function readActivityDiagnostics(input: {
         const operationId = old ? key : match![2];
         return { operationId, generation, id: `o-${generation}-${hashDiagnostic(operationId)}` };
       };
-      const legacyRaw = await input.storage.get<Record<string, unknown>>('dispatcher:operations'); ensureLive();
-      const legacy = legacyRaw && typeof legacyRaw === 'object' && !Array.isArray(legacyRaw) ? legacyRaw : null;
       const project = async (key: string, raw: unknown, old: boolean) => {
         const identity = operationIdentity(key, raw, old);
         const record = await input.projectOperation(identity.operationId, raw, old, before, identity.generation); ensureLive();
@@ -193,14 +213,13 @@ export async function readActivityDiagnostics(input: {
             if (entries.size < 32) { exhausted = true; break; }
           }
           if (!record && legacy) {
-            const keys = Object.keys(legacy).sort();
             let legacyInspected = 0;
-            for (const key of keys) {
+            for (const key of legacyIds) {
               if (inspected >= 1024) break;
               inspected++; legacyInspected++;
               if (operationIdentity(key, legacy[key], true).id === id) { record = await project(key, legacy[key], true); break; }
             }
-            exhausted = exhausted && legacyInspected === keys.length;
+            exhausted = exhausted && legacyInspected === legacyIds.length;
           }
           if (!record && !exhausted) throw new DiagnosticReadError(503, 'DIAGNOSTICS_UNAVAILABLE');
         }
@@ -249,15 +268,13 @@ export async function readActivityDiagnostics(input: {
           }
         }
         if (cursor.segment === 'legacy') {
-          const ids = legacy ? Object.keys(legacy).sort().filter(id => cursor.position === null || id > cursor.position) : [];
+          const ids = legacyIds.filter(id => cursor.position === null || id > cursor.position);
           let exhausted = true;
           for (const id of ids) {
             if (records.length >= 32 || inspected >= 1024) { exhausted = false; break; }
             inspected++;
             const record = await project(id, legacy![id], true);
-            if (record.generation < before.binding.generation || highWater.operations === null || record.ordinal === null || record.ordinal < highWater.operations) {
-              if (!accept(record)) { exhausted = false; break; }
-            }
+            if (!accept(record)) { exhausted = false; break; }
             cursor.position = id;
           }
           if (exhausted) cursor.segment = 'complete';
@@ -285,6 +302,12 @@ export async function readActivityDiagnostics(input: {
     // Do not return a pre-retirement completeness claim if cleanup raced this
     // read. The same binding/cursor remains usable on the next passive request.
     if (after.sdkRetired && !before.sdkRetired && before.logging && before.provenance) throw new DiagnosticReadError(503, 'DIAGNOSTICS_UNAVAILABLE');
+    if (options.view !== 'summary') {
+      const finalLegacy = await input.storage.get<Record<string, unknown>>('dispatcher:operations'); ensureLive();
+      const finalMarker = finalLegacy && typeof finalLegacy === 'object' && !Array.isArray(finalLegacy)
+        ? hashDiagnostic(canonicalDiagnostic(Object.keys(finalLegacy).sort())) : null;
+      if (finalMarker !== legacyMarker) throw new DiagnosticReadError(409, 'DIAGNOSTICS_BINDING_CHANGED');
+    }
     const finalIndexRaw = await input.storage.get(DIAGNOSTIC_INDEX); ensureLive();
     const finalIndex = indexSchema.safeParse(finalIndexRaw);
     if (index && (!finalIndex.success || !sameBinding(finalIndex.data, index) || finalIndex.data.epoch !== index.epoch)) throw new DiagnosticReadError(409, 'DIAGNOSTICS_BINDING_CHANGED');

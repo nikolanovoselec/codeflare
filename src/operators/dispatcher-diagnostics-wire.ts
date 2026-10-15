@@ -7,7 +7,7 @@ import { producerCodes } from './dispatcher-diagnostic-wire';
 export const boundaries = ['artifact', 'admission', 'construction', 'submission', 'scheduling', 'delivery', 'model',
   'inference-response', 'canonical-commit', 'tool', 'effect', 'recovery', 'settlement', 'continuation', 'fence',
   'release', 'platform', 'recorder'] as const;
-export const reasonCodes = ['none', 'unclassified', 'artifact-unavailable', 'artifact-mismatch', 'admission-denied',
+const reasonCodes = ['none', 'unclassified', 'artifact-unavailable', 'artifact-mismatch', 'admission-denied',
   'authority-expired', 'authority-denied', 'stale-drive', 'startup-failed', 'submission-failed', 'sse-json-invalid',
   'provider-failed', 'stream-failed', 'response-unusable', 'canonical-append-failed', 'tool-failed', 'effect-unknown',
   'settlement-failed', 'continuation-not-ready', 'cancelled', 'deadline-expired', 'cleanup-failed',
@@ -15,17 +15,17 @@ export const reasonCodes = ['none', 'unclassified', 'artifact-unavailable', 'art
 export const gaps = ['legacy-uncaptured', 'sdk-import-incomplete', 'platform-evidence-required', 'routine-evicted',
   'failure-overflow', 'terminal-overflow', 'oversized-record', 'invalid-record', 'error-truncated',
   'recorder-unavailable', 'source-unverified', 'logging-disabled'] as const;
-export const errorLoss = ['cause-cycle', 'cause-depth', 'message-truncated', 'stack-truncated', 'unsafe-error-access', 'uninspectable-throw'] as const;
-export const kinds = ['Error', 'TypeError', 'RangeError', 'SyntaxError', 'ValidationError', 'TransportDenied', 'DefiniteEffectFailure', 'other'] as const;
+const errorLoss = ['cause-cycle', 'cause-depth', 'message-truncated', 'stack-truncated', 'unsafe-error-access', 'uninspectable-throw'] as const;
+const kinds = ['Error', 'TypeError', 'RangeError', 'SyntaxError', 'ValidationError', 'TransportDenied', 'DefiniteEffectFailure', 'other'] as const;
 export const digestSchema = z.string().regex(/^[a-f0-9]{64}$/);
 export const counter = z.number().int().nonnegative().safe();
 export const bindingSchema = z.strictObject({ generation: counter, artifactDigest: digestSchema, inputDigest: digestSchema });
-export const sourceFrameSchema = z.strictObject({ repository: z.enum(['nikolanovoselec/codeflare',
+const sourceFrameSchema = z.strictObject({ repository: z.enum(['nikolanovoselec/codeflare',
   'nikolanovoselec/codeflare-operator-dispatcher', 'withastro/flue', 'cloudflare/agents']),
   commit: z.string().regex(/^[a-f0-9]{40}$/), path: z.string().min(1).max(512).regex(/^[A-Za-z0-9_@./~-]+$/)
     .refine(path => !path.startsWith('/') && path.split('/').every(part => part && part !== '.' && part !== '..')),
   line: counter.min(1), column: counter, kind: z.enum(['originating', 'catching', 'patch-boundary']) });
-export const sourceSchema = z.strictObject({ package: z.enum(['codeflare', '@codeflare/operator-dispatcher', '@flue/runtime', 'agents', 'cloudflare']),
+const sourceSchema = z.strictObject({ package: z.enum(['codeflare', '@codeflare/operator-dispatcher', '@flue/runtime', 'agents', 'cloudflare']),
   boundary: z.enum(boundaries), baseVersion: z.string().max(128).nullable(), patchSetDigest: digestSchema.nullable(),
   status: z.enum(['verified', 'partial', 'unavailable']), frames: z.array(sourceFrameSchema).max(4) });
 const causeSchema = z.strictObject({ kind: z.enum(kinds), messageDigest: digestSchema.nullable(), stackDigest: digestSchema.nullable() });
@@ -37,7 +37,7 @@ export const correlationSchema = z.strictObject({ logicalOrdinal: counter.option
   deliveryDigest: digestSchema.optional(), requestDigest: digestSchema.optional(), responseDigest: digestSchema.optional(),
   rootDigest: digestSchema.optional(), streamIncarnationDigest: digestSchema.optional(), sdkBatchSequence: counter.optional(),
   sdkProducerEpoch: counter.optional(), sdkProducerSequence: counter.optional(), sdkRecordIndex: counter.optional() });
-export const recordTypes = ['assistant_message_started', 'assistant_tool_call', 'assistant_message_completed', 'tool_outcome',
+const recordTypes = ['assistant_message_started', 'assistant_tool_call', 'assistant_message_completed', 'tool_outcome',
   'tool_results_committed', 'agent_start_run', 'agent_finish_cycle', 'message_data_write', 'submission_settled',
   'tool_step_settled', 'signal', 'state_write'] as const;
 const privateId = z.string().min(1).max(512);
@@ -75,7 +75,7 @@ export function decodeOpaque(value: string, limit: number): string {
   if (!value || value.length > limit || !/^[A-Za-z0-9_-]+$/.test(value)) throw new Error('Invalid encoding');
   const bytes = Buffer.from(value, 'base64url');
   if (bytes.toString('base64url') !== value) throw new Error('Invalid encoding');
-  return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+  return new TextDecoder('utf-8', { fatal: true, ignoreBOM: false }).decode(bytes);
 }
 const headerSchema = z.strictObject({ version: z.literal(1), records: z.array(runtimeSchema).max(64),
   outbox: z.strictObject({ through: counter, dropped: counter, status: z.enum(['available', 'loss', 'unavailable']) }) });

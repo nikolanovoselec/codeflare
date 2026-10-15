@@ -45,7 +45,7 @@ export type DiagnosticTx = Pick<DurableObjectTransaction, 'get' | 'put' | 'delet
 export function sameBinding(a: DiagnosticBinding, b: DiagnosticBinding): boolean {
   return a.generation === b.generation && a.artifactDigest === b.artifactDigest && a.inputDigest === b.inputDigest;
 }
-export function emptyIndex(binding: DiagnosticBinding, sdkCapable: boolean): DiagnosticIndex {
+function emptyIndex(binding: DiagnosticBinding, sdkCapable: boolean): DiagnosticIndex {
   return { version: 1, generation: binding.generation, artifactDigest: binding.artifactDigest, inputDigest: binding.inputDigest,
     nextSequence: 1, firstSequence: 1, epoch: 0, routineIds: [], failureIds: [], terminalIds: [],
     pinnedEventIds: [], evictedRoutine: 0, droppedFailure: 0, droppedTerminal: 0, oversized: 0, rejected: 0,
@@ -215,7 +215,7 @@ export async function readDiagnosticHealth(storage: Pick<DurableObjectStorage, '
   if (index.droppedTerminal) loss.add('terminal-overflow');
   if (index.oversized) loss.add('oversized-record');
   if (index.rejected) loss.add('invalid-record');
-  if (index.sdkImport === 'pending') loss.add('sdk-import-incomplete');
+  if (index.sdkImport === 'pending' || index.sdkImport === 'unavailable') loss.add('sdk-import-incomplete');
   if (index.sdkImport === 'legacy') loss.add('legacy-uncaptured');
   return [...loss];
 }
