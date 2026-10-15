@@ -1999,20 +1999,23 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 2. Missing or mismatched release evidence leaves cleanup pending, or stopping during cancellation. <!-- @impl: src/operators/activity.ts::sdkCleanupReleased --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-085: unconfirmed cleanup preserves the immutable result without reporting release) --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-085: mismatched %s cannot confirm SDK release) -->
 3. The browser accepts released detail only with `sdkCleanupReleased: true`; server-confirmed summaries need no private SDK fields. <!-- @impl: web-ui/src/api/operator-activities.ts::getOperatorActivity --> <!-- @test: web-ui/src/__tests__/api/operator-activities.test.ts (REQ-OPERATOR-085: accepts confirmed SDK release without claiming physical cessation) --> <!-- @test: web-ui/src/__tests__/api/operator-activities.test.ts (REQ-OPERATOR-085: rejects %s SDK release confirmation) --> <!-- @test: web-ui/src/__tests__/api/operator-activities.test.ts (REQ-OPERATOR-085: accepts a server-confirmed released owner summary) -->
 4. Released detail displays **SDK release confirmed**, never an unknown or physically stopped cleanup label. <!-- @impl: web-ui/src/components/OperatorActivityButton.tsx::OperatorActivityButton --> <!-- @test: web-ui/src/__tests__/components/OperatorActivityButton.test.tsx (REQ-OPERATOR-085: renders confirmed SDK release without an unknown or stopped cleanup label) --> <!-- @test: web-ui/src/__tests__/components/OperatorActivityButton.test.tsx (REQ-OPERATOR-085: pending cleanup is not rendered as confirmed release) -->
-5. Ordinary owner-detail refresh reconciles the retained cleanup projection without changing result bytes, collection state or unread-admission identity. <!-- @impl: src/operators/activity.ts::OperatorActivity.getBrowserDetail --> <!-- @impl: src/operators/registry.ts::upsertOwnedActivity --> <!-- @test: src/__tests__/operators/activity-state.test.ts (REQ-OPERATOR-085: owner detail reconciles the retained release summary without a new admission) -->
+5. Ordinary owner-detail cleanup refresh preserves newer execution/collection state, result bytes and unread-admission identity. <!-- @impl: src/operators/activity.ts::OperatorActivity.getBrowserDetail --> <!-- @impl: src/operators/registry.ts::upsertOwnedActivity --> <!-- @test: src/__tests__/operators/activity-state.test.ts (REQ-OPERATOR-085: owner detail reconciles the retained release summary without a new admission) --> <!-- @test: src/__tests__/operators/activity-state.test.ts (REQ-OPERATOR-085: delayed %s cannot regress concurrent %s) -->
 
 **Constraints:**
 
-- Release proof uses the existing current-generation or exact fenced-predecessor matcher with original input/artifact binding. Current-generation proof has no lease-status prerequisite.
+- Release proof uses the existing current-generation or exact fenced-predecessor matcher with original input/artifact binding.
+- Current-generation proof has no lease-status prerequisite.
 - SDK release does not prove physical cessation; physical-cleanup observations remain independently unknown.
-- Projection refresh introduces no admission, submission, effect replay, cleanup retry, deadline/authority renewal, journal migration or result consumption. Existing ordinary cold-entry recovery remains unchanged; diagnostics v2 stays passive and manual.
+- Projection refresh introduces no admission, submission, effect replay, cleanup retry, deadline/authority renewal, journal migration or result consumption.
+- Existing ordinary cold-entry recovery remains unchanged.
+- Diagnostics v2 stays passive and manual.
 - Enterprise-only, owner-scoped authorization and safe summary fields remain unchanged.
 
 **Priority:** P0
 
 **Dependencies:** [REQ-OPERATOR-027](#req-operator-027-owned-activity-user-surface), [REQ-OPERATOR-016](#req-operator-016-durable-activity-admission-and-cleanup), [REQ-OPERATOR-083](#req-operator-083-retained-diagnostic-readback)
 
-**Verification:** The complete 13-instance behavioral batch was added before implementation under REQ-OPERATOR-027 AC8. Exact-head RED run38797398842 failed on the expected cleanup projections, wire acceptance and label, including updated retirement expectations. This focused requirement preserves those cases and original boundaries. Implementation is now authored; final exact-head GREEN and same-Activity hosted readback remain pending.
+**Verification:** The original 13-instance cleanup batch preceded implementation; RED run38797398842 failed on the intended projection, wire and label contracts. Exact-head run38805420931 passed candidate0566fa47, but review identified a retained-summary overwrite race. Six additional AC5 concurrency instances now cover collection, completion and cancellation across delayed ownership reads and refresh writes with equal timestamps; their test-only RED qualification is pending. Race correction, final exact-head GREEN and same-Activity hosted readback remain pending.
 
 **Status:** Planned
 

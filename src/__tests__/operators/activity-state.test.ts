@@ -174,6 +174,98 @@ describe('REQ-OPERATOR-003: instrumented activity state outcomes', () => {
     expect(await registry.getOwnedActivity('f'.repeat(64), 'activity')).toBeNull();
   }));
 
+  it.each([
+    ['ownership read', 'collection'], ['refresh write', 'collection'],
+    ['ownership read', 'completion'], ['refresh write', 'completion'],
+    ['ownership read', 'cancellation'], ['refresh write', 'cancellation'],
+  ] as const)('REQ-OPERATOR-085: delayed %s cannot regress concurrent %s', (boundary, transition) =>
+    withActivity(async ({ activity, registry, ctx, deadline }) => {
+      // Instrumented retained metadata, not a generated SDK execution. Freeze time so
+      // concurrent publications share a timestamp; wall-clock ordering is not proof.
+      const now = Date.now();
+      const clock = vi.spyOn(Date, 'now').mockReturnValue(now);
+      let release!: () => void;
+      let entered!: () => void;
+      const paused = new Promise<void>(resolve => { entered = resolve; });
+      const resumed = new Promise<void>(resolve => { release = resolve; });
+      let restoreBoundary: (() => void) | undefined;
+      let detailRead: ReturnType<typeof activity.getBrowserDetail> | undefined;
+      try {
+        const ownerKey = await operatorOwnerKey({ subject: 'owner', email: 'owner@example.test',
+          issuer: 'https://access.example.test', audiences: ['account-audience'] });
+        const admission = await ctx.storage.get<{ receipt: Record<string, unknown> }>('admission');
+        if (!admission) throw new Error('Fixture admission missing');
+        const assessment = { readOnly: true, observedHead: 'c'.repeat(40) };
+        const initiallyCompleted = transition === 'collection';
+        await ctx.storage.put('admission', { ...admission, ownerKey, updatedAt: now,
+          browserCollectionConsumed: false,
+          receipt: { ...admission.receipt, intentDigest: 'b'.repeat(64), selection: {
+            controlsRevision: 1, manifestJson: JSON.stringify({ name: 'Dispatcher' }),
+            operator: { operatorId: 'operator', name: 'Dispatcher', profile: 'dispatcher', revision: 1,
+              policy: { capabilities: ['fetch'], resourceProfileId: null, loggingEnabled: false } },
+            installation: { id: 'installation', operatorId: 'operator', revision: 1, enabled: true,
+              configurationJson: '{}', releaseId: 'release', policy: { capabilities: ['fetch'], resourceProfileId: null } },
+            release: { id: 'release', operatorId: 'operator', bundleDigest: 'a'.repeat(64), sourceCommit: 'd'.repeat(40) },
+          } }, drive: { generation: 1, status: initiallyCompleted ? 'completed' : 'running',
+            checkpoint: null, result: initiallyCompleted ? assessment : null } });
+        await ctx.storage.put('dispatcher:lease', { generation: 1, inputDigest: 'b'.repeat(64),
+          artifactDigest: 'a'.repeat(64), expiresAt: deadline, submissionId: 'original-submission',
+          settledSubmissionId: 'original-submission', status: initiallyCompleted ? 'settled' : 'running', sdkReleased: true });
+        const initial = await activity.getBrowserSummary(ownerKey);
+        if (!initial) throw new Error('Fixture owner summary missing');
+        await registry.upsertOwnedActivity(ownerKey, { ...initial, cleanupStatus: 'unknown' });
+        const before = await registry.listOwnedActivityPage(ownerKey, null);
+        expect(before).toMatchObject({ latestSequence: 1, unreadCount: 1,
+          workingCount: initiallyCompleted ? 0 : 1 });
+
+        // Delay public Registry transport, not private Activity methods. Cover both
+        // a returned ownership snapshot and a refresh queued before its transaction.
+        if (boundary === 'ownership read') {
+          const read = registry.getOwnedActivity.bind(registry);
+          const delayed = vi.spyOn(registry, 'getOwnedActivity').mockImplementationOnce(async (...args) => {
+            const value = await read(...args);
+            entered(); await resumed;
+            return value;
+          });
+          restoreBoundary = () => delayed.mockRestore();
+        } else {
+          const write = registry.upsertOwnedActivity.bind(registry);
+          const delayed = vi.spyOn(registry, 'upsertOwnedActivity').mockImplementationOnce(async (...args) => {
+            entered(); await resumed;
+            return write(...args);
+          });
+          restoreBoundary = () => delayed.mockRestore();
+        }
+        detailRead = activity.getBrowserDetail();
+        await Promise.race([paused, detailRead.then(() => { throw new Error('Detail did not reach the delayed boundary'); })]);
+        if (transition === 'collection') {
+          expect(await activity.collectBrowserResult()).toMatchObject({ ok: true,
+            detail: { collectionStatus: 'consumed', result: assessment } });
+        } else if (transition === 'completion') {
+          expect(await activity.commitDrive(1, { schemaVersion: 1, status: 'completed',
+            checkpoint: null, result: assessment })).toMatchObject({ ok: true });
+        } else {
+          expect(await activity.cancelDrive()).toMatchObject({ ok: true });
+        }
+        const published = await registry.listOwnedActivityPage(ownerKey, null);
+        const executionStatus = transition === 'cancellation' ? 'cancel-requested' : 'completed';
+        const collectionStatus = transition === 'collection' ? 'consumed' : transition === 'completion' ? 'ready' : 'unavailable';
+        expect(published).toMatchObject({ latestSequence: before.latestSequence, unreadCount: before.unreadCount,
+          workingCount: transition === 'cancellation' ? 1 : 0,
+          items: [{ activityId: 'activity', executionStatus, collectionStatus, cleanupStatus: 'released',
+            attention: transition === 'completion', updatedAt: now }] });
+        release(); await detailRead;
+        expect(await registry.listOwnedActivityPage(ownerKey, null)).toEqual(published);
+        expect(await activity.getBrowserDetail()).toMatchObject({ executionStatus, collectionStatus,
+          result: transition === 'cancellation' ? null : assessment });
+      } finally {
+        release();
+        await detailRead?.catch(() => {});
+        restoreBoundary?.();
+        clock.mockRestore();
+      }
+    }));
+
   it('REQ-OPERATOR-027: counts still-working activities after their historical rows leave the 100-entry index', async () => withActivity(async ({ registry }) => {
     const owner = 'c'.repeat(64);
     const base = { operatorId: 'reviewer', executionStatus: 'running' as const, cleanupStatus: 'pending' as const,
