@@ -1447,7 +1447,8 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string; O
   }
 
   /** Activity-owned, credential-free index for exact browser account lookups. */
-  async upsertOwnedActivity(ownerKey: string, summary: OperatorBrowserSummary): Promise<void> {
+  async upsertOwnedActivity(ownerKey: string, summary: OperatorBrowserSummary,
+    observed?: OperatorBrowserSummary): Promise<void> {
     if (!/^[0-9a-f]{64}$/.test(ownerKey) || !/^[A-Za-z0-9_-]{1,128}$/.test(summary.activityId)) return;
     await this.ctx.storage.transaction(async tx => {
       const indexKey = `owner-activities:${ownerKey}`;
@@ -1455,6 +1456,12 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string; O
       const countKey = `owner-working-count:${ownerKey}`;
       const current = await tx.get<string[]>(indexKey) ?? [];
       const prior = await tx.get<OperatorBrowserSummary>(summaryKey);
+      if (observed) {
+        if (!prior) return;
+        // Refresh only the row actually observed, including when publications share a timestamp.
+        const fields = Object.keys({ ...prior, ...observed }) as (keyof OperatorBrowserSummary)[];
+        if (fields.some(key => prior[key] !== observed[key])) return;
+      }
       let count = await tx.get<number>(countKey);
       if (count === undefined) {
         // Existing owner summaries may outlive the 100-entry display index. Rebuild once,

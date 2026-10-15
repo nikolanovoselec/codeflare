@@ -2015,7 +2015,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-027](#req-operator-027-owned-activity-user-surface), [REQ-OPERATOR-016](#req-operator-016-durable-activity-admission-and-cleanup), [REQ-OPERATOR-083](#req-operator-083-retained-diagnostic-readback)
 
-**Verification:** The original 13-instance cleanup batch preceded implementation; RED run38797398842 failed on the intended projection, wire and label contracts. Exact-head run38805420931 passed candidate0566fa47, but review identified a retained-summary overwrite race. Six additional AC5 concurrency instances now cover collection, completion and cancellation across delayed ownership reads and refresh writes with equal timestamps; their test-only RED qualification is pending. Race correction, final exact-head GREEN and same-Activity hosted readback remain pending.
+**Verification:** The original 13-instance cleanup batch preceded implementation; RED run38797398842 failed on the intended projection, wire and label contracts. Run38805420931 passed candidate0566fa47, but review identified a retained-summary race. Exact-head RED run38808111567 failed all six added AC5 concurrency instances at retained-page preservation, covering collection/completion/cancellation across delayed reads/writes with equal timestamps; the shard's other465 tests passed. The correction now re-reads admission after observing the retained row and conditionally publishes against that row inside the Registry transaction. Final exact-head GREEN and same-Activity hosted readback remain pending.
 
 **Status:** Planned
 

@@ -3243,12 +3243,15 @@ export class OperatorActivity extends Agent {
       sessionId: null, source: null, updatedAt: state.updatedAt ?? Date.now() };
   }
 
-  private async publishBrowserSummary(state?: AdmissionState, summary?: OperatorBrowserSummary): Promise<void> {
+  private async publishBrowserSummary(state?: AdmissionState, summary?: OperatorBrowserSummary,
+    observed?: OperatorBrowserSummary): Promise<void> {
     state ??= await this.ctx.storage.get<AdmissionState>('admission');
     if (!state?.ownerKey) return;
     try {
       const projection = summary ?? this.browserSummary(state, await this.ctx.storage.get<DispatcherLease>(DISPATCHER_LEASE));
-      await this.#appEnv.OPERATOR_REGISTRY.getByName('registry').upsertOwnedActivity(state.ownerKey, projection);
+      const registry = this.#appEnv.OPERATOR_REGISTRY.getByName('registry');
+      if (observed) await registry.upsertOwnedActivity(state.ownerKey, projection, observed);
+      else await registry.upsertOwnedActivity(state.ownerKey, projection);
     } catch { /* execution state remains authoritative; the safe index can reconcile later */ }
   }
 
@@ -3680,10 +3683,22 @@ export class OperatorActivity extends Agent {
   async getBrowserDetail(options?: { effectReceipts: true; receiptAfter?: number }): Promise<(OperatorBrowserSummary & {
     checkpoint: unknown; result: unknown; sdkCleanupReleased?: boolean; effectReceipts?: RetiredEffectReceipts }) | null> {
     this.#resumeDispatcherOnEntry();
-    const state = await this.ctx.storage.get<AdmissionState>('admission');
+    let state = await this.ctx.storage.get<AdmissionState>('admission');
     if (!state) return null;
     const dispatcher = state.drive && state.receipt && isManagementReceipt(state.receipt)
       && state.receipt.selection.operator.profile === 'dispatcher';
+    let observed: OperatorBrowserSummary | null = null;
+    if (dispatcher && state.ownerKey) {
+      try {
+        observed = await this.#appEnv.OPERATOR_REGISTRY.getByName('registry')
+          .getOwnedActivity(state.ownerKey, state.intent.activityId);
+      } catch { /* owner detail remains authoritative if the retained index is unavailable */ }
+      if (observed) {
+        // The lookup can yield to a lifecycle transition; never publish its earlier admission snapshot.
+        state = await this.ctx.storage.get<AdmissionState>('admission');
+        if (!state) return null;
+      }
+    }
     const lease = dispatcher ? await this.ctx.storage.get<DispatcherLease>(DISPATCHER_LEASE) : undefined;
     const retired = options?.effectReceipts && dispatcher && ['unknown', 'cancel-requested'].includes(state.drive!.status)
       && ((state.receipt as ManagementAdmissionReceipt).selection.release.intentVersion === '4' || lease?.serial);
@@ -3692,13 +3707,7 @@ export class OperatorActivity extends Agent {
     const effectReceipts = retired ? await this.retiredEffectReceipts(state, lease, options?.receiptAfter) : undefined;
     const released = this.sdkCleanupReleased(state, lease);
     const summary = this.browserSummary(state, lease);
-    if (dispatcher && state.ownerKey) {
-      try {
-        const retained = await this.#appEnv.OPERATOR_REGISTRY.getByName('registry')
-          .getOwnedActivity(state.ownerKey, state.intent.activityId);
-        if (retained) await this.publishBrowserSummary(state, summary);
-      } catch { /* owner detail remains authoritative if the retained index is unavailable */ }
-    }
+    if (observed) await this.publishBrowserSummary(state, summary, observed);
     return { ...summary, checkpoint: state.drive?.checkpoint ?? null, result: state.drive?.result ?? null,
       ...(released === undefined ? {} : { sdkCleanupReleased: released }), ...(effectReceipts ? { effectReceipts } : {}) };
   }
