@@ -104,6 +104,7 @@ export type NativeImportOmission = {
   captureDigest: string; submissionDigest: string; attemptDigest: string; rootDigest: string; patchSetDigest: string;
   failureSequence: number; canonicalSequence: number; recoveredSequence: number;
   batchSequence: number; recordIndex: number; producerEpoch: number; producerSequence: number;
+  // Frozen source-window counters at recovery capture, not the later tail or parent import.
   localThrough: number; localDropped: number; imported: false;
 };
 type NativeFaultArm = { scenario: 'ordinary' | 'precommit-reset'; submissionId: string; prefix: string; watermark: number; withholdSdkImports?: boolean };
@@ -918,6 +919,57 @@ export class OperatorActivity extends ProductionActivity {
               AND json_extract(NEW.envelope, '$.outcome') = 'completed';
           END`);
         await this.ctx.storage.put('fixture:native-cleanup-armed', true);
+      } else {
+        // Both import channels are withheld, so unacknowledged rows can leave
+        // the 64-row source ring before the external observer runs. Freeze ONE
+        // actual failure/commit/recovery window, not another ring or an ack.
+        // These <=4096-byte source envelopes stay child-private; only their
+        // validated hashes/coordinates may later enter parent storage.
+        const witness = sqlIdentifier(prefix + 'codeflare_fixture_omission_witness');
+        await query(`CREATE TABLE ${witness} (id INTEGER PRIMARY KEY CHECK (id = 1),
+          failure_sequence INTEGER NOT NULL, canonical_sequence INTEGER NOT NULL, recovered_sequence INTEGER NOT NULL,
+          failure_envelope TEXT NOT NULL CHECK (length(CAST(failure_envelope AS BLOB)) <= 4096),
+          canonical_envelope TEXT NOT NULL CHECK (length(CAST(canonical_envelope AS BLOB)) <= 4096),
+          recovered_envelope TEXT NOT NULL CHECK (length(CAST(recovered_envelope AS BLOB)) <= 4096),
+          failure_imported INTEGER NOT NULL CHECK (failure_imported = 0),
+          canonical_imported INTEGER NOT NULL CHECK (canonical_imported = 0),
+          recovered_imported INTEGER NOT NULL CHECK (recovered_imported = 0),
+          through_sequence INTEGER NOT NULL, dropped INTEGER NOT NULL)`);
+        // Outbox.capture updates this index AFTER insertion in the SAME source
+        // transaction. NEW therefore includes the recovery capture, unlike an
+        // index read from an outbox AFTER INSERT trigger. Observe all three
+        // real rows and their current import flags together before eviction.
+        await query(`CREATE TRIGGER codeflare_fixture_observe_omission AFTER UPDATE OF through_sequence
+          ON ${sqlIdentifier(prefix + tables[3])}
+          WHEN NEW.through_sequence > ${watermark} AND NOT EXISTS (SELECT 1 FROM ${witness})
+          BEGIN
+            INSERT INTO ${witness} SELECT 1, f.sequence, c.sequence, r.sequence,
+              f.envelope, c.envelope, r.envelope, f.imported, c.imported, r.imported,
+              NEW.through_sequence, NEW.dropped
+              FROM ${outbox} f JOIN ${outbox} c ON c.sequence > f.sequence
+              JOIN ${outbox} r ON r.sequence > c.sequence
+              WHERE f.sequence > ${watermark} AND r.sequence = NEW.through_sequence
+              AND f.imported = 0 AND c.imported = 0 AND r.imported = 0
+              AND json_extract(f.envelope, '$.sdk.submissionId') = ${selected}
+              AND json_extract(c.envelope, '$.sdk.submissionId') = ${selected}
+              AND json_extract(r.envelope, '$.sdk.submissionId') = ${selected}
+              AND json_extract(c.envelope, '$.sdk.attemptId') = json_extract(f.envelope, '$.sdk.attemptId')
+              AND json_extract(r.envelope, '$.sdk.attemptId') = json_extract(f.envelope, '$.sdk.attemptId')
+              AND json_extract(f.envelope, '$.boundary') = 'canonical-commit'
+              AND json_extract(f.envelope, '$.outcome') = 'failed'
+              AND json_extract(f.envelope, '$.code') = 'canonical-append-failed'
+              AND json_extract(c.envelope, '$.boundary') = 'canonical-commit'
+              AND json_extract(c.envelope, '$.outcome') = 'committed'
+              AND json_extract(r.envelope, '$.boundary') = 'canonical-commit'
+              AND json_extract(r.envelope, '$.outcome') = 'recovered'
+              AND json_extract(r.envelope, '$.code') = 'canonical-append-failed'
+              AND (SELECT COUNT(*) FROM ${outbox} e WHERE e.sequence > ${watermark}
+                AND json_extract(e.envelope, '$.sdk.submissionId') = ${selected}
+                AND json_extract(e.envelope, '$.boundary') = 'canonical-commit'
+                AND json_extract(e.envelope, '$.outcome') = 'failed'
+                AND json_extract(e.envelope, '$.code') = 'canonical-append-failed') = 1
+              ORDER BY f.sequence, c.sequence, r.sequence LIMIT 1;
+          END`);
       }
     } else {
       await query(`CREATE TRIGGER codeflare_fixture_reject_replacement BEFORE UPDATE OF attempt_id ON ${sqlIdentifier(prefix + tables[0])}
@@ -1021,16 +1073,21 @@ export class OperatorActivity extends ProductionActivity {
     if (!await this.dispatcherGenerationCurrent(1)) throw new Error('Native omission live observation missed');
     const child = this.#liveNativeSql();
     const query = (text: string, ...values: unknown[]) => this.#nativeQuery(child, text, ...values);
-    // The source outbox is durable SQL, not Tail or a synthetic source envelope.
-    // Only bounded digests/coordinates survive this already-live observation.
-    const rows = await query(`SELECT envelope, imported FROM ${sqlIdentifier(arm.prefix + 'codeflare_sdk_diagnostic_outbox')}
-      WHERE sequence > ? AND json_extract(envelope, '$.sdk.submissionId') = ? ORDER BY sequence LIMIT 65`, arm.watermark, arm.submissionId);
-    if (rows.length > 64) throw new Error('Native omission evidence bound exceeded');
-    const captured = rows.map(row => {
-      if (typeof row.envelope !== 'string' || new TextEncoder().encode(row.envelope).byteLength > 4096 || row.imported !== 0) {
-        throw new Error('Native unimported source capture unavailable');
+    // Read the bounded source window frozen while all three actual records
+    // were still unimported in the original ring, not a late scan of that ring.
+    // No raw envelope/SDK identity is persisted in parent storage or returned.
+    const rows = await query(`SELECT * FROM ${sqlIdentifier(arm.prefix + 'codeflare_fixture_omission_witness')} WHERE id = 1`);
+    if (rows.length !== 1) throw new Error('Native selected source window unavailable');
+    const snapshot = rows[0];
+    const captured = (['failure', 'canonical', 'recovered'] as const).map(slot => {
+      const envelope = snapshot[`${slot}_envelope`];
+      if (typeof envelope !== 'string' || new TextEncoder().encode(envelope).byteLength > 4096
+        || snapshot[`${slot}_imported`] !== 0) throw new Error('Native unimported source capture unavailable');
+      const value = runtimeSchema.parse(JSON.parse(envelope));
+      if (value.sequence !== snapshot[`${slot}_sequence`] || value.sdk?.submissionId !== arm.submissionId) {
+        throw new Error('Native selected source identity unavailable');
       }
-      return runtimeSchema.parse(JSON.parse(row.envelope));
+      return value;
     });
     const failures = captured.filter(row => row.boundary === 'canonical-commit' && row.outcome === 'failed'
       && row.code === 'canonical-append-failed');
@@ -1046,14 +1103,20 @@ export class OperatorActivity extends ProductionActivity {
     const sdk = canonical.sdk!;
     const coordinates = [sdk.batchSequence, sdk.recordIndex, sdk.producerEpoch, sdk.producerSequence];
     if (!coordinates.every(value => Number.isSafeInteger(value) && value! >= 0)) throw new Error('Native committed coordinates unavailable');
-    const index = await query(`SELECT through_sequence, dropped FROM ${sqlIdentifier(arm.prefix + 'codeflare_sdk_diagnostic_index')} WHERE id = 1`);
-    if (index.length !== 1 || ![index[0].through_sequence, index[0].dropped].every(value => Number.isSafeInteger(value) && Number(value) >= 0)
-      || Number(index[0].through_sequence) < recovered.sequence) throw new Error('Native local outbox watermark unavailable');
+    if (captured.some(row => row.sdk?.rootUid && row.sdk.rootUid !== failure.sdk!.rootUid)) {
+      throw new Error('Native selected source root changed');
+    }
+    // Frozen AFTER the recovery's actual source-index update, never replaced
+    // by a newer tail count or inferred from the three selected coordinates.
+    if (![snapshot.through_sequence, snapshot.dropped].every(value => Number.isSafeInteger(value) && Number(value) >= 0)
+      || snapshot.through_sequence !== recovered.local.through || snapshot.dropped !== recovered.local.dropped
+      || Number(snapshot.through_sequence) < recovered.sequence
+      || Number(snapshot.through_sequence) - failure.sequence >= 64) throw new Error('Native local outbox watermark unavailable');
     const witness: NativeImportOmission = { captureDigest: await hash(failure.captureId), patchSetDigest: failure.source.patchSetDigest!,
       submissionDigest: await hash(arm.submissionId), attemptDigest: await hash(failure.sdk.attemptId), rootDigest: await hash(failure.sdk.rootUid),
       failureSequence: failure.sequence, canonicalSequence: canonical.sequence, recoveredSequence: recovered.sequence,
       batchSequence: sdk.batchSequence!, recordIndex: sdk.recordIndex!, producerEpoch: sdk.producerEpoch!, producerSequence: sdk.producerSequence!,
-      localThrough: Number(index[0].through_sequence), localDropped: Number(index[0].dropped), imported: false };
+      localThrough: Number(snapshot.through_sequence), localDropped: Number(snapshot.dropped), imported: false };
     await this.ctx.storage.put('fixture:native-omission', witness);
   }
   override async dispatcherBridge(generation: number, method: Parameters<ProductionActivity['dispatcherBridge']>[1], args: unknown[]): Promise<unknown> {
