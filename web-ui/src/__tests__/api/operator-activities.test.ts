@@ -41,14 +41,14 @@ describe('REQ-OPERATOR-041: in-app owned result read', () => {
   });
 });
 
-describe('REQ-OPERATOR-027: evidence-qualified cleanup wire', () => {
+describe('REQ-OPERATOR-085: evidence-qualified cleanup wire', () => {
   const releasedDetail = { ...detail, operatorId: 'dispatcher', cleanupStatus: 'released',
     collectionStatus: 'consumed', sdkCleanupReleased: true };
   const response = (value: unknown) => new Response(JSON.stringify(value), {
     status: 200, headers: { 'content-type': 'application/json' },
   });
 
-  it('REQ-OPERATOR-027: accepts confirmed SDK release without claiming physical cessation', async () => {
+  it('REQ-OPERATOR-085: accepts confirmed SDK release without claiming physical cessation', async () => {
     vi.stubGlobal('fetch', async () => response(releasedDetail));
     const value = await getOperatorActivity('activity-1');
     expect(value).toMatchObject({ executionStatus: 'completed', collectionStatus: 'consumed',
@@ -56,7 +56,7 @@ describe('REQ-OPERATOR-027: evidence-qualified cleanup wire', () => {
     expect(value.result).toEqual(detail.result);
   });
 
-  it.each(['false', 'missing'])('REQ-OPERATOR-027: rejects %s SDK release confirmation', async fault => {
+  it.each(['false', 'missing'])('REQ-OPERATOR-085: rejects %s SDK release confirmation', async fault => {
     const invalid: Record<string, unknown> = { ...releasedDetail };
     if (fault === 'missing') delete invalid.sdkCleanupReleased;
     else invalid.sdkCleanupReleased = false;
@@ -64,7 +64,7 @@ describe('REQ-OPERATOR-027: evidence-qualified cleanup wire', () => {
     await expect(getOperatorActivity('activity-1')).rejects.toBeDefined();
   });
 
-  it('REQ-OPERATOR-027: accepts a server-confirmed released owner summary', async () => {
+  it('REQ-OPERATOR-085: accepts a server-confirmed released owner summary', async () => {
     const summary = { activityId: 'activity-1', operatorId: 'dispatcher', executionStatus: 'completed',
       cleanupStatus: 'released', collectionStatus: 'consumed', attention: false, sessionId: null,
       source: null, updatedAt: detail.updatedAt };

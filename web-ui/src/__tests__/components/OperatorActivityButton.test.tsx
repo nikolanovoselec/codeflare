@@ -407,7 +407,7 @@ describe('REQ-OPERATOR-027: readable owned activity and bounded history', () => 
     expect(screen.getByRole('button', { name: 'View activity-1' })).toBeTruthy();
   });
 
-  it('REQ-OPERATOR-027: renders confirmed SDK release without an unknown or stopped cleanup label', async () => {
+  it('REQ-OPERATOR-085: renders confirmed SDK release without an unknown or stopped cleanup label', async () => {
     const item = { ...active, operatorId: 'dispatcher', executionStatus: 'completed', cleanupStatus: 'released',
       collectionStatus: 'consumed', sessionId: null };
     listMock.mockResolvedValue({ items: [item] });
@@ -424,7 +424,7 @@ describe('REQ-OPERATOR-027: readable owned activity and bounded history', () => 
     expect(screen.queryByText('Cleanup: stopped')).toBeNull();
   });
 
-  it('REQ-OPERATOR-027: pending cleanup is not rendered as confirmed release', async () => {
+  it('REQ-OPERATOR-085: pending cleanup is not rendered as confirmed release', async () => {
     const item = { ...active, operatorId: 'dispatcher', executionStatus: 'completed', cleanupStatus: 'pending',
       collectionStatus: 'consumed', sessionId: null };
     listMock.mockResolvedValue({ items: [item] });

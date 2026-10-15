@@ -4,6 +4,8 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-10-15
 
+- Expose evidence-qualified Dispatcher SDK release as `cleanupStatus: released` and **SDK release confirmed** ([REQ-OPERATOR-085](operators.md#req-operator-085-evidence-qualified-sdk-release-observation)). Preserve original generation/input/artifact matching, pending/stopping negatives, immutable results and physical-cessation uncertainty. Ordinary owner detail reconciles the retained summary without new admission or consumption; passive diagnostics remain unchanged. Final exact-head qualification and same-Activity hosted readback are pending.
+
 - Add retained Dispatcher causal evidence and passive owner-only version2 summary, history, record detail and resumable export ([REQ-OPERATOR-081](operators.md#req-operator-081-retained-dispatcher-causal-evidence)). Preserve version1, original-generation fences, distinct operation/SDK identities, bounded private-safe retention and truthful import loss. Manual Activity diagnostics expose observed failures or precise evidence gaps without replay controls; exact-source SDK qualification, hosted acceptance and historical failure identification remain separate gates.
 
 ## 2026-10-14

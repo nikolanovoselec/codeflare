@@ -108,7 +108,7 @@ describe('REQ-OPERATOR-003: instrumented activity state outcomes', () => {
     expect(await readSummary(ownerKey)).toBeNull();
   }));
 
-  it('REQ-OPERATOR-027: owner detail reconciles the retained release summary without a new admission', () => withActivity(async ({ activity, registry, ctx, deadline }) => {
+  it('REQ-OPERATOR-085: owner detail reconciles the retained release summary without a new admission', () => withActivity(async ({ activity, registry, ctx, deadline }) => {
     const ownerKey = await operatorOwnerKey({ subject: 'owner', email: 'owner@example.test',
       issuer: 'https://access.example.test', audiences: ['account-audience'] });
     const admission = await ctx.storage.get<{ receipt: Record<string, unknown> }>('admission');

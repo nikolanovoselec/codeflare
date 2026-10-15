@@ -275,7 +275,7 @@ const OperatorActivityButton: Component<Props> = (props) => {
                   <Show when={value().context}><p>{value().context}</p></Show>
                   <p>Activity ID: {value().activityId}</p>
                   <p>Execution: {value().executionStatus}</p>
-                  <p>Cleanup: {value().cleanupStatus}</p>
+                  <p>Cleanup: {value().cleanupStatus === 'released' ? 'SDK release confirmed' : value().cleanupStatus}</p>
                   <p>Collection: {value().collectionStatus}</p>
                   <Show when={value().attention}><span class="operator-activity-attention">Needs attention</span></Show>
                   <Show when={value().progress}><p>Progress: {value().progress}</p></Show>

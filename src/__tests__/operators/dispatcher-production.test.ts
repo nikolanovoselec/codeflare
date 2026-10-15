@@ -4552,8 +4552,8 @@ describe('REQ-OPERATOR-063: complete lifecycle diagnostic contract', () => {
   }, true)));
 });
 
-describe('REQ-OPERATOR-027: evidence-qualified Dispatcher cleanup projections', () => {
-  it('REQ-OPERATOR-027: confirmed SDK release is visible across owner projections and reconstruction', () => fixture(async f => {
+describe('REQ-OPERATOR-085: evidence-qualified Dispatcher cleanup projections', () => {
+  it('REQ-OPERATOR-085: confirmed SDK release is visible across owner projections and reconstruction', () => fixture(async f => {
     await start(f);
     const assessment = { readOnly: true, observedHead: 'b'.repeat(40) };
     f.messages([{ submissionId: 'submission-1', parts: [{ type: 'data-assessment', data: assessment }] }]);
@@ -4605,7 +4605,7 @@ describe('REQ-OPERATOR-027: evidence-qualified Dispatcher cleanup projections', 
     expect(await f.nextAlarm()).toBe(alarm);
   }));
 
-  it('REQ-OPERATOR-027: unconfirmed cleanup preserves the immutable result without reporting release', () => fixture(async f => {
+  it('REQ-OPERATOR-085: unconfirmed cleanup preserves the immutable result without reporting release', () => fixture(async f => {
     const sdk = Agent.prototype as unknown as { _cf_cleanupFacetPrefix: (...args: unknown[]) => Promise<void> };
     const fault = vi.spyOn(sdk, '_cf_cleanupFacetPrefix').mockImplementation(async () => {
       throw new Error('Controlled SDK cleanup unavailable');
@@ -4646,7 +4646,7 @@ describe('REQ-OPERATOR-027: evidence-qualified Dispatcher cleanup projections', 
   }));
 
   it.each(['generation', 'inputDigest', 'artifactDigest'] as const)(
-    'REQ-OPERATOR-027: mismatched %s cannot confirm SDK release', field => fixture(async f => {
+    'REQ-OPERATOR-085: mismatched %s cannot confirm SDK release', field => fixture(async f => {
       await start(f);
       const assessment = { readOnly: true, observedHead: 'b'.repeat(40) };
       f.messages([{ submissionId: 'submission-1', parts: [{ type: 'data-assessment', data: assessment }] }]);
@@ -4674,7 +4674,7 @@ describe('REQ-OPERATOR-027: evidence-qualified Dispatcher cleanup projections', 
       expect(await cold.beginDrive()).toEqual({ ok: false, reason: 'drive-settled' });
     }));
 
-  it('REQ-OPERATOR-027: exact fenced SDK release remains known without restarting cancelled work', () => fixture(async f => {
+  it('REQ-OPERATOR-085: exact fenced SDK release remains known without restarting cancelled work', () => fixture(async f => {
     await start(f);
     await f.seedCancelledReleased();
     const submissions = [...f.childSubmissions];

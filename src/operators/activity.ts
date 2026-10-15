@@ -3194,9 +3194,10 @@ export class OperatorActivity extends Agent {
     return (await this.#dispatcherFacet(lease))._cf_checkRunFibersForFacet(ownerPath);
   }
 
-  private browserSummary(state: AdmissionState): OperatorBrowserSummary {
+  private browserSummary(state: AdmissionState, lease?: DispatcherLease): OperatorBrowserSummary {
     const executionStatus = state.drive?.status ?? 'queued';
     const terminal = executionStatus === 'completed' || executionStatus === 'failed';
+    const released = this.sdkCleanupReleased(state, lease);
     const safeText = (value: unknown, max = 128): string | null =>
       typeof value === 'string' && value.length <= max && /^[\p{L}\p{N} ._/#-]+$/u.test(value) ? value : null;
     let name: string | null = null;
@@ -3235,17 +3236,20 @@ export class OperatorActivity extends Agent {
       ? safeText((checkpoint as Record<string, unknown>).stage) : null;
     return { activityId: state.intent.activityId, operatorId: state.intent.operatorId,
       ...(name ? { operatorName: name } : {}), ...(context ? { context } : {}), ...(progress ? { progress } : {}), executionStatus,
-      cleanupStatus: executionStatus === 'cancel-requested' ? 'stopping' : terminal ? 'unknown' : 'pending',
+      cleanupStatus: released === true ? 'released' : executionStatus === 'cancel-requested' ? 'stopping'
+        : released === false ? 'pending' : terminal ? 'unknown' : 'pending',
       collectionStatus: state.browserCollectionConsumed ? 'consumed' : terminal ? 'ready' : 'unavailable',
       attention: executionStatus === 'failed' || executionStatus === 'unknown' || (terminal && !state.browserCollectionConsumed),
       sessionId: null, source: null, updatedAt: state.updatedAt ?? Date.now() };
   }
 
-  private async publishBrowserSummary(): Promise<void> {
-    const state = await this.ctx.storage.get<AdmissionState>('admission');
+  private async publishBrowserSummary(state?: AdmissionState, summary?: OperatorBrowserSummary): Promise<void> {
+    state ??= await this.ctx.storage.get<AdmissionState>('admission');
     if (!state?.ownerKey) return;
-    try { await this.#appEnv.OPERATOR_REGISTRY.getByName('registry').upsertOwnedActivity(state.ownerKey, this.browserSummary(state)); }
-    catch { /* execution state remains authoritative; the safe index can reconcile later */ }
+    try {
+      const projection = summary ?? this.browserSummary(state, await this.ctx.storage.get<DispatcherLease>(DISPATCHER_LEASE));
+      await this.#appEnv.OPERATOR_REGISTRY.getByName('registry').upsertOwnedActivity(state.ownerKey, projection);
+    } catch { /* execution state remains authoritative; the safe index can reconcile later */ }
   }
 
   private sdkCleanupReleased(state: AdmissionState, lease?: DispatcherLease): boolean | undefined {
@@ -3497,7 +3501,8 @@ export class OperatorActivity extends Agent {
   async getBrowserSummary(ownerKey: string): Promise<OperatorBrowserSummary | null> {
     this.#resumeDispatcherOnEntry();
     const state = await this.ctx.storage.get<AdmissionState>('admission');
-    return state?.ownerKey && state.ownerKey === ownerKey ? this.browserSummary(state) : null;
+    if (!state?.ownerKey || state.ownerKey !== ownerKey) return null;
+    return this.browserSummary(state, await this.ctx.storage.get<DispatcherLease>(DISPATCHER_LEASE));
   }
 
   /** Metadata-only owner inspection; never migrate, replay or change a journal. */
@@ -3679,16 +3684,22 @@ export class OperatorActivity extends Agent {
     if (!state) return null;
     const dispatcher = state.drive && state.receipt && isManagementReceipt(state.receipt)
       && state.receipt.selection.operator.profile === 'dispatcher';
-    const lease = dispatcher && options?.effectReceipts
-      ? await this.ctx.storage.get<DispatcherLease>(DISPATCHER_LEASE) : undefined;
+    const lease = dispatcher ? await this.ctx.storage.get<DispatcherLease>(DISPATCHER_LEASE) : undefined;
     const retired = options?.effectReceipts && dispatcher && ['unknown', 'cancel-requested'].includes(state.drive!.status)
       && ((state.receipt as ManagementAdmissionReceipt).selection.release.intentVersion === '4' || lease?.serial);
     // The receipt path replaces (not adds to) the metadata diagnostic scan and its response reads.
     if (!retired) await this.inspectDispatcherJournal(state);
     const effectReceipts = retired ? await this.retiredEffectReceipts(state, lease, options?.receiptAfter) : undefined;
-    const released = dispatcher ? this.sdkCleanupReleased(state,
-      retired ? lease : await this.ctx.storage.get<DispatcherLease>(DISPATCHER_LEASE)) : undefined;
-    return { ...this.browserSummary(state), checkpoint: state.drive?.checkpoint ?? null, result: state.drive?.result ?? null,
+    const released = this.sdkCleanupReleased(state, lease);
+    const summary = this.browserSummary(state, lease);
+    if (dispatcher && state.ownerKey) {
+      try {
+        const retained = await this.#appEnv.OPERATOR_REGISTRY.getByName('registry')
+          .getOwnedActivity(state.ownerKey, state.intent.activityId);
+        if (retained) await this.publishBrowserSummary(state, summary);
+      } catch { /* owner detail remains authoritative if the retained index is unavailable */ }
+    }
+    return { ...summary, checkpoint: state.drive?.checkpoint ?? null, result: state.drive?.result ?? null,
       ...(released === undefined ? {} : { sdkCleanupReleased: released }), ...(effectReceipts ? { effectReceipts } : {}) };
   }
 
@@ -3751,15 +3762,16 @@ export class OperatorActivity extends Agent {
       if (!state) return { ok: false, reason: 'not-admitted' };
       if (state.drive?.status !== 'completed' && state.drive?.status !== 'failed') return { ok: false, reason: 'not-ready' };
       const consumed = { ...state, browserCollectionConsumed: true, updatedAt: Date.now() };
-      const released = this.sdkCleanupReleased(consumed, await tx.get<DispatcherLease>(DISPATCHER_LEASE));
+      const lease = await tx.get<DispatcherLease>(DISPATCHER_LEASE);
+      const released = this.sdkCleanupReleased(consumed, lease);
       await tx.put<AdmissionState>('admission', consumed);
-      return { ok: true, detail: { ...this.browserSummary(consumed), checkpoint: consumed.drive?.checkpoint ?? null,
+      return { ok: true, detail: { ...this.browserSummary(consumed, lease), checkpoint: consumed.drive?.checkpoint ?? null,
         result: consumed.drive?.result ?? null, ...(released === undefined ? {} : { sdkCleanupReleased: released }) } };
     });
     const trace = before?.drive ? { activityId: before.intent.activityId, generation: before.drive.generation, loggingEnabled: executionLoggingEnabled(before.receipt) } : undefined;
     inferenceDiagnostic(trace, { stage: 'collection', outcome: outcome.ok ? 'completed' : 'denied' });
     if (outcome.ok) {
-      inferenceDiagnostic(trace, { stage: 'cleanup', outcome: 'observed', sdkReleased: outcome.detail.sdkCleanupReleased, physicalCleanup: outcome.detail.cleanupStatus });
+      inferenceDiagnostic(trace, { stage: 'cleanup', outcome: 'observed', sdkReleased: outcome.detail.sdkCleanupReleased, physicalCleanup: 'unknown' });
       await this.publishBrowserSummary();
     }
     return outcome;

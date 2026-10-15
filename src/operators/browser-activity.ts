@@ -8,7 +8,7 @@ export interface OperatorBrowserSummary {
   context?: string | null;
   progress?: string | null;
   executionStatus: 'queued' | 'running' | 'waiting' | 'completed' | 'failed' | 'cancel-requested' | 'unknown';
-  cleanupStatus: 'pending' | 'stopping' | 'stopped' | 'unknown';
+  cleanupStatus: 'pending' | 'stopping' | 'stopped' | 'released' | 'unknown';
   collectionStatus: 'unavailable' | 'ready' | 'consumed' | 'unknown';
   attention: boolean;
   sessionId: string | null;

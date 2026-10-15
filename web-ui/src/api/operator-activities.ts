@@ -6,7 +6,7 @@ import { diagnosticBindingSchema, diagnosticCursorSchema, diagnosticRecordIdSche
   sameDiagnosticBinding, type DiagnosticSnapshot } from './operator-diagnostics-wire';
 
 const status = z.enum(['queued', 'running', 'waiting', 'completed', 'failed', 'cancel-requested', 'unknown']);
-const cleanup = z.enum(['pending', 'stopping', 'stopped', 'unknown']);
+const cleanup = z.enum(['pending', 'stopping', 'stopped', 'released', 'unknown']);
 const collection = z.enum(['unavailable', 'ready', 'consumed', 'unknown']);
 export const operatorActivitySummarySchema = z.strictObject({
   activityId: z.string().regex(/^[A-Za-z0-9_-]{1,128}$/),
@@ -80,7 +80,8 @@ const selectedReceipts = z.strictObject({ ...receiptHeader, generation: receiptI
 const effectReceiptsSchema = z.union([unavailableReceipts, selectedReceipts]);
 const detailSchema = operatorActivitySummarySchema.extend({ checkpoint: z.unknown(), result: z.unknown(),
   sdkCleanupReleased: z.boolean().optional(), effectReceipts: effectReceiptsSchema.optional() })
-  .refine(value => !value.effectReceipts || value.effectReceipts.activityId === value.activityId, 'Foreign receipt activity');
+  .refine(value => !value.effectReceipts || value.effectReceipts.activityId === value.activityId, 'Foreign receipt activity')
+  .refine(value => value.cleanupStatus !== 'released' || value.sdkCleanupReleased === true, 'Unconfirmed SDK release');
 export type OperatorActivityDetail = z.infer<typeof detailSchema>;
 export function getOperatorActivity(activityId: string): Promise<OperatorActivityDetail> {
   return baseFetch(`/api/operator-activities/${encodeURIComponent(activityId)}/result`, {},
