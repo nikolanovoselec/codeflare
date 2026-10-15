@@ -407,6 +407,38 @@ describe('REQ-OPERATOR-027: readable owned activity and bounded history', () => 
     expect(screen.getByRole('button', { name: 'View activity-1' })).toBeTruthy();
   });
 
+  it('REQ-OPERATOR-027: renders confirmed SDK release without an unknown or stopped cleanup label', async () => {
+    const item = { ...active, operatorId: 'dispatcher', executionStatus: 'completed', cleanupStatus: 'released',
+      collectionStatus: 'consumed', sessionId: null };
+    listMock.mockResolvedValue({ items: [item] });
+    detailMock.mockResolvedValue({ ...item, sdkCleanupReleased: true, checkpoint: null,
+      result: { verdict: 'completed assessment' } });
+    render(() => <OperatorActivityButton enabled />);
+    await fireEvent.click(screen.getByRole('button', { name: /operator activity/i }));
+    await fireEvent.click(await screen.findByRole('button', { name: 'View activity-1' }));
+    expect(await screen.findByText('Cleanup: SDK release confirmed')).toBeTruthy();
+    expect(screen.getByText('Execution: completed')).toBeTruthy();
+    expect(screen.getByText('Collection: consumed')).toBeTruthy();
+    expect(screen.getByText(/completed assessment/)).toBeTruthy();
+    expect(screen.queryByText('Cleanup: unknown')).toBeNull();
+    expect(screen.queryByText('Cleanup: stopped')).toBeNull();
+  });
+
+  it('REQ-OPERATOR-027: pending cleanup is not rendered as confirmed release', async () => {
+    const item = { ...active, operatorId: 'dispatcher', executionStatus: 'completed', cleanupStatus: 'pending',
+      collectionStatus: 'consumed', sessionId: null };
+    listMock.mockResolvedValue({ items: [item] });
+    detailMock.mockResolvedValue({ ...item, sdkCleanupReleased: false, checkpoint: null,
+      result: { verdict: 'completed assessment' } });
+    render(() => <OperatorActivityButton enabled />);
+    await fireEvent.click(screen.getByRole('button', { name: /operator activity/i }));
+    await fireEvent.click(await screen.findByRole('button', { name: 'View activity-1' }));
+    expect(await screen.findByText('Cleanup: pending')).toBeTruthy();
+    expect(screen.getByText(/completed assessment/)).toBeTruthy();
+    expect(screen.queryByText('Cleanup: SDK release confirmed')).toBeNull();
+    expect(screen.queryByText('Cleanup: stopped')).toBeNull();
+  });
+
   it('shows pending, unknown and inaccessible detail states without a replay action', async () => {
     listMock.mockResolvedValue({ items: [active] });
     detailMock.mockResolvedValueOnce({ ...active, checkpoint: null, result: null })

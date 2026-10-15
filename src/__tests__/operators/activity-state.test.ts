@@ -108,6 +108,72 @@ describe('REQ-OPERATOR-003: instrumented activity state outcomes', () => {
     expect(await readSummary(ownerKey)).toBeNull();
   }));
 
+  it('REQ-OPERATOR-027: owner detail reconciles the retained release summary without a new admission', () => withActivity(async ({ activity, registry, ctx, deadline }) => {
+    const ownerKey = await operatorOwnerKey({ subject: 'owner', email: 'owner@example.test',
+      issuer: 'https://access.example.test', audiences: ['account-audience'] });
+    const admission = await ctx.storage.get<{ receipt: Record<string, unknown> }>('admission');
+    if (!admission) throw new Error('Fixture admission missing');
+    const artifactDigest = 'a'.repeat(64);
+    const inputDigest = 'b'.repeat(64);
+    const assessment = { readOnly: true, observedHead: 'c'.repeat(40),
+      assessment: { classification: 'unknown', reasons: ['No verified compatibility declaration'] } };
+    // Retained completed management metadata only: no Loader, SDK admission or provider work.
+    await ctx.storage.put('admission', { ...admission, ownerKey, browserCollectionConsumed: false,
+      receipt: { ...admission.receipt, intentDigest: inputDigest, selection: {
+        controlsRevision: 1, manifestJson: JSON.stringify({ name: 'Dispatcher' }),
+        operator: { operatorId: 'operator', name: 'Dispatcher', profile: 'dispatcher', revision: 1,
+          policy: { capabilities: ['fetch'], resourceProfileId: null, loggingEnabled: false } },
+        installation: { id: 'installation', operatorId: 'operator', revision: 1, enabled: true,
+          configurationJson: '{}', releaseId: 'release', policy: { capabilities: ['fetch'], resourceProfileId: null } },
+        release: { id: 'release', operatorId: 'operator', bundleDigest: artifactDigest, sourceCommit: 'd'.repeat(40) },
+      } }, drive: { generation: 1, status: 'completed', checkpoint: null, result: assessment } });
+    await ctx.storage.put('dispatcher:lease', { generation: 1, inputDigest, artifactDigest,
+      expiresAt: deadline, submissionId: 'original-submission', settledSubmissionId: 'original-submission',
+      status: 'settled', sdkReleased: true });
+    const stale = { activityId: 'activity', operatorId: 'operator', executionStatus: 'completed' as const,
+      cleanupStatus: 'unknown' as const, collectionStatus: 'ready' as const, attention: true,
+      sessionId: null, source: null, updatedAt: Date.now() };
+    await registry.upsertOwnedActivity(ownerKey, stale);
+    const before = await registry.listOwnedActivityPage(ownerKey, null);
+    expect(before).toMatchObject({ latestSequence: 1, unreadCount: 1, workingCount: 0,
+      items: [{ activityId: 'activity', cleanupStatus: 'unknown', collectionStatus: 'ready' }] });
+    expect(await registry.getOwnedActivity(ownerKey, 'activity')).toMatchObject({ activityId: 'activity' });
+
+    const detail = await activity.getBrowserDetail();
+    expect(detail).toMatchObject({ activityId: 'activity', executionStatus: 'completed', cleanupStatus: 'released',
+      sdkCleanupReleased: true, collectionStatus: 'ready', result: assessment });
+    const resultBytes = JSON.stringify(detail!.result);
+    const refreshed = await registry.listOwnedActivityPage(ownerKey, null);
+    expect(refreshed).toMatchObject({ latestSequence: before.latestSequence, unreadCount: before.unreadCount,
+      workingCount: before.workingCount, nextCursor: before.nextCursor,
+      items: [{ activityId: 'activity', executionStatus: 'completed', cleanupStatus: 'released', collectionStatus: 'ready' }] });
+    expect(refreshed.items[0]).not.toHaveProperty('result');
+    expect(refreshed.items[0]).not.toHaveProperty('sdkCleanupReleased');
+    expect(await registry.acknowledgeOwnedActivities(ownerKey, before.latestSequence)).toEqual({ unreadCount: 0 });
+
+    // Explicit collection, not the detail GET, consumes the result and publishes the exact release projection.
+    await registry.upsertOwnedActivity(ownerKey, stale);
+    const collected = await activity.collectBrowserResult();
+    expect(collected).toMatchObject({ ok: true, detail: { cleanupStatus: 'released', sdkCleanupReleased: true,
+      executionStatus: 'completed', collectionStatus: 'consumed', result: assessment } });
+    if (!collected.ok) throw new Error('Retained result was not collected');
+    expect(JSON.stringify(collected.detail.result)).toBe(resultBytes);
+    expect(await registry.listOwnedActivityPage(ownerKey, null)).toMatchObject({ latestSequence: before.latestSequence,
+      unreadCount: 0, workingCount: 0, items: [{ activityId: 'activity', cleanupStatus: 'released', collectionStatus: 'consumed' }] });
+
+    // The observed production defect is an already-consumed run with an old cached unknown summary.
+    await registry.upsertOwnedActivity(ownerKey, { ...stale, collectionStatus: 'consumed', attention: false });
+    expect(await activity.getBrowserDetail()).toMatchObject({ executionStatus: 'completed', cleanupStatus: 'released',
+      sdkCleanupReleased: true, collectionStatus: 'consumed', result: assessment });
+    expect(await registry.listOwnedActivityPage(ownerKey, null)).toMatchObject({ latestSequence: before.latestSequence,
+      unreadCount: 0, workingCount: 0, nextCursor: before.nextCursor,
+      items: [{ activityId: 'activity', cleanupStatus: 'released', collectionStatus: 'consumed' }] });
+    expect(JSON.stringify((await activity.getBrowserDetail())!.result)).toBe(resultBytes);
+    expect(await activity.beginDrive()).toEqual({ ok: false, reason: 'drive-settled' });
+    expect(await activity.getBrowserSummary('f'.repeat(64))).toBeNull();
+    expect(await registry.getOwnedActivity('f'.repeat(64), 'activity')).toBeNull();
+  }));
+
   it('REQ-OPERATOR-027: counts still-working activities after their historical rows leave the 100-entry index', async () => withActivity(async ({ registry }) => {
     const owner = 'c'.repeat(64);
     const base = { operatorId: 'reviewer', executionStatus: 'running' as const, cleanupStatus: 'pending' as const,

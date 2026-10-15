@@ -4552,6 +4552,175 @@ describe('REQ-OPERATOR-063: complete lifecycle diagnostic contract', () => {
   }, true)));
 });
 
+describe('REQ-OPERATOR-027: evidence-qualified Dispatcher cleanup projections', () => {
+  it('REQ-OPERATOR-027: confirmed SDK release is visible across owner projections and reconstruction', () => fixture(async f => {
+    await start(f);
+    const assessment = { readOnly: true, observedHead: 'b'.repeat(40) };
+    f.messages([{ submissionId: 'submission-1', parts: [{ type: 'data-assessment', data: assessment }] }]);
+    f.settle(); await f.activity.reconcileDispatcherLease();
+    const collected = await f.activity.collectBrowserResult();
+    expect(collected).toMatchObject({ ok: true, detail: { executionStatus: 'completed',
+      collectionStatus: 'consumed', cleanupStatus: 'released', sdkCleanupReleased: true, result: assessment } });
+    if (!collected.ok) throw new Error('Fixture result was not collected');
+    const resultBytes = JSON.stringify(collected.detail.result);
+    const submissions = [...f.childSubmissions];
+    const outbound = [...f.sent];
+    const alarm = await f.nextAlarm();
+    const get = diagnosticsBrowser(f);
+    expect(await f.activity.getBrowserSummary(f.proof.ownerKey)).toMatchObject({ activityId: f.activityId,
+      executionStatus: 'completed', collectionStatus: 'consumed', cleanupStatus: 'released' });
+    const response = await get('');
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ cleanupStatus: 'released', sdkCleanupReleased: true,
+      executionStatus: 'completed', collectionStatus: 'consumed', result: assessment });
+
+    const cold = f.restart(); await f.drainBackground();
+    const detail = await cold.getBrowserDetail();
+    expect(detail).toMatchObject({ activityId: f.activityId, executionStatus: 'completed',
+      cleanupStatus: 'released', sdkCleanupReleased: true, collectionStatus: 'consumed', result: assessment });
+    expect(JSON.stringify(detail!.result)).toBe(resultBytes);
+    expect(await cold.getBrowserSummary(f.proof.ownerKey)).toMatchObject({ cleanupStatus: 'released',
+      executionStatus: 'completed', collectionStatus: 'consumed' });
+    const recollected = await cold.collectBrowserResult();
+    expect(recollected).toMatchObject({ ok: true, detail: { cleanupStatus: 'released', sdkCleanupReleased: true,
+      executionStatus: 'completed', collectionStatus: 'consumed', result: assessment } });
+    if (!recollected.ok) throw new Error('Retained result was not readable');
+    expect(JSON.stringify(recollected.detail.result)).toBe(resultBytes);
+    // Current-generation matching has no lease-status prerequisite. Exercise retained metadata only,
+    // after genuine settlement/collection, without acquiring a child or changing its authority.
+    for (const status of ['admitting', 'running', 'unknown', 'settled'] as const) {
+      await f.mutateEvidence(async storage => {
+        const lease = await storage.get<Record<string, unknown>>('dispatcher:lease');
+        if (!lease) throw new Error('Fixture lease missing');
+        await storage.put('dispatcher:lease', { ...lease, status });
+      });
+      expect(await cold.getBrowserDetail()).toMatchObject({ cleanupStatus: 'released', sdkCleanupReleased: true,
+        executionStatus: 'completed', collectionStatus: 'consumed', result: assessment });
+      expect(await cold.getBrowserSummary(f.proof.ownerKey)).toMatchObject({ cleanupStatus: 'released',
+        executionStatus: 'completed', collectionStatus: 'consumed' });
+    }
+    expect(await cold.beginDrive()).toEqual({ ok: false, reason: 'drive-settled' });
+    expect(f.childSubmissions).toEqual(submissions);
+    expect(f.sent).toEqual(outbound);
+    expect(await f.nextAlarm()).toBe(alarm);
+  }));
+
+  it('REQ-OPERATOR-027: unconfirmed cleanup preserves the immutable result without reporting release', () => fixture(async f => {
+    const sdk = Agent.prototype as unknown as { _cf_cleanupFacetPrefix: (...args: unknown[]) => Promise<void> };
+    const fault = vi.spyOn(sdk, '_cf_cleanupFacetPrefix').mockImplementation(async () => {
+      throw new Error('Controlled SDK cleanup unavailable');
+    });
+    try {
+      await start(f);
+      const assessment = { readOnly: true, observedHead: 'b'.repeat(40) };
+      f.messages([{ submissionId: 'submission-1', parts: [{ type: 'data-assessment', data: assessment }] }]);
+      f.settle(); await f.activity.reconcileDispatcherLease();
+      const collected = await f.activity.collectBrowserResult();
+      expect(collected).toMatchObject({ ok: true, detail: { executionStatus: 'completed',
+        collectionStatus: 'consumed', cleanupStatus: 'pending', sdkCleanupReleased: false, result: assessment } });
+      if (!collected.ok) throw new Error('Cleanup failure lost the result');
+      const resultBytes = JSON.stringify(collected.detail.result);
+      await f.drainBackground();
+      const submissions = [...f.childSubmissions];
+      const outbound = [...f.sent];
+      const alarm = await f.nextAlarm();
+      // This owner is already warm: cleanup can now succeed, so an added retry would change public evidence.
+      // Existing cold-entry retirement is deliberately not suppressed or constrained by this case.
+      fault.mockRestore();
+      const response = await diagnosticsBrowser(f)('');
+      expect(response.status).toBe(200);
+      const detail = await response.json() as { result: unknown };
+      expect(detail).toMatchObject({ executionStatus: 'completed', collectionStatus: 'consumed',
+        cleanupStatus: 'pending', sdkCleanupReleased: false, result: assessment });
+      expect(JSON.stringify(detail.result)).toBe(resultBytes);
+      await f.drainBackground();
+      expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'completed',
+        collectionStatus: 'consumed', cleanupStatus: 'pending', sdkCleanupReleased: false, result: assessment });
+      expect(await f.activity.getBrowserSummary(f.proof.ownerKey)).toMatchObject({ cleanupStatus: 'pending',
+        executionStatus: 'completed', collectionStatus: 'consumed' });
+      expect(await f.activity.beginDrive()).toEqual({ ok: false, reason: 'drive-settled' });
+      expect(f.childSubmissions).toEqual(submissions);
+      expect(f.sent).toEqual(outbound);
+      expect(await f.nextAlarm()).toBe(alarm);
+    } finally { fault.mockRestore(); }
+  }));
+
+  it.each(['generation', 'inputDigest', 'artifactDigest'] as const)(
+    'REQ-OPERATOR-027: mismatched %s cannot confirm SDK release', field => fixture(async f => {
+      await start(f);
+      const assessment = { readOnly: true, observedHead: 'b'.repeat(40) };
+      f.messages([{ submissionId: 'submission-1', parts: [{ type: 'data-assessment', data: assessment }] }]);
+      f.settle(); await f.activity.reconcileDispatcherLease();
+      const collected = await f.activity.collectBrowserResult();
+      expect(collected).toMatchObject({ ok: true, detail: { sdkCleanupReleased: true, result: assessment } });
+      if (!collected.ok) throw new Error('Fixture result was not collected');
+      const resultBytes = JSON.stringify(collected.detail.result);
+      // Historical positive-release metadata with one wrong authority coordinate, not a fabricated DTO.
+      await f.mutateEvidence(async storage => {
+        const lease = await storage.get<{ generation: number } & Record<string, unknown>>('dispatcher:lease');
+        if (!lease) throw new Error('Fixture lease missing');
+        await storage.put('dispatcher:lease', { ...lease,
+          [field]: field === 'generation' ? lease.generation + 1 : 'e'.repeat(64), sdkReleased: true });
+      });
+      const cold = f.restart(); await f.drainBackground();
+      const detail = await cold.getBrowserDetail();
+      expect(detail).toMatchObject({ executionStatus: 'completed', collectionStatus: 'consumed',
+        cleanupStatus: 'pending', sdkCleanupReleased: false, result: assessment });
+      expect(JSON.stringify(detail!.result)).toBe(resultBytes);
+      expect(await cold.getBrowserSummary(f.proof.ownerKey)).toMatchObject({ cleanupStatus: 'pending',
+        executionStatus: 'completed', collectionStatus: 'consumed' });
+      expect(await cold.collectBrowserResult()).toMatchObject({ ok: true, detail: { cleanupStatus: 'pending',
+        sdkCleanupReleased: false, result: assessment, collectionStatus: 'consumed' } });
+      expect(await cold.beginDrive()).toEqual({ ok: false, reason: 'drive-settled' });
+    }));
+
+  it('REQ-OPERATOR-027: exact fenced SDK release remains known without restarting cancelled work', () => fixture(async f => {
+    await start(f);
+    await f.seedCancelledReleased();
+    const submissions = [...f.childSubmissions];
+    const outbound = [...f.sent];
+    const alarm = await f.nextAlarm();
+    const cold = f.restart(); await f.drainBackground();
+    expect(await cold.getBrowserSummary(f.proof.ownerKey)).toMatchObject({ activityId: f.activityId,
+      executionStatus: 'cancel-requested', cleanupStatus: 'released', collectionStatus: 'unavailable' });
+    expect(await cold.getBrowserDetail()).toMatchObject({ executionStatus: 'cancel-requested',
+      cleanupStatus: 'released', sdkCleanupReleased: true, collectionStatus: 'unavailable', result: null });
+    const response = await diagnosticsBrowser(f)('');
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ executionStatus: 'cancel-requested', cleanupStatus: 'released',
+      sdkCleanupReleased: true, collectionStatus: 'unavailable', result: null });
+    expect(await cold.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
+    expect(await cold.beginDrive()).toEqual({ ok: false, reason: 'drive-settled' });
+    // Original generation authority stays fenced even though its exact SDK release is known.
+    expect(await cold.commitDrive(1, { schemaVersion: 1, status: 'completed', checkpoint: null,
+      result: { readOnly: true } })).toEqual({ ok: false, reason: 'stale-drive' });
+    expect((await f.capability.fetch(genericWire('source', { operationId: 'no-authority-from-release',
+      url: 'https://api.github.com/repos/another/service' }))).status).toBe(403);
+    expect(await cold.getBrowserDetail()).toMatchObject({ executionStatus: 'cancel-requested', cleanupStatus: 'released',
+      sdkCleanupReleased: true, collectionStatus: 'unavailable', result: null });
+    // An exact predecessor is allowed, not an arbitrary positive release from a different fenced scope.
+    await f.mutateEvidence(async storage => {
+      const lease = await storage.get<{ generation: number } & Record<string, unknown>>('dispatcher:lease');
+      if (!lease) throw new Error('Fixture lease missing');
+      try {
+        for (const field of ['generation', 'inputDigest', 'artifactDigest'] as const) {
+          await storage.put('dispatcher:lease', { ...lease,
+            [field]: field === 'generation' ? lease.generation + 2 : 'e'.repeat(64) });
+          expect(await cold.getBrowserDetail()).toMatchObject({ executionStatus: 'cancel-requested',
+            cleanupStatus: 'stopping', sdkCleanupReleased: false, collectionStatus: 'unavailable', result: null });
+          expect(await cold.getBrowserSummary(f.proof.ownerKey)).toMatchObject({ executionStatus: 'cancel-requested',
+            cleanupStatus: 'stopping', collectionStatus: 'unavailable' });
+        }
+      } finally { await storage.put('dispatcher:lease', lease); }
+    });
+    expect(await cold.getBrowserDetail()).toMatchObject({ executionStatus: 'cancel-requested', cleanupStatus: 'released',
+      sdkCleanupReleased: true, collectionStatus: 'unavailable', result: null });
+    expect(f.childSubmissions).toEqual(submissions);
+    expect(f.sent).toEqual(outbound);
+    expect(await f.nextAlarm()).toBe(alarm);
+  }, { repositoryOnly: true, intent4: true }));
+});
+
 it('REQ-OPERATOR-063: owner inspection diagnoses an existing cached native error without replay or lifecycle mutation', () => fixture(async f => {
   await start(f);
   const original = await f.capability.fetch(genericWire('inference', { operationId: 'PRIVATE_HISTORICAL_OPERATION',
@@ -4809,13 +4978,15 @@ describe('REQ-OPERATOR-048: original-lease serial SDK phase ownership', () => {
     // A new callable stub would witness forbidden post-cancel recreation.
     for (const readback of f.ownedChildReadbacks()) await expect(readback()).rejects.toThrow();
   };
-  const cancellationFences = async (f: DispatcherFixture, token: string) => {
+  const cancellationFences = async (f: DispatcherFixture, token: string, released = true) => {
     for (const request of protectedRequests(token)) await deny(await f.capability.fetch(request));
     expect(await f.activity.commitDrive(1, { schemaVersion: 1, status: 'completed', checkpoint: null,
       result: finalResult(f) })).toMatchObject({ ok: false, reason: 'stale-drive' });
     expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
+    // REQ-OPERATOR-027 AC8: known SDK release changes only cleanup reporting, never cancellation authority.
     expect(await f.activity.getBrowserDetail()).toMatchObject({ activityId: f.activityId,
-      executionStatus: 'cancel-requested', cleanupStatus: 'stopping', collectionStatus: 'unavailable', result: null });
+      executionStatus: 'cancel-requested', cleanupStatus: released ? 'released' : 'stopping',
+      sdkCleanupReleased: released, collectionStatus: 'unavailable', result: null });
   };
 
   it('REQ-OPERATOR-048: AC2 retiring an uncertain keyed admission invalidates its owned child without replacing original work', () => fixture(async f => {
@@ -4900,7 +5071,7 @@ describe('REQ-OPERATOR-048: original-lease serial SDK phase ownership', () => {
     if (released) await f.seedCancelledReleased();
     f.failOwnedAbort();
     await expect(f.activity.cancelDrive()).rejects.toThrow();
-    await cancellationFences(f, stamp.deliveryToken);
+    await cancellationFences(f, stamp.deliveryToken, released);
     expect(await f.activity.getBrowserDetail()).toMatchObject({ sdkCleanupReleased: released });
     expect(await (await original()).json()).toMatchObject({ conversationId: 'fixture-conversation' });
     expect(await f.activity.cancelDrive()).toMatchObject({ ok: true, state: { generation: 2, status: 'cancel-requested' } });
@@ -5397,7 +5568,7 @@ describe('REQ-OPERATOR-048: original-lease serial SDK phase ownership', () => {
     await start(f);
     if (status === 'unknown') await f.activity.interruptDrive(1); else await f.activity.cancelDrive();
     expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: status, sdkCleanupReleased: true,
-      collectionStatus: 'unavailable', result: null, cleanupStatus: status === 'unknown' ? 'pending' : 'stopping' });
+      collectionStatus: 'unavailable', result: null, cleanupStatus: 'released' });
     expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
     const denied = await f.capability.fetch(genericWire('source', { operationId: 'retired-effect', method: 'POST',
       url: 'https://api.github.com/repos/another/service/issues/17/comments', body: '{"body":"must not publish"}' }));
