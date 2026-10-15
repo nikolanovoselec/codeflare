@@ -442,6 +442,7 @@ async function fixture(test: (f: {
   statusFault: (fault: () => Response | Promise<Response>) => void;
   changeRetiredPin: (field: 'inputDigest' | 'artifactDigest') => Promise<void>;
   ownedChildReadbacks: () => Array<() => Promise<Response>>;
+  interruptOwnedChild: (error: Error) => void;
   failOwnedAbort: () => void;
   seedCancelledReleased: () => Promise<void>;
 }) => Promise<void>, options: { humanLifetimeSeconds?: number; repositoryOnly?: boolean; prospective?: boolean;
@@ -635,14 +636,14 @@ async function fixture(test: (f: {
     // create a new runtime. SDK conversation data above outlives each runtime.
     // These callable outcomes test parent orchestration, not hosted cessation.
     const ownedChildReadbacks: Array<() => Promise<Response>> = [];
-    let ownedRuntime: { valid: boolean; stub: typeof child } | undefined;
+    let ownedRuntime: { valid: boolean; stub: typeof child; failure?: Error } | undefined;
     let failOwnedAbort = false;
     const facets = options.facetContract ? {
       get: () => {
         if (!ownedRuntime?.valid) {
-          const runtime = { valid: true, stub: undefined as unknown as typeof child };
+          const runtime = { valid: true, stub: undefined as unknown as typeof child, failure: undefined as Error | undefined };
           const callable = <T>(action: () => Promise<T>): Promise<T> => {
-            if (!runtime.valid) return Promise.reject(new Error('Owned facet stub invalidated'));
+            if (!runtime.valid) return Promise.reject(runtime.failure ?? new Error('Owned facet stub invalidated'));
             return action();
           };
           runtime.stub = {
@@ -953,6 +954,11 @@ async function fixture(test: (f: {
         },
         nextAlarm: () => native.storage.getAlarm(),
         ownedChildReadbacks: () => [...ownedChildReadbacks],
+        interruptOwnedChild: error => {
+          if (!ownedRuntime?.valid) throw new Error('Fixture requires a live owned child connection');
+          ownedRuntime.failure = error;
+          ownedRuntime.valid = false;
+        },
         failOwnedAbort: () => { failOwnedAbort = true; },
         seedCancelledReleased: async () => {
           // Historical previous-version cleanup snapshot, not an assertion oracle.
@@ -3544,9 +3550,47 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
     await expect(f.capability._cf_scheduleForFacet(path, 1, 'cancelDrive')).rejects.toThrow();
     await expect(f.capability._cf_getScheduleForFacet([path[0], { ...path[1], name: 'foreign' }], created.schedule.id))
       .rejects.toThrow();
+    const before = await f.activity.getDispatcherDiagnostics(f.proof.ownerKey);
+    expect(before).toMatchObject({ parent: { driveGeneration: 1, lease: { generation: 1, status: 'running' } } });
+    const wake = () => f.activity._cf_dispatchScheduledCallback(path, created.schedule);
+    const checkFibers = () => f.activity._cf_checkRunFibersForFacet(path);
+    // REQ-OPERATOR-048 AC2/3: native invalidation is external to production's
+    // explicit abort path. Preserve the failed call, not a hidden inline resend.
+    const wakeError = new Error('Controlled Dispatcher wake connection failure');
+    f.interruptOwnedChild(wakeError);
+    await expect(wake()).rejects.toBe(wakeError);
+    const constructionError = new Error('Controlled Dispatcher preparation failure');
+    f.afterBundleRead(async () => { throw constructionError; });
+    await expect(wake()).rejects.toBe(constructionError);
+    await expect(wake()).resolves.toBe(true);
+    const fiberError = new Error('Controlled Dispatcher fiber connection failure');
+    f.interruptOwnedChild(fiberError);
+    await expect(checkFibers()).rejects.toBe(fiberError);
+    await expect(checkFibers()).resolves.toBe(0);
+    expect((await f.activity.getDispatcherDiagnostics(f.proof.ownerKey))?.parent.lease).toEqual(before!.parent.lease);
     expect(await f.capability._cf_cancelScheduleForFacet(path, created.schedule.id)).toMatchObject({ ok: true });
     expect(await f.capability._cf_getScheduleForFacet(path, created.schedule.id)).toBeUndefined();
-  }));
+    const retirementError = new Error('Controlled Dispatcher connection loss before cancellation');
+    f.interruptOwnedChild(retirementError);
+    await expect(wake()).rejects.toBe(retirementError);
+    let enter!: () => void;
+    let release!: () => void;
+    const entered = new Promise<void>(resolve => { enter = resolve; });
+    const held = new Promise<void>(resolve => { release = resolve; });
+    f.afterBundleRead(async () => { enter(); await held; });
+    const preparation = wake();
+    try {
+      await entered;
+      await f.activity.cancelDrive();
+    } finally { release(); }
+    // REQ-OPERATOR-017 AC4: cleanup and a previously authorized construction
+    // must not instantiate a replacement after cancellation, including legacy.
+    await expect(preparation).rejects.toBeInstanceOf(Error);
+    await expect(wake()).resolves.toBe(false);
+    await expect(checkFibers()).resolves.toBe(0);
+    for (const readback of f.ownedChildReadbacks()) await expect(readback()).rejects.toBeInstanceOf(Error);
+    expect((await f.capability.fetch(read('retired-after-connection-recovery'))).status).toBe(403);
+  }, { facetContract: true }));
   it('admits only the activity-bound, connection-free child notifications without widening authority', () => fixture(async f => {
     await start(f);
     const plan = await f.activity.getRuntimePlan();
@@ -5302,6 +5346,13 @@ describe('REQ-OPERATOR-048: original-lease serial SDK phase ownership', () => {
     expect(first.phase).toEqual({ kind: 'target', index: 0, target: frozen[0] });
     f.messages([]); f.settle(first.submissionId, 'failed', { type: 'operation_failed', meta: { reason: 'fixture provider failure' } });
     const admitted = await latestDelivery(f);
+    // REQ-OPERATOR-048 AC2/3: a broken connection is not a replacement phase,
+    // acknowledgement, submission, generation or deadline.
+    f.interruptOwnedChild(new Error('Controlled Dispatcher status connection failure'));
+    await f.activity.reconcileDispatcherLease();
+    expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'running', collectionStatus: 'unavailable', result: null });
+    expect(await context(f)).toEqual(first);
+    expect(await latestDelivery(f)).toEqual(admitted);
     f.statusFault(() => { throw new Error('Observation unavailable'); });
     await f.activity.reconcileDispatcherLease();
     expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'running', collectionStatus: 'unavailable', result: null });
@@ -5328,7 +5379,7 @@ describe('REQ-OPERATOR-048: original-lease serial SDK phase ownership', () => {
     expect(collected).toMatchObject({ ok: true, detail: { result, sdkCleanupReleased: true } });
     expect(await f.activity.collectBrowserResult()).toMatchObject({ ok: true, detail: { result, sdkCleanupReleased: true } });
     expect((await latestDelivery(f)).uid).toBe('fixture-incarnation');
-  }, { repositoryOnly: true, intent4: true, loggingEnabled: false }));
+  }, { repositoryOnly: true, intent4: true, loggingEnabled: false, facetContract: true }));
 
   it.each(['expired', 'HTTP-rejected'] as const)('REQ-OPERATOR-048: %s status observation cannot keep original work alive', fault => fixture(async f => {
     await start(f); await discovery(f); const original = await context(f);

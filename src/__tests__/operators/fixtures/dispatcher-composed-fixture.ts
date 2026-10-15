@@ -1187,8 +1187,10 @@ export class OperatorActivity extends ProductionActivity {
   }
   evictComposed(): void { this.ctx.abort('CI composed Activity reset'); }
   evictChildComposed(): void {
-    // Supported runtime facet abort: retain the root and all original durable storage.
-    this.abortDispatcherFacet('CI composed child-only reset');
+    // External child loss must retain the root's cached connection as well as
+    // original storage. The production abort helper would hide a broken-stub bug.
+    (this.ctx as unknown as { facets: { abort(name: string, reason: string): void } })
+      .facets.abort('dispatcher', 'CI composed child-only reset');
   }
 }
 
