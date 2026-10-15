@@ -481,7 +481,6 @@ export function registerNativeDispatcherCases(
             ...(withholdSdkImports ? { withholdSdkImports: true } : {}) });
           expect(admission, JSON.stringify(admission)).toMatchObject({ ok: true, state: { generation: 1, status: 'running' } });
           let originalInstance: string | undefined;
-          const childOnlyReset = !!qualification && scenario === 'precommit-reset';
           if (qualification) {
             // The existing candidate discovery provider barrier owns arming.
             // No SDK artifact edit, synthetic capture or new native identity.
@@ -494,10 +493,7 @@ export function registerNativeDispatcherCases(
             const held = await observed(id, value => value.external.held);
             originalInstance = held.instance;
             expect(held.external.inference).toHaveLength(1);
-            // Keep the official v24 cold-owner control. The existing candidate
-            // supplement must also recover native child loss with a warm parent,
-            // whose stale connection cannot be erased by a parent restart.
-            expect(await composed(id, { action: childOnlyReset ? 'evict-child' : 'evict' })).toEqual({ evicted: true });
+            expect(await composed(id, { action: 'evict' })).toEqual({ evicted: true });
             expect(await composed(id, { action: 'release' })).toEqual({ released: true });
             // Candidate replacement rejection disarms only on its genuine
             // local recovery catch. Existing SDK drains/wakes own the next
@@ -506,10 +502,7 @@ export function registerNativeDispatcherCases(
           const result = await observed(id, value => value.detail.executionStatus === 'completed'
             && (scenario !== 'ordinary' || fiberEvidenceSettled(value)));
           if (scenario === 'ordinary') assertFiberEvidence(result);
-          if (originalInstance) {
-            if (childOnlyReset) expect(result.instance).toBe(originalInstance);
-            else expect(result.instance).not.toBe(originalInstance);
-          }
+          if (originalInstance) expect(result.instance).not.toBe(originalInstance);
           const firstTurn = result.external.inference.filter(item => item.turn === 0);
           const recovered = ['incomplete', 'native-error', 'precommit-reset'].includes(scenario);
           expect(firstTurn).toHaveLength(recovered ? 2 : 1);

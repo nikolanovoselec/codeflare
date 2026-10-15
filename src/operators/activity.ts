@@ -87,6 +87,7 @@ type DispatcherFacet = Fetcher & {
   _cf_dispatchScheduledCallback(ownerPath: DispatcherFacetPath, row: unknown): Promise<boolean>;
   _cf_checkRunFibersForFacet(ownerPath: DispatcherFacetPath): Promise<number>;
 };
+type DispatcherConnection = Pick<DispatcherFacet, 'fetch' | '_cf_dispatchScheduledCallback' | '_cf_checkRunFibersForFacet'>;
 interface DispatcherLease {
   generation: number; artifactDigest: string; inputDigest: string; expiresAt: number;
   submissionId: string | null; settledSubmissionId?: string; sdkReleased?: boolean;
@@ -446,7 +447,7 @@ function checkStart(state: AdmissionState, verifier: string): AdmissionFailure |
  */
 export class OperatorActivity extends Agent {
   #appEnv: AppEnv & { OPERATOR_REGISTRY: NonNullable<AppEnv['OPERATOR_REGISTRY']> };
-  #dispatcher?: { generation: number; facet: Promise<DispatcherFacet> };
+  #dispatcher?: { generation: number; facet: Promise<DispatcherConnection> };
   #diagnosticReportGeneration?: number;
   #diagnosticReports = 0;
   #producerReports = 0;
@@ -1506,18 +1507,21 @@ export class OperatorActivity extends Agent {
       }
     }
     if (result.ok) {
+      const dispatcher = this.#dispatcher;
+      this.#dispatcher = undefined;
       const lease = await this.ctx.storage.get<DispatcherLease>(DISPATCHER_LEASE);
       // A previous bookkeeping receipt cannot substitute for actual shutdown.
       // cancel-requested cannot begin another drive while this abort completes.
       if (lease?.serial && lease.sdkReleased) this.abortDispatcherFacet('Dispatcher generation retired');
       await this.#releaseDispatcherSdk();
       await this.publishBrowserSummary();
-      if (lease && !lease.serial) {
-        // Fence is durable before any abort delivery. Delivery is not proof of stopped compute.
+      if (lease && !lease.serial && dispatcher?.generation === lease.generation) {
+        // Abort delivery may use the cached connection, never acquire a replacement.
+        // Delivery is not proof of stopped compute.
         let timer: ReturnType<typeof setTimeout> | undefined;
         try {
           await Promise.race([(async () => {
-            const response = await (await this.#dispatcherFacet(lease)).fetch(new Request(
+            const response = await (await dispatcher.facet).fetch(new Request(
               'https://flue.internal/agents/Dispatcher/dispatcher/abort', { method: 'POST' }));
             void response.body?.cancel().catch(() => {});
           })(), new Promise<void>(resolve => { timer = setTimeout(resolve, 1000); })]);
@@ -1962,9 +1966,13 @@ export class OperatorActivity extends Agent {
     } finally { clearTimeout(timer); }
   }
 
-  async #dispatcherFacet(lease: DispatcherLease, approved?: DispatcherBundle): Promise<DispatcherFacet> {
+  async #dispatcherFacet(lease: DispatcherLease, approved?: DispatcherBundle): Promise<DispatcherConnection> {
     if (this.#dispatcher?.generation === lease.generation) return this.#dispatcher.facet;
-    let facet!: Promise<DispatcherFacet>;
+    let facet!: Promise<DispatcherConnection>;
+    const discard = () => {
+      // A late failure on an old connection cannot evict a newer one.
+      if (this.#dispatcher?.facet === facet) this.#dispatcher = undefined;
+    };
     facet = (async () => {
       const plan = await this.getRuntimePlan();
       const loader = this.#appEnv.LOADER;
@@ -1979,17 +1987,27 @@ export class OperatorActivity extends Agent {
       }
       const context = this.ctx as unknown as { facets: { get(name: string, init: () => unknown): DispatcherFacet } };
       const dynamicClass = await this.#dispatcherClass(lease, plan, bundle);
-      // Preparation may outlive retirement. Abort clears this exact cached
-      // promise; recheck it after the awaited authority read, before get can
-      // synchronously instantiate a replacement owned runtime.
-      if (lease.serial && (!await this.dispatcherGenerationCurrent(lease.generation)
-        || this.#dispatcher?.facet !== facet)) throw new Error('Stale Dispatcher facet creation');
+      // Preparation may outlive retirement. Recheck the original generation and
+      // exact cached promise before get can instantiate a replacement runtime.
+      if (!await this.dispatcherGenerationCurrent(lease.generation)
+        || this.#dispatcher?.facet !== facet) throw new Error('Stale Dispatcher facet creation');
       const child = context.facets.get('dispatcher', () => ({ class: dynamicClass,
         id: activities.idFromName('dispatcher') }));
       await child._cf_initAsFacet('dispatcher', [{ className: 'OperatorActivity', name: plan.activityId }], 'dispatcher');
       this.#recordDiagnostic(lease.generation, 'construction', 'completed');
-      return child;
-    })();
+      const invoke = async <T>(run: () => Promise<T>): Promise<T> => {
+        try { return await run(); }
+        catch (error) { discard(); throw error; }
+      };
+      // Stub exceptions can permanently break the connection. Preserve this call's
+      // result/error; only a later authorized entry may acquire another connection.
+      const connection: DispatcherConnection = {
+        fetch: (input, init) => invoke(() => child.fetch(input, init)),
+        _cf_dispatchScheduledCallback: (ownerPath, row) => invoke(() => child._cf_dispatchScheduledCallback(ownerPath, row)),
+        _cf_checkRunFibersForFacet: ownerPath => invoke(() => child._cf_checkRunFibersForFacet(ownerPath)),
+      };
+      return connection;
+    })().catch(error => { discard(); throw error; });
     this.#dispatcher = { generation: lease.generation, facet };
     return facet;
   }
