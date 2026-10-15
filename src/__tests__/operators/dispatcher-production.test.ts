@@ -1320,9 +1320,13 @@ describe('REQ-OPERATOR-081: protected synthetic SDK runtime import', () => {
   it('REQ-OPERATOR-081: AC1/2/4 normal SDK response header imports already-read evidence without changing settlement or collection', () => fixture(async f => {
     await start(f); await diagnosticSummary(f);
     const report = await runtimeEnvelope(f);
+    // The bounded source header can omit an unacknowledged record without dropping it.
+    f.sdkHeader(encodeSdkHeader({ version: 1, records: [], outbox: { through: 1, dropped: 0, status: 'loss' } }));
+    await f.activity.reconcileDispatcherLease(); await f.drainBackground();
+    expect((await diagnosticSummary(f)).health).toMatchObject({ sdkImport: 'pending', gaps: ['sdk-import-incomplete'] });
     f.sdkHeader(encodeSdkHeader({ version: 1, records: [report], outbox: { through: 1, dropped: 0, status: 'available' } }));
     await f.activity.reconcileDispatcherLease(); await f.drainBackground();
-    expect((await diagnosticSummary(f)).health.sdkImport).toBe('host-persisted');
+    expect((await diagnosticSummary(f)).health).toMatchObject({ sdkImport: 'host-persisted', gaps: [] });
     const assessment = { readOnly: true, observedHead: 'b'.repeat(40), assessment: { classification: 'unknown' } };
     f.messages([{ submissionId: 'submission-1', parts: [{ type: 'data-assessment', data: assessment }] }]);
     f.settle(); await f.activity.reconcileDispatcherLease(); await f.drainBackground();

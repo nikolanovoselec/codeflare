@@ -881,6 +881,42 @@ export class OperatorActivity extends ProductionActivity {
           WHEN OLD.submission_id = ${selected} AND OLD.status = 'terminalizing' AND NEW.status = 'settled'
           AND NOT ${captured('submission', 'submission-failed')}
           BEGIN SELECT RAISE(ABORT, 'Fixture operational finalization rejection'); END`);
+        // Observe the selected source captures AT INSERT, while this child is
+        // live. The acknowledged 64-row outbox may legitimately evict them
+        // before the next external observe RPC. One fixed row retains ONLY
+        // source sequences and committed coordinates, never envelopes/raw IDs
+        // or an import acknowledgement. This uses the same armed SQL machinery
+        // as the faults; no SDK callback, flush or execution barrier is added.
+        const witness = sqlIdentifier(prefix + 'codeflare_fixture_settlement_witness');
+        const submissions = sqlIdentifier(prefix + tables[0]);
+        await query(`CREATE TABLE ${witness} (id INTEGER PRIMARY KEY CHECK (id = 1),
+          canonical_sequence INTEGER, failure_sequence INTEGER, finalized_sequence INTEGER,
+          batch_sequence INTEGER, record_index INTEGER, producer_epoch INTEGER, producer_sequence INTEGER)`);
+        await query(`INSERT INTO ${witness} (id) VALUES (1)`);
+        await query(`CREATE TRIGGER codeflare_fixture_observe_settlement AFTER INSERT ON ${outbox}
+          WHEN NEW.sequence > ${watermark} AND json_extract(NEW.envelope, '$.sdk.submissionId') = ${selected}
+          AND EXISTS (SELECT 1 FROM ${submissions} WHERE submission_id = ${selected}
+            AND attempt_id = json_extract(NEW.envelope, '$.sdk.attemptId'))
+          BEGIN
+            UPDATE ${witness} SET canonical_sequence = NEW.sequence,
+              batch_sequence = json_extract(NEW.envelope, '$.sdk.batchSequence'),
+              record_index = json_extract(NEW.envelope, '$.sdk.recordIndex'),
+              producer_epoch = json_extract(NEW.envelope, '$.sdk.producerEpoch'),
+              producer_sequence = json_extract(NEW.envelope, '$.sdk.producerSequence')
+              WHERE id = 1 AND canonical_sequence IS NULL
+              AND json_extract(NEW.envelope, '$.boundary') = 'canonical-commit'
+              AND json_extract(NEW.envelope, '$.outcome') = 'committed'
+              AND json_extract(NEW.envelope, '$.sdk.recordType') = 'submission_settled';
+            UPDATE ${witness} SET failure_sequence = NEW.sequence
+              WHERE id = 1 AND failure_sequence IS NULL
+              AND json_extract(NEW.envelope, '$.boundary') = 'submission'
+              AND json_extract(NEW.envelope, '$.outcome') = 'failed'
+              AND json_extract(NEW.envelope, '$.code') = 'submission-failed';
+            UPDATE ${witness} SET finalized_sequence = NEW.sequence
+              WHERE id = 1 AND finalized_sequence IS NULL
+              AND json_extract(NEW.envelope, '$.boundary') = 'settlement'
+              AND json_extract(NEW.envelope, '$.outcome') = 'completed';
+          END`);
         await this.ctx.storage.put('fixture:native-cleanup-armed', true);
       }
     } else {
@@ -920,7 +956,9 @@ export class OperatorActivity extends ProductionActivity {
     if (arm.withholdSdkImports) { await this.#captureNativeOmission(arm); return; }
     if (await this.ctx.storage.get('fixture:native-settlement')) return;
     const candidate = await services(this.fixtureEnv).nativeQualification();
-    if (!candidate || candidate.phases.length < 2) return; // Initial discovery is still running.
+    // This gates only the later settled-obligation read, not source capture:
+    // the armed trigger already observes each source INSERT during discovery.
+    if (!candidate || candidate.phases.length < 2) return;
     if (!await this.dispatcherGenerationCurrent(1)) throw new Error('Native settlement observation denied');
     const child = this.#liveNativeSql();
     const query = (text: string, ...values: unknown[]) => this.#nativeQuery(child, text, ...values);
@@ -934,16 +972,23 @@ export class OperatorActivity extends ProductionActivity {
       AND json_extract(r.value, '$.type') = 'submission_settled' AND json_extract(r.value, '$.outcome') = 'completed'`, arm.submissionId);
     if (rows.length !== 1) throw new Error('Actual canonical/finalized discovery obligation unavailable');
     const row = rows[0];
-    const captured = await query(`SELECT envelope FROM ${sqlIdentifier(arm.prefix + 'codeflare_sdk_diagnostic_outbox')}
-      WHERE sequence > ? AND json_extract(envelope, '$.sdk.submissionId') = ? ORDER BY sequence`, arm.watermark, arm.submissionId);
-    const envelopes = captured.map(item => JSON.parse(String(item.envelope)));
-    const canonical = envelopes.find(item => item.boundary === 'canonical-commit' && item.outcome === 'committed'
-      && item.sdk?.recordType === 'submission_settled' && item.sdk?.attemptId === row.attempt_id
-      && item.sdk?.batchSequence === row.seq && item.sdk?.recordIndex === Number(row.record_index));
-    const failed = envelopes.find(item => item.boundary === 'submission' && item.outcome === 'failed' && item.code === 'submission-failed');
-    const finalized = envelopes.find(item => item.boundary === 'settlement' && item.outcome === 'completed'
-      && item.sdk?.attemptId === row.attempt_id);
-    if (!canonical || !failed || !finalized || !(canonical.sequence < failed.sequence && failed.sequence < finalized.sequence)) {
+    // The one-row witness was captured before ring eviction, not reconstructed
+    // from a later phase or a host event ordinal. Independently match ALL actual
+    // canonical coordinates to the SQL-settled discovery obligation above.
+    const witnessed = await query(`SELECT canonical_sequence, failure_sequence, finalized_sequence,
+      batch_sequence, record_index, producer_epoch, producer_sequence
+      FROM ${sqlIdentifier(arm.prefix + 'codeflare_fixture_settlement_witness')} WHERE id = 1`);
+    const source = witnessed[0];
+    const canonicalSequence = source?.canonical_sequence;
+    const failureSequence = source?.failure_sequence;
+    const finalizedSequence = source?.finalized_sequence;
+    if (witnessed.length !== 1 || ![canonicalSequence, failureSequence, finalizedSequence,
+      source?.batch_sequence, source?.record_index, source?.producer_epoch, source?.producer_sequence]
+      .every(value => Number.isSafeInteger(value) && Number(value) >= 0)
+      || Number(canonicalSequence) <= arm.watermark
+      || source.batch_sequence !== row.seq || source.record_index !== Number(row.record_index)
+      || source.producer_epoch !== row.producer_epoch || source.producer_sequence !== row.producer_sequence
+      || !(Number(canonicalSequence) < Number(failureSequence) && Number(failureSequence) < Number(finalizedSequence))) {
       // The 64-row source outbox is not historical retention. Preserve only
       // closed presence/count/coordinate evidence at this failing observation;
       // never guess which capture is missing, waive ordering, or flush the SDK.
@@ -952,12 +997,12 @@ export class OperatorActivity extends ProductionActivity {
           (SELECT MIN(sequence) FROM ${sqlIdentifier(arm.prefix + 'codeflare_sdk_diagnostic_outbox')}) AS retained_from
           FROM ${sqlIdentifier(arm.prefix + 'codeflare_sdk_diagnostic_index')} WHERE id = 1`);
         console.error('[native-flue] native-settlement-source', {
-          armedThrough: arm.watermark, captured: envelopes.length,
+          armedThrough: arm.watermark, witnessed: witnessed.length,
           retainedFrom: local[0]?.retained_from ?? null, localThrough: local[0]?.through_sequence ?? null,
           localDropped: local[0]?.dropped ?? null,
           batchSequence: row.seq, recordIndex: Number(row.record_index),
-          canonicalSequence: canonical?.sequence ?? null, failureSequence: failed?.sequence ?? null,
-          finalizedSequence: finalized?.sequence ?? null,
+          canonicalSequence: canonicalSequence ?? null, failureSequence: failureSequence ?? null,
+          finalizedSequence: finalizedSequence ?? null,
         });
       } catch { /* Optional failure evidence cannot replace the original qualification error. */ }
       throw new Error('Actual canonical/failure/finalization source ordering unavailable');
@@ -965,8 +1010,8 @@ export class OperatorActivity extends ProductionActivity {
     const evidence: NativeFaultSettlement = { submissionDigest: await hash(arm.submissionId),
       attemptDigest: await hash(String(row.attempt_id)), obligationDigest: await hash(String(row.settlement_record_id)),
       batchSequence: Number(row.seq), recordIndex: Number(row.record_index), producerEpoch: Number(row.producer_epoch),
-      producerSequence: Number(row.producer_sequence), canonicalSequence: canonical.sequence,
-      failureSequence: failed.sequence, finalizedSequence: finalized.sequence };
+      producerSequence: Number(row.producer_sequence), canonicalSequence: Number(canonicalSequence),
+      failureSequence: Number(failureSequence), finalizedSequence: Number(finalizedSequence) };
     await this.ctx.storage.put('fixture:native-settlement', evidence);
   }
   async #captureNativeOmission(arm: NativeFaultArm) {

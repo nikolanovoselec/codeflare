@@ -448,7 +448,7 @@ describe('REQ-OPERATOR-081: AC6 retained Dispatcher diagnostics in Activity deta
     const panel = await openDiagnostics();
     const coverage = within(await panel.findByRole('region', { name: /(?:capture )?(?:capabilities|coverage)/i }));
     for (const family of diagnosticFamilies) {
-      const words = family.replaceAll('-', '[ -]');
+      const words = family.replace(/-/g, '[ -]');
       expect(coverage.getAllByText(new RegExp(words, 'i'))[0]).toBeInTheDocument();
     }
     expect(await panel.findByText(/2\.2\.2/)).toBeInTheDocument();
@@ -520,7 +520,7 @@ describe('REQ-OPERATOR-081: AC6 retained Dispatcher diagnostics in Activity deta
     const nextPart = await panel.findByRole('button', { name: /(?:export|download).*next.*part|next.*export.*part/i });
     await waitFor(() => expect(nextPart).not.toBeDisabled());
     fireEvent.click(nextPart);
-    expect(await panel.findByText(/(?:all retained.*(?:exported|read)|export.*(?:complete|exhausted))/i)).toBeInTheDocument();
+    expect(await panel.findByText(/Metadata export part 2 read\. Export traversal exhausted: all retained metadata parts read\./i)).toBeInTheDocument();
     expect(panel.getByText(/(?:retention|retained).*loss|evicted.*5|5.*evicted/i)).toBeInTheDocument();
     expect(panel.getByText(/does not describe complete execution history/i)).toBeInTheDocument();
     // Reject completeness claims, not the explicit disclaimer of execution-history completeness.

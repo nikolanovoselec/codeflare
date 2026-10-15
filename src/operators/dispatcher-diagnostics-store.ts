@@ -116,7 +116,10 @@ export async function observeOutbox(tx: DiagnosticTx, binding: DiagnosticBinding
   const health = await readHealth(tx);
   health.sdkLocalThrough = Math.max(health.sdkLocalThrough, outbox.through);
   health.sdkDropped = Math.max(health.sdkDropped, outbox.dropped);
-  if (outbox.dropped || outbox.status !== 'available') health.gaps = [...new Set([...health.gaps, 'sdk-import-incomplete' as const])];
+  // A bounded header reports loss when it omits still-deliverable records.
+  // Contiguous import below tracks that pending window; only source drops or
+  // recorder unavailability establish a persistent gap, never projection size.
+  if (outbox.dropped || outbox.status === 'unavailable') health.gaps = [...new Set([...health.gaps, 'sdk-import-incomplete' as const])];
   if (health.sdkThrough < health.sdkLocalThrough) index.sdkImport = 'pending';
   else if (index.sdkImport !== 'legacy') index.sdkImport = outbox.status === 'unavailable' ? 'unavailable' : 'host-persisted';
   await retainHealth(tx, health); await retainIndex(tx, index);
