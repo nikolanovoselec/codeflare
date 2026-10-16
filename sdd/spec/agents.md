@@ -3197,7 +3197,7 @@ None.
 
 **Acceptance Criteria:**
 
-1. On Pi load or reload, valid legacy-only configuration migrates byte-for-byte. <!-- @impl: preseed/agents/pi/extensions/00-mcp-adapter-config.ts::migratePiMcpAdapterConfig --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (legacy adapter migration preserves exact bytes, credentials, custom servers and 600000 browser retention) -->
+1. Migration-only preparation preserves valid legacy-only configuration byte-for-byte. Startup/load may then apply the separately specified timeout policy, preserving original bytes for recovery. <!-- @impl: preseed/agents/pi/extensions/00-mcp-adapter-config.ts::migratePiMcpAdapterConfig --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (legacy adapter migration preserves exact bytes, credentials, custom servers and 600000 browser retention) -->
 2. Existing valid adapters take precedence over legacy configuration. <!-- @impl: preseed/agents/pi/extensions/00-mcp-adapter-config.ts::migratePiMcpAdapterConfig --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (existing adapter target wins and archives legacy bytes without leaving the deprecated filename) -->
 3. Matching, conflicting, unreadable, symlink and directory passive archives never overwrite existing data or block recovery. <!-- @impl: preseed/agents/pi/extensions/00-mcp-adapter-config.ts::preserve --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (existing migration backup is never overwritten or used to discard legacy credentials) --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (occupied symlink archive is preserved without following it or preventing recovery) --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (occupied directory archive is preserved without following it or preventing recovery) --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (unreadable passive archive cannot block custom legacy recovery) -->
 4. Malformed regular originals are archived before valid recovery; unsafe active paths/ancestors and I/O failures still fail closed without discarding user data. <!-- @impl: preseed/agents/pi/extensions/00-mcp-adapter-config.ts::migratePiMcpAdapterConfig --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (malformed existing destination is archived and recovers exact valid legacy configuration) --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (nonregular destination blocks migration and retains legacy) -->
@@ -3208,7 +3208,7 @@ None.
 **Constraints:**
 
 - No bucket deletion or sync redesign.
-- Pi load/reload leaves working entries intact.
+- Pi load/reload leaves working entries intact. The subsequent explicit timeout policy is owned by [REQ-BROWSER-006 AC5/AC8](browser-run.md#req-browser-006-pi-interactive-browser-via-chrome-devtools-through-the-pi-mcp-adapter); transformed custom originals are recoverable before replacement, and credentials/lifecycle/unrelated fields are preserved.
 - Managed constructors and Claude behavior remain governed by [REQ-AGENT-069](#req-agent-069-pi-consult-llm-mcp-lazy-wiring).
 
 **Priority:** P1
