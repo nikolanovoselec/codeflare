@@ -3124,7 +3124,7 @@ None.
 3. A terminal CI result requires the same non-empty all-terminal fingerprint in two polls. <!-- @impl: preseed/agents/pi/skills/ci-monitoring/scripts/monitor-ci.mjs::monitorCi --> <!-- @test: host/__tests__/pi-ci-monitor.test.js (REQ-AGENT-068 AC2/AC3: pending checks wait for a stable pass and skipping fingerprint) --> <!-- @test: host/__tests__/pi-ci-monitor.test.js (REQ-AGENT-125 AC1: a failed check waits for all checks and a stable terminal fingerprint) -->
 4. An authoritative head mismatch reports `CI_RESULT timeout superseded`. <!-- @impl: preseed/agents/pi/skills/ci-monitoring/scripts/monitor-ci.mjs::monitorCi --> <!-- @test: host/__tests__/pi-ci-monitor.test.js (REQ-AGENT-068 AC4: a superseded head stops before checks are queried) -->
 
-**Constraints:** Empty checks time out after five minutes; provider commands are bounded; total monitoring is bounded at thirty minutes; the root Pi Git workflow is the sole automatic trigger.
+**Constraints:** Empty checks time out after five minutes; provider commands are bounded; total monitoring is bounded at fifteen minutes with time reserved for reporting; the root Pi Git workflow is the sole automatic trigger.
 
 **Priority:** P1
 

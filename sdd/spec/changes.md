@@ -2,6 +2,10 @@
 
 Semantic changes to the specification. Git history captures diffs; this file captures intent.
 
+## 2026-11-23
+
+- Bound the Pi CI watcher to fifteen minutes, reserving time to report before its command cap ([REQ-AGENT-068](agents.md#req-agent-068-independent-pi-ci-monitoring)). Bound provider calls and polling sleeps to the remaining budget; preserve exact-head identity, all-terminal two-poll stability and no-false-success behavior. This limit does not cancel or change GitHub Actions jobs; final exact-head CI and managed activation remain separate gates.
+
 ## 2026-10-15
 
 - Expose evidence-qualified Dispatcher SDK release as `cleanupStatus: released` and **SDK release confirmed** ([REQ-OPERATOR-085](operators.md#req-operator-085-evidence-qualified-sdk-release-observation)). Preserve original generation/input/artifact matching, pending/stopping negatives, immutable results and physical-cessation uncertainty. Ordinary owner detail reconciles the retained summary without new admission or consumption; passive diagnostics remain unchanged. Final exact-head qualification and same-Activity hosted readback are pending.

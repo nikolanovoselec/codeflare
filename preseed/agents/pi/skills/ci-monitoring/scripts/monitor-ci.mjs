@@ -2,7 +2,8 @@ import { execFile } from 'node:child_process';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const POLL_MS = 15_000, EMPTY_LIMIT_MS = 5 * 60_000, TOTAL_LIMIT_MS = 30 * 60_000;
+// Leave reporting time before the agent's fifteen-minute command cap.
+const POLL_MS = 15_000, EMPTY_LIMIT_MS = 5 * 60_000, TOTAL_LIMIT_MS = 14 * 60_000;
 const CHECK_FIELDS = 'bucket,link,name,state,workflow';
 const CHECK_BUCKETS = new Set(['pass', 'fail', 'pending', 'skipping', 'cancel']);
 
@@ -53,12 +54,12 @@ function summary(status, { repo, pr, head, reason = '', currentHead = '', rows =
   return `${lines.join('\n')}\n`;
 }
 
-async function readHead({ repo, pr, runner, cwd }) {
+async function readHead({ repo, pr, runner, cwd, timeout = 60_000 }) {
   try {
     const result = await runner(
       'gh',
       ['pr', 'view', String(pr), '--repo', repo, '--json', 'headRefOid'],
-      { cwd },
+      { cwd, timeout },
     );
     const value = parseJson(result);
     return typeof value?.headRefOid === 'string' ? value.headRefOid : null;
@@ -120,9 +121,13 @@ export async function monitorCi({
   if (!repo || !Number.isInteger(pr)) {
     return summary('timeout', { repo, pr, head, reason: 'invalid_request' });
   }
+  const startedAt = clock.now();
+  const remainingMs = () => Math.max(0, TOTAL_LIMIT_MS - (clock.now() - startedAt));
+  const commandOptions = () => ({ cwd, timeout: Math.max(1, Math.min(60_000, remainingMs())) });
+  const waitForPoll = () => sleep(Math.min(POLL_MS, remainingMs()));
   if (!/^[0-9a-f]{40}$/i.test(head ?? '')) {
     const currentHead = /^[0-9a-f]{41}$/i.test(head ?? '')
-      ? await readHead({ repo, pr, runner, cwd })
+      ? await readHead({ repo, pr, runner, ...commandOptions() })
       : null;
     if (!currentHead || head.slice(0, 40) !== currentHead) {
       return summary('timeout', { repo, pr, head, reason: 'invalid_request' });
@@ -130,17 +135,17 @@ export async function monitorCi({
     head = currentHead;
   }
   const base = { repo, pr, head };
-  const startedAt = clock.now();
   let fingerprint = '';
   let stablePolls = 0;
 
-  while (clock.now() - startedAt < TOTAL_LIMIT_MS) {
-    const beforeHead = await readHead({ repo, pr, runner, cwd });
+  while (remainingMs() > 0) {
+    const beforeHead = await readHead({ repo, pr, runner, ...commandOptions() });
+    if (remainingMs() === 0) break;
     if (beforeHead && beforeHead !== head) {
       return summary('timeout', { ...base, reason: 'superseded', currentHead: beforeHead });
     }
     if (!beforeHead) {
-      await sleep(POLL_MS);
+      await waitForPoll();
       continue;
     }
 
@@ -149,13 +154,14 @@ export async function monitorCi({
       const result = await runner(
         'gh',
         ['pr', 'checks', String(pr), '--repo', repo, '--json', CHECK_FIELDS],
-        { cwd },
+        commandOptions(),
       );
       const parsed = parseJson(result);
       if (Array.isArray(parsed) && parsed.every(validCheckRow)) rows = parsed;
     } catch {
       rows = null;
     }
+    if (remainingMs() === 0) break;
 
     if (rows?.length === 0 && clock.now() - startedAt >= EMPTY_LIMIT_MS) {
       return summary('timeout', { ...base, reason: 'no_checks_registered' });
@@ -164,14 +170,15 @@ export async function monitorCi({
     if (rows?.length) {
       const terminal = rows.every((row) => row.bucket !== 'pending');
       if (terminal) {
-        const afterHead = await readHead({ repo, pr, runner, cwd });
+        const afterHead = await readHead({ repo, pr, runner, ...commandOptions() });
+        if (remainingMs() === 0) break;
         if (afterHead && afterHead !== head) {
           return summary('timeout', { ...base, reason: 'superseded', currentHead: afterHead });
         }
         if (!afterHead) {
           fingerprint = '';
           stablePolls = 0;
-          await sleep(POLL_MS);
+          await waitForPoll();
           continue;
         }
         const nextFingerprint = rows
@@ -195,7 +202,7 @@ export async function monitorCi({
       stablePolls = 0;
     }
 
-    await sleep(POLL_MS);
+    await waitForPoll();
   }
 
   return summary('timeout', { ...base, reason: 'deadline_exceeded' });

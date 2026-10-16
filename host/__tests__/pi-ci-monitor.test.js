@@ -15,7 +15,7 @@ const PR = 123;
 const HEAD = 'ef819ed35e9cc57d66209d1330bc8a87519736df';
 const NEXT_HEAD = '0123456789abcdef0123456789abcdef01234567';
 const POLL_MS = 15_000;
-const AGENT_CAP_MS = 30 * 60_000;
+const AGENT_CAP_MS = 15 * 60_000;
 const REQUEST_CWD = '/tmp/codeflare-request-repo';
 
 function commandResult(value, exitCode = 0) {
