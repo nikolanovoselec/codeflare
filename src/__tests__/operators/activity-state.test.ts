@@ -65,6 +65,39 @@ function ownedSessionFixture() {
   };
 }
 
+describe('REQ-OPERATOR-086 AC3: safe owner run metadata', () => {
+  it('projects pinned version and complete outcome quantities without exposing result bodies', () => withActivity(async ({ activity, ctx }) => {
+    const ownerKey = await operatorOwnerKey({ subject: 'owner', email: 'owner@example.test', issuer: 'https://access.example.test', audiences: ['aud'] });
+    const admission = await ctx.storage.get<Record<string, unknown>>('admission');
+    await ctx.storage.put('admission', { ...admission, ownerKey, invocationJson: JSON.stringify({ repository: 'acme/updates' }),
+      receipt: { ...(admission!.receipt as Record<string, unknown>), manifestJson: JSON.stringify({ name: 'Pinned Dispatcher', version: '0.1.27' }) },
+      drive: { generation: 1, status: 'completed', checkpoint: null, result: { repository: 'acme/updates', results: [
+        { pullRequest: 1, outcome: 'MERGED', comment: 'PRIVATE_ASSESSMENT' },
+        { pullRequest: 2, outcome: 'NOT_MERGED' }, { pullRequest: 3, outcome: 'DEFERRED' },
+        { pullRequest: 4, outcome: 'EXECUTION_FAILED' },
+      ] } } });
+    const summary = await activity.getBrowserSummary(ownerKey);
+    expect(summary).toMatchObject({ version: '0.1.27', executionStatus: 'completed',
+      resultSummary: { assessed: 4, merged: 1, notMerged: 1, deferred: 1, unknown: 1 } });
+    expect(JSON.stringify(summary)).not.toContain('PRIVATE_ASSESSMENT');
+    expect(summary).not.toHaveProperty('result');
+    expect(await activity.getBrowserSummary('foreign-owner')).toBeNull();
+  }));
+
+  it('does not manufacture outcome counts for missing, foreign or malformed result data', () => withActivity(async ({ activity, ctx }) => {
+    const ownerKey = await operatorOwnerKey({ subject: 'owner', email: 'owner@example.test', issuer: 'https://access.example.test', audiences: ['aud'] });
+    const admission = await ctx.storage.get<Record<string, unknown>>('admission');
+    for (const result of [null, { repository: 'other/repo', results: [] }, { repository: 'acme/updates', results: ['invalid'] }]) {
+      await ctx.storage.put('admission', { ...admission, ownerKey, invocationJson: JSON.stringify({ repository: 'acme/updates' }),
+        receipt: { ...(admission!.receipt as Record<string, unknown>), manifestJson: JSON.stringify({ name: 'Pinned Dispatcher', version: '<unsafe>' }) },
+        drive: { generation: 1, status: 'completed', checkpoint: null, result } });
+      const summary = await activity.getBrowserSummary(ownerKey);
+      expect(summary).not.toHaveProperty('resultSummary');
+      expect(summary).not.toHaveProperty('version');
+    }
+  }));
+});
+
 describe('REQ-OPERATOR-003: instrumented activity state outcomes', () => {
   it('REQ-OPERATOR-027: projects only trusted pinned name and allowlisted admitted task coordinates', async () => withActivity(async ({ activity, ctx }) => {
     const admission = await ctx.storage.get<{ receipt: Record<string, unknown> }>('admission');

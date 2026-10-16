@@ -56,6 +56,39 @@ async function configureControls(request: (path: string, method?: string, body?:
   expect(controls.status).toBe(200);
 }
 
+describe('REQ-OPERATOR-086 AC5: installed activity catalog visibility', () => {
+  it('selects invoker-only operators before pagination without changing the management catalog', async () => withManagementApi(async (request, ctx) => {
+    vi.stubGlobal('fetch', (await createOperatorGitHubFixture()).fetcher);
+    await configureControls(request);
+    const registered = await request('/operators', 'POST', { ...registration,
+      invokers: { users: ['invoke-only@example.test'], groups: [{ issuer: 'https://access.example.test', id: 'invoke-group' }] } });
+    expect(registered.status).toBe(201);
+    const operator = await registered.json() as { id: string };
+    const registry = new OperatorRegistry(ctx, { ENCRYPTION_KEY: btoa('k'.repeat(32)) });
+    const query = { email: 'invoke-only@example.test', issuer: 'https://access.example.test', groups: [],
+      platformAdmin: false, limit: 1, cursor: null };
+    expect(await registry.listManagementOperators(query)).toEqual({ items: [], cursor: null });
+    expect(await registry.listManagementOperators(Object.assign({}, query, { includeInvokers: true, managersEligible: false })))
+      .toMatchObject({ items: [{ id: operator.id }], cursor: null });
+    const groupQuery = Object.assign({}, query, { email: 'group-only@example.test', groups: ['invoke-group'], includeInvokers: true, managersEligible: false });
+    expect(await registry.listManagementOperators(groupQuery)).toMatchObject({ items: [{ id: operator.id }], cursor: null });
+    expect(await registry.listManagementOperators({ ...groupQuery, issuer: 'https://foreign.example.test' })).toEqual({ items: [], cursor: null });
+    expect(await registry.listManagementOperators({ ...groupQuery, groups: [] })).toEqual({ items: [], cursor: null });
+  }));
+
+  it('excludes globally ineligible manager-only operators before choosing an activity cursor', async () => withManagementApi(async (request, ctx) => {
+    vi.stubGlobal('fetch', (await createOperatorGitHubFixture()).fetcher);
+    await configureControls(request);
+    expect((await request('/operators', 'POST', { ...registration, invokers: { users: [], groups: [] } })).status).toBe(201);
+    const registry = new OperatorRegistry(ctx, { ENCRYPTION_KEY: btoa('k'.repeat(32)) });
+    const query = { email: 'manager@example.test', issuer: 'https://access.example.test', groups: [], platformAdmin: false, limit: 1, cursor: null };
+    expect(await registry.listManagementOperators(Object.assign({}, query, { includeInvokers: true, managersEligible: false })))
+      .toEqual({ items: [], cursor: null });
+    expect((await registry.listManagementOperators(Object.assign({}, query, { includeInvokers: true, managersEligible: true }))).items)
+      .toEqual([expect.objectContaining({ repositoryUrl: registration.repositoryUrl })]);
+  }));
+});
+
 describe('REQ-OPERATOR-043: catalog and independently configured installations', () => {
   it('creates distinct operator and installation identities', async () => withManagementApi(async request => {
     vi.stubGlobal('fetch', (await createOperatorGitHubFixture()).fetcher);

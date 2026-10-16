@@ -62,18 +62,18 @@ describe('REQ-OPERATOR-027: operator activity header control', () => {
     expect(readMock).toHaveBeenCalledTimes(1);
   });
 
-  it('REQ-OPERATOR-040: uses concise explanatory copy without redundant refresh or close controls', async () => {
+  it('REQ-OPERATOR-040: presents concise Operators navigation with explicit refresh and dismissal', async () => {
     listMock.mockResolvedValue({ items: [] });
     render(() => <OperatorActivityButton enabled />);
     await fireEvent.click(screen.getByRole('button', { name: /operator activity/i }));
     await waitFor(() => expect(screen.getByText('No activity')).toBeTruthy());
-    expect(screen.getByText('Operator overview')).toBeTruthy();
-    expect(screen.getByText('Operators are autonomous agents that work in the background. Track progress and results here.')).toBeTruthy();
-    expect(screen.getByText('No activity').className).toContain('operator-activity-state--empty');
-    expect(screen.getByRole('dialog', { name: /operator activity/i }).className).toContain('operator-activity-panel--empty');
-    expect(screen.getByRole('dialog', { name: /operator activity/i }).className).toContain('operator-activity-panel--compact');
-    expect(screen.queryByRole('button', { name: /refresh/i })).toBeNull();
-    expect(screen.queryByRole('button', { name: /close operator activity/i })).toBeNull();
+    // Intentional approved navigation/copy contract, not component structure.
+    expect(screen.getByText('Operators')).toBeTruthy();
+    expect(screen.getByRole('tab', { name: 'Runs' })).toBeTruthy();
+    expect(screen.getByRole('tab', { name: 'Installed' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Refresh runs' })).toBeTruthy();
+    await fireEvent.click(screen.getByRole('button', { name: 'Close operators' }));
+    expect(screen.queryByRole('dialog')).toBeNull();
   });
 
   it('uses compact sizing for completed-only history', async () => {
