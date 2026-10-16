@@ -10,18 +10,18 @@ The authoritative inventory is [`preseed/agents/pi/package.json`](../../preseed/
 
 | Package | Source pin | Surface |
 |---|---|---|
-| `@earendil-works/pi-coding-agent` | 0.99.1 | Runtime/prewarm lockstep |
-| `@earendil-works/pi-agent-core`, `pi-ai`, `pi-tui` | 0.99.1 | Matching development SDKs |
-| `@gotgenes/pi-subagents` | 21.8.1 | Native background delivery and public service accessor |
+| `@earendil-works/pi-coding-agent` | 1.3.0 | Runtime/prewarm lockstep |
+| `@earendil-works/pi-agent-core`, `pi-ai`, `pi-tui` | 1.3.0 | Matching development SDKs |
+| `@gotgenes/pi-subagents` | 23.4.2 | Native background delivery and public service accessor |
 | `@juicesharp/rpiv-advisor` | 2.11.0 | Explicit-current-user advisor workflow |
 | `@juicesharp/rpiv-ask-user-question` | 2.11.0 | Questionnaire and stable notifier channel |
 | `@juicesharp/rpiv-todo` | 2.11.0 | Session-scoped task state |
-| `@narumitw/pi-goal` | 0.54.8 | Native Goal and exact-version continuation/review transform |
-| `@narumitw/pi-plan-mode` | 0.58.3 | Native Plan and registered-tool policy transform |
+| `@narumitw/pi-goal` | 0.54.11 | Native Goal and exact-version continuation/review transform |
+| `@narumitw/pi-plan-mode` | 0.59.2 | Native Plan and registered-tool policy transform |
 | `@narumitw/pi-usage` | 0.61.1 | `/usage`, declared `dist/index.ts` |
 | `context-mode` | 1.0.169 | Installed, disabled at each container start; explicit foreground opt-in |
 | `pi-evaluate` | 0.1.5 | User-invoked reporting skill, no tool or command |
-| `pi-mcp-adapter` | 3.3.0 | Lazy managed MCP servers and lossless legacy migration |
+| `pi-mcp-adapter` | 5.3.1 | Lazy managed MCP servers and lossless legacy migration |
 | `pi-web-access` | 0.34.0 | Web retrieval and headless-safe default search workflow |
 
 ## Loading and warm compatibility
@@ -38,7 +38,7 @@ The complete RPIV preparation contract remains [REQ-AGENT-210](../../sdd/spec/ag
 - RPIV shadow-pin candidates update matching lock-backed manifests and must pass the patch and actual loading of the preseed extensions through both installed Pi SDKs before any branch push.
 - Incompatible candidates fail the job without publication.
 
-Pi 0.99.1's built-in `/mcp` may produce a replacement-command warning when the adapter replaces it. That is not a crash diagnosis, and it is distinct from a host-TypeBox dependency warning; it does not weaken the RPIV gate.
+Pi 1.3.0 includes native MCP, but deferred tool exposure is not lazy server allocation: enabled native servers connect eagerly. The adapter remains the managed MCP lifecycle owner. Managed startup must disable `builtin:mcp` with the documented `-builtin:mcp` extension entry while preserving unrelated extension selections; a first-session command warning is not proof of correct ownership. The coordinated upgrade's startup, transform and image qualification remain pending CI and deployed acceptance; package presence does not satisfy those gates.
 
 ## Context-mode and web access
 
@@ -52,9 +52,9 @@ Web access retains `web_search`, `source_check`, `fetch_content`, and paged `get
 
 Goal and Plan share upstream's session-scoped `workflow:mutex:v1`. Activation refuses competing ownership; ending a workflow releases it. Their active tool policy is owned by [Preseed](../lanes/preseed.md#session-modes), not by removing installed packages.
 
-Before JITI warm-up, `scripts/patch-pi-goal-review-control.mjs` transforms exact locked Goal 0.54.8. It accepts published `dist/index.ts` or the already-transformed `src/index.ts` declaration on an idempotent rerun, then normalizes the sole Pi entrypoint to patched `src/index.ts`. Unreviewed versions, entrypoints, or layouts fail before writes. <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchPiGoalDirectory -->
+Before JITI warm-up, `scripts/patch-pi-goal-review-control.mjs` transforms exact locked Goal 0.54.11. It accepts published `dist/index.ts` or the already-transformed `src/index.ts` declaration on an idempotent rerun, then normalizes the sole Pi entrypoint to patched `src/index.ts`. Unreviewed versions, entrypoints, or layouts fail before writes. <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchPiGoalDirectory -->
 
-The transform calculates the package manifest and all seven patched source files before writing, and admits only reviewed 0.54.3, 0.54.4 and 0.54.8 layouts. The host suite verifies/extracts the exact registry archive and loads the transformed declared entrypoint. Version, declaration, anchor or layout drift leaves every file untouched. Weekly shadow-pin candidates run the same preflight before publication; later releases require source/integrity/anchor review. <!-- @impl: .github/workflows/bump-shadow-pins.yml::pi-extensions --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-111/REQ-OPS-020: patches the exact latest pi-goal layout without double registration) -->
+The transform calculates the package manifest and all seven patched source files before writing, and admits only reviewed 0.54.3, 0.54.4, 0.54.8 and 0.54.11 layouts. The host suite verifies/extracts the exact registry archive and loads the transformed declared entrypoint. Version, declaration, anchor or layout drift leaves every file untouched. Weekly shadow-pin candidates run the same preflight before publication; later releases require source/integrity/anchor review. <!-- @impl: .github/workflows/bump-shadow-pins.yml::pi-extensions --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-111/REQ-OPS-020: patches the exact latest pi-goal layout without double registration) -->
 
 Goal's session-local control channel delegates pause/resume to its own command controller. Trusted review pause uses the non-aborting option: it cancels Goal continuation without aborting the independently queued review turn or background work. Manual pause retains normal current-turn abort ([REQ-AGENT-144](../../sdd/spec/agents.md#req-agent-144-review-owned-goal-pause-command-compatibility)). FIX resume suppresses a separate Goal continuation because the FIX follow-up owns the next turn; closure also suppresses it and schedules none. Neither enables Managed Run RPC, populates the input field, or turns command text into model input ([REQ-AGENT-114](../../sdd/spec/agents.md#req-agent-114-review-owned-goal-continuation)).
 
@@ -64,7 +64,7 @@ A positive interval creates one timer. Every later settled boundary clears/re-ar
 
 Boundary pause ownership is recorded before awaiting the trusted bridge, so launch begins against settled Goal state. Unavailable ownership/control lets review proceed without pause. An exact persisted review-owned pause retains release ownership even when bridge response is missing or unsuccessful. Matching FIX acknowledgment requests resume; manual resume winning the race clears stale ownership without a false error. Closure and authorized rollback release their correlated ownership. CI or individual reviewer notifications never resume Goal. Missing control, replacement Goal and independent reactivation retain existing fail-open behavior ([REQ-AGENT-112](../../sdd/spec/agents.md#req-agent-112-goal-pause-ownership-across-pr-heads), [REQ-AGENT-113](../../sdd/spec/agents.md#req-agent-113-review-owned-goal-release), [REQ-AGENT-117](../../sdd/spec/agents.md#req-agent-117-non-disruptive-review-owned-goal-control)).
 
-Plan 0.58.3's exact-version transform resolves helper availability and configured policy from registered tools rather than the small active bootstrap set. Source-layout/partial-patch drift fails before writes. Its declared `dist/index.ts` is loaded and JITI-verified. <!-- @impl: scripts/patch-pi-plan-mode-tool-policy.mjs::patchPiPlanModeDirectory --> Startup atomically replaces `pi-plan-mode.json`; the managed frozen policy excludes generic questions, arbitrary context execution, MCP, delegation, task mutation, and advisor. `/plan save` remains session-local; pathless export keeps upstream `PLAN.md`. No automatic plan-file writer is added. <!-- @impl: entrypoint.sh::configure_pi_plan_mode -->
+Plan 0.59.2's exact-version transform resolves helper availability and configured policy from registered tools rather than the small active bootstrap set. Source-layout/partial-patch drift fails before writes. Its declared `dist/index.ts` is loaded and JITI-verified. <!-- @impl: scripts/patch-pi-plan-mode-tool-policy.mjs::patchPiPlanModeDirectory --> Startup atomically replaces `pi-plan-mode.json`; the managed frozen policy excludes generic questions, arbitrary context execution, MCP, delegation, task mutation, and advisor. `/plan save` remains session-local; pathless export keeps upstream `PLAN.md`. No automatic plan-file writer is added. <!-- @impl: entrypoint.sh::configure_pi_plan_mode -->
 
 ## MCP adapter and consult-llm
 
