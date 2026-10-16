@@ -70,7 +70,7 @@ test('REQ-BROWSER-009 AC1: fresh Pi load configures six-minute RPC requests with
 });
 
 for (const regenerate of [false, true]) {
-  test(`REQ-BROWSER-009 AC1/AC2/AC4/AC5 / REQ-BROWSER-006 AC5: timeout preparation preserves custom auth and archives originals (regenerate=${regenerate})`, async t => {
+  test(`REQ-BROWSER-009 AC1/AC2/AC4/AC5/AC6: timeout preparation preserves custom auth and archives originals (regenerate=${regenerate})`, async t => {
     const f = await fixture(t);
     const browser = { command: 'custom-browser', args: [
       '--wsEndpoint=wss://api.cloudflare.com/client/v4/accounts/synthetic-account/browser-rendering/devtools/browser?keep_alive=180000&custom=keep&keep_alive=600000',
@@ -105,7 +105,7 @@ for (const endpoint of [
   'wss://user:secret@api.cloudflare.com/client/v4/accounts/a/browser-rendering/devtools/browser?keep_alive=180000',
   'wss://api.cloudflare.com/client/v4/accounts/a/unrelated?keep_alive=180000',
 ]) {
-  test(`REQ-BROWSER-006 AC5: timeout policy leaves unrelated endpoint routing unchanged (${endpoint})`, async t => {
+  test(`REQ-BROWSER-009 AC6: timeout policy leaves unrelated endpoint routing unchanged (${endpoint})`, async t => {
     const f = await fixture(t);
     const browser = { command: 'custom-browser', args: [`--wsEndpoint=${endpoint}`] };
     writeFileSync(f.target, JSON.stringify({ mcpServers: { 'chrome-devtools': browser } }));

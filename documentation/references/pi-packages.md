@@ -72,7 +72,8 @@ Pi reads `consult-llm` from `~/.pi/agent/mcp-adapter.json` through the pi-mcp-ad
 
 Lossless migration remains governed by [REQ-AGENT-217](../../sdd/spec/agents.md#req-agent-217-lossless-pi-mcp-adapter-migration):
 
-- Pi load/reload migrates valid legacy-only configuration byte-for-byte; startup also regenerates recognizable owned entries.
+- Filename migration alone preserves valid legacy-only bytes; startup also regenerates recognizable owned entries.
+- Startup and managed Pi load/reload explicitly apply [REQ-BROWSER-009](../../sdd/spec/browser-run.md#req-browser-009-mcp-and-chrome-sdk-timeout-profile) timeout preparation, including AC6 inactivity on managed load. Active bytes may change; transformed custom originals remain archived byte-for-byte before replacement. Credentials, lifecycle, unrelated fields and external routing remain preserved.
 - Valid active adapters take precedence; displaced or transformed unknown/custom originals, and malformed originals, remain recoverable outside active names.
 - Passive archive collisions do not block recovery or overwrite existing data.
 - Malformed regular files recover after archival; unsafe active paths and I/O errors fail closed.

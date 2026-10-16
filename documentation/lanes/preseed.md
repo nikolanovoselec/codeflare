@@ -319,10 +319,15 @@ Claude receives consult-llm through `~/.claude.json`; Pi receives it through
 `~/.pi/agent/mcp-adapter.json` via the pi-mcp-adapter `mcp` proxy.
 Adapter 3.3.0 retains the config schema but, since 3.0.0, no longer reads Pi's
 `mcp.json`. Startup and the signed both-mode `00-mcp-adapter-config.ts` extension
-prepare one valid active adapter after restore. Valid legacy-only data migrates
-byte-for-byte on Pi load/reload; startup rebuilds recognizable managed entries
-from current runtime inputs while preserving custom configuration. Displaced or transformed unknown/custom originals, and malformed originals,
-survive in recovery copies; unchanged legacy-only data needs no extra archive.
+prepare one valid active adapter after restore. Filename migration alone preserves
+valid legacy-only bytes. Startup rebuilds recognizable managed entries from current
+runtime inputs; startup and managed Pi load/reload then apply the timeout profile
+in [REQ-BROWSER-009](../../sdd/spec/browser-run.md#req-browser-009-mcp-and-chrome-sdk-timeout-profile), including managed-load inactivity under AC6.
+Preparation may change active-file bytes, but preserves custom credentials,
+lifecycle, unrelated fields and external routing. Displaced or transformed
+unknown/custom originals remain archived byte-for-byte before replacement;
+malformed originals also survive in recovery copies. Unchanged legacy-only data
+needs no extra archive.
 Passive backups never block startup; unsafe active paths and I/O failures still
 fail closed. Successful startup preparation excludes only root
 `.pi/agent/mcp.json` from subsequent baseline/bisync, not initial restore,
