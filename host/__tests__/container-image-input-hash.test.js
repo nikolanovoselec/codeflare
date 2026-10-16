@@ -106,6 +106,7 @@ describe('deployment container image input hash', () => {
       'scripts/patch-rclone-bisync.py',
       'scripts/ci/rclone-bookkeeping_test.go',
       'scripts/patch-context-mode-bundles.mjs',
+      'scripts/patch-chrome-devtools-timeouts.mjs',
       'scripts/patch-pi-goal-review-control.mjs',
       'scripts/patch-pi-plan-mode-tool-policy.mjs',
       'scripts/patch-pi-native-model-display.mjs',
@@ -215,6 +216,12 @@ describe('deployment container image input hash', () => {
       commit(`change ${path}`);
       assert.notEqual(imageHashResult().tag, before, path);
     }
+
+    const beforeChromePatch = imageHashResult().tag;
+    write('scripts/patch-chrome-devtools-timeouts.mjs', 'Chrome timeout profile change\n');
+    commit('Chrome timeout patch change');
+    assert.notEqual(imageHashResult().tag, beforeChromePatch,
+      'changing the Chrome timeout profile must invalidate image reuse');
 
     write('Dockerfile', `${readFileSync(join(root, 'Dockerfile'), 'utf8')}COPY host/__tests__/ /tmp/tests/\n`);
     commit('uncovered copy source');

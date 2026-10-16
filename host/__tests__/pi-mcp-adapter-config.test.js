@@ -314,7 +314,7 @@ test('REQ-AGENT-069: adding consult preserves existing user startup settings and
   const result = startConsult(f.home);
   assert.equal(result.status, 0, result.stderr);
   const updated = JSON.parse(readFileSync(f.target, 'utf8'));
-  assert.deepEqual(updated.settings, config.settings);
+  assert.deepEqual(updated.settings, { ...config.settings, requestTimeoutMs: 360000 });
   assert.deepEqual(updated.mcpServers.custom, config.mcpServers.custom);
   assert.equal(updated.mcpServers['consult-llm'].lifecycle, 'lazy');
 });
@@ -326,7 +326,11 @@ test('REQ-AGENT-069: startup retains existing consult credentials and both-file 
   writeFileSync(f.target, target);
   const result = startConsult(f.home);
   assert.equal(result.status, 0, result.stderr);
-  assert.equal(readFileSync(f.target, 'utf8'), target);
+  const original = JSON.parse(target);
+  assert.deepEqual(JSON.parse(readFileSync(f.target, 'utf8')), {
+    ...original, settings: { ...original.settings, requestTimeoutMs: 360000 },
+  });
+  assertArchived(f, 'mcp-adapter.json.migrated', target);
   assert.equal(readFileSync(f.backup, 'utf8'), legacyConfig);
   assert.equal(existsSync(f.legacy), false);
 });
@@ -379,7 +383,7 @@ test('REQ-AGENT-069: fresh startup regenerates managed consult credentials while
   assert.equal(updated.mcpServers['consult-llm'].env.OPENAI_API_KEY, 'synthetic-openai');
   assert.equal(updated.mcpServers['consult-llm'].lifecycle, 'lazy');
   assert.deepEqual(updated.mcpServers.custom, config.mcpServers.custom);
-  assert.deepEqual(updated.settings, config.settings);
+  assert.deepEqual(updated.settings, { ...config.settings, requestTimeoutMs: 360000 });
 });
 
 
@@ -492,7 +496,10 @@ for (const mode of ['no-provider', 'enterprise']) {
       CODEFLARE_OPENAI_API_KEY: '', ENTERPRISE_MODE: mode === 'enterprise' ? 'active' : '',
     });
     assert.equal(result.status, 0, result.stderr);
-    assert.deepEqual(JSON.parse(readFileSync(f.target, 'utf8')), original);
+    assert.deepEqual(JSON.parse(readFileSync(f.target, 'utf8')), {
+      ...original, settings: { ...original.settings, requestTimeoutMs: 360000 },
+    });
+    assertArchived(f, 'mcp-adapter.json.migrated', JSON.stringify(original));
     assert.deepEqual(JSON.parse(readFileSync(claude, 'utf8')).mcpServers, { unrelated: { command: 'keep' } });
   });
 }
