@@ -15,6 +15,7 @@ const PR = 123;
 const HEAD = 'ef819ed35e9cc57d66209d1330bc8a87519736df';
 const NEXT_HEAD = '0123456789abcdef0123456789abcdef01234567';
 const POLL_MS = 15_000;
+const AGENT_CAP_MS = 30 * 60_000;
 const REQUEST_CWD = '/tmp/codeflare-request-repo';
 
 function commandResult(value, exitCode = 0) {
@@ -430,18 +431,56 @@ test('REQ-AGENT-125 AC3: malformed and transient GitHub responses never become s
 
   assertResult(output, 'timeout');
   assert.doesNotMatch(output, /^CI_RESULT success/m);
-  assert.ok(time.elapsed() >= 30 * 60_000);
+  assert.match(output, /deadline_exceeded/);
+  assert.ok(time.elapsed() >= 5 * 60_000);
+  assert.ok(time.elapsed() <= AGENT_CAP_MS - POLL_MS, 'timeout output needs reporting margin before the enclosing command cap');
 });
 
-test('REQ-AGENT-068 constraint: pending checks enforce the thirty-minute total timeout', async () => {
+test('REQ-AGENT-068 constraint: pending checks return timeout before the enclosing command cap', async () => {
   const { output, time } = await runMonitor({
     fallbackChecks: [check('long-running', 'pending')],
   });
 
   assertResult(output, 'timeout');
-  assert.ok(time.elapsed() >= 30 * 60_000);
-  assert.ok(time.elapsed() < 30 * 60_000 + POLL_MS);
+  assert.match(output, /deadline_exceeded/);
+  assert.ok(time.elapsed() >= 5 * 60_000);
+  assert.ok(time.elapsed() <= AGENT_CAP_MS - POLL_MS, 'timeout output needs reporting margin before the enclosing command cap');
 });
+
+for (const phase of ['head', 'checks', 'confirmation', 'all']) {
+  test(`REQ-AGENT-068 constraint: slow ${phase} provider returns structured timeout before the command cap`, async () => {
+    const time = fakeClock();
+    let confirming = false;
+    const runner = async (_command, args, options = {}) => {
+      if (args.includes('view')) {
+        if (phase === 'all' || phase === 'confirmation' && confirming || phase === 'head' && !confirming) {
+          // External command boundary: consume the execution allowance a hung
+          // provider would receive from runCommand, rather than real sleeping.
+          await time.sleep(phase === 'all' ? Math.min(options.timeout ?? 60_000, 55_000) : options.timeout ?? 60_000);
+        }
+        confirming = false;
+        return commandResult({ headRefOid: HEAD });
+      }
+      if (args.includes('checks')) {
+        if (phase === 'checks' || phase === 'all') {
+          await time.sleep(phase === 'all' ? Math.min(options.timeout ?? 60_000, 55_000) : options.timeout ?? 60_000);
+        }
+        confirming = true;
+        // Realistic changing terminal evidence is not two stable polls.
+        return commandResult([check(`provider-evidence-${time.elapsed()}`, 'pass')]);
+      }
+      throw new Error(`unexpected provider command: ${args.join(' ')}`);
+    };
+    const output = await monitorCi({ repo: REPO, pr: PR, head: HEAD,
+      runner, clock: time.clock, sleep: time.sleep });
+    assertResult(output, 'timeout');
+    assert.match(output, /deadline_exceeded/);
+    assert.doesNotMatch(output, /^CI_RESULT (?:success|failure)/m);
+    assert.ok(time.elapsed() >= 5 * 60_000);
+    assert.ok(time.elapsed() <= AGENT_CAP_MS - POLL_MS,
+      'even a final slow provider must leave time to emit the structured result');
+  });
+}
 
 test('REQ-AGENT-068 AC4: a superseded head stops before checks are queried', async () => {
   const { output, github } = await runMonitor({ heads: [NEXT_HEAD] });
