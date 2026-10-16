@@ -212,6 +212,7 @@ RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-reco
     # REQ-SEC-011: require fixed Debian security builds and invalidate stale apt layers.
     && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' libpcre2-8-0)" ge '10.42-1+deb12u2' \
     && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' libssh2-1)" ge '1.10.0-3+deb12u1' \
+    && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' libgit2-1.5)" ge '1.5.1+ds-1+deb12u2' \
     && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' libde265-0)" ge '1.0.11-1+deb12u3' \
     && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' libevent-core-2.1-7)" ge '2.1.12-stable-8+deb12u1' \
     && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' libperl5.36)" ge '5.36.0-7+deb12u4' \

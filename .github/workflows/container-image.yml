@@ -339,6 +339,9 @@ jobs:
             libpcre2_version=$(dpkg-query -W -f="\${Version}" libpcre2-8-0)
             dpkg --compare-versions "$libpcre2_version" ge "10.42-1+deb12u2"
             printf "libpcre2-8-0=%s\n" "$libpcre2_version"
+            libgit2_version=$(dpkg-query -W -f="\${Version}" libgit2-1.5)
+            dpkg --compare-versions "$libgit2_version" ge "1.5.1+ds-1+deb12u2"
+            printf "libgit2-1.5=%s\n" "$libgit2_version"
             libde265_version=$(dpkg-query -W -f="\${Version}" libde265-0)
             dpkg --compare-versions "$libde265_version" ge "1.0.11-1+deb12u3"
             printf "libde265-0=%s\n" "$libde265_version"
