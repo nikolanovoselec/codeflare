@@ -5,6 +5,8 @@ export interface OperatorBrowserSummary {
   activityId: string;
   operatorId: string;
   operatorName?: string;
+  version?: string;
+  resultSummary?: { assessed: number; merged: number; notMerged: number; deferred: number; unknown: number };
   context?: string | null;
   progress?: string | null;
   executionStatus: 'queued' | 'running' | 'waiting' | 'completed' | 'failed' | 'cancel-requested' | 'unknown';

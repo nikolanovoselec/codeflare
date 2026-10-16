@@ -4,7 +4,7 @@ import { resolveProspectiveRenovateRepository } from '../operators/renovate-pros
 import { Hono, type Context } from 'hono';
 import { z } from 'zod';
 import type { Env } from '../types';
-import { authenticateRequest, canInvokeOperator, operatorAccessSessionCurrent,
+import { authenticateRequest, canInvokeOperator, canManageOperator, hasOperatorManagementEligibility, operatorAccessSessionCurrent,
   requireOperatorHumanContext, resolveOperatorGroupIdentity } from '../lib/access';
 import { getContainer } from '@cloudflare/containers';
 import type { container as SessionContainer } from '../container/index';
@@ -77,7 +77,7 @@ app.get('/', async c => {
       const page = await c.get('registry').listOwnedActivityPage(c.get('ownerKey'), after ?? null);
       const items = await Promise.all(page.items.map(async indexed => {
         const summary = jsonSummary(indexed);
-        if (summary.operatorName && summary.context) return summary;
+        if (summary.operatorName && summary.context && summary.version && summary.resultSummary) return summary;
         try {
           const projection = await c.env.OPERATOR_ACTIVITY!.getByName(summary.activityId)
             .getBrowserSummary(c.get('ownerKey'));
@@ -86,6 +86,10 @@ app.get('/', async c => {
             || summary.context && projection.context && summary.context !== projection.context) return summary;
           if (!summary.operatorName && projection.operatorName) summary.operatorName = projection.operatorName;
           if (!summary.context && projection.context) summary.context = projection.context;
+          if (!summary.version && projection.version) summary.version = projection.version;
+          if (!summary.resultSummary && projection.resultSummary && projection.executionStatus === summary.executionStatus) {
+            summary.resultSummary = projection.resultSummary;
+          }
         } catch { /* Historical display metadata is unavailable; keep the owner index unchanged. */ }
         return summary;
       }));
@@ -105,16 +109,13 @@ app.post('/read', async c => {
   const { through } = await parseJsonBody(c, readBody);
   return c.json(await c.get('registry').acknowledgeOwnedActivities(c.get('ownerKey'), through));
 });
-app.get('/installations/:installationId/preview', async c => {
-  const id = c.req.param('installationId');
-  if (!ID.test(id)) return c.notFound();
-  const selected = await c.get('registry').resolveManagementExecution(id);
-  if (!selected.ok || !canInvokeOperator(c.get('operatorHuman').human, selected.value.operator)) return c.notFound();
-  const { operator, release, manifestJson } = selected.value;
+/** REQ-OPERATOR-086: the same closed input contracts drive preview and installed readiness. */
+function guidedPreview(selection: ManagementExecutionSelection) {
+  const { operator, release, manifestJson } = selection;
   let name: unknown;
   let inputSchema: unknown;
-  try { ({ name, inputSchema } = JSON.parse(manifestJson)); } catch { return c.notFound(); }
-  if (typeof name !== 'string' || !name.trim()) return c.notFound();
+  try { ({ name, inputSchema } = JSON.parse(manifestJson)); } catch { return null; }
+  if (typeof name !== 'string' || !name.trim()) return null;
   // Recognize only the two approved input contracts; extra constraints fail closed.
   const repositoryOnly = z.strictObject({ type: z.literal('object'), additionalProperties: z.literal(false),
     required: z.array(z.literal('repository')).length(1), properties: z.strictObject({
@@ -131,9 +132,63 @@ app.get('/installations/:installationId/preview', async c => {
     && operator.repositoryUrl.replace(/\.git$/i, '').toLowerCase() === 'https://github.com/nikolanovoselec/codeflare-operator-dispatcher';
   const guidedMode = !official ? null : repositoryOnly.safeParse(inputSchema).success ? 'repository'
     : legacy.safeParse(inputSchema).success ? 'legacy-pull-request' : null;
-  return c.json({ name, version: release.tagName ?? `GitHub release #${release.githubReleaseId}`,
+  return { name, version: release.tagName ?? `GitHub release #${release.githubReleaseId}`,
     guidedAssessment: guidedMode !== null, guidedMode,
-    ...(guidedMode === 'repository' ? { configuredRepository: parseRenovateRunSettings(selected.value.installation.configurationJson)?.repository } : {}) });
+    ...(guidedMode === 'repository' ? { configuredRepository: parseRenovateRunSettings(selection.installation.configurationJson)?.repository } : {}) };
+}
+
+app.get('/installations', async c => {
+  const params = new URL(c.req.url).searchParams;
+  const cursor = params.get('cursor');
+  if ([...params.keys()].some(key => key !== 'cursor') || params.getAll('cursor').length > 1
+    || cursor !== null && !ID.test(cursor)) return c.json({ error: 'Invalid installation cursor' }, 400);
+  const human = c.get('operatorHuman').human;
+  const registry = c.get('registry');
+  const authenticated = await authenticateRequest(c.req.raw, c.env);
+  if (authenticated.user.email.toLowerCase() !== human.email.toLowerCase()) return c.notFound();
+  const platformAdmin = authenticated.user.role === 'admin';
+  const controls = await registry.getManagementControls();
+  const canManage = (operator: ManagementExecutionSelection['operator']) => platformAdmin || canManageOperator(human, operator, controls.managers);
+  if (cursor) {
+    const previous = await registry.getManagementOperator(cursor);
+    if (!previous.ok || !canInvokeOperator(human, previous.value) && !canManage(previous.value)) return c.notFound();
+  }
+  // One indexed operator per page bounds installation projection to the existing 100-row limit.
+  const page = await registry.listManagementOperators({ email: human.email, issuer: human.issuer, groups: human.groups ?? [],
+    platformAdmin, limit: 1, cursor, includeInvokers: true,
+    managersEligible: hasOperatorManagementEligibility(human, controls.managers) });
+  const items = [];
+  for (const operator of page.items) {
+    const invoke = canInvokeOperator(human, operator);
+    const manage = canManage(operator);
+    if (!invoke && !manage) continue;
+    const installations = await registry.getManagementInstallations(operator.id);
+    const releases = await registry.getManagementReleases(operator.id);
+    for (const installation of installations) {
+      const release = releases.find(value => value.id === installation.releaseId && value.operatorId === operator.id);
+      const approved = release?.approved === true;
+      const selected = installation.enabled && approved ? await registry.resolveManagementExecution(installation.id) : null;
+      const preview = selected?.ok && selected.value.release.id === installation.releaseId
+        && selected.value.installation.revision === installation.revision ? guidedPreview(selected.value) : null;
+      const settings = preview?.guidedMode === 'repository' ? parseRenovateRunSettings(installation.configurationJson) : null;
+      items.push({ id: installation.id, operatorId: operator.id, name: preview?.name ?? release?.name ?? operator.name ?? operator.id,
+        installationName: installation.name, revision: installation.revision, enabled: installation.enabled, approved,
+        version: release ? release.tagName ?? release.version ?? `GitHub release #${release.githubReleaseId}` : null,
+        canInvoke: invoke, canManage: manage, guidedMode: preview?.guidedMode ?? null,
+        repository: settings?.repository ?? null, automaticRuns: settings?.automaticRuns ?? null,
+        repetitionIntervalSeconds: settings?.repetitionIntervalSeconds ?? null });
+    }
+  }
+  c.header('Cache-Control', 'no-store');
+  return c.json({ items, cursor: page.cursor });
+});
+app.get('/installations/:installationId/preview', async c => {
+  const id = c.req.param('installationId');
+  if (!ID.test(id)) return c.notFound();
+  const selected = await c.get('registry').resolveManagementExecution(id);
+  if (!selected.ok || !canInvokeOperator(c.get('operatorHuman').human, selected.value.operator)) return c.notFound();
+  const preview = guidedPreview(selected.value);
+  return preview ? c.json(preview) : c.notFound();
 });
 app.post('/', async c => {
   const body = await parseJsonBody(c, preparationBody);

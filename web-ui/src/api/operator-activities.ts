@@ -12,6 +12,12 @@ export const operatorActivitySummarySchema = z.strictObject({
   activityId: z.string().regex(/^[A-Za-z0-9_-]{1,128}$/),
   operatorId: z.string().regex(/^[A-Za-z0-9_-]{1,128}$/),
   operatorName: z.string().max(128).optional(),
+  version: z.string().max(128).regex(/^[A-Za-z0-9._/+ -]+$/).optional(),
+  resultSummary: z.strictObject({ assessed: z.number().int().nonnegative().max(1024),
+    merged: z.number().int().nonnegative(), notMerged: z.number().int().nonnegative(),
+    deferred: z.number().int().nonnegative(), unknown: z.number().int().nonnegative() })
+    .refine(value => value.assessed === value.merged + value.notMerged + value.deferred + value.unknown,
+      'Contradictory outcome quantities').optional(),
   context: z.string().max(256).nullable().optional(),
   progress: z.string().max(128).nullable().optional(),
   executionStatus: status,

@@ -204,6 +204,8 @@ export interface CurrentProspectiveRegistration extends RenovateRepositoryIdenti
 export interface ManagementCatalogQuery {
   email: string; issuer: string; groups: string[]; platformAdmin: boolean; limit: number; cursor: string | null;
   profile?: string; realm?: string; state?: string; search?: string;
+  /** Activity reads may include invokers, without expanding the management catalog. */
+  includeInvokers?: boolean; managersEligible?: boolean;
 }
 export interface ManagementInstallation {
   id: string; operatorId: string; name: string; releaseId: string | null;
@@ -540,6 +542,7 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string; O
       search TEXT NOT NULL, data TEXT NOT NULL);
       CREATE INDEX IF NOT EXISTS operator_catalog_filters ON operator_catalog(profile, realm, enabled, id);
       CREATE TABLE IF NOT EXISTS operator_acl (principal TEXT NOT NULL, id TEXT NOT NULL, PRIMARY KEY(principal,id));
+      CREATE TABLE IF NOT EXISTS operator_invoker_acl (principal TEXT NOT NULL, id TEXT NOT NULL, PRIMARY KEY(principal,id));
       CREATE TABLE IF NOT EXISTS operator_search (gram TEXT NOT NULL, id TEXT NOT NULL, PRIMARY KEY(gram,id));
       CREATE TABLE IF NOT EXISTS operator_search_schema (version INTEGER PRIMARY KEY);
       CREATE TABLE IF NOT EXISTS operator_releases (id TEXT PRIMARY KEY, operator_id TEXT NOT NULL, data TEXT NOT NULL, manifest TEXT NOT NULL);
@@ -570,6 +573,12 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string; O
         this.indexManagementSearch(JSON.parse(row.data) as ManagementOperatorState);
       }
       this.ctx.storage.sql.exec('INSERT INTO operator_search_schema VALUES(1)');
+    }
+    if (!this.ctx.storage.sql.exec('SELECT version FROM operator_search_schema WHERE version=2').toArray().length) {
+      for (const row of this.ctx.storage.sql.exec<{ data: string }>('SELECT data FROM operator_catalog').toArray()) {
+        this.indexManagementInvokers(JSON.parse(row.data) as ManagementOperatorState);
+      }
+      this.ctx.storage.sql.exec('INSERT INTO operator_search_schema VALUES(2)');
     }
   }
 
@@ -993,6 +1002,15 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string; O
     for (const gram of grams) sql.exec('INSERT INTO operator_search VALUES(?,?)', gram, state.id);
   }
 
+  private indexManagementInvokers(state: ManagementOperatorState): void {
+    const sql = this.ctx.storage.sql;
+    sql.exec('DELETE FROM operator_invoker_acl WHERE id=?', state.id);
+    for (const principal of new Set([...state.invokers.users.map(user => `u:${user.trim().toLowerCase()}`),
+      ...state.invokers.groups.map(group => `g:${JSON.stringify([group.issuer, group.id])}`)])) {
+      sql.exec('INSERT INTO operator_invoker_acl VALUES(?,?)', principal, state.id);
+    }
+  }
+
   private saveManagement(state: ManagementOperatorState): ManagementOperatorProjection {
     const sql = this.ctx.storage.sql;
     const enabled = sql.exec('SELECT id FROM operator_installations WHERE operator_id=? AND enabled=1 LIMIT 1', state.id).toArray().length > 0;
@@ -1003,6 +1021,7 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string; O
       sql.exec('INSERT INTO operator_acl VALUES(?,?)', principal, state.id);
     }
     this.indexManagementSearch(state);
+    this.indexManagementInvokers(state);
     return managementProjection(state, enabled);
   }
 
@@ -1056,8 +1075,21 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string; O
   async listManagementOperators(query: ManagementCatalogQuery): Promise<{ items: ManagementOperatorProjection[]; cursor: string | null }> {
     this.managementSchema();
     const principals = [`u:${query.email.trim().toLowerCase()}`, ...query.groups.map(id => `g:${JSON.stringify([query.issuer, id])}`)];
-    const params: (string | number)[] = query.platformAdmin ? [query.cursor ?? ''] : [JSON.stringify(principals), query.cursor ?? ''];
-    const clauses = query.platformAdmin ? ['c.id>?'] : ['c.id IN (SELECT id FROM operator_acl WHERE principal IN (SELECT value FROM json_each(?)))', 'c.id>?'];
+    const params: (string | number)[] = [];
+    const clauses: string[] = [];
+    if (!query.platformAdmin) {
+      const selections: string[] = [];
+      if (!query.includeInvokers || query.managersEligible) {
+        selections.push('SELECT id FROM operator_acl WHERE principal IN (SELECT value FROM json_each(?))');
+        params.push(JSON.stringify(principals));
+      }
+      if (query.includeInvokers) {
+        selections.push('SELECT id FROM operator_invoker_acl WHERE principal IN (SELECT value FROM json_each(?))');
+        params.push(JSON.stringify(principals));
+      }
+      clauses.push(`c.id IN (${selections.join(' UNION ')})`);
+    }
+    clauses.push('c.id>?'); params.push(query.cursor ?? '');
     for (const [column, value] of [['profile', query.profile], ['realm', query.realm]] as const) {
       if (value) { clauses.push(`c.${column}=?`); params.push(value); }
     }
@@ -1460,7 +1492,10 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string; O
         if (!prior) return;
         // Refresh only the row actually observed, including when publications share a timestamp.
         const fields = Object.keys({ ...prior, ...observed }) as (keyof OperatorBrowserSummary)[];
-        if (fields.some(key => prior[key] !== observed[key])) return;
+        if (fields.some(key => key === 'resultSummary'
+          ? (['assessed', 'merged', 'notMerged', 'deferred', 'unknown'] as const)
+            .some(field => prior.resultSummary?.[field] !== observed.resultSummary?.[field])
+          : prior[key] !== observed[key])) return;
       }
       let count = await tx.get<number>(countKey);
       if (count === undefined) {

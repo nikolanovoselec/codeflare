@@ -103,6 +103,15 @@ function activityRequest<T>(suffix: string, schema: z.ZodType<T>, body?: unknown
     { credentials: 'same-origin', schema });
 }
 export const getOwnedActivities = () => activityRequest('', z.object({ items: z.array(operatorActivitySummarySchema).max(100) }));
+const installedOperatorSchema = z.strictObject({ id, operatorId: id, name: z.string().max(256),
+  installationName: z.string().max(256), version: z.string().max(256).nullable(), revision,
+  enabled: z.boolean(), approved: z.boolean(), canInvoke: z.boolean(), canManage: z.boolean(),
+  guidedMode: z.enum(['repository', 'legacy-pull-request']).nullable(), repository: z.string().max(201).nullable(),
+  automaticRuns: z.boolean().nullable(), repetitionIntervalSeconds: z.number().int().positive().safe().nullable() });
+export type InstalledOperator = z.infer<typeof installedOperatorSchema>;
+export const listOperatorInstallations = (cursor: string | null = null) => activityRequest(
+  `/installations${cursor ? `?cursor=${segment(cursor)}` : ''}`,
+  z.strictObject({ items: z.array(installedOperatorSchema).max(100), cursor: id.nullable() }));
 export const getInstallationActivityPreview = (installationId: string) => activityRequest(`/installations/${segment(installationId)}/preview`,
   z.object({ name: z.string(), version: z.string(), guidedAssessment: z.boolean(),
     guidedMode: z.enum(['repository', 'legacy-pull-request']).nullable(), configuredRepository: z.string().max(201).optional() }));

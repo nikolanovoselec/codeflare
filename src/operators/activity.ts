@@ -3201,11 +3201,18 @@ export class OperatorActivity extends Agent {
     const safeText = (value: unknown, max = 128): string | null =>
       typeof value === 'string' && value.length <= max && /^[\p{L}\p{N} ._/#-]+$/u.test(value) ? value : null;
     let name: string | null = null;
+    let version: string | null = null;
+    let repository: string | null = null;
     let context: string | null = null;
     try {
       const manifest = state.receipt && (isManagementReceipt(state.receipt)
         ? state.receipt.selection.manifestJson : state.receipt.manifestJson);
-      if (manifest) name = safeText((JSON.parse(manifest) as { name?: unknown }).name);
+      if (manifest) {
+        const metadata = JSON.parse(manifest) as { name?: unknown; version?: unknown };
+        name = safeText(metadata.name);
+        version = typeof metadata.version === 'string' && metadata.version.length <= 128
+          && /^[A-Za-z0-9._/+ -]+$/.test(metadata.version) ? metadata.version : null;
+      }
     } catch { /* no verified display name */ }
     if (state.receipt && isManagementReceipt(state.receipt)) {
       name ??= safeText(state.receipt.selection.operator.name);
@@ -3222,7 +3229,7 @@ export class OperatorActivity extends Agent {
           ? value.source as Record<string, unknown> : null;
         const review = state.boundary && reviewContext?.pullRequest === state.boundary.pullRequest
           && reviewContext?.repositoryId === state.boundary.repositoryId;
-        const repository = safeText(review && source?.kind === 'session' ? source.reference : value.repository, 256);
+        repository = safeText(review && source?.kind === 'session' ? source.reference : value.repository, 256);
         if (repository && /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repository)) {
           const pr = review ? state.boundary!.pullRequest : value.pullRequest;
           const suffix = typeof pr === 'number' && Number.isSafeInteger(pr) && pr > 0 ? ` · PR #${pr}` : '';
@@ -3234,8 +3241,25 @@ export class OperatorActivity extends Agent {
     const checkpoint = state.drive?.checkpoint;
     const progress = checkpoint && typeof checkpoint === 'object' && !Array.isArray(checkpoint)
       ? safeText((checkpoint as Record<string, unknown>).stage) : null;
+    // Only summarize a complete, admitted-repository report. No body bytes enter the owner index.
+    let resultSummary: OperatorBrowserSummary['resultSummary'];
+    const result = state.drive?.result;
+    if (terminal && repository && result && typeof result === 'object' && !Array.isArray(result)) {
+      const report = result as Record<string, unknown>;
+      if (report.repository === repository && Array.isArray(report.results) && report.results.length <= 1024
+        && report.results.every(item => item && typeof item === 'object' && !Array.isArray(item)
+          && Number.isSafeInteger(item.pullRequest) && item.pullRequest > 0 && typeof item.outcome === 'string')) {
+        resultSummary = { assessed: report.results.length, merged: 0, notMerged: 0, deferred: 0, unknown: 0 };
+        for (const item of report.results) {
+          const key = item.outcome === 'MERGED' ? 'merged' : item.outcome === 'NOT_MERGED' ? 'notMerged'
+            : item.outcome === 'DEFERRED' ? 'deferred' : 'unknown';
+          resultSummary[key]++;
+        }
+      }
+    }
     return { activityId: state.intent.activityId, operatorId: state.intent.operatorId,
-      ...(name ? { operatorName: name } : {}), ...(context ? { context } : {}), ...(progress ? { progress } : {}), executionStatus,
+      ...(name ? { operatorName: name } : {}), ...(version ? { version } : {}), ...(resultSummary ? { resultSummary } : {}),
+      ...(context ? { context } : {}), ...(progress ? { progress } : {}), executionStatus,
       cleanupStatus: released === true ? 'released' : executionStatus === 'cancel-requested' ? 'stopping'
         : released === false ? 'pending' : terminal ? 'unknown' : 'pending',
       collectionStatus: state.browserCollectionConsumed ? 'consumed' : terminal ? 'ready' : 'unavailable',
