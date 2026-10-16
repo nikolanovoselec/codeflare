@@ -43,6 +43,7 @@ enforce_tdd: true
 test_globs:
   - "src/__tests__/operators/fixtures/flue-native-cases.ts"
   - "scripts/verify-bedrock-pi-prompt-cache.mjs"
+  - "scripts/ci/chrome-devtools-timeouts.test.mjs"
   - "scripts/ci/impeccable-engine.py"
   - "scripts/ci/impeccable-engine-source.py"
   - "scripts/ci/rclone-bookkeeping_test.go"

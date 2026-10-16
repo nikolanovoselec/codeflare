@@ -66,15 +66,17 @@ function wsEndpoint(config) {
 }
 
 describe('entrypoint Browser Run MCP registration', () => {
-  it('REQ-BROWSER-001 AC5: Claude keeps interactive Browser Run idle for three minutes', () => {
+  it('REQ-BROWSER-001 AC5: Claude keeps interactive Browser Run idle for six minutes', () => {
     const { claude } = generatedBrowserConfigs();
-    assert.equal(new URL(wsEndpoint(claude)).searchParams.get('keep_alive'), '180000');
+    assert.equal(new URL(wsEndpoint(claude)).searchParams.get('keep_alive'), '360000');
   });
 
-  it('REQ-BROWSER-006 AC5: Pi keeps interactive Browser Run idle for three minutes', () => {
+  it('REQ-BROWSER-006 AC5: Pi keeps interactive Browser Run idle for six minutes', () => {
     const { pi } = generatedBrowserConfigs();
-    assert.equal(new URL(wsEndpoint(pi)).searchParams.get('keep_alive'), '180000');
+    assert.equal(new URL(wsEndpoint(pi)).searchParams.get('keep_alive'), '360000');
     assert.equal(pi.mcpServers['chrome-devtools'].lifecycle, 'lazy');
+    assert.equal(pi.settings.requestTimeoutMs, 360000);
+    assert.equal(pi.mcpServers['chrome-devtools'].requestTimeoutMs ?? pi.settings.requestTimeoutMs, 360000);
   });
 
   function checkManagedBrowser(location, keepAlive = '600000') {
@@ -86,17 +88,33 @@ describe('entrypoint Browser Run MCP registration', () => {
     }, settings: { custom: true } };
     const { pi } = generatedBrowserConfigs({ [location]: initial });
     const endpoint = new URL(wsEndpoint(pi));
-    assert.deepEqual(endpoint.searchParams.getAll('keep_alive'), ['180000']);
+    assert.deepEqual(endpoint.searchParams.getAll('keep_alive'), ['360000']);
     assert.equal(endpoint.searchParams.get('custom'), 'keep');
     assert.deepEqual(pi.mcpServers['chrome-devtools'].args.slice(1), initial.mcpServers['chrome-devtools'].args.slice(1));
     assert.deepEqual(pi.mcpServers.custom, initial.mcpServers.custom);
-    assert.deepEqual(pi.settings, initial.settings);
+    assert.deepEqual(pi.settings, { ...initial.settings, requestTimeoutMs: 360000 });
   }
 
-  it('REQ-BROWSER-006 AC5: legacy Cloudflare browser configuration is limited to three minutes without changing credentials', () => checkManagedBrowser('legacy'));
-  it('REQ-BROWSER-006 AC5: target Cloudflare browser configuration is limited to three minutes without changing credentials', () => checkManagedBrowser('target'));
+  it('REQ-BROWSER-006 AC5: legacy Cloudflare browser configuration is limited to six minutes without changing credentials', () => checkManagedBrowser('legacy'));
+  it('REQ-BROWSER-006 AC5: target Cloudflare browser configuration is limited to six minutes without changing credentials', () => checkManagedBrowser('target'));
 
   it('REQ-BROWSER-006 AC5: duplicate retention parameters cannot retain a ten-minute browser', () => checkManagedBrowser('target', '180000&keep_alive=600000'));
+
+  it('REQ-BROWSER-006 AC8: startup aligns an existing Chrome RPC override without changing auth or lifecycle', () => {
+    const browser = { command: 'chrome-devtools-mcp', args: [
+      '--wsEndpoint=wss://api.cloudflare.com/client/v4/accounts/test-account/browser-rendering/devtools/browser?keep_alive=180000&custom=keep',
+      '--wsHeaders={"Authorization":"Bearer synthetic-custom-token"}',
+    ], lifecycle: 'lazy-keep-alive', requestTimeoutMs: 600000 };
+    const custom = { command: 'custom', requestTimeoutMs: 2000, env: { TOKEN: 'synthetic-secret' } };
+    const { pi } = generatedBrowserConfigs({ target: { mcpServers: { 'chrome-devtools': browser, custom }, settings: { custom: true } } });
+    assert.equal(pi.settings.requestTimeoutMs, 360000);
+    assert.equal(pi.settings.custom, true);
+    assert.equal(pi.mcpServers['chrome-devtools'].requestTimeoutMs, 360000);
+    assert.equal(pi.mcpServers['chrome-devtools'].lifecycle, browser.lifecycle);
+    assert.deepEqual(pi.mcpServers['chrome-devtools'].args.slice(1), browser.args.slice(1));
+    assert.equal(new URL(wsEndpoint(pi)).searchParams.get('custom'), 'keep');
+    assert.deepEqual(pi.mcpServers.custom, custom);
+  });
 
   it('REQ-BROWSER-006: startup regenerates the image-owned browser endpoint and headers while preserving custom settings', () => {
     const target = { mcpServers: {
@@ -107,11 +125,11 @@ describe('entrypoint Browser Run MCP registration', () => {
     }, settings: { custom: true } };
     const { pi } = generatedBrowserConfigs({ target });
     assert.equal(new URL(wsEndpoint(pi)).pathname, '/client/v4/accounts/test-account/browser-rendering/devtools/browser');
-    assert.equal(new URL(wsEndpoint(pi)).searchParams.get('keep_alive'), '180000');
+    assert.equal(new URL(wsEndpoint(pi)).searchParams.get('keep_alive'), '360000');
     const headers = pi.mcpServers['chrome-devtools'].args.find(arg => arg.startsWith('--wsHeaders='));
     assert.equal(JSON.parse(headers.slice('--wsHeaders='.length)).Authorization, 'Bearer test-token');
     assert.deepEqual(pi.mcpServers.custom, target.mcpServers.custom);
-    assert.deepEqual(pi.settings, target.settings);
+    assert.deepEqual(pi.settings, { ...target.settings, requestTimeoutMs: 360000 });
   });
 
   it('REQ-BROWSER-006: legacy migration preserves user browser retention and custom server credentials', () => {
@@ -120,14 +138,14 @@ describe('entrypoint Browser Run MCP registration', () => {
       custom: { command: 'custom', env: { TOKEN: 'synthetic-secret' } },
     }, settings: { custom: true } };
     const { pi } = generatedBrowserConfigs({ legacy });
-    assert.deepEqual(pi, legacy);
+    assert.deepEqual(pi, { ...legacy, settings: { ...legacy.settings, requestTimeoutMs: 360000 } });
   });
 
   it('REQ-BROWSER-006: adapter destination wins without merging or losing archived legacy settings', () => {
     const legacy = { mcpServers: { old: { command: 'old' } } };
     const target = { mcpServers: { 'chrome-devtools': { command: 'preferred', args: ['--wsEndpoint=wss://example.test/?keep_alive=600000'] } } };
     const { pi, legacyBytes } = generatedBrowserConfigs({ legacy, target });
-    assert.deepEqual(pi, target);
+    assert.deepEqual(pi, { ...target, settings: { requestTimeoutMs: 360000 } });
     assert.equal(legacyBytes, JSON.stringify(legacy));
   });
 });

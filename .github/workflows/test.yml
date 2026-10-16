@@ -1183,6 +1183,59 @@ jobs:
           echo "Host lane executed ${COUNT} tests."
         timeout-minutes: 5
 
+  browser-run-timeouts:
+    name: Browser Run timeout defaults
+    needs: changes
+    if: >-
+      needs.changes.outputs.full == 'true' ||
+      needs.changes.outputs.host == 'true' ||
+      needs.changes.outputs.pi == 'true' ||
+      needs.changes.outputs.workflows == 'true' ||
+      needs.changes.outputs.dependencies == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '26.8.1'
+      - name: Prepare the exact locked Chrome SDK without lifecycle scripts
+        run: |
+          set -euo pipefail
+          version=$(node --input-type=module - <<'NODE'
+          import fs from 'node:fs';
+          const version = JSON.parse(fs.readFileSync('preseed/npm-tools/package.json', 'utf8')).dependencies['chrome-devtools-mcp'];
+          if (!/^\d+\.\d+\.\d+$/.test(version)) throw Error('Chrome SDK must have an exact stable pin');
+          console.log(version);
+          NODE
+          )
+          npm pack --ignore-scripts --json --pack-destination "$RUNNER_TEMP" "chrome-devtools-mcp@${version}" > "$RUNNER_TEMP/chrome-sdk-pack.json"
+          node --input-type=module - <<'NODE'
+          import fs from 'node:fs';
+          import { createHash } from 'node:crypto';
+          import { join } from 'node:path';
+          const version = JSON.parse(fs.readFileSync('preseed/npm-tools/package.json', 'utf8')).dependencies['chrome-devtools-mcp'];
+          const locked = JSON.parse(fs.readFileSync('preseed/npm-tools/package-lock.json', 'utf8')).packages['node_modules/chrome-devtools-mcp'];
+          if (locked.version !== version) throw Error('Chrome SDK pin and lock disagree');
+          const archive = fs.readFileSync(join(process.env.RUNNER_TEMP, `chrome-devtools-mcp-${version}.tgz`));
+          const integrity = 'sha512-' + createHash('sha512').update(archive).digest('base64');
+          if (integrity !== locked.integrity) throw Error('Chrome SDK archive integrity mismatch');
+          NODE
+          mkdir "$RUNNER_TEMP/chrome-sdk"
+          tar -xzf "$RUNNER_TEMP/chrome-devtools-mcp-${version}.tgz" -C "$RUNNER_TEMP/chrome-sdk"
+      - name: Verify real SDK page defaults with test-only Chromium
+        run: |
+          set -euo pipefail
+          CHROME_SDK_ROOT="$RUNNER_TEMP/chrome-sdk/package" \
+          CI_CHROMIUM_EXECUTABLE="$(command -v google-chrome)" \
+            node --test --test-reporter=tap scripts/ci/chrome-devtools-timeouts.test.mjs \
+            | tee "$RUNNER_TEMP/chrome-sdk-timeout-test.tap"
+          grep -Fx '# tests 1' "$RUNNER_TEMP/chrome-sdk-timeout-test.tap"
+          grep -Fx '# pass 1' "$RUNNER_TEMP/chrome-sdk-timeout-test.tap"
+          grep -Fx '# fail 0' "$RUNNER_TEMP/chrome-sdk-timeout-test.tap"
+
   browser-ide:
     name: Browser IDE agents
     needs: changes
@@ -1316,6 +1369,7 @@ jobs:
       - landing-tests
       - pi-prompt
       - host-tests
+      - browser-run-timeouts
       - browser-ide
       - dependency-review
       - rclone-bookkeeping
