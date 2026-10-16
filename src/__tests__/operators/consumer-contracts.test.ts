@@ -1,4 +1,4 @@
-/// <reference types="@cloudflare/vitest-pool-workers/types" />
+/// <reference types="@cloudflare/vitest-plugin/types" />
 /**
  * REQ-OPERATOR-009 fixture evidence only. These generic consumer records do not
  * implement Review business logic, publish checks or grant history authority.

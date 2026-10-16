@@ -520,7 +520,7 @@ describe('REQ-MEM-014/REQ-MEM-015: public extraction transcript contracts', () =
       successQualifies: () => false,
     }).state).toBe('failed');
 
-    for (const status of ['Wrapped up (turn limit)', 'Wrapped up (reached turn limit)']) {
+    for (const status of ['Wrapped up (turn limit)', 'Wrapped up (reached turn limit)', 'Wrapped up (after turn-budget warning)']) {
       const turnLimited = [...entries, notification('exact-call', status)];
       expect(extractionTranscriptFacts({
         entries: turnLimited,
@@ -757,34 +757,36 @@ describe('REQ-MEM-001/REQ-MEM-002: root-owned memory delivery lifecycle', () => 
   });
 
   it('requires the post-commit note and chunk before exact success advances the frozen counter', async () => {
-    const harness = makeHarness();
-    await harness.emit('session_start');
-    mkdirSync(dirname(memoryCounterPath(harness)), { recursive: true });
-    writeFileSync(memoryCounterPath(harness), '0', 'utf8');
-    for (let ordinal = 1; ordinal <= 20; ordinal += 1) await appendPrompt(harness, ordinal);
-    await harness.emit('agent_settled');
-    const launch = latestLaunch(harness.pi, 'memory-capture');
-    appendEntry(harness.sessionFile, toolCall('memory-call', 'memory-capture', launch.request), notification('memory-call'));
+    for (const status of ['Done', 'Wrapped up (after turn-budget warning)']) {
+      const harness = makeHarness();
+      await harness.emit('session_start');
+      mkdirSync(dirname(memoryCounterPath(harness)), { recursive: true });
+      writeFileSync(memoryCounterPath(harness), '0', 'utf8');
+      for (let ordinal = 1; ordinal <= 20; ordinal += 1) await appendPrompt(harness, ordinal);
+      await harness.emit('agent_settled');
+      const launch = latestLaunch(harness.pi, 'memory-capture');
+      appendEntry(harness.sessionFile, toolCall('memory-call', 'memory-capture', launch.request), notification('memory-call', status));
 
-    await harness.emit('agent_settled');
-    expect(readFileSync(memoryCounterPath(harness), 'utf8')).toBe('0');
-    expect(latestLaunch(harness.pi, 'memory-capture').reminder).toBe(1);
+      await harness.emit('agent_settled');
+      expect(readFileSync(memoryCounterPath(harness), 'utf8')).toBe('0');
+      expect(latestLaunch(harness.pi, 'memory-capture').reminder).toBe(1);
 
-    const execution = readJson(activeExecutionPath(harness, 'memory-capture'));
-    const target = join(harness.paths.vaultRoot, 'Raw', 'Sessions', execution.captureFilename);
-    mkdirSync(dirname(target), { recursive: true });
-    writeFileSync(target, '# capture\n', 'utf8');
-    await harness.emit('agent_settled');
-    expect(readFileSync(memoryCounterPath(harness), 'utf8')).toBe('0');
-    expect(existsSync(memoryPointerPath(harness))).toBe(true);
+      const execution = readJson(activeExecutionPath(harness, 'memory-capture'));
+      const target = join(harness.paths.vaultRoot, 'Raw', 'Sessions', execution.captureFilename);
+      mkdirSync(dirname(target), { recursive: true });
+      writeFileSync(target, '# capture\n', 'utf8');
+      await harness.emit('agent_settled');
+      expect(readFileSync(memoryCounterPath(harness), 'utf8')).toBe('0');
+      expect(existsSync(memoryPointerPath(harness))).toBe(true);
 
-    writePostCommitChunk(harness, execution.requestId);
-    await harness.emit('agent_settled');
+      writePostCommitChunk(harness, execution.requestId);
+      await harness.emit('agent_settled');
 
-    expect(readFileSync(memoryCounterPath(harness), 'utf8')).toBe('20');
-    expect(existsSync(memoryPointerPath(harness))).toBe(false);
-    expect(existsSync(vaultChunkPath(harness, execution.requestId))).toBe(false);
-    expect(existsSync(memoryExecutionPath(harness, launch.requestId))).toBe(false);
+      expect(readFileSync(memoryCounterPath(harness), 'utf8')).toBe('20');
+      expect(existsSync(memoryPointerPath(harness))).toBe(false);
+      expect(existsSync(vaultChunkPath(harness, execution.requestId))).toBe(false);
+      expect(existsSync(memoryExecutionPath(harness, launch.requestId))).toBe(false);
+    }
   });
 
   it('captures only the uncaptured tail and hash-checks Vault on the first resumed prompt', async () => {
@@ -1003,46 +1005,50 @@ describe('REQ-VAULT-027: transactional Pi Vault extraction delivery / REQ-VAULT-
   });
 
   it('requires a post-commit chunk before native completion can promote the manifest', async () => {
-    const harness = makeHarness();
-    await harness.emit('session_start');
-    const committedBefore = readFileSync(harness.paths.vaultManifestFile, 'utf8');
-    writeFileSync(join(harness.paths.vaultRoot, 'Notes', 'incomplete.md'), 'changed\n', 'utf8');
-    await triggerVaultCheck(harness);
-    await harness.emit('agent_settled');
-    const launch = latestLaunch(harness.pi, 'vault-extract');
-    appendEntry(
-      harness.sessionFile,
-      toolCall('incomplete-vault', 'vault-extract', launch.request),
-      notification('incomplete-vault'),
-    );
-
-    await harness.emit('agent_settled');
-    expect(readFileSync(harness.paths.vaultManifestFile, 'utf8')).toBe(committedBefore);
-    expect(existsSync(vaultPointerPath(harness))).toBe(true);
-    expect(latestLaunch(harness.pi, 'vault-extract').reminder).toBe(1);
-  });
-
-  it('rejects an empty, malformed, or schema-invalid correlated chunk before manifest promotion', async () => {
-    for (const invalidChunk of [
-      '',
-      '{not-json',
-      JSON.stringify({ nodes: [], edges: [] }),
-      JSON.stringify({ nodes: [], edges: [], hyperedges: [], input_tokens: 0, output_tokens: 0 }),
-    ]) {
+    for (const status of ['Done', 'Wrapped up (after turn-budget warning)']) {
       const harness = makeHarness();
       await harness.emit('session_start');
       const committedBefore = readFileSync(harness.paths.vaultManifestFile, 'utf8');
-      writeFileSync(join(harness.paths.vaultRoot, 'Notes', 'invalid-chunk.md'), 'changed\n', 'utf8');
+      writeFileSync(join(harness.paths.vaultRoot, 'Notes', 'incomplete.md'), 'changed\n', 'utf8');
       await triggerVaultCheck(harness);
       await harness.emit('agent_settled');
       const launch = latestLaunch(harness.pi, 'vault-extract');
-      appendEntry(harness.sessionFile, toolCall('invalid-chunk-vault', 'vault-extract', launch.request), notification('invalid-chunk-vault'));
-      writeFileSync(vaultChunkPath(harness, launch.requestId), invalidChunk, 'utf8');
+      appendEntry(
+        harness.sessionFile,
+        toolCall('incomplete-vault', 'vault-extract', launch.request),
+        notification('incomplete-vault', status),
+      );
 
       await harness.emit('agent_settled');
       expect(readFileSync(harness.paths.vaultManifestFile, 'utf8')).toBe(committedBefore);
       expect(existsSync(vaultPointerPath(harness))).toBe(true);
       expect(latestLaunch(harness.pi, 'vault-extract').reminder).toBe(1);
+    }
+  });
+
+  it('rejects an empty, malformed, or schema-invalid correlated chunk before manifest promotion', async () => {
+    for (const status of ['Done', 'Wrapped up (after turn-budget warning)']) {
+      for (const invalidChunk of [
+        '',
+        '{not-json',
+        JSON.stringify({ nodes: [], edges: [] }),
+        JSON.stringify({ nodes: [], edges: [], hyperedges: [], input_tokens: 0, output_tokens: 0 }),
+      ]) {
+        const harness = makeHarness();
+        await harness.emit('session_start');
+        const committedBefore = readFileSync(harness.paths.vaultManifestFile, 'utf8');
+        writeFileSync(join(harness.paths.vaultRoot, 'Notes', 'invalid-chunk.md'), 'changed\n', 'utf8');
+        await triggerVaultCheck(harness);
+        await harness.emit('agent_settled');
+        const launch = latestLaunch(harness.pi, 'vault-extract');
+        appendEntry(harness.sessionFile, toolCall('invalid-chunk-vault', 'vault-extract', launch.request), notification('invalid-chunk-vault', status));
+        writeFileSync(vaultChunkPath(harness, launch.requestId), invalidChunk, 'utf8');
+
+        await harness.emit('agent_settled');
+        expect(readFileSync(harness.paths.vaultManifestFile, 'utf8')).toBe(committedBefore);
+        expect(existsSync(vaultPointerPath(harness))).toBe(true);
+        expect(latestLaunch(harness.pi, 'vault-extract').reminder).toBe(1);
+      }
     }
   });
 
@@ -1080,54 +1086,58 @@ describe('REQ-VAULT-027: transactional Pi Vault extraction delivery / REQ-VAULT-
 
   // REQ-VAULT-028: Vault edits remain isolated after extraction starts
   it('promotes matching staged bytes and defers during-run edits until the next Vault cadence', async () => {
-    const harness = makeHarness();
-    await harness.emit('session_start');
-    const first = join(harness.paths.vaultRoot, 'Notes', 'first.md');
-    writeFileSync(first, 'first\n', 'utf8');
-    await triggerVaultCheck(harness);
-    await harness.emit('agent_settled');
-    const firstPointer = readJson(vaultPointerPath(harness));
-    const firstExecutionPath = activeExecutionPath(harness, 'vault-extract');
-    const launch = latestLaunch(harness.pi, 'vault-extract');
-    appendEntry(harness.sessionFile, toolCall('successful-vault', 'vault-extract', launch.request));
-    writePostCommitChunk(harness, firstPointer.requestId);
+    for (const status of ['Done', 'Wrapped up (after turn-budget warning)']) {
+      const harness = makeHarness();
+      await harness.emit('session_start');
+      const first = join(harness.paths.vaultRoot, 'Notes', 'first.md');
+      writeFileSync(first, 'first\n', 'utf8');
+      await triggerVaultCheck(harness);
+      await harness.emit('agent_settled');
+      const firstPointer = readJson(vaultPointerPath(harness));
+      const firstExecutionPath = activeExecutionPath(harness, 'vault-extract');
+      const launch = latestLaunch(harness.pi, 'vault-extract');
+      appendEntry(harness.sessionFile, toolCall('successful-vault', 'vault-extract', launch.request));
+      writePostCommitChunk(harness, firstPointer.requestId);
 
-    const duringRun = join(harness.paths.vaultRoot, 'Notes', 'during-run.md');
-    writeFileSync(duringRun, 'later\n', 'utf8');
-    appendEntry(harness.sessionFile, notification('successful-vault'));
-    await harness.emit('agent_settled');
+      const duringRun = join(harness.paths.vaultRoot, 'Notes', 'during-run.md');
+      writeFileSync(duringRun, 'later\n', 'utf8');
+      appendEntry(harness.sessionFile, notification('successful-vault', status));
+      await harness.emit('agent_settled');
 
-    const committed = readVaultManifest(harness.paths.vaultManifestFile);
-    expect(committed.files['Notes/first.md']).toBeTypeOf('string');
-    expect(committed.files['Notes/during-run.md']).toBeUndefined();
-    expect(existsSync(harness.paths.vaultMarkerFile)).toBe(true);
-    expect(existsSync(firstExecutionPath)).toBe(false);
-    expect(existsSync(vaultChunkPath(harness, firstPointer.requestId))).toBe(false);
+      const committed = readVaultManifest(harness.paths.vaultManifestFile);
+      expect(committed.files['Notes/first.md']).toBeTypeOf('string');
+      expect(committed.files['Notes/during-run.md']).toBeUndefined();
+      expect(existsSync(harness.paths.vaultMarkerFile)).toBe(true);
+      expect(existsSync(firstExecutionPath)).toBe(false);
+      expect(existsSync(vaultChunkPath(harness, firstPointer.requestId))).toBe(false);
 
-    expect(existsSync(vaultPointerPath(harness))).toBe(false);
+      expect(existsSync(vaultPointerPath(harness))).toBe(false);
 
-    await triggerVaultCheck(harness);
-    expect(readJson(activeExecutionPath(harness, 'vault-extract')).changedFiles).toEqual([duringRun]);
+      await triggerVaultCheck(harness);
+      expect(readJson(activeExecutionPath(harness, 'vault-extract')).changedFiles).toEqual([duringRun]);
+    }
   });
 
   it('recovers a missing or corrupt successful stage with a new full-delta request', async () => {
-    const harness = makeHarness();
-    await harness.emit('session_start');
-    const changed = join(harness.paths.vaultRoot, 'Notes', 'changed.md');
-    writeFileSync(changed, 'changed\n', 'utf8');
-    await triggerVaultCheck(harness);
-    await harness.emit('agent_settled');
-    const original = readJson(vaultPointerPath(harness));
-    const launch = latestLaunch(harness.pi, 'vault-extract');
-    const staged = join(harness.paths.vaultRoot, 'graphify-out', `vault-extract-manifest.${original.requestId}.pending.json`);
-    writeFileSync(staged, 'corrupt', 'utf8');
-    writePostCommitChunk(harness, original.requestId);
-    appendEntry(harness.sessionFile, toolCall('corrupt-stage', 'vault-extract', launch.request), notification('corrupt-stage'));
+    for (const status of ['Done', 'Wrapped up (after turn-budget warning)']) {
+      const harness = makeHarness();
+      await harness.emit('session_start');
+      const changed = join(harness.paths.vaultRoot, 'Notes', 'changed.md');
+      writeFileSync(changed, 'changed\n', 'utf8');
+      await triggerVaultCheck(harness);
+      await harness.emit('agent_settled');
+      const original = readJson(vaultPointerPath(harness));
+      const launch = latestLaunch(harness.pi, 'vault-extract');
+      const staged = join(harness.paths.vaultRoot, 'graphify-out', `vault-extract-manifest.${original.requestId}.pending.json`);
+      writeFileSync(staged, 'corrupt', 'utf8');
+      writePostCommitChunk(harness, original.requestId);
+      appendEntry(harness.sessionFile, toolCall('corrupt-stage', 'vault-extract', launch.request), notification('corrupt-stage', status));
 
-    await harness.emit('agent_settled');
-    const replacement = readJson(vaultPointerPath(harness));
-    expect(replacement.requestId).not.toBe(original.requestId);
-    expect(readJson(activeExecutionPath(harness, 'vault-extract')).changedFiles).toEqual([changed]);
+      await harness.emit('agent_settled');
+      const replacement = readJson(vaultPointerPath(harness));
+      expect(replacement.requestId).not.toBe(original.requestId);
+      expect(readJson(activeExecutionPath(harness, 'vault-extract')).changedFiles).toEqual([changed]);
+    }
   });
 
   it('keeps an empty prelaunch coalescing result as a valid no-op request', async () => {

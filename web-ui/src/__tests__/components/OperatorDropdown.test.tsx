@@ -303,6 +303,25 @@ describe('REQ-OPERATOR-086: dropdown Runs and Installed workspace', () => {
     expect(document.body.textContent).not.toContain('PRIVATE_START_CAPABILITY');
   });
 
+  it('AC9: a successful but unknown inspection cannot discard an uncertain start or authorize another launch', async () => {
+    server.startError = true;
+    await review();
+    await fireEvent.click(screen.getByRole('button', { name: 'Start one run' }));
+    await screen.findByRole('button', { name: 'Inspect prepared activity' });
+    server.prepared['prepared-1'].phase = 'unknown';
+    await fireEvent.click(screen.getByRole('button', { name: 'Inspect prepared activity' }));
+    await screen.findByText(/outcome.*unknown/i);
+    expect(screen.getByRole('tab', { name: 'Runs' }).hasAttribute('disabled')).toBe(true);
+    expect(screen.getByRole('button', { name: 'Start one run' }).hasAttribute('disabled')).toBe(true);
+    await fireEvent.keyDown(document, { key: 'Escape' });
+    expect(screen.getByRole('dialog')).toBeTruthy();
+    server.prepared['prepared-1'].phase = 'queued';
+    await fireEvent.click(screen.getByRole('button', { name: 'Inspect prepared activity' }));
+    await screen.findByText(/Activity prepared-1: queued/);
+    expect(server.prepared).toEqual({ 'prepared-1': { installationId: 'install-1', invocation: { repository: 'acme/updates' }, phase: 'queued' } });
+    expect(screen.getByRole('tab', { name: 'Runs' }).hasAttribute('disabled')).toBe(false);
+  });
+
   it('AC9: failed preparation cannot borrow an earlier activity to authorize retry', async () => {
     server.prepareError = true;
     await review();

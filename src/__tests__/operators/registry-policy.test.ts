@@ -1,4 +1,4 @@
-/// <reference types="@cloudflare/vitest-pool-workers/types" />
+/// <reference types="@cloudflare/vitest-plugin/types" />
 /**
  * Test navigation: Restriction snapshots and safe projections, including the configured SQLite namespace RPC binding.
  * Fixtures are local/CI evidence, not production deployment or live Access acceptance.

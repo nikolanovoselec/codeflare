@@ -1,4 +1,4 @@
-/// <reference types="@cloudflare/vitest-pool-workers/types" />
+/// <reference types="@cloudflare/vitest-plugin/types" />
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import webhookRoutes from '../../routes/operator-webhook';
 

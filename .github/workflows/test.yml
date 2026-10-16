@@ -210,7 +210,7 @@ jobs:
               - 'scripts/ci/smoke-openvscode-sidebar-image.mjs'
             host:
               - *shared
-              - 'image/impeccable-engine.json'
+              - 'image/impeccable-engine*.json'
               - 'scripts/patch-impeccable-engine.py'
               - 'scripts/impeccable-launcher.mjs'
               - 'scripts/update-impeccable-skill.mjs'

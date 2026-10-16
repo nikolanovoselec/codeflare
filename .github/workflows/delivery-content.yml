@@ -1,0 +1,47 @@
+# Temporary branch-only source generation; remove before the delivery PR.
+name: Delivery content generation
+on:
+  push:
+    branches: [merge/develop-dropdown-maintenance]
+    paths:
+      - .github/workflows/delivery-content.yml
+      - scripts/impeccable-launcher.mjs
+      - scripts/update-impeccable-skill.mjs
+      - preseed/agents/pi/extensions/memory-vault-helpers.ts
+permissions:
+  contents: read
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '26'
+      - name: Refresh reviewed content and generated seed
+        run: |
+          node scripts/update-impeccable-skill.mjs
+          node scripts/generate-agent-seed.mjs
+          git add -N -- preseed/agents/claude/skills/impeccable preseed/agents/pi/skills/impeccable
+          git diff --binary -- preseed/agents/claude/skills/impeccable preseed/agents/pi/skills/impeccable preseed/agents/claude/manifest.json preseed/agents/pi/manifest.json src/lib/agent-seed.generated.ts > delivery-content.patch
+      - name: Record generated artifact identity
+        env:
+          SOURCE_SHA: ${{ github.sha }}
+        run: |
+          node --input-type=module <<'RECEIPT'
+          import { createHash } from 'node:crypto';
+          import { readFileSync, writeFileSync } from 'node:fs';
+          writeFileSync('content-receipt.json', JSON.stringify({ sourceSha: process.env.SOURCE_SHA,
+            sha256: createHash('sha256').update(readFileSync('delivery-content.patch')).digest('hex') }) + '\n');
+          RECEIPT
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: delivery-content-${{ github.sha }}
+          path: |
+            delivery-content.patch
+            content-receipt.json
+          if-no-files-found: error
+          retention-days: 3

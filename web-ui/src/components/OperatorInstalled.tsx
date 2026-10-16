@@ -65,6 +65,10 @@ const ManualRun: Component<Props & { item: InstalledOperator; back: () => void }
     try {
       const detail = await getOwnedActivity(id);
       if (detail.activityId !== id) throw new Error('Foreign activity');
+      if (detail.executionStatus === 'unknown') {
+        setMessage(`Activity ${id}: outcome unknown. Keep inspecting this exact activity; no new run is authorized.`);
+        return;
+      }
       setObserved(detail.executionStatus); setMessage(`Activity ${id}: ${detail.executionStatus}. No new run was started.`);
       props.locked(false);
     } catch { setMessage('Prepared activity unavailable. Inspect this same activity again; do not start another run.'); }

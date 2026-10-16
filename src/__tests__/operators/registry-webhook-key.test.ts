@@ -1,4 +1,4 @@
-/// <reference types="@cloudflare/vitest-pool-workers/types" />
+/// <reference types="@cloudflare/vitest-plugin/types" />
 /**
  * Test navigation: Ciphertext-only storage, atomic revision races and rotation failure preservation; no public plaintext recovery path.
  * Fixtures are local/CI evidence, not production deployment or live Access acceptance.

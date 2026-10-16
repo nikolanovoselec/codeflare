@@ -1,4 +1,4 @@
-/// <reference types="@cloudflare/vitest-pool-workers/types" />
+/// <reference types="@cloudflare/vitest-plugin/types" />
 /** T01: real Access/Action JWT verification, live identity, Registry and Activity authorization.
  * Only the already-authenticated platform role middleware and external transports are fixtures. */
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
