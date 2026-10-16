@@ -182,7 +182,7 @@ describe.each(MODULES)('browser-run core: %s', (_name, mod) => {
       };
     }
 
-    it.each(scenarios)('REQ-BROWSER-003 AC5 / REQ-BROWSER-005 AC1: $tool $phase expires at six minutes', async ({ tool, phase }) => {
+    it.each(scenarios)('REQ-BROWSER-010 AC1: $tool $phase expires at six minutes', async ({ tool, phase }) => {
       vi.useFakeTimers();
       const caller = new AbortController();
       const provider = stalledProvider(phase);
@@ -209,7 +209,7 @@ describe.each(MODULES)('browser-run core: %s', (_name, mod) => {
       }
     });
 
-    it.each(['fetch', 'body'])('REQ-BROWSER-003 AC5 / REQ-BROWSER-005 AC1: %s deadline also applies without a caller signal', async phase => {
+    it.each(['fetch', 'body'])('REQ-BROWSER-010 AC1: %s deadline also applies without a caller signal', async phase => {
       vi.useFakeTimers();
       const provider = stalledProvider(phase);
       let settled = false;
@@ -230,7 +230,7 @@ describe.each(MODULES)('browser-run core: %s', (_name, mod) => {
       }
     });
 
-    it.each(['fetch', 'body'])('REQ-BROWSER-003 AC5 / REQ-BROWSER-005 AC1: earlier caller cancellation aborts the pending %s', async phase => {
+    it.each(['fetch', 'body'])('REQ-BROWSER-010 AC2: earlier caller cancellation aborts the pending %s', async phase => {
       vi.useFakeTimers();
       const caller = new AbortController();
       const provider = stalledProvider(phase);
@@ -245,7 +245,7 @@ describe.each(MODULES)('browser-run core: %s', (_name, mod) => {
       expect(provider.signal?.aborted).toBe(true);
     });
 
-    it('REQ-BROWSER-003 AC5 / REQ-BROWSER-005 AC1: expiry does not cancel another request or replace its caller cancellation', async () => {
+    it('REQ-BROWSER-010 AC5: expiry does not cancel another request or replace its caller cancellation', async () => {
       vi.useFakeTimers();
       const callerA = new AbortController();
       const callerB = new AbortController();
@@ -277,7 +277,7 @@ describe.each(MODULES)('browser-run core: %s', (_name, mod) => {
       }
     });
 
-    it('REQ-BROWSER-003 AC5 / REQ-BROWSER-005 AC1: pre-aborted caller is refused before provider work', async () => {
+    it('REQ-BROWSER-010 AC3: pre-aborted caller is refused before provider work', async () => {
       const caller = new AbortController();
       caller.abort();
       const outcome = await mod.executeBrowserAction({
@@ -288,7 +288,7 @@ describe.each(MODULES)('browser-run core: %s', (_name, mod) => {
       expect(outcome).toEqual({ isError: true, text: 'aborted', details: {} });
     });
 
-    it('REQ-BROWSER-003 AC5 / REQ-BROWSER-005 AC1: successful request is not aborted by a later deadline', async () => {
+    it('REQ-BROWSER-010 AC4: successful request is not aborted by a later deadline', async () => {
       vi.useFakeTimers();
       const caller = new AbortController();
       let requestSignal: AbortSignal | undefined;

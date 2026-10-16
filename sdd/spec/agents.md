@@ -3208,7 +3208,9 @@ None.
 **Constraints:**
 
 - No bucket deletion or sync redesign.
-- Pi load/reload leaves working entries intact. The subsequent explicit timeout policy is owned by [REQ-BROWSER-006 AC5/AC8](browser-run.md#req-browser-006-pi-interactive-browser-via-chrome-devtools-through-the-pi-mcp-adapter); transformed custom originals are recoverable before replacement, and credentials/lifecycle/unrelated fields are preserved.
+- Pi load/reload preserves working entries except for explicit timeout preparation under [REQ-BROWSER-006 AC5](browser-run.md#req-browser-006-pi-interactive-browser-via-chrome-devtools-through-the-pi-mcp-adapter) and [REQ-BROWSER-009](browser-run.md#req-browser-009-mcp-and-chrome-sdk-timeout-profile).
+- Transformed custom originals remain recoverable before replacement.
+- Timeout preparation preserves credentials, lifecycle and unrelated fields.
 - Managed constructors and Claude behavior remain governed by [REQ-AGENT-069](#req-agent-069-pi-consult-llm-mcp-lazy-wiring).
 
 **Priority:** P1

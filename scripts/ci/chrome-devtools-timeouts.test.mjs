@@ -2,13 +2,17 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { prepareChromeTimeouts } from '../patch-chrome-devtools-timeouts.mjs';
 
 // CI supplies the exact locked SDK tree and a test-only Chromium executable.
 // No package resolution, browser download, Cloudflare request or server is needed.
-test('REQ-BROWSER-006 AC8: the real Chrome SDK applies six-minute page defaults', { timeout: 60_000 }, async () => {
+test('REQ-BROWSER-009 AC3: the real Chrome SDK applies six-minute page defaults', { timeout: 60_000 }, async () => {
   assert.ok(process.env.CHROME_SDK_ROOT, 'CI must supply the locked Chrome SDK tree');
   assert.ok(process.env.CI_CHROMIUM_EXECUTABLE, 'CI must supply its Chromium executable');
   const root = resolve(process.env.CHROME_SDK_ROOT);
+  // The same guarded image transformation, including safe repeated preparation.
+  prepareChromeTimeouts(root);
+  prepareChromeTimeouts(root);
   const { McpPage } = await import(pathToFileURL(resolve(root, 'build/src/McpPage.js')).href);
   const { puppeteer, Locator } = await import(pathToFileURL(resolve(root, 'build/src/third_party/index.js')).href);
   const browser = await puppeteer.launch({

@@ -100,7 +100,7 @@ A real-browser capability for advanced-mode agents, backed by Cloudflare Browser
 2. The extension registers nothing unless `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` are present, and is seeded only in Pro (advanced) session mode — so Standard mode and token-less deploys are byte-identical to today. <!-- @impl: preseed/agents/pi/extensions/browser-run.ts::default --> <!-- @manual -->
 3. Before fetch, tools reject malformed, credential-bearing, non-HTTP(S), localhost, private, loopback, link-local, and unspecified literal targets. <!-- @impl: preseed/agents/pi/extensions/browser-run-helpers.ts::initialTargetError --> <!-- @test: src/__tests__/lib/agent-seed-pi-memory.test.ts (Pi memory-vault behavioral tests (REQ-MEM-001/002/010, REQ-VAULT-003/004)) -->
 4. Accepted output is capped. <!-- @impl: preseed/agents/pi/extensions/browser-run-helpers.ts::truncate --> <!-- @test: src/__tests__/lib/browser-run-core.test.ts (REQ-BROWSER-003 AC4: caps an over-cap string at the limit and reports the dropped count) -->
-5. Browser Run failures, including expiry of a six-minute budget spanning fetch and response consumption, surface as tool errors. Expiry reports `Browser Run /<action> timed out after 6 minutes`. Earlier or pre-existing caller cancellation remains `aborted`; successful completion clears the deadline without cancelling other requests. <!-- @impl: preseed/agents/pi/extensions/browser-run-helpers.ts::runQuickAction --> <!-- @test: src/__tests__/lib/browser-run-core.test.ts (REQ-BROWSER-003 AC5: an error surfaces as isError, not a throw) --> <!-- @test: src/__tests__/lib/browser-run-core.test.ts (REQ-BROWSER-003 AC5 / REQ-BROWSER-005 AC1: $tool $phase expires at six minutes) -->
+5. Browser Run failures surface as tool errors rather than thrown exceptions. <!-- @impl: preseed/agents/pi/extensions/browser-run-helpers.ts::executeBrowserAction --> <!-- @test: src/__tests__/lib/browser-run-core.test.ts (REQ-BROWSER-003 AC5: an error surfaces as isError, not a throw) -->
 6. A `browser-run` skill is seeded (advanced mode) positioning these tools in an explicit web-fetch decision tree as the cheap read step for JS-rendered or bot-blocked pages the agent only needs to READ. <!-- @impl: scripts/agent-seed-core.mjs::adaptAgentFrontmatter --> <!-- @manual -->
 
 **Constraints:**
@@ -111,7 +111,7 @@ A real-browser capability for advanced-mode agents, backed by Cloudflare Browser
 
 **Priority:** P2
 
-**Dependencies:** [REQ-BROWSER-001](#req-browser-001-browser-run-as-a-webfetch-fallback-claude-code-via-chrome-devtools-mcp), [REQ-AGENT-007](agents.md#req-agent-007-multi-agent-adaptation-pipeline)
+**Dependencies:** [REQ-BROWSER-001](#req-browser-001-browser-run-as-a-webfetch-fallback-claude-code-via-chrome-devtools-mcp), [REQ-AGENT-007](agents.md#req-agent-007-multi-agent-adaptation-pipeline), [REQ-BROWSER-010](#req-browser-010-rest-request-lifecycle)
 
 **Verification:** Automated test
 
@@ -155,7 +155,7 @@ A real-browser capability for advanced-mode agents, backed by Cloudflare Browser
 
 **Acceptance Criteria:**
 
-1. A Claude-side MCP server (`preseed/agents/claude/browser-run-mcp/`) exposes `browser_markdown` / `browser_content` / `browser_scrape` tools that call the Cloudflare Browser Run REST Quick Actions, mirroring the Pi native wrapper's behavior (same endpoints, ~120k output cap, empty-render hint, `wait_until`, six-minute whole-request deadline and caller-cancellation behavior). <!-- @impl: preseed/agents/claude/browser-run-mcp/core.mjs::TOOLS --> <!-- @test: src/__tests__/lib/browser-run-core.test.ts (browser-run core twins are equivalent (REQ-BROWSER-003 ≡ REQ-BROWSER-005)) -->
+1. A Claude-side MCP server (`preseed/agents/claude/browser-run-mcp/`) exposes `browser_markdown` / `browser_content` / `browser_scrape` tools that call the Cloudflare Browser Run REST Quick Actions, mirroring the Pi native wrapper's behavior (same endpoints, ~120k output cap, empty-render hint, `wait_until`). <!-- @impl: preseed/agents/claude/browser-run-mcp/core.mjs::TOOLS --> <!-- @test: src/__tests__/lib/browser-run-core.test.ts (browser-run core twins are equivalent (REQ-BROWSER-003 ≡ REQ-BROWSER-005)) -->
 2. Built into the image and registered in `~/.claude.json` only in Pro (advanced) mode AND when `CLOUDFLARE_API_TOKEN` + `CLOUDFLARE_ACCOUNT_ID` are present; Standard / token-less sessions are byte-identical to today, and the token + account are passed in the server's scoped env. <!-- @impl: entrypoint.sh::configure_consult_llm --> <!-- @manual -->
 3. Initial fetch rejects malformed, credential-bearing, non-HTTP(S), localhost, and private-address targets before network activity. <!-- @impl: preseed/agents/claude/browser-run-mcp/core.mjs::initialTargetError --> <!-- @impl: preseed/agents/claude/browser-run-mcp/core.mjs::executeBrowserAction --> <!-- @test: src/__tests__/lib/browser-run-core.test.ts (browser-run core twins are equivalent (REQ-BROWSER-003 ≡ REQ-BROWSER-005)) -->
 4. The Claude `browser-run` skill positions this read surface (cheap, one-shot) ahead of the interactive `chrome-devtools` surface in its decision order. <!-- @manual -->
@@ -167,7 +167,7 @@ A real-browser capability for advanced-mode agents, backed by Cloudflare Browser
 
 **Priority:** P2
 
-**Dependencies:** [REQ-BROWSER-001](#req-browser-001-browser-run-as-a-webfetch-fallback-claude-code-via-chrome-devtools-mcp), [REQ-BROWSER-002](#req-browser-002-browser-rendering-scope-in-the-cloudflare-token-template), [REQ-BROWSER-003](#req-browser-003-pi-native-browser-run-wrapper)
+**Dependencies:** [REQ-BROWSER-001](#req-browser-001-browser-run-as-a-webfetch-fallback-claude-code-via-chrome-devtools-mcp), [REQ-BROWSER-002](#req-browser-002-browser-rendering-scope-in-the-cloudflare-token-template), [REQ-BROWSER-003](#req-browser-003-pi-native-browser-run-wrapper), [REQ-BROWSER-010](#req-browser-010-rest-request-lifecycle)
 
 **Verification:** Automated test
 
@@ -190,19 +190,22 @@ A real-browser capability for advanced-mode agents, backed by Cloudflare Browser
 5. Newly bootstrapped and restored Cloudflare Browser Run Pi interactive browsers close after six minutes of inactivity without changing preserved custom credentials, unrelated servers or non-Cloudflare endpoints. The same policy applies on managed Pi load or reload. <!-- @test: host/__tests__/entrypoint-browser-run-mcp.test.js (REQ-BROWSER-006 AC5: legacy Cloudflare browser configuration is limited to six minutes without changing credentials) --> <!-- @test: host/__tests__/entrypoint-browser-run-mcp.test.js (REQ-BROWSER-006 AC5: target Cloudflare browser configuration is limited to six minutes without changing credentials) --> <!-- @impl: entrypoint.sh::CDP_WS_ENDPOINT --> <!-- @test: host/__tests__/entrypoint-browser-run-mcp.test.js (REQ-BROWSER-006 AC5: Pi keeps interactive Browser Run idle for six minutes) --> <!-- @test: host/__tests__/entrypoint-browser-run-mcp.test.js (REQ-BROWSER-006: legacy migration preserves user browser retention and custom server credentials) -->
 6. Pi's interactive tools control the same authenticated Browser Run browser surface as Claude. <!-- @impl: entrypoint.sh::BROWSER_MCP_PI --> <!-- @manual -->
 7. Pi starts interactive browser resources only on first use. <!-- @impl: entrypoint.sh::BROWSER_MCP_PI --> <!-- @manual -->
-8. Pi's default MCP RPC budget and any existing Chrome-specific RPC override are six minutes after startup or managed load/reload. The shared image's Chrome SDK base operation and navigation defaults are also six minutes. Timeout preparation preserves credentials, lifecycle and unrelated settings; it archives transformed custom originals before replacement. <!-- @impl: preseed/agents/pi/extensions/00-mcp-adapter-config.ts::migratePiMcpAdapterConfig --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (REQ-BROWSER-006 AC8: fresh Pi load configures six-minute RPC requests without fabricating servers) --> <!-- @test: host/__tests__/entrypoint-browser-run-mcp.test.js (REQ-BROWSER-006 AC8: startup aligns an existing Chrome RPC override without changing auth or lifecycle) --> <!-- @test: scripts/ci/chrome-devtools-timeouts.test.mjs (REQ-BROWSER-006 AC8: the real Chrome SDK applies six-minute page defaults) -->
 
 **Constraints:**
 
 - Same gate as the rest of Browser Run (advanced + a token carrying the `Browser Rendering - Edit` scope); the `chrome-devtools` server is the same Dockerfile-baked `chrome-devtools-mcp` binary Claude uses.
-- Bootstrap uses `~/.pi/agent/mcp-adapter.json`; filename migration and managed regeneration belong to [REQ-AGENT-217](agents.md#req-agent-217-lossless-pi-mcp-adapter-migration), followed by the explicit AC5/AC8 timeout-preparation policy. Customized server shapes remain customized; arbitrary external endpoint routing and credentials are not rewritten.
-- Six-minute RPC budgets are per call, not a workflow deadline. Chrome CPU/network emulation can multiply its base page waits; Pi's RPC ceiling remains six minutes. Short SDK stabilization/teardown timers and adapter idle-shutdown policy are not changed. Equal client/server budgets do not guarantee structured timeout reporting precedes transport expiry. The CI watcher has a separate fifteen-minute maximum ([REQ-AGENT-068](agents.md#req-agent-068-independent-pi-ci-monitoring)).
+- Bootstrap uses `~/.pi/agent/mcp-adapter.json`.
+- Filename migration and managed regeneration belong to [REQ-AGENT-217](agents.md#req-agent-217-lossless-pi-mcp-adapter-migration).
+- Subsequent timeout preparation follows AC5 and [REQ-BROWSER-009](#req-browser-009-mcp-and-chrome-sdk-timeout-profile).
+- Customized server shapes, external routing and credentials remain preserved.
+- Remote inactivity is separate from RPC and REST request deadlines.
+- CI watching retains its separate fifteen-minute maximum under [REQ-AGENT-068](agents.md#req-agent-068-independent-pi-ci-monitoring).
 - Signed managed Pi migration also reaches existing images on the next Pi load or `/reload`; a release refresh alone does not reload a running Pi process.
 - Legacy `mcp.json` is not a managed retirement, so credentials remain available until safe migration, including when both files exist.
 
 **Priority:** P2
 
-**Dependencies:** [REQ-BROWSER-001](#req-browser-001-browser-run-as-a-webfetch-fallback-claude-code-via-chrome-devtools-mcp), [REQ-BROWSER-003](#req-browser-003-pi-native-browser-run-wrapper), [REQ-AGENT-005](agents.md#req-agent-005-pro-mode-includes-additional-skills-rules-agents-and-mcp-servers)
+**Dependencies:** [REQ-BROWSER-001](#req-browser-001-browser-run-as-a-webfetch-fallback-claude-code-via-chrome-devtools-mcp), [REQ-BROWSER-003](#req-browser-003-pi-native-browser-run-wrapper), [REQ-AGENT-005](agents.md#req-agent-005-pro-mode-includes-additional-skills-rules-agents-and-mcp-servers), [REQ-BROWSER-009](#req-browser-009-mcp-and-chrome-sdk-timeout-profile)
 
 **Verification:** Automated test
 
@@ -266,6 +269,76 @@ A real-browser capability for advanced-mode agents, backed by Cloudflare Browser
 **Dependencies:** [REQ-BROWSER-007](#req-browser-007-enterprise-admin-configured-browser-rendering-token), [REQ-ENTERPRISE-004](models-and-routing.md#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway)
 
 **Verification:** Automated test ([interceptor tests](../../src/__tests__/cloudflare-browser-interceptor.test.ts) (account-scoped REST + CDP WS injection, rest→Gateway, fail-closed) + [container placeholder](../../src/__tests__/container/container-env-llm.test.ts) + [worker-side resolver](../../src/__tests__/lib/browser-render-token.test.ts))
+
+**Status:** Implemented
+
+---
+
+### REQ-BROWSER-009: MCP and Chrome SDK Timeout Profile
+
+**Intent:** Interactive browser operations use a six-minute timeout profile without losing customized adapter configuration.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Pi's default MCP RPC request budget is six minutes after startup or managed load/reload. <!-- @impl: preseed/agents/pi/extensions/00-mcp-adapter-config.ts::prepareBrowserTimeouts --> <!-- @impl: entrypoint.sh::configure_pi_mcp_adapter --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (REQ-BROWSER-009 AC1: fresh Pi load configures six-minute RPC requests without fabricating servers) -->
+2. Existing Chrome-specific MCP RPC overrides are six minutes after startup or managed load/reload. <!-- @impl: preseed/agents/pi/extensions/00-mcp-adapter-config.ts::prepareBrowserTimeouts --> <!-- @test: host/__tests__/entrypoint-browser-run-mcp.test.js (REQ-BROWSER-009 AC1/AC2/AC4: startup aligns an existing Chrome RPC override without changing auth or lifecycle) --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (REQ-BROWSER-009 AC1/AC2/AC4/AC5 / REQ-BROWSER-006 AC5: timeout preparation preserves custom auth and archives originals) -->
+3. The shared image's Chrome SDK page timeout profile uses six-minute base operation and navigation defaults. <!-- @impl: scripts/patch-chrome-devtools-timeouts.mjs::prepareChromeTimeouts --> <!-- @impl: Dockerfile::patch-chrome-devtools-timeouts.mjs --> <!-- @test: scripts/ci/chrome-devtools-timeouts.test.mjs (REQ-BROWSER-009 AC3: the real Chrome SDK applies six-minute page defaults) -->
+4. Timeout preparation preserves custom credentials, lifecycle and unrelated configuration. <!-- @impl: preseed/agents/pi/extensions/00-mcp-adapter-config.ts::prepareBrowserTimeouts --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (REQ-BROWSER-009 AC1/AC2/AC4/AC5 / REQ-BROWSER-006 AC5: timeout preparation preserves custom auth and archives originals) -->
+5. Timeout preparation archives transformed custom originals byte-for-byte before replacement. <!-- @impl: preseed/agents/pi/extensions/00-mcp-adapter-config.ts::migratePiMcpAdapterConfig --> <!-- @impl: preseed/agents/pi/extensions/00-mcp-adapter-config.ts::preserve --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (REQ-BROWSER-009 AC1/AC2/AC4/AC5 / REQ-BROWSER-006 AC5: timeout preparation preserves custom auth and archives originals) -->
+
+**Constraints:**
+
+- RPC budgets apply per call, not per workflow.
+- Fresh managed Pi load creates timeout settings without fabricating servers or credentials.
+- Filename migration and managed regeneration remain owned by [REQ-AGENT-217](agents.md#req-agent-217-lossless-pi-mcp-adapter-migration).
+- Timeout preparation follows filename selection/migration.
+- Customized server shapes remain customized.
+- External endpoint routing and credentials are not rewritten.
+- Chrome CPU/network emulation may multiply base page waits without extending Pi's six-minute RPC ceiling.
+- Short SDK stabilization and teardown timers remain unchanged.
+- Adapter idle-shutdown policy remains unchanged.
+- Equal client/server budgets do not guarantee structured timeout reporting before transport expiry.
+- The image-owned SDK transformation retains the exact upstream pin and guards original/prepared bytes.
+
+**Priority:** P2
+
+**Dependencies:** [REQ-AGENT-217](agents.md#req-agent-217-lossless-pi-mcp-adapter-migration)
+
+**Verification:** Automated test
+
+**Status:** Implemented
+
+---
+
+### REQ-BROWSER-010: REST Request Lifecycle
+
+**Intent:** Both agents' one-shot Browser Run reads have bounded, independently cancellable request lifetimes.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Each REST Quick Action aborts at six minutes from request start with tool error `Browser Run /<action> timed out after 6 minutes`, including time spent fetching and consuming the response. <!-- @impl: preseed/agents/pi/extensions/browser-run-helpers.ts::runQuickAction --> <!-- @impl: preseed/agents/claude/browser-run-mcp/core.mjs::runQuickAction --> <!-- @test: src/__tests__/lib/browser-run-core.test.ts (REQ-BROWSER-010 AC1: $tool $phase expires at six minutes) --> <!-- @test: src/__tests__/lib/browser-run-core.test.ts (REQ-BROWSER-010 AC1: %s deadline also applies without a caller signal) -->
+2. Caller cancellation before deadline expiry aborts the in-flight REST request with tool error `aborted`. <!-- @impl: preseed/agents/pi/extensions/browser-run-helpers.ts::runQuickAction --> <!-- @impl: preseed/agents/claude/browser-run-mcp/core.mjs::runQuickAction --> <!-- @test: src/__tests__/lib/browser-run-core.test.ts (REQ-BROWSER-010 AC2: earlier caller cancellation aborts the pending %s) -->
+3. A pre-aborted caller receives tool error `aborted` without starting provider work. <!-- @impl: preseed/agents/pi/extensions/browser-run-helpers.ts::runQuickAction --> <!-- @impl: preseed/agents/claude/browser-run-mcp/core.mjs::runQuickAction --> <!-- @test: src/__tests__/lib/browser-run-core.test.ts (REQ-BROWSER-010 AC3: pre-aborted caller is refused before provider work) -->
+4. Successful completion clears the deadline without subsequently aborting the completed request. <!-- @impl: preseed/agents/pi/extensions/browser-run-helpers.ts::runQuickAction --> <!-- @impl: preseed/agents/claude/browser-run-mcp/core.mjs::runQuickAction --> <!-- @test: src/__tests__/lib/browser-run-core.test.ts (REQ-BROWSER-010 AC4: successful request is not aborted by a later deadline) -->
+5. One request's expiry does not cancel or change another request's outcome. <!-- @impl: preseed/agents/pi/extensions/browser-run-helpers.ts::runQuickAction --> <!-- @impl: preseed/agents/claude/browser-run-mcp/core.mjs::runQuickAction --> <!-- @test: src/__tests__/lib/browser-run-core.test.ts (REQ-BROWSER-010 AC5: expiry does not cancel another request or replace its caller cancellation) -->
+
+**Constraints:**
+
+- Applies to `browser_markdown`, `browser_content` and `browser_scrape` in both agent cores.
+- Fetch and response consumption share one deadline; body consumption does not restart it.
+- The deadline applies without a caller signal.
+- Caller cancellation remains distinct from deadline expiry.
+- Existing authentication, target validation, formatting and output limits remain unchanged.
+
+**Priority:** P2
+
+**Dependencies:** [REQ-BROWSER-002](#req-browser-002-browser-rendering-scope-in-the-cloudflare-token-template)
+
+**Verification:** Automated test
 
 **Status:** Implemented
 

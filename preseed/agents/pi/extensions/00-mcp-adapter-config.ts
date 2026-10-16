@@ -91,13 +91,42 @@ function managedOnly(value: Config): boolean {
   return Object.keys(value).every(key => key === "mcpServers" || key === "settings")
     && (value.settings === undefined || (value.settings !== null && typeof value.settings === "object"
       && !Array.isArray(value.settings) && Object.entries(value.settings)
-        .every(([key, entry]) => key === "deferWithMissingMetadata" && entry === true)))
+        .every(([key, entry]) => key === "deferWithMissingMetadata" && entry === true
+          || key === "requestTimeoutMs" && entry === 360000)))
     && Object.entries(value.mcpServers || {}).every(([name, server]) => ownedServer(name, server));
 }
 
-// Startup regenerates reproducible owned entries with the existing constructors;
-// factory-time preparation leaves working entries intact on Pi load or /reload.
-export function migratePiMcpAdapterConfig(directory: string, regenerateManaged = false): boolean {
+// Explicit timeout preparation follows config selection, never filename migration alone.
+function prepareBrowserTimeouts(value: Config): boolean {
+  if (value.settings !== undefined && (!value.settings || typeof value.settings !== "object"
+    || Array.isArray(value.settings))) throw Error("Invalid MCP settings");
+  const settings = (value.settings ?? {}) as Record<string, unknown>;
+  let changed = settings.requestTimeoutMs !== 360000;
+  settings.requestTimeoutMs = 360000;
+  value.settings = settings;
+  const candidate = value.mcpServers?.["chrome-devtools"];
+  if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) return changed;
+  const browser = candidate as Record<string, unknown>;
+  if (Object.hasOwn(browser, "requestTimeoutMs") && browser.requestTimeoutMs !== 360000) {
+    browser.requestTimeoutMs = 360000; changed = true;
+  }
+  if (Array.isArray(browser.args)) browser.args = browser.args.map(arg => {
+    if (typeof arg !== "string" || !arg.startsWith("--wsEndpoint=")) return arg;
+    try {
+      const url = new URL(arg.slice("--wsEndpoint=".length));
+      if (url.protocol !== "wss:" || url.hostname !== "api.cloudflare.com"
+        || url.port || url.username || url.password
+        || !/^\/client\/v4\/accounts\/[^/]+\/browser-rendering\/devtools\/browser$/.test(url.pathname)) return arg;
+      if (url.searchParams.getAll("keep_alive").length === 1 && url.searchParams.get("keep_alive") === "360000") return arg;
+      url.searchParams.set("keep_alive", "360000"); changed = true;
+      return "--wsEndpoint=" + url.toString();
+    } catch { return arg; }
+  });
+  return changed;
+}
+
+// Startup regenerates only positively owned entries; next-load preparation never regenerates auth.
+export function migratePiMcpAdapterConfig(directory: string, regenerateManaged = false, prepareTimeouts = false): boolean {
   try {
     if (!isAbsolute(directory)) return false;
     for (let path = resolve(directory); ; path = dirname(path)) {
@@ -109,7 +138,7 @@ export function migratePiMcpAdapterConfig(directory: string, regenerateManaged =
     const targetPath = join(directory, "mcp-adapter.json");
     const target = read(targetPath);
     const legacy = read(legacyPath);
-    if (!target && !legacy && !regenerateManaged) return true;
+    if (!target && !legacy && !regenerateManaged && !prepareTimeouts) return true;
     const targetConfig = target && config(target.bytes);
     const legacyConfig = legacy && config(legacy.bytes);
     let bytes = targetConfig ? target!.bytes : legacyConfig ? legacy!.bytes : Buffer.from("{}\n");
@@ -126,6 +155,10 @@ export function migratePiMcpAdapterConfig(directory: string, regenerateManaged =
         value.settings = { deferWithMissingMetadata: true }; changed = true;
       }
       if (changed) bytes = Buffer.from(`${JSON.stringify(value, null, 2)}\n`);
+    }
+    if (prepareTimeouts) {
+      const value = config(bytes)!;
+      if (prepareBrowserTimeouts(value)) bytes = Buffer.from(`${JSON.stringify(value, null, 2)}\n`);
     }
     if (legacy && (!legacyConfig || (!managedOnly(legacyConfig)
       && (targetConfig || !legacy.bytes.equals(bytes))))) {
@@ -158,7 +191,7 @@ type ExtensionAPI = {
 };
 export default function registerMcpAdapterMigration(pi: ExtensionAPI, env = process.env): void {
   const directory = env.PI_CODING_AGENT_DIR || join(env.HOME || homedir(), ".pi", "agent");
-  if (!migratePiMcpAdapterConfig(directory)) {
+  if (!migratePiMcpAdapterConfig(directory, false, true)) {
     pi.on?.("session_start", (_event, ctx) => {
       ctx.ui.notify("MCP adapter config migration skipped: inspect legacy and adapter files; user data was preserved.", "warning");
     });

@@ -217,6 +217,7 @@ jobs:
               - 'scripts/patch-pi-goal-review-control.mjs'
               - 'scripts/patch-pi-plan-mode-tool-policy.mjs'
               - 'scripts/patch-pi-native-model-display.mjs'
+              - 'scripts/patch-chrome-devtools-timeouts.mjs'
               - 'scripts/patch-rclone-bisync.py'
               # host/__tests__ asserts on the STRUCTURE of workflows other than
               # test.yml: deploy-requires-tests.test.js and

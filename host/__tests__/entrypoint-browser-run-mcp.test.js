@@ -100,7 +100,7 @@ describe('entrypoint Browser Run MCP registration', () => {
 
   it('REQ-BROWSER-006 AC5: duplicate retention parameters cannot retain a ten-minute browser', () => checkManagedBrowser('target', '180000&keep_alive=600000'));
 
-  it('REQ-BROWSER-006 AC8: startup aligns an existing Chrome RPC override without changing auth or lifecycle', () => {
+  it('REQ-BROWSER-009 AC1/AC2/AC4: startup aligns an existing Chrome RPC override without changing auth or lifecycle', () => {
     const browser = { command: 'chrome-devtools-mcp', args: [
       '--wsEndpoint=wss://api.cloudflare.com/client/v4/accounts/test-account/browser-rendering/devtools/browser?keep_alive=180000&custom=keep',
       '--wsHeaders={"Authorization":"Bearer synthetic-custom-token"}',

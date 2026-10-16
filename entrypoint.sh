@@ -3352,7 +3352,7 @@ configure_pi_mcp_adapter() {
     if node --input-type=module - "$module" "$USER_HOME/.pi/agent" <<'PI_MCP_MIGRATION'
 import { pathToFileURL } from 'node:url';
 const { migratePiMcpAdapterConfig } = await import(pathToFileURL(process.argv[2]).href);
-process.exitCode = migratePiMcpAdapterConfig(process.argv[3], true) ? 0 : 1;
+process.exitCode = migratePiMcpAdapterConfig(process.argv[3], true, true) ? 0 : 1;
 PI_MCP_MIGRATION
     then
         PI_MCP_CONFIG_READY=1
@@ -4118,7 +4118,7 @@ echo "[entrypoint] graphify MCP server registered in .claude.json (version $GRAP
 #   - GitHub Copilot: deferred (not wired yet).
 #
 # CDP endpoint (Claude):
-#   wss://api.cloudflare.com/client/v4/accounts/<ACCOUNT_ID>/browser-rendering/devtools/browser?keep_alive=180000
+#   wss://api.cloudflare.com/client/v4/accounts/<ACCOUNT_ID>/browser-rendering/devtools/browser?keep_alive=360000
 # The Cloudflare API token is passed as an Authorization: Bearer header via
 # --wsHeaders (per Cloudflare's MCP-clients doc; --wsHeaders only works with
 # --wsEndpoint). The token must carry the "Browser Rendering - Edit" scope -
@@ -4153,7 +4153,7 @@ remove_owned_browser_mcp_servers() {
 if [ "${SESSION_MODE:-default}" = "advanced" ] \
    && [ -n "${CLOUDFLARE_API_TOKEN:-}" ] \
    && [ -n "${CLOUDFLARE_ACCOUNT_ID:-}" ]; then
-    CDP_WS_ENDPOINT="wss://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/browser-rendering/devtools/browser?keep_alive=180000"
+    CDP_WS_ENDPOINT="wss://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/browser-rendering/devtools/browser?keep_alive=360000"
     # --wsHeaders takes a JSON string; build it with jq so the bearer token is
     # safely encoded, then pass it as a single --wsHeaders=<json> arg.
     CDP_WS_HEADERS=$(jq -nc --arg auth "Bearer $CLOUDFLARE_API_TOKEN" '{Authorization:$auth}')
@@ -4191,7 +4191,7 @@ if [ "${SESSION_MODE:-default}" = "advanced" ] \
         mkdir -p "$USER_HOME/.pi/agent"
         if [ -f "$PI_MCP_JSON" ] && jq -e '.mcpServers | has("chrome-devtools")' "$PI_MCP_JSON" >/dev/null 2>&1; then
             # Keep custom server settings and credentials, but cap Codeflare's
-            # Cloudflare Browser Run inactivity window at THREE MINUTES. This
+            # Cloudflare Browser Run inactivity window at SIX MINUTES. This
             # also repairs restored/migrated ten-minute endpoints without
             # rewriting unrelated browser services or authorization headers.
             node - "$PI_MCP_JSON" <<'NODE'
@@ -4208,8 +4208,8 @@ if (Array.isArray(browser?.args)) {
       if (url.protocol !== 'wss:' || url.hostname !== 'api.cloudflare.com'
         || url.port || url.username || url.password
         || !/^\/client\/v4\/accounts\/[^/]+\/browser-rendering\/devtools\/browser$/.test(url.pathname)) return arg;
-      if (url.searchParams.getAll('keep_alive').length === 1 && url.searchParams.get('keep_alive') === '180000') return arg;
-      url.searchParams.set('keep_alive', '180000');
+      if (url.searchParams.getAll('keep_alive').length === 1 && url.searchParams.get('keep_alive') === '360000') return arg;
+      url.searchParams.set('keep_alive', '360000');
       changed = true;
       return '--wsEndpoint=' + url.toString();
     } catch { return arg; }
