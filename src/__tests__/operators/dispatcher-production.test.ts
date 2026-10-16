@@ -3599,6 +3599,8 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
   // Seed authentic column shapes, then observe migration through the public bridge.
   function seedLegacySchedule(storage: DurableObjectStorage, path: Array<{ className: string; name: string }>,
     kind: 'delayed' | 'scheduled' | 'interval', due: number) {
+    // A genuine Agents0.20.1 snapshot has no version marker from the already-started 0.28 fixture.
+    storage.kv.delete('cf_agents:schedules_schema_version');
     storage.sql.exec(`CREATE TABLE cf_agents_schedules (id TEXT PRIMARY KEY, callback TEXT NOT NULL,
       payload TEXT, type TEXT NOT NULL, time INTEGER NOT NULL, delayInSeconds INTEGER, cron TEXT,
       intervalSeconds INTEGER, running INTEGER DEFAULT 0, execution_started_at INTEGER,

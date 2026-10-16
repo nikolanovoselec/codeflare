@@ -1,6 +1,9 @@
 /** REQ-OPERATOR-021: real-SDK composition contract without model/network calls. */
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { createProvisionedOperatorPiFactory } from '../dist/operator-pi-sdk.js';
 
 function fixture(options = {}) {
@@ -78,6 +81,54 @@ test('REQ-OPERATOR-021: executes an approved active Pi tool directly and rejects
   assert.equal(f.calls.tool.length, 1);
   await assert.rejects(session.executeTool({ toolCallId: 'task-3', name: 'write', arguments: {}, signal }),
     /approved Pi tool.*unavailable/i);
+});
+
+for (const layout of ['hoisted', 'nested']) {
+  test(`REQ-OPERATOR-021: loads the selected SDK's ${layout} import-only public Pi AI export`, async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), 'operator-pi-import-'));
+    try {
+      const sdkRoot = path.join(directory, 'node_modules/@earendil-works/pi-coding-agent');
+      const aiRoot = path.join(layout === 'nested' ? sdkRoot : directory, 'node_modules/@earendil-works/pi-ai');
+      await mkdir(sdkRoot, { recursive: true }); await mkdir(aiRoot, { recursive: true });
+      await writeFile(path.join(sdkRoot, 'package.json'), JSON.stringify({ name: '@earendil-works/pi-coding-agent', type: 'module' }));
+      await writeFile(path.join(aiRoot, 'package.json'), JSON.stringify({ name: '@earendil-works/pi-ai', type: 'module',
+        exports: { '.': { import: './public-entry.mjs' } } }));
+      await writeFile(path.join(aiRoot, 'public-entry.mjs'), `export function validateToolArguments(tool, call) {
+        if (call.arguments.path !== 'selected-sdk') throw new Error('Selected SDK validation rejected arguments');
+        return call.arguments;
+      }`);
+      const f = fixture();
+      const factory = createProvisionedOperatorPiFactory({ sdkRoot,
+        cwd: directory, agentDir: directory, sessionDir: directory,
+        profile: { provider: 'anthropic', model: 'approved-model', thinkingLevel: 'off', systemPrompt: 'x', tools: ['read'] },
+        importSdk: f.importSdk,
+      });
+      const session = await factory.create();
+      const signal = new AbortController().signal;
+      await assert.doesNotReject(session.executeTool({ toolCallId: 'public-export', name: 'read', arguments: { path: 'selected-sdk' }, signal }));
+      await assert.rejects(session.executeTool({ toolCallId: 'invalid', name: 'read', arguments: { path: 'other-sdk' }, signal }),
+        /Selected SDK validation rejected arguments/);
+      session.dispose();
+    } finally { await rm(directory, { recursive: true, force: true }); }
+  });
+}
+
+test('REQ-OPERATOR-021: refuses a selected Pi AI package without a public import instead of using legacy main', async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), 'operator-pi-no-import-'));
+  try {
+    const sdkRoot = path.join(directory, 'sdk');
+    const aiRoot = path.join(sdkRoot, 'node_modules/@earendil-works/pi-ai');
+    await mkdir(aiRoot, { recursive: true });
+    await writeFile(path.join(sdkRoot, 'package.json'), JSON.stringify({ name: 'selected-sdk', type: 'module' }));
+    await writeFile(path.join(aiRoot, 'package.json'), JSON.stringify({ name: '@earendil-works/pi-ai', type: 'module',
+      main: './legacy.cjs', exports: { '.': { require: './legacy.cjs' } } }));
+    await writeFile(path.join(aiRoot, 'legacy.cjs'), 'throw new Error("Legacy fallback executed");');
+    const f = fixture();
+    const factory = createProvisionedOperatorPiFactory({ sdkRoot, cwd: directory, agentDir: directory, sessionDir: directory,
+      profile: { provider: 'anthropic', model: 'approved-model', thinkingLevel: 'off', systemPrompt: 'x', tools: ['read'] },
+      importSdk: f.importSdk });
+    await assert.rejects(factory.create(), /Pi AI public import is incompatible/);
+  } finally { await rm(directory, { recursive: true, force: true }); }
 });
 
 test('REQ-OPERATOR-021: reopens only a canonical file inside the owned session directory', async () => {

@@ -121,16 +121,17 @@ describe('Pi settings.json packages assembly (entrypoint.sh)', () => {
     const twice = runAssembly(JSON.stringify({ extensions: ['user-ext.ts'] }), 2, true);
 
     assert.deepEqual(runAssembly(JSON.stringify({ extensions: ['user-ext.ts'] })).extensions,
-      ['user-ext.ts'], 'a local-only curation release retains unchanged local Review');
+      ['user-ext.ts', '-builtin:mcp'], 'a local-only release retains local Review and disables duplicate native MCP');
     assert.deepEqual(runAssembly(JSON.stringify({ extensions: ['user-ext.ts'] }), 2,
-      'curation-local-only').extensions, ['user-ext.ts'],
+      'curation-local-only').extensions, ['user-ext.ts', '-builtin:mcp'],
     'a restored local-only release removes obsolete managed exclusions in the same session home');
     for (const settings of [once, twice]) {
       assert.equal(settings.extensions[0], 'user-ext.ts');
-      assert.equal(settings.extensions.length, 3, 'Review exclusions must not accumulate');
-      assert.deepEqual(settings.extensions.slice(1).map(entry => entry.split('/').at(-1)),
+      assert.equal(settings.extensions.length, 4, 'Review and native MCP exclusions must not accumulate');
+      assert.deepEqual(settings.extensions.slice(1, -1).map(entry => entry.split('/').at(-1)),
         ['review-enforcement.ts', 'operator-review-remote.ts']);
-      assert.ok(settings.extensions.slice(1).every(entry => entry.startsWith('-/')));
+      assert.ok(settings.extensions.slice(1, -1).every(entry => entry.startsWith('-/')));
+      assert.equal(settings.extensions.at(-1), '-builtin:mcp');
     }
   });
 

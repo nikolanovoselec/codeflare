@@ -167,6 +167,16 @@ describe('REQ-OPERATOR-043: catalog and independently configured installations',
     const disabled = await request(`/installations/${active.id}/enable`, 'POST', { enabled: false, revision: enabledRevision });
     expect(disabled.status).toBe(200);
     expect(await (await request('/operators?query=Review%20operator')).json()).toMatchObject({ items: [], cursor: null });
+    // REQ-OPERATOR-086 AC6/7: configuration inspection does not confer execution readiness.
+    const registry = new OperatorRegistry(ctx, { ENCRYPTION_KEY: btoa('k'.repeat(32)) });
+    expect(await registry.resolveManagementExecution(active.id)).toEqual({ ok: false, reason: 'disabled' });
+    expect(await registry.resolveManagementConfiguration(active.id)).toMatchObject({ ok: true, value: {
+      installation: { id: active.id, enabled: false, releaseId: release.id }, release: { id: release.id },
+      manifestJson: sourceRow.manifest,
+    } });
+    ctx.storage.sql.exec('UPDATE operator_releases SET data=? WHERE id=?',
+      JSON.stringify({ ...JSON.parse(sourceRow.data), approved: false }), release.id);
+    expect(await registry.resolveManagementConfiguration(active.id)).toEqual({ ok: false, reason: 'artifact-unapproved' });
   }));
 
   it('returns only authorized catalog records in bounded cursor pages', async () => withManagementApi(async request => {

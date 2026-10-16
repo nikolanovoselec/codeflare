@@ -41,7 +41,9 @@ vi.mock('../../api/operator-management', () => ({
     server.savedRevision = value.revision;
     const installation = { id: 'install-1', revision: value.revision + 1, enabled: false,
       policy: value.policy, configuration: server.configuration };
-    server.installations = server.installations.map(item => ({ ...item, enabled: false, automaticRuns: value.configuration.renovate.automaticRuns }));
+    server.installations = server.installations.map(item => ({ ...item, enabled: false, revision: installation.revision,
+      automaticRuns: value.configuration.renovate.automaticRuns, repetitionIntervalSeconds: value.configuration.renovate.repetitionIntervalSeconds }));
+    server.management = { ...server.management, installations: [installation] };
     return installation;
   },
   prepareInstallationActivity: async (installationId: string, invocation: unknown) => {
@@ -224,6 +226,26 @@ describe('REQ-OPERATOR-086: dropdown Runs and Installed workspace', () => {
     expect(server.savedPolicy).toEqual({ capabilities: ['fetch', 'inference'], resourceProfileId: null });
     expect(server.prepared).toEqual({});
     expect(await screen.findByText(/saved.*disabled/i)).toBeTruthy();
+    await waitFor(() => expect((screen.getByRole('checkbox', { name: /automatic runs/i }) as HTMLInputElement).checked).toBe(true));
+    expect(screen.getByRole('button', { name: /run manually/i }).hasAttribute('disabled')).toBe(true);
+    await fireEvent.click(screen.getByRole('checkbox', { name: /automatic runs/i }));
+    await fireEvent.click(screen.getByRole('button', { name: 'Save scheduling' }));
+    await waitFor(() => expect(server.savedRevision).toBe(8));
+    expect(server.configuration).toEqual({ renovate: { repository: 'acme/updates', automaticRuns: false, repetitionIntervalSeconds: 3600 }, retained: 'unchanged' });
+    expect(server.installations[0].enabled).toBe(false);
+    expect(server.prepared).toEqual({});
+  });
+
+  it('AC7: lets a manager edit supported scheduling while the installation remains disabled', async () => {
+    server.installations = [installation({ enabled: false, canInvoke: false })];
+    await open('Installed');
+    expect((await screen.findByRole('button', { name: /run manually/i })).hasAttribute('disabled')).toBe(true);
+    await fireEvent.click(screen.getByRole('checkbox', { name: /automatic runs/i }));
+    await fireEvent.click(screen.getByRole('button', { name: 'Save scheduling' }));
+    expect(await screen.findByText(/saved.*disabled/i)).toBeTruthy();
+    expect(server.configuration.renovate.automaticRuns).toBe(true);
+    expect(server.installations[0].enabled).toBe(false);
+    expect(server.prepared).toEqual({});
   });
 
   it('AC7: treats a stale scheduling save as unconfirmed and does not silently enable or replay it', async () => {

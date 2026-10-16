@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@solidjs/testing-library';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@solidjs/testing-library';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import OperatorActivityButton from '../../components/OperatorActivityButton';
 import type { OperatorActivityDetail } from '../../api/operator-activities';
@@ -211,7 +211,7 @@ describe('REQ-OPERATOR-027: readable owned activity and bounded history', () => 
       progress: 'Checking compatibility', executionStatus: 'completed', attention: false, updatedAt: 1 }] });
     render(() => <OperatorActivityButton enabled />);
     await fireEvent.click(screen.getByRole('button', { name: /operator activity/i }));
-    await waitFor(() => expect(screen.getByText('Renovate Dispatcher')).toBeTruthy());
+    await waitFor(() => expect(within(screen.getByRole('article')).getByText('Renovate Dispatcher')).toBeTruthy());
     expect(screen.getByText('owner/repo · PR #42')).toBeTruthy();
     expect(screen.getByText('Checking compatibility')).toBeTruthy();
     expect(screen.queryByText('Needs attention')).toBeNull();
@@ -318,7 +318,8 @@ describe('REQ-OPERATOR-027: readable owned activity and bounded history', () => 
     currentDetail = { ...currentDetail, executionStatus: 'completed', cleanupStatus: 'stopped',
       collectionStatus: 'ready', result: { verdict: 'reviewed' } };
     await vi.advanceTimersByTimeAsync(15_000);
-    expect(screen.getByText('Activity ID: activity-1')).toBeTruthy();
+    expect(screen.getByText('activity-1')).toBeTruthy();
+    expect(screen.getByText('Activity ID:')).toBeTruthy();
     expect(screen.getByText('Execution: completed')).toBeTruthy();
     expect(screen.getByText('Cleanup: stopped')).toBeTruthy();
     expect(screen.getByText('Collection: ready')).toBeTruthy();

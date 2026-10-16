@@ -43,6 +43,9 @@ function fixture() {
     resolveManagementExecution: async (id: string) => id === installed.id && installed.enabled && release.approved
       ? { ok: true, value: { operator, installation: installed, release, manifestJson: manifests.value, controlsRevision: 1 } }
       : { ok: false, reason: 'disabled' },
+    resolveManagementConfiguration: async (id: string) => id === installed.id && release.approved
+      ? { ok: true, value: { operator, installation: installed, release, manifestJson: manifests.value, controlsRevision: 1 } }
+      : { ok: false, reason: 'artifact-unapproved' },
   };
   const env = { ENTERPRISE_MODE: 'active', OPERATOR_REGISTRY: { getByName: () => registry },
     OPERATOR_ACTIVITY: { getByName: () => { throw new Error('Installed reads must not access Activities'); } } } as unknown as Env;
@@ -101,11 +104,21 @@ describe('REQ-OPERATOR-086 AC5/6: current-human installed operator projection', 
 
   it('does not claim disabled or unapproved installations are invocable, and never borrows another release pin', async () => {
     const f = fixture(); f.installed.enabled = false;
-    expect(await (await f.request()).json()).toMatchObject({ items: [{ enabled: false, guidedMode: null }] });
+    expect(await (await f.request()).json()).toMatchObject({ items: [{ enabled: false, guidedMode: 'repository',
+      repository: 'acme/updates', automaticRuns: false, repetitionIntervalSeconds: 3600 }] });
     f.installed.enabled = true; f.release.approved = false;
     expect(await (await f.request()).json()).toMatchObject({ items: [{ approved: false, guidedMode: null }] });
     f.installed.releaseId = 'missing-release';
     expect(await (await f.request()).json()).toMatchObject({ items: [{ approved: false, version: null }] });
+  });
+
+  it('preserves supported scheduling for a disabled manager-only installation without enabling invocation', async () => {
+    const f = fixture(); f.installed.enabled = false;
+    f.operator.invokers = grant(); f.operator.managers = grant([identity.email]); f.controls.managers = grant([identity.email]);
+    const response = await f.request(); expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ items: [{ id: f.installed.id, revision: 7, enabled: false,
+      canInvoke: false, canManage: true, guidedMode: 'repository', automaticRuns: false, repetitionIntervalSeconds: 3600 }] });
+    expect((await f.request('/visible-install/preview')).status).toBe(404);
   });
 
   it('rejects malformed, duplicate and foreign installation-list cursors without leaking hidden identities', async () => {
