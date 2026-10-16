@@ -2087,8 +2087,8 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 1. The dashboard header places the operator control after the user control and before Settings. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @impl: web-ui/src/components/Header.tsx::Header --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-OPERATOR-040 AC1: places the operator control between the user menu and settings in enterprise mode) --> <!-- @test: web-ui/src/__tests__/components/Header.test.tsx (REQ-OPERATOR-040: Enterprise operator placement) -->
 2. Terminal headers place the operator control between VS Code and Storage. <!-- @impl: web-ui/src/components/Header.tsx::Header --> <!-- @test: web-ui/src/__tests__/components/Header.test.tsx (REQ-OPERATOR-040: Enterprise operator placement) -->
-3. The panel is called “Operator overview.” <!-- @impl: web-ui/src/components/OperatorActivityButton.tsx::OperatorActivityButton --> <!-- @test: web-ui/src/__tests__/components/OperatorActivityButton.test.tsx (REQ-OPERATOR-040: uses concise explanatory copy without redundant refresh or close controls) -->
-4. The panel explains that operators are autonomous agents that work in the background. <!-- @impl: web-ui/src/components/OperatorActivityButton.tsx::OperatorActivityButton --> <!-- @test: web-ui/src/__tests__/components/OperatorActivityButton.test.tsx (REQ-OPERATOR-040: uses concise explanatory copy without redundant refresh or close controls) -->
+3. The panel is called “Operators” and retains its existing header trigger. <!-- @impl: web-ui/src/components/OperatorActivityButton.tsx::OperatorActivityButton --> <!-- @test: web-ui/src/__tests__/components/OperatorActivityButton.test.tsx (REQ-OPERATOR-040: uses concise explanatory copy without redundant refresh or close controls) -->
+4. Persistent Runs and Installed segments distinguish owned execution history from installations; contextual help explains one-time invocation and separately configured automatic runs. <!-- @impl: web-ui/src/components/OperatorActivityButton.tsx::OperatorActivityButton --> <!-- @test: web-ui/src/__tests__/components/OperatorActivityButton.test.tsx (REQ-OPERATOR-040: uses concise explanatory copy without redundant refresh or close controls) -->
 5. Desktop and tablet render the activity control as an anchored popover. <!-- @impl: web-ui/src/styles/header.css::.operator-activity-panel --> <!-- @impl: web-ui/src/components/OperatorActivityButton.tsx::OperatorActivityButton --> <!-- @test: web-ui/src/__tests__/components/OperatorActivityButton.test.tsx (renders the panel outside the control so no filtered ancestor can contain it, anchored to the trigger) --> <!-- @manual: Owner verifies the opened overview remains anchored at desktop and tablet widths. -->
 6. Mobile renders the activity control as a bottom sheet. <!-- @impl: web-ui/src/styles/header.css::.operator-activity-panel --> <!-- @manual: Owner verifies the opened overview is bottom-fixed at mobile width. -->
 7. An open overview closes when the viewport width changes. <!-- @impl: web-ui/src/components/OperatorActivityButton.tsx::OperatorActivityButton --> <!-- @test: web-ui/src/__tests__/components/OperatorActivityButton.test.tsx (closes on a width change so a measured layout cannot outlive the width it was measured at, but survives height-only resizes) -->
@@ -2116,8 +2116,8 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Acceptance Criteria:**
 
-1. An empty or single-completed-entry overview uses a compact 168px height. <!-- @impl: web-ui/src/components/OperatorActivityButton.tsx::OperatorActivityButton --> <!-- @test: web-ui/src/__tests__/components/OperatorActivityButton.test.tsx (uses compact sizing for completed-only history) --> <!-- @manual: Owner verifies the 168px compact height at desktop, tablet, and mobile viewports. -->
-2. An overview with working activities or multiple retained entries, including completed-only history, occupies a bounded panel of up to 60vh within the viewport. <!-- @impl: web-ui/src/components/OperatorActivityButton.tsx::OperatorActivityButton --> <!-- @impl: web-ui/src/styles/header.css::.operator-activity-panel--active --> <!-- @test: web-ui/src/__tests__/components/OperatorActivityButton.test.tsx (uses compact sizing for completed history and returns to it when work completes) --> <!-- @manual: Owner verifies the 60vh working height at desktop, tablet, and mobile viewports. -->
+1. An empty or single-completed-entry Runs overview uses content-sized compact presentation that accommodates the segment controls, search and footer without clipping. <!-- @impl: web-ui/src/components/OperatorActivityButton.tsx::OperatorActivityButton --> <!-- @test: web-ui/src/__tests__/components/OperatorActivityButton.test.tsx (uses compact sizing for completed-only history) --> <!-- @manual: Verify compact content, segmented navigation and footer remain usable at desktop, tablet, and mobile viewports. -->
+2. An overview with working activities or multiple retained entries, including completed-only history, and Installed, manual-review and run-detail views occupy a bounded panel of up to 60vh within the viewport. <!-- @impl: web-ui/src/components/OperatorActivityButton.tsx::OperatorActivityButton --> <!-- @impl: web-ui/src/styles/header.css::.operator-activity-panel--active --> <!-- @test: web-ui/src/__tests__/components/OperatorActivityButton.test.tsx (uses compact sizing for completed history and returns to it when work completes) --> <!-- @manual: Owner verifies the 60vh working height at desktop, tablet, and mobile viewports. -->
 3. The bounded multi-entry overview scrolls its activity list while preserving accessible history and keyboard navigation. <!-- @impl: web-ui/src/styles/header.css::.operator-activity-list --> <!-- @manual: Owner verifies list scrolling at desktop, tablet, and mobile viewports. -->
 
 **Constraints:**
@@ -2128,9 +2128,46 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-040](#req-operator-040-owned-activity-control-presentation)
 
-**Verification:** Manual check.
+**Verification:** Component behavior tests and integration-browser visual acceptance verify the content-sized compact and bounded populated views; exact-head qualification for the dropdown redesign is pending.
 
-**Status:** Partial
+**Status:** Planned
+
+---
+
+<a id="req-operator-086-dropdown-runs-and-installed-workspace"></a>
+### REQ-OPERATOR-086: Dropdown Runs and Installed workspace
+
+**Intent:** People inspect owned runs and explicitly invoke visible installations inside the existing header dropdown without changing the surrounding dashboard or conferring new authority.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. The existing enterprise-only trigger opens a portalled, anchored dropdown with persistent Runs and Installed segments and nested back navigation. Keyboard dismissal, outside clicks, focus return, responsive bottom-sheet positioning and width-change dismissal remain intact.
+2. Runs search and operator filters apply only to the displayed page and disclose that scope. Five-entry history pagination remains accessible even when the current filter matches nothing; returning from details preserves page and filter context.
+3. Safe optional pinned-version and outcome-count metadata can accompany owner summaries without result-body fetching for each row. Missing metadata is unavailable, not zero; execution completion and merge outcomes remain distinct.
+4. Detail presents execution, collection and SDK release independently, readable bounded assessments and supported Review reports, an expandable full assessment, validated repository/PR/comment links, copyable full identity and manually opened diagnostics. Text is inert, and incomplete evidence is never an all-clear.
+5. Installed reads expose only installations the current verified human may invoke or manage. Invocation and management grants remain independent, globally ineligible managers cannot enumerate installations, and platform-admin management visibility does not imply invocation. Pagination is bounded and foreign cursors fail closed.
+6. Each installation preserves its own identity, pin and readiness. Disabled, unapproved, stale, unsupported or permission-limited installations cannot launch; sample inventory and Ready state are never fabricated. Existing supported guided input schemas remain authoritative.
+7. Manual invocation and supported automatic-run settings are adjacent but independent. Scheduling changes use the existing authorized, revision-checked management flow and preserve unrelated policy/configuration; unsupported or non-managed scheduling is explanatory, not a fake toggle. Saving configuration never silently enables a disabled installation.
+8. Manual review reads the selected installation's current preview and displays its real version, configured repository or supported editable legacy input, effect disclosure and unchanged scheduling. Opening, switching segments and cancelling review do not prepare work.
+9. Explicit Start one run uses the existing prepare/start contract once for the selected installation. Pending submission prevents duplicate work. An uncertain start requires reconciliation of the exact prepared Activity before another launch; unresolved preparation cannot be reconciled with an earlier Activity. Start capability bytes are never rendered or retained in UI state, and no mutation is blindly replayed.
+10. All dropdown styling reuses canonical Codeflare tokens, inherited fonts, configured accent, controls and positioning; it changes no surrounding dashboard styling or structure. Loading, empty, denied, stale, long-content and error states remain recoverable and usable at narrow/short viewports.
+
+**Constraints:**
+
+- Existing owner isolation, enterprise gating, authenticated grants, CSRF, installation revisions, approved pins and input validation remain authoritative.
+- No new scheduler, invocation schema, installation permission, default repository, global theme, imported font, dashboard shell or screenshot-coordinate positioning is introduced.
+- Status/diagnostics reads do not start, restart, renew, replay or collect work. SDK release does not prove physical cessation.
+- Existing catalog/management and full activity surfaces remain available; unsupported manual invocation is explained rather than invented.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-OPERATOR-027](#req-operator-027-owned-activity-user-surface), [REQ-OPERATOR-033](#req-operator-033-activity-surface-resilience), [REQ-OPERATOR-040](#req-operator-040-owned-activity-control-presentation), [REQ-OPERATOR-042](#req-operator-042-activity-overview-sizing-follows-working-state), [REQ-OPERATOR-045](#req-operator-045-delegated-management-and-invocation), [REQ-OPERATOR-057](#req-operator-057-readable-owned-activity-results), [REQ-OPERATOR-058](#req-operator-058-guided-dispatcher-invocation)
+
+**Verification:** The complete dropdown behavior plan is mapped before implementation; test-only RED and final GREEN CI plus integration-browser acceptance are required. No visual or runtime acceptance is claimed by the static design proposal.
+
+**Status:** Planned
 
 ---
 
