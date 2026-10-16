@@ -1,7 +1,7 @@
 /**
  * Offline interoperability check against the actual locked Pi client.
  *
- * Run with Node's TypeScript support and an installed pi-ai 0.99.1 directory:
+ * Run with Node's TypeScript support and the installed, lock-matched pi-ai directory:
  *   node scripts/verify-bedrock-pi-prompt-cache.mjs /path/to/@earendil-works/pi-ai
  *
  * No network, API token, real tools, or provider signatures are used. The

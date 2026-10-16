@@ -12,6 +12,7 @@ import { pathToFileURL } from 'node:url';
 export const EXPECTED_PI_PLAN_MODE_VERSION = '0.55.3';
 const SUPPORTED_VERSIONS = [EXPECTED_PI_PLAN_MODE_VERSION, '0.56.0', '0.58.3', '0.59.2'];
 const PARSED_POLICY_MARKER = 'CODEFLARE_PLAN_PARSED_COMMAND_POLICY';
+const USER_PROMPT_MARKER = 'CODEFLARE_PLAN_USER_PROMPT_BOUNDARY';
 export const REGISTERED_HELPERS_MARKER = 'CODEFLARE_PLAN_REGISTERED_HELPERS';
 export const REGISTERED_POLICY_MARKER = 'CODEFLARE_PLAN_REGISTERED_POLICY';
 
@@ -75,6 +76,21 @@ function patchParsedCommandPolicy(source, returned = 'undefined', argument = 'co
   return source.replaceAll(anchor, `// ${PARSED_POLICY_MARKER}`);
 }
 
+function patchUserPromptBoundary(source, kind) {
+  const anchor = `  pi.on("before_agent_start", (_event, ctx) => {
+    refreshStateForFirstPrompt(ctx);
+    if (!state.enabled || !workflowMutex.isOwner(workflowOwner)) return;
+    if (state.latestPlan || state.awaitingAction) {`;
+  const patched = anchor.replace('if (state.latestPlan || state.awaitingAction) {',
+    `if (_event.messageType !== "custom" && (state.latestPlan || state.awaitingAction)) { // ${USER_PROMPT_MARKER}`);
+  if (count(source, USER_PROMPT_MARKER) === 1 && count(source, patched) === 1) return source;
+  if (count(source, USER_PROMPT_MARKER) !== 0 || count(source, anchor) !== 1) {
+    throw new Error(`Plan Mode ${kind} user-prompt boundary anchor is missing or ambiguous`);
+  }
+  // Custom notification turns still refresh runtime state, but are not new user intent.
+  return source.replace(anchor, patched);
+}
+
 export function patchPiPlanModeDirectory(version, root) {
   if (!SUPPORTED_VERSIONS.includes(version)) {
     throw new Error(`Unsupported Plan Mode version ${version}; expected ${SUPPORTED_VERSIONS.join(' or ')}`);
@@ -88,7 +104,7 @@ export function patchPiPlanModeDirectory(version, root) {
   ];
   const patched = paths.map(({ path, kind }) => {
     const source = patchPiPlanModeSource(readFileSync(path, 'utf8'), kind, version);
-    return { path, source };
+    return { path, source: version === '0.59.2' ? patchUserPromptBoundary(source, kind) : source };
   });
   if (version === '0.56.0' || version === '0.58.3' || version === '0.59.2') {
     const current = version === '0.59.2';

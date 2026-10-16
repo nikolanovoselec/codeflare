@@ -6,15 +6,15 @@
 import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, writeFile, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
+import { createRequire } from 'node:module';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 const root = path.resolve(process.argv[2]);
 const { createAgentSession, createExtensionRuntime, ModelRuntime, SessionManager, SettingsManager } =
   await import(pathToFileURL(path.join(root, 'dist/index.js')).href);
-const { validateToolArguments } = await import(pathToFileURL(
-  path.join(root, 'node_modules/@earendil-works/pi-ai/dist/index.js'),
-).href);
+const sdkRequire = createRequire(path.join(root, 'package.json'));
+const { validateToolArguments } = await import(pathToFileURL(sdkRequire.resolve('@earendil-works/pi-ai')).href);
 const directory = await mkdtemp(path.join(tmpdir(), 'operator-pi-sdk-'));
 const cwd = path.join(directory, 'work');
 const agentDir = path.join(directory, 'agent');

@@ -37,7 +37,7 @@ async function fixture(run: (context: { registry: Prospective; restart: () => Pr
   state: { sessions: Map<string, { generation: number; status: string }>;
     roles: Map<string, string>; revoked: Set<string>; enabled: boolean } }) => Promise<void>) {
   const namespace = (env as unknown as { OPERATOR_REGISTRY: DurableObjectNamespace }).OPERATOR_REGISTRY;
-  await runInDurableObject(namespace.get(namespace.newUniqueId()), async (_instance, native) => {
+  await runInDurableObject(namespace.getByName(`prospective-registry-${crypto.randomUUID()}`), async (_instance, native) => {
     const state = { sessions: new Map([['asession01', { generation: 3, status: 'running' }],
       ['zsession01', { generation: 4, status: 'running' }]]),
       roles: new Map([['a@example.test', 'admin'], ['z@example.test', 'admin']]),

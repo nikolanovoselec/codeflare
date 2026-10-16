@@ -196,7 +196,8 @@ vi.mock('../../lib/vault-cache', () => ({
   sweepOrphanVaultCaches: vi.fn().mockResolvedValue(undefined),
 }));
 
-vi.mock('../../api/operator-activities', () => ({
+vi.mock('../../api/operator-activities', async original => ({
+  ...await original<typeof import('../../api/operator-activities')>(),
   listOperatorActivities: vi.fn().mockResolvedValue({ items: [] }),
   cancelOperatorActivity: vi.fn(),
 }));

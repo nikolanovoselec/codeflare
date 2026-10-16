@@ -5,7 +5,8 @@ import type { OperatorActivityDetail } from '../../api/operator-activities';
 
 const { listMock, cancelMock, detailMock, readMock } = vi.hoisted(() => ({
   listMock: vi.fn(), cancelMock: vi.fn(), detailMock: vi.fn(), readMock: vi.fn(async (_through: number) => ({ unreadCount: 0 })) }));
-vi.mock('../../api/operator-activities', () => ({
+vi.mock('../../api/operator-activities', async original => ({
+  ...await original<typeof import('../../api/operator-activities')>(),
   listOperatorActivities: async (...args: unknown[]) => {
     const value = await listMock(...args);
     return value && { ...value, workingCount: value.workingCount ?? value.items.filter(

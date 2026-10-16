@@ -6,7 +6,10 @@ const readable = (value: unknown): string | null =>
   typeof value === 'string' && value.length <= 1000 && !/[\p{Cc}]/u.test(value) ? value : null;
 const unavailableEvidence = 'Content unavailable (not safely readable)';
 const assessmentText = (value: unknown): string | null => typeof value === 'string' && value.length <= 65_536
-  && !/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(value) ? value : null;
+  && Array.from(value).every(character => {
+    const code = character.codePointAt(0)!;
+    return code >= 32 && code !== 127 || code === 9 || code === 10 || code === 13;
+  }) ? value : null;
 const repositoryPath = (value: unknown): string | null => typeof value === 'string' && value.length <= 201
   && /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(value) ? value : null;
 

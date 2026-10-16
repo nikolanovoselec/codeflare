@@ -13,6 +13,8 @@ import { appendDiagnostic, initializeDiagnostics, diagnosticLoss, observeOutbox,
 import { readActivityDiagnostics, DiagnosticReadError, type DiagnosticReadOptions, type DiagnosticReadState,
   type OperationRecord } from './dispatcher-diagnostics-read';
 import { Agent, type RetryOptions, type Schedule, type ScheduleCriteria } from 'agents';
+import { DISPATCHER_SCHEDULE_CALLBACK, childScheduleRow, dispatcherScheduleEnvelope,
+  dispatcherSchedulePath, migrateDispatcherSchedules, parseDispatcherSchedule, projectChildSchedule } from './dispatcher-scheduler';
 import type { Env as AppEnv } from '../types';
 import { parseDispatcherBundle, type DispatcherBundle } from './distribution';
 import { loadOperatorDispatcherClass } from './loader';
@@ -459,8 +461,20 @@ export class OperatorActivity extends Agent {
   #phaseAdmissions = new Map<string, Promise<void>>();
   #coldDispatcherLease?: DispatcherLease;
   #diagnosticQueue: Promise<void> = Promise.resolve();
+  #dispatcherScheduleQueue: Promise<void> = Promise.resolve();
 
   constructor(ctx: DurableObjectState, env: AppEnv) {
+    migrateDispatcherSchedules(ctx.storage, () => {
+      const record = ctx.storage.kv.get<AdmissionState>('admission');
+      const lease = ctx.storage.kv.get<DispatcherLease>(DISPATCHER_LEASE);
+      if (!record?.receipt || !lease || record.drive?.generation !== lease.generation
+        || lease.inputDigest !== record.receipt.intentDigest
+        || lease.artifactDigest !== record.executionContext?.artifactDigest) {
+        throw new Error('Legacy schedule generation ownership is unproven');
+      }
+      return { activityId: record.intent.activityId, generation: lease.generation,
+        inputDigest: lease.inputDigest, artifactDigest: lease.artifactDigest };
+    });
     super(ctx, env as unknown as Env);
     this.#appEnv = env as AppEnv & { OPERATOR_REGISTRY: NonNullable<AppEnv['OPERATOR_REGISTRY']> };
     // A diagnostics-only cold wake must not enter admission recovery or cleanup.
@@ -539,10 +553,8 @@ export class OperatorActivity extends Agent {
     }
   }
 
-  override async onStart(): Promise<void> {
-    this.#resumeDispatcherOnEntry();
-    await super.onStart();
-  }
+  // Lifecycle startup also runs for diagnostics-only wakes in Agents 0.28.
+  // Recovery stays on ordinary owner entry/alarm, not unconditional onStart.
 
   override async alarm(): Promise<void> {
     this.#resumeDispatcherOnEntry();
@@ -3063,6 +3075,17 @@ export class OperatorActivity extends Agent {
     // Intent4 only: after the durable generation fence, stop its actual owned child,
     // including descendants. Bookkeeping cleanup alone cannot stop an SDK callback.
     if (lease.serial) this.abortDispatcherFacet('Dispatcher generation retired');
+    await this.#serializeDispatcherSchedules(async () => {
+      for (const schedule of await this.scheduler.list()) {
+        if (schedule.callback !== DISPATCHER_SCHEDULE_CALLBACK) continue;
+        const envelope = parseDispatcherSchedule(schedule.payload);
+        if (!envelope) throw new Error('Dispatcher schedule cleanup binding invalid');
+        if (envelope.activityId === admission.intent.activityId && envelope.generation === lease.generation
+          && envelope.inputDigest === lease.inputDigest && envelope.artifactDigest === lease.artifactDigest) {
+          await this.scheduler.cancel(schedule.id);
+        }
+      }
+    });
     await super._cf_cleanupFacetPrefix([{ className: 'OperatorActivity', name: admission.intent.activityId },
       { className: 'FlueDispatcherAgent', name: 'dispatcher' }]);
     const tokens = await this.ctx.storage.get<Record<string, number>>('dispatcher:keepalive') ?? {};
@@ -3087,7 +3110,7 @@ export class OperatorActivity extends Agent {
     }
   }
 
-  async #dispatcherPath(path: DispatcherFacetPath): Promise<void> {
+  async #dispatcherPath(path: unknown): Promise<DispatcherFacetPath> {
     const admission = await this.ctx.storage.get<AdmissionState>('admission');
     if (!admission || !Array.isArray(path) || path.length !== 2
       || path.some(segment => !segment || typeof segment !== 'object' || Array.isArray(segment)
@@ -3095,6 +3118,91 @@ export class OperatorActivity extends Agent {
       || path[0].className !== 'OperatorActivity' || path[0].name !== admission.intent.activityId
       || path[1].className !== 'FlueDispatcherAgent' || path[1].name !== 'dispatcher') {
       throw new Error('Dispatcher facet path denied');
+    }
+    return dispatcherSchedulePath(admission.intent.activityId);
+  }
+
+  #serializeDispatcherSchedules<T>(run: () => Promise<T>): Promise<T> {
+    const next = this.#dispatcherScheduleQueue.then(run);
+    this.#dispatcherScheduleQueue = next.then(() => undefined, () => undefined);
+    return next;
+  }
+
+  async #dispatcherSchedules(generation: number, method: DispatcherSdkMethod, args: unknown[]): Promise<unknown> {
+    if (!await this.dispatcherGenerationCurrent(generation)) throw new Error('Dispatcher SDK generation changed');
+    const [admission, lease] = await Promise.all([this.ctx.storage.get<AdmissionState>('admission'),
+      this.ctx.storage.get<DispatcherLease>(DISPATCHER_LEASE)]);
+    if (!this.#leaseMatches(admission, lease, generation) || !admission || !lease) {
+      throw new Error('Dispatcher SDK generation changed');
+    }
+    const owned = (await this.scheduler.list()).flatMap(schedule => {
+      if (schedule.callback !== DISPATCHER_SCHEDULE_CALLBACK) return [];
+      const envelope = parseDispatcherSchedule(schedule.payload);
+      return envelope?.activityId === admission.intent.activityId && envelope.generation === generation
+        && envelope.inputDigest === lease.inputDigest && envelope.artifactDigest === lease.artifactDigest
+        ? [{ schedule, envelope }] : [];
+    });
+    if (!await this.dispatcherGenerationCurrent(generation)) throw new Error('Dispatcher SDK generation changed');
+    if (method === '_cf_scheduleForFacet' || method === '_cf_scheduleEveryForFacet') {
+      const options = z.strictObject({ idempotent: z.boolean().optional(), _idempotent: z.boolean().optional() })
+        .optional().parse(args[4]);
+      const when = args[1];
+      if (!(when instanceof Date) && typeof when !== 'number') throw new Error('Dispatcher callback denied');
+      if (method === '_cf_scheduleEveryForFacet' && typeof when !== 'number') throw new Error('Dispatcher callback denied');
+      if (owned.length >= 128) throw new Error('Dispatcher schedule limit');
+      const type = method === '_cf_scheduleEveryForFacet' ? 'interval' : when instanceof Date ? 'scheduled' : 'delayed';
+      const idempotent = type === 'interval' ? options?._idempotent !== false : options?.idempotent === true;
+      const existing = idempotent && owned.find(({ schedule, envelope }) => schedule.type === type
+        && envelope.original.payload === null && (type !== 'interval' || schedule.type === 'interval' && schedule.intervalSeconds === when));
+      if (existing) return { schedule: projectChildSchedule(existing.schedule, existing.envelope), created: false };
+      const envelope = dispatcherScheduleEnvelope({ activityId: admission.intent.activityId, generation,
+        inputDigest: lease.inputDigest, artifactDigest: lease.artifactDigest });
+      // The child executor retains its own original retry policy. One host attempt
+      // avoids multiplying application retries; platform failures still propagate.
+      const schedule = type === 'interval' && typeof when === 'number'
+        ? await this.scheduler.every(when, DISPATCHER_SCHEDULE_CALLBACK, envelope, { idempotent: false, retry: { maxAttempts: 1 } })
+        : await this.scheduler.set(when, DISPATCHER_SCHEDULE_CALLBACK, envelope, { idempotent: false, retry: { maxAttempts: 1 } });
+      if (!await this.dispatcherGenerationCurrent(generation)) {
+        await this.scheduler.cancel(schedule.id);
+        throw new Error('Dispatcher SDK generation changed');
+      }
+      return { schedule: projectChildSchedule(schedule, envelope, true), created: true };
+    }
+    if (method === '_cf_getScheduleForFacet' || method === '_cf_cancelScheduleForFacet') {
+      const id = z.string().regex(/^[A-Za-z0-9:._-]{1,128}$/).parse(args[1]);
+      const entry = owned.find(({ schedule }) => schedule.id === id);
+      if (method === '_cf_getScheduleForFacet') return entry && projectChildSchedule(entry.schedule, entry.envelope);
+      return entry && await this.scheduler.cancel(id) ? { ok: true, callback: '__flueWakeAgentSubmissions' } : { ok: false };
+    }
+    if (method === '_cf_listSchedulesForFacet') {
+      const criteria = z.strictObject({ id: z.string().regex(/^[A-Za-z0-9:._-]{1,128}$/).optional(),
+        type: z.enum(['scheduled', 'delayed', 'cron', 'interval']).optional(),
+        timeRange: z.strictObject({ start: z.date().optional(), end: z.date().optional() }).optional(),
+      }).optional().parse(args[1]);
+      return owned.map(({ schedule, envelope }) => projectChildSchedule(schedule, envelope)).filter(schedule =>
+        (!criteria?.id || schedule.id === criteria.id) && (!criteria?.type || schedule.type === criteria.type)
+        && (!criteria?.timeRange?.start || schedule.time >= Math.floor(criteria.timeRange.start.getTime() / 1000))
+        && (!criteria?.timeRange?.end || schedule.time <= Math.floor(criteria.timeRange.end.getTime() / 1000)));
+    }
+    throw new Error('Dispatcher schedule method denied');
+  }
+
+  /** Root-owned alarm callback; original generation is checked before any child construction. */
+  async dispatchDispatcherSchedule(payload: unknown, schedule: Schedule<unknown>): Promise<void> {
+    const envelope = parseDispatcherSchedule(payload);
+    if (!envelope || schedule.callback !== DISPATCHER_SCHEDULE_CALLBACK) throw new Error('Dispatcher schedule binding denied');
+    const lease = await this.ctx.storage.get<DispatcherLease>(DISPATCHER_LEASE);
+    if (!lease || lease.generation !== envelope.generation || lease.inputDigest !== envelope.inputDigest
+      || lease.artifactDigest !== envelope.artifactDigest || !await this.dispatcherGenerationCurrent(envelope.generation)) {
+      await this.scheduler.cancel(schedule.id);
+      return;
+    }
+    const path = dispatcherSchedulePath(envelope.activityId);
+    await this.#dispatcherPath(path);
+    const child = await this.#dispatcherFacet(lease);
+    if (!await this.dispatcherGenerationCurrent(envelope.generation)) return;
+    if (!await child._cf_dispatchScheduledCallback(path, childScheduleRow(schedule, envelope))) {
+      throw new Error('Dispatcher scheduled child callback was not handled');
     }
   }
 
@@ -3116,18 +3224,17 @@ export class OperatorActivity extends Agent {
     if (!DISPATCHER_SDK_METHODS.includes(method) || !Array.isArray(args)
       || new TextEncoder().encode(JSON.stringify(args)).byteLength > 64 * 1024
       || !await this.dispatcherGenerationCurrent(generation)) throw new Error('Dispatcher SDK authority denied');
-    if (method !== '_cf_releaseFacetKeepAlive') await this.#dispatcherPath(args[0] as DispatcherFacetPath);
-    const sdk = Agent.prototype as unknown as Record<DispatcherSdkMethod, (...args: unknown[]) => Promise<unknown>>;
     if (method === '_cf_releaseFacetKeepAlive') {
       const tokens = await this.ctx.storage.get<Record<string, number>>('dispatcher:keepalive') ?? {};
       if (typeof args[0] !== 'string' || !Object.hasOwn(tokens, args[0]) || tokens[args[0]] !== generation) {
         throw new Error('Dispatcher keepalive denied');
       }
-      await sdk[method].call(this, args[0]);
+      await super._cf_releaseFacetKeepAlive(args[0]);
       delete tokens[args[0]];
       await this.ctx.storage.put('dispatcher:keepalive', tokens);
       return;
     }
+    const ownerPath = await this.#dispatcherPath(args[0]);
     if (method === '_cf_scheduleForFacet' || method === '_cf_scheduleEveryForFacet') {
       const when = args[1];
       const delay = when instanceof Date ? (when.getTime() - Date.now()) / 1000 : when;
@@ -3136,15 +3243,12 @@ export class OperatorActivity extends Agent {
         || args[2] !== '__flueWakeAgentSubmissions' || args[3] !== undefined) {
         throw new Error('Dispatcher callback denied');
       }
-      const options = args[4];
-      if (options !== undefined && (!options || typeof options !== 'object' || Array.isArray(options)
-        || Object.entries(options).some(([key, value]) => !['idempotent', '_idempotent'].includes(key) || typeof value !== 'boolean'))) {
-        throw new Error('Dispatcher schedule options denied');
-      }
-      const schedules = await super._cf_listSchedulesForFacet(args[0] as DispatcherFacetPath);
-      if (schedules.length >= 128) throw new Error('Dispatcher schedule limit');
     }
-    if (['_cf_getScheduleForFacet', '_cf_cancelScheduleForFacet', '_cf_registerFacetRun', '_cf_unregisterFacetRun'].includes(method)
+    if (['_cf_scheduleForFacet', '_cf_scheduleEveryForFacet', '_cf_getScheduleForFacet',
+      '_cf_listSchedulesForFacet', '_cf_cancelScheduleForFacet'].includes(method)) {
+      return this.#serializeDispatcherSchedules(() => this.#dispatcherSchedules(generation, method, args));
+    }
+    if (['_cf_registerFacetRun', '_cf_unregisterFacetRun'].includes(method)
       && (typeof args[1] !== 'string' || !/^[A-Za-z0-9:._-]{1,128}$/.test(args[1]))) throw new Error('Dispatcher SDK identity denied');
     if (!await this.dispatcherGenerationCurrent(generation)) throw new Error('Dispatcher SDK generation changed');
     // This activity grants no subagent connections. Answer the pinned SDK's
@@ -3154,7 +3258,7 @@ export class OperatorActivity extends Agent {
     if (method === '_cf_acquireFacetKeepAlive') {
       const tokens = await this.ctx.storage.get<Record<string, number>>('dispatcher:keepalive') ?? {};
       if (Object.keys(tokens).length >= 64) throw new Error('Dispatcher keepalive limit');
-      const token = await sdk[method].call(this, ...args) as string;
+      const token = await super._cf_acquireFacetKeepAlive(ownerPath);
       try {
         await this.ctx.storage.transaction(async tx => {
           const record = await tx.get<AdmissionState>('admission');
@@ -3166,24 +3270,20 @@ export class OperatorActivity extends Agent {
         return token;
       } catch (error) { await super._cf_releaseFacetKeepAlive(token); throw error; }
     }
-    const result = await sdk[method].call(this, ...args);
+    if (method === '_cf_registerFacetRun') {
+      await super._cf_registerFacetRun(ownerPath, z.string().parse(args[1]));
+      return;
+    }
     if (method === '_cf_unregisterFacetRun') {
+      await super._cf_unregisterFacetRun(ownerPath, z.string().parse(args[1]));
       // A real SDK run-finish event wakes the existing owner. It is NOT terminal proof:
       // reconciliation still requires the exact original submission settlement. Retain
       // a wake that arrives during a read, rather than waiting5seconds for every PR.
       if (this.#reconciling) this.#dispatcherTerminalWake = true;
       else this.ctx.waitUntil(this.reconcileDispatcherLease({ generation }));
+      return;
     }
-    return result;
-  }
-
-  /** SDK alarm dispatch stays on the one dynamically loaded activity-private child. */
-  override async _cf_dispatchScheduledCallback(ownerPath: DispatcherFacetPath, row: unknown): Promise<boolean> {
-    this.#resumeDispatcherOnEntry();
-    await this.#dispatcherPath(ownerPath);
-    const lease = await this.ctx.storage.get<DispatcherLease>(DISPATCHER_LEASE);
-    if (!lease || !await this.dispatcherGenerationCurrent(lease.generation)) return false;
-    return (await this.#dispatcherFacet(lease))._cf_dispatchScheduledCallback(ownerPath, row);
+    throw new Error('Dispatcher SDK method denied');
   }
 
   override async _cf_checkRunFibersForFacet(ownerPath: DispatcherFacetPath): Promise<number> {

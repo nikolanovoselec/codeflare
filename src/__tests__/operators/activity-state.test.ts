@@ -21,7 +21,7 @@ async function withActivity(
   started = true,
 ): Promise<void> {
   const namespace = (env as unknown as { OPERATOR_ACTIVITY: DurableObjectNamespace }).OPERATOR_ACTIVITY;
-  const stub = namespace.get(namespace.newUniqueId());
+  const stub = namespace.getByName(`activity-state-${crypto.randomUUID()}`);
   await runInDurableObject(stub, async (_instance, ctx) => {
     // Registration/admission keys are distinct from the host DO's own storage.
     const registry = new OperatorRegistry(ctx, env as ConstructorParameters<typeof OperatorRegistry>[1]);

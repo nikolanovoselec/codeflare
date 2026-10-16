@@ -24,6 +24,7 @@ describe('speech-input / REQ-MOB-007 (voice input via Web Speech API)', () => {
   });
 
   afterEach(() => {
+    vi.unstubAllGlobals();
     delete (globalThis as Record<string, unknown>).webkitSpeechRecognition;
     delete (globalThis as Record<string, unknown>).SpeechRecognition;
   });
@@ -153,10 +154,10 @@ describe('speech-input / REQ-MOB-007 (voice input via Web Speech API)', () => {
     // the permission prompt under the virtual keyboard otherwise).
     it('REQ-MOB-013 AC1: getMicPermissionState returns the Permissions API state ("prompt" first use)', async () => {
       const queryMock = vi.fn(async () => ({ state: 'prompt' as PermissionState }));
-      (globalThis as Record<string, unknown>).navigator = {
+      vi.stubGlobal('navigator', {
         ...(globalThis as { navigator?: unknown }).navigator as object,
         permissions: { query: queryMock },
-      };
+      });
       vi.resetModules();
       const freshMod = await import('../../lib/speech-input');
       const state = await freshMod.getMicPermissionState();
@@ -166,20 +167,20 @@ describe('speech-input / REQ-MOB-007 (voice input via Web Speech API)', () => {
 
     it('REQ-MOB-013 AC1: getMicPermissionState returns "granted" once user has approved (no prompt-blur needed)', async () => {
       const queryMock = vi.fn(async () => ({ state: 'granted' as PermissionState }));
-      (globalThis as Record<string, unknown>).navigator = {
+      vi.stubGlobal('navigator', {
         ...(globalThis as { navigator?: unknown }).navigator as object,
         permissions: { query: queryMock },
-      };
+      });
       vi.resetModules();
       const freshMod = await import('../../lib/speech-input');
       expect(await freshMod.getMicPermissionState()).toBe('granted');
     });
 
     it('REQ-MOB-013 AC1: getMicPermissionState returns "unknown" when Permissions API throws (Safari/Firefox fallback)', async () => {
-      (globalThis as Record<string, unknown>).navigator = {
+      vi.stubGlobal('navigator', {
         ...(globalThis as { navigator?: unknown }).navigator as object,
         permissions: { query: vi.fn(async () => { throw new Error('not supported'); }) },
-      };
+      });
       vi.resetModules();
       const freshMod = await import('../../lib/speech-input');
       expect(await freshMod.getMicPermissionState()).toBe('unknown');

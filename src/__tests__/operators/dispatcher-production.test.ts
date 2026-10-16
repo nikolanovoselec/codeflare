@@ -3552,7 +3552,11 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
       .rejects.toThrow();
     const before = await f.activity.getDispatcherDiagnostics(f.proof.ownerKey);
     expect(before).toMatchObject({ parent: { driveGeneration: 1, lease: { generation: 1, status: 'running' } } });
-    const wake = () => f.activity._cf_dispatchScheduledCallback(path, created.schedule);
+    const rootSchedule = await f.activity.scheduler.get(created.schedule.id);
+    expect(rootSchedule).toBeDefined();
+    // Exercise the supported host alarm callback with its original stored
+    // generation envelope, never a raw row rebound to the latest lease.
+    const wake = () => f.activity.dispatchDispatcherSchedule(rootSchedule!.payload, rootSchedule!);
     const checkFibers = () => f.activity._cf_checkRunFibersForFacet(path);
     // REQ-OPERATOR-048 AC2/3: native invalidation is external to production's
     // explicit abort path. Preserve the failed call, not a hidden inline resend.
@@ -3562,7 +3566,7 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
     const constructionError = new Error('Controlled Dispatcher preparation failure');
     f.afterBundleRead(async () => { throw constructionError; });
     await expect(wake()).rejects.toBe(constructionError);
-    await expect(wake()).resolves.toBe(true);
+    await expect(wake()).resolves.toBeUndefined();
     const fiberError = new Error('Controlled Dispatcher fiber connection failure');
     f.interruptOwnedChild(fiberError);
     await expect(checkFibers()).rejects.toBe(fiberError);
@@ -3586,7 +3590,7 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
     // REQ-OPERATOR-017 AC4: cleanup and a previously authorized construction
     // must not instantiate a replacement after cancellation, including legacy.
     await expect(preparation).rejects.toBeInstanceOf(Error);
-    await expect(wake()).resolves.toBe(false);
+    await expect(wake()).resolves.toBeUndefined();
     await expect(checkFibers()).resolves.toBe(0);
     for (const readback of f.ownedChildReadbacks()) await expect(readback()).rejects.toBeInstanceOf(Error);
     expect((await f.capability.fetch(read('retired-after-connection-recovery'))).status).toBe(403);
@@ -3669,7 +3673,7 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
     const interval = await f.capability._cf_scheduleEveryForFacet(path, 10, '__flueWakeAgentSubmissions');
     expect(interval).toMatchObject({ created: true, schedule: { type: 'interval', intervalSeconds: 10 } });
     // The old interval protocol uses _idempotent, not the one-shot spelling.
-    expect(await f.capability._cf_scheduleEveryForFacet(path, 10, '__flueWakeAgentSubmissions', undefined, { idempotent: false }))
+    expect(await f.activity.dispatcherBridge(1, '_cf_scheduleEveryForFacet', [path, 10, '__flueWakeAgentSubmissions', undefined, { idempotent: false }]))
       .toMatchObject({ created: false, schedule: { id: interval.schedule.id } });
     const distinct = await f.capability._cf_scheduleEveryForFacet(path, 10, '__flueWakeAgentSubmissions', undefined, { _idempotent: false });
     expect(distinct.created).toBe(true);

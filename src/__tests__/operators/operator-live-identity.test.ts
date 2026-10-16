@@ -196,7 +196,7 @@ async function fixture(test: (f: {
   });
   await storeGithubConnection(protectedEnv as unknown as Env, session.bucket, { accessToken: 'parent-github-token', source: 'pat' });
   const activityNamespace = (env as unknown as { OPERATOR_ACTIVITY: DurableObjectNamespace }).OPERATOR_ACTIVITY;
-  await runInDurableObject(activityNamespace.get(activityNamespace.newUniqueId()), async (_instance, ctx) => {
+  await runInDurableObject(activityNamespace.getByName(`operator-identity-${crypto.randomUUID()}`), async (_instance, ctx) => {
     const activityEnv = { ...protectedEnv, OPERATOR_REGISTRY: { getByName: () => registry } };
     const activity = new OperatorActivity(ctx, activityEnv as unknown as Env);
     const actionEnv = { ...activityEnv, OPERATOR_ACTIVITY: { getByName: () => activity }, USAGE_DB: db,

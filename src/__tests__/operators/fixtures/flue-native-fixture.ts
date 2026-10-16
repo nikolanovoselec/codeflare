@@ -1,12 +1,13 @@
 /**
  * Compatibility milestone only: real pinned SDK root + package-built Flue facet.
- * This is NOT a production Activity replacement. No host adapter is implemented
- * here in RED: dynamic resolution, scheduler delegation and restricted operation
- * admission remain the missing behavior. The upstream transport intentionally
+ * This is NOT a production Activity replacement. A fixture-local wire adapter
+ * preserves the pinned child's legacy protocol over the host's public Scheduler.
+ * The upstream transport intentionally
  * accepts effects so blanket denial and absent authority checks cannot pass.
  */
 import { DurableObject, WorkerEntrypoint } from 'cloudflare:workers';
 import { Agent, getAgentByName, type RetryOptions, type Schedule, type ScheduleCriteria } from 'agents';
+import { z } from 'zod';
 import type { FixtureActivity } from './loader-worker';
 import { parseDispatcherOperation, readDispatcherBody } from '../../../operators/operator-runtime-capability';
 import { OperatorDispatcherTail } from '../../../operators/activity';
@@ -88,10 +89,14 @@ type NativeEnv = Omit<Cloudflare.Env, 'ACTIVITY'> & {
   ACTIVITY: DurableObjectNamespace<FixtureActivity>;
   LOADER: { get(id: string, code: () => Promise<unknown>): { getDurableObjectClass(name: string): unknown } };
 };
-type AgentsFacetRootBridge = Pick<Agent<NativeEnv>,
-  '_cf_scheduleForFacet' | '_cf_scheduleEveryForFacet' | '_cf_getScheduleForFacet'
-  | '_cf_listSchedulesForFacet' | '_cf_cancelScheduleForFacet' | '_cf_acquireFacetKeepAlive'
-  | '_cf_releaseFacetKeepAlive' | '_cf_registerFacetRun' | '_cf_unregisterFacetRun'>;
+const fixtureScheduleSchema = z.strictObject({
+  generation: z.number().int().positive(), artifactDigest: z.string().regex(/^[a-f0-9]{64}$/),
+  ownerPath: z.array(z.strictObject({ className: z.string(), name: z.string() })).length(2),
+  callback: z.string().min(1).max(128), payload: z.string().nullable(),
+  retry: z.strictObject({ maxAttempts: z.number().int().positive().optional(),
+    baseDelayMs: z.number().nonnegative().optional(), maxDelayMs: z.number().nonnegative().optional() }).optional(),
+});
+type FixtureScheduleEnvelope = z.infer<typeof fixtureScheduleSchema>;
 type FacetBridgeBinding = { generation: number; status: 'current' | 'stale' | 'denied' };
 type FixtureFlueRootStub = DurableObjectStub<FixtureFlueRoot>;
 export type ExternalReceipt = NativeDelivery & { sequence: number; path: string };
@@ -109,6 +114,7 @@ export class FixtureFlueRoot extends Agent<NativeEnv> {
   private reconcileExpiredAt = 0;
   private authorityInterruptedAt = 0;
   private readonly researchBarriers = new Map<string, () => void>();
+  private scheduleQueue: Promise<void> = Promise.resolve();
 
   constructor(ctx: DurableObjectState, env: NativeEnv) {
     super(ctx, env);
@@ -998,63 +1004,130 @@ export class FlueDispatcherAgent extends Pinned {
     }
   }
 
-  #agentsRoot(): AgentsFacetRootBridge {
-    return Agent.prototype as unknown as AgentsFacetRootBridge;
+  private serializeSchedules<T>(run: () => Promise<T>): Promise<T> {
+    const next = this.scheduleQueue.then(run);
+    this.scheduleQueue = next.then(() => undefined, () => undefined);
+    return next;
   }
 
-  override _cf_scheduleForFacet<T = string>(
+  private async ownedSchedules(generation: number, ownerPath: FacetPath, criteria?: ScheduleCriteria) {
+    this.#path(ownerPath);
+    if ((await this.facetBridgeBinding(generation)).status !== 'current') throw new Error('Fixture schedule generation changed');
+    const digest = await this.ctx.storage.get<string>('fixture:digest');
+    const schedules = await this.scheduler.list(criteria);
+    return schedules.flatMap(schedule => {
+      if (schedule.callback !== 'dispatchFixtureSchedule') return [];
+      const envelope = fixtureScheduleSchema.parse(schedule.payload);
+      this.#path(envelope.ownerPath);
+      return envelope.generation === generation && envelope.artifactDigest === digest ? [{ schedule, envelope }] : [];
+    });
+  }
+
+  private projectSchedule<T>(schedule: Schedule<unknown>, envelope: FixtureScheduleEnvelope, payload: T): Schedule<T> {
+    return { ...schedule, callback: envelope.callback, payload, retry: envelope.retry };
+  }
+
+  private createFacetSchedule<T>(generation: number, ownerPath: FacetPath, when: Date | string | number,
+    callback: string, payload: T, options?: { retry?: RetryOptions; idempotent?: boolean; _idempotent?: boolean }, interval = false,
+  ): Promise<{ schedule: Schedule<T>; created: boolean }> {
+    return this.serializeSchedules(async () => {
+      const owned = await this.ownedSchedules(generation, ownerPath);
+      const envelope = fixtureScheduleSchema.parse({ generation,
+        artifactDigest: await this.ctx.storage.get<string>('fixture:digest'), ownerPath,
+        callback, payload: payload === undefined ? null : JSON.stringify(payload), retry: options?.retry });
+      const type = interval ? 'interval' : typeof when === 'string' ? 'cron' : when instanceof Date ? 'scheduled' : 'delayed';
+      const idempotent = interval ? options?._idempotent !== false
+        : type === 'cron' ? options?.idempotent !== false : options?.idempotent === true;
+      const existing = idempotent && owned.find(entry => entry.schedule.type === type
+        && entry.envelope.callback === callback && entry.envelope.payload === envelope.payload
+        && (type !== 'interval' || entry.schedule.type === 'interval' && entry.schedule.intervalSeconds === when)
+        && (type !== 'cron' || entry.schedule.type === 'cron' && entry.schedule.cron === when));
+      if (existing) return { schedule: this.projectSchedule(existing.schedule, existing.envelope,
+        JSON.parse(existing.envelope.payload ?? 'null')), created: false };
+      if (interval && typeof when !== 'number') throw new Error('Invalid fixture interval');
+      const hostOptions = { idempotent: false, retry: { maxAttempts: 1 } };
+      const schedule = interval && typeof when === 'number'
+        ? await this.scheduler.every(when, 'dispatchFixtureSchedule', envelope, hostOptions)
+        : await this.scheduler.set(when, 'dispatchFixtureSchedule', envelope, hostOptions);
+      if ((await this.facetBridgeBinding(generation)).status !== 'current') {
+        await this.scheduler.cancel(schedule.id);
+        throw new Error('Fixture schedule generation changed');
+      }
+      return { schedule: this.projectSchedule(schedule, envelope, payload), created: true };
+    });
+  }
+
+  _cf_scheduleForFacet<T = string>(generation: number,
     ownerPath: FacetPath, when: Date | string | number, callback: string, payload?: T,
     options?: { retry?: RetryOptions; idempotent?: boolean },
-  ): Promise<{ schedule: Schedule<T>; created: boolean }> {
-    this.#path(ownerPath);
-    return (this.#agentsRoot()._cf_scheduleForFacet<T>).call(this, ownerPath, when, callback, payload, options);
+  ): Promise<{ schedule: Schedule<T | undefined>; created: boolean }> {
+    return this.createFacetSchedule(generation, ownerPath, when, callback, payload, options);
   }
-  override _cf_scheduleEveryForFacet<T = string>(
+  _cf_scheduleEveryForFacet<T = string>(generation: number,
     ownerPath: FacetPath, intervalSeconds: number, callback: string, payload?: T,
     options?: { retry?: RetryOptions; _idempotent?: boolean },
-  ): Promise<{ schedule: Schedule<T>; created: boolean }> {
-    this.#path(ownerPath);
-    return (this.#agentsRoot()._cf_scheduleEveryForFacet<T>).call(this, ownerPath, intervalSeconds, callback, payload, options);
+  ): Promise<{ schedule: Schedule<T | undefined>; created: boolean }> {
+    return this.createFacetSchedule(generation, ownerPath, intervalSeconds, callback, payload, options, true);
   }
-  override _cf_getScheduleForFacet(ownerPath: FacetPath, id: string): Promise<Schedule<unknown> | undefined> {
-    this.#path(ownerPath);
-    return this.#agentsRoot()._cf_getScheduleForFacet.call(this, ownerPath, id);
+  _cf_getScheduleForFacet(generation: number, ownerPath: FacetPath, id: string): Promise<Schedule<unknown> | undefined> {
+    return this.serializeSchedules(async () => {
+      const entry = (await this.ownedSchedules(generation, ownerPath, { id }))[0];
+      return entry && this.projectSchedule(entry.schedule, entry.envelope, JSON.parse(entry.envelope.payload ?? 'null'));
+    });
   }
-  override _cf_listSchedulesForFacet(ownerPath: FacetPath, criteria?: ScheduleCriteria): Promise<Schedule<unknown>[]> {
-    this.#path(ownerPath);
-    return this.#agentsRoot()._cf_listSchedulesForFacet.call(this, ownerPath, criteria);
+  _cf_listSchedulesForFacet(generation: number, ownerPath: FacetPath, criteria?: ScheduleCriteria): Promise<Schedule<unknown>[]> {
+    return this.serializeSchedules(async () => (await this.ownedSchedules(generation, ownerPath, criteria))
+      .map(entry => this.projectSchedule(entry.schedule, entry.envelope, JSON.parse(entry.envelope.payload ?? 'null'))));
   }
-  override _cf_cancelScheduleForFacet(ownerPath: FacetPath, id: string): Promise<{ ok: boolean; callback?: string }> {
-    this.#path(ownerPath);
-    return this.#agentsRoot()._cf_cancelScheduleForFacet.call(this, ownerPath, id);
+  _cf_cancelScheduleForFacet(generation: number, ownerPath: FacetPath, id: string): Promise<{ ok: boolean; callback?: string }> {
+    return this.serializeSchedules(async () => {
+      const entry = (await this.ownedSchedules(generation, ownerPath, { id }))[0];
+      return entry && await this.scheduler.cancel(id) ? { ok: true, callback: entry.envelope.callback } : { ok: false };
+    });
   }
   override _cf_acquireFacetKeepAlive(ownerPath: FacetPath): Promise<string> {
     this.#path(ownerPath);
-    return this.#agentsRoot()._cf_acquireFacetKeepAlive.call(this, ownerPath);
+    return super._cf_acquireFacetKeepAlive(ownerPath);
   }
   override _cf_releaseFacetKeepAlive(token: string): Promise<void> {
-    return this.#agentsRoot()._cf_releaseFacetKeepAlive.call(this, token);
+    return super._cf_releaseFacetKeepAlive(token);
   }
   override _cf_registerFacetRun(ownerPath: FacetPath, runId: string): Promise<void> {
     this.#path(ownerPath);
-    return this.#agentsRoot()._cf_registerFacetRun.call(this, ownerPath, runId);
+    return super._cf_registerFacetRun(ownerPath, runId);
   }
   override _cf_unregisterFacetRun(ownerPath: FacetPath, runId: string): Promise<void> {
     this.#path(ownerPath);
-    return this.#agentsRoot()._cf_unregisterFacetRun.call(this, ownerPath, runId);
+    return super._cf_unregisterFacetRun(ownerPath, runId);
   }
 
-  // The generated class is loaded dynamically, so it cannot appear in this
-  // Worker's static ctx.exports registry. Route only the two root-alarm RPCs
-  // that Agents uses to wake and recover this exact activity-private facet.
-  override async _cf_dispatchScheduledCallback(ownerPath: FacetPath, row: unknown): Promise<boolean> {
-    this.#path(ownerPath);
-    const executed = await (await this.child())._cf_dispatchScheduledCallback(ownerPath, row);
-    if (executed && await this.ctx.storage.get<boolean>('fixture:facet-tail-probe')
-      && (row as { callback?: unknown })?.callback === 'fixtureDiagnosticProbeWake') {
+  // Physical alarms remain SDK-owned. Reconstruct the pinned child's storage
+  // row instead of forwarding a public host Schedule or its authority envelope.
+  async dispatchFixtureSchedule(payload: unknown, schedule: Schedule<unknown>): Promise<void> {
+    const envelope = fixtureScheduleSchema.parse(payload);
+    this.#path(envelope.ownerPath);
+    const binding = await this.activityBinding();
+    if (!binding || binding.generation !== envelope.generation || binding.deadline <= Date.now()
+      || envelope.artifactDigest !== await this.ctx.storage.get<string>('fixture:digest')) {
+      await this.scheduler.cancel(schedule.id);
+      return;
+    }
+    const row = { id: schedule.id, callback: envelope.callback, payload: envelope.payload,
+      type: schedule.type, time: schedule.time,
+      delayInSeconds: schedule.type === 'delayed' ? schedule.delayInSeconds : null,
+      intervalSeconds: schedule.type === 'interval' ? schedule.intervalSeconds : null,
+      cron: schedule.type === 'cron' ? schedule.cron : null,
+      retry_options: envelope.retry ? JSON.stringify(envelope.retry) : null,
+      owner_path: JSON.stringify(envelope.ownerPath), owner_path_key: envelope.ownerPath.map(step =>
+        `${encodeURIComponent(step.className)}:${encodeURIComponent(step.name)}`).join('/') };
+    const child = await this.child();
+    const current = await this.activityBinding();
+    if (!current || current.generation !== envelope.generation || current.deadline <= Date.now()) return;
+    const executed = await child._cf_dispatchScheduledCallback(envelope.ownerPath, row);
+    if (!executed) throw new Error('Fixture child schedule was not handled');
+    if (await this.ctx.storage.get<boolean>('fixture:facet-tail-probe') && row.callback === 'fixtureDiagnosticProbeWake') {
       await this.ctx.storage.put('fixture:probe:callback-returned', true);
     }
-    return executed;
   }
   override async _cf_checkRunFibersForFacet(ownerPath: FacetPath): Promise<number> {
     this.#path(ownerPath);
@@ -1144,10 +1217,10 @@ export class FixtureFlueTransport extends WorkerEntrypoint<NativeEnv> {
     return (await this.#root()).facetBridgeBinding(generation);
   }
 
-  async #bridge<T>(call: (root: FixtureFlueRootStub) => Promise<T>): Promise<T> {
+  async #bridge<T>(call: (root: FixtureFlueRootStub, generation: number) => Promise<T>): Promise<T> {
     const binding = await this.#current();
     if (binding.status !== 'current') throw new Error(`Facet bridge generation ${binding.status}`);
-    return call(await this.#root());
+    return call(await this.#root(), binding.generation);
   }
 
   async fetch(request: Request) {
@@ -1162,23 +1235,23 @@ export class FixtureFlueTransport extends WorkerEntrypoint<NativeEnv> {
   async _cf_scheduleForFacet<T = string>(
     ownerPath: FacetPath, when: Date | string | number, callback: string, payload?: T,
     options?: { retry?: RetryOptions; idempotent?: boolean },
-  ): Promise<{ schedule: Schedule<T>; created: boolean }> {
-    return this.#bridge(root => root._cf_scheduleForFacet(ownerPath, when, callback, payload, options));
+  ): Promise<{ schedule: Schedule<T | undefined>; created: boolean }> {
+    return this.#bridge((root, generation) => root._cf_scheduleForFacet(generation, ownerPath, when, callback, payload, options));
   }
   async _cf_scheduleEveryForFacet<T = string>(
     ownerPath: FacetPath, intervalSeconds: number, callback: string, payload?: T,
     options?: { retry?: RetryOptions; _idempotent?: boolean },
-  ): Promise<{ schedule: Schedule<T>; created: boolean }> {
-    return this.#bridge(root => root._cf_scheduleEveryForFacet(ownerPath, intervalSeconds, callback, payload, options));
+  ): Promise<{ schedule: Schedule<T | undefined>; created: boolean }> {
+    return this.#bridge((root, generation) => root._cf_scheduleEveryForFacet(generation, ownerPath, intervalSeconds, callback, payload, options));
   }
   async _cf_getScheduleForFacet(ownerPath: FacetPath, id: string): Promise<Schedule<unknown> | undefined> {
-    return this.#bridge(root => root._cf_getScheduleForFacet(ownerPath, id));
+    return this.#bridge((root, generation) => root._cf_getScheduleForFacet(generation, ownerPath, id));
   }
   async _cf_listSchedulesForFacet(ownerPath: FacetPath, criteria?: ScheduleCriteria): Promise<Schedule<unknown>[]> {
-    return this.#bridge(root => root._cf_listSchedulesForFacet(ownerPath, criteria));
+    return this.#bridge((root, generation) => root._cf_listSchedulesForFacet(generation, ownerPath, criteria));
   }
   async _cf_cancelScheduleForFacet(ownerPath: FacetPath, id: string): Promise<{ ok: boolean; callback?: string }> {
-    return this.#bridge(root => root._cf_cancelScheduleForFacet(ownerPath, id));
+    return this.#bridge((root, generation) => root._cf_cancelScheduleForFacet(generation, ownerPath, id));
   }
   async _cf_acquireFacetKeepAlive(ownerPath: FacetPath): Promise<string> {
     return this.#bridge(root => root._cf_acquireFacetKeepAlive(ownerPath));

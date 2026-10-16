@@ -3071,10 +3071,13 @@ const reviewExclusions = !selectorReady && !remoteReady ? []
     .map(name => `-${require('path').join(reviewDir, name)}`);
 const managedReviewPaths = ['review-enforcement.ts', 'operator-review-remote.ts']
   .map(name => `-${require('path').join(reviewDir, name)}`);
+// The managed adapter owns lazy MCP startup/idle cleanup, including the first session.
+// Native Pi MCP otherwise connects eagerly before the adapter can disable it itself.
+const nativeMcpPaths = new Set(['builtin:mcp', '+builtin:mcp', '-builtin:mcp']);
 const extensions = Array.isArray(settings.extensions)
-  ? settings.extensions.filter(item => !managedReviewPaths.includes(item)) : [];
+  ? settings.extensions.filter(item => !managedReviewPaths.includes(item) && !nativeMcpPaths.has(item)) : [];
 fs.writeFileSync(path, JSON.stringify({ ...settings, packages: [...byName.values()],
-  extensions: [...extensions, ...reviewExclusions] }, null, 2) + '\n');
+  extensions: [...extensions, '-builtin:mcp', ...reviewExclusions] }, null, 2) + '\n');
 NODE
 }
 

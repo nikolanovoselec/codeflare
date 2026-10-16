@@ -7,6 +7,7 @@
  */
 import path from 'node:path';
 import { createHash } from 'node:crypto';
+import { createRequire } from 'node:module';
 import { mkdir, open } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
 import type { OperatorPiFactory, OperatorPiSession } from './operator-pi.js';
@@ -95,9 +96,10 @@ export function createProvisionedOperatorPiFactory(options: {
   const sessionDir = path.resolve(options.sessionDir);
   const sdkRoot = path.resolve(options.sdkRoot ?? DEFAULT_SDK_ROOT);
   const loadSdk = options.importSdk ?? (async () => import(pathToFileURL(path.join(sdkRoot, 'dist/index.js')).href));
-  const loadPiAi = options.importPiAi ?? (async () => import(pathToFileURL(
-    path.join(sdkRoot, 'node_modules/@earendil-works/pi-ai/dist/index.js'),
-  ).href));
+  const loadPiAi = options.importPiAi ?? (async () => {
+    const sdkRequire = createRequire(path.join(sdkRoot, 'package.json'));
+    return import(pathToFileURL(sdkRequire.resolve('@earendil-works/pi-ai')).href);
+  });
   const approvedTools = options.isolated ? ['run_approved_tasks']
     : options.review ? ['read', 'write'] : [...options.profile.tools];
   let contextPromise: Promise<{ sdk: PiSdk; piAi: PiAi; base: Record<string, unknown> }> | undefined;

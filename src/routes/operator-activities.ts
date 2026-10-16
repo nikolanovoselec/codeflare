@@ -154,7 +154,7 @@ app.get('/installations', async c => {
     if (!previous.ok || !canInvokeOperator(human, previous.value) && !canManage(previous.value)) return c.notFound();
   }
   // One indexed operator per page bounds installation projection to the existing 100-row limit.
-  const page = await registry.listManagementOperators({ email: human.email, issuer: human.issuer, groups: human.groups ?? [],
+  const page = await registry.listManagementOperators({ email: human.email, issuer: human.issuer, groups: [...(human.groups ?? [])],
     platformAdmin, limit: 1, cursor, includeInvokers: true,
     managersEligible: hasOperatorManagementEligibility(human, controls.managers) });
   const items = [];
@@ -173,7 +173,7 @@ app.get('/installations', async c => {
       const settings = preview?.guidedMode === 'repository' ? parseRenovateRunSettings(installation.configurationJson) : null;
       items.push({ id: installation.id, operatorId: operator.id, name: preview?.name ?? release?.name ?? operator.name ?? operator.id,
         installationName: installation.name, revision: installation.revision, enabled: installation.enabled, approved,
-        version: release ? release.tagName ?? release.version ?? `GitHub release #${release.githubReleaseId}` : null,
+        version: release ? release.tagName ?? `GitHub release #${release.githubReleaseId}` : null,
         canInvoke: invoke, canManage: manage, guidedMode: preview?.guidedMode ?? null,
         repository: settings?.repository ?? null, automaticRuns: settings?.automaticRuns ?? null,
         repetitionIntervalSeconds: settings?.repetitionIntervalSeconds ?? null });

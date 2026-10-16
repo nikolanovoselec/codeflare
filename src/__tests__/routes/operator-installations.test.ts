@@ -34,7 +34,7 @@ function fixture() {
   const catalog = { items: [operator, hidden], cursor: null as string | null };
   const manifests = { value: JSON.stringify({ id: 'renovate-dispatcher', profile: 'dispatcher', name: 'Renovate Dispatcher', intentVersion: '4', inputSchema: schema }) };
   const registry = {
-    listManagementOperators: async () => catalog,
+    listManagementOperators: async ({ limit }: { limit: number }) => ({ ...catalog, items: catalog.items.slice(0, limit) }),
     getManagementControls: async () => controls,
     getManagementOperator: async (id: string) => id === operator.id ? { ok: true, value: operator }
       : id === hidden.id ? { ok: true, value: hidden } : { ok: false, reason: 'not-found' },
