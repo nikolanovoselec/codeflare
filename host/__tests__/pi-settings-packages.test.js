@@ -128,10 +128,10 @@ describe('Pi settings.json packages assembly (entrypoint.sh)', () => {
     for (const settings of [once, twice]) {
       assert.equal(settings.extensions[0], 'user-ext.ts');
       assert.equal(settings.extensions.length, 4, 'Review and native MCP exclusions must not accumulate');
-      assert.deepEqual(settings.extensions.slice(1, -1).map(entry => entry.split('/').at(-1)),
+      assert.equal(settings.extensions[1], '-builtin:mcp');
+      assert.deepEqual(settings.extensions.slice(2).map(entry => entry.split('/').at(-1)),
         ['review-enforcement.ts', 'operator-review-remote.ts']);
-      assert.ok(settings.extensions.slice(1, -1).every(entry => entry.startsWith('-/')));
-      assert.equal(settings.extensions.at(-1), '-builtin:mcp');
+      assert.ok(settings.extensions.slice(2).every(entry => entry.startsWith('-/')));
     }
   });
 
