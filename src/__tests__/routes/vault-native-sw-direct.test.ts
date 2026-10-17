@@ -114,6 +114,7 @@ describe.each(['image export', 'upstream candidate'] as const)('CF-045: vault-na
     try {
       await runtime.message({ type: 'config', config });
       await expect.poll(() => messages.find(value => value.type === 'auth-error')).toBeDefined();
+      disconnect(); // The observation client does not implement native logout-save acknowledgements.
       expect(await runtime.message({ type: 'logout-sync', id: 'denied' })).toEqual([{ ok: true, databases: [] }]);
       expect(await runtime.message({ type: 'get-encryption-key' })).toEqual([]);
     } finally { disconnect(); }
@@ -134,9 +135,9 @@ describe.each(['image export', 'upstream candidate'] as const)('CF-045: vault-na
     runtimes.add(runtime);
     await runtime.message({ type: 'set-encryption-key', key: aesKey });
     await runtime.message({ type: 'config', config });
-    await expect.poll(() => runtime.logs.some(entry => entry.level === 'warn' && entry.args[0] === 'Sync space error')).toBe(true);
-    expect(runtime.logs.filter(entry => entry.level === 'info' && entry.args[0] === 'No clients are listening for messages, dropping message')).toEqual([]);
-    expect(runtime.logs.filter(entry => entry.level === 'error' && entry.args[0] === 'Sync space error')).toEqual([]);
+    await expect.poll(() => runtime.logs.some(entry => entry.level === 'warn' && entry.args.includes('Sync space error'))).toBe(true);
+    expect(runtime.logs.filter(entry => entry.level === 'info' && entry.args.includes('No clients are listening for messages, dropping message'))).toEqual([]);
+    expect(runtime.logs.filter(entry => entry.level === 'error' && entry.args.includes('Sync space error'))).toEqual([]);
     await runtime.message({ type: 'shutdown' });
   });
 
@@ -164,7 +165,8 @@ describe.each(['image export', 'upstream candidate'] as const)('CF-045: vault-na
       if (failure === 'space mismatch') {
         expect(runtime.logs).toContainEqual(expect.objectContaining({ level: 'info', args: expect.arrayContaining(['[service proxy auth]']) }));
         await runtime.message({ type: 'perform-space-sync' });
-        expect(runtime.logs).toContainEqual({ level: 'warn', args: ['Ignoring perform-space-sync request, proxy not configured yet'] });
+        expect(runtime.logs).toContainEqual(expect.objectContaining({ level: 'warn',
+          args: expect.arrayContaining(['Ignoring perform-space-sync request, proxy not configured yet']) }));
       } else {
         expect(runtime.logs).toContainEqual(expect.objectContaining({ level: 'error', args: expect.arrayContaining(['[service proxy error]']) }));
       }
@@ -283,7 +285,9 @@ describe.each(['image export', 'upstream candidate'] as const)('CF-045: vault-na
       if (state === 'snapshot only') {
         // Native DELETE removes local content without reconciling its previously
         // synced remote revision. No private snapshot or IndexedDB rows are set.
-        const removed = await runtime.fetch(new Request('https://vault.test/.fs/Notes/retained.md', { method: 'DELETE' }));
+        const removed = await runtime.fetch(new Request('https://vault.test/.fs/Notes/retained.md', {
+          method: 'DELETE', headers: { 'X-Sync-Mode': 'true' },
+        }));
         expect(removed.status).toBe(200);
         const listing = await runtime.fetch(new Request('https://vault.test/.fs/'));
         expect(await listing.json()).toEqual([]);

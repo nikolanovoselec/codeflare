@@ -5,6 +5,7 @@ import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, renameSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
+import { setTimeout as pollDelay } from 'node:timers/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -88,10 +89,10 @@ async function client(f) {
     else request.resolve(message.result);
   });
   const send = message => child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', ...message })}\n`);
-  function request(method, params) {
+  function request(method, params, timeout = 15_000) {
     const id = ++sequence;
     return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => { pending.delete(id); reject(new Error(`${method} timed out: ${diagnostics}`)); }, 15_000);
+      const timer = setTimeout(() => { pending.delete(id); reject(new Error(`${method} timed out: ${diagnostics}`)); }, timeout);
       pending.set(id, { resolve, reject, timer });
       send({ id, method, params });
     });
@@ -113,14 +114,29 @@ async function client(f) {
   } catch (error) { await close(); throw error; }
   return {
     close,
-    async tool(name, args = {}) {
-      const result = await request('tools/call', { name, arguments: args });
+    async tool(name, args = {}, timeout = 15_000) {
+      const result = await request('tools/call', { name, arguments: args }, timeout);
       const text = result.content.filter(item => item.type === 'text').map(item => item.text).join('\n');
       assert.notEqual(result.isError, true, text);
       assert.doesNotMatch(text, /^Error executing /, text);
       return text;
     },
   };
+}
+
+// Publication is asynchronous: wait for a public answer, not a private watcher tick.
+async function eventually(mcp, name, args, expected) {
+  const timeout = 2000;
+  const deadline = Date.now() + timeout;
+  let lastError;
+  do {
+    const answer = await mcp.tool(name, args, Math.max(1, deadline - Date.now()));
+    try { assert.match(answer, expected); return; } catch (error) { lastError = error; }
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) break;
+    await pollDelay(Math.min(20, remaining));
+  } while (Date.now() < deadline);
+  throw new Error(`${name} did not converge within ${timeout}ms`, { cause: lastError });
 }
 
 for (const parallel of [false, true]) {
@@ -170,13 +186,13 @@ it('REQ-AGENT-023: AC4 starts graphless and rebinds fresh query contexts without
 
     f.select(first.nested);
     f.publish(first.graph, graph('Before', { community: 1 }), 2_000_000_001);
-    assert.match(await mcp.tool('get_node', { node_id: 'BeforeCaller' }), /Node: BeforeCaller/);
+    await eventually(mcp, 'get_node', { node_id: 'BeforeCaller' }, /Node: BeforeCaller/);
     assert.match(await mcp.tool('query_graph', { question: 'BeforeLeaf', token_budget: 8000 }), /BeforeCaller/);
     assert.match(await mcp.tool('shortest_path', { source: 'BeforeCaller', target: 'BeforeLeaf' }), /2 hops/);
     assert.match(await mcp.tool('get_community', { community_id: 1 }), /BeforeCaller/);
 
     f.publish(first.graph, graph('After', { community: 2 }), 2_000_000_002);
-    assert.match(await mcp.tool('get_node', { node_id: 'AfterCaller' }), /Node: AfterCaller/);
+    await eventually(mcp, 'get_node', { node_id: 'AfterCaller' }, /Node: AfterCaller/);
     assert.doesNotMatch(await mcp.tool('query_graph', { question: 'AfterLeaf', token_budget: 8000 }), /Before/);
     assert.match(await mcp.tool('shortest_path', { source: 'AfterCaller', target: 'AfterLeaf' }), /2 hops/);
     assert.match(await mcp.tool('get_community', { community_id: 2 }), /AfterCaller/);
@@ -185,21 +201,21 @@ it('REQ-AGENT-023: AC4 starts graphless and rebinds fresh query contexts without
     // Equal mtimes on different paths must still rebind complete query contexts.
     f.publish(second.graph, graph('Other', { community: 3 }), 2_000_000_002);
     f.select(second.nested);
-    assert.match(await mcp.tool('get_node', { node_id: 'OtherCaller' }), /Node: OtherCaller/);
+    await eventually(mcp, 'get_node', { node_id: 'OtherCaller' }, /Node: OtherCaller/);
     assert.match(await mcp.tool('get_community', { community_id: 3 }), /OtherLeaf/);
     f.select(empty.nested);
-    assert.match(await mcp.tool('graph_stats'), /Nodes: 0\nEdges: 0\n/);
+    await eventually(mcp, 'graph_stats', {}, /Nodes: 0\nEdges: 0\n/);
 
     // No sentinel falls back to freshest; valid sentinel beats that freshness.
     rmSync(f.sentinel);
     f.publish(second.graph, graph('Freshest'), 2_000_000_004);
-    assert.match(await mcp.tool('get_node', { node_id: 'FreshestCaller' }), /Node: FreshestCaller/);
+    await eventually(mcp, 'get_node', { node_id: 'FreshestCaller' }, /Node: FreshestCaller/);
     f.select(first.nested);
-    assert.match(await mcp.tool('get_node', { node_id: 'AfterCaller' }), /Node: AfterCaller/);
+    await eventually(mcp, 'get_node', { node_id: 'AfterCaller' }, /Node: AfterCaller/);
     f.publish(f.globalGraph, graph('Unified'), 2_000_000_000);
-    assert.match(await mcp.tool('get_node', { node_id: 'UnifiedCaller' }), /Node: UnifiedCaller/);
+    await eventually(mcp, 'get_node', { node_id: 'UnifiedCaller' }, /Node: UnifiedCaller/);
     assert.doesNotMatch(await mcp.tool('query_graph', { question: 'UnifiedLeaf', token_budget: 8000 }), /After|Freshest/);
     rmSync(f.globalGraph);
-    assert.match(await mcp.tool('get_node', { node_id: 'AfterCaller' }), /Node: AfterCaller/);
+    await eventually(mcp, 'get_node', { node_id: 'AfterCaller' }, /Node: AfterCaller/);
   } finally { if (mcp) await mcp.close(); f.dispose(); }
 });
