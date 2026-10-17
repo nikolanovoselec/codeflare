@@ -285,9 +285,9 @@ describe('REQ-OPS-038: deployment coding-agent selection', () => {
   });
 
   it('REQ-OPS-051 AC3: packaged-image smoke executes exact image-owned Oxlint', () => {
-    assert.equal(verifyOxlintRuntime({ run: () => 'Version: 1.85.0\n' }), 'Version: 1.85.0');
-    for (const reported of ['Version: 1.81.0\n', 'Version: 1.85.0-beta.1\n', 'Version: 1.85.0.1\n']) {
-      assert.throws(() => verifyOxlintRuntime({ run: () => reported }), /must report exact version 1\.85\.0/);
+    assert.equal(verifyOxlintRuntime({ run: () => 'Version: 1.87.0\n' }), 'Version: 1.87.0');
+    for (const reported of ['Version: 1.81.0\n', 'Version: 1.85.0\n', 'Version: 1.87.0-beta.1\n', 'Version: 1.87.0.1\n']) {
+      assert.throws(() => verifyOxlintRuntime({ run: () => reported }), /must report exact version 1\.87\.0/);
     }
   });
 
