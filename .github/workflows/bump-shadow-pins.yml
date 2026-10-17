@@ -13,11 +13,12 @@ name: Bump Shadow Pins
 #   consult-llm-mcp, and chrome-devtools-mcp
 # - uv versioned GitHub archive + authoritative SHA-256 digest
 # - browser-run-mcp: @modelcontextprotocol/sdk manifest + lock pin
-# - pi-extensions: every dependency in preseed/agents/pi/package.json except context-mode
-#   (the @juicesharp rpiv family, @narumitw/pi-goal, @narumitw/pi-plan-mode, @narumitw/pi-usage,
-#   pi-web-access, pi-mcp-adapter, @gotgenes/pi-subagents) — each is also a literal install
-#   spec in entrypoint.sh + baked into the seed; context-mode is owned
-#   atomically by its dedicated job above
+# - pi-extensions: dependencies in preseed/agents/pi/package.json except context-mode
+#   and the Pi runtime agent (the @juicesharp rpiv family, @narumitw/pi-goal,
+#   @narumitw/pi-plan-mode, @narumitw/pi-usage, pi-web-access, pi-mcp-adapter,
+#   @gotgenes/pi-subagents) — each is also a literal install spec in entrypoint.sh
+#   + baked into the seed; context-mode has its dedicated atomic job, and the
+#   Pi runtime family is owned atomically by agent-clis
 # - impeccable skill bundle (vendored for Claude Code + Pi, checked via impeccable.style)
 # - actionlint and zizmor (version + SHA256 in the non-executable
 #   .github/workflow-tool-pins.json manifest; workflows read that one validated
@@ -1272,8 +1273,8 @@ jobs:
   # than the manifest: each version is mirrored as a literal `npm:<name>@<ver>`
   # install spec in entrypoint.sh's Pi settings `required` array and baked into
   # src/lib/agent-seed.generated.ts, so Dependabot (manifest-only) would drift them.
-  # `pi-extensions-discover` lists every dep EXCEPT context-mode (pinned in TWO
-  # installs and owned atomically by the dedicated `context-mode:` job); the
+  # `pi-extensions-discover` excludes context-mode (owned by its dedicated job)
+  # and the Pi runtime agent (owned with its SDK family by `agent-clis`). The
   # `pi-extensions` matrix then fans out one leg per extension, so each appears
   # separately in the run and bumps in its own PR, and one extension's failure (e.g.
   # a registry fetch error) never blocks the others.
@@ -1292,11 +1293,11 @@ jobs:
           # all — which is exactly why it was the one the sweep missed: it had
           # no `token:` line to replace.
           persist-credentials: false
-      - name: List Pi extension pins (every dep except context-mode)
+      - name: List Pi extension pins (excluding dedicated atomic owners)
         id: list
         run: |
           set -euo pipefail
-          PACKAGES=$(node -e 'const p=require("./preseed/agents/pi/package.json");process.stdout.write(JSON.stringify(Object.keys(p.dependencies||{}).filter(n=>n!=="context-mode")))')
+          PACKAGES=$(node -e 'const p=require("./preseed/agents/pi/package.json");process.stdout.write(JSON.stringify(Object.keys(p.dependencies||{}).filter(n=>n!=="context-mode"&&n!=="@earendil-works/pi-coding-agent")))')
           printf 'packages=%s\n' "$PACKAGES" >> "$GITHUB_OUTPUT"
           echo "Pi extensions: $PACKAGES"
 

@@ -124,8 +124,8 @@ const OperatorActivityButton: Component<Props> = props => {
       </button>
       <Portal><Show when={open()}>
         <section ref={panel} class="operator-activity-panel operator-activity-panel--portal operator-dropdown" classList={{
-          'operator-activity-panel--active': working() > 0 || (activities()?.items.length ?? 0) > 1 || !!selected(),
-          'operator-activity-panel--compact': working() === 0 && (activities()?.items.length ?? 0) <= 1 && !selected(),
+          'operator-activity-panel--active': segment() === 'Installed' || working() > 0 || (activities()?.items.length ?? 0) > 1 || !!selected(),
+          'operator-activity-panel--compact': segment() === 'Runs' && working() === 0 && (activities()?.items.length ?? 0) <= 1 && !selected(),
           'operator-activity-panel--empty': !activities.loading && !loadError() && !activities()?.items.length,
         }} style={viewportWidth() > 640 ? { top: `${position().top}px`, right: `${position().right}px` } : undefined}
           tabindex="-1" role="dialog" aria-label="Operator activity" aria-modal="false">

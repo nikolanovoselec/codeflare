@@ -1,9 +1,10 @@
 /* Approved dropdown-only hierarchy. Width, portal anchor and responsive sheet remain header-owned. */
 .operator-dropdown.operator-activity-panel {
-  height: min(72vh, calc(100dvh - 84px)); min-height: 0;
-  max-height: min(72vh, calc(100dvh - 84px)); padding: var(--space-4);
+  height: auto; min-height: 0;
+  max-height: min(60vh, calc(100dvh - 84px)); padding: var(--space-4);
   color: var(--color-text-primary); font: inherit; gap: var(--space-3);
 }
+.operator-dropdown.operator-activity-panel--active { height: min(60vh, calc(100dvh - 84px)); }
 .operator-dropdown h2, .operator-dropdown h3, .operator-dropdown h4, .operator-dropdown h5, .operator-dropdown p { margin: 0; }
 .operator-dropdown h2 { font-size: var(--text-lg); font-weight: var(--font-semibold); }
 .operator-dropdown h3, .operator-dropdown h4 { font-size: var(--text-base); font-weight: var(--font-semibold); }
@@ -57,4 +58,7 @@
 .operator-dropdown footer { flex-shrink: 0; display: flex; align-items: center; justify-content: space-between; gap: var(--space-2);
   padding-top: var(--space-3); border-top: 1px solid var(--color-border-default); }
 .operator-dropdown-notice { font-size: var(--text-sm); }
-@media (max-width: 640px) { .operator-dropdown.operator-activity-panel { height: min(75dvh, calc(100dvh - 24px)); max-height: min(75dvh, calc(100dvh - 24px)); } }
+@media (max-width: 640px) {
+  .operator-dropdown.operator-activity-panel { max-height: min(60dvh, calc(100dvh - 24px)); }
+  .operator-dropdown.operator-activity-panel--active { height: min(60dvh, calc(100dvh - 24px)); }
+}
