@@ -54,6 +54,7 @@ export type FlueFixtureCommand =
       readonly journeyScenario?: NativeJourneyScenario; readonly admittedInferenceBytes?: 1048576 }
   | { action: 'journey-observation' }
   | { action: 'journey-comment-request' }
+  | { action: 'inference-operation'; operationId: string; content: string }
   | { action: 'journey-updates'; submissionId: string; previous: DispatcherResultProjection }
   | { action: 'journey-diagnostic'; submissionId: string }
   | { action: 'send'; delivery: NativeDelivery | { repository: string; pullRequest?: number };
@@ -1286,6 +1287,16 @@ export async function flueFixture(request: Request, env: NativeEnv) {
           body: JSON.stringify({ body: 'Migration compatibility remains unverified. Source: https://docs.example.test/large-migration' }),
         }),
       }), binding.generation);
+    }
+    case 'inference-operation': {
+      const binding = await root.facetBridgeBinding();
+      if (binding.status !== 'current') return new Response(null, { status: 403 });
+      const response = await root.transport(new Request('https://operator.internal/v1/dispatcher/inference', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ operationId: command.operationId,
+          input: { messages: [{ role: 'user', content: command.content }], stream: true } }),
+      }), binding.generation);
+      return Response.json({ status: response.status, body: await response.text() });
     }
     case 'journey-updates': return Response.json(await root.journeyUpdates(command.submissionId, command.previous));
     case 'journey-diagnostic': return Response.json(await root.journeyDiagnostic(command.submissionId));

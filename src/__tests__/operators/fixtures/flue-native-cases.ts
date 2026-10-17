@@ -1642,6 +1642,23 @@ export function registerNativeDispatcherCases(
 
     it('conflicts changed input under a completed operation ID instead of performing another external read', async () => {
       const { id } = await prepare();
+      // The same immutable-input rule must survive large model histories without
+      // storing those histories in one KV value. This calls the real fixture
+      // transport, not another generated model/tool workload.
+      const content = 'x'.repeat(768 * 1024);
+      const inference = (operationId: string, text = content) => command<{ status: number; body: string }>(id, {
+        action: 'inference-operation', operationId, content: text,
+      });
+      for (let index = 0; index < 3; index++) {
+        const response = await inference(`bounded-inference-${index}`);
+        expect(response.status).toBe(200);
+        expect(response.body).toContain('data: [DONE]');
+      }
+      await command(id, { action: 'evict' });
+      expect((await inference('bounded-inference-0')).status).toBe(200);
+      const conflict = await inference('bounded-inference-0', `${content}changed`);
+      expect(conflict.status).toBe(409);
+      expect(JSON.parse(conflict.body)).toEqual({ code: 'OPERATOR_OPERATION_CONFLICT' });
       const input = delivery(id);
       const first = await settle(id, await send(id, input));
       expect(results(first).at(-1)?.result.status).toBe(200);
