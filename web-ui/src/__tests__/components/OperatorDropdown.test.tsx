@@ -194,6 +194,59 @@ describe('REQ-OPERATOR-086: dropdown Runs and Installed workspace', () => {
   });
 
   it.each([
+    {}, { enabled: false }, { approved: false }, { guidedMode: null, automaticRuns: null },
+  ])('AC5/6: retains management navigation independently of invocation and readiness %j', async extra => {
+    server.installations = [installation({ ...extra, canManage: true, canInvoke: false })];
+    await open('Installed');
+    const item = await screen.findByRole('article', { name: 'Updates' });
+    expect(within(item).getByRole('button', { name: /run manually/i }).hasAttribute('disabled')).toBe(true);
+    // Intentional navigation contract: this usable link enters the existing reauthorizing management route.
+    expect(screen.getByRole('link', { name: 'Manage installations' }).getAttribute('href')).toBe('/operators');
+    expect(server.prepared).toEqual({});
+    expect(server.configuration.renovate.automaticRuns).toBe(false);
+  });
+
+  it.each([true, false])('AC5: invocation permission %s never grants management navigation', async canInvoke => {
+    server.installations = [installation({ canManage: false, canInvoke })];
+    await open('Installed');
+    const item = await screen.findByRole('article', { name: 'Updates' });
+    expect(screen.queryByRole('link', { name: 'Manage installations' })).toBeNull();
+    expect(within(item).getByRole('button', { name: /run manually/i }).hasAttribute('disabled')).toBe(!canInvoke);
+    expect(server.prepared).toEqual({});
+  });
+
+  it('AC5: offers one management destination for a mixed inventory without granting invocation to managers', async () => {
+    server.installations = [installation({ id: 'manage-only', installationName: 'Managed only', canInvoke: false }),
+      installation({ id: 'invoke-only', installationName: 'Invocation only', canManage: false })];
+    await open('Installed');
+    const managed = await screen.findByRole('article', { name: 'Managed only' });
+    const invoked = screen.getByRole('article', { name: 'Invocation only' });
+    expect(screen.getByRole('link', { name: 'Manage installations' }).getAttribute('href')).toBe('/operators');
+    expect(within(managed).getByRole('button', { name: /run manually/i }).hasAttribute('disabled')).toBe(true);
+    expect(within(invoked).getByRole('button', { name: /run manually/i }).hasAttribute('disabled')).toBe(false);
+    expect(server.prepared).toEqual({});
+  });
+
+  it.each([false, true])('AC5/10: does not invent management eligibility for an empty or unavailable inventory (error=%s)', async unavailable => {
+    server.installations = []; server.installError = unavailable;
+    await open('Installed');
+    await screen.findByText(unavailable ? 'Installations unavailable' : 'No installed operators on this page.');
+    expect(screen.queryByRole('link', { name: 'Manage installations' })).toBeNull();
+    expect(server.prepared).toEqual({});
+  });
+
+  it('AC5: refreshed management revocation removes navigation while preserving invocation eligibility', async () => {
+    await open('Installed');
+    expect((await screen.findByRole('link', { name: 'Manage installations' })).getAttribute('href')).toBe('/operators');
+    server.installations = [installation({ canManage: false })];
+    await fireEvent.click(screen.getByRole('button', { name: 'Refresh installations' }));
+    await screen.findByText(/management permission required to change scheduling/i);
+    expect(screen.queryByRole('link', { name: 'Manage installations' })).toBeNull();
+    expect(screen.getByRole('button', { name: /run manually/i }).hasAttribute('disabled')).toBe(false);
+    expect(server.prepared).toEqual({});
+  });
+
+  it.each([
     { enabled: false }, { approved: false }, { guidedMode: null, automaticRuns: null },
   ])('AC6: does not offer a usable launcher for installation state %j', async extra => {
     server.installations = [installation(extra)];
@@ -307,6 +360,7 @@ describe('REQ-OPERATOR-086: dropdown Runs and Installed workspace', () => {
     await waitFor(() => expect(server.prepared['prepared-1']?.phase).toBe('prepared'));
     expect(screen.getByRole('button', { name: /start one run|starting/i }).hasAttribute('disabled')).toBe(true);
     expect(screen.getByRole('tab', { name: 'Runs' }).hasAttribute('disabled')).toBe(true);
+    expect(screen.queryByRole('link', { name: 'Manage installations' })).toBeNull();
     resolve();
     await waitFor(() => expect(server.prepared).toEqual({ 'prepared-1': { installationId: 'install-1',
       invocation: { repository: 'acme/updates' }, phase: 'queued' } }));
@@ -337,6 +391,7 @@ describe('REQ-OPERATOR-086: dropdown Runs and Installed workspace', () => {
     await screen.findByText(/outcome.*unknown/i);
     expect(screen.getByRole('tab', { name: 'Runs' }).hasAttribute('disabled')).toBe(true);
     expect(screen.getByRole('button', { name: 'Start one run' }).hasAttribute('disabled')).toBe(true);
+    expect(screen.queryByRole('link', { name: 'Manage installations' })).toBeNull();
     await fireEvent.keyDown(document, { key: 'Escape' });
     expect(screen.getByRole('dialog')).toBeTruthy();
     server.prepared['prepared-1'].phase = 'queued';
