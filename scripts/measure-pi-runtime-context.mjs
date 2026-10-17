@@ -6,6 +6,8 @@
  *
  * Usage: node scripts/measure-pi-runtime-context.mjs [--agent-dir <path>]
  */
+import { readFile } from 'node:fs/promises';
+import { findPackageJSON } from 'node:module';
 import { homedir } from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -30,6 +32,17 @@ export function validateInitialToolExposure(report) {
   }
 }
 
+export async function loadFauxProvider(piRoot) {
+  const packageJson = findPackageJSON('@earendil-works/pi-ai', pathToFileURL(path.join(piRoot, 'package.json')));
+  if (!packageJson) throw new Error('Provisioned Pi AI package is unavailable');
+  const manifest = JSON.parse(await readFile(packageJson, 'utf8'));
+  const entry = manifest.exports?.['./providers/*']?.import;
+  if (typeof entry !== 'string' || !entry.startsWith('./') || !entry.includes('*')) {
+    throw new Error('Provisioned Pi AI public faux import is incompatible');
+  }
+  return import(new URL(entry.replaceAll('*', 'faux'), pathToFileURL(packageJson)).href);
+}
+
 export async function main() {
   const agentDir = path.resolve(option('--agent-dir', path.join(homedir(), '.pi/agent')));
   const piRoot = process.env.PI_CODING_AGENT_ROOT
@@ -37,9 +50,7 @@ export async function main() {
   const cwd = process.cwd();
 
   const sdk = await import(pathToFileURL(path.join(piRoot, 'dist/index.js')));
-  const { createFauxCore, fauxAssistantMessage } = await import(pathToFileURL(
-    path.join(piRoot, 'node_modules/@earendil-works/pi-ai/dist/providers/faux.js'),
-  ));
+  const { createFauxCore, fauxAssistantMessage } = await loadFauxProvider(piRoot);
 
   const settingsManager = sdk.SettingsManager.create(cwd, agentDir);
   const resourceLoader = new sdk.DefaultResourceLoader({ cwd, agentDir, settingsManager });
