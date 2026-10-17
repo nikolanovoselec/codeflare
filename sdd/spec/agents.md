@@ -83,13 +83,10 @@ These compatibility anchors resolve dated changelog references to retired review
 
 **Acceptance Criteria:**
 
-1. The managed `ask_user_question` tool waits five minutes from the first rendered questionnaire or native dialog, then finishes with the first authored option for each unanswered question. The TUI overlay and RPC host wait are released; the legacy native-dialog fallback follows the same policy. <!-- @impl: scripts/rpiv-question-timeout.mjs::withQuestionnaireDeadline --> <!-- @test: preseed/agents/pi/test/questionnaire-timeout.test.mjs (selects option one only after five unanswered minutes) -->
-2. A submitted option or custom answer wins before the deadline, remains unchanged afterward, and cannot affect a subsequent invocation. <!-- @impl: scripts/rpiv-question-timeout.mjs::withQuestionnaireDeadline --> <!-- @test: preseed/agents/pi/test/questionnaire-timeout.test.mjs (preserves) -->
-3. One deadline covers the whole invocation. Completed answers, multiple selections and notes are preserved; unanswered multi-select questions receive only their first authored option. <!-- @impl: scripts/rpiv-question-timeout.mjs::defaultQuestionnaireAnswers --> <!-- @test: preseed/agents/pi/test/questionnaire-timeout.test.mjs (retains completed answers and defaults only unanswered questions on one deadline) -->
-4. Explicit cancellation and execution abort release the wait without automatic answers. An already-aborted call opens no questionnaire; completed calls leave no deadline that can finish another invocation. <!-- @impl: scripts/rpiv-question-timeout.mjs::withQuestionnaireDeadline --> <!-- @test: preseed/agents/pi/test/questionnaire-timeout.test.mjs (preserves) --> <!-- @test: preseed/agents/pi/test/questionnaire-timeout.test.mjs (never manufactures answers for aborted or invalid questions) -->
-5. Missing UI and invalid-question errors remain errors, never automatic answers. <!-- @impl: scripts/patch-rpiv-question-timeout.mjs::patchQuestionnaireTimeout --> <!-- @test: preseed/agents/pi/test/questionnaire-timeout.test.mjs (absent UI remains an error, not automatic approval) --> <!-- @test: preseed/agents/pi/test/questionnaire-timeout.test.mjs (never manufactures answers for aborted or invalid questions) -->
-6. Automatic answers are identified individually and at result level in the tool details and model-facing content, not represented as a user response or explicit authorization. <!-- @impl: scripts/rpiv-question-timeout.mjs::withQuestionnaireDeadline --> <!-- @test: preseed/agents/pi/test/questionnaire-timeout.test.mjs (selects option one only after five unanswered minutes) -->
-7. The installed-package transform accepts only the reviewed version and source layouts, is idempotent, runs before image JITI warming and after package update/repair, and is exercised by the existing RPIV verification path. <!-- @impl: scripts/patch-rpiv-question-timeout.mjs::patchQuestionnaireTimeout --> <!-- @impl: Dockerfile::patch-rpiv-question-timeout --> <!-- @impl: entrypoint.sh::update_pi_and_codex_when_fast_start_disabled --> <!-- @impl: scripts/verify-rpiv-host-peers.mjs --> <!-- @test: preseed/agents/pi/test/questionnaire-timeout.test.mjs (source allowlist rejects) --> <!-- @test: preseed/agents/pi/test/questionnaire-timeout.test.mjs (selects option one only after five unanswered minutes) -->
+1. One five-minute deadline, starting at the first rendered questionnaire or native dialog, completes the invocation with only the first authored option for each unanswered single- or multi-select question and releases its TUI/native-dialog wait. <!-- @impl: scripts/rpiv-question-timeout.mjs::withQuestionnaireDeadline --> <!-- @impl: scripts/rpiv-question-timeout.mjs::defaultQuestionnaireAnswers --> <!-- @test: preseed/agents/pi/test/questionnaire-timeout.test.mjs (selects option one only after five unanswered minutes) --> <!-- @test: preseed/agents/pi/test/questionnaire-timeout.test.mjs (retains completed answers and defaults only unanswered questions on one deadline) -->
+2. An option or custom answer submitted before expiry completes normally without waiting for the deadline. <!-- @impl: scripts/rpiv-question-timeout.mjs::withQuestionnaireDeadline --> <!-- @test: preseed/agents/pi/test/questionnaire-timeout.test.mjs (preserves) -->
+3. Timeout preserves completed answers, manual multiple selections, and saved or currently edited notes. <!-- @impl: scripts/rpiv-question-timeout.mjs::defaultQuestionnaireAnswers --> <!-- @impl: scripts/patch-rpiv-question-timeout.mjs::patchQuestionnaireTimeout --> <!-- @test: preseed/agents/pi/test/questionnaire-timeout.test.mjs (retains completed answers and defaults only unanswered questions on one deadline) --> <!-- @test: preseed/agents/pi/test/questionnaire-timeout.test.mjs (TUI timeout preserves completed and currently edited notes) --> <!-- @test: preseed/agents/pi/test/questionnaire-timeout.test.mjs (preserves manual multiple selections while defaulting another question) -->
+4. Automatic answers are identified individually and at result level in the tool details and model-facing content, not represented as a user response or explicit authorization. <!-- @impl: scripts/rpiv-question-timeout.mjs::withQuestionnaireDeadline --> <!-- @test: preseed/agents/pi/test/questionnaire-timeout.test.mjs (selects option one only after five unanswered minutes) -->
 
 **Constraints:**
 
@@ -102,7 +99,62 @@ These compatibility anchors resolve dated changelog references to retired review
 
 **Dependencies:** [REQ-AGENT-210](#req-agent-210-managed-extension-startup-preparation)
 
-**Verification:** Actual pinned package through the SDK-wrapped tool, real TUI component input and native-dialog host responses with a platform clock; image/update preparation remains subject to existing CI and packaged-image gates. The user waived a separate RED-CI push for this change, not final exact-head review and CI. Source implementation is present; exact-head CI and deployed acceptance remain pending.
+**Verification:** Actual pinned package through the SDK-wrapped tool, real TUI component input and native-dialog host responses with a platform clock; final exact-head CI and deployed acceptance remain separate gates.
+
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-219: Pi Questionnaire Cancellation and Isolation
+
+**Intent:** Questionnaire deadlines must not replace cancellation or error outcomes or interfere with another questionnaire.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Explicit cancellation or execution abort releases the active wait without defaulting unanswered questions. <!-- @impl: scripts/rpiv-question-timeout.mjs::withQuestionnaireDeadline --> <!-- @impl: scripts/patch-rpiv-question-timeout.mjs::patchQuestionnaireTimeout --> <!-- @test: preseed/agents/pi/test/questionnaire-timeout.test.mjs (preserves) -->
+2. An already-aborted execution opens no questionnaire. <!-- @impl: scripts/rpiv-question-timeout.mjs::withQuestionnaireDeadline --> <!-- @test: preseed/agents/pi/test/questionnaire-timeout.test.mjs (never manufactures answers for aborted or invalid questions) -->
+3. Missing UI and invalid-question outcomes remain errors, never automatic answers. <!-- @impl: scripts/patch-rpiv-question-timeout.mjs::patchQuestionnaireTimeout --> <!-- @test: preseed/agents/pi/test/questionnaire-timeout.test.mjs (absent UI remains an error, not automatic approval) --> <!-- @test: preseed/agents/pi/test/questionnaire-timeout.test.mjs (never manufactures answers for aborted or invalid questions) -->
+4. One invocation's completion or expiry cannot finish or cancel a questionnaire in another invocation or SDK session. <!-- @impl: scripts/rpiv-question-timeout.mjs::withQuestionnaireDeadline --> <!-- @test: preseed/agents/pi/test/questionnaire-timeout.test.mjs (preserves) --> <!-- @test: preseed/agents/pi/test/questionnaire-timeout.test.mjs (independent SDK sessions retain independent deadlines) -->
+5. Cancellation retains answers completed before the execution abort. <!-- @impl: scripts/patch-rpiv-question-timeout.mjs::patchQuestionnaireTimeout --> <!-- @test: preseed/agents/pi/test/questionnaire-timeout.test.mjs (abort preserves completed answers without defaulting unanswered questions) -->
+
+**Constraints:**
+
+- Scope remains the managed Pi questionnaire under [REQ-AGENT-218](#req-agent-218-bounded-pi-questionnaire-wait).
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-218](#req-agent-218-bounded-pi-questionnaire-wait)
+
+**Verification:** SDK-wrapped questionnaire tests with actual TUI input, native-dialog responses and a platform clock.
+
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-220: Managed Questionnaire Preparation
+
+**Intent:** Managed startup preparation must retain the bounded-questionnaire policy through supported lifecycle transitions.
+
+**Applies To:** System
+
+**Acceptance Criteria:**
+
+1. Preparation rejects an unreviewed package identity, version or source layout before changing any installed questionnaire artifact. <!-- @impl: scripts/patch-rpiv-question-timeout.mjs::patchQuestionnaireTimeout --> <!-- @test: preseed/agents/pi/test/questionnaire-timeout.test.mjs (source allowlist rejects) -->
+2. Repeated preparation retains a working questionnaire with the same bounded-wait behavior. <!-- @impl: scripts/patch-rpiv-question-timeout.mjs::patchQuestionnaireTimeout --> <!-- @test: preseed/agents/pi/test/questionnaire-timeout.test.mjs (selects option one only after five unanswered minutes) -->
+3. Image construction and supported package updates or repair retain the bounded-questionnaire policy. <!-- @impl: Dockerfile::patch-rpiv-question-timeout --> <!-- @impl: entrypoint.sh::update_pi_and_codex_when_fast_start_disabled --> <!-- @impl: scripts/verify-rpiv-host-peers.mjs --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (restores a real locked installation and reports unrecoverable repair) --> <!-- @test: host/__tests__/rpiv-bump-gate.test.js (RPIV bump publishes only after both installation trees pass patched startup) --> <!-- @manual: Build the complete image and exercise its installed questionnaire deadline before deployment. -->
+
+**Constraints:**
+
+- Reviewed upstream pins and archive integrity remain unchanged.
+- Preparation failure cannot be treated as successful policy installation.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-210](#req-agent-210-managed-extension-startup-preparation), [REQ-AGENT-218](#req-agent-218-bounded-pi-questionnaire-wait)
+
+**Verification:** Actual pinned package, executable startup/shadow-pin fixtures and existing packaged-image gates; final image/deployed acceptance remains separate.
 
 **Status:** Implemented
 

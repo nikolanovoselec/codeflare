@@ -1,5 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, rmSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
@@ -461,14 +462,22 @@ describe('entrypoint production helpers', () => {
       const packed = JSON.parse(npm(['pack', '--json', '--ignore-scripts', '--offline'], source).stdout)[0].filename;
       const tarball = join(source, packed);
       const dependencies = { '@earendil-works/pi-coding-agent': `file:${tarball}` };
-      for (const name of ['typebox', '@juicesharp/rpiv-advisor', '@juicesharp/rpiv-ask-user-question', '@juicesharp/rpiv-todo']) {
+      // Host/config dependencies remain fixture-owned; the guarded questionnaire
+      // itself uses its authentic archive, including unchanged metadata/source.
+      for (const name of ['typebox', '@juicesharp/rpiv-config', '@earendil-works/pi-tui', '@juicesharp/rpiv-advisor', '@juicesharp/rpiv-todo']) {
         const dir = join(fixture, name.replaceAll('/', '-'));
         mkdirSync(dir);
-        writeFileSync(join(dir, 'package.json'), JSON.stringify({ name, version: '1.3.27',
-          ...(name !== 'typebox' ? { dependencies: { typebox: dependencies.typebox } } : {}) }));
+        writeFileSync(join(dir, 'package.json'), JSON.stringify({ name,
+          version: name === '@juicesharp/rpiv-config' ? '2.12.0' : '1.3.27',
+          ...(name === '@juicesharp/rpiv-advisor' || name === '@juicesharp/rpiv-todo'
+            ? { dependencies: { typebox: dependencies.typebox } } : {}) }));
         const archive = JSON.parse(npm(['pack', '--json', '--ignore-scripts', '--offline'], dir).stdout)[0].filename;
         dependencies[name] = `file:${join(dir, archive)}`;
       }
+      const questionnaireArchive = resolve(__dirname, '../__fixtures__/rpiv-ask-user-question-2.12.0.tgz');
+      assert.equal(createHash('sha256').update(readFileSync(questionnaireArchive)).digest('hex'),
+        'f407893638f1893a3730444f467b4edc1924cf2d206ae584f7525e1e8ae860f6', 'reviewed npm archive integrity contract');
+      dependencies['@juicesharp/rpiv-ask-user-question'] = `file:${questionnaireArchive}`;
       writeFileSync(join(tools, 'package.json'), JSON.stringify({ private: true, dependencies }));
       npm(['install', '--ignore-scripts', '--no-audit', '--no-fund', '--offline'], tools);
       const installed = join(tools, 'node_modules/@earendil-works/pi-coding-agent');
@@ -486,6 +495,15 @@ describe('entrypoint production helpers', () => {
       assert.equal(readFileSync(processor, 'utf8'), readFileSync(join(source, 'dist/utils/image-process.js'), 'utf8'));
       const healthy = verify(); assert.equal(healthy.status, 0, healthy.stderr);
       assert.match(repaired.stdout, /repairing Pi dependencies from the lockfile/);
+      // REQ-AGENT-220 AC3: supported repair must prepare the real questionnaire,
+      // while unexpected source drift must remain an observable preparation error.
+      const questionnaire = join(tools, 'node_modules/@juicesharp/rpiv-ask-user-question/ask-user-question.ts');
+      const prepared = readFileSync(questionnaire, 'utf8');
+      writeFileSync(questionnaire, prepared + '\n// unexpected fixture drift\n');
+      const refused = run();
+      assert.notEqual(refused.status, 0);
+      assert.match(refused.stdout, /RPIV questionnaire timeout preparation failed/);
+      writeFileSync(questionnaire, prepared);
       rmSync(processor); rmSync(tarball);
       const failed = run(); assert.notEqual(failed.status, 0);
       assert.match(failed.stdout, /Pi dependency repair failed; the runtime is incomplete/);

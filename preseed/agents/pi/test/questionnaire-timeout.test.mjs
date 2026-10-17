@@ -116,7 +116,7 @@ function automatic(result, expected) {
 }
 
 for (const mode of ['tui', 'rpc', 'legacy']) {
-  it(`REQ-AGENT-218 AC1/AC6: ${mode} selects option one only after five unanswered minutes`, { timeout: 20000 }, async t => {
+  it(`REQ-AGENT-218 AC1/AC4 / REQ-AGENT-220 AC2: ${mode} selects option one only after five unanswered minutes`, { timeout: 20000 }, async t => {
     const f = await fixture(t, mode); clock(t);
     const result = f.execute(); const state = observe(result);
     await f.display.wait();
@@ -128,7 +128,7 @@ for (const mode of ['tui', 'rpc', 'legacy']) {
   });
 
   for (const action of ['option', 'custom', 'cancel', 'abort']) {
-    it(`REQ-AGENT-218 AC2/AC4: ${mode} preserves ${action} before timeout and isolates the next invocation`, { timeout: 20000 }, async t => {
+    it(`REQ-AGENT-218 AC2 / REQ-AGENT-219 AC1/AC4: ${mode} preserves ${action} before timeout and isolates the next invocation`, { timeout: 20000 }, async t => {
       const f = await fixture(t, mode); clock(t);
       const controller = new AbortController();
       const first = f.execute(params, controller.signal); await f.display.wait();
@@ -179,7 +179,7 @@ for (const mode of ['tui', 'rpc', 'legacy']) {
     assert.equal((await next).details.cancelled, true, 'timed-out invocation cannot influence its successor');
   });
 
-  it(`REQ-AGENT-218 AC4: ${mode} abort preserves completed answers without defaulting unanswered questions`, { timeout: 20000 }, async t => {
+  it(`REQ-AGENT-219 AC1/AC5: ${mode} abort preserves completed answers without defaulting unanswered questions`, { timeout: 20000 }, async t => {
     const f = await fixture(t, mode); clock(t);
     const controller = new AbortController();
     const result = f.execute({ questions: [question(), { ...question(), question: 'Which next step?', header: 'Next step' }] }, controller.signal);
@@ -195,7 +195,7 @@ for (const mode of ['tui', 'rpc', 'legacy']) {
     t.mock.timers.tick(300000); await turn(); assert.equal(f.display.view.active, false);
   });
 
-  it(`REQ-AGENT-218 AC4/AC5: ${mode} never manufactures answers for aborted or invalid questions`, { timeout: 20000 }, async t => {
+  it(`REQ-AGENT-219 AC2/AC3: ${mode} never manufactures answers for aborted or invalid questions`, { timeout: 20000 }, async t => {
     const f = await fixture(t, mode); clock(t);
     const controller = new AbortController(); controller.abort();
     assert.equal((await f.execute(params, controller.signal)).details.cancelled, true);
@@ -242,7 +242,7 @@ for (const mode of ['tui', 'rpc']) {
   });
 }
 
-it('REQ-AGENT-218 AC4: independent SDK sessions retain independent deadlines', { timeout: 20000 }, async t => {
+it('REQ-AGENT-219 AC4: independent SDK sessions retain independent deadlines', { timeout: 20000 }, async t => {
   const first = await fixture(t, 'rpc'); const second = await fixture(t, 'rpc'); clock(t);
   const one = first.execute(); await first.display.wait(); t.mock.timers.tick(200000);
   const two = second.execute(); const secondState = observe(two); await second.display.wait();
@@ -254,7 +254,7 @@ it('REQ-AGENT-218 AC4: independent SDK sessions retain independent deadlines', {
   assert.equal(first.display.view.active, false); assert.equal(second.display.view.active, false);
 });
 
-it('REQ-AGENT-218 AC5: absent UI remains an error, not automatic approval', async t => {
+it('REQ-AGENT-219 AC3: absent UI remains an error, not automatic approval', async t => {
   const f = await fixture(t, 'none'); clock(t);
   const result = await f.execute();
   assert.equal(result.details.error, 'no_ui');
@@ -262,7 +262,7 @@ it('REQ-AGENT-218 AC5: absent UI remains an error, not automatic approval', asyn
 });
 
 for (const damage of ['version', 'layout']) {
-  it(`REQ-AGENT-218 AC7: source allowlist rejects ${damage} drift without partially patching the package`, async t => {
+  it(`REQ-AGENT-220 AC1: source allowlist rejects ${damage} drift without partially patching the package`, async t => {
     const root = mkdtempSync(join(tmpdir(), 'questionnaire-patch-drift-'));
     t.after(() => rmSync(root, { recursive: true, force: true })); cpSync(installed, root, { recursive: true });
     const manifest = join(root, 'package.json'); const first = join(root, 'ask-user-question.ts');
