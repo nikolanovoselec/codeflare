@@ -90,9 +90,10 @@ These compatibility anchors resolve dated changelog references to retired review
 
 **Constraints:**
 
-- The first option is the recommended default. Automatic selection never authorizes protected operations that require explicit user approval.
+- The first option is the recommended default.
+- Automatic selection never authorizes protected operations that require explicit user approval.
 - Scope is the managed Pi questionnaire only, not Claude native questions, Plan questions, Impeccable, or unrelated UI dialogs.
-- The pinned upstream package has no timeout setting. Keep its dependency pins and archive integrity unchanged; do not modify restored user configuration.
+- Keep dependency pins and archive integrity unchanged; do not modify restored user configuration.
 - RPC wait release does not prove visual dialog dismissal in every external client.
 
 **Priority:** P1
@@ -144,7 +145,7 @@ These compatibility anchors resolve dated changelog references to retired review
 1. Preparation rejects an unreviewed package identity, version or source layout before changing any installed questionnaire artifact. <!-- @impl: scripts/patch-rpiv-question-timeout.mjs::patchQuestionnaireTimeout --> <!-- @test: preseed/agents/pi/test/questionnaire-timeout.test.mjs (source allowlist rejects) -->
 2. Repeated preparation retains a working questionnaire with the same bounded-wait behavior. <!-- @impl: scripts/patch-rpiv-question-timeout.mjs::patchQuestionnaireTimeout --> <!-- @test: preseed/agents/pi/test/questionnaire-timeout.test.mjs (selects option one only after five unanswered minutes) -->
 3. Image construction retains the bounded-questionnaire policy. <!-- @impl: Dockerfile::patch-rpiv-question-timeout --> <!-- @manual: Build the complete image and exercise its installed questionnaire deadline before deployment. -->
-4. Supported package updates retain the bounded-questionnaire policy. <!-- @impl: entrypoint.sh::update_pi_and_codex_when_fast_start_disabled --> <!-- @impl: scripts/verify-rpiv-host-peers.mjs --> <!-- @test: host/__tests__/rpiv-bump-gate.test.js (RPIV bump publishes only after both installation trees pass patched startup) -->
+4. Supported package updates retain the bounded-questionnaire policy. <!-- @impl: entrypoint.sh::update_pi_and_codex_when_fast_start_disabled --> <!-- @test: host/__tests__/rpiv-bump-gate.test.js (RPIV bump publishes only after both installation trees pass patched startup) -->
 5. Supported runtime repair restores the bounded-questionnaire policy. <!-- @impl: entrypoint.sh::update_pi_and_codex_when_fast_start_disabled --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (restores a real locked installation and reports unrecoverable repair) -->
 
 **Constraints:**
@@ -2873,7 +2874,7 @@ None.
 
 **Acceptance Criteria:**
 
-1. Both modes enable one installed Open TUI header, footer and prompt editor. <!-- @impl: preseed/agents/pi/extensions/startup-header.ts --> <!-- @test: host/__tests__/pi-settings-packages.test.js (REQ-AGENT-056: fresh startup supplies exactly the reviewed adapter-owned package filter) --> <!-- @manual: Confirm native header/footer/editor activation in both packaged session modes and terminal-only settings. -->
+1. Both modes enable one installed Open TUI header, footer and prompt editor. <!-- @impl: preseed/agents/pi/extensions/startup-header.ts::default --> <!-- @test: host/__tests__/pi-settings-packages.test.js (REQ-AGENT-056: fresh startup supplies exactly the reviewed adapter-owned package filter) --> <!-- @manual: Confirm native header/footer/editor activation in both packaged session modes and terminal-only settings. -->
 2. Codeflare session status shows only repository and branch, or is absent when no repository resolves; it adds no context percentage, model or thinking-effort text and changes no routing identity. <!-- @impl: preseed/agents/pi/extensions/local-statusline.ts::repositoryLabel --> <!-- @test: src/__tests__/lib/local-statusline-repo.test.ts (REQ-AGENT-056) --> <!-- @manual: Confirm repository-only Codeflare status alongside native context/model display in the packaged terminal. -->
 3. Outside Git, the repository label falls back to active repository memory shared with successful tool execution. <!-- @impl: preseed/agents/pi/extensions/local-statusline.ts::repositoryLabel --> <!-- @impl: preseed/agents/pi/extensions/active-repo-memory.ts::rememberActiveRepo --> <!-- @test: src/__tests__/lib/local-statusline-repo.test.ts (REQ-AGENT-056) -->
 4. The active-cwd sentinel remains display-only and accepts only Git repositories inside a session root. <!-- @impl: preseed/agents/pi/extensions/local-statusline.ts::sentinelRepoForDisplay --> <!-- @test: src/__tests__/lib/local-statusline-repo.test.ts (REQ-AGENT-056) -->

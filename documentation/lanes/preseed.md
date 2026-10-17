@@ -86,7 +86,7 @@ Image-owned startup disables Pi Subagents mid-run messages through `~/.pi/agent/
 
 Subagents retains the public service accessor used by Codeflare's resume guard. Explicit invocation tool settings take precedence over agent frontmatter, which takes precedence over extension defaults. The owning manifests and locks hold exact package pins; installed entrypoints, complete warm/cache gates, and the RPIV compatibility contract are described in the [Pi package reference](../references/pi-packages.md#loading-and-warm-compatibility) ([REQ-AGENT-210](../../sdd/spec/agents.md#req-agent-210-managed-extension-startup-preparation)).
 
-`pi-web-access` retains configurable public tool names and Codeflare's default `web_search`, `source_check`, `fetch_content`, and paged `get_search_content` contracts. Search authenticates through Pi's model registry or zero-config Exa MCP, so it needs no per-user API key. All-failed calls now report tool errors, Perplexity uses Search API snippets instead of Sonar answers for ordinary search, and OpenAI search model defaults change; structured results and per-session lifecycle fixes do not change Codeflare's public-link policy. Paid Ceramic remains explicit-only and excluded from `auto`/`all`. The image warms the native `dist/index.js` extension, not the optional standalone MCP CLI. Upstream no longer supplies its duplicate `librarian`; Codeflare preserves the owned workflow in both Pi modes under [REQ-AGENT-115](../../sdd/spec/agents.md#req-agent-115-pi-web-access-014-skill-compatibility).
+`pi-web-access` retains configurable public tool names and Codeflare's default `web_search`, `source_check`, `fetch_content`, and paged `get_search_content` contracts. Search authenticates through Pi's model registry or zero-config Exa MCP, so it needs no per-user API key. Provider errors, structured results, Perplexity snippets, OpenAI model defaults and session isolation follow the [reviewed package behavior](../references/pi-packages.md#context-mode-and-web-access), without changing Codeflare's public-link policy. Paid Ceramic remains explicit-only and excluded from `auto`/`all`. The image warms the native `dist/index.js` extension, not the optional standalone MCP CLI. Upstream no longer supplies its duplicate `librarian`; Codeflare preserves the owned workflow in both Pi modes under [REQ-AGENT-115](../../sdd/spec/agents.md#req-agent-115-pi-web-access-014-skill-compatibility).
 
 Evaluate's user-invoked contract/output reporting and managed Usage retirement live in the [Pi package reference](../references/pi-packages.md#user-workflows-and-retirement) ([REQ-AGENT-133](../../sdd/spec/agents.md#req-agent-133-native-evaluation-workflow-in-pi-sessions), [REQ-AGENT-209](../../sdd/spec/agents.md#req-agent-209-retired-pi-package-migration)). [Open TUI](../references/pi-packages.md#native-terminal-ui) owns the terminal header, footer and editor in both modes; filtered npm discovery prevents duplicate initialization by the managed adapter. Installation does not authorize unrelated workflows or establish deployed acceptance.
 
@@ -615,7 +615,9 @@ stale deny-gates. The graphify plugin includes plugin.json, README, and
 graphify-mcp-lazy.py in default+advanced mode; advanced mode adds the compact
 query-routing rule, graphify-active-repo.sh, graphify-clone-prompt.sh,
 graph-first-nudge.sh, safe-graphify-update.sh, local-graphify-labels.sh, and the
-build/update skill. The Claude wrapper resolves global → valid sentinel → freshest
+build/update skill.
+
+The Claude wrapper resolves global → valid sentinel → freshest
 workspace at each context request, returning empty for a graphless selection. It
 delegates real files to upstream's bounded complete-context cache, preserving
 parallel relations, communities and fresh indexes without a dictionary-swapping

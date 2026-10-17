@@ -4289,7 +4289,7 @@ Vault semantic extraction continues excluding all of `Raw/Sessions/`, including 
 
 **Category:** Architecture
 
-**Context:** Graphify 0.9.92 dispatches parallel-edge behavior by real graph class and caches complete graph/community/index generations. Replacing dictionaries inside a graph facade loses that class-dependent behavior and separates the graph from its matching context. The historical watcher therefore cannot preserve the upstream query contract.
+**Context:** For [REQ-AGENT-023](../../sdd/spec/agents.md#req-agent-023-knowledge-graph-capability-graphify), Graphify 0.9.92's [upstream source archive](https://files.pythonhosted.org/packages/3f/ac/734e471950cdf990cdd3e88ef019312a107b413ba39a7c28e48e2fabcdc0/graphifyy-0.9.92.tar.gz) dispatches parallel-edge behavior by real graph class and caches complete graph/community/index generations. Replacing dictionaries inside a graph facade loses that class-dependent behavior and separates the graph from its matching context. The historical watcher therefore cannot preserve the upstream query contract. <!-- @impl: preseed/agents/claude/plugins/graphify/scripts/graphify-mcp-lazy.py::_load_active_context -->
 
 **Decision:** Resolve global → valid sentinel → freshest workspace at each context request. Return a real empty graph/context for a graphless selection; a valid graphless sentinel never falls through to another repository. Delegate real absolute paths to upstream's bounded, non-pinned complete-context cache. Subsequent requests use upstream's path/mtime/size freshness key without in-place graph mutation. <!-- @impl: preseed/agents/claude/plugins/graphify/scripts/graphify-mcp-lazy.py::_load_active_context -->
 
