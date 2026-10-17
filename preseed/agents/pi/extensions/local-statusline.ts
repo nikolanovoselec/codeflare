@@ -5,36 +5,19 @@ import { recallActiveRepo } from "./active-repo-memory";
 
 const CACHE_TTL_MS = 1_000;
 
-type Cache<T> = {
-  value: T;
-  checkedAt: number;
-};
-
 type ExtensionContext = {
+  mode: string;
   cwd: string;
   hasUI: boolean;
   model?: { id?: string; name?: string; provider?: string };
-  getContextUsage?: () => { percent?: number; tokens?: number | null; contextWindow?: number } | undefined;
+  getContextUsage?: () => { percent?: number | null; tokens?: number | null; contextWindow?: number } | undefined;
   sessionManager: { getCwd(): string };
-  ui: { setFooter(renderer: FooterRendererFactory): void };
+  ui: { setStatus(key: string, value: string | undefined): void };
 };
 
 type ExtensionAPI = {
   getThinkingLevel(): string;
   on(event: string, handler: (event: unknown, ctx: ExtensionContext) => void): void;
-};
-
-type FooterRendererFactory = (
-  tui: { requestRender(): void },
-  theme: { fg(style: string, text: string): string },
-  footerData: {
-    onBranchChange(handler: () => void): () => void;
-    getExtensionStatuses(): Map<string, string>;
-  },
-) => {
-  dispose(): void;
-  invalidate(): void;
-  render(width: number): string[];
 };
 
 function findGitRoot(startDir: string): string | undefined {
@@ -95,36 +78,17 @@ function repositoryLabel(ctx: ExtensionContext): string | undefined {
 }
 
 function contextPercent(ctx: ExtensionContext): string {
-  const usage = ctx.getContextUsage?.();
-  const percent = usage?.percent ?? (
-    typeof usage?.tokens === "number" && usage.contextWindow
-      ? (usage.tokens / usage.contextWindow) * 100
-      : undefined
-  );
-  return Number.isFinite(percent) ? `${Math.round(percent as number)}%` : "--%";
-}
-
-function visibleWidth(text: string): number {
-  return text.replace(/\x1b\[[0-9;]*m/g, "").length;
-}
-
-function truncateToWidth(text: string, width: number): string {
-  if (visibleWidth(text) <= width) return text;
-
-  let visible = 0;
-  let output = "";
-  for (let index = 0; index < text.length && visible < Math.max(0, width - 1);) {
-    const ansi = text.slice(index).match(/^\x1b\[[0-9;]*m/);
-    if (ansi) {
-      output += ansi[0];
-      index += ansi[0].length;
-      continue;
-    }
-    output += text[index];
-    visible += 1;
-    index += 1;
+  try {
+    const usage = ctx.getContextUsage?.();
+    const percent = usage?.percent ?? (
+      typeof usage?.tokens === "number" && usage.contextWindow
+        ? (usage.tokens / usage.contextWindow) * 100
+        : undefined
+    );
+    return Number.isFinite(percent) ? `${Math.round(percent as number)}%` : "--%";
+  } catch {
+    return "--%";
   }
-  return `${output}\x1b[0m…`;
 }
 
 function renderLine(ctx: ExtensionContext, effort: string): string {
@@ -138,49 +102,42 @@ function renderLine(ctx: ExtensionContext, effort: string): string {
 }
 
 export default function (pi: ExtensionAPI) {
-  let cached: Cache<string> | undefined;
+  let current: ExtensionContext | undefined;
+  let interval: ReturnType<typeof setInterval> | undefined;
 
-  function installFooter(ctx: ExtensionContext): void {
-    if (!ctx.hasUI) return;
-
-    ctx.ui.setFooter((tui, theme, footerData) => {
-      const unsubscribe = footerData.onBranchChange(() => {
-        cached = undefined;
-        tui.requestRender();
-      });
-      const interval = setInterval(() => tui.requestRender(), CACHE_TTL_MS);
-
-      return {
-        dispose() {
-          clearInterval(interval);
-          unsubscribe();
-        },
-        invalidate() {
-          cached = undefined;
-        },
-        render(width: number): string[] {
-          const now = Date.now();
-          if (!cached || now - cached.checkedAt > CACHE_TTL_MS) {
-            cached = { value: renderLine(ctx, pi.getThinkingLevel()), checkedAt: now };
-          }
-          const statuses = Array.from(footerData.getExtensionStatuses().values()).filter(Boolean);
-          const lines = [theme.fg("dim", truncateToWidth(cached.value, width))];
-          if (statuses.length > 0) lines.push(truncateToWidth(statuses.join(" | "), width));
-          return lines;
-        },
-      };
-    });
+  function refreshStatus(): void {
+    if (!current) return;
+    let text: string | undefined;
+    try { text = renderLine(current, pi.getThinkingLevel()); } catch { /* Cosmetic metadata is optional. */ }
+    current.ui.setStatus("codeflare-session", text);
   }
 
-  const refreshFooter = (_event: unknown, ctx: ExtensionContext): void => {
-    cached = undefined;
-    installFooter(ctx);
-  };
+  function stop(): void {
+    if (interval) clearInterval(interval);
+    interval = undefined;
+    current?.ui.setStatus("codeflare-session", undefined);
+    current = undefined;
+  }
 
-  pi.on("session_start", refreshFooter);
-  pi.on("resources_discover", refreshFooter);
-  pi.on("turn_start", refreshFooter);
-  pi.on("turn_end", refreshFooter);
-  pi.on("model_select", refreshFooter);
-  pi.on("thinking_level_select", refreshFooter);
+  pi.on("session_start", (_event, ctx) => {
+    stop();
+    if (ctx.mode !== "tui" || !ctx.hasUI) return;
+    current = ctx;
+    refreshStatus();
+    interval = setInterval(refreshStatus, CACHE_TTL_MS);
+    interval.unref?.();
+  });
+  pi.on("session_shutdown", stop);
+
+  const refresh = (_event: unknown, ctx: ExtensionContext): void => {
+    if (ctx.mode !== "tui" || !ctx.hasUI) return;
+    current = ctx;
+    refreshStatus();
+  };
+  pi.on("resources_discover", refresh);
+  pi.on("turn_start", refresh);
+  pi.on("turn_end", refresh);
+  pi.on("tool_execution_end", refresh);
+  pi.on("model_select", refresh);
+  pi.on("thinking_level_select", refresh);
 }

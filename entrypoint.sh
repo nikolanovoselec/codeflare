@@ -3024,7 +3024,8 @@ const required = [
   'npm:pi-evaluate@0.1.5',
   'npm:@narumitw/pi-goal@0.54.11',
   'npm:@narumitw/pi-plan-mode@0.59.2',
-  'npm:@narumitw/pi-usage@0.61.1',
+  // The managed terminal adapter initializes the native UI once.
+  { source: 'npm:pi-open-tui@0.3.11', extensions: [] },
 ];
 // Keep context-mode installed for explicit `/ctx on`, but disable its extension and skills on every
 // fresh container start. The managed foreground-owner bridge attaches only after explicit enablement.
@@ -3036,7 +3037,7 @@ const defaultPackages = [
 // The graphify wrapper conflicts with first-party graphify-native tools. The glla package is
 // replaced by @narumitw/pi-goal and would otherwise keep loading from persisted user settings.
 // Unlike disabled packages these are dropped and never re-added, so upgrades load cleanly.
-const removedPackageIds = new Set(['npm:@gaodes/pi-graphify', 'npm:pi-goal-list-loop-audit', 'npm:pi-caveman']);
+const removedPackageIds = new Set(['npm:@gaodes/pi-graphify', 'npm:pi-goal-list-loop-audit', 'npm:pi-caveman', 'npm:@narumitw/pi-usage']);
 function sourceOf(entry) {
   if (typeof entry === 'string') return entry;
   return entry && typeof entry.source === 'string' ? entry.source : undefined;

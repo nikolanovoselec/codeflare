@@ -648,7 +648,7 @@ it('REQ-AGENT-001 AC5 / REQ-AGENT-209: real restored boot migrates packages whil
   const first = boot(); assert.equal(first.status, 0, first.stderr);
   const settings = JSON.parse(readFileSync(settingsPath, 'utf8'));
   assert.deepEqual(settings.packages.filter(entry => (typeof entry === 'string' ? entry : entry.source).startsWith('npm:pi-open-tui@')),
-    [{ source: 'npm:pi-open-tui@0.3.11', extensions: [] }]);
+    [{ source: `npm:pi-open-tui@${JSON.parse(readFileSync(resolve(__dirname, '../../preseed/agents/pi/package.json'), 'utf8')).dependencies['pi-open-tui']}`, extensions: [] }]);
   assert.ok(!settings.packages.some(entry => /^npm:@narumitw\/pi-usage(?:@|$)/.test(typeof entry === 'string' ? entry : entry.source)));
   assert.ok(settings.packages.includes('npm:user-package@1.0.0')); assert.equal(settings.customPreference, 'retain');
   const before = readFileSync(settingsPath, 'utf8');

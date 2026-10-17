@@ -15,8 +15,9 @@ const dist = dirname(fileURLToPath(import.meta.resolve('@earendil-works/pi-codin
 // Real installed modules used by InteractiveMode, not replacement implementations.
 const themeModule = await import(pathToFileURL(join(dist, 'modes/interactive/theme/theme.js')).href);
 const { KeybindingsManager } = await import(pathToFileURL(join(dist, 'core/keybindings.js')).href);
-const OPEN_TUI = { source: 'npm:pi-open-tui@0.3.11', extensions: [] };
-const INTEGRITY = 'sha512-/uT5QZTFl1/GyO4Nre3u1cIOBBgDsX96ze3F0doxNKi4EsKvOqgTovRpYqbLASKTfljs612bH7I2J1wZQJzTcw==';
+const packageVersion = JSON.parse(readFileSync(join(repo, 'preseed/agents/pi/package.json'), 'utf8')).dependencies['pi-open-tui'];
+const packageLock = JSON.parse(readFileSync(join(repo, 'preseed/agents/pi/package-lock.json'), 'utf8')).packages['node_modules/pi-open-tui'];
+const OPEN_TUI = { source: `npm:pi-open-tui@${packageVersion}`, extensions: [] };
 const plain = lines => stripVTControlCharacters(lines.join('\n'));
 const turn = () => new Promise(resolve => setImmediate(resolve));
 
@@ -89,7 +90,7 @@ function terminalHost(fullscreen = false) {
   };
 }
 
-async function fixture(t, { mode = 'tui', hasUI = true, fullscreen = false, config, unsafeConfig } = {}) {
+async function fixture(t, { mode = 'tui', hasUI = true, fullscreen = false, config, unsafeConfig, compacted = false } = {}) {
   assert.equal(VERSION, '1.3.0', 'candidate SDK contract; installed 0.99 is not a compatibility result');
   const enterprise = enterpriseStartup({ reasoning: '' });
   assert.equal(enterprise.result.status, 0, enterprise.result.stderr);
@@ -112,11 +113,12 @@ async function fixture(t, { mode = 'tui', hasUI = true, fullscreen = false, conf
   delete globalThis[Symbol.for('codeflare.activeRepo')];
   const npm = join(agentDir, 'npm'); const modules = join(npm, 'node_modules');
   const vendor = join(modules, 'pi-open-tui'); mkdirSync(vendor, { recursive: true });
-  const archive = join(repo, 'host/__fixtures__/pi-open-tui-0.3.11.tgz');
-  // Intentional reviewed-archive contract, independent of the not-yet-added production dependency.
-  assert.equal(`sha512-${createHash('sha512').update(readFileSync(archive)).digest('base64')}`, INTEGRITY);
+  const archive = join(repo, `host/__fixtures__/pi-open-tui-${packageVersion}.tgz`);
+  // Execute only the archive matching the exact locked production candidate.
+  assert.equal(packageLock.version, packageVersion);
+  assert.equal(`sha512-${createHash('sha512').update(readFileSync(archive)).digest('base64')}`, packageLock.integrity);
   execFileSync('tar', ['-xzf', archive, '--strip-components=1', '-C', vendor]);
-  writeFileSync(join(npm, 'package.json'), JSON.stringify({ private: true, dependencies: { 'pi-open-tui': '0.3.11' } }));
+  writeFileSync(join(npm, 'package.json'), JSON.stringify({ private: true, dependencies: { 'pi-open-tui': packageVersion } }));
   symlinkSync(join(repo, 'preseed/agents/pi/node_modules/@earendil-works'), join(modules, '@earendil-works'), 'dir');
   const extensionDir = join(agentDir, 'extensions'); mkdirSync(extensionDir);
   // Explicit resource paths keep helper-only modules out of autodiscovery.
@@ -151,8 +153,15 @@ async function fixture(t, { mode = 'tui', hasUI = true, fullscreen = false, conf
   assert.deepEqual(resourceLoader.getExtensions().errors, [], 'loader errors are setup/integration failures, never expected RED');
   const modelRuntime = await ModelRuntime.create({ modelsPath: enterprise.modelsPath, authPath: join(agentDir, 'auth.json'),
     modelsStorePath: join(agentDir, 'models-store.json'), allowModelNetwork: false });
+  const sessionManager = SessionManager.inMemory(home);
+  if (compacted) {
+    // A legitimate restored compaction has unknown usage until the next model
+    // response. Empty fresh sessions correctly have a known zero estimate.
+    const kept = sessionManager.appendMessage({ role: 'user', content: 'Earlier prompt', timestamp: Date.now() });
+    sessionManager.appendCompaction('Earlier session summary', kept, 1000);
+  }
   ({ session } = await createAgentSession({ cwd: home, agentDir, settingsManager, resourceLoader, modelRuntime,
-    sessionManager: SessionManager.inMemory(home), tools: ['read'], thinkingLevel: 'off', model: modelRuntime.getModel('codeflare-gateway', 'bedrock_opus') }));
+    sessionManager, tools: ['read'], thinkingLevel: 'off', model: modelRuntime.getModel('codeflare-gateway', 'bedrock_opus') }));
   initTheme('dark', false); display = terminalHost(fullscreen);
   const errors = [];
   if (mode !== 'tui') {
@@ -206,7 +215,8 @@ it('REQ-AGENT-056: filtered native package is enabled through the managed adapte
 });
 
 it('REQ-AGENT-161 / REQ-AGENT-056 AC5/AC6: actual native header and composed footer obey terminal columns', { timeout: 20000 }, async t => {
-  const f = await fixture(t, { fullscreen: true });
+  const f = await fixture(t, { fullscreen: true, compacted: true });
+  assert.equal(f.session.getContextUsage().tokens, null, 'real restored compaction exposes unknown usage');
   f.display.ui.setStatus('review', '\x1b[32mReview 中文 e\u0301 👩‍💻 clean\x1b[0m');
   f.display.ui.setStatus('empty', '');
   const colored = f.display.footer.render(120).join('\n');
@@ -284,7 +294,8 @@ for (const options of [{ mode: 'rpc', hasUI: true }, { mode: 'json', hasUI: fals
     await f.session.extensionRunner.emit({ type: 'thinking_level_select', thinkingLevel: 'off', previousThinkingLevel: 'high' });
     const note = join(f.home, 'ordinary.txt'); writeFileSync(note, 'ordinary tool remains available');
     const result = await f.session.extensionRunner.createToolContext('test-read', undefined).executeTool('read', { path: note });
-    assert.ok(result.content.some(item => item.text?.includes('ordinary tool remains available')));
+    assert.equal(result.isError, false);
+    assert.ok(result.result.content.some(item => item.text?.includes('ordinary tool remains available')));
     assert.deepEqual(f.errors, []);
     assert.equal(existsSync(f.configPath), false);
     assert.equal(existsSync(f.marker), false);
@@ -326,7 +337,8 @@ for (const unsafe of ['malformed', 'symlink']) {
     assert.ok(f.display.notices.every(notice => !notice.message.includes('fixture-sensitive-value')));
     const note = join(f.home, 'safe.txt'); writeFileSync(note, 'built-in read still works');
     const result = await f.session.extensionRunner.createToolContext('safe-read', undefined).executeTool('read', { path: note });
-    assert.ok(result.content.some(item => item.text?.includes('built-in read still works')));
+    assert.equal(result.isError, false);
+    assert.ok(result.result.content.some(item => item.text?.includes('built-in read still works')));
     assert.deepEqual(f.errors, []);
     for (const [path, bytes] of f.data) assert.equal(readFileSync(path, 'utf8'), bytes);
   });

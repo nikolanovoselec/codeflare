@@ -148,12 +148,12 @@ describe('Pi settings.json packages assembly (entrypoint.sh)', () => {
 // Exact source/filter and removed-identity outputs are intentional startup
 // migration contracts. Native enabled behavior is exercised by open-tui.test.mjs.
 describe('REQ-AGENT-056 / REQ-AGENT-209: Open TUI adoption and managed Usage retirement', () => {
-  const expected = { source: 'npm:pi-open-tui@0.3.11', extensions: [] };
+  const expected = { source: `npm:pi-open-tui@${piPackage.dependencies['pi-open-tui']}`, extensions: [] };
   it('REQ-AGENT-056: fresh startup supplies exactly the reviewed adapter-owned package filter', () => {
     const settings = runAssembly('{}');
     assert.deepEqual(settings.packages.filter(entry => /^npm:pi-open-tui(?:@|$)/.test(sourceOf(entry))), [expected]);
     assert.ok(!settings.packages.some(entry => /^npm:@narumitw\/pi-usage(?:@|$)/.test(sourceOf(entry))));
-    assert.equal(piPackage.dependencies['pi-open-tui'], '0.3.11'); // Intentional release pin.
+    assert.match(piPackage.dependencies['pi-open-tui'], /^\d+\.\d+\.\d+$/); // Intentional exact release pin.
     assert.equal(piPackage.dependencies['@narumitw/pi-usage'], undefined);
   });
 

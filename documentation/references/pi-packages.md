@@ -18,7 +18,7 @@ The authoritative inventory is [`preseed/agents/pi/package.json`](../../preseed/
 | `@juicesharp/rpiv-todo` | Session-scoped task state |
 | `@narumitw/pi-goal` | Native Goal and exact-version continuation/review transform |
 | `@narumitw/pi-plan-mode` | Native Plan and registered-tool policy transform |
-| `@narumitw/pi-usage` | `/usage`, declared `dist/index.ts` |
+| `pi-open-tui` | Native terminal header, footer, prompt editor and `/open-tui` settings |
 | `context-mode` | Installed, disabled at each container start; explicit foreground opt-in |
 | `pi-evaluate` | User-invoked reporting skill, no tool or command |
 | `pi-mcp-adapter` | Lazy managed MCP servers and lossless legacy migration |
@@ -26,9 +26,19 @@ The authoritative inventory is [`preseed/agents/pi/package.json`](../../preseed/
 
 ## Loading and warm compatibility
 
-Image construction warms RPIV, Subagents, MCP Adapter, web-access, Evaluate, Usage, Goal/Plan, and every local TypeScript extension through the exact installed path. Required JITI artifacts must exist. A second fresh Pi process must report cache hits without misses, including imported dependencies. JavaScript entrypoints use native import checks rather than nonexistent JITI artifacts. This is a transpilation-cache gate, not V8-cache evidence or a startup-latency guarantee for restored user content. Runtime updates invalidate only runtime-owned caches.
+Image construction warms RPIV, Subagents, MCP Adapter, web-access, Evaluate, Open TUI, Goal/Plan, and every local TypeScript extension through the exact installed path. Required JITI artifacts must exist. A second fresh Pi process must report cache hits without misses, including imported dependencies. JavaScript entrypoints use native import checks rather than nonexistent JITI artifacts. This is a transpilation-cache gate, not V8-cache evidence or a startup-latency guarantee for restored user content. Runtime updates invalidate only runtime-owned caches.
 
 Every file scanned as a Pi extension exports a default factory; pure helpers retain a no-op default beside named exports. Package-presence checks cannot replace actual extension loading.
+
+### Native terminal UI
+
+Open TUI is exact-pinned and integrity-locked in the image's Pi extension inventory. Startup selects `{source: "npm:pi-open-tui@0.3.11", extensions: []}`: package auto-discovery is suppressed because managed `startup-header.ts` delegates the installed native entrypoint once. Open TUI owns header, footer and editor in both modes; the adapter gates terminal handlers and `/open-tui` to TUI contexts and bounds header/footer lines by real terminal column width. RPC, print and background execution do not acquire its settings overlay or project probes.
+
+`local-statusline.ts` publishes compact context/model/effort and active-repository metadata through the native status area, without installing a competing footer. Published enterprise names retain their routing IDs; parent-workspace sessions retain remembered nested repositories and the guarded display-only sentinel. Other extensions keep their statuses and colors. Native context decoration is disabled so an unknown estimate is not displayed as zero.
+
+At TUI startup, bounded configuration preparation enables Open TUI and extension statuses. Missing icon/hidden-thinking preferences default to Unicode and peek off; unrelated valid preferences remain. Malformed or unsafe configuration is preserved, produces a content-free warning and skips native activation without blocking agent execution. `/open-tui` remains the upstream settings UI. This is executable UI, not a named JSON theme.
+
+The image explicitly warms `extensions/open-tui/index.ts` and verifies its path-correct cache. Source tests, image loading, a compatible curation compiler, signed publication and actual terminal activation are distinct gates; the older curation checkpoint cannot supply this new package.
 
 The complete RPIV preparation contract remains [REQ-AGENT-210](../../sdd/spec/agents.md#req-agent-210-managed-extension-startup-preparation):
 
@@ -87,7 +97,7 @@ Advisor requires an explicit current-user request; startup guidance adds no auto
 
 The [Pi manifest](../../preseed/agents/pi/package.json) and [lockfile](../../preseed/agents/pi/package-lock.json) pin Evaluate's reviewed MIT package and integrity. Its extension registers the packaged skill directory on `resources_discover`; it ships no tool or command and runs only when the user invokes `/skill:evaluate`. The skill reads a [reespec](https://github.com/bnenu/reespec) brief and specs when `reespec/requests/` exists, otherwise a user-pasted contract, together with produced outputs. It returns per-capability satisfied/partial/unsatisfied/unclear verdicts and triage, deliberately excludes implementation intent, and reports gaps rather than fixing them. Codeflare applies no patch or fork. The image explicitly loads `extensions/evaluate.ts` and requires its path-correct JITI artifact ([REQ-AGENT-133](../../sdd/spec/agents.md#req-agent-133-native-evaluation-workflow-in-pi-sessions)). Lock-backed weekly shadow-pin discovery includes future releases.
 
-The [Pi manifest](../../preseed/agents/pi/package.json) and [lockfile](../../preseed/agents/pi/package-lock.json) pin Usage's reviewed MIT package and its `@narumitw/pi-tui-kit` dependency by integrity. The earlier package review covered official Codex, GitHub Copilot, OpenRouter, OpenCode Go and Z.AI origin validation, bounded/redacted responses, and explicit confirmation before consuming a Codex reset. That historical review is not live acceptance of every provider path in the updated package. The image explicitly loads `dist/index.ts`, registered as `/usage`, and requires its path-correct JITI artifact ([REQ-AGENT-131](../../sdd/spec/agents.md#req-agent-131-native-usage-workflow-in-pi-sessions)). Lock-backed weekly shadow-pin discovery includes future releases.
+Managed `@narumitw/pi-usage` and its `/usage` provider-quota workflow are retired. Startup removes only that exact npm identity from restored string/object package entries; credentials, history and unrelated packages remain untouched ([REQ-AGENT-209](../../sdd/spec/agents.md#req-agent-209-retired-pi-package-migration)). Only Usage's private nested TUI-kit is removed from the lock; Goal/Plan retain theirs. Open TUI's local token/context/cost display is not equivalent to subscription-quota reporting and does not change Codeflare billing or usage records.
 
 Startup removes only explicit retired package identities from persisted settings, preserving unrelated user additions. Todo state stays session/transcript scoped; no global task database or retired AD100 source override returns. `goal_wait` remains execution-blocked even if another extension re-exposes it. Subagents' active-resume guard rejects queued/running mutation through the reviewed public accessor; settled/unknown records retain upstream behavior.
 

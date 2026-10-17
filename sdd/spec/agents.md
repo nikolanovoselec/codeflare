@@ -172,7 +172,7 @@ These compatibility anchors resolve dated changelog references to retired review
 
 1. Image construction prepares both managed extensions for startup and fails when either required startup cache is absent. <!-- @impl: Dockerfile::subagents_source --> <!-- @impl: Dockerfile::mcp_source --> <!-- @impl: scripts/verify-pi-lockstep.mjs::warmAndVerifyJitiEntrypoints --> <!-- @test: host/__tests__/pi-lockstep.test.js (declares, warms, and re-verifies each locked package entrypoint) --> <!-- @test: host/__tests__/pi-lockstep.test.js (REQ-AGENT-152/REQ-AGENT-210: rejects missing managed startup caches) -->
 
-2. Image construction rejects missing path-correct caches for local TypeScript extensions and the RPIV trio. The native JavaScript web-access entrypoint follows AC4's required native-import evidence. <!-- @impl: Dockerfile::advisor_source --> <!-- @impl: Dockerfile::web_source --> <!-- @impl: scripts/verify-pi-lockstep.mjs::warmAndVerifyJitiEntrypoints --> <!-- @test: host/__tests__/pi-lockstep.test.js (rejects a local cache warmed at the wrong path despite a matching basename) --> <!-- @test: host/__tests__/pi-lockstep.test.js (REQ-AGENT-152/REQ-AGENT-210: rejects missing managed startup caches) -->
+2. Image construction rejects missing path-correct caches for local TypeScript extensions, Open TUI and the RPIV trio. The native JavaScript web-access entrypoint follows AC4's required native-import evidence. <!-- @impl: Dockerfile::advisor_source --> <!-- @impl: Dockerfile::open_tui_source --> <!-- @impl: Dockerfile::web_source --> <!-- @impl: scripts/verify-pi-lockstep.mjs::warmAndVerifyJitiEntrypoints --> <!-- @test: host/__tests__/pi-lockstep.test.js (rejects a local cache warmed at the wrong path despite a matching basename) --> <!-- @test: host/__tests__/pi-lockstep.test.js (REQ-AGENT-152/REQ-AGENT-210: rejects missing managed startup caches) -->
 3. A second fresh warm-up process must report a JITI cache hit for every TypeScript entrypoint and no cache misses, including imported dependencies; construction fails without that evidence. <!-- @impl: scripts/verify-pi-lockstep.mjs::warmAndVerifyJitiEntrypoints --> <!-- @test: host/__tests__/jiti-warm-reuse.test.js (REQ-AGENT-210: image extension cache reuse) -->
 4. Native JavaScript entrypoints are warmed without requiring a JITI artifact; their native import must be observed. <!-- @impl: Dockerfile::context_source --> <!-- @impl: scripts/verify-pi-lockstep.mjs::warmAndVerifyJitiEntrypoints --> <!-- @test: host/__tests__/jiti-warm-reuse.test.js (warms native JavaScript without requiring a nonexistent JITI artifact) -->
 5. Managed extension dependency compatibility survives image construction, startup updates and repair without changing unrelated package metadata. <!-- @impl: scripts/patch-rpiv-host-peers.mjs::patchRpivHostPeers --> <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::verifyRpivExtensionStartup --> <!-- @impl: entrypoint.sh::update_pi_and_codex_when_fast_start_disabled --> <!-- @impl: scripts/verify-rpiv-host-peers.mjs --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::pi-extensions --> <!-- @test: host/__tests__/rpiv-host-peers.test.js (REQ-AGENT-210: RPIV declares host TypeBox as a wildcard peer without changing other package contracts) --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-210: Fast Start updates cannot restore conflicting RPIV host dependencies) --> <!-- @test: host/__tests__/rpiv-bump-gate.test.js (RPIV bump leaves the remote branch absent when shared startup fails:) -->
@@ -203,7 +203,7 @@ These compatibility anchors resolve dated changelog references to retired review
 
 **Acceptance Criteria:**
 
-1. Startup includes `@narumitw/pi-goal` in Pi's required package set. <!-- @impl: entrypoint.sh::required --> <!-- @impl: preseed/agents/pi/package.json::dependencies --> <!-- @test: host/__tests__/pi-settings-packages.test.js (REQ-AGENT-076 AC1 / REQ-AGENT-131 AC1 / REQ-AGENT-133 AC1: fresh container assembles required packages with context-mode disabled) -->
+1. Startup includes `@narumitw/pi-goal` in Pi's required package set. <!-- @impl: entrypoint.sh::required --> <!-- @impl: preseed/agents/pi/package.json::dependencies --> <!-- @test: host/__tests__/pi-settings-packages.test.js (REQ-AGENT-076 AC1 / REQ-AGENT-133 AC1: fresh container assembles required packages with context-mode disabled) -->
 2. Image construction makes Goal's declared Pi entrypoint resolve to the reviewed transformed source and warms that same installed path, so a new session uses the control/cadence patch and its path-correct transpile cache. <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchPiGoalDirectory --> <!-- @impl: Dockerfile::goal_source --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-111 AC2/AC6 / REQ-AGENT-178 AC1/AC2: declared pinned Goal entrypoint carries review control and workflow ownership) --> <!-- @manual: Start a new Pi session from the complete image and confirm Goal's installed extension loads from the baked jiti cache. -->
 3. The image build fails if Goal's path-correct transpile-cache artifact is absent. <!-- @impl: Dockerfile::goal_hit --> <!-- @impl: scripts/verify-pi-lockstep.mjs::verifyJitiCacheArtifact --> <!-- @test: host/__tests__/pi-lockstep.test.js (REQ-AGENT-111 AC3: Goal jiti cache path and fail-closed artifact verification) --> <!-- @manual: Run the deployment image build; in a controlled build omit or replace Goal's expected cache file and confirm the jiti warm-cache layer exits non-zero before image publication. -->
 4. Startup supplies `toolVisibility: "after-first-goal"` only when the Goal visibility preference is missing. <!-- @impl: entrypoint.sh::configure_pi_goal_defaults --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-111 AC4 / REQ-AGENT-129 AC1: creates every Codeflare-owned Goal startup default when config is absent) -->
@@ -313,30 +313,9 @@ These compatibility anchors resolve dated changelog references to retired review
 
 ---
 
-### REQ-AGENT-131: Native Usage Workflow in Pi Sessions
+<a id="req-agent-131-native-usage-workflow-in-pi-sessions"></a>
 
-**Intent:** Pi sessions must preload the reviewed Usage package without cold-transpiling its entrypoint on first use.
-
-**Applies To:** User
-
-**Acceptance Criteria:**
-
-1. Startup assembles `@narumitw/pi-usage` into Pi's required package set. <!-- @impl: entrypoint.sh::required --> <!-- @test: host/__tests__/pi-settings-packages.test.js (REQ-AGENT-076 AC1 / REQ-AGENT-131 AC1 / REQ-AGENT-133 AC1: fresh container assembles required packages with context-mode disabled) -->
-2. Usage remains in Pi's required package set when Context-mode is disabled. <!-- @impl: entrypoint.sh::required --> <!-- @test: host/__tests__/pi-settings-packages.test.js (REQ-AGENT-076 AC1 / REQ-AGENT-131 AC1 / REQ-AGENT-133 AC1: fresh container assembles required packages with context-mode disabled) -->
-3. Image construction explicitly loads every declared Usage entrypoint into the path-correct JITI cache. <!-- @impl: Dockerfile::usage_source --> <!-- @impl: scripts/verify-pi-lockstep.mjs::warmAndVerifyJitiEntrypoints --> <!-- @test: host/__tests__/pi-lockstep.test.js (REQ-AGENT-131: managed extension JITI warm-cache contract) --> <!-- @test: host/__tests__/pi-lockstep.test.js (declares, warms, and re-verifies each locked package entrypoint) -->
-4. Image construction fails when Usage's path-correct JITI artifact is absent. <!-- @impl: Dockerfile::usage_hit --> <!-- @impl: scripts/verify-pi-lockstep.mjs::verifyJitiCacheArtifact --> <!-- @test: host/__tests__/pi-lockstep.test.js (REQ-AGENT-131: managed extension JITI warm-cache contract) --> <!-- @test: host/__tests__/pi-lockstep.test.js (declares, warms, and re-verifies each locked package entrypoint) -->
-
-**Constraints:**
-
-- Usage remains exact-pinned and SHA-512 integrity-locked; upgrades use the existing Pi-extension shadow-pin workflow and deployment-image verification.
-
-**Priority:** P1
-
-**Dependencies:** [REQ-AGENT-001](#req-agent-001-support-multiple-ai-coding-agents)
-
-**Verification:** Package assembly and JITI cache contract tests; deployment image build
-
-**Status:** Implemented
+The former REQ-AGENT-131 Usage installation and warming workflow is retired. [Retired package migration](#req-agent-209-retired-pi-package-migration) removes its managed activation without deleting credentials, history or unrelated packages. Historical requirements remain in Git history.
 
 ---
 
@@ -348,9 +327,9 @@ These compatibility anchors resolve dated changelog references to retired review
 
 **Acceptance Criteria:**
 
-1. Startup assembles `pi-evaluate` into Pi's required package set. <!-- @impl: entrypoint.sh::required --> <!-- @test: host/__tests__/pi-settings-packages.test.js (REQ-AGENT-076 AC1 / REQ-AGENT-131 AC1 / REQ-AGENT-133 AC1: fresh container assembles required packages with context-mode disabled) -->
-2. Evaluate remains in Pi's required package set when Context-mode is disabled. <!-- @impl: entrypoint.sh::required --> <!-- @test: host/__tests__/pi-settings-packages.test.js (REQ-AGENT-076 AC1 / REQ-AGENT-131 AC1 / REQ-AGENT-133 AC1: fresh container assembles required packages with context-mode disabled) -->
-3. Image construction explicitly loads the declared Evaluate entrypoint into the path-correct JITI cache. <!-- @impl: Dockerfile::evaluate_source --> <!-- @impl: scripts/verify-pi-lockstep.mjs::warmAndVerifyJitiEntrypoints --> <!-- @test: host/__tests__/pi-lockstep.test.js (declares, warms, and re-verifies each locked package entrypoint) --> <!-- @test: host/__tests__/pi-lockstep.test.js (REQ-AGENT-131: managed extension JITI warm-cache contract) -->
+1. Startup assembles `pi-evaluate` into Pi's required package set. <!-- @impl: entrypoint.sh::required --> <!-- @test: host/__tests__/pi-settings-packages.test.js (REQ-AGENT-076 AC1 / REQ-AGENT-133 AC1: fresh container assembles required packages with context-mode disabled) -->
+2. Evaluate remains in Pi's required package set when Context-mode is disabled. <!-- @impl: entrypoint.sh::required --> <!-- @test: host/__tests__/pi-settings-packages.test.js (REQ-AGENT-076 AC1 / REQ-AGENT-133 AC1: fresh container assembles required packages with context-mode disabled) -->
+3. Image construction explicitly loads the declared Evaluate entrypoint into the path-correct JITI cache. <!-- @impl: Dockerfile::evaluate_source --> <!-- @impl: scripts/verify-pi-lockstep.mjs::warmAndVerifyJitiEntrypoints --> <!-- @test: host/__tests__/pi-lockstep.test.js (declares, warms, and re-verifies each locked package entrypoint) --> <!-- @test: host/__tests__/pi-lockstep.test.js (REQ-AGENT-210: managed extension JITI warm-cache contract) -->
 4. Image construction fails when Evaluate's path-correct JITI artifact is absent. <!-- @impl: Dockerfile::evaluate_hit --> <!-- @impl: scripts/verify-pi-lockstep.mjs::verifyJitiCacheArtifact --> <!-- @test: host/__tests__/pi-lockstep.test.js (declares, warms, and re-verifies each locked package entrypoint) -->
 
 **Constraints:**
@@ -434,7 +413,7 @@ These compatibility anchors resolve dated changelog references to retired review
 
 **Acceptance Criteria:**
 
-1. Every startup-header line fits within the terminal width supplied by Pi, including narrow mobile Browser IDE panes. <!-- @impl: preseed/agents/pi/extensions/startup-header.ts::installHeader --> <!-- @test: src/__tests__/lib/startup-header.test.ts (REQ-AGENT-161: Pi startup header terminal width safety) -->
+1. Every startup-header line fits within the terminal width supplied by Pi, including narrow mobile Browser IDE panes. <!-- @impl: preseed/agents/pi/extensions/startup-header.ts::terminalContext --> <!-- @test: preseed/agents/pi/test/open-tui.test.mjs (REQ-AGENT-161) -->
 
 **Constraints:**
 
@@ -2884,32 +2863,35 @@ None.
 **Status:** Implemented
 
 ---
-### REQ-AGENT-056: Pi Local Statusline Footer
+<a id="req-agent-056-pi-local-statusline-footer"></a>
 
-**Intent:** Pi users need a compact footer in every session mode that shows session context without hiding extension-owned status rows.
+### REQ-AGENT-056: Pi Terminal UI and Session Status
+
+**Intent:** Pi users receive Open TUI with truthful session context and visible extension-owned statuses in both product modes.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. The Pi local statusline extension is preseeded in both Standard and Pro modes. <!-- @impl: preseed/agents/pi/manifest.json::local-statusline.ts --> <!-- @manual -->
-2. The first footer line renders context usage, active model with thinking effort, and the resolved repository label, using published `Dynamic Route - <route name>` or `Native Route - <native label>` names for all enterprise gateway models without changing routing IDs. <!-- @impl: preseed/agents/pi/extensions/local-statusline.ts::renderLine --> <!-- @test: src/__tests__/lib/local-statusline-repo.test.ts (REQ-ENTERPRISE-082: renders the published Dynamic Route name without changing its route identity) --> <!-- @test: src/__tests__/lib/local-statusline-repo.test.ts (REQ-ENTERPRISE-058: renders the enterprise native label without changing its opaque identity) --> <!-- @impl: preseed/agents/pi/extensions/local-statusline.ts::contextPercent --> <!-- @impl: preseed/agents/pi/extensions/local-statusline.ts::repositoryLabel --> <!-- @test: src/__tests__/lib/local-statusline-repo.test.ts (REQ-AGENT-056: renders context, model effort, cwd repository, extension statuses, and width-safe truncation) -->
-3. If cwd metadata is outside git, the footer falls back to active repository memory shared by the main Pi extension. <!-- @impl: preseed/agents/pi/extensions/codeflare-pi.ts::rememberActiveRepo --> <!-- @impl: preseed/agents/pi/extensions/local-statusline.ts::recallActiveRepo --> <!-- @test: src/__tests__/lib/local-statusline-repo.test.ts (REQ-AGENT-056: resolves the active repository remembered by the main Pi extension) -->
-4. The graphify active-cwd sentinel is display-only and accepted only for git repositories inside a session root. <!-- @impl: preseed/agents/pi/extensions/local-statusline.ts::sentinelRepoForDisplay --> <!-- @test: src/__tests__/lib/local-statusline-repo.test.ts (REQ-AGENT-056: uses the display sentinel only when its repository is inside the session root) -->
-5. Non-empty extension statuses render on a separate footer line without replacing session context. <!-- @impl: preseed/agents/pi/extensions/local-statusline.ts::installFooter --> <!-- @test: src/__tests__/lib/local-statusline-repo.test.ts (REQ-AGENT-056: renders context, model effort, cwd repository, extension statuses, and width-safe truncation) -->
-6. Footer lines are truncated by visible width, preserving ANSI color sequences and appending a reset before the ellipsis so colored statuses do not consume visible width or bleed styling past truncation. <!-- @impl: preseed/agents/pi/extensions/local-statusline.ts::truncateToWidth --> <!-- @test: src/__tests__/lib/local-statusline-repo.test.ts (REQ-AGENT-056: renders context, model effort, cwd repository, extension statuses, and width-safe truncation) -->
-7. The statusline refreshes on session start, resource discovery, turn boundaries, model changes, thinking-effort changes, and cache-TTL repaint intervals. <!-- @impl: preseed/agents/pi/extensions/local-statusline.ts::refreshFooter --> <!-- @test: src/__tests__/lib/local-statusline-repo.test.ts (REQ-AGENT-056: refreshes the footer on session, resource, turn, model, and effort changes) -->
+1. Both modes enable one installed Open TUI header, footer and prompt editor through the managed terminal adapter. <!-- @impl: preseed/agents/pi/extensions/startup-header.ts --> <!-- @impl: entrypoint.sh::required --> <!-- @test: preseed/agents/pi/test/open-tui.test.mjs (REQ-AGENT-056) -->
+2. The compact session status shows context usage, model and thinking effort, using published enterprise names without changing routing IDs. <!-- @impl: preseed/agents/pi/extensions/local-statusline.ts::renderLine --> <!-- @test: src/__tests__/lib/local-statusline-repo.test.ts (REQ-AGENT-056) --> <!-- @test: preseed/agents/pi/test/open-tui.test.mjs (REQ-AGENT-056) -->
+3. Outside Git, the repository label falls back to active repository memory shared with successful tool execution. <!-- @impl: preseed/agents/pi/extensions/local-statusline.ts::repositoryLabel --> <!-- @impl: preseed/agents/pi/extensions/active-repo-memory.ts::rememberActiveRepo --> <!-- @test: src/__tests__/lib/local-statusline-repo.test.ts (REQ-AGENT-056) -->
+4. The active-cwd sentinel remains display-only and accepts only Git repositories inside a session root. <!-- @impl: preseed/agents/pi/extensions/local-statusline.ts::sentinelRepoForDisplay --> <!-- @test: src/__tests__/lib/local-statusline-repo.test.ts (REQ-AGENT-056) -->
+5. Native footer statuses retain other extensions' nonempty statuses alongside session context without empty status-only rows. <!-- @impl: preseed/agents/pi/extensions/local-statusline.ts::refreshStatus --> <!-- @test: preseed/agents/pi/test/open-tui.test.mjs (REQ-AGENT-056) -->
+6. Footer lines fit the visible width without leaking ANSI styling across clipped or wrapped statuses. <!-- @impl: preseed/agents/pi/extensions/startup-header.ts::terminalContext --> <!-- @test: preseed/agents/pi/test/open-tui.test.mjs (REQ-AGENT-056) -->
+7. Session status refreshes at startup, resource discovery, turn/tool boundaries, model/effort changes and timed repaint; shutdown releases its status and timer. <!-- @impl: preseed/agents/pi/extensions/local-statusline.ts::refreshStatus --> <!-- @test: src/__tests__/lib/local-statusline-repo.test.ts (REQ-AGENT-056) --> <!-- @test: preseed/agents/pi/test/open-tui.test.mjs (REQ-AGENT-056) -->
 
 **Constraints:**
 
-- The statusline is cosmetic and must not block agent execution if repository or context metadata cannot be read.
-- Idle sessions render no empty extra footer lines.
+- Open TUI alone owns terminal renderers; RPC, print and background sessions do not run its terminal handlers, project probes or settings overlay.
+- Cosmetic metadata/configuration failures must not block agent execution. Unsafe or malformed Open TUI configuration stays unchanged and skips native activation with a content-free warning.
+- Startup restores enabled UI and visible session statuses; unrelated valid preferences survive. Native context decoration is disabled rather than showing unknown context as zero.
 
 **Priority:** P2
 
 **Dependencies:** [REQ-AGENT-004](#req-agent-004-two-session-modes-standard-and-pro), [REQ-AGENT-006](#req-agent-006-preseed-configs-generated-from-single-source-of-truth)
 
-**Verification:** Automated and manual verification
+**Verification:** Native pinned SDK/TUI composition, metadata and lifecycle tests; packaged-image and deployed terminal acceptance remain separate gates.
 
 **Status:** Implemented
 
@@ -4003,7 +3985,7 @@ None.
 
 **Acceptance Criteria:**
 
-1. On a fresh container, startup installs context-mode but writes its disabled package marker regardless of prior opt-in state, so no foreground bridge, routing skill, or `ctx_*` tool initializes before explicit enablement. <!-- @impl: entrypoint.sh::warm_pi_npm_dependencies --> <!-- @impl: preseed/agents/pi/extensions/context-mode-runtime.ts::attachConfiguredContextMode --> <!-- @test: host/__tests__/pi-settings-packages.test.js (REQ-AGENT-076 AC1 / REQ-AGENT-131 AC1 / REQ-AGENT-133 AC1: fresh container assembles required packages with context-mode disabled) --> <!-- @test: host/__tests__/pi-settings-packages.test.js (startup restores the disabled default while preserving managed and unrelated packages) -->
+1. On a fresh container, startup installs context-mode but writes its disabled package marker regardless of prior opt-in state, so no foreground bridge, routing skill, or `ctx_*` tool initializes before explicit enablement. <!-- @impl: entrypoint.sh::warm_pi_npm_dependencies --> <!-- @impl: preseed/agents/pi/extensions/context-mode-runtime.ts::attachConfiguredContextMode --> <!-- @test: host/__tests__/pi-settings-packages.test.js (REQ-AGENT-076 AC1 / REQ-AGENT-133 AC1: fresh container assembles required packages with context-mode disabled) --> <!-- @test: host/__tests__/pi-settings-packages.test.js (startup restores the disabled default while preserving managed and unrelated packages) -->
 2. Standard and Advanced Pi expose a state-changing `/ctx` command that reloads Pi into the selected enabled or disabled state. <!-- @impl: preseed/agents/pi/extensions/ctx-command.ts::handleContextModeCommand --> <!-- @manual: Start fresh Standard and Advanced sessions and confirm `/ctx` reports disabled and no `ctx_*` tools are present; run `/ctx on`, reload, activate one context tool through `capability`, and confirm it works; run `/ctx off` and confirm reload removes the bridge. -->
 3. Custom-tier Claude may receive automatic context-window reduction only while its tier remains eligible. <!-- @impl: src/lib/r2-seed.ts::getConfigsForMode --> <!-- @test: host/__tests__/entrypoint-context-mode.test.js (entrypoint context-mode preseed gate / REQ-AGENT-005 + REQ-AGENT-076 (context-mode MCP registration)) -->
 4. The Pi settings required set installs the five always-on tool extensions independently of context-mode state. <!-- @impl: entrypoint.sh::warm_pi_npm_dependencies --> <!-- @test: host/__tests__/pi-settings-packages.test.js (Pi settings.json packages assembly (entrypoint.sh)) -->
@@ -5117,8 +5099,8 @@ None.
 
 **Acceptance Criteria:**
 
-1. Startup removes the retired image-owned response package identity from persisted Pi settings. <!-- @impl: entrypoint.sh::removedPackageIds --> <!-- @test: host/__tests__/pi-settings-packages.test.js (startup restores the disabled default while preserving managed and unrelated packages) -->
-2. Startup preserves unrelated user-added packages during retirement migration. <!-- @impl: entrypoint.sh::removedPackageIds --> <!-- @test: host/__tests__/pi-settings-packages.test.js (startup restores the disabled default while preserving managed and unrelated packages) -->
+1. Startup removes explicitly retired response and Usage package identities from persisted Pi settings. <!-- @impl: entrypoint.sh::removedPackageIds --> <!-- @test: host/__tests__/pi-settings-packages.test.js (startup restores the disabled default while preserving managed and unrelated packages) --> <!-- @test: host/__tests__/pi-settings-packages.test.js (REQ-AGENT-209 AC1/AC2) -->
+2. Startup preserves unrelated user-added packages, credentials and history during retirement migration. <!-- @impl: entrypoint.sh::removedPackageIds --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-001 AC5 / REQ-AGENT-209: real restored boot migrates packages while preserving user npm metadata and credential/history bytes) -->
 
 **Constraints:** Only explicitly retired package identities are removed.
 

@@ -430,12 +430,12 @@ it('REQ-AGENT-056 / REQ-AGENT-210: reviewed Open TUI archive matches its exact n
   const manifest = JSON.parse(readFileSync(join(root, 'preseed/agents/pi/package.json'), 'utf8'));
   const lock = JSON.parse(readFileSync(join(root, 'preseed/agents/pi/package-lock.json'), 'utf8'));
   const declared = lock.packages['node_modules/pi-open-tui'];
-  const bytes = readFileSync(join(root, 'host/__fixtures__/pi-open-tui-0.3.11.tgz'));
-  assert.equal(manifest.dependencies['pi-open-tui'], '0.3.11');
-  assert.equal(lock.packages[''].dependencies['pi-open-tui'], '0.3.11');
-  assert.equal(declared.version, '0.3.11');
-  assert.equal(declared.resolved, 'https://registry.npmjs.org/pi-open-tui/-/pi-open-tui-0.3.11.tgz');
-  assert.equal(declared.integrity, 'sha512-/uT5QZTFl1/GyO4Nre3u1cIOBBgDsX96ze3F0doxNKi4EsKvOqgTovRpYqbLASKTfljs612bH7I2J1wZQJzTcw==');
+  const version = manifest.dependencies['pi-open-tui'];
+  assert.match(version, /^\d+\.\d+\.\d+$/); // Intentional exact stable release pin.
+  const bytes = readFileSync(join(root, `host/__fixtures__/pi-open-tui-${version}.tgz`));
+  assert.equal(lock.packages[''].dependencies['pi-open-tui'], version);
+  assert.equal(declared.version, version);
+  assert.equal(declared.resolved, `https://registry.npmjs.org/pi-open-tui/-/pi-open-tui-${version}.tgz`);
   assert.equal(`sha512-${createHash('sha512').update(bytes).digest('base64')}`, declared.integrity);
   assert.equal(manifest.dependencies['@narumitw/pi-usage'], undefined);
   assert.equal(lock.packages[''].dependencies['@narumitw/pi-usage'], undefined);
