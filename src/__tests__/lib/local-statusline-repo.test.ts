@@ -73,17 +73,17 @@ function producer({ cwd = root, sessionCwd = cwd, mode = 'tui', usage }: {
 }
 
 describe('REQ-AGENT-056: compact public status producer', () => {
-  it('REQ-AGENT-056 AC2: preserves known, calculated and unknown context plus model and explicit off effort', async () => {
-    const f = producer({ usage: { percent: 37, tokens: 20, contextWindow: 40 } });
-    await f.emit('session_start'); expect(f.text()).toContain('37% | ordinary:off');
+  it('REQ-AGENT-056 AC2: publishes repository only without duplicate context, model or effort facts', async () => {
+    const repo = repository('owned');
+    const f = producer({ cwd: repo, usage: { percent: 37, tokens: 20, contextWindow: 40 } });
+    await f.emit('session_start');
+    expect(f.text()).toBe('owned:topic');
+    f.ctx.model = { id: 'routing-id', provider: 'codeflare-gateway', name: 'Published model' };
+    f.effort('xhigh');
     f.ctx.getContextUsage = () => ({ tokens: 20, contextWindow: 40 });
-    await f.emit('turn_end'); expect(f.text()).toContain('50% | ordinary:off');
-    for (const usage of [undefined, { tokens: null, contextWindow: 40 }, { percent: NaN }, { tokens: 1, contextWindow: 0 }]) {
-      f.ctx.getContextUsage = () => usage;
-      await f.emit('turn_end'); expect(f.text()).toContain('--% | ordinary:off');
-    }
-    f.ctx.getContextUsage = () => { throw new Error('metadata unavailable'); };
-    await f.emit('turn_end'); expect(f.text()).toContain('--% | ordinary:off');
+    await f.emit('model_select');
+    expect(f.text()).toBe('owned:topic');
+    expect(f.ctx.model.id).toBe('routing-id');
     expect(f.statuses.get('review')).toBe('Review retained');
     await f.emit('session_shutdown', { reason: 'quit' });
   });
@@ -115,7 +115,7 @@ describe('REQ-AGENT-056: compact public status producer', () => {
       const before = readFileSync(filesystem.sentinel);
       await f.emit('session_start', { reason: 'startup' });
       if (value === inside) expect(f.text()).toContain(`${basename(inside)}:topic`);
-      else expect(f.text()).toBe('--% | ordinary:off');
+      else expect(f.statuses.has('codeflare-session')).toBe(false);
       expect(readFileSync(filesystem.sentinel)).toEqual(before);
       await f.emit('session_shutdown', { reason: 'new' });
     }
@@ -124,22 +124,23 @@ describe('REQ-AGENT-056: compact public status producer', () => {
   it('REQ-AGENT-056 AC7: session/resource/turn/model/effort and TTL refresh visible facts, then replacement/shutdown fence stale contexts', async () => {
     const repo = repository('active');
     const f = producer({ cwd: repo });
-    await f.emit('session_start'); expect(f.text()).toContain('ordinary:off | active:topic');
+    await f.emit('session_start'); expect(f.text()).toBe('active:topic');
     for (const type of ['resources_discover', 'turn_start', 'turn_end', 'model_select', 'thinking_level_select']) {
       f.ctx.model = { id: type }; f.effort('high');
-      await f.emit(type); expect(f.text()).toContain(`${type}:high`);
+      await f.emit(type); expect(f.text()).toBe('active:topic');
     }
     git(repo, 'checkout', '-b', 'fresh');
     await vi.advanceTimersByTimeAsync(1001);
     expect(f.text()).toContain('active:fresh');
     // A replacement context must not be overwritten by an earlier interval.
-    const replacement = { ...f.ctx, model: { id: 'replacement' } };
+    const replacementRepo = repository('replacement');
+    const replacement = { ...f.ctx, cwd: replacementRepo, sessionManager: { getCwd: () => replacementRepo } };
     f.ctx.model = { id: 'old-context' };
     // Exercise the public session lifecycle, not private cache/registration state.
     await f.emit('session_shutdown', { reason: 'new' });
     await f.emit('session_start', { reason: 'new' }, replacement);
     await vi.advanceTimersByTimeAsync(3000);
-    expect(f.text()).toContain('replacement:high');
+    expect(f.text()).toBe('replacement:topic');
     await f.emit('session_shutdown', { reason: 'quit' }, replacement);
     await vi.advanceTimersByTimeAsync(3000);
     expect(f.statuses.has('codeflare-session')).toBe(false);

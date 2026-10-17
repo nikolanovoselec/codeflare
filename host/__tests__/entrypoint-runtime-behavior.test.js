@@ -1,7 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -77,6 +77,80 @@ const EXPECTED_PLAN_MODE_SETTINGS = {
 };
 
 describe('entrypoint production helpers', () => {
+  it('REQ-AGENT-056 AC1: enforces the approved Open TUI settings on fresh and restored startup without changing unrelated data', (t) => {
+    const home = mkdtempSync(join(tmpdir(), 'pi-open-tui-settings-'));
+    t.after(() => rmSync(home, { recursive: true, force: true }));
+    const path = join(home, '.pi/agent/open-tui.json');
+    const expected = {
+      enabled: true, settingsLanguage: 'en', inlineFooter: false, cursorStyle: 'block',
+      icons: { mode: 'ascii' }, thinkingPeek: { lines: 2 },
+      footerSegments: { cwd: false, hostname: false, sessionName: true, gitBranch: false,
+        gitStatus: false, gitCommit: false, runtime: false, context: true, tokens: false,
+        cost: false, extensionStatuses: true, capitalizeProviderName: false },
+      telemetry: { enabled: false, tps: true, ttft: true, duration: true, tokens: true, stalls: true, cost: true },
+    };
+    const env = { USER_HOME: home };
+    const fresh = runStartupInvocation('configure_pi_open_tui', env);
+    assert.equal(fresh.status, 0, fresh.stderr);
+    assert.deepEqual(JSON.parse(readFileSync(path, 'utf8')), expected);
+    assert.equal(lstatSync(path).mode & 0o777, 0o600);
+    const adjacent = join(home, '.pi/agent/auth.json');
+    writeFileSync(adjacent, 'synthetic-user-data');
+    const restored = { ...expected, enabled: false, settingsLanguage: 'zh', inlineFooter: true, cursorStyle: 'bar',
+      custom: { keep: true }, icons: { mode: 'unicode', custom: 'keep' }, thinkingPeek: { lines: 0, custom: 'keep' },
+      footerSegments: { ...Object.fromEntries(Object.entries(expected.footerSegments).map(([key, value]) => [key, !value])), custom: 'keep' },
+      telemetry: { ...Object.fromEntries(Object.entries(expected.telemetry).map(([key, value]) => [key, !value])), custom: 'keep' } };
+    const merged = { ...expected, custom: restored.custom,
+      icons: { ...expected.icons, custom: 'keep' }, thinkingPeek: { ...expected.thinkingPeek, custom: 'keep' },
+      footerSegments: { ...expected.footerSegments, custom: 'keep' }, telemetry: { ...expected.telemetry, custom: 'keep' } };
+    for (let i = 0; i < 2; i++) {
+      writeFileSync(path, JSON.stringify(restored));
+      const result = runStartupInvocation('configure_pi_open_tui', env);
+      assert.equal(result.status, 0, result.stderr);
+      assert.deepEqual(JSON.parse(readFileSync(path, 'utf8')), merged);
+      assert.equal(lstatSync(path).mode & 0o777, 0o600);
+      assert.equal(readFileSync(adjacent, 'utf8'), 'synthetic-user-data');
+    }
+  });
+
+  it('REQ-AGENT-056 AC1: preserves malformed or unsafe Open TUI configuration with a content-free warning', (t) => {
+    const home = mkdtempSync(join(tmpdir(), 'pi-open-tui-unsafe-'));
+    t.after(() => rmSync(home, { recursive: true, force: true }));
+    const path = join(home, '.pi/agent/open-tui.json');
+    mkdirSync(dirname(path), { recursive: true });
+    for (const bytes of ['{synthetic-private-value', 'null', '[]',
+      ...['icons', 'thinkingPeek', 'footerSegments', 'telemetry'].flatMap(key =>
+        [null, [], 'synthetic-private-value'].map(value => JSON.stringify({ [key]: value })))]) {
+      writeFileSync(path, bytes);
+      const result = runStartupInvocation('configure_pi_open_tui', { USER_HOME: home });
+      assert.equal(result.status, 0, result.stderr);
+      assert.match(result.stdout, /existing preferences preserved/);
+      assert.equal(readFileSync(path, 'utf8'), bytes);
+      assert.doesNotMatch(result.stdout + result.stderr, /synthetic-private-value/);
+    }
+    rmSync(path);
+    const target = join(home, 'target'); writeFileSync(target, 'synthetic-private-value');
+    symlinkSync(target, path);
+    let result = runStartupInvocation('configure_pi_open_tui', { USER_HOME: home });
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /existing preferences preserved/);
+    assert.equal(lstatSync(path).isSymbolicLink(), true);
+    assert.equal(readFileSync(target, 'utf8'), 'synthetic-private-value');
+    rmSync(path); mkdirSync(path);
+    result = runStartupInvocation('configure_pi_open_tui', { USER_HOME: home });
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /existing preferences preserved/);
+    assert.equal(lstatSync(path).isDirectory(), true);
+    rmSync(path, { recursive: true });
+    const fifo = spawnSync('mkfifo', [path], { encoding: 'utf8' });
+    assert.equal(fifo.status, 0, fifo.stderr);
+    result = runStartupInvocation('configure_pi_open_tui', { USER_HOME: home });
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /existing preferences preserved/);
+    assert.equal(lstatSync(path).isFIFO(), true);
+    assert.doesNotMatch(result.stdout + result.stderr, /synthetic-private-value/);
+  });
+
   it('REQ-AGENT-069/217: first-session MCP ownership disables only the native duplicate before Pi loads and is idempotent', (t) => {
     const root = mkdtempSync(join(tmpdir(), 'pi-first-session-mcp-'));
     t.after(() => rmSync(root, { recursive: true, force: true }));

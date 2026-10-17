@@ -63,6 +63,24 @@ describe('REQ-OPERATOR-027: operator activity header control', () => {
     expect(readMock).toHaveBeenCalledTimes(1);
   });
 
+  it('REQ-OPERATOR-086: keeps the closed trigger snapshot until explicit opening', async () => {
+    vi.useFakeTimers();
+    let unreadCount = 1;
+    listMock.mockImplementation(async () => ({ items: [active], unreadCount, latestSequence: unreadCount }));
+    render(() => <OperatorActivityButton enabled />);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(screen.getByText('1')).toBeTruthy();
+    unreadCount = 3;
+    await vi.advanceTimersByTimeAsync(60_000);
+    window.dispatchEvent(new Event('focus'));
+    window.dispatchEvent(new Event('online'));
+    document.dispatchEvent(new Event('visibilitychange'));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(screen.getByText('1')).toBeTruthy();
+    expect(screen.queryByText('3')).toBeNull();
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
   it('REQ-OPERATOR-040: presents concise Operators navigation with explicit refresh and dismissal', async () => {
     listMock.mockResolvedValue({ items: [] });
     render(() => <OperatorActivityButton enabled />);
@@ -86,18 +104,27 @@ describe('REQ-OPERATOR-027: operator activity header control', () => {
     expect(screen.getByRole('dialog', { name: /operator activity/i }).className).not.toContain('operator-activity-panel--active');
   });
 
-  it('uses compact sizing for completed history and returns to it when work completes', async () => {
+  it('REQ-OPERATOR-086: overview changes only on manual refresh, not timer, focus or reconnect', async () => {
     vi.useFakeTimers();
     const completed = { ...active, executionStatus: 'completed' as const, cleanupStatus: 'stopped' as const };
-    listMock.mockResolvedValue({ items: [completed], unreadCount: 0 });
-    listMock.mockResolvedValueOnce({ items: [active], unreadCount: 1 });
+    let item: typeof active | typeof completed = active;
+    listMock.mockImplementation(async () => ({ items: [item], unreadCount: 0 }));
     render(() => <OperatorActivityButton enabled />);
     await vi.advanceTimersByTimeAsync(0);
-    expect(screen.getByText('1')).toBeTruthy();
     await fireEvent.click(screen.getByRole('button', { name: /operator activity/i }));
+    await vi.advanceTimersByTimeAsync(0);
     expect(screen.getByRole('dialog', { name: /operator activity/i }).className).toContain('operator-activity-panel--active');
 
-    await vi.advanceTimersByTimeAsync(15_000);
+    item = completed;
+    await vi.advanceTimersByTimeAsync(60_000);
+    window.dispatchEvent(new Event('focus'));
+    window.dispatchEvent(new Event('online'));
+    document.dispatchEvent(new Event('visibilitychange'));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(screen.getByText('running')).toBeTruthy();
+    expect(screen.queryByText('completed')).toBeNull();
+    await fireEvent.click(screen.getByRole('button', { name: 'Refresh runs' }));
+    await vi.advanceTimersByTimeAsync(0);
     expect(screen.getByText('completed')).toBeTruthy();
     expect(screen.getByRole('dialog', { name: /operator activity/i }).className).toContain('operator-activity-panel--compact');
     expect(screen.getByRole('dialog', { name: /operator activity/i }).className).not.toContain('operator-activity-panel--active');
@@ -269,7 +296,7 @@ describe('REQ-OPERATOR-027: readable owned activity and bounded history', () => 
     expect(screen.queryByText('Conclusion: reviewed')).toBeNull();
   });
 
-  it('keeps the older page stable when polling prepends a newer activity', async () => {
+  it('keeps the older page stable until explicit navigation reads newer activity', async () => {
     vi.useFakeTimers();
     let history = Array.from({ length: 12 }, (_, i) => ({ ...active, activityId: `activity-${i + 1}` }));
     listMock.mockImplementation(async (after: string | null) => {
@@ -302,7 +329,7 @@ describe('REQ-OPERATOR-027: readable owned activity and bounded history', () => 
     expect(screen.getAllByRole('article')).toHaveLength(5);
   });
 
-  it('REQ-OPERATOR-057: polls selected detail from running to completed without leaving the result view', async () => {
+  it('REQ-OPERATOR-057: manually refreshes selected detail without leaving the result view', async () => {
     vi.useFakeTimers();
     let currentDetail: OperatorActivityDetail = { ...active, checkpoint: null, result: null };
     listMock.mockImplementation(async () => ({ items: [currentDetail] }));
@@ -317,7 +344,15 @@ describe('REQ-OPERATOR-027: readable owned activity and bounded history', () => 
     expect(screen.getByText('Result pending')).toBeTruthy();
     currentDetail = { ...currentDetail, executionStatus: 'completed', cleanupStatus: 'stopped',
       collectionStatus: 'ready', result: { verdict: 'reviewed' } };
-    await vi.advanceTimersByTimeAsync(15_000);
+    await vi.advanceTimersByTimeAsync(60_000);
+    window.dispatchEvent(new Event('focus'));
+    window.dispatchEvent(new Event('online'));
+    document.dispatchEvent(new Event('visibilitychange'));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(screen.getByText('Execution: running')).toBeTruthy();
+    expect(screen.getByText('Result pending')).toBeTruthy();
+    await fireEvent.click(screen.getByRole('button', { name: 'Refresh runs' }));
+    await vi.advanceTimersByTimeAsync(0);
     expect(screen.getByText('activity-1')).toBeTruthy();
     expect(screen.getByText('Activity ID:')).toBeTruthy();
     expect(screen.getByText('Execution: completed')).toBeTruthy();
@@ -332,7 +367,7 @@ describe('REQ-OPERATOR-027: readable owned activity and bounded history', () => 
     expect(screen.getByRole('link', { name: 'Open session' }).getAttribute('href')).toBe('/app?session=session-1');
   });
 
-  it('REQ-OPERATOR-033 AC4: a failed detail poll is unavailable and a later poll recovers without navigation', async () => {
+  it('REQ-OPERATOR-033 AC4: failed manual detail refresh is unavailable until explicit retry', async () => {
     vi.useFakeTimers();
     let unavailable = false;
     listMock.mockResolvedValue({ items: [active] });
@@ -348,11 +383,15 @@ describe('REQ-OPERATOR-027: readable owned activity and bounded history', () => 
     await vi.advanceTimersByTimeAsync(0);
     expect(screen.getByText('Conclusion: reviewed')).toBeTruthy();
     unavailable = true;
-    await vi.advanceTimersByTimeAsync(15_000);
+    await fireEvent.click(screen.getByRole('button', { name: 'Refresh runs' }));
+    await vi.advanceTimersByTimeAsync(0);
     expect(screen.getByText('Activity detail unavailable')).toBeTruthy();
     expect(screen.queryByText('Conclusion: reviewed')).toBeNull();
     unavailable = false;
-    await vi.advanceTimersByTimeAsync(15_000);
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(screen.getByText('Activity detail unavailable')).toBeTruthy();
+    await fireEvent.click(screen.getByRole('button', { name: 'Retry detail' }));
+    await vi.advanceTimersByTimeAsync(0);
     expect(screen.getByText('Conclusion: reviewed')).toBeTruthy();
     expect(screen.queryByText('Activity detail unavailable')).toBeNull();
     expect(screen.getByRole('button', { name: 'Back to activities' })).toBeTruthy();

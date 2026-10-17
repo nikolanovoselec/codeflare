@@ -96,7 +96,7 @@ beforeEach(() => {
   server.saveError = false; server.reconcileError = false; server.startWait = null;
   server.savedPolicy = null; server.savedRevision = null;
 });
-afterEach(() => { cleanup(); vi.restoreAllMocks(); });
+afterEach(() => { cleanup(); vi.useRealTimers(); vi.restoreAllMocks(); });
 
 describe('REQ-OPERATOR-086: dropdown Runs and Installed workspace', () => {
   it('AC1/8: keeps segments and nested navigation in the existing dialog without preparing work on opening', async () => {
@@ -167,6 +167,29 @@ describe('REQ-OPERATOR-086: dropdown Runs and Installed workspace', () => {
     expect(screen.queryByText(/physically stopped/i)).toBeNull();
     expect(screen.getByRole('button', { name: 'View diagnostics' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Copy activity ID' })).toBeTruthy();
+  });
+
+  it('AC4: keeps explicitly opened diagnostics visible across elapsed time, focus and reconnect', async () => {
+    vi.useFakeTimers();
+    render(() => <OperatorActivityButton enabled />);
+    await vi.advanceTimersByTimeAsync(0);
+    await fireEvent.click(screen.getByRole('button', { name: 'Operator activity' }));
+    await vi.advanceTimersByTimeAsync(0);
+    await fireEvent.click(screen.getByRole('button', { name: 'View run-1' }));
+    await vi.advanceTimersByTimeAsync(0);
+    await fireEvent.click(screen.getByRole('button', { name: 'View diagnostics' }));
+    await fireEvent.click(screen.getAllByRole('button', { name: 'View diagnostics' }).at(-1)!);
+    await vi.advanceTimersByTimeAsync(0);
+    const failure = 'Diagnostic metadata is invalid or unavailable. It cannot be used as evidence.';
+    expect(screen.getByText(failure)).toBeTruthy();
+    await vi.advanceTimersByTimeAsync(60_000);
+    window.dispatchEvent(new Event('focus'));
+    window.dispatchEvent(new Event('online'));
+    document.dispatchEvent(new Event('visibilitychange'));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(screen.getByText(failure)).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Hide diagnostics' })).toBeTruthy();
+    expect(server.prepared).toEqual({});
   });
 
   it('AC4: never creates external assessment links from an untrusted repository path or opaque URL', async () => {
