@@ -1,4 +1,6 @@
 import { For, Show, createResource, createSignal, onCleanup, type Component } from 'solid-js';
+import { mdiChevronLeft, mdiMagnify } from '@mdi/js';
+import Icon from './Icon';
 import { ApiError } from '../api/fetch-helper';
 import { configureInstallation, getInstallationActivityPreview, getManagedOperator, getOwnedActivity,
   listOperatorInstallations, prepareInstallationActivity, startInstallationActivity, type InstalledOperator } from '../api/operator-management';
@@ -93,7 +95,7 @@ const ManualRun: Component<Props & { item: InstalledOperator; back: () => void }
     } finally { setPending(false); }
   };
   return <div class="operator-dropdown-body operator-manual-review">
-    <button type="button" disabled={pending() || !!preparedId() && !observed()} onClick={props.back}>Back to installed operators</button>
+    <button type="button" class="operator-back-action" disabled={pending() || !!preparedId() && !observed()} onClick={props.back}><Icon path={mdiChevronLeft} size={18} aria-hidden="true" />Back to installed operators</button>
     <h3>Start a manual run</h3>
     <p>Review one invocation. Automatic scheduling is a separate setting.</p>
     <Show when={!preview.loading} fallback={<p role="status">Loading invocation…</p>}>
@@ -139,8 +141,8 @@ const OperatorInstalled: Component<Props> = props => {
   return <Show when={selected()} fallback={<div class="operator-dropdown-body">
     <div class="operator-dropdown-heading"><h3>Installed operators</h3><button type="button" onClick={refresh}>Refresh installations</button></div>
     <p class="operator-dropdown-muted">Run once when needed. Automatic runs are optional and configured separately.</p>
-    <input type="search" aria-label="Find an installed operator" placeholder="Find an installed operator…" value={search()}
-      onInput={event => setSearch(event.currentTarget.value)} />
+    <label class="operator-run-search"><Icon path={mdiMagnify} size={18} aria-hidden="true" /><input type="search" aria-label="Find an installed operator" placeholder="Find an installed operator…" value={search()}
+      onInput={event => setSearch(event.currentTarget.value)} /></label>
     <small class="operator-dropdown-muted">Search applies to the current page.</small>
     <Show when={notice()}><p role="status">{notice()}</p></Show>
     <Show when={!loading()} fallback={<p role="status">Loading installations…</p>}>
@@ -150,14 +152,16 @@ const OperatorInstalled: Component<Props> = props => {
             <div class="operator-dropdown-heading"><h4>{item.name}</h4><span>{item.version ?? 'Version unavailable'}</span></div>
             <p>{item.installationName}</p><Show when={item.repository}><p>{item.repository}</p></Show>
             <p>{!item.approved ? 'Approval required' : !item.enabled ? 'Disabled' : 'Enabled'} · {item.guidedMode ? 'Manual run supported' : 'Manual input not supported here'}</p>
-            <button type="button" disabled={!item.canInvoke || !item.enabled || !item.approved || !item.guidedMode}
-              onClick={() => { if (item.canInvoke && item.enabled && item.approved && item.guidedMode) setSelected(item); }}>Run manually</button>
-            <Show when={!item.canInvoke}><small>Invocation permission required. Management access does not grant invocation.</small></Show>
-            <Show when={item.automaticRuns !== null} fallback={<p>Automatic runs: <strong>Not configurable</strong></p>}>
-              <Show when={item.canManage} fallback={<p>Automatic runs: {item.automaticRuns ? 'on' : 'off'}. Management permission required to change scheduling.</p>}>
-                <Scheduling item={item} saved={message => { setNotice(message); refresh(); }} />
+            <div class="operator-installed-controls">
+              <Show when={item.automaticRuns !== null} fallback={<p>Automatic runs: <strong>Not configurable</strong></p>}>
+                <Show when={item.canManage} fallback={<p>Automatic runs: {item.automaticRuns ? 'on' : 'off'}. Management permission required to change scheduling.</p>}>
+                  <Scheduling item={item} saved={message => { setNotice(message); refresh(); }} />
+                </Show>
               </Show>
-            </Show>
+              <button type="button" class="operator-primary-action" disabled={!item.canInvoke || !item.enabled || !item.approved || !item.guidedMode}
+                onClick={() => { if (item.canInvoke && item.enabled && item.approved && item.guidedMode) setSelected(item); }}>Run manually</button>
+            </div>
+            <Show when={!item.canInvoke}><small>Invocation permission required. Management access does not grant invocation.</small></Show>
             <Show when={!item.canManage && item.automaticRuns === null}><small>Management permission required to configure installations.</small></Show>
           </article>}</For>
         </Show>

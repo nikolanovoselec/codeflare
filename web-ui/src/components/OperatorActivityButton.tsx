@@ -1,6 +1,6 @@
 import { For, Show, createMemo, createResource, createSignal, onCleanup, onMount, type Component } from 'solid-js';
 import { Portal } from 'solid-js/web';
-import { mdiDeveloperBoard, mdiClose, mdiMagnify } from '@mdi/js';
+import { mdiDeveloperBoard, mdiClose, mdiMagnify, mdiChevronLeft } from '@mdi/js';
 import Icon from './Icon';
 import OperatorInstalled from './OperatorInstalled';
 import OperatorActivityResult from './OperatorActivityResult';
@@ -139,7 +139,7 @@ const OperatorActivityButton: Component<Props> = props => {
           </div>
           <div id="operator-runs-panel" role="tabpanel" aria-labelledby="operator-runs-tab" hidden={segment() !== 'Runs'} class="operator-dropdown-view">
             <Show when={selected()} fallback={<>
-              <div class="operator-run-filters"><label class="operator-run-search"><Icon path={mdiMagnify} size={18} /><input type="search" aria-label="Find a run" placeholder="Find a run…" value={search()} onInput={event => setSearch(event.currentTarget.value)} /></label>
+              <div class="operator-run-filters"><label class="operator-run-search"><Icon path={mdiMagnify} size={18} aria-hidden="true" /><input type="search" aria-label="Find a run" placeholder="Find a run…" value={search()} onInput={event => setSearch(event.currentTarget.value)} /></label>
                 <div class="operator-dropdown-heading"><h3>Recent runs</h3><select aria-label="Filter runs by operator" value={operator()} onChange={event => setOperator(event.currentTarget.value)}><option value="">All operators</option><For each={operators()}>{entry => <option value={entry[0]}>{entry[1]}</option>}</For></select></div>
                 <small class="operator-dropdown-muted">Search and filter apply to the current page.</small></div>
               <Show when={!activities.loading} fallback={<div class="operator-activity-state">Loading activity…</div>}>
@@ -159,7 +159,7 @@ const OperatorActivityButton: Component<Props> = props => {
                 </Show>
               </Show>
             </>}>
-              <div class="operator-dropdown-body"><button type="button" onClick={() => select(null)}>Back to activities</button>
+              <div class="operator-dropdown-body"><button type="button" class="operator-back-action" onClick={() => select(null)}><Icon path={mdiChevronLeft} size={18} aria-hidden="true" />Back to activities</button>
                 <Show when={!detail.loading} fallback={<p>Loading activity detail…</p>}><Show when={!detail.error && detail()} fallback={<div role="alert">Activity detail unavailable<button type="button" onClick={() => void refetchDetail()}>Retry detail</button></div>}>
                   {value => <div class="operator-activity-detail"><h3>{value().operatorName || value().operatorId}</h3><Show when={value().context}><p>{value().context}</p></Show>
                     <Show when={value().version}><p>Version: {value().version}</p></Show><p>Execution: {value().executionStatus}</p>
