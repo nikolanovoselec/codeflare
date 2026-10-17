@@ -36,7 +36,7 @@ Every file scanned as a Pi extension exports a default factory; pure helpers ret
 
 `local-statusline.ts` publishes only repository and branch through the native status area, without installing a competing footer or duplicating context, model or effort. Parent-workspace sessions retain remembered nested repositories and the guarded display-only sentinel. Other extensions keep their statuses and colors; native context/model rendering remains upstream-owned. <!-- @impl: preseed/agents/pi/extensions/local-statusline.ts::repositoryLabel -->
 
-After home restore, entrypoint enforces the following `open-tui.json` preferences on every container startup, including existing workplaces. Unrelated root and nested fields survive. <!-- @impl: entrypoint.sh::configure_pi_open_tui -->
+After home restore, entrypoint enforces the following `open-tui.json` preferences on every container startup, including existing workplaces ([REQ-AGENT-221](../../sdd/spec/agents.md#req-agent-221-pi-startup-presentation-preferences)). Unrelated root and nested fields survive. <!-- @impl: entrypoint.sh::configure_pi_open_tui -->
 
 | Group | Enforced preferences |
 |---|---|

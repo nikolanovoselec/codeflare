@@ -2873,7 +2873,7 @@ None.
 
 **Acceptance Criteria:**
 
-1. Both modes enable one installed Open TUI header, footer and prompt editor. Every container startup enforces English, ASCII icons, block cursor, two-line thinking peek, inline footer off, session/context/extension footer segments on, all other footer segments off and telemetry disabled; unrelated preferences survive. <!-- @impl: preseed/agents/pi/extensions/startup-header.ts --> <!-- @impl: entrypoint.sh::configure_pi_open_tui --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-056 AC1) --> <!-- @test: host/__tests__/pi-settings-packages.test.js (REQ-AGENT-056: fresh startup supplies exactly the reviewed adapter-owned package filter) --> <!-- @manual: Confirm native header/footer/editor activation in both packaged session modes, terminal-only settings, and safe configuration preservation. -->
+1. Both modes enable one installed Open TUI header, footer and prompt editor. <!-- @impl: preseed/agents/pi/extensions/startup-header.ts --> <!-- @test: host/__tests__/pi-settings-packages.test.js (REQ-AGENT-056: fresh startup supplies exactly the reviewed adapter-owned package filter) --> <!-- @manual: Confirm native header/footer/editor activation in both packaged session modes and terminal-only settings. -->
 2. Codeflare session status shows only repository and branch, or is absent when no repository resolves; it adds no context percentage, model or thinking-effort text and changes no routing identity. <!-- @impl: preseed/agents/pi/extensions/local-statusline.ts::repositoryLabel --> <!-- @test: src/__tests__/lib/local-statusline-repo.test.ts (REQ-AGENT-056) --> <!-- @manual: Confirm repository-only Codeflare status alongside native context/model display in the packaged terminal. -->
 3. Outside Git, the repository label falls back to active repository memory shared with successful tool execution. <!-- @impl: preseed/agents/pi/extensions/local-statusline.ts::repositoryLabel --> <!-- @impl: preseed/agents/pi/extensions/active-repo-memory.ts::rememberActiveRepo --> <!-- @test: src/__tests__/lib/local-statusline-repo.test.ts (REQ-AGENT-056) -->
 4. The active-cwd sentinel remains display-only and accepts only Git repositories inside a session root. <!-- @impl: preseed/agents/pi/extensions/local-statusline.ts::sentinelRepoForDisplay --> <!-- @test: src/__tests__/lib/local-statusline-repo.test.ts (REQ-AGENT-056) -->
@@ -2890,9 +2890,34 @@ None.
 
 **Priority:** P2
 
-**Dependencies:** [REQ-AGENT-004](#req-agent-004-two-session-modes-standard-and-pro), [REQ-AGENT-006](#req-agent-006-preseed-configs-generated-from-single-source-of-truth)
+**Dependencies:** [REQ-AGENT-004](#req-agent-004-two-session-modes-standard-and-pro), [REQ-AGENT-006](#req-agent-006-preseed-configs-generated-from-single-source-of-truth), [REQ-AGENT-221](#req-agent-221-pi-startup-presentation-preferences)
 
 **Verification:** Package-assembly and Codeflare status tests; manual packaged-terminal acceptance for native UI, configuration and widths.
+
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-221: Pi startup presentation preferences
+
+**Intent:** Fresh and restored workplaces receive the approved terminal preferences on every startup without losing unrelated settings or user data.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Every container startup enforces enabled Open TUI, English, ASCII icons, block cursor, two-line thinking peek, inline footer off, session/context/extension footer segments on and other owned footer segments off. <!-- @impl: entrypoint.sh::configure_pi_open_tui --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-056 AC1: enforces the approved Open TUI settings on fresh and restored startup without changing unrelated data) -->
+2. Telemetry master is disabled; its TPS, TTFT, duration, tokens, stalls and cost switches remain enabled but inactive. <!-- @impl: entrypoint.sh::configure_pi_open_tui --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-056 AC1: enforces the approved Open TUI settings on fresh and restored startup without changing unrelated data) -->
+3. Enforcement preserves unrelated root and nested preferences and adjacent user data through a private atomic replacement. <!-- @impl: entrypoint.sh::configure_pi_open_tui --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-056 AC1: enforces the approved Open TUI settings on fresh and restored startup without changing unrelated data) -->
+4. Malformed, nonobject or nested-invalid configurations, symlinks and nonregular files remain unchanged, with content-free warnings that do not block startup. <!-- @impl: entrypoint.sh::configure_pi_open_tui --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-056 AC1: preserves malformed or unsafe Open TUI configuration with a content-free warning) -->
+
+**Constraints:** Entrypoint alone enforces owned startup preferences; the terminal adapter validates configuration without writing it.
+
+**Priority:** P2
+
+**Dependencies:** [REQ-AGENT-006](#req-agent-006-preseed-configs-generated-from-single-source-of-truth)
+
+**Verification:** Automated startup-helper tests cover fresh/restored preferences, preservation and unsafe-file handling; deployed startup acceptance remains separate.
 
 **Status:** Implemented
 
