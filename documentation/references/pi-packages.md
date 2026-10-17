@@ -38,7 +38,7 @@ The complete RPIV preparation contract remains [REQ-AGENT-210](../../sdd/spec/ag
 - RPIV shadow-pin candidates update matching lock-backed manifests and must pass the patch and actual loading of the preseed extensions through both installed Pi SDKs before any branch push.
 - Incompatible candidates fail the job without publication.
 
-Pi 1.3.0 includes native MCP, but deferred tool exposure is not lazy server allocation: enabled native servers connect eagerly. The adapter remains the managed MCP lifecycle owner. Managed startup must disable `builtin:mcp` with the documented `-builtin:mcp` extension entry while preserving unrelated extension selections; a first-session command warning is not proof of correct ownership. The coordinated upgrade's startup, transform and image qualification remain pending CI and deployed acceptance; package presence does not satisfy those gates.
+Pi 1.3.0 includes native MCP, but deferred tool exposure is not lazy server allocation: enabled native servers connect eagerly. The adapter remains the managed MCP lifecycle owner. Managed startup must disable `builtin:mcp` with the documented `-builtin:mcp` extension entry while preserving unrelated extension selections; a first-session command warning is not proof of correct ownership. The coordinated upgrade's source startup, transform and authentic-adapter checks passed [PR Checks 39013450649](https://github.com/nikolanovoselec/codeflare/actions/runs/39013450649) at `bece2e3065f81ffd038f71dc255ef508eb0c6ea2`. Image construction, installed runtime behavior and deployed acceptance remain separate pending gates; package presence and source CI do not satisfy them.
 
 ## Context-mode and web access
 
