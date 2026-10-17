@@ -1042,6 +1042,15 @@ jobs:
           directory: host
           key-prefix: host
 
+      - name: Install authentic Graphify MCP compatibility runtime
+        run: |
+          set -euo pipefail
+          python3 -m venv "$RUNNER_TEMP/graphify-compat"
+          package=$(python3 -c 'import json; p=json.load(open("host/__fixtures__/graphify-compatibility.json")); print("graphifyy[mcp] @ " + p["wheel"] + "#sha256=" + p["sha256"])')
+          "$RUNNER_TEMP/graphify-compat/bin/python" -m pip install --disable-pip-version-check "$package"
+          "$RUNNER_TEMP/graphify-compat/bin/python" -c 'import importlib.metadata,json; p=json.load(open("host/__fixtures__/graphify-compatibility.json")); assert importlib.metadata.version("graphifyy") == p["version"]'
+          echo "GRAPHIFY_TEST_PYTHON=$RUNNER_TEMP/graphify-compat/bin/python" >> "$GITHUB_ENV"
+
       - name: Create assets directory (wrangler.toml requires web-ui/dist)
         # wrangler-static-assets.test.js reads wrangler.toml via unstable_readConfig,
         # which resolves the [assets] directory; without the dir the config loads

@@ -1,235 +1,205 @@
-// Verifies REQ-AGENT-023 AC4: the graphify MCP wrapper (graphify-mcp-lazy.py)
-// implements the load-bearing hot-reload + repo-aware resolution
-// contract (AD53).
-//
-// The "LazyGraph runtime behavior" describe EXECUTES the wrapper in a real
-// python3 with stubbed networkx/graphify modules: it proves the atomic dict
-// swap (an iterator held open across a reload completes over the old
-// snapshot; a clear()+add regression raises RuntimeError deterministically),
-// the mtime-gated reload, and the rebind-empties contract. The static
-// regex checks below it remain as a cheap secondary guard for invariants
-// that need the full graphify runtime to exercise (sentinel env plumbing,
-// daemon-thread flags, serve() wiring).
-import { describe, it } from 'node:test';
+// REQ-AGENT-023 AC2/AC4: exercise the owned wrapper through real upstream
+// Graphify's public MCP stdio boundary. No graph extraction or external API calls.
+import { it } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { spawnSync } from 'node:child_process';
+import { mkdirSync, mkdtempSync, renameSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
+import { spawn } from 'node:child_process';
+import { createInterface } from 'node:readline';
 import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const WRAPPER = resolve(
-  __dirname,
-  '../../preseed/agents/claude/plugins/graphify/scripts/graphify-mcp-lazy.py'
-);
-const source = readFileSync(WRAPPER, 'utf-8');
+const here = dirname(fileURLToPath(import.meta.url));
+const wrapper = resolve(here, '../../preseed/agents/claude/plugins/graphify/scripts/graphify-mcp-lazy.py');
 
-const NETWORKX_STUB = `
-class DiGraph:
-    def __init__(self):
-        self._node = {}
-        self._adj = {}
-        self._pred = {}
-        self._succ = {}
-        self.graph = {}
+function graph(prefix, { parallel = false, community = 0 } = {}) {
+  const ids = ['Caller', 'Middle', 'Leaf'].map(label => `${prefix}${label}`);
+  const link = (source, target, relation) => ({ source, target, relation,
+    confidence: 'EXTRACTED', _src: source, _tgt: target });
+  return {
+    directed: true,
+    // Upstream repairs parallel links even when older writers serialized false.
+    multigraph: false,
+    graph: {},
+    nodes: ids.map(id => ({ id, label: id, source_file: `${prefix}.py`,
+      file_type: 'code', community, community_name: `${prefix} community` })),
+    links: [link(ids[0], ids[1], 'calls'), link(ids[1], ids[2], 'calls'),
+      ...(parallel ? [link(ids[0], ids[1], 'references')] : [])],
+  };
+}
 
-    def __iter__(self):
-        return iter(self._node)
+function fixture() {
+  const root = mkdtempSync(join(tmpdir(), 'graphify-mcp-'));
+  const workspace = join(root, 'workspace');
+  mkdirSync(workspace);
+  const sentinel = join(root, 'active-cwd');
+  const globalGraph = join(root, 'global', 'graph.json');
+  const nominal = join(root, 'nominal', 'graph.json');
+  let generation = 0;
+  function publish(path, data, mtime = 2_000_000_000 + generation++) {
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(`${path}.new`, JSON.stringify(data));
+    utimesSync(`${path}.new`, mtime, mtime);
+    renameSync(`${path}.new`, path);
+    return path;
+  }
+  function repo(name) {
+    const path = join(workspace, name);
+    mkdirSync(join(path, '.git'), { recursive: true });
+    mkdirSync(join(path, 'nested', 'deeper'), { recursive: true });
+    writeFileSync(join(path, '.git', 'HEAD'), 'ref: refs/heads/main\n');
+    return { path, graph: join(path, 'graphify-out', 'graph.json'), nested: join(path, 'nested', 'deeper') };
+  }
+  return { root, workspace, sentinel, globalGraph, nominal, publish, repo,
+    select: path => writeFileSync(sentinel, path),
+    dispose: () => rmSync(root, { recursive: true, force: true }) };
+}
 
-    def __len__(self):
-        return len(self._node)
-`;
+async function client(f) {
+  const python = process.env.GRAPHIFY_TEST_PYTHON;
+  assert.ok(python, 'The host CI prerequisite must provide the authentic Graphify candidate interpreter');
+  const child = spawn(python, ['-u', wrapper, f.nominal], {
+    cwd: f.root,
+    env: { ...process.env, HOME: f.root, PYTHONPATH: '',
+      CODEFLARE_WORKSPACE: f.workspace, GRAPHIFY_SENTINEL: f.sentinel,
+      GRAPHIFY_GLOBAL_GRAPH: f.globalGraph, GRAPHIFY_POLL_SECONDS: '0.02' },
+    stdio: ['pipe', 'pipe', 'pipe'],
+  });
+  const pending = new Map();
+  let sequence = 0;
+  let diagnostics = '';
+  child.stderr.setEncoding('utf8');
+  child.stderr.on('data', text => { diagnostics = (diagnostics + text).slice(-8000); });
+  const lines = createInterface({ input: child.stdout });
+  function fail(error) {
+    for (const request of pending.values()) { clearTimeout(request.timer); request.reject(error); }
+    pending.clear();
+  }
+  child.on('error', fail);
+  child.on('exit', (code, signal) => fail(new Error(`Graphify exited (${code ?? signal}): ${diagnostics}`)));
+  lines.on('line', line => {
+    let message;
+    try { message = JSON.parse(line); } catch { fail(new Error(`Non-MCP stdout: ${line}`)); return; }
+    const request = pending.get(message.id);
+    if (!request) return;
+    pending.delete(message.id);
+    clearTimeout(request.timer);
+    if (message.error) request.reject(new Error(JSON.stringify(message.error)));
+    else request.resolve(message.result);
+  });
+  const send = message => child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', ...message })}\n`);
+  function request(method, params) {
+    const id = ++sequence;
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => { pending.delete(id); reject(new Error(`${method} timed out: ${diagnostics}`)); }, 15_000);
+      pending.set(id, { resolve, reject, timer });
+      send({ id, method, params });
+    });
+  }
+  async function close() {
+    lines.close();
+    fail(new Error('MCP fixture closed'));
+    if (child.exitCode !== null || child.signalCode !== null) return;
+    await new Promise(resolve => {
+      const timer = setTimeout(() => child.kill('SIGKILL'), 1000);
+      child.once('exit', () => { clearTimeout(timer); resolve(); });
+      child.kill('SIGTERM');
+    });
+  }
+  try {
+    await request('initialize', { protocolVersion: '2024-11-05', capabilities: {},
+      clientInfo: { name: 'codeflare-compatibility-test', version: '1.0.0' } });
+    send({ method: 'notifications/initialized' });
+  } catch (error) { await close(); throw error; }
+  return {
+    close,
+    async tool(name, args = {}) {
+      const result = await request('tools/call', { name, arguments: args });
+      const text = result.content.filter(item => item.type === 'text').map(item => item.text).join('\n');
+      assert.notEqual(result.isError, true, text);
+      assert.doesNotMatch(text, /^Error executing /, text);
+      return text;
+    },
+  };
+}
 
-const GRAPHIFY_SERVE_STUB = `
-import json
-import networkx as nx
-
-
-def _load_graph(path):
-    g = nx.DiGraph()
-    with open(path) as f:
-        data = json.load(f)
-    for node in data.get("nodes", []):
-        g._node[node["id"]] = node
-    return g
-
-
-def serve(arg):
-    raise RuntimeError("serve() must not run in tests")
-`;
-
-const HARNESS = `
-import importlib.util
-import json
-import os
-import sys
-import time
-from pathlib import Path
-
-spec = importlib.util.spec_from_file_location("graphify_mcp_lazy", os.environ["WRAPPER_PATH"])
-mod = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(mod)
-
-g = mod.LazyGraph()
-assert sorted(g) == ["a", "b", "c"], f"initial sentinel-resolved load: {sorted(g)}"
-print("LOAD_OK")
-
-# Hold an iterator open across a reload: the atomic pointer swap must let it
-# complete over the OLD dict. A clear()+add_nodes_from regression mutates the
-# dict the iterator is walking and raises RuntimeError right here.
-it = iter(g)
-first = next(it)
-graph_path = Path(os.environ["GRAPH_JSON"])
-graph_path.write_text(json.dumps({"nodes": [{"id": "x"}, {"id": "y"}]}))
-future = time.time() + 5
-os.utime(graph_path, (future, future))
-g._tick()
-rest = [first] + list(it)
-assert sorted(rest) == ["a", "b", "c"], f"in-flight iterator must finish over the old snapshot: {sorted(rest)}"
-assert sorted(g) == ["x", "y"], f"post-swap graph contents: {sorted(g)}"
-print("SWAP_OK")
-
-# Same mtime => no reload (the mtime gate, not a reload-every-tick loop).
-g._node["marker"] = {}
-g._tick()
-assert "marker" in g._node, "an unchanged mtime must not trigger a reload"
-print("MTIME_GATE_OK")
-
-# Rebinding the sentinel to a graphless repo empties the graph atomically so
-# stale nodes never leak across repos.
-Path(os.environ["SENTINEL"]).write_text(os.environ["REPO2"])
-g._tick()
-assert len(g) == 0, f"rebind to a graphless repo must empty the graph: {sorted(g)}"
-print("REBIND_OK")
-`;
-
-describe('LazyGraph runtime behavior (REQ-AGENT-023 AC4 / AD53, real python3 + stubbed graphify)', () => {
-  it('loads via the sentinel, swaps atomically under an open iterator, gates on mtime, and empties on rebind', () => {
-    const fixture = mkdtempSync(join(tmpdir(), 'graphify-lazy-'));
+for (const parallel of [false, true]) {
+  it(`REQ-AGENT-023: AC2 preserves ${parallel ? 'parallel' : 'single'} relations and directed answers through Claude MCP`, async () => {
+    const f = fixture();
+    let mcp;
     try {
-      const stubs = join(fixture, 'stubs');
-      mkdirSync(join(stubs, 'graphify'), { recursive: true });
-      writeFileSync(join(stubs, 'networkx.py'), NETWORKX_STUB);
-      writeFileSync(join(stubs, 'graphify', '__init__.py'), '');
-      writeFileSync(join(stubs, 'graphify', 'serve.py'), GRAPHIFY_SERVE_STUB);
-
-      const repo1 = join(fixture, 'workspace', 'repo1');
-      const repo2 = join(fixture, 'workspace', 'repo2');
-      mkdirSync(join(repo1, 'graphify-out'), { recursive: true });
-      mkdirSync(join(repo1, '.git'), { recursive: true });
-      mkdirSync(join(repo2, '.git'), { recursive: true });
-      writeFileSync(join(repo1, '.git', 'HEAD'), 'ref: refs/heads/main\n');
-      writeFileSync(join(repo2, '.git', 'HEAD'), 'ref: refs/heads/main\n');
-      const graphJson = join(repo1, 'graphify-out', 'graph.json');
-      writeFileSync(graphJson, JSON.stringify({ nodes: [{ id: 'a' }, { id: 'b' }, { id: 'c' }] }));
-
-      const sentinel = join(fixture, 'graphify-active-cwd');
-      writeFileSync(sentinel, repo1);
-      const harness = join(fixture, 'harness.py');
-      writeFileSync(harness, HARNESS);
-
-      const result = spawnSync('python3', [harness], {
-        encoding: 'utf8',
-        timeout: 30_000,
-        env: {
-          ...process.env,
-          PYTHONPATH: stubs,
-          WRAPPER_PATH: WRAPPER,
-          GRAPH_JSON: graphJson,
-          SENTINEL: sentinel,
-          REPO2: repo2,
-          GRAPHIFY_SENTINEL: sentinel,
-          CODEFLARE_WORKSPACE: join(fixture, 'workspace'),
-          // Point the global graph at a nonexistent file so the sentinel path
-          // is exercised; park the watcher so only explicit _tick()s run.
-          GRAPHIFY_GLOBAL_GRAPH: join(fixture, 'no-such-global.json'),
-          GRAPHIFY_POLL_SECONDS: '3600',
-        },
-      });
-
-      assert.equal(result.status, 0, `harness failed:\n${result.stdout}\n${result.stderr}`);
-      for (const marker of ['LOAD_OK', 'SWAP_OK', 'MTIME_GATE_OK', 'REBIND_OK']) {
-        assert.ok(result.stdout.includes(marker), `missing ${marker} in:\n${result.stdout}\n${result.stderr}`);
-      }
-    } finally {
-      rmSync(fixture, { recursive: true, force: true });
-    }
+      const selected = f.repo('selected');
+      f.publish(selected.graph, graph('Proof', { parallel }));
+      f.select(selected.nested);
+      // Existing nominal path isolates relation semantics from graphless startup.
+      f.publish(f.nominal, graph('Nominal'));
+      mcp = await client(f);
+      const neighbors = await mcp.tool('get_neighbors', { node_id: 'ProofCaller', token_budget: 4000 });
+      assert.match(neighbors, /ProofMiddle/);
+      assert.match(neighbors, /calls/);
+      if (parallel) assert.match(neighbors, /references/);
+      const query = await mcp.tool('query_graph', { question: 'ProofLeaf', depth: 3, token_budget: 8000 });
+      assert.match(query, /ProofCaller/);
+      assert.match(query, /ProofLeaf/);
+      // An incoming leaf must not make the directed route reversible.
+      const path = await mcp.tool('shortest_path', { source: 'ProofCaller', target: 'ProofLeaf' });
+      assert.match(path, /Shortest path \(2 hops\)/);
+      assert.match(path, /--calls(?:\/references)? \[EXTRACTED\]--> ProofMiddle/);
+      if (parallel) assert.match(path, /references/);
+      const reverse = await mcp.tool('shortest_path', { source: 'ProofLeaf', target: 'ProofCaller' });
+      assert.match(reverse, /No directed path/);
+      const undirected = await mcp.tool('shortest_path', { source: 'ProofLeaf', target: 'ProofCaller', undirected: true });
+      assert.match(undirected, /Shortest path \(2 hops\)/);
+      assert.match(undirected, /<--calls/);
+      const stats = await mcp.tool('graph_stats');
+      assert.match(stats, /Nodes: 3\n/);
+      assert.match(stats, new RegExp(`Edges: ${parallel ? 3 : 2}\\n`));
+    } finally { if (mcp) await mcp.close(); f.dispose(); }
   });
-});
+}
 
-describe('graphify-mcp-lazy.py static contract', () => {
-  it('monkey-patches graphify.serve._load_graph to return a LazyGraph', () => {
-    assert.match(
-      source,
-      /gs\._load_graph\s*=\s*_lazy_load_graph/,
-      'wrapper must replace gs._load_graph or the missing-graph crash returns'
-    );
-  });
+it('REQ-AGENT-023: AC4 starts graphless and rebinds fresh query contexts without restarting MCP', async () => {
+  const f = fixture();
+  let mcp;
+  try {
+    const first = f.repo('first');
+    const second = f.repo('second');
+    const empty = f.repo('empty');
+    mcp = await client(f);
+    assert.match(await mcp.tool('graph_stats'), /Nodes: 0\nEdges: 0\n/);
 
-  it('LazyGraph subclasses nx.DiGraph (so isinstance checks pass)', () => {
-    assert.match(
-      source,
-      /class\s+LazyGraph\(nx\.DiGraph\)/,
-      'wrapper relies on isinstance(G, nx.Graph) in graphify; must subclass'
-    );
-  });
+    f.select(first.nested);
+    f.publish(first.graph, graph('Before', { community: 1 }), 2_000_000_001);
+    assert.match(await mcp.tool('get_node', { node_id: 'BeforeCaller' }), /Node: BeforeCaller/);
+    assert.match(await mcp.tool('query_graph', { question: 'BeforeLeaf', token_budget: 8000 }), /BeforeCaller/);
+    assert.match(await mcp.tool('shortest_path', { source: 'BeforeCaller', target: 'BeforeLeaf' }), /2 hops/);
+    assert.match(await mcp.tool('get_community', { community_id: 1 }), /BeforeCaller/);
 
-  it('uses a threading.Lock to serialise watcher writes vs reader iteration', () => {
-    assert.match(source, /threading\.Lock\(\)/);
-    assert.match(source, /with self\._lock/);
-  });
+    f.publish(first.graph, graph('After', { community: 2 }), 2_000_000_002);
+    assert.match(await mcp.tool('get_node', { node_id: 'AfterCaller' }), /Node: AfterCaller/);
+    assert.doesNotMatch(await mcp.tool('query_graph', { question: 'AfterLeaf', token_budget: 8000 }), /Before/);
+    assert.match(await mcp.tool('shortest_path', { source: 'AfterCaller', target: 'AfterLeaf' }), /2 hops/);
+    assert.match(await mcp.tool('get_community', { community_id: 2 }), /AfterCaller/);
+    assert.match(await mcp.tool('get_community', { community_id: 1 }), /not found/);
 
-  it('swap path replaces _node/_adj/_pred/_succ/graph atomically (not clear+add)', () => {
-    // The earlier draft used clear() + add_nodes_from() which crashed
-    // graphify mid-iteration. The fix is atomic dict-pointer swap.
-    assert.match(source, /self\._node\s*=\s*new_g\._node/);
-    assert.match(source, /self\._adj\s*=\s*new_g\._adj/);
-    assert.match(source, /self\._pred\s*=\s*new_g\._pred/);
-    assert.match(source, /self\._succ\s*=\s*new_g\._succ/);
-    assert.doesNotMatch(
-      source,
-      /self\.clear\(\)\s*\n\s*self\.add_nodes_from/,
-      'must not regress to clear() + add_nodes_from() (race vs readers)'
-    );
-  });
+    // Equal mtimes on different paths must still rebind complete query contexts.
+    f.publish(second.graph, graph('Other', { community: 3 }), 2_000_000_002);
+    f.select(second.nested);
+    assert.match(await mcp.tool('get_node', { node_id: 'OtherCaller' }), /Node: OtherCaller/);
+    assert.match(await mcp.tool('get_community', { community_id: 3 }), /OtherLeaf/);
+    f.select(empty.nested);
+    assert.match(await mcp.tool('graph_stats'), /Nodes: 0\nEdges: 0\n/);
 
-  it('polls a sentinel file before falling back to freshest mtime', () => {
-    assert.match(source, /SENTINEL_PATH/);
-    assert.match(source, /WORKSPACE_ROOT/);
-    // The fallback glob is part of the resolution contract
-    assert.match(
-      source,
-      /WORKSPACE_ROOT\.glob\(["']\*\/graphify-out\/graph\.json["']\)/
-    );
-  });
-
-  it('walks up from sentinel cwd to find a parent with graphify-out/ or .git/', () => {
-    assert.match(source, /graphify-out["']?\)\.is_dir\(\)/);
-    assert.match(source, /\.git["']?\)\.is_dir\(\)/);
-  });
-
-  it('sentinel + workspace + poll seconds are env-configurable', () => {
-    assert.match(source, /GRAPHIFY_SENTINEL/);
-    assert.match(source, /CODEFLARE_WORKSPACE/);
-    assert.match(source, /GRAPHIFY_POLL_SECONDS/);
-  });
-
-  it('reads .git/HEAD for branch identification on rebind', () => {
-    assert.match(source, /\.git["']?\s*\/\s*["']HEAD["']/);
-    assert.match(source, /ref:\s*refs\/heads\//);
-  });
-
-  it('watcher runs as a daemon thread (does not block server exit)', () => {
-    assert.match(source, /threading\.Thread\([^)]*daemon=True/);
-  });
-
-  it('tick exceptions log traceback (not just the bare exception repr)', () => {
-    assert.match(source, /traceback\.print_exc/);
-  });
-
-  it('exposes a main entrypoint that invokes gs.serve()', () => {
-    assert.match(source, /if __name__\s*==\s*["']__main__["']/);
-    assert.match(source, /gs\.serve\(/);
-  });
+    // No sentinel falls back to freshest; valid sentinel beats that freshness.
+    rmSync(f.sentinel);
+    f.publish(second.graph, graph('Freshest'), 2_000_000_004);
+    assert.match(await mcp.tool('get_node', { node_id: 'FreshestCaller' }), /Node: FreshestCaller/);
+    f.select(first.nested);
+    assert.match(await mcp.tool('get_node', { node_id: 'AfterCaller' }), /Node: AfterCaller/);
+    f.publish(f.globalGraph, graph('Unified'), 2_000_000_000);
+    assert.match(await mcp.tool('get_node', { node_id: 'UnifiedCaller' }), /Node: UnifiedCaller/);
+    assert.doesNotMatch(await mcp.tool('query_graph', { question: 'UnifiedLeaf', token_budget: 8000 }), /After|Freshest/);
+    rmSync(f.globalGraph);
+    assert.match(await mcp.tool('get_node', { node_id: 'AfterCaller' }), /Node: AfterCaller/);
+  } finally { if (mcp) await mcp.close(); f.dispose(); }
 });
