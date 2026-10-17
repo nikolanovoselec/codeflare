@@ -2884,8 +2884,10 @@ None.
 **Constraints:**
 
 - Open TUI alone owns terminal renderers; RPC, print and background sessions do not run its terminal handlers, project probes or settings overlay.
-- Cosmetic metadata/configuration failures must not block agent execution. Unsafe or malformed Open TUI configuration stays unchanged and skips native activation with a content-free warning.
-- Startup restores enabled UI and visible session statuses; unrelated valid preferences survive. Native context decoration is disabled rather than showing unknown context as zero.
+- Cosmetic metadata/configuration failures must not block agent execution.
+- Unsafe or malformed Open TUI configuration stays unchanged and skips native activation with a content-free warning.
+- Startup restores enabled UI and visible session statuses; unrelated valid preferences survive.
+- Native context decoration is disabled rather than showing unknown context as zero.
 
 **Priority:** P2
 

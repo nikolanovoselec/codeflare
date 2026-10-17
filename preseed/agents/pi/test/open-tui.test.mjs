@@ -90,7 +90,7 @@ function terminalHost(fullscreen = false) {
   };
 }
 
-async function fixture(t, { mode = 'tui', hasUI = true, fullscreen = false, config, unsafeConfig, compacted = false } = {}) {
+async function fixture(t, { mode = 'tui', hasUI = true, fullscreen = false, config, unsafeConfig, compacted = false, parentCall } = {}) {
   assert.equal(VERSION, '1.3.0', 'candidate SDK contract; installed 0.99 is not a compatibility result');
   const enterprise = enterpriseStartup({ reasoning: '' });
   assert.equal(enterprise.result.status, 0, enterprise.result.stderr);
@@ -154,6 +154,19 @@ async function fixture(t, { mode = 'tui', hasUI = true, fullscreen = false, conf
   const modelRuntime = await ModelRuntime.create({ modelsPath: enterprise.modelsPath, authPath: join(agentDir, 'auth.json'),
     modelsStorePath: join(agentDir, 'models-store.json'), allowModelNetwork: false });
   const sessionManager = SessionManager.inMemory(home);
+  if (parentCall) {
+    // Restore issuing history before construction: the real nested-call pipeline
+    // rejects an orphan context without an assistant message issuing the call.
+    const model = modelRuntime.getModel('codeflare-gateway', 'bedrock_opus');
+    sessionManager.appendMessage({ role: 'user', content: 'Read the fixture file.', timestamp: Date.now() });
+    sessionManager.appendMessage({
+      role: 'assistant', content: [{ type: 'toolCall', ...parentCall }],
+      api: model.api, provider: model.provider, model: model.id,
+      usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0,
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+      stopReason: 'toolUse', timestamp: Date.now(),
+    });
+  }
   if (compacted) {
     // A legitimate restored compaction has unknown usage until the next model
     // response. Empty fresh sessions correctly have a known zero estimate.
@@ -240,6 +253,8 @@ it('REQ-AGENT-161 / REQ-AGENT-056 AC5/AC6: actual native header and composed foo
   f.display.editor.setText('/open-t');
   f.display.editor.setAutocompleteProvider(new CombinedAutocompleteProvider([{ name: 'open-tui', description: 'Settings' }], f.home));
   f.display.key('\t'); await turn();
+  assert.ok(f.display.editor.isShowingAutocomplete(), 'first Tab opens slash-command suggestions');
+  f.display.key('\t'); await turn();
   assert.equal(f.display.editor.getText().trim(), '/open-tui');
 });
 
@@ -287,7 +302,8 @@ it('REQ-AGENT-056 AC7: model/effort changes and real SDK reload retain native in
 for (const options of [{ mode: 'rpc', hasUI: true }, { mode: 'json', hasUI: false },
   { mode: 'print', hasUI: false }, { mode: 'tui', hasUI: false }]) {
   it(`REQ-AGENT-056: ${options.mode} hasUI=${options.hasUI} leaves terminal UI, config and runtime probes inert while reads work`, { timeout: 20000 }, async t => {
-    const f = await fixture(t, options);
+    const f = await fixture(t, { ...options,
+      parentCall: { id: 'test-read', name: 'read', arguments: { path: 'ordinary.txt' } } });
     assert.ok(f.session.extensionRunner.getRegisteredCommands().some(command => command.name === 'open-tui'));
     await f.session.prompt('/open-tui');
     await f.session.extensionRunner.emit({ type: 'model_select', model: f.session.model, source: 'set' });
@@ -329,7 +345,10 @@ for (const config of [undefined, { enabled: false, inlineFooter: false, settings
 for (const unsafe of ['malformed', 'symlink']) {
   it(`REQ-AGENT-056: ${unsafe} config remains byte-identical, warns without disclosing content and leaves agent tools usable`, { timeout: 20000 }, async t => {
     const malformed = '{"private":"fixture-sensitive-value",broken\n';
-    const f = await fixture(t, unsafe === 'malformed' ? { config: malformed } : { unsafeConfig: true });
+    const f = await fixture(t, {
+      ...(unsafe === 'malformed' ? { config: malformed } : { unsafeConfig: true }),
+      parentCall: { id: 'safe-read', name: 'read', arguments: { path: 'safe.txt' } },
+    });
     assert.equal(readFileSync(f.configPath, 'utf8'), unsafe === 'malformed' ? malformed : '{"enabled":false,"private":"fixture-sensitive-value"}\n');
     assert.equal(f.display.header, undefined); assert.equal(f.display.footer, undefined);
     assert.equal(f.display.ui.getEditorComponent(), undefined);
