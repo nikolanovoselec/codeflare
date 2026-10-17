@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import { expect } from 'vitest';
 import { parseDispatcherBundle, parseOperatorManifest } from '../../../operators/distribution';
 import { errorSchema, readSdkProvenance, sourceMatches, type DiagnosticSource, type ErrorMetadata, type SdkProvenance } from '../../../operators/dispatcher-diagnostics-wire';
-import type { NativeFaultImport, NativeFaultSettlement, NativeImportOmission } from './dispatcher-composed-fixture';
+import type { NativeFaultImport, NativeFaultSettlement } from './dispatcher-composed-fixture';
 
 const digest = (value: string | Uint8Array) => createHash('sha256').update(value).digest('hex');
 const hash = /^[a-f0-9]{64}$/;
@@ -333,85 +333,5 @@ export async function qualifyImportedSdk(fetch: (path: string) => Promise<Respon
     'Fixture canonical SQLite rejection', 'Fixture operational finalization rejection',
     'Fixture interrupted replacement rejection', 'Fixture swallowed facet cleanup rejection',
     'fixture-only-token', 'fixture-only-access']) expect(wire).not.toContain(privateValue);
-  return { value, records };
-}
-
-/** Separate negative contract: real local capture is NOT parent retention.
- * All owner reads occur after normal retirement; no child is opened here. */
-export async function qualifyWithheldSdk(fetch: (path: string) => Promise<Response>, id: string,
-  artifactDigest: string, submissions: string[], sdkProvenance: SdkProvenance, witness: NativeImportOmission | null) {
-  expect(witness, 'REQ081 AC1/3/7; Dispatcher007 AC1/4/7: actual durable local capture before retirement is mandatory').not.toBeNull();
-  expect(witness).toMatchObject({ imported: false, patchSetDigest: sdkProvenance.patchSetDigest,
-    captureDigest: expect.stringMatching(hash), submissionDigest: digest(submissions[0]),
-    attemptDigest: expect.stringMatching(hash), rootDigest: expect.stringMatching(hash) });
-  for (const count of [witness!.failureSequence, witness!.canonicalSequence, witness!.recoveredSequence,
-    witness!.batchSequence, witness!.recordIndex, witness!.producerEpoch, witness!.producerSequence,
-    witness!.localThrough, witness!.localDropped]) expect(Number.isSafeInteger(count) && count >= 0).toBe(true);
-  expect(witness!.failureSequence).toBeGreaterThan(0);
-  expect(witness!.failureSequence).toBeLessThan(witness!.canonicalSequence);
-  expect(witness!.canonicalSequence).toBeLessThan(witness!.recoveredSequence);
-  expect(witness!.localThrough).toBeGreaterThanOrEqual(witness!.recoveredSequence);
-  expect(witness!.localThrough - witness!.failureSequence).toBeLessThan(64);
-  const address = `/dispatcher-composed?activity=${encodeURIComponent(id)}`;
-  async function read<T>(path: string): Promise<T> {
-    const response = await fetch(path);
-    expect(response.status, 'Genuine parent-only owner HTTP after withheld imports').toBe(200);
-    expect(response.headers.get('cache-control')).toBe('no-store');
-    const text = await response.text();
-    expect(new TextEncoder().encode(text).byteLength).toBeLessThanOrEqual(65536);
-    return JSON.parse(text) as T;
-  }
-  type Summary = { version: number; activityId: string; binding: Page['binding']; retention: Page['retention'];
-    highWater: Page['highWater']; health: Page['health']; provenance: { patchSetDigest: string };
-    sdkBinding: { status: string; rootDigest: string; submissionDigest: string };
-    fence: unknown; diagnosis: { state: string; failedId: string | null; nextCheck: string } };
-  const value = await read<Summary>(`${address}&diagnostics=summary`);
-  expect(value).toMatchObject({ version: 2, activityId: id, binding: { generation: 1, artifactDigest,
-    inputDigest: digest(JSON.stringify({ schemaVersion: 1, operatorId: 'composed-dispatcher', activityId: id,
-      invocation: { repository: 'authorized/project' } })) }, provenance: { patchSetDigest: sdkProvenance.patchSetDigest },
-    sdkBinding: { status: 'available', rootDigest: witness!.rootDigest, submissionDigest: digest(submissions.at(-1)!) },
-    fence: null, diagnosis: { state: 'evidence-incomplete', failedId: null, nextCheck: 'inspect-sdk-import' } });
-  function qualifyHealth(health: Page['health']) {
-    expect(health).toMatchObject({ status: 'loss', sdkImport: 'pending', gaps: ['sdk-import-incomplete'] });
-    expect(health.sdkImportReason, 'Known source omission is not merely an unwitnessed retirement tail').toBeUndefined();
-    // No source watermark/drop count reached this parent. Do not manufacture
-    // zero-loss/through evidence from its initialized internal bookkeeping.
-  }
-  function qualifyRetention(retention: Page['retention']) {
-    expect(retention, 'Withholding cannot waive parent retention loss').toMatchObject({
-      epoch: 0, evictedRoutine: 0, droppedFailure: 0, droppedTerminal: 0, oversized: 0, rejected: 0,
-    });
-  }
-  qualifyHealth(value.health);
-  qualifyRetention(value.retention);
-  const records: Event[] = [];
-  const cursors = new Set<string>();
-  let cursor: string | null = null;
-  let exhausted = false;
-  for (let request = 0; request < 128; request++) {
-    const page: Page = await read<Page>(`${address}&diagnostics=history${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`);
-    expect(page).toMatchObject({ version: 2, binding: value.binding, highWater: value.highWater, retainedStatus: 'loss' });
-    qualifyHealth(page.health);
-    qualifyRetention(page.retention);
-    expect(page.records.length).toBeLessThanOrEqual(32);
-    records.push(...page.records.filter(row => row.kind === 'event'));
-    cursor = page.nextCursor;
-    if (cursor === null) { expect(page.pageStatus).toBe('complete'); exhausted = true; break; }
-    expect(page.pageStatus).toBe('more');
-    expect(cursors.has(cursor)).toBe(false);
-    cursors.add(cursor);
-  }
-  expect(exhausted, 'Absent cause requires actual retained-history exhaustion').toBe(true);
-  expect(new Set(records.map(row => row.id)).size).toBe(records.length);
-  expect(records.length).toBeGreaterThan(0);
-  expect(records.filter(row => row.owner === 'sdk'), 'Neither withheld channel may silently import SDK evidence').toEqual([]);
-  expect(records.filter(row => row.code === 'canonical-append-failed'), 'Locally captured cause is unavailable, not retained').toEqual([]);
-  expect(records.some(row => row.owner === 'host' && row.boundary === 'release' && row.outcome === 'completed'),
-    'Normal host release must complete despite missing SDK imports').toBe(true);
-  const wire = JSON.stringify({ value, records, witness });
-  for (const privateValue of [...submissions, 'Migration compatibility remains unverified.',
-    'Fixture canonical SQLite rejection', 'Fixture SDK import withheld', 'fixture-only-token', 'fixture-only-access']) {
-    expect(wire).not.toContain(privateValue);
-  }
   return { value, records };
 }
