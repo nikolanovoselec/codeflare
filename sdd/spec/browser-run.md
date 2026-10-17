@@ -284,20 +284,24 @@ A real-browser capability for advanced-mode agents, backed by Cloudflare Browser
 
 1. Pi's default MCP RPC request budget is six minutes after startup or managed load/reload. <!-- @impl: preseed/agents/pi/extensions/00-mcp-adapter-config.ts::prepareBrowserTimeouts = 360000 --> <!-- @impl: entrypoint.sh::configure_pi_mcp_adapter --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (REQ-BROWSER-009 AC1: fresh Pi load configures six-minute RPC requests without fabricating servers) -->
 2. Existing Chrome-specific MCP RPC overrides are six minutes after startup or managed load/reload. <!-- @impl: preseed/agents/pi/extensions/00-mcp-adapter-config.ts::prepareBrowserTimeouts = 360000 --> <!-- @test: host/__tests__/entrypoint-browser-run-mcp.test.js (REQ-BROWSER-009 AC1/AC2/AC4: startup aligns an existing Chrome RPC override without changing auth or lifecycle) --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (REQ-BROWSER-009 AC1/AC2/AC4/AC5/AC6: timeout preparation preserves custom auth and archives originals) -->
-3. The shared image's Chrome SDK page timeout profile uses six-minute base operation and navigation defaults. <!-- @impl: scripts/patch-chrome-devtools-timeouts.mjs::prepareChromeTimeouts = 360_000 --> <!-- @impl: Dockerfile::patch-chrome-devtools-timeouts.mjs --> <!-- @test: scripts/ci/chrome-devtools-timeouts.test.mjs (REQ-BROWSER-009 AC3: the real Chrome SDK applies six-minute page defaults) -->
+3. The shared image's Chrome SDK uses six-minute base operation/navigation defaults and a six-minute CDP protocol budget for the configured remote WebSocket connection. Native browser-launch safeguards are unchanged. <!-- @impl: scripts/patch-chrome-devtools-timeouts.mjs::prepareChromeTimeouts = 360_000 --> <!-- @impl: Dockerfile::patch-chrome-devtools-timeouts.mjs --> <!-- @test: scripts/ci/chrome-devtools-timeouts.test.mjs (REQ-BROWSER-009 AC3: the real Chrome SDK applies six-minute page and remote protocol defaults) -->
 4. Timeout preparation preserves custom credentials, lifecycle and unrelated configuration. <!-- @impl: preseed/agents/pi/extensions/00-mcp-adapter-config.ts::prepareBrowserTimeouts --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (REQ-BROWSER-009 AC1/AC2/AC4/AC5/AC6: timeout preparation preserves custom auth and archives originals) -->
 5. Timeout preparation archives transformed custom originals byte-for-byte before replacement. <!-- @impl: preseed/agents/pi/extensions/00-mcp-adapter-config.ts::migratePiMcpAdapterConfig --> <!-- @impl: preseed/agents/pi/extensions/00-mcp-adapter-config.ts::preserve --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (REQ-BROWSER-009 AC1/AC2/AC4/AC5/AC6: timeout preparation preserves custom auth and archives originals) -->
 6. Managed Pi load/reload applies the six-minute inactivity closure policy to recognized Cloudflare Browser Run interactive browsers. <!-- @impl: preseed/agents/pi/extensions/00-mcp-adapter-config.ts::registerMcpAdapterMigration --> <!-- @impl: preseed/agents/pi/extensions/00-mcp-adapter-config.ts::prepareBrowserTimeouts = 360000 --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (REQ-BROWSER-009 AC1/AC2/AC4/AC5/AC6: timeout preparation preserves custom auth and archives originals) --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (REQ-BROWSER-009 AC6: timeout policy leaves unrelated endpoint routing unchanged) -->
 
+7. Claude's generated `chrome-devtools` and `browser-run` MCP entries each carry a six-minute tool-call timeout; unrelated server timeout settings remain unchanged. <!-- @impl: entrypoint.sh::BROWSER_MCP_CLAUDE --> <!-- @impl: entrypoint.sh::BROWSER_RUN_MCP_CLAUDE --> <!-- @test: host/__tests__/entrypoint-browser-run-mcp.test.js (REQ-BROWSER-009 AC7: Claude browser MCP calls receive six minutes without changing unrelated servers) -->
+
 **Constraints:**
 
 - RPC budgets apply per call, not per workflow.
+- Pi's pinned adapter restarts its request timeout on progress; this is not an unconditional wall-clock ceiling.
+- Claude tool-call overrides remain browser-scoped; native client startup and teardown safeguards and unrelated MCP servers are unchanged.
 - Fresh managed Pi load creates timeout settings without fabricating servers or credentials.
 - Filename migration and managed regeneration remain owned by [REQ-AGENT-217](agents.md#req-agent-217-lossless-pi-mcp-adapter-migration).
 - Timeout preparation follows filename selection/migration.
 - Customized server shapes remain customized.
 - External endpoint routing and credentials are not rewritten.
-- Chrome CPU/network emulation may multiply base page waits without extending Pi's six-minute RPC ceiling.
+- Chrome CPU/network emulation may multiply base page waits without changing the configured six-minute MCP request budget.
 - Short SDK stabilization and teardown timers remain unchanged.
 - Adapter idle-shutdown policy remains unchanged.
 - Equal client/server budgets do not guarantee structured timeout reporting before transport expiry.

@@ -120,6 +120,8 @@ Context-mode and Evaluate [remain pinned](../../preseed/agents/pi/package.json).
 
 The [Pi package reference](../references/pi-packages.md#loading-and-warm-compatibility) owns current native-MCP and adapter lifecycle behavior. Managed startup disables `builtin:mcp` with `-builtin:mcp`, preserves unrelated extension selections, and leaves the adapter as the managed MCP lifecycle owner. A historical command-replacement warning is not proof of correct ownership or itself a crash diagnosis.
 
+The image-owned questionnaire transform completes an unanswered Pi `ask_user_question` after five minutes. It keeps completed answers and notes, defaults only unanswered questions to their first authored option, and finishes through the existing TUI/native-dialog lifecycle. Automatic answers are labelled in both the result and model-facing text and are not user authorization. Manual answers, cancellation, abort and validation errors remain distinct. The exact-version/source guard runs before JITI warming, after package update/repair and in the shared RPIV shadow-pin verifier; Claude and Plan Mode questions are unchanged ([REQ-AGENT-218](../../sdd/spec/agents.md#req-agent-218-bounded-pi-questionnaire-wait)). Source implementation is present; exact-head CI and deployed acceptance are pending.
+
 RPIV declares host `typebox` as a wildcard peer rather than a runtime dependency. The shared image/startup preparation remains idempotent for this metadata and repairs older dependency-shaped installations after restore or npm repair. All three extensions must still load without host-dependency warnings through both installed Pi SDKs under [REQ-AGENT-210](../../sdd/spec/agents.md#req-agent-210-managed-extension-startup-preparation). The built-in `/mcp` replacement warning is a separate compatibility observation and does not weaken that gate.
 
 Startup removes explicit retired package identities from persisted settings. It drops `pi-goal-list-loop-audit` so its Explore ownership warning cannot survive an image upgrade, and removes the previously image-owned response package so an upgrade cannot reload it. Unrelated user-added packages remain preserved. Goal's runtime dependencies remain integrity-locked in the committed preseed lock ([REQ-AGENT-209](../../sdd/spec/agents.md#req-agent-209-retired-pi-package-migration)). <!-- @impl: entrypoint.sh::removedPackageIds -->
@@ -326,6 +328,13 @@ prepare one valid active adapter after restore. Filename migration alone preserv
 valid legacy-only bytes. Startup rebuilds recognizable managed entries from current
 runtime inputs; startup and managed Pi load/reload then apply the timeout profile
 in [REQ-BROWSER-009](../../sdd/spec/browser-run.md#req-browser-009-mcp-and-chrome-sdk-timeout-profile), including managed-load inactivity under AC6.
+The shared Pi adapter/REST timeout sources already match curation at six minutes.
+Claude's generated browser server entries now also receive six-minute tool-call
+budgets through its documented [per-server `timeout`](https://code.claude.com/docs/en/mcp)
+field. No global client environment override or unrelated server budget is changed.
+The image's Chrome SDK transform aligns the remote WebSocket CDP request budget
+with its existing page/navigation defaults without changing native launch safeguards.
+These additional source changes still need exact-head CI and image acceptance.
 Preparation may change active-file bytes, but preserves custom credentials,
 lifecycle, unrelated fields and external routing. Displaced or transformed
 unknown/custom originals remain archived byte-for-byte before replacement;

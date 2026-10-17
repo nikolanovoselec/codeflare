@@ -75,6 +75,39 @@ These compatibility anchors resolve dated changelog references to retired review
 
 ---
 
+### REQ-AGENT-218: Bounded Pi Questionnaire Wait
+
+**Intent:** An unanswered Pi questionnaire must not block the session indefinitely.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. The managed `ask_user_question` tool waits five minutes from the first rendered questionnaire or native dialog, then finishes with the first authored option for each unanswered question. The TUI overlay and RPC host wait are released; the legacy native-dialog fallback follows the same policy. <!-- @impl: scripts/rpiv-question-timeout.mjs::withQuestionnaireDeadline --> <!-- @test: preseed/agents/pi/test/questionnaire-timeout.test.mjs (selects option one only after five unanswered minutes) -->
+2. A submitted option or custom answer wins before the deadline, remains unchanged afterward, and cannot affect a subsequent invocation. <!-- @impl: scripts/rpiv-question-timeout.mjs::withQuestionnaireDeadline --> <!-- @test: preseed/agents/pi/test/questionnaire-timeout.test.mjs (preserves) -->
+3. One deadline covers the whole invocation. Completed answers, multiple selections and notes are preserved; unanswered multi-select questions receive only their first authored option. <!-- @impl: scripts/rpiv-question-timeout.mjs::defaultQuestionnaireAnswers --> <!-- @test: preseed/agents/pi/test/questionnaire-timeout.test.mjs (retains completed answers and defaults only unanswered questions on one deadline) -->
+4. Explicit cancellation and execution abort release the wait without automatic answers. An already-aborted call opens no questionnaire; completed calls leave no deadline that can finish another invocation. <!-- @impl: scripts/rpiv-question-timeout.mjs::withQuestionnaireDeadline --> <!-- @test: preseed/agents/pi/test/questionnaire-timeout.test.mjs (preserves) --> <!-- @test: preseed/agents/pi/test/questionnaire-timeout.test.mjs (never manufactures answers for aborted or invalid questions) -->
+5. Missing UI and invalid-question errors remain errors, never automatic answers. <!-- @impl: scripts/patch-rpiv-question-timeout.mjs::patchQuestionnaireTimeout --> <!-- @test: preseed/agents/pi/test/questionnaire-timeout.test.mjs (absent UI remains an error, not automatic approval) --> <!-- @test: preseed/agents/pi/test/questionnaire-timeout.test.mjs (never manufactures answers for aborted or invalid questions) -->
+6. Automatic answers are identified individually and at result level in the tool details and model-facing content, not represented as a user response or explicit authorization. <!-- @impl: scripts/rpiv-question-timeout.mjs::withQuestionnaireDeadline --> <!-- @test: preseed/agents/pi/test/questionnaire-timeout.test.mjs (selects option one only after five unanswered minutes) -->
+7. The installed-package transform accepts only the reviewed version and source layouts, is idempotent, runs before image JITI warming and after package update/repair, and is exercised by the existing RPIV verification path. <!-- @impl: scripts/patch-rpiv-question-timeout.mjs::patchQuestionnaireTimeout --> <!-- @impl: Dockerfile::patch-rpiv-question-timeout --> <!-- @impl: entrypoint.sh::update_pi_and_codex_when_fast_start_disabled --> <!-- @impl: scripts/verify-rpiv-host-peers.mjs --> <!-- @test: preseed/agents/pi/test/questionnaire-timeout.test.mjs (source allowlist rejects) --> <!-- @test: preseed/agents/pi/test/questionnaire-timeout.test.mjs (selects option one only after five unanswered minutes) -->
+
+**Constraints:**
+
+- The first option is the recommended default. Automatic selection never authorizes protected operations that require explicit user approval.
+- Scope is the managed Pi questionnaire only, not Claude native questions, Plan questions, Impeccable, or unrelated UI dialogs.
+- The pinned upstream package has no timeout setting. Keep its dependency pins and archive integrity unchanged; do not modify restored user configuration.
+- RPC wait release does not prove visual dialog dismissal in every external client.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-210](#req-agent-210-managed-extension-startup-preparation)
+
+**Verification:** Actual pinned package through the SDK-wrapped tool, real TUI component input and native-dialog host responses with a platform clock; image/update preparation remains subject to existing CI and packaged-image gates. The user waived a separate RED-CI push for this change, not final exact-head review and CI. Source implementation is present; exact-head CI and deployed acceptance remain pending.
+
+**Status:** Implemented
+
+---
+
 ### REQ-AGENT-210: Managed Extension Startup Preparation
 
 **Intent:** Managed Pi extensions must be prepared for startup before an image can be published.

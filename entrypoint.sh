@@ -3231,6 +3231,10 @@ update_pi_and_codex_when_fast_start_disabled() {
             echo "[entrypoint] ERROR: RPIV host dependency compatibility repair failed"
             update_failed=1
         fi
+        if ! node /opt/codeflare/scripts/patch-rpiv-question-timeout.mjs "${PI_NPM_DIR:-$USER_HOME/.pi/agent/npm}/node_modules/@juicesharp/rpiv-ask-user-question"; then
+            echo "[entrypoint] ERROR: RPIV questionnaire timeout preparation failed"
+            update_failed=1
+        fi
     fi
     rm -rf -- "$update_cache"
 
@@ -4167,7 +4171,7 @@ if [ "${SESSION_MODE:-default}" = "advanced" ] \
     # pin and the bump-shadow-pins workflow updates that single source of truth.
     CDP_MCP_BIN="${CHROME_DEVTOOLS_MCP_BIN:-/opt/codeflare/bin/chrome-devtools-mcp}"
     BROWSER_MCP_CLAUDE=$(jq -n --arg bin "$CDP_MCP_BIN" --arg ep "$CDP_WS_ENDPOINT" --arg hdr "$CDP_WS_HEADERS" \
-        '{mcpServers:{"chrome-devtools":{command:$bin,args:[("--wsEndpoint=" + $ep),("--wsHeaders=" + $hdr)]}}}')
+        '{mcpServers:{"chrome-devtools":{command:$bin,args:[("--wsEndpoint=" + $ep),("--wsHeaders=" + $hdr)],timeout:360000}}}')
     if [ -f "$USER_CLAUDE_JSON" ]; then
         TMP_JSON=$(mktemp)
         if jq --argjson mcp "$BROWSER_MCP_CLAUDE" '. * $mcp' "$USER_CLAUDE_JSON" > "$TMP_JSON" 2>/dev/null; then
@@ -4240,7 +4244,7 @@ NODE
     # token + account are passed in the server's scoped env. With this, both
     # agents have BOTH surfaces: interactive (chrome-devtools) + markdown (REST).
     BROWSER_RUN_MCP_CLAUDE=$(jq -n --arg tok "$CLOUDFLARE_API_TOKEN" --arg acct "$CLOUDFLARE_ACCOUNT_ID" \
-        '{mcpServers:{"browser-run":{command:"node",args:["/opt/codeflare/browser-run-mcp/index.mjs"],env:{CLOUDFLARE_API_TOKEN:$tok,CLOUDFLARE_ACCOUNT_ID:$acct}}}}')
+        '{mcpServers:{"browser-run":{command:"node",args:["/opt/codeflare/browser-run-mcp/index.mjs"],timeout:360000,env:{CLOUDFLARE_API_TOKEN:$tok,CLOUDFLARE_ACCOUNT_ID:$acct}}}}')
     if [ -f "$USER_CLAUDE_JSON" ]; then
         TMP_JSON=$(mktemp)
         if jq --argjson mcp "$BROWSER_RUN_MCP_CLAUDE" '. * $mcp' "$USER_CLAUDE_JSON" > "$TMP_JSON" 2>/dev/null; then
