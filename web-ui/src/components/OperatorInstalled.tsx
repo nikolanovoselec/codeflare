@@ -122,8 +122,14 @@ const ManualRun: Component<Props & { item: InstalledOperator; back: () => void }
 const OperatorInstalled: Component<Props> = props => {
   const [cursor, setCursor] = createSignal<string | null>(null);
   const [previous, setPrevious] = createSignal<Array<string | null>>([]);
+  const [search, setSearch] = createSignal('');
   const [page, { refetch }] = createResource(() => ({ cursor: cursor() }), value => listOperatorInstallations(value.cursor));
   const current = () => page();
+  const visible = () => {
+    const query = search().trim().toLowerCase();
+    return (current()?.items ?? []).filter(item => [item.name, item.installationName, item.repository]
+      .some(value => value?.toLowerCase().includes(query)));
+  };
   const loading = () => page.loading;
   const error = () => page.error;
   const refresh = () => { void refetch(); };
@@ -133,11 +139,14 @@ const OperatorInstalled: Component<Props> = props => {
   return <Show when={selected()} fallback={<div class="operator-dropdown-body">
     <div class="operator-dropdown-heading"><h3>Installed operators</h3><button type="button" onClick={refresh}>Refresh installations</button></div>
     <p class="operator-dropdown-muted">Run once when needed. Automatic runs are optional and configured separately.</p>
+    <input type="search" aria-label="Find an installed operator" placeholder="Find an installed operator…" value={search()}
+      onInput={event => setSearch(event.currentTarget.value)} />
+    <small class="operator-dropdown-muted">Search applies to the current page.</small>
     <Show when={notice()}><p role="status">{notice()}</p></Show>
     <Show when={!loading()} fallback={<p role="status">Loading installations…</p>}>
       <Show when={!error()} fallback={<div role="alert"><strong>Installations unavailable</strong><p>Readiness cannot be treated as current.</p><button type="button" onClick={refresh}>Retry installations</button></div>}>
-        <Show when={current()?.items.length} fallback={<p>No installed operators on this page.</p>}>
-          <For each={current()?.items}>{item => <article class="operator-installed-item" aria-label={item.installationName}>
+        <Show when={visible().length} fallback={<p>{current()?.items.length ? 'No matching installed operators on this page.' : 'No installed operators on this page.'}</p>}>
+          <For each={visible()}>{item => <article class="operator-installed-item" aria-label={item.installationName}>
             <div class="operator-dropdown-heading"><h4>{item.name}</h4><span>{item.version ?? 'Version unavailable'}</span></div>
             <p>{item.installationName}</p><Show when={item.repository}><p>{item.repository}</p></Show>
             <p>{!item.approved ? 'Approval required' : !item.enabled ? 'Disabled' : 'Enabled'} · {item.guidedMode ? 'Manual run supported' : 'Manual input not supported here'}</p>
