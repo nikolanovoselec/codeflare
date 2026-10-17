@@ -8,8 +8,8 @@ import tomllib
 def patch_engine(root):
     root = Path(root)
     manifest = tomllib.loads((root / "Cargo.toml").read_text())
-    if manifest["workspace"]["package"]["version"] not in ("0.1.5", "0.1.10", "0.1.11"):
-        raise ValueError("Unsupported Impeccable engine; expected 0.1.5, 0.1.10 or 0.1.11")
+    if manifest["workspace"]["package"]["version"] not in ("0.1.5", "0.1.10", "0.1.11", "0.1.15"):
+        raise ValueError("Unsupported Impeccable engine; expected 0.1.5, 0.1.10, 0.1.11 or 0.1.15")
     patches = [
         ("serve_question.rs",
          "if !mid_delivery && lb != 0.0 && now_ms() - lb > 15000.0 {",

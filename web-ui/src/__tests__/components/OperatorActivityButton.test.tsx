@@ -1,11 +1,12 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@solidjs/testing-library';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@solidjs/testing-library';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import OperatorActivityButton from '../../components/OperatorActivityButton';
 import type { OperatorActivityDetail } from '../../api/operator-activities';
 
 const { listMock, cancelMock, detailMock, readMock } = vi.hoisted(() => ({
   listMock: vi.fn(), cancelMock: vi.fn(), detailMock: vi.fn(), readMock: vi.fn(async (_through: number) => ({ unreadCount: 0 })) }));
-vi.mock('../../api/operator-activities', () => ({
+vi.mock('../../api/operator-activities', async original => ({
+  ...await original<typeof import('../../api/operator-activities')>(),
   listOperatorActivities: async (...args: unknown[]) => {
     const value = await listMock(...args);
     return value && { ...value, workingCount: value.workingCount ?? value.items.filter(
@@ -62,18 +63,18 @@ describe('REQ-OPERATOR-027: operator activity header control', () => {
     expect(readMock).toHaveBeenCalledTimes(1);
   });
 
-  it('REQ-OPERATOR-040: uses concise explanatory copy without redundant refresh or close controls', async () => {
+  it('REQ-OPERATOR-040: presents concise Operators navigation with explicit refresh and dismissal', async () => {
     listMock.mockResolvedValue({ items: [] });
     render(() => <OperatorActivityButton enabled />);
     await fireEvent.click(screen.getByRole('button', { name: /operator activity/i }));
     await waitFor(() => expect(screen.getByText('No activity')).toBeTruthy());
-    expect(screen.getByText('Operator overview')).toBeTruthy();
-    expect(screen.getByText('Operators are autonomous agents that work in the background. Track progress and results here.')).toBeTruthy();
-    expect(screen.getByText('No activity').className).toContain('operator-activity-state--empty');
-    expect(screen.getByRole('dialog', { name: /operator activity/i }).className).toContain('operator-activity-panel--empty');
-    expect(screen.getByRole('dialog', { name: /operator activity/i }).className).toContain('operator-activity-panel--compact');
-    expect(screen.queryByRole('button', { name: /refresh/i })).toBeNull();
-    expect(screen.queryByRole('button', { name: /close operator activity/i })).toBeNull();
+    // Intentional approved navigation/copy contract, not component structure.
+    expect(screen.getByText('Operators')).toBeTruthy();
+    expect(screen.getByRole('tab', { name: 'Runs' })).toBeTruthy();
+    expect(screen.getByRole('tab', { name: 'Installed' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Refresh runs' })).toBeTruthy();
+    await fireEvent.click(screen.getByRole('button', { name: 'Close operators' }));
+    expect(screen.queryByRole('dialog')).toBeNull();
   });
 
   it('uses compact sizing for completed-only history', async () => {
@@ -210,7 +211,7 @@ describe('REQ-OPERATOR-027: readable owned activity and bounded history', () => 
       progress: 'Checking compatibility', executionStatus: 'completed', attention: false, updatedAt: 1 }] });
     render(() => <OperatorActivityButton enabled />);
     await fireEvent.click(screen.getByRole('button', { name: /operator activity/i }));
-    await waitFor(() => expect(screen.getByText('Renovate Dispatcher')).toBeTruthy());
+    await waitFor(() => expect(within(screen.getByRole('article')).getByText('Renovate Dispatcher')).toBeTruthy());
     expect(screen.getByText('owner/repo · PR #42')).toBeTruthy();
     expect(screen.getByText('Checking compatibility')).toBeTruthy();
     expect(screen.queryByText('Needs attention')).toBeNull();
@@ -317,7 +318,8 @@ describe('REQ-OPERATOR-027: readable owned activity and bounded history', () => 
     currentDetail = { ...currentDetail, executionStatus: 'completed', cleanupStatus: 'stopped',
       collectionStatus: 'ready', result: { verdict: 'reviewed' } };
     await vi.advanceTimersByTimeAsync(15_000);
-    expect(screen.getByText('Activity ID: activity-1')).toBeTruthy();
+    expect(screen.getByText('activity-1')).toBeTruthy();
+    expect(screen.getByText('Activity ID:')).toBeTruthy();
     expect(screen.getByText('Execution: completed')).toBeTruthy();
     expect(screen.getByText('Cleanup: stopped')).toBeTruthy();
     expect(screen.getByText('Collection: ready')).toBeTruthy();

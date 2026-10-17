@@ -1,4 +1,4 @@
-/// <reference types="@cloudflare/vitest-pool-workers/types" />
+/// <reference types="@cloudflare/vitest-plugin/types" />
 /** REQ-OPERATOR-007: selection narrows current verified user eligibility; it never grants routes. */
 import { describe, expect, it } from 'vitest';
 import { resolveOperatorInference } from '../../operators/inference-selection';

@@ -126,7 +126,7 @@ describe('REQ-OPS-033: build dependencies have committed integrity', () => {
   });
 
   it('image-owned Oxlint has an exact pin and complete committed integrity tree', () => {
-    assert.equal(oxlintPackage.dependencies.oxlint, '1.85.0');
+    assert.equal(oxlintPackage.dependencies.oxlint, '1.87.0');
     assert.deepEqual(oxlintLock.packages[''].dependencies, oxlintPackage.dependencies);
     assertCompleteIntegrityTree(oxlintLock);
   });
@@ -207,6 +207,16 @@ describe('REQ-OPS-033: build dependencies have committed integrity', () => {
       'the six reviewed devalue serialization advisories are fixed from 5.9.3');
   });
 
+  it('REQ-OPS-054: excludes the indexed source-map section-offset advisory range', () => {
+    // Intentional committed-artifact security-floor contract, including dev dependencies.
+    for (const lockfile of [rootLock, readJson('host/package-lock.json')]) {
+      const versions = versionsOf(lockfile, 'source-map-js');
+      assert.ok(versions.length > 0);
+      assert.ok(versions.every(version => atLeast(version, '1.2.2')),
+        'GHSA-68fv-2mgg-jv7q requires bounded indexed source-map section offsets');
+    }
+  });
+
   it('pins patched versions across every affected committed runtime tree', () => {
     const floors = {
       'brace-expansion': '5.0.9',
@@ -246,12 +256,15 @@ describe('REQ-OPS-033: build dependencies have committed integrity', () => {
       assert.ok(versions.length > 0, 'undici must be represented in each 7.x runtime lock');
       assert.ok(versions.every((version) => version.startsWith('7.') && atLeast(version, '7.29.1')));
       assert.ok(atLeast(manifest.overrides.undici, '7.29.1'), 'the manifest override must not restore vulnerable undici');
+    }
+    // GHSA-wq5f-xc86-pv6w: patched sharp and its coherent prebuilt libvips family.
+    for (const lockfile of [rootLock, wranglerLock, landingLock]) {
       const sharpVersions = versionsOf(lockfile, 'sharp');
       assert.ok(sharpVersions.length > 0, 'sharp must be represented in each affected lock');
-      assert.ok(sharpVersions.every((version) => atLeast(version, '0.35.4')));
+      assert.ok(sharpVersions.every((version) => atLeast(version, '0.35.5')));
       const libvipsVersions = versionsWithPrefix(lockfile, '@img/sharp-libvips-');
       assert.ok(libvipsVersions.length > 0, 'sharp libvips platform packages must be represented in each affected lock');
-      assert.ok(libvipsVersions.every((version) => atLeast(version, '1.3.3')));
+      assert.ok(libvipsVersions.every((version) => atLeast(version, '1.3.4')));
     }
     for (const lockfile of [landingLock, npmToolsLock, piLock]) {
       const versions = versionsOf(lockfile, 'undici');

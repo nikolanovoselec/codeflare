@@ -738,6 +738,49 @@ describe('REQ-AGENT-111: pi-goal review control and continuation patch', () => {
     await harness.dispatch('session_shutdown');
   });
 
+  it('REQ-AGENT-152 AC5 / REQ-AGENT-178: candidate Plan retains published user intent through custom turns but invalidates it on a user prompt', async (t) => {
+    const root = mkdtempSync(join(tmpdir(), 'pi-plan-custom-turn-'));
+    t.after(() => rmSync(root, { recursive: true, force: true }));
+    extractPackage(join(FIXTURES_DIRECTORY, 'narumitw-pi-plan-mode-0.59.2.tgz'),
+      'sha512-M91Q8doVHnpXziOnoYV9npEmGghQ0rzAPIGrqwR7SP7L2z6ydGH7Xh3nEoowbZ8DqNCKAluptfQvhHAirtkTyw==', root);
+    patchPiPlanModeDirectory('0.59.2', root);
+    const extension = await bundleFixture(join(root, 'dist/index.ts'), join(root, 'plan.mjs'));
+    const harness = createExtensionHarness();
+    extension(harness.api, { settingsPath: join(root, 'settings.json') });
+    await harness.startSession();
+    harness.api.setActiveTools(['read', 'bash']);
+    await harness.commands.get('plan').handler('start', harness.ctx);
+    await harness.runContext();
+    const plan = '# Published intent\n\nKeep the reviewed decisions until the user acts.';
+    await harness.tools.find(tool => tool.name === 'plan_mode_complete')
+      .execute('publish', { plan }, undefined, undefined, harness.ctx);
+    const state = () => harness.entries.filter(entry => entry.customType === 'plan-mode-state').at(-1).data;
+    assert.equal(state().latestPlan, plan);
+    assert.equal(state().awaitingAction, true);
+    await harness.dispatch('before_agent_start', { messageType: 'custom',
+      message: { customType: 'ci-notification', content: 'CI finished', display: true }, systemPrompt: '' });
+    assert.equal(state().latestPlan, plan);
+    assert.equal(state().awaitingAction, true);
+    await harness.dispatch('before_agent_start', { messageType: 'user', prompt: 'Revise the proposed plan', systemPrompt: '' });
+    assert.equal(state().latestPlan, undefined);
+    assert.equal(state().awaitingAction, false);
+    await harness.commands.get('plan').handler('exit', harness.ctx);
+    await harness.dispatch('session_shutdown');
+  });
+
+  it('REQ-AGENT-178: candidate Plan chunk drift rejects the complete transform without partial writes', (t) => {
+    const root = mkdtempSync(join(tmpdir(), 'pi-plan-candidate-drift-'));
+    t.after(() => rmSync(root, { recursive: true, force: true }));
+    extractPackage(join(FIXTURES_DIRECTORY, 'narumitw-pi-plan-mode-0.59.2.tgz'),
+      'sha512-M91Q8doVHnpXziOnoYV9npEmGghQ0rzAPIGrqwR7SP7L2z6ydGH7Xh3nEoowbZ8DqNCKAluptfQvhHAirtkTyw==', root);
+    const paths = ['package.json', 'src/plan-mode.ts', 'dist/index.ts', 'src/tool-policy.ts', 'dist/chunks/chunk-MJV6WNHK.ts'];
+    const chunk = join(root, paths.at(-1));
+    writeFileSync(chunk, readFileSync(chunk, 'utf8').replace('if (matchesConfiguredSafeSubcommand(segment, safeSubcommands)) return true;', 'return true;'));
+    const before = paths.map(path => readFileSync(join(root, path), 'utf8'));
+    assert.throws(() => patchPiPlanModeDirectory('0.59.2', root), /command policy anchors/);
+    assert.deepEqual(paths.map(path => readFileSync(join(root, path), 'utf8')), before);
+  });
+
   it('REQ-AGENT-111: latest Goal drift fails before writing any candidate package file', (t) => {
     for (const kind of ['version', 'entrypoint', 'runtime']) {
       const root = mkdtempSync(join(tmpdir(), `pi-goal-latest-${kind}-`));
@@ -775,6 +818,11 @@ describe('REQ-AGENT-111: pi-goal review control and continuation patch', () => {
       goalIntegrity: 'sha512-ba165WkOdBEQNYgjTa2MHgRtOh/hTLveObPzdoE29FOrfktymcBlayEHoXd9Jjw44VQ8bX7cq6V57zp0rJLVgQ==',
       planArchive: join(FIXTURES_DIRECTORY, 'narumitw-pi-plan-mode-0.58.3.tgz'),
       planIntegrity: 'sha512-mC2dOLXrsLedLH4VrX0t3wwdXrr9AccoI8SgvYYn0KewaR6hZ0a6fIyLnReVlnJ4zNcjhdwBKWujrM49EW4zsg==' },
+    { goal: '0.54.11', plan: '0.59.2',
+      goalArchive: join(FIXTURES_DIRECTORY, 'pi-goal-0.54.11.tgz'),
+      goalIntegrity: 'sha512-dq19XrMMUYto1q6FDFGxXVbLIu3ZLNpPCw+/Oe1XxIXRVx7FGTp8iVT/jPT5egXjrb6e7jSiJGw5Z77ZGtw3YA==',
+      planArchive: join(FIXTURES_DIRECTORY, 'narumitw-pi-plan-mode-0.59.2.tgz'),
+      planIntegrity: 'sha512-M91Q8doVHnpXziOnoYV9npEmGghQ0rzAPIGrqwR7SP7L2z6ydGH7Xh3nEoowbZ8DqNCKAluptfQvhHAirtkTyw==' },
   ]) {
   describe(`Goal ${versions.goal}, Plan ${versions.plan}`, () => {
   it('REQ-AGENT-111 AC2/AC6 / REQ-AGENT-178 AC1/AC2: declared pinned Goal entrypoint carries review control and workflow ownership', async () => {
@@ -794,16 +842,15 @@ describe('REQ-AGENT-111: pi-goal review control and continuation patch', () => {
     const goalAfter = readFixturePackage(goalRoot);
     patchPiGoalDirectory(versions.goal, goalRoot);
     assert.deepEqual(readFixturePackage(goalRoot), goalAfter);
-    if (versions.plan === '0.56.0' || versions.plan === '0.58.3') {
-      const configured = { git: ['status'], gh: ['pr view'] };
-      const policyChunk = versions.plan === '0.58.3'
-        ? 'dist/chunks/chunk-L2CXUWCH.ts'
-        : 'dist/chunks/chunk-57OBPS7P.js';
+    if (versions.plan === '0.56.0' || versions.plan === '0.58.3' || versions.plan === '0.59.2') {
+      const configured = { git: ['status', 'diff'], gh: ['pr view'] };
+      const policyChunk = versions.plan === '0.59.2' ? 'dist/chunks/chunk-MJV6WNHK.ts'
+        : versions.plan === '0.58.3' ? 'dist/chunks/chunk-L2CXUWCH.ts' : 'dist/chunks/chunk-57OBPS7P.js';
       for (const [index, file] of ['src/tool-policy.ts', policyChunk].entries()) {
         const policy = await bundleFixture(join(planRoot, file), join(planRoot, `policy-${index}.mjs`), 'namespace');
         for (const check of [policy.findBlockedCommandSegment, policy.findBlockedPowerShellCommandSegment]) {
           assert.equal(check('git status', configured), undefined);
-          for (const command of ['git status; touch sentinel', 'git status && rm sentinel', 'git status > sentinel', 'git status $(touch sentinel)', 'git status | sh']) {
+          for (const command of ['git status; touch sentinel', 'git status && rm sentinel', 'git status > sentinel', 'git status $(touch sentinel)', 'git status | sh', 'git diff --output=sentinel', 'gh pr view --json title --web']) {
             assert.notEqual(check(command, configured), undefined, command);
           }
         }
@@ -867,7 +914,7 @@ describe('REQ-AGENT-111: pi-goal review control and continuation patch', () => {
     assert.equal(response?.ok, true);
     assert.equal(response?.status, 'active');
     assert.notEqual(response?.goalId, pausedGoalId);
-    if (versions.goal === '0.54.8') {
+    if (versions.goal === '0.54.8' || versions.goal === '0.54.11') {
       const complete = harness.tools.find((tool) => tool.name === 'goal_complete');
       await harness.dispatch('before_agent_start', { prompt: 'Continue the resumed objective', systemPrompt: '' });
       await harness.dispatch('agent_start');

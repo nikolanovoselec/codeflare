@@ -1002,6 +1002,28 @@ export class OperatorActivity extends ProductionActivity {
         gaps: health.gaps, armedThrough: arm.watermark };
     });
   }
+  async #nativeObservationFailure(stage: 'settlement' | 'omission') {
+    try {
+      const [admission, lease] = await Promise.all([
+        this.ctx.storage.get<{ phase: string; drive?: { generation: number; status: string }; intent: { deadline: number };
+          receipt?: { intentDigest: string }; executionContext?: { artifactDigest: string } }>('admission'),
+        this.ctx.storage.get<{ generation: number; status: string; sdkReleased?: boolean; expiresAt: number;
+          inputDigest: string; artifactDigest: string }>('dispatcher:lease'),
+      ]);
+      const status = (value: string | undefined, allowed: string[]) => value && allowed.includes(value) ? value : null;
+      const generation = (value: number | undefined) => Number.isSafeInteger(value) && value! > 0 ? value : null;
+      console.error('[native-flue] native-observation-fenced', { stage, expectedGeneration: 1,
+        driveGeneration: generation(admission?.drive?.generation), leaseGeneration: generation(lease?.generation),
+        admissionPhase: status(admission?.phase, ['prepared', 'queued']),
+        executionStatus: status(admission?.drive?.status, ['queued', 'running', 'waiting', 'completed', 'failed', 'unknown', 'cancel-requested']),
+        leaseStatus: status(lease?.status, ['admitting', 'running', 'settled', 'unknown']), sdkReleased: lease ? lease.sdkReleased === true : null,
+        leaseExpired: lease ? lease.expiresAt <= Date.now() : null,
+        deadlineExpired: admission ? admission.intent.deadline <= Date.now() : null,
+        inputMatches: !!lease && lease.inputDigest === admission?.receipt?.intentDigest,
+        artifactMatches: !!lease && lease.artifactDigest === admission?.executionContext?.artifactDigest,
+        liveSql: 'not-accessed-after-fence' });
+    } catch { /* Failure evidence must not replace the original qualification failure. */ }
+  }
   async captureNativeSettlement() {
     const arm = await this.ctx.storage.get<NativeFaultArm>('fixture:native-fault');
     if (!arm || arm.scenario !== 'ordinary') return;
@@ -1011,7 +1033,10 @@ export class OperatorActivity extends ProductionActivity {
     // This gates only the later settled-obligation read, not source capture:
     // the armed trigger already observes each source INSERT during discovery.
     if (!candidate || candidate.phases.length < 2) return;
-    if (!await this.dispatcherGenerationCurrent(1)) throw new Error('Native settlement observation denied');
+    if (!await this.dispatcherGenerationCurrent(1)) {
+      await this.#nativeObservationFailure('settlement');
+      throw new Error('Native settlement observation denied');
+    }
     const child = this.#liveNativeSql();
     const query = (text: string, ...values: unknown[]) => this.#nativeQuery(child, text, ...values);
     // Read only real canonical metadata for the retained settlement obligation.
@@ -1070,7 +1095,10 @@ export class OperatorActivity extends ProductionActivity {
     if (await this.ctx.storage.get('fixture:native-omission')) return;
     const candidate = await services(this.fixtureEnv).nativeQualification();
     if (!candidate || candidate.phases.length < 2) return;
-    if (!await this.dispatcherGenerationCurrent(1)) throw new Error('Native omission live observation missed');
+    if (!await this.dispatcherGenerationCurrent(1)) {
+      await this.#nativeObservationFailure('omission');
+      throw new Error('Native omission live observation missed');
+    }
     const child = this.#liveNativeSql();
     const query = (text: string, ...values: unknown[]) => this.#nativeQuery(child, text, ...values);
     // Read the bounded source window frozen while all three actual records

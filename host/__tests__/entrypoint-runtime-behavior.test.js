@@ -76,6 +76,25 @@ const EXPECTED_PLAN_MODE_SETTINGS = {
 };
 
 describe('entrypoint production helpers', () => {
+  it('REQ-AGENT-069/217: first-session MCP ownership disables only the native duplicate before Pi loads and is idempotent', (t) => {
+    const root = mkdtempSync(join(tmpdir(), 'pi-first-session-mcp-'));
+    t.after(() => rmSync(root, { recursive: true, force: true }));
+    const settings = join(root, 'settings.json');
+    writeFileSync(settings, JSON.stringify({ extensions: ['custom-extension.ts', '+builtin:codemode', '+builtin:mcp', '-builtin:mcp'],
+      customPreference: { retained: true }, packages: ['npm:user-package@1.0.0'] }));
+    const env = { PI_SETTINGS_FILE: settings };
+    const first = runFunction('configure_pi_packages_and_review_inventory', '', 'configure_pi_packages_and_review_inventory', env);
+    assert.equal(first.status, 0, first.stderr);
+    const configured = JSON.parse(readFileSync(settings, 'utf8'));
+    // Pi's documented extensions contract disables the eager native client before session_start.
+    assert.deepEqual(configured.extensions, ['custom-extension.ts', '+builtin:codemode', '-builtin:mcp']);
+    assert.deepEqual(configured.customPreference, { retained: true });
+    assert.ok(configured.packages.includes('npm:user-package@1.0.0'));
+    const before = readFileSync(settings, 'utf8');
+    const second = runFunction('configure_pi_packages_and_review_inventory', '', 'configure_pi_packages_and_review_inventory', env);
+    assert.equal(second.status, 0, second.stderr);
+    assert.equal(readFileSync(settings, 'utf8'), before);
+  });
   it('REQ-AGENT-012: Classic Codex launch honors Fast Start without changing user settings', () => {
     for (const fastStart of [undefined, 'true', 'false']) {
       const home = mkdtempSync(join(tmpdir(), 'classic-codex-fast-start-'));

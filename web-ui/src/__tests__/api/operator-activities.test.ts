@@ -75,6 +75,27 @@ describe('REQ-OPERATOR-085: evidence-qualified cleanup wire', () => {
   });
 });
 
+describe('REQ-OPERATOR-086 AC3: bounded optional owner outcome metadata wire', () => {
+  const summary = { activityId: 'activity-1', operatorId: 'dispatcher', executionStatus: 'completed',
+    cleanupStatus: 'pending', collectionStatus: 'ready', attention: false, sessionId: null, source: null,
+    updatedAt: detail.updatedAt, version: '0.1.27', resultSummary: { assessed: 4, merged: 1, notMerged: 1, deferred: 1, unknown: 1 } };
+  const respond = (item: unknown) => vi.stubGlobal('fetch', async () => Response.json({ items: [item], nextCursor: null,
+    workingCount: 0, unreadCount: 0, latestSequence: 1 }));
+  it('accepts safe optional version and outcome quantities without requesting result bytes', async () => {
+    respond(summary);
+    expect(await listOperatorActivities()).toMatchObject({ items: [summary] });
+  });
+  it.each(['negative', 'contradiction', 'unsafeInteger', 'excessive'])('rejects invalid outcome metadata: %s', async fault => {
+    const changed = structuredClone(summary);
+    if (fault === 'negative') changed.resultSummary.merged = -1;
+    if (fault === 'contradiction') changed.resultSummary.assessed = 3;
+    if (fault === 'unsafeInteger') changed.resultSummary.assessed = Number.MAX_SAFE_INTEGER + 1;
+    if (fault === 'excessive') changed.resultSummary = { assessed: 1025, merged: 1025, notMerged: 0, deferred: 0, unknown: 0 };
+    respond(changed);
+    await expect(listOperatorActivities()).rejects.toBeDefined();
+  });
+});
+
 describe('REQ-OPERATOR-041: AC7 retired-effect-receipts.v1 client wire', () => {
   const receipt = { version: 1, activityId: 'activity-1', generation: 1, inputDigest: 'a'.repeat(64),
     artifactDigest: 'b'.repeat(64), admissionDigest: 'c'.repeat(64), scan: 'complete', pageStatus: 'complete',

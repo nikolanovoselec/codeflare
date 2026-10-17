@@ -11,9 +11,9 @@ test('REQ-OPS-054 AC6: the real Pi updater preserves aligned direct dependency a
     .map(match => match[1]).filter(script => script.includes('const { PKG, CUR, LAT } = process.env;'));
   if (scripts.length !== 1) throw Error('Cannot select the declared Pi package updater');
   const root = mkdtempSync(join(tmpdir(), 'pi-shadow-pin-'));
-  const name = '@earendil-works/pi-coding-agent';
-  const current = '0.99.1';
-  const latest = '0.99.2'; // Synthetic candidate; never installed or published.
+  const name = 'pi-mcp-adapter';
+  const current = '5.3.1';
+  const latest = '5.3.2'; // Fixture-only version strings; no installation or publication.
   try {
     for (const path of ['preseed/agents/pi/package.json', 'preseed/npm-tools/package.json']) {
       mkdirSync(dirname(join(root, path)), { recursive: true });

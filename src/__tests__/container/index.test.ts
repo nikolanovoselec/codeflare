@@ -565,7 +565,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
 
   it.each(['valid', 'empty', 'extra-target', 'duplicate-target', 'wrong-head', 'foreign-pr', 'wrong-repository'])('REQ-OPERATOR-061/048: a winning scan retains repository-only admission and fences %s simulated singleton collection without parent publication', async resultCase => {
     const namespace = (env as unknown as { OPERATOR_ACTIVITY: DurableObjectNamespace }).OPERATOR_ACTIVITY;
-    await runInDurableObject(namespace.get(namespace.newUniqueId()), async (_instance, native) => {
+    await runInDurableObject(namespace.getByName(`container-fixture-${crypto.randomUUID()}`), async (_instance, native) => {
       const stored = new Map<string, unknown>();
       mockStorage.get.mockImplementation(async (key: string) => stored.get(key));
       mockStorage.put.mockImplementation(async (key: string, value: unknown) => { stored.set(key, value); });
@@ -1672,7 +1672,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       // Dispatch the actual container override through Stub.fetch; only the
       // private port/SDK platform collaborators are fixtures, not fetch().
       const namespace = (env as unknown as { OPERATOR_ACTIVITY: DurableObjectNamespace }).OPERATOR_ACTIVITY;
-      const nativeStub = namespace.get(namespace.newUniqueId());
+      const nativeStub = namespace.getByName(`container-fixture-${crypto.randomUUID()}`);
       await runInDurableObject<NativeDurableObject, void>(nativeStub as DurableObjectStub<NativeDurableObject>, async nativeInstance => {
         nativeInstance.fetch = (request: Request) => instance.fetch(request);
       });

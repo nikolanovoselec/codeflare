@@ -52,6 +52,21 @@ vi.mock('../../lib/onboarding', () => ({
   isSaasModeActive: vi.fn(() => false),
 }));
 
+// Module-scope mocks preserve the preferences test's hoisted intent under Vitest 5.
+vi.mock('../../lib/r2-seed', () => ({
+  reconcileAgentConfigs: vi.fn(async () => ({ written: [], skipped: [], deleted: [], warnings: [] })),
+}));
+vi.mock('../../lib/r2-config', () => ({
+  getR2Config: vi.fn(async () => ({ accountId: 'acct', endpoint: 'https://r2.test' })),
+}));
+vi.mock('../../middleware/auth', () => ({
+  authMiddleware: vi.fn(async (c: any, next: any) => {
+    c.set('user', { email: 'test@example.com', authenticated: true, role: 'user' });
+    c.set('bucketName', 'test-bucket');
+    return next();
+  }),
+}));
+
 describe('REQ-AGENT-002: Agent Selection at Session Creation', () => {
   let mockKV: ReturnType<typeof createMockKV>;
 
@@ -187,21 +202,6 @@ describe('REQ-AGENT-002: Agent Selection at Session Creation', () => {
   it('REQ-AGENT-002 AC4: PATCH /api/preferences accepts lastAgentType from any valid agent type', async () => {
     // Import preferences routes directly to test the KV-write path
     const { default: preferencesRoutes } = await import('../../routes/preferences');
-
-    // Stub reconcileAgentConfigs so the preferences route does not call real R2
-    vi.mock('../../lib/r2-seed', () => ({
-      reconcileAgentConfigs: vi.fn(async () => ({ written: [], skipped: [], deleted: [], warnings: [] })),
-    }));
-    vi.mock('../../lib/r2-config', () => ({
-      getR2Config: vi.fn(async () => ({ accountId: 'acct', endpoint: 'https://r2.test' })),
-    }));
-    vi.mock('../../middleware/auth', () => ({
-      authMiddleware: vi.fn(async (c: any, next: any) => {
-        c.set('user', { email: 'test@example.com', authenticated: true, role: 'user' });
-        c.set('bucketName', 'test-bucket');
-        return next();
-      }),
-    }));
 
     const prefsApp = createTestApp({
       routes: [{ path: '/preferences', handler: preferencesRoutes }],

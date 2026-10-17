@@ -1,4 +1,4 @@
-/// <reference types="@cloudflare/vitest-pool-workers/types" />
+/// <reference types="@cloudflare/vitest-plugin/types" />
 /** REQ-OPERATOR-045: real registry + HTTP authorization; authentication is an explicit trusted boundary fixture. */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { env, runInDurableObject } from 'cloudflare:test';

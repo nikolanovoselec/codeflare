@@ -1,4 +1,4 @@
-/// <reference types="@cloudflare/vitest-pool-workers/types" />
+/// <reference types="@cloudflare/vitest-plugin/types" />
 /** REQ-OPERATOR-025: optional dispatch encryption is independent of edge capability verification. */
 import { describe, expect, it } from 'vitest';
 import { createWebhookHandoff, openWebhookHandoff } from '../../operators/webhook-handoff';

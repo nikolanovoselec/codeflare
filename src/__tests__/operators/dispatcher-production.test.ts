@@ -1,4 +1,4 @@
-/// <reference types="@cloudflare/vitest-pool-workers/types" />
+/// <reference types="@cloudflare/vitest-plugin/types" />
 import { describe, expect, it, vi } from 'vitest';
 import { env, runInDurableObject } from 'cloudflare:test';
 import { Agent } from 'agents';
@@ -3552,7 +3552,11 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
       .rejects.toThrow();
     const before = await f.activity.getDispatcherDiagnostics(f.proof.ownerKey);
     expect(before).toMatchObject({ parent: { driveGeneration: 1, lease: { generation: 1, status: 'running' } } });
-    const wake = () => f.activity._cf_dispatchScheduledCallback(path, created.schedule);
+    const rootSchedule = await f.activity.scheduler.get(created.schedule.id);
+    expect(rootSchedule).toBeDefined();
+    // Exercise the supported host alarm callback with its original stored
+    // generation envelope, never a raw row rebound to the latest lease.
+    const wake = () => f.activity.dispatchDispatcherSchedule(rootSchedule!.payload, rootSchedule!);
     const checkFibers = () => f.activity._cf_checkRunFibersForFacet(path);
     // REQ-OPERATOR-048 AC2/3: native invalidation is external to production's
     // explicit abort path. Preserve the failed call, not a hidden inline resend.
@@ -3562,7 +3566,7 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
     const constructionError = new Error('Controlled Dispatcher preparation failure');
     f.afterBundleRead(async () => { throw constructionError; });
     await expect(wake()).rejects.toBe(constructionError);
-    await expect(wake()).resolves.toBe(true);
+    await expect(wake()).resolves.toBeUndefined();
     const fiberError = new Error('Controlled Dispatcher fiber connection failure');
     f.interruptOwnedChild(fiberError);
     await expect(checkFibers()).rejects.toBe(fiberError);
@@ -3586,11 +3590,157 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
     // REQ-OPERATOR-017 AC4: cleanup and a previously authorized construction
     // must not instantiate a replacement after cancellation, including legacy.
     await expect(preparation).rejects.toBeInstanceOf(Error);
-    await expect(wake()).resolves.toBe(false);
+    await expect(wake()).resolves.toBeUndefined();
     await expect(checkFibers()).resolves.toBe(0);
     for (const readback of f.ownedChildReadbacks()) await expect(readback()).rejects.toBeInstanceOf(Error);
     expect((await f.capability.fetch(read('retired-after-connection-recovery'))).status).toBe(403);
   }, { facetContract: true }));
+  // Historical storage contract: these rows predate host generation envelopes.
+  // Seed authentic column shapes, then observe migration through the public bridge.
+  function seedLegacySchedule(storage: DurableObjectStorage, path: Array<{ className: string; name: string }>,
+    kind: 'delayed' | 'scheduled' | 'interval', due: number) {
+    // A genuine Agents0.20.1 snapshot has no version marker from the already-started 0.28 fixture.
+    storage.kv.delete('cf_agents:schedules_schema_version');
+    storage.sql.exec(`CREATE TABLE cf_agents_schedules (id TEXT PRIMARY KEY, callback TEXT NOT NULL,
+      payload TEXT, type TEXT NOT NULL, time INTEGER NOT NULL, delayInSeconds INTEGER, cron TEXT,
+      intervalSeconds INTEGER, running INTEGER DEFAULT 0, execution_started_at INTEGER,
+      retry_options TEXT, owner_path TEXT, owner_path_key TEXT, created_at INTEGER)`);
+    storage.sql.exec(`INSERT INTO cf_agents_schedules (id, callback, payload, type, time,
+      delayInSeconds, intervalSeconds, retry_options, owner_path, owner_path_key, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, 'legacy-wake', '__flueWakeAgentSubmissions', null,
+    kind, due, kind === 'delayed' ? 10 : null, kind === 'interval' ? 10 : null,
+    JSON.stringify({ maxAttempts: 2, baseDelayMs: 10, maxDelayMs: 20 }), JSON.stringify(path),
+    path.map(step => `${encodeURIComponent(step.className)}:${encodeURIComponent(step.name)}`).join('/'), Math.floor(Date.now() / 1000));
+  }
+
+  it.each(['delayed', 'scheduled', 'interval'] as const)('REQ-OPERATOR-048 AC2/AC7: preserves original generation-one %s rows and IDs across SDK storage migration', kind => fixture(async f => {
+    await start(f);
+    const path = [{ className: 'OperatorActivity', name: f.activityId }, { className: 'FlueDispatcherAgent', name: 'dispatcher' }];
+    const due = Math.floor(Date.now() / 1000) + 10;
+    await f.mutateEvidence(async storage => { seedLegacySchedule(storage, path, kind, due); });
+    const restored = f.restart();
+    expect(await restored.dispatcherBridge(1, '_cf_getScheduleForFacet', [path, 'legacy-wake']))
+      .toMatchObject({ id: 'legacy-wake', type: kind, time: due, callback: '__flueWakeAgentSubmissions', payload: null,
+        retry: { maxAttempts: 2, baseDelayMs: 10, maxDelayMs: 20 } });
+    expect(await restored.dispatcherBridge(1, '_cf_cancelScheduleForFacet', [path, 'legacy-wake']))
+      .toEqual({ ok: true, callback: '__flueWakeAgentSubmissions' });
+    expect(await restored.dispatcherBridge(1, '_cf_getScheduleForFacet', [path, 'legacy-wake'])).toBeUndefined();
+  }));
+
+  it('REQ-OPERATOR-048 AC2/AC7: ambiguous predecessor ownership preserves every legacy row and fails before startup', () => fixture(async f => {
+    await start(f);
+    const path = [{ className: 'OperatorActivity', name: f.activityId }, { className: 'FlueDispatcherAgent', name: 'dispatcher' }];
+    let before: unknown;
+    await f.mutateEvidence(async storage => {
+      seedLegacySchedule(storage, path, 'delayed', Math.floor(Date.now() / 1000) + 10);
+      const admission = await storage.get<{ drive: Record<string, unknown> }>('admission');
+      const lease = await storage.get<Record<string, unknown>>('dispatcher:lease');
+      if (!admission || !lease) throw new Error('Fixture original binding missing');
+      await storage.put('admission', { ...admission, drive: { ...admission.drive, generation: 2 } });
+      await storage.put('dispatcher:lease', { ...lease, generation: 2 });
+      before = storage.sql.exec('SELECT * FROM cf_agents_schedules ORDER BY id').toArray();
+    });
+    expect(() => f.restart()).toThrow(/legacy.*generation|ownership/i);
+    await f.mutateEvidence(async storage => {
+      expect(storage.sql.exec('SELECT * FROM cf_agents_schedules ORDER BY id').toArray()).toEqual(before);
+    });
+  }));
+
+  it('REQ-OPERATOR-048 AC7: invalid mixed migration rows leave the complete legacy storage byte contract intact', () => fixture(async f => {
+    await start(f);
+    const path = [{ className: 'OperatorActivity', name: f.activityId }, { className: 'FlueDispatcherAgent', name: 'dispatcher' }];
+    let before: unknown;
+    await f.mutateEvidence(async storage => {
+      seedLegacySchedule(storage, path, 'delayed', Math.floor(Date.now() / 1000) + 10);
+      storage.sql.exec(`INSERT INTO cf_agents_schedules (id, callback, payload, type, time, owner_path, owner_path_key)
+        VALUES ('root-invalid', 'reconcileDispatcherLease', '{invalid-json', 'delayed', 1, NULL, NULL)`);
+      before = storage.sql.exec('SELECT * FROM cf_agents_schedules ORDER BY id').toArray();
+    });
+    expect(() => f.restart()).toThrow(/legacy.*schedule|migration/i);
+    await f.mutateEvidence(async storage => {
+      expect(storage.sql.exec('SELECT * FROM cf_agents_schedules ORDER BY id').toArray()).toEqual(before);
+    });
+  }));
+
+  it('REQ-OPERATOR-047/048: preserves the old dated, delayed and interval scheduling wire and deduplication', () => fixture(async f => {
+    await start(f);
+    const path = [{ className: 'OperatorActivity', name: f.activityId }, { className: 'FlueDispatcherAgent', name: 'dispatcher' }];
+    const first = await f.capability._cf_scheduleForFacet(path, 4, '__flueWakeAgentSubmissions', undefined, { idempotent: true });
+    expect(first).toMatchObject({ created: true, schedule: { type: 'delayed', delayInSeconds: 4, callback: '__flueWakeAgentSubmissions', payload: undefined } });
+    const repeated = await f.capability._cf_scheduleForFacet(path, 20, '__flueWakeAgentSubmissions', undefined, { idempotent: true });
+    expect(repeated).toMatchObject({ created: false, schedule: { id: first.schedule.id, time: first.schedule.time, payload: null } });
+    const due = new Date(Date.now() + 15_000);
+    const dated = await f.capability._cf_scheduleForFacet(path, due, '__flueWakeAgentSubmissions');
+    expect(dated).toMatchObject({ created: true, schedule: { type: 'scheduled', time: Math.floor(due.getTime() / 1000) } });
+    const interval = await f.capability._cf_scheduleEveryForFacet(path, 10, '__flueWakeAgentSubmissions');
+    expect(interval).toMatchObject({ created: true, schedule: { type: 'interval', intervalSeconds: 10 } });
+    // The old interval protocol uses _idempotent, not the one-shot spelling.
+    expect(await f.activity.dispatcherBridge(1, '_cf_scheduleEveryForFacet', [path, 10, '__flueWakeAgentSubmissions', undefined, { idempotent: false }]))
+      .toMatchObject({ created: false, schedule: { id: interval.schedule.id } });
+    const distinct = await f.capability._cf_scheduleEveryForFacet(path, 10, '__flueWakeAgentSubmissions', undefined, { _idempotent: false });
+    expect(distinct.created).toBe(true);
+    expect(distinct.schedule.id).not.toBe(interval.schedule.id);
+    expect(await f.capability._cf_listSchedulesForFacet(path, { type: 'interval' })).toHaveLength(2);
+    expect(await f.capability._cf_listSchedulesForFacet(path, { id: dated.schedule.id })).toMatchObject([{ id: dated.schedule.id }]);
+    expect(await f.capability._cf_cancelScheduleForFacet(path, first.schedule.id)).toEqual({ ok: true, callback: '__flueWakeAgentSubmissions' });
+    expect(await f.capability._cf_cancelScheduleForFacet(path, first.schedule.id)).toEqual({ ok: false });
+    expect(await f.capability._cf_getScheduleForFacet(path, first.schedule.id)).toBeUndefined();
+  }));
+
+  it('REQ-OPERATOR-047/048: child schedule reads and cancellations cannot expose root reconciliation jobs', () => fixture(async f => {
+    await start(f);
+    const path = [{ className: 'OperatorActivity', name: f.activityId }, { className: 'FlueDispatcherAgent', name: 'dispatcher' }];
+    const root = await f.activity.scheduler.set(15, 'reconcileDispatcherLease', { generation: 1 });
+    const child = await f.capability._cf_scheduleForFacet(path, 15, '__flueWakeAgentSubmissions');
+    expect(await f.capability._cf_getScheduleForFacet(path, root.id)).toBeUndefined();
+    expect(await f.capability._cf_cancelScheduleForFacet(path, root.id)).toEqual({ ok: false });
+    const listed = await f.capability._cf_listSchedulesForFacet(path);
+    expect(listed.map(schedule => schedule.id)).toEqual([child.schedule.id]);
+    expect(listed[0]).toMatchObject({ callback: '__flueWakeAgentSubmissions', payload: null });
+    expect(await f.activity.scheduler.get(root.id)).toMatchObject({ id: root.id });
+    await f.activity.cancelDrive();
+    expect(await f.activity.scheduler.get(child.schedule.id)).toBeUndefined();
+    expect(await f.activity.scheduler.get(root.id)).toMatchObject({ id: root.id });
+  }));
+
+  it('REQ-OPERATOR-047/048: concurrent child creation cannot cross the 128-schedule boundary', () => fixture(async f => {
+    await start(f);
+    const path = [{ className: 'OperatorActivity', name: f.activityId }, { className: 'FlueDispatcherAgent', name: 'dispatcher' }];
+    const outcomes = await Promise.allSettled(Array.from({ length: 130 }, () =>
+      f.capability._cf_scheduleForFacet(path, 30, '__flueWakeAgentSubmissions')));
+    const accepted = outcomes.flatMap(outcome => outcome.status === 'fulfilled' ? [outcome.value] : []);
+    expect(accepted).toHaveLength(128);
+    expect(new Set(accepted.map(outcome => outcome.schedule.id)).size).toBe(128);
+    expect(outcomes.filter(outcome => outcome.status === 'rejected')).toHaveLength(2);
+    expect(await f.capability._cf_listSchedulesForFacet(path)).toHaveLength(128);
+  }));
+
+  it('REQ-OPERATOR-047/048: concurrent idempotent intervals create only one child schedule', () => fixture(async f => {
+    await start(f);
+    const path = [{ className: 'OperatorActivity', name: f.activityId }, { className: 'FlueDispatcherAgent', name: 'dispatcher' }];
+    const results = await Promise.all(Array.from({ length: 8 }, () =>
+      f.capability._cf_scheduleEveryForFacet(path, 15, '__flueWakeAgentSubmissions')));
+    expect(results.filter(result => result.created)).toHaveLength(1);
+    expect(new Set(results.map(result => result.schedule.id)).size).toBe(1);
+    expect(await f.capability._cf_listSchedulesForFacet(path)).toHaveLength(1);
+  }));
+
+  it('REQ-OPERATOR-047/048: invalid scheduling inputs and stale generation create no work', () => fixture(async f => {
+    await start(f);
+    const path = [{ className: 'OperatorActivity', name: f.activityId }, { className: 'FlueDispatcherAgent', name: 'dispatcher' }];
+    for (const delay of [-1, 31, Number.NaN, Infinity]) {
+      await expect(f.capability._cf_scheduleForFacet(path, delay, '__flueWakeAgentSubmissions')).rejects.toThrow();
+    }
+    await expect(f.capability._cf_scheduleEveryForFacet(path, 0, '__flueWakeAgentSubmissions')).rejects.toThrow();
+    await expect(f.capability._cf_scheduleForFacet(path, 1, '__flueWakeAgentSubmissions', { unauthorized: true })).rejects.toThrow();
+    await expect(f.activity.dispatcherBridge(1, '_cf_scheduleForFacet', [path, 1, '__flueWakeAgentSubmissions', undefined, { retry: { maxAttempts: 99 } }])).rejects.toThrow();
+    await expect(f.activity.dispatcherBridge(1, '_cf_listSchedulesForFacet', [path, { arbitrary: true }])).rejects.toThrow();
+    await expect(f.activity.dispatcherBridge(1, '_cf_getScheduleForFacet', [path, 'bad/id'])).rejects.toThrow();
+    expect(await f.capability._cf_listSchedulesForFacet(path)).toEqual([]);
+    await f.activity.cancelDrive();
+    await expect(f.capability._cf_scheduleForFacet(path, 1, '__flueWakeAgentSubmissions')).rejects.toThrow();
+  }));
+
   it('admits only the activity-bound, connection-free child notifications without widening authority', () => fixture(async f => {
     await start(f);
     const plan = await f.activity.getRuntimePlan();

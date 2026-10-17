@@ -7,7 +7,7 @@
 import { spawnSync } from 'node:child_process';
 import { chmodSync, copyFileSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join, relative, resolve } from 'node:path';
+import { dirname, join, matchesGlob, relative, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { parse as parseYaml } from 'yaml';
@@ -211,7 +211,7 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
     const filterSource = testWorkflow.jobs.changes.steps?.find((step) => step.id === 'filter')?.with?.filters;
     const filters = parseYaml(filterSource as string) as Record<string, unknown[]>;
     const patterns = flattenPatterns(filters.host);
-    for (const path of ['image/impeccable-engine.json', 'scripts/patch-impeccable-engine.py', 'scripts/impeccable-launcher.mjs', 'scripts/update-impeccable-skill.mjs', 'scripts/patch-pi-goal-review-control.mjs', 'scripts/patch-pi-plan-mode-tool-policy.mjs']) {
+    for (const path of ['image/impeccable-engine.json', 'image/impeccable-engine-legacy.json', 'image/impeccable-engine-4.4.0.json', 'image/impeccable-engine-4.5.0.json', 'scripts/patch-impeccable-engine.py', 'scripts/impeccable-launcher.mjs', 'scripts/update-impeccable-skill.mjs', 'scripts/patch-pi-goal-review-control.mjs', 'scripts/patch-pi-plan-mode-tool-policy.mjs']) {
       expect(matchesAny(path, patterns), path).toBe(true);
     }
     for (const path of ['preseed/agents/claude/skills/impeccable/scripts/live-browser.js', 'preseed/agents/pi/skills/impeccable/scripts/live-browser.js', 'scripts/update-impeccable-skill.mjs']) {
@@ -1014,6 +1014,7 @@ esac
     writeFileSync(join(piDirectory, 'package.json'), `${JSON.stringify({
       dependencies: {
         'context-mode': '1.0.0',
+        '@earendil-works/pi-coding-agent': '1.3.0',
         '@juicesharp/rpiv-todo': '2.6.0',
         'pi-web-access': '0.18.0',
       },
@@ -1031,7 +1032,7 @@ esac
     );
 
     const discover = workflow.jobs['pi-extensions-discover'].steps?.find(
-      (step) => step.name === 'List Pi extension pins (every dep except context-mode)',
+      (step) => step.name === 'List Pi extension pins (excluding dedicated atomic owners)',
     )?.run ?? '';
     const output = join(fixture, 'github-output');
     const discovered = spawnSync('bash', ['-c', discover], {
@@ -1233,7 +1234,7 @@ function flattenPatterns(values: unknown[]): string[] {
 function matchesAny(path: string, patterns: readonly string[]): boolean {
   return patterns.some((pattern) => {
     if (pattern.endsWith('/**')) return path === pattern.slice(0, -3) || path.startsWith(pattern.slice(0, -2));
-    return path === pattern;
+    return matchesGlob(path, pattern);
   });
 }
 

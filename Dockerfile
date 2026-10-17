@@ -4,7 +4,7 @@
 # ---- Stage 1: Builder (compile native addons + TypeScript) ----
 # Use the digest-verified Google mirror of Docker Hub. Public ECR throttled
 # both pinned Node bases on shared GitHub Actions runners (HTTP 429).
-FROM mirror.gcr.io/library/node:26-bookworm-slim@sha256:662933cf47f013bc8e4beb31a6116448427a82057ba7c42c97e4c5ba766504c2 AS builder
+FROM mirror.gcr.io/library/node:26-bookworm-slim@sha256:86f07bc9c5dce4578cf37e5a418b7bfc7f817cda25cde66e2b66e95ed86c4567 AS builder
 
 RUN apt-get update && apt-get install -y --no-install-recommends make gcc g++ python3 && rm -rf /var/lib/apt/lists/*
 
@@ -20,7 +20,7 @@ RUN npm run build
 RUN npm prune --omit=dev
 
 # ---- Pinned rclone with verified per-side bisync bookkeeping ----
-FROM mirror.gcr.io/library/node:26-bookworm-slim@sha256:662933cf47f013bc8e4beb31a6116448427a82057ba7c42c97e4c5ba766504c2 AS rclone-builder
+FROM mirror.gcr.io/library/node:26-bookworm-slim@sha256:86f07bc9c5dce4578cf37e5a418b7bfc7f817cda25cde66e2b66e95ed86c4567 AS rclone-builder
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl python3 && rm -rf /var/lib/apt/lists/*
 RUN curl -fsSL https://go.dev/dl/go1.27.2.linux-amd64.tar.gz -o /tmp/go.tar.gz \
     && echo "ecbadb99091a3f46e31f5f934b068b1864eafa7995211b39eaddf76996045fe5  /tmp/go.tar.gz" | sha256sum -c - \
@@ -48,21 +48,21 @@ RUN mkdir -p /out \
     && go build -trimpath -ldflags '-s -w -X github.com/rclone/rclone/fs.Version=v1.73.5-codeflare-bisync1' -o /out/rclone .
 
 # ---- Image-owned Impeccable engine with configured question idle grace ----
-FROM mirror.gcr.io/library/node:26-bookworm-slim@sha256:662933cf47f013bc8e4beb31a6116448427a82057ba7c42c97e4c5ba766504c2 AS impeccable-builder
+FROM mirror.gcr.io/library/node:26-bookworm-slim@sha256:86f07bc9c5dce4578cf37e5a418b7bfc7f817cda25cde66e2b66e95ed86c4567 AS impeccable-builder
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl xz-utils build-essential pkg-config libssl-dev python3 && rm -rf /var/lib/apt/lists/*
 RUN curl -fsSL https://static.rust-lang.org/dist/2026-09-03/rust-1.98.1-x86_64-unknown-linux-gnu.tar.xz -o /tmp/rust.tar.xz \
     && echo "5326b36c53de11d148c8f8dab6553a3d1006c2cfd32123683073fad3c302605b  /tmp/rust.tar.xz" | sha256sum -c - \
     && tar -xJf /tmp/rust.tar.xz -C /tmp \
     && /tmp/rust-1.98.1-x86_64-unknown-linux-gnu/install.sh --prefix=/usr/local --components=rustc,cargo,rust-std-x86_64-unknown-linux-gnu --disable-ldconfig \
     && rm -rf /tmp/rust.tar.xz /tmp/rust-1.98.1-x86_64-unknown-linux-gnu
-COPY image/impeccable-engine.json image/impeccable-engine-4.4.0.json image/impeccable-engine-legacy.json /tmp/
+COPY image/impeccable-engine.json image/impeccable-engine-4.5.0.json image/impeccable-engine-4.4.0.json image/impeccable-engine-legacy.json /tmp/
 COPY scripts/patch-impeccable-engine.py scripts/ci/impeccable-engine.py /tmp/
 WORKDIR /src/impeccable
 RUN <<'IMPECCABLE'
 set -eu
 export CARGO_TARGET_DIR=/tmp/impeccable-target
-for PIN in /tmp/impeccable-engine-legacy.json /tmp/impeccable-engine-4.4.0.json /tmp/impeccable-engine.json; do
-  node -e 'const p=require(process.argv[1]); if(!["0.1.5","0.1.10","0.1.11"].includes(p.version) || !/^[a-f0-9]{40}$/.test(p.commit) || !/^[a-f0-9]{64}$/.test(p.sha256)) throw new Error("Invalid Impeccable engine pin")' "$PIN"
+for PIN in /tmp/impeccable-engine-legacy.json /tmp/impeccable-engine-4.4.0.json /tmp/impeccable-engine-4.5.0.json /tmp/impeccable-engine.json; do
+  node -e 'const p=require(process.argv[1]); if(!["0.1.5","0.1.10","0.1.11","0.1.15"].includes(p.version) || !/^[a-f0-9]{40}$/.test(p.commit) || !/^[a-f0-9]{64}$/.test(p.sha256)) throw new Error("Invalid Impeccable engine pin")' "$PIN"
   VERSION=$(node -p 'require(process.argv[1]).version' "$PIN")
   COMMIT=$(node -p 'require(process.argv[1]).commit' "$PIN")
   SHA256=$(node -p 'require(process.argv[1]).sha256' "$PIN")
@@ -80,6 +80,7 @@ for PIN in /tmp/impeccable-engine-legacy.json /tmp/impeccable-engine-4.4.0.json 
   mkdir -p "/out/$VERSION"
   cp "$CARGO_TARGET_DIR/release/impeccable" "/out/$VERSION/impeccable"
   cp LICENSE "/out/$VERSION/LICENSE"
+  if [ -f NOTICE.md ]; then cp NOTICE.md "/out/$VERSION/NOTICE.md"; fi
 done
 IMPECCABLE
 
@@ -150,7 +151,7 @@ RUN /usr/local/bin/node -e 'require("node:assert/strict").equal(process.versions
     test -z "$(find /out/openvscode -iname '*.vsix' -print -quit)"
 
 # ---- Stage 2: Runtime ----
-FROM mirror.gcr.io/library/node:26-bookworm-slim@sha256:662933cf47f013bc8e4beb31a6116448427a82057ba7c42c97e4c5ba766504c2
+FROM mirror.gcr.io/library/node:26-bookworm-slim@sha256:86f07bc9c5dce4578cf37e5a418b7bfc7f817cda25cde66e2b66e95ed86c4567
 
 # Suppress npm update nag; configure Claude Code for non-interactive container use
 ENV NPM_CONFIG_UPDATE_NOTIFIER=false

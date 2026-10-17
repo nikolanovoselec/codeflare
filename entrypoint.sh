@@ -3013,17 +3013,17 @@ configure_pi_packages_and_review_inventory() {
 const fs = require('fs');
 const path = process.argv[2];
 const required = [
-  'npm:@gotgenes/pi-subagents@21.8.1',
+  'npm:@gotgenes/pi-subagents@23.4.2',
   // Pi tool extensions, always enabled (in `required`) so they are available
   // independently of the context-mode toggle — toggling /ctx never disables them.
   'npm:@juicesharp/rpiv-advisor@2.11.0',
   'npm:@juicesharp/rpiv-ask-user-question@2.11.0',
   'npm:@juicesharp/rpiv-todo@2.11.0',
   'npm:pi-web-access@0.34.0',
-  'npm:pi-mcp-adapter@3.3.0',
+  'npm:pi-mcp-adapter@5.3.1',
   'npm:pi-evaluate@0.1.5',
-  'npm:@narumitw/pi-goal@0.54.8',
-  'npm:@narumitw/pi-plan-mode@0.58.3',
+  'npm:@narumitw/pi-goal@0.54.11',
+  'npm:@narumitw/pi-plan-mode@0.59.2',
   'npm:@narumitw/pi-usage@0.61.1',
 ];
 // Keep context-mode installed for explicit `/ctx on`, but disable its extension and skills on every
@@ -3071,10 +3071,13 @@ const reviewExclusions = !selectorReady && !remoteReady ? []
     .map(name => `-${require('path').join(reviewDir, name)}`);
 const managedReviewPaths = ['review-enforcement.ts', 'operator-review-remote.ts']
   .map(name => `-${require('path').join(reviewDir, name)}`);
+// The managed adapter owns lazy MCP startup/idle cleanup, including the first session.
+// Native Pi MCP otherwise connects eagerly before the adapter can disable it itself.
+const nativeMcpPaths = new Set(['builtin:mcp', '+builtin:mcp', '-builtin:mcp']);
 const extensions = Array.isArray(settings.extensions)
-  ? settings.extensions.filter(item => !managedReviewPaths.includes(item)) : [];
+  ? settings.extensions.filter(item => !managedReviewPaths.includes(item) && !nativeMcpPaths.has(item)) : [];
 fs.writeFileSync(path, JSON.stringify({ ...settings, packages: [...byName.values()],
-  extensions: [...extensions, ...reviewExclusions] }, null, 2) + '\n');
+  extensions: [...extensions, '-builtin:mcp', ...reviewExclusions] }, null, 2) + '\n');
 NODE
 }
 

@@ -22,17 +22,6 @@ vi.mock('../../lib/onboarding', () => ({
   isSaasModeActive: vi.fn(() => false),
 }));
 
-// Rate limiter: pass-through for all tests except the rate-limit test
-const rateLimiterState = vi.hoisted(() => ({ block: false }));
-vi.mock('../../middleware/rate-limit', () => ({
-  createRateLimiter: vi.fn(() => async (c: any, next: any) => {
-    if (rateLimiterState.block) {
-      return c.json({ error: 'Rate limit exceeded' }, 429);
-    }
-    return next();
-  }),
-}));
-
 vi.mock('../../lib/logger', () => ({
   createLogger: vi.fn(() => ({
     info: vi.fn(),
@@ -56,7 +45,6 @@ describe('REQ-SESSION-001: Session creation with name and agent type', () => {
 
   beforeEach(() => {
     mockKV = createMockKV();
-    rateLimiterState.block = false;
   });
 
   function createApp() {
@@ -279,29 +267,27 @@ describe('REQ-SESSION-001: Session creation with name and agent type', () => {
 
   // AC6: Session creation is rate-limited (10/min per user)
   describe('REQ-SESSION-001 AC6: session creation is rate-limited', () => {
-    it('returns 429 when rate limit is exceeded', async () => {
-      rateLimiterState.block = true;
+    it('allows ten requests, rejects the eleventh and reopens only after the 60s window', async () => {
+      const clock = vi.spyOn(Date, 'now').mockReturnValue(1_800_000_000_000);
       const app = createApp();
-      const res = await app.request('/sessions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: 'Rate Limited' }),
-      });
-      expect(res.status).toBe(429);
-    });
-
-    it('rate limiter is configured with 10 requests per 60s window', async () => {
-      // Verify createRateLimiter was called with the expected config
-      const { createRateLimiter } = await import('../../middleware/rate-limit');
-      const calls = vi.mocked(createRateLimiter).mock.calls;
-      const sessionCreateCall = calls.find((c) => {
-        const cfg = c[0] as { maxRequests?: number; windowMs?: number; keyPrefix?: string };
-        return cfg.keyPrefix === 'session-create';
-      });
-      expect(sessionCreateCall).toBeDefined();
-      const cfg = sessionCreateCall![0] as { maxRequests: number; windowMs: number };
-      expect(cfg.maxRequests).toBe(10);
-      expect(cfg.windowMs).toBe(60_000);
+      // Invalid bodies exercise the real route limiter without creating sessions.
+      const request = () => app.request('/sessions', { method: 'POST',
+        headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 42 }) });
+      try {
+        for (let index = 0; index < 10; index++) {
+          const response = await request();
+          expect(response.status).toBe(400);
+          expect(response.headers.get('X-RateLimit-Limit')).toBe('10');
+          expect(response.headers.get('X-RateLimit-Remaining')).toBe(String(9 - index));
+        }
+        expect((await request()).status).toBe(429);
+        clock.mockReturnValue(1_800_000_059_999);
+        expect((await request()).status).toBe(429);
+        clock.mockReturnValue(1_800_000_060_001);
+        const reopened = await request();
+        expect(reopened.status).toBe(400);
+        expect(reopened.headers.get('X-RateLimit-Remaining')).toBe('9');
+      } finally { clock.mockRestore(); }
     });
   });
 

@@ -1,4 +1,4 @@
-/// <reference types="@cloudflare/vitest-pool-workers/types" />
+/// <reference types="@cloudflare/vitest-plugin/types" />
 /**
  * Test navigation: Instrumented native-context admission/checkpoint/fencing outcomes; separate workerd fixtures cover RPC and eviction.
  * Fixtures are local/CI evidence, not production deployment or live Access acceptance.
@@ -21,7 +21,7 @@ async function withActivity(
   started = true,
 ): Promise<void> {
   const namespace = (env as unknown as { OPERATOR_ACTIVITY: DurableObjectNamespace }).OPERATOR_ACTIVITY;
-  const stub = namespace.get(namespace.newUniqueId());
+  const stub = namespace.getByName(`activity-state-${crypto.randomUUID()}`);
   await runInDurableObject(stub, async (_instance, ctx) => {
     // Registration/admission keys are distinct from the host DO's own storage.
     const registry = new OperatorRegistry(ctx, env as ConstructorParameters<typeof OperatorRegistry>[1]);
@@ -64,6 +64,58 @@ function ownedSessionFixture() {
     },
   };
 }
+
+describe('REQ-OPERATOR-086 AC3: safe owner run metadata', () => {
+  it('projects pinned version and complete outcome quantities without exposing result bodies', () => withActivity(async ({ activity, ctx }) => {
+    const ownerKey = await operatorOwnerKey({ subject: 'owner', email: 'owner@example.test', issuer: 'https://access.example.test', audiences: ['aud'] });
+    const admission = await ctx.storage.get<Record<string, unknown>>('admission');
+    await ctx.storage.put('admission', { ...admission, ownerKey, invocationJson: JSON.stringify({ repository: 'acme/updates' }),
+      receipt: { ...(admission!.receipt as Record<string, unknown>), manifestJson: JSON.stringify({ name: 'Pinned Dispatcher', version: '0.1.27' }) },
+      drive: { generation: 1, status: 'completed', checkpoint: null, result: { repository: 'acme/updates', results: [
+        { pullRequest: 1, outcome: 'MERGED', comment: 'PRIVATE_ASSESSMENT' },
+        { pullRequest: 2, outcome: 'NOT_MERGED' }, { pullRequest: 3, outcome: 'DEFERRED' },
+        { pullRequest: 4, outcome: 'EXECUTION_FAILED' },
+      ] } } });
+    const summary = await activity.getBrowserSummary(ownerKey);
+    expect(summary).toMatchObject({ version: '0.1.27', executionStatus: 'completed',
+      resultSummary: { assessed: 4, merged: 1, notMerged: 1, deferred: 1, unknown: 1 } });
+    expect(JSON.stringify(summary)).not.toContain('PRIVATE_ASSESSMENT');
+    expect(summary).not.toHaveProperty('result');
+    expect(await activity.getBrowserSummary('foreign-owner')).toBeNull();
+  }));
+
+  it('refreshes a structurally cloned outcome observation without accepting changed owner metadata', () => withActivity(async ({ registry }) => {
+    const owner = 'a'.repeat(64);
+    const initial = { activityId: 'activity', operatorId: 'operator', executionStatus: 'completed' as const,
+      cleanupStatus: 'unknown' as const, collectionStatus: 'ready' as const, attention: true,
+      sessionId: null, source: null, updatedAt: Date.now(),
+      resultSummary: { assessed: 1, merged: 0, notMerged: 1, deferred: 0, unknown: 0 } };
+    await registry.upsertOwnedActivity(owner, initial);
+    const observation = await registry.getOwnedActivity(owner, 'activity');
+    expect(observation).toEqual(initial);
+    await registry.upsertOwnedActivity(owner, { ...initial, cleanupStatus: 'released' }, structuredClone(observation!));
+    expect(await registry.getOwnedActivity(owner, 'activity')).toMatchObject({ cleanupStatus: 'released', resultSummary: initial.resultSummary });
+    await registry.upsertOwnedActivity(owner, { ...initial, collectionStatus: 'consumed' }, structuredClone(observation!));
+    expect(await registry.getOwnedActivity(owner, 'activity')).toMatchObject({ cleanupStatus: 'released', collectionStatus: 'ready' });
+    const current = await registry.getOwnedActivity(owner, 'activity');
+    await registry.upsertOwnedActivity(owner, { ...initial, resultSummary: { ...initial.resultSummary, merged: 1, notMerged: 0 } });
+    await registry.upsertOwnedActivity(owner, { ...initial, collectionStatus: 'consumed' }, structuredClone(current!));
+    expect(await registry.getOwnedActivity(owner, 'activity')).toMatchObject({ collectionStatus: 'ready', resultSummary: { merged: 1, notMerged: 0 } });
+  }));
+
+  it('does not manufacture outcome counts for missing, foreign or malformed result data', () => withActivity(async ({ activity, ctx }) => {
+    const ownerKey = await operatorOwnerKey({ subject: 'owner', email: 'owner@example.test', issuer: 'https://access.example.test', audiences: ['aud'] });
+    const admission = await ctx.storage.get<Record<string, unknown>>('admission');
+    for (const result of [null, { repository: 'other/repo', results: [] }, { repository: 'acme/updates', results: ['invalid'] }]) {
+      await ctx.storage.put('admission', { ...admission, ownerKey, invocationJson: JSON.stringify({ repository: 'acme/updates' }),
+        receipt: { ...(admission!.receipt as Record<string, unknown>), manifestJson: JSON.stringify({ name: 'Pinned Dispatcher', version: '<unsafe>' }) },
+        drive: { generation: 1, status: 'completed', checkpoint: null, result } });
+      const summary = await activity.getBrowserSummary(ownerKey);
+      expect(summary).not.toHaveProperty('resultSummary');
+      expect(summary).not.toHaveProperty('version');
+    }
+  }));
+});
 
 describe('REQ-OPERATOR-003: instrumented activity state outcomes', () => {
   it('REQ-OPERATOR-027: projects only trusted pinned name and allowlisted admitted task coordinates', async () => withActivity(async ({ activity, ctx }) => {

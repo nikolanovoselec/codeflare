@@ -321,7 +321,7 @@ jobs:
 
       - name: Upload BuildKit timing evidence
         if: always() && steps.reuse.outputs.reused != 'true'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: buildkit-timing-${{ inputs.registry }}-${{ steps.hash.outputs.tag }}
           path: /tmp/buildkit.log
@@ -430,7 +430,7 @@ jobs:
 
       - name: Upload Pi prompt report
         if: steps.reuse.outputs.reused != 'true' && contains(steps.hash.outputs.coding_agents, 'pi')
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: pi-prompt-report
           path: ${{ runner.temp }}/pi-prompt-report.json
@@ -757,7 +757,7 @@ jobs:
 
       - name: Upload image evidence
         if: always() && steps.reuse.outputs.reused != 'true'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: browser-ide-image-evidence
           path: /tmp/browser-ide-image-evidence.txt
@@ -865,7 +865,7 @@ jobs:
 
       - name: Upload the SBOM
         if: steps.reuse.outputs.reused != 'true'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: sbom-${{ inputs.registry }}-${{ steps.hash.outputs.tag }}
           path: /tmp/sbom.cdx.json
