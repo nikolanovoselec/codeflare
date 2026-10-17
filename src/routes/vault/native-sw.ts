@@ -11,19 +11,19 @@
  * (documentation/decisions/README.md).
  *
  * KEY-RECOVERY + FLUSH-NEUTER GRAFT (AD69, REQ-VAULT-024 AC4/AC5; REQ-VAULT-025 AC4).
- * The native worker holds the bucket-derived AES-CTR key in a module-local var `v`
- * with NO recovery, and upstream actively drops it: a `setInterval` flushes `v`
+ * The native worker holds the bucket-derived AES-CTR key in a module-local var `z`
+ * with NO recovery, and upstream actively drops it: a `setInterval` flushes `z`
  * 5s after the last window client disconnects, and the browser can idle-terminate
- * the worker at any time. TWO code paths read `v` and fail hard when it is empty:
- *   1. the `config` message handler gates on `enableClientEncryption && !v` and,
+ * the worker at any time. TWO code paths read `z` and fail hard when it is empty:
+ *   1. the `config` message handler gates on `enableClientEncryption && !z` and,
  *      when empty, posts `auth-error` -> the client navigates to `.auth`
  *      ("Authentication not enabled"). This fires on cold boot: the bootstrap-hop
  *      -> shell `location.replace` leaves a brief 0-client gap, the 5s flush tick
  *      lands in it and wipes the just-posted key, and the editor then boots
- *      `config` with `v` empty.
+ *      `config` with `z` empty.
  *   2. the `get-encryption-key` message handler replies with no key.
  * `graftVaultKeyRecovery` does two complementary things:
- *   (a) it NEUTERS the proactive 5s flush (ANCHOR_PROACTIVE_FLUSH) so `v` is
+ *   (a) it NEUTERS the proactive 5s flush (ANCHOR_PROACTIVE_FLUSH) so `z` is
  *       retained for the worker's natural lifetime rather than dropped while a tab
  *       is merely transitioning/backgrounded - removing the hop->editor race at
  *       its source. The key is re-derivable from the bucket via `/.vault-key` and
@@ -31,7 +31,7 @@
  *       forward-secrecy regression.
  *   (b) it injects a `__cfRecover()` helper (re-fetch the key from the auth-gated
  *       `/.vault-key` endpoint - a same-origin SW fetch carries the session cookie
- *       - decode with SB's own `et`) and calls it at BOTH read sites before they
+ *       - decode with SB's own `Gt`) and calls it at BOTH read sites before they
  *       give up, covering a genuine cold worker restart after idle-termination.
  *       This is the fallback the old key-shim had.
  *
@@ -59,13 +59,13 @@ export const VAULT_NATIVE_SW_VERBATIM = "var Hi=Object.create;var Pt=Object.defi
  */
 export const VAULT_NATIVE_SW_SHA256 = "b1a6ea49f971fa02c4c1388d1afecfb7ce1f7a30de042907e78c50744e3d4beb";
 
-// Recovery uses SilverBullet 2.11.1's key decoder and logout generation.
+// Recovery uses SilverBullet 2.12.1's key decoder and logout generation.
 // Never revive a key after logout begins or after its generation changes.
 const CF_RECOVER_HELPER =
-  'async function __cfRecover(){if(z!==void 0||D.active)return;let cft=ne;try{let cf=await fetch(self.registration.scope+".vault-key",{credentials:"same-origin"});if(cf.ok){let cfb=await cf.json();if(cfb&&cfb.key){let cfk=await Kt(cfb.key);if(cft===ne&&!D.active&&z===void 0){z=cfk,console.info("Recovered encryption key from codeflare")}}}}catch(cfe){}}';
+  'async function __cfRecover(){if(z!==void 0||D.active)return;let cft=ie;try{let cf=await fetch(self.registration.scope+".vault-key",{credentials:"same-origin"});if(cf.ok){let cfb=await cf.json();if(cfb&&cfb.key){let cfk=await Gt(cfb.key);if(cft===ie&&!D.active&&z===void 0){z=cfk,console.info("Recovered encryption key from codeflare")}}}}catch(cfe){}}';
 
 // Anchors (exact upstream minified substrings) and their grafted replacements.
-const ANCHOR_VARY = ";var z,ne=0,yt,D=new we(";
+const ANCHOR_VARY = ";var z,ie=0,St,D=new Se(";
 // Upstream proactively wipes the in-memory key 5s after the last window client
 // disconnects (the no-client interval following the key declaration). That races the
 // bootstrap-hop -> editor 0-client transition and drops the just-posted key,
@@ -74,13 +74,13 @@ const ANCHOR_VARY = ";var z,ne=0,yt,D=new we(";
 // genuine idle restart. Distinct from ANCHOR_NO_CLIENTS_INFO (`t.length===0`) and
 // occurs exactly once.
 const ANCHOR_PROACTIVE_FLUSH = "o.length===0&&z&&(console.info(\"No more clients, flushing encryption key\"),z=void 0)";
-const ANCHOR_GETKEY = "case\"get-encryption-key\":{if(D.active)break;o.source.postMessage({type:\"encryption-key\",key:z&&await $e(z)});break}";
-const ANCHOR_CONFIG_GATE = "case\"config\":{if(D.active)break;let t=ne,i=z,n=e.config;";
+const ANCHOR_GETKEY = "case\"get-encryption-key\":{if(D.active)break;o.source.postMessage({type:\"encryption-key\",key:z&&await Ge(z)});break}";
+const ANCHOR_CONFIG_GATE = "case\"config\":{if(D.active)break;let t=ie,i=z,n=e.config;";
 const ANCHOR_NO_CLIENTS_INFO = "t.length===0&&console.info(\"No clients are listening for messages, dropping message\",o)";
-const ANCHOR_SERVICE_PROXY_ERROR = "console.error(\"[service proxy error]\",f,y),f===se.message&&g.reset(),b({type:\"auth-error\",message:f,actionOrRedirectHeader:y})";
+const ANCHOR_SERVICE_PROXY_ERROR = "console.error(\"[service proxy error]\",f,y),f===re.message&&g.reset(),b({type:\"auth-error\",message:f,actionOrRedirectHeader:y})";
 const ANCHOR_SYNC_SPACE_ERROR = "console.error(\"Sync space error\",n.message)";
 // Not-ready guard on the REMOTE file list. A full sync cycle binds
-// `a=await this.primary.fetchFileList()` (the persistent browser-local store) then
+// `r=await this.primary.fetchFileList()` (the persistent browser-local store) then
 // `s=await this.secondary.fetchFileList()` (the in-container SilverBullet server over
 // HTTP). The per-file reconciler treats the remote (`secondary`) as authoritative for
 // DELETIONS: a file present in the local store AND in the sync snapshot but ABSENT
@@ -96,7 +96,7 @@ const ANCHOR_SYNC_SPACE_ERROR = "console.error(\"Sync space error\",n.message)";
 // Once a real list arrives reconciliation resumes. Only a valid empty array with
 // empty primary AND snapshot is a safe no-op. (REQ-VAULT-025 AC2, REQ-VAULT-023 AC2.)
 //
-// CRITICAL — The remote list is one binding in a single `let a=...,s=...,c=...,r=...,l=...` declarator
+// CRITICAL — The remote list is one binding in a single `let r=...,s=...,c=...,a=...,l=...` declarator
 // list (the minified sync-cycle declaration). The guard MUST wrap the `s=`
 // INITIALIZER, not add a second `s=` declarator: `let ...,s=X,s=Y,...` is a duplicate
 // lexical binding (`SyntaxError: Identifier 's' has already been declared`), which
@@ -104,7 +104,7 @@ const ANCHOR_SYNC_SPACE_ERROR = "console.error(\"Sync space error\",n.message)";
 // vault never registers, and the readiness button never goes ready. So the anchor is
 // just the `s=` initializer and the graft replaces it with an IIFE that guards in
 // place, keeping `s` a single declarator that still feeds every later consumer. The
-// IIFE reads `a` (the already-bound primary list) and `t` (the snapshot param of the
+// IIFE reads `r` (the already-bound primary list) and `t` (the snapshot param of the
 // enclosing `syncFiles(t)`, whose `.files` Map the cycle dereferences anyway).
 // ANCHOR_REMOTE_LIST_COERCE.
 const ANCHOR_REMOTE_LIST_COERCE = "s=await this.secondary.fetchFileList()";
@@ -142,21 +142,21 @@ export function graftVaultKeyRecovery(verbatim: string): string {
     )
     .replace(
       ANCHOR_GETKEY,
-      'case"get-encryption-key":{if(D.active)break;let cft=ne;if(z===void 0)await __cfRecover();if(cft!==ne||D.active)break;o.source.postMessage({type:"encryption-key",key:z&&await $e(z)});break}',
+      'case"get-encryption-key":{if(D.active)break;let cft=ie;if(z===void 0)await __cfRecover();if(cft!==ie||D.active)break;o.source.postMessage({type:"encryption-key",key:z&&await Ge(z)});break}',
     )
     .replace(
       ANCHOR_CONFIG_GATE,
-      'case"config":{if(D.active)break;let t=ne;if(z===void 0)await __cfRecover();if(t!==ne||D.active)break;let i=z,n=e.config;',
+      'case"config":{if(D.active)break;let t=ie;if(z===void 0)await __cfRecover();if(t!==ie||D.active)break;let i=z,n=e.config;',
     )
     .replace(ANCHOR_NO_CLIENTS_INFO, "void 0")
     .replace(
       ANCHOR_SERVICE_PROXY_ERROR,
-      'f===se.message?console.info("[service proxy auth]",f):console.error("[service proxy error]",f,y),f===se.message&&g.reset(),b({type:"auth-error",message:f,actionOrRedirectHeader:y})',
+      'f===re.message?console.info("[service proxy auth]",f):console.error("[service proxy error]",f,y),f===re.message&&g.reset(),b({type:"auth-error",message:f,actionOrRedirectHeader:y})',
     )
     .replace(ANCHOR_SYNC_SPACE_ERROR, 'console.warn("Sync space error",n.message)')
     .replace(
       ANCHOR_REMOTE_LIST_COERCE,
-      's=(cf=>{if(!Array.isArray(cf))throw new Error("[codeflare] vault secondary file list unreadable; skipping sync cycle");if(cf.length===0&&(a.length>0||t.files.size>0))throw new Error("[codeflare] vault secondary file list empty/unreadable while local store has files (SilverBullet server not ready); skipping sync cycle to avoid blind deletion");return cf})(await this.secondary.fetchFileList())',
+      's=(cf=>{if(!Array.isArray(cf))throw new Error("[codeflare] vault secondary file list unreadable; skipping sync cycle");if(cf.length===0&&(r.length>0||t.files.size>0))throw new Error("[codeflare] vault secondary file list empty/unreadable while local store has files (SilverBullet server not ready); skipping sync cycle to avoid blind deletion");return cf})(await this.secondary.fetchFileList())',
     );
 }
 

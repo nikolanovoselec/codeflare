@@ -72,7 +72,7 @@ Architecture Decision Records for Codeflare. Each active record documents a real
 | [AD50](#ad50-unified-adr-file-with-structural-doc-allow-large-exemption) | Keep one ADR ledger with stable anchors | The unified `decisions/README.md` and stable AD anchors remain, while [AD51](#ad51-rip-out-six-overengineered-sdd-framework-features) removed `doc-allow-large`. | Process | Partially superseded |
 | [AD51](#ad51-rip-out-six-overengineered-sdd-framework-features) | Remove six overengineered SDD features | The SDD framework removes override, hatch, split-proposal, collision, commit-category, and annotation checks to reduce operator and authoring surface. | Architecture | Active |
 | [AD52](#ad52-graphify-mcp-available-everywhere-discipline-advanced-only) | Expose Graphify queries everywhere; gate routing, mutation, and nudges | Graphify query tools ship in every session, while advanced mode adds conditional routing, clone triage, mutation workflow, active-repo tracking, and soft nudges. | Architecture | Active |
-| [AD53](#ad53-graphify-hot-reload-wrapper-with-multi-repo-sentinel-tracking) | Hot-reload Graphify across repositories | A lazy Graphify wrapper atomically swaps graph data and follows an advanced-mode active-repository sentinel, keeping one MCP process usable after clones and repo changes. | Architecture | Active |
+| [AD53](#ad53-graphify-hot-reload-wrapper-with-multi-repo-sentinel-tracking) | Hot-reload Graphify across repositories | The wrapper selects complete upstream query contexts using the active-repository sentinel, keeping one MCP process usable after clones and repo changes. | Architecture | Active |
 | [AD54](#ad54-vault-directory-must-use-a-non-hidden-basename) | Use a visible Vault directory basename | The vault lives at `/home/user/Vault/` because SilverBullet aborts walks of dot-prefixed roots, and the clean cutover restores file listing without a binary patch. | Storage | Active |
 | [AD55](#ad55-codeflare-brands-the-vault-editor-via-preseed-managed-stylesmd) | Manage Vault styling through preseed | Codeflare overwrites Vault `STYLES.md` from preseed on boot, binding SilverBullet theme variables to product tokens at the cost of in-editor theme customization. | Architecture | Active |
 | [AD56](#ad56-15-minute-bisync-cadence-with-manual-triggers) | Run bisync every 15 minutes with explicit triggers | The bisync daemon uses a 15-minute cadence plus manual and final-sync triggers, cutting idle R2 operations while accepting wider ungraceful-loss and convergence windows. | Storage | Active |
@@ -1413,7 +1413,7 @@ Graphify's own subagent-chunking model bounds context during `/graphify` extract
 
 ### AD53: Graphify hot-reload wrapper with multi-repo sentinel tracking
 
-**Status:** Accepted (2026-05-14)
+**Status:** Accepted (2026-05-14); graph-loading mechanism revised 2026-10-17.
 
 **Category:** Architecture
 
@@ -1421,7 +1421,7 @@ Graphify's own subagent-chunking model bounds context during `/graphify` extract
 
 Second, sessions typically hold 2-3 cloned repos; the MCP server is one persistent process and has no native notion of "the current repo." When the agent moved between repos via Bash `cd`, ctx_execute, git/gh clone, or simply by editing files in a different directory, the wrapper bound G to whichever path resolved first at startup and never switched, silently returning wrong-repo answers.
 
-**Decision:** Two coupled mechanisms:
+**Original decision (loading mechanism superseded by the revision below):** Two coupled mechanisms:
 
 1. **`graphify-mcp-lazy.py` wrapper** ships to both `default` and `advanced` session modes.
 
@@ -1455,6 +1455,8 @@ Alternative 1 — Spawn one MCP server per repo on first `cd` into it. Rejected 
 Alternative 2 — Pass repo path as an explicit MCP tool argument on every call. Rejected because graphify's upstream tool handlers query G in closure and would need rewriting; relying on the agent to remember a `repo_path` arg every invocation would silently degrade in practice.
 
 
+
+**Revision (2026-10-17):** Supersede only the `LazyGraph`, raw-internals swap, branch-log and daemon-watcher mechanism. Graphify 0.9.92 dispatches parallel-edge behavior by real graph class and caches complete graph/community/index generations. The wrapper now resolves global → valid sentinel → freshest workspace before upstream context loading, returns a real empty context for a graphless selection, and delegates real paths to upstream's bounded non-pinned context cache. Subsequent requests observe upstream's path/mtime/size freshness key without in-place graph mutation. A valid graphless sentinel does not fall through to another repository. The single MCP process, advanced-only active-repo hook, advisory routing, explicit refresh consent and no-branch-graphs policy remain unchanged. Pi retains its native CLI-backed query path. Upstream nominal query-header/resource paths are not rebound by this narrow seam; no resource rewrite or full resource-parity claim is made. Authentic MCP tests exercise relations, directed/parallel edges, empty startup and generation/source changes; image and hosted qualification remain separate.
 
 **Issue:** [REQ-AGENT-023](../../sdd/spec/agents.md#req-agent-023-knowledge-graph-capability-graphify).
 

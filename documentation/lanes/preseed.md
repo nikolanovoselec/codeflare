@@ -615,7 +615,11 @@ stale deny-gates. The graphify plugin includes plugin.json, README, and
 graphify-mcp-lazy.py in default+advanced mode; advanced mode adds the compact
 query-routing rule, graphify-active-repo.sh, graphify-clone-prompt.sh,
 graph-first-nudge.sh, safe-graphify-update.sh, local-graphify-labels.sh, and the
-build/update skill.
+build/update skill. The Claude wrapper resolves global → valid sentinel → freshest
+workspace at each context request, returning empty for a graphless selection. It
+delegates real files to upstream's bounded complete-context cache, preserving
+parallel relations, communities and fresh indexes without a dictionary-swapping
+watcher ([AD53 revision](../decisions/README.md#ad53-graphify-hot-reload-wrapper-with-multi-repo-sentinel-tracking)). Upstream nominal query-header/resource paths are not rebound by this narrow seam; host MCP evidence does not prove image or hosted acceptance.
 
 Graphify tools ship as the native extension `extensions/graphify-native.ts` rather
 than through the MCP adapter — a Pi-native first-class choice. Pi still consumes

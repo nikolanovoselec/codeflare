@@ -157,6 +157,8 @@ for (const parallel of [false, true]) {
       const query = await mcp.tool('query_graph', { question: 'ProofLeaf', depth: 3, token_budget: 8000 });
       assert.match(query, /ProofCaller/);
       assert.match(query, /ProofLeaf/);
+      assert.match(query, /EDGE ProofCaller --calls \[EXTRACTED\]--> ProofMiddle/);
+      if (parallel) assert.match(query, /EDGE ProofCaller --references \[EXTRACTED\]--> ProofMiddle/);
       // An incoming leaf must not make the directed route reversible.
       const path = await mcp.tool('shortest_path', { source: 'ProofCaller', target: 'ProofLeaf' });
       assert.match(path, /Shortest path \(2 hops\)/);
@@ -205,6 +207,8 @@ it('REQ-AGENT-023: AC4 starts graphless and rebinds fresh query contexts without
     assert.match(await mcp.tool('get_community', { community_id: 3 }), /OtherLeaf/);
     f.select(empty.nested);
     await eventually(mcp, 'graph_stats', {}, /Nodes: 0\nEdges: 0\n/);
+    assert.match(await mcp.tool('get_node', { node_id: 'OtherCaller' }), /No node matching/);
+    assert.match(await mcp.tool('get_community', { community_id: 3 }), /not found/);
 
     // No sentinel falls back to freshest; valid sentinel beats that freshness.
     rmSync(f.sentinel);

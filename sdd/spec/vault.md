@@ -558,7 +558,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 <!-- @cites: REQ-VAULT-013 (split-prose: the native-service-worker contract foreshadowed in REQ-VAULT-013's Intent - registration short-circuit, key delivery, precache - is specified here) -->
 
-**Intent:** SilverBullet's native service worker (not a stripped shim) is served for the editor's service-worker registration fetch so the editor keeps its persistent local file-sync store and indexes incrementally (AD69). The Worker short-circuits the auth chain for the registration GET (the browser sends no credentials on that fetch, so the cookie-gated path would 401), serves the SilverBullet 2.10.0 native worker body locked to the Dockerfile-pinned binary, and suppresses the bootstrap-hop redirect for Service-Worker-context fetches so the worker's precache resolves without reusing stale browser HTTP-cache entries. The bucket-stable vault encryption key reaches the worker via postMessage from the bootstrap-hop page ([REQ-VAULT-024](#req-vault-024-vault-bootstrap-hop-key-arming-and-service-worker-retention) AC1). The served worker's runtime behavior (log suppression, destructive-sync guard, key-flush neutering) is [REQ-VAULT-025](#req-vault-025-silverbullet-native-service-worker-runtime-graft).
+**Intent:** SilverBullet's native service worker (not a stripped shim) is served for the editor's service-worker registration fetch so the editor keeps its persistent local file-sync store and indexes incrementally (AD69). The Worker short-circuits the auth chain for the registration GET (the browser sends no credentials on that fetch, so the cookie-gated path would 401), serves the native worker body locked to the Dockerfile-pinned SilverBullet binary, and suppresses the bootstrap-hop redirect for Service-Worker-context fetches so the worker's precache resolves without reusing stale browser HTTP-cache entries. The bucket-stable vault encryption key reaches the worker via postMessage from the bootstrap-hop page ([REQ-VAULT-024](#req-vault-024-vault-bootstrap-hop-key-arming-and-service-worker-retention) AC1). The served worker's runtime behavior (log suppression, destructive-sync guard, key-flush neutering) is [REQ-VAULT-025](#req-vault-025-silverbullet-native-service-worker-runtime-graft).
 
 **Applies To:** User
 
@@ -606,7 +606,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Constraints:**
 
-- `VAULT_NATIVE_SW_VERBATIM` and its SHA-256 drift guard remain unchanged; a SilverBullet version bump with moved graft anchors fails closed.
+- The graft does not alter `VAULT_NATIVE_SW_VERBATIM` or its SHA-256 drift guard. A coupled SilverBullet release update advances both deliberately; incompatible graft anchors still fail closed.
 
 **Priority:** P0
 

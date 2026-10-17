@@ -316,7 +316,7 @@ The verbatim upstream bytes are stored separately (`VAULT_NATIVE_SW_VERBATIM`) a
 
 A warming server or unresolved session route can return an empty list or JSON error object instead of real metadata. Upstream rejects 5xx, authentication failures and JSON parse errors, but JSON 404/409 errors can reach the graft. Because [REQ-VAULT-021](../../sdd/spec/vault.md#req-vault-021-bucket-stable-vault-url-and-bucket-derived-key) makes the local store persistent, blindly reconciling an empty remote list could delete existing local files. Coercing an error object to `[]` could also falsely complete a fresh store's sync with no notes.
 
-The graft wraps the remote `s=` initializer of the full-sync cycle. Non-arrays always throw, even with empty local store and snapshot. Valid empty arrays also throw before reconciliation when the local store (`a`) or snapshot (`t.files`) contains files. `syncSpace` reports the error and rethrows; `run()` warns and retries later, resuming when real metadata arrives. Only a valid empty array with empty local store and snapshot remains a safe no-op. See [`graftVaultKeyRecovery`](../../src/routes/vault/native-sw.ts).
+The graft wraps the remote `s=` initializer of the full-sync cycle. Non-arrays always throw, even with empty local store and snapshot. Valid empty arrays also throw before reconciliation when the already-bound primary file list (`r`) or snapshot (`t.files`) contains files. `syncSpace` reports the error and rethrows; `run()` warns and retries later, resuming when real metadata arrives. Only a valid empty array with empty local store and snapshot remains a safe no-op. See [`graftVaultKeyRecovery`](../../src/routes/vault/native-sw.ts).
 
 #### Deterministic preseed mtime stops the 2nd-session 'preparing' loop
 
