@@ -63,6 +63,14 @@ export function nativeWorkerRuntime(worker: string, transport: (input: RequestIn
   const databases = new Map<string, IDBDatabase>();
   const indexedDB = {
     databases: async () => [...databases.keys()].map(name => ({ name })),
+    deleteDatabase(name: string) {
+      const deletion = new IDBRequest();
+      queueMicrotask(() => {
+        databases.delete(name);
+        deletion.dispatchEvent(new Event('success'));
+      });
+      return deletion;
+    },
     open(name: string) {
       const opening = new IDBRequest();
       const isNew = !databases.has(name);
@@ -89,13 +97,26 @@ export function nativeWorkerRuntime(worker: string, transport: (input: RequestIn
     addEventListener: (type: string, listener: Listener) => listeners.set(type, listener),
     skipWaiting: async () => {},
   };
-  const quietConsole = { log() {}, info() {}, warn() {}, error() {}, debug() {} };
+  const logs: Array<{ level: string; args: unknown[] }> = [];
+  const quietConsole = Object.fromEntries(['log', 'info', 'warn', 'error', 'debug']
+    .map(level => [level, (...args: unknown[]) => { logs.push({ level, args }); }]));
+  const precacheRequests: Array<{ url: string; cache?: string }> = [];
+  class CapturedRequest {
+    url: string;
+    cache?: string;
+    constructor(input: string | URL, options?: { cache?: string }) {
+      this.url = new URL(input, self.registration.scope).href;
+      this.cache = options?.cache;
+    }
+  }
   const globals = { crypto, clients };
   const platform = { self, globalThis: globals, location: new URL('https://vault.test/service_worker.js'),
     indexedDB, IDBRequest, IDBDatabase, IDBTransaction, IDBObjectStore, IDBIndex, IDBCursor,
     IDBKeyRange: { bound: (lower: string, upper: string) => ({ lower, upper }) },
-    fetch: transport, console: quietConsole,
-    caches: { match: async () => undefined },
+    fetch: transport, console: quietConsole, Request: CapturedRequest,
+    navigator: { userAgent: 'Chrome', serviceWorker: { controller: null } },
+    caches: { match: async () => undefined,
+      open: async () => ({ addAll: async (requests: Array<{ url: string; cache?: string }>) => { precacheRequests.push(...requests); } }) },
     setInterval: (callback: () => unknown) => { intervals.push(callback); return intervals.length; },
     setTimeout: (callback: () => unknown, delay = 0) => {
       const id = setTimeout(() => { timeouts.delete(id); callback(); }, delay);
@@ -106,7 +127,15 @@ export function nativeWorkerRuntime(worker: string, transport: (input: RequestIn
   };
   new Function(...Object.keys(platform), worker)(...Object.values(platform));
   return {
-    databases,
+    databases, logs, precacheRequests,
+    async install() {
+      const listener = listeners.get('install');
+      if (!listener) throw new Error('Served worker did not register an install handler');
+      const pending: Promise<unknown>[] = [];
+      await listener({ waitUntil: (promise: Promise<unknown>) => pending.push(promise) });
+      if (!pending.length) throw new Error('Native install did not register asynchronous work');
+      await Promise.all(pending);
+    },
     dispose() { for (const id of timeouts) clearTimeout(id); timeouts.clear(); intervals.length = 0; },
     isRegistered: () => registered,
     connectClient(receive: (value: Message) => void) {

@@ -149,26 +149,26 @@ describe('REQ-AGENT-111 AC3: Goal jiti cache path and fail-closed artifact verif
   });
 });
 
-describe('REQ-AGENT-131: managed extension JITI warm-cache contract', () => {
+describe('REQ-AGENT-210: managed extension JITI warm-cache contract', () => {
   it('warms every requested entrypoint and fails when a managed extension produces no cache artifact', () => {
     const directory = mkdtempSync(join(tmpdir(), 'codeflare-managed-extension-cache-'));
     try {
       const cacheDirectory = join(directory, 'cache');
       const goalSource = join(directory, 'goal/src/index.ts');
-      const usageSource = join(directory, 'usage/src/index.ts');
+      const openTuiSource = join(directory, 'open-tui/extensions/open-tui/index.ts');
       mkdirSync(join(directory, 'goal/src'), { recursive: true });
-      mkdirSync(join(directory, 'usage/src'), { recursive: true });
+      mkdirSync(join(directory, 'open-tui/extensions/open-tui'), { recursive: true });
       writeFileSync(goalSource, 'export default function goal() {}\n');
-      writeFileSync(usageSource, 'export default function usage() {}\n');
+      writeFileSync(openTuiSource, 'export default function openTui() {}\n');
 
       const runWarm = (piBinary, env = {}) => spawnSync(
         process.execPath,
-        [script, '--warm-jiti-entrypoints', piBinary, cacheDirectory, goalSource, usageSource],
+        [script, '--warm-jiti-entrypoints', piBinary, cacheDirectory, goalSource, openTuiSource],
         { encoding: 'utf8', env: { ...process.env, ...env } },
       );
       const argsLog = join(directory, 'args.log');
       const goalArtifact = resolveCachePath(goalSource, cacheDirectory);
-      const usageArtifact = resolveCachePath(usageSource, cacheDirectory);
+      const openTuiArtifact = resolveCachePath(openTuiSource, cacheDirectory);
       const fakePi = join(directory, 'pi');
       writeFileSync(fakePi, `#!/bin/sh
 printf '%s\\n' "$@" > "$ARGS_LOG"
@@ -191,13 +191,13 @@ done
         CACHE_DIR: cacheDirectory,
       });
       assert.equal(success.status, 0, success.stderr);
-      assert.deepEqual(success.stdout.trim().split('\n'), [goalArtifact, usageArtifact]);
+      assert.deepEqual(success.stdout.trim().split('\n'), [goalArtifact, openTuiArtifact]);
       assert.deepEqual(
         readArgs(argsLog),
         [
           '--no-extensions',
           '--extension', goalSource,
-          '--extension', usageSource,
+          '--extension', openTuiSource,
           '--list-models',
         ],
       );
@@ -211,7 +211,7 @@ done
 
       mkdirSync(cacheDirectory, { recursive: true });
       writeFileSync(goalArtifact, 'stale\n');
-      writeFileSync(usageArtifact, 'stale\n');
+      writeFileSync(openTuiArtifact, 'stale\n');
       const noArtifactPi = join(directory, 'pi-no-artifact');
       writeFileSync(noArtifactPi, '#!/bin/sh\nexit 0\n');
       chmodSync(noArtifactPi, 0o755);
@@ -222,9 +222,9 @@ done
       const goalOnlyPi = join(directory, 'pi-goal-only');
       writeFileSync(goalOnlyPi, '#!/bin/sh\nprintf "compiled\\n" > "$GOAL_ARTIFACT"\n');
       chmodSync(goalOnlyPi, 0o755);
-      const missingUsage = runWarm(goalOnlyPi, { GOAL_ARTIFACT: goalArtifact });
-      assert.notEqual(missingUsage.status, 0);
-      assert.equal(missingUsage.stderr, `jiti cache artifact is missing at ${usageArtifact}\n`);
+      const missingOpenTui = runWarm(goalOnlyPi, { GOAL_ARTIFACT: goalArtifact });
+      assert.notEqual(missingOpenTui.status, 0);
+      assert.equal(missingOpenTui.stderr, `jiti cache artifact is missing at ${openTuiArtifact}\n`);
 
       const missingExecutable = runWarm(join(directory, 'does-not-exist'));
       assert.notEqual(missingExecutable.status, 0);
@@ -250,7 +250,7 @@ const piPackage = JSON.parse(
 const NPM_ROOT = '/opt/codeflare/pi-agent/npm/node_modules';
 const WARMED_NPM_ENTRYPOINTS = [
   { variable: 'goal', package: '@narumitw/pi-goal', entrypoint: 'src/index.ts' },
-  { variable: 'usage', package: '@narumitw/pi-usage', entrypoint: 'dist/index.ts' },
+  { variable: 'open_tui', package: 'pi-open-tui', entrypoint: 'extensions/open-tui/index.ts' },
   { variable: 'evaluate', package: 'pi-evaluate', entrypoint: 'extensions/evaluate.ts' },
   { variable: 'plan', package: '@narumitw/pi-plan-mode', entrypoint: 'dist/index.ts' },
   { variable: 'subagents', package: '@gotgenes/pi-subagents', entrypoint: 'src/index.ts' },
@@ -324,7 +324,7 @@ for (let source of sources) {
   }
 }
 
-describe('REQ-AGENT-111/REQ-AGENT-131/REQ-AGENT-133/REQ-AGENT-152/REQ-AGENT-210: image-owned extension warming', () => {
+describe('REQ-AGENT-111/REQ-AGENT-056/REQ-AGENT-133/REQ-AGENT-152/REQ-AGENT-210: image-owned extension warming', () => {
   it('declares, warms, and re-verifies each locked package entrypoint', async () => {
     const fixture = runImageWarmFixture();
     try {
@@ -349,7 +349,7 @@ describe('REQ-AGENT-111/REQ-AGENT-131/REQ-AGENT-133/REQ-AGENT-152/REQ-AGENT-210:
   });
 
   it('REQ-AGENT-152/REQ-AGENT-210: rejects missing managed startup caches', () => {
-    for (const name of ['@gotgenes/pi-subagents', 'pi-mcp-adapter', '@narumitw/pi-plan-mode', '@juicesharp/rpiv-advisor', '@juicesharp/rpiv-ask-user-question', '@juicesharp/rpiv-todo', 'pi-web-access']) {
+    for (const name of ['pi-open-tui', '@gotgenes/pi-subagents', 'pi-mcp-adapter', '@narumitw/pi-plan-mode', '@juicesharp/rpiv-advisor', '@juicesharp/rpiv-ask-user-question', '@juicesharp/rpiv-todo', 'pi-web-access']) {
       const fixture = runImageWarmFixture(name);
       try {
         assert.notEqual(fixture.result.status, 0);

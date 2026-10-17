@@ -204,9 +204,21 @@ export async function verifySelectedAgentPackages(
     inventories[family.agent] = actual;
   }
   if (hasCodingAgent(selection, 'pi')) {
-    for (const [label, root] of [['shared', nodeModulesPath], ['Pi prewarm', piNodeModulesPath]]) {
-      const esbuildDirectory = join(root, '@earendil-works', 'pi-coding-agent', 'node_modules', '@esbuild');
-      const actual = (await readDirectory(esbuildDirectory)).sort();
+    const sharedEsbuild = (await readDirectory(join(nodeModulesPath, '@esbuild'))).sort();
+    assert.deepEqual(sharedEsbuild, ['linux-x64'], 'shared esbuild package inventory must contain only Linux x64');
+    // Pi 1.3 no longer depends on esbuild; validate optional scopes only when present.
+    for (const [label, root] of [
+      ['shared nested', join(nodeModulesPath, '@earendil-works', 'pi-coding-agent', 'node_modules')],
+      ['Pi prewarm', piNodeModulesPath],
+      ['Pi prewarm nested', join(piNodeModulesPath, '@earendil-works', 'pi-coding-agent', 'node_modules')],
+    ]) {
+      let actual;
+      try {
+        actual = (await readDirectory(join(root, '@esbuild'))).sort();
+      } catch (error) {
+        if (error?.code === 'ENOENT') continue;
+        throw error;
+      }
       assert.deepEqual(actual, ['linux-x64'], `${label} esbuild package inventory must contain only Linux x64`);
     }
   }

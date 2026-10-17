@@ -21,11 +21,11 @@ function extractBrowserRunBlock() {
   return entrypoint.slice(start, end);
 }
 
-function generatedBrowserConfigs({ legacy, target } = {}) {
+function generatedBrowserConfigs({ legacy, target, claude: initialClaude } = {}) {
   const userHome = mkdtempSync(join(tmpdir(), 'browser-run-entrypoint-'));
   const claudeJsonPath = join(userHome, '.claude.json');
   mkdirSync(join(userHome, '.pi', 'agent'), { recursive: true });
-  writeFileSync(claudeJsonPath, '{}');
+  writeFileSync(claudeJsonPath, JSON.stringify(initialClaude ?? {}));
   const legacyPath = join(userHome, '.pi', 'agent', 'mcp.json');
   const targetPath = join(userHome, '.pi', 'agent', 'mcp-adapter.json');
   if (legacy !== undefined) writeFileSync(legacyPath, JSON.stringify(legacy));
@@ -66,6 +66,14 @@ function wsEndpoint(config) {
 }
 
 describe('entrypoint Browser Run MCP registration', () => {
+  it('REQ-BROWSER-009 AC7: Claude browser MCP calls receive six minutes without changing unrelated servers', () => {
+    const custom = { command: 'custom-server', timeout: 2000, env: { TOKEN: 'synthetic-custom-token' } };
+    const { claude } = generatedBrowserConfigs({ claude: { mcpServers: { custom }, unrelated: true } });
+    assert.equal(claude.mcpServers['chrome-devtools'].timeout, 360000);
+    assert.equal(claude.mcpServers['browser-run'].timeout, 360000);
+    assert.deepEqual(claude.mcpServers.custom, custom);
+    assert.equal(claude.unrelated, true);
+  });
   it('REQ-BROWSER-001 AC5: Claude keeps interactive Browser Run idle for six minutes', () => {
     const { claude } = generatedBrowserConfigs();
     assert.equal(new URL(wsEndpoint(claude)).searchParams.get('keep_alive'), '360000');

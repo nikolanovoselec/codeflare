@@ -155,7 +155,7 @@ Wrangler SSH is disabled by default. A valid repository-level `CONTAINER_SSH_PUB
 
 The `RESSOURCE_TIER` misspelling (French/German "ressource") is intentional and preserved across `wrangler.toml`, GitHub Actions variables, and TypeScript types for backward compatibility with deployed instances. Do not "fix" the spelling; renaming requires a coordinated change across every deployment.
 
-Base image: Node.js 24 Debian (bookworm-slim).
+The [`Dockerfile`](../../Dockerfile) owns the digest-pinned Node.js/Debian base image.
 
 ### Cloudflare API Token (Operator)
 

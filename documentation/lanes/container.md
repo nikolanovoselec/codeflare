@@ -35,9 +35,11 @@ Container image contents, startup and readiness, session authority, supervision,
 | Network | curl, openssh-client |
 | Process | procps (ps, pgrep) |
 | Utilities | jq, python3 plus `python` alias, ripgrep, fd, tree, htop, tmux, yazi, fzf, zoxide, bat |
-| Terminal runtime | Herdr v0.9.3, checksum-pinned official Linux x86-64 binary, image-owned config, Apache-2.0 attribution |
+| Terminal runtime | Herdr, checksum-pinned official Linux x86-64 binary, image-owned config, Apache-2.0 attribution |
 
-Copilot 1.0.88 installs from the pinned npm dependency. <!-- @impl: preseed/npm-tools/package.json::@github/copilot --> `slirp4netns`, `iptables`/`ip6tables`, and util-linux sandbox tooling are included. <!-- @impl: Dockerfile::RUN apt-get update --> This grants neither TUN access, privileged containers, nor local-network permission; platform restrictions and explicit sandbox policy still apply.
+Copilot installs from the pinned npm dependency. <!-- @impl: preseed/npm-tools/package.json::@github/copilot --> `slirp4netns`, `iptables`/`ip6tables`, and util-linux sandbox tooling are included. <!-- @impl: Dockerfile::RUN apt-get update --> This grants neither TUN access, privileged containers, nor local-network permission; platform restrictions and explicit sandbox policy still apply.
+
+Copilot now reads user settings from `~/.copilot/settings.json`, ignoring user-setting keys in `config.json`; Codeflare does not move authentication fields or rewrite user files. The former `/sandbox ca install` command is replaced by CA create/trust operations. Sandbox shells no longer inherit ambient `GITHUB_TOKEN` by default; existing credential interception and explicit sandbox policy remain authoritative. Verify sandbox Git/MCP and BYOK routing with the selected runtime rather than widening token inheritance. Upstream release references: [settings location](https://github.com/github/copilot-cli/releases/tag/v1.0.93), [CA commands](https://github.com/github/copilot-cli/releases/tag/v1.0.91), and [token inheritance](https://github.com/github/copilot-cli/releases/tag/v1.0.92).
 
 ### Bundled image tooling
 
@@ -48,6 +50,8 @@ SVG, PNG and JPEG rendering/conversion tools install at build time, not startup.
 APT sources use HTTPS. Additional package installation requires `apt-get update` because image indexes are cleared. Strict enterprise egress still requires an approved HTTPS destination and the existing policy path; HTTPS does not guarantee reachability. Never disable certificate or repository-signature verification ([REQ-OPS-063](../../sdd/spec/operations.md#req-ops-063-https-distribution-package-sources)). <!-- @impl: Dockerfile::APT_HTTPS_SOURCES -->
 
 ### Lock-backed NPM Tools
+
+Codex rejects unknown TUI settings. Restored personal configuration containing the removed `tui.prompt_suggestions` needs a user-approved correction; startup does not rewrite it. The bundled `plugin-creator` skill was removed upstream, but user and managed skills remain distinct from the runtime-owned system-skill directory. Upstream references: [TUI schema](https://github.com/openai/codex/blob/092d3acd6bec3e3a14bdc7e7a2810ab628ab759d/codex-rs/core/config.schema.json#L4534) and [setting/skill removals](https://github.com/openai/codex/releases/tag/rust-v0.159.0).
 
 Shared agents, Bun, context-mode, `consult-llm-mcp`, and `chrome-devtools-mcp` install from `preseed/npm-tools/package.json` and its committed lock. Image-owned `oxlint` has `image/oxlint/package.json` and a dedicated lock, weekly cooldown-backed Dependabot updates, and `/usr/local/bin/oxlint` without managed-seed compatibility changes ([REQ-OPS-051](../../sdd/spec/operations.md#req-ops-051-image-owned-oxlint-lifecycle)).
 
@@ -82,7 +86,7 @@ Neither entrypoint nor `context-mode-runtime.ts` forces `CONTEXT_MODE_BRIDGE_IDL
 
 **Pi SDK lockstep:** image-tools and Pi prewarm manifests commit one exact Pi version. Both use committed locks and `npm ci`; build compares pins before install and verifies prewarm afterward. Bumps update both manifests/locks, bundled integrity pins and embedded seed atomically.
 
-The integrated lock inventory includes bounded `brace-expansion` 5.0.12, Undici 7.30.0/8.11.2, and four `ip-address` 10.7.3 packed-shrinkwrap record corrections. This source inventory is neither runtime acceptance nor deployment proof; historical 10.7.2 observations remain historical. [`scripts/apply-npm-security-lock-pins.mjs`](../../scripts/apply-npm-security-lock-pins.mjs) uses registry SHA-512 and fails closed on malformed locks ([REQ-OPS-033](../../sdd/spec/operations.md#req-ops-033-lock-backed-npm-bump-coherence)).
+Security floors for `brace-expansion`, Undici and packed-shrinkwrap `ip-address` records are enforced in the owning manifests, locks and security-pin scripts. Source consistency is neither runtime acceptance nor deployment proof. [`scripts/apply-npm-security-lock-pins.mjs`](../../scripts/apply-npm-security-lock-pins.mjs) uses registry SHA-512 and fails closed on malformed locks ([REQ-OPS-033](../../sdd/spec/operations.md#req-ops-033-lock-backed-npm-bump-coherence)).
 
 Source pins and image identities are authoritative in the owning manifests, lockfiles, `Dockerfile` and [`openvscode/README.md`](../../openvscode/README.md). Dated integration, compiler synchronization, curation publication and runtime activation evidence belongs to its existing Git/PR/CI records; these are separate outcomes, not an unresolved campaign list or a claim of current acceptance.
 
@@ -100,7 +104,7 @@ Codex/Copilot V8 warmups are disabled by image-size owner decision [AD96](../dec
 - Warmup redirects `$TMPDIR/jiti` before moving the cache. <!-- @impl: Dockerfile::PI_CODING_AGENT_DIR -->
 - Before host startup, entrypoint exports `TMPDIR=/run/codeflare/pi-tmp` and links its `jiti` child to the image cache. Fast Start Off replaces only the runtime link with a runtime-owned directory after updates. <!-- @impl: entrypoint.sh::configure_pi_jiti_runtime_cache --> <!-- @impl: scripts/verify-pi-lockstep.mjs::resetRuntimeJitiCache -->
 - Jiti uses realpath-sensitive filenames and source/version markers. Local files warm at exactly `/home/user/.pi/agent/extensions/` with real `HOME`/`PI_CODING_AGENT_DIR`; npm resolves through the same image symlink. Runtime relay preserves managed bytes.
-- Package warmup derives from preseed `package.json`. Build requires regular-file artifacts for every local extension and explicit installed Goal/Usage entrypoints, including Goal's image-transformed package entrypoint. Missing/non-loading/changed extensions fail the build. <!-- @impl: Dockerfile::goal_hit --> <!-- @impl: Dockerfile::usage_hit --> [REQ-AGENT-111](../../sdd/spec/agents.md#req-agent-111-native-goal-workflow-in-pi-sessions) AC2/AC3; [REQ-AGENT-131](../../sdd/spec/agents.md#req-agent-131-native-usage-workflow-in-pi-sessions) AC2/AC3.
+- Package warmup derives from preseed `package.json`. Build requires regular-file artifacts for every local extension and the explicit installed Goal/Open TUI entrypoints, including Goal's image-transformed package entrypoint. Missing/non-loading/changed extensions fail the build. Managed Usage is retired. <!-- @impl: Dockerfile::goal_hit --> <!-- @impl: Dockerfile::open_tui_hit --> [REQ-AGENT-111](../../sdd/spec/agents.md#req-agent-111-native-goal-workflow-in-pi-sessions) AC2/AC3; [REQ-AGENT-210](../../sdd/spec/agents.md#req-agent-210-managed-extension-startup-preparation) AC2/AC3.
 
 ### OpenCode Database Pre-Initialization
 
@@ -112,14 +116,14 @@ OpenCode Goose migrations initialize `~/.local/share/opencode/opencode.db` on fi
 
 ### code-server Browser IDE Binary
 
-`Dockerfile` installs SHA-256-verified coder/code-server 4.140.0 linux-amd64, verifies packaged commit `ccc19adc2e8992e18b14dd25eb1e646f5b9ef7cf`, embedded Code 1.140.0 and product provenance, and records VS Code gitlink `07f806f999227108933c2e30515b26eecc1fda74`. Only `/usr/local/bin/code-server` is exposed; OpenVSCode is a retained private directory identifier, not a runtime binary. Shadow Pins derives package/product identity and source gitlink from the immutable release and invalidates checksum for review ([AD119](../decisions/README.md#ad119-replace-openvscode-with-pinned-code-server-behind-the-existing-session-proxy)).
+[`Dockerfile`](../../Dockerfile) owns the code-server archive pin and verifies its SHA-256, packaged commit, embedded Code identity and product provenance. The installed `codeflare-provenance.json` records the runtime and VS Code source identities. Only `/usr/local/bin/code-server` is exposed; OpenVSCode is a retained private directory identifier, not a runtime binary. Shadow Pins derives package/product identity and source gitlink from the immutable release and invalidates checksum for review ([AD119](../decisions/README.md#ad119-replace-openvscode-with-pinned-code-server-behind-the-existing-session-proxy)).
 
-A digest-pinned Node 22.21.1 stage builds the owned Pi Chat participant with no runtime npm dependency/native addon. A separate stage checksum-/identity-verifies Anthropic's exact official linux-x64 Open VSX VSIX, extracts unchanged files and deletes the archive. Root-owned inventories contain visible **Codeflare** Pi, official Claude, and empty `none` bases. Legacy `/opt/codeflare/openvscode/` paths remain ([AD114](../decisions/README.md#ad114-native-pi-chat-and-the-official-claude-extension-own-editor-integration)).
+A separately digest-pinned Node stage builds the owned Pi Chat participant with no runtime npm dependency/native addon. A separate stage checksum-/identity-verifies Anthropic's exact official linux-x64 Open VSX VSIX, extracts unchanged files and deletes the archive. Root-owned inventories contain visible **Codeflare** Pi, official Claude, and empty `none` bases. Legacy `/opt/codeflare/openvscode/` paths remain ([AD114](../decisions/README.md#ad114-native-pi-chat-and-the-official-claude-extension-own-editor-integration)).
 
 The exact upstream code-server release is the image baseline. Build deliberately removes bundled GitHub Copilot; code-server and embedded Code editor source remain unpatched. Complete-image evidence checks archive/package identity and Copilot absence; no former OpenVSCode scanner exception transfers automatically. Client contracts live in [Terminal & IDE](terminal-and-ide.md#code-server-browser-ide); package inventory/adapters and verification live in [`openvscode/README.md`](../../openvscode/README.md).
 
 <a id="code-server-dependency-overlay"></a>
-The archive checksum identifies the upstream baseline, not the entire installed dependency tree. A bounded image overlay replaces compression with SHA-512-verified 1.8.2, supplies its private destroy 1.2.0 dependency, and preserves nested debug 2.6.9. It changes dependencies, not editor source or authentication. Remove the overlay when the upstream artifact supplies compression 1.8.2 or later with its required dependency closure. Existing image smoke and vulnerability gates remain mandatory. <!-- @impl: Dockerfile::COMPRESSION_VERSION -->
+The archive checksum identifies the upstream baseline, not the entire installed dependency tree. The verified [upstream archive](https://github.com/coder/code-server/releases/tag/v4.141.0) supplies the fixed compression dependency closure, so the separate compression overlay is retired. The image build checks resolved versions and instantiates the middleware against that upstream closure. Independent dependency overlays, image smoke and vulnerability gates remain mandatory; editor source and authentication are unchanged. <!-- @impl: Dockerfile::requireCompression -->
 
 ## Runtime Paths
 
@@ -205,7 +209,7 @@ Each crash-restarted launch uses a fresh process group, random generation token 
 | Codex | managed `dismissed_version: "999.0.0"`; managed interactive `--no-daemon` |
 | Pi | `PI_OFFLINE=1`, `PI_SKIP_VERSION_CHECK=1` |
 
-Codex 0.157.0's managed Classic/Herdr `--no-daemon` prevents default updating-daemon launch only while Fast Start ON. User config, `codex exec`, version probes and explicit startup updater remain unchanged; sync excludes named ephemeral paths, not whole `.codex`.
+Codex's managed Classic/Herdr `--no-daemon` prevents default updating-daemon launch only while Fast Start ON. User config, `codex exec`, version probes and explicit startup updater remain unchanged; sync excludes named ephemeral paths, not whole `.codex`.
 
 OFF unsets Docker/entrypoint suppressors and removes managed Codex settings suppressors. Before readiness, installed Pi/Codex explicitly update, Pi reconciles packages, and logs show before/after versions or failure. Pi validates dependencies and real image processing; incomplete install gets one lockfile reinstall. Runtime-temporary downloads are cleared; failures remain visible without stranding readiness. Both image Pi copies are validated ([REQ-AGENT-012](../../sdd/spec/agents.md#req-agent-012-fast-cli-start-configurable), [REQ-AGENT-206](../../sdd/spec/agents.md#req-agent-206-fast-start-off-runtime-updates)). ON does not install restored user Pi packages absent from image cache.
 

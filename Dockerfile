@@ -244,9 +244,9 @@ COPY --from=impeccable-builder /out/ /opt/codeflare/impeccable/
 
 # Install the official Herdr terminal runtime from one immutable stable release.
 # Codeflare owns updates through image review; runtime checks and self-update are disabled.
-RUN HERDR_VERSION="0.9.3" && \
-    HERDR_COMMIT="7b116c05bfda646af39d2524c54e70c751f57ee8" && \
-    HERDR_SHA256="18a8dc65f1c2fa485884344356dea1cfd911c6f06cf46fa78e193f4087f4dba7" && \
+RUN HERDR_VERSION="0.9.5" && \
+    HERDR_COMMIT="2ecf19a92fc3a7fff75b6ce3655ef04f4625ec01" && \
+    HERDR_SHA256="14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d" && \
     curl -fsSL --retry 3 --retry-delay 5 --connect-timeout 30 \
       "https://github.com/herdrdev/herdr/releases/download/v${HERDR_VERSION}/herdr-linux-x86_64" \
       -o /tmp/herdr && \
@@ -279,8 +279,8 @@ RUN YAZI_VERSION="26.9.1" && \
     mv /tmp/yazi/yazi-x86_64-unknown-linux-musl/yazi /usr/local/bin/yazi && \
     chmod +x /usr/local/bin/yazi && \
     rm -rf /tmp/yazi /tmp/yazi.zip
-RUN LAZYGIT_VERSION="0.65.1" && \
-    LAZYGIT_SHA256="02beacbcda0fa342e50ae3480ba8147307353af3fb28e1d5f790e02329c201a6" && \
+RUN LAZYGIT_VERSION="0.66.2" && \
+    LAZYGIT_SHA256="158efc9ddfa1241fab5fb3526bb442c8dc6c4b1904d73213b9e4e93e03c52034" && \
     curl -fsSL --retry 3 --retry-delay 5 --connect-timeout 30 "https://github.com/jesseduffield/lazygit/releases/download/v${LAZYGIT_VERSION}/lazygit_${LAZYGIT_VERSION}_linux_x86_64.tar.gz" -o /tmp/lazygit.tar.gz && \
     echo "${LAZYGIT_SHA256}  /tmp/lazygit.tar.gz" | sha256sum -c - && \
     tar xzf /tmp/lazygit.tar.gz -C /usr/local/bin lazygit && \
@@ -295,8 +295,8 @@ RUN LAZYGIT_VERSION="0.65.1" && \
 #
 # SilverBullet 2.x ships TWO binaries per release: `sb-...` (CLI client) and
 # `silverbullet-server-...` (the actual server). We want the server.
-RUN SILVERBULLET_VERSION="2.11.1" && \
-    SILVERBULLET_SHA256="82af0d5d008c377cdb4b49dbd21db0d21f8d14619efa40b0fdeae1dce778d018" && \
+RUN SILVERBULLET_VERSION="2.12.1" && \
+    SILVERBULLET_SHA256="0ea5c0575021de354b79bf53fb85f170aca93e228b5593959869ff8841dbb1d3" && \
     curl -fsSL --retry 3 --retry-delay 5 --connect-timeout 30 "https://github.com/silverbulletmd/silverbullet/releases/download/${SILVERBULLET_VERSION}/silverbullet-server-linux-x86_64.zip" -o /tmp/silverbullet.zip && \
     echo "${SILVERBULLET_SHA256}  /tmp/silverbullet.zip" | sha256sum -c - && \
     unzip -o /tmp/silverbullet.zip -d /tmp/silverbullet && \
@@ -323,11 +323,11 @@ RUN SILVERBULLET_VERSION="2.11.1" && \
 # 21.5.0 affected by CVE-2026-9496; an integrity-pinned 21.5.1 artifact replaces
 # that runtime copy. Drop each overlay after its upstream artifact contains at
 # least the pinned fixed version.
-RUN CODE_SERVER_VERSION="4.140.0" && \
-    CODE_SERVER_SHA256="864c5d01c808ade57e4d12c708717be7a187219fded60428f263b9e2da9f6b48" && \
-    CODE_SERVER_COMMIT="ccc19adc2e8992e18b14dd25eb1e646f5b9ef7cf" && \
-    CODE_SERVER_CODE_VERSION="1.140.0" && \
-    CODE_SERVER_VSCODE_COMMIT="07f806f999227108933c2e30515b26eecc1fda74" && \
+RUN CODE_SERVER_VERSION="4.141.0" && \
+    CODE_SERVER_SHA256="65bcd20b524d03eb1b5adb7f360244599ef0e5b74089a46a982d32c074b97a29" && \
+    CODE_SERVER_COMMIT="8b41915d25547e2edd553bab03ea4cbd621f98c5" && \
+    CODE_SERVER_CODE_VERSION="1.141.0" && \
+    CODE_SERVER_VSCODE_COMMIT="2a59476c9bfcb90b3ddc372c36762471b7dfad1c" && \
     NODE_TAR_VERSION="7.5.21" && \
     NODE_TAR_SHA512="5dd86d0af94ccb0c31a425bc604ab794e5c126950f4d1d8e1c77302cf3b71f0b09a8e1dad8e93fa09eebb86ce9f89acaa113d50b327001d123a8b5bfbcd44f1c" && \
     BRACE_EXPANSION_VERSION="5.0.12" && \
@@ -414,32 +414,9 @@ RUN CODE_SERVER_VERSION="4.140.0" && \
     test ! -e /opt/openvscode-server && \
     rm -f /tmp/code-server.tar.gz /tmp/node-tar.tgz /tmp/pacote.tgz
 
-# Replace compression from the immutable code-server artifact without discarding
-# its existing nested debug dependency. Supply its new destroy dependency privately.
-# Remove this overlay once upstream carries compression 1.8.2 or later.
-RUN COMPRESSION_VERSION="1.8.2" && \
-    COMPRESSION_SHA512="a3cbc8e5113903a11554e77da38d632a9e35689a26f904c43bf071f0c60d8dec4ca3f06fd963a351f66bf9a2f45a7612832994cbacde82ea8b4ec22157480cbd" && \
-    DESTROY_VERSION="1.2.0" && \
-    DESTROY_SHA512="dac246253697208691d70e22252368374867318ec6a5cfe7f03e2a482270f10a855977fb72e0209c41f1069c1e69570f7af0b69772a98d80b1dcdca941081a26" && \
-    curl -fsSL --retry 3 --retry-delay 5 --connect-timeout 30 --max-time 300 \
-      "https://registry.npmjs.org/compression/-/compression-${COMPRESSION_VERSION}.tgz" -o /tmp/compression.tgz && \
-    echo "${COMPRESSION_SHA512}  /tmp/compression.tgz" | sha512sum -c - && \
-    curl -fsSL --retry 3 --retry-delay 5 --connect-timeout 30 --max-time 300 \
-      "https://registry.npmjs.org/destroy/-/destroy-${DESTROY_VERSION}.tgz" -o /tmp/destroy.tgz && \
-    echo "${DESTROY_SHA512}  /tmp/destroy.tgz" | sha512sum -c - && \
-    test "$(jq -r .version /opt/code-server/node_modules/compression/node_modules/debug/package.json)" = "2.6.9" && \
-    mv /opt/code-server/node_modules/compression/node_modules /tmp/compression-node_modules && \
-    rm -rf /opt/code-server/node_modules/compression && \
-    mkdir -p /opt/code-server/node_modules/compression && \
-    tar -xzf /tmp/compression.tgz -C /opt/code-server/node_modules/compression --strip-components=1 && \
-    mv /tmp/compression-node_modules /opt/code-server/node_modules/compression/node_modules && \
-    mkdir -p /opt/code-server/node_modules/compression/node_modules/destroy && \
-    tar -xzf /tmp/destroy.tgz -C /opt/code-server/node_modules/compression/node_modules/destroy --strip-components=1 && \
-    test "$(jq -r .version /opt/code-server/node_modules/compression/package.json)" = "$COMPRESSION_VERSION" && \
-    test "$(jq -r .version /opt/code-server/node_modules/compression/node_modules/destroy/package.json)" = "$DESTROY_VERSION" && \
-    test "$(jq -r .version /opt/code-server/node_modules/compression/node_modules/debug/package.json)" = "2.6.9" && \
-    node -e 'require("node:assert/strict").equal(typeof require("/opt/code-server/node_modules/compression")(), "function")' && \
-    rm -f /tmp/compression.tgz /tmp/destroy.tgz
+# The verified code-server 4.141.0 archive supplies the fixed compression closure.
+# Retire the separate overlay, but verify actual dependency resolution and middleware.
+RUN node -e 'const assert = require("node:assert/strict"); const { createRequire } = require("node:module"); const requireCodeServer = createRequire("/opt/code-server/package.json"); const requireCompression = createRequire(requireCodeServer.resolve("compression")); assert.equal(requireCodeServer("compression/package.json").version, "1.8.2"); assert.equal(requireCompression("destroy/package.json").version, "1.2.0"); assert.equal(requireCompression("debug/package.json").version, "2.6.9"); assert.equal(typeof requireCompression("destroy"), "function"); assert.equal(typeof requireCompression("debug"), "function"); assert.equal(typeof requireCodeServer("compression")(), "function")'
 
 # The verified brace archive is retained for shrinkwrapped Pi copies installed below.
 # Install the selected shared coding-agent launchers. IS_SANDBOX=1 allows
@@ -558,7 +535,7 @@ RUN if node /opt/codeflare/scripts/coding-agent-selection.mjs has "$CODEFLARE_CO
 # would run a slow npm install on first launch (~90s on mobile). Entrypoint
 # symlinks node_modules to this cache (instant, zero-copy).
 COPY preseed/agents/pi/package.json preseed/agents/pi/package-lock.json /opt/codeflare/pi-agent/npm/
-COPY scripts/verify-pi-lockstep.mjs scripts/patch-pi-goal-review-control.mjs scripts/patch-pi-plan-mode-tool-policy.mjs scripts/patch-pi-native-model-display.mjs scripts/patch-rpiv-host-peers.mjs /opt/codeflare/scripts/
+COPY scripts/verify-pi-lockstep.mjs scripts/patch-pi-goal-review-control.mjs scripts/patch-pi-plan-mode-tool-policy.mjs scripts/patch-pi-native-model-display.mjs scripts/patch-rpiv-host-peers.mjs scripts/patch-rpiv-question-timeout.mjs scripts/rpiv-question-timeout.mjs /opt/codeflare/scripts/
 # better-sqlite3 / bufferutil / utf-8-validate are native (node-gyp) modules. Their
 # prebuilt-binary fetch is best-effort and falls back to a source compile, which needs
 # make + a C/C++ toolchain. stage-1 ships python3 but not make/gcc/g++ (those live only
@@ -585,6 +562,7 @@ RUN cd /opt/codeflare/pi-agent/npm && \
       ./node_modules/@earendil-works/pi-coding-agent/package.json && \
     node /opt/codeflare/scripts/patch-pi-native-model-display.mjs ./node_modules/@earendil-works/pi-coding-agent && \
     node /opt/codeflare/scripts/patch-rpiv-host-peers.mjs ./node_modules && \
+    node /opt/codeflare/scripts/patch-rpiv-question-timeout.mjs ./node_modules/@juicesharp/rpiv-ask-user-question && \
     if [ -f /opt/codeflare/npm-tools/node_modules/@earendil-works/pi-coding-agent/package.json ]; then \
       node /opt/codeflare/scripts/patch-pi-native-model-display.mjs /opt/codeflare/npm-tools/node_modules/@earendil-works/pi-coding-agent && \
       node /opt/codeflare/scripts/verify-pi-lockstep.mjs --verify-runtime \
@@ -689,8 +667,8 @@ RUN node -e "import('/opt/codeflare/browser-run-mcp/index.mjs').then(() => conso
 # ---------------------------------------------------------------------------
 # Upstream 0.9.72+ auto-refresh must not replace signed managed skills.
 ENV GRAPHIFY_NO_AUTO_REFRESH=1
-ARG UV_VERSION=0.12.19
-ARG UV_X86_64_LINUX_SHA256=23bf5552d220e0842b65c862097b2ebaeba0064b74eda5e565e77fd25969d8c8
+ARG UV_VERSION=0.13.0
+ARG UV_X86_64_LINUX_SHA256=1468ebd5a5541121837c5a2817b9972ba6090fa6caa3d142620850a47fb75154
 COPY preseed/agents/claude/plugins/graphify/.claude-plugin/plugin.json /tmp/graphify-plugin.json
 RUN <<'EOF'
 set -e
@@ -828,11 +806,11 @@ COPY preseed/agents/pi/extensions/ /opt/codeflare/pi-agent/extensions/
 RUN mkdir -p /opt/codeflare/jiti-warm-tmp /home/user/.pi/agent && \
     ln -s /opt/codeflare/pi-agent/npm /home/user/.pi/agent/npm && \
     cp -r /opt/codeflare/pi-agent/extensions /home/user/.pi/agent/extensions && \
-    PI_WARM_PACKAGES="$(node -e 'const d=require("/opt/codeflare/pi-agent/npm/package.json").dependencies;process.stdout.write(JSON.stringify({packages:Object.entries(d).map(([n,v])=>`npm:${n}@${v}`)}))')" && \
+    PI_WARM_PACKAGES="$(node -e 'const d=require("/opt/codeflare/pi-agent/npm/package.json").dependencies;process.stdout.write(JSON.stringify({packages:Object.entries(d).map(([n,v])=>n==="pi-open-tui"?{source:`npm:${n}@${v}`,extensions:[]}:`npm:${n}@${v}`)}))')" && \
     printf '%s' "$PI_WARM_PACKAGES" > /home/user/.pi/agent/settings.json && \
     goal_source="/opt/codeflare/pi-agent/npm/node_modules/@narumitw/pi-goal/src/index.ts" && \
     plan_source="/opt/codeflare/pi-agent/npm/node_modules/@narumitw/pi-plan-mode/dist/index.ts" && \
-    usage_source="/opt/codeflare/pi-agent/npm/node_modules/@narumitw/pi-usage/dist/index.ts" && \
+    open_tui_source="/opt/codeflare/pi-agent/npm/node_modules/pi-open-tui/extensions/open-tui/index.ts" && \
     evaluate_source="/opt/codeflare/pi-agent/npm/node_modules/pi-evaluate/extensions/evaluate.ts" && \
     subagents_source="/opt/codeflare/pi-agent/npm/node_modules/@gotgenes/pi-subagents/src/index.ts" && \
     mcp_source="/opt/codeflare/pi-agent/npm/node_modules/pi-mcp-adapter/index.ts" && \
@@ -844,7 +822,7 @@ RUN mkdir -p /opt/codeflare/jiti-warm-tmp /home/user/.pi/agent && \
     (TMPDIR=/opt/codeflare/jiti-warm-tmp HOME=/home/user PI_CODING_AGENT_DIR=/home/user/.pi/agent PI_OFFLINE=1 PI_SKIP_VERSION_CHECK=1 timeout 240 /opt/codeflare/pi-agent/npm/node_modules/.bin/pi -p "warm" || true) && \
     TMPDIR=/opt/codeflare/jiti-warm-tmp HOME=/home/user PI_CODING_AGENT_DIR=/home/user/.pi/agent PI_OFFLINE=1 PI_SKIP_VERSION_CHECK=1 \
       node /opt/codeflare/scripts/verify-pi-lockstep.mjs --warm-jiti-entrypoints \
-      /opt/codeflare/pi-agent/npm/node_modules/.bin/pi /opt/codeflare/jiti-warm-tmp/jiti "$goal_source" "$plan_source" "$usage_source" "$evaluate_source" "$subagents_source" "$mcp_source" \
+      /opt/codeflare/pi-agent/npm/node_modules/.bin/pi /opt/codeflare/jiti-warm-tmp/jiti "$goal_source" "$plan_source" "$open_tui_source" "$evaluate_source" "$subagents_source" "$mcp_source" \
       "$advisor_source" "$ask_user_source" "$todo_source" "$web_source" "$context_source" /home/user/.pi/agent/extensions/*.ts && \
     mv /opt/codeflare/jiti-warm-tmp/jiti /opt/codeflare/jiti-cache && \
     test -n "$(ls -A /opt/codeflare/jiti-cache)" && \
@@ -853,7 +831,7 @@ RUN mkdir -p /opt/codeflare/jiti-warm-tmp /home/user/.pi/agent && \
     done && \
     goal_hit="$(node /opt/codeflare/scripts/verify-pi-lockstep.mjs --verify-jiti-cache "$goal_source" /opt/codeflare/jiti-cache)" && \
     plan_hit="$(node /opt/codeflare/scripts/verify-pi-lockstep.mjs --verify-jiti-cache "$plan_source" /opt/codeflare/jiti-cache)" && \
-    usage_hit="$(node /opt/codeflare/scripts/verify-pi-lockstep.mjs --verify-jiti-cache "$usage_source" /opt/codeflare/jiti-cache)" && \
+    open_tui_hit="$(node /opt/codeflare/scripts/verify-pi-lockstep.mjs --verify-jiti-cache "$open_tui_source" /opt/codeflare/jiti-cache)" && \
     evaluate_hit="$(node /opt/codeflare/scripts/verify-pi-lockstep.mjs --verify-jiti-cache "$evaluate_source" /opt/codeflare/jiti-cache)" && \
     subagents_hit="$(node /opt/codeflare/scripts/verify-pi-lockstep.mjs --verify-jiti-cache "$subagents_source" /opt/codeflare/jiti-cache)" && \
     mcp_hit="$(node /opt/codeflare/scripts/verify-pi-lockstep.mjs --verify-jiti-cache "$mcp_source" /opt/codeflare/jiti-cache)" && \

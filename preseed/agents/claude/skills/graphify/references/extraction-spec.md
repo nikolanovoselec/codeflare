@@ -207,6 +207,8 @@ Clean up temp files: `rm -f .graphify_cached.json .graphify_uncached.txt .graphi
 
 ## Part C - Merge AST + semantic into final extraction
 
+When Part B was explicitly skipped for AST-only or code-only extraction, materialize the fresh AST with `cp .graphify_ast.json .graphify_extract.json` and continue to Steps 3-7. Do not load an earlier semantic intermediate on that path. Otherwise merge the current AST and semantic results below.
+
 ```bash
 /root/.local/share/uv/tools/graphifyy/bin/python -c "
 import json

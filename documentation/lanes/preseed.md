@@ -47,7 +47,7 @@ deployed on Recreate or new bucket creation.
 | SDD template scaffolding for `/sdd init` | No | Yes | Yes |
 | Known marketplaces plugin config | Yes | Yes | Yes |
 | context-mode helper package (`ctx_*` tools) | Installed and disabled by default; `/ctx on` opts in until restart | Installed and disabled by default; `/ctx on` opts in until restart | Installed and disabled by default; `/ctx on` opts in until restart ([REQ-AGENT-076 AC1](../../sdd/spec/agents.md#req-agent-076-pi-context-mode-enablement-and-tool-extension-defaults)) |
-| Pi extension packages (`@juicesharp/rpiv-advisor`, `@juicesharp/rpiv-ask-user-question`, `@juicesharp/rpiv-todo`, `@narumitw/pi-goal`, `@narumitw/pi-plan-mode`, `@narumitw/pi-usage`, `pi-web-access`, `pi-mcp-adapter`) | Yes (always-on `required`) | Yes (always-on `required`) | Yes (always-on `required`) |
+| Pi extension packages (`@juicesharp/rpiv-advisor`, `@juicesharp/rpiv-ask-user-question`, `@juicesharp/rpiv-todo`, `@narumitw/pi-goal`, `@narumitw/pi-plan-mode`, `pi-open-tui`, `pi-web-access`, `pi-mcp-adapter`) | Yes (always-on `required`) | Yes (always-on `required`) | Yes (always-on `required`) |
 | context-mode plugin folder (Claude Code auto-routing hooks for context-window reduction) | No | No | Yes |
 
 Default workspace is separate from preseed mode. Advanced entitlement permits VS Code as the future default, but each session keeps the Terminal or VS Code value captured at creation; changing that preference never rewrites the session's seeded agent inventory. Switching to Standard resets only the future workspace default to Terminal ([REQ-IDE-048](../../sdd/spec/browser-ide.md#req-ide-048-default-workspace-and-dashboard-owned-vs-code-sessions)). <!-- @impl: src/routes/preferences.ts::app --> <!-- @impl: src/routes/session/crud.ts::app -->
@@ -80,15 +80,15 @@ Claude needs no notification hook: both session-mode settings select Claude's bu
 
 In-process subagents always use native fallbacks. The three PR reviewers expose only `bash` and consume their exact packet through the Bash/Node transport.
 
-[`@juicesharp/rpiv-advisor` 2.11.0](https://registry.npmjs.org/@juicesharp/rpiv-advisor/-/rpiv-advisor-2.11.0.tgz) provides one identical-input retry for a transient empty model response while preserving immediate abort/error propagation. It provides the user-invoked `advisor` tool and user-only `/advisor` command. Codeflare overrides its startup guidance so assistants do not call or suggest advisor unless the user's current message explicitly requests it ([REQ-AGENT-005](../../sdd/spec/agents.md#req-agent-005-pro-mode-includes-additional-skills-rules-agents-and-mcp-servers)).
+[`@juicesharp/rpiv-advisor`](../../preseed/agents/pi/package.json) provides one identical-input retry for a transient empty model response while preserving immediate abort/error propagation. It provides the user-invoked `advisor` tool and user-only `/advisor` command. Codeflare overrides its startup guidance so assistants do not call or suggest advisor unless the user's current message explicitly requests it ([REQ-AGENT-005](../../sdd/spec/agents.md#req-agent-005-pro-mode-includes-additional-skills-rules-agents-and-mcp-servers)).
 
 Image-owned startup disables Pi Subagents mid-run messages through `~/.pi/agent/subagents.json` (`midRunUpdates: false`) after home restore and before extension loading. Restored `true` values are reset while unrelated preferences survive; invalid files remain intact with a content-free warning. Completion results and parent questions remain available. Explicit repository-local overrides follow upstream precedence. See [REQ-AGENT-216](../../sdd/spec/agents.md#req-agent-216-quiet-pi-subagent-defaults). <!-- @impl: entrypoint.sh::configure_pi_subagent_defaults -->
 
-Subagents retains the public service accessor used by Codeflare's resume guard. Explicit invocation tool settings take precedence over agent frontmatter, which takes precedence over extension defaults. Exact package pins, installed entrypoints, complete warm/cache gates, and the RPIV compatibility contract live in the [Pi package reference](../references/pi-packages.md#loading-and-warm-compatibility) ([REQ-AGENT-210](../../sdd/spec/agents.md#req-agent-210-managed-extension-startup-preparation)).
+Subagents retains the public service accessor used by Codeflare's resume guard. Explicit invocation tool settings take precedence over agent frontmatter, which takes precedence over extension defaults. The owning manifests and locks hold exact package pins; installed entrypoints, complete warm/cache gates, and the RPIV compatibility contract are described in the [Pi package reference](../references/pi-packages.md#loading-and-warm-compatibility) ([REQ-AGENT-210](../../sdd/spec/agents.md#req-agent-210-managed-extension-startup-preparation)).
 
-`pi-web-access` 0.34.0 provides filtered zero-config Exa routing and configurable public tool names without changing Codeflare's default `web_search`, `source_check`, `fetch_content`, or paged `get_search_content` contracts. Search authenticates through Pi's model registry or zero-config Exa MCP, so it needs no per-user API key. Upstream no longer supplies its duplicate `librarian`; Codeflare preserves the workflow as an owned skill in both Pi modes and keeps its generated-seed delivery under [REQ-AGENT-115](../../sdd/spec/agents.md#req-agent-115-pi-web-access-014-skill-compatibility).
+`pi-web-access` retains configurable public tool names and Codeflare's default `web_search`, `source_check`, `fetch_content`, and paged `get_search_content` contracts. Search authenticates through Pi's model registry or zero-config Exa MCP, so it needs no per-user API key. All-failed calls now report tool errors, Perplexity uses Search API snippets instead of Sonar answers for ordinary search, and OpenAI search model defaults change; structured results and per-session lifecycle fixes do not change Codeflare's public-link policy. Paid Ceramic remains explicit-only and excluded from `auto`/`all`. The image warms the native `dist/index.js` extension, not the optional standalone MCP CLI. Upstream no longer supplies its duplicate `librarian`; Codeflare preserves the owned workflow in both Pi modes under [REQ-AGENT-115](../../sdd/spec/agents.md#req-agent-115-pi-web-access-014-skill-compatibility).
 
-Evaluate's user-invoked contract/output reporting and Usage's `/usage` workflow, reviewed provenance, integrity locks, entrypoints, warm gates, and historical acceptance qualifiers live in the [Pi package reference](../references/pi-packages.md#user-workflows-and-retirement) ([REQ-AGENT-133](../../sdd/spec/agents.md#req-agent-133-native-evaluation-workflow-in-pi-sessions), [REQ-AGENT-131](../../sdd/spec/agents.md#req-agent-131-native-usage-workflow-in-pi-sessions)). Installation does not authorize invocation or establish live provider acceptance.
+Evaluate's user-invoked contract/output reporting and managed Usage retirement live in the [Pi package reference](../references/pi-packages.md#user-workflows-and-retirement) ([REQ-AGENT-133](../../sdd/spec/agents.md#req-agent-133-native-evaluation-workflow-in-pi-sessions), [REQ-AGENT-209](../../sdd/spec/agents.md#req-agent-209-retired-pi-package-migration)). [Open TUI](../references/pi-packages.md#native-terminal-ui) owns the terminal header, footer and editor in both modes; filtered npm discovery prevents duplicate initialization by the managed adapter. Installation does not authorize unrelated workflows or establish deployed acceptance.
 
 `@narumitw/pi-plan-mode` uses the reviewed exact pin in the canonical [Pi package inventory](../references/pi-packages.md#source-inventory), with registry provenance retained in the committed lockfile. It registers `dist/index.ts` and provides the `/plan` collaboration workflow, read-only planning policy, structured questions, explicit completion, and implementation handoff. Candidate image/startup and deployed acceptance remain pending.
 
@@ -114,13 +114,17 @@ A malformed file is left byte-for-byte alone rather than being "repaired" by sta
 
 On reload, `capability-helpers.ts` keeps `goal_complete` and `goal_blocked` active after any valid Goal state when no Plan is active, while always removing `goal_wait`. A fresh lazy session returns to the five bootstrap tools; an active Plan suppresses non-active Goal history unless `pi-goal.json` configures `always`. The final exposure filter applies this policy after Goal's exact-version transform activates its registered terminal tools ([REQ-AGENT-111](../../sdd/spec/agents.md#req-agent-111-native-goal-workflow-in-pi-sessions) AC4/AC6; [REQ-AGENT-191](../../sdd/spec/agents.md#req-agent-191-goal-tool-visibility-across-workflows) AC1-AC6). <!-- @impl: preseed/agents/pi/extensions/capability-helpers.ts::registerInitialToolFilter --> <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchPiGoalToolPolicySource -->
 
-The September Pi upgrade retains the session-shutdown/stale-context guards in the [Goal 0.54.8 release fixture](../../host/__fixtures__/pi-goal-0.54.8.tgz), adapts its two-space source formatting, and preserves the parsed-command safety patch in Plan's new TypeScript chunk. Continuation/review-control and command-safety contracts remain under [REQ-AGENT-111](../../sdd/spec/agents.md#req-agent-111-native-goal-workflow-in-pi-sessions), [REQ-AGENT-130](../../sdd/spec/agents.md#req-agent-130-goal-continuation-runtime-pacing), and [REQ-AGENT-152](../../sdd/spec/agents.md#req-agent-152-native-plan-mode-workflow-in-pi-sessions). Usage's declared entrypoint changes to `dist/index.ts` ([REQ-AGENT-131](../../sdd/spec/agents.md#req-agent-131-native-usage-workflow-in-pi-sessions)). <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchPiGoalDirectory --> <!-- @impl: scripts/patch-pi-plan-mode-tool-policy.mjs::patchPiPlanModeDirectory --> <!-- @impl: Dockerfile::usage_source -->
+The September Pi upgrade retains the session-shutdown/stale-context guards in the [reviewed Goal release fixture](../../host/__fixtures__/pi-goal-0.54.8.tgz), adapts its two-space source formatting, and preserves the parsed-command safety patch in Plan's new TypeScript chunk. Continuation/review-control and command-safety contracts remain under [REQ-AGENT-111](../../sdd/spec/agents.md#req-agent-111-native-goal-workflow-in-pi-sessions), [REQ-AGENT-130](../../sdd/spec/agents.md#req-agent-130-goal-continuation-runtime-pacing), and [REQ-AGENT-152](../../sdd/spec/agents.md#req-agent-152-native-plan-mode-workflow-in-pi-sessions). The historical Usage entrypoint update is superseded by managed Usage retirement. <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchPiGoalDirectory --> <!-- @impl: scripts/patch-pi-plan-mode-tool-policy.mjs::patchPiPlanModeDirectory -->
 
-Context-mode 1.0.169 and Evaluate 0.1.5 [remain pinned](../../preseed/agents/pi/package.json). Existing skill tool names remain unchanged; web-access's optional `web_enable` loader follows its configured `toolActivation` policy, and an old resumed session may need a new session to acquire its recorded web-tool selection. See the [0.34.0 release's Tool activation guidance](https://github.com/nicobailon/pi-web-access/blob/7bd4509ee4e417a9e0141235bbe276ff77aa81e3/README.md#tool-activation).
+Context-mode and Evaluate [remain pinned](../../preseed/agents/pi/package.json). Existing skill tool names remain unchanged; web-access's optional `web_enable` loader follows its configured `toolActivation` policy, and an old resumed session may need a new session to acquire its recorded web-tool selection. See the [upstream Tool activation guidance](https://github.com/nicobailon/pi-web-access/blob/7bd4509ee4e417a9e0141235bbe276ff77aa81e3/README.md#tool-activation).
 
 The [Pi package reference](../references/pi-packages.md#loading-and-warm-compatibility) owns current native-MCP and adapter lifecycle behavior. Managed startup disables `builtin:mcp` with `-builtin:mcp`, preserves unrelated extension selections, and leaves the adapter as the managed MCP lifecycle owner. A historical command-replacement warning is not proof of correct ownership or itself a crash diagnosis.
 
-RPIV's [upstream 2.11.0 metadata](https://registry.npmjs.org/@juicesharp%2frpiv-advisor/2.11.0) lists `typebox` under dependencies, but managed startup must reapply the host-TypeBox wildcard-peer correction and load without host-dependency warnings under [REQ-AGENT-210](../../sdd/spec/agents.md#req-agent-210-managed-extension-startup-preparation). The built-in `/mcp` replacement warning is a separate compatibility observation and does not weaken that gate.
+The image-owned questionnaire transform completes an unanswered Pi `ask_user_question` after five minutes. It keeps completed answers and notes, defaults only unanswered questions to their first authored option, and finishes through the existing TUI/native-dialog lifecycle. Automatic answers are labelled in both the result and model-facing text and are not user authorization ([REQ-AGENT-218](../../sdd/spec/agents.md#req-agent-218-bounded-pi-questionnaire-wait)). Cancellation, abort, errors and independent invocations retain their distinct outcomes ([REQ-AGENT-219](../../sdd/spec/agents.md#req-agent-219-pi-questionnaire-cancellation-and-isolation)); Claude and Plan Mode questions are unchanged.
+
+The exact-version/source guard runs before image JITI warming, after package update/repair and in the shared RPIV shadow-pin verifier ([REQ-AGENT-220](../../sdd/spec/agents.md#req-agent-220-managed-questionnaire-preparation), [REQ-AGENT-210](../../sdd/spec/agents.md#req-agent-210-managed-extension-startup-preparation)). Source implementation is present; final exact-head CI and deployed acceptance remain separate gates. <!-- @impl: Dockerfile::patch-rpiv-question-timeout --> <!-- @impl: entrypoint.sh::update_pi_and_codex_when_fast_start_disabled --> <!-- @impl: scripts/verify-rpiv-host-peers.mjs -->
+
+RPIV declares host `typebox` as a wildcard peer rather than a runtime dependency. The shared image/startup preparation remains idempotent for this metadata and repairs older dependency-shaped installations after restore or npm repair. All three extensions must still load without host-dependency warnings through both installed Pi SDKs under [REQ-AGENT-210](../../sdd/spec/agents.md#req-agent-210-managed-extension-startup-preparation). The built-in `/mcp` replacement warning is a separate compatibility observation and does not weaken that gate.
 
 Startup removes explicit retired package identities from persisted settings. It drops `pi-goal-list-loop-audit` so its Explore ownership warning cannot survive an image upgrade, and removes the previously image-owned response package so an upgrade cannot reload it. Unrelated user-added packages remain preserved. Goal's runtime dependencies remain integrity-locked in the committed preseed lock ([REQ-AGENT-209](../../sdd/spec/agents.md#req-agent-209-retired-pi-package-migration)). <!-- @impl: entrypoint.sh::removedPackageIds -->
 
@@ -140,11 +144,11 @@ After canonical triage, FIX handling revalidates the exact GitHub identity and w
 
 No executable review source reads or migrates `.git/sdd-review-*` files. Linked worktrees and separate clones therefore observe the same marker when they share the user's R2 bucket. Goal pause remains current-round coordination and releases before FIX; session restart never reconstructs review ownership from an old transcript.
 
-`@juicesharp/rpiv-todo` is pinned at 2.11.0; its overlay loads lazily, expands complete tool output when requested, restores bounded widget height after collapse, and narrows model guidance to multi-step task lists. The session-isolation correction shipped upstream in 2.0.0 remains intact: task state is keyed by Pi session ID and context-free rendering stays bound to the foreground slot. The temporary [AD100](../decisions/README.md#ad100-pin-the-upstream-rpiv-todo-session-isolation-fix) source override that mirrored this fix while npm was at 1.20.0 is retired — no postinstall guard or payload remains, and a host test guards the reviewed version and integrity ([REQ-AGENT-081](../../sdd/spec/agents.md#req-agent-081-rpiv-todo-session-isolation)).
+`@juicesharp/rpiv-todo` is pinned in the owning manifest; its overlay loads lazily, expands complete tool output when requested, restores bounded widget height after collapse, and narrows model guidance to multi-step task lists. The upstream session-isolation correction remains intact: task state is keyed by Pi session ID and context-free rendering stays bound to the foreground slot. The temporary [AD100](../decisions/README.md#ad100-pin-the-upstream-rpiv-todo-session-isolation-fix) source override that preceded the upstream fix is retired — no postinstall guard or payload remains, and a host test guards the reviewed version and integrity ([REQ-AGENT-081](../../sdd/spec/agents.md#req-agent-081-rpiv-todo-session-isolation)).
 
 `web_search` defaults to the `auto-summary` workflow via a preseeded, create-if-missing `~/.pi/web-search.json` (`{"workflow": "auto-summary"}`). A user who edits that file to opt back into the interactive `summary-review` workflow has their choice respected on later boots.
 
-[pi-web-access 0.14](https://github.com/nicobailon/pi-web-access/releases/tag/v0.14.0) fixes the former interactive-curator fallback crash. The container remains headless, so `auto-summary` is still the only default workflow that can complete without a browser-approval UI; users who deliberately provide such a UI may retain their own `summary-review` setting.
+The [upstream web-access fix](https://github.com/nicobailon/pi-web-access/releases/tag/v0.14.0) addresses the former interactive-curator fallback crash. The container remains headless, so `auto-summary` is still the only default workflow that can complete without a browser-approval UI; users who deliberately provide such a UI may retain their own `summary-review` setting.
 
 ### Pi prompt ownership and budget
 
@@ -287,7 +291,7 @@ Impeccable is scoped to Claude + Pi only: Claude gets the vendored tree in
 
 A fail-closed updater overlay preserves evidence-bound web and native audit scoring, complete rating thresholds, platform-aware target guidance, `PRODUCT.md` context, contextual browser-surface advice, neutral specialist framing, and removal of mutable package permission across upstream refreshes. The image builds the native engine from checksum-pinned source with configured idle-grace and no-symlink raster-scan corrections. Behavioral tests cover executable wait state and updater mutation boundaries without pinning aesthetic prose. The vendored bundle is shadow-pinned by `bump-shadow-pins.yml`, whose reviewed repository update refreshes both copies, updates both manifests, and regenerates the seed. ([REQ-AGENT-137](../../sdd/spec/agents.md#req-agent-137-design-skill-review-boundary), [REQ-AGENT-163](../../sdd/spec/agents.md#req-agent-163-impeccable-browser-question-idle-lifecycle), [REQ-AGENT-164](../../sdd/spec/agents.md#req-agent-164-impeccable-raster-scan-traversal), [REQ-AGENT-181](../../sdd/spec/agents.md#req-agent-181-design-specialist-compatibility), [REQ-AGENT-194](../../sdd/spec/agents.md#req-agent-194-evidence-bound-impeccable-policy))
 
-The candidate source pairs Impeccable 4.6.0 with image engine 0.1.15 and retains reviewed engines 0.1.11, 0.1.10 and 0.1.5 for older 4.5.0, 4.4.0 and 4.3.1 managed launchers. Neither launcher downloads a missing engine or silently selects another version. The native-layout refresh excludes the retired JavaScript-server overlay; the Rust toolchain and all four upstream sources are checksum-pinned. PR Checks compile focused probes from the exact affected upstream Rust logic, reproduce early closure and symlink traversal, and verify the patched wait and scan boundaries in under one minute without building a container. The deployment image build separately compiles and exercises the complete native binary. ([REQ-AGENT-163](../../sdd/spec/agents.md#req-agent-163-impeccable-browser-question-idle-lifecycle), [REQ-AGENT-164](../../sdd/spec/agents.md#req-agent-164-impeccable-raster-scan-traversal), [REQ-AGENT-181](../../sdd/spec/agents.md#req-agent-181-design-specialist-compatibility), [REQ-OPS-058](../../sdd/spec/operations.md#req-ops-058-fast-impeccable-native-engine-regression), [REQ-OPS-059](../../sdd/spec/operations.md#req-ops-059-complete-impeccable-native-binary-verification))
+Impeccable launcher/engine pairings and retained compatibility engines are owned by the [image manifests](../../image/impeccable-engine.json) and [`Dockerfile`](../../Dockerfile). Neither launcher downloads a missing engine or silently selects another version. The native-layout refresh excludes the retired JavaScript-server overlay; the Rust toolchain and all four upstream sources are checksum-pinned. PR Checks compile focused probes from the exact affected upstream Rust logic, reproduce early closure and symlink traversal, and verify the patched wait and scan boundaries in under one minute without building a container. The deployment image build separately compiles and exercises the complete native binary. ([REQ-AGENT-163](../../sdd/spec/agents.md#req-agent-163-impeccable-browser-question-idle-lifecycle), [REQ-AGENT-164](../../sdd/spec/agents.md#req-agent-164-impeccable-raster-scan-traversal), [REQ-AGENT-181](../../sdd/spec/agents.md#req-agent-181-design-specialist-compatibility), [REQ-OPS-058](../../sdd/spec/operations.md#req-ops-058-fast-impeccable-native-engine-regression), [REQ-OPS-059](../../sdd/spec/operations.md#req-ops-059-complete-impeccable-native-binary-verification))
 
 A missing image engine fails explicitly instead of downloading one. Managed-source alignment must also carry this native bundle and remove its obsolete JavaScript implementation from source and manifests. Native-engine availability is separate from npm hash equality. Publish the new curation source only after the new image and matching deployed compiler/runtime hash are verified; publication and activation remain separate gates. ([REQ-AGENT-163](../../sdd/spec/agents.md#req-agent-163-impeccable-browser-question-idle-lifecycle), [REQ-AGENT-164](../../sdd/spec/agents.md#req-agent-164-impeccable-raster-scan-traversal), [REQ-AGENT-181](../../sdd/spec/agents.md#req-agent-181-design-specialist-compatibility), [REQ-OPS-058](../../sdd/spec/operations.md#req-ops-058-fast-impeccable-native-engine-regression), [REQ-OPS-059](../../sdd/spec/operations.md#req-ops-059-complete-impeccable-native-binary-verification))
 
@@ -297,7 +301,7 @@ The Apache-2.0 Cloudflare bundle tracks
 [`cloudflare/skills@f96bff7`](https://github.com/cloudflare/skills/commit/f96bff754e428838818017f75817f0f9428acd48).
 Its former ambiguous `sandbox-sdk` entry is replaced by `sandbox-stable`,
 `sandbox-next`, and `sandbox-migrate-to-next`, preventing stable string-command
-APIs from being mixed with the 1.0-preview argv/process-handle APIs. The
+APIs from being mixed with the preview argv/process-handle APIs. The
 Turnstile skill is refreshed from
 [`30553f8`](https://github.com/cloudflare/skills/commit/30553f89ae1ef1e3c2917cd09d72dac992bb4e9a),
 then locally hardens API calls with bounded deadlines and behavioral tests
@@ -319,13 +323,20 @@ and [REQ-AGENT-067](../../sdd/spec/agents.md#req-agent-067-consult-llm-invocatio
 
 Claude receives consult-llm through `~/.claude.json`; Pi receives it through
 `~/.pi/agent/mcp-adapter.json` via the pi-mcp-adapter `mcp` proxy.
-The adapter's exact pin is recorded in the [Pi package inventory](../references/pi-packages.md#source-inventory).
-It retains the config schema but, since 3.0.0, no longer reads Pi's
+The [Pi manifest and lock](../../preseed/agents/pi/package.json) own the adapter's exact pin.
+It retains the config schema but no longer reads Pi's
 `mcp.json`. Startup and the signed both-mode `00-mcp-adapter-config.ts` extension
 prepare one valid active adapter after restore. Filename migration alone preserves
 valid legacy-only bytes. Startup rebuilds recognizable managed entries from current
 runtime inputs; startup and managed Pi load/reload then apply the timeout profile
 in [REQ-BROWSER-009](../../sdd/spec/browser-run.md#req-browser-009-mcp-and-chrome-sdk-timeout-profile), including managed-load inactivity under AC6.
+The shared Pi adapter/REST timeout sources already match curation at six minutes.
+Claude's generated browser server entries now also receive six-minute tool-call
+budgets through its documented [per-server `timeout`](https://code.claude.com/docs/en/mcp)
+field. No global client environment override or unrelated server budget is changed.
+The image's Chrome SDK transform aligns the remote WebSocket CDP request budget
+with its existing page/navigation defaults without changing native launch safeguards.
+These additional source changes still need exact-head CI and image acceptance.
 Preparation may change active-file bytes, but preserves custom credentials,
 lifecycle, unrelated fields and external routing. Displaced or transformed
 unknown/custom originals remain archived byte-for-byte before replacement;
@@ -340,8 +351,8 @@ Managed delivery reaches existing images on the next Pi load or `/reload`, not
 merely when the release is published or refreshed.
 
 The adapter's transport runs on `@modelcontextprotocol/client` and
-`@modelcontextprotocol/core` 2.0.0, with `jose`, `pkce-challenge`, `eventsource`,
-and `cross-spawn` in the container dependency tree. Because adapter 2.15+
+`@modelcontextprotocol/core`, with `jose`, `pkce-challenge`, `eventsource`,
+and `cross-spawn` in the container dependency tree. Because the adapter
 reserves a leading `!` for command-backed secrets, the entrypoint doubles that
 prefix only in Pi's generated env value so a provider key beginning with `!`
 remains literal; Claude's value is unchanged. Pi startup adds the
@@ -495,7 +506,7 @@ During explicit fresh-required validation, only a runtime-hash mismatch continue
 
 The seed never asks running instances to provide a hash. Curation embeds the hash from its pinned Codeflare commit, and the Worker compares it with its generated build constant. Unchanged lockfiles keep the same npm hash, but a release needs no image redeploy only when its other runtime prerequisites are already installed.
 
-The hash excludes native-engine revisions. Compiler pin `52a2329fbe5a356a1905cf881c227da4102c0b04` packages Impeccable engine 0.1.3, while source checkpoint `9c1717e8b06b8c6b636fc7929812511a823211a2` packages 0.1.5; all six compiler-sync inputs match and both npm hashes are `823886357f3fc167d2b3df332901d2e68bd7d1a8a7f577e4e7cc999c375cbce9`. The aligned launcher requires the 0.1.5 binary in the consuming image and fails explicitly if it is missing. Hash-based discovery cannot distinguish these engines or choose an older seed for that reason. Native availability therefore needs separate deployed-image evidence, not a compiler-pin change, broader hash claim, or stale managed source.
+The hash excludes native-engine revisions. Historical compiler pin `52a2329fbe5a356a1905cf881c227da4102c0b04` packages an older Impeccable engine than source checkpoint `9c1717e8b06b8c6b636fc7929812511a823211a2`; all six compiler-sync inputs match and both npm hashes are `823886357f3fc167d2b3df332901d2e68bd7d1a8a7f577e4e7cc999c375cbce9`. The aligned launcher requires its exact image-owned binary in the consuming image and fails explicitly if it is missing. Hash-based discovery cannot distinguish these engines or choose an older seed for that reason. Native availability therefore needs separate deployed-image evidence, not a compiler-pin change, broader hash claim, or stale managed source.
 
 <a id="preseed-deployment"></a>
 ## Runtime Delivery Pipeline
@@ -604,7 +615,11 @@ stale deny-gates. The graphify plugin includes plugin.json, README, and
 graphify-mcp-lazy.py in default+advanced mode; advanced mode adds the compact
 query-routing rule, graphify-active-repo.sh, graphify-clone-prompt.sh,
 graph-first-nudge.sh, safe-graphify-update.sh, local-graphify-labels.sh, and the
-build/update skill.
+build/update skill. The Claude wrapper resolves global → valid sentinel → freshest
+workspace at each context request, returning empty for a graphless selection. It
+delegates real files to upstream's bounded complete-context cache, preserving
+parallel relations, communities and fresh indexes without a dictionary-swapping
+watcher ([AD158](../decisions/README.md#ad158-select-complete-upstream-graphify-contexts-per-request)). Upstream nominal query-header/resource paths are not rebound by this narrow seam; host MCP evidence does not prove image or hosted acceptance.
 
 Graphify tools ship as the native extension `extensions/graphify-native.ts` rather
 than through the MCP adapter — a Pi-native first-class choice. Pi still consumes
@@ -618,8 +633,11 @@ change.
 Extension files deploy Pi-specific runtime behavior. `codeflare-commands.ts`
 provides `/debug`, `/deploy`, and `/brainstorm`; `review-enforcement.ts` and
 `review-helpers.ts` implement session-scoped PR-boundary review reminders and
-transcript correlation; `startup-header.ts` replaces Pi's startup header; and
-`local-statusline.ts` preserves extension status rows in default and advanced modes.
+transcript correlation; `startup-header.ts` delegates the installed Open TUI through
+terminal-only and width-safe public API boundaries; and `local-statusline.ts`
+publishes session context/repository metadata without replacing the native footer.
+Both UI sources remain in default and advanced modes. Compatible image/compiler,
+signed curation publication and runtime activation are verified separately.
 
 `browser-run.ts` plus pure `browser-run-helpers.ts` (advanced only) register native
 `browser_markdown`, `browser_content`, and `browser_scrape` tools that call the
@@ -946,8 +964,7 @@ literal in `entrypoint.sh`). Claude Code otherwise replaces the
 terminal with a full-screen agent view — a dispatch input plus a
 left/right session switcher — whenever a background agent starts, and
 that switcher is unusable on a mobile terminal (upstream behaviour,
-observed under Claude Code 2.1.219 as pinned by `CLAUDE_CODE_VERSION`
-in the `Dockerfile`, on 2026-07-25).
+observed with the then-pinned Claude Code runtime on 2026-07-25).
 
 Background subagents themselves keep running under that setting, so
 the memory and vault capture hooks registered in the `SETTINGS_CONFIG`
@@ -955,7 +972,7 @@ literal above are unaffected. Nothing automated covers that: it was
 checked by hand under the same pinned Claude Code version on
 2026-07-25, by spawning subagents in a session with the setting on.
 The capture hooks depend on it and it would fail silently, so re-check
-it when `CLAUDE_CODE_VERSION` moves.
+it when the CLI or official VSIX pin changes.
 
 ### Plugin Enablement
 
@@ -1047,11 +1064,11 @@ See [AD49](../decisions/README.md#ad49-context-mode-delivered-as-preseed-plugin-
 <a id="graphify-req-agent-023"></a>
 ## Graphify Toolchain ([REQ-AGENT-023](../../sdd/spec/agents.md#req-agent-023-knowledge-graph-capability-graphify))
 
-Graphify 0.9.34–0.9.35 is a correctness update: shortest paths and callflow now respect stored edge direction, ignored-file pruning and merge shrink protection fail closed, and Java external annotations no longer collapse into local classes. In the 0.9.73/0.9.74 packages, BFS/DFS neighborhoods explore connections in both directions while retaining displayed edge direction. Directed shortest-path and callflow evidence remain separate: neighborhood connectivity never proves a directed path, and an absent reverse path does not authorize reversing edges.
+Graphify shortest paths and callflow respect stored edge direction; ignored-file pruning and merge shrink protection fail closed, and Java external annotations do not collapse into local classes. BFS/DFS neighborhoods explore connections in both directions while retaining displayed edge direction. Directed shortest-path and callflow evidence remain separate: neighborhood connectivity never proves a directed path, and an absent reverse path does not authorize reversing edges.
 
 [REQ-AGENT-215](../../sdd/spec/agents.md#req-agent-215-managed-graphify-skill-ownership) owns managed skill preservation: the image defaults upstream auto-refresh off, and bounded Claude/Pi update wrappers enforce that opt-out even when the caller enables refresh. Image-default acceptance is separate from wrapper behavioral proof.
 
-Graphify 0.9.74 changes extraction topology without changing the query wire format: authored workspace entry points take precedence, Rust builtins no longer create false hubs, and [Rust tuple/unit-struct constructor edges](https://github.com/Graphify-Labs/graphify/blob/e10df08877f8819a625a1afa38c3297a31fda296/graphify/extract.py#L8587-L8596) become `references` with `context: "constructor"`. Counts and callflow can change on a separately authorized refresh; an upgrade alone does not authorize rebuilding or normalizing stored graphs.
+Graphify extraction topology can change without changing the query wire format: authored workspace entry points take precedence, Rust builtins no longer create false hubs, and [Rust tuple/unit-struct constructor edges](https://github.com/Graphify-Labs/graphify/blob/e10df08877f8819a625a1afa38c3297a31fda296/graphify/extract.py#L8587-L8596) become `references` with `context: "constructor"`. Counts and callflow can change on a separately authorized refresh; an upgrade alone does not authorize rebuilding or normalizing stored graphs.
 
 ### Graph-first soft nudge ([REQ-AGENT-091](../../sdd/spec/agents.md#req-agent-091-advanced-session-graph-first-runtime-reminders) AC1)
 

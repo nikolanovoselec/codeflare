@@ -111,6 +111,8 @@ describe('deployment container image input hash', () => {
       'scripts/patch-pi-plan-mode-tool-policy.mjs',
       'scripts/patch-pi-native-model-display.mjs',
       'scripts/patch-rpiv-host-peers.mjs',
+      'scripts/patch-rpiv-question-timeout.mjs',
+      'scripts/rpiv-question-timeout.mjs',
       'scripts/verify-pi-lockstep.mjs',
       'scripts/verify-pi-prompt.mjs',
       'scripts/pi-prompt-contract.mjs',
@@ -222,6 +224,14 @@ describe('deployment container image input hash', () => {
     commit('Chrome timeout patch change');
     assert.notEqual(imageHashResult().tag, beforeChromePatch,
       'changing the Chrome timeout profile must invalidate image reuse');
+
+    for (const path of ['scripts/patch-rpiv-question-timeout.mjs', 'scripts/rpiv-question-timeout.mjs']) {
+      const before = imageHashResult().tag;
+      write(path, 'questionnaire timeout policy change\n');
+      commit(`change ${path}`);
+      assert.notEqual(imageHashResult().tag, before,
+        'changing either questionnaire policy input must invalidate image reuse');
+    }
 
     write('Dockerfile', `${readFileSync(join(root, 'Dockerfile'), 'utf8')}COPY host/__tests__/ /tmp/tests/\n`);
     commit('uncovered copy source');

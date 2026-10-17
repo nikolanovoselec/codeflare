@@ -33,6 +33,10 @@ graphify is installed globally during the Docker image build via `uv tool instal
 
 Plugin updates ship as a Dependabot PR bumping the version in this `plugin.json`. The Dockerfile reads that file at build time, so the same PR rebuilds the image with the new version, keeping the runtime binary and the plugin manifest in lockstep.
 
+## Release compatibility
+
+The [reviewed release interval](https://github.com/Graphify-Labs/graphify/blob/86c57be8204673c2a1b9849a3292a7dd3ab373d8/CHANGELOG.md) changes stable IDs, AST cache namespaces and parallel-edge loading. Keep optional graph metadata and every relation intact; an explicitly authorized update may re-extract code or change graph counts. Resolve ambiguous endpoints with qualified paths. The pending-label sidecar is working data, not curated labels. Do not install upstream post-merge/post-rewrite rebuild hooks, an extra Pi guard or provider backends as part of this update: managed hooks, explicit refresh consent and local optional labels remain authoritative. The Claude wrapper must bind complete upstream query contexts; Pi's native tools continue using fresh CLI processes.
+
 ## Works with and without context-mode
 
 context-mode is preseeded only for the Custom tier (effectiveTier `unlimited` + advanced session mode). The vast majority of users (Standard, Advanced, Max tiers) run graphify without context-mode. The integration is designed to function in both regimes:

@@ -1,109 +1,102 @@
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import { randomUUID } from "node:crypto";
+import { closeSync, constants, fstatSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { getAgentDir, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { truncateToWidth, type Component } from "@earendil-works/pi-tui";
+// Runtime layout: the managed agent's npm directory links to the image inventory.
+// Package auto-discovery is filtered; this adapter initializes the native UI once.
+import openTui from "../npm/node_modules/pi-open-tui/extensions/open-tui/index.ts";
 
-function padToWidth(text: string, width: number): string {
-	const visible = visibleWidth(text);
-	if (visible >= width) return truncateToWidth(text, width);
-	return text + " ".repeat(width - visible);
+function record(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function stat(label: string, value: string): string {
-	return `${label.padEnd(8)} ${value}`;
+function prepareConfig(ctx: ExtensionContext): boolean {
+	const directory = getAgentDir();
+	const path = join(directory, "open-tui.json");
+	let temporary: string | undefined;
+	try {
+		mkdirSync(directory, { recursive: true });
+		let config: Record<string, unknown> = {};
+		let descriptor: number | undefined;
+		try {
+			descriptor = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+			if (!fstatSync(descriptor).isFile()) throw new Error("Unsafe configuration");
+			const parsed: unknown = JSON.parse(readFileSync(descriptor, "utf8"));
+			if (!record(parsed)) throw new Error("Invalid configuration");
+			config = parsed;
+		} catch (error) {
+			if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+		} finally {
+			if (descriptor !== undefined) closeSync(descriptor);
+		}
+		for (const key of ["icons", "thinkingPeek", "footerSegments", "telemetry"]) {
+			if (config[key] !== undefined && !record(config[key])) throw new Error("Invalid configuration");
+		}
+		const prepared = {
+			...config,
+			enabled: true,
+			icons: { mode: "unicode", ...(config.icons as Record<string, unknown> | undefined) },
+			thinkingPeek: { lines: 0, ...(config.thinkingPeek as Record<string, unknown> | undefined) },
+			footerSegments: { ...(config.footerSegments as Record<string, unknown> | undefined), context: false, extensionStatuses: true },
+		};
+		temporary = `${path}.${randomUUID()}.tmp`;
+		writeFileSync(temporary, `${JSON.stringify(prepared, null, 2)}\n`, { flag: "wx", mode: 0o600 });
+		renameSync(temporary, path);
+		return true;
+	} catch {
+		ctx.ui.notify("Open TUI configuration could not be safely prepared; using Pi's built-in UI.", "warning");
+		return false;
+	} finally {
+		try { if (temporary) rmSync(temporary, { force: true }); } catch { /* Do not block the agent on cosmetic cleanup. */ }
+	}
 }
 
-function dashedLine(width: number): string {
-	// Em-dash + space (U+2014, U+0020) for the box's horizontal edges: the gap
-	// between each dash mirrors the vertical rhythm of the side edges (one `|`
-	// per row, separated by line height), so top/bottom and left/right read as
-	// the same dashed style. Truncated to an exact cell width to keep the box
-	// aligned. Deliberate exception to the project-wide no-em-dash rule, which
-	// targets prose, not box-drawing.
-	return truncateToWidth("— ".repeat(Math.ceil(Math.max(0, width) / 2)), width);
+function boundProperty(target: object, key: PropertyKey): unknown {
+	const value = Reflect.get(target, key, target);
+	return typeof value === "function" ? value.bind(target) : value;
 }
 
-function shortCwd(cwd: string): string {
-	return cwd.replace(/^\/home\/user/, "~");
-}
-
-function formatTokens(tokens: number | null): string {
-	if (tokens === null) return "unknown";
-	if (tokens >= 1_000_000) return `${(tokens / 1_000_000).toFixed(1)}m`;
-	if (tokens >= 1_000) return `${Math.round(tokens / 1_000)}k`;
-	return String(tokens);
-}
-
-function installHeader(pi: ExtensionAPI, ctx: ExtensionContext): void {
-	if (!ctx.hasUI) return;
-
-	ctx.ui.setHeader((_tui, theme) => ({
-		render(width: number): string[] {
-			const renderWidth = Math.max(0, width);
-			if (renderWidth < 2) return renderWidth === 1 ? ["+"] : [];
-			const innerWidth = renderWidth - 2;
-			const horizontalPadding = 2;
-			const logoWidth = 16;
-			const gapWidth = 4;
-			const rightWidth = Math.max(10, innerWidth - horizontalPadding * 2 - logoWidth - gapWidth);
-			const model = ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : "not selected";
-			const effort = pi.getThinkingLevel?.() ?? "off";
-			const usage = ctx.getContextUsage?.();
-			const context = usage
-				? `${formatTokens(usage.tokens)} / ${formatTokens(usage.contextWindow)}${usage.percent === null ? "" : ` (${Math.round(usage.percent)}%)`}`
-				: "unknown";
-			const tools = `${pi.getActiveTools().length}/${pi.getAllTools().length} active`;
-			const session = ctx.sessionManager.getSessionFile()?.split("/").pop() ?? "ephemeral";
-
-			const logo = [
-				"████████████",
-				"    ██    ██",
-				"    ██    ██",
-				"    ██    ██",
-				"    ██    ██",
-				"    ██    ██",
-			];
-
-			const stats = [
-				stat("model", model),
-				stat("effort", String(effort)),
-				stat("context", context),
-				stat("tools", tools),
-				stat("cwd", shortCwd(ctx.cwd)),
-				stat("session", session),
-			];
-
-			const border = `+${dashedLine(innerWidth)}+`;
-			const blank = `|${" ".repeat(innerWidth)}|`;
-			const rows = stats.map((line, index) => {
-				const left = theme.bold(theme.fg("accent", padToWidth(logo[index] ?? "", logoWidth)));
-				const right = theme.fg("muted", truncateToWidth(line, rightWidth));
-				const content = `${" ".repeat(horizontalPadding)}${left}${" ".repeat(gapWidth)}${right}`;
-				return `|${padToWidth(content, innerWidth)}|`;
-			});
-
-			return ["", border, blank, ...rows, blank, border, ""];
+// Keep native rendering/lifecycle intact. Only the final public column budget is
+// bounded: upstream's narrow header and a wide status grapheme can exceed it.
+function terminalContext<T extends ExtensionContext>(ctx: T): T {
+	const ui = new Proxy(ctx.ui, {
+		get(target, key) {
+			if (key !== "setHeader" && key !== "setFooter") return boundProperty(target, key);
+			return (factory?: (...args: unknown[]) => Component) => Reflect.apply(target[key], target, [
+				factory && ((...args: unknown[]) => {
+					const component = factory(...args);
+					return new Proxy(component, {
+						get(target, key) {
+							if (key !== "render") return boundProperty(target, key);
+							return (width: number) => width <= 0 ? []
+								: target.render(width).map(line => truncateToWidth(line, width, ""));
+						},
+					});
+				}),
+			]);
 		},
-		invalidate() {},
+	});
+	return new Proxy(ctx, { get: (target, key) => key === "ui" ? ui : boundProperty(target, key) });
+}
+
+export default function (pi: ExtensionAPI): void {
+	let prepared = false;
+	openTui(new Proxy(pi, {
+		get(target, key) {
+			if (key === "on") return (event: string, handler: (event: unknown, ctx: ExtensionContext) => unknown) =>
+				Reflect.apply(target.on, target, [event, async (data: unknown, ctx: ExtensionContext) => {
+					if (ctx.mode !== "tui" || !ctx.hasUI) return;
+					if (event === "session_start") prepared = prepareConfig(ctx);
+					if (!prepared) return;
+					try { return await handler(data, terminalContext(ctx)); }
+					finally { if (event === "session_shutdown") prepared = false; }
+				}]);
+			if (key === "registerCommand") return (name: string, command: Parameters<ExtensionAPI["registerCommand"]>[1]) =>
+				target.registerCommand(name, { ...command, async handler(args, ctx) {
+					if (ctx.mode === "tui" && ctx.hasUI && prepared) await command.handler(args, terminalContext(ctx));
+				} });
+			return boundProperty(target, key);
+		},
 	}));
-}
-
-export default function (pi: ExtensionAPI) {
-	pi.on("session_start", async (_event, ctx) => {
-		installHeader(pi, ctx);
-	});
-
-	pi.on("model_select", async (_event, ctx) => {
-		installHeader(pi, ctx);
-	});
-
-	pi.on("thinking_level_select", async (_event, ctx) => {
-		installHeader(pi, ctx);
-	});
-
-	pi.registerCommand("builtin-header", {
-		description: "Restore pi's built-in startup header",
-		handler: async (_args, ctx) => {
-			ctx.ui.setHeader(undefined);
-			ctx.ui.notify("Built-in header restored", "info");
-		},
-	});
 }

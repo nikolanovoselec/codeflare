@@ -16,6 +16,10 @@ Verify the installed CLI version independently of plugin metadata. The 0.9.73 en
 
 Graphify 0.9.74 prefers authored workspace sources, filters Rust builtins and reclassifies Rust constructor edges as `references` with `context: "constructor"`. Callflow, hubs and counts can change on an explicitly authorized refresh; this is not permission to rebuild, normalize graphs or replace managed skills.
 
+## Graphify 0.9.92 compatibility
+
+The [reviewed release](https://github.com/Graphify-Labs/graphify/blob/86c57be8204673c2a1b9849a3292a7dd3ab373d8/CHANGELOG.md) changes stable IDs and grammar-versioned AST caches; an authorized update may re-extract code and change counts or callflow. Preserve optional `schema_version`/`graphify_version` metadata and parallel relations; do not normalize existing graphs. Qualify ambiguous path endpoints rather than guessing. `.graphify_labels.pending.json` is a regenerable worklist, not the curated labels file. Upstream hook installation now adds post-merge/post-rewrite rebuilds: do not install these hooks or refresh graphs without explicit authorization. Retain `GRAPHIFY_NO_AUTO_REFRESH=1`, local optional labels and the external-provider prohibition; no extra Pi guard or backend setting is required.
+
 ## Quick Reference
 
 **Python interpreter:** All `python3` code blocks in this skill must use graphify's own interpreter: `/root/.local/share/uv/tools/graphifyy/bin/python`. System `python3` cannot import graphify. The CLI at `/root/.local/bin/graphify` is on PATH.
@@ -97,6 +101,7 @@ When labeling is skipped, do not run prepare/apply. Keep Graphify's official rep
      .graphify_uncached.txt
      .graphify_chunk_*.txt
      .graphify_old.json
+     .graphify_labels.pending.json
      .graphify_community_label_worklist.json
      .graphify_community_label_batches/
      .graphify_root

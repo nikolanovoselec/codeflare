@@ -15,7 +15,7 @@ name: Bump Shadow Pins
 # - browser-run-mcp: @modelcontextprotocol/sdk manifest + lock pin
 # - pi-extensions: dependencies in preseed/agents/pi/package.json except context-mode
 #   and the Pi runtime agent (the @juicesharp rpiv family, @narumitw/pi-goal,
-#   @narumitw/pi-plan-mode, @narumitw/pi-usage, pi-web-access, pi-mcp-adapter,
+#   @narumitw/pi-plan-mode, pi-open-tui, pi-web-access, pi-mcp-adapter,
 #   @gotgenes/pi-subagents) — each is also a literal install spec in entrypoint.sh
 #   + baked into the seed; context-mode has its dedicated atomic job, and the
 #   Pi runtime family is owned atomically by agent-clis
@@ -1269,7 +1269,7 @@ jobs:
             --body "$BODY"
 
   # Every Pi extension in preseed/agents/pi/package.json (the @juicesharp rpiv
-  # family, pi-web-access, pi-mcp-adapter, @gotgenes/pi-subagents) is pinned in more
+  # family, pi-open-tui, pi-web-access, pi-mcp-adapter, @gotgenes/pi-subagents) is pinned in more
   # than the manifest: each version is mirrored as a literal `npm:<name>@<ver>`
   # install spec in entrypoint.sh's Pi settings `required` array and baked into
   # src/lib/agent-seed.generated.ts, so Dependabot (manifest-only) would drift them.
@@ -1444,6 +1444,9 @@ jobs:
             @juicesharp/rpiv-advisor|@juicesharp/rpiv-ask-user-question|@juicesharp/rpiv-todo)
               (cd preseed/agents/pi && npm ci --ignore-scripts --no-audit --no-fund)
               (cd preseed/npm-tools && npm ci --ignore-scripts --no-audit --no-fund)
+              # The shared verifier repairs Todo/advisor/questionnaire host peers
+              # and applies the exact-version questionnaire timeout transform.
+              # Both SDKs must load the prepared trio before any branch is pushed.
               node scripts/verify-rpiv-host-peers.mjs preseed/agents/pi/node_modules
               node scripts/verify-rpiv-host-peers.mjs preseed/agents/pi/node_modules preseed/npm-tools/node_modules
               ;;

@@ -502,7 +502,7 @@ RCLONE_FILTERS_COMMON=(
     --filter "- .codex/logs*.sqlite*"        # log databases and WAL/SHM companions (ephemeral)
     --filter "- .codex/*.sqlite-shm"         # SQLite shared memory (ephemeral, corrupt on restore)
     --filter "- .codex/*.sqlite-wal"         # SQLite WAL (ephemeral, corrupt on restore)
-    # Codex's bundled system skills (imagegen, plugin-creator, skill-installer)
+    # Codex's bundled system skills (imagegen, skill-installer)
     # ship inside the codex binary and are re-extracted on launch, gated by
     # .codex-system-skills.marker. Not codeflare-managed, not user content;
     # excluding mirrors the .agents/ rationale (locally regenerated).
@@ -3016,15 +3016,16 @@ const required = [
   'npm:@gotgenes/pi-subagents@23.4.2',
   // Pi tool extensions, always enabled (in `required`) so they are available
   // independently of the context-mode toggle — toggling /ctx never disables them.
-  'npm:@juicesharp/rpiv-advisor@2.11.0',
-  'npm:@juicesharp/rpiv-ask-user-question@2.11.0',
-  'npm:@juicesharp/rpiv-todo@2.11.0',
-  'npm:pi-web-access@0.34.0',
+  'npm:@juicesharp/rpiv-advisor@2.12.0',
+  'npm:@juicesharp/rpiv-ask-user-question@2.12.0',
+  'npm:@juicesharp/rpiv-todo@2.12.0',
+  'npm:pi-web-access@0.38.0',
   'npm:pi-mcp-adapter@5.3.1',
   'npm:pi-evaluate@0.1.5',
   'npm:@narumitw/pi-goal@0.54.11',
   'npm:@narumitw/pi-plan-mode@0.59.2',
-  'npm:@narumitw/pi-usage@0.61.1',
+  // The managed terminal adapter initializes the native UI once.
+  { source: 'npm:pi-open-tui@0.3.11', extensions: [] },
 ];
 // Keep context-mode installed for explicit `/ctx on`, but disable its extension and skills on every
 // fresh container start. The managed foreground-owner bridge attaches only after explicit enablement.
@@ -3036,7 +3037,7 @@ const defaultPackages = [
 // The graphify wrapper conflicts with first-party graphify-native tools. The glla package is
 // replaced by @narumitw/pi-goal and would otherwise keep loading from persisted user settings.
 // Unlike disabled packages these are dropped and never re-added, so upgrades load cleanly.
-const removedPackageIds = new Set(['npm:@gaodes/pi-graphify', 'npm:pi-goal-list-loop-audit', 'npm:pi-caveman']);
+const removedPackageIds = new Set(['npm:@gaodes/pi-graphify', 'npm:pi-goal-list-loop-audit', 'npm:pi-caveman', 'npm:@narumitw/pi-usage']);
 function sourceOf(entry) {
   if (typeof entry === 'string') return entry;
   return entry && typeof entry.source === 'string' ? entry.source : undefined;
@@ -3229,6 +3230,10 @@ update_pi_and_codex_when_fast_start_disabled() {
         # RPIV belongs to the agent preseed, not the shared CLI tools tree.
         if ! node /opt/codeflare/scripts/patch-rpiv-host-peers.mjs "${PI_NPM_DIR:-$USER_HOME/.pi/agent/npm}/node_modules"; then
             echo "[entrypoint] ERROR: RPIV host dependency compatibility repair failed"
+            update_failed=1
+        fi
+        if ! node /opt/codeflare/scripts/patch-rpiv-question-timeout.mjs "${PI_NPM_DIR:-$USER_HOME/.pi/agent/npm}/node_modules/@juicesharp/rpiv-ask-user-question"; then
+            echo "[entrypoint] ERROR: RPIV questionnaire timeout preparation failed"
             update_failed=1
         fi
     fi
@@ -4167,7 +4172,7 @@ if [ "${SESSION_MODE:-default}" = "advanced" ] \
     # pin and the bump-shadow-pins workflow updates that single source of truth.
     CDP_MCP_BIN="${CHROME_DEVTOOLS_MCP_BIN:-/opt/codeflare/bin/chrome-devtools-mcp}"
     BROWSER_MCP_CLAUDE=$(jq -n --arg bin "$CDP_MCP_BIN" --arg ep "$CDP_WS_ENDPOINT" --arg hdr "$CDP_WS_HEADERS" \
-        '{mcpServers:{"chrome-devtools":{command:$bin,args:[("--wsEndpoint=" + $ep),("--wsHeaders=" + $hdr)]}}}')
+        '{mcpServers:{"chrome-devtools":{command:$bin,args:[("--wsEndpoint=" + $ep),("--wsHeaders=" + $hdr)],timeout:360000}}}')
     if [ -f "$USER_CLAUDE_JSON" ]; then
         TMP_JSON=$(mktemp)
         if jq --argjson mcp "$BROWSER_MCP_CLAUDE" '. * $mcp' "$USER_CLAUDE_JSON" > "$TMP_JSON" 2>/dev/null; then
@@ -4240,7 +4245,7 @@ NODE
     # token + account are passed in the server's scoped env. With this, both
     # agents have BOTH surfaces: interactive (chrome-devtools) + markdown (REST).
     BROWSER_RUN_MCP_CLAUDE=$(jq -n --arg tok "$CLOUDFLARE_API_TOKEN" --arg acct "$CLOUDFLARE_ACCOUNT_ID" \
-        '{mcpServers:{"browser-run":{command:"node",args:["/opt/codeflare/browser-run-mcp/index.mjs"],env:{CLOUDFLARE_API_TOKEN:$tok,CLOUDFLARE_ACCOUNT_ID:$acct}}}}')
+        '{mcpServers:{"browser-run":{command:"node",args:["/opt/codeflare/browser-run-mcp/index.mjs"],timeout:360000,env:{CLOUDFLARE_API_TOKEN:$tok,CLOUDFLARE_ACCOUNT_ID:$acct}}}}')
     if [ -f "$USER_CLAUDE_JSON" ]; then
         TMP_JSON=$(mktemp)
         if jq --argjson mcp "$BROWSER_RUN_MCP_CLAUDE" '. * $mcp' "$USER_CLAUDE_JSON" > "$TMP_JSON" 2>/dev/null; then

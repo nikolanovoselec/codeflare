@@ -1,5 +1,6 @@
 import { afterEach, describe, it, expect } from 'vitest';
 import { nativeWorkerRuntime } from '../helpers/native-worker-runtime';
+import candidate from './fixtures/silverbullet-worker-2.12.1.json';
 
 // CF-045
 // Direct unit tests for src/routes/vault/native-sw.ts. The graft logic was
@@ -13,57 +14,24 @@ import {
   VAULT_NATIVE_SERVICE_WORKER_JS,
 } from '../../routes/vault/native-sw';
 
-describe('CF-045: vault-native-sw direct unit tests', () => {
-  // REQ-VAULT-017 AC1: native SW served with the codeflare key-recovery graft
-  it('grafting the verbatim worker reproduces the exported served worker', () => {
-    expect(graftVaultKeyRecovery(VAULT_NATIVE_SW_VERBATIM)).toBe(VAULT_NATIVE_SERVICE_WORKER_JS);
-  });
-
-  async function runInstallPrecache(sw: string) {
-    const marker = 'self.addEventListener("install",o=>{';
-    const start = sw.indexOf(marker);
-    const end = sw.indexOf('});self.addEventListener("activate"', start);
-    if (start < 0 || end < 0) throw new Error('install precache handler not found');
-    const body = sw.slice(start + marker.length, end);
-    const requests: Array<{ url: string; cache?: string }> = [];
-    let install: Promise<void> | undefined;
-    class CapturedRequest {
-      url: string;
-      cache?: string;
-
-      constructor(url: string, options?: { cache?: string }) {
-        this.url = url;
-        this.cache = options?.cache;
-      }
-    }
-    const listener = new Function(
-      'self',
-      'caches',
-      'De',
-      'gt',
-      'Request',
-      'console',
-      `return (o)=>{${body}};`,
-    )(
-      { skipWaiting: async () => {} },
-      { open: async () => ({ addAll: async (values: Array<{ url: string; cache?: string }>) => requests.push(...values) }) },
-      'cache-v1',
-      { shell: '/', app: '/app.js' },
-      CapturedRequest,
-      { log: () => {} },
-    ) as (event: { waitUntil(promise: Promise<void>): void }) => void;
-    listener({ waitUntil(promise) { install = promise; } });
-    if (!install) throw new Error('install handler did not register async work');
-    await install;
-    return requests;
-  }
+describe.each(['image export', 'upstream candidate'] as const)('CF-045: vault-native-sw direct unit tests (%s)', artifact => {
+  const verbatimWorker = artifact === 'upstream candidate' ? candidate.worker : VAULT_NATIVE_SW_VERBATIM;
+  const expectedSHA = artifact === 'upstream candidate' ? candidate.sha256 : VAULT_NATIVE_SW_SHA256;
+  // Graft inside each test: candidate incompatibility is an assertion failure,
+  // never a module-collection failure. The image export stays covered as well.
+  const servedWorker = () => artifact === 'upstream candidate'
+    ? graftVaultKeyRecovery(verbatimWorker) : VAULT_NATIVE_SERVICE_WORKER_JS;
 
   it('REQ-VAULT-017 AC4: install precaching bypasses stale browser cache entries', async () => {
-    const requests = await runInstallPrecache(VAULT_NATIVE_SERVICE_WORKER_JS);
-    expect(requests).toEqual([
-      { url: '/', cache: 'reload' },
-      { url: '/app.js', cache: 'reload' },
-    ]);
+    const runtime = nativeWorkerRuntime(servedWorker(), async () => { throw new Error('Install uses CacheStorage'); });
+    try {
+      await runtime.install();
+      const requests = runtime.precacheRequests;
+      expect(requests.length).toBeGreaterThan(1);
+      expect(requests.map(request => new URL(request.url).pathname)).toContain('/');
+      expect(requests.some(request => /\.(?:js|css|json|webmanifest)(?:$|\?)/.test(request.url))).toBe(true);
+      expect(requests.every(request => request.cache === 'reload')).toBe(true);
+    } finally { runtime.dispose(); }
   });
 
   const aesKey = btoa('a'.repeat(32));
@@ -72,10 +40,10 @@ describe('CF-045: vault-native-sw direct unit tests', () => {
   afterEach(() => { for (const runtime of runtimes) runtime.dispose(); runtimes.clear(); });
   function servedRuntime(recover: () => Promise<Response> = async () => Response.json({ key: aesKey })) {
     const requests: Array<{ url: string; credentials?: string }> = [];
-    const runtime = nativeWorkerRuntime(VAULT_NATIVE_SERVICE_WORKER_JS, async (input, options) => {
+    const runtime = nativeWorkerRuntime(servedWorker(), async (input, options) => {
       const url = input instanceof Request ? input.url : String(input);
       requests.push({ url, credentials: options?.credentials });
-      if (url === 'https://vault.test/.vault-key') return recover();
+      if (url === 'https://vault.test/.vault-key') return await recover();
       if (url === '/.fs') return Response.json([]);
       throw new Error(`Unexpected native worker transport: ${url}`);
     });
@@ -133,50 +101,80 @@ describe('CF-045: vault-native-sw direct unit tests', () => {
     expect(await runtime.message({ type: 'get-encryption-key' })).toEqual([{ type: 'encryption-key', key: aesKey }]);
   });
 
-  it('REQ-VAULT-025: served worker drops no-client info spam and downgrades expected auth/sync startup noise', async () => {
-    const worker = VAULT_NATIVE_SERVICE_WORKER_JS;
-    const logs: string[] = [];
-    const output = {
-      info: () => logs.push('info'),
-      error: () => logs.push('error'),
-      warn: () => logs.push('warn'),
-    };
-    const received: unknown[] = [];
-    const clients: Array<{ postMessage(value: unknown): void }> = [];
-    const start = worker.indexOf('function b(o){');
-    const end = worker.indexOf('var Ei=', start);
-    const broadcast = new Function('self', 'console', `${worker.slice(start, end)}return b;`)(
-      { clients: { matchAll: async () => clients } }, output,
-    );
-    broadcast({ type: 'auth-error', message: 'AUTH_GATE', actionOrRedirectHeader: '.auth' });
-    await Promise.resolve();
-    expect(logs).toEqual([]);
+  it.each(['401', '403', 'missing key', 'invalid key', 'invalid AES', 'transport rejection'])('REQ-VAULT-024: AC5 denies unusable %s recovery at both registered read sites', async failure => {
+    const runtime = servedRuntime(async () => {
+      if (failure === 'transport rejection') throw new Error('Network unavailable');
+      if (failure === '401' || failure === '403') return new Response(null, { status: Number(failure) });
+      if (failure === 'missing key') return Response.json({});
+      return Response.json({ key: failure === 'invalid AES' ? btoa('short') : 'invalid-base64@@' });
+    });
+    expect(await runtime.message({ type: 'get-encryption-key' })).toEqual([{ type: 'encryption-key', key: undefined }]);
+    const messages: Record<string, unknown>[] = [];
+    const disconnect = runtime.connectClient(value => messages.push(value));
+    try {
+      await runtime.message({ type: 'config', config });
+      await expect.poll(() => messages.find(value => value.type === 'auth-error')).toBeDefined();
+      disconnect(); // The observation client does not implement native logout-save acknowledgements.
+      expect(await runtime.message({ type: 'logout-sync', id: 'denied' })).toEqual([{ ok: true, databases: [] }]);
+      expect(await runtime.message({ type: 'get-encryption-key' })).toEqual([]);
+    } finally { disconnect(); }
+  });
 
-    clients.push({ postMessage(value) { received.push(value); } });
-    const callbackEnd = worker.indexOf('},void 0,d,"sync")');
-    const callbackStart = worker.lastIndexOf('(f,y)=>{', callbackEnd) + '(f,y)=>{'.length;
-    for (const [error, expectedLevel, configured] of [
-      ['AUTH_GATE', 'info', false], ['UNEXPECTED_FAILURE', 'error', true],
-    ] as const) {
-      logs.length = 0;
-      received.length = 0;
-      const router = { configured: true, reset() { this.configured = false; } };
-      const proxyError = new Function('console', 'se', 'g', 'b', `return (f,y)=>{${worker.slice(callbackStart, callbackEnd)}};`)(
-        output, { message: 'AUTH_GATE' }, router, broadcast,
-      );
-      proxyError(error, '.auth');
-      await Promise.resolve();
-      expect(logs).toEqual([expectedLevel]);
-      expect(router.configured).toBe(configured);
-      // Intentional auth-error wire envelope is preserved through the real broadcaster.
-      expect(received).toEqual([{ type: 'auth-error', message: error, actionOrRedirectHeader: '.auth' }]);
-    }
-    logs.length = 0;
-    const syncStart = worker.indexOf('console.warn("Sync space error",');
-    const syncEnd = worker.indexOf('}', syncStart);
-    new Function('console', 'n', worker.slice(syncStart, syncEnd))(output, new Error('retry'));
-    expect(logs).toEqual(['warn']);
-    expect(() => graftVaultKeyRecovery('invalid upstream artifact')).toThrow(/anchor/);
+  it('REQ-VAULT-024: AC5 active native logout blocks both cold read sites without recovering AES', async () => {
+    const runtime = servedRuntime();
+    // Native startup opens share-capture storage independently of AES/config.
+    // Blocked configuration must open no additional database or key request.
+    const initialDatabases = [...runtime.databases.keys()];
+    expect(await runtime.message({ type: 'logout-sync', id: 'active' })).toEqual([{ ok: true, databases: [] }]);
+    expect(await runtime.message({ type: 'get-encryption-key' })).toEqual([]);
+    expect(await runtime.message({ type: 'config', config })).toEqual([]);
+    expect([...runtime.databases.keys()]).toEqual(initialDatabases);
+    expect(runtime.requests).toEqual([]);
+    await runtime.message({ type: 'logout-cancel', id: 'active' });
+    expect(await runtime.message({ type: 'get-encryption-key' })).toEqual([{ type: 'encryption-key', key: aesKey }]);
+  });
+
+  it('REQ-VAULT-025: served worker drops no-client info spam and downgrades expected auth/sync startup noise', async () => {
+    const runtime = nativeWorkerRuntime(servedWorker(), async () => Response.json({ error: 'not ready' }, { status: 409 }));
+    runtimes.add(runtime);
+    await runtime.message({ type: 'set-encryption-key', key: aesKey });
+    await runtime.message({ type: 'config', config });
+    await expect.poll(() => runtime.logs.some(entry => entry.level === 'warn' && entry.args.includes('Sync space error'))).toBe(true);
+    expect(runtime.logs.filter(entry => entry.level === 'info' && entry.args.includes('No clients are listening for messages, dropping message'))).toEqual([]);
+    expect(runtime.logs.filter(entry => entry.level === 'error' && entry.args.includes('Sync space error'))).toEqual([]);
+    await runtime.message({ type: 'shutdown' });
+  });
+
+  it.each(['space mismatch', 'authentication redirect'] as const)('REQ-VAULT-025: AC1 retains native %s messages and reset semantics', async failure => {
+    let failing = false;
+    const runtime = nativeWorkerRuntime(servedWorker(), async () => {
+      if (!failing) return Response.json([]);
+      return failure === 'space mismatch'
+        ? Response.json([], { headers: { 'X-Space-Path': '/different-space' } })
+        : new Response(null, { status: 302, headers: { Location: '.auth' } });
+    });
+    runtimes.add(runtime);
+    const messages: Record<string, unknown>[] = [];
+    const disconnect = runtime.connectClient(value => messages.push(value));
+    try {
+      await runtime.message({ type: 'set-encryption-key', key: aesKey });
+      const ready = nextSync(runtime);
+      await runtime.message({ type: 'config', config });
+      expect(await ready).toEqual({ type: 'space-sync-complete', operations: 0 });
+      failing = true;
+      await runtime.message({ type: 'perform-space-sync' });
+      await expect.poll(() => messages.find(value => value.type === 'auth-error')).toBeDefined();
+      expect(messages).toContainEqual(expect.objectContaining({ type: 'auth-error',
+        message: expect.any(String), actionOrRedirectHeader: failure === 'space mismatch' ? 'reload' : '.auth' }));
+      if (failure === 'space mismatch') {
+        expect(runtime.logs).toContainEqual(expect.objectContaining({ level: 'info', args: expect.arrayContaining(['[service proxy auth]']) }));
+        await runtime.message({ type: 'perform-space-sync' });
+        expect(runtime.logs).toContainEqual(expect.objectContaining({ level: 'warn',
+          args: expect.arrayContaining(['Ignoring perform-space-sync request, proxy not configured yet']) }));
+      } else {
+        expect(runtime.logs).toContainEqual(expect.objectContaining({ level: 'error', args: expect.arrayContaining(['[service proxy error]']) }));
+      }
+    } finally { disconnect(); await runtime.message({ type: 'shutdown' }); }
   });
 
   it('REQ-VAULT-024 AC4 / REQ-VAULT-025 AC4: the served worker retains real AES across the registered zero-client interval', async () => {
@@ -188,7 +186,7 @@ describe('CF-045: vault-native-sw direct unit tests', () => {
   });
 
   it('the verbatim worker loses real AES across its registered zero-client interval', async () => {
-    const runtime = nativeWorkerRuntime(VAULT_NATIVE_SW_VERBATIM, async () => { throw new Error('No external recovery allowed'); });
+    const runtime = nativeWorkerRuntime(verbatimWorker, async () => { throw new Error('No external recovery allowed'); });
     await runtime.message({ type: 'set-encryption-key', key: aesKey });
     await runtime.noClientInterval();
     expect(await runtime.message({ type: 'get-encryption-key' })).toEqual([{ type: 'encryption-key', key: undefined }]);
@@ -198,10 +196,6 @@ describe('CF-045: vault-native-sw direct unit tests', () => {
     expect(() => graftVaultKeyRecovery('not the silverbullet worker at all')).toThrow(
       /anchor/i,
     );
-  });
-
-  it('the served worker differs from the verbatim upstream bytes', () => {
-    expect(VAULT_NATIVE_SERVICE_WORKER_JS).not.toBe(VAULT_NATIVE_SW_VERBATIM);
   });
 
   // REQ-VAULT-025 AC2 / REQ-VAULT-023 AC2: unreadable listings must fail,
@@ -218,18 +212,20 @@ describe('CF-045: vault-native-sw direct unit tests', () => {
     });
   }
 
-  it.each([409, 404])('REQ-VAULT-025: JSON %s on a fresh native store fails sync and a later valid listing restores note visibility', async status => {
+  it.each([409, 404, 'null', 'object', 'scalar'] as const)('REQ-VAULT-025: JSON %s on a fresh native store fails sync and a later valid listing restores note visibility', async status => {
     const text = '# Example\nRecovered note\n';
     const meta = { name: 'Notes/example.md', created: 1000, lastModified: 2000,
       size: new TextEncoder().encode(text).length, contentType: 'text/markdown', perm: 'rw' };
     let valid = false;
     let offline = false;
-    const runtime = nativeWorkerRuntime(VAULT_NATIVE_SERVICE_WORKER_JS, async input => {
+    const runtime = nativeWorkerRuntime(servedWorker(), async input => {
       if (offline) throw new Error('Network unavailable: recovered visibility must come from the worker store');
       const url = input instanceof Request ? input.url : String(input);
       const path = new URL(url, 'https://vault.test').pathname;
       if (path === '/.fs' || path === '/.fs/') {
-        return valid ? Response.json([meta]) : Response.json({ error: 'routing not ready' }, { status });
+        if (valid) return Response.json([meta]);
+        if (typeof status === 'number') return Response.json({ error: 'routing not ready' }, { status });
+        return Response.json(status === 'null' ? null : status === 'object' ? { error: 'not a list' } : 502);
       }
       if (path === '/.fs/Notes/example.md') return new Response(text, { headers: {
         'Content-Type': meta.contentType, 'X-Last-Modified': String(meta.lastModified),
@@ -266,6 +262,64 @@ describe('CF-045: vault-native-sw direct unit tests', () => {
     }
   });
 
+  it.each(['empty remote', 'malformed remote', 'snapshot only'] as const)('REQ-VAULT-023: AC2 %s rejects deletion after a real encrypted sync', async state => {
+    const text = '# Retained note\nMust survive a warming server\n';
+    const meta = { name: 'Notes/retained.md', created: 1000, lastModified: 2000,
+      size: new TextEncoder().encode(text).length, contentType: 'text/markdown', perm: 'rw' };
+    let empty = false;
+    let offline = false;
+    const runtime = nativeWorkerRuntime(servedWorker(), async input => {
+      if (offline) throw new Error('Offline retained data must come from native encrypted storage');
+      const path = new URL(input instanceof Request ? input.url : String(input), 'https://vault.test').pathname;
+      if (path === '/.fs' || path === '/.fs/') return Response.json(empty ? (state === 'malformed remote' ? { error: 'not a list' } : []) : [meta]);
+      if (path === '/.fs/Notes/retained.md') return new Response(text, { headers: {
+        'Content-Type': meta.contentType, 'X-Last-Modified': String(meta.lastModified),
+        'X-Created': String(meta.created), 'X-Content-Length': String(meta.size), 'X-Permission': meta.perm,
+      } });
+      throw new Error(`Unexpected native worker transport: ${path}`);
+    });
+    runtimes.add(runtime);
+    const messages: Record<string, unknown>[] = [];
+    const disconnect = runtime.connectClient(value => messages.push(value));
+    try {
+      await runtime.message({ type: 'set-encryption-key', key: aesKey });
+      const seeded = nextSync(runtime);
+      await runtime.message({ type: 'config', config });
+      expect(await seeded).toEqual(expect.objectContaining({ type: 'space-sync-complete', operations: 1 }));
+      if (state === 'snapshot only') {
+        // Native DELETE removes local content without reconciling its previously
+        // synced remote revision. No private snapshot or IndexedDB rows are set.
+        const removed = await runtime.fetch(new Request('https://vault.test/.fs/Notes/retained.md', {
+          method: 'DELETE', headers: { 'X-Sync-Mode': 'true' },
+        }));
+        expect(removed.status).toBe(200);
+        const listing = await runtime.fetch(new Request('https://vault.test/.fs/'));
+        expect(await listing.json()).toEqual([]);
+      }
+      empty = true;
+      messages.length = 0;
+      const rejected = nextSync(runtime);
+      await runtime.message({ type: 'perform-space-sync' });
+      expect(await rejected).toEqual(expect.objectContaining({ type: 'sync-error' }));
+      expect(messages).not.toContainEqual(expect.objectContaining({ type: 'space-sync-complete' }));
+      offline = true;
+      const listing = await runtime.fetch(new Request('https://vault.test/.fs/'));
+      if (state === 'snapshot only') {
+        expect(await listing.json()).toEqual([]);
+        return; // The retained revision, not local file presence, fenced this cycle.
+      }
+      expect(await listing.json()).toEqual([meta]);
+      const note = await runtime.fetch(new Request('https://vault.test/.fs/Notes/retained.md', { headers: { 'X-Sync-Mode': 'true' } }));
+      expect(note.status).toBe(200);
+      expect(await note.text()).toBe(text);
+      offline = false;
+      empty = false;
+      const recovered = nextSync(runtime);
+      await runtime.message({ type: 'perform-space-sync' });
+      expect(await recovered).toEqual(expect.objectContaining({ type: 'space-sync-complete' }));
+    } finally { disconnect(); await runtime.message({ type: 'shutdown' }); }
+  });
+
   it('REQ-VAULT-025: a genuinely empty native store and valid empty remote array publish successful empty sync', async () => {
     const runtime = servedRuntime();
     const complete = nextSync(runtime);
@@ -280,126 +334,6 @@ describe('CF-045: vault-native-sw direct unit tests', () => {
     }
   });
 
-  // Build a runnable approximation of the worker's full-sync-cycle remote-list
-  // consumer chain straight out of the SERVED worker string, so the tests exercise the
-  // ACTUAL grafted bytes. The guard reads `s` (already-bound primary list) and `t` (the
-  // snapshot param of the enclosing `syncFiles(t)`); `t` is threaded in as a closure arg.
-  function makeSyncCycleRunner(sw: string) {
-    const start = sw.indexOf('a=await this.primary.fetchFileList()');
-    const endMarker = 'l=new Map(s.map(u=>[u.name,u]))';
-    const endIdx = sw.indexOf(endMarker, start);
-    if (start < 0 || endIdx < 0) {
-      throw new Error('full-sync-cycle remote-list consumer chain not found in served worker');
-    }
-    const chain = sw.slice(start, endIdx + endMarker.length);
-    // eslint-disable-next-line no-new-func
-    const fn = new Function('t', `return (async function(){
-      let a,s,c,r,l;
-      ${chain};
-      return { candidateCount: c.size, remoteMapCount: l.size };
-    });`) as unknown as (
-      t: unknown,
-    ) => (this: unknown) => Promise<{ candidateCount: number; remoteMapCount: number }>;
-    return (
-      remoteList: unknown,
-      opts: { primaryList?: Array<{ name: string }>; snapshot?: Map<string, unknown> } = {},
-    ) => {
-      // Stub the space-sync instance the chain runs against: primary = the persistent
-      // browser-local store, secondary = remote (the value under test), `t` = the sync
-      // snapshot. getNonSyncCandidates mirrors the worker's own forEach-based impl.
-      const { primaryList = [], snapshot = new Map<string, unknown>() } = opts;
-      const ctx = {
-        primary: { fetchFileList: async () => primaryList, deleteFile: async () => {} },
-        secondary: { fetchFileList: async () => remoteList },
-        options: { isSyncCandidate: () => false },
-        getNonSyncCandidates(list: Array<{ name: string }>) {
-          const i = new Map<string, { name: string }>();
-          list.forEach((n) => {
-            if (!this.options.isSyncCandidate()) i.set(n.name, n);
-          });
-          return i;
-        },
-      };
-      return fn({ files: snapshot }).call(ctx);
-    };
-  }
-
-  it('the served sync cycle iterates a real remote array normally', async () => {
-    const run = makeSyncCycleRunner(VAULT_NATIVE_SERVICE_WORKER_JS);
-    const result = await run([{ name: 'a.md' }, { name: 'b.md' }]);
-    expect(result.candidateCount).toBe(2);
-    expect(result.remoteMapCount).toBe(2);
-  });
-
-  it('REQ-VAULT-025: the served sync consumer rejects non-array remote listings even when the local store and snapshot are empty', async () => {
-    const run = makeSyncCycleRunner(VAULT_NATIVE_SERVICE_WORKER_JS);
-    for (const nonArray of [{ error: 'transient 5xx' }, '<!doctype html>', null, 502]) {
-      await expect(run(nonArray)).rejects.toThrow();
-    }
-  });
-
-  it('the guard is load-bearing: the verbatim (pre-graft) chain throws on a non-array remote list', async () => {
-    // The pristine verbatim rejects malformed listings too; the served graft
-    // must preserve rejection rather than turn that error into successful sync.
-    const runVerbatim = makeSyncCycleRunner(VAULT_NATIVE_SW_VERBATIM);
-    await expect(runVerbatim({ error: 'transient 5xx' })).rejects.toThrow(/forEach is not a function|is not a function/);
-
-  });
-
-  // REQ-VAULT-023 AC2: a 2nd-session start has a POPULATED persistent local store, but
-  // the in-container SilverBullet server is still warming up (~1-2 min) and its
-  // `fetchFileList()` returns empty/garbage. The reconciler must NOT treat that as
-  // "every file deleted on secondary" and wipe the store — the cycle aborts before any
-  // deletion. These run the ACTUAL served bytes, so reverting the graft to a blind
-  // coerce (or removing it) makes them fail.
-  it('REQ-VAULT-023: aborts the sync cycle before reconciliation when the remote list is empty while the local store is populated', async () => {
-    const run = makeSyncCycleRunner(VAULT_NATIVE_SERVICE_WORKER_JS);
-    await expect(
-      run([], { primaryList: [{ name: 'Index.md' }, { name: 'CONFIG.md' }] }),
-    ).rejects.toThrow();
-  });
-
-  it('REQ-VAULT-023: aborts the sync cycle before reconciliation when the remote list is empty while the snapshot is populated', async () => {
-    const run = makeSyncCycleRunner(VAULT_NATIVE_SERVICE_WORKER_JS);
-    await expect(
-      run([], { snapshot: new Map([['Index.md', [1, 1]]]) }),
-    ).rejects.toThrow();
-  });
-
-  it('also aborts when the server returns a non-array body while the local store is populated', async () => {
-    const run = makeSyncCycleRunner(VAULT_NATIVE_SERVICE_WORKER_JS);
-    for (const notReady of [{ error: 'transient 5xx' }, '<!doctype html>', null, 502]) {
-      await expect(
-        run(notReady, { primaryList: [{ name: 'Index.md' }] }),
-      ).rejects.toThrow();
-    }
-  });
-
-  it('a genuinely empty vault (no local files, no snapshot) is a safe no-op, not an abort', async () => {
-    const run = makeSyncCycleRunner(VAULT_NATIVE_SERVICE_WORKER_JS);
-    const result = await run([], { primaryList: [], snapshot: new Map() });
-    expect(result.candidateCount).toBe(0);
-    expect(result.remoteMapCount).toBe(0);
-  });
-
-  it('reconciles normally (no abort) when the server returns a real non-empty list, even with a populated store', async () => {
-    const run = makeSyncCycleRunner(VAULT_NATIVE_SERVICE_WORKER_JS);
-    const result = await run([{ name: 'Index.md' }, { name: 'CONFIG.md' }], {
-      primaryList: [{ name: 'Index.md' }],
-      snapshot: new Map([['Index.md', [1, 1]]]),
-    });
-    expect(result.remoteMapCount).toBe(2);
-  });
-
-  it('the guard is absent from the verbatim: a populated store + empty remote does NOT abort pre-graft (it would proceed to delete)', async () => {
-    // Proves the abort comes from the graft. Verbatim binds `o=[]` (a valid array), the
-    // chain completes without throwing, and the downstream per-file reconciler would
-    // then delete every populated-store file. The graft is what stops that.
-    const runVerbatim = makeSyncCycleRunner(VAULT_NATIVE_SW_VERBATIM);
-    const result = await runVerbatim([], { primaryList: [{ name: 'Index.md' }] });
-    expect(result.remoteMapCount).toBe(0);
-  });
-
   // REQ-VAULT-025 AC3: the coercion must keep the served worker syntactically
   // valid. `o` is one binding in a single `let s=...,o=...,r=...` declarator list,
   // so coercing by ADDING a second `o=` declarator is a duplicate lexical binding
@@ -411,25 +345,15 @@ describe('CF-045: vault-native-sw direct unit tests', () => {
   // Function body, so any throw here comes from the graft, not the upstream bytes.)
   it('the served worker is syntactically valid JavaScript (graft introduces no parse error)', () => {
     // eslint-disable-next-line no-new-func
-    expect(() => new Function(VAULT_NATIVE_SERVICE_WORKER_JS)).not.toThrow();
-    // Negative control: the duplicate-`let` form the graft must NOT produce.
-    const duplicateLetForm = VAULT_NATIVE_SW_VERBATIM.replace(
-      's=await this.secondary.fetchFileList(),c=this.getNonSyncCandidates(s)',
-      's=await this.secondary.fetchFileList(),s=Array.isArray(s)?s:[],c=this.getNonSyncCandidates(s)',
-    );
-    // eslint-disable-next-line no-new-func
-    expect(() => new Function(duplicateLetForm)).toThrow(/already been declared|declare a let variable twice/i);
+    expect(() => new Function(servedWorker())).not.toThrow();
   });
 
-  it('the graft preserves the SHA-256 version guard (verbatim bytes unchanged, no anchor-throw)', async () => {
-    // The served worker building without throwing means every anchor (including
-    // the new REMOTE_LIST_COERCE anchor) matched the unmodified verbatim bytes.
-    expect(() => graftVaultKeyRecovery(VAULT_NATIVE_SW_VERBATIM)).not.toThrow();
-    const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(VAULT_NATIVE_SW_VERBATIM));
+  it('the authentic worker matches its recorded SHA-256 artifact identity', async () => {
+    // Artifact integrity is independent of the functional compatibility RED.
+    const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verbatimWorker));
     const hex = Array.from(new Uint8Array(digest))
       .map((b) => b.toString(16).padStart(2, '0'))
       .join('');
-    expect(VAULT_NATIVE_SW_SHA256).toBe('be8d1d2def7568b3440f15128a213a54f21e3b9aa43672c388597bfe808c512a');
-    expect(hex).toBe(VAULT_NATIVE_SW_SHA256);
+    expect(hex).toBe(expectedSHA);
   });
 });

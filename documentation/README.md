@@ -12,7 +12,7 @@ The specification (`sdd/`) defines required system behavior. This documentation 
 
 2. **Spec-backed** - Documentation implements specification requirements. REQ backlinks at the bottom of each file connect operational docs to their acceptance criteria in `sdd/`.
 
-3. **Single source of truth** - Each fact lives in exactly one file. Every lane states what it owns and excludes; other files cross-reference the owner rather than duplicating content. When a detail changes, it changes in one place.
+3. **Single source of truth** - Each fact lives in exactly one file. Every lane states what it owns and excludes; other files cross-reference the owner rather than duplicating content. Dependency versions and integrity values belong in manifests, locks, image pins and provenance—not a second documentation inventory. Link to those owners instead.
 
 4. **Decisions recorded** - Architecture decisions are captured as numbered ADRs in `decisions/README.md` with context, rationale, and trade-offs. Code comments and documentation reference ADR numbers rather than re-explaining the reasoning.
 

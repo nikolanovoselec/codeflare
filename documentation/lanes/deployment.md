@@ -128,7 +128,7 @@ The status output names only the selected version at 100% traffic and provider d
 <a id="development"></a>
 ## Development Reference
 
-**Prerequisites:** Use Node.js 22, install the root and affected package dependencies, and use local Docker/Wrangler only for development. Production deployment is workflow-owned.
+**Prerequisites:** Use the Node.js runtime selected by the [CI workflow](../../.github/workflows/test.yml), install the root and affected package dependencies, and use local Docker/Wrangler only for development. Production deployment is workflow-owned.
 
 ```bash
 npm install

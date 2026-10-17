@@ -5,16 +5,16 @@
   "dependencies": {
     "@earendil-works/pi-coding-agent": "1.3.0",
     "@gotgenes/pi-subagents": "23.4.2",
-    "@juicesharp/rpiv-advisor": "2.11.0",
-    "@juicesharp/rpiv-ask-user-question": "2.11.0",
-    "@juicesharp/rpiv-todo": "2.11.0",
+    "@juicesharp/rpiv-advisor": "2.12.0",
+    "@juicesharp/rpiv-ask-user-question": "2.12.0",
+    "@juicesharp/rpiv-todo": "2.12.0",
     "@narumitw/pi-goal": "0.54.11",
     "@narumitw/pi-plan-mode": "0.59.2",
-    "@narumitw/pi-usage": "0.61.1",
     "context-mode": "1.0.169",
     "pi-evaluate": "0.1.5",
     "pi-mcp-adapter": "5.3.1",
-    "pi-web-access": "0.34.0"
+    "pi-open-tui": "0.3.11",
+    "pi-web-access": "0.38.0"
   },
   "devDependencies": {
     "@earendil-works/pi-agent-core": "1.3.0",

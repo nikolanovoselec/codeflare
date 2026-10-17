@@ -175,6 +175,9 @@ jobs:
               - 'landing/**'
               - 'src/lib/design-ready.ts'
             pi:
+              - 'scripts/patch-rpiv-question-timeout.mjs'
+              - 'scripts/rpiv-question-timeout.mjs'
+              - 'scripts/verify-rpiv-host-peers.mjs'
               - 'scripts/verify-operator-pi-sdk.mjs'
               - 'scripts/verify-bedrock-pi-prompt-cache.mjs'
               - 'src/lib/bedrock-anthropic-native-adapter.ts'
@@ -955,7 +958,7 @@ jobs:
           rm -rf "$RUNNER_TEMP/pi-runtime"
           mkdir -p "$RUNNER_TEMP/pi-runtime/npm"
           ln -s "$GITHUB_WORKSPACE/preseed/agents/pi/node_modules" "$RUNNER_TEMP/pi-runtime/npm/node_modules"
-          node -e 'const fs=require("fs");const p=require("./preseed/agents/pi/package.json");const packages=Object.entries(p.dependencies).map(([name,version])=>name==="context-mode"?{source:`npm:${name}@${version}`,extensions:[],skills:[]}:`npm:${name}@${version}`);fs.writeFileSync(process.argv[1],JSON.stringify({packages}));' "$RUNNER_TEMP/pi-runtime/settings.json"
+          node -e 'const fs=require("fs");const p=require("./preseed/agents/pi/package.json");const packages=Object.entries(p.dependencies).map(([name,version])=>name==="context-mode"?{source:`npm:${name}@${version}`,extensions:[],skills:[]}:name==="pi-open-tui"?{source:`npm:${name}@${version}`,extensions:[]}:`npm:${name}@${version}`);fs.writeFileSync(process.argv[1],JSON.stringify({packages}));' "$RUNNER_TEMP/pi-runtime/settings.json"
           node scripts/verify-pi-prompt.mjs \
             --generated src/lib/agent-seed.generated.ts \
             --runtime-agent-dir "$RUNNER_TEMP/pi-runtime" \
@@ -988,7 +991,7 @@ jobs:
       - name: Verify real Pi runtime reports
         env:
           CODEFLARE_PI_REPORT_ROOT: ${{ runner.temp }}
-        run: node --test preseed/agents/pi/test/runtime-projection.test.mjs preseed/agents/pi/test/enterprise-routing.test.mjs preseed/agents/pi/test/enterprise-model-display.test.mjs preseed/agents/pi/test/native-display-patch.test.mjs preseed/agents/pi/test/consult-proxy.test.mjs preseed/agents/pi/test/todo-isolation.test.mjs
+        run: node --test preseed/agents/pi/test/runtime-projection.test.mjs preseed/agents/pi/test/questionnaire-timeout.test.mjs preseed/agents/pi/test/enterprise-routing.test.mjs preseed/agents/pi/test/enterprise-model-display.test.mjs preseed/agents/pi/test/native-display-patch.test.mjs preseed/agents/pi/test/consult-proxy.test.mjs preseed/agents/pi/test/todo-isolation.test.mjs
 
       - name: Upload Pi prompt reports
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -1041,6 +1044,15 @@ jobs:
         with:
           directory: host
           key-prefix: host
+
+      - name: Install authentic Graphify MCP compatibility runtime
+        run: |
+          set -euo pipefail
+          python3 -m venv "$RUNNER_TEMP/graphify-compat"
+          package=$(python3 -c 'import json; p=json.load(open("host/__fixtures__/graphify-compatibility.json")); print("graphifyy[mcp] @ " + p["wheel"] + "#sha256=" + p["sha256"])')
+          "$RUNNER_TEMP/graphify-compat/bin/python" -m pip install --disable-pip-version-check "$package"
+          "$RUNNER_TEMP/graphify-compat/bin/python" -c 'import importlib.metadata,json; p=json.load(open("host/__fixtures__/graphify-compatibility.json")); assert importlib.metadata.version("graphifyy") == p["version"]'
+          echo "GRAPHIFY_TEST_PYTHON=$RUNNER_TEMP/graphify-compat/bin/python" >> "$GITHUB_ENV"
 
       - name: Create assets directory (wrangler.toml requires web-ui/dist)
         # wrangler-static-assets.test.js reads wrangler.toml via unstable_readConfig,
