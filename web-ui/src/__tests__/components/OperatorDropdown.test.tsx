@@ -5,7 +5,8 @@ import { ApiError } from '../../api/fetch-helper';
 
 const server = vi.hoisted(() => ({
   page: [] as Array<Record<string, unknown>>, older: [] as Array<Record<string, unknown>>,
-  installations: [] as Array<Record<string, unknown>>, detail: {} as Record<string, unknown>,
+  installations: [] as Array<Record<string, unknown>>, olderInstallations: [] as Array<Record<string, unknown>>,
+  detail: {} as Record<string, unknown>,
   management: {} as Record<string, unknown>, preview: {} as Record<string, unknown>,
   prepared: {} as Record<string, { installationId: string; invocation: unknown; phase: string }>,
   nextCursor: null as string | null, installCursor: null as string | null,
@@ -26,8 +27,10 @@ vi.mock('../../api/operator-activities', () => ({
   exportOperatorActivityDiagnostics: async () => { throw new Error('Diagnostics unavailable'); },
 }));
 vi.mock('../../api/operator-management', () => ({
-  listOperatorInstallations: async () => {
+  listOperatorInstallations: async (cursor: string | null) => {
     if (server.installError) throw new Error('Unavailable');
+    if (cursor === 'older-installations') return { items: server.olderInstallations, cursor: null };
+    if (cursor) throw new Error('Unavailable page');
     return { items: server.installations, cursor: server.installCursor };
   },
   getInstallationActivityPreview: async () => {
@@ -83,6 +86,7 @@ async function review() {
 }
 beforeEach(() => {
   server.page = [row('run-1')]; server.older = [row('older-run')]; server.installations = [installation()];
+  server.olderInstallations = [];
   server.detail = { ...row('run-1'), sdkCleanupReleased: true, checkpoint: null,
     result: { repository: 'acme/updates', results: [{ pullRequest: 42, decision: 'DO_NOT_MERGE', outcome: 'NOT_MERGED',
       comment: 'Compatibility evidence is unavailable.\n\n' + 'Readable assessment. '.repeat(90) }] } };
@@ -129,6 +133,45 @@ describe('REQ-OPERATOR-086: dropdown Runs and Installed workspace', () => {
     await fireEvent.click(screen.getByRole('button', { name: 'Load next 5' }));
     await fireEvent.input(screen.getByRole('searchbox', { name: 'Find a run' }), { target: { value: '' } });
     expect(await screen.findByRole('button', { name: 'View older-run' })).toBeTruthy();
+  });
+
+  it('AC2: Installed search filters only the current page and survives empty matches, pagination and manual-review back navigation', async () => {
+    server.installations = [installation(),
+      installation({ id: 'review-install', name: 'Pull Request Reviewer', installationName: 'Review workspace', repository: 'acme/service' }),
+      installation({ id: 'monitor-install', name: 'Checks', installationName: 'Special queue', repository: 'acme/observability' })];
+    server.installCursor = 'older-installations';
+    server.olderInstallations = [installation({ id: 'older-install', installationName: 'Older updates' })];
+    await open('Installed');
+    await screen.findByRole('article', { name: 'Review workspace' });
+    const panel = screen.getByRole('tabpanel', { name: 'Installed' });
+    expect(within(panel).queryByRole('article', { name: 'Older updates' })).toBeNull();
+    const search = within(panel).getByRole('searchbox', { name: 'Find an installed operator' });
+    await fireEvent.input(search, { target: { value: '  REVIEWER  ' } });
+    expect(within(panel).getByRole('article', { name: 'Review workspace' })).toBeTruthy();
+    expect(within(panel).queryByRole('article', { name: 'Updates' })).toBeNull();
+    expect(within(panel).queryByRole('article', { name: 'Special queue' })).toBeNull();
+    await fireEvent.input(search, { target: { value: 'special queue' } });
+    expect(within(panel).getByRole('article', { name: 'Special queue' })).toBeTruthy();
+    expect(within(panel).queryByRole('article', { name: 'Review workspace' })).toBeNull();
+    await fireEvent.input(search, { target: { value: 'observability' } });
+    expect(within(panel).getByRole('article', { name: 'Special queue' })).toBeTruthy();
+    expect(within(panel).getByText(/current page/i)).toBeTruthy();
+    await fireEvent.input(search, { target: { value: 'older' } });
+    expect(within(panel).getByText('No matching installed operators on this page.')).toBeTruthy();
+    expect(within(panel).queryByRole('article')).toBeNull();
+    await fireEvent.click(within(panel).getByRole('button', { name: 'More installations' }));
+    expect(await within(panel).findByRole('article', { name: 'Older updates' })).toBeTruthy();
+    expect((within(panel).getByRole('searchbox', { name: 'Find an installed operator' }) as HTMLInputElement).value).toBe('older');
+    await fireEvent.click(within(panel).getByRole('button', { name: 'Run manually' }));
+    await within(panel).findByRole('heading', { name: 'Start a manual run' });
+    await fireEvent.click(within(panel).getByRole('button', { name: 'Back to installed operators' }));
+    expect(await within(panel).findByRole('article', { name: 'Older updates' })).toBeTruthy();
+    expect((within(panel).getByRole('searchbox', { name: 'Find an installed operator' }) as HTMLInputElement).value).toBe('older');
+    await fireEvent.click(within(panel).getByRole('button', { name: 'Newer installations' }));
+    expect(await within(panel).findByText('No matching installed operators on this page.')).toBeTruthy();
+    expect(within(panel).queryByRole('article', { name: 'Older updates' })).toBeNull();
+    await fireEvent.input(within(panel).getByRole('searchbox', { name: 'Find an installed operator' }), { target: { value: '' } });
+    expect(within(panel).getByRole('article', { name: 'Review workspace' })).toBeTruthy();
   });
 
   it('AC2: filters the visible page by operator independently of execution state', async () => {
