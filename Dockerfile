@@ -324,7 +324,7 @@ RUN SILVERBULLET_VERSION="2.11.1" && \
 # that runtime copy. Drop each overlay after its upstream artifact contains at
 # least the pinned fixed version.
 RUN CODE_SERVER_VERSION="4.141.0" && \
-    CODE_SERVER_SHA256="NEEDS_UPDATE_SEE_PR_BODY" && \
+    CODE_SERVER_SHA256="65bcd20b524d03eb1b5adb7f360244599ef0e5b74089a46a982d32c074b97a29" && \
     CODE_SERVER_COMMIT="8b41915d25547e2edd553bab03ea4cbd621f98c5" && \
     CODE_SERVER_CODE_VERSION="1.141.0" && \
     CODE_SERVER_VSCODE_COMMIT="2a59476c9bfcb90b3ddc372c36762471b7dfad1c" && \
@@ -414,32 +414,9 @@ RUN CODE_SERVER_VERSION="4.141.0" && \
     test ! -e /opt/openvscode-server && \
     rm -f /tmp/code-server.tar.gz /tmp/node-tar.tgz /tmp/pacote.tgz
 
-# Replace compression from the immutable code-server artifact without discarding
-# its existing nested debug dependency. Supply its new destroy dependency privately.
-# Remove this overlay once upstream carries compression 1.8.2 or later.
-RUN COMPRESSION_VERSION="1.8.2" && \
-    COMPRESSION_SHA512="a3cbc8e5113903a11554e77da38d632a9e35689a26f904c43bf071f0c60d8dec4ca3f06fd963a351f66bf9a2f45a7612832994cbacde82ea8b4ec22157480cbd" && \
-    DESTROY_VERSION="1.2.0" && \
-    DESTROY_SHA512="dac246253697208691d70e22252368374867318ec6a5cfe7f03e2a482270f10a855977fb72e0209c41f1069c1e69570f7af0b69772a98d80b1dcdca941081a26" && \
-    curl -fsSL --retry 3 --retry-delay 5 --connect-timeout 30 --max-time 300 \
-      "https://registry.npmjs.org/compression/-/compression-${COMPRESSION_VERSION}.tgz" -o /tmp/compression.tgz && \
-    echo "${COMPRESSION_SHA512}  /tmp/compression.tgz" | sha512sum -c - && \
-    curl -fsSL --retry 3 --retry-delay 5 --connect-timeout 30 --max-time 300 \
-      "https://registry.npmjs.org/destroy/-/destroy-${DESTROY_VERSION}.tgz" -o /tmp/destroy.tgz && \
-    echo "${DESTROY_SHA512}  /tmp/destroy.tgz" | sha512sum -c - && \
-    test "$(jq -r .version /opt/code-server/node_modules/compression/node_modules/debug/package.json)" = "2.6.9" && \
-    mv /opt/code-server/node_modules/compression/node_modules /tmp/compression-node_modules && \
-    rm -rf /opt/code-server/node_modules/compression && \
-    mkdir -p /opt/code-server/node_modules/compression && \
-    tar -xzf /tmp/compression.tgz -C /opt/code-server/node_modules/compression --strip-components=1 && \
-    mv /tmp/compression-node_modules /opt/code-server/node_modules/compression/node_modules && \
-    mkdir -p /opt/code-server/node_modules/compression/node_modules/destroy && \
-    tar -xzf /tmp/destroy.tgz -C /opt/code-server/node_modules/compression/node_modules/destroy --strip-components=1 && \
-    test "$(jq -r .version /opt/code-server/node_modules/compression/package.json)" = "$COMPRESSION_VERSION" && \
-    test "$(jq -r .version /opt/code-server/node_modules/compression/node_modules/destroy/package.json)" = "$DESTROY_VERSION" && \
-    test "$(jq -r .version /opt/code-server/node_modules/compression/node_modules/debug/package.json)" = "2.6.9" && \
-    node -e 'require("node:assert/strict").equal(typeof require("/opt/code-server/node_modules/compression")(), "function")' && \
-    rm -f /tmp/compression.tgz /tmp/destroy.tgz
+# The verified code-server 4.141.0 archive supplies the fixed compression closure.
+# Retire the separate overlay, but verify actual dependency resolution and middleware.
+RUN node -e 'const assert = require("node:assert/strict"); const { createRequire } = require("node:module"); const requireCodeServer = createRequire("/opt/code-server/package.json"); const requireCompression = createRequire(requireCodeServer.resolve("compression")); assert.equal(requireCodeServer("compression/package.json").version, "1.8.2"); assert.equal(requireCompression("destroy/package.json").version, "1.2.0"); assert.equal(requireCompression("debug/package.json").version, "2.6.9"); assert.equal(typeof requireCompression("destroy"), "function"); assert.equal(typeof requireCompression("debug"), "function"); assert.equal(typeof requireCodeServer("compression")(), "function")'
 
 # The verified brace archive is retained for shrinkwrapped Pi copies installed below.
 # Install the selected shared coding-agent launchers. IS_SANDBOX=1 allows
