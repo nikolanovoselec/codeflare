@@ -38,7 +38,7 @@
     "minimatch": ">=10.2.1",
     "glob": ">=11.0.0",
     "undici": "7.30.0",
-    "sharp": "0.35.4",
+    "sharp": "0.35.5",
     "esbuild": "$esbuild"
   },
   "devDependencies": {
