@@ -1014,6 +1014,7 @@ esac
     writeFileSync(join(piDirectory, 'package.json'), `${JSON.stringify({
       dependencies: {
         'context-mode': '1.0.0',
+        '@earendil-works/pi-coding-agent': '1.3.0',
         '@juicesharp/rpiv-todo': '2.6.0',
         'pi-web-access': '0.18.0',
       },
@@ -1031,7 +1032,7 @@ esac
     );
 
     const discover = workflow.jobs['pi-extensions-discover'].steps?.find(
-      (step) => step.name === 'List Pi extension pins (every dep except context-mode)',
+      (step) => step.name === 'List Pi extension pins (excluding dedicated atomic owners)',
     )?.run ?? '';
     const output = join(fixture, 'github-output');
     const discovered = spawnSync('bash', ['-c', discover], {
