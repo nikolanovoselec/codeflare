@@ -619,3 +619,41 @@ describe('entrypoint production helpers', () => {
     assert.equal(readFileSync(join(target, 'package.json'), 'utf8'), '{"name":"user-owned"}\n');
   });
 });
+
+
+it('REQ-AGENT-001 AC5 / REQ-AGENT-209: real restored boot migrates packages while preserving user npm metadata and credential/history bytes', t => {
+  const fixture = mkdtempSync(join(tmpdir(), 'pi-open-tui-restored-'));
+  t.after(() => rmSync(fixture, { recursive: true, force: true }));
+  const home = join(fixture, 'home'); const agentDir = join(home, '.pi/agent');
+  const preseed = join(fixture, 'preseed'); const target = join(agentDir, 'npm');
+  mkdirSync(join(preseed, 'node_modules/pi-open-tui'), { recursive: true });
+  mkdirSync(target, { recursive: true });
+  writeFileSync(join(preseed, 'package.json'), '{"image":"new"}\n');
+  writeFileSync(join(preseed, 'package-lock.json'), '{"imageLock":"new"}\n');
+  const preserved = new Map([
+    [join(target, 'package.json'), '{"name":"user-owned","dependencies":{"user-package":"1.0.0"}}\n'],
+    [join(target, 'package-lock.json'), '{"userLock":"retain bytes"}\n'],
+    [join(agentDir, 'auth.json'), '{"fixture-auth":"retain"}\n'],
+    [join(agentDir, 'history.json'), '["retain history"]\n'],
+    [join(agentDir, 'usage.json'), '{"credential":"fixture-retain"}\n'],
+  ]);
+  for (const [path, bytes] of preserved) writeFileSync(path, bytes);
+  const settingsPath = join(agentDir, 'settings.json');
+  writeFileSync(settingsPath, JSON.stringify({ packages: ['npm:@narumitw/pi-usage',
+    { source: 'npm:pi-open-tui@0.1.0', extensions: [] }, 'npm:user-package@1.0.0'], customPreference: 'retain' }));
+  const env = { USER_HOME: home, PI_SETTINGS_FILE: settingsPath, PI_NPM_PRESEED: preseed,
+    PI_NPM_DIR: target, ADVISOR_CONFIG_FILE: join(home, 'advisor.json'), CODEFLARE_RUNTIME_ROOT: join(fixture, 'runtime') };
+  const boot = () => runFunction('warm_pi_npm_dependencies', extractFunction('configure_pi_packages_and_review_inventory'),
+    'warm_pi_npm_dependencies', env);
+  const first = boot(); assert.equal(first.status, 0, first.stderr);
+  const settings = JSON.parse(readFileSync(settingsPath, 'utf8'));
+  assert.deepEqual(settings.packages.filter(entry => (typeof entry === 'string' ? entry : entry.source).startsWith('npm:pi-open-tui@')),
+    [{ source: 'npm:pi-open-tui@0.3.11', extensions: [] }]);
+  assert.ok(!settings.packages.some(entry => /^npm:@narumitw\/pi-usage(?:@|$)/.test(typeof entry === 'string' ? entry : entry.source)));
+  assert.ok(settings.packages.includes('npm:user-package@1.0.0')); assert.equal(settings.customPreference, 'retain');
+  const before = readFileSync(settingsPath, 'utf8');
+  const second = boot(); assert.equal(second.status, 0, second.stderr);
+  assert.equal(readFileSync(settingsPath, 'utf8'), before);
+  for (const [path, bytes] of preserved) assert.equal(readFileSync(path, 'utf8'), bytes);
+  assert.equal(readlinkSync(join(target, 'node_modules')), join(preseed, 'node_modules'));
+});
