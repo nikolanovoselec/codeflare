@@ -129,7 +129,7 @@ const OperatorActivityButton: Component<Props> = props => {
           'operator-activity-panel--empty': !activities.loading && !loadError() && !activities()?.items.length,
         }} style={viewportWidth() > 640 ? { top: `${position().top}px`, right: `${position().right}px` } : undefined}
           tabindex="-1" role="dialog" aria-label="Operator activity" aria-modal="false">
-          <header><h2>Operators</h2><button type="button" class="header-icon-button" aria-label="Close operator overview" disabled={locked()} onClick={close}><Icon path={mdiClose} size={20} /></button></header>
+          <header><h2>Operators</h2><button type="button" class="header-icon-button" aria-label="Close operators" disabled={locked()} onClick={close}><Icon path={mdiClose} size={20} /></button></header>
           <div class="operator-dropdown-segments" role="tablist" aria-label="Operator views">
             <For each={['Runs', 'Installed'] as const}>{name => <button type="button" role="tab" aria-selected={segment() === name}
               aria-controls={`operator-${name.toLowerCase()}-panel`} id={`operator-${name.toLowerCase()}-tab`}
@@ -180,7 +180,7 @@ const OperatorActivityButton: Component<Props> = props => {
             <OperatorInstalled locked={setLocked} opened={id => { select(id); setSegment('Runs'); void refetch(); }} />
           </div></Show>
           <Show when={actionMessage()}><p class="operator-dropdown-notice" role="status">{actionMessage()}</p></Show>
-          <footer><small>{loadError() ? 'Update unavailable' : loadedAt() ? `Updated ${new Date(loadedAt()!).toLocaleTimeString()}` : 'Waiting for update'}</small><button type="button" disabled={locked()} onClick={() => { void refetch(); if (selected()) void refetchDetail(); }}>Refresh</button></footer>
+          <footer><small>{loadError() ? 'Update unavailable' : loadedAt() ? `Updated ${new Date(loadedAt()!).toLocaleTimeString()}` : 'Waiting for update'}</small><button type="button" aria-label="Refresh runs" disabled={locked()} onClick={() => { void refetch(); if (selected()) void refetchDetail(); }}>Refresh</button></footer>
         </section>
       </Show></Portal>
     </div>

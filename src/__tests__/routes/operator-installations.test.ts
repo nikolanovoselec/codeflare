@@ -106,6 +106,7 @@ describe('REQ-OPERATOR-086 AC5/6: current-human installed operator projection', 
     const f = fixture(); f.installed.enabled = false;
     expect(await (await f.request()).json()).toMatchObject({ items: [{ enabled: false, guidedMode: 'repository',
       repository: 'acme/updates', automaticRuns: false, repetitionIntervalSeconds: 3600 }] });
+    expect((await f.request('/visible-install/preview')).status).toBe(404);
     f.installed.enabled = true; f.release.approved = false;
     expect(await (await f.request()).json()).toMatchObject({ items: [{ approved: false, guidedMode: null }] });
     f.installed.releaseId = 'missing-release';

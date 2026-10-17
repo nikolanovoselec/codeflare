@@ -1408,11 +1408,22 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string; O
     return this.managementExecution(installationId);
   }
 
+  /** Read-only pinned configuration support; never an execution-admission check. */
+  async resolveManagementConfiguration(installationId: string): Promise<OperatorRegistryResult<ManagementExecutionSelection>> {
+    return this.managementSelection(installationId);
+  }
+
   private managementExecution(installationId: string): OperatorRegistryResult<ManagementExecutionSelection> {
+    const installation = this.managementInstallation(installationId);
+    if (installation && !installation.enabled) return { ok: false, reason: 'disabled' };
+    return this.managementSelection(installationId);
+  }
+
+  private managementSelection(installationId: string): OperatorRegistryResult<ManagementExecutionSelection> {
     const installation = this.managementInstallation(installationId);
     if (!installation) return { ok: false, reason: 'not-found' };
     const state = this.managementState(installation.operatorId);
-    if (!state || !installation.enabled) return { ok: false, reason: 'disabled' };
+    if (!state) return { ok: false, reason: 'disabled' };
     const row = this.ctx.storage.sql.exec<{ data: string; manifest: string }>('SELECT data,manifest FROM operator_releases WHERE id=? AND operator_id=?', installation.releaseId ?? '', installation.operatorId).toArray()[0];
     if (!row || installation.approvedSourceRevision !== state.sourceRevision || !this.restrictivePolicy(installation.policy, state.policy)) return { ok: false, reason: 'artifact-unapproved' };
     const release = JSON.parse(row.data) as ManagementRelease;

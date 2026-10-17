@@ -167,7 +167,7 @@ app.get('/installations', async c => {
     for (const installation of installations) {
       const release = releases.find(value => value.id === installation.releaseId && value.operatorId === operator.id);
       const approved = release?.approved === true;
-      const selected = installation.enabled && approved ? await registry.resolveManagementExecution(installation.id) : null;
+      const selected = approved ? await registry.resolveManagementConfiguration(installation.id) : null;
       const preview = selected?.ok && selected.value.release.id === installation.releaseId
         && selected.value.installation.revision === installation.revision ? guidedPreview(selected.value) : null;
       const settings = preview?.guidedMode === 'repository' ? parseRenovateRunSettings(installation.configurationJson) : null;

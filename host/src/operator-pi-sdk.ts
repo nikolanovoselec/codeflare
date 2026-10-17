@@ -7,8 +7,8 @@
  */
 import path from 'node:path';
 import { createHash } from 'node:crypto';
-import { createRequire } from 'node:module';
-import { mkdir, open } from 'node:fs/promises';
+import { findPackageJSON } from 'node:module';
+import { mkdir, open, readFile } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
 import type { OperatorPiFactory, OperatorPiSession } from './operator-pi.js';
 import { createOperatorPiReviewTools, type OperatorPiReviewConfig, type ReviewToolSdk } from './operator-pi-review.js';
@@ -97,8 +97,12 @@ export function createProvisionedOperatorPiFactory(options: {
   const sdkRoot = path.resolve(options.sdkRoot ?? DEFAULT_SDK_ROOT);
   const loadSdk = options.importSdk ?? (async () => import(pathToFileURL(path.join(sdkRoot, 'dist/index.js')).href));
   const loadPiAi = options.importPiAi ?? (async () => {
-    const sdkRequire = createRequire(path.join(sdkRoot, 'package.json'));
-    return import(pathToFileURL(sdkRequire.resolve('@earendil-works/pi-ai')).href);
+    const packageJson = findPackageJSON('@earendil-works/pi-ai', pathToFileURL(path.join(sdkRoot, 'package.json')));
+    if (!packageJson) throw new Error('Provisioned Pi AI package is unavailable');
+    const manifest = JSON.parse(await readFile(packageJson, 'utf8'));
+    const entry = manifest.exports?.['.']?.import;
+    if (typeof entry !== 'string' || !entry.startsWith('./')) throw new Error('Provisioned Pi AI public import is incompatible');
+    return import(new URL(entry, pathToFileURL(packageJson)).href);
   });
   const approvedTools = options.isolated ? ['run_approved_tasks']
     : options.review ? ['read', 'write'] : [...options.profile.tools];

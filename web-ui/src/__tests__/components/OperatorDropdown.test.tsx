@@ -226,8 +226,10 @@ describe('REQ-OPERATOR-086: dropdown Runs and Installed workspace', () => {
     expect(server.savedPolicy).toEqual({ capabilities: ['fetch', 'inference'], resourceProfileId: null });
     expect(server.prepared).toEqual({});
     expect(await screen.findByText(/saved.*disabled/i)).toBeTruthy();
-    await waitFor(() => expect((screen.getByRole('checkbox', { name: /automatic runs/i }) as HTMLInputElement).checked).toBe(true));
-    expect(screen.getByRole('button', { name: /run manually/i }).hasAttribute('disabled')).toBe(true);
+    await waitFor(() => {
+      expect((screen.getByRole('checkbox', { name: /automatic runs/i }) as HTMLInputElement).checked).toBe(true);
+      expect(screen.getByRole('button', { name: /run manually/i }).hasAttribute('disabled')).toBe(true);
+    });
     await fireEvent.click(screen.getByRole('checkbox', { name: /automatic runs/i }));
     await fireEvent.click(screen.getByRole('button', { name: 'Save scheduling' }));
     await waitFor(() => expect(server.savedRevision).toBe(8));
