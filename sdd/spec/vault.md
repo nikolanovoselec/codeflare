@@ -606,7 +606,9 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 
 **Constraints:**
 
-- The graft does not alter `VAULT_NATIVE_SW_VERBATIM` or its SHA-256 drift guard. A coupled SilverBullet release update advances both deliberately; incompatible graft anchors still fail closed.
+- Grafting leaves `VAULT_NATIVE_SW_VERBATIM` and its SHA-256 drift guard unchanged.
+- Coupled SilverBullet release updates deliberately advance both upstream bytes and digest.
+- Incompatible graft anchors fail closed.
 
 **Priority:** P0
 

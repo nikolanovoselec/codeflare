@@ -63,6 +63,14 @@ export function nativeWorkerRuntime(worker: string, transport: (input: RequestIn
   const databases = new Map<string, IDBDatabase>();
   const indexedDB = {
     databases: async () => [...databases.keys()].map(name => ({ name })),
+    deleteDatabase(name: string) {
+      const deletion = new IDBRequest();
+      queueMicrotask(() => {
+        databases.delete(name);
+        deletion.dispatchEvent(new Event('success'));
+      });
+      return deletion;
+    },
     open(name: string) {
       const opening = new IDBRequest();
       const isNew = !databases.has(name);

@@ -43,7 +43,7 @@ describe.each(['image export', 'upstream candidate'] as const)('CF-045: vault-na
     const runtime = nativeWorkerRuntime(servedWorker(), async (input, options) => {
       const url = input instanceof Request ? input.url : String(input);
       requests.push({ url, credentials: options?.credentials });
-      if (url === 'https://vault.test/.vault-key') return recover();
+      if (url === 'https://vault.test/.vault-key') return await recover();
       if (url === '/.fs') return Response.json([]);
       throw new Error(`Unexpected native worker transport: ${url}`);
     });
@@ -122,10 +122,14 @@ describe.each(['image export', 'upstream candidate'] as const)('CF-045: vault-na
 
   it('REQ-VAULT-024: AC5 active native logout blocks both cold read sites without recovering AES', async () => {
     const runtime = servedRuntime();
+    // Native startup opens share-capture storage independently of AES/config.
+    // Blocked configuration must open no additional database or key request.
+    const initialDatabases = [...runtime.databases.keys()];
     expect(await runtime.message({ type: 'logout-sync', id: 'active' })).toEqual([{ ok: true, databases: [] }]);
     expect(await runtime.message({ type: 'get-encryption-key' })).toEqual([]);
     expect(await runtime.message({ type: 'config', config })).toEqual([]);
-    expect([...runtime.databases.keys()]).toEqual([]);
+    expect([...runtime.databases.keys()]).toEqual(initialDatabases);
+    expect(runtime.requests).toEqual([]);
     await runtime.message({ type: 'logout-cancel', id: 'active' });
     expect(await runtime.message({ type: 'get-encryption-key' })).toEqual([{ type: 'encryption-key', key: aesKey }]);
   });

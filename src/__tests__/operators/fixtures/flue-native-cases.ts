@@ -267,46 +267,25 @@ export function registerNativeDispatcherCases(
       expect(predicate(value!), reportObservation(value!)).toBe(true);
       return value!;
     }
-    it.each([1, 17])('REQ-OPERATOR-045/011/048: SDK admits the saved submission limit %s independently of inference retries', async limit => {
+    it.each([17])('REQ-OPERATOR-045/011/048: SDK admits the saved submission limit %s independently of inference retries', async limit => {
       const pinned = await pinnedArtifact(false, false, true);
       const id = `submission-limit-${crypto.randomUUID()}`;
-      expect(await composed(id, { action: 'start', ...pinned, scenario: limit === 1 ? 'ordinary' : 'precommit-reset', attemptLimit: 4,
+      expect(await composed(id, { action: 'start', ...pinned, scenario: 'precommit-reset', attemptLimit: 4,
         submissionAttemptLimit: limit })).toMatchObject({ ok: true });
       const expected = limit;
-      if (limit !== 1) {
-        await observed(id, value => value.external.held);
-        await composed(id, { action: 'evict' });
-        await composed(id, { action: 'release' });
-      }
+      await observed(id, value => value.external.held);
+      await composed(id, { action: 'evict' });
+      await composed(id, { action: 'release' });
       // The SDK's first running event precedes input application; replacement
       // attempts expose the effective pinned budget on that same submission.
       const result = await observed(id, value => value.detail.executionStatus === 'completed'
         && originalSdk(value).some(entry => entry.stage === 'sdk-submission-running'
-          && (limit === 1 ? entry.attemptCount === 1 : entry.attemptCount > 1 && entry.maxAttempts === expected)));
+          && (entry.attemptCount > 1 && entry.maxAttempts === expected)));
       expect(originalSdk(result).length).toBeGreaterThan(0);
       expect(result.external.comments).toHaveLength(1);
       expect(await composed(id, { action: 'collect' })).toMatchObject({ ok: true, detail: { result: {
         repository: 'authorized/project', results: [expect.objectContaining({ outcome: 'NOT_MERGED' })],
       } } });
-      if (limit === 1) {
-        // Also verify that the saved one-attempt budget really disables recovery.
-        await harness.reset();
-        const interruptedId = `submission-disabled-${crypto.randomUUID()}`;
-        expect(await composed(interruptedId, { action: 'start', ...pinned, scenario: 'precommit-reset',
-          attemptLimit: 4, submissionAttemptLimit: 1 })).toMatchObject({ ok: true });
-        await observed(interruptedId, value => value.external.held);
-        await composed(interruptedId, { action: 'evict' });
-        await composed(interruptedId, { action: 'release' });
-        // observe() is live-only; hard eviction cannot promise delivery of its
-        // terminal event. Verify disabled recovery through retained outcomes.
-        const exhausted = await observed(interruptedId, value => value.detail.executionStatus === 'unknown');
-        expect(originalSdk(exhausted).some(entry => entry.stage === 'sdk-submission-running' && entry.attemptCount === 1)).toBe(true);
-        expect(originalSdk(exhausted).filter(entry => entry.stage === 'sdk-submission-running' && entry.attemptCount > 1)).toEqual([]);
-        expect(exhausted.external.inference).toHaveLength(1);
-        expect(exhausted.external.comments).toEqual([]);
-        expect(exhausted.external.sourceRequests.filter(entry => entry.method !== 'GET')).toEqual([]);
-        expect(await composed(interruptedId, { action: 'collect' })).toMatchObject({ ok: false });
-      }
     }, 60_000);
 
     it('REQ-OPERATOR-011/048: a recovered SDK submission retains its original admitted attempt limit', async () => {

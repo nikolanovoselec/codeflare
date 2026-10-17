@@ -495,7 +495,7 @@ describe('entrypoint production helpers', () => {
       assert.equal(readFileSync(processor, 'utf8'), readFileSync(join(source, 'dist/utils/image-process.js'), 'utf8'));
       const healthy = verify(); assert.equal(healthy.status, 0, healthy.stderr);
       assert.match(repaired.stdout, /repairing Pi dependencies from the lockfile/);
-      // REQ-AGENT-220 AC3: supported repair must prepare the real questionnaire,
+      // REQ-AGENT-220 AC5: supported repair must prepare the real questionnaire,
       // while unexpected source drift must remain an observable preparation error.
       const questionnaire = join(tools, 'node_modules/@juicesharp/rpiv-ask-user-question/ask-user-question.ts');
       const prepared = readFileSync(questionnaire, 'utf8');
