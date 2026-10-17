@@ -8,21 +8,21 @@
 
 The authoritative inventory is [`preseed/agents/pi/package.json`](../../preseed/agents/pi/package.json), its committed lockfile, [`preseed/npm-tools/package.json`](../../preseed/npm-tools/package.json), Docker inputs, and startup assembly. The image uses `npm ci` and rejects runtime/prewarm Pi drift. This reference authorizes no dependency update.
 
-| Package | Source pin | Surface |
-|---|---|---|
-| `@earendil-works/pi-coding-agent` | 1.3.0 | Runtime/prewarm lockstep |
-| `@earendil-works/pi-agent-core`, `pi-ai`, `pi-tui` | 1.3.0 | Matching development SDKs |
-| `@gotgenes/pi-subagents` | 23.4.2 | Native background delivery and public service accessor |
-| `@juicesharp/rpiv-advisor` | 2.12.0 | Explicit-current-user advisor workflow |
-| `@juicesharp/rpiv-ask-user-question` | 2.12.0 | Questionnaire and stable notifier channel |
-| `@juicesharp/rpiv-todo` | 2.12.0 | Session-scoped task state |
-| `@narumitw/pi-goal` | 0.54.11 | Native Goal and exact-version continuation/review transform |
-| `@narumitw/pi-plan-mode` | 0.59.2 | Native Plan and registered-tool policy transform |
-| `@narumitw/pi-usage` | 0.61.1 | `/usage`, declared `dist/index.ts` |
-| `context-mode` | 1.0.169 | Installed, disabled at each container start; explicit foreground opt-in |
-| `pi-evaluate` | 0.1.5 | User-invoked reporting skill, no tool or command |
-| `pi-mcp-adapter` | 5.3.1 | Lazy managed MCP servers and lossless legacy migration |
-| `pi-web-access` | 0.38.0 | Web retrieval and headless-safe default search workflow |
+| Package | Surface |
+|---|---|
+| `@earendil-works/pi-coding-agent` | Runtime/prewarm lockstep |
+| `@earendil-works/pi-agent-core`, `pi-ai`, `pi-tui` | Matching development SDKs |
+| `@gotgenes/pi-subagents` | Native background delivery and public service accessor |
+| `@juicesharp/rpiv-advisor` | Explicit-current-user advisor workflow |
+| `@juicesharp/rpiv-ask-user-question` | Questionnaire and stable notifier channel |
+| `@juicesharp/rpiv-todo` | Session-scoped task state |
+| `@narumitw/pi-goal` | Native Goal and exact-version continuation/review transform |
+| `@narumitw/pi-plan-mode` | Native Plan and registered-tool policy transform |
+| `@narumitw/pi-usage` | `/usage`, declared `dist/index.ts` |
+| `context-mode` | Installed, disabled at each container start; explicit foreground opt-in |
+| `pi-evaluate` | User-invoked reporting skill, no tool or command |
+| `pi-mcp-adapter` | Lazy managed MCP servers and lossless legacy migration |
+| `pi-web-access` | Web retrieval and headless-safe default search workflow |
 
 ## Loading and warm compatibility
 
@@ -38,7 +38,7 @@ The complete RPIV preparation contract remains [REQ-AGENT-210](../../sdd/spec/ag
 - RPIV shadow-pin candidates update matching lock-backed manifests and must pass the patch and actual loading of the preseed extensions through both installed Pi SDKs before any branch push.
 - Incompatible candidates fail the job without publication.
 
-Pi 1.3.0 includes native MCP, but deferred tool exposure is not lazy server allocation: enabled native servers connect eagerly. The adapter remains the managed MCP lifecycle owner. Managed startup must disable `builtin:mcp` with the documented `-builtin:mcp` extension entry while preserving unrelated extension selections; a first-session command warning is not proof of correct ownership. The coordinated upgrade's source startup, transform and authentic-adapter checks passed [PR Checks 39013450649](https://github.com/nikolanovoselec/codeflare/actions/runs/39013450649) at `bece2e3065f81ffd038f71dc255ef508eb0c6ea2`. Image construction, installed runtime behavior and deployed acceptance remain separate pending gates; package presence and source CI do not satisfy them.
+Pi includes native MCP, but deferred tool exposure is not lazy server allocation: enabled native servers connect eagerly. The adapter remains the managed MCP lifecycle owner. Managed startup must disable `builtin:mcp` with the documented `-builtin:mcp` extension entry while preserving unrelated extension selections; a first-session command warning is not proof of correct ownership. The coordinated upgrade's source startup, transform and authentic-adapter checks passed [PR Checks 39013450649](https://github.com/nikolanovoselec/codeflare/actions/runs/39013450649) at `bece2e3065f81ffd038f71dc255ef508eb0c6ea2`. Image construction, installed runtime behavior and deployed acceptance remain separate pending gates; package presence and source CI do not satisfy them.
 
 ## Context-mode and web access
 
@@ -46,15 +46,15 @@ Context-mode has image-owned ESM compatibility and update-probe suppression in b
 
 The foreground extension loads the installed adapter without changing package lifecycle ownership. In-process children do not create competing bridges. Fresh startup restores disabled even after earlier opt-in. Every managed workflow retains native fallbacks. Licensing rationale remains [AD49](../decisions/README.md#ad49-context-mode-delivered-as-preseed-plugin-not-runtime-install).
 
-Web access retains `web_search`, `source_check`, `fetch_content`, and paged `get_search_content` offset/limit retrieval. Search uses Pi's model registry or zero-config Exa routing without a per-user API key. Version 0.38.0 reports all-failed calls as errors, returns structured results, uses Perplexity Search API snippets for ordinary search, changes OpenAI search defaults, and isolates live session/cache lifetimes. Paid Ceramic is explicit-only, excluded from `auto`/`all`. Its declared native `dist/index.js` remains the image warm target; the new standalone MCP CLI is not configured for Claude. Native import evidence is not a V8 cache-hit claim. Create-if-missing `~/.pi/web-search.json` defaults to `{"workflow":"auto-summary"}`; deliberate `summary-review` opt-in survives later boots. Codeflare supplies the retained `librarian` skill in both modes, not a duplicate upstream copy. Optional `web_enable` follows upstream `toolActivation`; an old resumed session may need a new session to acquire its recorded selection.
+Web access retains `web_search`, `source_check`, `fetch_content`, and paged `get_search_content` offset/limit retrieval. Search uses Pi's model registry or zero-config Exa routing without a per-user API key. The package reports all-failed calls as errors, returns structured results, uses Perplexity Search API snippets for ordinary search, changes OpenAI search defaults, and isolates live session/cache lifetimes. Paid Ceramic is explicit-only, excluded from `auto`/`all`. Its declared native `dist/index.js` remains the image warm target; the new standalone MCP CLI is not configured for Claude. Native import evidence is not a V8 cache-hit claim. Create-if-missing `~/.pi/web-search.json` defaults to `{"workflow":"auto-summary"}`; deliberate `summary-review` opt-in survives later boots. Codeflare supplies the retained `librarian` skill in both modes, not a duplicate upstream copy. Optional `web_enable` follows upstream `toolActivation`; an old resumed session may need a new session to acquire its recorded selection.
 
 ## Goal and Plan transforms
 
 Goal and Plan share upstream's session-scoped `workflow:mutex:v1`. Activation refuses competing ownership; ending a workflow releases it. Their active tool policy is owned by [Preseed](../lanes/preseed.md#session-modes), not by removing installed packages.
 
-Before JITI warm-up, `scripts/patch-pi-goal-review-control.mjs` transforms exact locked Goal 0.54.11. It accepts published `dist/index.ts` or the already-transformed `src/index.ts` declaration on an idempotent rerun, then normalizes the sole Pi entrypoint to patched `src/index.ts`. Unreviewed versions, entrypoints, or layouts fail before writes. <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchPiGoalDirectory -->
+Before JITI warm-up, `scripts/patch-pi-goal-review-control.mjs` transforms the exact locked Goal package. It accepts published `dist/index.ts` or the already-transformed `src/index.ts` declaration on an idempotent rerun, then normalizes the sole Pi entrypoint to patched `src/index.ts`. Unreviewed versions, entrypoints, or layouts fail before writes. <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchPiGoalDirectory -->
 
-The transform calculates the package manifest and all seven patched source files before writing, and admits only reviewed 0.54.3, 0.54.4, 0.54.8 and 0.54.11 layouts. The host suite verifies/extracts the exact registry archive and loads the transformed declared entrypoint. Version, declaration, anchor or layout drift leaves every file untouched. Weekly shadow-pin candidates run the same preflight before publication; later releases require source/integrity/anchor review. <!-- @impl: .github/workflows/bump-shadow-pins.yml::pi-extensions --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-111/REQ-OPS-020: patches the exact latest pi-goal layout without double registration) -->
+The transform calculates the package manifest and all seven patched source files before writing, and admits only the reviewed layouts listed in the transform. The host suite verifies/extracts the exact registry archive and loads the transformed declared entrypoint. Version, declaration, anchor or layout drift leaves every file untouched. Weekly shadow-pin candidates run the same preflight before publication; later releases require source/integrity/anchor review. <!-- @impl: .github/workflows/bump-shadow-pins.yml::pi-extensions --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-111/REQ-OPS-020: patches the exact latest pi-goal layout without double registration) -->
 
 Goal's session-local control channel delegates pause/resume to its own command controller. Trusted review pause uses the non-aborting option: it cancels Goal continuation without aborting the independently queued review turn or background work. Manual pause retains normal current-turn abort ([REQ-AGENT-144](../../sdd/spec/agents.md#req-agent-144-review-owned-goal-pause-command-compatibility)). FIX resume suppresses a separate Goal continuation because the FIX follow-up owns the next turn; closure also suppresses it and schedules none. Neither enables Managed Run RPC, populates the input field, or turns command text into model input ([REQ-AGENT-114](../../sdd/spec/agents.md#req-agent-114-review-owned-goal-continuation)).
 
@@ -64,7 +64,7 @@ A positive interval creates one timer. Every later settled boundary clears/re-ar
 
 Boundary pause ownership is recorded before awaiting the trusted bridge, so launch begins against settled Goal state. Unavailable ownership/control lets review proceed without pause. An exact persisted review-owned pause retains release ownership even when bridge response is missing or unsuccessful. Matching FIX acknowledgment requests resume; manual resume winning the race clears stale ownership without a false error. Closure and authorized rollback release their correlated ownership. CI or individual reviewer notifications never resume Goal. Missing control, replacement Goal and independent reactivation retain existing fail-open behavior ([REQ-AGENT-112](../../sdd/spec/agents.md#req-agent-112-goal-pause-ownership-across-pr-heads), [REQ-AGENT-113](../../sdd/spec/agents.md#req-agent-113-review-owned-goal-release), [REQ-AGENT-117](../../sdd/spec/agents.md#req-agent-117-non-disruptive-review-owned-goal-control)).
 
-Plan 0.59.2's exact-version transform resolves helper availability and configured policy from registered tools rather than the small active bootstrap set. Source-layout/partial-patch drift fails before writes. Its declared `dist/index.ts` is loaded and JITI-verified. <!-- @impl: scripts/patch-pi-plan-mode-tool-policy.mjs::patchPiPlanModeDirectory --> Startup atomically replaces `pi-plan-mode.json`; the managed frozen policy excludes generic questions, arbitrary context execution, MCP, delegation, task mutation, and advisor. `/plan save` remains session-local; pathless export keeps upstream `PLAN.md`. No automatic plan-file writer is added. <!-- @impl: entrypoint.sh::configure_pi_plan_mode -->
+Plan's exact-version transform resolves helper availability and configured policy from registered tools rather than the small active bootstrap set. Source-layout/partial-patch drift fails before writes. Its declared `dist/index.ts` is loaded and JITI-verified. <!-- @impl: scripts/patch-pi-plan-mode-tool-policy.mjs::patchPiPlanModeDirectory --> Startup atomically replaces `pi-plan-mode.json`; the managed frozen policy excludes generic questions, arbitrary context execution, MCP, delegation, task mutation, and advisor. `/plan save` remains session-local; pathless export keeps upstream `PLAN.md`. No automatic plan-file writer is added. <!-- @impl: entrypoint.sh::configure_pi_plan_mode -->
 
 ## MCP adapter and consult-llm
 
@@ -83,11 +83,11 @@ Initial restore still admits the legacy root for recovery. No bucket objects are
 
 ## User workflows and retirement
 
-Advisor requires an explicit current-user request; startup guidance adds no autonomous route. RPIV Advisor 2.12.0 provides one identical-input retry for a transient empty model response while preserving immediate abort/error propagation. Its `advisor` tool and user-only `/advisor` command do not authorize assistant invocation.
+Advisor requires an explicit current-user request; startup guidance adds no autonomous route. RPIV Advisor provides one identical-input retry for a transient empty model response while preserving immediate abort/error propagation. Its `advisor` tool and user-only `/advisor` command do not authorize assistant invocation.
 
-Evaluate 0.1.5 is exact-pinned from its reviewed [MIT npm tarball](https://registry.npmjs.org/pi-evaluate/-/pi-evaluate-0.1.5.tgz). Its extension registers the packaged skill directory on `resources_discover`; it ships no tool or command and runs only when the user invokes `/skill:evaluate`. The skill reads a [reespec](https://github.com/bnenu/reespec) brief and specs when `reespec/requests/` exists, otherwise a user-pasted contract, together with produced outputs. It returns per-capability satisfied/partial/unsatisfied/unclear verdicts and triage, deliberately excludes implementation intent, and reports gaps rather than fixing them. Codeflare applies no patch or fork. The image explicitly loads `extensions/evaluate.ts` and requires its path-correct JITI artifact ([REQ-AGENT-133](../../sdd/spec/agents.md#req-agent-133-native-evaluation-workflow-in-pi-sessions)). Lock-backed weekly shadow-pin discovery includes future releases.
+The [Pi manifest](../../preseed/agents/pi/package.json) and [lockfile](../../preseed/agents/pi/package-lock.json) pin Evaluate's reviewed MIT package and integrity. Its extension registers the packaged skill directory on `resources_discover`; it ships no tool or command and runs only when the user invokes `/skill:evaluate`. The skill reads a [reespec](https://github.com/bnenu/reespec) brief and specs when `reespec/requests/` exists, otherwise a user-pasted contract, together with produced outputs. It returns per-capability satisfied/partial/unsatisfied/unclear verdicts and triage, deliberately excludes implementation intent, and reports gaps rather than fixing them. Codeflare applies no patch or fork. The image explicitly loads `extensions/evaluate.ts` and requires its path-correct JITI artifact ([REQ-AGENT-133](../../sdd/spec/agents.md#req-agent-133-native-evaluation-workflow-in-pi-sessions)). Lock-backed weekly shadow-pin discovery includes future releases.
 
-Usage 0.61.1 is exact-pinned from its reviewed [MIT npm tarball](https://registry.npmjs.org/@narumitw/pi-usage/-/pi-usage-0.61.1.tgz); its package and `@narumitw/pi-tui-kit` dependency are integrity-locked. The earlier 0.59.0 review covered official Codex, GitHub Copilot, OpenRouter, OpenCode Go and Z.AI origin validation, bounded/redacted responses, and explicit confirmation before consuming a Codex reset. That historical review is not live acceptance of every provider path in the updated package. The image explicitly loads `dist/index.ts`, registered as `/usage`, and requires its path-correct JITI artifact ([REQ-AGENT-131](../../sdd/spec/agents.md#req-agent-131-native-usage-workflow-in-pi-sessions)). Lock-backed weekly shadow-pin discovery includes future releases.
+The [Pi manifest](../../preseed/agents/pi/package.json) and [lockfile](../../preseed/agents/pi/package-lock.json) pin Usage's reviewed MIT package and its `@narumitw/pi-tui-kit` dependency by integrity. The earlier package review covered official Codex, GitHub Copilot, OpenRouter, OpenCode Go and Z.AI origin validation, bounded/redacted responses, and explicit confirmation before consuming a Codex reset. That historical review is not live acceptance of every provider path in the updated package. The image explicitly loads `dist/index.ts`, registered as `/usage`, and requires its path-correct JITI artifact ([REQ-AGENT-131](../../sdd/spec/agents.md#req-agent-131-native-usage-workflow-in-pi-sessions)). Lock-backed weekly shadow-pin discovery includes future releases.
 
 Startup removes only explicit retired package identities from persisted settings, preserving unrelated user additions. Todo state stays session/transcript scoped; no global task database or retired AD100 source override returns. `goal_wait` remains execution-blocked even if another extension re-exposes it. Subagents' active-resume guard rejects queued/running mutation through the reviewed public accessor; settled/unknown records retain upstream behavior.
 

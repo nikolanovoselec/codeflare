@@ -14,7 +14,7 @@ Codeflare is licensed under [PolyForm Noncommercial 1.0.0](LICENSE). By submitti
 
 ### Prerequisites
 
-Use Git, GitHub access to your fork, and Node.js 22 with npm. Package and workflow definitions remain authoritative for exact CI versions. Cloudflare credentials are required only for changes that need an integration deployment; never commit them.
+Use Git, GitHub access to your fork, and Node.js with npm. The [CI workflow](.github/workflows/test.yml) and package manifests select the required runtime and dependency versions. Cloudflare credentials are required only for changes that need an integration deployment; never commit them.
 
 ### Fork and install
 

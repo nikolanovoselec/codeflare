@@ -113,7 +113,7 @@ Verify `extensions.allowed` retains `"*": true` plus the Codeflare entry. The we
 
 **Fix:** For model-boundary or editor-picker errors, verify the packaged Pi manifest enables `chatParticipantAdditions`, `chatParticipantPrivate`, `chatProvider`, and `defaultChatParticipant`, contributes `codeflare.pi` at panel and editor locations, publishes a hidden panel-default `copilot` fallback, and publishes a selectable panel/editor-default model under the distinct `codeflare` vendor with tool calling and no authorization. Generation through either adapter must still reject while participant requests use local Pi RPC. If custom agents appear twice, verify Pi User settings contain `"chat.agentFilesLocations": { "~/.claude/agents": false }`; retain `~/.copilot/agents` and do not remove Pi's own `~/.pi/agent/agents`. Do not sign into Copilot.
 
-For request failures, confirm the file is under `/home/user/workspace`, the participant is `codeflare.pi`, and Pi uses the fixed RPC/no-session flags. Code OSS 1.132 editor Inline Chat does not render ordinary unrestricted-participant output. [AD127](../decisions/README.md#ad127-native-inline-chat-uses-proposal-only-pi-turns-and-host-owned-text-edits) records host-owned edit execution, [AD128](../decisions/README.md#ad128-inline-review-lifecycle-belongs-to-the-pinned-controller) records controller ownership, and [AD135](../decisions/README.md#ad135-inline-chat-requires-one-host-correlated-result) records the mandatory edit-or-no-change result. A healthy editor request stays in Inline Chat, immediately shows bounded progress and native reasoning, emits start/edit/done parts for the invoking document, and leaves visible Keep/Close actions to the native controller. `noChange` is reserved for an already-satisfied request or one with no valid safe edit; use Panel Chat for informational explanations. <!-- @impl: openvscode/agent-sidebar/src/extension.ts::activate --> <!-- @impl: preseed/agents/pi/extensions/inline-edit.ts::registerInlineEditMode -->
+For request failures, confirm the file is under `/home/user/workspace`, the participant is `codeflare.pi`, and Pi uses the fixed RPC/no-session flags. Code OSS editor Inline Chat does not render ordinary unrestricted-participant output. [AD127](../decisions/README.md#ad127-native-inline-chat-uses-proposal-only-pi-turns-and-host-owned-text-edits) records host-owned edit execution, [AD128](../decisions/README.md#ad128-inline-review-lifecycle-belongs-to-the-pinned-controller) records controller ownership, and [AD135](../decisions/README.md#ad135-inline-chat-requires-one-host-correlated-result) records the mandatory edit-or-no-change result. A healthy editor request stays in Inline Chat, immediately shows bounded progress and native reasoning, emits start/edit/done parts for the invoking document, and leaves visible Keep/Close actions to the native controller. `noChange` is reserved for an already-satisfied request or one with no valid safe edit; use Panel Chat for informational explanations. <!-- @impl: openvscode/agent-sidebar/src/extension.ts::activate --> <!-- @impl: preseed/agents/pi/extensions/inline-edit.ts::registerInlineEditMode -->
 
 `Invalid Inline Chat edit range` only when text is selected indicates a coordinate-contract regression: editor selection and whole-range context must remain zero-based UTF-16 positions because Pi's result tool and the host validator use that exact basis. Panel Chat keeps one-based coordinates for human-readable context. Do not weaken document-bound validation to accept shifted ranges; that turns a visible adapter bug into edits against the wrong text. <!-- @impl: openvscode/agent-sidebar/src/pi/vscode-native-chat.ts::snapshotActiveEditor -->
 
@@ -147,7 +147,7 @@ A long panel turn should stream provider reasoning through the native thinking p
 
 If a normal Pi question fails, inspect the emitted `extension_ui_request`: only bounded `select` and `input` dialogs with bounded optional timeouts are supported in addition to the manifest-backed `confirm` contract; malformed, `editor`, and unknown blocking methods intentionally stop generation. <!-- @impl: openvscode/agent-sidebar/src/pi/approval-bridge.ts::ApprovalBridge --> <!-- @impl: openvscode/agent-sidebar/src/pi/vscode-approval-host.ts::VsCodeApprovalHost -->
 
-The bottom-right provider **Sign In** control is `chat.statusBarEntry`, not the Accounts icon. In Code OSS 1.132 its visibility lives in browser IndexedDB, so writing `workbench.statusbar.hidden` to server-side `User/State/storage.json` is not evidence that it disappeared. Pi sets `chat.disableAIFeatures: true` and reasserts `chatSetupHidden` before refreshing its account-free models; Claude and unsupported inventories retain the same managed disablement. `workbench.activity.showAccounts=false` remains the separate left-side Accounts preference. None of these paths patches code-server or disables authentication. <!-- @impl: openvscode/agent-sidebar/src/extension.ts::activate --> <!-- @impl: openvscode/claude/managed-settings.mjs::buildPiOpenVscodeSettings --> <!-- @impl: openvscode/claude/managed-settings.mjs::buildUnsupportedOpenVscodeSettings --> <!-- @impl: openvscode/claude/prepare-sidebar-config.mjs::writeOpenVscodeProfileState -->
+The bottom-right provider **Sign In** control is `chat.statusBarEntry`, not the Accounts icon. In Code OSS its visibility lives in browser IndexedDB, so writing `workbench.statusbar.hidden` to server-side `User/State/storage.json` is not evidence that it disappeared. Pi sets `chat.disableAIFeatures: true` and reasserts `chatSetupHidden` before refreshing its account-free models; Claude and unsupported inventories retain the same managed disablement. `workbench.activity.showAccounts=false` remains the separate left-side Accounts preference. None of these paths patches code-server or disables authentication. <!-- @impl: openvscode/agent-sidebar/src/extension.ts::activate --> <!-- @impl: openvscode/claude/managed-settings.mjs::buildPiOpenVscodeSettings --> <!-- @impl: openvscode/claude/managed-settings.mjs::buildUnsupportedOpenVscodeSettings --> <!-- @impl: openvscode/claude/prepare-sidebar-config.mjs::writeOpenVscodeProfileState -->
 
 See [`openvscode/README.md`](../../openvscode/README.md), [REQ-IDE-002](../../sdd/spec/browser-ide.md#req-ide-002-session-isolated-ide-not-bucket-stable), [REQ-IDE-005](../../sdd/spec/browser-ide.md#req-ide-005-selected-native-ide-agent), [REQ-IDE-006](../../sdd/spec/browser-ide.md#req-ide-006-ide-conversation-context-and-credential-isolation), [REQ-IDE-007](../../sdd/spec/browser-ide.md#req-ide-007-ide-guarded-approval), and [REQ-IDE-008](../../sdd/spec/browser-ide.md#req-ide-008-ide-agent-process-lifecycle).
 
@@ -158,7 +158,7 @@ See [`openvscode/README.md`](../../openvscode/README.md), [REQ-IDE-002](../../sd
 
 **Symptom:** In Enterprise Mode, sessions never reach a usable terminal. Worker logs (`codeflare-enterprise-<env>`) show a rapid terminal-WebSocket reconnect storm (~10+ per minute), `Error proxying request to container`, and teardown `Final sync did NOT complete on teardown … The container is not running` — i.e. the container's PID 1 keeps exiting. Plain (non-enterprise) sessions on the same image are unaffected.
 
-**Cause:** Historically, an unguarded failing command in the `ENTERPRISE_MODE=active` block of `entrypoint.sh` aborted the script under `set -euo pipefail` and killed PID 1. The first instance used `jq --arg def …`/`$def`; `def` is a reserved jq keyword and a compile error on the bookworm image's jq 1.6 (see the [reserved-keyword regression test](../../host/__tests__/entrypoint-enterprise-pi-models.test.js)). Current provider-building substitutions set `PI_GATEWAY_CONFIG_OK=0` on failure and warn instead of terminating the container.
+**Cause:** Historically, an unguarded failing command in the `ENTERPRISE_MODE=active` block of `entrypoint.sh` aborted the script under `set -euo pipefail` and killed PID 1. The first instance used `jq --arg def …`/`$def`; `def` is a reserved jq keyword and a compile error on the bookworm image's jq (see the [reserved-keyword regression test](../../host/__tests__/entrypoint-enterprise-pi-models.test.js)). Current provider-building substitutions set `PI_GATEWAY_CONFIG_OK=0` on failure and warn instead of terminating the container.
 
 **Diagnose:** Container stdout/stderr is not shipped to Workers logs, so reproduce the enterprise block locally with the same env the Worker fans (`ENTERPRISE_ROUTE_CATALOG`, `ENTERPRISE_DEFAULT_ROUTE`, `ENTERPRISE_DEFAULT_REASONING`) under `set -euo pipefail` and watch for the first non-zero exit. The configured route catalog/default live in the env KV under `setup:dynamic_routes` / `setup:default_route`.
 
@@ -289,7 +289,7 @@ Enter the new client id + creation secret in the admin Setup wizard (REQ-AGENT-0
 
 **Cause:** Three stacked failures. Codeflare's original write-side distance restoration and scroll-event reset correction overrode xterm's native full-buffer anchor, then reacted to the programmatic scroll events they generated, causing repeated edge snaps. Removing those corrections exposed a second problem: at the 1000-line cap, every output line trims the top of the buffer, so xterm's content anchor drags any scrolled-up reader to `viewportY = 0` within seconds and then destroys the content beneath them ([REQ-TERM-014](../../sdd/spec/terminal.md#req-term-014-terminal-scroll-anchoring-under-scrollback-trimming) AC2/AC3).
 
-Third and independent of output rate: xterm 6.1's public scroll APIs apply deltas relative to the viewport's DOM scroll state, which can silently desync from the buffer during refits that pass through zero height — the next swipe tick then resolves the full divergence as one giant scroll straight to the top of scrollback (see [Viewport DOM Desync](terminal-and-ide.md#viewport-dom-desync-instant-yank-to-top)).
+Third and independent of output rate: xterm's public scroll APIs apply deltas relative to the viewport's DOM scroll state, which can silently desync from the buffer during refits that pass through zero height — the next swipe tick then resolves the full divergence as one giant scroll straight to the top of scrollback (see [Viewport DOM Desync](terminal-and-ide.md#viewport-dom-desync-instant-yank-to-top)).
 
 **Fix:** Batched writes are deferred while the user owns the viewport in the normal buffer — the display freezes under the reader, so no trimming can move them. On bottom return the hold releases in bounded whole-chunk slices (65,536 characters per flush tick), re-checking ownership between ticks so scrolling up mid-release re-defers the remainder; past the 2M-character cap the OLDEST held chunks are dropped instead of being written through the reader. Writes never alter viewport position.
 
@@ -408,11 +408,12 @@ If worker-level R2 credentials are not configured (for example, setup was interr
 <a id="agent-runtime-review-and-ci"></a>
 **Agent Runtime, Review, and CI**
 
-### Chrome in CI (Ubuntu 22.04)
+<a id="chrome-in-ci-ubuntu-2204"></a>
+### Chrome in CI
 
 **Symptom:** Chromium installation exits successfully, but CI has no usable browser executable.
 
-**Cause:** On Ubuntu 22.04, `apt install chromium-browser` installs a snap wrapper; GitHub Actions runners do not provide the snapd environment it needs.
+**Cause:** On Ubuntu runners where Chromium is supplied through Snap, `apt install chromium-browser` installs a snap wrapper; GitHub Actions runners do not provide the snapd environment it needs.
 
 **Fix:** Install Chrome through Puppeteer, then install its required shared libraries individually.
 
@@ -426,7 +427,7 @@ sudo apt-get install -yqq --no-install-recommends \
   fonts-liberation
 ```
 
-**Note:** Package names differ between Ubuntu versions - 22.04 uses `libatk1.0-0`, 24.04 uses `libatk1.0-0t64`.
+**Note:** Package names differ between Ubuntu releases. Use the packages for the runner image pinned in the owning workflow.
 
 ### Pi Extension Packages Missing After Restart
 
@@ -464,17 +465,17 @@ Switching from `exclusive` to `immutable`, or from protected mode to `mutable`, 
 
 **Symptom:** The foreground `/todos` list resets to `No tasks` after a background reviewer or other child session starts, compacts, changes tree, or shuts down, even though an earlier valid todo snapshot remains in the foreground transcript.
 
-**Cause:** Images built before the `@juicesharp/rpiv-todo` 2.0.0 pin carry 1.20.0, which uses one module-level task cell for every Pi session unless the retired [AD100](../decisions/README.md#ad100-pin-the-upstream-rpiv-todo-session-isolation-fix) override patched it. A child lifecycle replay can overwrite the foreground cell with the child's empty list.
+**Cause:** Images predating the upstream `@juicesharp/rpiv-todo` session-isolation fix use one module-level task cell for every Pi session unless the retired [AD100](../decisions/README.md#ad100-pin-the-upstream-rpiv-todo-session-isolation-fix) override patched it. A child lifecycle replay can overwrite the foreground cell with the child's empty list.
 
-**Fix:** Redeploy an image containing [REQ-AGENT-081](../../sdd/spec/agents.md#req-agent-081-rpiv-todo-session-isolation)'s rpiv-todo 2.0.0-or-later pin (currently 2.11.0), which ships session-keyed task state upstream with no source override.
+**Fix:** Redeploy an image containing [REQ-AGENT-081](../../sdd/spec/agents.md#req-agent-081-rpiv-todo-session-isolation)'s reviewed rpiv-todo pin, which ships session-keyed task state upstream with no source override.
 
 ### Pi Web Search Crashed the Session
 
 **Symptom:** Asking Pi to search the web killed the whole session (process exited) on an older image.
 
-**Cause:** Images with `pi-web-access` before 0.14 combined the default interactive `summary-review` workflow with a headless container and an upstream fallback error, so failure to open the curator browser could crash Pi.
+**Cause:** Images predating the upstream `pi-web-access` curator fix combined the default interactive `summary-review` workflow with a headless container and an upstream fallback error, so failure to open the curator browser could crash Pi.
 
-**Fix:** Redeploy an image with [pi-web-access 0.14](https://github.com/nicobailon/pi-web-access/releases/tag/v0.14.0) or later, which fixes the fallback error. Codeflare still creates `~/.pi/web-search.json` with `{"workflow": "auto-summary"}` when absent because browser approval cannot function headlessly; an existing user choice remains untouched.
+**Fix:** Redeploy an image with [the upstream web-access fix](https://github.com/nicobailon/pi-web-access/releases/tag/v0.14.0) or later, which fixes the fallback error. Codeflare still creates `~/.pi/web-search.json` with `{"workflow": "auto-summary"}` when absent because browser approval cannot function headlessly; an existing user choice remains untouched.
 
 <a id="common-failure-modes"></a>
 ## Failure Index
@@ -721,7 +722,7 @@ If it recurs, verify the proxy's file-list endpoint returns JSON arrays and is n
 
 **Fix detail:**
 
-The SilverBullet 2.11.1 graft wraps the single `s=await this.secondary.fetchFileList()` initializer without adding another lexical binding. Non-array responses always abort; valid empty arrays abort before deletion when the persistent local store or snapshot contains files. Only a valid empty array with both stores empty remains a safe no-op.
+The SilverBullet graft wraps the single `s=await this.secondary.fetchFileList()` initializer without adding another lexical binding. Non-array responses always abort; valid empty arrays abort before deletion when the persistent local store or snapshot contains files. Only a valid empty array with both stores empty remains a safe no-op.
 
 `vault-native-sw-direct.test.ts` parses the served worker and verifies that a duplicate-`let` negative control is rejected. The historical `o` error above illustrates that failure class, not the current variable name. After a re-vendor, verify the graft anchors, parsing and populated-store deletion protection; do not restore an array-only coercion.
 

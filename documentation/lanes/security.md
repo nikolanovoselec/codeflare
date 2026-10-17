@@ -232,7 +232,7 @@ Per-user session admission is best effort: an owner-scoped D1 query counts workl
 
 ### Artifact identity
 
-Governed dependencies/actions/images are pinned through their owning lock/manifest/workflow. Exact-tree checks, dependency review, static analysis, generated-artifact coherence, SBOM/provenance, and keyless release signing make the reviewed source and promoted artifact traceable. The reviewed GHSA-rgj7-g3m4-5g8c remediation floor is sharp 0.35.4 with its matching 1.3.3 libvips platform packages in the root and deployment Wrangler locks ([REQ-OPS-054](../../sdd/spec/operations.md#req-ops-054-committed-npm-runtime-lock-integrity)). Workflow procedure belongs to [CI/CD](ci-cd.md).
+Governed dependencies/actions/images are pinned through their owning lock/manifest/workflow. Exact-tree checks, dependency review, static analysis, generated-artifact coherence, SBOM/provenance, and keyless release signing make the reviewed source and promoted artifact traceable. The sharp/libvips remediation floors are enforced by the owning root and deployment Wrangler manifests and locks ([REQ-OPS-054](../../sdd/spec/operations.md#req-ops-054-committed-npm-runtime-lock-integrity)). Workflow procedure belongs to [CI/CD](ci-cd.md).
 
 ### Managed curation signing and repository credentials
 
@@ -253,7 +253,7 @@ Fixable findings have two reviewed exception paths. Trivy first applies CVE-leve
 
 The executable validator then accepts only its separately listed exact vulnerability/package/path/PURL tuples and fails on unexpected, missing, duplicate, or drifted identities. Dated scan occurrences belong to CI evidence rather than current policy. <!-- @impl: scripts/ci/validate-trivy-result.mjs::validateTrivyResult -->
 
-The October 9 deployment correction requires Debian Python 3.11 packages at least `3.11.2-6+deb12u9`, rebuilds rclone with verified Go 1.27.2, locks MCP SDK 1.32.1/client+core 2.3.1, and replaces only the IDE's shell-quote copy with integrity-pinned 1.12.0. Before scanning or push, packaged-image smoke loads that exact shell-quote copy and verifies its version and an argument quote/parse round trip. These target the observed findings without weakening the vulnerability gate; successful image scanning remains required. See [image pins](../../Dockerfile) and [runtime locks](../../preseed/agents/pi/package-lock.json). <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::verifyShellQuoteRuntime -->
+The [image pins](../../Dockerfile) and owning manifests enforce Debian security floors, rclone's verified build toolchain, the MCP dependency closure and the integrity-pinned IDE shell-quote overlay. Before scanning or push, packaged-image smoke loads that exact shell-quote copy and verifies its version and an argument quote/parse round trip. These target the observed findings without weakening the vulnerability gate; successful image scanning remains required. See [image pins](../../Dockerfile) and [runtime locks](../../preseed/agents/pi/package-lock.json). <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::verifyShellQuoteRuntime -->
 
 CVE-2026-78667 and CVE-2026-97031 are owner-authorized CVE-level exceptions for Go server-path findings in session CLIs, reviewed by October 16. Verified latest gh/lazygit artifacts still embed affected Go versions; bumping those releases alone does not fix them. Residual CLI-process risk is accepted, not disproved. The entries affect every scanner target; reassess any new Go server and retire when pinned CLI builds use fixed Go. See [scope and removal conditions](../../.trivyignore).
 
@@ -302,7 +302,7 @@ Exhaustive SDD status remains in `sdd/spec/security.md` and related domains. Par
 
 <!-- Preserved source-evidence anchors for the controls summarized above. -->
 <!-- @impl: .github/workflows/sign-release.yml::sign -->
-<!-- @impl: Dockerfile::CODE_SERVER_VERSION = "4.141.0" -->
+<!-- @impl: Dockerfile::CODE_SERVER_VERSION -->
 <!-- @impl: Dockerfile::CODE_SERVER_SHA256 -->
 <!-- @impl: entrypoint.sh::_openvscode_launch_once -->
 <!-- @impl: entrypoint.sh::_openvscode_prepare_agent -->

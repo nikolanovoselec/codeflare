@@ -46,7 +46,7 @@ Node Docker major proposals are ignored; Node LTS migration is manual, not an au
 | `stress-test.yml` | Manual | Read-only target setup, then selected mutating k6 integration workloads; opposite mode prerequisites make `all` unsuitable |
 | `bump-shadow-pins.yml` | Monday 06:00 UTC, manual | Governed non-Dependabot release pins and coupled artifacts |
 
-**Registry bypass:** `registry: dockerhub` uses the same Deploy/Image workflows rather than a duplicate. It requires the private registry credentials and a public pullable repository after first push. The scan preparation frees runner disk, preserves the target image and prunes dangling layers. Current runner defaults are pinned `ubuntu-24.04`, with supported explicit `RUNNER` overrides; they are not `ubuntu-latest`.
+**Registry bypass:** `registry: dockerhub` uses the same Deploy/Image workflows rather than a duplicate. It requires the private registry credentials and a public pullable repository after first push. The scan preparation frees runner disk, preserves the target image and prunes dangling layers. The owning workflows pin runner images and support explicit `RUNNER` overrides rather than a floating default.
 
 ### Shadow-pin ownership and mutation boundaries
 
@@ -127,12 +127,12 @@ The automatic path already carries its exact green gate. Same-repository success
    - Host tests do not invalidate the image. An existing tag is reusable only after registry-digest provenance verifies against `container-image.yml`; deployment binds that exact digest. Invalid/missing provenance, cache bust or uncovered COPY disables reuse.
    - Fresh images record complete byte size with no fixed byte-ceiling rejection. Reuse retains original scan/SBOM, not a new scan. First deploy under a new ISO-week identity rebuilds/rescans, rather than claiming an unconditional weekly deployment.
    - BuildKit cache/layer timing remains deployment-owned; plain timing evidence is retained fourteen days. Late Pi extensions still invalidate Jiti prewarm while retaining dependency layers; IDE/generated-seed assembly does not invalidate unrelated installs (REQ-OPS-050).
-   - Node bases resolve approved immutable manifests through `mirror.gcr.io/library/node`; embedded IDE stages retain their separately pinned Node 22.21.1 boundary. Publication still requires construction/smoke/scan/provenance, not availability checks alone (REQ-OPS-011).
+   - Node bases resolve approved immutable manifests through `mirror.gcr.io/library/node`; embedded IDE stages retain their separately pinned Node boundary. Publication still requires construction/smoke/scan/provenance, not availability checks alone (REQ-OPS-011).
    - Before scan/push, run selected launcher version commands with ten-second bounds plus Pi/Claude/empty-inventory, cold-readiness, process, resource and prefixed-proxy smoke.
    - Locked Trivy primes daily vulnerability/Java databases, then scan, CycloneDX SBOM and registry-tool preparation run concurrently against isolated writable caches. All are awaited; prerequisite failure blocks publication.
    - Apply `ignore-unfixed: true` and reviewed `.trivyignore`, validate exact bounded exceptions, upload SBOM, then push (REQ-OPS-052; [Security gate](security.md#container-image-scanning-req-sec-011)).
    - Immutable artifacts with fixable embedded dependencies receive exact integrity-verified overlays at every affected path; smoke checks versions and operation/archive round trips before scanning (REQ-OPS-046).
-   - The current node-tar 7.5.21 and pacote 21.5.1 overlays retire only when upstream artifacts carry the fixed floor directly. <!-- @impl: Dockerfile::NODE_TAR_VERSION --> <!-- @impl: Dockerfile::PACOTE_VERSION --> <!-- @impl: Dockerfile::NODE_TAR_VERSION --> <!-- @impl: Dockerfile::PACOTE_VERSION -->
+   - The node-tar and pacote overlays retire only when upstream artifacts carry the source-pinned fixed floors directly. <!-- @impl: Dockerfile::NODE_TAR_VERSION --> <!-- @impl: Dockerfile::PACOTE_VERSION --> <!-- @impl: Dockerfile::NODE_TAR_VERSION --> <!-- @impl: Dockerfile::PACOTE_VERSION -->
    - Push retries thirty times at thirty-second intervals. COPY coverage guards reuse; ignore/scan policy is hashed. Registry credentials are masked/step-scoped away from build/scan actions.
 4. **deploy:** downloads assets, resolves/creates KV, prepares one environment-local usage D1 binding and additive migrations, patches Worker/container configuration, and applies reviewed authorization/config before Worker promotion (REQ-OPS-056/060).
    - `RESSOURCE_TIER`: low 0.25 vCPU/1 GiB/4 GB, default or saas 1 vCPU/3 GiB/6 GB, high 2 vCPU/6 GiB/12 GB; default max instances ten, positive `MAX_INSTANCES` override. This is deployment allocation, not capacity certification.
@@ -158,7 +158,7 @@ PR classification checks out depth2; push filtering keeps full history. When Git
 - **frontend-build:** independent frontend production-build gate, separate from the test matrix. <!-- @impl: .github/workflows/test.yml::frontend-build -->
 - **landing-tests:** rendering/unit tests plus Astro production build.
 - **host-tests:** nonempty, nonzero-assertion Node-runner selection reconciled against `ci-excluded.txt`; rclone for real sync-filter behavior. Approved Ubuntu sandbox package sources and real sandbox probe remain required.
-- **browser-ide:** clean Node 22.21.1 install, owned dependency/license audit, typecheck, deterministic bundle, context/RPC/approval and official Claude behavior, coverage and JSON gate.
+- **browser-ide:** clean install with the pinned IDE Node runtime, owned dependency/license audit, typecheck, deterministic bundle, context/RPC/approval and official Claude behavior, coverage and JSON gate.
 - **dependency-review:** fail-closed PR vulnerability/license checks with visible available OpenSSF scores; six exact Codex platform license exceptions backed by Apache-2.0 lock metadata, not future-version exceptions (REQ-OPS-053).
 - **workflow-audit:** pinned/checksummed zizmor/actionlint over `.github/**` inside required `test`; standalone SARIF is not a bypass (REQ-OPS-021).
 - **impeccable-engine:** pinned-source focused native regressions, one-minute timeout, no image build (REQ-OPS-058).
@@ -457,7 +457,7 @@ fast-check; workflow fifty thousand iterations, local default one thousand and `
 
 ### Vitest Configuration
 
-Root/web-ui use separate installs/configs of Vitest v4; root Workers plugin versus frontend jsdom/Solid. Root/web-ui/landing choose dot in CI and default locally; suite action supplies JSON report for machine-readable gating.
+Root/web-ui use separate lock-backed installs/configs of Vitest; root Workers plugin versus frontend jsdom/Solid. Root/web-ui/landing choose dot in CI and default locally; suite action supplies JSON report for machine-readable gating.
 
 <a id="specification-coverage"></a>
 ## Requirement and Source Map
