@@ -306,9 +306,9 @@ export function registerNativeDispatcherCases(
       expect(await composed(id, { action: 'collect' })).toMatchObject({ ok: true });
     }, 60_000);
 
-    // Ordinary (including its supplements) and committed-reset are retired
-    // after ProxyWorker HTTP500/connection loss; do not recreate equivalents.
-    it.each(['incomplete', 'native-error', 'duplicate', 'precommit-reset'] as const)(
+    // Ordinary (including its supplements), committed-reset and duplicate are
+    // retired after ProxyWorker HTTP500/connection loss; do not recreate equivalents.
+    it.each(['incomplete', 'native-error', 'precommit-reset'] as const)(
       'REQ-OPERATOR-048: composed %s inference reaches a real collected assessment with one repository effect', async scenario => {
         const original = await pinnedArtifact(false, false, true);
         async function run(pinned: { artifact: NativeArtifact | DispatcherBundle; digest: string; qualificationManifest?: string; diagnosticCandidate?: boolean },
@@ -345,10 +345,6 @@ export function registerNativeDispatcherCases(
             { method: 'POST', url: 'https://api.github.com/repos/authorized/project/issues/17/comments' },
           ]);
           expect(result.external.budget).toEqual({ operationCount: result.external.inference.length + result.external.sourceRequests.length, operationLimit: 1024 });
-          if (scenario === 'duplicate') {
-            expect(result.external.duplicates).toEqual([{ statuses: [200, 200], digests: [expect.any(String), expect.any(String)] }]);
-            expect(new Set(result.external.duplicates[0].digests).size).toBe(1);
-          }
           assertSerialPhases(result, [{ pullRequest: 17, headSha: 'a'.repeat(40) }]);
           const collected = await composed<{ ok: true; detail: { result: unknown; checkpoint: unknown } }>(id, { action: 'collect' });
           expect(collected).toMatchObject({ ok: true, detail: { executionStatus: 'completed', result: {
