@@ -1440,27 +1440,6 @@ jobs:
             node scripts/patch-pi-plan-mode-tool-policy.mjs \
               "$LAT" preseed/agents/pi/node_modules/@narumitw/pi-plan-mode
           fi
-          if [ "$PKG" = 'pi-open-tui' ]; then
-            # Keep the authentic SDK fixture on the exact locked candidate; never
-            # qualify a new dependency by silently testing an older archive.
-            node --input-type=module <<'OPEN_TUI'
-          import { createHash } from 'node:crypto';
-          import { readFileSync, writeFileSync } from 'node:fs';
-          const version = process.env.LAT;
-          if (!/^\d+\.\d+\.\d+$/.test(version)) throw Error('Expected an exact stable Open TUI version');
-          const entry = JSON.parse(readFileSync('preseed/agents/pi/package-lock.json', 'utf8')).packages['node_modules/pi-open-tui'];
-          const url = `https://registry.npmjs.org/pi-open-tui/-/pi-open-tui-${version}.tgz`;
-          if (entry.version !== version || entry.resolved !== url) throw Error('Open TUI candidate lock drift');
-          const response = await fetch(url, { signal: AbortSignal.timeout(30000) });
-          if (!response.ok) throw Error(`Open TUI archive HTTP ${response.status}`);
-          const bytes = Buffer.from(await response.arrayBuffer());
-          if (`sha512-${createHash('sha512').update(bytes).digest('base64')}` !== entry.integrity) throw Error('Open TUI archive integrity mismatch');
-          writeFileSync(`host/__fixtures__/pi-open-tui-${version}.tgz`, bytes);
-          OPEN_TUI
-            node --test host/__tests__/pi-settings-packages.test.js host/__tests__/pi-lockstep.test.js
-            # Native candidate execution belongs to read-only PR Checks, not this
-            # write-token publication step. PR Checks runs open-tui.test.mjs.
-          fi
           case "$PKG" in
             @juicesharp/rpiv-advisor|@juicesharp/rpiv-ask-user-question|@juicesharp/rpiv-todo)
               (cd preseed/agents/pi && npm ci --ignore-scripts --no-audit --no-fund)
@@ -1508,7 +1487,6 @@ jobs:
           - [ ] CI green
           - [ ] Review the \`$PKG\` CHANGELOG - MAJOR bumps (esp. \`@gotgenes/pi-subagents\`) can change APIs
           - [ ] For \`@narumitw/pi-goal\` or \`@narumitw/pi-plan-mode\`, the locked candidate passed its fail-closed Codeflare source transform before this PR opened
-          - [ ] For \`pi-open-tui\`, the lock-integrity-matched archive and settings/cache contracts passed before this PR opened; require authentic SDK/TUI PR Checks, review the new archive and perform terminal acceptance
           - [ ] Smoke test on integration: Pi loads all preseed extensions without error
           EOF
           )

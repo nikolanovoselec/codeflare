@@ -146,7 +146,7 @@ describe('Pi settings.json packages assembly (entrypoint.sh)', () => {
 });
 
 // Exact source/filter and removed-identity outputs are intentional startup
-// migration contracts. Native enabled behavior is exercised by open-tui.test.mjs.
+// migration contracts; native UI behavior belongs to upstream and terminal acceptance.
 describe('REQ-AGENT-056 / REQ-AGENT-209: Open TUI adoption and managed Usage retirement', () => {
   const expected = { source: `npm:pi-open-tui@${piPackage.dependencies['pi-open-tui']}`, extensions: [] };
   it('REQ-AGENT-056: fresh startup supplies exactly the reviewed adapter-owned package filter', () => {

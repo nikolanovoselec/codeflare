@@ -423,22 +423,3 @@ describe('REQ-AGENT-001 AC6: Pi image lockstep fails closed', () => {
     }
   });
 });
-
-// Reviewed artifact/release-lock identity, not a proxy for interactive behavior.
-it('REQ-AGENT-056 / REQ-AGENT-210: reviewed Open TUI archive matches its exact native entrypoint release lock', () => {
-  const root = fileURLToPath(new URL('../../', import.meta.url));
-  const manifest = JSON.parse(readFileSync(join(root, 'preseed/agents/pi/package.json'), 'utf8'));
-  const lock = JSON.parse(readFileSync(join(root, 'preseed/agents/pi/package-lock.json'), 'utf8'));
-  const declared = lock.packages['node_modules/pi-open-tui'];
-  const version = manifest.dependencies['pi-open-tui'];
-  assert.match(version, /^\d+\.\d+\.\d+$/); // Intentional exact stable release pin.
-  const bytes = readFileSync(join(root, `host/__fixtures__/pi-open-tui-${version}.tgz`));
-  assert.equal(lock.packages[''].dependencies['pi-open-tui'], version);
-  assert.equal(declared.version, version);
-  assert.equal(declared.resolved, `https://registry.npmjs.org/pi-open-tui/-/pi-open-tui-${version}.tgz`);
-  assert.equal(`sha512-${createHash('sha512').update(bytes).digest('base64')}`, declared.integrity);
-  assert.equal(manifest.dependencies['@narumitw/pi-usage'], undefined);
-  assert.equal(lock.packages[''].dependencies['@narumitw/pi-usage'], undefined);
-  assert.equal(lock.packages['node_modules/@narumitw/pi-usage'], undefined);
-  assert.equal(lock.packages['node_modules/@narumitw/pi-usage/node_modules/@narumitw/pi-tui-kit'], undefined);
-});

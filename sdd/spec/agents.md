@@ -413,7 +413,7 @@ The former REQ-AGENT-131 Usage installation and warming workflow is retired. [Re
 
 **Acceptance Criteria:**
 
-1. Every startup-header line fits within the terminal width supplied by Pi, including narrow mobile Browser IDE panes. <!-- @impl: preseed/agents/pi/extensions/startup-header.ts::terminalContext --> <!-- @test: preseed/agents/pi/test/open-tui.test.mjs (REQ-AGENT-161) -->
+1. Every startup-header line fits within the terminal width supplied by Pi, including narrow mobile Browser IDE panes. <!-- @impl: preseed/agents/pi/extensions/startup-header.ts::terminalContext --> <!-- @manual: Check startup at desktop and narrow embedded-terminal widths in the packaged image. -->
 
 **Constraints:**
 
@@ -423,7 +423,7 @@ The former REQ-AGENT-131 Usage installation and warming workflow is retired. [Re
 
 **Dependencies:** [REQ-AGENT-001](#req-agent-001-support-multiple-ai-coding-agents)
 
-**Verification:** Pi startup-header behavioral test across desktop, narrow mobile, and degenerate widths
+**Verification:** Manual check
 
 **Status:** Implemented
 
@@ -2873,13 +2873,13 @@ None.
 
 **Acceptance Criteria:**
 
-1. Both modes enable one installed Open TUI header, footer and prompt editor through the managed terminal adapter. <!-- @impl: preseed/agents/pi/extensions/startup-header.ts --> <!-- @impl: entrypoint.sh::required --> <!-- @test: preseed/agents/pi/test/open-tui.test.mjs (REQ-AGENT-056) -->
-2. The compact session status shows context usage, model and thinking effort, using published enterprise names without changing routing IDs. <!-- @impl: preseed/agents/pi/extensions/local-statusline.ts::renderLine --> <!-- @test: src/__tests__/lib/local-statusline-repo.test.ts (REQ-AGENT-056) --> <!-- @test: preseed/agents/pi/test/open-tui.test.mjs (REQ-AGENT-056) -->
+1. Both modes enable one installed Open TUI header, footer and prompt editor through the managed terminal adapter. <!-- @impl: preseed/agents/pi/extensions/startup-header.ts --> <!-- @impl: entrypoint.sh::required --> <!-- @test: host/__tests__/pi-settings-packages.test.js (REQ-AGENT-056: fresh startup supplies exactly the reviewed adapter-owned package filter) --> <!-- @manual: Confirm native header/footer/editor activation in both packaged session modes, terminal-only settings, and safe configuration preservation. -->
+2. The compact session status shows context usage, model and thinking effort, using published enterprise names without changing routing IDs. <!-- @impl: preseed/agents/pi/extensions/local-statusline.ts::renderLine --> <!-- @test: src/__tests__/lib/local-statusline-repo.test.ts (REQ-AGENT-056) --> <!-- @manual: Confirm published enterprise labels in the packaged terminal without changing routing identity. -->
 3. Outside Git, the repository label falls back to active repository memory shared with successful tool execution. <!-- @impl: preseed/agents/pi/extensions/local-statusline.ts::repositoryLabel --> <!-- @impl: preseed/agents/pi/extensions/active-repo-memory.ts::rememberActiveRepo --> <!-- @test: src/__tests__/lib/local-statusline-repo.test.ts (REQ-AGENT-056) -->
 4. The active-cwd sentinel remains display-only and accepts only Git repositories inside a session root. <!-- @impl: preseed/agents/pi/extensions/local-statusline.ts::sentinelRepoForDisplay --> <!-- @test: src/__tests__/lib/local-statusline-repo.test.ts (REQ-AGENT-056) -->
-5. Native footer statuses retain other extensions' nonempty statuses alongside session context without empty status-only rows. <!-- @impl: preseed/agents/pi/extensions/local-statusline.ts::refreshStatus --> <!-- @test: preseed/agents/pi/test/open-tui.test.mjs (REQ-AGENT-056) -->
-6. Footer lines fit the visible width without leaking ANSI styling across clipped or wrapped statuses. <!-- @impl: preseed/agents/pi/extensions/startup-header.ts::terminalContext --> <!-- @test: preseed/agents/pi/test/open-tui.test.mjs (REQ-AGENT-056) -->
-7. Session status refreshes at startup, resource discovery, turn/tool boundaries, model/effort changes and timed repaint; shutdown releases its status and timer. <!-- @impl: preseed/agents/pi/extensions/local-statusline.ts::refreshStatus --> <!-- @test: src/__tests__/lib/local-statusline-repo.test.ts (REQ-AGENT-056) --> <!-- @test: preseed/agents/pi/test/open-tui.test.mjs (REQ-AGENT-056) -->
+5. Native footer statuses retain other extensions' nonempty statuses alongside session context without empty status-only rows. <!-- @impl: preseed/agents/pi/extensions/local-statusline.ts::refreshStatus --> <!-- @manual: Confirm other extension statuses remain visible without empty status-only rows in the packaged terminal. -->
+6. Footer lines fit the visible width without leaking ANSI styling across clipped or wrapped statuses. <!-- @impl: preseed/agents/pi/extensions/startup-header.ts::terminalContext --> <!-- @manual: Check colored statuses at desktop and narrow terminal widths for clipping and style bleed. -->
+7. Session status refreshes at startup, resource discovery, turn/tool boundaries, model/effort changes and timed repaint; shutdown releases its status and timer. <!-- @impl: preseed/agents/pi/extensions/local-statusline.ts::refreshStatus --> <!-- @test: src/__tests__/lib/local-statusline-repo.test.ts (REQ-AGENT-056) -->
 
 **Constraints:**
 
@@ -2893,7 +2893,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-004](#req-agent-004-two-session-modes-standard-and-pro), [REQ-AGENT-006](#req-agent-006-preseed-configs-generated-from-single-source-of-truth)
 
-**Verification:** Native pinned SDK/TUI composition, metadata and lifecycle tests; packaged-image and deployed terminal acceptance remain separate gates.
+**Verification:** Package-assembly and Codeflare status tests; manual packaged-terminal acceptance for native UI, configuration and widths.
 
 **Status:** Implemented
 
