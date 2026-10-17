@@ -596,8 +596,11 @@ export class FlueDispatcherAgent extends Pinned {
         catch { return Response.json({ code: 'OPERATOR_CAPABILITY_DENIED' }, { status: 403 }); }
         // The parent ledger permits an identical retry but rejects a different
         // model turn under the same durable operation ID before any upstream I/O.
+        // Retain fixed-size identity, not growing model histories in one KV value.
+        const requestDigest = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',
+          new TextEncoder().encode(JSON.stringify({ path: operation.path, body: operation.body })))),
+        byte => byte.toString(16).padStart(2, '0')).join('');
         const digests = await this.ctx.storage.get<Record<string, string>>('fixture:inference-operations') ?? {};
-        const requestDigest = JSON.stringify({ path: operation.path, body: operation.body });
         if (Object.hasOwn(digests, operation.operationId) && digests[operation.operationId] !== requestDigest) {
           return Response.json({ code: 'OPERATOR_OPERATION_CONFLICT' }, { status: 409 });
         }
