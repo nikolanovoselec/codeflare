@@ -156,6 +156,9 @@ const OperatorInstalled: Component<Props> = props => {
           <Show when={previous().length}><button type="button" onClick={() => { const values = previous(); setCursor(values[values.length - 1]); setPrevious(values.slice(0, -1)); }}>Newer installations</button></Show>
           <Show when={current()?.cursor}><button type="button" onClick={() => { setPrevious(values => [...values, cursor()]); setCursor(current()!.cursor); }}>More installations</button></Show>
         </nav>
+        <Show when={current()?.items.some(item => item.canManage)}>
+          <footer><a href="/operators">Manage installations</a></footer>
+        </Show>
       </Show>
     </Show>
   </div>}>

@@ -216,13 +216,19 @@ describe('REQ-OPERATOR-086: dropdown Runs and Installed workspace', () => {
   });
 
   it('AC5: offers one management destination for a mixed inventory without granting invocation to managers', async () => {
-    server.installations = [installation({ id: 'manage-only', installationName: 'Managed only', canInvoke: false }),
-      installation({ id: 'invoke-only', installationName: 'Invocation only', canManage: false })];
+    server.installations = [installation({ id: 'invoke-only', installationName: 'Invocation only', canManage: false }),
+      installation({ id: 'manage-only', installationName: 'Managed only', canInvoke: false }),
+      installation({ id: 'second-manager', installationName: 'Second managed installation', canInvoke: false })];
     await open('Installed');
     const managed = await screen.findByRole('article', { name: 'Managed only' });
     const invoked = screen.getByRole('article', { name: 'Invocation only' });
+    const secondManaged = screen.getByRole('article', { name: 'Second managed installation' });
     expect(screen.getByRole('link', { name: 'Manage installations' }).getAttribute('href')).toBe('/operators');
+    for (const item of [managed, invoked, secondManaged]) {
+      expect(within(item).queryByRole('link', { name: 'Manage installations' })).toBeNull();
+    }
     expect(within(managed).getByRole('button', { name: /run manually/i }).hasAttribute('disabled')).toBe(true);
+    expect(within(secondManaged).getByRole('button', { name: /run manually/i }).hasAttribute('disabled')).toBe(true);
     expect(within(invoked).getByRole('button', { name: /run manually/i }).hasAttribute('disabled')).toBe(false);
     expect(server.prepared).toEqual({});
   });
