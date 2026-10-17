@@ -34,9 +34,19 @@ Every file scanned as a Pi extension exports a default factory; pure helpers ret
 
 [REQ-AGENT-056](../../sdd/spec/agents.md#req-agent-056-pi-local-statusline-footer) owns the native UI and session-status contract. Open TUI is exact-pinned and integrity-locked in the image's Pi extension inventory. Startup selects `{source: "npm:pi-open-tui@0.3.11", extensions: []}`: package auto-discovery is suppressed because managed `startup-header.ts` delegates the installed native entrypoint once. Open TUI owns header, footer and editor in both modes; the adapter gates terminal handlers and `/open-tui` to TUI contexts and bounds header/footer lines by real terminal column width. RPC, print and background execution do not acquire its settings overlay or project probes.
 
-`local-statusline.ts` publishes compact context/model/effort and active-repository metadata through the native status area, without installing a competing footer. Published enterprise names retain their routing IDs; parent-workspace sessions retain remembered nested repositories and the guarded display-only sentinel. Other extensions keep their statuses and colors. Native context decoration is disabled so an unknown estimate is not displayed as zero.
+`local-statusline.ts` publishes only repository and branch through the native status area, without installing a competing footer or duplicating context, model or effort. Parent-workspace sessions retain remembered nested repositories and the guarded display-only sentinel. Other extensions keep their statuses and colors; native context/model rendering remains upstream-owned. <!-- @impl: preseed/agents/pi/extensions/local-statusline.ts::repositoryLabel -->
 
-At TUI startup, bounded configuration preparation enables Open TUI and extension statuses. Missing icon/hidden-thinking preferences default to Unicode and peek off; unrelated valid preferences remain. Malformed or unsafe configuration is preserved, produces a content-free warning and skips native activation without blocking agent execution. `/open-tui` remains the upstream settings UI. This is executable UI, not a named JSON theme. <!-- @impl: preseed/agents/pi/extensions/startup-header.ts::prepareConfig -->
+After home restore, entrypoint enforces the following `open-tui.json` preferences on every container startup, including existing workplaces. Unrelated root and nested fields survive. <!-- @impl: entrypoint.sh::configure_pi_open_tui -->
+
+| Group | Enforced preferences |
+|---|---|
+| General | Enabled, English, thinking peek two lines, inline footer off |
+| Appearance | ASCII icons, block cursor |
+| Footer on | Session name, context bar, extension statuses |
+| Footer off | CWD, hostname, Git branch/status/detached commit, runtime, tokens, cost, provider capitalization |
+| Telemetry | Master disabled; subordinate TPS, TTFT, duration, token counts, stall details and cost switches on but inactive |
+
+Entrypoint uses a private atomic replacement for safe configuration. Malformed, symlink or nonregular files stay unchanged and produce a content-free warning. The terminal adapter performs read-only validation before native activation and falls back to Pi's built-in UI on unsafe configuration without blocking execution. `/open-tui` remains the upstream settings UI; later container startups restore the enforced fields. <!-- @impl: preseed/agents/pi/extensions/startup-header.ts::validateConfig -->
 
 The image explicitly warms `extensions/open-tui/index.ts` and verifies its path-correct cache. Source tests, image loading, a compatible curation compiler, signed publication and actual terminal activation are distinct gates; the older curation checkpoint cannot supply this new package.
 

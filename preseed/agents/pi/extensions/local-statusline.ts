@@ -9,14 +9,11 @@ type ExtensionContext = {
   mode: string;
   cwd: string;
   hasUI: boolean;
-  model?: { id?: string; name?: string; provider?: string };
-  getContextUsage?: () => { percent?: number | null; tokens?: number | null; contextWindow?: number } | undefined;
   sessionManager: { getCwd(): string };
   ui: { setStatus(key: string, value: string | undefined): void };
 };
 
 type ExtensionAPI = {
-  getThinkingLevel(): string;
   on(event: string, handler: (event: unknown, ctx: ExtensionContext) => void): void;
 };
 
@@ -77,30 +74,6 @@ function repositoryLabel(ctx: ExtensionContext): string | undefined {
   return `${basename(repo)}:${branch}`;
 }
 
-function contextPercent(ctx: ExtensionContext): string {
-  try {
-    const usage = ctx.getContextUsage?.();
-    const percent = usage?.percent ?? (
-      typeof usage?.tokens === "number" && usage.contextWindow
-        ? (usage.tokens / usage.contextWindow) * 100
-        : undefined
-    );
-    return Number.isFinite(percent) ? `${Math.round(percent as number)}%` : "--%";
-  } catch {
-    return "--%";
-  }
-}
-
-function renderLine(ctx: ExtensionContext, effort: string): string {
-  const model = ctx.model?.provider === "codeflare-gateway"
-    ? (ctx.model.name || ctx.model.id) : (ctx.model?.id ?? "model");
-  return [
-    contextPercent(ctx),
-    `${model}:${effort}`,
-    repositoryLabel(ctx),
-  ].filter((segment): segment is string => Boolean(segment)).join(" | ");
-}
-
 export default function (pi: ExtensionAPI) {
   let current: ExtensionContext | undefined;
   let interval: ReturnType<typeof setInterval> | undefined;
@@ -108,7 +81,7 @@ export default function (pi: ExtensionAPI) {
   function refreshStatus(): void {
     if (!current) return;
     let text: string | undefined;
-    try { text = renderLine(current, pi.getThinkingLevel()); } catch { /* Cosmetic metadata is optional. */ }
+    try { text = repositoryLabel(current); } catch { /* Cosmetic metadata is optional. */ }
     current.ui.setStatus("codeflare-session", text);
   }
 

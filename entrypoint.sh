@@ -3304,6 +3304,55 @@ try {
 }
 NODE
 }
+# Enforce the approved native Open TUI preferences after home restore on every
+# startup. Only these fields are owned; preserve other settings and unsafe bytes.
+configure_pi_open_tui() {
+    local tui_config="$USER_HOME/.pi/agent/open-tui.json"
+    mkdir -p "$(dirname "$tui_config")" || return 1
+    node - "$tui_config" <<'NODE'
+const fs = require('node:fs');
+const { randomUUID } = require('node:crypto');
+const path = process.argv[2];
+const record = value => value !== null && typeof value === 'object' && !Array.isArray(value);
+let temporary;
+try {
+  let settings = {};
+  let descriptor;
+  try {
+    descriptor = fs.openSync(path, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK);
+    if (!fs.fstatSync(descriptor).isFile()) throw new Error('unsafe configuration');
+    settings = JSON.parse(fs.readFileSync(descriptor, 'utf8'));
+    if (!record(settings)) throw new Error('invalid configuration');
+  } catch (error) {
+    if (error.code !== 'ENOENT') throw error;
+  } finally {
+    if (descriptor !== undefined) fs.closeSync(descriptor);
+  }
+  for (const key of ['icons', 'thinkingPeek', 'footerSegments', 'telemetry']) {
+    if (settings[key] !== undefined && !record(settings[key])) throw new Error('invalid configuration');
+  }
+  const configured = {
+    ...settings, enabled: true, settingsLanguage: 'en', inlineFooter: false, cursorStyle: 'block',
+    icons: { ...settings.icons, mode: 'ascii' },
+    thinkingPeek: { ...settings.thinkingPeek, lines: 2 },
+    footerSegments: { ...settings.footerSegments, cwd: false, hostname: false, sessionName: true,
+      gitBranch: false, gitStatus: false, gitCommit: false, runtime: false, context: true,
+      tokens: false, cost: false, extensionStatuses: true, capitalizeProviderName: false },
+    telemetry: { ...settings.telemetry, enabled: false, tps: true, ttft: true, duration: true,
+      tokens: true, stalls: true, cost: true },
+  };
+  temporary = `${path}.${randomUUID()}.tmp`;
+  fs.writeFileSync(temporary, JSON.stringify(configured, null, 2) + '\n', { flag: 'wx', mode: 0o600 });
+  fs.renameSync(temporary, path);
+} catch {
+  // Never expose parse errors or user configuration contents.
+  process.exitCode = 1;
+} finally {
+  try { if (temporary) fs.rmSync(temporary, { force: true }); } catch { /* Cosmetic cleanup must not block startup. */ }
+}
+NODE
+}
+configure_pi_open_tui || echo "[entrypoint] WARNING: Open TUI configuration could not be applied; existing preferences preserved"
 configure_pi_subagent_defaults || echo "[entrypoint] WARNING: Pi subagent update defaults could not be applied; existing preferences preserved"
 configure_pi_goal_defaults || echo "[entrypoint] WARNING: Pi Goal default configuration failed; continuing startup"
 configure_pi_plan_mode || echo "[entrypoint] WARNING: Pi Plan Mode configuration failed; continuing startup"

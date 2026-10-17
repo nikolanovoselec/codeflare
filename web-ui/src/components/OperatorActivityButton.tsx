@@ -98,8 +98,6 @@ const OperatorActivityButton: Component<Props> = props => {
     document.removeEventListener('keydown', keydown); document.removeEventListener('mousedown', clickOutside);
     window.removeEventListener('resize', closeOnResize);
   });
-  const interval = setInterval(() => { if (props.enabled) { void refetch(); if (selected()) void refetchDetail(); } }, 15_000);
-  onCleanup(() => clearInterval(interval));
   const updatedDate = (value: string | number) => new Date(value);
   const stale = (value: string | number) => Date.now() - updatedDate(value).getTime() > 2 * 60_000;
   const cancel = async (id: string) => {

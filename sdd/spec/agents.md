@@ -2867,14 +2867,14 @@ None.
 
 ### REQ-AGENT-056: Pi Terminal UI and Session Status
 
-**Intent:** Pi users receive Open TUI with truthful session context and visible extension-owned statuses in both product modes.
+**Intent:** Pi users receive the approved native terminal presentation with repository context and visible extension-owned statuses in both product modes.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. Both modes enable one installed Open TUI header, footer and prompt editor through the managed terminal adapter. <!-- @impl: preseed/agents/pi/extensions/startup-header.ts --> <!-- @impl: entrypoint.sh::required --> <!-- @test: host/__tests__/pi-settings-packages.test.js (REQ-AGENT-056: fresh startup supplies exactly the reviewed adapter-owned package filter) --> <!-- @manual: Confirm native header/footer/editor activation in both packaged session modes, terminal-only settings, and safe configuration preservation. -->
-2. The compact session status shows context usage, model and thinking effort, using published enterprise names without changing routing IDs. <!-- @impl: preseed/agents/pi/extensions/local-statusline.ts::renderLine --> <!-- @test: src/__tests__/lib/local-statusline-repo.test.ts (REQ-AGENT-056) --> <!-- @manual: Confirm published enterprise labels in the packaged terminal without changing routing identity. -->
+1. Both modes enable one installed Open TUI header, footer and prompt editor. Every container startup enforces English, ASCII icons, block cursor, two-line thinking peek, inline footer off, session/context/extension footer segments on, all other footer segments off and telemetry disabled; unrelated preferences survive. <!-- @impl: preseed/agents/pi/extensions/startup-header.ts --> <!-- @impl: entrypoint.sh::configure_pi_open_tui --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-056 AC1) --> <!-- @test: host/__tests__/pi-settings-packages.test.js (REQ-AGENT-056: fresh startup supplies exactly the reviewed adapter-owned package filter) --> <!-- @manual: Confirm native header/footer/editor activation in both packaged session modes, terminal-only settings, and safe configuration preservation. -->
+2. Codeflare session status shows only repository and branch, or is absent when no repository resolves; it adds no context percentage, model or thinking-effort text and changes no routing identity. <!-- @impl: preseed/agents/pi/extensions/local-statusline.ts::repositoryLabel --> <!-- @test: src/__tests__/lib/local-statusline-repo.test.ts (REQ-AGENT-056) --> <!-- @manual: Confirm repository-only Codeflare status alongside native context/model display in the packaged terminal. -->
 3. Outside Git, the repository label falls back to active repository memory shared with successful tool execution. <!-- @impl: preseed/agents/pi/extensions/local-statusline.ts::repositoryLabel --> <!-- @impl: preseed/agents/pi/extensions/active-repo-memory.ts::rememberActiveRepo --> <!-- @test: src/__tests__/lib/local-statusline-repo.test.ts (REQ-AGENT-056) -->
 4. The active-cwd sentinel remains display-only and accepts only Git repositories inside a session root. <!-- @impl: preseed/agents/pi/extensions/local-statusline.ts::sentinelRepoForDisplay --> <!-- @test: src/__tests__/lib/local-statusline-repo.test.ts (REQ-AGENT-056) -->
 5. Native footer statuses retain other extensions' nonempty statuses alongside session context without empty status-only rows. <!-- @impl: preseed/agents/pi/extensions/local-statusline.ts::refreshStatus --> <!-- @manual: Confirm other extension statuses remain visible without empty status-only rows in the packaged terminal. -->
@@ -2886,8 +2886,7 @@ None.
 - Open TUI alone owns terminal renderers; RPC, print and background sessions do not run its terminal handlers, project probes or settings overlay.
 - Cosmetic metadata/configuration failures must not block agent execution.
 - Unsafe or malformed Open TUI configuration stays unchanged and skips native activation with a content-free warning.
-- Startup restores enabled UI and visible session statuses; unrelated valid preferences survive.
-- Native context decoration is disabled rather than showing unknown context as zero.
+- Entrypoint alone enforces owned startup preferences; the terminal adapter validates configuration without writing it. Native context/model rendering remains upstream-owned.
 
 **Priority:** P2
 

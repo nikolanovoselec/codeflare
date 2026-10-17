@@ -635,7 +635,7 @@ provides `/debug`, `/deploy`, and `/brainstorm`; `review-enforcement.ts` and
 `review-helpers.ts` implement session-scoped PR-boundary review reminders and
 transcript correlation; `startup-header.ts` delegates the installed Open TUI through
 terminal-only and width-safe public API boundaries; and `local-statusline.ts`
-publishes session context/repository metadata without replacing the native footer.
+publishes repository/branch only without replacing the native footer or duplicating native context/model/effort. Entrypoint enforces the [approved Open TUI preferences](../references/pi-packages.md#native-terminal-ui) on every startup after home restore; the adapter only validates configuration before activation.
 Both UI sources remain in default and advanced modes. Compatible image/compiler,
 signed curation publication and runtime activation are verified separately.
 

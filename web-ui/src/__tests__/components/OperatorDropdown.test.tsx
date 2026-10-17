@@ -178,7 +178,8 @@ describe('REQ-OPERATOR-086: dropdown Runs and Installed workspace', () => {
     await fireEvent.click(screen.getByRole('button', { name: 'View run-1' }));
     await vi.advanceTimersByTimeAsync(0);
     await fireEvent.click(screen.getByRole('button', { name: 'View diagnostics' }));
-    await fireEvent.click(screen.getAllByRole('button', { name: 'View diagnostics' }).at(-1)!);
+    const diagnosticButtons = screen.getAllByRole('button', { name: 'View diagnostics' });
+    await fireEvent.click(diagnosticButtons[diagnosticButtons.length - 1]);
     await vi.advanceTimersByTimeAsync(0);
     const failure = 'Diagnostic metadata is invalid or unavailable. It cannot be used as evidence.';
     expect(screen.getByText(failure)).toBeTruthy();

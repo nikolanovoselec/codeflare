@@ -1,5 +1,4 @@
-import { randomUUID } from "node:crypto";
-import { closeSync, constants, fstatSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { closeSync, constants, fstatSync, openSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { getAgentDir, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth, type Component } from "@earendil-works/pi-tui";
@@ -11,44 +10,24 @@ function record(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function prepareConfig(ctx: ExtensionContext): boolean {
-	const directory = getAgentDir();
-	const path = join(directory, "open-tui.json");
-	let temporary: string | undefined;
+// Entrypoint owns configuration writes. Validate before native activation so an
+// unsafe restored file cannot reach upstream's ordinary path-based config read.
+function validateConfig(ctx: ExtensionContext): boolean {
+	let descriptor: number | undefined;
 	try {
-		mkdirSync(directory, { recursive: true });
-		let config: Record<string, unknown> = {};
-		let descriptor: number | undefined;
-		try {
-			descriptor = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
-			if (!fstatSync(descriptor).isFile()) throw new Error("Unsafe configuration");
-			const parsed: unknown = JSON.parse(readFileSync(descriptor, "utf8"));
-			if (!record(parsed)) throw new Error("Invalid configuration");
-			config = parsed;
-		} catch (error) {
-			if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-		} finally {
-			if (descriptor !== undefined) closeSync(descriptor);
-		}
+		descriptor = openSync(join(getAgentDir(), "open-tui.json"), constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+		if (!fstatSync(descriptor).isFile()) throw new Error("Unsafe configuration");
+		const config: unknown = JSON.parse(readFileSync(descriptor, "utf8"));
+		if (!record(config)) throw new Error("Invalid configuration");
 		for (const key of ["icons", "thinkingPeek", "footerSegments", "telemetry"]) {
 			if (config[key] !== undefined && !record(config[key])) throw new Error("Invalid configuration");
 		}
-		const prepared = {
-			...config,
-			enabled: true,
-			icons: { mode: "unicode", ...(config.icons as Record<string, unknown> | undefined) },
-			thinkingPeek: { lines: 0, ...(config.thinkingPeek as Record<string, unknown> | undefined) },
-			footerSegments: { ...(config.footerSegments as Record<string, unknown> | undefined), context: false, extensionStatuses: true },
-		};
-		temporary = `${path}.${randomUUID()}.tmp`;
-		writeFileSync(temporary, `${JSON.stringify(prepared, null, 2)}\n`, { flag: "wx", mode: 0o600 });
-		renameSync(temporary, path);
 		return true;
 	} catch {
-		ctx.ui.notify("Open TUI configuration could not be safely prepared; using Pi's built-in UI.", "warning");
+		ctx.ui.notify("Open TUI configuration could not be safely read; using Pi's built-in UI.", "warning");
 		return false;
 	} finally {
-		try { if (temporary) rmSync(temporary, { force: true }); } catch { /* Do not block the agent on cosmetic cleanup. */ }
+		if (descriptor !== undefined) closeSync(descriptor);
 	}
 }
 
@@ -87,7 +66,7 @@ export default function (pi: ExtensionAPI): void {
 			if (key === "on") return (event: string, handler: (event: unknown, ctx: ExtensionContext) => unknown) =>
 				Reflect.apply(target.on, target, [event, async (data: unknown, ctx: ExtensionContext) => {
 					if (ctx.mode !== "tui" || !ctx.hasUI) return;
-					if (event === "session_start") prepared = prepareConfig(ctx);
+					if (event === "session_start") prepared = validateConfig(ctx);
 					if (!prepared) return;
 					try { return await handler(data, terminalContext(ctx)); }
 					finally { if (event === "session_shutdown") prepared = false; }
