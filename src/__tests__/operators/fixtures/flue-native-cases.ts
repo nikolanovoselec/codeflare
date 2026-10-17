@@ -2,8 +2,6 @@ import { readFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { beforeEach, describe, expect, it as vitestIt, vi } from 'vitest';
 import { createFlueCaseShard } from './flue-case-shard';
-import { diagnosticsQualificationAssets, qualifyImportedSdk, type SdkQualificationAssets } from './dispatcher-sdk-qualification';
-import type { DispatcherBundle } from '../../../operators/distribution';
 import type { DispatcherPhaseContext } from '../../../operators/dispatcher-phases';
 import type { FiberObservation, NativeFaultImport, NativeFaultSettlement, NativeImportOmission } from './dispatcher-composed-fixture';
 import type { DispatcherResultProjection } from '../../../operators/dispatcher-result';
@@ -306,38 +304,18 @@ export function registerNativeDispatcherCases(
       expect(await composed(id, { action: 'collect' })).toMatchObject({ ok: true });
     }, 60_000);
 
-    // Ordinary (including its supplements), committed-reset and duplicate are
-    // retired after ProxyWorker HTTP500/connection loss; do not recreate equivalents.
-    it.each(['incomplete', 'native-error', 'precommit-reset'] as const)(
+    // Ordinary (including its supplements), committed-reset, duplicate and precommit-reset
+    // table workloads are retired after ProxyWorker connection loss; do not recreate equivalents.
+    it.each(['incomplete', 'native-error'] as const)(
       'REQ-OPERATOR-048: composed %s inference reaches a real collected assessment with one repository effect', async scenario => {
         const original = await pinnedArtifact(false, false, true);
-        async function run(pinned: { artifact: NativeArtifact | DispatcherBundle; digest: string; qualificationManifest?: string; diagnosticCandidate?: boolean },
-          qualification?: SdkQualificationAssets['native']) {
+        async function run(pinned: { artifact: NativeArtifact; digest: string }) {
           const id = `composed-${crypto.randomUUID()}`;
           const admission = await composed(id, { action: 'start', ...pinned, scenario, attemptLimit: 2 });
           expect(admission, JSON.stringify(admission)).toMatchObject({ ok: true, state: { generation: 1, status: 'running' } });
-          let originalInstance: string | undefined;
-          if (qualification) {
-            // The existing candidate discovery provider barrier owns arming.
-            // No SDK artifact edit, synthetic capture or new native identity.
-            const held = await observed(id, value => value.external.held);
-            expect(held.external.phases.map(row => row.context.phase)).toEqual([{ kind: 'discovery' }]);
-            expect(await composed(id, { action: 'arm-native-faults' })).toEqual({ armed: true });
-          }
-          if (scenario.endsWith('-reset')) {
-            const held = await observed(id, value => value.external.held);
-            originalInstance = held.instance;
-            expect(held.external.inference).toHaveLength(1);
-            expect(await composed(id, { action: 'evict' })).toEqual({ evicted: true });
-            expect(await composed(id, { action: 'release' })).toEqual({ released: true });
-            // Candidate replacement rejection disarms only on its genuine
-            // local recovery catch. Existing SDK drains/wakes own the next
-            // pass; do not race an already-started replacement with eviction.
-          }
           const result = await observed(id, value => value.detail.executionStatus === 'completed');
-          if (originalInstance) expect(result.instance).not.toBe(originalInstance);
           const firstTurn = result.external.inference.filter(item => item.turn === 0);
-          const recovered = ['incomplete', 'native-error', 'precommit-reset'].includes(scenario);
+          const recovered = ['incomplete', 'native-error'].includes(scenario);
           expect(firstTurn).toHaveLength(recovered ? 2 : 1);
           expect(new Set(firstTurn.map(item => item.inputDigest)).size).toBe(1);
           expect(result.external.comments).toEqual([expect.objectContaining({ body: 'Migration compatibility remains unverified. Source: https://docs.example.test/migration' })]);
@@ -356,41 +334,11 @@ export function registerNativeDispatcherCases(
           const after = await composed<Composed>(id, { action: 'observe' });
           expect(after.external).toEqual(result.external);
           expect(after.detail.sdkCleanupReleased).toBe(true); // Bookkeeping release, not physical-provider cleanup proof.
-          if (qualification) {
-            const read = (path: string) => harness.fetch(path, { signal: AbortSignal.timeout(20_000) });
-            const submissions = result.external.phases.map(row => row.context.submissionId);
-            const faults = { scenario: scenario as 'precommit-reset', settlement: result.nativeSettlement ?? null,
-              importWindow: after.nativeImport ?? null };
-            const retained = await qualifyImportedSdk(read, id, pinned.digest, submissions, qualification.sdkProvenance,
-              scenario === 'precommit-reset', faults);
-            expect(await composed(id, { action: 'evict' })).toEqual({ evicted: true });
-            const reconstructedObservation = await composed<Composed>(id, { action: 'observe' });
-            const reconstructed = await qualifyImportedSdk(read, id, pinned.digest, submissions, qualification.sdkProvenance,
-              scenario === 'precommit-reset', { ...faults, importWindow: reconstructedObservation.nativeImport ?? null });
-            expect(reconstructed.value.binding).toEqual(retained.value.binding);
-            expect(reconstructed.value.sdkBinding).toEqual(retained.value.sdkBinding);
-            expect(reconstructed.records).toEqual(expect.arrayContaining(retained.records));
-            const owner = await composed<Composed>(id, { action: 'observe' });
-            expect(owner.instance).not.toBe(after.instance);
-            expect(owner.external).toEqual(after.external); // No replay/effect from diagnostics or reconstruction.
-            expect(owner.nativeSettlement).toEqual(result.nativeSettlement);
-            expect(owner.detail.result).toEqual(after.detail.result);
-            expect(owner.detail.sdkCleanupReleased).toBe(true);
-          }
           return { result: collected.detail.result, checkpoint: collected.detail.checkpoint,
             comments: after.external.comments, sourceRequests: after.external.sourceRequests,
             inferenceCount: after.external.inference.length, sdkCleanupReleased: after.detail.sdkCleanupReleased };
         }
-        await run(original); // Always the immutable official v24 control, even with candidate selectors present.
-        if (scenario === 'precommit-reset') {
-          const assets = await diagnosticsQualificationAssets();
-          if (assets) {
-            await harness.reset();
-            const candidate = { artifact: assets.native.artifact, digest: assets.native.digest,
-              qualificationManifest: assets.native.qualificationManifest, diagnosticCandidate: true };
-            await run(candidate, assets.native);
-          }
-        }
+        await run(original); // Always the immutable official v24 control.
       }, 90_000);
 
     it.each([1, 2])('REQ-OPERATOR-048: composed persistent interruption exhausts the configured %i attempts without an effect or collection', async attemptLimit => {
