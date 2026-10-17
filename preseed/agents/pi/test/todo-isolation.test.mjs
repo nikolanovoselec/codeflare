@@ -12,8 +12,8 @@ it('REQ-AGENT-081 AC1: pinned rpiv-todo isolates foreground tasks through child/
   const todoManifestPath = requirePreseed.resolve('@juicesharp/rpiv-todo/package.json');
   const todoManifest = readJson(todoManifestPath);
   // Intentional version contract: exercise the published artifact pinned by preseed, never a global fallback.
-  assert.equal(manifest.dependencies['@juicesharp/rpiv-todo'], '2.11.0');
-  assert.equal(todoManifest.version, '2.11.0');
+  assert.equal(manifest.dependencies['@juicesharp/rpiv-todo'], '2.12.0');
+  assert.equal(todoManifest.version, '2.12.0');
 
   const sdkEntry = new URL(import.meta.resolve('@earendil-works/pi-coding-agent'));
   const { SessionManager } = await import(sdkEntry.href);

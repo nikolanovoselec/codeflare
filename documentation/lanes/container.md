@@ -35,9 +35,11 @@ Container image contents, startup and readiness, session authority, supervision,
 | Network | curl, openssh-client |
 | Process | procps (ps, pgrep) |
 | Utilities | jq, python3 plus `python` alias, ripgrep, fd, tree, htop, tmux, yazi, fzf, zoxide, bat |
-| Terminal runtime | Herdr v0.9.3, checksum-pinned official Linux x86-64 binary, image-owned config, Apache-2.0 attribution |
+| Terminal runtime | Herdr v0.9.5, checksum-pinned official Linux x86-64 binary, image-owned config, Apache-2.0 attribution |
 
-Copilot 1.0.88 installs from the pinned npm dependency. <!-- @impl: preseed/npm-tools/package.json::@github/copilot --> `slirp4netns`, `iptables`/`ip6tables`, and util-linux sandbox tooling are included. <!-- @impl: Dockerfile::RUN apt-get update --> This grants neither TUN access, privileged containers, nor local-network permission; platform restrictions and explicit sandbox policy still apply.
+Copilot 1.0.95 installs from the pinned npm dependency. <!-- @impl: preseed/npm-tools/package.json::@github/copilot --> `slirp4netns`, `iptables`/`ip6tables`, and util-linux sandbox tooling are included. <!-- @impl: Dockerfile::RUN apt-get update --> This grants neither TUN access, privileged containers, nor local-network permission; platform restrictions and explicit sandbox policy still apply.
+
+Copilot now reads user settings from `~/.copilot/settings.json`, ignoring user-setting keys in `config.json`; Codeflare does not move authentication fields or rewrite user files. The former `/sandbox ca install` command is replaced by CA create/trust operations. Sandbox shells no longer inherit ambient `GITHUB_TOKEN` by default; existing credential interception and explicit sandbox policy remain authoritative. Verify sandbox Git/MCP and BYOK routing with the selected runtime rather than widening token inheritance.
 
 ### Bundled image tooling
 
@@ -48,6 +50,8 @@ SVG, PNG and JPEG rendering/conversion tools install at build time, not startup.
 APT sources use HTTPS. Additional package installation requires `apt-get update` because image indexes are cleared. Strict enterprise egress still requires an approved HTTPS destination and the existing policy path; HTTPS does not guarantee reachability. Never disable certificate or repository-signature verification ([REQ-OPS-063](../../sdd/spec/operations.md#req-ops-063-https-distribution-package-sources)). <!-- @impl: Dockerfile::APT_HTTPS_SOURCES -->
 
 ### Lock-backed NPM Tools
+
+Codex 0.162.1 rejects unknown TUI settings. Restored personal configuration containing the removed `tui.prompt_suggestions` needs a user-approved correction; startup does not rewrite it. The bundled `plugin-creator` skill was removed upstream, but user and managed skills remain distinct from the runtime-owned system-skill directory.
 
 Shared agents, Bun, context-mode, `consult-llm-mcp`, and `chrome-devtools-mcp` install from `preseed/npm-tools/package.json` and its committed lock. Image-owned `oxlint` has `image/oxlint/package.json` and a dedicated lock, weekly cooldown-backed Dependabot updates, and `/usr/local/bin/oxlint` without managed-seed compatibility changes ([REQ-OPS-051](../../sdd/spec/operations.md#req-ops-051-image-owned-oxlint-lifecycle)).
 

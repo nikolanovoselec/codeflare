@@ -13,16 +13,16 @@ The authoritative inventory is [`preseed/agents/pi/package.json`](../../preseed/
 | `@earendil-works/pi-coding-agent` | 1.3.0 | Runtime/prewarm lockstep |
 | `@earendil-works/pi-agent-core`, `pi-ai`, `pi-tui` | 1.3.0 | Matching development SDKs |
 | `@gotgenes/pi-subagents` | 23.4.2 | Native background delivery and public service accessor |
-| `@juicesharp/rpiv-advisor` | 2.11.0 | Explicit-current-user advisor workflow |
-| `@juicesharp/rpiv-ask-user-question` | 2.11.0 | Questionnaire and stable notifier channel |
-| `@juicesharp/rpiv-todo` | 2.11.0 | Session-scoped task state |
+| `@juicesharp/rpiv-advisor` | 2.12.0 | Explicit-current-user advisor workflow |
+| `@juicesharp/rpiv-ask-user-question` | 2.12.0 | Questionnaire and stable notifier channel |
+| `@juicesharp/rpiv-todo` | 2.12.0 | Session-scoped task state |
 | `@narumitw/pi-goal` | 0.54.11 | Native Goal and exact-version continuation/review transform |
 | `@narumitw/pi-plan-mode` | 0.59.2 | Native Plan and registered-tool policy transform |
 | `@narumitw/pi-usage` | 0.61.1 | `/usage`, declared `dist/index.ts` |
 | `context-mode` | 1.0.169 | Installed, disabled at each container start; explicit foreground opt-in |
 | `pi-evaluate` | 0.1.5 | User-invoked reporting skill, no tool or command |
 | `pi-mcp-adapter` | 5.3.1 | Lazy managed MCP servers and lossless legacy migration |
-| `pi-web-access` | 0.34.0 | Web retrieval and headless-safe default search workflow |
+| `pi-web-access` | 0.38.0 | Web retrieval and headless-safe default search workflow |
 
 ## Loading and warm compatibility
 
@@ -46,7 +46,7 @@ Context-mode has image-owned ESM compatibility and update-probe suppression in b
 
 The foreground extension loads the installed adapter without changing package lifecycle ownership. In-process children do not create competing bridges. Fresh startup restores disabled even after earlier opt-in. Every managed workflow retains native fallbacks. Licensing rationale remains [AD49](../decisions/README.md#ad49-context-mode-delivered-as-preseed-plugin-not-runtime-install).
 
-Web access retains `web_search`, `source_check`, `fetch_content`, and paged `get_search_content` offset/limit retrieval. Search uses Pi's model registry or zero-config Exa routing without a per-user API key. Create-if-missing `~/.pi/web-search.json` defaults to `{"workflow":"auto-summary"}`; deliberate `summary-review` opt-in survives later boots. Codeflare supplies the retained `librarian` skill in both modes, not a duplicate upstream copy. Optional `web_enable` follows upstream `toolActivation`; an old resumed session may need a new session to acquire its recorded selection.
+Web access retains `web_search`, `source_check`, `fetch_content`, and paged `get_search_content` offset/limit retrieval. Search uses Pi's model registry or zero-config Exa routing without a per-user API key. Version 0.38.0 reports all-failed calls as errors, returns structured results, uses Perplexity Search API snippets for ordinary search, changes OpenAI search defaults, and isolates live session/cache lifetimes. Paid Ceramic is explicit-only, excluded from `auto`/`all`. Its declared native `dist/index.js` remains the image warm target; the new standalone MCP CLI is not configured for Claude. Native import evidence is not a V8 cache-hit claim. Create-if-missing `~/.pi/web-search.json` defaults to `{"workflow":"auto-summary"}`; deliberate `summary-review` opt-in survives later boots. Codeflare supplies the retained `librarian` skill in both modes, not a duplicate upstream copy. Optional `web_enable` follows upstream `toolActivation`; an old resumed session may need a new session to acquire its recorded selection.
 
 ## Goal and Plan transforms
 
@@ -83,7 +83,7 @@ Initial restore still admits the legacy root for recovery. No bucket objects are
 
 ## User workflows and retirement
 
-Advisor requires an explicit current-user request; startup guidance adds no autonomous route. RPIV Advisor 2.11.0 provides one identical-input retry for a transient empty model response while preserving immediate abort/error propagation. Its `advisor` tool and user-only `/advisor` command do not authorize assistant invocation.
+Advisor requires an explicit current-user request; startup guidance adds no autonomous route. RPIV Advisor 2.12.0 provides one identical-input retry for a transient empty model response while preserving immediate abort/error propagation. Its `advisor` tool and user-only `/advisor` command do not authorize assistant invocation.
 
 Evaluate 0.1.5 is exact-pinned from its reviewed [MIT npm tarball](https://registry.npmjs.org/pi-evaluate/-/pi-evaluate-0.1.5.tgz). Its extension registers the packaged skill directory on `resources_discover`; it ships no tool or command and runs only when the user invokes `/skill:evaluate`. The skill reads a [reespec](https://github.com/bnenu/reespec) brief and specs when `reespec/requests/` exists, otherwise a user-pasted contract, together with produced outputs. It returns per-capability satisfied/partial/unsatisfied/unclear verdicts and triage, deliberately excludes implementation intent, and reports gaps rather than fixing them. Codeflare applies no patch or fork. The image explicitly loads `extensions/evaluate.ts` and requires its path-correct JITI artifact ([REQ-AGENT-133](../../sdd/spec/agents.md#req-agent-133-native-evaluation-workflow-in-pi-sessions)). Lock-backed weekly shadow-pin discovery includes future releases.
 

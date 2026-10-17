@@ -502,7 +502,7 @@ RCLONE_FILTERS_COMMON=(
     --filter "- .codex/logs*.sqlite*"        # log databases and WAL/SHM companions (ephemeral)
     --filter "- .codex/*.sqlite-shm"         # SQLite shared memory (ephemeral, corrupt on restore)
     --filter "- .codex/*.sqlite-wal"         # SQLite WAL (ephemeral, corrupt on restore)
-    # Codex's bundled system skills (imagegen, plugin-creator, skill-installer)
+    # Codex's bundled system skills (imagegen, skill-installer)
     # ship inside the codex binary and are re-extracted on launch, gated by
     # .codex-system-skills.marker. Not codeflare-managed, not user content;
     # excluding mirrors the .agents/ rationale (locally regenerated).

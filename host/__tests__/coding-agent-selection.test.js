@@ -364,47 +364,79 @@ describe('REQ-OPS-038: deployment coding-agent selection', () => {
   });
 
   it('the complete-image smoke rejects alternate platform packages after pruning', async () => {
-    const inventories = new Map([
-      ['/npm/@anthropic-ai', ['claude-code', 'claude-code-linux-x64']],
-      ['/npm/@github', []],
-      ['/npm/@openai', ['codex', 'codex-linux-x64']],
-      ['/npm', ['opencode-ai', 'opencode-linux-x64']],
-      ['/npm/@earendil-works/pi-coding-agent/node_modules/@esbuild', ['linux-x64']],
-      ['/pi-npm/@earendil-works/pi-coding-agent/node_modules/@esbuild', ['linux-x64']],
-    ]);
+    const directory = mkdtempSync(join(tmpdir(), 'packaged-agent-inventory-'));
+    const nodeModulesPath = join(directory, 'npm');
+    const piNodeModulesPath = join(directory, 'pi-npm');
+    const selection = 'claude-code,codex,opencode,pi';
     const options = {
-      hasCodingAgent: (selection, agent) => selection.split(',').includes(agent),
-      nodeModulesPath: '/npm',
-      piNodeModulesPath: '/pi-npm',
-      readDirectory: async (path) => inventories.get(path) ?? [],
+      hasCodingAgent: (selected, agent) => selected.split(',').includes(agent),
+      nodeModulesPath,
+      piNodeModulesPath,
     };
+    const expected = {
+      'claude-code': ['claude-code', 'claude-code-linux-x64'],
+      codex: ['codex', 'codex-linux-x64'],
+      copilot: [],
+      opencode: ['opencode-ai', 'opencode-linux-x64'],
+    };
+    const esbuildDirectories = [
+      join(nodeModulesPath, '@esbuild'),
+      join(nodeModulesPath, '@earendil-works', 'pi-coding-agent', 'node_modules', '@esbuild'),
+      join(piNodeModulesPath, '@esbuild'),
+      join(piNodeModulesPath, '@earendil-works', 'pi-coding-agent', 'node_modules', '@esbuild'),
+    ];
 
-    assert.deepEqual(
-      await verifySelectedAgentPackages('claude-code,codex,opencode,pi', options),
-      {
-        'claude-code': ['claude-code', 'claude-code-linux-x64'],
-        codex: ['codex', 'codex-linux-x64'],
-        copilot: [],
-        opencode: ['opencode-ai', 'opencode-linux-x64'],
-      },
-    );
+    try {
+      for (const name of [
+        '@anthropic-ai/claude-code',
+        '@anthropic-ai/claude-code-linux-x64',
+        '@openai/codex',
+        '@openai/codex-linux-x64',
+        'opencode-ai',
+        'opencode-linux-x64',
+        '@earendil-works/pi-coding-agent',
+        '@esbuild/linux-x64',
+      ]) mkdirSync(join(nodeModulesPath, name), { recursive: true });
+      mkdirSync(join(piNodeModulesPath, '@earendil-works', 'pi-coding-agent'), { recursive: true });
 
-    inventories.set('/npm/@anthropic-ai', [
-      'claude-code',
-      'claude-code-linux-x64',
-      'claude-code-linux-x64-musl',
-    ]);
-    await assert.rejects(
-      verifySelectedAgentPackages('claude-code,codex,opencode,pi', options),
-      /claude-code package inventory/i,
-    );
+      // Pi 1.3 has no esbuild dependency; only the shared image-owned copy is required.
+      assert.deepEqual(await verifySelectedAgentPackages(selection, options), expected);
 
-    inventories.set('/npm/@anthropic-ai', ['claude-code', 'claude-code-linux-x64']);
-    inventories.set('/pi-npm/@earendil-works/pi-coding-agent/node_modules/@esbuild', ['darwin-arm64', 'linux-x64']);
-    await assert.rejects(
-      verifySelectedAgentPackages('claude-code,codex,opencode,pi', options),
-      /Pi prewarm esbuild package inventory/i,
-    );
+      const musl = join(nodeModulesPath, '@anthropic-ai', 'claude-code-linux-x64-musl');
+      mkdirSync(musl);
+      await assert.rejects(verifySelectedAgentPackages(selection, options), /claude-code package inventory/i);
+      rmSync(musl, { recursive: true });
+
+      // The canonical Linux-x64 payload allowlist applies to every present scope.
+      for (const esbuildDirectory of esbuildDirectories) {
+        mkdirSync(esbuildDirectory, { recursive: true });
+        rmSync(join(esbuildDirectory, 'linux-x64'), { recursive: true, force: true });
+        await assert.rejects(verifySelectedAgentPackages(selection, options), /esbuild package inventory/i);
+        mkdirSync(join(esbuildDirectory, 'linux-x64'));
+        assert.deepEqual(await verifySelectedAgentPackages(selection, options), expected);
+        for (const alternate of ['darwin-arm64', 'linux-arm64']) {
+          const payload = join(esbuildDirectory, alternate);
+          mkdirSync(payload);
+          await assert.rejects(verifySelectedAgentPackages(selection, options), /esbuild package inventory/i);
+          rmSync(payload, { recursive: true });
+        }
+      }
+
+      await assert.rejects(verifySelectedAgentPackages(selection, {
+        ...options,
+        readDirectory: async (path) => {
+          if (path === join(piNodeModulesPath, '@esbuild')) {
+            throw Object.assign(new Error('permission denied'), { code: 'EACCES' });
+          }
+          return readdirSync(path);
+        },
+      }), { code: 'EACCES' });
+
+      rmSync(join(nodeModulesPath, '@esbuild'), { recursive: true });
+      await assert.rejects(verifySelectedAgentPackages(selection, options), { code: 'ENOENT' });
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
   });
 
   it('fails closed at the selector CLI boundary', () => {
