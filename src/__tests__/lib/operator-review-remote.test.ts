@@ -258,6 +258,61 @@ describe('REQ-OPERATOR-053: dedicated remote Operator Review result consumer', (
       } finally { await app.emit('session_shutdown'); vi.useRealTimers(); }
     });
 
+  it.each(['pending', 'active'].flatMap(initial => [false, true].map(resume => ({ initial, resume }))))(
+    'REQ-AGENT-170 AC1: keeps pending delivery CI when later consent admits a previously $initial clone, resume=$resume', async ({ initial, resume }) => {
+      let admitted = initial === 'active';
+      const app = harness(published, async () => admitted
+        ? { mode: 'remote', activityId: 'activity-1' } : { mode: 'remote' });
+      try {
+        await app.launchClone();
+        admitted = false;
+        await app.emit('tool_result', { toolName: 'bash', input: { command: 'git push origin feature' } });
+        if (resume) await app.emit('session_start');
+        admitted = true;
+        await app.launchClone(); // Admission arrives on consent, not the pending timer.
+        const plans = () => app.messages.filter(message => message.customType === 'pr-boundary-remote-plan');
+        expect(plans()).toHaveLength(initial === 'active' ? 2 : 1);
+        expect(plans().at(-1)?.content).toContain('ci-monitor');
+        await app.launchClone();
+        expect(plans()).toHaveLength(initial === 'active' ? 2 : 1);
+        await app.emit('agent_settled');
+        triage(app); await app.emit('agent_end');
+        expect(app.messages.some(message => message.customType === 'pr-boundary-original-findings')).toBe(false);
+        expect(app.messages.some(message => message.customType === 'pr-boundary-fix-follow-up')).toBe(false);
+        app.reportCi(); await app.emit('agent_settled');
+        expect(app.messages.at(-1)?.customType).toBe('pr-boundary-original-findings');
+        triage(app); await app.emit('agent_end');
+        expect(app.messages.at(-1)?.customType).toBe('pr-boundary-fix-follow-up');
+      } finally { await app.emit('session_shutdown'); }
+    });
+
+  it.each([
+    { field: 'repository ID', overrides: { repositoryId: 139 } },
+    { field: 'repository', overrides: { repository: 'owner/other' } },
+    { field: 'checkout', overrides: { repo: '/workspace/other' } },
+    { field: 'PR', overrides: { pullRequest: 43 } },
+    { field: 'head', overrides: { head: 'b'.repeat(40) } },
+    { field: 'session', overrides: {} },
+  ])('REQ-AGENT-170 AC1: does not inherit pending CI across a different $field', async ({ field, overrides }) => {
+    let admitted = false;
+    const target = { repository: 'owner/repo', repositoryId: 138, pullRequest: 42, head, repo: '/workspace/repo' };
+    let externalBoundary = { ...target, ...overrides };
+    const app = harness(published, async () => admitted
+      ? { mode: 'remote', activityId: 'activity-1' } : { mode: 'remote' }, async () => externalBoundary);
+    try {
+      await app.emit('tool_result', { toolName: 'bash', input: { command: 'git push origin feature' } });
+      externalBoundary = { ...target };
+      if (field === 'session') app.moveSession('/owned/new-root.jsonl');
+      await app.emit('session_start');
+      admitted = true;
+      await app.launchClone();
+      expect(app.messages.at(-1)?.customType).toBe('pr-boundary-remote-plan');
+      expect(app.messages.at(-1)?.content).not.toContain('ci-monitor');
+      await app.emit('agent_settled');
+      expect(app.messages.at(-1)?.customType).toBe('pr-boundary-original-findings');
+    } finally { await app.emit('session_shutdown'); }
+  });
+
   it('never stages Operator Review on checkout, switch, pull, clone, or startup exposure', async () => {
     const app = harness();
     await app.emit('session_start');

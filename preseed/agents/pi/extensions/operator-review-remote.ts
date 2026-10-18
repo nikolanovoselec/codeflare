@@ -132,11 +132,10 @@ export function registerOperatorReviewRemote(pi: ReviewPi, dependencies: Depende
       // Both network waits and Pi session switches can supersede this round.
       if (epoch !== observedEpoch || !sameRound(round, active) || !branchHasPlan(ctx, active) || active.ciRequired !== false && !ciTerminal(ctx, active)
         || alreadyDelivered(ctx, active)) return;
-      const current = await dependencies.currentBoundary({ type: 'session_start' },
-        active.ciRequired === false ? { ...ctx, cwd: active.repo } : ctx);
+      const current = await dependencies.currentBoundary({ type: 'session_start' }, { ...ctx, cwd: active.repo });
       if (epoch !== observedEpoch || !sameRound(round, active)) return;
       if (!current || current.repository !== active.repository || current.repositoryId !== active.repositoryId
-        || current.pullRequest !== active.pullRequest || current.head !== active.head
+        || current.repo !== active.repo || current.pullRequest !== active.pullRequest || current.head !== active.head
         || !branchHasPlan(ctx, active)) {
         stop(); return;
       }
@@ -167,6 +166,12 @@ export function registerOperatorReviewRemote(pi: ReviewPi, dependencies: Depende
     } finally { checking = false; }
   };
   const activate = (boundary: Boundary, activityId: string, ctx: any, asynchronous = false): void => {
+    const waiting = pendingMarker(ctx);
+    if (waiting && waiting.repositoryId === boundary.repositoryId && waiting.repository === boundary.repository
+      && waiting.repo === boundary.repo && waiting.pullRequest === boundary.pullRequest && waiting.head === boundary.head
+      && waiting.sessionFile === ctx.sessionManager.getSessionFile?.() && waiting.ciRequired !== false) {
+      boundary = { ...boundary, ciRequired: true };
+    }
     const saved = branchMarker(ctx);
     const next: Round = saved && saved.repository === boundary.repository
       && saved.pullRequest === boundary.pullRequest && saved.head === boundary.head
@@ -211,8 +216,7 @@ export function registerOperatorReviewRemote(pi: ReviewPi, dependencies: Depende
           const observedEpoch = epoch;
           const selection = await dependencies.selectBoundary(waiting, true);
           if (observedEpoch !== epoch) return;
-          const current = await dependencies.currentBoundary({ type: 'session_start' },
-            waiting.ciRequired === false ? { ...ctx, cwd: waiting.repo } : ctx);
+          const current = await dependencies.currentBoundary({ type: 'session_start' }, { ...ctx, cwd: waiting.repo });
           if (observedEpoch !== epoch) return;
           if (!samePending(pending, waiting) || !samePending(pendingMarker(ctx), waiting)
             || waiting.sessionFile && ctx.sessionManager.getSessionFile?.() !== waiting.sessionFile

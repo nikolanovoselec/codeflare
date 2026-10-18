@@ -56,10 +56,17 @@ function cloneConsentFixture() {
   let activeSessionFile = sessionFile;
   const state = { head: identity.head, repository: identity.repository, choice: undefined as string | undefined,
     beforePr: undefined as (() => Promise<void>) | undefined,
-    select: undefined as (() => Promise<string | undefined>) | undefined, unavailable: false, published: false };
+    select: undefined as (() => Promise<string | undefined>) | undefined, unavailable: false, published: false,
+    admitted: true, findings: [] as Array<{ id: string; message: string; evidence: string }> };
   const staged: Array<{ cwd: string; targetHead: string; pullRequest: number }> = [];
   const runner = (async (program: string, args: string[], options: { cwd: string }) => {
-    if (program === 'git') return { stdout: args[0] === 'symbolic-ref' ? 'feature' : state.head };
+    if (program === 'git') {
+      if (args[0] === 'symbolic-ref') return { stdout: 'feature' };
+      if (args[0] === 'rev-parse') return { stdout: state.head };
+      if (args[0] === 'remote') return { stdout: `git@github.com:${options.cwd === target ? state.repository : 'owner/parent'}.git` };
+      if (args[0] === 'config') return { stdout: 'origin' };
+      throw new Error(`Unexpected Git request: ${args.join(' ')}`);
+    }
     if (args[0] === 'repo') {
       const repository = options.cwd === target ? state.repository : 'owner/parent';
       return { stdout: JSON.stringify({ nameWithOwner: repository, url: `https://github.com/${repository}` }) };
@@ -75,7 +82,7 @@ function cloneConsentFixture() {
     if (mutating) staged.push({ cwd: options.cwd,
       ...JSON.parse(Buffer.from(header.split(': ')[1]!, 'base64').toString()) });
     return { stdout: `HTTP/2 200\nx-codeflare-operator-boundary-selection: ${state.unavailable && mutating ? 'unavailable' : 'remote'}\n`
-      + (mutating ? 'x-codeflare-operator-boundary-activity: clone-activity\n' : '') + '\n'
+      + (state.admitted ? 'x-codeflare-operator-boundary-activity: clone-activity\n' : '') + '\n'
       + JSON.stringify({ number: 42, head: { sha: state.head } }) };
   }) as never;
   const entries: any[] = [], messages: any[] = [], prompts: Array<{ options: string[] }> = [];
@@ -100,7 +107,7 @@ function cloneConsentFixture() {
       selectBoundary: (boundary, readOnly) => selectOperatorBoundary(boundary, readOnly, runner),
       readPublishedResult: async () => state.published ? { status: 'published', repositoryId: 138,
         pullRequest: 42, activityId: 'clone-activity', head: identity.head, round: 1,
-        artifactDigest: 'f'.repeat(64), findings: [] } : { status: 'unavailable' },
+        artifactDigest: 'f'.repeat(64), findings: state.findings } : { status: 'unavailable' },
     }),
   });
   const emit = async (name: string, event: any = {}) => {
@@ -117,6 +124,23 @@ function cloneConsentFixture() {
     await emit('tool_result', event);
   };
   return { state, prompts, messages, staged, identity, target, emit, clone,
+    reportCi: (reportHead = identity.head) => {
+      const callId = `child-ci-${entries.length}`;
+      entries.push({ type: 'message', message: { role: 'assistant', content: [{ type: 'toolCall', id: callId,
+        name: 'subagent', arguments: { subagent_type: 'ci-monitor', run_in_background: true,
+          inherit_context: false, prompt: JSON.stringify({ repo: identity.repository, pr: identity.pr,
+            head: reportHead, cwd: target }) } }] } });
+      entries.push({ type: 'message', message: { role: 'toolResult', toolCallId: callId,
+        toolName: 'subagent', isError: false } });
+      entries.push({ type: 'custom_message', customType: 'subagent-notification',
+        content: `<tool-use-id>${callId}</tool-use-id><status>Done</status>`
+          + `<result>CI_RESULT success\npr=${identity.pr} head=${reportHead} repo=${identity.repository}</result>` });
+    },
+    triage: () => entries.push({ type: 'message', message: { role: 'assistant', content: [{ type: 'text',
+      text: '| FINDING | VALIDITY | PROPOSED FIX | PROPORTIONALITY | MINIMAL DECISION |\n'
+        + '|---|---|---|---|---|\n'
+        + '| child-guard | valid | Preserve guard | minimal | accepted |',
+    }] } }),
     moveSession: () => {
       activeSessionFile = join(home, 'other-root.jsonl');
       writeFileSync(activeSessionFile, JSON.stringify({ type: 'session', version: 3, id: 'other-root', cwd: parent }) + '\n');
@@ -126,6 +150,44 @@ function cloneConsentFixture() {
 }
 
 describe('REQ-AGENT-169 / REQ-OPERATOR-053 AC3: remote-selected clone consent', () => {
+  it.each(['active', 'pending'] as const)(
+    'REQ-AGENT-170 AC1: keeps the child checkout through %s delivery CI and FIX while cwd stays in its Git parent', async initial => {
+      vi.useFakeTimers();
+      const app = cloneConsentFixture();
+      try {
+        app.state.choice = 'Launch review';
+        app.state.admitted = initial === 'active';
+        app.state.findings = [{ id: 'child-guard', message: 'Preserve the child guard', evidence: 'Child checkout evidence' }];
+        await app.clone('git clone https://github.com/owner/target.git copied');
+        app.state.published = true;
+        await app.emit('tool_result', { toolName: 'bash', toolCallId: 'child-push',
+          input: { command: 'git -C copied push origin feature' }, result: { isError: false } });
+        if (initial === 'pending') {
+          app.state.admitted = true;
+          await vi.advanceTimersByTimeAsync(30_000);
+        }
+        const plan = app.messages.filter(message => message.customType === 'pr-boundary-remote-plan').at(-1);
+        expect(plan).toBeDefined();
+        const request = /ci-monitor for (\{[^\n]+\}) with/.exec(plan?.content ?? '')?.[1];
+        expect(request).toBeDefined();
+        expect(JSON.parse(request!)).toEqual({ repo: app.identity.repository, pr: 42,
+          head: app.identity.head, cwd: app.target });
+        await app.emit('agent_settled');
+        app.triage(); await app.emit('agent_end');
+        expect(app.messages.some(message => message.customType === 'pr-boundary-original-findings')).toBe(false);
+        expect(app.messages.some(message => message.customType === 'pr-boundary-fix-follow-up')).toBe(false);
+        app.reportCi('b'.repeat(40)); await app.emit('agent_settled');
+        expect(app.messages.some(message => message.customType === 'pr-boundary-original-findings')).toBe(false);
+        app.reportCi(); await app.emit('agent_settled');
+        expect(app.messages.at(-1)).toMatchObject({ customType: 'pr-boundary-original-findings', details: {
+          repository: app.identity.repository, pr: 42, head: app.identity.head, findings: app.state.findings,
+        } });
+        app.triage(); await app.emit('agent_end');
+        expect(app.messages.at(-1)?.customType).toBe('pr-boundary-fix-follow-up');
+        expect(app.status()).toBe('missing');
+      } finally { await app.dispose(); vi.useRealTimers(); }
+    });
+
   const staleConsentCases = ['Launch review', 'Mark review complete'].flatMap(choice =>
     ['shutdown', 'session', 'selection'].flatMap(change =>
       ['dialog', 'identity-refresh'].map(phase => ({ choice, change, phase }))));
