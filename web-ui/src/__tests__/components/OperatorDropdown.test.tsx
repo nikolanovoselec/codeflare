@@ -177,7 +177,13 @@ describe('REQ-OPERATOR-086: dropdown Runs and Installed workspace', () => {
   it('AC2: filters the visible page by operator independently of execution state', async () => {
     server.page.push({ ...row('run-2', 'Pull Request Reviewer'), operatorId: 'reviewer' });
     await open();
-    await fireEvent.change(screen.getByRole('combobox', { name: 'Filter runs by operator' }), { target: { value: 'reviewer' } });
+    const filter = screen.getByRole('combobox', { name: 'Filter runs by operator' });
+    // Intentional uppercase user-copy contract: native mobile pickers must show
+    // the same labels as the closed control, without changing filter values.
+    expect(within(filter).getByRole('option', { name: 'ALL OPERATORS' })).toBeTruthy();
+    expect(within(filter).getByRole('option', { name: 'RENOVATE DISPATCHER' })).toBeTruthy();
+    expect(within(filter).getByRole('option', { name: 'PULL REQUEST REVIEWER' })).toBeTruthy();
+    await fireEvent.change(filter, { target: { value: 'reviewer' } });
     expect(screen.queryByRole('button', { name: 'View run-1' })).toBeNull();
     expect(screen.getByRole('button', { name: 'View run-2' })).toBeTruthy();
   });
@@ -221,9 +227,9 @@ describe('REQ-OPERATOR-086: dropdown Runs and Installed workspace', () => {
     await fireEvent.click(screen.getByRole('button', { name: 'View run-1' }));
     await vi.advanceTimersByTimeAsync(0);
     await fireEvent.click(screen.getByRole('button', { name: 'View diagnostics' }));
-    const diagnosticButtons = screen.getAllByRole('button', { name: 'View diagnostics' });
-    await fireEvent.click(diagnosticButtons[diagnosticButtons.length - 1]);
     await vi.advanceTimersByTimeAsync(0);
+    // The first explicit action must read evidence, not reveal another open button.
+    expect(screen.queryByRole('button', { name: 'View diagnostics' })).toBeNull();
     const failure = 'Diagnostic metadata is invalid or unavailable. It cannot be used as evidence.';
     expect(screen.getByText(failure)).toBeTruthy();
     await vi.advanceTimersByTimeAsync(60_000);
@@ -233,6 +239,11 @@ describe('REQ-OPERATOR-086: dropdown Runs and Installed workspace', () => {
     await vi.advanceTimersByTimeAsync(0);
     expect(screen.getByText(failure)).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Hide diagnostics' })).toBeTruthy();
+    await fireEvent.click(screen.getByRole('button', { name: 'Hide diagnostics' }));
+    expect(screen.queryByText(failure)).toBeNull();
+    await fireEvent.click(screen.getByRole('button', { name: 'View diagnostics' }));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(screen.getByText(failure)).toBeTruthy();
     expect(server.prepared).toEqual({});
   });
 

@@ -421,8 +421,10 @@ describe('REQ-OPERATOR-081: AC6 retained Dispatcher diagnostics in Activity deta
     render(() => <OperatorManagement />);
     await selectDiagnosticActivity();
     const panel = await openDiagnostics();
-    fireEvent.click(await panel.findByRole('button', { name: /(?:view|inspect|open).*e-2|e-2.*(?:detail|record)/i }));
-    const detail = within(await panel.findByRole('region', { name: /record.*e-2|e-2.*record/i }));
+    const event = within(panel.getByRole('list', { name: 'Diagnostic timeline' })).getAllByRole('listitem')[1];
+    fireEvent.click(within(event).getByRole('button', { name: 'View record e-2' }));
+    // The requested evidence must appear beside its record, not below the full history.
+    const detail = within(await within(event).findByRole('region', { name: /record.*e-2|e-2.*record/i }));
     expect(await detail.findByText(/TypeError/)).toBeInTheDocument();
     expect(detail.getByText(/cause.*(?:depth|truncat|bounded)/i)).toBeInTheDocument();
     expect(detail.getByText(/(?:prior|affected).*effect.*(?:uncertain|unknown)|(?:uncertain|unknown).*effect/i)).toBeInTheDocument();
@@ -438,6 +440,22 @@ describe('REQ-OPERATOR-081: AC6 retained Dispatcher diagnostics in Activity deta
     expect(detail.getByText(/patch.boundary/i)).toBeInTheDocument();
     expect(detail.getByText(/settlement.*unknown|unknown.*settlement/i)).toBeInTheDocument();
     expect(detail.queryByRole('button', { name: /replay|repair|retry|renew|continue|collect/i })).not.toBeInTheDocument();
+    expect(state.mutations).toEqual([]);
+  });
+
+  it('REQ-OPERATOR-084 AC3: opens retained operation evidence inside the selected operation without replay or execution', async () => {
+    const { state, routes } = ownedDiagnosticFixture();
+    const operation = diagnosticOperation();
+    routes.set(`${diagnosticPath}/records/${operation.id}`, () => diagnosticJson({ ...diagnosticHeaders(), record: operation }));
+    render(() => <OperatorManagement />);
+    await selectDiagnosticActivity();
+    const panel = await openDiagnostics();
+    const row = within(panel.getByRole('list', { name: 'Retained operations' })).getAllByRole('listitem')[0];
+    fireEvent.click(within(row).getByRole('button', { name: `View record ${operation.id}` }));
+    const detail = within(await within(row).findByRole('region', { name: `Record ${operation.id}` }));
+    expect(detail.getByText(operation.operationDigest)).toBeInTheDocument();
+    expect(detail.getByText(/legacy operation.*(?:not|cannot)/i)).toBeInTheDocument();
+    expect(detail.queryByRole('button', { name: /replay|repair|retry|continue|collect/i })).not.toBeInTheDocument();
     expect(state.mutations).toEqual([]);
   });
 
@@ -733,9 +751,10 @@ describe('REQ-OPERATOR-081: AC6 retained Dispatcher diagnostics in Activity deta
     render(() => <OperatorManagement />);
     await selectDiagnosticActivity();
     const panel = await openDiagnostics();
-    const button = await panel.findByRole('button', { name: /(?:view|inspect|open).*e-2|e-2.*(?:detail|record)/i });
+    const event = within(panel.getByRole('list', { name: 'Diagnostic timeline' })).getAllByRole('listitem')[1];
+    const button = within(event).getByRole('button', { name: 'View record e-2' });
     fireEvent.click(button);
-    expect(await panel.findByRole('status')).toHaveTextContent(/loading.*(?:record|detail)/i);
+    expect(await within(event).findByRole('status')).toHaveTextContent(/loading.*(?:record|detail)/i);
     expect(button).toBeDisabled();
     expect(panel.getByRole('list', { name: /timeline/i })).toHaveTextContent(/canonical/i);
     expect(screen.getByText(/Original result for activity-1/)).toBeInTheDocument();
