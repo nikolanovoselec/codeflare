@@ -1,14 +1,15 @@
 /**
  * Compatibility milestone only: real pinned SDK root + package-built Flue facet.
- * This is NOT a production Activity replacement. No host adapter is implemented
- * here in RED: dynamic resolution, scheduler delegation and restricted operation
- * admission remain the missing behavior. The upstream transport intentionally
+ * This is NOT a production Activity replacement. A fixture-local wire adapter
+ * preserves the pinned child's legacy protocol over the host's public Scheduler.
+ * The upstream transport intentionally
  * accepts effects so blanket denial and absent authority checks cannot pass.
  */
 import { DurableObject, WorkerEntrypoint } from 'cloudflare:workers';
 import { Agent, getAgentByName, type RetryOptions, type Schedule, type ScheduleCriteria } from 'agents';
+import { z } from 'zod';
 import type { FixtureActivity } from './loader-worker';
-import { parseDispatcherOperation } from '../../../operators/operator-runtime-capability';
+import { parseDispatcherOperation, readDispatcherBody } from '../../../operators/operator-runtime-capability';
 import { OperatorDispatcherTail } from '../../../operators/activity';
 import { setLogLevel } from '../../../lib/logger';
 import { readDispatcherUpdates, type DispatcherResultProjection } from '../../../operators/dispatcher-result';
@@ -34,8 +35,26 @@ export type NativeJourneyDiagnostic = {
   firstFailedTool: string | null;
   tools: Array<{ tool: string; state: string; reason: string }>;
 };
+export type NativeJourneyScenario = 'ordinary' | 'overflow-once' | 'transient-interruption-once' | 'finish-undiscovered' | 'seal-undiscovered' | 'premature-stop-once';
+type NativeInferenceWire = {
+  admission: 'accepted' | 'rejected'; stage: 'normal' | 'summary';
+  tokenField: 'absent' | 'canonical' | 'completion-alias' | 'dual' | 'other';
+  outputBudget: number | null; messages: number; tools: number;
+};
+export type NativeJourneyObservation = {
+  wire: NativeInferenceWire[];
+  effects: { commentRequests: number; otherMutationRequests: number; commentMatches: boolean; researchSourceRequests: number };
+  sessionId: string | null;
+  interruptionObserved: boolean;
+  retryIdentityMatched: boolean;
+};
 export type FlueFixtureCommand =
-  | { action: 'configure'; artifact: NativeArtifact; digest: string; journey?: boolean; readonly oversizedSourceMetadata?: boolean; readonly researchBodyBytes?: 131072 | 262144 | 1044480 }
+  | { action: 'configure'; artifact: NativeArtifact; digest: string; journey?: boolean; readonly oversizedSourceMetadata?: boolean; readonly researchBodyBytes?: 131072 | 262144 | 1044480;
+      readonly admittedTarget?: string; readonly journeyFacts?: { createdAt: string; unrelatedCreatedAt: string };
+      readonly journeyScenario?: NativeJourneyScenario; readonly admittedInferenceBytes?: 1048576 }
+  | { action: 'journey-observation' }
+  | { action: 'journey-comment-request' }
+  | { action: 'inference-operation'; operationId: string; content: string }
   | { action: 'journey-updates'; submissionId: string; previous: DispatcherResultProjection }
   | { action: 'journey-diagnostic'; submissionId: string }
   | { action: 'send'; delivery: NativeDelivery | { repository: string; pullRequest?: number };
@@ -65,16 +84,20 @@ type Facet = Fetcher & {
   fixtureDiagnosticProbeWarningReceipt?(): Promise<boolean>;
   fixtureDiagnosticProbeReleaseFiber?(): Promise<{ released: boolean }>;
 };
-type NativeEnv = Cloudflare.Env & {
+type NativeEnv = Omit<Cloudflare.Env, 'ACTIVITY'> & {
   FLUE_ROOT: DurableObjectNamespace<FixtureFlueRoot>;
   TAIL_INBOX: DurableObjectNamespace<FixtureTailInbox>;
   ACTIVITY: DurableObjectNamespace<FixtureActivity>;
   LOADER: { get(id: string, code: () => Promise<unknown>): { getDurableObjectClass(name: string): unknown } };
 };
-type AgentsFacetRootBridge = Pick<Agent<NativeEnv>,
-  '_cf_scheduleForFacet' | '_cf_scheduleEveryForFacet' | '_cf_getScheduleForFacet'
-  | '_cf_listSchedulesForFacet' | '_cf_cancelScheduleForFacet' | '_cf_acquireFacetKeepAlive'
-  | '_cf_releaseFacetKeepAlive' | '_cf_registerFacetRun' | '_cf_unregisterFacetRun'>;
+const fixtureScheduleSchema = z.strictObject({
+  generation: z.number().int().positive(), artifactDigest: z.string().regex(/^[a-f0-9]{64}$/),
+  ownerPath: z.array(z.strictObject({ className: z.string(), name: z.string() })).length(2),
+  callback: z.string().min(1).max(128), payload: z.string().nullable(),
+  retry: z.strictObject({ maxAttempts: z.number().int().positive().optional(),
+    baseDelayMs: z.number().nonnegative().optional(), maxDelayMs: z.number().nonnegative().optional() }).optional(),
+});
+type FixtureScheduleEnvelope = z.infer<typeof fixtureScheduleSchema>;
 type FacetBridgeBinding = { generation: number; status: 'current' | 'stale' | 'denied' };
 type FixtureFlueRootStub = DurableObjectStub<FixtureFlueRoot>;
 export type ExternalReceipt = NativeDelivery & { sequence: number; path: string };
@@ -92,6 +115,7 @@ export class FixtureFlueRoot extends Agent<NativeEnv> {
   private reconcileExpiredAt = 0;
   private authorityInterruptedAt = 0;
   private readonly researchBarriers = new Map<string, () => void>();
+  private scheduleQueue: Promise<void> = Promise.resolve();
 
   constructor(ctx: DurableObjectState, env: NativeEnv) {
     super(ctx, env);
@@ -106,17 +130,31 @@ export class FixtureFlueRoot extends Agent<NativeEnv> {
     return super.alarm();
   }
 
-  async configure(artifact: NativeArtifact, digest: string, journey = false, oversizedSourceMetadata = false, researchBodyBytes?: 131072 | 262144 | 1044480) {
+  async configure(artifact: NativeArtifact, digest: string, journey = false, oversizedSourceMetadata = false,
+    researchBodyBytes?: 131072 | 262144 | 1044480, admittedTarget?: string,
+    journeyFacts?: { createdAt: string; unrelatedCreatedAt: string }, journeyScenario?: NativeJourneyScenario,
+    admittedInferenceBytes?: 1048576) {
     const bytes = new TextEncoder().encode(JSON.stringify(artifact));
     const actual = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', bytes)), b => b.toString(16).padStart(2, '0')).join('');
     if (actual !== digest || bytes.length > 8 * 1024 * 1024 || Object.keys(artifact.modules).length > 128 ||
       artifact.className !== 'FlueDispatcherAgent' || artifact.versions.runtime !== '2.1.0' || artifact.versions.agents !== '0.20.1') {
       return { ok: false, reason: 'fixture-artifact-rejected' };
     }
+    // Closed host-only scenarios cannot change artifact modules or SDK settings.
+    if ((journeyScenario !== undefined && (!journey || (journeyScenario !== 'premature-stop-once' && researchBodyBytes !== 131072)
+      || !['ordinary', 'overflow-once', 'transient-interruption-once', 'finish-undiscovered', 'seal-undiscovered', 'premature-stop-once'].includes(journeyScenario)))
+      || (admittedInferenceBytes !== undefined && (!journeyScenario || admittedInferenceBytes !== 1048576))) {
+      return { ok: false, reason: 'fixture-scenario-rejected' };
+    }
     if (journey) {
       await this.ctx.storage.put('fixture:journey', true);
+      if (journeyScenario) await this.ctx.storage.put('fixture:journey-scenario', journeyScenario);
+      if (admittedInferenceBytes) await this.ctx.storage.put('fixture:admitted-inference-bytes', admittedInferenceBytes);
       if (oversizedSourceMetadata) await this.ctx.storage.put('fixture:oversized-source-metadata', true);
       if (researchBodyBytes) await this.ctx.storage.put('fixture:research-body-bytes', researchBodyBytes);
+      // Test parent metadata and authenticated remote facts are separate inputs.
+      if (admittedTarget !== undefined) await this.ctx.storage.put('fixture:admitted-target', admittedTarget);
+      if (journeyFacts) await this.ctx.storage.put('fixture:journey-facts', journeyFacts);
     }
     // Keep large generated bytes out of a single DO KV value. Eviction must
     // reload these exact bytes, never a moving file path or package reference.
@@ -221,6 +259,7 @@ export class FlueDispatcherAgent extends Pinned {
   }
 }`;
       if (probe && artifact.mainModule !== 'index.js') throw new Error('Pinned probe main module unavailable');
+      const admittedTarget = await this.ctx.storage.get<string>('fixture:admitted-target');
       const worker = this.env.LOADER.get(`fixture:${this.name}:${digest}:${binding.generation}${probe ? ':tail-probe' : ''}`, async () => ({
         compatibilityDate: artifact.compatibilityDate, compatibilityFlags: artifact.compatibilityFlags,
         mainModule: probe ? probeModule : artifact.mainModule,
@@ -228,6 +267,7 @@ export class FlueDispatcherAgent extends Pinned {
         // The facet receives only this direct, activity-private RPC target.
         // Its generation is captured here from the owner, never from delivery.
         env: { OPERATOR: exports.FixtureFlueTransport({ props: { activityId: this.name, generation: binding.generation } }),
+          ...(admittedTarget !== undefined ? { OPERATOR_ADMITTED_TARGET: admittedTarget } : {}),
           ...(await this.ctx.storage.get('fixture:journey') ? { GITHUB_API_ORIGIN: 'https://api.github.com',
             OPERATOR_SOURCE_RESPONSE_BYTES: String(await this.ctx.storage.get<number>('fixture:research-body-bytes')
               ? Math.min(1024 * 1024, 2 * (await this.ctx.storage.get<number>('fixture:research-body-bytes'))!)
@@ -266,6 +306,21 @@ export class FlueDispatcherAgent extends Pinned {
     const response = await (await this.child()).fetch(new Request(
       `https://flue.internal/agents/Dispatcher/dispatcher?view=updates&offset=${encodeURIComponent(previous.offset)}`));
     return readDispatcherUpdates(response, previous, submissionId);
+  }
+
+  /** Recovery cases never export inference bodies, prompts or SDK private state. */
+  async journeyObservation(): Promise<NativeJourneyObservation> {
+    const effects = await this.ctx.storage.get<NativeJourneyObservation['effects']>('fixture:journey-effects')
+      ?? { commentRequests: 0, otherMutationRequests: 0, commentMatches: false, researchSourceRequests: 0 };
+    const activity = await this.env.ACTIVITY.getByName(this.name).journeySession();
+    if (!activity) throw new Error('Fixture Activity observation unavailable');
+    return {
+      wire: await this.ctx.storage.get<NativeInferenceWire[]>('fixture:journey-wire') ?? [],
+      effects,
+      sessionId: activity.sessionId,
+      interruptionObserved: Boolean(await this.ctx.storage.get('fixture:journey-interruption')),
+      retryIdentityMatched: await this.ctx.storage.get('fixture:journey-retry-matched') === true,
+    };
   }
 
   /** Public SDK history only: no fixtureSnapshot/private tables or raw error prose. */
@@ -541,8 +596,11 @@ export class FlueDispatcherAgent extends Pinned {
         catch { return Response.json({ code: 'OPERATOR_CAPABILITY_DENIED' }, { status: 403 }); }
         // The parent ledger permits an identical retry but rejects a different
         // model turn under the same durable operation ID before any upstream I/O.
+        // Retain fixed-size identity, not growing model histories in one KV value.
+        const requestDigest = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',
+          new TextEncoder().encode(JSON.stringify({ path: operation.path, body: operation.body })))),
+        byte => byte.toString(16).padStart(2, '0')).join('');
         const digests = await this.ctx.storage.get<Record<string, string>>('fixture:inference-operations') ?? {};
-        const requestDigest = JSON.stringify({ path: operation.path, body: operation.body });
         if (Object.hasOwn(digests, operation.operationId) && digests[operation.operationId] !== requestDigest) {
           return Response.json({ code: 'OPERATOR_OPERATION_CONFLICT' }, { status: 409 });
         }
@@ -679,9 +737,40 @@ export class FlueDispatcherAgent extends Pinned {
 
   private async journeyTransport(request: Request): Promise<Response> {
     const wireRequest = request.clone();
-    let operation: Awaited<ReturnType<typeof parseDispatcherOperation>>;
-    try { operation = await parseDispatcherOperation(request); }
-    catch { return Response.json({ code: 'OPERATOR_CAPABILITY_DENIED' }, { status: 403 }); }
+    const scenario = await this.ctx.storage.get<NativeJourneyScenario>('fixture:journey-scenario');
+    const inferenceByteLimit = await this.ctx.storage.get<number>('fixture:admitted-inference-bytes');
+    let operation: Awaited<ReturnType<typeof parseDispatcherOperation>> | undefined;
+    // Every authentic request, including summaries/retries, crosses the unchanged
+    // production parser. This is admitted fixture policy, not a product limit.
+    try { operation = await parseDispatcherOperation(request, inferenceByteLimit); }
+    catch { /* Record closed semantic evidence below, never exception text. */ }
+    let wireText: string | undefined;
+    let wire: NativeInferenceWire | undefined;
+    if (scenario && new URL(wireRequest.url).pathname === '/v1/dispatcher/inference') {
+      try {
+        wireText = await readDispatcherBody(wireRequest, wireRequest.signal, inferenceByteLimit);
+        const envelope = JSON.parse(wireText) as { input?: Record<string, unknown> };
+        const input = envelope?.input;
+        if (input && typeof input === 'object' && !Array.isArray(input)) {
+          const canonical = Object.hasOwn(input, 'max_tokens');
+          const alias = Object.hasOwn(input, 'max_completion_tokens');
+          const other = Object.hasOwn(input, 'max_output_tokens');
+          const tools = Array.isArray(input.tools) ? input.tools.length : 0;
+          const budget = canonical ? input.max_tokens : alias ? input.max_completion_tokens : null;
+          wire = { admission: operation ? 'accepted' : 'rejected', stage: tools ? 'normal' : 'summary',
+            tokenField: other ? 'other' : canonical && alias ? 'dual' : canonical ? 'canonical' : alias ? 'completion-alias' : 'absent',
+            outputBudget: typeof budget === 'number' && Number.isFinite(budget) ? budget : null,
+            messages: Array.isArray(input.messages) ? input.messages.length : 0, tools };
+          // Parallel main/prefix summaries must not race a global append ordinal.
+          await this.ctx.storage.transaction(async storage => {
+            const observed = await storage.get<NativeInferenceWire[]>('fixture:journey-wire') ?? [];
+            if (observed.length >= 64) throw new Error('Fixture inference observation bound exceeded');
+            await storage.put('fixture:journey-wire', [...observed, wire!]);
+          });
+        }
+      } catch { /* Malformed/oversized bodies produce no content-bearing diagnostic. */ }
+    }
+    if (!operation) return Response.json({ code: 'OPERATOR_CAPABILITY_DENIED' }, { status: 403 });
     const operations = await this.ctx.storage.get<Record<string, { path: string; body: unknown }>>('fixture:journey-operations') ?? {};
     if (operation.path === '/v1/dispatcher/receipt') {
       const prior = operations[operation.operationId];
@@ -690,14 +779,33 @@ export class FlueDispatcherAgent extends Pinned {
       await this.ctx.storage.put('fixture:journey-receipt-count', Object.keys(operations).length);
       return Response.json({ operationId: operation.operationId, generation: 1, requestDigest: 'a'.repeat(64),
         responseDigest: 'b'.repeat(64), method: source.method ?? 'GET', url: source.url,
-        phase: 'completed', operationCount: Object.keys(operations).length, operationLimit: 128 });
+        phase: 'completed', operationCount: Object.keys(operations).length, operationLimit: 1024 });
     }
     const researchBodyBytes = await this.ctx.storage.get<number>('fixture:research-body-bytes');
     const target = { pullRequest: 17, headSha: 'a'.repeat(40) };
     const researchUrl = 'https://docs.example.test/large-migration';
     const quote = 'Migration compatibility remains unverified.';
     const comment = `${quote} Source: ${researchUrl}`;
-    const entry = { path: operation.path, body: operation.body };
+    // Older artifact-window cases intentionally inspect model-facing bodies.
+    // New recovery cases retain only an internal conflict digest and closed wire
+    // evidence; no prompts/tool bodies are persisted in their inference ledger.
+    const entry = { path: operation.path, body: scenario && operation.path === '/v1/dispatcher/inference' ? {} : operation.body };
+    if (scenario && operation.path === '/v1/dispatcher/inference') {
+      if (!wire || wireText === undefined) return new Response(null, { status: 403 });
+      const digest = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(wireText))),
+        b => b.toString(16).padStart(2, '0')).join('');
+      const digests = await this.ctx.storage.get<Record<string, string>>('fixture:journey-wire-digests') ?? {};
+      if (digests[operation.operationId] && digests[operation.operationId] !== digest) {
+        return Response.json({ code: 'OPERATOR_OPERATION_CONFLICT' }, { status: 409 });
+      }
+      if (scenario === 'transient-interruption-once') {
+        const interrupted = await this.ctx.storage.get<{ operationId: string; digest: string }>('fixture:journey-interruption');
+        if (interrupted?.operationId === operation.operationId && interrupted.digest === digest) {
+          await this.ctx.storage.put('fixture:journey-retry-matched', true);
+        }
+      }
+      await this.ctx.storage.put('fixture:journey-wire-digests', { ...digests, [operation.operationId]: digest });
+    }
     if (operations[operation.operationId] && JSON.stringify(operations[operation.operationId]) !== JSON.stringify(entry)) {
       return Response.json({ code: 'OPERATOR_OPERATION_CONFLICT' }, { status: 409 });
     }
@@ -705,13 +813,21 @@ export class FlueDispatcherAgent extends Pinned {
       const source = operation.body as { url: string; method?: string; body?: string };
       const bot = { id: 29139614, login: 'renovate[bot]', type: 'Bot' };
       const actor = { id: 42, login: 'fixture-publisher', type: 'User' };
-      const pull = { number: 17, state: 'open', draft: false, created_at: new Date(Date.now() - 86400000).toISOString(),
-        user: bot, head: { sha: target.headSha }, base: { sha: 'b'.repeat(40), ref: 'main', repo: { full_name: 'authorized/project' } } };
+      const facts = await this.ctx.storage.get<{ createdAt: string; unrelatedCreatedAt: string }>('fixture:journey-facts');
+      const pull = { number: 17, state: 'open', draft: false, created_at: facts?.createdAt ?? new Date(Date.now() - 86400000).toISOString(),
+        user: bot, head: { sha: target.headSha }, base: { sha: 'b'.repeat(40), ref: 'main', repo: { full_name: 'authorized/project', ...(facts ? { id: 123 } : {}) } } };
+      const unrelated = { ...pull, number: 19, created_at: facts?.unrelatedCreatedAt, head: { sha: 'c'.repeat(40) } };
+      const pullsUrl = 'https://api.github.com/repos/authorized/project/pulls?state=open&sort=created&direction=desc&per_page=1&page=';
       const allowed: Record<string, unknown> = {
-        'https://api.github.com/repos/authorized/project': { full_name: 'authorized/project',
+        'https://api.github.com/repos/authorized/project': { full_name: 'authorized/project', ...(facts ? { id: 123 } : {}),
           ...(await this.ctx.storage.get('fixture:oversized-source-metadata') ? { padding: 'x'.repeat(80 * 1024) } : {}) },
         'https://api.github.com/users/renovate%5Bbot%5D': { id: 29139614, login: 'renovate[bot]', type: 'Bot' },
-        'https://api.github.com/repos/authorized/project/pulls?state=open&sort=created&direction=desc&per_page=1&page=1': researchBodyBytes ? [pull] : [],
+        [`${pullsUrl}1`]: facts ? [unrelated] : researchBodyBytes ? [pull] : [],
+        ...(facts ? {
+          [`${pullsUrl}2`]: [pull],
+          'https://api.github.com/repos/authorized/project/pulls/19': unrelated,
+          'https://api.github.com/repos/authorized/project/issues/19/comments?per_page=100': [],
+        } : {}),
         ...(researchBodyBytes ? {
           'https://api.github.com/repos/authorized/project/pulls/17': pull,
           'https://api.github.com/user': actor,
@@ -719,45 +835,154 @@ export class FlueDispatcherAgent extends Pinned {
         } : {}),
       };
       const commentUrl = 'https://api.github.com/repos/authorized/project/issues/17/comments';
+      const unrelatedCommentUrl = 'https://api.github.com/repos/authorized/project/issues/19/comments';
       let body: string;
       let status = 200;
-      if (researchBodyBytes && source.url === commentUrl && source.method === 'POST') {
+      if (researchBodyBytes && (source.url === commentUrl || (facts && source.url === unrelatedCommentUrl)) && source.method === 'POST') {
         if (source.body !== JSON.stringify({ body: comment })) return new Response(null, { status: 403 });
         status = 201;
         body = JSON.stringify({ id: 91, body: comment, user: actor,
-          issue_url: 'https://api.github.com/repos/authorized/project/issues/17' });
+          issue_url: source.url.replace(/\/comments$/, '') });
       } else {
         if ((source.method ?? 'GET') !== 'GET') return new Response(null, { status: 403 });
         if (researchBodyBytes && source.url === researchUrl) {
           await this.ctx.storage.put('fixture:journey-research-reads',
             (await this.ctx.storage.get<number>('fixture:journey-research-reads') ?? 0) + 1);
-          body = 'x'.repeat(researchBodyBytes - 2000) + quote + 'y'.repeat(2000 - quote.length);
+          body = scenario === 'overflow-once'
+            ? 'x'.repeat(23 * 2000) + quote + 'x'.repeat(researchBodyBytes - 23 * 2000 - quote.length)
+            : 'x'.repeat(researchBodyBytes - 2000) + quote + 'y'.repeat(2000 - quote.length);
         } else {
           if (!Object.hasOwn(allowed, source.url)) return new Response(null, { status: 403 });
           body = JSON.stringify(allowed[source.url]);
         }
       }
+      // Count each accepted synthetic upstream request, including identical IDs.
+      // The separate operation map remains solely the identity/conflict ledger.
+      const isComment = source.method === 'POST' && source.url === commentUrl;
+      const isMutation = (source.method ?? 'GET') !== 'GET';
+      const isResearch = !isMutation && source.url === researchUrl;
+      if (isMutation || isResearch) await this.ctx.storage.transaction(async storage => {
+        const effects = await storage.get<NativeJourneyObservation['effects']>('fixture:journey-effects')
+          ?? { commentRequests: 0, otherMutationRequests: 0, commentMatches: false, researchSourceRequests: 0 };
+        if (effects.commentRequests + effects.otherMutationRequests + effects.researchSourceRequests >= 128) {
+          throw new Error('Fixture source request observation bound exceeded');
+        }
+        if (isComment) {
+          effects.commentRequests++;
+          effects.commentMatches = effects.commentRequests === 1 && source.body === JSON.stringify({ body: comment });
+        } else if (isMutation) effects.otherMutationRequests++;
+        else effects.researchSourceRequests++;
+        await storage.put('fixture:journey-effects', effects);
+      });
       await this.ctx.storage.put('fixture:journey-operations', { ...operations, [operation.operationId]: entry });
-      return Response.json({ url: source.url, status, headers: { 'content-type': 'application/json' }, body });
+      return Response.json({ url: source.url, status, headers: { 'content-type': 'application/json',
+        ...(facts && source.url === `${pullsUrl}1` ? { link: `<${pullsUrl}2>; rel="next"` } : {}) }, body });
     }
     if (operation.path !== '/v1/dispatcher/inference') return new Response(null, { status: 403 });
-    const turn = Object.values(operations).filter(item => item.path === operation.path).length;
-    const tool = (researchBodyBytes
-      ? ['discover_renovate', 'research_renovate', 'research_renovate', 'decide_renovate', 'seal_dispatcher', 'comment_renovate', 'finish_dispatcher']
-      : ['discover_renovate', 'seal_dispatcher', 'finish_dispatcher'])[turn];
-    if (!tool) return new Response(null, { status: 403 });
-    const bytes = new TextEncoder().encode(await wireRequest.text()).byteLength;
-    await this.ctx.storage.put('fixture:journey-inference-bytes',
-      [...(await this.ctx.storage.get<number[]>('fixture:journey-inference-bytes') ?? []), bytes]);
+    const sse = (chunks: unknown[]) => new Response(chunks.map(chunk => `data: ${JSON.stringify(chunk)}\n\n`).join('') + 'data: [DONE]\n\n', {
+      headers: { 'content-type': 'text/event-stream' },
+    });
     const artifactKey = JSON.stringify({ target, url: researchUrl, kind: 'upstream' });
     const artifactHash = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(artifactKey))),
       b => b.toString(16).padStart(2, '0')).join('');
-    const args = tool === 'research_renovate' ? { target, url: researchUrl, kind: 'upstream', offset: turn === 2 ? researchBodyBytes! - 2000 : 0 }
+    const summaryPrefix = `Repository authorized/project; admitted PR 17, head ${target.headSha}. Discovery authenticated Renovate.`;
+    if (scenario && wire?.stage === 'summary') {
+      // External summary model response only. The real SDK owns preparation,
+      // summary requests, compaction state and continuation of this submission.
+      // Identical deterministic text is safe for concurrently requested summaries.
+      const summary = `${summaryPrefix} Research artifact artifact-${artifactHash.slice(0, 24)} for ${researchUrl} contains exact quotation: ${quote} `
+        + `Record DO_NOT_MERGE with comment "${comment}" and the artifact citation; seal, comment once, then finish. No merge.`;
+      await this.ctx.storage.transaction(async storage => {
+        const current = await storage.get<Record<string, { path: string; body: unknown }>>('fixture:journey-operations') ?? {};
+        await storage.put('fixture:journey-operations', { ...current, [operation.operationId]: entry });
+      });
+      return sse([{ choices: [{ index: 0, delta: { content: summary }, finish_reason: 'stop' }],
+        usage: { prompt_tokens: 9000, completion_tokens: 150, total_tokens: 9150 } }]);
+    }
+    if (scenario === 'overflow-once' && await this.ctx.storage.get('fixture:journey-injected')) {
+      const observed = await this.ctx.storage.get<NativeInferenceWire[]>('fixture:journey-wire') ?? [];
+      // A continuation is answered only when the SDK really carried our public
+      // upstream summary into the new normal wire context. Export no text.
+      const input = (JSON.parse(wireText!) as { input: { messages: unknown[] } }).input;
+      if (!observed.some(item => item.stage === 'summary' && item.admission === 'accepted')
+        || !JSON.stringify(input.messages).includes(summaryPrefix)) return new Response(null, { status: 403 });
+    }
+    const turn = scenario ? await this.ctx.storage.get<number>('fixture:journey-domain-turn') ?? 0
+      : Object.values(operations).filter(item => item.path === operation.path).length;
+    if (scenario === 'premature-stop-once' && !await this.ctx.storage.get('fixture:journey-steered')) {
+      await this.ctx.storage.put('fixture:journey-steered', true);
+      await this.ctx.storage.put('fixture:journey-operations', { ...operations, [operation.operationId]: entry });
+      return sse([{ choices: [{ index: 0, delta: { content: 'Work remains incomplete.' }, finish_reason: 'stop' }] }]);
+    }
+    // Synthetic upstream model stop after a genuine failed producer completion tool.
+    if ((scenario === 'finish-undiscovered' && turn > 0) || (scenario === 'seal-undiscovered' && turn > 1)) {
+      await this.ctx.storage.put('fixture:journey-operations', { ...operations, [operation.operationId]: entry });
+      return sse([{ choices: [{ index: 0, delta: { content: 'Diagnostic fixture stop.' }, finish_reason: 'stop' }] }]);
+    }
+    // 24 genuine SDK tool turns, each a successive 2000-character artifact
+    // window: >12000 estimated text tokens, a kept cut point, <128 messages/ops.
+    const researchTurns = scenario === 'overflow-once' ? 24 : 2;
+    const tool = scenario === 'seal-undiscovered' ? ['seal_dispatcher', 'finish_dispatcher'][turn]
+      : scenario === 'finish-undiscovered' ? 'finish_dispatcher' : (researchBodyBytes
+        ? ['discover_renovate', ...Array.from({ length: researchTurns }, () => 'research_renovate'),
+          'decide_renovate', 'seal_dispatcher', 'comment_renovate', 'finish_dispatcher']
+        : ['discover_renovate', 'seal_dispatcher', 'finish_dispatcher'])[turn];
+    if (!tool) return new Response(null, { status: 403 });
+    if (!scenario) {
+      const bytes = new TextEncoder().encode(await wireRequest.text()).byteLength;
+      await this.ctx.storage.put('fixture:journey-inference-bytes',
+        [...(await this.ctx.storage.get<number[]>('fixture:journey-inference-bytes') ?? []), bytes]);
+    }
+    const injectAt = scenario === 'overflow-once' ? researchTurns + 1 : 2;
+    if (scenario && scenario !== 'ordinary' && scenario !== 'premature-stop-once' && turn === injectAt
+      && !await this.ctx.storage.get('fixture:journey-injected')) {
+      if (scenario === 'overflow-once') {
+        // Validate actual SDK model-facing tool results before injecting overflow.
+        // No asserted token usage or scripted turn ordinal substitutes for real
+        // retained text. Only the existing artifact window wire contract is read.
+        const windows = new Map<number, number>();
+        let inspected = 0;
+        const visit = (value: unknown, depth = 0): void => {
+          if (++inspected > 4096 || depth > 16) return;
+          if (typeof value === 'string') {
+            if (/^\s*[[{]/.test(value)) {
+              try { visit(JSON.parse(value), depth + 1); } catch { /* Plain text. */ }
+            }
+          } else if (Array.isArray(value)) {
+            for (const item of value) visit(item, depth + 1);
+          } else if (value && typeof value === 'object') {
+            const item = value as Record<string, unknown>;
+            if (item.bodyLength === 131072 && item.bodyTruncated === true && typeof item.bodyOffset === 'number'
+              && typeof item.body === 'string' && item.body.length === 2000) windows.set(item.bodyOffset, item.body.length);
+            for (const field of Object.values(item)) visit(field, depth + 1);
+          }
+        };
+        visit((JSON.parse(wireText!) as { input: { messages: unknown[] } }).input.messages);
+        if (windows.size !== 24 || !Array.from({ length: 24 }, (_, index) => index * 2000).every(offset => windows.has(offset))
+          || [...windows.values()].reduce((sum, length) => sum + length / 4, 0) <= 8000) return new Response(null, { status: 403 });
+      }
+      await this.ctx.storage.put('fixture:journey-injected', true);
+      if (scenario === 'transient-interruption-once') {
+        const digests = await this.ctx.storage.get<Record<string, string>>('fixture:journey-wire-digests');
+        await this.ctx.storage.put('fixture:journey-interruption', { operationId: operation.operationId,
+          digest: digests![operation.operationId] });
+      }
+      await this.ctx.storage.put('fixture:journey-operations', { ...operations, [operation.operationId]: entry });
+      // Successful admitted HTTP200 SSE failure inputs, not handwritten child
+      // requests or private SDK calls. Neither injection consumes a domain turn.
+      return sse([{ choices: [{ index: 0, delta: {},
+        finish_reason: scenario === 'overflow-once' ? 'context_length_exceeded' : null }],
+        usage: { prompt_tokens: scenario === 'overflow-once' ? 14000 : 2000, completion_tokens: 0,
+          total_tokens: scenario === 'overflow-once' ? 14000 : 2000 } }]);
+    }
+    const args = tool === 'research_renovate' ? { target, url: researchUrl, kind: 'upstream',
+      offset: scenario === 'overflow-once' ? (turn - 1) * 2000 : turn === 2 ? researchBodyBytes! - 2000 : 0 }
       : tool === 'decide_renovate' ? { target, decision: 'DO_NOT_MERGE', comment,
         claims: [{ artifactId: `artifact-${artifactHash.slice(0, 24)}`, quote, relevance: 'migration uncertainty', authority: 'publisher guidance' }],
         analysis: { changedUsage: 'unverified', configuration: 'unverified', interoperability: 'unverified', migration: 'unverified', gaps: ['No verified compatibility declaration'] } }
       : tool === 'comment_renovate' ? { target } : {};
     await this.ctx.storage.put('fixture:journey-operations', { ...operations, [operation.operationId]: entry });
+    if (scenario) await this.ctx.storage.put('fixture:journey-domain-turn', turn + 1);
     const chunks = [
       { choices: [{ index: 0, delta: { tool_calls: [{ index: 0, id: `journey-${turn}`, type: 'function', function: { name: tool, arguments: JSON.stringify(args) } }] }, finish_reason: null }] },
       { choices: [{ index: 0, delta: {}, finish_reason: 'tool_calls' }] },
@@ -783,63 +1008,130 @@ export class FlueDispatcherAgent extends Pinned {
     }
   }
 
-  #agentsRoot(): AgentsFacetRootBridge {
-    return Agent.prototype as unknown as AgentsFacetRootBridge;
+  private serializeSchedules<T>(run: () => Promise<T>): Promise<T> {
+    const next = this.scheduleQueue.then(run);
+    this.scheduleQueue = next.then(() => undefined, () => undefined);
+    return next;
   }
 
-  override _cf_scheduleForFacet<T = string>(
+  private async ownedSchedules(generation: number, ownerPath: FacetPath, criteria?: ScheduleCriteria) {
+    this.#path(ownerPath);
+    if ((await this.facetBridgeBinding(generation)).status !== 'current') throw new Error('Fixture schedule generation changed');
+    const digest = await this.ctx.storage.get<string>('fixture:digest');
+    const schedules = await this.scheduler.list(criteria);
+    return schedules.flatMap(schedule => {
+      if (schedule.callback !== 'dispatchFixtureSchedule') return [];
+      const envelope = fixtureScheduleSchema.parse(schedule.payload);
+      this.#path(envelope.ownerPath);
+      return envelope.generation === generation && envelope.artifactDigest === digest ? [{ schedule, envelope }] : [];
+    });
+  }
+
+  private projectSchedule<T>(schedule: Schedule<unknown>, envelope: FixtureScheduleEnvelope, payload: T): Schedule<T> {
+    return { ...schedule, callback: envelope.callback, payload, retry: envelope.retry };
+  }
+
+  private createFacetSchedule<T>(generation: number, ownerPath: FacetPath, when: Date | string | number,
+    callback: string, payload: T, options?: { retry?: RetryOptions; idempotent?: boolean; _idempotent?: boolean }, interval = false,
+  ): Promise<{ schedule: Schedule<T>; created: boolean }> {
+    return this.serializeSchedules(async () => {
+      const owned = await this.ownedSchedules(generation, ownerPath);
+      const envelope = fixtureScheduleSchema.parse({ generation,
+        artifactDigest: await this.ctx.storage.get<string>('fixture:digest'), ownerPath,
+        callback, payload: payload === undefined ? null : JSON.stringify(payload), retry: options?.retry });
+      const type = interval ? 'interval' : typeof when === 'string' ? 'cron' : when instanceof Date ? 'scheduled' : 'delayed';
+      const idempotent = interval ? options?._idempotent !== false
+        : type === 'cron' ? options?.idempotent !== false : options?.idempotent === true;
+      const existing = idempotent && owned.find(entry => entry.schedule.type === type
+        && entry.envelope.callback === callback && entry.envelope.payload === envelope.payload
+        && (type !== 'interval' || entry.schedule.type === 'interval' && entry.schedule.intervalSeconds === when)
+        && (type !== 'cron' || entry.schedule.type === 'cron' && entry.schedule.cron === when));
+      if (existing) return { schedule: this.projectSchedule(existing.schedule, existing.envelope,
+        JSON.parse(existing.envelope.payload ?? 'null')), created: false };
+      if (interval && typeof when !== 'number') throw new Error('Invalid fixture interval');
+      const hostOptions = { idempotent: false, retry: { maxAttempts: 1 } };
+      const schedule = interval && typeof when === 'number'
+        ? await this.scheduler.every(when, 'dispatchFixtureSchedule', envelope, hostOptions)
+        : await this.scheduler.set(when, 'dispatchFixtureSchedule', envelope, hostOptions);
+      if ((await this.facetBridgeBinding(generation)).status !== 'current') {
+        await this.scheduler.cancel(schedule.id);
+        throw new Error('Fixture schedule generation changed');
+      }
+      return { schedule: this.projectSchedule(schedule, envelope, payload), created: true };
+    });
+  }
+
+  _cf_scheduleForFacet<T = string>(generation: number,
     ownerPath: FacetPath, when: Date | string | number, callback: string, payload?: T,
     options?: { retry?: RetryOptions; idempotent?: boolean },
-  ): Promise<{ schedule: Schedule<T>; created: boolean }> {
-    this.#path(ownerPath);
-    return (this.#agentsRoot()._cf_scheduleForFacet<T>).call(this, ownerPath, when, callback, payload, options);
+  ): Promise<{ schedule: Schedule<T | undefined>; created: boolean }> {
+    return this.createFacetSchedule(generation, ownerPath, when, callback, payload, options);
   }
-  override _cf_scheduleEveryForFacet<T = string>(
+  _cf_scheduleEveryForFacet<T = string>(generation: number,
     ownerPath: FacetPath, intervalSeconds: number, callback: string, payload?: T,
     options?: { retry?: RetryOptions; _idempotent?: boolean },
-  ): Promise<{ schedule: Schedule<T>; created: boolean }> {
-    this.#path(ownerPath);
-    return (this.#agentsRoot()._cf_scheduleEveryForFacet<T>).call(this, ownerPath, intervalSeconds, callback, payload, options);
+  ): Promise<{ schedule: Schedule<T | undefined>; created: boolean }> {
+    return this.createFacetSchedule(generation, ownerPath, intervalSeconds, callback, payload, options, true);
   }
-  override _cf_getScheduleForFacet(ownerPath: FacetPath, id: string): Promise<Schedule<unknown> | undefined> {
-    this.#path(ownerPath);
-    return this.#agentsRoot()._cf_getScheduleForFacet.call(this, ownerPath, id);
+  _cf_getScheduleForFacet(generation: number, ownerPath: FacetPath, id: string): Promise<Schedule<unknown> | undefined> {
+    return this.serializeSchedules(async () => {
+      const entry = (await this.ownedSchedules(generation, ownerPath, { id }))[0];
+      return entry && this.projectSchedule(entry.schedule, entry.envelope, JSON.parse(entry.envelope.payload ?? 'null'));
+    });
   }
-  override _cf_listSchedulesForFacet(ownerPath: FacetPath, criteria?: ScheduleCriteria): Promise<Schedule<unknown>[]> {
-    this.#path(ownerPath);
-    return this.#agentsRoot()._cf_listSchedulesForFacet.call(this, ownerPath, criteria);
+  _cf_listSchedulesForFacet(generation: number, ownerPath: FacetPath, criteria?: ScheduleCriteria): Promise<Schedule<unknown>[]> {
+    return this.serializeSchedules(async () => (await this.ownedSchedules(generation, ownerPath, criteria))
+      .map(entry => this.projectSchedule(entry.schedule, entry.envelope, JSON.parse(entry.envelope.payload ?? 'null'))));
   }
-  override _cf_cancelScheduleForFacet(ownerPath: FacetPath, id: string): Promise<{ ok: boolean; callback?: string }> {
-    this.#path(ownerPath);
-    return this.#agentsRoot()._cf_cancelScheduleForFacet.call(this, ownerPath, id);
+  _cf_cancelScheduleForFacet(generation: number, ownerPath: FacetPath, id: string): Promise<{ ok: boolean; callback?: string }> {
+    return this.serializeSchedules(async () => {
+      const entry = (await this.ownedSchedules(generation, ownerPath, { id }))[0];
+      return entry && await this.scheduler.cancel(id) ? { ok: true, callback: entry.envelope.callback } : { ok: false };
+    });
   }
   override _cf_acquireFacetKeepAlive(ownerPath: FacetPath): Promise<string> {
     this.#path(ownerPath);
-    return this.#agentsRoot()._cf_acquireFacetKeepAlive.call(this, ownerPath);
+    return super._cf_acquireFacetKeepAlive(ownerPath);
   }
   override _cf_releaseFacetKeepAlive(token: string): Promise<void> {
-    return this.#agentsRoot()._cf_releaseFacetKeepAlive.call(this, token);
+    return super._cf_releaseFacetKeepAlive(token);
   }
   override _cf_registerFacetRun(ownerPath: FacetPath, runId: string): Promise<void> {
     this.#path(ownerPath);
-    return this.#agentsRoot()._cf_registerFacetRun.call(this, ownerPath, runId);
+    return super._cf_registerFacetRun(ownerPath, runId);
   }
   override _cf_unregisterFacetRun(ownerPath: FacetPath, runId: string): Promise<void> {
     this.#path(ownerPath);
-    return this.#agentsRoot()._cf_unregisterFacetRun.call(this, ownerPath, runId);
+    return super._cf_unregisterFacetRun(ownerPath, runId);
   }
 
-  // The generated class is loaded dynamically, so it cannot appear in this
-  // Worker's static ctx.exports registry. Route only the two root-alarm RPCs
-  // that Agents uses to wake and recover this exact activity-private facet.
-  override async _cf_dispatchScheduledCallback(ownerPath: FacetPath, row: unknown): Promise<boolean> {
-    this.#path(ownerPath);
-    const executed = await (await this.child())._cf_dispatchScheduledCallback(ownerPath, row);
-    if (executed && await this.ctx.storage.get<boolean>('fixture:facet-tail-probe')
-      && (row as { callback?: unknown })?.callback === 'fixtureDiagnosticProbeWake') {
+  // Physical alarms remain SDK-owned. Reconstruct the pinned child's storage
+  // row instead of forwarding a public host Schedule or its authority envelope.
+  async dispatchFixtureSchedule(payload: unknown, schedule: Schedule<unknown>): Promise<void> {
+    const envelope = fixtureScheduleSchema.parse(payload);
+    this.#path(envelope.ownerPath);
+    const binding = await this.activityBinding();
+    if (!binding || binding.generation !== envelope.generation || binding.deadline <= Date.now()
+      || envelope.artifactDigest !== await this.ctx.storage.get<string>('fixture:digest')) {
+      await this.scheduler.cancel(schedule.id);
+      return;
+    }
+    const row = { id: schedule.id, callback: envelope.callback, payload: envelope.payload,
+      type: schedule.type, time: schedule.time,
+      delayInSeconds: schedule.type === 'delayed' ? schedule.delayInSeconds : null,
+      intervalSeconds: schedule.type === 'interval' ? schedule.intervalSeconds : null,
+      cron: schedule.type === 'cron' ? schedule.cron : null,
+      retry_options: envelope.retry ? JSON.stringify(envelope.retry) : null,
+      owner_path: JSON.stringify(envelope.ownerPath), owner_path_key: envelope.ownerPath.map(step =>
+        `${encodeURIComponent(step.className)}:${encodeURIComponent(step.name)}`).join('/') };
+    const child = await this.child();
+    const current = await this.activityBinding();
+    if (!current || current.generation !== envelope.generation || current.deadline <= Date.now()) return;
+    const executed = await child._cf_dispatchScheduledCallback(envelope.ownerPath, row);
+    if (!executed) throw new Error('Fixture child schedule was not handled');
+    if (await this.ctx.storage.get<boolean>('fixture:facet-tail-probe') && row.callback === 'fixtureDiagnosticProbeWake') {
       await this.ctx.storage.put('fixture:probe:callback-returned', true);
     }
-    return executed;
   }
   override async _cf_checkRunFibersForFacet(ownerPath: FacetPath): Promise<number> {
     this.#path(ownerPath);
@@ -929,10 +1221,10 @@ export class FixtureFlueTransport extends WorkerEntrypoint<NativeEnv> {
     return (await this.#root()).facetBridgeBinding(generation);
   }
 
-  async #bridge<T>(call: (root: FixtureFlueRootStub) => Promise<T>): Promise<T> {
+  async #bridge<T>(call: (root: FixtureFlueRootStub, generation: number) => Promise<T>): Promise<T> {
     const binding = await this.#current();
     if (binding.status !== 'current') throw new Error(`Facet bridge generation ${binding.status}`);
-    return call(await this.#root());
+    return call(await this.#root(), binding.generation);
   }
 
   async fetch(request: Request) {
@@ -947,23 +1239,23 @@ export class FixtureFlueTransport extends WorkerEntrypoint<NativeEnv> {
   async _cf_scheduleForFacet<T = string>(
     ownerPath: FacetPath, when: Date | string | number, callback: string, payload?: T,
     options?: { retry?: RetryOptions; idempotent?: boolean },
-  ): Promise<{ schedule: Schedule<T>; created: boolean }> {
-    return this.#bridge(root => root._cf_scheduleForFacet(ownerPath, when, callback, payload, options));
+  ): Promise<{ schedule: Schedule<T | undefined>; created: boolean }> {
+    return this.#bridge((root, generation) => root._cf_scheduleForFacet(generation, ownerPath, when, callback, payload, options));
   }
   async _cf_scheduleEveryForFacet<T = string>(
     ownerPath: FacetPath, intervalSeconds: number, callback: string, payload?: T,
     options?: { retry?: RetryOptions; _idempotent?: boolean },
-  ): Promise<{ schedule: Schedule<T>; created: boolean }> {
-    return this.#bridge(root => root._cf_scheduleEveryForFacet(ownerPath, intervalSeconds, callback, payload, options));
+  ): Promise<{ schedule: Schedule<T | undefined>; created: boolean }> {
+    return this.#bridge((root, generation) => root._cf_scheduleEveryForFacet(generation, ownerPath, intervalSeconds, callback, payload, options));
   }
   async _cf_getScheduleForFacet(ownerPath: FacetPath, id: string): Promise<Schedule<unknown> | undefined> {
-    return this.#bridge(root => root._cf_getScheduleForFacet(ownerPath, id));
+    return this.#bridge((root, generation) => root._cf_getScheduleForFacet(generation, ownerPath, id));
   }
   async _cf_listSchedulesForFacet(ownerPath: FacetPath, criteria?: ScheduleCriteria): Promise<Schedule<unknown>[]> {
-    return this.#bridge(root => root._cf_listSchedulesForFacet(ownerPath, criteria));
+    return this.#bridge((root, generation) => root._cf_listSchedulesForFacet(generation, ownerPath, criteria));
   }
   async _cf_cancelScheduleForFacet(ownerPath: FacetPath, id: string): Promise<{ ok: boolean; callback?: string }> {
-    return this.#bridge(root => root._cf_cancelScheduleForFacet(ownerPath, id));
+    return this.#bridge((root, generation) => root._cf_cancelScheduleForFacet(generation, ownerPath, id));
   }
   async _cf_acquireFacetKeepAlive(ownerPath: FacetPath): Promise<string> {
     return this.#bridge(root => root._cf_acquireFacetKeepAlive(ownerPath));
@@ -984,7 +1276,31 @@ export async function flueFixture(request: Request, env: NativeEnv) {
   const root = await getAgentByName(env.FLUE_ROOT, id);
   const command = await request.json<FlueFixtureCommand>();
   switch (command.action) {
-    case 'configure': return Response.json(await root.configure(command.artifact, command.digest, command.journey, command.oversizedSourceMetadata, command.researchBodyBytes));
+    case 'configure': return Response.json(await root.configure(command.artifact, command.digest, command.journey,
+      command.oversizedSourceMetadata, command.researchBodyBytes, command.admittedTarget, command.journeyFacts,
+      command.journeyScenario, command.admittedInferenceBytes));
+    case 'journey-observation': return Response.json(await root.journeyObservation());
+    case 'journey-comment-request': {
+      const binding = await root.facetBridgeBinding();
+      if (binding.status !== 'current') return new Response(null, { status: 403 });
+      return root.transport(new Request('https://operator.internal/v1/dispatcher/source', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ operationId: 'repeated-comment-control', method: 'POST',
+          url: 'https://api.github.com/repos/authorized/project/issues/17/comments',
+          body: JSON.stringify({ body: 'Migration compatibility remains unverified. Source: https://docs.example.test/large-migration' }),
+        }),
+      }), binding.generation);
+    }
+    case 'inference-operation': {
+      const binding = await root.facetBridgeBinding();
+      if (binding.status !== 'current') return new Response(null, { status: 403 });
+      const response = await root.transport(new Request('https://operator.internal/v1/dispatcher/inference', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ operationId: command.operationId,
+          input: { messages: [{ role: 'user', content: command.content }], stream: true } }),
+      }), binding.generation);
+      return Response.json({ status: response.status, body: await response.text() });
+    }
     case 'journey-updates': return Response.json(await root.journeyUpdates(command.submissionId, command.previous));
     case 'journey-diagnostic': return Response.json(await root.journeyDiagnostic(command.submissionId));
     case 'send': return Response.json(await root.send(command.delivery, command.productionEvidence,

@@ -291,7 +291,8 @@ function notificationFacts(entry: any): { toolUseId: string; status: string } | 
 }
 
 function isCompletedNotification(status: string | undefined): boolean {
-  return status === "Done" || status === "Completed" || status === "Wrapped up (turn limit)" || status === "Wrapped up (reached turn limit)";
+  return status === "Done" || status === "Completed" || status === "Wrapped up (turn limit)"
+    || status === "Wrapped up (reached turn limit)" || status === "Wrapped up (after turn-budget warning)";
 }
 
 export function extractionTranscriptFacts(input: {

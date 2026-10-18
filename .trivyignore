@@ -1,6 +1,14 @@
 # Trivy vulnerability suppressions
 # Review monthly and remove entries when upstream fixes are available.
 #
+# Owner-authorized accepted risk, 2026-10-12: CVE-2026-78669 in the Go
+# dependencies embedded in gh, rclone and lazygit. Integration deployment
+# scans 38295109713 and 38295113082 reported four findings for x/net 0.58.0
+# and Go stdlib 1.26.7/1.25.14. Reachability is not disproved; this entry
+# accepts the residual vulnerability rather than claiming a dependency fix.
+# Review by 2026-10-19 and remove after patched binaries pass the image scan.
+CVE-2026-78669
+#
 # NOTE: the deploy Trivy scan runs with `ignore-unfixed: true`, so CVEs with no
 # available fix (blank Fixed Version) no longer need an entry here — they are
 # skipped automatically. This file is now for FIXABLE CVEs we consciously accept
@@ -732,11 +740,9 @@ CVE-2026-14257
 # CVE-2026-69152 and CVE-2026-69192 are NOT globally ignored.
 # Both brace-expansion and npm ip-address exceptions are retired after the
 # patched image scans; recurrence now fails the gate.
-# CVE-2026-102990 basic-ftp is NOT globally ignored. The owner-authorized
-# code-server exception lives in scripts/ci/validate-trivy-result.mjs and is
-# bounded by exact path, PURL, versions, severity and count. A hostile FTP
-# listing can cause session/IDE denial of service; unreachability is not claimed.
-# Review by 2026-10-09 and retire once the upstream bundle is patched.
+# CVE-2026-102990 basic-ftp is NOT globally ignored. The image replaces the
+# code-server copy with integrity-pinned 6.2.3 (fixed since 6.2.1).
+# The former 5.3.1 exception is retired; recurrence fails the scanner gate.
 # shell-quote 1.8.3 — inefficient-parse DoS; fixed 1.9.0 (npm has no 1.8.x fix release):
 CVE-2026-13311
 # grpc-go in the official gh binary — bundles an xDS RBAC fail-open
@@ -765,3 +771,16 @@ GHSA-hrxh-6v49-42gf
 # embeds x/mod 0.40.0 or newer:
 CVE-2026-56864
 CVE-2026-56865
+
+# Owner-authorized CLI exception, 2026-10-09; review by 2026-10-16.
+# Go stdlib: HTTP file-server Range parsing CPU exhaustion and TLS-server ECH
+# outer-extension memory amplification. The platform HTTP/TLS servers are Node/
+# Workers, not gh or lazygit. This accepts residual risk in session CLI processes,
+# not a claim that the vulnerable standard library has been patched.
+# Latest verified gh 2.102.0 and lazygit 0.66.0 artifacts still embed Go 1.27.1
+# and 1.25.14 respectively, so a release bump does not fix these findings.
+# rclone is rebuilt with fixed Go 1.27.2. These CVE-level entries apply across
+# scanner targets; reassess if a Go server is introduced. Remove when the pinned
+# CLI artifacts embed Go >=1.26.9 or >=1.27.2 on their respective release lines.
+CVE-2026-78667
+CVE-2026-97031

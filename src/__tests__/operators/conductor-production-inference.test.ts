@@ -37,7 +37,8 @@ vi.mock('../../operators/owned-session-production', () => ({
 const activityId = 'review-activity';
 const selection = { installation: { id: 'review-install', revision: 2,
   policy: { capabilities: ['session', 'pi', 'storage'], resourceProfileId: 'review-profile' } },
-operator: { operatorId: 'review-operator', revision: 3, profile: 'conductor' },
+operator: { operatorId: 'review-operator', revision: 3, profile: 'conductor',
+  policy: { capabilities: ['session', 'pi', 'storage'], resourceProfileId: 'review-profile' } },
 release: { bundleDigest: 'd'.repeat(64) }, controlsRevision: 4 };
 
 it('REQ-OPERATOR-053: a provider-default inference route admits a scoped Conductor session without a reasoning grade', async () => {

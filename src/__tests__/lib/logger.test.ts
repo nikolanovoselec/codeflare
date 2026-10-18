@@ -2,6 +2,19 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createLogger, setLogLevel } from '../../lib/logger';
 
 describe('createLogger', () => {
+  it('scoped logging disablement includes child loggers without silencing independent security logs', () => {
+    const output: string[] = [];
+    setLogLevel('debug');
+    const spies = ['log', 'warn', 'error'].map(level => vi.spyOn(console, level as 'warn')
+      .mockImplementation(value => { output.push(String(value)); }));
+    try {
+      const disabled = createLogger('operator-session-bootstrap', undefined, false);
+      disabled.debug('disabled'); disabled.info('disabled'); disabled.warn('disabled'); disabled.error('disabled');
+      disabled.child({ activityId: 'activity' }).warn('disabled-child');
+      createLogger('access').warn('security event');
+      expect(output.map(value => JSON.parse(value))).toEqual([expect.objectContaining({ module: 'access', message: 'security event' })]);
+    } finally { spies.forEach(spy => spy.mockRestore()); }
+  });
   let consoleSpy: {
     log: ReturnType<typeof vi.spyOn>;
     warn: ReturnType<typeof vi.spyOn>;

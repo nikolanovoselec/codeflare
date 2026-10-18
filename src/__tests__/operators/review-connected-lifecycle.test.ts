@@ -255,7 +255,8 @@ describe('REQ-OPERATOR-053/056: connected publisher and external history boundar
       const activityId = 'next-activity';
       const selection = { installation: { id: 'review-install', revision: 2,
         policy: { capabilities: ['session', 'pi', 'storage'], resourceProfileId: 'review-profile' } },
-      operator: { operatorId: 'review-operator', revision: 3, profile: 'conductor' },
+      operator: { operatorId: 'review-operator', revision: 3, profile: 'conductor',
+        policy: { capabilities: ['session', 'pi', 'storage'], resourceProfileId: 'review-profile' } },
       release: { bundleDigest: 'e'.repeat(64) }, controlsRevision: 4 };
       const guard = { claimed: true, repositoryId: 138, pullRequest: 34, head: nextHead, base,
         mergeBase: base, contextDigest: '5'.repeat(64), workflowId: 531, runId: 8,

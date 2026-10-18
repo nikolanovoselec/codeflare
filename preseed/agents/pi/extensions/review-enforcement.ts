@@ -318,7 +318,7 @@ type ClassifiedBoundary = {
   cloneTargetPreexisted?: boolean;
 };
 
-function resultText(value: unknown): string {
+export function resultText(value: unknown): string {
   if (typeof value === "string") return value;
   if (Array.isArray(value)) return value.map(resultText).join("\n");
   if (!value || typeof value !== "object") return "";
@@ -636,7 +636,13 @@ function statusReason(status: ReturnType<typeof readCompletion>["status"]): stri
   return "no saved completion";
 }
 
-export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependencies): void {
+export type ConsentedReview = Pick<CurrentReview, "repo" | "identity">;
+type ConsentedLaunch = (review: ConsentedReview, ctx: ReviewContext) => Promise<void>;
+export type ReviewEnforcementController = {
+  consentClone(event: unknown, ctx: ReviewContext, launch: ConsentedLaunch, isCurrent: () => boolean): Promise<void>;
+};
+
+export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependencies): ReviewEnforcementController {
   let activeRound: ActiveRound | undefined;
   let dialogIdentity: string | undefined;
   let pendingGoalPauseHead: string | undefined;
@@ -660,9 +666,12 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
     ciEvent?: ReviewBoundaryEvent,
     command?: string,
     createdPr?: CreatedPrTarget,
+    consentedLaunch?: ConsentedLaunch,
+    isCurrent = () => true,
   ): Promise<void> => {
+    if (!isCurrent()) return;
     const review = await currentReview(ctx, dependencies, repo, ciEvent, command, createdPr);
-    if (!review) return;
+    if (!isCurrent() || !review) return;
     if (readCompletion(review.identity).status === "complete") return;
     if (activeRound && sameIdentity(activeRound.identity, review.identity)) return;
     let decision: string | undefined;
@@ -683,11 +692,18 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
       }
       if (decision !== MARK_COMPLETE && decision !== LAUNCH_REVIEW) return;
     }
+    if (!isCurrent()) return;
     const refreshed = await currentReview(ctx, dependencies, review.repo, ciEvent, command, review.createdPr);
-    if (!refreshed || !sameIdentity(refreshed.identity, review.identity)) return;
+    if (!isCurrent() || !refreshed || !sameIdentity(refreshed.identity, review.identity)) return;
     if (readCompletion(refreshed.identity).status === "complete") return;
     if (decision === MARK_COMPLETE) {
       writeCompletion(refreshed.identity);
+      return;
+    }
+    // The selector may override only an explicitly consented exposure launch.
+    // Remote unavailability never falls through to local planning/completion.
+    if (!ciEvent && consentedLaunch) {
+      await consentedLaunch(refreshed, ctx);
       return;
     }
     const ancestor = latestAncestorCompletion(refreshed.identity, refreshed.repo);
@@ -779,7 +795,8 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
     if (repo) await evaluate(ctx, repo, `startup:${Date.now()}`);
   });
 
-  pi.on("tool_result", async (event, ctx) => {
+  const handleToolResult = async (event: any, ctx: ReviewContext, consentedLaunch?: ConsentedLaunch,
+    isCurrent = () => true): Promise<void> => {
     const toolUseId = event?.toolCallId ?? event?.toolUseId ?? event?.id;
     const beforePromise = typeof toolUseId === "string" ? mergeBefore.get(toolUseId) : undefined;
     if (typeof toolUseId === "string") mergeBefore.delete(toolUseId);
@@ -806,7 +823,7 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
         }
         return;
       }
-      await evaluate(ctx, repo, boundary.toolUseId, boundary.classification.event, invocation.command, createdPr);
+      await evaluate(ctx, repo, boundary.toolUseId, boundary.classification.event, invocation.command, createdPr, consentedLaunch, isCurrent);
       return;
     }
     if (!beforePromise || typeof toolUseId !== "string") return;
@@ -818,7 +835,8 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
     if ((branch !== before.branch || head !== before.head) && branch && head) {
       await evaluate(ctx, before.repo, toolUseId, undefined, before.command);
     }
-  });
+  };
+  pi.on("tool_result", handleToolResult);
 
   const settleRound = async (ctx: ReviewContext, endOfTurn: boolean): Promise<void> => {
     const round = activeRound;
@@ -884,6 +902,10 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
   pi.on("agent_settled", async (_event, ctx) => {
     await settleRound(ctx, false);
   });
+  return { consentClone: async (event, ctx, launch, isCurrent) => {
+    if (isCurrent() && latestBoundary(event, ctx.cwd)?.classification.clone)
+      await handleToolResult(event, ctx, launch, isCurrent);
+  } };
 }
 
 export async function queryBranch(repo: string, runner: QueryRunner = execFileAsync): Promise<string | undefined> {
@@ -930,11 +952,15 @@ export async function queryPr(repo: string, runner: QueryRunner = execFileAsync,
   }
 }
 
-export default function reviewEnforcement(pi: ExtensionAPI): void {
-  registerReviewEnforcement(pi as unknown as ReviewPi, {
+export function createReviewEnforcement(pi: ExtensionAPI): ReviewEnforcementController {
+  return registerReviewEnforcement(pi as unknown as ReviewPi, {
     queryPr: (repo, target) => queryPr(repo, execFileAsync, target),
     queryBranch: (repo) => queryBranch(repo, execFileAsync),
     queryHead: (repo, revision) => queryHead(repo, revision, execFileAsync),
     queryRepository: (repo) => queryRepository(repo, execFileAsync),
   });
+}
+
+export default function reviewEnforcement(pi: ExtensionAPI): void {
+  createReviewEnforcement(pi);
 }

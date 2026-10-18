@@ -5,10 +5,12 @@ export interface OperatorBrowserSummary {
   activityId: string;
   operatorId: string;
   operatorName?: string;
+  version?: string;
+  resultSummary?: { assessed: number; merged: number; notMerged: number; deferred: number; unknown: number };
   context?: string | null;
   progress?: string | null;
   executionStatus: 'queued' | 'running' | 'waiting' | 'completed' | 'failed' | 'cancel-requested' | 'unknown';
-  cleanupStatus: 'pending' | 'stopping' | 'stopped' | 'unknown';
+  cleanupStatus: 'pending' | 'stopping' | 'stopped' | 'released' | 'unknown';
   collectionStatus: 'unavailable' | 'ready' | 'consumed' | 'unknown';
   attention: boolean;
   sessionId: string | null;

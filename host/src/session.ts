@@ -331,7 +331,16 @@ export class Session {
       this.start();
     }
 
-    const state = this.serializeAddon.serialize();
+    let state = this.serializeAddon.serialize();
+    // SerializeAddon 0.14 omits mouse encoding. A browser reset otherwise turns
+    // restored fullscreen wheels into onBinary reports instead of forwarded
+    // onData input. Read the authoritative xterm/headless 6.0 mouse state; do
+    // not infer SGR from tracking/fullscreen or force it on ordinary terminals.
+    const encoding = (this.headlessTerminal as unknown as {
+      _core: { coreMouseService: { activeEncoding: string } };
+    })._core.coreMouseService.activeEncoding;
+    if (encoding === 'SGR') state += '\x1b[?1006h';
+    else if (encoding === 'SGR_PIXELS') state += '\x1b[?1016h';
     if (state) {
       ws.send(JSON.stringify({ type: 'restore', state }));
     }

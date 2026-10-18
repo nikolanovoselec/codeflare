@@ -108,17 +108,24 @@ describe('REQ-OPERATOR-048: production Dispatcher bundle boundary', () => {
     modules: { 'index.js': { js: 'export class FlueDispatcherAgent {}' } },
   });
 
-  it('accepts only the pinned generated Flue class metadata and exact approved bytes', async () => {
-    const input = dispatcherBundle();
+  it.each(['2.1.0', '2.2.2'])('accepts exact approved bytes for supported SDK %s', async version => {
+    const input = { ...dispatcherBundle(), versions: { runtime: version, vitePlugin: version, agents: '0.20.1' } };
     const bytes = encode(input);
 
     expect(await parseDispatcherBundle(bytes, await digest(bytes))).toEqual(input);
+    const changed = encode({ ...input, sourceCommit: 'b'.repeat(40) });
+    await expect(parseDispatcherBundle(changed, await digest(bytes))).rejects.toThrow(ValidationError);
   });
 
   it.each([
     ['class export', { className: 'OtherAgent' }],
     ['Agents version', { versions: { runtime: '2.1.0', vitePlugin: '2.1.0', agents: '0.24.0' } }],
     ['Flue runtime', { versions: { runtime: '2.2.0', vitePlugin: '2.1.0', agents: '0.20.1' } }],
+    ['mixed new runtime', { versions: { runtime: '2.2.2', vitePlugin: '2.1.0', agents: '0.20.1' } }],
+    ['mixed new plugin', { versions: { runtime: '2.1.0', vitePlugin: '2.2.2', agents: '0.20.1' } }],
+    ['new tuple Agents version', { versions: { runtime: '2.2.2', vitePlugin: '2.2.2', agents: '0.24.0' } }],
+    ['unknown tuple', { versions: { runtime: '2.2.3', vitePlugin: '2.2.3', agents: '0.20.1' } }],
+    ['tuple-supplied authority', { versions: { runtime: '2.2.2', vitePlugin: '2.2.2', agents: '0.20.1', authority: true } }],
     ['child compatibility date', { compatibilityDate: '2026-02-05' }],
     ['outbound authority', { globalOutbound: true }],
   ])('rejects Dispatcher bytes with changed %s', async (_label, patch) => {

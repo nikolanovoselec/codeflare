@@ -232,7 +232,7 @@ Per-user session admission is best effort: an owner-scoped D1 query counts workl
 
 ### Artifact identity
 
-Governed dependencies/actions/images are pinned through their owning lock/manifest/workflow. Exact-tree checks, dependency review, static analysis, generated-artifact coherence, SBOM/provenance, and keyless release signing make the reviewed source and promoted artifact traceable. The reviewed GHSA-rgj7-g3m4-5g8c remediation floor is sharp 0.35.4 with its matching 1.3.3 libvips platform packages in the root and deployment Wrangler locks ([REQ-OPS-054](../../sdd/spec/operations.md#req-ops-054-committed-npm-runtime-lock-integrity)). Workflow procedure belongs to [CI/CD](ci-cd.md).
+Governed dependencies/actions/images are pinned through their owning lock/manifest/workflow. Exact-tree checks, dependency review, static analysis, generated-artifact coherence, SBOM/provenance, and keyless release signing make the reviewed source and promoted artifact traceable. The sharp/libvips remediation floors are enforced by the owning root and deployment Wrangler manifests and locks ([REQ-OPS-054](../../sdd/spec/operations.md#req-ops-054-committed-npm-runtime-lock-integrity)). Workflow procedure belongs to [CI/CD](ci-cd.md).
 
 ### Managed curation signing and repository credentials
 
@@ -253,7 +253,17 @@ Fixable findings have two reviewed exception paths. Trivy first applies CVE-leve
 
 The executable validator then accepts only its separately listed exact vulnerability/package/path/PURL tuples and fails on unexpected, missing, duplicate, or drifted identities. Dated scan occurrences belong to CI evidence rather than current policy. <!-- @impl: scripts/ci/validate-trivy-result.mjs::validateTrivyResult -->
 
+The [image pins](../../Dockerfile) and owning manifests enforce Debian security floors, rclone's verified build toolchain, the MCP dependency closure and the integrity-pinned IDE shell-quote overlay. Before scanning or push, packaged-image smoke loads that exact shell-quote copy and verifies its version and an argument quote/parse round trip. These target the observed findings without weakening the vulnerability gate; successful image scanning remains required. See [image pins](../../Dockerfile) and [runtime locks](../../preseed/agents/pi/package-lock.json). <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::verifyShellQuoteRuntime -->
+
+CVE-2026-78667 and CVE-2026-97031 are owner-authorized CVE-level exceptions for Go server-path findings in session CLIs, reviewed by October 16. Verified latest gh/lazygit artifacts still embed affected Go versions; bumping those releases alone does not fix them. Residual CLI-process risk is accepted, not disproved. The entries affect every scanner target; reassess any new Go server and retire when pinned CLI builds use fixed Go. See [scope and removal conditions](../../.trivyignore).
+
 Historical provenance: retirement of the `gh` CVE-2026-56852 occurrence was verified by workflow run `30612952117` at head `82244a1d117194227c0082b9555f3654f903fbd2`. This receipt is immutable evidence for that occurrence, not a current scanner result.
+
+### Dependabot audit — 2026-10-18
+
+The paginated GitHub alert inventory returned 15 open alerts (3 critical, 12 high), 223 historical fixed alerts and no dismissed alerts. All 15 open entries have patched declarations/locks on `develop` at `00fc7dc81f9652036c29c8a08803c23e2daedf92`: #231–232 MCP client 2.3.1, #233–237 MCP SDK 1.32.1 (including removal of the affected nested Pi copy), #238–240 proxy-addr 2.0.8 and #241–245 source-map-js 1.2.2. [PR #1232](https://github.com/nikolanovoselec/codeflare/pull/1232) remains unmerged into default `main`; these alerts remain open there. This is point-in-time manifest/lock evidence, not fresh image validation or default-branch closure. [Dependabot #1303](https://github.com/nikolanovoselec/codeflare/pull/1303) is superseded by develop's newer repairs; its older Pi lock would leave #231/#233 affected.
+
+Separately, [basic-ftp CVE-2026-102990](https://github.com/advisories/GHSA-c475-qrg2-pj4r) affects versions through 6.2.0, fixed in 6.2.1. The image now pins an integrity-verified 6.2.3 overlay for code-server's bundled copy; packaged smoke checks the version and FTP parsing through its installed get-uri consumer. <!-- @impl: Dockerfile::BASIC_FTP_VERSION --> <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::verifyCodeServerRuntime --> The former 5.3.1 exception is removed, not renewed or globally ignored: a clean report passes and recurrence fails. <!-- @impl: scripts/ci/validate-trivy-result.mjs::validateTrivyResult --> Source changes do not repair already-running images; exact-head CI, a fresh image scan and separately authorized deployment remain required. Historical Dependabot closure covers different advisories and does not establish this repair.
 
 <a id="keyless-source-release-identity"></a>
 ### Release identity alias
@@ -298,7 +308,7 @@ Exhaustive SDD status remains in `sdd/spec/security.md` and related domains. Par
 
 <!-- Preserved source-evidence anchors for the controls summarized above. -->
 <!-- @impl: .github/workflows/sign-release.yml::sign -->
-<!-- @impl: Dockerfile::CODE_SERVER_VERSION = "4.140.0" -->
+<!-- @impl: Dockerfile::CODE_SERVER_VERSION -->
 <!-- @impl: Dockerfile::CODE_SERVER_SHA256 -->
 <!-- @impl: entrypoint.sh::_openvscode_launch_once -->
 <!-- @impl: entrypoint.sh::_openvscode_prepare_agent -->

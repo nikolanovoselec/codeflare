@@ -39,6 +39,7 @@ const rejection = () => ({ ...rejectedFinding, originalReportDigest: priorPublic
 const selection = { installation: { id: 'review-install', revision: 2,
   policy: { capabilities: ['session', 'pi', 'storage'], resourceProfileId: 'review-profile' } },
 operator: { operatorId: 'review-operator', revision: 3, profile: 'conductor',
+  policy: { capabilities: ['session', 'pi', 'storage'], resourceProfileId: 'review-profile' },
   invokers: { users: [], groups: [{ issuer: human.issuer, id: 'reviewers' }] } },
 release: { bundleDigest: 'e'.repeat(64) }, controlsRevision: 4 };
 vi.mock('@cloudflare/containers', () => ({ getContainer: () => ({ fetch: async (request: Request) => {

@@ -1,9 +1,11 @@
+import { parseRenovateRunSettings, prospectiveRenovatePackageSupported } from '../operators/renovate-run-settings';
+import { resolveProspectiveRenovateRepository } from '../operators/renovate-prospective';
 /** Authenticated browser adapter for owner-scoped operator activity projections. */
 import { Hono, type Context } from 'hono';
 import { z } from 'zod';
 import type { Env } from '../types';
-import { authenticateRequest, canInvokeOperator, operatorAccessSessionCurrent,
-  requireOperatorHumanContext } from '../lib/access';
+import { authenticateRequest, canInvokeOperator, canManageOperator, hasOperatorManagementEligibility, operatorAccessSessionCurrent,
+  requireOperatorHumanContext, resolveOperatorGroupIdentity } from '../lib/access';
 import { getContainer } from '@cloudflare/containers';
 import type { container as SessionContainer } from '../container/index';
 import { D1SessionRepository } from '../lib/session-repository';
@@ -12,7 +14,7 @@ import { isEnterpriseMode } from '../lib/subscription';
 import { AppError } from '../lib/error-types';
 import { operatorOwnerKey, type OperatorBrowserSummary } from '../operators/browser-activity';
 import type { ManagementExecutionSelection, OperatorRegistry, OperatorRegistryResult } from '../operators/registry';
-import type { OperatorActivity } from '../operators/activity';
+import type { OperatorActivity, RetiredEffectReceipts } from '../operators/activity';
 import { parseJsonBody } from '../lib/request-helpers';
 import { bindOperatorRuntimeCapability, prepareOperatorActivity, runOperatorActivity } from '../operators/orchestrator';
 
@@ -33,9 +35,19 @@ const publicationBody = z.strictObject({ sessionId: identifier,
 const prospectiveBody = z.strictObject({ installationId: identifier,
   sessionId: z.string().regex(/^[a-z0-9]{8,24}$/),
   sessionGeneration: z.number().int().positive().safe() });
-type BrowserDetail = OperatorBrowserSummary & { checkpoint: unknown; result: unknown };
+type BrowserDetail = OperatorBrowserSummary & { checkpoint: unknown; result: unknown; effectReceipts?: RetiredEffectReceipts };
 type BrowserCollection = { ok: true; detail: BrowserDetail } | { ok: false; reason: 'not-ready' | 'not-admitted' };
 const jsonSummary = (summary: OperatorBrowserSummary) => structuredClone(summary);
+const diagnosticsResultSchema = z.union([
+  z.object({ status: z.literal(200), value: z.record(z.string(), z.unknown()) }),
+  z.object({ status: z.union([z.literal(400), z.literal(404), z.literal(409), z.literal(503)]), code: z.string() }),
+]);
+
+// Set before authentication so even rejected owner/session responses are never cached.
+app.use('*', async (c, next) => {
+  if (/\/diagnostics\/v2(?:\/|$)/.test(new URL(c.req.url).pathname)) c.header('Cache-Control', 'no-store');
+  return next();
+});
 
 app.use('*', async (c, next) => isEnterpriseMode(c.env) ? next() : c.notFound());
 app.use('*', async (c, next) => {
@@ -65,7 +77,7 @@ app.get('/', async c => {
       const page = await c.get('registry').listOwnedActivityPage(c.get('ownerKey'), after ?? null);
       const items = await Promise.all(page.items.map(async indexed => {
         const summary = jsonSummary(indexed);
-        if (summary.operatorName && summary.context) return summary;
+        if (summary.operatorName && summary.context && summary.version && summary.resultSummary) return summary;
         try {
           const projection = await c.env.OPERATOR_ACTIVITY!.getByName(summary.activityId)
             .getBrowserSummary(c.get('ownerKey'));
@@ -74,6 +86,10 @@ app.get('/', async c => {
             || summary.context && projection.context && summary.context !== projection.context) return summary;
           if (!summary.operatorName && projection.operatorName) summary.operatorName = projection.operatorName;
           if (!summary.context && projection.context) summary.context = projection.context;
+          if (!summary.version && projection.version) summary.version = projection.version;
+          if (!summary.resultSummary && projection.resultSummary && projection.executionStatus === summary.executionStatus) {
+            summary.resultSummary = projection.resultSummary;
+          }
         } catch { /* Historical display metadata is unavailable; keep the owner index unchanged. */ }
         return summary;
       }));
@@ -93,16 +109,13 @@ app.post('/read', async c => {
   const { through } = await parseJsonBody(c, readBody);
   return c.json(await c.get('registry').acknowledgeOwnedActivities(c.get('ownerKey'), through));
 });
-app.get('/installations/:installationId/preview', async c => {
-  const id = c.req.param('installationId');
-  if (!ID.test(id)) return c.notFound();
-  const selected = await c.get('registry').resolveManagementExecution(id);
-  if (!selected.ok || !canInvokeOperator(c.get('operatorHuman').human, selected.value.operator)) return c.notFound();
-  const { operator, release, manifestJson } = selected.value;
+/** REQ-OPERATOR-086: the same closed input contracts drive preview and installed readiness. */
+function guidedPreview(selection: ManagementExecutionSelection) {
+  const { operator, release, manifestJson } = selection;
   let name: unknown;
   let inputSchema: unknown;
-  try { ({ name, inputSchema } = JSON.parse(manifestJson)); } catch { return c.notFound(); }
-  if (typeof name !== 'string' || !name.trim()) return c.notFound();
+  try { ({ name, inputSchema } = JSON.parse(manifestJson)); } catch { return null; }
+  if (typeof name !== 'string' || !name.trim()) return null;
   // Recognize only the two approved input contracts; extra constraints fail closed.
   const repositoryOnly = z.strictObject({ type: z.literal('object'), additionalProperties: z.literal(false),
     required: z.array(z.literal('repository')).length(1), properties: z.strictObject({
@@ -119,8 +132,63 @@ app.get('/installations/:installationId/preview', async c => {
     && operator.repositoryUrl.replace(/\.git$/i, '').toLowerCase() === 'https://github.com/nikolanovoselec/codeflare-operator-dispatcher';
   const guidedMode = !official ? null : repositoryOnly.safeParse(inputSchema).success ? 'repository'
     : legacy.safeParse(inputSchema).success ? 'legacy-pull-request' : null;
-  return c.json({ name, version: release.tagName ?? `GitHub release #${release.githubReleaseId}`,
-    guidedAssessment: guidedMode !== null, guidedMode });
+  return { name, version: release.tagName ?? `GitHub release #${release.githubReleaseId}`,
+    guidedAssessment: guidedMode !== null, guidedMode,
+    ...(guidedMode === 'repository' ? { configuredRepository: parseRenovateRunSettings(selection.installation.configurationJson)?.repository } : {}) };
+}
+
+app.get('/installations', async c => {
+  const params = new URL(c.req.url).searchParams;
+  const cursor = params.get('cursor');
+  if ([...params.keys()].some(key => key !== 'cursor') || params.getAll('cursor').length > 1
+    || cursor !== null && !ID.test(cursor)) return c.json({ error: 'Invalid installation cursor' }, 400);
+  const human = c.get('operatorHuman').human;
+  const registry = c.get('registry');
+  const authenticated = await authenticateRequest(c.req.raw, c.env);
+  if (authenticated.user.email.toLowerCase() !== human.email.toLowerCase()) return c.notFound();
+  const platformAdmin = authenticated.user.role === 'admin';
+  const controls = await registry.getManagementControls();
+  const canManage = (operator: ManagementExecutionSelection['operator']) => platformAdmin || canManageOperator(human, operator, controls.managers);
+  if (cursor) {
+    const previous = await registry.getManagementInstallation(cursor);
+    if (!previous.ok) return c.notFound();
+    const operator = await registry.getManagementOperator(previous.value.operatorId);
+    if (!operator.ok || !canInvokeOperator(human, operator.value) && !canManage(operator.value)) return c.notFound();
+  }
+  const page = await registry.listManagementInstallationPage({ email: human.email, issuer: human.issuer, groups: [...(human.groups ?? [])],
+    platformAdmin, cursor, managersEligible: hasOperatorManagementEligibility(human, controls.managers) });
+  const items = [];
+  for (const installation of page.items) {
+    const current = await registry.getManagementOperator(installation.operatorId);
+    if (!current.ok) continue;
+    const operator = current.value;
+    const invoke = canInvokeOperator(human, operator);
+    const manage = canManage(operator);
+    if (!invoke && !manage) continue;
+    const releases = await registry.getManagementReleases(operator.id);
+    const release = releases.find(value => value.id === installation.releaseId && value.operatorId === operator.id);
+    const approved = release?.approved === true;
+    const selected = approved ? await registry.resolveManagementConfiguration(installation.id) : null;
+    const preview = selected?.ok && selected.value.release.id === installation.releaseId
+      && selected.value.installation.revision === installation.revision ? guidedPreview(selected.value) : null;
+    const settings = preview?.guidedMode === 'repository' ? parseRenovateRunSettings(installation.configurationJson) : null;
+    items.push({ id: installation.id, operatorId: operator.id, name: preview?.name ?? release?.name ?? operator.name ?? operator.id,
+      installationName: installation.name, revision: installation.revision, enabled: installation.enabled, approved,
+      version: release ? release.tagName ?? `GitHub release #${release.githubReleaseId}` : null,
+      canInvoke: invoke, canManage: manage, guidedMode: preview?.guidedMode ?? null,
+      repository: settings?.repository ?? null, automaticRuns: settings?.automaticRuns ?? null,
+      repetitionIntervalSeconds: settings?.repetitionIntervalSeconds ?? null });
+  }
+  c.header('Cache-Control', 'no-store');
+  return c.json({ items, cursor: page.cursor });
+});
+app.get('/installations/:installationId/preview', async c => {
+  const id = c.req.param('installationId');
+  if (!ID.test(id)) return c.notFound();
+  const selected = await c.get('registry').resolveManagementExecution(id);
+  if (!selected.ok || !canInvokeOperator(c.get('operatorHuman').human, selected.value.operator)) return c.notFound();
+  const preview = guidedPreview(selected.value);
+  return preview ? c.json(preview) : c.notFound();
 });
 app.post('/', async c => {
   const body = await parseJsonBody(c, preparationBody);
@@ -144,11 +212,44 @@ app.post('/renovate/activation', async c => {
   }
   const selected = await c.get('registry').resolveManagementExecution(command.installationId);
   if (!selected.ok || selected.value.operator.profile !== 'dispatcher'
+    || selected.value.installation.policy.resourceProfileId !== null
     || !canInvokeOperator(authority.human, selected.value.operator)) {
     throw new AppError('FORBIDDEN', 403, 'Dispatcher installation unavailable');
   }
+  if (!prospectiveRenovatePackageSupported(selected.value.manifestJson)) throw new AppError('FORBIDDEN', 403, 'Prospective package unavailable');
+  const configured = parseRenovateRunSettings(selected.value.installation.configurationJson);
+  if (!configured?.automaticRuns) throw new AppError('FORBIDDEN', 403, 'Automatic runs are not configured');
+  const expectedManagement = { controlsRevision: selected.value.controlsRevision,
+    installationRevision: selected.value.installation.revision, operatorRevision: selected.value.operator.revision,
+    releaseId: selected.value.release.id, bundleDigest: selected.value.release.bundleDigest };
+  const current = async () => {
+    const [fresh, liveSession, liveAccess, liveUser] = await Promise.all([
+      c.get('registry').resolveManagementExecution(command.installationId),
+      new D1SessionRepository(c.env.USAGE_DB).getSession(authenticated.bucketName, command.sessionId),
+      operatorAccessSessionCurrent(authority.human, authority.accessJwt), authenticateRequest(c.req.raw, c.env),
+    ]);
+    if (!fresh.ok || !liveAccess || liveUser.user.role !== 'admin'
+      || liveUser.user.email.toLowerCase() !== authority.human.email.toLowerCase()
+      || liveUser.bucketName !== authenticated.bucketName || liveSession?.lifecycleState !== 'running'
+      || liveSession.lifecycleGeneration !== command.sessionGeneration
+      || fresh.value.controlsRevision !== expectedManagement.controlsRevision
+      || fresh.value.installation.revision !== expectedManagement.installationRevision
+      || fresh.value.operator.revision !== expectedManagement.operatorRevision
+      || fresh.value.release.id !== expectedManagement.releaseId
+      || fresh.value.release.bundleDigest !== expectedManagement.bundleDigest
+      || !canInvokeOperator(await resolveOperatorGroupIdentity(authority.human, authority.accessJwt), fresh.value.operator)) return false;
+    const settings = parseRenovateRunSettings(fresh.value.installation.configurationJson);
+    return !!settings?.automaticRuns && settings.repository === configured.repository
+      && settings.repetitionIntervalSeconds === configured.repetitionIntervalSeconds;
+  };
+  const exports = (c.executionCtx as unknown as { exports?: Record<string,
+    (input: { props: Record<string, unknown> }) => Fetcher> }).exports;
+  if (!exports) throw new AppError('UNAVAILABLE', 503, 'Repository transport unavailable');
+  const repository = await resolveProspectiveRenovateRepository({ env: c.env, exports,
+    repository: configured.repository, human: authority.human, bucket: authenticated.bucketName, current });
+  if (!await current()) throw new AppError('FORBIDDEN', 403, 'Prospective authority changed');
   const registration = await c.get('registry').activateProspectiveRenovate({ ...command,
-    bucket: authenticated.bucketName, ...authority });
+    bucket: authenticated.bucketName, ...authority, repository, expectedManagement });
   if (!registration.ok) throw new AppError('FORBIDDEN', 403, 'Prospective activation unavailable');
   if (!c.env.CONTAINER) throw new AppError('UNAVAILABLE', 503, 'Admin session container unavailable');
   const container = getContainer(c.env.CONTAINER,
@@ -156,25 +257,66 @@ app.post('/renovate/activation', async c => {
   const armed = await container.armRenovateScan({ ...command, registrationId: registration.registrationId,
     bucket: authenticated.bucketName });
   if (!armed.ok) throw new AppError('UNAVAILABLE', 503, 'Prospective scan schedule unavailable');
-  return c.json({ activatedAt: registration.activatedAt, repositoryId: 973175879 }, 202);
+  return c.json({ activatedAt: registration.activatedAt, repositoryId: registration.repositoryId }, 202);
 });
 
 async function owned(registry: DurableObjectStub<OperatorRegistry>, ownerKey: string, activityId: string) {
   if (!ID.test(activityId)) return null;
   return registry.getOwnedActivity(ownerKey, activityId);
 }
-async function browserDetail(stub: DurableObjectStub<OperatorActivity>): Promise<BrowserDetail | null> {
-  return await stub.getBrowserDetail() as BrowserDetail | null;
+async function browserDetail(stub: DurableObjectStub<OperatorActivity>,
+  options?: { effectReceipts: true; receiptAfter?: number }): Promise<BrowserDetail | null> {
+  return await stub.getBrowserDetail(options) as BrowserDetail | null;
 }
 
-async function handleBrowserDetail(c: Context<ActivityRouteEnv>) {
+async function handleBrowserDetail(c: Context<ActivityRouteEnv>, resultOnly: boolean) {
   const activityId = c.req.param('activityId');
   if (!activityId || !await owned(c.get('registry'), c.get('ownerKey'), activityId)) return c.notFound();
-  const detail = await browserDetail(c.env.OPERATOR_ACTIVITY!.getByName(activityId));
+  const cursors = resultOnly ? c.req.queries('receiptAfter') : undefined;
+  const invalidCursor = () => c.json({ error: 'Invalid receipt cursor' }, 400);
+  if (cursors && (cursors.length !== 1 || !/^(0|[1-9][0-9]*)$/.test(cursors[0])
+    || !Number.isSafeInteger(Number(cursors[0])))) return invalidCursor();
+  const receiptAfter = cursors ? Number(cursors[0]) : undefined;
+  const detail = await browserDetail(c.env.OPERATOR_ACTIVITY!.getByName(activityId), resultOnly
+    ? { effectReceipts: true, ...(receiptAfter === undefined ? {} : { receiptAfter }) } : undefined);
+  if (receiptAfter !== undefined && (detail?.effectReceipts?.journalCount == null
+    || receiptAfter >= detail.effectReceipts.journalCount)) return invalidCursor();
   return detail ? c.json({ ...detail, updatedAt: new Date(detail.updatedAt).toISOString() }) : c.notFound();
 }
-app.get('/:activityId', handleBrowserDetail);
-app.get('/:activityId/result', handleBrowserDetail);
+app.get('/:activityId', c => handleBrowserDetail(c, false));
+app.get('/:activityId/result', c => handleBrowserDetail(c, true));
+app.get('/:activityId/diagnostics', async c => {
+  c.header('Cache-Control', 'no-store');
+  const activityId = c.req.param('activityId');
+  if (!await owned(c.get('registry'), c.get('ownerKey'), activityId)) return c.notFound();
+  if (Object.keys(c.req.query()).length) return c.json({ error: 'Invalid diagnostics request' }, 400);
+  const snapshot = await c.env.OPERATOR_ACTIVITY!.getByName(activityId).getDispatcherDiagnostics(c.get('ownerKey'));
+  return snapshot?.activityId === activityId ? c.json(snapshot) : c.notFound();
+});
+async function handleDiagnosticsV2(c: Context<ActivityRouteEnv>, view: 'summary' | 'history' | 'detail' | 'export') {
+  c.header('Cache-Control', 'no-store');
+  const activityId = c.req.param('activityId');
+  if (!activityId || !await owned(c.get('registry'), c.get('ownerKey'), activityId)) return c.notFound();
+  const query = new URL(c.req.url).searchParams;
+  const cursors = query.getAll('cursor');
+  if ([...query.keys()].some(key => key !== 'cursor') || cursors.length > 1
+    || cursors.length && (view !== 'history' && view !== 'export'
+      || !/^[A-Za-z0-9_-]{1,4096}$/.test(cursors[0]))) return c.json({ code: 'INVALID_DIAGNOSTICS_REQUEST' }, 400);
+  const recordId = view === 'detail' ? c.req.param('recordId') : undefined;
+  if (view === 'detail' && (!recordId || !/^(e-[1-9][0-9]*|o-(0|[1-9][0-9]*)-[a-f0-9]{64})$/.test(recordId)
+    || recordId.length > 84)) return c.json({ code: 'INVALID_DIAGNOSTICS_REQUEST' }, 400);
+  try {
+    const result = diagnosticsResultSchema.parse(await c.env.OPERATOR_ACTIVITY!.getByName(activityId).getDispatcherDiagnosticsV2(c.get('ownerKey'),
+      { view, ...(cursors.length ? { cursor: cursors[0] } : {}), ...(recordId ? { recordId } : {}) }));
+    if (result.status !== 200) return c.json({ code: result.code }, result.status);
+    return result.value.activityId === activityId ? c.json(result.value) : c.notFound();
+  } catch { return c.json({ code: 'DIAGNOSTICS_UNAVAILABLE' }, 503); }
+}
+app.get('/:activityId/diagnostics/v2', c => handleDiagnosticsV2(c, 'summary'));
+app.get('/:activityId/diagnostics/v2/history', c => handleDiagnosticsV2(c, 'history'));
+app.get('/:activityId/diagnostics/v2/records/:recordId', c => handleDiagnosticsV2(c, 'detail'));
+app.get('/:activityId/diagnostics/v2/export', c => handleDiagnosticsV2(c, 'export'));
+
 app.post('/:activityId/result', async c => {
   const activityId = c.req.param('activityId');
   if (!await owned(c.get('registry'), c.get('ownerKey'), activityId)) return c.notFound();

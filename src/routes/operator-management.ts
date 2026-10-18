@@ -8,6 +8,9 @@ import { getAllUsers } from '../lib/access-policy';
 import { SETUP_KEYS } from '../lib/kv-keys';
 import { operatorCapabilityChoices } from '../operators/distribution';
 import { MAX_SOURCE_RESPONSE_BYTES, sourceResponseBytes } from '../operators/dispatcher-source-limits';
+import { MAX_INFERENCE_REQUEST_BYTES } from '../operators/dispatcher-inference-limits';
+import { pickDispatcherCapacities } from '../operators/dispatcher-capacity-limits';
+import { dispatcherCapacityShape } from '../operators/dispatcher-capacity-schema';
 import { isEnterpriseMode } from '../lib/subscription';
 import { AppError, ValidationError } from '../lib/error-types';
 import { parseJsonBody } from '../lib/request-helpers';
@@ -41,7 +44,11 @@ const sourceBody = z.strictObject({ repositoryUrl, githubPat, revision });
 const promoteBody = z.strictObject({ releaseId: z.string().regex(ID), revision });
 const enableBody = z.strictObject({ revision, enabled: z.boolean() });
 const grantsBody = z.strictObject({ managers: grant, invokers: grant, revision });
-const capabilitiesBody = z.strictObject({ revision, capabilities: policy.shape.capabilities, sourceResponseBytes: policy.shape.sourceResponseBytes });
+const capabilitiesBody = z.strictObject({ ...dispatcherCapacityShape, revision, capabilities: policy.shape.capabilities, sourceResponseBytes: policy.shape.sourceResponseBytes,
+  inferenceRequestBytes: z.number().int().positive().max(MAX_INFERENCE_REQUEST_BYTES).optional(),
+  operationLimit: z.number().int().positive().safe().optional(), loggingEnabled: z.boolean().optional(),
+  inferenceAttemptLimit: z.number().int().positive().safe().optional(),
+  submissionAttemptLimit: z.number().int().positive().safe().optional() });
 const configureBody = z.strictObject({ policy, configuration, revision });
 const boundaryEnrollmentBody = z.strictObject({
   repositoryUrl: z.string().min(1).max(2048),
@@ -282,9 +289,15 @@ app.post('/operators/:operatorId/capabilities', async c => {
   const operator = await managed(c, c.req.param('operatorId'));
   requireMutationCsrf(c);
   const input = await parseJsonBody(c, capabilitiesBody);
+  if (input.inferenceRequestBytes !== undefined && operator.profile !== 'dispatcher') throw new ValidationError('Inference request bytes require a Dispatcher operator');
+  if (input.operationLimit !== undefined && operator.profile !== 'dispatcher') throw new ValidationError('Operation limits require a Dispatcher operator');
+  if (input.inferenceAttemptLimit !== undefined && operator.profile !== 'dispatcher') throw new ValidationError('Inference attempt limits require a Dispatcher operator');
+  if (input.submissionAttemptLimit !== undefined && operator.profile !== 'dispatcher') throw new ValidationError('Submission attempt limits require a Dispatcher operator');
+  const capacityPolicy = pickDispatcherCapacities(input);
+  if (Object.keys(capacityPolicy).length > 0 && operator.profile !== 'dispatcher') throw new ValidationError('Capacity limits require a Dispatcher operator');
   withinCeiling(c.get('operatorHuman'), { ...operator.policy, capabilities: input.capabilities,
     ...(input.sourceResponseBytes === undefined ? {} : { sourceResponseBytes: input.sourceResponseBytes }) });
-  const updated = result(await c.get('registry').setManagementCapabilities(operator.id, input.capabilities, authority(c, operator, input.revision), input.sourceResponseBytes));
+  const updated = result(await c.get('registry').setManagementCapabilities(operator.id, input.capabilities, authority(c, operator, input.revision), input.sourceResponseBytes, input.inferenceRequestBytes, input.operationLimit, input.loggingEnabled, input.inferenceAttemptLimit, input.submissionAttemptLimit, capacityPolicy));
   logger.info('Operator capabilities changed', { actor: c.get('operatorHuman').human.email, operatorId: operator.id, revision: updated.revision });
   return c.json(updated);
 });

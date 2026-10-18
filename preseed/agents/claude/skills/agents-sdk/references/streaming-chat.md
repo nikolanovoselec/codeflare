@@ -181,8 +181,14 @@ Client receives streamed messages via WebSocket RPC.
 | `this.messages` | All persisted messages |
 | `maxPersistedMessages` | Limit stored messages (prune oldest) |
 | `messageConcurrency` | `"queue"` (default), `"latest"`, `"merge"`, `"drop"` |
-| `chatRecovery` | `"persist"` (default) or `"continue"` on reconnect |
+| `chatRecovery` | Version-matched `true`/configuration object, not `"persist"`/`"continue"` strings; see recovery policy below |
 | `waitForMcpConnections` | Wait for MCP servers before first turn |
+
+## Recovery Policy
+
+In the Agents 0.22+ chat release line, durable message recovery is unconditional; `chatRecovery: false` no longer disables its bookkeeping. Use the matching `onChatRecovery()` policy hook returning `{ continue: false }` when automatic inference must not resume. Set recovery budgets before startup recovery, not in `onStart`. Check the installed AIChat/Think peer versions before copying configuration.
+
+Client `useAgentChat({ resume: false })` disables UI stream resumption, not server-side automatic inference. Neither a reconnect nor retained messages grant authorization to restart paused application work. See the [version-matched upstream chat guide](https://github.com/cloudflare/agents/blob/agents%400.28.1/docs/agents/chat-agents.md).
 
 ## Status Values
 

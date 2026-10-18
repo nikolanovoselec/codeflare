@@ -75,6 +75,94 @@ These compatibility anchors resolve dated changelog references to retired review
 
 ---
 
+### REQ-AGENT-218: Bounded Pi Questionnaire Wait
+
+**Intent:** An unanswered Pi questionnaire must not block the session indefinitely.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. One five-minute deadline, starting at the first rendered questionnaire or native dialog, completes the invocation with only the first authored option for each unanswered single- or multi-select question and releases its TUI/native-dialog wait. <!-- @impl: scripts/rpiv-question-timeout.mjs::withQuestionnaireDeadline --> <!-- @impl: scripts/rpiv-question-timeout.mjs::defaultQuestionnaireAnswers --> <!-- @test: preseed/agents/pi/test/questionnaire-timeout.test.mjs (selects option one only after five unanswered minutes) --> <!-- @test: preseed/agents/pi/test/questionnaire-timeout.test.mjs (retains completed answers and defaults only unanswered questions on one deadline) -->
+2. An option or custom answer submitted before expiry completes normally without waiting for the deadline. <!-- @impl: scripts/rpiv-question-timeout.mjs::withQuestionnaireDeadline --> <!-- @test: preseed/agents/pi/test/questionnaire-timeout.test.mjs (preserves) -->
+3. Timeout preserves completed answers, manual multiple selections, and saved or currently edited notes. <!-- @impl: scripts/rpiv-question-timeout.mjs::defaultQuestionnaireAnswers --> <!-- @impl: scripts/patch-rpiv-question-timeout.mjs::patchQuestionnaireTimeout --> <!-- @test: preseed/agents/pi/test/questionnaire-timeout.test.mjs (retains completed answers and defaults only unanswered questions on one deadline) --> <!-- @test: preseed/agents/pi/test/questionnaire-timeout.test.mjs (TUI timeout preserves completed and currently edited notes) --> <!-- @test: preseed/agents/pi/test/questionnaire-timeout.test.mjs (preserves manual multiple selections while defaulting another question) -->
+4. Automatic answers are identified individually and at result level in the tool details and model-facing content, not represented as a user response or explicit authorization. <!-- @impl: scripts/rpiv-question-timeout.mjs::withQuestionnaireDeadline --> <!-- @test: preseed/agents/pi/test/questionnaire-timeout.test.mjs (selects option one only after five unanswered minutes) -->
+
+**Constraints:**
+
+- The first option is the recommended default.
+- Automatic selection never authorizes protected operations that require explicit user approval.
+- Scope is the managed Pi questionnaire only, not Claude native questions, Plan questions, Impeccable, or unrelated UI dialogs.
+- Keep dependency pins and archive integrity unchanged; do not modify restored user configuration.
+- RPC wait release does not prove visual dialog dismissal in every external client.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-210](#req-agent-210-managed-extension-startup-preparation)
+
+**Verification:** Actual pinned package through the SDK-wrapped tool, real TUI component input and native-dialog host responses with a platform clock; final exact-head CI and deployed acceptance remain separate gates.
+
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-219: Pi Questionnaire Cancellation and Isolation
+
+**Intent:** Questionnaire deadlines must not replace cancellation or error outcomes or interfere with another questionnaire.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Explicit cancellation or execution abort releases the active wait without defaulting unanswered questions. <!-- @impl: scripts/rpiv-question-timeout.mjs::withQuestionnaireDeadline --> <!-- @impl: scripts/patch-rpiv-question-timeout.mjs::patchQuestionnaireTimeout --> <!-- @test: preseed/agents/pi/test/questionnaire-timeout.test.mjs (preserves) -->
+2. An already-aborted execution opens no questionnaire. <!-- @impl: scripts/rpiv-question-timeout.mjs::withQuestionnaireDeadline --> <!-- @test: preseed/agents/pi/test/questionnaire-timeout.test.mjs (never manufactures answers for aborted or invalid questions) -->
+3. Missing UI and invalid-question outcomes remain errors, never automatic answers. <!-- @impl: scripts/patch-rpiv-question-timeout.mjs::patchQuestionnaireTimeout --> <!-- @test: preseed/agents/pi/test/questionnaire-timeout.test.mjs (absent UI remains an error, not automatic approval) --> <!-- @test: preseed/agents/pi/test/questionnaire-timeout.test.mjs (never manufactures answers for aborted or invalid questions) -->
+4. One invocation's completion or expiry cannot finish or cancel a questionnaire in another invocation or SDK session. <!-- @impl: scripts/rpiv-question-timeout.mjs::withQuestionnaireDeadline --> <!-- @test: preseed/agents/pi/test/questionnaire-timeout.test.mjs (preserves) --> <!-- @test: preseed/agents/pi/test/questionnaire-timeout.test.mjs (independent SDK sessions retain independent deadlines) -->
+5. Cancellation retains answers completed before the execution abort. <!-- @impl: scripts/patch-rpiv-question-timeout.mjs::patchQuestionnaireTimeout --> <!-- @test: preseed/agents/pi/test/questionnaire-timeout.test.mjs (abort preserves completed answers without defaulting unanswered questions) -->
+
+**Constraints:**
+
+- Scope remains the managed Pi questionnaire under [REQ-AGENT-218](#req-agent-218-bounded-pi-questionnaire-wait).
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-218](#req-agent-218-bounded-pi-questionnaire-wait)
+
+**Verification:** SDK-wrapped questionnaire tests with actual TUI input, native-dialog responses and a platform clock.
+
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-220: Managed Questionnaire Preparation
+
+**Intent:** Managed startup preparation must retain the bounded-questionnaire policy through supported lifecycle transitions.
+
+**Applies To:** System
+
+**Acceptance Criteria:**
+
+1. Preparation rejects an unreviewed package identity, version or source layout before changing any installed questionnaire artifact. <!-- @impl: scripts/patch-rpiv-question-timeout.mjs::patchQuestionnaireTimeout --> <!-- @test: preseed/agents/pi/test/questionnaire-timeout.test.mjs (source allowlist rejects) -->
+2. Repeated preparation retains a working questionnaire with the same bounded-wait behavior. <!-- @impl: scripts/patch-rpiv-question-timeout.mjs::patchQuestionnaireTimeout --> <!-- @test: preseed/agents/pi/test/questionnaire-timeout.test.mjs (selects option one only after five unanswered minutes) -->
+3. Image construction retains the bounded-questionnaire policy. <!-- @impl: Dockerfile::patch-rpiv-question-timeout --> <!-- @manual: Build the complete image and exercise its installed questionnaire deadline before deployment. -->
+4. Supported package updates retain the bounded-questionnaire policy. <!-- @impl: entrypoint.sh::update_pi_and_codex_when_fast_start_disabled --> <!-- @test: host/__tests__/rpiv-bump-gate.test.js (RPIV bump publishes only after both installation trees pass patched startup) -->
+5. Supported runtime repair restores the bounded-questionnaire policy. <!-- @impl: entrypoint.sh::update_pi_and_codex_when_fast_start_disabled --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (restores a real locked installation and reports unrecoverable repair) -->
+
+**Constraints:**
+
+- Reviewed upstream pins and archive integrity remain unchanged.
+- Preparation failure cannot be treated as successful policy installation.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-210](#req-agent-210-managed-extension-startup-preparation), [REQ-AGENT-218](#req-agent-218-bounded-pi-questionnaire-wait)
+
+**Verification:** Actual pinned package, executable startup/shadow-pin fixtures and existing packaged-image gates; final image/deployed acceptance remains separate.
+
+**Status:** Implemented
+
+---
+
 ### REQ-AGENT-210: Managed Extension Startup Preparation
 
 **Intent:** Managed Pi extensions must be prepared for startup before an image can be published.
@@ -85,7 +173,7 @@ These compatibility anchors resolve dated changelog references to retired review
 
 1. Image construction prepares both managed extensions for startup and fails when either required startup cache is absent. <!-- @impl: Dockerfile::subagents_source --> <!-- @impl: Dockerfile::mcp_source --> <!-- @impl: scripts/verify-pi-lockstep.mjs::warmAndVerifyJitiEntrypoints --> <!-- @test: host/__tests__/pi-lockstep.test.js (declares, warms, and re-verifies each locked package entrypoint) --> <!-- @test: host/__tests__/pi-lockstep.test.js (REQ-AGENT-152/REQ-AGENT-210: rejects missing managed startup caches) -->
 
-2. Image construction rejects missing path-correct caches for local TypeScript extensions and the RPIV trio. The native JavaScript web-access entrypoint follows AC4's required native-import evidence. <!-- @impl: Dockerfile::advisor_source --> <!-- @impl: Dockerfile::web_source --> <!-- @impl: scripts/verify-pi-lockstep.mjs::warmAndVerifyJitiEntrypoints --> <!-- @test: host/__tests__/pi-lockstep.test.js (rejects a local cache warmed at the wrong path despite a matching basename) --> <!-- @test: host/__tests__/pi-lockstep.test.js (REQ-AGENT-152/REQ-AGENT-210: rejects missing managed startup caches) -->
+2. Image construction rejects missing path-correct caches for local TypeScript extensions, Open TUI and the RPIV trio. The native JavaScript web-access entrypoint follows AC4's required native-import evidence. <!-- @impl: Dockerfile::advisor_source --> <!-- @impl: Dockerfile::open_tui_source --> <!-- @impl: Dockerfile::web_source --> <!-- @impl: scripts/verify-pi-lockstep.mjs::warmAndVerifyJitiEntrypoints --> <!-- @test: host/__tests__/pi-lockstep.test.js (rejects a local cache warmed at the wrong path despite a matching basename) --> <!-- @test: host/__tests__/pi-lockstep.test.js (REQ-AGENT-152/REQ-AGENT-210: rejects missing managed startup caches) -->
 3. A second fresh warm-up process must report a JITI cache hit for every TypeScript entrypoint and no cache misses, including imported dependencies; construction fails without that evidence. <!-- @impl: scripts/verify-pi-lockstep.mjs::warmAndVerifyJitiEntrypoints --> <!-- @test: host/__tests__/jiti-warm-reuse.test.js (REQ-AGENT-210: image extension cache reuse) -->
 4. Native JavaScript entrypoints are warmed without requiring a JITI artifact; their native import must be observed. <!-- @impl: Dockerfile::context_source --> <!-- @impl: scripts/verify-pi-lockstep.mjs::warmAndVerifyJitiEntrypoints --> <!-- @test: host/__tests__/jiti-warm-reuse.test.js (warms native JavaScript without requiring a nonexistent JITI artifact) -->
 5. Managed extension dependency compatibility survives image construction, startup updates and repair without changing unrelated package metadata. <!-- @impl: scripts/patch-rpiv-host-peers.mjs::patchRpivHostPeers --> <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::verifyRpivExtensionStartup --> <!-- @impl: entrypoint.sh::update_pi_and_codex_when_fast_start_disabled --> <!-- @impl: scripts/verify-rpiv-host-peers.mjs --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::pi-extensions --> <!-- @test: host/__tests__/rpiv-host-peers.test.js (REQ-AGENT-210: RPIV declares host TypeBox as a wildcard peer without changing other package contracts) --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-210: Fast Start updates cannot restore conflicting RPIV host dependencies) --> <!-- @test: host/__tests__/rpiv-bump-gate.test.js (RPIV bump leaves the remote branch absent when shared startup fails:) -->
@@ -116,16 +204,18 @@ These compatibility anchors resolve dated changelog references to retired review
 
 **Acceptance Criteria:**
 
-1. Startup includes `@narumitw/pi-goal` in Pi's required package set. <!-- @impl: entrypoint.sh::required --> <!-- @impl: preseed/agents/pi/package.json::dependencies --> <!-- @test: host/__tests__/pi-settings-packages.test.js (REQ-AGENT-076 AC1 / REQ-AGENT-131 AC1 / REQ-AGENT-133 AC1: fresh container assembles required packages with context-mode disabled) -->
+1. Startup includes `@narumitw/pi-goal` in Pi's required package set. <!-- @impl: entrypoint.sh::required --> <!-- @impl: preseed/agents/pi/package.json::dependencies --> <!-- @test: host/__tests__/pi-settings-packages.test.js (REQ-AGENT-076 AC1 / REQ-AGENT-133 AC1: fresh container assembles required packages with context-mode disabled) -->
 2. Image construction makes Goal's declared Pi entrypoint resolve to the reviewed transformed source and warms that same installed path, so a new session uses the control/cadence patch and its path-correct transpile cache. <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchPiGoalDirectory --> <!-- @impl: Dockerfile::goal_source --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-111 AC2/AC6 / REQ-AGENT-178 AC1/AC2: declared pinned Goal entrypoint carries review control and workflow ownership) --> <!-- @manual: Start a new Pi session from the complete image and confirm Goal's installed extension loads from the baked jiti cache. -->
 3. The image build fails if Goal's path-correct transpile-cache artifact is absent. <!-- @impl: Dockerfile::goal_hit --> <!-- @impl: scripts/verify-pi-lockstep.mjs::verifyJitiCacheArtifact --> <!-- @test: host/__tests__/pi-lockstep.test.js (REQ-AGENT-111 AC3: Goal jiti cache path and fail-closed artifact verification) --> <!-- @manual: Run the deployment image build; in a controlled build omit or replace Goal's expected cache file and confirm the jiti warm-cache layer exits non-zero before image publication. -->
 4. Startup supplies `toolVisibility: "after-first-goal"` only when the Goal visibility preference is missing. <!-- @impl: entrypoint.sh::configure_pi_goal_defaults --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-111 AC4 / REQ-AGENT-129 AC1: creates every Codeflare-owned Goal startup default when config is absent) -->
 5. Goal start, resume, system, waiting-resume, and automatic-continuation prompts share compact completion rules, retain the exact objective and stale-turn completion guard, and do not coach terminal wait or blocked tools. <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchPiGoalPromptsSource --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-111: emits compact Goal prompts without blocked or wait tool coaching) -->
 6. Explicit Goal activation reveals the registered Goal tools after lazy initial filtering. <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchPiGoalToolPolicySource --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-111 AC2/AC6 / REQ-AGENT-178 AC1/AC2: declared pinned Goal entrypoint carries review control and workflow ownership) -->
+7. Goal's native extension status shows `goal - <state>` and accumulated active duration only while active; it omits automatic-work and budget counters and identifies waiting explicitly. <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchPiGoalDirectory --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-111 AC7: publishes concise Goal status without changing accounting or continuation details) --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-111 AC7: unknown Goal status formatter fails before any package bytes are written) -->
 
 **Constraints:**
 
 - Goal remains an exact-pinned, SHA-512 integrity-locked upstream dependency and must pass normal package review, lock regeneration, and deployment-image verification.
+- Compact status is presentation-only: execution limits, accounting and `/goal` details remain unchanged. <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-111 AC7: publishes concise Goal status without changing accounting or continuation details) -->
 
 **Priority:** P1
 
@@ -226,30 +316,9 @@ These compatibility anchors resolve dated changelog references to retired review
 
 ---
 
-### REQ-AGENT-131: Native Usage Workflow in Pi Sessions
+<a id="req-agent-131-native-usage-workflow-in-pi-sessions"></a>
 
-**Intent:** Pi sessions must preload the reviewed Usage package without cold-transpiling its entrypoint on first use.
-
-**Applies To:** User
-
-**Acceptance Criteria:**
-
-1. Startup assembles `@narumitw/pi-usage` into Pi's required package set. <!-- @impl: entrypoint.sh::required --> <!-- @test: host/__tests__/pi-settings-packages.test.js (REQ-AGENT-076 AC1 / REQ-AGENT-131 AC1 / REQ-AGENT-133 AC1: fresh container assembles required packages with context-mode disabled) -->
-2. Usage remains in Pi's required package set when Context-mode is disabled. <!-- @impl: entrypoint.sh::required --> <!-- @test: host/__tests__/pi-settings-packages.test.js (REQ-AGENT-076 AC1 / REQ-AGENT-131 AC1 / REQ-AGENT-133 AC1: fresh container assembles required packages with context-mode disabled) -->
-3. Image construction explicitly loads every declared Usage entrypoint into the path-correct JITI cache. <!-- @impl: Dockerfile::usage_source --> <!-- @impl: scripts/verify-pi-lockstep.mjs::warmAndVerifyJitiEntrypoints --> <!-- @test: host/__tests__/pi-lockstep.test.js (REQ-AGENT-131: managed extension JITI warm-cache contract) --> <!-- @test: host/__tests__/pi-lockstep.test.js (declares, warms, and re-verifies each locked package entrypoint) -->
-4. Image construction fails when Usage's path-correct JITI artifact is absent. <!-- @impl: Dockerfile::usage_hit --> <!-- @impl: scripts/verify-pi-lockstep.mjs::verifyJitiCacheArtifact --> <!-- @test: host/__tests__/pi-lockstep.test.js (REQ-AGENT-131: managed extension JITI warm-cache contract) --> <!-- @test: host/__tests__/pi-lockstep.test.js (declares, warms, and re-verifies each locked package entrypoint) -->
-
-**Constraints:**
-
-- Usage remains exact-pinned and SHA-512 integrity-locked; upgrades use the existing Pi-extension shadow-pin workflow and deployment-image verification.
-
-**Priority:** P1
-
-**Dependencies:** [REQ-AGENT-001](#req-agent-001-support-multiple-ai-coding-agents)
-
-**Verification:** Package assembly and JITI cache contract tests; deployment image build
-
-**Status:** Implemented
+The former REQ-AGENT-131 Usage installation and warming workflow is retired. [Retired package migration](#req-agent-209-retired-pi-package-migration) removes its managed activation without deleting credentials, history or unrelated packages. Historical requirements remain in Git history.
 
 ---
 
@@ -261,9 +330,9 @@ These compatibility anchors resolve dated changelog references to retired review
 
 **Acceptance Criteria:**
 
-1. Startup assembles `pi-evaluate` into Pi's required package set. <!-- @impl: entrypoint.sh::required --> <!-- @test: host/__tests__/pi-settings-packages.test.js (REQ-AGENT-076 AC1 / REQ-AGENT-131 AC1 / REQ-AGENT-133 AC1: fresh container assembles required packages with context-mode disabled) -->
-2. Evaluate remains in Pi's required package set when Context-mode is disabled. <!-- @impl: entrypoint.sh::required --> <!-- @test: host/__tests__/pi-settings-packages.test.js (REQ-AGENT-076 AC1 / REQ-AGENT-131 AC1 / REQ-AGENT-133 AC1: fresh container assembles required packages with context-mode disabled) -->
-3. Image construction explicitly loads the declared Evaluate entrypoint into the path-correct JITI cache. <!-- @impl: Dockerfile::evaluate_source --> <!-- @impl: scripts/verify-pi-lockstep.mjs::warmAndVerifyJitiEntrypoints --> <!-- @test: host/__tests__/pi-lockstep.test.js (declares, warms, and re-verifies each locked package entrypoint) --> <!-- @test: host/__tests__/pi-lockstep.test.js (REQ-AGENT-131: managed extension JITI warm-cache contract) -->
+1. Startup assembles `pi-evaluate` into Pi's required package set. <!-- @impl: entrypoint.sh::required --> <!-- @test: host/__tests__/pi-settings-packages.test.js (REQ-AGENT-076 AC1 / REQ-AGENT-133 AC1: fresh container assembles required packages with context-mode disabled) -->
+2. Evaluate remains in Pi's required package set when Context-mode is disabled. <!-- @impl: entrypoint.sh::required --> <!-- @test: host/__tests__/pi-settings-packages.test.js (REQ-AGENT-076 AC1 / REQ-AGENT-133 AC1: fresh container assembles required packages with context-mode disabled) -->
+3. Image construction explicitly loads the declared Evaluate entrypoint into the path-correct JITI cache. <!-- @impl: Dockerfile::evaluate_source --> <!-- @impl: scripts/verify-pi-lockstep.mjs::warmAndVerifyJitiEntrypoints --> <!-- @test: host/__tests__/pi-lockstep.test.js (declares, warms, and re-verifies each locked package entrypoint) --> <!-- @test: host/__tests__/pi-lockstep.test.js (REQ-AGENT-210: managed extension JITI warm-cache contract) -->
 4. Image construction fails when Evaluate's path-correct JITI artifact is absent. <!-- @impl: Dockerfile::evaluate_hit --> <!-- @impl: scripts/verify-pi-lockstep.mjs::verifyJitiCacheArtifact --> <!-- @test: host/__tests__/pi-lockstep.test.js (declares, warms, and re-verifies each locked package entrypoint) -->
 
 **Constraints:**
@@ -347,7 +416,7 @@ These compatibility anchors resolve dated changelog references to retired review
 
 **Acceptance Criteria:**
 
-1. Every startup-header line fits within the terminal width supplied by Pi, including narrow mobile Browser IDE panes. <!-- @impl: preseed/agents/pi/extensions/startup-header.ts::installHeader --> <!-- @test: src/__tests__/lib/startup-header.test.ts (REQ-AGENT-161: Pi startup header terminal width safety) -->
+1. Every startup-header line fits within the terminal width supplied by Pi, including narrow mobile Browser IDE panes. <!-- @impl: preseed/agents/pi/extensions/startup-header.ts::terminalContext --> <!-- @manual: Check startup at desktop and narrow embedded-terminal widths in the packaged image. -->
 
 **Constraints:**
 
@@ -357,7 +426,7 @@ These compatibility anchors resolve dated changelog references to retired review
 
 **Dependencies:** [REQ-AGENT-001](#req-agent-001-support-multiple-ai-coding-agents)
 
-**Verification:** Pi startup-header behavioral test across desktop, narrow mobile, and degenerate widths
+**Verification:** Manual check
 
 **Status:** Implemented
 
@@ -1464,11 +1533,11 @@ None.
 **Acceptance Criteria:**
 
 1. `graphifyy` installs in every container image with MCP, SQL, and PDF extras, pinned to one tracked version; the entrypoint restores its command path when missing without replacing an existing destination. <!-- @impl: Dockerfile::graphifyy --> <!-- @impl: entrypoint.sh::ensure_graphify_cli_path --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-023: restores a missing Graphify CLI path without replacing an existing destination) -->
-2. Claude receives the Graphify MCP server, while Pi receives native `graphify_query`/`graphify_path`/`graphify_explain` tools; both use the upstream engine. <!-- @impl: preseed/agents/claude/plugins/graphify/scripts/graphify-mcp-lazy.py::LazyGraph --> <!-- @impl: preseed/agents/pi/extensions/graphify-native.ts::graphify_query --> <!-- @manual -->
+2. Claude receives the Graphify MCP server, while Pi receives native `graphify_query`/`graphify_path`/`graphify_explain` tools; both use the upstream engine. <!-- @impl: preseed/agents/claude/plugins/graphify/scripts/graphify-mcp-lazy.py::_load_active_context --> <!-- @impl: preseed/agents/pi/extensions/graphify-native.ts::graphify_query --> <!-- @test: host/__tests__/graphify-mcp-lazy.test.js (REQ-AGENT-023: AC2 preserves) --> <!-- @manual -->
 3. Ambient query capability holds across all session modes; advanced agent orchestration keeps `/graphify` build and update context bounded through subagents. <!-- @impl: Dockerfile::graphifyy --> <!-- @impl: preseed/agents/pi/skills/graphify/SKILL.md::subagent --> <!-- @manual -->
-4. Startup with no graph is tolerated: Claude starts empty and rebinds later; advanced-mode Pi clone triage asks before graph work. Query tools use the active repo graph after it exists. <!-- @impl: preseed/agents/pi/extensions/graphify-helpers.ts::graphifyCloneAction --> <!-- @impl: preseed/agents/pi/extensions/codeflare-pi.ts::fallbackGraphifyToolResult --> <!-- @manual -->
+4. Startup with no graph is tolerated: Claude starts empty and rebinds later; advanced-mode Pi clone triage asks before graph work. Query tools use the active repo graph after it exists. <!-- @impl: preseed/agents/pi/extensions/graphify-helpers.ts::graphifyCloneAction --> <!-- @impl: preseed/agents/pi/extensions/codeflare-pi.ts::fallbackGraphifyToolResult --> <!-- @test: host/__tests__/graphify-mcp-lazy.test.js (REQ-AGENT-023: AC4 starts graphless and rebinds fresh query contexts without restarting MCP) --> <!-- @manual -->
 5. Advanced mode tracks the active repository; resolution walks up to the nearest Git repo or graph artefact and understands command-local `cd ... &&` plus `git -C ...` forms. <!-- @impl: preseed/agents/pi/extensions/codeflare-pi.ts::effectivePathForCommand --> <!-- @impl: preseed/agents/pi/extensions/codeflare-pi.ts::updateActiveRepoFromPath --> <!-- @test: host/__tests__/graphify-active-repo.test.js (graphify-active-repo.sh / REQ-VAULT-004 (unified global graph merges vault + active repos)) -->
-6. When the active-repo signal is absent or stale, Pi graphify query tools fall back from the session cwd repo graph to the same-repo sentinel graph and then to the merged global graph. <!-- @impl: preseed/agents/pi/extensions/graphify-helpers.ts::pickGraphSource --> <!-- @test: host/__tests__/graphify-mcp-lazy.test.js (graphify-mcp-lazy.py static contract) -->
+6. When the active-repo signal is absent or stale, Pi graphify query tools fall back from the session cwd repo graph to the same-repo sentinel graph and then to the merged global graph. <!-- @impl: preseed/agents/pi/extensions/graphify-helpers.ts::pickGraphSource --> <!-- @test: src/__tests__/lib/graphify-native.test.ts (pickGraphSource (REQ-AGENT-023)) -->
 7. Claude and Pi full-semantic extraction scope each semantic-cache write to the files actually dispatched in the current uncached set, preventing a model-attributed out-of-scope node from replacing another file's complete cache entry. <!-- @impl: preseed/agents/claude/skills/graphify/references/extraction-spec.md::Step B3 - Collect, cache, and merge --> <!-- @impl: preseed/agents/pi/skills/graphify/references/build.md::Step 3 — merge chunks into Graphify semantic cache and local fragment --> <!-- @manual -->
 
 **Constraints:**
@@ -2782,7 +2851,7 @@ None.
 **Acceptance Criteria:**
 
 1. Completion for an earlier reminder never acknowledges a replacement PR head. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: host/__tests__/enforce-review-spawn.test.js (does not emit FIX when exact head drifts before marker write) -->
-2. Child sessions and shutdown cannot acknowledge active review. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (fails closed for child sessions, GitHub outages, and unrelated pushes) --> <!-- @test: host/__tests__/enforce-review-spawn.test.js (clears stopped or failed work without missing-work output) -->
+2. Child sessions and shutdown cannot acknowledge active review. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (fails closed for child sessions, GitHub outages, and unrelated pushes) --> <!-- @test: host/__tests__/enforce-review-spawn.test.js (clears stopped or failed work without missing-work output) --> <!-- @test: src/__tests__/lib/operator-review-selector.test.ts (REQ-AGENT-055 AC2: rejects $choice after $change during $phase) -->
 
 **Constraints:**
 
@@ -2797,32 +2866,61 @@ None.
 **Status:** Implemented
 
 ---
-### REQ-AGENT-056: Pi Local Statusline Footer
+<a id="req-agent-056-pi-local-statusline-footer"></a>
 
-**Intent:** Pi users need a compact footer in every session mode that shows session context without hiding extension-owned status rows.
+### REQ-AGENT-056: Pi Terminal UI and Session Status
+
+**Intent:** Pi users receive the approved native terminal presentation with repository context and visible extension-owned statuses in both product modes.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. The Pi local statusline extension is preseeded in both Standard and Pro modes. <!-- @impl: preseed/agents/pi/manifest.json::local-statusline.ts --> <!-- @manual -->
-2. The first footer line renders context usage, active model with thinking effort, and the resolved repository label, using published `Dynamic Route - <route name>` or `Native Route - <native label>` names for all enterprise gateway models without changing routing IDs. <!-- @impl: preseed/agents/pi/extensions/local-statusline.ts::renderLine --> <!-- @test: src/__tests__/lib/local-statusline-repo.test.ts (REQ-ENTERPRISE-082: renders the published Dynamic Route name without changing its route identity) --> <!-- @test: src/__tests__/lib/local-statusline-repo.test.ts (REQ-ENTERPRISE-058: renders the enterprise native label without changing its opaque identity) --> <!-- @impl: preseed/agents/pi/extensions/local-statusline.ts::contextPercent --> <!-- @impl: preseed/agents/pi/extensions/local-statusline.ts::repositoryLabel --> <!-- @test: src/__tests__/lib/local-statusline-repo.test.ts (REQ-AGENT-056: renders context, model effort, cwd repository, extension statuses, and width-safe truncation) -->
-3. If cwd metadata is outside git, the footer falls back to active repository memory shared by the main Pi extension. <!-- @impl: preseed/agents/pi/extensions/codeflare-pi.ts::rememberActiveRepo --> <!-- @impl: preseed/agents/pi/extensions/local-statusline.ts::recallActiveRepo --> <!-- @test: src/__tests__/lib/local-statusline-repo.test.ts (REQ-AGENT-056: resolves the active repository remembered by the main Pi extension) -->
-4. The graphify active-cwd sentinel is display-only and accepted only for git repositories inside a session root. <!-- @impl: preseed/agents/pi/extensions/local-statusline.ts::sentinelRepoForDisplay --> <!-- @test: src/__tests__/lib/local-statusline-repo.test.ts (REQ-AGENT-056: uses the display sentinel only when its repository is inside the session root) -->
-5. Non-empty extension statuses render on a separate footer line without replacing session context. <!-- @impl: preseed/agents/pi/extensions/local-statusline.ts::installFooter --> <!-- @test: src/__tests__/lib/local-statusline-repo.test.ts (REQ-AGENT-056: renders context, model effort, cwd repository, extension statuses, and width-safe truncation) -->
-6. Footer lines are truncated by visible width, preserving ANSI color sequences and appending a reset before the ellipsis so colored statuses do not consume visible width or bleed styling past truncation. <!-- @impl: preseed/agents/pi/extensions/local-statusline.ts::truncateToWidth --> <!-- @test: src/__tests__/lib/local-statusline-repo.test.ts (REQ-AGENT-056: renders context, model effort, cwd repository, extension statuses, and width-safe truncation) -->
-7. The statusline refreshes on session start, resource discovery, turn boundaries, model changes, thinking-effort changes, and cache-TTL repaint intervals. <!-- @impl: preseed/agents/pi/extensions/local-statusline.ts::refreshFooter --> <!-- @test: src/__tests__/lib/local-statusline-repo.test.ts (REQ-AGENT-056: refreshes the footer on session, resource, turn, model, and effort changes) -->
+1. Both modes enable one installed Open TUI header, footer and prompt editor. <!-- @impl: preseed/agents/pi/extensions/startup-header.ts::default --> <!-- @test: host/__tests__/pi-settings-packages.test.js (REQ-AGENT-056: fresh startup supplies exactly the reviewed adapter-owned package filter) --> <!-- @manual: Confirm native header/footer/editor activation in both packaged session modes and terminal-only settings. -->
+2. Codeflare session status shows only repository and branch, or is absent when no repository resolves; it adds no context percentage, model or thinking-effort text and changes no routing identity. <!-- @impl: preseed/agents/pi/extensions/local-statusline.ts::repositoryLabel --> <!-- @test: src/__tests__/lib/local-statusline-repo.test.ts (REQ-AGENT-056) --> <!-- @manual: Confirm repository-only Codeflare status alongside native context/model display in the packaged terminal. -->
+3. Outside Git, the repository label falls back to active repository memory shared with successful tool execution. <!-- @impl: preseed/agents/pi/extensions/local-statusline.ts::repositoryLabel --> <!-- @impl: preseed/agents/pi/extensions/active-repo-memory.ts::rememberActiveRepo --> <!-- @test: src/__tests__/lib/local-statusline-repo.test.ts (REQ-AGENT-056) -->
+4. The active-cwd sentinel remains display-only and accepts only Git repositories inside a session root. <!-- @impl: preseed/agents/pi/extensions/local-statusline.ts::sentinelRepoForDisplay --> <!-- @test: src/__tests__/lib/local-statusline-repo.test.ts (REQ-AGENT-056) -->
+5. Native footer statuses retain other extensions' nonempty statuses alongside session context without empty status-only rows. <!-- @impl: preseed/agents/pi/extensions/local-statusline.ts::refreshStatus --> <!-- @manual: Confirm other extension statuses remain visible without empty status-only rows in the packaged terminal. -->
+6. Footer lines fit the visible width without leaking ANSI styling across clipped or wrapped statuses. <!-- @impl: preseed/agents/pi/extensions/startup-header.ts::terminalContext --> <!-- @manual: Check colored statuses at desktop and narrow terminal widths for clipping and style bleed. -->
+7. Session status refreshes at startup, resource discovery, turn/tool boundaries, model/effort changes and timed repaint; shutdown releases its status and timer. <!-- @impl: preseed/agents/pi/extensions/local-statusline.ts::refreshStatus --> <!-- @test: src/__tests__/lib/local-statusline-repo.test.ts (REQ-AGENT-056) -->
 
 **Constraints:**
 
-- The statusline is cosmetic and must not block agent execution if repository or context metadata cannot be read.
-- Idle sessions render no empty extra footer lines.
+- Open TUI alone owns terminal renderers; RPC, print and background sessions do not run its terminal handlers, project probes or settings overlay.
+- Cosmetic metadata/configuration failures must not block agent execution.
+- Unsafe or malformed Open TUI configuration stays unchanged and skips native activation with a content-free warning.
+- Entrypoint alone enforces owned startup preferences; the terminal adapter validates configuration without writing it. Native context/model rendering remains upstream-owned.
 
 **Priority:** P2
 
-**Dependencies:** [REQ-AGENT-004](#req-agent-004-two-session-modes-standard-and-pro), [REQ-AGENT-006](#req-agent-006-preseed-configs-generated-from-single-source-of-truth)
+**Dependencies:** [REQ-AGENT-004](#req-agent-004-two-session-modes-standard-and-pro), [REQ-AGENT-006](#req-agent-006-preseed-configs-generated-from-single-source-of-truth), [REQ-AGENT-221](#req-agent-221-pi-startup-presentation-preferences)
 
-**Verification:** Automated and manual verification
+**Verification:** Package-assembly and Codeflare status tests; manual packaged-terminal acceptance for native UI, configuration and widths.
+
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-221: Pi startup presentation preferences
+
+**Intent:** Fresh and restored workplaces receive the approved terminal preferences on every startup without losing unrelated settings or user data.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Every container startup enforces enabled Open TUI, English, ASCII icons, block cursor, two-line thinking peek, inline footer off, session/context/extension footer segments on and other owned footer segments off. <!-- @impl: entrypoint.sh::configure_pi_open_tui --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-056 AC1: enforces the approved Open TUI settings on fresh and restored startup without changing unrelated data) -->
+2. Telemetry master is disabled; its TPS, TTFT, duration, tokens, stalls and cost switches remain enabled but inactive. <!-- @impl: entrypoint.sh::configure_pi_open_tui --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-056 AC1: enforces the approved Open TUI settings on fresh and restored startup without changing unrelated data) -->
+3. Enforcement preserves unrelated root and nested preferences and adjacent user data through a private atomic replacement. <!-- @impl: entrypoint.sh::configure_pi_open_tui --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-056 AC1: enforces the approved Open TUI settings on fresh and restored startup without changing unrelated data) -->
+4. Malformed, nonobject or nested-invalid configurations, symlinks and nonregular files remain unchanged, with content-free warnings that do not block startup. <!-- @impl: entrypoint.sh::configure_pi_open_tui --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-056 AC1: preserves malformed or unsafe Open TUI configuration with a content-free warning) -->
+
+**Constraints:** Entrypoint alone enforces owned startup preferences; the terminal adapter validates configuration without writing it.
+
+**Priority:** P2
+
+**Dependencies:** [REQ-AGENT-006](#req-agent-006-preseed-configs-generated-from-single-source-of-truth)
+
+**Verification:** Automated startup-helper tests cover fresh/restored preferences, preservation and unsafe-file handling; deployed startup acceptance remains separate.
 
 **Status:** Implemented
 
@@ -3124,7 +3222,7 @@ None.
 3. A terminal CI result requires the same non-empty all-terminal fingerprint in two polls. <!-- @impl: preseed/agents/pi/skills/ci-monitoring/scripts/monitor-ci.mjs::monitorCi --> <!-- @test: host/__tests__/pi-ci-monitor.test.js (REQ-AGENT-068 AC2/AC3: pending checks wait for a stable pass and skipping fingerprint) --> <!-- @test: host/__tests__/pi-ci-monitor.test.js (REQ-AGENT-125 AC1: a failed check waits for all checks and a stable terminal fingerprint) -->
 4. An authoritative head mismatch reports `CI_RESULT timeout superseded`. <!-- @impl: preseed/agents/pi/skills/ci-monitoring/scripts/monitor-ci.mjs::monitorCi --> <!-- @test: host/__tests__/pi-ci-monitor.test.js (REQ-AGENT-068 AC4: a superseded head stops before checks are queried) -->
 
-**Constraints:** Empty checks time out after five minutes; provider commands are bounded; total monitoring is bounded at thirty minutes; the root Pi Git workflow is the sole automatic trigger.
+**Constraints:** Empty checks time out after five minutes; provider commands are bounded; total monitoring is bounded at fifteen minutes with time reserved for reporting; the root Pi Git workflow is the sole automatic trigger.
 
 **Priority:** P1
 
@@ -3168,8 +3266,8 @@ None.
 **Acceptance Criteria:**
 
 1. Pi exposes consult-llm through its managed MCP proxy. <!-- @impl: entrypoint.sh::configure_consult_llm --> <!-- @impl: entrypoint.sh::_merge_consult_llm_mcp --> <!-- @test: preseed/agents/pi/test/consult-proxy.test.mjs (REQ-AGENT-069 AC1/AC2: locked adapter exposes consult through mcp and starts its process only on proxy use) -->
-2. Fresh managed Pi configuration defers missing-metadata startup and uses a `lifecycle:"lazy"` consult entry, so `consult-llm-mcp` starts on proxy use rather than session start; existing user entries and startup-setting precedence are preserved. <!-- @impl: entrypoint.sh::configure_consult_llm --> <!-- @test: preseed/agents/pi/test/consult-proxy.test.mjs (REQ-AGENT-069 AC1/AC2: locked adapter exposes consult through mcp and starts its process only on proxy use) --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (REQ-AGENT-069: adding consult preserves existing user startup settings and unrelated servers) -->
-3. Startup regenerates standard managed consult credentials with the existing lazy constructor; customized entries, user settings and unrelated servers remain preserved. <!-- @impl: entrypoint.sh::configure_pi_mcp_adapter --> <!-- @impl: entrypoint.sh::_merge_consult_llm_mcp --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (REQ-AGENT-069: fresh startup regenerates managed consult credentials while retaining custom servers and settings) --> <!-- @impl: entrypoint.sh::_remove_disabled_consult_llm --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (REQ-AGENT-069: no-provider startup preserves customized Pi consult while retaining Claude cleanup) --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (REQ-AGENT-069: enterprise startup preserves customized Pi consult while retaining Claude cleanup) -->
+2. Fresh managed Pi configuration defers missing-metadata startup and starts its `lifecycle:"lazy"` consult entry only on proxy use; existing user entries and startup-setting precedence remain preserved except for [REQ-BROWSER-009](browser-run.md#req-browser-009-mcp-and-chrome-sdk-timeout-profile) timeout preparation. <!-- @impl: entrypoint.sh::configure_consult_llm --> <!-- @test: preseed/agents/pi/test/consult-proxy.test.mjs (REQ-AGENT-069 AC1/AC2: locked adapter exposes consult through mcp and starts its process only on proxy use) --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (REQ-AGENT-069: adding consult preserves existing user startup settings and unrelated servers) -->
+3. Startup regenerates standard managed consult credentials with the existing lazy constructor; customized entries, user settings and unrelated servers remain preserved except for [REQ-BROWSER-009](browser-run.md#req-browser-009-mcp-and-chrome-sdk-timeout-profile) timeout preparation. <!-- @impl: entrypoint.sh::configure_pi_mcp_adapter --> <!-- @impl: entrypoint.sh::_merge_consult_llm_mcp --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (REQ-AGENT-069: fresh startup regenerates managed consult credentials while retaining custom servers and settings) --> <!-- @impl: entrypoint.sh::_remove_disabled_consult_llm --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (REQ-AGENT-069: no-provider startup preserves customized Pi consult while retaining Claude cleanup) --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (REQ-AGENT-069: enterprise startup preserves customized Pi consult while retaining Claude cleanup) -->
 4. The replacement preserves unrelated user MCP servers in the same file. <!-- @impl: entrypoint.sh::_merge_consult_llm_mcp --> <!-- @manual -->
 
 5. Claude's existing owned-entry replacement remains unchanged. <!-- @impl: entrypoint.sh::_merge_consult_llm_mcp --> <!-- @manual -->
@@ -3197,7 +3295,7 @@ None.
 
 **Acceptance Criteria:**
 
-1. On Pi load or reload, valid legacy-only configuration migrates byte-for-byte. <!-- @impl: preseed/agents/pi/extensions/00-mcp-adapter-config.ts::migratePiMcpAdapterConfig --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (legacy adapter migration preserves exact bytes, credentials, custom servers and 600000 browser retention) -->
+1. Filename migration alone preserves valid legacy-only configuration byte-for-byte. <!-- @impl: preseed/agents/pi/extensions/00-mcp-adapter-config.ts::migratePiMcpAdapterConfig --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (legacy adapter migration preserves exact bytes, credentials, custom servers and 600000 browser retention) -->
 2. Existing valid adapters take precedence over legacy configuration. <!-- @impl: preseed/agents/pi/extensions/00-mcp-adapter-config.ts::migratePiMcpAdapterConfig --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (existing adapter target wins and archives legacy bytes without leaving the deprecated filename) -->
 3. Matching, conflicting, unreadable, symlink and directory passive archives never overwrite existing data or block recovery. <!-- @impl: preseed/agents/pi/extensions/00-mcp-adapter-config.ts::preserve --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (existing migration backup is never overwritten or used to discard legacy credentials) --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (occupied symlink archive is preserved without following it or preventing recovery) --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (occupied directory archive is preserved without following it or preventing recovery) --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (unreadable passive archive cannot block custom legacy recovery) -->
 4. Malformed regular originals are archived before valid recovery; unsafe active paths/ancestors and I/O failures still fail closed without discarding user data. <!-- @impl: preseed/agents/pi/extensions/00-mcp-adapter-config.ts::migratePiMcpAdapterConfig --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (malformed existing destination is archived and recovers exact valid legacy configuration) --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (nonregular destination blocks migration and retains legacy) -->
@@ -3208,7 +3306,9 @@ None.
 **Constraints:**
 
 - No bucket deletion or sync redesign.
-- Pi load/reload leaves working entries intact.
+- Pi load/reload preserves working entries except for explicit timeout preparation under [REQ-BROWSER-009](browser-run.md#req-browser-009-mcp-and-chrome-sdk-timeout-profile).
+- Transformed custom originals remain recoverable before replacement.
+- Timeout preparation preserves credentials, lifecycle and unrelated fields.
 - Managed constructors and Claude behavior remain governed by [REQ-AGENT-069](#req-agent-069-pi-consult-llm-mcp-lazy-wiring).
 
 **Priority:** P1
@@ -3914,7 +4014,7 @@ None.
 
 **Acceptance Criteria:**
 
-1. On a fresh container, startup installs context-mode but writes its disabled package marker regardless of prior opt-in state, so no foreground bridge, routing skill, or `ctx_*` tool initializes before explicit enablement. <!-- @impl: entrypoint.sh::warm_pi_npm_dependencies --> <!-- @impl: preseed/agents/pi/extensions/context-mode-runtime.ts::attachConfiguredContextMode --> <!-- @test: host/__tests__/pi-settings-packages.test.js (REQ-AGENT-076 AC1 / REQ-AGENT-131 AC1 / REQ-AGENT-133 AC1: fresh container assembles required packages with context-mode disabled) --> <!-- @test: host/__tests__/pi-settings-packages.test.js (startup restores the disabled default while preserving managed and unrelated packages) -->
+1. On a fresh container, startup installs context-mode but writes its disabled package marker regardless of prior opt-in state, so no foreground bridge, routing skill, or `ctx_*` tool initializes before explicit enablement. <!-- @impl: entrypoint.sh::warm_pi_npm_dependencies --> <!-- @impl: preseed/agents/pi/extensions/context-mode-runtime.ts::attachConfiguredContextMode --> <!-- @test: host/__tests__/pi-settings-packages.test.js (REQ-AGENT-076 AC1 / REQ-AGENT-133 AC1: fresh container assembles required packages with context-mode disabled) --> <!-- @test: host/__tests__/pi-settings-packages.test.js (startup restores the disabled default while preserving managed and unrelated packages) -->
 2. Standard and Advanced Pi expose a state-changing `/ctx` command that reloads Pi into the selected enabled or disabled state. <!-- @impl: preseed/agents/pi/extensions/ctx-command.ts::handleContextModeCommand --> <!-- @manual: Start fresh Standard and Advanced sessions and confirm `/ctx` reports disabled and no `ctx_*` tools are present; run `/ctx on`, reload, activate one context tool through `capability`, and confirm it works; run `/ctx off` and confirm reload removes the bridge. -->
 3. Custom-tier Claude may receive automatic context-window reduction only while its tier remains eligible. <!-- @impl: src/lib/r2-seed.ts::getConfigsForMode --> <!-- @test: host/__tests__/entrypoint-context-mode.test.js (entrypoint context-mode preseed gate / REQ-AGENT-005 + REQ-AGENT-076 (context-mode MCP registration)) -->
 4. The Pi settings required set installs the five always-on tool extensions independently of context-mode state. <!-- @impl: entrypoint.sh::warm_pi_npm_dependencies --> <!-- @test: host/__tests__/pi-settings-packages.test.js (Pi settings.json packages assembly (entrypoint.sh)) -->
@@ -5028,8 +5128,8 @@ None.
 
 **Acceptance Criteria:**
 
-1. Startup removes the retired image-owned response package identity from persisted Pi settings. <!-- @impl: entrypoint.sh::removedPackageIds --> <!-- @test: host/__tests__/pi-settings-packages.test.js (startup restores the disabled default while preserving managed and unrelated packages) -->
-2. Startup preserves unrelated user-added packages during retirement migration. <!-- @impl: entrypoint.sh::removedPackageIds --> <!-- @test: host/__tests__/pi-settings-packages.test.js (startup restores the disabled default while preserving managed and unrelated packages) -->
+1. Startup removes explicitly retired response and Usage package identities from persisted Pi settings. <!-- @impl: entrypoint.sh::removedPackageIds --> <!-- @test: host/__tests__/pi-settings-packages.test.js (startup restores the disabled default while preserving managed and unrelated packages) --> <!-- @test: host/__tests__/pi-settings-packages.test.js (REQ-AGENT-209 AC1/AC2) -->
+2. Startup preserves unrelated user-added packages, credentials and history during retirement migration. <!-- @impl: entrypoint.sh::removedPackageIds --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-001 AC5 / REQ-AGENT-209: real restored boot migrates packages while preserving user npm metadata and credential/history bytes) -->
 
 **Constraints:** Only explicitly retired package identities are removed.
 
@@ -5497,10 +5597,10 @@ None.
 
 **Acceptance Criteria:**
 
-1. Consent appears only when the produced checkout exposes an eligible unacknowledged exact PR head. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::currentReview --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: host/__tests__/git-push-review-reminder.test.js (resolves a successful clone destination before repository lookup) --> <!-- @test: host/__tests__/git-push-review-reminder.test.js (fails closed for child sessions, GitHub outages, closed PRs, and detached HEAD) -->
+1. Consent appears only when the produced checkout exposes an eligible unacknowledged exact PR head. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::currentReview --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @impl: preseed/agents/pi/extensions/operator-review-selector.ts::invocationRepo --> <!-- @test: src/__tests__/lib/operator-review-selector.test.ts (REQ-AGENT-169: clone selection uses the produced checkout outside and inside another repository: %s) --> <!-- @test: src/__tests__/lib/operator-review-selector.test.ts (REQ-AGENT-169 AC1: uncertain cd cannot select a same-name clone checkout in the original directory) --> <!-- @test: src/__tests__/lib/operator-review-selector.test.ts (REQ-AGENT-169 / REQ-OPERATOR-053 AC3: remote-selected clone consent) --> <!-- @test: host/__tests__/git-push-review-reminder.test.js (resolves a successful clone destination before repository lookup) --> <!-- @test: host/__tests__/git-push-review-reminder.test.js (fails closed for child sessions, GitHub outages, closed PRs, and detached HEAD) -->
 2. Cancelling consent repeats the choice without launching or acknowledging. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (repeats after cancellation and stays silent after marking complete) -->
-3. Choosing `Mark review complete` revalidates and writes the user-scoped exact marker. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (repeats after cancellation and stays silent after marking complete) -->
-4. Choosing `Launch review` starts a fresh contextual reviewer plan without CI. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: host/__tests__/git-push-review-reminder.test.js (keeps consent and omits CI for a non-delivery exposure) -->
+3. Choosing `Mark review complete` revalidates and writes the user-scoped exact marker. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (repeats after cancellation and stays silent after marking complete) --> <!-- @test: src/__tests__/lib/operator-review-selector.test.ts (REQ-AGENT-055 AC2: rejects $choice after $change during $phase) -->
+4. Choosing `Launch review` starts a fresh contextual reviewer plan without CI for consent-only exposure, while retaining any existing CI requirement from a matching delivery. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @impl: preseed/agents/pi/extensions/operator-review-selector.ts::registerOperatorReviewSelector --> <!-- @impl: preseed/agents/pi/extensions/operator-review-remote.ts::registerOperatorReviewRemote --> <!-- @test: src/__tests__/lib/operator-review-selector.test.ts (REQ-AGENT-169 / REQ-OPERATOR-053 AC3: remote-selected clone consent) --> <!-- @test: host/__tests__/git-push-review-reminder.test.js (keeps consent and omits CI for a non-delivery exposure) --> <!-- @test: src/__tests__/lib/operator-review-remote.test.ts (REQ-AGENT-170 AC1: keeps pending delivery CI when later consent admits a previously $initial clone, resume=$resume) -->
 
 **Constraints:** Automatic delivery never prompts.
 
@@ -5522,7 +5622,7 @@ None.
 
 **Acceptance Criteria:**
 
-1. Triage waits for every required reviewer and terminal success, failure, or timeout from the exact launched CI monitor for the same repository, PR, and head. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::reviewTranscriptFacts --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (treats every exact-head CI result as terminal and writes completion before FIX) --> <!-- @test: host/__tests__/enforce-review-spawn.test.js (writes marker immediately before separate FIX reminder after terminal triage) -->
+1. Triage waits for every required reviewer and terminal success, failure, or timeout from the exact launched CI monitor for the same repository, PR, and head. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::reviewTranscriptFacts --> <!-- @impl: preseed/agents/pi/extensions/operator-review-remote.ts::registerOperatorReviewRemote --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (treats every exact-head CI result as terminal and writes completion before FIX) --> <!-- @test: host/__tests__/enforce-review-spawn.test.js (writes marker immediately before separate FIX reminder after terminal triage) --> <!-- @test: src/__tests__/lib/operator-review-remote.test.ts (requires delivery CI after a same-head clone round is %s) --> <!-- @test: src/__tests__/lib/operator-review-remote.test.ts (preserves delivery CI through pending reconciliation and resume from a %s clone) --> <!-- @test: src/__tests__/lib/operator-review-selector.test.ts (REQ-AGENT-170 AC1: keeps the child checkout through %s delivery CI and FIX while cwd stays in its Git parent) --> <!-- @test: src/__tests__/lib/operator-review-remote.test.ts (REQ-AGENT-170 AC1: keeps pending delivery CI when later consent admits a previously $initial clone, resume=$resume) --> <!-- @test: src/__tests__/lib/operator-review-remote.test.ts (REQ-AGENT-170 AC1: does not inherit pending CI across a different $field) -->
 2. CI failure or timeout requires a dedicated `Exact-head CI` triage row with the exact matching `CI_RESULT` token before acknowledgement; one outer Markdown code span does not change that token. <!-- @impl: preseed/agents/pi/extensions/review-helpers.ts::triageTableIncludesRequiredCiResult --> <!-- @test: host/__tests__/enforce-review-spawn.test.js (requires exact CI failure and timeout rows and accepts directive formatting) -->
 3. The triage turn makes no mutation and ends before acknowledgement delivers FIX. Its plan requires evidence and scope validation, separate judgment of findings and proposed fixes, rejection of unsupported or overengineered proposals, and the smallest correction reusing existing machinery. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::sendLaunchMessage --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (automatically emits the exact review plan after successful push) --> <!-- @test: host/__tests__/git-push-review-reminder.test.js (automatically emits review and CI launch instructions after push, PR creation, and PR reopen) -->
 4. Every Pi review plan emits each lane's exact scope, range or base, and deterministic temporary output-path assignments as standalone copy-ready lines, with no punctuation or Markdown added to assignment values. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::reviewerPromptContract --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (emits copy-ready standalone reviewer assignment contracts without punctuation) -->

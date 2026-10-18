@@ -1,14 +1,23 @@
 /** Authenticated, owner-scoped browser projections for operator activity UI. */
 import { z } from 'zod';
-import { baseFetch } from './fetch-helper';
+import { ApiError, baseFetch } from './fetch-helper';
+import { diagnosticBindingSchema, diagnosticCursorSchema, diagnosticRecordIdSchema,
+  diagnosticSummarySchema, diagnosticHistorySchema, diagnosticDetailSchema, diagnosticExportSchema,
+  sameDiagnosticBinding, type DiagnosticSnapshot } from './operator-diagnostics-wire';
 
 const status = z.enum(['queued', 'running', 'waiting', 'completed', 'failed', 'cancel-requested', 'unknown']);
-const cleanup = z.enum(['pending', 'stopping', 'stopped', 'unknown']);
+const cleanup = z.enum(['pending', 'stopping', 'stopped', 'released', 'unknown']);
 const collection = z.enum(['unavailable', 'ready', 'consumed', 'unknown']);
 export const operatorActivitySummarySchema = z.strictObject({
   activityId: z.string().regex(/^[A-Za-z0-9_-]{1,128}$/),
   operatorId: z.string().regex(/^[A-Za-z0-9_-]{1,128}$/),
   operatorName: z.string().max(128).optional(),
+  version: z.string().max(128).regex(/^[A-Za-z0-9._/+ -]+$/).optional(),
+  resultSummary: z.strictObject({ assessed: z.number().int().nonnegative().max(1024),
+    merged: z.number().int().nonnegative(), notMerged: z.number().int().nonnegative(),
+    deferred: z.number().int().nonnegative(), unknown: z.number().int().nonnegative() })
+    .refine(value => value.assessed === value.merged + value.notMerged + value.deferred + value.unknown,
+      'Contradictory outcome quantities').optional(),
   context: z.string().max(256).nullable().optional(),
   progress: z.string().max(128).nullable().optional(),
   executionStatus: status,
@@ -32,8 +41,53 @@ export function acknowledgeOperatorActivities(through: number): Promise<{ unread
   return baseFetch('/api/operator-activities/read', { method: 'POST', body: JSON.stringify({ through }) },
     { credentials: 'same-origin', schema: z.strictObject({ unreadCount: count }) });
 }
+// Closed result-only wire mirror. Public receipt identity is not execution authority.
+const receiptInteger = z.number().int().nonnegative().safe();
+const receiptDigest = z.string().regex(/^[a-f0-9]{64}$/);
+const receiptTarget = z.strictObject({ repository: z.string().max(201).regex(/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/),
+  pullRequest: receiptInteger.positive(), headSha: z.string().regex(/^[a-f0-9]{40}$/) });
+const receiptResponse = z.discriminatedUnion('kind', [
+  z.strictObject({ kind: z.literal('comment'), status: z.literal(201), commentId: receiptInteger.positive(),
+    responseBodyDigest: receiptDigest }),
+  z.strictObject({ kind: z.literal('merge'), status: z.literal(200), merged: z.literal(true),
+    mergeSha: z.string().regex(/^[a-f0-9]{40}$/) }),
+]);
+const receiptCoordinates = { ordinal: receiptInteger, operationDigest: receiptDigest,
+  method: z.enum(['POST', 'PUT']), effect: z.enum(['comment', 'merge']) };
+const receiptItem = z.discriminatedUnion('binding', [
+  z.strictObject({ ...receiptCoordinates, binding: z.literal('unresolved'),
+    journalPhase: z.enum(['reserved', 'completed', 'unknown']), requestDigest: receiptDigest.optional(),
+    responseDigest: receiptDigest.optional(), phaseIndex: receiptInteger.optional(),
+    submissionDigest: receiptDigest.optional(), deliveryDigest: receiptDigest.optional(), target: receiptTarget.optional() }),
+  z.strictObject({ ...receiptCoordinates, binding: z.literal('verified'), journalPhase: z.literal('completed'),
+    requestDigest: receiptDigest, responseDigest: receiptDigest, phaseIndex: receiptInteger,
+    submissionDigest: receiptDigest, deliveryDigest: receiptDigest, target: receiptTarget, observedResponse: receiptResponse }),
+]).refine(row => row.effect === (row.method === 'POST' ? 'comment' : 'merge')
+  && (row.binding !== 'verified' || row.observedResponse.kind === row.effect), 'Contradictory receipt kind');
+const receiptHeader = { version: z.literal(1), activityId: operatorActivitySummarySchema.shape.activityId };
+const unavailableReceipts = z.strictObject({ ...receiptHeader, scan: z.literal('unavailable'), pageStatus: z.literal('unavailable'),
+  journalCount: z.null(), inspectedEntries: z.literal(0), unresolvedJournalEntries: z.null(),
+  unclassifiedEntries: z.literal(0), nextAfterOrdinal: z.null(), items: z.array(receiptItem).length(0) });
+const selectedReceipts = z.strictObject({ ...receiptHeader, generation: receiptInteger.positive(),
+  inputDigest: receiptDigest, artifactDigest: receiptDigest, admissionDigest: receiptDigest,
+  scan: z.enum(['complete', 'partial']), pageStatus: z.enum(['complete', 'more', 'partial']),
+  journalCount: receiptInteger, inspectedEntries: receiptInteger.max(1024), unresolvedJournalEntries: receiptInteger,
+  unclassifiedEntries: receiptInteger, nextAfterOrdinal: receiptInteger.nullable(), items: z.array(receiptItem).max(8) })
+  .refine(value => value.unresolvedJournalEntries <= value.journalCount
+    && value.unclassifiedEntries <= value.inspectedEntries
+    && value.items.length <= value.inspectedEntries
+    && (value.scan !== 'complete' || value.inspectedEntries === value.journalCount && value.unclassifiedEntries === 0
+      && value.items.every(row => row.ordinal < value.journalCount))
+    && (value.pageStatus !== 'complete' || value.scan === 'complete')
+    && (value.pageStatus === 'more' ? value.items.length === 8 && value.nextAfterOrdinal === value.items[value.items.length - 1].ordinal
+      : value.nextAfterOrdinal === null)
+    && value.items.every((row, index) => index === 0 || row.ordinal > value.items[index - 1].ordinal),
+  'Contradictory receipt completeness');
+const effectReceiptsSchema = z.union([unavailableReceipts, selectedReceipts]);
 const detailSchema = operatorActivitySummarySchema.extend({ checkpoint: z.unknown(), result: z.unknown(),
-  sdkCleanupReleased: z.boolean().optional() });
+  sdkCleanupReleased: z.boolean().optional(), effectReceipts: effectReceiptsSchema.optional() })
+  .refine(value => !value.effectReceipts || value.effectReceipts.activityId === value.activityId, 'Foreign receipt activity')
+  .refine(value => value.cleanupStatus !== 'released' || value.sdkCleanupReleased === true, 'Unconfirmed SDK release');
 export type OperatorActivityDetail = z.infer<typeof detailSchema>;
 export function getOperatorActivity(activityId: string): Promise<OperatorActivityDetail> {
   return baseFetch(`/api/operator-activities/${encodeURIComponent(activityId)}/result`, {},
@@ -43,3 +97,31 @@ export function cancelOperatorActivity(activityId: string): Promise<OperatorActi
   return baseFetch(`/api/operator-activities/${encodeURIComponent(activityId)}/cancel`, { method: 'POST', body: '{}' },
     { credentials: 'same-origin', schema: operatorActivitySummarySchema });
 }
+
+/** Read-only v2 boundary. Neither response text nor schema errors are user copy. */
+async function diagnosticRead<T extends DiagnosticSnapshot>(activityId: string, suffix: string, schema: z.ZodType<T>,
+  snapshot?: DiagnosticSnapshot, resumed = false): Promise<T> {
+  operatorActivitySummarySchema.shape.activityId.parse(activityId);
+  if (snapshot) diagnosticBindingSchema.parse(snapshot.binding);
+  const value = await baseFetch<T>(new URL(`/api/operator-activities/${encodeURIComponent(activityId)}/diagnostics/v2${suffix}`,
+    window.location.origin).href, { method: 'GET', cache: 'no-store' }, { credentials: 'same-origin', schema });
+  if (value.activityId !== activityId) throw new Error('Invalid diagnostics activity');
+  if (snapshot && (snapshot.activityId !== activityId || !sameDiagnosticBinding(value.binding, snapshot.binding)))
+    throw new ApiError('Diagnostic snapshot binding changed.', 409, 'Conflict');
+  if (snapshot && resumed && (value.highWater.events !== snapshot.highWater.events
+    || value.highWater.operations !== snapshot.highWater.operations || value.retention.epoch !== snapshot.retention.epoch))
+    throw new ApiError('Diagnostic snapshot or retention epoch changed.', 409, 'Conflict');
+  return value;
+}
+function diagnosticCursorQuery(cursor: string | null): string {
+  return cursor === null ? '' : `?cursor=${encodeURIComponent(diagnosticCursorSchema.parse(cursor))}`;
+}
+export const getOperatorActivityDiagnostics = (activityId: string) =>
+  diagnosticRead(activityId, '', diagnosticSummarySchema);
+export const getOperatorActivityDiagnosticHistory = (activityId: string, cursor: string | null, snapshot: DiagnosticSnapshot) =>
+  diagnosticRead(activityId, `/history${diagnosticCursorQuery(cursor)}`, diagnosticHistorySchema, snapshot, cursor !== null);
+export const getOperatorActivityDiagnosticRecord = (activityId: string, recordId: string, snapshot: DiagnosticSnapshot) =>
+  diagnosticRead(activityId, `/records/${encodeURIComponent(diagnosticRecordIdSchema.parse(recordId))}`, diagnosticDetailSchema, snapshot)
+    .then(value => { if (value.record.id !== recordId) throw new Error('Invalid diagnostic record'); return value; });
+export const exportOperatorActivityDiagnostics = (activityId: string, cursor: string | null, snapshot: DiagnosticSnapshot) =>
+  diagnosticRead(activityId, `/export${diagnosticCursorQuery(cursor)}`, diagnosticExportSchema, snapshot, cursor !== null);

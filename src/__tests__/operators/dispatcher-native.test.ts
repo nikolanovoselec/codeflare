@@ -102,7 +102,7 @@ describe('REQ-OPERATOR-048: production Dispatcher Loader host', () => {
     expect(getDurableObjectClass).toHaveBeenCalledWith('FlueDispatcherAgent');
     return expect(codeFactory!()).resolves.toEqual({
       compatibilityDate: '2026-09-10', compatibilityFlags: ['nodejs_compat'],
-      mainModule: 'index.js', modules: bundle.modules, env: { OPERATOR: capability }, globalOutbound: null,
+      mainModule: 'index.js', modules: bundle.modules, env: { OPERATOR: capability, OPERATOR_SUBMISSION_ATTEMPT_LIMIT: '1024' }, globalOutbound: null,
       tails: [tail],
     });
   });

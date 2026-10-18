@@ -1,6 +1,6 @@
 import { availableParallelism } from 'node:os';
 import { defineConfig } from 'vitest/config';
-import { cloudflareTest } from '@cloudflare/vitest-pool-workers';
+import { cloudflareTest } from '@cloudflare/vitest-plugin';
 import { NODE_SUITE_FILES } from './vitest.node-suite.mjs';
 
 export const CLOUDFLARE_TEST_OPTIONS = {

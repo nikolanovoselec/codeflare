@@ -1,4 +1,4 @@
-/// <reference types="@cloudflare/vitest-pool-workers/types" />
+/// <reference types="@cloudflare/vitest-plugin/types" />
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { env, runInDurableObject } from 'cloudflare:test';
 import { OperatorRegistry } from '../../operators/registry';
@@ -150,7 +150,7 @@ async function scenario(run: (fixture: {
       inRegistry(owner => owner.getBoundaryPublication(input)),
   } as unknown as OperatorRegistry;
   const repo = new D1SessionRepository(db);
-  await runInDurableObject(activityNamespace.get(activityNamespace.newUniqueId()), async (_inner, activityCtx) => {
+  await runInDurableObject(activityNamespace.getByName(`review-claim-${crypto.randomUUID()}`), async (_inner, activityCtx) => {
       const activityEnv = { ...protectedEnv, OPERATOR_REGISTRY: { getByName: () => registryOwner } };
       const activity = new OperatorActivity(activityCtx,
         activityEnv as unknown as ConstructorParameters<typeof OperatorActivity>[1]);

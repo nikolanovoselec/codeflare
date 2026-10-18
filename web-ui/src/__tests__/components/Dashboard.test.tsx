@@ -196,7 +196,8 @@ vi.mock('../../lib/vault-cache', () => ({
   sweepOrphanVaultCaches: vi.fn().mockResolvedValue(undefined),
 }));
 
-vi.mock('../../api/operator-activities', () => ({
+vi.mock('../../api/operator-activities', async original => ({
+  ...await original<typeof import('../../api/operator-activities')>(),
   listOperatorActivities: vi.fn().mockResolvedValue({ items: [] }),
   cancelOperatorActivity: vi.fn(),
 }));
@@ -504,7 +505,7 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Operator activity' }));
     await waitFor(() => expect(screen.getByRole('dialog', { name: 'Operator activity' })).toBeInTheDocument());
-    expect(screen.getByText('Operator overview')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Operators' })).toBeInTheDocument();
   });
 
   it('REQ-OPERATOR-040 AC1: hides the operator control outside enterprise mode', () => {

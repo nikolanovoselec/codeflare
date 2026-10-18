@@ -1,4 +1,4 @@
-/// <reference types="@cloudflare/vitest-pool-workers/types" />
+/// <reference types="@cloudflare/vitest-plugin/types" />
 /** REQ-OPERATOR-009/010 acceptance scaffolding; no private operator or deployed acceptance. */
 import { describe, expect, it, vi } from 'vitest';
 import { runDirectFixture, runSessionFixture, runWebhookCallerFixture } from './fixtures/platform-acceptance';

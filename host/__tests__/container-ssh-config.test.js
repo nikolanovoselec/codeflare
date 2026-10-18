@@ -63,7 +63,7 @@ describe('REQ-OPS-060: optional repository-scoped container SSH', () => {
 
       const config = unstable_readConfig({ config: configPath }, { hideWarnings: true });
       assert.equal(config.containers?.[0]?.wrangler_ssh?.enabled, true);
-      assert.deepEqual(config.containers?.[0]?.authorized_keys, [
+      assert.deepEqual(config.containers?.[0]?.authorized_keys?.map(key => ({ ...key })), [
         {
           name: 'codeflare-operator',
           public_key: publicKey.split(' ').slice(0, 2).join(' '),

@@ -36,5 +36,22 @@ new_sqlite_classes = ["FixtureRegistry", "FixtureActivity", "FixtureFlueRoot"]
 tag = "fixture-v2"
 new_sqlite_classes = ["FixtureTailInbox"]
 
+# Production owner/facet composition; external services remain outside the evicted owner.
+[[durable_objects.bindings]]
+name = "OPERATOR_ACTIVITY"
+class_name = "OperatorActivity"
+
+[[durable_objects.bindings]]
+name = "RECOVERY_SERVICES"
+class_name = "RecoveryServices"
+
+[[migrations]]
+tag = "fixture-v3"
+new_sqlite_classes = ["OperatorActivity", "RecoveryServices"]
+
+[[kv_namespaces]]
+binding = "KV"
+id = "00000000000000000000000000000000"
+
 [vars]
 PARENT_SECRET = "fixture-parent-only"

@@ -9,11 +9,13 @@ async function recover({ config = false, logout = false, expired = false } = {})
   const end = worker.indexOf('catch(cfe){}}', start) + 'catch(cfe){}}'.length;
   const type = config ? 'config' : 'get-encryption-key';
   const messageStart = worker.indexOf(`case"${type}":{`);
-  const messageEnd = config ? worker.indexOf('if(g.setSpacePrefixes', messageStart) : worker.indexOf('case"set-encryption-key"', messageStart);
+  const messageEnd = config ? worker.indexOf('if(await(await oe).configure', messageStart) : worker.indexOf('case"set-encryption-key"', messageStart);
+  assert.ok(start >= 0 && end > start && messageStart >= 0 && messageEnd > messageStart,
+    'The served-worker extraction boundary must exist before executing this narrow recovery case');
   const message = worker.slice(messageStart, messageEnd) + (config ? 'return i;}' : '');
   const state = { active: false };
-  const run = new Function('D', 'fetch', 'self', `let z,ne=0;D.expire=()=>{ne++};
-    async function Kt(value){return value}async function $e(value){return value}
+  const run = new Function('D', 'fetch', 'self', `let z,ie=0;D.expire=()=>{ie++};
+    async function Gt(value){return value}async function Ge(value){return value}
     ${worker.slice(start, end)}
     return async function(){let reply;let o={data:{type:"${type}",config:{}},source:{postMessage(value){reply=value.key}}};let e=o.data;
     switch(e.type){${message}}return reply;};`)(state, async () => ({

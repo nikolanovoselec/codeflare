@@ -95,23 +95,34 @@ const SESSION_ID_KEY = '_sessionId';
 // each call site - the same pattern the previous metricsState getter used -
 // rather than an `implements` clause that would couple to the base class's
 // member modifiers.
+type RenovateScanPin = { registrationId: string; installationId: string; bucket: string; sessionId: string; sessionGeneration: number };
+const sameScanPin = (a: RenovateScanPin | undefined, b: RenovateScanPin | undefined) => !!a && !!b
+  && a.registrationId === b.registrationId && a.installationId === b.installationId && a.bucket === b.bucket
+  && a.sessionId === b.sessionId && a.sessionGeneration === b.sessionGeneration;
 type ExitEvidence = { owner: string; session: string; generation: number };
 
 export class container extends Container<Env> implements ContainerEnvState {
   logger = createLogger('container');
   private renovateScheduling: Promise<void> = Promise.resolve();
 
-  private async ensureRenovateSchedule(rearm = false): Promise<void> {
+  private async ensureRenovateSchedule(pin: RenovateScanPin, activate = false, rearm = false): Promise<boolean> {
     const previous = this.renovateScheduling;
     let release!: () => void;
     this.renovateScheduling = new Promise<void>(resolve => { release = resolve; });
     await previous;
     try {
-      // The SDK deletes the due row *after* this callback returns. Rearming
-      // must insert the successor even while that due row is still visible.
-      if (rearm || (await this.listSchedules('scanRenovate')).length === 0) {
-        await this.schedule(3600, 'scanRenovate');
+      const current = await this.env.OPERATOR_REGISTRY?.getByName('registry').currentProspectiveRenovateRegistration(pin.registrationId);
+      if (!current || current.installationId !== pin.installationId || current.bucket !== pin.bucket
+        || current.sessionId !== pin.sessionId || current.sessionGeneration !== pin.sessionGeneration) return false;
+      const stored = await this.ctx.storage.get<RenovateScanPin>('renovate:scan');
+      if (!activate && !sameScanPin(stored, pin)) return false;
+      if (!sameScanPin(stored, pin)) {
+        await this.deleteSchedules('scanRenovate');
+        await this.ctx.storage.put('renovate:scan', pin);
       }
+      const schedules = await this.listSchedules('scanRenovate');
+      if (rearm || schedules.length === 0) await this.schedule(current.repetitionIntervalSeconds, 'scanRenovate', pin);
+      return true;
     } finally { release(); }
   }
 
@@ -556,20 +567,19 @@ export class container extends Container<Env> implements ContainerEnvState {
       .currentProspectiveRenovateRegistration(input.registrationId);
     if (!current || current.installationId !== input.installationId || current.bucket !== input.bucket
       || current.sessionId !== input.sessionId || current.sessionGeneration !== input.sessionGeneration) return { ok: false };
-    await this.ctx.storage.put('renovate:scan', input);
-    // SDK schedule rows survive a lost response; serialize overlapping retries.
-    await this.ensureRenovateSchedule();
-    return { ok: true };
+    // SDK rows survive a lost acknowledgement; generation changes replace only scan rows.
+    return { ok: await this.ensureRenovateSchedule(input, true) };
   }
 
   /** Scheduled callback is only a trigger; Registry and live session authority decide every operation. */
-  async scanRenovate(): Promise<void> {
-    const pin = await this.ctx.storage.get<{ registrationId: string; installationId: string; bucket: string;
-      sessionId: string; sessionGeneration: number }>('renovate:scan');
+  async scanRenovate(delivered?: RenovateScanPin): Promise<void> {
+    const pin = await this.ctx.storage.get<RenovateScanPin>('renovate:scan');
+    if (!sameScanPin(pin, delivered)) return;
     if (!pin || !this.env.OPERATOR_REGISTRY || !this.env.OPERATOR_ACTIVITY || !this.env.CONTAINER
       || this.env.CONTAINER.idFromName(`${pin.bucket}-${pin.sessionId}`).toString() !== this.ctx.id.toString()) return;
     const registry = this.env.OPERATOR_REGISTRY.getByName('registry');
     const registration = async (id = pin.registrationId) => {
+      if (!sameScanPin(await this.ctx.storage.get<RenovateScanPin>('renovate:scan'), pin)) return null;
       const current = await registry.currentProspectiveRenovateRegistration(id);
       return current && current.installationId === pin.installationId && current.bucket === pin.bucket
         && current.sessionId === pin.sessionId && current.sessionGeneration === pin.sessionGeneration ? current : null;
@@ -580,7 +590,9 @@ export class container extends Container<Env> implements ContainerEnvState {
       const exports = (this.ctx as unknown as { exports?: Record<string,
         (input: { props: Record<string, unknown> }) => Fetcher> }).exports;
       if (!exports) return;
-      const candidates = await listProspectiveRenovatePrs({ env: this.env, exports, registration: initial,
+      const retainedRetryTargets = await registry.retainedProspectiveRenovateRetryTargets(pin.registrationId);
+      if (!await registration()) return;
+      const candidates = await listProspectiveRenovatePrs({ retainedRetryTargets, env: this.env, exports, registration: initial,
         current: async () => !!await registration() });
       for (const candidate of candidates) {
         if (!await registration()) return;
@@ -607,9 +619,11 @@ export class container extends Container<Env> implements ContainerEnvState {
           let prepared;
           try {
             prepared = await prepareOperatorActivity({ installationId: pin.installationId,
-              invocation: { repository: 'nikolanovoselec/komodo', pullRequest: candidate.pullRequest } },
+              invocation: { repository: winner.repository } },
             { human: winner.human, accessJwt: winner.accessJwt }, this.env,
-            { activityId: reserved.activityId });
+            { activityId: reserved.activityId, expectedManagement: { controlsRevision: winner.controlsRevision,
+              installationRevision: winner.installationRevision, operatorRevision: winner.operatorRevision,
+              releaseId: winner.releaseId, bundleDigest: winner.bundleDigest } });
           } catch { continue; }
           if (!await registry.currentProspectiveRenovateRegistration(actor.registrationId)) continue;
           try { await activity.start(prepared.startCapability); } catch { /* Reconcile accepted start below. */ }
@@ -627,19 +641,14 @@ export class container extends Container<Env> implements ContainerEnvState {
             bindOperatorRuntimeCapability(this.ctx)).catch(error => {
             this.logger.warn('Prospective Renovate drive unavailable', { error: toErrorMessage(error) });
           }));
-        } else if (detail?.executionStatus === 'completed') {
-          const refreshed = await registry.currentProspectiveRenovateRegistration(actor.registrationId);
-          if (refreshed) await activity.publishRenovateAssessment({ bucket: actor.bucket,
-            sessionId: actor.sessionId, sessionGeneration: actor.sessionGeneration,
-            operationId: `scan-${reserved.activityId}` }, { human: refreshed.human,
-            accessJwt: refreshed.accessJwt, platformAdmin: true });
         }
+        // Current repository-only journeys own their effects; completion is not a parent publication trigger.
         } catch (error) {
           this.logger.warn('Prospective Renovate activity unavailable', { error: toErrorMessage(error) });
         }
       }
     } finally {
-      if (await registration()) await this.ensureRenovateSchedule(true);
+      if (await registration()) await this.ensureRenovateSchedule(pin, false, true);
     }
   }
 

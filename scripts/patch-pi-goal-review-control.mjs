@@ -2,9 +2,10 @@
 // Applies Codeflare's reviewed compatibility patch to the exact locked pi-goal
 // release. The package remains upstream-owned and integrity-locked; this version-aware
 // image-build transform adds the session-local PR-review control
-// channel, compact Goal prompts, and a bounded continuation dispatch interval
+// channel, compact Goal prompts/status, and a bounded continuation dispatch interval
 // without a companion extension or permanent fork. Every transformed source is calculated before
 // any package file is written so version or source-layout drift fails closed.
+import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -14,6 +15,7 @@ export const SUPPORTED_PI_GOAL_VERSIONS = Object.freeze([
   EXPECTED_PI_GOAL_VERSION,
   '0.54.4',
   '0.54.8',
+  '0.54.11',
 ]);
 export const PATCH_MARKER = 'CODEFLARE_GOAL_CONTROL_CHANNEL';
 export const GOAL_ENTRYPOINT_PATCH_MARKER = 'CODEFLARE_GOAL_LIFECYCLE_COMMANDS';
@@ -22,6 +24,7 @@ export const COMMANDS_PATCH_MARKER = 'CODEFLARE_SUPPRESS_RESUME_PROMPT';
 export const PROMPTS_PATCH_MARKER = 'CODEFLARE_COMPACT_GOAL_PROMPTS';
 export const SETTINGS_PATCH_MARKER = 'CODEFLARE_GOAL_MIN_INTERVAL_SETTINGS';
 export const RUNTIME_PATCH_MARKER = 'CODEFLARE_GOAL_MIN_INTERVAL_RUNTIME';
+const STATUS_PATCH_MARKER = 'CODEFLARE_GOAL_COMPACT_STATUS';
 export const RUNTIME_SETTLED_RESTART_MARKER = 'CODEFLARE_GOAL_SETTLED_RESTART';
 export const CONTROL_CHANNEL = 'codeflare:pi-goal:control';
 
@@ -869,6 +872,33 @@ export function patchPiGoalRuntimeSource(source) {
   return patched;
 }
 
+function patchPiGoalStatusSource(source) {
+  const compactFormatter = [
+    `// ${STATUS_PATCH_MARKER}`,
+    'function formatStatus(goal: ActiveGoal | undefined, _automaticTurnLimit?: number | null) {',
+    '\tif (!goal) return undefined;',
+    '\tif (goal.status === "complete") return "goal - complete";',
+    '\tif (goal.waiting) return "goal - waiting";',
+    '\tif (goal.status === "active") {',
+    '\t\treturn `goal - active ${formatDuration(goal.timeUsedSeconds).replace(/([hm])(?=\\d)/g, "$1 ")}`;',
+    '\t}',
+    '\treturn `goal - ${goal.status.replaceAll("_", " ")}`;',
+    '}',
+  ].join('\n');
+  if (isCompleteMarkedPatch(source, STATUS_PATCH_MARKER, [compactFormatter], 'Goal status formatter')) return source;
+  const formatters = [...source.matchAll(/function formatStatus\([\s\S]*?\n\}/g)];
+  // Reviewed formatter bytes from the existing immutable fixtures, after the
+  // directory patch's indentation normalization: 0.54.3/4 and 0.54.8/11.
+  const reviewed = [
+    '9b91ae43f8ffd7cb79d6e2a1ce740766424c720560e49f136c5b87d86740e74b',
+    '3dbaaefd124ef663f783f6dd118c07b4bcfa54e10d865300530faf0ad5ce47e3',
+  ];
+  if (formatters.length !== 1 || !reviewed.includes(createHash('sha256').update(formatters[0][0]).digest('hex'))) {
+    throw new Error('Goal status formatter source layout is not reviewed');
+  }
+  return replaceOnce(source, formatters[0][0], compactFormatter, 'Goal status formatter');
+}
+
 export function patchPiGoalDirectory(expectedVersion, directory) {
   if (!expectedVersion || !directory) {
     throw new Error('expected version and package directory are required');
@@ -926,9 +956,9 @@ export function patchPiGoalDirectory(expectedVersion, directory) {
     settings: readFileSync(paths.settings, 'utf8'),
     toolPolicy: readFileSync(paths.toolPolicy, 'utf8'),
   };
-  // The reviewed 0.54.8 release uses two-space indentation. Round-trip only
+  // These reviewed releases use two-space indentation. Round-trip only
   // leading indentation through the existing exact, fail-closed patch anchors.
-  if (expectedVersion === '0.54.8') {
+  if (expectedVersion === '0.54.8' || expectedVersion === '0.54.11') {
     for (const name of Object.keys(originals)) {
       originals[name] = originals[name].replace(/^(?:  )+/gm, (indent) => '\t'.repeat(indent.length / 2));
     }
@@ -940,7 +970,7 @@ export function patchPiGoalDirectory(expectedVersion, directory) {
       ? patchPiGoalLifecycleSource(originals[sessionSourceName])
       : patchPiGoalSource(originals[sessionSourceName]),
     prompts: patchPiGoalPromptsSource(originals.prompts),
-    runtime: patchPiGoalRuntimeSource(originals.runtime),
+    runtime: patchPiGoalStatusSource(patchPiGoalRuntimeSource(originals.runtime)),
     settings: patchPiGoalSettingsSource(originals.settings),
     toolPolicy: patchPiGoalToolPolicySource(originals.toolPolicy),
   };
@@ -962,7 +992,7 @@ export function patchPiGoalDirectory(expectedVersion, directory) {
 
   writeFileSync(paths.packageJson, patchedPackageManifest);
   for (const name of ['commands', 'goal', sessionSourceName, 'prompts', 'runtime', 'settings', 'toolPolicy']) {
-    const source = expectedVersion === '0.54.8'
+    const source = expectedVersion === '0.54.8' || expectedVersion === '0.54.11'
       ? patched[name].replace(/^\t+/gm, (indent) => '  '.repeat(indent.length))
       : patched[name];
     writeFileSync(paths[name], source);

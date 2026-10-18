@@ -113,7 +113,7 @@ jobs:
           # hashed, so deleting a suppression left the tag identical, the reuse
           # probe hit, and build+scan+push were skipped — the image shipped with
           # the CVE and the scan that would now fail never ran.
-          HASHED_PATHS=".github/workflows/container-image.yml Dockerfile .dockerignore .trivyignore entrypoint.sh transcript-retention.mjs scripts/compact-session-captures.mjs host/package.json host/package-lock.json host/tsconfig.json host/src image openvscode preseed scripts/browser-ide-ui-state.py scripts/browser-ide-extensions.py scripts/materialize-agent-seed.mjs scripts/restore-operator-attachments.mjs scripts/materialize-operator-inputs.mjs scripts/patch-impeccable-engine.py scripts/ci/impeccable-engine.py scripts/patch-rclone-bisync.py scripts/ci/rclone-bookkeeping_test.go scripts/patch-context-mode-bundles.mjs scripts/patch-pi-goal-review-control.mjs scripts/patch-pi-plan-mode-tool-policy.mjs scripts/patch-pi-native-model-display.mjs scripts/patch-rpiv-host-peers.mjs scripts/verify-pi-lockstep.mjs scripts/verify-pi-prompt.mjs scripts/pi-prompt-contract.mjs scripts/ci/coding-agent-selection-core.mjs scripts/ci/coding-agent-selection.mjs scripts/ci/prune-npm-platform-artifacts.mjs scripts/ci/prune-selected-npm-tools.sh scripts/ci/smoke-openvscode-sidebar-image.mjs scripts/ci/validate-trivy-result.mjs src/lib/agent-seed.generated.ts"
+          HASHED_PATHS=".github/workflows/container-image.yml Dockerfile .dockerignore .trivyignore entrypoint.sh transcript-retention.mjs scripts/compact-session-captures.mjs host/package.json host/package-lock.json host/tsconfig.json host/src image openvscode preseed scripts/browser-ide-ui-state.py scripts/browser-ide-extensions.py scripts/materialize-agent-seed.mjs scripts/restore-operator-attachments.mjs scripts/materialize-operator-inputs.mjs scripts/patch-impeccable-engine.py scripts/ci/impeccable-engine.py scripts/patch-rclone-bisync.py scripts/ci/rclone-bookkeeping_test.go scripts/patch-context-mode-bundles.mjs scripts/patch-chrome-devtools-timeouts.mjs scripts/patch-pi-goal-review-control.mjs scripts/patch-pi-plan-mode-tool-policy.mjs scripts/patch-pi-native-model-display.mjs scripts/patch-rpiv-host-peers.mjs scripts/patch-rpiv-question-timeout.mjs scripts/rpiv-question-timeout.mjs scripts/verify-pi-lockstep.mjs scripts/verify-pi-prompt.mjs scripts/pi-prompt-contract.mjs scripts/ci/coding-agent-selection-core.mjs scripts/ci/coding-agent-selection.mjs scripts/ci/prune-npm-platform-artifacts.mjs scripts/ci/prune-selected-npm-tools.sh scripts/ci/smoke-openvscode-sidebar-image.mjs scripts/ci/validate-trivy-result.mjs src/lib/agent-seed.generated.ts"
           CODING_AGENTS=$(node scripts/ci/coding-agent-selection.mjs resolve "$RAW_CODING_AGENTS")
 
           # Guard: every COPY source in the Dockerfile must be covered by
@@ -123,7 +123,7 @@ jobs:
           while read -r src; do
             case "$src" in
               .cache-bust) ;; # represented by the cache-bust input
-              Dockerfile|entrypoint.sh|transcript-retention.mjs|scripts/compact-session-captures.mjs|host/package.json|host/package-lock.json|host/tsconfig.json|host/src/*|image/*|openvscode/*|preseed/*|scripts/browser-ide-ui-state.py|scripts/browser-ide-extensions.py|scripts/materialize-agent-seed.mjs|scripts/restore-operator-attachments.mjs|scripts/materialize-operator-inputs.mjs|scripts/patch-impeccable-engine.py|scripts/ci/impeccable-engine.py|scripts/patch-rclone-bisync.py|scripts/ci/rclone-bookkeeping_test.go|scripts/patch-context-mode-bundles.mjs|scripts/patch-pi-goal-review-control.mjs|scripts/patch-pi-plan-mode-tool-policy.mjs|scripts/patch-pi-native-model-display.mjs|scripts/patch-rpiv-host-peers.mjs|scripts/verify-pi-lockstep.mjs|scripts/verify-pi-prompt.mjs|scripts/pi-prompt-contract.mjs|scripts/ci/coding-agent-selection-core.mjs|scripts/ci/coding-agent-selection.mjs|scripts/ci/prune-npm-platform-artifacts.mjs|scripts/ci/prune-selected-npm-tools.sh|scripts/ci/smoke-openvscode-sidebar-image.mjs|src/lib/agent-seed.generated.ts) ;;
+              Dockerfile|entrypoint.sh|transcript-retention.mjs|scripts/compact-session-captures.mjs|host/package.json|host/package-lock.json|host/tsconfig.json|host/src/*|image/*|openvscode/*|preseed/*|scripts/browser-ide-ui-state.py|scripts/browser-ide-extensions.py|scripts/materialize-agent-seed.mjs|scripts/restore-operator-attachments.mjs|scripts/materialize-operator-inputs.mjs|scripts/patch-impeccable-engine.py|scripts/ci/impeccable-engine.py|scripts/patch-rclone-bisync.py|scripts/ci/rclone-bookkeeping_test.go|scripts/patch-context-mode-bundles.mjs|scripts/patch-chrome-devtools-timeouts.mjs|scripts/patch-pi-goal-review-control.mjs|scripts/patch-pi-plan-mode-tool-policy.mjs|scripts/patch-pi-native-model-display.mjs|scripts/patch-rpiv-host-peers.mjs|scripts/patch-rpiv-question-timeout.mjs|scripts/rpiv-question-timeout.mjs|scripts/verify-pi-lockstep.mjs|scripts/verify-pi-prompt.mjs|scripts/pi-prompt-contract.mjs|scripts/ci/coding-agent-selection-core.mjs|scripts/ci/coding-agent-selection.mjs|scripts/ci/prune-npm-platform-artifacts.mjs|scripts/ci/prune-selected-npm-tools.sh|scripts/ci/smoke-openvscode-sidebar-image.mjs|src/lib/agent-seed.generated.ts) ;;
               *)
                 echo "::warning::COPY source '$src' not covered by the image input hash — disabling reuse for this run. Add it to HASHED_PATHS in container-image.yml."
                 NO_REUSE=1
@@ -321,7 +321,7 @@ jobs:
 
       - name: Upload BuildKit timing evidence
         if: always() && steps.reuse.outputs.reused != 'true'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: buildkit-timing-${{ inputs.registry }}-${{ steps.hash.outputs.tag }}
           path: /tmp/buildkit.log
@@ -339,12 +339,20 @@ jobs:
             libpcre2_version=$(dpkg-query -W -f="\${Version}" libpcre2-8-0)
             dpkg --compare-versions "$libpcre2_version" ge "10.42-1+deb12u2"
             printf "libpcre2-8-0=%s\n" "$libpcre2_version"
+            libgit2_version=$(dpkg-query -W -f="\${Version}" libgit2-1.5)
+            dpkg --compare-versions "$libgit2_version" ge "1.5.1+ds-1+deb12u2"
+            printf "libgit2-1.5=%s\n" "$libgit2_version"
             libde265_version=$(dpkg-query -W -f="\${Version}" libde265-0)
             dpkg --compare-versions "$libde265_version" ge "1.0.11-1+deb12u3"
             printf "libde265-0=%s\n" "$libde265_version"
             libevent_version=$(dpkg-query -W -f="\${Version}" libevent-core-2.1-7)
             dpkg --compare-versions "$libevent_version" ge "2.1.12-stable-8+deb12u1"
             printf "libevent-core-2.1-7=%s\n" "$libevent_version"
+            for package in libperl5.36 perl perl-base perl-modules-5.36; do
+              perl_version=$(dpkg-query -W -f="\${Version}" "$package")
+              dpkg --compare-versions "$perl_version" ge "5.36.0-7+deb12u4"
+              printf "%s=%s\n" "$package" "$perl_version"
+            done
           '
 
       - name: Verify packaged native Pi Chat and official Claude
@@ -422,7 +430,7 @@ jobs:
 
       - name: Upload Pi prompt report
         if: steps.reuse.outputs.reused != 'true' && contains(steps.hash.outputs.coding_agents, 'pi')
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: pi-prompt-report
           path: ${{ runner.temp }}/pi-prompt-report.json
@@ -749,7 +757,7 @@ jobs:
 
       - name: Upload image evidence
         if: always() && steps.reuse.outputs.reused != 'true'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: browser-ide-image-evidence
           path: /tmp/browser-ide-image-evidence.txt
@@ -857,7 +865,7 @@ jobs:
 
       - name: Upload the SBOM
         if: steps.reuse.outputs.reused != 'true'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: sbom-${{ inputs.registry }}-${{ steps.hash.outputs.tag }}
           path: /tmp/sbom.cdx.json

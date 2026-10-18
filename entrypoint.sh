@@ -502,7 +502,7 @@ RCLONE_FILTERS_COMMON=(
     --filter "- .codex/logs*.sqlite*"        # log databases and WAL/SHM companions (ephemeral)
     --filter "- .codex/*.sqlite-shm"         # SQLite shared memory (ephemeral, corrupt on restore)
     --filter "- .codex/*.sqlite-wal"         # SQLite WAL (ephemeral, corrupt on restore)
-    # Codex's bundled system skills (imagegen, plugin-creator, skill-installer)
+    # Codex's bundled system skills (imagegen, skill-installer)
     # ship inside the codex binary and are re-extracted on launch, gated by
     # .codex-system-skills.marker. Not codeflare-managed, not user content;
     # excluding mirrors the .agents/ rationale (locally regenerated).
@@ -562,6 +562,9 @@ RCLONE_FILTERS_COMMON=(
     # (ephemeral by Cloudflare Containers contract; see REQ-MEM-002 AC6).
     # /tmp is not synced in the first place, so no filter needed; the
     # ~/.memory/ tree is no longer written to by the capture hook.
+
+    # Pi — local investigation artifacts are not persistent agent configuration.
+    --filter "- /.pi/agent/work-evidence/**"
 
     # Pi — subagent task logs within sessions (equivalent to .claude/projects/**/subagents/**)
     # Main session JSONL transcripts ARE synced for --resume; task subdirs and disposable
@@ -3010,18 +3013,19 @@ configure_pi_packages_and_review_inventory() {
 const fs = require('fs');
 const path = process.argv[2];
 const required = [
-  'npm:@gotgenes/pi-subagents@21.8.1',
+  'npm:@gotgenes/pi-subagents@23.4.2',
   // Pi tool extensions, always enabled (in `required`) so they are available
   // independently of the context-mode toggle — toggling /ctx never disables them.
-  'npm:@juicesharp/rpiv-advisor@2.11.0',
-  'npm:@juicesharp/rpiv-ask-user-question@2.11.0',
-  'npm:@juicesharp/rpiv-todo@2.11.0',
-  'npm:pi-web-access@0.34.0',
-  'npm:pi-mcp-adapter@3.3.0',
+  'npm:@juicesharp/rpiv-advisor@2.12.0',
+  'npm:@juicesharp/rpiv-ask-user-question@2.12.0',
+  'npm:@juicesharp/rpiv-todo@2.12.0',
+  'npm:pi-web-access@0.38.0',
+  'npm:pi-mcp-adapter@5.3.1',
   'npm:pi-evaluate@0.1.5',
-  'npm:@narumitw/pi-goal@0.54.8',
-  'npm:@narumitw/pi-plan-mode@0.58.3',
-  'npm:@narumitw/pi-usage@0.61.1',
+  'npm:@narumitw/pi-goal@0.54.11',
+  'npm:@narumitw/pi-plan-mode@0.59.2',
+  // The managed terminal adapter initializes the native UI once.
+  { source: 'npm:pi-open-tui@0.3.11', extensions: [] },
 ];
 // Keep context-mode installed for explicit `/ctx on`, but disable its extension and skills on every
 // fresh container start. The managed foreground-owner bridge attaches only after explicit enablement.
@@ -3033,7 +3037,7 @@ const defaultPackages = [
 // The graphify wrapper conflicts with first-party graphify-native tools. The glla package is
 // replaced by @narumitw/pi-goal and would otherwise keep loading from persisted user settings.
 // Unlike disabled packages these are dropped and never re-added, so upgrades load cleanly.
-const removedPackageIds = new Set(['npm:@gaodes/pi-graphify', 'npm:pi-goal-list-loop-audit', 'npm:pi-caveman']);
+const removedPackageIds = new Set(['npm:@gaodes/pi-graphify', 'npm:pi-goal-list-loop-audit', 'npm:pi-caveman', 'npm:@narumitw/pi-usage']);
 function sourceOf(entry) {
   if (typeof entry === 'string') return entry;
   return entry && typeof entry.source === 'string' ? entry.source : undefined;
@@ -3068,10 +3072,13 @@ const reviewExclusions = !selectorReady && !remoteReady ? []
     .map(name => `-${require('path').join(reviewDir, name)}`);
 const managedReviewPaths = ['review-enforcement.ts', 'operator-review-remote.ts']
   .map(name => `-${require('path').join(reviewDir, name)}`);
+// The managed adapter owns lazy MCP startup/idle cleanup, including the first session.
+// Native Pi MCP otherwise connects eagerly before the adapter can disable it itself.
+const nativeMcpPaths = new Set(['builtin:mcp', '+builtin:mcp', '-builtin:mcp']);
 const extensions = Array.isArray(settings.extensions)
-  ? settings.extensions.filter(item => !managedReviewPaths.includes(item)) : [];
+  ? settings.extensions.filter(item => !managedReviewPaths.includes(item) && !nativeMcpPaths.has(item)) : [];
 fs.writeFileSync(path, JSON.stringify({ ...settings, packages: [...byName.values()],
-  extensions: [...extensions, ...reviewExclusions] }, null, 2) + '\n');
+  extensions: [...extensions, '-builtin:mcp', ...reviewExclusions] }, null, 2) + '\n');
 NODE
 }
 
@@ -3225,6 +3232,10 @@ update_pi_and_codex_when_fast_start_disabled() {
             echo "[entrypoint] ERROR: RPIV host dependency compatibility repair failed"
             update_failed=1
         fi
+        if ! node /opt/codeflare/scripts/patch-rpiv-question-timeout.mjs "${PI_NPM_DIR:-$USER_HOME/.pi/agent/npm}/node_modules/@juicesharp/rpiv-ask-user-question"; then
+            echo "[entrypoint] ERROR: RPIV questionnaire timeout preparation failed"
+            update_failed=1
+        fi
     fi
     rm -rf -- "$update_cache"
 
@@ -3293,6 +3304,55 @@ try {
 }
 NODE
 }
+# Enforce the approved native Open TUI preferences after home restore on every
+# startup. Only these fields are owned; preserve other settings and unsafe bytes.
+configure_pi_open_tui() {
+    local tui_config="$USER_HOME/.pi/agent/open-tui.json"
+    mkdir -p "$(dirname "$tui_config")" || return 1
+    node - "$tui_config" <<'NODE'
+const fs = require('node:fs');
+const { randomUUID } = require('node:crypto');
+const path = process.argv[2];
+const record = value => value !== null && typeof value === 'object' && !Array.isArray(value);
+let temporary;
+try {
+  let settings = {};
+  let descriptor;
+  try {
+    descriptor = fs.openSync(path, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK);
+    if (!fs.fstatSync(descriptor).isFile()) throw new Error('unsafe configuration');
+    settings = JSON.parse(fs.readFileSync(descriptor, 'utf8'));
+    if (!record(settings)) throw new Error('invalid configuration');
+  } catch (error) {
+    if (error.code !== 'ENOENT') throw error;
+  } finally {
+    if (descriptor !== undefined) fs.closeSync(descriptor);
+  }
+  for (const key of ['icons', 'thinkingPeek', 'footerSegments', 'telemetry']) {
+    if (settings[key] !== undefined && !record(settings[key])) throw new Error('invalid configuration');
+  }
+  const configured = {
+    ...settings, enabled: true, settingsLanguage: 'en', inlineFooter: false, cursorStyle: 'block',
+    icons: { ...settings.icons, mode: 'ascii' },
+    thinkingPeek: { ...settings.thinkingPeek, lines: 2 },
+    footerSegments: { ...settings.footerSegments, cwd: false, hostname: false, sessionName: true,
+      gitBranch: false, gitStatus: false, gitCommit: false, runtime: false, context: true,
+      tokens: false, cost: false, extensionStatuses: true, capitalizeProviderName: false },
+    telemetry: { ...settings.telemetry, enabled: false, tps: true, ttft: true, duration: true,
+      tokens: true, stalls: true, cost: true },
+  };
+  temporary = `${path}.${randomUUID()}.tmp`;
+  fs.writeFileSync(temporary, JSON.stringify(configured, null, 2) + '\n', { flag: 'wx', mode: 0o600 });
+  fs.renameSync(temporary, path);
+} catch {
+  // Never expose parse errors or user configuration contents.
+  process.exitCode = 1;
+} finally {
+  try { if (temporary) fs.rmSync(temporary, { force: true }); } catch { /* Cosmetic cleanup must not block startup. */ }
+}
+NODE
+}
+configure_pi_open_tui || echo "[entrypoint] WARNING: Open TUI configuration could not be applied; existing preferences preserved"
 configure_pi_subagent_defaults || echo "[entrypoint] WARNING: Pi subagent update defaults could not be applied; existing preferences preserved"
 configure_pi_goal_defaults || echo "[entrypoint] WARNING: Pi Goal default configuration failed; continuing startup"
 configure_pi_plan_mode || echo "[entrypoint] WARNING: Pi Plan Mode configuration failed; continuing startup"
@@ -3349,7 +3409,7 @@ configure_pi_mcp_adapter() {
     if node --input-type=module - "$module" "$USER_HOME/.pi/agent" <<'PI_MCP_MIGRATION'
 import { pathToFileURL } from 'node:url';
 const { migratePiMcpAdapterConfig } = await import(pathToFileURL(process.argv[2]).href);
-process.exitCode = migratePiMcpAdapterConfig(process.argv[3], true) ? 0 : 1;
+process.exitCode = migratePiMcpAdapterConfig(process.argv[3], true, true) ? 0 : 1;
 PI_MCP_MIGRATION
     then
         PI_MCP_CONFIG_READY=1
@@ -4115,7 +4175,7 @@ echo "[entrypoint] graphify MCP server registered in .claude.json (version $GRAP
 #   - GitHub Copilot: deferred (not wired yet).
 #
 # CDP endpoint (Claude):
-#   wss://api.cloudflare.com/client/v4/accounts/<ACCOUNT_ID>/browser-rendering/devtools/browser?keep_alive=180000
+#   wss://api.cloudflare.com/client/v4/accounts/<ACCOUNT_ID>/browser-rendering/devtools/browser?keep_alive=360000
 # The Cloudflare API token is passed as an Authorization: Bearer header via
 # --wsHeaders (per Cloudflare's MCP-clients doc; --wsHeaders only works with
 # --wsEndpoint). The token must carry the "Browser Rendering - Edit" scope -
@@ -4150,7 +4210,7 @@ remove_owned_browser_mcp_servers() {
 if [ "${SESSION_MODE:-default}" = "advanced" ] \
    && [ -n "${CLOUDFLARE_API_TOKEN:-}" ] \
    && [ -n "${CLOUDFLARE_ACCOUNT_ID:-}" ]; then
-    CDP_WS_ENDPOINT="wss://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/browser-rendering/devtools/browser?keep_alive=180000"
+    CDP_WS_ENDPOINT="wss://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/browser-rendering/devtools/browser?keep_alive=360000"
     # --wsHeaders takes a JSON string; build it with jq so the bearer token is
     # safely encoded, then pass it as a single --wsHeaders=<json> arg.
     CDP_WS_HEADERS=$(jq -nc --arg auth "Bearer $CLOUDFLARE_API_TOKEN" '{Authorization:$auth}')
@@ -4161,7 +4221,7 @@ if [ "${SESSION_MODE:-default}" = "advanced" ] \
     # pin and the bump-shadow-pins workflow updates that single source of truth.
     CDP_MCP_BIN="${CHROME_DEVTOOLS_MCP_BIN:-/opt/codeflare/bin/chrome-devtools-mcp}"
     BROWSER_MCP_CLAUDE=$(jq -n --arg bin "$CDP_MCP_BIN" --arg ep "$CDP_WS_ENDPOINT" --arg hdr "$CDP_WS_HEADERS" \
-        '{mcpServers:{"chrome-devtools":{command:$bin,args:[("--wsEndpoint=" + $ep),("--wsHeaders=" + $hdr)]}}}')
+        '{mcpServers:{"chrome-devtools":{command:$bin,args:[("--wsEndpoint=" + $ep),("--wsHeaders=" + $hdr)],timeout:360000}}}')
     if [ -f "$USER_CLAUDE_JSON" ]; then
         TMP_JSON=$(mktemp)
         if jq --argjson mcp "$BROWSER_MCP_CLAUDE" '. * $mcp' "$USER_CLAUDE_JSON" > "$TMP_JSON" 2>/dev/null; then
@@ -4188,7 +4248,7 @@ if [ "${SESSION_MODE:-default}" = "advanced" ] \
         mkdir -p "$USER_HOME/.pi/agent"
         if [ -f "$PI_MCP_JSON" ] && jq -e '.mcpServers | has("chrome-devtools")' "$PI_MCP_JSON" >/dev/null 2>&1; then
             # Keep custom server settings and credentials, but cap Codeflare's
-            # Cloudflare Browser Run inactivity window at THREE MINUTES. This
+            # Cloudflare Browser Run inactivity window at SIX MINUTES. This
             # also repairs restored/migrated ten-minute endpoints without
             # rewriting unrelated browser services or authorization headers.
             node - "$PI_MCP_JSON" <<'NODE'
@@ -4205,8 +4265,8 @@ if (Array.isArray(browser?.args)) {
       if (url.protocol !== 'wss:' || url.hostname !== 'api.cloudflare.com'
         || url.port || url.username || url.password
         || !/^\/client\/v4\/accounts\/[^/]+\/browser-rendering\/devtools\/browser$/.test(url.pathname)) return arg;
-      if (url.searchParams.getAll('keep_alive').length === 1 && url.searchParams.get('keep_alive') === '180000') return arg;
-      url.searchParams.set('keep_alive', '180000');
+      if (url.searchParams.getAll('keep_alive').length === 1 && url.searchParams.get('keep_alive') === '360000') return arg;
+      url.searchParams.set('keep_alive', '360000');
       changed = true;
       return '--wsEndpoint=' + url.toString();
     } catch { return arg; }
@@ -4234,7 +4294,7 @@ NODE
     # token + account are passed in the server's scoped env. With this, both
     # agents have BOTH surfaces: interactive (chrome-devtools) + markdown (REST).
     BROWSER_RUN_MCP_CLAUDE=$(jq -n --arg tok "$CLOUDFLARE_API_TOKEN" --arg acct "$CLOUDFLARE_ACCOUNT_ID" \
-        '{mcpServers:{"browser-run":{command:"node",args:["/opt/codeflare/browser-run-mcp/index.mjs"],env:{CLOUDFLARE_API_TOKEN:$tok,CLOUDFLARE_ACCOUNT_ID:$acct}}}}')
+        '{mcpServers:{"browser-run":{command:"node",args:["/opt/codeflare/browser-run-mcp/index.mjs"],timeout:360000,env:{CLOUDFLARE_API_TOKEN:$tok,CLOUDFLARE_ACCOUNT_ID:$acct}}}}')
     if [ -f "$USER_CLAUDE_JSON" ]; then
         TMP_JSON=$(mktemp)
         if jq --argjson mcp "$BROWSER_RUN_MCP_CLAUDE" '. * $mcp' "$USER_CLAUDE_JSON" > "$TMP_JSON" 2>/dev/null; then

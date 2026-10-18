@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { mkdtempSync, rmSync, writeFileSync, readFileSync, readdirSync, statSync, cpSync } from 'node:fs';
 import { managedImpeccableLauncher, reviewedImpeccableEngine } from './impeccable-launcher.mjs';
 import { tmpdir } from 'node:os';
@@ -110,15 +111,33 @@ export async function updateImpeccableSkill() {
   try {
     const response = await fetch(BUNDLE_URL, { headers: { 'user-agent': 'codeflare-shadow-pin-bot' } });
     if (!response.ok) throw new Error(`download failed: ${response.status} ${response.statusText}`);
-    writeFileSync(bundlePath, Buffer.from(await response.arrayBuffer()));
+    const bundle = Buffer.from(await response.arrayBuffer());
+    writeFileSync(bundlePath, bundle);
     execFileSync('unzip', ['-q', bundlePath, '-d', outDir]);
 
     const source = join(outDir, '.claude', 'skills', 'impeccable');
     const sourceSkill = join(source, 'SKILL.md');
+    const version = readFileSync(sourceSkill, 'utf8').match(/^version:\s*(.+)$/m)?.[1];
+    if (!version) throw new Error('downloaded Impeccable skill has no version frontmatter');
+    if (version === '4.6.0') {
+      // The released ZIP omits the source's redistribution license/notices.
+      // Verify reviewed immutable bytes before copying either agent's target.
+      if (createHash('sha256').update(bundle).digest('hex') !== 'c537beca343b69f8da98ee1c1ad9534b9c7c3883225b060ad36a4466075d73d1') {
+        throw new Error('Impeccable 4.6.0 bundle differs from the reviewed release');
+      }
+      for (const [name, digest] of [
+        ['LICENSE', '02bb8c3b4e70190e3986c0404ad2fd8d639b4f534252d82379cc1b502b6d1812'],
+        ['NOTICE.md', 'c60a093c2845fd9fb82f9c6f742ece31f379f8190b535309d32d66c45ccffdcb'],
+      ]) {
+        const notice = await fetch(`https://raw.githubusercontent.com/pbakaus/impeccable/8a0e198da34ebc5b936a9d5975fb7a3b1cf353b7/${name}`);
+        if (!notice.ok) throw new Error(`Impeccable ${name} download failed: ${notice.status}`);
+        const bytes = Buffer.from(await notice.arrayBuffer());
+        if (createHash('sha256').update(bytes).digest('hex') !== digest) throw new Error(`Impeccable ${name} digest mismatch`);
+        writeFileSync(join(source, name), bytes);
+      }
+    }
     applyCodeflareImpeccableOverlay(source);
     const skillText = readFileSync(sourceSkill, 'utf8');
-    const version = skillText.match(/^version:\s*(.+)$/m)?.[1];
-    if (!version) throw new Error('downloaded Impeccable skill has no version frontmatter');
 
     const targets = [
       { agent: 'claude', root: join(repoRoot, 'preseed/agents/claude/skills/impeccable'), runtimePath: '~/.claude/skills/impeccable' },

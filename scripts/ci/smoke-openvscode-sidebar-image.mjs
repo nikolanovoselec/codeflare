@@ -172,7 +172,7 @@ export async function verifyPiClassicSessionStartup({
 
 export function verifyOxlintRuntime({
   path = '/usr/local/bin/oxlint',
-  expectedVersion = '1.85.0',
+  expectedVersion = '1.87.0',
   run = execFileSync,
 } = {}) {
   const output = run(path, ['--version'], { encoding: 'utf8', timeout: 10_000 }).trim();
@@ -204,9 +204,21 @@ export async function verifySelectedAgentPackages(
     inventories[family.agent] = actual;
   }
   if (hasCodingAgent(selection, 'pi')) {
-    for (const [label, root] of [['shared', nodeModulesPath], ['Pi prewarm', piNodeModulesPath]]) {
-      const esbuildDirectory = join(root, '@earendil-works', 'pi-coding-agent', 'node_modules', '@esbuild');
-      const actual = (await readDirectory(esbuildDirectory)).sort();
+    const sharedEsbuild = (await readDirectory(join(nodeModulesPath, '@esbuild'))).sort();
+    assert.deepEqual(sharedEsbuild, ['linux-x64'], 'shared esbuild package inventory must contain only Linux x64');
+    // Pi 1.3 no longer depends on esbuild; validate optional scopes only when present.
+    for (const [label, root] of [
+      ['shared nested', join(nodeModulesPath, '@earendil-works', 'pi-coding-agent', 'node_modules')],
+      ['Pi prewarm', piNodeModulesPath],
+      ['Pi prewarm nested', join(piNodeModulesPath, '@earendil-works', 'pi-coding-agent', 'node_modules')],
+    ]) {
+      let actual;
+      try {
+        actual = (await readDirectory(join(root, '@esbuild'))).sort();
+      } catch (error) {
+        if (error?.code === 'ENOENT') continue;
+        throw error;
+      }
       assert.deepEqual(actual, ['linux-x64'], `${label} esbuild package inventory must contain only Linux x64`);
     }
   }
@@ -252,6 +264,21 @@ export async function verifyJsYamlRuntime({
   const require = createRequire(import.meta.url);
   const jsYaml = require(runtimePath);
   assert.equal(typeof jsYaml.load, 'function', `${runtimePath} must load js-yaml load()`);
+  return runtimePath;
+}
+
+export async function verifyShellQuoteRuntime({
+  runtimePath = '/opt/code-server/lib/vscode/node_modules/shell-quote',
+  expectedVersion = '1.12.0',
+} = {}) {
+  const manifest = JSON.parse(await readFile(join(runtimePath, 'package.json'), 'utf8'));
+  assert.equal(manifest.version, expectedVersion, `${runtimePath} must contain shell-quote ${expectedVersion}`);
+  const require = createRequire(import.meta.url);
+  const shellQuote = require(runtimePath);
+  assert.equal(typeof shellQuote.quote, 'function', `${runtimePath} must load shell-quote quote()`);
+  assert.equal(typeof shellQuote.parse, 'function', `${runtimePath} must load shell-quote parse()`);
+  const args = ['', 'two words', "single'quote", '"double"', '$HOME', '$(printf unsafe); & | < >', '\\backslash'];
+  assert.deepEqual(shellQuote.parse(shellQuote.quote(args)), args, `${runtimePath}: shell-quote argument round trip`);
   return runtimePath;
 }
 
@@ -383,6 +410,7 @@ async function main() {
   const developerTools = verifyDeveloperTools();
   const codeServerRuntime = await verifyCodeServerRuntime();
   const jsYamlRuntime = await verifyJsYamlRuntime();
+  await verifyShellQuoteRuntime();
   const nodeTarRuntimes = await verifyNodeTarRuntimes();
   const pacoteRuntime = await verifyPacoteRuntime();
   await verifyBundledSecurityRuntimes();
@@ -524,6 +552,20 @@ async function verifyCodeServerRuntime() {
   assert.equal(product.codeServerVersion, expected.codeServerVersion);
   assert.equal(product.commit, expected.codeServerCommit);
   assert.equal(await readlink('/usr/local/bin/code-server'), '/opt/code-server/bin/code-server');
+
+  // Exercise the patched FTP module through its installed get-uri consumer.
+  const requireFromCodeServer = createRequire(join(CODE_SERVER_ROOT, 'package.json'));
+  const requireFromGetUri = createRequire(requireFromCodeServer.resolve('get-uri'));
+  const basicFtp = requireFromGetUri('basic-ftp');
+  assert.equal(requireFromGetUri('basic-ftp/package.json').version, '6.2.3');
+  assert.deepEqual(
+    basicFtp.parseList('-rw-r--r-- 1 ftp ftp 5 Jan 01 2026 smoke.txt\r\n')
+      .map(({ name, size }) => ({ name, size })),
+    [{ name: 'smoke.txt', size: 5 }],
+  );
+  const ftpClient = new basicFtp.Client();
+  ftpClient.close();
+  assert.equal(ftpClient.closed, true);
   for (const [packageName, minimumVersion] of [
     ['libde265-0', '1.0.11-1+deb12u3'],
     ['libevent-core-2.1-7', '2.1.12-stable-8+deb12u1'],

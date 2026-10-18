@@ -1,6 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, rmSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -76,6 +77,99 @@ const EXPECTED_PLAN_MODE_SETTINGS = {
 };
 
 describe('entrypoint production helpers', () => {
+  it('REQ-AGENT-056 AC1: enforces the approved Open TUI settings on fresh and restored startup without changing unrelated data', (t) => {
+    const home = mkdtempSync(join(tmpdir(), 'pi-open-tui-settings-'));
+    t.after(() => rmSync(home, { recursive: true, force: true }));
+    const path = join(home, '.pi/agent/open-tui.json');
+    const expected = {
+      enabled: true, settingsLanguage: 'en', inlineFooter: false, cursorStyle: 'block',
+      icons: { mode: 'ascii' }, thinkingPeek: { lines: 2 },
+      footerSegments: { cwd: false, hostname: false, sessionName: true, gitBranch: false,
+        gitStatus: false, gitCommit: false, runtime: false, context: true, tokens: false,
+        cost: false, extensionStatuses: true, capitalizeProviderName: false },
+      telemetry: { enabled: false, tps: true, ttft: true, duration: true, tokens: true, stalls: true, cost: true },
+    };
+    const env = { USER_HOME: home };
+    const fresh = runStartupInvocation('configure_pi_open_tui', env);
+    assert.equal(fresh.status, 0, fresh.stderr);
+    assert.deepEqual(JSON.parse(readFileSync(path, 'utf8')), expected);
+    assert.equal(lstatSync(path).mode & 0o777, 0o600);
+    const adjacent = join(home, '.pi/agent/auth.json');
+    writeFileSync(adjacent, 'synthetic-user-data');
+    const restored = { ...expected, enabled: false, settingsLanguage: 'zh', inlineFooter: true, cursorStyle: 'bar',
+      custom: { keep: true }, icons: { mode: 'unicode', custom: 'keep' }, thinkingPeek: { lines: 0, custom: 'keep' },
+      footerSegments: { ...Object.fromEntries(Object.entries(expected.footerSegments).map(([key, value]) => [key, !value])), custom: 'keep' },
+      telemetry: { ...Object.fromEntries(Object.entries(expected.telemetry).map(([key, value]) => [key, !value])), custom: 'keep' } };
+    const merged = { ...expected, custom: restored.custom,
+      icons: { ...expected.icons, custom: 'keep' }, thinkingPeek: { ...expected.thinkingPeek, custom: 'keep' },
+      footerSegments: { ...expected.footerSegments, custom: 'keep' }, telemetry: { ...expected.telemetry, custom: 'keep' } };
+    for (let i = 0; i < 2; i++) {
+      writeFileSync(path, JSON.stringify(restored));
+      const result = runStartupInvocation('configure_pi_open_tui', env);
+      assert.equal(result.status, 0, result.stderr);
+      assert.deepEqual(JSON.parse(readFileSync(path, 'utf8')), merged);
+      assert.equal(lstatSync(path).mode & 0o777, 0o600);
+      assert.equal(readFileSync(adjacent, 'utf8'), 'synthetic-user-data');
+    }
+  });
+
+  it('REQ-AGENT-056 AC1: preserves malformed or unsafe Open TUI configuration with a content-free warning', (t) => {
+    const home = mkdtempSync(join(tmpdir(), 'pi-open-tui-unsafe-'));
+    t.after(() => rmSync(home, { recursive: true, force: true }));
+    const path = join(home, '.pi/agent/open-tui.json');
+    mkdirSync(dirname(path), { recursive: true });
+    for (const bytes of ['{synthetic-private-value', 'null', '[]',
+      ...['icons', 'thinkingPeek', 'footerSegments', 'telemetry'].flatMap(key =>
+        [null, [], 'synthetic-private-value'].map(value => JSON.stringify({ [key]: value })))]) {
+      writeFileSync(path, bytes);
+      const result = runStartupInvocation('configure_pi_open_tui', { USER_HOME: home });
+      assert.equal(result.status, 0, result.stderr);
+      assert.match(result.stdout, /existing preferences preserved/);
+      assert.equal(readFileSync(path, 'utf8'), bytes);
+      assert.doesNotMatch(result.stdout + result.stderr, /synthetic-private-value/);
+    }
+    rmSync(path);
+    const target = join(home, 'target'); writeFileSync(target, 'synthetic-private-value');
+    symlinkSync(target, path);
+    let result = runStartupInvocation('configure_pi_open_tui', { USER_HOME: home });
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /existing preferences preserved/);
+    assert.equal(lstatSync(path).isSymbolicLink(), true);
+    assert.equal(readFileSync(target, 'utf8'), 'synthetic-private-value');
+    rmSync(path); mkdirSync(path);
+    result = runStartupInvocation('configure_pi_open_tui', { USER_HOME: home });
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /existing preferences preserved/);
+    assert.equal(lstatSync(path).isDirectory(), true);
+    rmSync(path, { recursive: true });
+    const fifo = spawnSync('mkfifo', [path], { encoding: 'utf8' });
+    assert.equal(fifo.status, 0, fifo.stderr);
+    result = runStartupInvocation('configure_pi_open_tui', { USER_HOME: home });
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /existing preferences preserved/);
+    assert.equal(lstatSync(path).isFIFO(), true);
+    assert.doesNotMatch(result.stdout + result.stderr, /synthetic-private-value/);
+  });
+
+  it('REQ-AGENT-069/217: first-session MCP ownership disables only the native duplicate before Pi loads and is idempotent', (t) => {
+    const root = mkdtempSync(join(tmpdir(), 'pi-first-session-mcp-'));
+    t.after(() => rmSync(root, { recursive: true, force: true }));
+    const settings = join(root, 'settings.json');
+    writeFileSync(settings, JSON.stringify({ extensions: ['custom-extension.ts', '+builtin:codemode', '+builtin:mcp', '-builtin:mcp'],
+      customPreference: { retained: true }, packages: ['npm:user-package@1.0.0'] }));
+    const env = { PI_SETTINGS_FILE: settings };
+    const first = runFunction('configure_pi_packages_and_review_inventory', '', 'configure_pi_packages_and_review_inventory', env);
+    assert.equal(first.status, 0, first.stderr);
+    const configured = JSON.parse(readFileSync(settings, 'utf8'));
+    // Pi's documented extensions contract disables the eager native client before session_start.
+    assert.deepEqual(configured.extensions, ['custom-extension.ts', '+builtin:codemode', '-builtin:mcp']);
+    assert.deepEqual(configured.customPreference, { retained: true });
+    assert.ok(configured.packages.includes('npm:user-package@1.0.0'));
+    const before = readFileSync(settings, 'utf8');
+    const second = runFunction('configure_pi_packages_and_review_inventory', '', 'configure_pi_packages_and_review_inventory', env);
+    assert.equal(second.status, 0, second.stderr);
+    assert.equal(readFileSync(settings, 'utf8'), before);
+  });
   it('REQ-AGENT-012: Classic Codex launch honors Fast Start without changing user settings', () => {
     for (const fastStart of [undefined, 'true', 'false']) {
       const home = mkdtempSync(join(tmpdir(), 'classic-codex-fast-start-'));
@@ -442,14 +536,22 @@ describe('entrypoint production helpers', () => {
       const packed = JSON.parse(npm(['pack', '--json', '--ignore-scripts', '--offline'], source).stdout)[0].filename;
       const tarball = join(source, packed);
       const dependencies = { '@earendil-works/pi-coding-agent': `file:${tarball}` };
-      for (const name of ['typebox', '@juicesharp/rpiv-advisor', '@juicesharp/rpiv-ask-user-question', '@juicesharp/rpiv-todo']) {
+      // Host/config dependencies remain fixture-owned; the guarded questionnaire
+      // itself uses its authentic archive, including unchanged metadata/source.
+      for (const name of ['typebox', '@juicesharp/rpiv-config', '@earendil-works/pi-tui', '@juicesharp/rpiv-advisor', '@juicesharp/rpiv-todo']) {
         const dir = join(fixture, name.replaceAll('/', '-'));
         mkdirSync(dir);
-        writeFileSync(join(dir, 'package.json'), JSON.stringify({ name, version: '1.3.27',
-          ...(name !== 'typebox' ? { dependencies: { typebox: dependencies.typebox } } : {}) }));
+        writeFileSync(join(dir, 'package.json'), JSON.stringify({ name,
+          version: name === '@juicesharp/rpiv-config' ? '2.12.0' : '1.3.27',
+          ...(name === '@juicesharp/rpiv-advisor' || name === '@juicesharp/rpiv-todo'
+            ? { dependencies: { typebox: dependencies.typebox } } : {}) }));
         const archive = JSON.parse(npm(['pack', '--json', '--ignore-scripts', '--offline'], dir).stdout)[0].filename;
         dependencies[name] = `file:${join(dir, archive)}`;
       }
+      const questionnaireArchive = resolve(__dirname, '../__fixtures__/rpiv-ask-user-question-2.12.0.tgz');
+      assert.equal(createHash('sha256').update(readFileSync(questionnaireArchive)).digest('hex'),
+        'f407893638f1893a3730444f467b4edc1924cf2d206ae584f7525e1e8ae860f6', 'reviewed npm archive integrity contract');
+      dependencies['@juicesharp/rpiv-ask-user-question'] = `file:${questionnaireArchive}`;
       writeFileSync(join(tools, 'package.json'), JSON.stringify({ private: true, dependencies }));
       npm(['install', '--ignore-scripts', '--no-audit', '--no-fund', '--offline'], tools);
       const installed = join(tools, 'node_modules/@earendil-works/pi-coding-agent');
@@ -467,6 +569,15 @@ describe('entrypoint production helpers', () => {
       assert.equal(readFileSync(processor, 'utf8'), readFileSync(join(source, 'dist/utils/image-process.js'), 'utf8'));
       const healthy = verify(); assert.equal(healthy.status, 0, healthy.stderr);
       assert.match(repaired.stdout, /repairing Pi dependencies from the lockfile/);
+      // REQ-AGENT-220 AC5: supported repair must prepare the real questionnaire,
+      // while unexpected source drift must remain an observable preparation error.
+      const questionnaire = join(tools, 'node_modules/@juicesharp/rpiv-ask-user-question/ask-user-question.ts');
+      const prepared = readFileSync(questionnaire, 'utf8');
+      writeFileSync(questionnaire, prepared + '\n// unexpected fixture drift\n');
+      const refused = run();
+      assert.notEqual(refused.status, 0);
+      assert.match(refused.stdout, /RPIV questionnaire timeout preparation failed/);
+      writeFileSync(questionnaire, prepared);
       rmSync(processor); rmSync(tarball);
       const failed = run(); assert.notEqual(failed.status, 0);
       assert.match(failed.stdout, /Pi dependency repair failed; the runtime is incomplete/);
@@ -581,4 +692,42 @@ describe('entrypoint production helpers', () => {
     assert.equal(second.status, 0, second.stderr);
     assert.equal(readFileSync(join(target, 'package.json'), 'utf8'), '{"name":"user-owned"}\n');
   });
+});
+
+
+it('REQ-AGENT-001 AC5 / REQ-AGENT-209: real restored boot migrates packages while preserving user npm metadata and credential/history bytes', t => {
+  const fixture = mkdtempSync(join(tmpdir(), 'pi-open-tui-restored-'));
+  t.after(() => rmSync(fixture, { recursive: true, force: true }));
+  const home = join(fixture, 'home'); const agentDir = join(home, '.pi/agent');
+  const preseed = join(fixture, 'preseed'); const target = join(agentDir, 'npm');
+  mkdirSync(join(preseed, 'node_modules/pi-open-tui'), { recursive: true });
+  mkdirSync(target, { recursive: true });
+  writeFileSync(join(preseed, 'package.json'), '{"image":"new"}\n');
+  writeFileSync(join(preseed, 'package-lock.json'), '{"imageLock":"new"}\n');
+  const preserved = new Map([
+    [join(target, 'package.json'), '{"name":"user-owned","dependencies":{"user-package":"1.0.0"}}\n'],
+    [join(target, 'package-lock.json'), '{"userLock":"retain bytes"}\n'],
+    [join(agentDir, 'auth.json'), '{"fixture-auth":"retain"}\n'],
+    [join(agentDir, 'history.json'), '["retain history"]\n'],
+    [join(agentDir, 'usage.json'), '{"credential":"fixture-retain"}\n'],
+  ]);
+  for (const [path, bytes] of preserved) writeFileSync(path, bytes);
+  const settingsPath = join(agentDir, 'settings.json');
+  writeFileSync(settingsPath, JSON.stringify({ packages: ['npm:@narumitw/pi-usage',
+    { source: 'npm:pi-open-tui@0.1.0', extensions: [] }, 'npm:user-package@1.0.0'], customPreference: 'retain' }));
+  const env = { USER_HOME: home, PI_SETTINGS_FILE: settingsPath, PI_NPM_PRESEED: preseed,
+    PI_NPM_DIR: target, ADVISOR_CONFIG_FILE: join(home, 'advisor.json'), CODEFLARE_RUNTIME_ROOT: join(fixture, 'runtime') };
+  const boot = () => runFunction('warm_pi_npm_dependencies', extractFunction('configure_pi_packages_and_review_inventory'),
+    'warm_pi_npm_dependencies', env);
+  const first = boot(); assert.equal(first.status, 0, first.stderr);
+  const settings = JSON.parse(readFileSync(settingsPath, 'utf8'));
+  assert.deepEqual(settings.packages.filter(entry => (typeof entry === 'string' ? entry : entry.source).startsWith('npm:pi-open-tui@')),
+    [{ source: `npm:pi-open-tui@${JSON.parse(readFileSync(resolve(__dirname, '../../preseed/agents/pi/package.json'), 'utf8')).dependencies['pi-open-tui']}`, extensions: [] }]);
+  assert.ok(!settings.packages.some(entry => /^npm:@narumitw\/pi-usage(?:@|$)/.test(typeof entry === 'string' ? entry : entry.source)));
+  assert.ok(settings.packages.includes('npm:user-package@1.0.0')); assert.equal(settings.customPreference, 'retain');
+  const before = readFileSync(settingsPath, 'utf8');
+  const second = boot(); assert.equal(second.status, 0, second.stderr);
+  assert.equal(readFileSync(settingsPath, 'utf8'), before);
+  for (const [path, bytes] of preserved) assert.equal(readFileSync(path, 'utf8'), bytes);
+  assert.equal(readlinkSync(join(target, 'node_modules')), join(preseed, 'node_modules'));
 });

@@ -114,7 +114,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-          fetch-depth: 0
+          # PR filtering uses the files API; retain the merge and parents, not every ref/tag.
+          # Push filtering still requires its existing history; fallback fetches missing exact SHAs.
+          fetch-depth: ${{ github.event_name == 'pull_request' && 2 || 0 }}
       - id: filter
         # Diff-based filtering needs a diff: when the nightly wrapper calls this
         # workflow, and on manual dispatch, every lane runs unconditionally, so
@@ -173,6 +175,9 @@ jobs:
               - 'landing/**'
               - 'src/lib/design-ready.ts'
             pi:
+              - 'scripts/patch-rpiv-question-timeout.mjs'
+              - 'scripts/rpiv-question-timeout.mjs'
+              - 'scripts/verify-rpiv-host-peers.mjs'
               - 'scripts/verify-operator-pi-sdk.mjs'
               - 'scripts/verify-bedrock-pi-prompt-cache.mjs'
               - 'src/lib/bedrock-anthropic-native-adapter.ts'
@@ -208,13 +213,14 @@ jobs:
               - 'scripts/ci/smoke-openvscode-sidebar-image.mjs'
             host:
               - *shared
-              - 'image/impeccable-engine.json'
+              - 'image/impeccable-engine*.json'
               - 'scripts/patch-impeccable-engine.py'
               - 'scripts/impeccable-launcher.mjs'
               - 'scripts/update-impeccable-skill.mjs'
               - 'scripts/patch-pi-goal-review-control.mjs'
               - 'scripts/patch-pi-plan-mode-tool-policy.mjs'
               - 'scripts/patch-pi-native-model-display.mjs'
+              - 'scripts/patch-chrome-devtools-timeouts.mjs'
               - 'scripts/patch-rclone-bisync.py'
               # host/__tests__ asserts on the STRUCTURE of workflows other than
               # test.yml: deploy-requires-tests.test.js and
@@ -260,6 +266,7 @@ jobs:
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          GH_TOKEN: ${{ github.token }}
         run: scripts/ci/path-filter-fallback.sh
 
   quality:
@@ -284,7 +291,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '22'
 
@@ -375,7 +382,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '22'
 
@@ -438,7 +445,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '22'
 
@@ -468,8 +475,26 @@ jobs:
       DISPATCHER_NATIVE_SHA256: eba1de279d506003d897e4dd8a82a90e2fb659c5f66b0061c61c0862b765e266
       DISPATCHER_NATIVE_SOURCE_SHA: 5d57fe2fcce9cd8768fc44f2d2c9ed4256f7b0e7
       DISPATCHER_JOURNEY_NATIVE_ARTIFACT: ${{ github.workspace }}/src/__tests__/operators/fixtures/dispatcher-journey-native.generated.json
-      DISPATCHER_JOURNEY_NATIVE_SHA256: b731339f7459b88e5397f5ce7cdeea60f6e27f558a5cde906e39b024b503ab23
-      DISPATCHER_JOURNEY_NATIVE_SOURCE_SHA: c1bc7814c04ff8342adfc0d1320522528385fd1a
+      DISPATCHER_JOURNEY_NATIVE_SHA256: 20654d7932132e08dd12907700d8f17e98adc6a5b0abd5bc1fd4880f1b43dcef
+      DISPATCHER_JOURNEY_NATIVE_SOURCE_SHA: f1a0beccb0c305e418e441d93924adf49b0c39e6
+      DISPATCHER_STEERING_NATIVE_ARTIFACT: ${{ github.workspace }}/src/__tests__/operators/fixtures/dispatcher-steering-native.generated.json
+      DISPATCHER_STEERING_NATIVE_SHA256: 4b53733af033472d9f63700d584150e8720d97614bc27dba04705d0114432eb5
+      DISPATCHER_STEERING_NATIVE_SOURCE_SHA: fc2f9f7482ea59dcf887e56c332bfa4a4de2ec14
+      DISPATCHER_INTENT4_NATIVE_ARTIFACT: ${{ github.workspace }}/src/__tests__/operators/fixtures/dispatcher-v024-native.generated.json
+      DISPATCHER_INTENT4_NATIVE_SHA256: 2659d01cba80d2d86d12919e080bc3a94d4cff1b723effb133337786149e2006
+      DISPATCHER_INTENT4_NATIVE_SOURCE_SHA: 987af47fb295147d445436b428a410b90cb09be0
+      # Supplemental CI-only packages from exact-source operator push run38669886010.
+      # Original v24/historical controls above remain required and unchanged.
+      DISPATCHER_DIAGNOSTICS_QUALIFICATION_REQUIRED: '1'
+      DISPATCHER_DIAGNOSTICS_NATIVE_PACKAGE: ${{ github.workspace }}/src/__tests__/operators/fixtures/dispatcher-diagnostics-native
+      DISPATCHER_DIAGNOSTICS_NATIVE_SOURCE_SHA: b9e382814f2d88421156c927b39b3bb97c243e59
+      DISPATCHER_DIAGNOSTICS_NATIVE_BUNDLE_SHA256: 9313c443a48dd1907b19a7f026fe7a02a78422e0c15f4bbe3483124329c4cbad
+      DISPATCHER_DIAGNOSTICS_NATIVE_MANIFEST_SHA256: 8b5bb7ccf914f505d7a0a3ba0931b5bf1c7502a99f607fbb352d117c369f7c0a
+      DISPATCHER_DIAGNOSTICS_NATIVE_PROVENANCE_SHA256: 90745714d4e41b5fd1a92368ef7c9012d5d9c24862deeaaa1a4301e30df30946
+      DISPATCHER_RELEASE_BRIEF_PACKAGE: ${{ github.workspace }}/src/__tests__/operators/fixtures/dispatcher-release-brief
+      DISPATCHER_RELEASE_BRIEF_BUNDLE_SHA256: 6e1613e8bd2eb707ed66ca13283abdca7c4c2e8171b51a1cb06dbfa85ee0cf20
+      DISPATCHER_RELEASE_BRIEF_MANIFEST_SHA256: dbc87254189e2317d8c5e1c3032f46a49e652d8a0221d3d94a85461470fe1630
+      DISPATCHER_RELEASE_BRIEF_PROVENANCE_SHA256: 9d7473fa99f09d509c13e0a0da62bde7bf91fa4cda09acd1e0b2f89cd726e803
       VITEST_NODE_SUITE_GROUP: ${{ matrix.group }}
     if: >-
       needs.changes.outputs.full == 'true' ||
@@ -492,7 +517,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '22'
 
@@ -501,6 +526,22 @@ jobs:
         run: |
           echo 'eba1de279d506003d897e4dd8a82a90e2fb659c5f66b0061c61c0862b765e266  src/__tests__/operators/fixtures/dispatcher-native.generated.json' | sha256sum --check --strict
           grep -qF '"sourceCommit":"5d57fe2fcce9cd8768fc44f2d2c9ed4256f7b0e7"' src/__tests__/operators/fixtures/dispatcher-native.generated.json
+          echo '4b53733af033472d9f63700d584150e8720d97614bc27dba04705d0114432eb5  src/__tests__/operators/fixtures/dispatcher-steering-native.generated.json' | sha256sum --check --strict
+          grep -qF '"sourceCommit":"fc2f9f7482ea59dcf887e56c332bfa4a4de2ec14"' src/__tests__/operators/fixtures/dispatcher-steering-native.generated.json
+          echo '2659d01cba80d2d86d12919e080bc3a94d4cff1b723effb133337786149e2006  src/__tests__/operators/fixtures/dispatcher-v024-native.generated.json' | sha256sum --check --strict
+          grep -qF '"sourceCommit":"987af47fb295147d445436b428a410b90cb09be0"' src/__tests__/operators/fixtures/dispatcher-v024-native.generated.json
+          echo '6195b14d9e914ebae28f98f1f1470cacbb57893a9009f0a8dd12bb3db18be32a  src/__tests__/operators/fixtures/dispatcher-v024-native.manifest.json' | sha256sum --check --strict
+          echo '6e29f86a41f4d202ada319f04b523bcb794d2da5a9942307567285d622d6ae6e  src/__tests__/operators/fixtures/dispatcher-v024-native.provenance.json' | sha256sum --check --strict
+
+      - name: Verify supplemental derived SDK package bytes
+        if: matrix.group != 'rest'
+        run: |
+          echo '9313c443a48dd1907b19a7f026fe7a02a78422e0c15f4bbe3483124329c4cbad  src/__tests__/operators/fixtures/dispatcher-diagnostics-native/operator-bundle.json' | sha256sum --check --strict
+          echo '8b5bb7ccf914f505d7a0a3ba0931b5bf1c7502a99f607fbb352d117c369f7c0a  src/__tests__/operators/fixtures/dispatcher-diagnostics-native/operator-manifest.json' | sha256sum --check --strict
+          echo '90745714d4e41b5fd1a92368ef7c9012d5d9c24862deeaaa1a4301e30df30946  src/__tests__/operators/fixtures/dispatcher-diagnostics-native/operator-provenance.json' | sha256sum --check --strict
+          echo '6e1613e8bd2eb707ed66ca13283abdca7c4c2e8171b51a1cb06dbfa85ee0cf20  src/__tests__/operators/fixtures/dispatcher-release-brief/operator-bundle.json' | sha256sum --check --strict
+          echo 'dbc87254189e2317d8c5e1c3032f46a49e652d8a0221d3d94a85461470fe1630  src/__tests__/operators/fixtures/dispatcher-release-brief/operator-manifest.json' | sha256sum --check --strict
+          echo '9d7473fa99f09d509c13e0a0da62bde7bf91fa4cda09acd1e0b2f89cd726e803  src/__tests__/operators/fixtures/dispatcher-release-brief/operator-provenance.json' | sha256sum --check --strict
 
       - uses: ./.github/actions/install-deps
         with:
@@ -651,7 +692,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '22'
 
@@ -771,7 +812,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '22'
 
@@ -813,7 +854,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '22'
 
@@ -844,7 +885,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '22'
 
@@ -883,7 +924,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '22'
 
@@ -917,7 +958,7 @@ jobs:
           rm -rf "$RUNNER_TEMP/pi-runtime"
           mkdir -p "$RUNNER_TEMP/pi-runtime/npm"
           ln -s "$GITHUB_WORKSPACE/preseed/agents/pi/node_modules" "$RUNNER_TEMP/pi-runtime/npm/node_modules"
-          node -e 'const fs=require("fs");const p=require("./preseed/agents/pi/package.json");const packages=Object.entries(p.dependencies).map(([name,version])=>name==="context-mode"?{source:`npm:${name}@${version}`,extensions:[],skills:[]}:`npm:${name}@${version}`);fs.writeFileSync(process.argv[1],JSON.stringify({packages}));' "$RUNNER_TEMP/pi-runtime/settings.json"
+          node -e 'const fs=require("fs");const p=require("./preseed/agents/pi/package.json");const packages=Object.entries(p.dependencies).map(([name,version])=>name==="context-mode"?{source:`npm:${name}@${version}`,extensions:[],skills:[]}:name==="pi-open-tui"?{source:`npm:${name}@${version}`,extensions:[]}:`npm:${name}@${version}`);fs.writeFileSync(process.argv[1],JSON.stringify({packages}));' "$RUNNER_TEMP/pi-runtime/settings.json"
           node scripts/verify-pi-prompt.mjs \
             --generated src/lib/agent-seed.generated.ts \
             --runtime-agent-dir "$RUNNER_TEMP/pi-runtime" \
@@ -950,10 +991,10 @@ jobs:
       - name: Verify real Pi runtime reports
         env:
           CODEFLARE_PI_REPORT_ROOT: ${{ runner.temp }}
-        run: node --test preseed/agents/pi/test/runtime-projection.test.mjs preseed/agents/pi/test/enterprise-routing.test.mjs preseed/agents/pi/test/enterprise-model-display.test.mjs preseed/agents/pi/test/native-display-patch.test.mjs preseed/agents/pi/test/consult-proxy.test.mjs preseed/agents/pi/test/todo-isolation.test.mjs
+        run: node --test preseed/agents/pi/test/runtime-projection.test.mjs preseed/agents/pi/test/questionnaire-timeout.test.mjs preseed/agents/pi/test/enterprise-routing.test.mjs preseed/agents/pi/test/enterprise-model-display.test.mjs preseed/agents/pi/test/native-display-patch.test.mjs preseed/agents/pi/test/consult-proxy.test.mjs preseed/agents/pi/test/todo-isolation.test.mjs
 
       - name: Upload Pi prompt reports
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: pi-prompt-report-pr
           path: |
@@ -989,7 +1030,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '26.8.1'
 
@@ -1003,6 +1044,15 @@ jobs:
         with:
           directory: host
           key-prefix: host
+
+      - name: Install authentic Graphify MCP compatibility runtime
+        run: |
+          set -euo pipefail
+          python3 -m venv "$RUNNER_TEMP/graphify-compat"
+          package=$(python3 -c 'import json; p=json.load(open("host/__fixtures__/graphify-compatibility.json")); print("graphifyy[mcp] @ " + p["wheel"] + "#sha256=" + p["sha256"])')
+          "$RUNNER_TEMP/graphify-compat/bin/python" -m pip install --disable-pip-version-check "$package"
+          "$RUNNER_TEMP/graphify-compat/bin/python" -c 'import importlib.metadata,json; p=json.load(open("host/__fixtures__/graphify-compatibility.json")); assert importlib.metadata.version("graphifyy") == p["version"]'
+          echo "GRAPHIFY_TEST_PYTHON=$RUNNER_TEMP/graphify-compat/bin/python" >> "$GITHUB_ENV"
 
       - name: Create assets directory (wrangler.toml requires web-ui/dist)
         # wrangler-static-assets.test.js reads wrangler.toml via unstable_readConfig,
@@ -1146,6 +1196,59 @@ jobs:
           echo "Host lane executed ${COUNT} tests."
         timeout-minutes: 5
 
+  browser-run-timeouts:
+    name: Browser Run timeout defaults
+    needs: changes
+    if: >-
+      needs.changes.outputs.full == 'true' ||
+      needs.changes.outputs.host == 'true' ||
+      needs.changes.outputs.pi == 'true' ||
+      needs.changes.outputs.workflows == 'true' ||
+      needs.changes.outputs.dependencies == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '26.8.1'
+      - name: Prepare the exact locked Chrome SDK without lifecycle scripts
+        run: |
+          set -euo pipefail
+          version=$(node --input-type=module - <<'NODE'
+          import fs from 'node:fs';
+          const version = JSON.parse(fs.readFileSync('preseed/npm-tools/package.json', 'utf8')).dependencies['chrome-devtools-mcp'];
+          if (!/^\d+\.\d+\.\d+$/.test(version)) throw Error('Chrome SDK must have an exact stable pin');
+          console.log(version);
+          NODE
+          )
+          npm pack --ignore-scripts --json --pack-destination "$RUNNER_TEMP" "chrome-devtools-mcp@${version}" > "$RUNNER_TEMP/chrome-sdk-pack.json"
+          node --input-type=module - <<'NODE'
+          import fs from 'node:fs';
+          import { createHash } from 'node:crypto';
+          import { join } from 'node:path';
+          const version = JSON.parse(fs.readFileSync('preseed/npm-tools/package.json', 'utf8')).dependencies['chrome-devtools-mcp'];
+          const locked = JSON.parse(fs.readFileSync('preseed/npm-tools/package-lock.json', 'utf8')).packages['node_modules/chrome-devtools-mcp'];
+          if (locked.version !== version) throw Error('Chrome SDK pin and lock disagree');
+          const archive = fs.readFileSync(join(process.env.RUNNER_TEMP, `chrome-devtools-mcp-${version}.tgz`));
+          const integrity = 'sha512-' + createHash('sha512').update(archive).digest('base64');
+          if (integrity !== locked.integrity) throw Error('Chrome SDK archive integrity mismatch');
+          NODE
+          mkdir "$RUNNER_TEMP/chrome-sdk"
+          tar -xzf "$RUNNER_TEMP/chrome-devtools-mcp-${version}.tgz" -C "$RUNNER_TEMP/chrome-sdk"
+      - name: Verify real SDK page defaults with test-only Chromium
+        run: |
+          set -euo pipefail
+          CHROME_SDK_ROOT="$RUNNER_TEMP/chrome-sdk/package" \
+          CI_CHROMIUM_EXECUTABLE="$(command -v google-chrome)" \
+            node --test --test-reporter=tap scripts/ci/chrome-devtools-timeouts.test.mjs \
+            | tee "$RUNNER_TEMP/chrome-sdk-timeout-test.tap"
+          grep -Fx '# tests 1' "$RUNNER_TEMP/chrome-sdk-timeout-test.tap"
+          grep -Fx '# pass 1' "$RUNNER_TEMP/chrome-sdk-timeout-test.tap"
+          grep -Fx '# fail 0' "$RUNNER_TEMP/chrome-sdk-timeout-test.tap"
+
   browser-ide:
     name: Browser IDE agents
     needs: changes
@@ -1159,7 +1262,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '22.21.1'
 
@@ -1279,6 +1382,7 @@ jobs:
       - landing-tests
       - pi-prompt
       - host-tests
+      - browser-run-timeouts
       - browser-ide
       - dependency-review
       - rclone-bookkeeping
@@ -1367,7 +1471,7 @@ jobs:
             > /tmp/pr-checks-receipt.json
 
       - name: Upload exact tested-tree receipt
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: pr-checks-receipt-${{ github.run_id }}
           path: /tmp/pr-checks-receipt.json

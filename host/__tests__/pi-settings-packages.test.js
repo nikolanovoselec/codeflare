@@ -2,7 +2,7 @@
 // ~/.pi/agent/settings.json `packages` array, against fixture settings files.
 // This is the "run the real thing" coverage (per tdd-discipline.md) for:
 //   - context-mode being disabled by default while remaining controllable through explicit /ctx off/on,
-//   - the managed extension packages, including Goal, Usage, and Evaluate, being present in
+//   - the managed extension packages, including Goal, Open TUI, and Evaluate, being present in
 //     `required` so they are
 //     available WITH AND WITHOUT context-mode — toggling /ctx never removes them,
 //   - advisor guidance being user-invoked only while preserving user model config.
@@ -76,7 +76,7 @@ const REQUIRED = Object.entries(piPackage.dependencies)
   .map(([name, version]) => `npm:${name}@${version}`);
 
 describe('Pi settings.json packages assembly (entrypoint.sh)', () => {
-  it('REQ-AGENT-076 AC1 / REQ-AGENT-131 AC1 / REQ-AGENT-133 AC1: fresh container assembles required packages with context-mode disabled', () => {
+  it('REQ-AGENT-076 AC1 / REQ-AGENT-133 AC1: fresh container assembles required packages with context-mode disabled', () => {
     const settings = runAssembly('{}');
     const sources = settings.packages.map(sourceOf);
     assert.ok(REQUIRED.length > 0, 'the derived required set must not be empty');
@@ -121,16 +121,17 @@ describe('Pi settings.json packages assembly (entrypoint.sh)', () => {
     const twice = runAssembly(JSON.stringify({ extensions: ['user-ext.ts'] }), 2, true);
 
     assert.deepEqual(runAssembly(JSON.stringify({ extensions: ['user-ext.ts'] })).extensions,
-      ['user-ext.ts'], 'a local-only curation release retains unchanged local Review');
+      ['user-ext.ts', '-builtin:mcp'], 'a local-only release retains local Review and disables duplicate native MCP');
     assert.deepEqual(runAssembly(JSON.stringify({ extensions: ['user-ext.ts'] }), 2,
-      'curation-local-only').extensions, ['user-ext.ts'],
+      'curation-local-only').extensions, ['user-ext.ts', '-builtin:mcp'],
     'a restored local-only release removes obsolete managed exclusions in the same session home');
     for (const settings of [once, twice]) {
       assert.equal(settings.extensions[0], 'user-ext.ts');
-      assert.equal(settings.extensions.length, 3, 'Review exclusions must not accumulate');
-      assert.deepEqual(settings.extensions.slice(1).map(entry => entry.split('/').at(-1)),
+      assert.equal(settings.extensions.length, 4, 'Review and native MCP exclusions must not accumulate');
+      assert.equal(settings.extensions[1], '-builtin:mcp');
+      assert.deepEqual(settings.extensions.slice(2).map(entry => entry.split('/').at(-1)),
         ['review-enforcement.ts', 'operator-review-remote.ts']);
-      assert.ok(settings.extensions.slice(1).every(entry => entry.startsWith('-/')));
+      assert.ok(settings.extensions.slice(2).every(entry => entry.startsWith('-/')));
     }
   });
 
@@ -142,4 +143,47 @@ describe('Pi settings.json packages assembly (entrypoint.sh)', () => {
     assert.ok(config.guidance.promptGuidelines.some((line) => line.includes('Never call `advisor`, run `/advisor`, or suggest `/advisor` proactively')));
     assert.ok(config.guidance.promptGuidelines.every((line) => !line.includes('before substantive work')));
   });
+});
+
+// Exact source/filter and removed-identity outputs are intentional startup
+// migration contracts; native UI behavior belongs to upstream and terminal acceptance.
+describe('REQ-AGENT-056 / REQ-AGENT-209: Open TUI adoption and managed Usage retirement', () => {
+  const expected = { source: `npm:pi-open-tui@${piPackage.dependencies['pi-open-tui']}`, extensions: [] };
+  it('REQ-AGENT-056: fresh startup supplies exactly the reviewed adapter-owned package filter', () => {
+    const settings = runAssembly('{}');
+    assert.deepEqual(settings.packages.filter(entry => /^npm:pi-open-tui(?:@|$)/.test(sourceOf(entry))), [expected]);
+    assert.ok(!settings.packages.some(entry => /^npm:@narumitw\/pi-usage(?:@|$)/.test(sourceOf(entry))));
+    assert.match(piPackage.dependencies['pi-open-tui'], /^\d+\.\d+\.\d+$/); // Intentional exact release pin.
+    assert.equal(piPackage.dependencies['@narumitw/pi-usage'], undefined);
+  });
+
+  for (const stale of ['npm:pi-open-tui', 'npm:pi-open-tui@0.2.0',
+    { source: 'npm:pi-open-tui@0.3.11', extensions: ['extensions/open-tui/index.ts'], skills: [] }]) {
+    it(`REQ-AGENT-209 AC1/AC2 / REQ-AGENT-056: restored ${JSON.stringify(stale)} converges without deleting similarly named user packages`, () => {
+      const user = { source: 'npm:user-extension@1.0.0', extensions: ['keep.ts'], userField: true };
+      const initial = {
+        packages: [stale, 'npm:pi-open-tui@0.1.0', 'npm:@narumitw/pi-usage',
+          'npm:@narumitw/pi-usage@0.61.1', 'npm:@narumitw/pi-usage@0.60.0',
+          { source: 'npm:@narumitw/pi-usage', extensions: [] },
+          { source: 'npm:@narumitw/pi-usage@0.61.1', extensions: ['dist/index.ts'] },
+          { source: 'npm:@narumitw/pi-usage@0.60.0' },
+          'npm:@narumitw/pi-usage-extra@1.0.0', 'npm:pi-open-tui-extra@1.0.0', user],
+        defaultModel: 'opaque-user-route', defaultThinkingLevel: 'off',
+        customPreference: { keep: ['one', 'two'] }, extensions: ['user-extension.ts'],
+      };
+      const first = runAssembly(JSON.stringify(initial));
+      const second = runAssembly(JSON.stringify(first));
+      assert.deepEqual(second, first, 'complete settings migration is idempotent');
+      assert.deepEqual(first.packages.filter(entry => /^npm:pi-open-tui(?:@|$)/.test(sourceOf(entry))), [expected]);
+      assert.ok(!first.packages.some(entry => /^npm:@narumitw\/pi-usage(?:@|$)/.test(sourceOf(entry))));
+      assert.ok(first.packages.includes('npm:@narumitw/pi-usage-extra@1.0.0'));
+      assert.ok(first.packages.includes('npm:pi-open-tui-extra@1.0.0'));
+      assert.deepEqual(first.packages.find(entry => sourceOf(entry) === user.source), user);
+      for (const key of ['defaultModel', 'defaultThinkingLevel', 'customPreference']) assert.deepEqual(first[key], initial[key]);
+      assert.deepEqual(first.extensions, ['user-extension.ts', '-builtin:mcp']);
+      assert.deepEqual(first.packages.find(entry => /^npm:context-mode@/.test(sourceOf(entry))),
+        { source: 'npm:context-mode@1.0.169', extensions: [], skills: [] });
+      for (const required of REQUIRED) assert.ok(first.packages.some(entry => sourceOf(entry) === required), required);
+    });
+  }
 });

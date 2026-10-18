@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { afterEach, describe, it, expect, vi } from 'vitest';
 import * as piHelpers from '../../../preseed/agents/pi/extensions/browser-run-helpers';
 import * as claudeCore from '../../../preseed/agents/claude/browser-run-mcp/core.mjs';
 
@@ -151,6 +151,163 @@ describe.each(MODULES)('browser-run core: %s', (_name, mod) => {
       }) as any;
       const r = await mod.runQuickAction({ accountId: 'a', token: 't', action: 'markdown', body: {}, fetchImpl });
       expect(r).toEqual({ ok: false, error: 'aborted' });
+    });
+  });
+
+  describe('six-minute request deadlines', () => {
+    afterEach(() => vi.useRealTimers());
+    const budgetMs = 360_000;
+    const tools = ['browser_markdown', 'browser_content', 'browser_scrape'];
+    const scenarios = tools.flatMap(tool => ['fetch', 'body'].map(phase => ({ tool, phase })));
+
+    function stalledProvider(phase: string) {
+      let requestSignal: AbortSignal | undefined;
+      let dispose = () => {};
+      const pending = (signal?: AbortSignal) => new Promise<never>((_resolve, reject) => {
+        const abort = () => reject(signal?.reason ?? new DOMException('aborted', 'AbortError'));
+        dispose = abort;
+        if (signal?.aborted) abort();
+        else signal?.addEventListener('abort', abort, { once: true });
+      });
+      return {
+        get signal() { return requestSignal; },
+        dispose: () => dispose(),
+        fetchImpl: async (_url: string, init: any) => {
+          requestSignal = init.signal;
+          if (phase === 'fetch') return pending(requestSignal!);
+          // The body starts later, but must still share the original request deadline.
+          await new Promise(resolve => setTimeout(resolve, 120_000));
+          return { ok: true, status: 200, json: () => pending(requestSignal!) };
+        },
+      };
+    }
+
+    it.each(scenarios)('REQ-BROWSER-010 AC1: $tool $phase expires at six minutes', async ({ tool, phase }) => {
+      vi.useFakeTimers();
+      const caller = new AbortController();
+      const provider = stalledProvider(phase);
+      let settled = false;
+      const outcome = mod.executeBrowserAction({
+        tool, params: { url: 'https://example.com/', selectors: ['h1'] },
+        accountId: 'synthetic-account', token: 'synthetic-token',
+        signal: caller.signal, fetchImpl: provider.fetchImpl,
+      }).then((result: any) => { settled = true; return result; });
+      try {
+        await vi.advanceTimersByTimeAsync(budgetMs - 1);
+        expect(settled).toBe(false);
+        await vi.advanceTimersByTimeAsync(1);
+        expect(settled).toBe(true);
+        expect(provider.signal?.aborted).toBe(true);
+        const action = tool === 'browser_markdown' ? 'markdown' : tool === 'browser_content' ? 'content' : 'scrape';
+        // Intentional user-copy contract distinguishes expiry from HTTP failure/caller cancellation.
+        expect(await outcome).toEqual({
+          isError: true, text: `Browser Run /${action} timed out after 6 minutes`, details: {},
+        });
+      } finally {
+        caller.abort();
+        await outcome;
+      }
+    });
+
+    it.each(['fetch', 'body'])('REQ-BROWSER-010 AC1: %s deadline also applies without a caller signal', async phase => {
+      vi.useFakeTimers();
+      const provider = stalledProvider(phase);
+      let settled = false;
+      const outcome = mod.executeBrowserAction({
+        tool: 'browser_markdown', params: { url: 'https://example.com/' },
+        accountId: 'synthetic-account', token: 'synthetic-token', fetchImpl: provider.fetchImpl,
+      }).then((result: any) => { settled = true; return result; });
+      try {
+        await vi.advanceTimersByTimeAsync(budgetMs - 1);
+        expect(settled).toBe(false);
+        await vi.advanceTimersByTimeAsync(1);
+        expect(settled).toBe(true);
+        expect(provider.signal?.aborted).toBe(true);
+        expect(await outcome).toEqual({ isError: true, text: 'Browser Run /markdown timed out after 6 minutes', details: {} });
+      } finally {
+        provider.dispose();
+        await outcome;
+      }
+    });
+
+    it.each(['fetch', 'body'])('REQ-BROWSER-010 AC2: earlier caller cancellation aborts the pending %s', async phase => {
+      vi.useFakeTimers();
+      const caller = new AbortController();
+      const provider = stalledProvider(phase);
+      const outcome = mod.executeBrowserAction({
+        tool: 'browser_markdown', params: { url: 'https://example.com/' },
+        accountId: 'synthetic-account', token: 'synthetic-token',
+        signal: caller.signal, fetchImpl: provider.fetchImpl,
+      });
+      await vi.advanceTimersByTimeAsync(phase === 'body' ? 120_001 : 1_000);
+      caller.abort();
+      expect(await outcome).toEqual({ isError: true, text: 'aborted', details: {} });
+      expect(provider.signal?.aborted).toBe(true);
+    });
+
+    it('REQ-BROWSER-010 AC5: expiry does not cancel another request or replace its caller cancellation', async () => {
+      vi.useFakeTimers();
+      const callerA = new AbortController();
+      const callerB = new AbortController();
+      const providerA = stalledProvider('fetch');
+      const providerB = stalledProvider('fetch');
+      const start = (caller: AbortController, provider: ReturnType<typeof stalledProvider>) => mod.executeBrowserAction({
+        tool: 'browser_markdown', params: { url: 'https://example.com/' },
+        accountId: 'synthetic-account', token: 'synthetic-token',
+        signal: caller.signal, fetchImpl: provider.fetchImpl,
+      });
+      let settledA = false;
+      let settledB = false;
+      const outcomeA = start(callerA, providerA).then((result: any) => { settledA = true; return result; });
+      await vi.advanceTimersByTimeAsync(60_000);
+      const outcomeB = start(callerB, providerB).then((result: any) => { settledB = true; return result; });
+      try {
+        await vi.advanceTimersByTimeAsync(budgetMs - 60_000);
+        expect(settledA).toBe(true);
+        expect(providerA.signal?.aborted).toBe(true);
+        expect(await outcomeA).toEqual({ isError: true, text: 'Browser Run /markdown timed out after 6 minutes', details: {} });
+        expect(settledB).toBe(false);
+        expect(providerB.signal?.aborted).toBe(false);
+        callerB.abort(new Error('synthetic caller cancellation reason'));
+        expect(await outcomeB).toEqual({ isError: true, text: 'aborted', details: {} });
+      } finally {
+        callerA.abort();
+        callerB.abort();
+        await Promise.all([outcomeA, outcomeB]);
+      }
+    });
+
+    it('REQ-BROWSER-010 AC3: pre-aborted caller is refused before provider work', async () => {
+      const caller = new AbortController();
+      caller.abort();
+      const outcome = await mod.executeBrowserAction({
+        tool: 'browser_markdown', params: { url: 'https://example.com/' },
+        accountId: 'synthetic-account', token: 'synthetic-token', signal: caller.signal,
+        fetchImpl: async () => { throw new Error('pre-aborted request reached provider'); },
+      });
+      expect(outcome).toEqual({ isError: true, text: 'aborted', details: {} });
+    });
+
+    it('REQ-BROWSER-010 AC4: successful request is not aborted by a later deadline', async () => {
+      vi.useFakeTimers();
+      const caller = new AbortController();
+      let requestSignal: AbortSignal | undefined;
+      const outcome = mod.executeBrowserAction({
+        tool: 'browser_markdown', params: { url: 'https://example.com/' },
+        accountId: 'synthetic-account', token: 'synthetic-token', signal: caller.signal,
+        fetchImpl: async (_url: string, init: any) => {
+          requestSignal = init.signal;
+          return { ok: true, status: 200, json: async () => {
+            await new Promise(resolve => setTimeout(resolve, budgetMs - 1));
+            return { success: true, result: '# Accepted' };
+          } };
+        },
+      });
+      await vi.advanceTimersByTimeAsync(budgetMs - 1);
+      const accepted = await outcome;
+      await vi.advanceTimersByTimeAsync(2);
+      expect(accepted).toEqual({ text: '# Accepted', details: { url: 'https://example.com/' } });
+      expect(requestSignal?.aborted).toBe(false);
     });
   });
 

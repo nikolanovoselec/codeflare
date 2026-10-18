@@ -30,7 +30,7 @@ Cloudflare docs: https://developers.cloudflare.com/agents/
 | Resumable streaming | [Resumable streaming](https://developers.cloudflare.com/agents/api-reference/resumable-streaming/) | Stream recovery on disconnect |
 | Email | [Email](https://developers.cloudflare.com/agents/api-reference/email/) | Email routing, secure reply resolver |
 | MCP client | [MCP client](https://developers.cloudflare.com/agents/api-reference/mcp-client-api/) | Connecting to MCP servers |
-| MCP server | [MCP server](https://developers.cloudflare.com/agents/api-reference/mcp-agent-api/) | Building MCP servers with `McpAgent` |
+| MCP server | [MCP servers](https://github.com/cloudflare/agents/blob/agents%400.28.1/docs/agents/mcp-servers.md) | New servers with `createMcpHandler`; legacy stateful `McpAgent` |
 | MCP transports | [MCP transports](https://developers.cloudflare.com/agents/api-reference/mcp-transports/) | Streamable HTTP, SSE, RPC transport options |
 | Securing MCP servers | [Securing MCP](https://developers.cloudflare.com/agents/api-reference/securing-mcp-servers/) | OAuth, proxy MCP, hardening |
 | Human-in-the-loop | [Human-in-the-loop](https://developers.cloudflare.com/agents/concepts/human-in-the-loop/) | Approval flows, `needsApproval`, workflows |
@@ -58,7 +58,7 @@ The Agents SDK provides:
 - **Durable execution** — `runFiber()` / `stash()` for work that survives DO eviction
 - **Queue** — Built-in FIFO queue with retries via `queue()`
 - **Retries** — `this.retry()` with exponential backoff and jitter
-- **MCP integration** — Connect to MCP servers or build your own with `McpAgent`
+- **MCP integration** — Connect to MCP servers; use `createMcpHandler` for new servers, retaining `McpAgent` for legacy stateful SDK v1 deployments
 - **Email handling** — Receive and reply to emails with secure routing
 - **Streaming chat** — `AIChatAgent` with resumable streams, message persistence, tools
 - **Server-driven messages** — `saveMessages`, `waitUntilStable` for proactive agent turns
@@ -72,9 +72,11 @@ The Agents SDK provides:
 
 ## Version compatibility before upgrading
 
-Read the installed `agents` version and its release notes, not just the latest docs. Codeflare's immutable Flue/Dispatcher packages and parent facet bridge currently require `agents@0.20.1`; do not upgrade that bridge implicitly.
+Read the installed `agents` version and its release notes, not just the latest docs. Codeflare's parent Activity uses `agents@0.28.1`; immutable Flue/Dispatcher children retain `agents@0.20.1` through the explicitly validated Scheduler bridge. Do not change child pins, rebuild immutable assets or infer compatibility from the parent's version.
 
 In 0.22+, private `_cf_*ForFacet` scheduling RPCs are replaced by `_cf_routeLifecycle`. In 0.23+, `dynamicAgents` is the preferred facade (the public `subAgent()` aliases remain), Lifecycle owns the job queue, and the experimental memory subpaths are removed. In 0.24, queue inspection/removal becomes asynchronous, `QueueItem.created_at` becomes `createdAt`, and queued callbacks no longer inherit the enqueuing request or connection. Old queue rows migrate on startup; upstream says the temporary migration is removed in the next minor, so do not skip the upgrade step for populated objects.
+
+In 0.25+, native async RPC initialization requires named objects; prefer `getAgentByName`. In 0.27+, Channels moves from `agents/channels` to `agents/experimental/channels`. In 0.28, Lifecycle, Scheduler, State, WebSockets and MCPClientManager are stable capabilities. These additions do not authorize changing an existing runtime's lifecycle or transport.
 
 For standalone Lifecycle hosts, install the required capabilities explicitly; do not assume Agent's state or WebSocket composition exists on every Durable Object. Keep the default WebSocket transport unless an independently authorized change requires another wire. Consult the [upstream changelog](https://github.com/cloudflare/agents/blob/main/packages/agents/CHANGELOG.md) and the version notes in the references below before copying newer examples.
 

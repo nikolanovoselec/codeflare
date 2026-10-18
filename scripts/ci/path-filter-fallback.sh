@@ -8,8 +8,12 @@ set -euo pipefail
 
 [[ "$BASE_SHA" =~ ^[0-9a-f]{40}$ ]]
 [[ "$HEAD_SHA" =~ ^[0-9a-f]{40}$ ]]
-git cat-file -e "${BASE_SHA}^{commit}"
-git cat-file -e "${HEAD_SHA}^{commit}"
+for sha in "$BASE_SHA" "$HEAD_SHA"; do
+  if ! git cat-file -e "${sha}^{commit}" 2>/dev/null; then
+    git -c credential.helper='!gh auth git-credential' fetch --no-tags --depth=1 origin "$sha"
+  fi
+  git cat-file -e "${sha}^{commit}"
+done
 
 mkdir -p "$RUNNER_TEMP"
 changed_files="$RUNNER_TEMP/changed-files.txt"

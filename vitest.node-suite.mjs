@@ -20,8 +20,6 @@ export const NODE_SUITE_FILES = [
   'src/__tests__/lib/local-statusline-repo.test.ts',
   // Pi extension coverage that requires native filesystem behavior.
   'src/__tests__/lib/pi-classic-session-binding.test.ts',
-  // Bundles the Pi extension with an esbuild fixture, which requires Node.
-  'src/__tests__/lib/startup-header.test.ts',
   // All three drive real temp trees through node:fs, and pi-memory-inject also
   // stands in a working directory to prove no repo graph is substituted -
   // neither capability exists under the Workers pool.
@@ -41,6 +39,7 @@ export const NODE_SUITE_FILES = [
   'src/__tests__/lib/operator-review-remote.test.ts',
   'src/__tests__/operators/review-published-result.test.ts',
   'src/__tests__/operators/review-connected-lifecycle.test.ts',
+  'src/__tests__/operators/conductor-prepared-runtime.test.ts',
   // Node Action transport plus the existing native Wrangler producer fixture.
   'src/__tests__/operators/conductor-protected-publication.test.ts',
   'src/__tests__/lib/review-completion-state.test.ts',

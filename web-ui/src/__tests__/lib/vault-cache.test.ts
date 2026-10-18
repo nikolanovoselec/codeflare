@@ -18,7 +18,7 @@ function installFakeLocalStorage() {
     get length() { return store.size; },
     clear: vi.fn(() => store.clear()),
   };
-  (globalThis as unknown as { localStorage: typeof fake }).localStorage = fake;
+  vi.stubGlobal('localStorage', fake);
   return { fake, store };
 }
 
@@ -28,7 +28,7 @@ function installFakeServiceWorker() {
     getRegistrations: vi.fn(async () => registrations),
     getRegistration: vi.fn(async (scope?: string) => registrations.find((r) => !scope || r.scope.includes(scope))),
   };
-  (globalThis as unknown as { navigator: { serviceWorker: typeof sw } }).navigator = { serviceWorker: sw };
+  vi.stubGlobal('navigator', { serviceWorker: sw });
   return { sw, registrations };
 }
 
@@ -36,14 +36,12 @@ function installFakeIndexedDB() {
   const deleteDatabase = vi.fn();
   const databases = vi.fn(async () => []);
   const idb = { deleteDatabase, databases };
-  (globalThis as unknown as { indexedDB: typeof idb }).indexedDB = idb;
+  vi.stubGlobal('indexedDB', idb);
   return { idb, deleteDatabase, databases };
 }
 
 function clearGlobals() {
-  delete (globalThis as { localStorage?: unknown }).localStorage;
-  delete (globalThis as { navigator?: unknown }).navigator;
-  delete (globalThis as { indexedDB?: unknown }).indexedDB;
+  vi.unstubAllGlobals();
 }
 
 describe('cleanupSessionVaultCache (REQ-VAULT-015 AC3 / REQ-VAULT-023)', () => {
@@ -102,6 +100,7 @@ describe('cleanupSessionVaultCache (REQ-VAULT-015 AC3 / REQ-VAULT-023)', () => {
   });
 
   it('does not throw if globals are missing (SSR / test pre-mount safety)', async () => {
+    for (const name of ['localStorage', 'navigator', 'indexedDB']) vi.stubGlobal(name, undefined);
     await expect(cleanupSessionVaultCache('abcdef12')).resolves.toBeUndefined();
   });
 });
@@ -150,6 +149,7 @@ describe('sweepOrphanVaultCaches (REQ-VAULT-015 AC4 / REQ-VAULT-023)', () => {
   });
 
   it('does not throw if localStorage is missing', async () => {
+    vi.stubGlobal('localStorage', undefined);
     await expect(sweepOrphanVaultCaches(['active1'])).resolves.toBeUndefined();
   });
 });

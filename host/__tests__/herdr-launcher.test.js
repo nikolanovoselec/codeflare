@@ -224,7 +224,7 @@ fi
 set -eu
 printf '%s\n' "$*" >> "$HERDR_TEST_LOG"
 if [ "$*" = "--version" ]; then
-  printf '%s\n' 'herdr 0.9.3'
+  printf '%s\n' 'herdr 0.9.5'
 elif [ "$*" = "api snapshot" ]; then
   printf '%s\n' '{"result":{"snapshot":{"focused_pane_id":"w1:p1"}}}'
 elif [ "$1 $2" = "agent get" ]; then
@@ -358,7 +358,7 @@ fi
 set -eu
 printf '%s\n' "$*" >> "$HERDR_TEST_LOG"
 if [ "$*" = "--version" ]; then
-  printf '%s\n' 'herdr 0.9.3'
+  printf '%s\n' 'herdr 0.9.5'
 elif [ "$*" = "api snapshot" ]; then
   printf '%s\n' '{"result":{"snapshot":{"focused_pane_id":"w1:p1"}}}'
 elif [ "$1 $2" = "agent get" ]; then
@@ -465,7 +465,7 @@ fi
 set -eu
 printf '%s\\n' "$*" >> "$HERDR_TEST_LOG"
 if [ "$*" = "--version" ]; then
-  printf '%s\\n' 'herdr 0.9.3'
+  printf '%s\\n' 'herdr 0.9.5'
 elif [ "$*" = "api snapshot" ]; then
   current=0
   [ ! -f "$HERDR_API_COUNT" ] || current=$(cat "$HERDR_API_COUNT")
@@ -524,7 +524,7 @@ fi
 set -eu
 printf '%s\\n' "$*" >> "$HERDR_TEST_LOG"
 if [ "$*" = "--version" ]; then
-  printf '%s\\n' 'herdr 0.9.3'
+  printf '%s\\n' 'herdr 0.9.5'
 elif [ "$*" = "api snapshot" ]; then
   [ ! -f "$HERDR_RESTORE_READY" ] || exit 1
   printf '%s\\n' '{"result":{"snapshot":{"focused_pane_id":"w1:p1"}}}'

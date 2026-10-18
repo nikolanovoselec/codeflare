@@ -12,7 +12,7 @@ The specification (`sdd/`) defines required system behavior. This documentation 
 
 2. **Spec-backed** - Documentation implements specification requirements. REQ backlinks at the bottom of each file connect operational docs to their acceptance criteria in `sdd/`.
 
-3. **Single source of truth** - Each fact lives in exactly one file. Every lane states what it owns and excludes; other files cross-reference the owner rather than duplicating content. When a detail changes, it changes in one place.
+3. **Single source of truth** - Each lane states its ownership and exclusions; other files cross-reference it. Dependency versions and integrity values belong in manifests, locks, image pins and provenance—not a second documentation inventory.
 
 4. **Decisions recorded** - Architecture decisions are captured as numbered ADRs in `decisions/README.md` with context, rationale, and trade-offs. Code comments and documentation reference ADR numbers rather than re-explaining the reasoning.
 
@@ -31,6 +31,10 @@ When public workflows or consumers change, update the owning document in the [pr
 **Private operations:** a task that reads or changes a non-default deployment secret, variable, operator token-permission matrix, GitHub Environment, customer-account prerequisite, provider registration, promotion check, migration procedure, or rollback runbook also owns an update in `codeflare-private`. If it is not already available, clone it with `gh repo clone nikolanovoselec/codeflare-private`. Read its [documentation contract](https://github.com/nikolanovoselec/codeflare-private/blob/main/docs/governance/documentation-contract.md), update the owning private document, and deliver that repository through its own review history. Never copy real credentials or customer identifiers into either repository. Never duplicate private operational values in public `code`, `sdd/`, or `documentation/`; keep public behavior and REQ/ADR backlinks here and link to the private owner.
 
 **Managed curation:** to add or change a deployment-managed skill, rule, hook, agent, script, plugin, or company extension requirement, clone [codeflare-curation](https://github.com/nikolanovoselec/codeflare-curation) and push the change there. That private repository is the runtime master for Managed Environment content; `preseed/agents/**` in this repository is only the image-baked fallback baseline, and editing it does not change what deployments with Managed Environment curation active receive. Edit the fallback here only when the task is explicitly about it. Compiler, transform, seed ABI, and Pi runtime-lock changes are the exception: they land in this repository first, and only then does the curation repo advance its compiler pin. See [Managed curation ownership](lanes/preseed.md#managed-curation-ownership).
+
+## Pending delivery
+
+[Dispatcher serial execution and retry](pending.md) distinguishes delivered intent4 lifecycle repairs and retired-response receipts from pending retry, diagnostics hosted acceptance and whole-run acceptance. Receipt delivery and Enterprise retained-receipt read acceptance are complete; v0.1.24 is installed/enabled in Enterprise Integration. Dispatcher failure attribution, completion and cleanup remain unverified. Current operational behavior remains in the Operator lane.
 
 ## Audience Guide
 

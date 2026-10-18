@@ -1,25 +1,38 @@
 import { createHash } from 'node:crypto';
 import { fileURLToPath, URL } from 'node:url';
 import { afterAll, expect } from 'vitest';
-import { unstable_dev, type Unstable_DevWorker } from 'wrangler';
+import { unstable_startWorker } from 'wrangler';
 import { registerNativeDispatcherCases } from './flue-native-cases';
 import type { ActivityFixtureCommand } from './loader-worker';
 import type { OperatorActivityPreparation } from '../../../operators/activity';
 
+type FixtureWorker = Awaited<ReturnType<typeof unstable_startWorker>>;
+
 /** Each test file owns a separate workerd; every owned case still resets it. */
 export function registerFlueShard(index: number) {
-  let worker: Unstable_DevWorker | undefined;
-  async function startWorker() {
-    worker = await unstable_dev(fileURLToPath(new URL('./loader-worker.ts', import.meta.url)), {
-      config: fileURLToPath(new URL('./wrangler.toml', import.meta.url)),
-      local: true, ip: '127.0.0.1', port: 0, inspectorPort: 0, persist: false, logLevel: 'none',
-      experimental: { disableExperimentalWarning: true, disableDevRegistry: true, watch: false },
-    });
+  let worker: FixtureWorker | undefined;
+  async function disposeWorker() {
+    if (!worker) return;
+    await worker.dispose();
   }
-  afterAll(async () => { await worker?.stop(); });
+  async function startWorker() {
+    // Pinned unstable_dev ignores experimental.watch; this API honors dev.watch.
+    worker = await unstable_startWorker({
+      entrypoint: fileURLToPath(new URL('./loader-worker.ts', import.meta.url)),
+      config: fileURLToPath(new URL('./wrangler.toml', import.meta.url)),
+      dev: {
+        remote: false, server: { hostname: '127.0.0.1', port: 0 }, inspector: { port: 0 },
+        persist: false, logLevel: 'error', watch: false,
+      },
+    });
+    await worker.ready;
+  }
+  afterAll(async () => {
+    await disposeWorker();
+  });
 
   async function command(path: string, value: unknown): Promise<unknown> {
-    const response = await worker!.fetch(path, {
+    const response = await worker!.fetch(new URL(path, 'http://placeholder'), {
       method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(value),
     });
     const result = await response.json();
@@ -55,10 +68,12 @@ export function registerFlueShard(index: number) {
   }
 
   registerNativeDispatcherCases({
-    fetch: async (path, init): Promise<Response> =>
-      (await worker!.fetch(path, init as unknown as Parameters<Unstable_DevWorker['fetch']>[1])) as unknown as Response,
+    fetch: async (path, init): Promise<Response> => {
+      return (await worker!.fetch(new URL(path, 'http://placeholder'),
+        init as unknown as Parameters<FixtureWorker['fetch']>[1])) as unknown as Response;
+    },
     // No redundant beforeAll boot: the first owned case starts its fresh worker here.
-    reset: async () => { await worker?.stop(); await startWorker(); },
+    reset: async () => { await disposeWorker(); await startWorker(); },
     queuedActivity,
     activity,
   }, 'flue', { index, total: 3 });

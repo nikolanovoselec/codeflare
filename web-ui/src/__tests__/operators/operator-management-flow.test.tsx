@@ -31,6 +31,34 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
 describe('REQ-OPERATOR-049: management decisions and recovery', () => {
+  it.each([undefined, false, true])('loads logging=%s through the public client and saves the single execution-diagnostics checkbox', async initial => {
+    let loggingEnabled = initial;
+    let revision = operator.revision;
+    let saved: unknown;
+    serve = (url, init) => {
+      const current = () => ({ ...operator, revision, policy: { ...policy, ...(loggingEnabled === undefined ? {} : { loggingEnabled }) } });
+      if (url.pathname.endsWith('/capabilities') && init?.method === 'POST') {
+        const body = JSON.parse(String(init.body));
+        saved = body; loggingEnabled = body.loggingEnabled; revision++;
+        return json(current());
+      }
+      return url.pathname.endsWith('/operator-1') ? json({ ...detail(), operator: current() }) : json({ items: [current()], cursor: null });
+    };
+    render(() => <OperatorManagement />);
+    fireEvent.click(await screen.findByRole('button', { name: `Manage ${operator.repositoryUrl}` }));
+    const checkbox = await screen.findByRole('checkbox', { name: /Enable logging/ });
+    expect(screen.getAllByRole('checkbox', { name: /Enable logging/ })).toHaveLength(1);
+    expect((checkbox as HTMLInputElement).checked).toBe(initial ?? true);
+    fireEvent.click(checkbox);
+    fireEvent.click(screen.getByRole('button', { name: 'Save operator capabilities' }));
+    await waitFor(() => expect(saved).toEqual({ revision: operator.revision, capabilities: [], loggingEnabled: !(initial ?? true) }));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Save operator capabilities' })).toBeEnabled());
+    expect((screen.getByRole('checkbox', { name: /Enable logging/ }) as HTMLInputElement).checked).toBe(!(initial ?? true));
+    expect(screen.getByText(/Privacy and security audits remain unchanged/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Save operator capabilities' }));
+    await waitFor(() => expect(saved).toEqual({ revision: operator.revision + 1, capabilities: [], loggingEnabled: !(initial ?? true) }));
+  });
+
   it('distinguishes loading, empty and catalog failure with explicit retry', async () => {
     let resolve!: (value: Response) => void;
     serve = () => new Promise<Response>(done => { resolve = done; });
@@ -72,7 +100,7 @@ describe('REQ-OPERATOR-049: management decisions and recovery', () => {
     render(() => <OperatorManagement />);
     fireEvent.click(await screen.findByRole('button', { name: `Manage ${operator.repositoryUrl}` }));
     expect(await within(await screen.findByRole('region', { name: 'Installed version' })).findByText('No version installed', { selector: 'p' })).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Enable for new runs' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Enable' })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Install operator' }));
     fireEvent.click(screen.getByRole('radio', { name: /GitHub release #456/ }));
     fireEvent.click(screen.getByRole('button', { name: 'Install selected version' }));
@@ -103,13 +131,13 @@ describe('REQ-OPERATOR-049: management decisions and recovery', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Install operator' }));
     fireEvent.click(screen.getByRole('radio', { name: /GitHub release #456/ }));
     fireEvent.click(screen.getByRole('button', { name: 'Install selected version' }));
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Enable for new runs' })).not.toBeDisabled());
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Enable' })).not.toBeDisabled());
     expect(screen.queryByRole('link', { name: 'Run as yourself' })).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Enable for new runs' }));
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Disable for new runs' })).not.toBeDisabled());
+    fireEvent.click(screen.getByRole('button', { name: 'Enable' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Disable' })).not.toBeDisabled());
     expect(screen.queryByRole('link', { name: /run as yourself/i })).not.toBeInTheDocument();
     expect(screen.getByText(/Review preparation.*protected.*pull request/i)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Disable for new runs' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Disable' }));
     await waitFor(() => expect(screen.queryByRole('link', { name: 'Run as yourself' })).not.toBeInTheDocument());
   });
   it('explains why Dispatcher has no resource profile and opens its invocation without a reload or start', async () => {
@@ -158,7 +186,7 @@ describe('REQ-OPERATOR-049: management decisions and recovery', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Save restrictions for test' }));
     const installed = screen.getByRole('region', { name: 'Installed version' });
     await waitFor(() => expect(within(installed).getByRole('status')).toHaveTextContent(/restrictions saved/i));
-    expect(screen.queryByRole('button', { name: 'Disable for new runs' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Disable' })).not.toBeInTheDocument();
   });
 
   it('shows verified tag and publication time on installed and selectable versions while labelling legacy records honestly', async () => {
@@ -249,9 +277,9 @@ describe('REQ-OPERATOR-049: management decisions and recovery', () => {
     fireEvent.click(await screen.findByRole('button', { name: `Manage ${operator.repositoryUrl}` }));
     const installed = await screen.findByRole('region', { name: 'Installed version' });
     expect(within(installed).getByText(/Enabled configurations: test, secondary/)).toBeInTheDocument();
-    expect(within(installed).queryByRole('button', { name: 'Disable for new runs' })).not.toBeInTheDocument();
+    expect(within(installed).queryByRole('button', { name: 'Disable' })).not.toBeInTheDocument();
     fireEvent.change(within(installed).getByRole('combobox', { name: 'Installed configuration' }), { target: { value: 'installation-2' } });
-    expect(within(installed).getByRole('button', { name: 'Disable for new runs' })).toBeInTheDocument();
+    expect(within(installed).getByRole('button', { name: 'Disable' })).toBeInTheDocument();
   });
 
   it('distinguishes an installed pin with unavailable release details from no installation', async () => {

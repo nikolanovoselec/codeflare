@@ -16,6 +16,7 @@ async function fixture(t) {
   mkdirSync(directory, { recursive: true });
   return { home, directory, legacy: join(directory, 'mcp.json'), target: join(directory, 'mcp-adapter.json'), backup: join(directory, 'mcp.json.migrated'),
     migrate: (regenerate = false) => migratePiMcpAdapterConfig(directory, regenerate),
+    prepare: (regenerate = false) => migratePiMcpAdapterConfig(directory, regenerate, true),
     load: () => register({}, { HOME: home }),
   };
 }
@@ -53,9 +54,67 @@ test('managed extension loading migrates existing users without image startup or
   const f = await fixture(t);
   writeFileSync(f.legacy, legacyConfig);
   f.load();
-  assert.equal(readFileSync(f.target, 'utf8'), legacyConfig);
+  const original = JSON.parse(legacyConfig);
+  assert.deepEqual(JSON.parse(readFileSync(f.target, 'utf8')), {
+    ...original, settings: { ...original.settings, requestTimeoutMs: 360000 },
+  });
+  assertArchived(f, 'mcp.json.migrated', legacyConfig);
   assert.equal(existsSync(f.legacy), false);
 });
+
+test('REQ-BROWSER-009 AC1: fresh Pi load configures six-minute RPC requests without fabricating servers', async t => {
+  const f = await fixture(t);
+  f.load();
+  assert.equal(existsSync(f.target), true, 'actual Pi load prepares the configured RPC budget');
+  assert.deepEqual(JSON.parse(readFileSync(f.target, 'utf8')), { settings: { requestTimeoutMs: 360000 } });
+});
+
+for (const regenerate of [false, true]) {
+  test(`REQ-BROWSER-009 AC1/AC2/AC4/AC5/AC6: timeout preparation preserves custom auth and archives originals (regenerate=${regenerate})`, async t => {
+    const f = await fixture(t);
+    const browser = { command: 'custom-browser', args: [
+      '--wsEndpoint=wss://api.cloudflare.com/client/v4/accounts/synthetic-account/browser-rendering/devtools/browser?keep_alive=180000&custom=keep&keep_alive=600000',
+      '--wsHeaders={"Authorization":"Bearer synthetic-user-token"}',
+    ], lifecycle: 'lazy-keep-alive', requestTimeoutMs: 600000 };
+    const custom = { command: 'custom', requestTimeoutMs: 2000, env: { TOKEN: 'synthetic-secret' } };
+    const original = JSON.stringify({ mcpServers: { 'chrome-devtools': browser, custom }, settings: { custom: true, requestTimeoutMs: 60000 } });
+    writeFileSync(f.target, original, { mode: 0o600 });
+    if (regenerate) assert.equal(f.prepare(true), true);
+    else f.load(); // Exercise actual next-load registration, not only the migration API.
+    const bytes = readFileSync(f.target, 'utf8');
+    const prepared = JSON.parse(bytes);
+    assert.deepEqual(prepared.settings, { custom: true, requestTimeoutMs: 360000 });
+    assert.deepEqual(prepared.mcpServers.custom, custom);
+    assert.equal(prepared.mcpServers['chrome-devtools'].requestTimeoutMs, 360000);
+    assert.equal(prepared.mcpServers['chrome-devtools'].lifecycle, browser.lifecycle);
+    assert.deepEqual(prepared.mcpServers['chrome-devtools'].args.slice(1), browser.args.slice(1));
+    const endpoint = new URL(prepared.mcpServers['chrome-devtools'].args[0].slice('--wsEndpoint='.length));
+    assert.deepEqual(endpoint.searchParams.getAll('keep_alive'), ['360000']);
+    assert.equal(endpoint.searchParams.get('custom'), 'keep');
+    assertArchived(f, 'mcp-adapter.json.migrated', original);
+    if (regenerate) assert.equal(f.prepare(true), true);
+    else f.load();
+    assert.equal(readFileSync(f.target, 'utf8'), bytes);
+    assert.equal(lstatSync(f.target).mode & 0o777, 0o600);
+  });
+}
+
+for (const endpoint of [
+  'wss://example.test/?keep_alive=180000',
+  'wss://api.cloudflare.com:8443/client/v4/accounts/a/browser-rendering/devtools/browser?keep_alive=180000',
+  'wss://user:secret@api.cloudflare.com/client/v4/accounts/a/browser-rendering/devtools/browser?keep_alive=180000',
+  'wss://api.cloudflare.com/client/v4/accounts/a/unrelated?keep_alive=180000',
+]) {
+  test(`REQ-BROWSER-009 AC6: timeout policy leaves unrelated endpoint routing unchanged (${endpoint})`, async t => {
+    const f = await fixture(t);
+    const browser = { command: 'custom-browser', args: [`--wsEndpoint=${endpoint}`] };
+    writeFileSync(f.target, JSON.stringify({ mcpServers: { 'chrome-devtools': browser } }));
+    assert.equal(f.prepare(), true);
+    const prepared = JSON.parse(readFileSync(f.target, 'utf8'));
+    assert.deepEqual(prepared.mcpServers['chrome-devtools'], browser);
+    assert.equal(prepared.settings?.requestTimeoutMs, 360000);
+  });
+}
 
 test('existing adapter target wins and archives legacy bytes without leaving the deprecated filename', async (t) => {
   const f = await fixture(t);
@@ -255,7 +314,7 @@ test('REQ-AGENT-069: adding consult preserves existing user startup settings and
   const result = startConsult(f.home);
   assert.equal(result.status, 0, result.stderr);
   const updated = JSON.parse(readFileSync(f.target, 'utf8'));
-  assert.deepEqual(updated.settings, config.settings);
+  assert.deepEqual(updated.settings, { ...config.settings, requestTimeoutMs: 360000 });
   assert.deepEqual(updated.mcpServers.custom, config.mcpServers.custom);
   assert.equal(updated.mcpServers['consult-llm'].lifecycle, 'lazy');
 });
@@ -267,7 +326,11 @@ test('REQ-AGENT-069: startup retains existing consult credentials and both-file 
   writeFileSync(f.target, target);
   const result = startConsult(f.home);
   assert.equal(result.status, 0, result.stderr);
-  assert.equal(readFileSync(f.target, 'utf8'), target);
+  const original = JSON.parse(target);
+  assert.deepEqual(JSON.parse(readFileSync(f.target, 'utf8')), {
+    ...original, settings: { ...original.settings, requestTimeoutMs: 360000 },
+  });
+  assertArchived(f, 'mcp-adapter.json.migrated', target);
   assert.equal(readFileSync(f.backup, 'utf8'), legacyConfig);
   assert.equal(existsSync(f.legacy), false);
 });
@@ -320,7 +383,7 @@ test('REQ-AGENT-069: fresh startup regenerates managed consult credentials while
   assert.equal(updated.mcpServers['consult-llm'].env.OPENAI_API_KEY, 'synthetic-openai');
   assert.equal(updated.mcpServers['consult-llm'].lifecycle, 'lazy');
   assert.deepEqual(updated.mcpServers.custom, config.mcpServers.custom);
-  assert.deepEqual(updated.settings, config.settings);
+  assert.deepEqual(updated.settings, { ...config.settings, requestTimeoutMs: 360000 });
 });
 
 
@@ -433,7 +496,10 @@ for (const mode of ['no-provider', 'enterprise']) {
       CODEFLARE_OPENAI_API_KEY: '', ENTERPRISE_MODE: mode === 'enterprise' ? 'active' : '',
     });
     assert.equal(result.status, 0, result.stderr);
-    assert.deepEqual(JSON.parse(readFileSync(f.target, 'utf8')), original);
+    assert.deepEqual(JSON.parse(readFileSync(f.target, 'utf8')), {
+      ...original, settings: { ...original.settings, requestTimeoutMs: 360000 },
+    });
+    assertArchived(f, 'mcp-adapter.json.migrated', JSON.stringify(original));
     assert.deepEqual(JSON.parse(readFileSync(claude, 'utf8')).mcpServers, { unrelated: { command: 'keep' } });
   });
 }

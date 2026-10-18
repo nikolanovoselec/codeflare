@@ -8,6 +8,7 @@
  * index.mjs is the thin SDK adapter over this module.
  */
 const API_BASE = "https://api.cloudflare.com/client/v4/accounts";
+const REQUEST_TIMEOUT_MS = 360_000;
 // Browser Run can return very large pages; cap tool output so a single fetch
 // cannot blow up the agent's context window. Truncation is flagged in the text.
 export const MAX_OUTPUT_CHARS = 120_000;
@@ -69,25 +70,45 @@ export function emptyRenderText(url) {
 
 export async function runQuickAction({ accountId, token, action, body, signal, fetchImpl }) {
   const doFetch = fetchImpl ?? fetch;
+  if (signal?.aborted) return { ok: false, error: "aborted" };
+  const controller = new AbortController();
+  const expiresAt = Date.now() + REQUEST_TIMEOUT_MS;
+  let timedOut = false;
+  let rejectAbort;
+  const aborted = new Promise((_resolve, reject) => { rejectAbort = reject; });
+  const onAbort = () => rejectAbort(new Error("aborted"));
+  const onCallerAbort = () => controller.abort(signal?.reason);
+  controller.signal.addEventListener("abort", onAbort, { once: true });
+  signal?.addEventListener("abort", onCallerAbort, { once: true });
+  const timer = setTimeout(() => { timedOut = true; controller.abort(); }, REQUEST_TIMEOUT_MS);
   try {
-    const res = await doFetch(`${API_BASE}/${accountId}/browser-rendering/${action}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-      body: JSON.stringify(body),
-      signal,
-    });
-    const data = await res.json().catch(() => null);
-    if (!res.ok || !data || data.success === false) {
-      const detail = data ? JSON.stringify(data.errors ?? data) : `HTTP ${res.status}`;
-      return { ok: false, error: `Browser Run /${action} failed: ${detail}` };
-    }
-    return { ok: true, result: data.result };
+    return await Promise.race([aborted, (async () => {
+      const res = await doFetch(`${API_BASE}/${accountId}/browser-rendering/${action}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      });
+      const data = await res.json().catch(() => null);
+      // Charge response consumption to the original deadline, including a delayed continuation.
+      if (Date.now() >= expiresAt) { timedOut = true; controller.abort(); throw new Error("aborted"); }
+      if (!res.ok || !data || data.success === false) {
+        const detail = data ? JSON.stringify(data.errors ?? data) : `HTTP ${res.status}`;
+        return { ok: false, error: `Browser Run /${action} failed: ${detail}` };
+      }
+      return { ok: true, result: data.result };
+    })()]);
   } catch (err) {
-    if (err instanceof Error && err.name === "AbortError") return { ok: false, error: "aborted" };
+    if (timedOut) return { ok: false, error: `Browser Run /${action} timed out after 6 minutes` };
+    if (controller.signal.aborted || err instanceof Error && err.name === "AbortError") return { ok: false, error: "aborted" };
     return {
       ok: false,
       error: `Browser Run /${action} request error: ${err instanceof Error ? err.message : String(err)}`,
     };
+  } finally {
+    clearTimeout(timer);
+    signal?.removeEventListener("abort", onCallerAbort);
+    controller.signal.removeEventListener("abort", onAbort);
   }
 }
 

@@ -43,6 +43,7 @@ enforce_tdd: true
 test_globs:
   - "src/__tests__/operators/fixtures/flue-native-cases.ts"
   - "scripts/verify-bedrock-pi-prompt-cache.mjs"
+  - "scripts/ci/chrome-devtools-timeouts.test.mjs"
   - "scripts/ci/impeccable-engine.py"
   - "scripts/ci/impeccable-engine-source.py"
   - "scripts/ci/rclone-bookkeeping_test.go"
@@ -52,6 +53,7 @@ test_globs:
   - "host/__tests__/**/*.test.{js,mjs}"
   - "preseed/agents/pi/test/**/*.test.mjs"
   - "web-ui/src/__tests__/components/ai-routing-fields-suite.tsx"
+  - "web-ui/src/__tests__/operators/operator-source-response-suite.tsx"
   - "web-ui/src/__tests__/**/*.test.{ts,tsx,jsx}"
   - "web-ui/src/__tests__/**/*.spec.{ts,tsx,jsx}"
   - "landing/src/__tests__/**/*.test.{ts,tsx}"

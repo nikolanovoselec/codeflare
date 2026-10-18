@@ -1,7 +1,7 @@
 ---
 name: impeccable
 description: Critique, audit, harden, adapt, animate, or apply bounded polish to an existing interface whose direction remains intact. Use for accessibility, responsive behavior, performance, UX copy, interaction detail, visual finishing, and explicit impeccable commands. For greenfield creation or any change to the visual thesis, the applicable platform design owner controls art direction; use Impeccable afterward for critique or finishing. Not for backend-only or non-UI tasks.
-version: 4.5.0
+version: 4.6.0
 user-invocable: true
 argument-hint: "[shape · audit|critique · animate|bolder|colorize|delight|layout|overdrive|quieter|typeset · adapt|clarify|distill · harden|onboard|optimize|polish · init|document|extract|live|generate] [target]"
 license: Apache 2.0
@@ -28,6 +28,7 @@ Core principles:
 
 - **The brief wins.** Honor pinned aesthetics, eras, materials, fonts, and palettes even when they conflict with a saturated-pattern warning. Redirecting a clear brief toward your taste is failure.
 - **Refinement preserves; redesign replaces.** Refinement keeps the incumbent identity, behavior, copy, and everything outside scope. Ask before replacing factual copy or adding claims. Redesign keeps product truth, content, function, native affordances, and constraints, but treats the old look as evidence and anti-reference; choose a replacement world in new-work and replace DESIGN.md. Never split the difference into polish on the discarded look.
+- **Loaded symbols stay out of the decoration.** A subject's world does not license emblems tied to militarism, supremacy, or hate movements as motifs, badges, or ornament, such as the Rising Sun flag's rays, the Confederate battle flag, or Nazi-era insignia and their stylised variants; reach for that world's neutral forms instead. Content that documents such a symbol as fact stays as it is.
 - **Visual authority is evidence, not a filename.** Missing DESIGN.md alone does not make a project greenfield; new-work decides whether to preserve, expand, or replace the incumbent world.
 
 ## Modes

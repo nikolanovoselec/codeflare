@@ -33,7 +33,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-AUTH-003](authentication.md#req-auth-003-cf-access-mode-for-all-other-deployments)
 
-**Verification:** Signed-token behavioral tests: RED at `28c40a97` (CI 35119689823), GREEN at `18960850` (CI 35120031781). Actual enterprise operator admission remains separately required by REQ-OPERATOR-002/003; this primitive is not deployed operator acceptance.
+**Verification:** Signed-token behavioral tests; enterprise admission is separate and this primitive does not establish deployed Operator acceptance.
 
 **Status:** Implemented
 
@@ -60,7 +60,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-011](#req-operator-011-serialized-operator-admission)
 
-**Verification:** Protected execution-context behavior is covered by the adjacent tests.
+**Verification:** Automated test: Protected execution-context behavior is covered by the adjacent tests.
 
 **Status:** Implemented
 
@@ -88,7 +88,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-002](#req-operator-002-enterprise-distribution-registration)
 
-**Verification:** Policy parsing and immutable policy snapshots are covered by the adjacent tests. Runtime enforcement and deployed allowed/denied acceptance remain separate requirements.
+**Verification:** Automated test: Policy parsing and immutable policy snapshots are covered by the adjacent tests. Runtime enforcement and deployed allowed/denied acceptance remain separate requirements.
 
 **Status:** Implemented
 
@@ -120,7 +120,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-003](#req-operator-003-principal-bound-activity-context), [REQ-OPERATOR-014](#req-operator-014-restrictive-operator-policy)
 
-**Verification:** Shared interception and Browser denial are covered by the adjacent transport tests. Deployed direct and session egress acceptance remains unverified.
+**Verification:** Automated test: Shared interception and Browser denial are covered by the adjacent transport tests. Deployed direct and session egress acceptance remains unverified.
 
 **Status:** Implemented
 
@@ -150,7 +150,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-004](#req-operator-004-shared-restrictive-interception)
 
-**Verification:** Selection and interceptor behavior is covered by the adjacent tests. Exact-head CI 35172865340 at `d51d0039` is GREEN. Actual provider-request acceptance remains unverified.
+**Verification:** Automated test: Selection and interceptor behavior is covered by the adjacent tests. Exact-head CI 35172865340 at `d51d0039` is GREEN. Actual provider-request acceptance remains unverified.
 
 **Status:** Implemented
 
@@ -177,7 +177,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-004](#req-operator-004-shared-restrictive-interception), [REQ-OPERATOR-028](#req-operator-028-access-jwt-stamping-configuration)
 
-**Verification:** JWT-stamping behavior is covered by the adjacent transport tests. Exact-head CI 35159474090 at `3c7731e6` is GREEN. Deployed relying-party acceptance remains unverified.
+**Verification:** Automated test: JWT-stamping behavior is covered by the adjacent transport tests. Exact-head CI 35159474090 at `3c7731e6` is GREEN. Deployed relying-party acceptance remains unverified.
 
 **Status:** Implemented
 
@@ -202,7 +202,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-013](#req-operator-013-enterprise-operator-administration-authorization)
 
-**Verification:** Configuration preview, apply, reload and UI behavior are covered by the adjacent tests.
+**Verification:** Automated test: Configuration preview, apply, reload and UI behavior are covered by the adjacent tests.
 
 **Status:** Implemented
 
@@ -235,7 +235,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-001](#req-operator-001-verified-human-access-claims)
 
-**Verification:** Legacy internal distribution and protected-secret invariants are covered by the adjacent tests. The historical exact-head CI 35148669515 at `c9fd121d` predates retirement of the test HTTP surface.
+**Verification:** Automated test: Legacy internal distribution and protected-secret invariants are covered by the adjacent tests. The historical exact-head CI 35148669515 at `c9fd121d` predates retirement of the test HTTP surface.
 
 **Status:** Implemented
 
@@ -263,7 +263,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-001](#req-operator-001-verified-human-access-claims), [REQ-OPERATOR-002](#req-operator-002-enterprise-distribution-registration), [REQ-OPERATOR-034](#req-operator-034-authenticated-discovery-transport)
 
-**Verification:** Discovery and bundle parser behavior passed exact-head CI 35285707512 at `137ffcb5`; historical fixture registration does not prove current installed-release execution.
+**Verification:** Automated test: Discovery and bundle parser behavior passed exact-head CI 35285707512 at `137ffcb5`; historical fixture registration does not prove current installed-release execution.
 
 **Status:** Implemented
 
@@ -296,7 +296,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-010](#req-operator-010-bounded-operator-discovery-document)
 
-**Verification:** Approved bundle validation is covered by the adjacent parser and Loader tests.
+**Verification:** Automated test: Approved bundle validation is covered by the adjacent parser and Loader tests.
 
 **Status:** Implemented
 
@@ -325,7 +325,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-001](#req-operator-001-verified-human-access-claims), [REQ-OPERATOR-002](#req-operator-002-enterprise-distribution-registration)
 
-**Verification:** Authenticated bounded discovery transport is covered by the adjacent tests.
+**Verification:** Automated test: Authenticated bounded discovery transport is covered by the adjacent tests.
 
 **Status:** Implemented
 
@@ -354,7 +354,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-030](#req-operator-030-immutable-approved-bundle-validation), [REQ-OPERATOR-034](#req-operator-034-authenticated-discovery-transport)
 
-**Verification:** Authenticated approved artifact download is covered by the adjacent tests.
+**Verification:** Automated test: Authenticated approved artifact download is covered by the adjacent tests.
 
 **Status:** Implemented
 
@@ -383,7 +383,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-001](#req-operator-001-verified-human-access-claims), [REQ-OPERATOR-002](#req-operator-002-enterprise-distribution-registration)
 
-**Verification:** The retired route is absent in active Enterprise mode; management authorization and mutation tests remain separate.
+**Verification:** Automated test: The retired route is absent in active Enterprise mode; management authorization and mutation tests remain separate.
 
 **Status:** Implemented
 
@@ -409,7 +409,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-012](#req-operator-012-protected-operator-webhook-keys), [REQ-OPERATOR-013](#req-operator-013-enterprise-operator-administration-authorization)
 
-**Verification:** Management projections, retired-route denial, and internal default-entrypoint readback are covered by the adjacent tests.
+**Verification:** Automated test: Management projections, retired-route denial, and internal default-entrypoint readback are covered by the adjacent tests.
 
 **Status:** Implemented
 
@@ -436,7 +436,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-030](#req-operator-030-immutable-approved-bundle-validation)
 
-**Verification:** Adjacent catalog and package-resource tests cover the delivered behavior; exact-head CI and deployed restore evidence remain outstanding.
+**Verification:** Automated test: Adjacent catalog and package-resource tests cover the delivered behavior; exact-head CI and deployed restore evidence remain outstanding.
 
 **Status:** Partial
 
@@ -470,7 +470,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-030](#req-operator-030-immutable-approved-bundle-validation), [REQ-OPERATOR-043](#req-operator-043-catalog-and-installations)
 
-**Verification:** Existing acquisition, compiler and retention suites cover the baseline. Artifact-only host-family boundary regression coverage and final exact-head GREEN CI remain required; no new host is authorized by this prose correction, and live installation is a separate acceptance receipt.
+**Verification:** Automated test: Existing acquisition, compiler and retention suites cover the baseline. Artifact-only host-family boundary regression coverage and final exact-head GREEN CI remain required; no new host is authorized by this prose correction, and live installation is a separate acceptance receipt.
 
 **Status:** Planned
 
@@ -490,31 +490,40 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 3. Live verified identity controls authorization; absent memberships grant no group authority, while malformed identity, revocation, expiry and resolver failures deny access. <!-- @impl: src/lib/access.ts::resolveOperatorGroupIdentity --> <!-- @impl: src/lib/access.ts::operatorAccessSessionCurrent --> <!-- @impl: src/routes/operator-management.ts::managementContext --> <!-- @test: src/__tests__/operators/operator-access.test.ts (REQ-OPERATOR-045) --> <!-- @test: src/__tests__/operators/dispatcher-source-identity.test.ts (REQ-OPERATOR-045/047: current Access identity gates Dispatcher GET source receipts) -->
 4. Identity choices contain configured users and currently verified issuer-bound groups, not unresolved labels or a full directory for non-admin managers. <!-- @impl: src/routes/operator-management.ts::app --> <!-- @test: src/__tests__/operators/operator-access.test.ts (projects only verified configured identity options and authorized limits to eligible managers, not Access credentials) -->
 5. Grant edits retain saved identities absent from current choices until deliberately removed. Unavailable choices disable saves; an explicit stale-state refresh reloads choices. <!-- @impl: web-ui/src/components/OperatorManagement.tsx::OperatorManagement --> <!-- @test: web-ui/src/__tests__/operators/operator-management.test.tsx (keeps saved identities absent from this session’s choices through unrelated grant edits and allows deliberate removal) --> <!-- @test: web-ui/src/__tests__/operators/operator-management.test.tsx (disables permission saves when identity choices are unavailable) --> <!-- @test: web-ui/src/__tests__/operators/operator-management-flow.test.tsx (reloads configured identity choices during explicit stale-state reconciliation) -->
-6. Scoped capability edits require an exact revision and remain within Environment ceilings; invalid values deny rather than clamp. <!-- @impl: src/routes/operator-management.ts::app --> <!-- @impl: src/operators/registry.ts::OperatorRegistry.setManagementCapabilities --> <!-- @test: src/__tests__/operators/operator-access.test.ts (edits operator capabilities within Environment limits and disables current runs without changing pins or installation restrictions) -->
+6. Scoped capability and Dispatcher budget edits require an exact revision; invalid values deny rather than clamp. Environment capability/source ceilings remain mandatory. <!-- @impl: src/routes/operator-management.ts::app --> <!-- @impl: src/operators/registry.ts::OperatorRegistry.setManagementCapabilities --> <!-- @test: src/__tests__/operators/operator-access.test.ts (edits operator capabilities within Environment limits and disables current runs without changing pins or installation restrictions) --> <!-- @test: src/__tests__/operators/operator-access.test.ts (REQ-OPERATOR-045: persists operator inference bytes with revision fencing and unchanged installation policy) --> <!-- @test: web-ui/src/__tests__/operators/operator-source-response-suite.tsx (REQ-OPERATOR-045: operator inference maximum persists independently of installation source bytes) -->
 7. A read-only invocation preview exposes only an authorized invoker's pinned package name, version and guided-form eligibility, without management access or Activity preparation. <!-- @impl: src/routes/operator-activities.ts::app --> <!-- @test: src/__tests__/routes/operator-activities.test.ts (previews only an enabled, authorized pinned Renovate Dispatcher without creating an Activity or exposing credentials) -->
 
 **Notes:** Evidence history and acceptance limitations remain in [Operator Interface](../../documentation/lanes/operators.md#preserved-contract-details).
 
 **Constraints:**
 
-- Request bodies cannot grant global eligibility or execution identity.
-- Absence of membership assertions cannot authorize group-only grants.
+- Request bodies cannot grant global eligibility/execution identity.
+- Missing memberships cannot authorize group-only grants.
 - Bounded group labels preserve matching live human identity. <!-- @impl: src/lib/access.ts::requireOperatorHumanContext --> <!-- @test: src/__tests__/operators/operator-live-identity.test.ts (REQ-OPERATOR-045/027: valid %s admits explicit email managers and admins without exposing foreign activity) -->
 - Labels cannot authorize issuer-bound stable-ID group grants. <!-- @impl: src/lib/access.ts::resolveOperatorGroupIdentity --> <!-- @test: src/__tests__/operators/dispatcher-source-identity.test.ts (REQ-OPERATOR-045/047: label-only memberships %j preserve email invocation but cannot authorize a group-only source receipt) -->
-- Verified platform admins bypass global/per-Operator management grants for catalog/detail reads. <!-- @impl: src/routes/operator-management.ts::scopedManager --> <!-- @impl: src/operators/registry.ts::OperatorRegistry.listManagementOperators --> <!-- @test: src/__tests__/operators/operator-live-identity.test.ts (REQ-OPERATOR-045: verified admin with %s reads ungranted catalog entries and management details; other managers and invalid admins cannot) -->
-- Current Access identity binds `user_uuid` to the verified subject independently of extra `id` metadata; legacy `id`-only responses remain supported. <!-- @impl: src/lib/access.ts::operatorAccessSessionCurrent --> <!-- @test: src/__tests__/operators/operator-live-identity.test.ts (REQ-OPERATOR-045/027: canonical UUID with %s admits catalog and only the verified owner activity page) -->
-- A supplied foreign UUID or email denies catalog and owner-scoped activity access. <!-- @impl: src/lib/access.ts::operatorAccessSessionCurrent --> <!-- @test: src/__tests__/operators/operator-live-identity.test.ts (REQ-OPERATOR-045/027: foreign %s denies both browser surfaces even for a platform admin) -->
-- Human-context diagnostics contain only closed stage/reason labels and optional numeric HTTP status, never credentials, claims, identifiers, bodies, URLs or exception text. <!-- @impl: src/lib/access.ts::requireOperatorHumanContext --> <!-- @test: src/__tests__/operators/operator-live-identity.test.ts (REQ-OPERATOR-045: denied live identity reports only closed diagnostic outcomes, never credentials or identity data) --> <!-- @test: src/__tests__/operators/operator-live-identity.test.ts (REQ-OPERATOR-045: distinguishes missing credential/configuration, invalid JWT and mismatched verified principal without revealing them) -->
+- Verified platform admins bypass global/Operator management grants for catalog/detail reads. <!-- @impl: src/routes/operator-management.ts::scopedManager --> <!-- @impl: src/operators/registry.ts::OperatorRegistry.listManagementOperators --> <!-- @test: src/__tests__/operators/operator-live-identity.test.ts (REQ-OPERATOR-045: verified admin with %s reads ungranted catalog entries and management details; other managers and invalid admins cannot) -->
+- Current Access binds `user_uuid` to verified subject despite extra `id`; legacy `id`-only remains supported. <!-- @impl: src/lib/access.ts::operatorAccessSessionCurrent --> <!-- @test: src/__tests__/operators/operator-live-identity.test.ts (REQ-OPERATOR-045/027: canonical UUID with %s admits catalog and only the verified owner activity page) -->
+- Foreign UUID or email denies catalog and owner-scoped activity access. <!-- @impl: src/lib/access.ts::operatorAccessSessionCurrent --> <!-- @test: src/__tests__/operators/operator-live-identity.test.ts (REQ-OPERATOR-045/027: foreign %s denies both browser surfaces even for a platform admin) -->
+- Human-context diagnostics: closed stage/reason labels, optional numeric HTTP status; exclude credentials/claims/identifiers/bodies/URLs/exception-text. <!-- @impl: src/lib/access.ts::requireOperatorHumanContext --> <!-- @test: src/__tests__/operators/operator-live-identity.test.ts (REQ-OPERATOR-045: denied live identity reports only closed diagnostic outcomes, never credentials or identity data) --> <!-- @test: src/__tests__/operators/operator-live-identity.test.ts (REQ-OPERATOR-045: distinguishes missing credential/configuration, invalid JWT and mismatched verified principal without revealing them) -->
 - Public human-context denials remain generic. <!-- @impl: src/lib/access.ts::requireOperatorHumanContext --> <!-- @test: src/__tests__/operators/operator-live-identity.test.ts (REQ-OPERATOR-045: distinguishes missing credential/configuration, invalid JWT and mismatched verified principal without revealing them) -->
 
-- Missing `sourceResponseBytes` means 65536 bytes; installation allowance ≤ operator allowance ≤ Environment ceiling, without inherited increases.
-- Capability edits disable enabled installations while preserving pins, scope, grants and saved policies; out-of-ceiling policies cannot be enabled or admitted.
+- Absent `sourceResponseBytes`: 1048576; installation ≤ operator ≤ Environment; no inheritance/clamp.
+- Dispatcher capacities follow the [admitted defaults](#dispatcher-capacity-defaults); operator-only positive safe integers, with no installation or caller override. <!-- @impl: src/operators/dispatcher-capacity-limits.ts::dispatcherCapacities --> <!-- @impl: src/operators/registry.ts::OperatorRegistry.setManagementCapabilities --> <!-- @test: src/__tests__/operators/operator-access.test.ts (REQ-OPERATOR-045: capacity %s is operator-only revision-fenced and preserves independent settings) -->
+- Token default ≤ token maximum; retry base ≤ retry cap; GitHub page size ≤100. <!-- @impl: src/operators/dispatcher-capacity-limits.ts::validDispatcherCapacities --> <!-- @test: src/__tests__/operators/operator-access.test.ts (REQ-OPERATOR-045: rejects incompatible capacity pairs without mutating current policy) -->
+- Dispatcher `inferenceRequestBytes`: operator-only request/response byte limit, default 1048576, positive safe integer; existing stored field and API remain compatible. <!-- @impl: src/operators/dispatcher-inference-limits.ts::inferenceRequestBytes --> <!-- @impl: src/operators/registry.ts::OperatorRegistry.setManagementCapabilities -->
+- Dispatcher `submissionAttemptLimit`: operator-only positive safe integer, default1024 including the initial SDK submission;1 disables SDK retries; no installation or model override. <!-- @impl: src/operators/dispatcher-submission-limits.ts::submissionAttemptLimit --> <!-- @impl: src/operators/registry.ts::OperatorRegistry.setManagementCapabilities --> <!-- @test: src/__tests__/operators/operator-access.test.ts (REQ-OPERATOR-045: persists operator submission attempt limit with revision fencing and unchanged installation policy) -->
+- Dispatcher `inferenceAttemptLimit`: operator-only positive safe integer, default4 including the initial attempt;1 disables retries; no installation override. <!-- @impl: src/operators/dispatcher-inference-limits.ts::inferenceAttemptLimit --> <!-- @impl: src/operators/registry.ts::OperatorRegistry.setManagementCapabilities --> <!-- @test: src/__tests__/operators/operator-access.test.ts (REQ-OPERATOR-045: persists operator inference attempt limit with revision fencing and unchanged installation policy) -->
+- Dispatcher `operationLimit`: operator-only, default 1024, positive safe integer. <!-- @impl: src/operators/dispatcher-operation-limits.ts::dispatcherOperationLimit --> <!-- @impl: src/operators/registry.ts::OperatorRegistry.setManagementCapabilities --> <!-- @test: src/__tests__/operators/operator-access.test.ts (REQ-OPERATOR-045: persists operator operation limit with revision fencing and unchanged installation policy) -->
+- Omitted budget edits preserve saved values. <!-- @impl: src/operators/registry.ts::OperatorRegistry.setManagementCapabilities --> <!-- @test: web-ui/src/__tests__/operators/operator-source-response-suite.tsx (REQ-OPERATOR-045: operator inference bytes default without being added on an unrelated save) -->
+- Budget no-ops retain revisions/enablement. <!-- @impl: src/operators/registry.ts::OperatorRegistry.setManagementCapabilities --> <!-- @test: src/__tests__/operators/operator-access.test.ts (REQ-OPERATOR-045: persists operator inference bytes with revision fencing and unchanged installation policy) -->
+- Originally admitted policy selects inference bytes, operation capacity and every configured capacity; later edits cannot widen them. <!-- @impl: src/operators/activity.ts::OperatorActivity.dispatcherOperation --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-047: admitted operator inference bytes forward %i-byte content without child authority) --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-047: operator inference bytes enforce exact UTF-8 request boundaries) -->
+- Edits disable installations, preserving pins/scope/grants/policies; out-of-ceiling policies cannot enable/admit.
 
 **Priority:** P0
 
 **Dependencies:** [REQ-OPERATOR-013](#req-operator-013-enterprise-operator-administration-authorization), [REQ-OPERATOR-043](#req-operator-043-catalog-and-installations)
 
-**Verification:** Access/management and real identity/source regression passed host CI; live sourceHTTP200 was observed in47aa5357. Configurable response-ceiling tests and complete live acceptance remain pending.
+**Verification:** Automated test: Access/management and real identity/source regression passed host CI; live sourceHTTP200 was observed in47aa5357. Configurable response-ceiling tests and complete live acceptance remain pending.
 
 **Status:** Implemented
 
@@ -541,7 +550,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-044](#req-operator-044-github-immutable-package-acquisition)
 
-**Verification:** Adjacent promotion tests cover the delivered behavior; exact-head CI remains outstanding.
+**Verification:** Automated test: Adjacent promotion tests cover the delivered behavior; exact-head CI remains outstanding.
 
 **Status:** Partial
 
@@ -569,7 +578,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-002](#req-operator-002-enterprise-distribution-registration), [REQ-OPERATOR-014](#req-operator-014-restrictive-operator-policy)
 
-**Verification:** Manifest snapshots and SQLite admission ordering are covered by the adjacent tests.
+**Verification:** Automated test: Manifest snapshots and SQLite admission ordering are covered by the adjacent tests.
 
 **Status:** Implemented
 
@@ -595,7 +604,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-003](#req-operator-003-principal-bound-activity-context), [REQ-OPERATOR-030](#req-operator-030-immutable-approved-bundle-validation), [REQ-OPERATOR-035](#req-operator-035-approved-artifact-transport)
 
-**Verification:** Worker Loader runtime-boundary behavior is covered by the adjacent tests. Deployed acceptance remains unverified.
+**Verification:** Automated test: Worker Loader runtime-boundary behavior is covered by the adjacent tests. Deployed acceptance remains unverified.
 
 **Status:** Implemented
 
@@ -610,21 +619,21 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Acceptance Criteria:**
 
-1. Durable activity state owns intent, operation IDs, progress, result and cleanup. <!-- @impl: src/operators/activity.ts::OperatorActivity --> <!-- @test: src/__tests__/operators/loader-runtime.test.ts (REQ-OPERATOR-016: activity admission consume and queue) -->
+1. Durable activity state owns intent, operation IDs, progress, result and cleanup. <!-- @impl: src/operators/activity.ts::OperatorActivity --> <!-- @test: src/__tests__/operators/loader-runtime.test.ts (REQ-OPERATOR-016: activity admission consume and queue) --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-016/041: %s exposes only its exact retired SDK receipt) --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-041: a retired receipt with mismatched %s is not exposed) -->
 2. Admission persists private pending intent before registry reconciliation; prepared state is not published as queued. <!-- @impl: src/operators/activity.ts::prepareAuthorized --> <!-- @test: src/__tests__/operators/activity-state.test.ts (REQ-OPERATOR-003: instrumented activity state outcomes) --> <!-- @test: src/__tests__/operators/loader-runtime.test.ts (REQ-OPERATOR-016: activity admission consume and queue) -->
 3. Admission consumes start authority only after a matching receipt and fresh expiry check. <!-- @impl: src/operators/activity.ts::OperatorActivity --> <!-- @test: src/__tests__/operators/loader-runtime.test.ts (REQ-OPERATOR-016: activity admission consume and queue) -->
 4. Concurrent starts queue once, and uncertain responses reconcile against the same receipt. <!-- @impl: src/operators/activity.ts::OperatorActivity --> <!-- @test: src/__tests__/operators/loader-runtime.test.ts (REQ-OPERATOR-016: activity admission consume and queue) -->
-5. Disable-first admission remains unqueued, and unknown effects are never replayed automatically. <!-- @impl: src/operators/activity.ts::OperatorActivity --> <!-- @test: src/__tests__/operators/loader-runtime.test.ts (REQ-OPERATOR-016: activity admission consume and queue) -->
+5. Disable-first admission remains unqueued, and unknown external mutations are never replayed automatically. <!-- @impl: src/operators/activity.ts::OperatorActivity --> <!-- @test: src/__tests__/operators/loader-runtime.test.ts (REQ-OPERATOR-016: activity admission consume and queue) -->
 6. Cancellation or expiry stops only owned compute and records actual pending, failed or unknown cleanup without final uploads after expiry. <!-- @impl: src/operators/activity.ts::cancelDrive --> <!-- @manual: Verify owned compute stops, cleanup receipts and no post-expiry uploads on an authorized fresh activity; a cancellation fence alone is insufficient. -->
 7. Overview reads use non-waking safe projections. <!-- @impl: src/operators/registry.ts::listOwnedActivities --> <!-- @test: src/__tests__/routes/operator-activities.test.ts (REQ-OPERATOR-027: authenticated owned activity browser surfaces) -->
 
-**Constraints:** Unknown external effects are fenced rather than replayed.
+**Constraints:** Unknown external mutations remain fenced. Only future-eligible inference may allocate separately charged successors under [REQ-OPERATOR-048](#req-operator-048-dispatcher-execution); this never restarts an unknown Activity.
 
 **Priority:** P0
 
 **Dependencies:** [REQ-OPERATOR-011](#req-operator-011-serialized-operator-admission), [REQ-OPERATOR-003](#req-operator-003-principal-bound-activity-context)
 
-**Verification:** Activity admission behavior is covered by the adjacent tests. Physical owned-compute cessation, cleanup and post-expiry uploads remain unverified; no unknown activity is replayed for this check.
+**Verification:** Automated test: Activity admission behavior is covered by the adjacent tests. Physical owned-compute cessation, cleanup and post-expiry uploads remain unverified; no unknown activity is replayed for this check.
 
 **Status:** Planned
 
@@ -653,7 +662,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-016](#req-operator-016-durable-activity-admission-and-cleanup)
 
-**Verification:** Durable drive generation and checkpoint behavior is covered by the adjacent tests.
+**Verification:** Automated test: Durable drive generation and checkpoint behavior is covered by the adjacent tests.
 
 **Status:** Implemented
 
@@ -682,7 +691,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-015](#req-operator-015-isolated-approved-worker-loading), [REQ-OPERATOR-017](#req-operator-017-durable-drive-generations)
 
-**Verification:** Runtime-driver and request-attached orchestration behavior is covered by the adjacent tests. Legacy Gate 1 preparation and already-prepared execution are denied by separate retirement tests; deployment readback remains a separate release gate.
+**Verification:** Automated test: Runtime-driver and request-attached orchestration behavior is covered by the adjacent tests. Legacy Gate 1 preparation and already-prepared execution are denied by separate retirement tests; deployment readback remains a separate release gate.
 
 **Status:** Implemented
 
@@ -707,7 +716,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-018](#req-operator-018-request-attached-operator-orchestration)
 
-**Verification:** Behavioral admission, already-prepared execution and deploy-graph tests cover retirement; exact-head CI and Enterprise Integration rollout remain release gates.
+**Verification:** Automated test: Behavioral admission, already-prepared execution and deploy-graph tests cover retirement; exact-head CI and Enterprise Integration rollout remain release gates.
 
 **Status:** Implemented
 
@@ -725,19 +734,25 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 1. The parent normalizes admitted input and resources; caller-supplied authority, code, profiles or connections cannot widen eligibility. <!-- @impl: src/operators/orchestrator.ts::prepareOperatorActivity --> <!-- @test: src/__tests__/operators/generic-profile-admission.test.ts (REQ-OPERATOR-047) -->
 2. Generation, expiry, cancellation and installation policy gate every protected effect. <!-- @impl: src/operators/operator-runtime-capability.ts::createDispatcherOperation --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-047/048) -->
 3. Protected operations recheck the current human and pinned installation/release revisions through parent interceptors; captured identity and workflow claims cannot substitute. <!-- @impl: src/operators/operator-runtime-capability.ts::createDispatcherOperation --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-047/048) --> <!-- @test: src/__tests__/operators/dispatcher-source-identity.test.ts (REQ-OPERATOR-045/047: current Access identity gates Dispatcher GET source receipts) -->
-4. Identical operations reconcile; changed immutable arguments conflict; uncertain effects cannot replay or settle successfully. <!-- @impl: src/operators/activity.ts::OperatorActivity --> <!-- @test: src/__tests__/operators/generic-profile-admission.test.ts (REQ-OPERATOR-047) -->
-5. Completed output is bounded and durable before delivery; unknown completion remains fenced. <!-- @impl: src/operators/activity.ts::OperatorActivity --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-047/048) -->
+4. Identical logical operations reconcile; changed immutable arguments conflict, and uncertain mutations cannot replay. <!-- @impl: src/operators/activity.ts::OperatorActivity --> <!-- @test: src/__tests__/operators/generic-profile-admission.test.ts (REQ-OPERATOR-047) -->
+5. Complete responses are bounded and durable before delivery; committed logical responses remain immutable, and unresolved logical completion blocks collection. <!-- @impl: src/operators/activity.ts::OperatorActivity --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-047/048) --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-047: complete %i-byte inference SSE survives caching and reconstruction at the configured inference bound) --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-047: source settings cannot widen the configured %i-byte inference response bound) -->
 6. Independent task sessions receive finite parent-approved input references and resources without shared principal authority or credentials. <!-- @impl: src/operators/session-initialization.ts::parseOperatorPiInitialization --> <!-- @impl: host/src/operator-pi-isolated.ts::createIsolatedPiTools --> <!-- @impl: host/src/operator-pi-isolated-runner.ts::runApprovedTasks --> <!-- @test: src/__tests__/operators/session-initialization.test.ts (REQ-OPERATOR-021: finite parent-approved Pi initialization) --> <!-- @test: host/__tests__/operator-pi-review.test.js (REQ-OPERATOR-021: Review composition exposes only fixed sandboxed read and write tools) --> <!-- @test: host/__tests__/operator-pi-isolated.test.js (REQ-OPERATOR-021: each SDK child sees only its declared inputs and can stage one immutable bounded output) --> <!-- @test: host/__tests__/operator-pi-isolated-runner.test.js (REQ-OPERATOR-021: one structured task creates independently isolated SDK sessions and durable identities) -->
 
 **Notes:** Evidence history and acceptance limitations remain in [Operator Interface](../../documentation/lanes/operators.md#preserved-contract-details).
 
-**Constraints:** Profile admission can only narrow verified human authority.
+**Constraints:**
+
+- Profile admission only narrows verified human authority.
+- Original operator policy supplies finite capacity, default 1024. <!-- @impl: src/operators/dispatcher-operation-limits.ts::dispatcherOperationLimit --> <!-- @impl: src/operators/activity.ts::OperatorActivity.dispatcherOperation --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-047: admitted %i-operation budget denies fresh work at its exact boundary) -->
+- Distinct reservations consume entries; completed retries reuse them. <!-- @impl: src/operators/activity.ts::OperatorActivity.dispatcherOperation --> <!-- @impl: src/operators/activity.ts::loadDispatcherJournal --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-047: default 1024 journal counts distinct reads and inference while cached operations reuse slots) --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-047: SQL-backed default capacity completes 1024 distinct maximum-length source URLs and reuses cached slots after reload) --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-047: legacy aggregate recovery preserves counts cached receipts conflicts and %s mutation ordering across reload) -->
+- Each inference attempt consumes capacity before dispatch; duplicates/cache replay add no charge, and lost allocation acknowledgements reuse retained reservations. <!-- @impl: src/operators/activity.ts::OperatorActivity --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-047: a lost successor-allocation acknowledgement reuses its durable allowance) --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-047: the shared operation budget denies a successor even with inference attempts remaining) -->
+- Receipt and resolution calls consume no entries. <!-- @impl: src/operators/activity.ts::OperatorActivity.dispatcherOperation --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (projects actual journal consumption on receipts without charging cached receipt observations) -->
 
 **Priority:** P0
 
 **Dependencies:** [REQ-OPERATOR-003](#req-operator-003-principal-bound-activity-context), [REQ-OPERATOR-043](#req-operator-043-catalog-and-installations)
 
-**Verification:** Prior admission/production-composition and real Access-helper/source tests passed CI36852325679attempt2 at51f976d3. Configurable source allowance and larger real journal/cache/native proof await this correction's integrated CI. Live settlement/collection, authenticated selected effects, SDK release and physical cleanup remain separate unverified gates.
+**Verification:** Historical host tests; new inference-attempt accounting and composed native recovery coverage awaits exact-head CI. Live research, judgments, effects, settlement/collection and physical cleanup remain separate gates.
 
 **Status:** Implemented
 
@@ -753,22 +768,36 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 **Acceptance Criteria:**
 
 1. The delegated Loader executes only the pinned generated Flue artifact. <!-- @impl: src/operators/loader.ts::loadOperatorDispatcherClass --> <!-- @test: src/__tests__/operators/loader-runtime.test.ts (REQ-OPERATOR-015: Worker Loader runtime boundary) -->
-2. One durable lease retains its original generation, submission, input, release and human expiry; uncertain admission cannot create replacement work. <!-- @impl: src/operators/activity.ts::OperatorActivity --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-047/048) -->
-3. Pending settlement keeps at most one bounded recheck under the original lease; observation and repeated alarms cannot renew authority. <!-- @impl: src/operators/runtime.ts::driveDispatcherRuntime --> <!-- @impl: src/operators/activity.ts::OperatorActivity --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-047/048) --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-048: repeated SDK alarms retain one pending recheck and the original deadline) -->
-4. Only the exact completed settlement with one bounded assessment and no unresolved operation permits terminal collection; collection does not resubmit. <!-- @impl: src/operators/activity.ts::OperatorActivity.reconcileDispatcherLease --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (fences a completed model turn with no submitted assessment instead of advertising waiting) --> <!-- @test: src/__tests__/operators/fixtures/flue-native-cases.ts (completes a publishable second-turn assessment only after all parallel research receipts are released) --> <!-- @test: src/__tests__/operators/fixtures/flue-native-cases.ts (settles a cited second-turn assessment after the former child timeout without extending human authority) -->
+2. One lease binds exact serial SDK submissions to the original generation, input, release and human expiry. Ordinary wakes recover uncertain keyed admission using its persisted delivery identity; observation failures neither advance phases nor create replacement work. <!-- @impl: src/operators/activity.ts::OperatorActivity --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-047/048) -->
+3. Pending or unavailable settlement observations keep at most one bounded recheck under the original lease; observation and repeated alarms cannot renew authority. <!-- @impl: src/operators/runtime.ts::driveDispatcherRuntime --> <!-- @impl: src/operators/activity.ts::OperatorActivity --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-047/048) --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-048: repeated SDK alarms retain one pending recheck and the original deadline) -->
+4. Collection requires one complete bounded assessment from the designated final completed settlement; intent4 additionally requires exact deferred coverage of every PR-local unknown mutation. <!-- @impl: src/operators/activity.ts::OperatorActivity.reconcileDispatcherLease --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (fences a completed model turn with no submitted assessment instead of advertising waiting) --> <!-- @test: src/__tests__/operators/fixtures/flue-native-cases.ts (completes a publishable second-turn assessment only after all parallel research receipts are released) --> <!-- @test: src/__tests__/operators/fixtures/flue-native-cases.ts (settles a cited second-turn assessment after the former child timeout without extending human authority) --> <!-- @test: src/__tests__/operators/fixtures/flue-native-cases.ts (REQ-OPERATOR-048: authentic SDK finish steering continues the original invocation to exact assessment) --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-063: terminal diagnostic wire distinguishes) --> <!-- @test: src/__tests__/operators/dispatcher-result.test.ts (REQ-OPERATOR-063: unassociated assessment) -->
 5. Cancellation, expiry, revocation and stale warmed callers deny protected work. <!-- @impl: src/operators/activity.ts::OperatorActivity --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-047/048) -->
-6. Dispatcher capabilities include only approved parent transport, inference, scheduling and non-authorizing diagnostics; sessions, containers, credentials and direct networking remain unavailable. <!-- @impl: src/operators/distribution.ts::parseDispatcherBundle --> <!-- @impl: src/operators/loader.ts::loadOperatorDispatcherClass --> <!-- @impl: src/operators/activity.ts::OperatorDispatcherCapability --> <!-- @test: src/__tests__/operators/distribution.test.ts (REQ-OPERATOR-048: production Dispatcher bundle boundary) --> <!-- @test: src/__tests__/operators/dispatcher-native.test.ts (REQ-OPERATOR-048: production Dispatcher Loader host) --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-047/048) -->
-7. Existing Activity identity, storage, Gate 1 and default-entrypoint compatibility remain preserved. <!-- @impl: src/operators/orchestrator.ts::runOperatorActivity --> <!-- @test: src/__tests__/operators/orchestrator.test.ts (REQ-OPERATOR-018) -->
+6. Dispatcher capabilities include only approved parent transport, inference, scheduling and non-authorizing diagnostics; sessions, containers, credentials and direct networking remain unavailable. <!-- @impl: src/operators/loader.ts::loadOperatorDispatcherClass --> <!-- @impl: src/operators/activity.ts::OperatorDispatcherCapability --> <!-- @test: src/__tests__/operators/dispatcher-native.test.ts (REQ-OPERATOR-048: production Dispatcher Loader host) --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-047/048) -->
+7. Existing Activity identity, storage, Gate 1 and default-entrypoint compatibility remain preserved. <!-- @impl: src/operators/orchestrator.ts::runOperatorActivity --> <!-- @impl: src/operators/dispatcher-scheduler.ts::migrateDispatcherSchedules --> <!-- @test: src/__tests__/operators/orchestrator.test.ts (REQ-OPERATOR-018) --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-048 AC2/AC7: preserves original generation-one %s rows and IDs across SDK storage migration) --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-048 AC2/AC7: ambiguous predecessor ownership preserves every legacy row and fails before startup) --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-048 AC7: invalid mixed migration rows leave the complete legacy storage byte contract intact) -->
 
-**Notes:** Evidence history and acceptance limitations remain in [Operator Interface](../../documentation/lanes/operators.md#preserved-contract-details).
+**Notes:** See [pending delivery](../../documentation/pending.md) and preserved contract details in [Operator Interface](../../documentation/lanes/operators.md#preserved-contract-details).
 
-**Constraints:** Uncertain external effects are fenced, not replayed; execution cannot outlive verified human authority.
+**Constraints:**
+
+- Retiring intent4 aborts its owned child without deleting SDK storage, even with uncertain admission receipts. <!-- @impl: src/operators/activity.ts::OperatorActivity.abortDispatcherFacet --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-048: AC2 retiring an uncertain keyed admission invalidates its owned child without replacing original work) -->
+- Explicit cleanup finishes only exact already-cancel-requested original intent4 leases after bookkeeping release/failed retirement; no new generation, facet reacquisition or authority renewal. <!-- @impl: src/operators/activity.ts::OperatorActivity.cancelDrive --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-017: AC4 intent4 cancellation does not restart its retired owned runtime) --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-048: retirement cleanup finishes an already released cancelled generation without new authority) -->
+- Pending intent4 preparation cannot create runtimes after original-generation retirement. <!-- @impl: src/operators/activity.ts::OperatorActivity --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-017: AC4 pending intent4 preparation cannot recreate an owned runtime after cancellation) -->
+- Abort failures propagate; unknown/completed/failed/waiting/historical drives gain no cleanup retry. <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-048: failed owned-child retirement cannot reopen fenced work) -->
+- Callback endings/bookkeeping release do not prove physical cessation.
+- Host SDK changes preserve the immutable child's bounded scheduling wire, original-generation ownership, deduplication, retry and cleanup semantics. <!-- @impl: src/operators/activity.ts::OperatorActivity.dispatchDispatcherSchedule --> <!-- @impl: src/operators/dispatcher-scheduler.ts::childScheduleRow --> Legacy migration preserves IDs, due times and recurrence; unproven predecessor ownership, unsupported in-flight state or malformed mixed rows retain the entire legacy set and fail closed before writes. Current lease equality alone is not historical generation proof. Compatibility qualification for the coordinated dependency batch remains pending. <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-047/048: preserves the old dated, delayed and interval scheduling wire and deduplication) --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-047/048: concurrent child creation cannot cross the 128-schedule boundary) -->
+- Metadata permits only Flue runtime/plugin `2.1.0/2.1.0` or `2.2.2/2.2.2` with Agents `0.20.1`; reject mixed/unknown/authority-bearing tuples. <!-- @impl: src/operators/distribution.ts::parseDispatcherBundle --> <!-- @impl: scripts/operator-package/compiler.mjs::buildBundle --> <!-- @test: src/__tests__/operators/distribution.test.ts (REQ-OPERATOR-048: production Dispatcher bundle boundary) --> <!-- @test: src/__tests__/operators/operator-package-compiler.test.ts (shared operator package compiler) -->
+- Cold keyed admission reuses only its persisted serial wire through reconciliation; historical unkeyed uncertainty fences. <!-- @impl: src/operators/activity.ts::OperatorActivity --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-048: AC2 cold) --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-017: AC4 cold historical unkeyed) -->
+- Ordinary owner entries and alarms recover nonblocking; diagnostics-only lifecycle startup does not initiate recovery. Child callbacks never await reconciliation. <!-- @impl: src/operators/activity.ts::OperatorActivity --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-048: AC2 cold before-POST uncertainty admits original-generation discovery with unchanged input release and human expiry) -->
+- Collection never resubmits; historical unknown-effect fences remain.
+- Unavailable reads retain the same admitted submission/phase/cursor/pins/deadline after current-authority/shared-fence checks; HTTP/body-integrity failures remain terminal. <!-- @impl: src/operators/activity.ts::OperatorActivity.reconcileDispatcherLease --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (failed PR1 advances only after its exact SDK settlement; PR2 supplies actual complete data and immutable final collection) --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-048: %s status observation cannot keep original work alive) -->
+- Only future parent-stamped admissions/leases recover; historical admissions/unversioned operations/terminal unknown Activities remain strict. <!-- @impl: src/operators/activity.ts::OperatorActivity --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-048: historical admissions retain their original cached error bytes despite the new default policy) -->
+- Inference retains the [original attempt, ownership, classification, delay and unknown-effect constraints](../../documentation/lanes/operators.md#dispatcher-inference-recovery-constraints).
 
 **Priority:** P0
 
 **Dependencies:** [REQ-OPERATOR-015](#req-operator-015-isolated-approved-worker-loading), [REQ-OPERATOR-017](#req-operator-017-durable-drive-generations), [REQ-OPERATOR-047](#req-operator-047-generic-directed-profile-admission)
 
-**Verification:** Production-composition tests are instrumented rather than native. The existing native Loader fixture proves generated-artifact compatibility, not production eviction and alarm composition; exact-head CI and that native composition proof remain outstanding.
+**Verification:** Existing Loader, production, result and compiler cases verify pinned loading, original-generation keyed recovery, serial settlement, bounded final collection, cancellation/retirement and capability fences. Native fixtures qualify only their selected artifact: 6 current v0.1.24/Flue2.2.2 cases plus39 historical2.1.0 controls across three file-owned runtimes; the separate Node population remains61. The connection-loss ordinary/supplemental, committed-reset, duplicate-inference, precommit-reset table and saved-submission-limit1 workloads are retired, not passing evidence. Hosted original-phase recovery, sequential actual outcomes, collection/recollection, SDK release and independent physical cessation remain unverified. See the [delivery and retirement qualifications](../../documentation/pending.md#verification-boundary); retired workloads remain prohibited and deletion proves neither default-budget behavior nor recovery. <!-- @test: src/__tests__/operators/fixtures/flue-native-cases.ts (REQ-OPERATOR-048: composed %s inference reaches a real collected assessment with one repository effect) --> <!-- @test: src/__tests__/operators/fixtures/flue-native-cases.ts (REQ-OPERATOR-048: composed persistent interruption exhausts the configured %i attempts without an effect or collection) -->
 
 **Status:** Planned
 
@@ -784,8 +813,8 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 **Acceptance Criteria:**
 
 1. Approved repository-only packages select bounded GET/POST/PUT requests with immutable arguments. <!-- @impl: src/operators/activity.ts::OperatorActivity.dispatcherOperation --> <!-- @impl: src/operators/operator-runtime-capability.ts::createDispatcherOperation --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (exposes the configured API origin only to repository-only Loader code) -->
-2. Unknown mutations retain generation for authorized readbacks; only verified original-request and completed-read receipts may resolve uncertainty without replay. <!-- @impl: src/operators/activity.ts::OperatorActivity.dispatcherOperation --> <!-- @impl: src/operators/operator-runtime-capability.ts::createDispatcherOperation --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-047: generic Activity mutation receipts and resolution) -->
-3. Loader supplies only validated non-secret origins and response limits; package settings cannot widen host policy or disclose credentials. <!-- @impl: src/operators/loader.ts::loadOperatorDispatcherClass --> <!-- @impl: src/operators/dispatcher-source-limits.ts::sourceResponseBytes --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (exposes the configured API origin only to repository-only Loader code) --> <!-- @test: src/__tests__/operators/dispatcher-source-identity.test.ts (REQ-OPERATOR-047: rejects a 100 KiB source under the default allowance) --> <!-- @test: src/__tests__/operators/dispatcher-source-identity.test.ts (REQ-OPERATOR-047: returns the exact large source envelope under approved 128 KiB) -->
+2. Unknown mutations retain generation for authorized readbacks; only verified original-request and completed-read receipts may resolve uncertainty without replay. Inference recovery neither repeats nor erases them. <!-- @impl: src/operators/activity.ts::OperatorActivity.dispatcherOperation --> <!-- @impl: src/operators/operator-runtime-capability.ts::createDispatcherOperation --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-047: generic Activity mutation receipts and resolution) -->
+3. Loader supplies validated non-secret origins, response limits and an optional immutable admitted-target restriction; package settings cannot widen host policy or disclose credentials. <!-- @impl: src/operators/loader.ts::loadOperatorDispatcherClass --> <!-- @impl: src/operators/dispatcher-source-limits.ts::sourceResponseBytes --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (exposes the configured API origin only to repository-only Loader code) --> <!-- @test: src/__tests__/operators/dispatcher-source-identity.test.ts (REQ-OPERATOR-047: rejects a 100 KiB source under an explicitly saved 64 KiB allowance) --> <!-- @test: src/__tests__/operators/dispatcher-source-identity.test.ts (REQ-OPERATOR-047: returns the exact large source envelope under approved 128 KiB) --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (authorizes repository-only work and projects one closed nonsecret target into the actual Loader, identically after reconstruction) -->
 4. Mutations use only the configured authenticated GitHub API transport. <!-- @impl: src/operators/operator-runtime-capability.ts::createDispatcherOperation --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (exposes the configured API origin only to repository-only Loader code) -->
 
 **Constraints:**
@@ -797,16 +826,16 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-047](#req-operator-047-generic-directed-profile-admission)
 
-**Verification:** Automated test: [dispatcher-production.test.ts](../../src/__tests__/operators/dispatcher-production.test.ts), [dispatcher-source-identity.test.ts](../../src/__tests__/operators/dispatcher-source-identity.test.ts).
+**Verification:** Intent4 deferred coverage remains unverified; existing anchors verify original same-generation receipt and no-replay fences. No added cross-run interlock or historical index is claimed. Automated test: [dispatcher-production.test.ts](../../src/__tests__/operators/dispatcher-production.test.ts), [dispatcher-source-identity.test.ts](../../src/__tests__/operators/dispatcher-source-identity.test.ts).
 
-**Status:** Implemented
+**Status:** Planned
 
 ---
 
 <a id="req-operator-063-bounded-dispatcher-diagnostics"></a>
 ### REQ-OPERATOR-063: Bounded Dispatcher diagnostics
 
-**Intent:** Diagnostics explain observed rejection boundaries without becoming authority.
+**Intent:** Diagnostics explain observed execution and rejection boundaries without becoming authority.
 
 **Applies To:** User
 
@@ -816,12 +845,24 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 2. Failed settlement telemetry uses trusted Activity/generation and recognized fixed operation classes; foreign or malformed submission labels remain unknown. <!-- @impl: src/operators/activity.ts::OperatorActivity.reconcileDispatcherLease --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-048: diagnoses) --> <!-- @test: src/__tests__/operators/fixtures/flue-native-cases.ts (REQ-OPERATOR-048: failed compiled durable direct submission carries its bounded Flue operation label) -->
 3. Tail delivery accepts only allowlisted bounded child diagnostics and never establishes settlement, replay authority or a prior failure cause. <!-- @impl: src/operators/activity.ts::OperatorDispatcherTail --> <!-- @test: src/__tests__/operators/dispatcher-tail.test.ts (forwards only fixed warning codes with trusted Activity correlation) --> <!-- @test: src/__tests__/operators/dispatcher-tail.test.ts (drops arbitrary child logs, exceptions, extra fields and sensitive body text) --> <!-- @test: src/__tests__/operators/dispatcher-tail.test.ts (bounds work and forwarding even when a child floods valid-looking events) --> <!-- @test: src/__tests__/operators/fixtures/flue-native-cases.ts (captures only sanitized child warnings through an actual Loader Tail Worker) -->
 4. The Dispatcher-only diagnostic operation validates exact request shape, size and deadline, correlates trusted identity and rate-limits reports. <!-- @impl: src/operators/activity.ts::readDispatcherDiagnostic --> <!-- @impl: src/operators/activity.ts::OperatorActivity.dispatcherDiagnosticReport --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-048: bounded diagnostic report denies wrong route, method, content-type, syntax, byte size and stale generation) --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-048: bounded diagnostic report refuses an unfinished body without holding the Activity) --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-048: bounded diagnostic report caps concurrent valid reports at eight per live Activity generation) -->
-5. Diagnostic transport failure is bounded and best-effort; reports cannot renew authority, mutate lifecycle, publish results or replace the original inference failure. <!-- @impl: src/operators/activity.ts::OperatorActivity.dispatcherDiagnosticReport --> <!-- @impl: src/operators/activity.ts::OperatorDispatcherCapability --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-048: bounded diagnostic report uses trusted Activity/generation and leaves execution running) --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-048: bounded diagnostic report tolerates unavailable owner logging without publishing a result) --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-048: bounded diagnostic report never extends its original human deadline) --> <!-- @test: src/__tests__/operators/fixtures/flue-native-cases.ts (REQ-OPERATOR-048: compiled diagnostic report) -->
+5. Diagnostic transport failure is bounded and best-effort; reports cannot renew authority, mutate lifecycle, publish results or replace the original inference failure. <!-- @impl: src/operators/activity.ts::OperatorActivity.dispatcherDiagnosticReport --> <!-- @impl: src/operators/activity.ts::OperatorDispatcherCapability --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-048: bounded diagnostic report uses trusted Activity/generation and leaves execution running) --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-048: bounded diagnostic report tolerates unavailable owner logging without publishing a result) --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-063: preparation logging outage preserves denial and later authorized work) --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-048: bounded diagnostic report never extends its original human deadline) --> <!-- @test: src/__tests__/operators/fixtures/flue-native-cases.ts (REQ-OPERATOR-048: compiled diagnostic report) -->
+6. Pre-reservation parsing/capability failures report fixed categories, bounded validation-rule labels and parent-owned Activity/generation without logging credentials, prompts, bodies, arbitrary child values or exception text. <!-- @impl: src/operators/activity.ts::OperatorActivity.dispatcherOperation --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-063: preparation rejection $name preserves denial and private diagnostic wire) --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-063: identifies $name without exposing rejected data or changing authority) --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-063: bounds multiple rejected rules without retaining arbitrary issue paths or values) -->
+
+7. Terminal settlement diagnostics distinguish observed completion-tool outcomes from assessment projection using trusted Activity/generation and bounded counters. <!-- @impl: src/operators/activity.ts::OperatorActivity.reconcileDispatcherLease --> <!-- @impl: src/operators/dispatcher-result.ts::readDispatcherUpdates --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-063: terminal diagnostic wire) --> <!-- @test: src/__tests__/operators/dispatcher-result.test.ts (REQ-OPERATOR-063: observes completion) --> <!-- @test: src/__tests__/operators/fixtures/flue-native-cases.ts (REQ-OPERATOR-048: authentic pinned SDK inference producer compatibility) -->
 
 **Constraints:**
 
-- Existing parent authority and original deadlines remain mandatory; no activation or new principal is implied.
-- Detailed preserved wire and fencing clauses remain in [Operator Interface](../../documentation/lanes/operators.md#preserved-contract-details).
+- Original parent authority and deadlines remain mandatory; no activation or new principal.
+- Preserved wire/fencing details: [Operator Interface](../../documentation/lanes/operators.md#preserved-contract-details).
+- Completion: admitted completionObservationLimit (default256), ≤256 identifier characters each; reset preserves observed outcomes and foreign messages cannot spend the requested budget. <!-- @impl: src/operators/dispatcher-result.ts::readDispatcherUpdates --> <!-- @test: src/__tests__/operators/dispatcher-result.test.ts (REQ-OPERATOR-063: caps completion observations) --> <!-- @test: src/__tests__/operators/dispatcher-result.test.ts (REQ-OPERATOR-063: later compaction) --> <!-- @test: src/__tests__/operators/dispatcher-result.test.ts (REQ-OPERATOR-063: foreign reset calls cannot hide requested completion) --> <!-- @test: src/__tests__/operators/dispatcher-result.test.ts (REQ-OPERATOR-063: reset completion cap remains shared across requested messages) -->
+- Terminal logging: best-effort, no tool/model/assessment content or opaque identifiers; collection authority unchanged. <!-- @impl: src/operators/activity.ts::OperatorActivity.reconcileDispatcherLease --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-063: unavailable terminal diagnostic logging) --> <!-- @test: src/__tests__/operators/dispatcher-result.test.ts (REQ-OPERATOR-063: unassociated assessment) -->
+- Schema diagnostics: ≤4 unique closed rule labels plus truncation; no raw validation issues/arbitrary field names.
+- Reservation denials distinguish lease-mismatch/operation-limit using transaction-observed lease and parent-owned Activity/generation. <!-- @impl: src/operators/activity.ts::OperatorActivity.dispatcherOperation --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-063: reservation diagnostic wire reports) -->
+- Exhaustion: journal count/configured operation limit; existing receipt/conflict/unknown-effect-resolution admission order preserved. <!-- @impl: src/operators/activity.ts::OperatorActivity.dispatcherOperation --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-047: full Dispatcher journal preserves receipts cached retries conflicts and unknown-mutation resolution) -->
+- Reservation logging outages preserve generic403/lifecycle/original authority, including owner transport. <!-- @impl: src/operators/activity.ts::OperatorActivity.dispatcherOperation --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-063: owner reservation logging outage preserves) -->
+- Producer readiness observations follow [REQ-OPERATOR-077](#req-operator-077-bounded-producer-readiness-diagnostics).
+- Exclude bodies, assessment values, prompts, tool inputs/outputs, raw errors, credentials and opaque identifiers; never assessment/settlement authority.
+- Diagnostic data excluded from existing projected-result accounting; page/record/result/source bounds unchanged; operation capacity follows admitted policy.
 
 **Priority:** P0
 
@@ -830,6 +871,336 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 **Verification:** Automated test: [dispatcher-production.test.ts](../../src/__tests__/operators/dispatcher-production.test.ts), [flue-native-cases.ts](../../src/__tests__/operators/fixtures/flue-native-cases.ts), [dispatcher-native.test.ts](../../src/__tests__/operators/dispatcher-native.test.ts), [dispatcher-tail.test.ts](../../src/__tests__/operators/dispatcher-tail.test.ts).
 
 **Status:** Implemented
+
+---
+
+<a id="req-operator-081-retained-dispatcher-causal-evidence"></a>
+### REQ-OPERATOR-081: Retained Dispatcher causal evidence
+
+**Intent:** Owners identify observed failures and unfulfilled handoffs from retained, use-case-independent evidence without replaying work or manufacturing missing history.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Normal execution retains ordered, source-bound lifecycle evidence across admission, startup, scheduling, delivery, model/provider, tool/effect, settlement, continuation, fencing and release boundaries. <!-- @impl: src/operators/activity.ts::OperatorActivity --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-081: AC1/4/5 summary retains original binding and nonserial receipt root after retirement) -->
+2. Failure observations expose closed public reasons, bounded cause fingerprints and verified public source provenance distinguishing original from catching boundaries. <!-- @impl: src/operators/dispatcher-diagnostics-wire.ts::captureError --> <!-- @impl: src/operators/dispatcher-diagnostics-store.ts::appendDiagnostic --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-081: AC1/2/4 independent recovered failures exhaust capsules without merging attempts or changing output) -->
+3. Observable tests qualify supported capture using actual SDK receipt/application/commit/settlement evidence and distinct serial/nonserial use cases.
+4. Logical operations, charged host attempts, diagnostic sequence, SDK submission/root and independently observed SDK attempts remain distinct. <!-- @impl: src/operators/activity.ts::OperatorActivity.getDispatcherDiagnosticsV2 --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-081: AC1/2/4 independent recovered failures exhaust capsules without merging attempts or changing output) -->
+5. A common accepted SDK binding does not depend on serial or Renovate phase state. <!-- @impl: src/operators/activity.ts::OperatorActivity.getDispatcherDiagnosticsV2 --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-081: AC1/4/5 summary retains original binding and nonserial receipt root after retirement) -->
+6. Duplicate failure copies never merge independent attempts. <!-- @impl: src/operators/dispatcher-diagnostics-store.ts::appendDiagnostic --> <!-- @impl: src/operators/dispatcher-diagnostics-read.ts::readActivityDiagnostics --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-081: AC1/2/4 independent recovered failures exhaust capsules without merging attempts or changing output) -->
+7. Recovered failures never become a successful successor’s terminal cause. <!-- @impl: src/operators/dispatcher-diagnostics-read.ts::readActivityDiagnostics --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-081: AC1/2/4 independent recovered failures exhaust capsules without merging attempts or changing output) -->
+
+**Constraints:**
+
+- Version1 endpoint, selection/scan semantics, ten-second wait and64KiB response limit follow [REQ-OPERATOR-080](#req-operator-080-owned-dispatcher-lifecycle-readback) unchanged.
+- Version2 authorization, selector rejection, no-store responses and sealed binding/high-water/epoch cursors follow the [API contract](../../documentation/lanes/api-reference.md#retained-causal-diagnostics-version2).
+- [Retention bounds](../../documentation/lanes/operators.md#retained-diagnostics-storage-bounds) govern allocation, reserved capacities, independent routine eviction and explicit exhaustion.
+- [API paging](../../documentation/lanes/api-reference.md#retained-causal-diagnostics-version2) preserves record/byte/deadline ceilings and progress for every valid retained record.
+- Export only private-safe closed metadata and opaque digests under the [privacy/source contract](../../documentation/lanes/operators.md#source-owned-sdk-observations).
+- Diagnostic presentation grants no execution or replay controls.
+- No new TTL, cleanup scheduler or deletion authority.
+- [Noninterference](../../documentation/lanes/operators.md#retained-diagnostics-noninterference) prohibits authorization-boundary diagnostic awaits, reentrant awaits, invented acknowledgements, renewal, resurrection and speculative repair.
+- [SDK provenance](../../documentation/lanes/operators.md#source-owned-sdk-observations) preserves published identity, historical artifacts and successful/uncertain effects.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-OPERATOR-017](#req-operator-017-durable-drive-generations), [REQ-OPERATOR-041](#req-operator-041-owned-activity-browser-reads), [REQ-OPERATOR-063](#req-operator-063-bounded-dispatcher-diagnostics), [REQ-OPERATOR-079](#req-operator-079-shared-execution-diagnostic-control), [REQ-OPERATOR-080](#req-operator-080-owned-dispatcher-lifecycle-readback), [REQ-OPERATOR-082](#req-operator-082-diagnostic-fence-noninterference), [REQ-OPERATOR-083](#req-operator-083-retained-diagnostic-readback), [REQ-OPERATOR-084](#req-operator-084-activity-causal-diagnosis)
+
+**Verification:** Complete observable behavioral coverage and exact-source CI are required before implementation qualification. Existing version1 delivery is not version2 evidence. Hosted template activation and distinct-use-case qualification require their own receipts; legacy v24 failure identification cannot be inferred from future instrumentation. Host implementation, SDK artifact activation, hosted qualification and historical-case resolution remain separate claims.
+
+**Status:** Planned
+
+---
+
+<a id="req-operator-082-diagnostic-fence-noninterference"></a>
+### REQ-OPERATOR-082: Diagnostic fence noninterference
+
+**Intent:** Owners retain authoritative original-generation fence reasons without diagnostic capture changing execution outcomes or authority.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. The authoritative fence and its closed operational reason commit atomically under the original generation before SDK release. <!-- @impl: src/operators/activity.ts::OperatorActivity.fenceDrive --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-081: AC3 essential logging-OFF cancellation reason is readable before SDK cleanup completes) -->
+2. Logging OFF suppresses detailed diagnostic capture without suppressing essential fence state. <!-- @impl: src/operators/dispatcher-result.ts::readDispatcherUpdates --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-049/078: one disabled logging setting suppresses execution diagnostics without changing fences or effects) --> <!-- @impl: src/operators/activity.ts::OperatorActivity.fenceDrive --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-081: AC3 essential logging-OFF cancellation reason is readable before SDK cleanup completes) -->
+3. Diagnostic observation, including optional recorder failure, preserves original results or thrown values, fencing, authority and uncertain-effect no-replay guarantees. <!-- @impl: src/operators/activity.ts::OperatorActivity --> <!-- @impl: src/operators/dispatcher-diagnostics-wire.ts::captureError --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-081: AC2/3 optional recorder write failure preserves original %s outcome and essential fence) -->
+
+**Constraints:**
+
+- Version1 endpoint, selection/scan semantics, ten-second wait and64KiB response limit follow [REQ-OPERATOR-080](#req-operator-080-owned-dispatcher-lifecycle-readback) unchanged.
+- Version2 authorization, selector rejection, no-store responses and sealed binding/high-water/epoch cursors follow the [API contract](../../documentation/lanes/api-reference.md#retained-causal-diagnostics-version2).
+- [Retention bounds](../../documentation/lanes/operators.md#retained-diagnostics-storage-bounds) govern allocation, reserved capacities, independent routine eviction and explicit exhaustion.
+- [API paging](../../documentation/lanes/api-reference.md#retained-causal-diagnostics-version2) preserves record/byte/deadline ceilings and progress for every valid retained record.
+- Export only private-safe closed metadata and opaque digests under the [privacy/source contract](../../documentation/lanes/operators.md#source-owned-sdk-observations).
+- Diagnostic presentation grants no execution or replay controls.
+- No new TTL, cleanup scheduler or deletion authority.
+- [Noninterference](../../documentation/lanes/operators.md#retained-diagnostics-noninterference) prohibits authorization-boundary diagnostic awaits, reentrant awaits, invented acknowledgements, renewal, resurrection and speculative repair.
+- [SDK provenance](../../documentation/lanes/operators.md#source-owned-sdk-observations) preserves published identity, historical artifacts and successful/uncertain effects.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-OPERATOR-017](#req-operator-017-durable-drive-generations), [REQ-OPERATOR-041](#req-operator-041-owned-activity-browser-reads), [REQ-OPERATOR-063](#req-operator-063-bounded-dispatcher-diagnostics), [REQ-OPERATOR-079](#req-operator-079-shared-execution-diagnostic-control), [REQ-OPERATOR-080](#req-operator-080-owned-dispatcher-lifecycle-readback)
+
+**Verification:** Complete observable behavioral coverage and exact-source CI are required before implementation qualification. Existing version1 delivery is not version2 evidence. Hosted template activation and distinct-use-case qualification require their own receipts; legacy v24 failure identification cannot be inferred from future instrumentation. Host implementation, SDK artifact activation, hosted qualification and historical-case resolution remain separate claims.
+
+**Status:** Planned
+
+---
+
+<a id="req-operator-083-retained-diagnostic-readback"></a>
+### REQ-OPERATOR-083: Retained diagnostic readback
+
+**Intent:** Owners resume passive, bounded access to retained diagnostic evidence without mistaking retention loss or unavailable history for absence.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Finite, explicitly bounded history, reserved failure/terminal evidence and recorder health survive reconstruction, SDK retirement and result collection for the Activity’s retained lifetime. <!-- @impl: src/operators/dispatcher-diagnostics-store.ts::appendDiagnostic --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-081: AC2/4/5 routine eviction preserves pinned originating failure and invalidates old epoch cursor) --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-081: AC4/5 retained diagnostics survive final automatic collection without changing v1) -->
+2. Additive version2 owner summary, history, record-detail and multipart export GETs provide resumable access to all retained metadata under authenticated binding/high-water cursors. <!-- @impl: src/operators/dispatcher-diagnostics-read.ts::readActivityDiagnostics --> <!-- @impl: src/routes/operator-activities.ts::app --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-081: AC5 sealed history cursor survives reconstruction and fencing but fixes high-water) --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-081: AC3/5 passive v2 reads cannot reopen retired facets consume results or replay uncertainty) -->
+3. Deterministic overflow reports loss. <!-- @impl: src/operators/dispatcher-diagnostics-store.ts::appendDiagnostic --> <!-- @impl: src/operators/dispatcher-diagnostics-read.ts::readActivityDiagnostics --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-081: AC4/5 storage read failure is unavailable rather than empty complete history) --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-081: AC2/4/5 routine eviction preserves pinned originating failure and invalidates old epoch cursor) -->
+4. Version2 reads remain passive, neither migrating journals nor opening retired SDK work, renewing authority, consuming results or replaying uncertain effects. <!-- @impl: src/operators/activity.ts::OperatorActivity.getDispatcherDiagnosticsV2 --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-081: AC3/5 passive v2 reads cannot reopen retired facets consume results or replay uncertainty) -->
+5. Version1 readback remains unchanged. <!-- @impl: src/operators/activity.ts::OperatorActivity.getDispatcherDiagnosticsV2 --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-081: AC4/5 retained diagnostics survive final automatic collection without changing v1) -->
+6. Missing storage or uncaptured legacy evidence never becomes zero loss or proof of absence. <!-- @impl: src/operators/dispatcher-diagnostics-read.ts::readActivityDiagnostics --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-081: AC4/5 storage read failure is unavailable rather than empty complete history) --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-081: AC4/7 uncaptured historical unknown state stays incomplete with platform-required capability) -->
+
+**Constraints:**
+
+- Version1 endpoint, selection/scan semantics, ten-second wait and64KiB response limit follow [REQ-OPERATOR-080](#req-operator-080-owned-dispatcher-lifecycle-readback) unchanged.
+- Version2 authorization, selector rejection, no-store responses and sealed binding/high-water/epoch cursors follow the [API contract](../../documentation/lanes/api-reference.md#retained-causal-diagnostics-version2).
+- [Retention bounds](../../documentation/lanes/operators.md#retained-diagnostics-storage-bounds) govern allocation, reserved capacities, independent routine eviction and explicit exhaustion.
+- [API paging](../../documentation/lanes/api-reference.md#retained-causal-diagnostics-version2) preserves record/byte/deadline ceilings and progress for every valid retained record.
+- Export only private-safe closed metadata and opaque digests under the [privacy/source contract](../../documentation/lanes/operators.md#source-owned-sdk-observations).
+- Diagnostic presentation grants no execution or replay controls.
+- No new TTL, cleanup scheduler or deletion authority.
+- [Noninterference](../../documentation/lanes/operators.md#retained-diagnostics-noninterference) prohibits authorization-boundary diagnostic awaits, reentrant awaits, invented acknowledgements, renewal, resurrection and speculative repair.
+- [SDK provenance](../../documentation/lanes/operators.md#source-owned-sdk-observations) preserves published identity, historical artifacts and successful/uncertain effects.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-OPERATOR-017](#req-operator-017-durable-drive-generations), [REQ-OPERATOR-041](#req-operator-041-owned-activity-browser-reads), [REQ-OPERATOR-063](#req-operator-063-bounded-dispatcher-diagnostics), [REQ-OPERATOR-079](#req-operator-079-shared-execution-diagnostic-control), [REQ-OPERATOR-080](#req-operator-080-owned-dispatcher-lifecycle-readback)
+
+**Verification:** Complete observable behavioral coverage and exact-source CI are required before implementation qualification. Existing version1 delivery is not version2 evidence. Hosted template activation and distinct-use-case qualification require their own receipts; legacy v24 failure identification cannot be inferred from future instrumentation. Host implementation, SDK artifact activation, hosted qualification and historical-case resolution remain separate claims.
+
+**Status:** Planned
+
+---
+
+<a id="req-operator-084-activity-causal-diagnosis"></a>
+### REQ-OPERATOR-084: Activity causal diagnosis
+
+**Intent:** Owners distinguish observed causes from evidence gaps through accessible Activity diagnostics without inventing originating failures.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. The existing Activity surface presents the observed cause or precise evidence gap, last confirmed success, retained failed/unfulfilled transition, source/attempt distinctions, uncertainty, affected effects and a safe next evidence action. <!-- @impl: web-ui/src/components/OperatorActivityDiagnostics.tsx::OperatorActivityDiagnostics --> <!-- @test: web-ui/src/__tests__/operators/operator-management-activity.test.tsx (opens diagnostics manually for the selected Activity via authenticated GET without changing execution or its original result) --> <!-- @test: web-ui/src/__tests__/operators/operator-management-activity.test.tsx (requires correlated platform evidence for platform-only termination instead of inventing a JavaScript cause) -->
+2. The Activity surface distinguishes its retained failure reference from an independently established earliest or originating failure. <!-- @impl: web-ui/src/components/OperatorActivityDiagnostics.tsx::OperatorActivityDiagnostics --> <!-- @test: web-ui/src/__tests__/operators/operator-management-activity.test.tsx (opens diagnostics manually for the selected Activity via authenticated GET without changing execution or its original result) -->
+3. Accessible Activity timeline, adjacent record loading/details and paged export expose provenance, retention loss and capabilities. <!-- @impl: web-ui/src/components/OperatorActivityDiagnostics.tsx::OperatorActivityDiagnostics --> <!-- @test: web-ui/src/__tests__/operators/operator-management-activity.test.tsx (opens diagnostics manually for the selected Activity via authenticated GET without changing execution or its original result) --> <!-- @test: web-ui/src/__tests__/operators/operator-management-activity.test.tsx (reads a record detail with verified source links, bounded error lineage and uncertain affected effects without offering replay) --> <!-- @test: web-ui/src/__tests__/operators/operator-management-activity.test.tsx (REQ-OPERATOR-084 AC3: opens retained operation evidence inside the selected operation without replay or execution) --> <!-- @test: web-ui/src/__tests__/operators/operator-management-activity.test.tsx (announces record-detail loading without replacing the retained timeline or Activity result) -->
+4. Platform-only termination requires authoritative correlated platform evidence or an explicit missing-evidence classification. <!-- @impl: src/operators/dispatcher-diagnostics-read.ts::readActivityDiagnostics --> <!-- @test: web-ui/src/__tests__/operators/operator-management-activity.test.tsx (requires correlated platform evidence for platform-only termination instead of inventing a JavaScript cause) -->
+
+**Constraints:**
+
+- Version1 endpoint, selection/scan semantics, ten-second wait and64KiB response limit follow [REQ-OPERATOR-080](#req-operator-080-owned-dispatcher-lifecycle-readback) unchanged.
+- Version2 authorization, selector rejection, no-store responses and sealed binding/high-water/epoch cursors follow the [API contract](../../documentation/lanes/api-reference.md#retained-causal-diagnostics-version2).
+- [Retention bounds](../../documentation/lanes/operators.md#retained-diagnostics-storage-bounds) govern allocation, reserved capacities, independent routine eviction and explicit exhaustion.
+- [API paging](../../documentation/lanes/api-reference.md#retained-causal-diagnostics-version2) preserves record/byte/deadline ceilings and progress for every valid retained record.
+- Export only private-safe closed metadata and opaque digests under the [privacy/source contract](../../documentation/lanes/operators.md#source-owned-sdk-observations).
+- Diagnostic presentation grants no execution or replay controls.
+- No new TTL, cleanup scheduler or deletion authority.
+- [Noninterference](../../documentation/lanes/operators.md#retained-diagnostics-noninterference) prohibits authorization-boundary diagnostic awaits, reentrant awaits, invented acknowledgements, renewal, resurrection and speculative repair.
+- [SDK provenance](../../documentation/lanes/operators.md#source-owned-sdk-observations) preserves published identity, historical artifacts and successful/uncertain effects.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-OPERATOR-017](#req-operator-017-durable-drive-generations), [REQ-OPERATOR-041](#req-operator-041-owned-activity-browser-reads), [REQ-OPERATOR-063](#req-operator-063-bounded-dispatcher-diagnostics), [REQ-OPERATOR-079](#req-operator-079-shared-execution-diagnostic-control), [REQ-OPERATOR-080](#req-operator-080-owned-dispatcher-lifecycle-readback)
+
+**Verification:** Complete observable behavioral coverage and exact-source CI are required before implementation qualification. Existing version1 delivery is not version2 evidence. Hosted template activation and distinct-use-case qualification require their own receipts; legacy v24 failure identification cannot be inferred from future instrumentation. Host implementation, SDK artifact activation, hosted qualification and historical-case resolution remain separate claims.
+
+**Status:** Planned
+
+---
+
+<a id="req-operator-080-owned-dispatcher-lifecycle-readback"></a>
+### REQ-OPERATOR-080: Owned Dispatcher lifecycle readback
+
+**Intent:** Owners inspect durable Dispatcher lifecycle metadata without changing execution or mistaking incomplete evidence for a diagnosis.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Authenticated, account-owned reads return versioned parent lease/phase/bindings, bounded operation request/response correlations and distinct current host-attempt metadata. <!-- @impl: src/operators/activity.ts::OperatorActivity.getDispatcherDiagnostics --> <!-- @test: src/__tests__/routes/operator-activities.test.ts (REQ-OPERATOR-041: reads detail and result only after the durable index proves exact ownership without mutation) --> <!-- @test: src/__tests__/routes/operator-activities.test.ts (REQ-OPERATOR-041: browser result stays owner-scoped even when another account knows the ID) --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (old delivery tokens cannot fetch context or protected sources, and do not fence the next phase) --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-048: configured successor delays finish within the unchanged short admission and retain charged cache) -->
+2. Compatible SDK readback returns bound submission/attempt/settlement metadata and attributed instance-wide canonical/tool/finish/output metadata. <!-- @impl: src/operators/dispatcher-runtime-diagnostics.ts::readDispatcherSdkDiagnostics -->
+3. Exported snapshots exclude private content and expose only closed metadata and opaque correlations. <!-- @impl: src/operators/activity.ts::OperatorActivity.getDispatcherDiagnostics --> <!-- @impl: src/operators/dispatcher-runtime-diagnostics.ts::readDispatcherSdkDiagnostics --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (old delivery tokens cannot fetch context or protected sources, and do not fence the next phase) -->
+4. Unavailable, incomplete and changed-binding evidence remains explicit, without proving absent history or completion; charged retries do not determine logical-entry scan completeness. <!-- @impl: src/operators/activity.ts::OperatorActivity.getDispatcherDiagnostics --> <!-- @impl: src/operators/dispatcher-runtime-diagnostics.ts::readDispatcherSdkDiagnostics --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (exact deferred coverage of a lost comment response permits collection=%s without replay or clearing uncertainty) --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-041: AC5 eight-item pages preserve ascending exhaustive coverage) -->
+5. Caller SQL and selection parameters are rejected. <!-- @impl: src/routes/operator-activities.ts::app --> <!-- @test: src/__tests__/routes/operator-activities.test.ts (REQ-OPERATOR-041: reads detail and result only after the durable index proves exact ownership without mutation) -->
+6. Diagnostics reads do not consume execution results. <!-- @impl: src/operators/activity.ts::OperatorActivity.getDispatcherDiagnostics --> <!-- @test: src/__tests__/routes/operator-activities.test.ts (REQ-OPERATOR-041: reads detail and result only after the durable index proves exact ownership without mutation) -->
+7. A diagnostics-only cold wake neither recovers admission nor initializes, resumes or retires SDK work. <!-- @impl: src/operators/activity.ts::OperatorActivity --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-048: AC2 cold before-POST uncertainty admits original-generation discovery with unchanged input release and human expiry) -->
+
+**Constraints:**
+
+- Original authority, policy and deadlines remain unchanged; reads grant no admission, retry or effect authority.
+- SDK inspection supports only Flue 2.2.2/Agents 0.20.1 and the original owned artifact/class/facet; retired or unbound work is not reconstructed.
+- Fixed metadata SELECTs use no startup handshake, custom fixture method or replacement reader class.
+- Parent scans cap at1,024 metadata entries/eight highest logical ordinals; no response bodies or legacy migration; phase bindings never supply SDK attempt IDs.
+- Export limits are 64 KiB, 32 recent batches and 64 selected lifecycle records; parent enumeration and SDK access share a10-second response-wait deadline.
+- Private bodies, raw errors and state/tool/output values are excluded; identifier correlations are SHA-256 hashes.
+- Parent binding is checked before and after child access; single-facet SQL atomicity implies no cross-object atomicity or completion.
+- Omitted content, older records and chunked batches remain explicit gaps, never absent-history proof.
+- Readback creates no execution logs, reservations or lifecycle mutations.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-OPERATOR-041](#req-operator-041-owned-activity-browser-reads), [REQ-OPERATOR-048](#req-operator-048-dispatcher-execution), [REQ-OPERATOR-063](#req-operator-063-bounded-dispatcher-diagnostics)
+
+**Verification:** Maintained production cases exercise parent operation bindings/privacy, distinct host ordinals, cross-phase uncertainty and eight-record omission; owner-route cases cover ownership, forwarding and parameter rejection. The cold-parent case covers passive unbound reads and ordinary-entry recovery. These cases do not qualify full SDK metadata/completeness, deadline/scan-cap exhaustion, changed-binding handling or cold-child passivity; authorized same-Activity Enterprise Integration acceptance remains required.
+
+**Status:** Planned
+
+---
+
+<a id="req-operator-079-shared-execution-diagnostic-control"></a>
+### REQ-OPERATOR-079: Shared execution diagnostic control
+
+**Intent:** Users control execution diagnostics together while retaining bounded, private, non-authorizing failure observations.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Strict private producer reports expose closed failure codes, fingerprints, counts and evidence flags under parent-owned correlation, without charging operations or granting result authority. <!-- @impl: src/operators/dispatcher-diagnostic-wire.ts::producerDiagnosticSchema --> <!-- @impl: src/operators/activity.ts::OperatorActivity.dispatcherDiagnosticReport --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-078: producer diagnostics identify citation failure without charging, authority or private content) --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-078: producer failure reports have an independent bounded budget without consuming execution authority) -->
+2. Exact-submission SDK tool observations diagnose outcomes outside callback boundaries, including reset snapshots, without retaining private tool bodies or changing collection fences. <!-- @impl: src/operators/dispatcher-result.ts::readDispatcherUpdates --> <!-- @test: src/__tests__/operators/dispatcher-result.test.ts (REQ-OPERATOR-078: observes domain SDK %s outside callback boundaries without private input or error content) --> <!-- @test: src/__tests__/operators/dispatcher-result.test.ts (REQ-OPERATOR-078: reset observes exact-submission domain failure without retaining foreign tools or private content) --> <!-- @test: src/__tests__/operators/dispatcher-result.test.ts (REQ-OPERATOR-079: requested reset overflow reports tool truncation without consuming completion or result authority) --> <!-- @test: src/__tests__/operators/dispatcher-result.test.ts (REQ-OPERATOR-079: foreign reset overflow with parts-first=%s cannot truncate requested tool observations) -->
+3. Failed-settlement fingerprints identify observed failures with opaque reason digests and closed public codes, without exposing reasons or granting recovery. <!-- @impl: src/operators/activity.ts::OperatorActivity.reconcileDispatcherLease --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-078: SDK failure fingerprint identifies a public rejection without exposing the reason or granting recovery) -->
+4. One admitted operator logging setting suppresses all execution diagnostic channels together, preserving effects, original failures, result fences and independent security audits. <!-- @impl: src/lib/inference-diagnostics.ts::inferenceDiagnostic --> <!-- @impl: src/operators/activity.ts::OperatorActivity.dispatcherOperation --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-049/078: one disabled logging setting suppresses execution diagnostics without changing fences or effects) --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-079: the real Tail entrypoint honors logging=%s without forwarding private child records) --> <!-- @test: src/__tests__/lib/bedrock-native-diagnostics.test.ts (REQ-OPERATOR-079: disabled native logging preserves successful=%s provider completion) -->
+5. One Enable logging checkbox saves the operator-wide boolean with existing revision/disable/re-enable fences; omitted settings retain enabled compatibility, independent of installation restrictions. <!-- @impl: web-ui/src/components/OperatorManagement.tsx::OperatorDetail --> <!-- @impl: src/operators/registry.ts::OperatorRegistry.setManagementCapabilities --> <!-- @test: web-ui/src/__tests__/operators/operator-management-flow.test.tsx (loads logging=%s through the public client and saves the single execution-diagnostics checkbox) --> <!-- @test: src/__tests__/operators/operator-access.test.ts (persists %s execution logging independently of installation restrictions and Environment limits) -->
+6. Response-tool observations expose bounded allowlisted argument shape, mark incomplete sampling and exclude private values or unknown names. <!-- @impl: src/lib/inference-diagnostics.ts::inferenceResponseObservation --> <!-- @test: src/__tests__/lib/inference-diagnostics.test.ts (reconstructs fragmented SSE arguments and emits only allowlisted shape metadata) --> <!-- @test: src/__tests__/lib/inference-diagnostics.test.ts (classifies malformed or non-object arguments without exposing their content: %s) --> <!-- @test: src/__tests__/lib/inference-diagnostics.test.ts (marks call-cap overflow sampled and does not claim complete argument shape) --> <!-- @test: src/__tests__/lib/inference-diagnostics.test.ts (marks %s sampling without inventing complete argument observations) --> <!-- @test: src/__tests__/lib/inference-diagnostics.test.ts (suppresses response-shape logs when the admitted logging setting is disabled) -->
+
+
+**Constraints:**
+
+- Diagnostic privacy, trusted correlation and non-authorizing pipeline boundaries follow [REQ-OPERATOR-078](#req-operator-078-correlated-inference-pipeline-diagnostics).
+- Producer bodies are limited to2048bytes per report.
+- Each live generation permits2048 non-failed and64 failed producer reports independently of eight legacy reports.
+- SDK tool observations cap at2048; opaque correlations never enter logs.
+- Settlement fingerprints hash only the observed reason; readable codes require exact public implementation errors.
+- Unknown/private suffixes never become logged error text.
+- Logging is bounded and best-effort, not guaranteed delivery.
+- Changed-setting saves disable enabled installations for new runs until explicit re-enablement; effective no-ops preserve enablement.
+- Admitted runs retain their original logging configuration; security audits remain independent.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-OPERATOR-078](#req-operator-078-correlated-inference-pipeline-diagnostics), [REQ-OPERATOR-049](#req-operator-049-operators-management-interface)
+
+**Verification:** Automated test: adjacent bounded producer-wire, SDK-tool, settlement and management coverage; hosted CI, reviewed deployment and genuine end-to-end acceptance remain separate gates.
+
+**Status:** Implemented
+
+---
+
+<a id="req-operator-078-correlated-inference-pipeline-diagnostics"></a>
+### REQ-OPERATOR-078: Correlated inference pipeline diagnostics
+
+**Intent:** Explain observed pipeline outcomes without changing execution authority.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Fresh and cached inference observations retain the same trusted correlation without changing response bytes or reservation accounting. <!-- @impl: src/lib/inference-diagnostics.ts::inferenceDiagnostic --> <!-- @impl: src/operators/activity.ts::OperatorActivity.dispatcherOperation --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (correlates fresh and reconstructed cached %s inference without changing bytes or charging resend) --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-078: classifies inference output overflow without private content, collection or replay) -->
+2. Interceptor observations correlate route and gateway outcomes without exposing private content. <!-- @impl: src/llm-interceptor.ts::LlmInterceptor.fetch --> <!-- @test: src/__tests__/llm-interceptor.test.ts (correlates %s without exposing authority or provider data) -->
+3. Native-stream failures receive closed diagnostic classifications without changing unsuccessful completion. <!-- @impl: src/lib/bedrock-anthropic-native-adapter.ts::adaptBedrockAnthropicResponse --> <!-- @test: src/__tests__/lib/bedrock-native-diagnostics.test.ts (identifies %s while preserving failed completion and private content) -->
+4. Settlement observations report the SDK outcome and assessment availability without authorizing completion. <!-- @impl: src/operators/activity.ts::OperatorActivity.reconcileDispatcherLease --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (correlates admission SDK settlement assessment collection and honest cleanup state) --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (logs failed SDK settlement and collection refusal without pretending cleanup or success) -->
+5. Collection observations report the actual collection outcome without changing result availability. <!-- @impl: src/operators/activity.ts::OperatorActivity.collectBrowserResult --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (correlates admission SDK settlement assessment collection and honest cleanup state) --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (logs failed SDK settlement and collection refusal without pretending cleanup or success) -->
+6. Cleanup observations distinguish SDK bookkeeping release from physical cleanup status. <!-- @impl: src/operators/activity.ts::OperatorActivity.collectBrowserResult --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (correlates admission SDK settlement assessment collection and honest cleanup state) --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (classifies cleanup failure then cleanup-only recovery without losing the immutable result) -->
+7. Authorized owner detail reads inspect bounded historical journals and classify exact retained failed SDK projections without child I/O, replay or lifecycle mutation. <!-- @impl: src/operators/activity.ts::OperatorActivity.getBrowserDetail --> <!-- @impl: src/operators/activity.ts::OperatorActivity.inspectDispatcherJournal --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-063: owner inspection diagnoses an existing cached native error without replay or lifecycle mutation) --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (owner read classifies retained %s without exposing content or restarting work) --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (foreign failed settlement cannot create an owner failure classification) --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-079: logging OFF suppresses retained SDK failure inspection without changing owner state) -->
+
+**Constraints:**
+
+- Existing diagnostic privacy and non-authorizing boundaries follow [REQ-OPERATOR-063](#req-operator-063-bounded-dispatcher-diagnostics).
+- Correlation uses parent-owned Activity/generation, durable operation ordinal and validated request/response digests; metadata is closed categories, counts, bytes, durations and flags.
+- Inference-attempt observations include admitted attempt limit, attempt index, charged count/ordinal and closed classification, never prompts or raw errors. <!-- @impl: src/lib/inference-diagnostics.ts::inferenceDiagnostic --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-078: inference attempts emit only closed metadata under logging=%s) --> <!-- @test: src/__tests__/lib/inference-diagnostics.test.ts (REQ-OPERATOR-078: the attempt diagnostic wire accepts only safe counters and closed outcomes) -->
+- Logging failures preserve response bytes, cached charges, original read errors, cancellation, authority, deadlines and lifecycle outcomes.
+- Response commitment classifies the bounded reader's overflow as `body-limit`; other read failures remain `body-read`, without raw errors or body content.
+- Owner inspection is read-only: ≤1,024 entries in32-record pages, ≤8 selected responses with matching stored digests; SSE sampling is ≤64KiB/256 final lines.
+- SDK bookkeeping release never establishes physical cleanup or completion authority.
+- Producer/SDK observations and shared logging control are owned by [REQ-OPERATOR-079](#req-operator-079-shared-execution-diagnostic-control).
+
+**Priority:** P0
+
+**Dependencies:** [REQ-OPERATOR-063](#req-operator-063-bounded-dispatcher-diagnostics), [REQ-OPERATOR-049](#req-operator-049-operators-management-interface)
+
+**Verification:** Automated test: Named pipeline, lifecycle, native and owner-inspection tests above; hosted CI and deployed acceptance remain separate.
+
+**Status:** Implemented
+
+---
+
+### REQ-OPERATOR-077: Bounded producer readiness diagnostics
+
+**Intent:** Explain observed producer readiness without changing result authority.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Exact-submission producer readiness observations appear as bounded, non-authorizing flags, counts and fixed categories in the existing trusted terminal diagnostic. <!-- @impl: src/operators/dispatcher-result.ts::readDispatcherUpdates --> <!-- @impl: src/operators/activity.ts::OperatorActivity.reconcileDispatcherLease --> <!-- @test: src/__tests__/operators/dispatcher-result.test.ts (REQ-OPERATOR-063: readiness.v1 projects an exact producer snapshot without granting assessment authority) --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-063: readiness.v1 terminal wire exposes trusted closed %s metadata without accepting a missing assessment) --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-063: invalid readiness.v1 terminal wire cannot expose content or block validated collection) --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-063: readiness.v1 logging outage preserves actual result and SDK release) --> <!-- @test: src/__tests__/operators/fixtures/flue-native-cases.ts (REQ-OPERATOR-063: authentic failed finish emits undiscovered readiness but no assessment or effects) -->
+
+**Constraints:**
+
+- Allowlist: discovered/sealed booleans, target/decision/result/unknown-operation nonnegative safe-integer counts, ready/undiscovered/unknown-operation/incomplete-results/schema/oversized/emission categories.
+- Readiness uses admitted readinessBytes/readinessObservationLimit (defaults4096bytes/256 observations); latest-valid exact-submission metadata survives compaction; replayed positions deduplicated. <!-- @impl: src/operators/dispatcher-result.ts::readDispatcherUpdates --> <!-- @test: src/__tests__/operators/dispatcher-result.test.ts (REQ-OPERATOR-063: readiness.v1 caps observation work at32 without consuming result allowance) --> <!-- @test: src/__tests__/operators/dispatcher-result.test.ts (REQ-OPERATOR-063: readiness.v1 survives compaction which omits earlier producer metadata) --> <!-- @test: src/__tests__/operators/dispatcher-result.test.ts (REQ-OPERATOR-063: readiness.v1 replay cannot consume the observation allowance twice) -->
+- Malformed/excessive metadata only truncates diagnostics; foreign records cannot affect requested observations or otherwise-valid assessment/collection/SDK release. <!-- @impl: src/operators/dispatcher-result.ts::readDispatcherUpdates --> <!-- @test: src/__tests__/operators/dispatcher-result.test.ts (REQ-OPERATOR-063: invalid readiness.v1 %s cannot retain content or deny a valid assessment) --> <!-- @test: src/__tests__/operators/dispatcher-result.test.ts (REQ-OPERATOR-063: foreign readiness.v1 records cannot create metadata or truncate exact metadata) -->
+- Original authority, deadlines and page/record/result/operation/source bounds remain mandatory; diagnostic data is excluded from projected-result accounting.
+- No bodies, assessments, prompts, tool content, raw errors, credentials or opaque identifiers; logging remains best-effort and never result/settlement authority.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-OPERATOR-048](#req-operator-048-dispatcher-execution)
+
+**Verification:** Automated test: Named projection/production/native tests above.
+
+**Status:** Implemented
+
+---
+
+### REQ-OPERATOR-076: Bounded seal preflight diagnostics
+
+**Intent:** Explain observed producer seal branches without changing result authority or lifecycle outcomes.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Exact-submission seal observations retain only the [closed preflight fields](../../documentation/lanes/operators.md#non-authorizing-dispatcher-diagnostics). <!-- @impl: src/operators/dispatcher-result.ts::readDispatcherUpdates --> <!-- @test: src/__tests__/operators/dispatcher-result.test.ts (REQ-OPERATOR-076: seal-preflight.v1 projects exact %s metadata without assessment authority) --> <!-- @test: src/__tests__/operators/dispatcher-result.test.ts (REQ-OPERATOR-076: seal-preflight.v1 %s retains unknown counts as null not fabricated zero) --> <!-- @test: src/__tests__/operators/dispatcher-result.test.ts (REQ-OPERATOR-076: seal-preflight.v1 exact reset association survives %s member order) --> <!-- @test: src/__tests__/operators/dispatcher-result.test.ts (REQ-OPERATOR-076: foreign seal-preflight.v1 cannot consume exact observations or alter validated assessment) -->
+2. Advancing updates retain the latest valid seal observation. <!-- @impl: src/operators/dispatcher-result.ts::readDispatcherUpdates --> <!-- @test: src/__tests__/operators/dispatcher-result.test.ts (REQ-OPERATOR-076: seal-preflight.v1 keeps latest valid metadata across pages and replay without result accounting) --> <!-- @test: src/__tests__/operators/dispatcher-result.test.ts (REQ-OPERATOR-076: seal-preflight.v1 survives reset omission of earlier metadata) --> <!-- @test: src/__tests__/operators/dispatcher-result.test.ts (REQ-OPERATOR-076: seal-preflight.v1 retains latest valid observation when later metadata is invalid) -->
+3. Replayed update positions cannot duplicate seal observations. <!-- @impl: src/operators/dispatcher-result.ts::readDispatcherUpdates --> <!-- @test: src/__tests__/operators/dispatcher-result.test.ts (REQ-OPERATOR-076: seal-preflight.v1 keeps latest valid metadata across pages and replay without result accounting) --> <!-- @test: src/__tests__/operators/dispatcher-result.test.ts (REQ-OPERATOR-076: distinct seal records count across resets while replayed positions do not) -->
+4. Invalid seal metadata only marks diagnostic truncation. <!-- @impl: src/operators/dispatcher-result.ts::readDispatcherUpdates --> <!-- @test: src/__tests__/operators/dispatcher-result.test.ts (REQ-OPERATOR-076: invalid seal-preflight.v1 %s cannot retain content or deny actual assessment) --> <!-- @test: src/__tests__/operators/dispatcher-result.test.ts (REQ-OPERATOR-076: seal-preflight.v1 data-before-name overflow truncates only diagnostic work) --> <!-- @test: src/__tests__/operators/dispatcher-result.test.ts (REQ-OPERATOR-076: seal-preflight.v1 never relaxes oversized actual assessment denial) -->
+5. Seal observations have a separate admission cap from readiness metadata and result accounting. <!-- @impl: src/operators/dispatcher-result.ts::readDispatcherUpdates --> <!-- @test: src/__tests__/operators/dispatcher-result.test.ts (REQ-OPERATOR-076: seal-preflight.v1 limits32 observations separately from valid assessment and readiness) -->
+6. Trusted terminal diagnostics report bounded seal fields without granting result authority. <!-- @impl: src/operators/activity.ts::OperatorActivity.reconcileDispatcherLease --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-076: seal-preflight.v1 trusted terminal %s metadata cannot authorize missing assessment) --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-076: invalid seal-preflight.v1 cannot expose private content or block validated collection) -->
+7. Authorized collection remains available through diagnostic logger failure. <!-- @impl: src/operators/activity.ts::OperatorActivity.reconcileDispatcherLease --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-076: seal-preflight.v1 logger outage preserves actual collection and SDK release) -->
+
+**Constraints:**
+
+- Separate `dispatcher-seal-preflight` channel; original readiness fields/categories and result authority unchanged.
+- Exactly category, targetCount, decisionCount, operationCount, operationLimit, requiredOperationCount and sealed; closed categories and count bounds follow the linked contract. <!-- @test: src/__tests__/operators/dispatcher-result.test.ts (REQ-OPERATOR-076: seal metadata accepts configured %i capacity without granting assessment authority) -->
+- At most512 encoded bytes/value and32 exact-submission observations; invalid/excess metadata only truncates diagnostics.
+- Diagnostic data is excluded from existing result-record accounting; page/record/result/source/operation bounds and authorization/revision/generation/deadline fences remain unchanged.
+- No prompts, bodies, assessment values, tool payloads, raw errors, credentials or opaque identifiers; foreign records never affect exact observations.
+- Best-effort terminal logging leaves collection and SDK release unchanged; missing metadata proves neither skipped sealing nor a historical cause.
+- Ready sealing is not effects, finish, validated result, collection or cleanup; nullable producer counts are observations, never capacity reservations.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-OPERATOR-063](#req-operator-063-bounded-dispatcher-diagnostics).
+
+**Verification:** Projection/production and authentic generated SDK emission tests; historical RED established missing diagnostics. Hosted GREEN, official artifact/release/installation identity, live effects, validated collection, SDK release and cleanup remain separate gates. <!-- @test: src/__tests__/operators/fixtures/flue-native-cases.ts (REQ-OPERATOR-076: authentic SDK emits seal observations across refused, ordinary, overflow and retry journeys) --> <!-- @test: src/__tests__/operators/fixtures/flue-native-cases.ts (REQ-OPERATOR-076: authentic failed seal emits closed undiscovered preflight without effects or assessment) -->
+
+**Status:** Implemented
+
+---
 
 ## Owned sessions, inert inputs and explicit persistence
 
@@ -856,7 +1227,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-004](#req-operator-004-shared-restrictive-interception)
 
-**Verification:** Owned-session and container-context behavior is covered by the adjacent tests. Deployed stop and concurrency acceptance remain unverified.
+**Verification:** Automated test: Owned-session and container-context behavior is covered by the adjacent tests. Deployed stop and concurrency acceptance remain unverified.
 
 **Status:** Implemented
 
@@ -885,7 +1256,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-005](#req-operator-005-owned-operator-session-lifecycle)
 
-**Verification:** Structured Pi conversation behavior is covered by the adjacent host tests.
+**Verification:** Automated test: Structured Pi conversation behavior is covered by the adjacent host tests.
 
 **Status:** Implemented
 
@@ -914,7 +1285,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-005](#req-operator-005-owned-operator-session-lifecycle), [REQ-OPERATOR-021](#req-operator-021-structured-owned-pi-conversation)
 
-**Verification:** Restricted startup and shutdown selection is covered by the adjacent tests. Deployed stop acceptance remains unverified.
+**Verification:** Automated test: Restricted startup and shutdown selection is covered by the adjacent tests. Deployed stop acceptance remains unverified.
 
 **Status:** Implemented
 
@@ -940,7 +1311,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-004](#req-operator-004-shared-restrictive-interception)
 
-**Verification:** R2 transport behavior passed exact-head CI 35285707512 at `137ffcb5` and deployed activity `e44f0abe-8097-46d5-9265-8a4750024b8e` independently verified the exact uploaded marker bytes.
+**Verification:** Automated test: R2 transport behavior passed exact-head CI 35285707512 at `137ffcb5` and deployed activity `e44f0abe-8097-46d5-9265-8a4750024b8e` independently verified the exact uploaded marker bytes.
 
 **Status:** Implemented
 
@@ -968,7 +1339,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-020](#req-operator-020-operator-scoped-r2-interception), [REQ-OPERATOR-022](#req-operator-022-restricted-operator-container-lifecycle)
 
-**Verification:** Explicit-sync behavior is covered by the adjacent host tests.
+**Verification:** Automated test: Explicit-sync behavior is covered by the adjacent host tests.
 
 **Status:** Implemented
 
@@ -995,7 +1366,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-023](#req-operator-023-explicit-operator-synchronization)
 
-**Verification:** Independent byte verification is covered by the adjacent tests. Exact-head CI 35169456503 at `0ce22c80` is GREEN. Deployed file-to-R2 restoration remains unverified.
+**Verification:** Automated test: Independent byte verification is covered by the adjacent tests. Exact-head CI 35169456503 at `0ce22c80` is GREEN. Deployed file-to-R2 restoration remains unverified.
 
 **Status:** Implemented
 
@@ -1030,7 +1401,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-047](#req-operator-047-generic-directed-profile-admission), [REQ-OPERATOR-005](#req-operator-005-owned-operator-session-lifecycle)
 
-**Verification:** Adjacent capability, attachment and owned-session tests cover the delivered generic boundary. The claimed packet path and compiled Conductor fixture are candidates pending exact-head CI; no deployed protected Action or live restore receipt is proven.
+**Verification:** Automated test: Adjacent capability, attachment and owned-session tests cover the delivered generic boundary. The claimed packet path and compiled Conductor fixture are candidates pending exact-head CI; no deployed protected Action or live restore receipt is proven.
 
 **Status:** Partial
 
@@ -1059,7 +1430,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-030](#req-operator-030-immutable-approved-bundle-validation), [REQ-OPERATOR-050](#req-operator-050-generic-conductor-capability)
 
-**Verification:** Adjacent package, attachment and startup tests cover the delivered behavior; exact-head CI remains outstanding.
+**Verification:** Automated test: Adjacent package, attachment and startup tests cover the delivered behavior; exact-head CI remains outstanding.
 
 **Status:** Partial
 
@@ -1091,7 +1462,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-021](#req-operator-021-structured-owned-pi-conversation), [REQ-OPERATOR-024](#req-operator-024-independent-synchronization-verification), [REQ-OPERATOR-025](#req-operator-025-optional-encrypted-webhook-handoff), [REQ-OPERATOR-027](#req-operator-027-owned-activity-user-surface)
 
-**Verification:** Consumer invocation acceptance, immutable reconciliation and session-origin behavior are covered by the adjacent behavioral tests.
+**Verification:** Automated test: Consumer invocation acceptance, immutable reconciliation and session-origin behavior are covered by the adjacent behavioral tests.
 
 **Status:** Implemented
 
@@ -1120,7 +1491,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-009](#req-operator-009-reusable-platform-interfaces-and-bounded-consumer-fixtures)
 
-**Verification:** Attachment bounds, canonical names and authority rejection are covered by the adjacent consumer-contract tests.
+**Verification:** Automated test: Attachment bounds, canonical names and authority rejection are covered by the adjacent consumer-contract tests.
 
 **Status:** Implemented
 
@@ -1150,7 +1521,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-009](#req-operator-009-reusable-platform-interfaces-and-bounded-consumer-fixtures), [REQ-OPERATOR-037](#req-operator-037-bounded-operator-consumer-inputs)
 
-**Verification:** Direct, session, webhook and local-review regression fixtures are covered by the adjacent tests.
+**Verification:** Automated test: Direct, session, webhook and local-review regression fixtures are covered by the adjacent tests.
 
 **Status:** Implemented
 
@@ -1178,7 +1549,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-002](#req-operator-002-enterprise-distribution-registration)
 
-**Verification:** Webhook-key generation, rotation and protected storage are covered by the adjacent tests.
+**Verification:** Automated test: Webhook-key generation, rotation and protected storage are covered by the adjacent tests.
 
 **Status:** Implemented
 
@@ -1211,7 +1582,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-016](#req-operator-016-durable-activity-admission-and-cleanup), [REQ-OPERATOR-018](#req-operator-018-request-attached-operator-orchestration)
 
-**Verification:** Capability consumption and activity-result behavior is covered by the adjacent tests.
+**Verification:** Automated test: Capability consumption and activity-result behavior is covered by the adjacent tests.
 
 **Status:** Implemented
 
@@ -1238,7 +1609,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-006](#req-operator-006-capability-authenticated-webhook-activity), [REQ-OPERATOR-012](#req-operator-012-protected-operator-webhook-keys)
 
-**Verification:** Optional encrypted webhook handoff is covered by the adjacent tests. Public-host callback acceptance in both handoff modes remains unverified.
+**Verification:** Automated test: Optional encrypted webhook handoff is covered by the adjacent tests. Public-host callback acceptance in both handoff modes remains unverified.
 
 **Status:** Implemented
 
@@ -1264,7 +1635,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-006](#req-operator-006-capability-authenticated-webhook-activity)
 
-**Verification:** Managed bypass behavior is covered by the adjacent tests. Exact-head CI 35171737437 at `2ac5a5c0` is GREEN.
+**Verification:** Automated test: Managed bypass behavior is covered by the adjacent tests. Exact-head CI 35171737437 at `2ac5a5c0` is GREEN.
 
 **Status:** Implemented
 
@@ -1291,7 +1662,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-006](#req-operator-006-capability-authenticated-webhook-activity), [REQ-OPERATOR-026](#req-operator-026-managed-webhook-edge-bypass)
 
-**Verification:** Webhook edge behavior is covered by the adjacent route tests.
+**Verification:** Automated test: Webhook edge behavior is covered by the adjacent route tests.
 
 **Status:** Implemented
 
@@ -1315,7 +1686,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-006](#req-operator-006-capability-authenticated-webhook-activity)
 
-**Verification:** Non-consuming status and not-ready behavior is covered by the adjacent activity test.
+**Verification:** Automated test: Non-consuming status and not-ready behavior is covered by the adjacent activity test.
 
 **Status:** Implemented
 
@@ -1348,7 +1719,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-013](#req-operator-013-enterprise-operator-administration-authorization), [REQ-OPERATOR-045](#req-operator-045-delegated-management-and-invocation), [REQ-OPERATOR-049](#req-operator-049-operators-management-interface), [REQ-OPERATOR-032](#req-operator-032-secret-safe-administration-readback)
 
-**Verification:** Enterprise operator administration is covered by the adjacent component and client tests.
+**Verification:** Automated test: Enterprise operator administration is covered by the adjacent component and client tests.
 
 **Status:** Implemented
 
@@ -1367,20 +1738,28 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 2. Catalog, registration, promotion, installation, grants and activity states expose no stored secrets. <!-- @impl: src/routes/operator-management.ts::presentInstallation --> <!-- @impl: src/operators/registry.ts::managementProjection --> <!-- @test: src/__tests__/operators/operator-access.test.ts (REQ-OPERATOR-049 AC2: management registration, detail and catalog never return the stored GitHub credential) --> <!-- @test: src/__tests__/operators/operator-access.test.ts (REQ-OPERATOR-049 AC2: installed release and grant projections do not reveal stored credentials) -->
 3. Detail leads with the uniquely enabled installed pin; ambiguous or unavailable pins remain distinguishable rather than borrowing another release. <!-- @test: web-ui/src/__tests__/operators/operator-management-redesign.test.tsx (REQ-OPERATOR-049: labels catalog enablement concisely for enabled and disabled operators) --> <!-- @impl: web-ui/src/components/OperatorManagement.tsx::OperatorManagement --> <!-- @test: web-ui/src/__tests__/operators/operator-management-redesign.test.tsx (refreshes verified metadata for an older installed pin without changing its enablement) --> <!-- @test: web-ui/src/__tests__/operators/operator-management.test.tsx (makes the installed version primary and updates the existing installation without creating another) --> <!-- @test: web-ui/src/__tests__/operators/operator-management-flow.test.tsx (reconciles a created but unpinned installation when %s without a duplicate or automatic enable) --> <!-- @test: web-ui/src/__tests__/operators/operator-management-flow.test.tsx (requires an explicit configuration choice when more than one is enabled) --> <!-- @test: web-ui/src/__tests__/operators/operator-management-flow.test.tsx (distinguishes an installed pin with unavailable release details from no installation) --> <!-- @test: web-ui/src/__tests__/operators/operator-management-flow.test.tsx (shows verified tag and publication time on installed and selectable versions while labelling legacy records honestly) --> <!-- @test: src/__tests__/operators/operator-catalog.test.ts (projects the uniquely enabled pinned version rather than an arbitrary other release for multiple installations) --> <!-- @test: web-ui/src/__tests__/operators/operator-management-redesign.test.tsx (presents the authored name, category and verified installed version in the catalog instead of an opaque release number) --> <!-- @test: web-ui/src/__tests__/operators/operator-management-redesign.test.tsx (does not pretend an unverified installed version is a release number) --> <!-- @test: web-ui/src/__tests__/operators/operator-management-redesign.test.tsx (offers each alternative version once with its description and publication date beside the choice) -->
 4. Search filters as the person types without submission; stale responses cannot replace newer results. <!-- @impl: web-ui/src/components/OperatorManagement.tsx::OperatorManagement --> <!-- @impl: web-ui/src/api/operator-management.ts::listManagedOperators --> <!-- @test: web-ui/src/__tests__/operators/operator-management-redesign.test.tsx (presents first-party display names without replacing verified package identity or collapsing release details into status) --> <!-- @test: web-ui/src/__tests__/operators/operator-management-redesign.test.tsx (does not assign the first-party name to a third-party Dispatcher or a mismatched repository identity) --> <!-- @test: web-ui/src/__tests__/operators/operator-management-redesign.test.tsx (reveals Search beside Register, filters as the person types, and clears on close without a submit) --> <!-- @test: web-ui/src/__tests__/operators/operator-management-redesign.test.tsx (ignores late search responses when a newer search has already resolved) --> <!-- @test: web-ui/src/__tests__/operators/operator-management-redesign.test.tsx (separates verified package identity from the category and keeps source replacement out of restrictions) -->
-5. Operator ceilings remain editable separately from installation restrictions; changes disable installations without discarding saved policies. <!-- @impl: web-ui/src/components/OperatorManagement.tsx::OperatorManagement --> <!-- @test: web-ui/src/__tests__/operators/operator-management-redesign.test.tsx (separates verified package identity from the category and keeps source replacement out of restrictions) --> <!-- @test: web-ui/src/__tests__/operators/operator-management-redesign.test.tsx (edits the operator capability ceiling after registration without silently editing an installation or keeping it enabled) --> <!-- @test: web-ui/src/__tests__/operators/operator-management-redesign.test.tsx (keeps saved missing grants, distinguishes unverified choices and shows local save feedback) --> <!-- @test: web-ui/src/__tests__/operators/operator-management-flow.test.tsx (explains global action limits and scope labels without raw capability keys or suggesting that an ID provisions resources) -->
+5. Operator ceilings remain editable separately from installation restrictions; changes disable installations without discarding saved policies. <!-- @test: web-ui/src/__tests__/operators/operator-source-response-suite.tsx (REQ-OPERATOR-045/049: explains limit ownership and resets inference to its default without changing other fields) --> <!-- @test: web-ui/src/__tests__/operators/operator-source-response-suite.tsx (REQ-OPERATOR-045/049: source default resets update only the selected ceiling or installation draft) --> <!-- @impl: web-ui/src/components/OperatorManagement.tsx::OperatorManagement --> <!-- @test: web-ui/src/__tests__/operators/operator-management-redesign.test.tsx (separates verified package identity from the category and keeps source replacement out of restrictions) --> <!-- @test: web-ui/src/__tests__/operators/operator-management-redesign.test.tsx (edits the operator capability ceiling after registration without silently editing an installation or keeping it enabled) --> <!-- @test: web-ui/src/__tests__/operators/operator-management-redesign.test.tsx (keeps saved missing grants, distinguishes unverified choices and shows local save feedback) --> <!-- @test: web-ui/src/__tests__/operators/operator-management-flow.test.tsx (explains global action limits and scope labels without raw capability keys or suggesting that an ID provisions resources) -->
 6. Responsive controls retain focus and scrolling for long names and errors. <!-- @impl: web-ui/src/components/OperatorManagement.tsx::OperatorManagement --> <!-- @test: web-ui/src/__tests__/operators/operator-management.test.tsx (retains the registration control and visible long error on a narrow viewport) --> <!-- @manual: Verify keyboard focus and scrolling on narrow and wide browser viewports. -->
 7. Mobile sections remain horizontal and retain save feedback beside the action without silently enabling installations. <!-- @impl: web-ui/src/components/OperatorManagement.tsx::OperatorManagement --> <!-- @test: web-ui/src/__tests__/operators/operator-management-flow.test.tsx (confirms a restriction save beside its action without silently enabling the installation) -->
 
 **Constraints:**
 
 - The management surface cannot grant authority beyond server-side policy.
+- Operator-wide execution logging is owned by [REQ-OPERATOR-079](#req-operator-079-shared-execution-diagnostic-control).
+- Size guidance distinguishes received-response ceilings/allowances from model-input limits. <!-- @impl: web-ui/src/components/OperatorManagement.tsx::OperatorManagement --> <!-- @test: web-ui/src/__tests__/operators/operator-source-response-suite.tsx (REQ-OPERATOR-045/049: explains limit ownership and resets inference to its default without changing other fields) -->
+- Every capacity input has descriptive help and a right-edge MDI autorenew icon resetting its own approved default draft, without saving or bypassing ceilings. <!-- @test: web-ui/src/__tests__/operators/operator-source-response-suite.tsx (REQ-OPERATOR-045/049: $label exposes accessible help/default/reset and persists across reopening) -->
+- Runtime numeric controls use one mobile column, two medium-screen columns and three wide-desktop columns. <!-- @impl: web-ui/src/components/OperatorManagement.tsx::OperatorDetail --> <!-- @manual: Verify input/reset alignment and column count at narrow, medium and wide browser viewports. --> <!-- @impl: web-ui/src/components/OperatorManagement.tsx::OperatorManagement --> <!-- @test: web-ui/src/__tests__/operators/operator-source-response-suite.tsx (REQ-OPERATOR-045/049: source default resets update only the selected ceiling or installation draft) -->
+- Operator operation capacity defaults/reset to1024; guidance explains journal accounting and workload headroom, not guaranteed completion. <!-- @impl: web-ui/src/components/OperatorManagement.tsx::OperatorDetail --> <!-- @test: web-ui/src/__tests__/operators/operator-source-response-suite.tsx (REQ-OPERATOR-045/049: explains and persists operation budget independently then resets to 1024) --> <!-- @test: web-ui/src/__tests__/operators/operator-source-response-suite.tsx (REQ-OPERATOR-049: reset defaults remain subject to a lower inherited source ceiling) -->
+- Submission attempt limit defaults/resets to1024; explicit save preserves independent inference/operation settings and original admission pins. <!-- @impl: web-ui/src/components/OperatorManagement.tsx::OperatorDetail --> <!-- @test: web-ui/src/__tests__/operators/operator-source-response-suite.tsx (REQ-OPERATOR-045/049: submission attempts %i persist independently and reset to 1024) --> <!-- @test: src/__tests__/operators/fixtures/flue-native-cases.ts (REQ-OPERATOR-045/011/048: SDK admits the saved submission limit %s independently of inference retries) --> <!-- @test: src/__tests__/operators/fixtures/flue-native-cases.ts (REQ-OPERATOR-011/048: a recovered SDK submission retains its original admitted attempt limit) -->
+- Max inference attempts defaults/resets to4; concise limit help explains initial-attempt inclusion, optional retry cost and unchanged write fences. <!-- @impl: web-ui/src/components/OperatorManagement.tsx::OperatorDetail --> <!-- @test: web-ui/src/__tests__/operators/operator-source-response-suite.tsx (REQ-OPERATOR-045/049: max inference attempts %i persist independently and reset to four) -->
+- Enable/Disable labels are concise; logging has standard form spacing above it. <!-- @impl: web-ui/src/components/OperatorManagement.tsx::OperatorDetail --> <!-- @manual: Verify the repeat action and logging spacing on narrow and wide viewports after delivery. -->
 - Catalog profile pills use the selected theme accent; detail pills and muted catalog metadata retain their colors. <!-- @impl: web-ui/src/components/OperatorManagement.tsx::OperatorManagement --> <!-- @manual: Run scripts/browser/check-operator-pill-colors.js in a real browser on the catalog and each profile's detail view under two selected accent themes; every returned color comparison must match. -->
 
 **Priority:** P0
 
 **Dependencies:** [REQ-OPERATOR-045](#req-operator-045-delegated-management-and-invocation), [REQ-OPERATOR-046](#req-operator-046-explicit-release-promotion)
 
-**Verification:** The remaining management criteria have current route and UI test anchors and were present in the earlier CI-proven management surface. Catalog Enabled/Disabled copy passed exact-head PR Checks `36497242563` at `5eaae7d470a4123fee0e0259bb702cadb61b3464` (frontend shard-3, Typecheck, aggregate). The guided-launcher acceptance still pending is owned by REQ-OPERATOR-058; Enterprise Integration responsive visual acceptance remains a separate release gate.
+**Verification:** Management route/UI tests; historical Enabled/Disabled copy coverage passed. Guided-launcher acceptance remains pending under REQ-OPERATOR-058; responsive Enterprise Integration visual acceptance is separate.
 
 **Status:** Implemented
 
@@ -1397,7 +1776,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 1. Only authorized pinned Dispatcher installations expose a guided launcher; other packages have none. <!-- @impl: web-ui/src/components/OperatorManagement.tsx::OperatorManagement --> <!-- @impl: web-ui/src/components/OperatorManagementActivity.tsx::OperatorManagementActivity --> <!-- @test: web-ui/src/__tests__/operators/operator-management-activity.test.tsx (binds invocation to the selected installation and never renders its single-use start capability) -->
 2. Selected repository and PR values prefill editable fields without a global default or an Activity start on opening. <!-- @impl: web-ui/src/components/OperatorManagement.tsx::OperatorManagement --> <!-- @test: web-ui/src/__tests__/operators/operator-management-redesign.test.tsx (REQ-OPERATOR-058: carries a user-chosen editable repository and PR to the guided Dispatcher form without preparing activity) --> <!-- @test: web-ui/src/__tests__/operators/operator-management-redesign.test.tsx (REQ-OPERATOR-058: never supplies a universal repository or PR when no target was selected) -->
-3. Repository journeys submit only the selected repository under the installed manifest contract and disclose discovery, research, comments and conditional merges. <!-- @impl: src/routes/operator-activities.ts::app --> <!-- @impl: web-ui/src/components/OperatorManagementActivity.tsx::OperatorManagementActivity --> <!-- @test: web-ui/src/__tests__/operators/operator-management-activity.test.tsx (uses the installed repository-only contract, discloses effects, and ignores PR query input until explicit start) --> <!-- @test: web-ui/src/__tests__/operators/operator-management-activity.test.tsx (preserves legacy read-only disclosure and rejects nonpositive PR input) -->
+3. Repository journeys submit only the selected repository under the installed manifest contract and disclose discovery, research, comments and conditional merges. <!-- @impl: src/routes/operator-activities.ts::app --> <!-- @impl: web-ui/src/components/OperatorManagementActivity.tsx::OperatorManagementActivity --> <!-- @test: web-ui/src/__tests__/operators/operator-management-activity.test.tsx (REQ-OPERATOR-061: configured Renovate run settings make the modern target read-only and ignore malicious repository and PR URL overrides until explicit start) --> <!-- @test: web-ui/src/__tests__/operators/operator-management-activity.test.tsx (preserves legacy read-only disclosure and rejects nonpositive PR input) -->
 4. An uncertain start blocks another start until the exact prepared activity is reconciled by its owner. <!-- @impl: web-ui/src/components/OperatorManagementActivity.tsx::OperatorManagementActivity --> <!-- @test: web-ui/src/__tests__/operators/operator-management-activity.test.tsx (does not allow another start after an uncertain response until the prepared activity is reconciled) -->
 5. Failed preparation cannot be reconciled against a previous activity. <!-- @impl: web-ui/src/components/OperatorManagementActivity.tsx::OperatorManagementActivity --> <!-- @test: web-ui/src/__tests__/operators/operator-management-activity.test.tsx (does not reconcile failed preparation against an earlier accepted activity) -->
 
@@ -1410,7 +1789,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-049](#req-operator-049-operators-management-interface), [REQ-OPERATOR-045](#req-operator-045-delegated-management-and-invocation)
 
-**Verification:** Schema-derived journey/legacy guidance and behavioral wire/copy tests are implemented locally but have not run at this correction head. The earlier failed PR Checks 36363151786 is historical, not verification of this candidate. Exact-head CI and responsive Enterprise Integration acceptance remain pending.
+**Verification:** Schema-derived journey/legacy wire and copy tests are authored but unrun at the correction head; exact-head CI and responsive Enterprise Integration acceptance remain pending.
 
 **Status:** Implemented
 
@@ -1440,7 +1819,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-008](#req-operator-008-enterprise-operator-administration-surface), [REQ-OPERATOR-049](#req-operator-049-operators-management-interface)
 
-**Verification:** Installed-selection and first-installation tests at the adjacent anchors; retained release metadata/fallback rendering remains manual, with current-head regression/CI pending.
+**Verification:** Automated test: Installed-selection and first-installation tests at the adjacent anchors; retained release metadata/fallback rendering remains manual, with current-head regression/CI pending.
 
 **Status:** Implemented
 
@@ -1464,7 +1843,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-008](#req-operator-008-enterprise-operator-administration-surface), [REQ-OPERATOR-049](#req-operator-049-operators-management-interface)
 
-**Verification:** Configured-identity selection is covered by the adjacent public form/save test. Explanatory action/resource wording remains manual, not established by selector or source assertions; current-head CI is pending.
+**Verification:** Automated test: Configured-identity selection is covered by the adjacent public form/save test. Explanatory action/resource wording remains manual, not established by selector or source assertions; current-head CI is pending.
 
 **Status:** Implemented
 
@@ -1602,9 +1981,44 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-006](#req-operator-006-capability-authenticated-webhook-activity), [REQ-OPERATOR-016](#req-operator-016-durable-activity-admission-and-cleanup)
 
-**Verification:** Earlier activity behavior passed exact-head CI 35174509964 at `e03c48ec`. The current five-entry owner history, unread and overview behavior passed exact-head PR Checks `36494117864` at `369e11db3824ee1973a79a67da7463a0df44881d`. Authenticated Enterprise Integration browser observations covered mobile/desktop guided prefill, in-app owner detail, and header paging 5→5→5→4 and back, but older persisted summaries displayed UUID titles. Historical metadata RED at `7730c0526c151555f63cab0ff263e636f2893f80` / PR Checks `36533355151` failed the expected missing Activity summary method and missing owner-page enrichment, alongside six typing errors in the new route tests, corrected before implementation; the bounded correction at `b2f25cf7da48372a70a8440d38b1f062d06e6815` passed exact-head PR Checks `36534633865` attempt 2, including the owner-route/Activity tests, Typecheck, Node-Flue and aggregate. Attempt 1 failed only because Wrangler returned a non-JSON `Error: Net...` response in the unchanged malformed-model Node-Flue test; its root cause remains unproved. Enterprise Integration rollout `36536119109` deployed the correction at `05ab38a4d3851fc6f4db2f5d43ef79aeb432c590` with inline exact-tree CI. On the Access-protected Enterprise Integration origin `https://enterprise.codeflare.ch`, fresh authenticated DOM/content inspection showed historical Renovate Dispatcher and Codeflare Gate 1 fixture names rather than UUIDs, with available `repository · PR` context at 390×844; its 19 entries paged 5→5→5→4 and back. The completed owned Activity opened readable in-app assessment detail; the 1440×900 header retained resolved labels. Measured horizontal overflow was absent in both viewports. Mobile and desktop screenshots showed readable historical labels and owned detail; long repository/PR context wrapped within the desktop card without clipping. This verifies the observed visual presentation, not the untested admission and isolation edges. A later, separately authorized one-off Komodo #1299 admission created Activity `b4375b9f-f985-4c01-af35-4ef973e9d5b0`: the header unread badge showed 1, opening the dropdown acknowledged it, and the owner row and detail showed waiting execution with a saved checkpoint and pending result. This is natural new-admission and unread-acknowledgement evidence, not settled execution or a fabricated UI test. The 20-per-operator edge is unverified, and the user elected to test second-account isolation themselves; neither may be claimed from this one-account observation.
+**Verification:** Activity, owner-route and UI tests; historical mobile/desktop observations covered labels, paging, readable detail and fresh-admission unread acknowledgment, not settlement. The 20-per-operator edge, second-account isolation and other admission/isolation edges remain unverified.
 
 **Status:** Implemented
+
+---
+
+<a id="req-operator-085-evidence-qualified-sdk-release-observation"></a>
+### REQ-OPERATOR-085: Evidence-qualified SDK release observation
+
+**Intent:** Owners see confirmed Dispatcher SDK release without confusing it with physical cessation or new execution authority.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Owner summary, detail, collection and retained overview report a matched Dispatcher SDK release as `cleanupStatus: released`. <!-- @impl: src/operators/activity.ts::browserSummary --> <!-- @impl: src/operators/activity.ts::OperatorActivity.collectBrowserResult --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-085: confirmed SDK release is visible across owner projections and reconstruction) --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-085: exact fenced SDK release remains known without restarting cancelled work) -->
+2. Missing or mismatched release evidence leaves cleanup pending, or stopping during cancellation. <!-- @impl: src/operators/activity.ts::sdkCleanupReleased --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-085: unconfirmed cleanup preserves the immutable result without reporting release) --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-085: mismatched %s cannot confirm SDK release) -->
+3. The browser accepts released detail only with `sdkCleanupReleased: true`; server-confirmed summaries need no private SDK fields. <!-- @impl: web-ui/src/api/operator-activities.ts::getOperatorActivity --> <!-- @test: web-ui/src/__tests__/api/operator-activities.test.ts (REQ-OPERATOR-085: accepts confirmed SDK release without claiming physical cessation) --> <!-- @test: web-ui/src/__tests__/api/operator-activities.test.ts (REQ-OPERATOR-085: rejects %s SDK release confirmation) --> <!-- @test: web-ui/src/__tests__/api/operator-activities.test.ts (REQ-OPERATOR-085: accepts a server-confirmed released owner summary) -->
+4. Released detail displays **SDK release confirmed**, never an unknown or physically stopped cleanup label. <!-- @impl: web-ui/src/components/OperatorActivityButton.tsx::OperatorActivityButton --> <!-- @test: web-ui/src/__tests__/components/OperatorActivityButton.test.tsx (REQ-OPERATOR-085: renders confirmed SDK release without an unknown or stopped cleanup label) --> <!-- @test: web-ui/src/__tests__/components/OperatorActivityButton.test.tsx (REQ-OPERATOR-085: pending cleanup is not rendered as confirmed release) -->
+5. Ordinary owner-detail cleanup refresh preserves newer execution/collection state, result bytes and unread-admission identity. <!-- @impl: src/operators/activity.ts::OperatorActivity.getBrowserDetail --> <!-- @impl: src/operators/registry.ts::upsertOwnedActivity --> <!-- @test: src/__tests__/operators/activity-state.test.ts (REQ-OPERATOR-085: owner detail reconciles the retained release summary without a new admission) --> <!-- @test: src/__tests__/operators/activity-state.test.ts (REQ-OPERATOR-085: delayed %s cannot regress concurrent %s) -->
+
+**Constraints:**
+
+- Release proof uses the existing current-generation or exact fenced-predecessor matcher with original input/artifact binding.
+- Current-generation proof has no lease-status prerequisite.
+- SDK release does not prove physical cessation; physical-cleanup observations remain independently unknown.
+- Projection refresh introduces no admission, submission, effect replay, cleanup retry, deadline/authority renewal, journal migration or result consumption.
+- Existing ordinary cold-entry recovery remains unchanged.
+- Diagnostics v2 stays passive and manual.
+- Enterprise-only, owner-scoped authorization and safe summary fields remain unchanged.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-OPERATOR-027](#req-operator-027-owned-activity-user-surface), [REQ-OPERATOR-016](#req-operator-016-durable-activity-admission-and-cleanup), [REQ-OPERATOR-083](#req-operator-083-retained-diagnostic-readback)
+
+**Verification:** The original 13-instance cleanup batch preceded implementation; RED run38797398842 failed on the intended projection, wire and label contracts. Run38805420931 passed candidate0566fa47, but review identified a retained-summary race. Exact-head RED run38808111567 failed all six added AC5 concurrency instances at retained-page preservation, covering collection/completion/cancellation across delayed reads/writes with equal timestamps; the shard's other465 tests passed. The correction now re-reads admission after observing the retained row and conditionally publishes against that row inside the Registry transaction. Final exact-head GREEN and same-Activity hosted readback remain pending.
+
+**Status:** Planned
 
 ---
 
@@ -1628,7 +2042,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-027](#req-operator-027-owned-activity-user-surface), [REQ-OPERATOR-041](#req-operator-041-owned-activity-browser-reads)
 
-**Verification:** New behavior awaits exact-head CI and Enterprise Integration desktop/mobile inspection.
+**Verification:** Automated test: New behavior awaits exact-head CI and Enterprise Integration desktop/mobile inspection.
 
 **Status:** Planned
 
@@ -1643,11 +2057,11 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Acceptance Criteria:**
 
-1. Owned in-app detail presents published Review reports as readable fields, without raw API JSON or arbitrary result fields. <!-- @impl: src/operators/activity.ts::getBrowserDetail --> <!-- @impl: web-ui/src/components/OperatorActivityButton.tsx::resultView --> <!-- @test: src/__tests__/routes/operator-activities.test.ts (REQ-OPERATOR-041: browser GET preserves original Review reports and settled Dispatcher assessment without collection) --> <!-- @test: web-ui/src/__tests__/components/OperatorActivityButton.test.tsx (REQ-OPERATOR-057: presents original Review lane findings and incomplete reports as readable evidence, not raw JSON) --> <!-- @test: web-ui/src/__tests__/components/OperatorActivityButton.test.tsx (REQ-OPERATOR-057: summarizes the actual Dispatcher assessment and rejects opaque result bytes) --> <!-- @test: web-ui/src/__tests__/components/OperatorActivityButton.test.tsx (REQ-OPERATOR-057: reads the cited Dispatcher compatibility assessment without equating safe with merge readiness) --> <!-- @test: web-ui/src/__tests__/components/OperatorActivityButton.test.tsx (REQ-OPERATOR-057: distinguishes unsafe assessment and refuses malformed or unreadable evidence) -->
-2. Every published Review report, omission and finding remains represented beyond the former preview limits; fields outside the safe readable limit are explicitly marked unavailable. <!-- @impl: web-ui/src/components/OperatorActivityButton.tsx::resultView --> <!-- @test: web-ui/src/__tests__/components/OperatorActivityButton.test.tsx (REQ-OPERATOR-057: presents every Review report, omission and finding without hiding later evidence) --> <!-- @test: web-ui/src/__tests__/components/OperatorActivityButton.test.tsx (REQ-OPERATOR-057: keeps early and late Review findings and omissions readable together) --> <!-- @test: web-ui/src/__tests__/components/OperatorActivityButton.test.tsx (REQ-OPERATOR-057: marks unreadable Review evidence explicitly without exposing unsafe text) -->
+1. Owned in-app detail presents published Review reports as readable fields, without raw API JSON or arbitrary result fields. <!-- @impl: src/operators/activity.ts::getBrowserDetail --> <!-- @impl: web-ui/src/components/OperatorActivityResult.tsx::OperatorActivityResult --> <!-- @test: src/__tests__/routes/operator-activities.test.ts (REQ-OPERATOR-041: browser GET preserves original Review reports and settled Dispatcher assessment without collection) --> <!-- @test: web-ui/src/__tests__/components/OperatorActivityButton.test.tsx (REQ-OPERATOR-057: presents original Review lane findings and incomplete reports as readable evidence, not raw JSON) --> <!-- @test: web-ui/src/__tests__/components/OperatorActivityButton.test.tsx (REQ-OPERATOR-057: summarizes the actual Dispatcher assessment and rejects opaque result bytes) --> <!-- @test: web-ui/src/__tests__/components/OperatorActivityButton.test.tsx (REQ-OPERATOR-057: reads the cited Dispatcher compatibility assessment without equating safe with merge readiness) --> <!-- @test: web-ui/src/__tests__/components/OperatorActivityButton.test.tsx (REQ-OPERATOR-057: distinguishes unsafe assessment and refuses malformed or unreadable evidence) -->
+2. Every published Review report, omission and finding remains represented beyond the former preview limits; fields outside the safe readable limit are explicitly marked unavailable. <!-- @impl: web-ui/src/components/OperatorActivityResult.tsx::OperatorActivityResult --> <!-- @test: web-ui/src/__tests__/components/OperatorActivityButton.test.tsx (REQ-OPERATOR-057: presents every Review report, omission and finding without hiding later evidence) --> <!-- @test: web-ui/src/__tests__/components/OperatorActivityButton.test.tsx (REQ-OPERATOR-057: keeps early and late Review findings and omissions readable together) --> <!-- @test: web-ui/src/__tests__/components/OperatorActivityButton.test.tsx (REQ-OPERATOR-057: marks unreadable Review evidence explicitly without exposing unsafe text) -->
 3. Detail distinguishes execution, cleanup, collection and explicit attention without turning stale observations into alerts, retaining progress and source/session links. <!-- @impl: web-ui/src/components/OperatorActivityButton.tsx::OperatorActivityButton --> <!-- @test: web-ui/src/__tests__/components/OperatorActivityButton.test.tsx (opens an in-app owner-scoped readable result, with diagnostics and a way back, without collecting or restarting) --> <!-- @test: web-ui/src/__tests__/components/OperatorActivityButton.test.tsx (REQ-OPERATOR-027: labels an old working observation as stale but reserves attention for an explicit signal) -->
 
-4. Owned in-app detail presents settled Dispatcher evidence as readable fields, without raw API JSON or arbitrary result fields. <!-- @impl: src/operators/activity.ts::getBrowserDetail --> <!-- @impl: web-ui/src/components/OperatorActivityButton.tsx::resultView --> <!-- @test: web-ui/src/__tests__/components/OperatorActivityButton.test.tsx (REQ-OPERATOR-057: summarizes the actual Dispatcher assessment and rejects opaque result bytes) --> <!-- @test: web-ui/src/__tests__/components/OperatorActivityButton.test.tsx (REQ-OPERATOR-057: reads the cited Dispatcher compatibility assessment without equating safe with merge readiness) --> <!-- @test: web-ui/src/__tests__/components/OperatorActivityButton.test.tsx (REQ-OPERATOR-057: distinguishes unsafe assessment and refuses malformed or unreadable evidence) -->
+4. Owned in-app detail presents settled Dispatcher evidence as readable fields, without raw API JSON or arbitrary result fields. <!-- @impl: src/operators/activity.ts::getBrowserDetail --> <!-- @impl: web-ui/src/components/OperatorActivityResult.tsx::OperatorActivityResult --> <!-- @test: web-ui/src/__tests__/components/OperatorActivityButton.test.tsx (REQ-OPERATOR-057: summarizes the actual Dispatcher assessment and rejects opaque result bytes) --> <!-- @test: web-ui/src/__tests__/components/OperatorActivityButton.test.tsx (REQ-OPERATOR-057: reads the cited Dispatcher compatibility assessment without equating safe with merge readiness) --> <!-- @test: web-ui/src/__tests__/components/OperatorActivityButton.test.tsx (REQ-OPERATOR-057: distinguishes unsafe assessment and refuses malformed or unreadable evidence) -->
 
 **Constraints:**
 
@@ -1657,7 +2071,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-027](#req-operator-027-owned-activity-user-surface), [REQ-OPERATOR-041](#req-operator-041-owned-activity-browser-reads)
 
-**Verification:** Exact-head PR Checks `36494117864` at `369e11db3824ee1973a79a67da7463a0df44881d` passed current in-app Review and nested Dispatcher-result tests, Typecheck and aggregate. The cited compatibility assessment is not merge authorization. Mobile result navigation on Enterprise Integration remains unverified under separate acceptance tasks.
+**Verification:** In-app Review and nested Dispatcher-result tests passed historically; compatibility evidence is not merge authorization. Enterprise Integration mobile result navigation remains unverified.
 
 **Status:** Implemented
 
@@ -1674,8 +2088,8 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 1. The dashboard header places the operator control after the user control and before Settings. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @impl: web-ui/src/components/Header.tsx::Header --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-OPERATOR-040 AC1: places the operator control between the user menu and settings in enterprise mode) --> <!-- @test: web-ui/src/__tests__/components/Header.test.tsx (REQ-OPERATOR-040: Enterprise operator placement) -->
 2. Terminal headers place the operator control between VS Code and Storage. <!-- @impl: web-ui/src/components/Header.tsx::Header --> <!-- @test: web-ui/src/__tests__/components/Header.test.tsx (REQ-OPERATOR-040: Enterprise operator placement) -->
-3. The panel is called “Operator overview.” <!-- @impl: web-ui/src/components/OperatorActivityButton.tsx::OperatorActivityButton --> <!-- @test: web-ui/src/__tests__/components/OperatorActivityButton.test.tsx (REQ-OPERATOR-040: uses concise explanatory copy without redundant refresh or close controls) -->
-4. The panel explains that operators are autonomous agents that work in the background. <!-- @impl: web-ui/src/components/OperatorActivityButton.tsx::OperatorActivityButton --> <!-- @test: web-ui/src/__tests__/components/OperatorActivityButton.test.tsx (REQ-OPERATOR-040: uses concise explanatory copy without redundant refresh or close controls) -->
+3. The panel is called “Operators” and retains its existing header trigger. <!-- @impl: web-ui/src/components/OperatorActivityButton.tsx::OperatorActivityButton --> <!-- @test: web-ui/src/__tests__/components/OperatorActivityButton.test.tsx (REQ-OPERATOR-040: uses concise explanatory copy without redundant refresh or close controls) -->
+4. Persistent Runs and Installed segments distinguish owned execution history from installations; contextual help explains one-time invocation and separately configured automatic runs. <!-- @impl: web-ui/src/components/OperatorActivityButton.tsx::OperatorActivityButton --> <!-- @test: web-ui/src/__tests__/components/OperatorActivityButton.test.tsx (REQ-OPERATOR-040: uses concise explanatory copy without redundant refresh or close controls) -->
 5. Desktop and tablet render the activity control as an anchored popover. <!-- @impl: web-ui/src/styles/header.css::.operator-activity-panel --> <!-- @impl: web-ui/src/components/OperatorActivityButton.tsx::OperatorActivityButton --> <!-- @test: web-ui/src/__tests__/components/OperatorActivityButton.test.tsx (renders the panel outside the control so no filtered ancestor can contain it, anchored to the trigger) --> <!-- @manual: Owner verifies the opened overview remains anchored at desktop and tablet widths. -->
 6. Mobile renders the activity control as a bottom sheet. <!-- @impl: web-ui/src/styles/header.css::.operator-activity-panel --> <!-- @manual: Owner verifies the opened overview is bottom-fixed at mobile width. -->
 7. An open overview closes when the viewport width changes. <!-- @impl: web-ui/src/components/OperatorActivityButton.tsx::OperatorActivityButton --> <!-- @test: web-ui/src/__tests__/components/OperatorActivityButton.test.tsx (closes on a width change so a measured layout cannot outlive the width it was measured at, but survives height-only resizes) -->
@@ -1688,7 +2102,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-027](#req-operator-027-owned-activity-user-surface)
 
-**Verification:** Placement and copy are covered by adjacent component tests (`Dashboard.test.tsx`, `Header.test.tsx`, `OperatorActivityButton.test.tsx`). AC5 and AC6 are owner-verified manually.
+**Verification:** Automated test: Placement and copy are covered by adjacent component tests (`Dashboard.test.tsx`, `Header.test.tsx`, `OperatorActivityButton.test.tsx`). AC5 and AC6 are owner-verified manually.
 
 **Status:** Implemented
 
@@ -1703,8 +2117,8 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Acceptance Criteria:**
 
-1. An empty or single-completed-entry overview uses a compact 168px height. <!-- @impl: web-ui/src/components/OperatorActivityButton.tsx::OperatorActivityButton --> <!-- @test: web-ui/src/__tests__/components/OperatorActivityButton.test.tsx (uses compact sizing for completed-only history) --> <!-- @manual: Owner verifies the 168px compact height at desktop, tablet, and mobile viewports. -->
-2. An overview with working activities or multiple retained entries, including completed-only history, occupies a bounded panel of up to 60vh within the viewport. <!-- @impl: web-ui/src/components/OperatorActivityButton.tsx::OperatorActivityButton --> <!-- @impl: web-ui/src/styles/header.css::.operator-activity-panel--active --> <!-- @test: web-ui/src/__tests__/components/OperatorActivityButton.test.tsx (uses compact sizing for completed history and returns to it when work completes) --> <!-- @manual: Owner verifies the 60vh working height at desktop, tablet, and mobile viewports. -->
+1. An empty or single-completed-entry Runs overview uses content-sized compact presentation that accommodates the segment controls, search and footer without clipping. <!-- @impl: web-ui/src/components/OperatorActivityButton.tsx::OperatorActivityButton --> <!-- @test: web-ui/src/__tests__/components/OperatorActivityButton.test.tsx (uses compact sizing for completed-only history) --> <!-- @manual: Verify compact content, segmented navigation and footer remain usable at desktop, tablet, and mobile viewports. -->
+2. An overview with working activities or multiple retained entries, including completed-only history, and Installed, manual-review and run-detail views occupy a bounded panel of up to 60vh within the viewport. <!-- @impl: web-ui/src/components/OperatorActivityButton.tsx::OperatorActivityButton --> <!-- @impl: web-ui/src/styles/header.css::.operator-activity-panel--active --> <!-- @test: web-ui/src/__tests__/components/OperatorActivityButton.test.tsx (REQ-OPERATOR-086: overview changes only on manual refresh, not timer, focus or reconnect) --> <!-- @manual: Owner verifies the 60vh working height at desktop, tablet, and mobile viewports. -->
 3. The bounded multi-entry overview scrolls its activity list while preserving accessible history and keyboard navigation. <!-- @impl: web-ui/src/styles/header.css::.operator-activity-list --> <!-- @manual: Owner verifies list scrolling at desktop, tablet, and mobile viewports. -->
 
 **Constraints:**
@@ -1715,9 +2129,52 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-040](#req-operator-040-owned-activity-control-presentation)
 
-**Verification:** Manual check.
+**Verification:** Component behavior tests and integration-browser visual acceptance verify the content-sized compact and bounded populated views; exact-head qualification for the dropdown redesign is pending.
 
-**Status:** Partial
+**Status:** Planned
+
+---
+
+<a id="req-operator-086-dropdown-runs-and-installed-workspace"></a>
+### REQ-OPERATOR-086: Dropdown Runs and Installed workspace
+
+**Intent:** People inspect owned runs and explicitly invoke visible installations inside the existing header dropdown without changing the surrounding dashboard or conferring new authority.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. The existing enterprise-only trigger opens a portalled, anchored dropdown with persistent Runs and Installed segments and nested back navigation. Keyboard dismissal, outside clicks, focus return, responsive bottom-sheet positioning and width-change dismissal remain intact.
+2. Runs and Installed present up to five entries per page through identical `LOAD 5 MORE` and `NEWER 5` navigation, including pages with no search matches. <!-- @impl: web-ui/src/components/OperatorActivityPages.tsx::OperatorActivityPages --> <!-- @test: web-ui/src/__tests__/components/OperatorDropdown.test.tsx (AC2: %s uses identical five-entry navigation through every row and back) -->
+3. Safe optional pinned-version and outcome-count metadata can accompany owner summaries without result-body fetching for each row. Missing metadata is unavailable, not zero; execution completion and merge outcomes remain distinct.
+4. Detail presents execution, collection and SDK release independently, readable bounded assessments and supported Review reports, an expandable full assessment, validated repository/PR/comment links, copyable full identity and one-step manually opened diagnostics. Text is inert, and incomplete evidence is never an all-clear. <!-- @impl: web-ui/src/components/OperatorActivityButton.tsx::OperatorActivityButton --> <!-- @impl: web-ui/src/components/OperatorActivityResult.tsx::OperatorActivityResult --> <!-- @test: web-ui/src/__tests__/components/OperatorDropdown.test.tsx (AC4: exposes full bounded multiline assessments and safe PR links without treating SDK release as physical cessation) --> <!-- @test: web-ui/src/__tests__/components/OperatorDropdown.test.tsx (AC4: never creates external assessment links from an untrusted repository path or opaque URL) --> <!-- @test: web-ui/src/__tests__/components/OperatorDropdown.test.tsx (AC4: keeps explicitly opened diagnostics visible across elapsed time, focus and reconnect) --> <!-- @test: web-ui/src/__tests__/components/OperatorActivityButton.test.tsx (REQ-OPERATOR-057: presents original Review lane findings and incomplete reports as readable evidence, not raw JSON) -->
+5. Installed enumerates every installation the current verified human may invoke or manage in five-entry pages selected after grant filtering, including multiple configurations per operator and across operators. <!-- @impl: src/operators/registry.ts::OperatorRegistry.listManagementInstallationPage --> <!-- @impl: web-ui/src/api/operator-management.ts::listOperatorInstallations --> <!-- @test: src/__tests__/operators/operator-catalog.test.ts (enumerates every authorized installation in five-entry pages across operators without empty operator pages or skipped configurations) --> <!-- @test: src/__tests__/operators/operator-catalog.test.ts (filters issuer-bound group visibility before the five-entry page: $issuer, groups=$groups) --> <!-- @test: web-ui/src/__tests__/api/operator-activities.test.ts (rejects a six-installation response rather than silently showing a different page size) -->
+6. Each installation preserves its own identity, pin and readiness. Disabled, unapproved, stale, unsupported or permission-limited installations cannot launch; sample inventory and Ready state are never fabricated. Existing supported guided input schemas remain authoritative.
+7. Manual invocation and supported automatic-run settings are adjacent but independent. Scheduling changes use the existing authorized, revision-checked management flow and preserve unrelated policy/configuration; unsupported or non-managed scheduling is explanatory, not a fake toggle. Saving configuration never silently enables a disabled installation.
+8. Manual review reads the selected installation's current preview and displays its real version, configured repository or supported editable legacy input, effect disclosure and unchanged scheduling. Opening, switching segments and cancelling review do not prepare work.
+9. Explicit Start one run uses the existing prepare/start contract once for the selected installation. Pending submission prevents duplicate work. An uncertain start requires reconciliation of the exact prepared Activity before another launch; unresolved preparation cannot be reconciled with an earlier Activity. Start capability bytes are never rendered or retained in UI state, and no mutation is blindly replayed.
+10. Dropdown presentation retains Codeflare's compact monospace hierarchy, color/spacing tokens, configured accent and controls, desktop/tablet trigger anchoring, mobile bottom-sheet safe-area padding, unchanged dashboard styling and structure, and usable, recoverable narrow/short-viewport states with visible, unclipped search focus inside its border. <!-- @impl: web-ui/src/styles/operator-dropdown.css::.operator-dropdown.operator-activity-panel --> <!-- @impl: web-ui/src/styles/operator-dropdown.css::.operator-run-search:focus-within --> <!-- @manual: Inspect Runs, detail, Installed and manual review on desktop, tablet, narrow and short viewports, including loading, empty, denied, stale, long-content and error states, search alignment, 20%-taller search fields with an inward focus outline and neither side clipped, general focus visibility, diagnostic section separation, adjacent record details, scrolling and unchanged surrounding UI. -->
+
+**Constraints:**
+
+- Existing owner isolation, enterprise gating, authenticated grants, CSRF, installation revisions, approved pins and input validation remain authoritative.
+- Runs and Installed searches are page-local with explicit scope disclosure and uppercase Runs-only operator-filter labels. <!-- @impl: web-ui/src/components/OperatorActivityButton.tsx::OperatorActivityButton --> <!-- @impl: web-ui/src/components/OperatorInstalled.tsx::OperatorInstalled --> <!-- @test: web-ui/src/__tests__/components/OperatorDropdown.test.tsx (AC2: Installed search filters only the current page and survives empty matches, pagination and manual-review back navigation) --> <!-- @test: web-ui/src/__tests__/components/OperatorDropdown.test.tsx (AC2: filters the visible page by operator independently of execution state) -->
+- Page, query and filter context survive pagination, empty matches, segment switches, retries, details and manual-review returns. <!-- @test: web-ui/src/__tests__/components/OperatorDropdown.test.tsx (AC2: preserves current-page search and pagination when details return or no rows match) --> <!-- @test: web-ui/src/__tests__/components/OperatorDropdown.test.tsx (AC2/10: retries an unavailable Installed page without losing its five-entry cursor or search) -->
+- Invocation and management grants remain independent; globally ineligible managers cannot enumerate installations; platform-admin management visibility never implies invocation. <!-- @test: src/__tests__/operators/operator-catalog.test.ts (keeps management visibility and invocation independent for %s) --> <!-- @test: src/__tests__/routes/operator-installations.test.ts (does not turn platform-admin management visibility into an invocation grant) -->
+- Opaque pagination cursors identify the last returned installation, never its operator.
+- Unknown, foreign and newly revoked installation cursors fail closed. <!-- @impl: src/routes/operator-activities.ts::app --> <!-- @test: src/__tests__/operators/operator-catalog.test.ts (rejects unknown, foreign and newly revoked installation cursors without leaking hidden records) -->
+- Insertions do not skip original remaining installation identities. <!-- @test: src/__tests__/operators/operator-catalog.test.ts (keeps original remaining installation identities reachable when another installation arrives between pages) -->
+- No new scheduler, invocation schema, installation permission, default repository, global theme, imported font, dashboard shell or screenshot-coordinate positioning is introduced.
+- Status/diagnostics reads do not start, restart, renew, replay or collect work. SDK release does not prove physical cessation.
+- Existing catalog/management and full activity surfaces remain available; unsupported manual invocation is explained rather than invented.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-OPERATOR-027](#req-operator-027-owned-activity-user-surface), [REQ-OPERATOR-033](#req-operator-033-activity-surface-resilience), [REQ-OPERATOR-040](#req-operator-040-owned-activity-control-presentation), [REQ-OPERATOR-042](#req-operator-042-activity-overview-sizing-follows-working-state), [REQ-OPERATOR-045](#req-operator-045-delegated-management-and-invocation), [REQ-OPERATOR-057](#req-operator-057-readable-owned-activity-results), [REQ-OPERATOR-058](#req-operator-058-guided-dispatcher-invocation)
+
+**Verification:** The two-correction behavior plan is mapped to AC2/5/10. Test-only RED at `1c8e5a08` is confirmed by [CI39119495798](https://github.com/nikolanovoselec/codeflare/actions/runs/39119495798): old page sizes/cursors, navigation copy and client response bound fail the intended contracts. The user accepts the other dropdown functionality. Final GREEN CI and deployed visual acceptance of these two corrections remain required; static checks and component tests do not establish rendered focus visibility.
+
+**Status:** Planned
 
 ---
 
@@ -1733,17 +2190,26 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 1. Authenticated activity-detail requests expose only account-owned activities. <!-- @impl: src/routes/operator-activities.ts::owned --> <!-- @impl: src/routes/operator-activities.ts::browserDetail --> <!-- @impl: src/operators/registry.ts::listOwnedActivities --> <!-- @impl: src/operators/activity.ts::getBrowserDetail --> <!-- @test: src/__tests__/routes/operator-activities.test.ts (REQ-OPERATOR-041: reads detail and result only after the durable index proves exact ownership without mutation) -->
 2. Authenticated result requests expose only account-owned activities, including the in-app result read. <!-- @impl: src/routes/operator-activities.ts::owned --> <!-- @impl: src/routes/operator-activities.ts::browserDetail --> <!-- @impl: web-ui/src/api/operator-activities.ts::getOperatorActivity --> <!-- @test: src/__tests__/routes/operator-activities.test.ts (REQ-OPERATOR-041: browser result stays owner-scoped even when another account knows the ID) --> <!-- @test: web-ui/src/__tests__/api/operator-activities.test.ts (reads owned result through the authenticated non-consuming GET) --> <!-- @test: web-ui/src/__tests__/components/OperatorActivityButton.test.tsx (opens an in-app owner-scoped readable result, with diagnostics and a way back, without collecting or restarting) -->
 3. Activity GET requests are non-effectful. <!-- @impl: src/routes/operator-activities.ts::handleBrowserDetail --> <!-- @test: src/__tests__/routes/operator-activities.test.ts (REQ-OPERATOR-041: reads detail and result only after the durable index proves exact ownership without mutation) -->
+4. Result GETs expose original persisted protected-write response associations from the exact immediately retired cancel-requested or unknown intent4 lease, without child or remote-source I/O, authority renewal or state changes. <!-- @impl: src/operators/activity.ts::OperatorActivity.retiredEffectReceipts --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-041: AC4 cancelled original comment remains attributable over HTTP) --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-041: AC4 original merge success binds the frozen head and remote SHA) -->
+5. Receipt pages present stable, bounded original history with truthful completeness and unresolved-evidence states. <!-- @impl: src/operators/activity.ts::OperatorActivity.retiredEffectReceipts --> <!-- @impl: src/routes/operator-activities.ts::handleBrowserDetail --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-041: AC5 reconstructed receipt pages are stable and do not consume results) --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-041: AC5 eight-item pages preserve ascending exhaustive coverage) --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-041: AC5 selection changed during awaited storage reads is unavailable) -->
+6. Receipt output includes only validated public effect identities, original pins and opaque identity hashes, never private payloads, headers, tokens or raw execution identities. <!-- @impl: src/operators/activity.ts::OperatorActivity.retiredEffectReceipts --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-041: AC6 validated public identity is returned without private content) -->
+7. The strict client accepts the optional versioned receipt wire and rejects malformed claims. <!-- @impl: web-ui/src/api/operator-activities.ts::getOperatorActivity --> <!-- @test: web-ui/src/__tests__/api/operator-activities.test.ts (accepts validated optional receipts without consuming or losing original result data) -->
 
 **Constraints:**
 
 - Data routes are enterprise-only.
-- Data routes are owner-scoped.
+- Data routes are owner-scoped; receipt reads add no additional ownership restriction.
+- Receipt reads never migrate, replay, resolve, resume, collect or change journals, SDK storage, charges, lifecycle or execution fences.
+- Each receipt GET scans at most1,024 metadata entries and selects at most8 mutation responses; incomplete enumeration cannot claim complete attribution.
+- Selection and integrity gaps fail closed; missing original responses, unknown/reserved writes and resolution-only records remain unresolved.
+- Plain detail, collection and historical read contracts remain unchanged. <!-- @impl: src/routes/operator-activities.ts::handleBrowserDetail --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-041: AC7 result-only scope preserves detail and collection responses) -->
+- Comment response-body digests identify returned text, not missing submitted request bodies; historical delivery hashes do not establish unavailable token-history equality.
 
 **Priority:** P0
 
 **Dependencies:** [REQ-OPERATOR-006](#req-operator-006-capability-authenticated-webhook-activity), [REQ-OPERATOR-016](#req-operator-016-durable-activity-admission-and-cleanup)
 
-**Verification:** Server ownership is covered by the route tests. In-app client/result tests are added for GREEN; RED PR Checks 36362489370 failed before the client existed, so final exact-head verification is pending.
+**Verification:** Automated test: Adjacent route, Activity and browser-client tests cover ownership, non-consuming reads, original receipt binding, bounded paging, integrity/privacy failures, strict client validation and unchanged execution fences. Manual test: Verify stored receipts against the exact hosted effects without restarting the retired Activity or replaying writes; hosted attribution remains unverified.
 
 **Status:** Implemented
 
@@ -1772,7 +2238,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-006](#req-operator-006-capability-authenticated-webhook-activity), [REQ-OPERATOR-016](#req-operator-016-durable-activity-admission-and-cleanup), [REQ-OPERATOR-027](#req-operator-027-owned-activity-user-surface)
 
-**Verification:** Owner-scoped cancellation and CSRF-protected browser start are covered by the adjacent route tests. The browser client test proves rejected mutations are attempted once.
+**Verification:** Automated test: Owner-scoped cancellation and CSRF-protected browser start are covered by the adjacent route tests. The browser client test proves rejected mutations are attempted once.
 
 **Status:** Implemented
 
@@ -1793,6 +2259,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 4. Stale, loading and error states remain distinguishable and recoverable; in-app detail distinguishes pending, failed, unknown, unavailable, incomplete and already-collected outcomes without consuming result authority. <!-- @impl: web-ui/src/components/OperatorActivityButton.tsx::OperatorActivityButton --> <!-- @test: web-ui/src/__tests__/components/OperatorActivityButton.test.tsx (REQ-OPERATOR-027: readable owned activity and bounded history) -->
 5. Account switching does not expose another owner's activity. <!-- @impl: src/routes/operator-activities.ts --> <!-- @test: src/__tests__/routes/operator-activities.test.ts (REQ-OPERATOR-027: authenticated owned activity browser surfaces) -->
 6. The activity surface remains usable on mobile. <!-- @impl: web-ui/src/components/OperatorActivityButton.tsx::OperatorActivityButton --> <!-- @manual: Verify the opened activity surface, controls and scrolling at a mobile viewport; inline-style assertions are not visual acceptance. -->
+7. Dropdown list, detail and diagnostic snapshots change only on initial loading or explicit opening, navigation, actions, Refresh or retry; elapsed time, focus, visibility and reconnect never refresh them. <!-- @impl: web-ui/src/components/OperatorActivityButton.tsx::OperatorActivityButton --> <!-- @test: web-ui/src/__tests__/components/OperatorActivityButton.test.tsx (REQ-OPERATOR-086) --> <!-- @test: web-ui/src/__tests__/components/OperatorActivityButton.test.tsx (REQ-OPERATOR-057: manually refreshes selected detail without leaving the result view) --> <!-- @test: web-ui/src/__tests__/components/OperatorActivityButton.test.tsx (REQ-OPERATOR-033 AC4: failed manual detail refresh is unavailable until explicit retry) --> <!-- @test: web-ui/src/__tests__/components/OperatorDropdown.test.tsx (AC4: keeps explicitly opened diagnostics visible across elapsed time, focus and reconnect) -->
 
 **Constraints:** Visual acceptance does not substitute for owner-scoped API enforcement.
 
@@ -1800,7 +2267,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-027](#req-operator-027-owned-activity-user-surface)
 
-**Verification:** Component and owner-route behavior is automated; actual account-switch and activity-surface mobile acceptance remain pending. Operators catalog mobile acceptance does not establish this activity-surface criterion.
+**Verification:** Automated test: Component and owner-route behavior is automated; actual account-switch and activity-surface mobile acceptance remain pending. Operators catalog mobile acceptance does not establish this activity-surface criterion.
 
 **Status:** Planned
 
@@ -1840,8 +2307,8 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 **Acceptance Criteria:**
 
 1. Only Enterprise mode selects Operator Review; non-enterprise and confirmed local review remain unchanged. <!-- @impl: preseed/agents/pi/extensions/operator-review-selector.ts::selectOperatorReviewApplicability --> <!-- @impl: preseed/agents/pi/extensions/operator-review-selector.ts::registerOperatorReviewSelector --> <!-- @test: src/__tests__/lib/operator-review-selector.test.ts (REQ-OPERATOR-053 AC1: non-enterprise boundaries keep local Review) --> <!-- @test: src/__tests__/lib/operator-review-selector.test.ts (retains unchanged local behavior only for confirmed absence or inactive enrollment) --> <!-- @test: preseed/agents/pi/test/enterprise-routing.test.mjs (REQ-OPERATOR-053: Pi loads only the selector, not the separately auto-discovered local Review extension) -->
-2. Preparation binds one visible reservation to the verified human, installation, exact PR revision, trusted Action and eligible inference/resource scope. <!-- @impl: src/github-interceptor.ts::GitHubInterceptor --> <!-- @impl: src/operators/review-boundary-preparation.ts::prepareVerifiedBoundary --> <!-- @impl: src/operators/registry.ts::OperatorRegistry --> <!-- @test: src/__tests__/operators/review-boundary-egress.test.ts (REQ-OPERATOR-053: authenticated Git push prepares exactly one visible boundary reservation) --> <!-- @test: src/__tests__/operators/review-boundary-reservation.test.ts (REQ-OPERATOR-053: exact-context preparation is one durable Registry reservation) --> <!-- @test: src/__tests__/operators/conductor-production-inference.test.ts (REQ-OPERATOR-053: a provider-default inference route admits a scoped Conductor session without a reasoning grade) -->
-3. Each target selects exactly one local, remote or unavailable path; repository changes reselect before the boundary without modifying canonical local Review. <!-- @impl: preseed/agents/pi/extensions/operator-review-selector.ts::registerOperatorReviewSelector --> <!-- @impl: src/operators/review-boundary-preparation.ts::selectVerifiedBoundaryAction --> <!-- @test: src/__tests__/lib/operator-review-selector.test.ts (REQ-OPERATOR-053: exclusive local versus dedicated remote Review extensions) --> <!-- @test: preseed/agents/pi/test/enterprise-routing.test.mjs (REQ-OPERATOR-053: Pi loads only the selector) --> <!-- @test: src/__tests__/operators/review-action-applicability.test.ts (REQ-OPERATOR-053: approved target Action applicability, not release provenance) -->
+2. Preparation binds one visible reservation to the verified human, installation, exact PR revision, trusted Action and eligible inference/resource scope. <!-- @impl: src/github-interceptor.ts::GitHubInterceptor --> <!-- @impl: src/operators/review-boundary-preparation.ts::prepareVerifiedBoundary --> <!-- @impl: src/operators/registry.ts::OperatorRegistry --> <!-- @test: src/__tests__/operators/review-boundary-egress.test.ts (REQ-OPERATOR-053: authenticated Git push prepares exactly one visible boundary reservation) --> <!-- @test: src/__tests__/operators/review-boundary-reservation.test.ts (REQ-OPERATOR-053: exact-context preparation is one durable Registry reservation) --> <!-- @test: src/__tests__/operators/conductor-production-inference.test.ts (REQ-OPERATOR-053: a provider-default inference route admits a scoped Conductor session without a reasoning grade) --> <!-- @impl: src/operators/conductor-production.ts::bindClaimedConductorInvocation --> <!-- @test: src/__tests__/operators/conductor-prepared-runtime.test.ts (REQ-OPERATOR-053/056/074: prepared Conductor runtime projection (controlled composition, not native acceptance)) -->
+3. Each eligible target selects exactly one local, remote or unavailable path; clone exposure selects its produced checkout, repository changes reselect, and confirmed non-candidates remain inert without changing canonical local Review. <!-- @impl: preseed/agents/pi/extensions/operator-review-selector.ts::registerOperatorReviewSelector --> <!-- @impl: src/operators/review-boundary-preparation.ts::selectVerifiedBoundaryAction --> <!-- @test: src/__tests__/lib/operator-review-selector.test.ts (REQ-OPERATOR-053: exclusive local versus dedicated remote Review extensions) --> <!-- @test: preseed/agents/pi/test/enterprise-routing.test.mjs (REQ-OPERATOR-053: Pi loads only the selector) --> <!-- @test: src/__tests__/operators/review-action-applicability.test.ts (REQ-OPERATOR-053: approved target Action applicability, not release provenance) -->
 4. Status exposes metadata and durable generation only; a continuation consumes its waiting generation once and cannot reserve a later drive. <!-- @impl: src/operators/activity.ts::OperatorActivity --> <!-- @impl: src/operators/runtime.ts::driveOperatorRuntime --> <!-- @impl: src/operators/orchestrator.ts::runOperatorActivity --> <!-- @impl: src/routes/operator-webhook.ts::app --> <!-- @test: src/__tests__/operators/activity-state.test.ts (REQ-OPERATOR-053: webhook continuation is single-use for each durable waiting generation) --> <!-- @test: src/__tests__/operators/loader-runtime.test.ts (REQ-OPERATOR-053: a delayed continuation cannot reserve or execute against a newer waiting checkpoint after eviction) --> <!-- @test: src/__tests__/routes/operator-webhook.test.ts (REQ-OPERATOR-029: continuation wire response acknowledges work without echoing capability or issuing new authority) --> <!-- @test: src/__tests__/routes/operator-webhook.test.ts (REQ-OPERATOR-029: terminal status wire response is metadata-only even when the internal projection includes report bytes) -->
 5. Only an independent trusted publisher holds publication credentials; fixed GitHub identity verification cannot be replaced by repository variables. <!-- @impl: scripts/operator-boundary-action.mjs::resolvePublisherIdentity --> <!-- @test: host/__tests__/operator-boundary-action.test.js (REQ-OPERATOR-056: independent publisher discovers GitHub Actions identity without per-repository variables) -->
 6. Owner-visible progress reflects actual execution and cleanup; failed destruction or SDK stopped state cannot prove physical child cessation. <!-- @impl: src/operators/owned-session.ts::OwnedOperatorSessionService --> <!-- @impl: src/operators/owned-session-runtime.ts::ContainerOwnedSessionRuntime --> <!-- @impl: src/container/index.ts::container.stopOperatorSession --> <!-- @test: src/__tests__/operators/owned-session-runtime.test.ts (keeps Review child cleanup uncertain until the external container destruction is observed) --> <!-- @test: src/__tests__/container/index.test.ts (Review child stop requires the owned container destruction to finish) -->
@@ -1870,7 +2337,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-047](#req-operator-047-generic-directed-profile-admission), [REQ-OPERATOR-050](#req-operator-050-generic-conductor-capability), [REQ-OPERATOR-029](#req-operator-029-capability-authenticated-webhook-edge)
 
-**Verification:** Dedicated-extension test-only RED at `3a561549` failed the expected missing selector/consumer and published-read cases in `36447403897`. The first GREEN candidate `b6133eb0` failed exact-head Test `36452540739`: three new suites were erroneously assigned to the Worker rather than Node lane, backend Typecheck and two Host checks failed. The original local-only Review source is restored from the verified `f588867d^` blob; the dedicated selector and published-result consumer passed full exact-head Test `36457559457` at `65d1512409449b5e18a31ad36ba0dff17eafc597`. The finding-linked rejection test-only RED `2981b57c` failed its intended cases in Test `36461468216`, with a separate test typing error also observed. The first candidate `1cfde761` failed Test `36465802906` on generated seed drift, a TypeScript option and stale compiled-fixture fields. Corrected `73ec5e570f0d29c5955698cb24c53d2a202c199e` passed full exact-head Test `36467129972`, including compiled Conductor native fixture, generated-seed guard, Typecheck, Host and backend tests; this remains dormant evidence, not installed Action proof. None of these checks establishes runtime activation or an end-to-end live receipt. Generation-fenced webhook continuation passed exact-head Codeflare PR Checks at `c4b0cbc9` (run `35855161432`). The Conductor collector's scoped tests passed at `60257e1` (run `35857563056`), while that package workflow remained red for absent Action/publisher modules. Authenticated preparation and Pi remote selection passed exact-head PR Checks at `96d136a0` (run `35892316489`); the Action claim RED suite ran at `e4cbc923` (run `35896387844`) and its automated claim/Stop behavior passed exact-head PR Checks at `6812f243` (run `35903787791`). Earlier preparation checks `35890471868` and `35891520587` failed; the historical local Pi path carries bounded untrusted triage excerpts when a completed prior local round exists, otherwise explicitly reports unavailable evidence. The new dedicated remote path separately requires authenticated publisher readback, and neither an untrusted excerpt nor the precommit lifecycle checks establish clearance or an Action-redeemable handoff. Protected Action installer behavior had test-only RED at `00a213b5`; dormant proposal, pinned reusable-runtime validation and inactive protected-base trust passed exact-head Codeflare Test `36467842514` at `ef28440738b0ff095f697f072b8f60290dab7e48`. A real target-repository workflow installation, sandbox claim, independent publication, compiled production-owner execution and current-head Enterprise Integration proof remain pending.
+**Verification:** Selector, preparation, continuation, claim/Stop and compiled Conductor tests; historical passes establish dormant coverage only. Local triage excerpts grant no clearance or handoff; remote reads require authenticated publisher evidence. Target workflow installation, sandbox claim, independent publication, compiled production-owner execution, activation and current-head Enterprise Integration end-to-end proof remain pending.
 
 **Status:** Planned
 
@@ -1902,7 +2369,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-053](#req-operator-053-enterprise-pr-boundary-review-handoff), [REQ-SESSION-018](session-lifecycle.md#req-session-018-d1-lifecycle-evidence-is-generation-fenced)
 
-**Verification:** The test-only RED suite ran at `e4cbc923` (PR Checks `35896387844`). Implementation heads `0818d60f`, `8f673c87`, `eff95b47` and `93ed85e8` failed exact-head CI; claim/Stop and restart tests passed exact-head PR Checks at `6812f243` (run `35903787791`). Protected Action sandbox claim remains unproven; this requirement remains Planned.
+**Verification:** Automated test: adjacent claim/Stop and restart tests passed historical exact-head PR Checks `35903787791` at `6812f243`. Protected Action sandbox claim remains unproven.
 
 **Status:** Planned
 
@@ -1930,7 +2397,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-053](#req-operator-053-enterprise-pr-boundary-review-handoff), [REQ-OPERATOR-054](#req-operator-054-protected-action-claim-and-stop-fence)
 
-**Verification:** Owner journal and protected route behavior passed exact-head Codeflare PR Checks `36165253903` at `1f59d8b142857490c81ed7a5560d781485627922`. The independent publisher's separate Conductor Test `36165671477` passed at `03ea03189df882deb58288106c09746f4cddc178`. Neither run proves installed protected Action execution or external publication readback.
+**Verification:** Owner-journal, protected-route and separate package-publisher tests; historical passes do not prove installed protected Action execution or external publication readback.
 
 **Status:** Planned
 
@@ -1966,7 +2433,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-053](#req-operator-053-enterprise-pr-boundary-review-handoff), [REQ-OPERATOR-055](#req-operator-055-pr-wide-publication-ordering)
 
-**Verification:** Codeflare's frozen-owner projection and route passed PR Checks `36165253903` at `1f59d8b142857490c81ed7a5560d781485627922`. Conductor's publisher, artifact/history reader and ledger tests passed Test `36165671477` at `03ea03189df882deb58288106c09746f4cddc178`. The workflow is not installed; there is no live protected job, exact-ID GitHub receipt or shadow clearance proof. This requirement remains Planned.
+**Verification:** Frozen-owner projection, route and separate package publisher/history/ledger tests; historical passes do not establish an installed workflow, live protected job, exact-ID GitHub receipt or shadow clearance.
 
 **Status:** Planned
 
@@ -2053,7 +2520,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-053](#req-operator-053-enterprise-pr-boundary-review-handoff)
 
-**Verification:** Automated publication-reader and read-only projection tests at the adjacent anchors. Current-head reader regressions and live publication receipts remain pending.
+**Verification:** Automated test: Publication-reader and read-only projection tests at the adjacent anchors. Current-head reader regressions and live publication receipts remain pending.
 
 **Status:** Planned
 
@@ -2114,7 +2581,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-048](#req-operator-048-dispatcher-execution)
 
-**Verification:** Assessment test-only RED at `ba7cf5c1` dispatched ordinary Test `36416699933`; the existing bounded release-read slice previously passed. RED runs `36409071181` and `36410197692` failed intended parent release-evidence cases; parent correction exact-head Test `36410922334` passed at `72456a74`. Dispatcher package Test `36411884907` passed at `453d14f`, and its missing-patch correction passed `36412984001` at `2d8df70`; compiled-bridge RED run `36411798335` failed its missing-citation assertion at `f385d6c3`. A second test-only run `36412555479` could not reach its added missing-patch case after that prior failure. The pinned compiled child and parent evidence tests passed Codeflare exact-head Test `36413314483` at `bcf083d0` (cited release and omitted-patch unknown outcomes). Dispatcher package Test `36419749747` passed at `ae5a050`; Codeflare's prior structured-declaration candidate `aba3428a` passed exact-head Test `36422322395`, including privacy and incomplete-settlement fencing. That candidate did not establish normal upstream-prose reasoning; corrected test-only RED heads `fda6de6` (Dispatcher `36425054534`) and `109e0420` (Codeflare `36425083563`) failed the intended cases. Dispatcher exact-head Test `36426967071` passed 36 tests at `838086026f6a859db822fa04fce5a56ce24ce344`; its official compiled bundle SHA-256 is `59657efc915abc07c707725f00066779a575feb609d3c2d80bdd349ea1a10ac4`. Codeflare compiled-parent Test `36429791230` passed node-native, node-Flue, backend shard-5, Typecheck and aggregate at `17313b1b5ddd4846893b1fae3550c7336e79ca5a`. Live #1299 assessment and any conditional effect are separate, still-unverified gates.
+**Verification:** Parent-evidence and pinned compiled-child tests; historical suites passed, but earlier structured-declaration coverage did not prove normal upstream-prose reasoning. Live #1299 assessment and conditional effects remain unverified.
 
 **Status:** Implemented
 
@@ -2143,7 +2610,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-051](#req-operator-051-renovate-dispatcher-assessment)
 
-**Verification:** Test-only RED `8c4c6af0` failed the intended publisher and route cases in PR Checks `36432738228`. Final code head `7006520a9b00a8ee9982f287fda886d7ee0458c8` passed PR Checks `36436401592`, including backend publisher and route tests, node-native/Flue, Typecheck and aggregate. The pinned compiled-output interoperability RED at `4335bb313ad6485f9bb8b78e46c27b02a24b2307` failed the expected parser and publisher cases in PR Checks `36505023626`. The first correction `4ab7ada6` failed PR Checks `36505696468` only because the prospective-scan test still injected a flattened synthetic child result; the fixture was corrected without relaxing the publication boundary. Exact-head `b5c5e30d90fce91fbd999a2473f07f9bd1972b1c` passed PR Checks `36506071749`, including Node-Flue, backend shards 3 and 7, Typecheck and aggregate. The compiled producer-to-parser assertion, synthetic settled snapshot through real Activity collection, and real publisher against mocked GitHub effects are complementary, not a single live end-to-end run. No live Komodo #1299 assessment, comment, approval, merge, activation or deployment occurred. The prospective post-cutoff scheduler remains separate.
+**Verification:** Publisher/route and compiled-output interoperability tests passed historically; compiled producer/parser, synthetic settlement through real Activity collection and mocked GitHub effects are not one live end-to-end run. Live #1299 assessment, comment, approval, merge, activation and deployment remain unproven; prospective scheduling is separate.
 
 **Status:** Implemented
 
@@ -2179,42 +2646,52 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 <a id="req-operator-061-prospective-admin-session-renovate-scan"></a>
 ### REQ-OPERATOR-061: Prospective admin-session Renovate scan
 
-**Intent:** An explicitly activated, session-owned hourly scan admits only new, verified Komodo Renovate PRs; the Dispatcher remains read-only and the separately fenced publisher retains all write authority.
+**Intent:** Renovate runs use the installation’s configured repository, without a fallback or manual override. Optional, explicitly activated session-owned scans follow its configured interval, defaulting to one hour. The supported package selects effects within exact parent-fenced target authority; legacy assessment/publication remains separate.
 
 **Applies To:** Admin
 
 **Acceptance Criteria:**
 
-1. Explicit current owner-admin activation binds the selected installation and active session generation to an immutable server cutoff. <!-- @impl: src/routes/operator-activities.ts::app --> <!-- @impl: src/operators/registry.ts::OperatorRegistry --> <!-- @test: src/__tests__/routes/operator-activities.test.ts (REQ-OPERATOR-061: only a current authorized admin session can activate an immutable server-timed Komodo scan) --> <!-- @test: src/__tests__/operators/renovate-prospective-registry.test.ts (REQ-OPERATOR-061: durable prospective activation and admission) -->
-2. Hourly observation admits only verified open Renovate PRs created after cutoff, including offline arrivals; complete pages are mandatory and uncertain observations skip admission. <!-- @impl: src/container/index.ts::container --> <!-- @impl: src/operators/renovate-prospective.ts::listProspectiveRenovatePrs --> <!-- @test: src/__tests__/container/index.test.ts (REQ-OPERATOR-061: an armed admin-session callback scans complete post-cutoff Komodo pages) --> <!-- @test: src/__tests__/container/index.test.ts (REQ-OPERATOR-061: a lost scheduler acknowledgement is reconciled without creating another hourly callback) --> <!-- @test: src/__tests__/container/index.test.ts (REQ-OPERATOR-061: a winning scan reconciles lost start and publishes a simulated result from one real Activity) -->
-3. Current human, grant, installation and session authority gate durable admission. <!-- @impl: src/operators/registry.ts::OperatorRegistry --> <!-- @impl: src/container/index.ts::container --> <!-- @impl: src/operators/operator-runtime-capability.ts::authorizeDispatcherPlan --> <!-- @test: src/__tests__/operators/renovate-prospective-registry.test.ts (REQ-OPERATOR-061: durable prospective activation and admission) --> <!-- @test: src/__tests__/operators/renovate-prospective-registry.test.ts (fences Activity-bound read/inference authority) -->
-4. Prospective publication requires exact admission proof and all fresh publisher gates; alarms and children cannot approve or merge independently. <!-- @impl: src/operators/activity.ts::OperatorActivity --> <!-- @impl: src/operators/renovate-publication.ts::renovateGithub --> <!-- @test: src/__tests__/operators/renovate-publisher.test.ts (REQ-OPERATOR-061: prospective publication is tied to a fresh exact Registry admission and current owner session) -->
+1. Explicit current owner-admin activation binds authenticated configured repository identity, installation and session generation to an immutable server cutoff. <!-- @test: src/__tests__/operators/renovate-prospective-registry.test.ts (authenticates configured repository metadata with one fixed parent GET before activation and retains the target and revisions through scheduled delivery) --> <!-- @impl: src/routes/operator-activities.ts::app --> <!-- @impl: src/operators/registry.ts::OperatorRegistry --> <!-- @test: src/__tests__/routes/operator-activities.test.ts (REQ-OPERATOR-061: only a current authorized admin session can activate an immutable server-timed Komodo scan) --> <!-- @test: src/__tests__/operators/renovate-prospective-registry.test.ts (REQ-OPERATOR-061: durable prospective activation and admission) -->
+2. Complete authenticated observations admit verified eligible open Renovate PRs, including retained failed/deferred targets at later configured runs. Uncertain observations skip admission; retry eligibility cannot silently widen the original repository or target authority. <!-- @test: src/__tests__/container/index.test.ts (REQ-OPERATOR-061: configured Renovate run settings) --> <!-- @test: src/__tests__/operators/renovate-prospective-pages.test.ts (REQ-OPERATOR-061: configured Renovate run settings) --> <!-- @impl: src/container/index.ts::container --> <!-- @impl: src/operators/renovate-prospective.ts::listProspectiveRenovatePrs --> <!-- @test: src/__tests__/operators/renovate-prospective-pages.test.ts (REQ-OPERATOR-061 AC2: retained failed-target cutoff exception) --> <!-- @test: src/__tests__/container/index.test.ts (REQ-OPERATOR-061: an armed admin-session callback scans complete post-cutoff Komodo pages) --> <!-- @test: src/__tests__/container/index.test.ts (REQ-OPERATOR-061: a lost scheduler acknowledgement is reconciled without creating another hourly callback) --> <!-- @test: src/__tests__/container/index.test.ts (REQ-OPERATOR-061/048: a winning scan retains repository-only admission) -->
+3. Current human, grant, installation, configuration and session authority gate durable admission. <!-- @test: src/__tests__/operators/renovate-prospective-registry.test.ts (REQ-OPERATOR-061: configured Renovate run settings) --> <!-- @test: src/__tests__/operators/operator-promotion.test.ts (REQ-OPERATOR-061: configured Renovate run settings) --> <!-- @impl: src/operators/registry.ts::OperatorRegistry --> <!-- @impl: src/container/index.ts::container --> <!-- @impl: src/operators/operator-runtime-capability.ts::authorizeDispatcherPlan --> <!-- @test: src/__tests__/operators/renovate-prospective-registry.test.ts (REQ-OPERATOR-061: durable prospective activation and admission) --> <!-- @test: src/__tests__/operators/renovate-prospective-registry.test.ts (fences Activity-bound read/inference authority) -->
+4. Current-package effects require exact admission proof, admitted target and fresh parent authority; the package selects domain decisions/comments/merges. <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-061: configured Renovate run settings) --> <!-- @impl: src/operators/operator-runtime-capability.ts::createDispatcherOperation --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-047/048/061/062/071: repository-only prospective parent authority) -->
 
 5. Failed scheduling acknowledgement cannot report successful activation; retry preserves the original cutoff. <!-- @impl: src/container/index.ts::container --> <!-- @test: src/__tests__/container/index.test.ts (REQ-OPERATOR-061: a lost scheduler acknowledgement is reconciled without creating another hourly callback) -->
-6. Concurrent valid actors elect one stable Activity/actor/session/generation identity. <!-- @impl: src/operators/registry.ts::OperatorRegistry --> <!-- @test: src/__tests__/operators/renovate-prospective-registry.test.ts (REQ-OPERATOR-061: durable prospective activation and admission) -->
-7. Uncertain preparation/starts reconcile that same identity without replacement work or a changed actor. <!-- @impl: src/container/index.ts::container --> <!-- @test: src/__tests__/container/index.test.ts (REQ-OPERATOR-061: a winning scan reconciles lost start and publishes a simulated result from one real Activity) -->
+6. At the configured interval, each safely retryable failed/deferred head elects one freshly authorized attempt, even when its head is unchanged. <!-- @impl: src/operators/registry.ts::OperatorRegistry.reserveProspectiveRenovateActivity --> <!-- @impl: src/operators/activity.ts::OperatorActivity.readProspectiveRenovateRetryProof --> <!-- @test: src/__tests__/operators/renovate-prospective-registry.test.ts (REQ-OPERATOR-061 AC2/6/7: terminal-proof configured retry) --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-061: only original settled and collected singleton deferral supplies immutable scheduled-retry proof) -->
+7. Uncertain preparation/starts reconcile that same identity without replacement work or a changed actor. <!-- @impl: src/container/index.ts::container --> <!-- @test: src/__tests__/container/index.test.ts (REQ-OPERATOR-061/048: a winning scan retains repository-only admission) -->
 
-**Constraints:** Authority remains owner/session-bound; uncertain effects cannot replay.
+**Constraints:**
+
+- Every manual and automatic run requires the configured repository, without fallback or override. <!-- @impl: src/operators/orchestrator.ts::prepareOperatorActivity --> <!-- @test: src/__tests__/operators/orchestrator.test.ts (REQ-OPERATOR-061: configured Renovate run settings) -->
+- Settings retain unrelated installation configuration. <!-- @impl: src/operators/registry.ts::OperatorRegistry --> <!-- @test: web-ui/src/__tests__/operators/operator-configured-runs.test.tsx (save the public wire contract, reload retained values) -->
+- An accessible MDI repeat toggle immediately follows Enable/Disable and edits the existing draft. Save run settings applies it; OFF hides interval/help while retaining the saved interval. <!-- @impl: web-ui/src/components/OperatorManagement.tsx::OperatorDetail --> <!-- @test: web-ui/src/__tests__/operators/operator-configured-runs.test.tsx (REQ-OPERATOR-061: repeat follows Enable or Disable and edits only the unsaved run-settings draft) -->
+- Automatic observation uses the configured positive interval, defaulting to one hour. <!-- @impl: src/container/index.ts::container --> <!-- @test: src/__tests__/container/index.test.ts (REQ-OPERATOR-061: configured Renovate run settings) -->
+- Disabling automation preserves manual invocation and fences queued callbacks before observation, admission or rearming. <!-- @impl: src/container/index.ts::container --> <!-- @test: web-ui/src/__tests__/operators/operator-configured-runs.test.tsx (retain the interval when automatic runs are switched off) --> <!-- @test: src/__tests__/container/index.test.ts (REQ-OPERATOR-061: configured Renovate run settings) -->
+- Settings changes invalidate old callback/admission authority; ordinary installation enablement cannot reactivate an old registration. <!-- @impl: src/operators/registry.ts::OperatorRegistry --> <!-- @test: src/__tests__/operators/renovate-prospective-registry.test.ts (configuration save and ordinary separate enable cannot refresh an old admitted generation) -->
+- Only explicitly supported first-party intent3/intent4 contracts may activate; repository-only input alone does not prove support. <!-- @impl: src/operators/registry.ts::OperatorRegistry --> <!-- @test: src/__tests__/operators/renovate-prospective-registry.test.ts (REQ-OPERATOR-061: durable prospective activation and admission) -->
+- Authority remains owner/session-bound; uncertain repository mutations cannot replay. <!-- @impl: src/operators/activity.ts::OperatorActivity --> <!-- @test: src/__tests__/operators/renovate-publisher.test.ts (REQ-OPERATOR-061: prospective publication is tied to a fresh exact Registry admission and current owner session) -->
+- Legacy assessed-publication retains its separate publisher gates. <!-- @impl: src/operators/renovate-publication.ts::renovateGithub --> <!-- @test: src/__tests__/operators/renovate-publisher.test.ts (REQ-OPERATOR-061: prospective publication is tied to a fresh exact Registry admission and current owner session) -->
 
 **Priority:** P0
 
 **Dependencies:** [REQ-OPERATOR-051](#req-operator-051-renovate-dispatcher-assessment), [REQ-OPERATOR-060](#req-operator-060-fenced-renovate-publication)
 
-**Verification:** Exact-head PR Checks `36490796134` at `188aee1162326fe817dfa11e745cf32e9dbdb500` passed Typecheck, backend Container, Registry, publisher and route shards, and the aggregate gate after test-only RED run `36485684846` failed on absent behavior. Tests exercise authenticated activation, concurrent durable admission, the scheduled callback contract with simulated SDK delivery, lost scheduling/start responses, an unchanged uncertain Activity, the real Activity collector on a synthetic settled-waiting snapshot, Activity-bound read/inference revocation and restricted publication. The connected fixture substitutes the child settlement and does not run a compiled Dispatcher, prove model judgment, activate scanning or demonstrate a naturally arriving post-activation Komodo PR; those remain separate acceptance boundaries.
+**Verification:** Intent4 due-interval retry and concurrent election are authored but unverified for original prospective admissions. Effect-uncertain dispositions and unresolved writes refuse fresh retry eligibility. Manual repository-journey retry remains unverified; the deployed permanent same-head deduplication does not satisfy the amended criteria. Configured-run, admission, callback and publication tests passed historically and were delivered to Integration environments. Earlier connected fixtures simulated SDK scheduling and child settlement, not compiled Dispatcher/model judgment or natural post-activation PRs. Observed manual invocation did not complete; repeat-control CI/visual verification and end-to-end success remain pending.
 
-**Status:** Implemented
+**Status:** Planned
 
 <a id="operator-registry-contract"></a>
 ## Normative appendix: Operator Registry contract
 
-This appendix retains the shared registry, management API, package and directed-profile contract formerly owned by `operator-registry-contract.md`. It adds no authority, backend or public behavior. Codeflare owns generic Interface, Loader, lifecycle, resources, sessions, synchronization, GitHub/inference boundaries and publication fencing; Conductor owns Review business behavior. Codeflare retains generic host-side Pi sandbox/security confinement and distributes the Conductor Review Pi extensions, skills and references used for per-repository GitHub Actions. No Review-specific Activity or adapter is introduced.
+The shared registry, management API, package and directed-profile contracts grant no additional authority. Codeflare owns generic Interface, Loader, lifecycle, resources, sessions, synchronization, GitHub/inference boundaries and publication fencing; Conductor owns Review business behavior. Codeflare retains generic host-side Pi sandbox/security confinement and distributes the Conductor Review Pi extensions, skills and references used for per-repository GitHub Actions. No Review-specific Activity or adapter is introduced.
 
-The original “frozen before RED” timing is historical, not a claim that later requirements are absent. REQ-OPERATOR-002/013/032/039 supersede the old summary that endpoint registration and Gate 1 remain unchanged: historical internal records/default-entrypoint compatibility remain, while legacy HTTP administration and new Gate 1 execution are retired. REQ-OPERATOR-062 extends repository-only transport; it does not relax the read-only legacy assessment or independently fenced parent publisher. Verification/status qualifiers in each record remain unchanged.
+Under REQ-OPERATOR-002/013/032/039, historical internal records/default-entrypoint compatibility remain, while legacy HTTP administration and new Gate 1 execution are retired. REQ-OPERATOR-062 extends repository-only transport and exact prospective target fencing; current package-owned effects do not relax the retained read-only legacy assessment or its independently fenced parent publisher. Verification/status qualifiers in each record remain unchanged.
 
 <a id="records"></a>
 ### Records
 
-The complete original shared data shapes are retained, with the already-delivered optional response allowance added to the policy shape. These are shared records, not permission grants or an exhaustive serialization of every private helper.
+These shared records are not permission grants or an exhaustive serialization of private helpers.
 
 ```ts
 type OperatorProfile = 'conductor' | 'dispatcher';
@@ -2237,7 +2714,7 @@ type OperatorInstallation = {
 
 The acquisition PAT is registration/source-replacement input only, write-only and never returned. Repository URL is also validated input but remains public source metadata; it is not a secret. Release approval and enablement are separate. Retained default-entrypoint state uses its compatibility adapter and cannot reinstate retired registration routes or Gate 1.
 
-Current retained release metadata includes verified `tagName?: string` and `publishedAt?: string`; older gaps remain distinguishable. Name/description are verified display projections, not changes to immutable release identity. REQ-OPERATOR-044/049/066 preserve those semantics. Current installation RPC stores configuration as bounded `configurationJson: string` and public readback parses it into the configuration object; this does not replace the shared policy/revision/release shape.
+Current retained release metadata includes verified `tagName?: string` and `publishedAt?: string`; older gaps remain distinguishable. Name/description are verified display projections, not changes to immutable release identity. REQ-OPERATOR-044/049/066 preserve those semantics. Installation configuration is bounded and public readback returns a configuration object without replacing the shared policy/revision/release shape.
 
 <a id="management-api"></a>
 ### Management API
@@ -2253,7 +2730,9 @@ One admin-owned control record lives in the existing OperatorRegistry:
 
 Missing controls mean revision 0 and empty grants/ceiling. Only a current verified human platform admin may read/change this record. Other managers need its explicit eligibility grant AND the operator's manager grant; request-body ACLs cannot grant global eligibility. Verified platform-admin management authority is preserved, but ceiling restrictions apply to everyone. A null resource profile requests no profile; other IDs and capabilities must be within the ceiling, and installation policy must only narrow its operator. Recheck controls/current grants after upstream I/O and CAS the controls revision with target mutations; no separate ACL service or hierarchy.
 
-The optional `sourceResponseBytes` field is an integer from 1 through 1048576 in current management validation. Every omitted value means 65536, including older saved records; installation allowance ≤ operator allowance ≤ Environment ceiling, without implicit raised inheritance or clamping. Edits preserve pins, scope, grants and saved installation policies, disable enabled installations and require explicit re-enablement. Out-of-ceiling policies cannot be enabled or admitted. The source allowance does not increase request, inference, result or SDK-history bounds.
+The optional `sourceResponseBytes` field is a positive safe integer in management validation; the configured Environment ceiling remains mandatory. Every omitted value means1048576 (1 MiB), including older saved records; installation allowance ≤ operator allowance ≤ Environment ceiling, without implicit raised inheritance or clamping. Edits preserve pins, scope, grants and saved installation policies, disable enabled installations and require explicit re-enablement. Out-of-ceiling policies cannot be enabled or admitted. The source allowance does not increase request, inference, result or SDK-history bounds.
+
+The three byte fields default to1048576 (1 MiB), not extra model context. Input-adjacent autorenew icons reset drafts to these defaults; saving uses the same authorization, validation and revision fences. <!-- @impl: web-ui/src/components/OperatorManagement.tsx::OperatorManagement --> <!-- @test: web-ui/src/__tests__/operators/operator-source-response-suite.tsx (REQ-OPERATOR-045/049: explains limit ownership and resets inference to its default without changing other fields) -->
 
 | Method and route | Body / result |
 |---|---|
@@ -2269,7 +2748,7 @@ The optional `sourceResponseBytes` field is an integer from 1 through 1048576 in
 | `POST /api/operator-management/installations/:installationId/promote` | `{ releaseId, revision }` → approved pinned disabled installation |
 | `POST /api/operator-management/installations/:installationId/enable` | `{ revision, enabled }` → installation |
 | `POST /api/operator-management/operators/:operatorId/grants` | `{ managers, invokers, revision }` → operator projection |
-| `POST /api/operator-management/operators/:operatorId/capabilities` | `{ revision, capabilities, sourceResponseBytes? }` → scoped operator projection, preserving installation policies and disabling enablement |
+| `POST /api/operator-management/operators/:operatorId/capabilities` | `{ revision, capabilities, sourceResponseBytes?, inferenceRequestBytes?, operationLimit?, loggingEnabled?, inferenceAttemptLimit?, submissionAttemptLimit?, ...capacityFields? }` → scoped operator projection; Dispatcher-only inference bytes/attempts/operation capacity, preserved installation policies, changed limits disable enablement |
 | `GET /api/operator-management/options` | authorized configured users, verified issuer-bound groups and limits; non-admin managers do not receive the full directory |
 
 Outcomes use existing error envelopes: validation 400, unauthenticated 401, denied/non-enumerating 404, conflict 409, unavailable/upstream failure 503. CSRF-protected mutation failure may return the existing 403; the old outcome summary is not an exhaustive status-code allowlist. A public invocation cannot select human identity, resource authority, source credentials, publisher authority or arbitrary artifact URLs. Management's explicitly authorized source input and bounded policy resource IDs are not prohibited by that invocation restriction. Realm remains compatibility metadata: the UI does not make it a security choice, even though the API retains the field/query for compatibility.
@@ -2283,18 +2762,55 @@ Protected Review enrollment/discovery/claim and publication remain separately go
 
 The platform derives identity, input digest, release, installation and resource scope before loading a package. A package receives only its profile-specific fetcher. Package-owned Flue/Renovate execution receives activity-scoped parent primitives and the fixed non-authorizing diagnostic below. Existing `/v1/dispatcher/renovate` start/progress semantics select the admitted package operation; they are not a parent implementation of the model/tool loop. The generic Conductor uses REQ-OPERATOR-050's owned-session boundary, not Dispatcher session authority.
 
-Dispatcher production requests use `https://operator.internal`, JSON request bodies and a 64 KiB request ceiling. Default primitive responses remain 64 KiB; only the repository-only source-response allowance below is separately configurable. An Activity retains at most 128 operation records; completed response bodies are separate bounded storage values. Lost, oversized or upstream-uncertain completion fences the lease and is never replayed, with REQ-OPERATOR-062's explicit authorized readback resolution for unknown mutations. A non-null Dispatcher resource profile is rejected until an existing parent resource resolver supports it; this slice adds no resolver or setting for one.
+Dispatcher production requests use `https://operator.internal` and JSON bodies. Both inference request and response bodies use the admitted operator's `inferenceRequestBytes`, default1MiB, configurable through `Number.MAX_SAFE_INTEGER`; the stored field/API name remains unchanged. Platform limits still apply. Other request and non-source primitive response envelopes use admitted dispatcherRequestBytes (default1MiB). Source settings do not configure inference bytes; repository-only source responses retain their independent hierarchical allowance. An Activity admits at most its original `operationLimit` charged reservations (default1024), including inference successors; metadata and response bodies are separate bounded values. Oversized/invalid output and unresolved logical completion fence the lease. Only future-marked inference uses the bounded successor contract below; unknown mutations retain REQ-OPERATOR-062's authorized readback resolution without replay. A non-null Dispatcher resource profile is rejected until an existing parent resource resolver supports it; this slice adds no resolver or setting for one.
 
-- `POST /v1/dispatcher/github/read`: the original wire `{ operationId, resource: "pull-request" | "files" | "checks" }` remains for legacy admitted repository/PR reads. The parent confirms Renovate login/ID and observed head; files are bounded to the first 100-item page and checks to at most 100 in bounded 10-run pages, returning `{ data, observedHead, truncated }`. Incomplete/overlapping/over-limit pages cannot claim complete evidence. Installation must permit `fetch`. Already-delivered read resources also include `release-notes`, `upstream-guide`, `changed-compose` and `open-pull-requests`; optional target is `{ pullRequest: positive safe integer, headSha: lowercase 40-hex SHA }`, or the corresponding optional top-level fields, never both forms. Discovery forbids target fields. Fixed-PR invocation cannot select another PR; repository-only targeted reads require a head. These compatibility routes do not make a generic child-selected crawler out of the legacy projections.
-- `POST /v1/dispatcher/inference`: `{ operationId, input: { messages, tools?, tool_choice?, max_tokens?, temperature?, stream?, stream_options? } }`. Messages contain 1–128 JSON values, tools at most 32. `max_tokens` is an integer 1–8192 (default 8192); temperature is 0–2; stream is boolean; if present `stream_options` is exactly `{ include_usage: true }`. The installation must permit `inference`. The parent selects only the current human default eligible route/reasoning and sends OpenAI Chat Completions wire through `LlmInterceptor`; no child-selected model, identity, token, URL or headers are forwarded. Trusted stable Activity ID is the existing native inference replay namespace, not a workspace session or additional permission.
+- `POST /v1/dispatcher/github/read`: the original wire `{ operationId, resource: "pull-request" | "files" | "checks" }` remains for legacy admitted repository/PR reads. The parent confirms Renovate login/ID and observed head; files are bounded to the first 100-item page and checks to admitted checkRunPageLimit × checkRunPageSize (defaults100 ×10), returning `{ data, observedHead, truncated }`. Incomplete/overlapping/over-limit pages cannot claim complete evidence. Installation must permit `fetch`. Already-delivered read resources also include `release-notes`, `upstream-guide`, `changed-compose` and `open-pull-requests`; optional target is `{ pullRequest: positive safe integer, headSha: lowercase 40-hex SHA }`, or the corresponding optional top-level fields, never both forms. Discovery forbids target fields. Fixed-PR invocation cannot select another PR; repository-only targeted reads require a head. These compatibility routes do not make a generic child-selected crawler out of the legacy projections.
+- `POST /v1/dispatcher/inference`: `{ operationId, input: { messages, tools?, tool_choice?, max_tokens?, temperature?, stream?, stream_options? } }`. Messages contain 1–inferenceMessageLimit JSON values (default256); tools are bounded by inferenceToolLimit (default128). `max_tokens` is an integer 1–inferenceTokenLimit (default32768), using inferenceDefaultTokens (default8192) when omitted; temperature is 0–2; stream is boolean; if present `stream_options` is exactly `{ include_usage: true }`. The installation must permit `inference`. The parent selects only the current human default eligible route/reasoning and sends OpenAI Chat Completions wire through `LlmInterceptor`; no child-selected model, identity, token, URL or headers are forwarded. Trusted stable Activity ID is the existing native inference replay namespace, not a workspace session or additional permission.
 - `POST /v1/dispatcher/diagnostic`: exact `{ "stage": "fetch-rejected" }` or `{ "stage": "http-rejected", "status": 300..599 }`. At most 256 bytes are read within 250 ms and at most eight valid reports per live Activity instance/generation are logged with binding-trusted identity. It creates no protected receipt, renewal, replay, settlement or result. Tail is separately filtered and supplementary. Malformed, stale and unauthorized reports fail closed; no child error text, model input or provider body is forwarded.
 - The capability's only RPC methods are the nine pinned Agents facet schedule/list/cancel, keepalive and fiber-registration methods. Paths must name the exact Activity and fixed `dispatcher` facet. Only Flue's `__flueWakeAgentSubmissions` callback is schedulable, with bounded timing/counts; root callbacks and foreign paths are denied. No direct egress or unrestricted parent namespace is supplied. For legacy code outbound is null; repository-only code may use the parent-authorized standard-fetch adapter, not direct networking.
 
 The parent rejects unknown routes, mismatched activity/generation, expired/cancelled authority, changed operation digest and capability/resource requests outside installed policy. Dispatcher routes never create or expose a session/container. Outcomes are bounded and structured; upstream credentials remain parent-owned. Legacy comment/merge and separately fenced publisher contracts stay separate from generic transport; parsing a route never grants an effect.
 
+<a id="dispatcher-capacity-defaults"></a>
+#### Admitted capacity defaults
+
+These optional operator policy fields also belong to the revision-fenced capabilities mutation. Omission preserves stored values; effective no-ops retain revisions/enablement. A changed capacity disables installations without changing their pins or restrictions. Each UI field describes its units and resets its own draft through the right-edge icon; saving remains explicit. The original receipt supplies every protected operation's capacity, never current edited policy or child input. Provider/platform limits, protocol shapes, original authority deadlines and uncertain-write fences remain independent.
+
+| Field(s) | Default | Meaning |
+| --- | --- | --- |
+| inferenceMessageLimit / inferenceToolLimit | 256 / 128 | Complete inference messages / declared tools |
+| inferenceTokenLimit / inferenceDefaultTokens | 32768 / 8192 | Maximum / omitted output-token request; default ≤ maximum |
+| dispatcherRequestBytes | 1048576 | Non-inference request and non-source response envelope bytes |
+| sourceRequestChars / sourceUrlChars | 262144 / 16384 | Source body / URL UTF-16 length units |
+| commentChars / targetCommentChars | 16384 / 8192 | Generic / admitted-target comment UTF-16 length units |
+| resolutionReadbackLimit | 128 | Matching receipts per uncertainty resolution |
+| assessmentBytes | 1048576 | Complete serialized assessment bytes |
+| updatePageBytes / projectedRecordBytes | 33554432 / 4194304 | Streamed SDK page / retained record bytes |
+| completionObservationLimit / toolObservationLimit | 256 / 8192 | Retained completion / tool observations |
+| preflightBytes / preflightObservationLimit | 4096 / 256 | Seal-preflight bytes / observations |
+| readinessBytes / readinessObservationLimit | 4096 / 256 | Readiness bytes / observations |
+| sourceTimeoutMs / releaseReadTimeoutMs | 30000 / 30000 | Source operation / release research milliseconds |
+| guideReadTimeoutMs / composeReadTimeoutMs | 60000 / 60000 | Guide / compose research milliseconds |
+| checkRunPageLimit / checkRunPageSize | 100 / 10 | Check-run pages / runs per page; page size ≤100 |
+| guideBytes | 262144 | Verified upstream guide blob bytes |
+| driveTimeoutMs / driveResponseBytes | 120000 / 1048576 | Separate drive milliseconds / response-update bytes |
+| inferenceRetryBaseMs / inferenceRetryMaxMs | 2000 / 8000 | Persisted successor-delay base / cap; base ≤ cap |
+
+Positive safe integers are required. All research/drive waits remain bounded by original authority. Source responses retain installation ≤ operator ≤ Environment and default1MiB; no additional fixed1MiB platform ceiling blocks an authorized higher Environment allowance. These controls do not alter SDK persistence, package/compiler bytes, source mappings, identifier formats, model context or result authority. Configurable projection bounds preserve overflow/truncation markers rather than advertising incomplete evidence as successful completion.
+
+Verification: local implementation and behavioral coverage only; exact-head CI, browser rendering and hosted end-to-end acceptance remain unverified. <!-- @impl: src/operators/dispatcher-capacity-limits.ts::dispatcherCapacities --> <!-- @impl: src/operators/operator-runtime-capability.ts::parseDispatcherOperation --> <!-- @impl: src/operators/dispatcher-result.ts::readDispatcherUpdates --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-047: configured non-inference UTF-8 envelope and text bounds retain complete wire values) --> <!-- @test: src/__tests__/operators/dispatcher-result.test.ts -->
+
+### Future inference recovery contract
+
+The parent-only preparation marker and admitted lease pin `inferenceAttemptLimit` (default4, positive safe integer including the initial request). Missing markers never opt historical work into recovery. Existing child operation IDs/input hashes and wire remain unchanged. A logical chain has an O(1) head, individual attempt metadata and immutable bounded body references; unknown predecessors are not refunded or relabeled successful.
+
+Each attempt reserves operation capacity before dispatch. Identical live deliveries join; changed input conflicts. Unclaimed reservations reconcile without new charges, including lost allocation acknowledgements. Owner epochs reject stale results. A lost in-flight owner may receive a charged successor after persisted delays doubling from admitted inferenceRetryBaseMs to inferenceRetryMaxMs (defaults2/4/8seconds, capped at8seconds thereafter). Attempt count, operation budget, original deadline, current authority and pinned route/reasoning all constrain recovery.
+
+Full-body classification retries supported transient HTTP/stream failures and incomplete completion, not sampled log observations. Known terminal protocol errors, including context-overflow signals, remain immutable SDK inputs without paid same-input retries. Invalid encoding/structure, oversize, lost authority or unresolved persistence cannot authorize fresh I/O. A usable or known terminal response commits once to the unchanged logical cache key. Exhaustion returns409 `OPERATOR_INFERENCE_RECOVERY_EXHAUSTED` and fences unresolved completion. Possible duplicate model cost is accepted; exactly-once upstream inference is not claimed. Repository mutations and historical unknown Activities remain nonrepeatable.
+
 ### Repository-only source, receipt and resolution wire
 
-Repository-only input remains `{ "repository": "owner/repository" }`, not a new context endpoint or user setting. The Loader supplies only `env.OPERATOR`, validated non-secret `env.GITHUB_API_ORIGIN` derived from existing `GITHUB_API_HOST` (default `https://api.github.com`) and decimal-string `env.OPERATOR_SOURCE_RESPONSE_BYTES` from admitted policy. Legacy single-PR bindings remain unchanged.
+Repository-only child input remains `{ "repository": "owner/repository" }`. For the supported Renovate contract, the parent materializes the installation’s required configured repository and rejects manual overrides before preparation. Installation configuration stores `renovate: { repository, automaticRuns, repetitionIntervalSeconds }`; omitted automatic enablement is off and the interval defaults to 3600 seconds. These settings do not grant invocation or GitHub authority, introduce a context endpoint, or add child input fields. The Loader supplies only `env.OPERATOR`, validated non-secret `env.GITHUB_API_ORIGIN` derived from existing `GITHUB_API_HOST` (default `https://api.github.com`) and decimal-string `env.OPERATOR_SOURCE_RESPONSE_BYTES` from admitted policy. Legacy single-PR bindings remain unchanged.
 
 POST JSON through OPERATOR to `https://operator.internal/v1/dispatcher/source`:
 
@@ -2304,7 +2820,7 @@ POST JSON through OPERATOR to `https://operator.internal/v1/dispatcher/source`:
 { url: string, status: number, headers: Record<string,string>, body: string }
 ```
 
-IDs match `[A-Za-z0-9_-]{1,128}`. URL is HTTPS, at most 4096 characters, without credentials, fragment or nondefault port; normalized HTTPS `:443` is permitted. GET is default and forbids body; POST/PUT require a string body sent verbatim with parent-selected JSON content type. Encoded request remains 64 KiB. Upstream UTF-8 body and final encoded envelope both obey approved `sourceResponseBytes`; escaping and headers count. Requests/inference/final results/SDK history do not inherit the source allowance. POST/PUT must use GITHUB_API_ORIGIN and existing authenticated GitHubInterceptor. Internet GET uses approved EgressController/Gateway. No caller identity, credential, selector or header map is accepted. Redirects are manual. Response headers are limited to content-type, etag, last-modified, date, link and location. Current human authority, pins, capabilities, generation, cancellation and original expiry gate every operation.
+IDs match `[A-Za-z0-9_-]{1,128}`. URL is HTTPS, bounded by admitted sourceUrlChars (default16384 UTF-16 units), without credentials, fragment or nondefault port; normalized HTTPS `:443` is permitted. GET is default and forbids body; POST/PUT require a string body sent verbatim with parent-selected JSON content type. String body is bounded by sourceRequestChars (default262144 UTF-16 units); encoded request obeys dispatcherRequestBytes (default1MiB). Upstream UTF-8 body and final encoded envelope both obey approved `sourceResponseBytes`; escaping and headers count. Requests/inference/final results/SDK history do not inherit the source allowance. POST/PUT must use GITHUB_API_ORIGIN and existing authenticated GitHubInterceptor. Internet GET uses approved EgressController/Gateway. No caller identity, credential, selector or header map is accepted. Redirects are manual. Response headers are limited to content-type, etag, last-modified, date, link and location. Current human authority, pins, capabilities, generation, cancellation and original expiry gate every operation.
 
 Loader globalOutbound's parent adapter supports standard GET/POST/PUT only with `x-codeflare-operator-operation-id`; string bodies are bounded, caller headers cannot select upstream headers and credential-bearing requests deny. It unwraps the source envelope into a standard Response, retaining parent failure codes. This is intercepted transport, not direct egress.
 
@@ -2318,7 +2834,7 @@ POST JSON to `https://operator.internal/v1/dispatcher/receipt`:
 { operationId: string, generation: number, requestDigest: string,
   method: 'GET' | 'POST' | 'PUT', url: string,
   phase: 'reserved' | 'unknown' | 'completed', responseDigest?: string,
-  operationCount: number, operationLimit: 128 }
+  operationCount: number, operationLimit: number }
 ```
 
 Request digest is SHA-256 of `JSON.stringify({path, body})` for parsed immutable operation: use returned digest, not reconstruction. Response digest is SHA-256 of exact persisted response body (the source envelope, not just inner body). Projection exposes no credential, journal internal or remote body. Count includes all Activity journal entries, inference and earlier generations; it is an observation, not a capacity reservation or permission for unbounded inference.
@@ -2337,15 +2853,15 @@ There must be 1–16 unique references. Parent verifies original unknown mutatio
 <a id="package-release-files"></a>
 ### Package release files
 
-Each immutable GitHub release supplies exactly `operator-manifest.json`, `operator-bundle.json` and `operator-provenance.json`. Manifest extends existing v1 metadata with profile, declared input/output schemas and requested capability names. Parent verifies repository identity, approved workflow/ref, source commit and asset/bundle digests before approval. Package requests never grant capability. Compiler deterministically emits existing approved schemas, exact resource digests/sizes and matching discovery manifest; it rejects unsafe paths and package-supplied policy, bindings, credentials, environment or outbound authority. This documentation move changes no compiler/package ABI or exact compiler pin.
+Each immutable GitHub release supplies exactly `operator-manifest.json`, `operator-bundle.json` and `operator-provenance.json`. Manifest extends existing v1 metadata with profile, declared input/output schemas and requested capability names. Parent verifies repository identity, approved workflow/ref, source commit and asset/bundle digests before approval. Package requests never grant capability. Compiler deterministically emits existing approved schemas, exact resource digests/sizes and matching discovery manifest; it rejects unsafe paths and package-supplied policy, bindings, credentials, environment or outbound authority. The compiler/package ABI and exact compiler pin remain unchanged.
 
 <a id="dispatcher-durable-host"></a>
 ### Dispatcher durable host
 
-REQ-OPERATOR-047/048/051 extend existing 015–018 owners, not a second lifecycle service. `OperatorActivity` owns admission, protected operation receipts and one Activity-private facet containing real Flue code and isolated SQLite. Package CI builds generated Flue Durable Object class; Codeflare selects approved class export through Worker Loader, never arbitrary caller export. Legacy default-entrypoint bundles remain valid. Vite is package build tooling, not a new Codeflare build pipeline.
+REQ-OPERATOR-047/048/051 extend existing 015–018 owners, not a second lifecycle service. `OperatorActivity` owns admission, protected operation receipts and one Activity-private facet containing real Flue code and isolated SQLite. Codeflare selects the approved generated Flue Durable Object class export through Worker Loader, never an arbitrary caller export. Legacy default-entrypoint bundles remain valid.
 
-Facets have no independent physical alarm. Reuse pinned Agents SDK root alarm/fiber machinery in existing Activity with a narrowly scoped dynamic-facet/root bridge. SDK-internal resolution/init seams must be pinned and proven in native fixture before production base-class integration. No copied scheduler, new DO namespace/migration, per-operator deployment, container, full Activity stub or unrestricted namespace binding. Bundle compatibility is child-specific; any parent compatibility change requires demonstrated API need and regression tests.
+Facets have no independent physical alarm; scheduling uses the pinned Agents SDK root alarm/fiber machinery in the existing Activity through a narrowly scoped dynamic-facet/root bridge. SDK-internal resolution/init seams require pinned compatibility and native-fixture proof. No copied scheduler, new DO namespace/migration, per-operator deployment, container, full Activity stub or unrestricted namespace binding. Bundle compatibility is child-specific; any parent compatibility change requires demonstrated API need and regression tests.
 
-One durable execution lease binds generation, submission, input/release digests, expiry and state. Async admission leaves execution running: HTTP return/status polling cannot commit false `waiting`, increment generation or renew lease. Only persisted safe quiescent checkpoint permits explicit continuation. Each effect carries original generation and stable operation ID/digest. Recheck current human eligibility/policy, expiry/cancellation and result generation; never upgrade stale warmed caller. Complete receipts reconcile, changed digest conflicts, unknown completion never blindly replays. Fence cancellation before signaling Flue; alarm recovery/settlement grants no new execution authority. No discretionary whole-assessment cap overrides authorized work; original human deadline still fences late settlement. Legacy exact completed assessment settles to waiting before terminal collection; repository-only exact completed result settles to completed without checkpoint. Both require one bounded result and no unresolved operation.
+One durable execution lease binds generation, submission, input/release digests, expiry and state. Async admission leaves execution running: HTTP return/status polling cannot commit false `waiting`, increment generation or renew lease. Only persisted safe quiescent checkpoint permits explicit continuation. Each effect carries original generation and stable operation ID/digest. Recheck current human eligibility/policy, expiry/cancellation and result generation; never upgrade stale warmed caller. Complete receipts reconcile and changed digests conflict. Unknown mutations never replay; only explicitly future-eligible inference receives separately charged successors under the recovery contract above. Fence cancellation before signaling Flue; alarm recovery/settlement grants no new execution authority. No discretionary whole-assessment cap overrides authorized work; original human deadline still fences late settlement. Legacy exact completed assessment settles to waiting before terminal collection; repository-only exact completed result settles to completed without checkpoint. Historical intent3 requires one bounded result and no unresolved operation. Newly opted-in intent4 permits exact accounted PR-local uncertainty only through a complete deferred-aware assessment, retaining the immutable unknown ledger. One original lease owns a serial exact-submission lineage; phase advancement requires terminal proof, and final collection binds the designated final submission.
 
 Child receives scoped parent transport/inference and required scheduler bridge only: no other Activity/facet, arbitrary parent callback, credentials, sessions/containers or direct outbound network. All resource limits remain bounded. Native proof must execute actual pinned generated Flue artifact, delegated alarm/fiber work, eviction/recovery, two-Activity isolation, safe continuation, stale/expired/cancelled denial and completed/uncertain operations. Mock capability tests are not native proof. This appendix does not upgrade any requirement's incomplete evidence.

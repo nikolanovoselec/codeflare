@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Env } from '../../types';
 import { prepareOperatorActivity, runOperatorActivity } from '../../operators/orchestrator';
+import { createOperatorIntentDigest } from '../../operators/activity';
 import { createOperatorExecutionContext } from '../../operators/execution-context';
 import { sealOperatorSecret } from '../../operators/protected-secrets';
 
@@ -205,4 +206,70 @@ describe('REQ-OPERATOR-018: request-attached production orchestration', () => {
     expect(activity.getRuntimePlan).toHaveBeenCalledOnce();
     expect(env.OPERATOR_REGISTRY!.getByName).not.toHaveBeenCalled();
   });
+});
+
+
+describe('REQ-OPERATOR-061: configured Renovate run settings', () => {
+  function configured(configuration: unknown = { renovate: { repository: 'acme/updates', automaticRuns: false,
+    repetitionIntervalSeconds: 900 } }, intentVersion = '3') {
+    const prepared: Array<{ intent: { activityId: string; intentDigest: string }; invocation: string }> = [];
+    const selection = { controlsRevision: 1, installation: { id: 'configured-install', revision: 2,
+      enabled: true, releaseId: 'release', configurationJson: JSON.stringify(configuration),
+      policy: { capabilities: ['fetch'], resourceProfileId: null } },
+      operator: { operatorId: 'renovate-dispatcher', profile: 'dispatcher', revision: 1,
+        invokers: { users: [claims.email], groups: [] } }, release: { id: 'release', bundleDigest: 'a'.repeat(64) },
+      manifestJson: JSON.stringify({ id: 'renovate-dispatcher', profile: 'dispatcher', intentVersion }) };
+    const host = { ...encryption, OPERATOR_REGISTRY: { getByName: () => ({
+      resolveManagementExecution: async () => ({ ok: true, value: selection }) }) },
+      OPERATOR_ACTIVITY: { getByName: () => ({ prepareAuthorized: async (intent: typeof prepared[number]['intent'],
+        _context: unknown, invocation: string) => { prepared.push({ intent, invocation }); return { ok: true }; } }) },
+    } as unknown as Env;
+    return { prepared, host, selection };
+  }
+  it.each([{}, { repository: 'acme/updates' }])('materializes only the configured repository before immutable admission for %j', async invocation => {
+    const f = configured();
+    const result = await prepareOperatorActivity({ installationId: 'configured-install', invocation },
+      { human: claims, accessJwt: 'private.jwt' }, f.host);
+    expect(f.prepared).toEqual([{ intent: expect.objectContaining({ activityId: result.activityId,
+      intentDigest: await createOperatorIntentDigest('renovate-dispatcher', result.activityId, '{"repository":"acme/updates"}') }),
+      invocation: '{"repository":"acme/updates"}' }]);
+  });
+  it.each([{ repository: 'other/repo' }, { repository: '' }, { repository: 'https://github.com/acme/updates' },
+    { repository: 'acme/updates', pullRequest: 17 }, { repository: 'acme/updates', repetitionIntervalSeconds: 900 },
+    { repository: 'acme/updates', automaticRuns: true }, { repository: 17 }, null, [], 'acme/updates'])
+    ('rejects changed or malformed manual input %j before any prepared admission', async invocation => {
+      const f = configured();
+      await expect(prepareOperatorActivity({ installationId: 'configured-install', invocation },
+        { human: claims, accessJwt: 'private.jwt' }, f.host)).rejects.toBeDefined();
+      expect(f.prepared).toEqual([]);
+    });
+  it.each([{}, { renovate: { automaticRuns: true } }])('requires saved repository even for an explicit input when settings are %j', async configuration => {
+    for (const invocation of [{}, { repository: 'nikolanovoselec/komodo' }]) {
+      const f = configured(configuration);
+      await expect(prepareOperatorActivity({ installationId: 'configured-install', invocation },
+        { human: claims, accessJwt: 'private.jwt' }, f.host)).rejects.toBeDefined();
+      expect(f.prepared).toEqual([]);
+    }
+  });
+  it('does not reinterpret legacy single-PR input as configured intent3', async () => {
+    const f = configured({}, '2');
+    await prepareOperatorActivity({ installationId: 'configured-install', invocation: { repository: 'other/repo', pullRequest: 17 } },
+      { human: claims, accessJwt: 'private.jwt' }, f.host);
+    expect(f.prepared.map(value => JSON.parse(value.invocation))).toEqual([{ repository: 'other/repo', pullRequest: 17 }]);
+  });
+  it('pins the reservation selection before preparation and never rewrites an already-prepared invocation after settings change', async () => {
+    const f = configured();
+    const authority = { human: claims, accessJwt: 'private.jwt' };
+    await prepareOperatorActivity({ installationId: 'configured-install', invocation: {} }, authority, f.host);
+    const original = structuredClone(f.prepared);
+    f.selection.installation.revision++;
+    f.selection.installation.configurationJson = JSON.stringify({ renovate: {
+      repository: 'other/service', automaticRuns: true, repetitionIntervalSeconds: 7200 } });
+    await expect(prepareOperatorActivity({ installationId: 'configured-install', invocation: { repository: 'acme/updates' } },
+      authority, f.host, { activityId: 'reserved-old-generation', expectedManagement: { controlsRevision: 1,
+        installationRevision: 2, operatorRevision: 1, releaseId: 'release', bundleDigest: 'a'.repeat(64) } }))
+      .rejects.toMatchObject({ statusCode: 409 });
+    expect(f.prepared).toEqual(original);
+  });
+
 });

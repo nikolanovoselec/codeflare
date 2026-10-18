@@ -1,4 +1,4 @@
-/// <reference types="@cloudflare/vitest-pool-workers/types" />
+/// <reference types="@cloudflare/vitest-plugin/types" />
 /**
  * Test navigation: Native storage configuration replacement, secret protection and receipt preservation; no HTTP authorization is simulated here.
  * Fixtures are local/CI evidence, not production deployment or live Access acceptance.

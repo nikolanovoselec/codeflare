@@ -45,11 +45,11 @@ test('REQ-AGENT-069 AC1/AC2: locked adapter exposes consult through mcp and star
     }
   });
   const repo = fileURLToPath(new URL('../../../../', import.meta.url));
-  const archivePath = join(repo, 'host/__fixtures__/pi-mcp-adapter-3.3.0.tgz');
+  const archivePath = join(repo, 'host/__fixtures__/pi-mcp-adapter-5.3.1.tgz');
   const lock = JSON.parse(readFileSync(join(repo, 'preseed/agents/pi/package-lock.json'), 'utf8'));
   const pinned = lock.packages['node_modules/pi-mcp-adapter'];
   // Exact locked artifact contract, not the agent's differently pinned install.
-  assert.equal(pinned.version, '3.3.0');
+  assert.equal(pinned.version, '5.3.1');
   assert.equal(`sha512-${createHash('sha512').update(readFileSync(archivePath)).digest('base64')}`, pinned.integrity);
   const vendor = join(f.home, 'vendor');
   mkdirSync(vendor);

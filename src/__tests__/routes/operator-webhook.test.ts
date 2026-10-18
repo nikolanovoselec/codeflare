@@ -1,4 +1,4 @@
-/// <reference types="@cloudflare/vitest-pool-workers/types" />
+/// <reference types="@cloudflare/vitest-plugin/types" />
 /**
  * REQ-OPERATOR-029: the managed edge route still authenticates fixed
  * methods and activity-scoped capabilities in Worker code. These fixtures are

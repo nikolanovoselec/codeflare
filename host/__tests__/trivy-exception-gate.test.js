@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { validateTrivyResult } from '../../scripts/ci/validate-trivy-result.mjs';
 
 const ROOT = fileURLToPath(new URL('../..', import.meta.url));
@@ -54,40 +54,78 @@ function undiciVulnerability(installedVersion, overrides = {}) {
   };
 }
 
-function report(results = [
-  {
-    Target: 'Node.js',
-    Vulnerabilities: [
-      {
-        VulnerabilityID: 'CVE-2026-102990', PkgName: 'basic-ftp',
-        InstalledVersion: '5.3.1', FixedVersion: '6.2.1', Severity: 'HIGH',
-        PkgPath: 'opt/code-server/node_modules/basic-ftp/package.json',
-        PkgIdentifier: { PURL: 'pkg:npm/basic-ftp@5.3.1' },
-      },
-    ],
-  },
-]) {
+function basicFtpVulnerability(overrides = {}) {
+  return {
+    VulnerabilityID: 'CVE-2026-102990', PkgName: 'basic-ftp',
+    InstalledVersion: '5.3.1', FixedVersion: '6.2.1', Severity: 'HIGH',
+    PkgPath: 'opt/code-server/node_modules/basic-ftp/package.json',
+    PkgIdentifier: { PURL: 'pkg:npm/basic-ftp@5.3.1' },
+    ...overrides,
+  };
+}
+
+function report(results = [{ Target: 'Node.js', Vulnerabilities: [] }]) {
   return { Results: results };
 }
 
 describe('REQ-SEC-011 + REQ-OPS-002: Trivy bounded exception gate', () => {
-  it('accepts only the reviewed HIGH/CRITICAL findings', () => {
-    const result = validateTrivyResult(report());
-    assert.deepEqual(result.accepted, [
-      'Node.js@5.3.1',
-    ]);
-    assert.equal(result.evidence.length, 1);
+  it('accepts a patched image without the retired basic-ftp finding', () => {
+    assert.deepEqual(validateTrivyResult(report()), { accepted: [], evidence: [] });
   });
 
-  it('reports scanner package identities for accepted reviewed findings', () => {
-    assert.ok(validateTrivyResult(report()).evidence.includes(
-      'CVE-2026-102990 basic-ftp 5.3.1 at Node.js '
-      + '[path=opt/code-server/node_modules/basic-ftp/package.json; '
-      + 'purl=pkg:npm/basic-ftp@5.3.1]',
-    ));
+  it('rejects recurrence of the retired basic-ftp finding with scanner identities', () => {
+    const input = report();
+    input.Results[0].Vulnerabilities.push(basicFtpVulnerability());
+    assert.throws(() => validateTrivyResult(input),
+      /unexpected HIGH\/CRITICAL finding: CVE-2026-102990 basic-ftp 5\.3\.1.*path=opt\/code-server\/node_modules\/basic-ftp\/package\.json; purl=pkg:npm\/basic-ftp@5\.3\.1/);
   });
 
-  it('emits scanner identities for every accepted occurrence', () => {
+  it('REQ-SEC-011 AC7: emits scanner path and PURL for every accepted fixture occurrence', () => {
+    // Controlled policy fixture only: production has no active exceptions.
+    const first = {
+      vulnerabilityId: 'CVE-2099-0001', packageName: 'reviewed-fixture', target: 'Node.js',
+      packagePath: 'fixtures/first/package.json', packagePurl: 'pkg:npm/reviewed-fixture@1.0.0',
+      installedVersion: '1.0.0', fixedVersion: '1.0.1', severity: 'HIGH', occurrences: 2,
+    };
+    const second = { ...first, packagePath: 'fixtures/second/package.json', occurrences: 1 };
+    const policy = [first, second];
+    const occurrence = reviewed => ({ VulnerabilityID: reviewed.vulnerabilityId,
+      PkgName: reviewed.packageName, InstalledVersion: reviewed.installedVersion,
+      FixedVersion: reviewed.fixedVersion, Severity: reviewed.severity,
+      PkgPath: reviewed.packagePath, PkgIdentifier: { PURL: reviewed.packagePurl } });
+    const input = report([{ Target: 'Node.js',
+      Vulnerabilities: [occurrence(first), occurrence(second), occurrence(first)] }]);
+    const directory = mkdtempSync(join(tmpdir(), 'trivy-reviewed-fixture-'));
+    try {
+      const reportPath = join(directory, 'report.json');
+      writeFileSync(reportPath, JSON.stringify(input));
+      // Run the real validation/output entrypoint with a controlled in-process
+      // fixture. The production CLI has no policy flag or environment override.
+      const script = `import { main } from ${JSON.stringify(pathToFileURL(VALIDATOR).href)};`
+        + `await main(${JSON.stringify(reportPath)}, ${JSON.stringify(policy)});`;
+      const output = execFileSync(process.execPath, ['--input-type=module', '-e', script], { encoding: 'utf8' });
+      const identities = output.split('\n').filter(line => line.startsWith('Observed reviewed Trivy identity:'));
+      assert.deepEqual(identities, [first, second, first].map(reviewed =>
+        `Observed reviewed Trivy identity: ${reviewed.vulnerabilityId} ${reviewed.packageName} `
+        + `${reviewed.installedVersion} at ${reviewed.target} `
+        + `[path=${reviewed.packagePath}; purl=${reviewed.packagePurl}]`));
+      // The fixture cannot broaden policy, omit occurrences or accept duplicates.
+      assert.throws(() => validateTrivyResult(input), /unexpected HIGH\/CRITICAL finding/);
+      const changed = structuredClone(input);
+      changed.Results[0].Vulnerabilities[1].PkgIdentifier.PURL += '?drift';
+      assert.throws(() => validateTrivyResult(changed, policy), /unexpected HIGH\/CRITICAL finding/);
+      const missing = structuredClone(input);
+      missing.Results[0].Vulnerabilities.pop();
+      assert.throws(() => validateTrivyResult(missing, policy), /missing reviewed finding/);
+      const duplicate = structuredClone(input);
+      duplicate.Results[0].Vulnerabilities.push(occurrence(first));
+      assert.throws(() => validateTrivyResult(duplicate, policy), /unexpected HIGH\/CRITICAL finding/);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it('emits no accepted identities for an exception-free image', () => {
     const directory = mkdtempSync(join(tmpdir(), 'trivy-gate-'));
     try {
       const input = report();
@@ -96,10 +134,7 @@ describe('REQ-SEC-011 + REQ-OPS-002: Trivy bounded exception gate', () => {
 
       const output = execFileSync(process.execPath, [VALIDATOR, reportPath], { encoding: 'utf8' });
       const identities = output.split('\n').filter((line) => line.startsWith('Observed reviewed Trivy identity:'));
-      const prefix = 'Observed reviewed Trivy identity: ';
-      assert.deepEqual(identities, [
-        `${prefix}CVE-2026-102990 basic-ftp 5.3.1 at Node.js [path=opt/code-server/node_modules/basic-ftp/package.json; purl=pkg:npm/basic-ftp@5.3.1]`,
-      ]);
+      assert.deepEqual(identities, []);
     } finally {
       rmSync(directory, { recursive: true, force: true });
     }
@@ -164,10 +199,11 @@ describe('REQ-SEC-011 + REQ-OPS-002: Trivy bounded exception gate', () => {
 
   it('rejects superseded basic-ftp identities', () => {
     const input = report();
-    const findings = input.Results[0].Vulnerabilities;
-    findings[0].InstalledVersion = '5.3.0';
-    findings[0].PkgIdentifier.PURL = 'pkg:npm/basic-ftp@5.3.0';
-    assert.throws(() => validateTrivyResult(input), /unexpected HIGH\/CRITICAL finding.*missing reviewed finding/s);
+    input.Results[0].Vulnerabilities.push(basicFtpVulnerability({
+      InstalledVersion: '5.3.0',
+      PkgIdentifier: { PURL: 'pkg:npm/basic-ftp@5.3.0' },
+    }));
+    assert.throws(() => validateTrivyResult(input), /unexpected HIGH\/CRITICAL finding/);
   });
 
   it('rejects recurrence of the retired npm ip-address finding', () => {
@@ -179,9 +215,9 @@ describe('REQ-SEC-011 + REQ-OPS-002: Trivy bounded exception gate', () => {
     assert.throws(() => validateTrivyResult(input), /unexpected HIGH\/CRITICAL finding.*CVE-2026-69192/s);
   });
 
-  it('rejects duplicate reviewed findings', () => {
+  it('rejects duplicate unexcepted findings', () => {
     const input = report();
-    input.Results[0].Vulnerabilities.push(structuredClone(input.Results[0].Vulnerabilities[0]));
+    input.Results[0].Vulnerabilities.push(basicFtpVulnerability(), basicFtpVulnerability());
     assert.throws(() => validateTrivyResult(input), /unexpected HIGH\/CRITICAL finding/);
   });
 
@@ -208,38 +244,20 @@ describe('REQ-SEC-011 + REQ-OPS-002: Trivy bounded exception gate', () => {
       { PkgName: 'other' },
     ]) {
       const input = report();
-      Object.assign(input.Results[0].Vulnerabilities[0], change);
+      input.Results[0].Vulnerabilities.push(basicFtpVulnerability(change));
       assert.throws(() => validateTrivyResult(input), /unexpected HIGH\/CRITICAL finding/);
     }
   });
 
-  it('rejects package-path or PURL drift from a reviewed identity', () => {
+  it('rejects basic-ftp findings at other paths or PURLs', () => {
     for (const change of [
       { PkgPath: 'other/package.json' },
       { PkgIdentifier: { PURL: 'pkg:npm/basic-ftp@5.3.1?other' } },
     ]) {
       const input = report();
-      const reviewed = input.Results[0].Vulnerabilities.find(
-        (finding) => finding.PkgName === 'basic-ftp' && finding.InstalledVersion === '5.3.1',
-      );
-      Object.assign(reviewed, change);
-      assert.throws(
-        () => validateTrivyResult(input),
-        /unexpected HIGH\/CRITICAL finding.*missing reviewed finding/s,
-      );
+      input.Results[0].Vulnerabilities.push(basicFtpVulnerability(change));
+      assert.throws(() => validateTrivyResult(input), /unexpected HIGH\/CRITICAL finding/);
     }
-  });
-
-  it('rejects missing occurrences from the reviewed deployment tuples', () => {
-    const nodeResult = structuredClone(report().Results[0]);
-    nodeResult.Vulnerabilities.splice(
-      nodeResult.Vulnerabilities.findIndex((finding) => finding.PkgName === 'basic-ftp' && finding.InstalledVersion === '5.3.1'),
-      1,
-    );
-    assert.throws(
-      () => validateTrivyResult(report([nodeResult])),
-      /missing reviewed finding.*basic-ftp 5\.3\.1.*path=opt\/code-server\/node_modules\/basic-ftp\/package\.json; purl=pkg:npm\/basic-ftp@5\.3\.1/s,
-    );
   });
 
   it('accepts a patched image without the retired npm brace finding', () => {
@@ -255,7 +273,7 @@ describe('REQ-SEC-011 + REQ-OPS-002: Trivy bounded exception gate', () => {
     assert.throws(() => validateTrivyResult(input), /unexpected HIGH\/CRITICAL finding.*CVE-2026-69152/s);
   });
 
-  it('rejects drift in the reviewed Node.js finding', () => {
+  it('rejects basic-ftp findings with other target, version or severity identities', () => {
     for (const change of [
       { target: 'other' },
       { InstalledVersion: '5.3.0' },
@@ -263,6 +281,7 @@ describe('REQ-SEC-011 + REQ-OPS-002: Trivy bounded exception gate', () => {
       { Severity: 'CRITICAL' },
     ]) {
       const input = report();
+      input.Results[0].Vulnerabilities.push(basicFtpVulnerability());
       if (change.target) input.Results[0].Target = change.target;
       else Object.assign(input.Results[0].Vulnerabilities[0], change);
       assert.throws(
@@ -272,7 +291,7 @@ describe('REQ-SEC-011 + REQ-OPS-002: Trivy bounded exception gate', () => {
     }
   });
 
-  it('reports every unexpected and missing finding together', () => {
+  it('reports every unexpected finding together', () => {
     const input = report([
       { Target: 'Node.js', Vulnerabilities: [braceExpansionVulnerability()] },
       {
@@ -294,8 +313,7 @@ describe('REQ-SEC-011 + REQ-OPS-002: Trivy bounded exception gate', () => {
         && error.message.includes('path=opt/first/package.json')
         && error.message.includes('purl=pkg:npm/first@1.0.0')
         && error.message.includes('CVE-2099-0002')
-        && error.message.includes('path=opt/second/package.json')
-        && error.message.includes('missing reviewed finding: CVE-2026-102990 basic-ftp 5.3.1'),
+        && error.message.includes('path=opt/second/package.json'),
     );
   });
 

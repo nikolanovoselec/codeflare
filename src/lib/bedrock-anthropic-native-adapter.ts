@@ -1,11 +1,23 @@
+import { inferenceDiagnostic, type InferenceDiagnosticContext } from './inference-diagnostics';
+
 export type BedrockAnthropicTransport = 'invoke' | 'eventstream';
 type JsonObject = Record<string, any>;
+
+class NativeStreamDiagnosticError extends Error {
+  readonly failureClass: string;
+  constructor(message: string, failureClass: string) {
+    super(message);
+    this.failureClass = failureClass;
+  }
+}
 
 /** Caller-owned, session-scoped storage for authentic assistant tool turns.
  * The caller enforces authorization and isolation; tool IDs alone grant neither. */
 export interface BedrockReplayState {
   load(toolId: string): Promise<unknown[] | null>;
   save(toolId: string, content: unknown[]): Promise<void>;
+  diagnosticContext?: InferenceDiagnosticContext;
+  diagnosticReplayFailure?: 'replay-encryption' | 'replay-persistence';
 }
 
 /** Internal observation only: no private content, signatures, or invented usage. */
@@ -381,7 +393,13 @@ export async function buildBedrockAnthropicRequest(payload: JsonObject, state: B
 
 async function persistReplay(content: unknown[], state: BedrockReplayState): Promise<void> {
   const blocks = cloneBlocks(content);
-  if (!blocks) throw new Error('Native Bedrock replay state exceeds the safe limit');
+  if (!blocks) {
+    const serializedReplayBytes = encoder.encode(JSON.stringify(content)).byteLength;
+    const failureClass = serializedReplayBytes > MAX_REPLAY_BYTES ? 'replay-limit' : 'replay-schema';
+    inferenceDiagnostic(state.diagnosticContext, { stage: 'native-replay', outcome: 'failed', failureClass,
+      serializedReplayBytes, replayLimit: MAX_REPLAY_BYTES });
+    throw new NativeStreamDiagnosticError('Native Bedrock replay state exceeds the safe limit', failureClass);
+  }
   // Adaptive thinking may omit normal thinking blocks. Keep the complete
   // authentic tool turn, including unsigned and redacted-only responses.
   const ids = blocks.filter((block) => plain(block) && block.type === 'tool_use').map((block: any) => safeToolId(block.id)).filter(Boolean) as string[];
@@ -425,7 +443,15 @@ async function adaptInvoke(response: Response, state: BedrockReplayState, stream
   // for structured input. max_tokens can still carry a tool_use block whose
   // input is only the valid prefix of a larger command. Keep any safe text and
   // usage, but never publish or persist that incomplete block as executable.
-  if (finishReason === 'tool_calls') await persistReplay(native.content, state);
+  if (finishReason === 'tool_calls') {
+    try { await persistReplay(native.content, state); }
+    catch (error) {
+      inferenceDiagnostic(state.diagnosticContext, { stage: 'native-replay', outcome: 'failed', transport: 'invoke', failureClass: error instanceof NativeStreamDiagnosticError ? error.failureClass : state.diagnosticReplayFailure ?? 'replay-persistence' });
+      throw error;
+    }
+    inferenceDiagnostic(state.diagnosticContext, { stage: 'native-replay', outcome: 'completed', transport: 'invoke' });
+  }
+  inferenceDiagnostic(state.diagnosticContext, { stage: 'native-response', outcome: 'completed', transport: 'invoke', stopReason: finishReason });
   observe?.({ completed: true, thinkingPresent: native.content.some((block: JsonObject) => block.type === 'thinking' || block.type === 'redacted_thinking') });
   const text = native.content.filter((block: unknown) => plain(block) && block.type === 'text' && typeof block.text === 'string').map((block: any) => block.text).join('');
   const calls = finishReason === 'tool_calls' ? native.content.filter((block: unknown) => plain(block) && block.type === 'tool_use').map((block: any) => ({
@@ -489,7 +515,8 @@ function readEventstreamHeaders(frame: Uint8Array, headerLength: number): Map<st
 function decodeBedrockChunk(frame: Uint8Array, headerLength: number): JsonObject {
   const headers = readEventstreamHeaders(frame, headerLength);
   if (headers.get(':message-type') !== 'event' || headers.get(':event-type') !== 'chunk') {
-    throw new Error('Unsupported Bedrock eventstream event');
+    throw new NativeStreamDiagnosticError('Unsupported Bedrock eventstream event',
+      ['exception', 'error'].includes(headers.get(':message-type') ?? '') ? 'provider-exception' : 'frame-headers');
   }
   const contentType = headers.get(':content-type');
   if (contentType !== undefined && (typeof contentType !== 'string' || !/^application\/json(?:\s*;|$)/i.test(contentType.trim()))) {
@@ -506,11 +533,36 @@ function decodeBedrockChunk(frame: Uint8Array, headerLength: number): JsonObject
   const bytes = new Uint8Array(binary.length);
   for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
   const event = JSON.parse(decoder.decode(bytes));
-  if (!plain(event) || typeof event.type !== 'string' || event.type === 'error') throw new Error('Invalid Bedrock stream event');
+  if (!plain(event) || typeof event.type !== 'string' || event.type === 'error') {
+    throw new NativeStreamDiagnosticError('Invalid Bedrock stream event', plain(event) && event.type === 'error' ? 'provider-error' : 'frame-payload');
+  }
   return event;
 }
 
-function parseFrames(buffer: Uint8Array): { events: JsonObject[]; remainder: Uint8Array } {
+function streamFailureClass(error: unknown): string {
+  if (error instanceof NativeStreamDiagnosticError) return error.failureClass;
+  if (error instanceof SyntaxError || error instanceof TypeError) return 'frame-payload';
+  const classes: Record<string, string> = {
+    'Invalid Bedrock eventstream checksum': 'frame-integrity',
+    'Invalid Bedrock eventstream frame': 'frame-size',
+    'Invalid Bedrock eventstream headers': 'frame-headers',
+    'Invalid Bedrock eventstream content type': 'frame-content-type',
+    'Invalid Bedrock eventstream payload bytes': 'frame-payload',
+    'Invalid Bedrock eventstream base64': 'frame-payload',
+    'Native Bedrock replay state exceeds the safe limit': 'replay-limit',
+    'Truncated Bedrock eventstream frame': 'truncated-frame',
+    'Incomplete Bedrock eventstream': 'missing-stop',
+    'Unsupported or missing native Bedrock stop reason': 'stop-reason',
+    'Invalid Bedrock streamed tool arguments': 'tool-arguments',
+    'Bedrock eventstream data follows message_stop': 'event-sequence',
+    'Bedrock eventstream must begin with message_start': 'event-sequence',
+    'Duplicate Bedrock message_start': 'event-sequence',
+    'Bedrock eventstream delta precedes its block': 'event-sequence',
+  };
+  return error instanceof Error && Object.hasOwn(classes, error.message) ? classes[error.message] : 'unknown';
+}
+
+function parseFrames(buffer: Uint8Array, validated?: () => void): { events: JsonObject[]; remainder: Uint8Array } {
   const events: JsonObject[] = [];
   let offset = 0;
   while (buffer.length - offset >= 12) {
@@ -524,7 +576,7 @@ function parseFrames(buffer: Uint8Array): { events: JsonObject[]; remainder: Uin
     if (frameView.getUint32(total - 4) !== crc32(frame.subarray(0, total - 4))) {
       throw new Error('Invalid Bedrock eventstream checksum');
     }
-    events.push(decodeBedrockChunk(frame, headerLength)); offset += total;
+    events.push(decodeBedrockChunk(frame, headerLength)); validated?.(); offset += total;
   }
   return { events, remainder: buffer.slice(offset) };
 }
@@ -547,19 +599,28 @@ async function adaptEventstream(response: Response, state: BedrockReplayState, o
   };
   let id = 'bedrock-native'; let model = 'bedrock-anthropic'; let stopReason: string | undefined; let usage: JsonObject = {};
   let streamFailed = false;
+  let failureStage = 'native-stream';
+  const metrics = { inputBytes: 0, chunks: 0, frames: 0, events: 0 };
+  const began = performance.now();
+  const diagnostic = (outcome: string, extra: Record<string, unknown> = {}) => inferenceDiagnostic(state.diagnosticContext,
+    { stage: failureStage, outcome, transport: 'eventstream', ...metrics, replayBytes, replayLimit: MAX_REPLAY_BYTES,
+      frameLimit: MAX_FRAME_BYTES, toolBlocks: [...blocks.values()].filter(block => block.type === 'tool_use').length,
+      elapsedMs: performance.now() - began, ...extra });
+  diagnostic('started');
   const emitTerminalError = (controller: TransformStreamDefaultController<Uint8Array>) => {
     if (streamFailed) return;
     streamFailed = true;
     controller.enqueue(sse({ error: { message: 'Native Bedrock stream failed', code: 'NATIVE_BEDROCK_STREAM_ERROR' } }));
     controller.enqueue(sse('[DONE]'));
   };
-  const body = response.body.pipeThrough(new TransformStream<Uint8Array, Uint8Array>({
+  const transform = new TransformStream<Uint8Array, Uint8Array>({
     async transform(chunk, controller) {
       if (streamFailed) return;
       try {
         frameBuffer = concat(frameBuffer, chunk);
-        const parsed = parseFrames(frameBuffer); frameBuffer = parsed.remainder;
+        const parsed = parseFrames(frameBuffer, () => { metrics.frames++; }); frameBuffer = parsed.remainder;
         for (const event of parsed.events) {
+        metrics.events++;
         if (sawStop) throw new Error('Bedrock eventstream data follows message_stop');
         if (!sawStart && event.type !== 'message_start') throw new Error('Bedrock eventstream must begin with message_start');
         if (event.type === 'message_start' && plain(event.message)) {
@@ -596,7 +657,8 @@ async function adaptEventstream(response: Response, state: BedrockReplayState, o
           sawStop = true;
         }
         }
-      } catch {
+      } catch (error) {
+        diagnostic('failed', { failureClass: streamFailureClass(error) });
         emitTerminalError(controller);
       }
     },
@@ -612,7 +674,14 @@ async function adaptEventstream(response: Response, state: BedrockReplayState, o
           if (!toolBlocks.length || toolBlocks.some((block) => typeof block.__arguments === 'string')) {
             throw new Error('Invalid Bedrock streamed tool arguments');
           }
-          await persistReplay(orderedBlocks, state);
+          failureStage = 'native-replay';
+          try { await persistReplay(orderedBlocks, state); }
+          catch (error) {
+            const failureClass = streamFailureClass(error);
+            throw new NativeStreamDiagnosticError('Native Bedrock replay persistence failed', ['replay-limit', 'replay-schema'].includes(failureClass) ? failureClass : state.diagnosticReplayFailure ?? 'replay-persistence');
+          }
+          diagnostic('completed');
+          failureStage = 'native-stream';
           // Unlike public text, a tool call cannot be safe to execute before
           // Bedrock certifies `tool_use`. Buffering only structured tool input
           // prevents a max_tokens fragment from poisoning Pi history while
@@ -622,13 +691,51 @@ async function adaptEventstream(response: Response, state: BedrockReplayState, o
           })) }, finish_reason: null }] }));
         }
         observe?.({ completed: true, thinkingPresent: orderedBlocks.some((block) => block.type === 'thinking' || block.type === 'redacted_thinking') });
+        failureStage = 'native-response';
+        diagnostic('completed', { stopReason: finishReason });
         controller.enqueue(sse({ id, object: 'chat.completion.chunk', model, choices: [{ index: 0, delta: {}, finish_reason: finishReason }], ...(openAiUsage(usage) && { usage: openAiUsage(usage) }) }));
         controller.enqueue(sse('[DONE]'));
-      } catch {
+      } catch (error) {
+        diagnostic('failed', { failureClass: streamFailureClass(error) });
         emitTerminalError(controller);
       }
     },
-  }));
+  });
+  // Observe at the writable boundary without adding an async-pull readable.
+  // Source failure aborts this sink; consumer cancellation errors the owned
+  // writer and is forwarded to the sink so pipeTo cancels the original source.
+  const writer = transform.writable.getWriter();
+  let sinkController!: WritableStreamDefaultController;
+  let sourceReadFailed = false;
+  // Readiness is replaceable on backpressure/error transitions, independently
+  // of closed. Forward its current rejection rather than leaving it unowned.
+  const observeReadiness = () => { void writer.ready.catch(error => { sinkController.error(error); }); };
+  const sink = new WritableStream<Uint8Array>({
+    start(controller) { sinkController = controller; },
+    write(chunk) {
+      metrics.inputBytes += chunk.byteLength; metrics.chunks++;
+      const written = writer.write(chunk);
+      observeReadiness();
+      return written;
+    },
+    close() { return writer.close(); },
+    abort(error) {
+      sourceReadFailed = true;
+      inferenceDiagnostic(state.diagnosticContext, { stage: 'native-stream', outcome: 'failed', transport: 'eventstream',
+        ...metrics, failureClass: 'stream-read', elapsedMs: performance.now() - began });
+      const aborted = writer.abort(error);
+      observeReadiness();
+      return aborted;
+    },
+  });
+  observeReadiness();
+  void writer.closed.catch(error => {
+    observeReadiness();
+    if (!sourceReadFailed) inferenceDiagnostic(state.diagnosticContext,
+      { stage: 'native-stream', outcome: 'canceled', transport: 'eventstream', ...metrics });
+    sinkController.error(error);
+  });
+  const body = response.body.pipeThrough({ writable: sink, readable: transform.readable });
   return new Response(body, { status: response.status, headers: { 'content-type': 'text/event-stream; charset=utf-8', 'cache-control': 'no-store' } });
 }
 

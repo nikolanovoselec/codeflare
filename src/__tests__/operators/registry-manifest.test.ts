@@ -1,4 +1,4 @@
-/// <reference types="@cloudflare/vitest-pool-workers/types" />
+/// <reference types="@cloudflare/vitest-plugin/types" />
 /**
  * Test navigation: Approval/admission snapshot immutability across replacement and reconstruction; manifests cross RPC as validated JSON text.
  * Fixtures are local/CI evidence, not production deployment or live Access acceptance.

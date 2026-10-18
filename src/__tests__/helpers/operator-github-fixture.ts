@@ -52,7 +52,7 @@ function archive(files: Array<{ name: string; bytes: Uint8Array }>): Uint8Array 
 export type GitHubFixtureFault = 'provenance-repository' | 'provenance-compiler' | 'mutable-release' | 'failed-run' | 'build-bytes' | 'unsafe-redirect';
 
 export async function createOperatorGitHubFixture(options: {
-  fault?: GitHubFixtureFault; repositoryName?: string; useCdn?: boolean;
+  fault?: GitHubFixtureFault; repositoryName?: string; repositoryOwner?: string; intentVersion?: string; packageId?: string; inputSchema?: Record<string, unknown>; useCdn?: boolean;
   artifactCdnHost?: 'productionresultssa1.blob.core.windows.net' | 'productionresultssa2.blob.core.windows.net'
     | 'productionresultssa3.blob.core.windows.net' | 'productionresultssa6.blob.core.windows.net'
     | 'productionresultssa8.blob.core.windows.net' | 'productionresultssa16.blob.core.windows.net'
@@ -66,8 +66,9 @@ export async function createOperatorGitHubFixture(options: {
   let changedRetainedAsset: 'operator-bundle.json' | 'operator-provenance.json' | null = null;
   let movedRetainedTag = false;
   const repositoryName = options.repositoryName ?? 'review-operator';
-  const repository = { id: repositoryId, full_name: `acme/${repositoryName}`,
-    html_url: `https://github.com/acme/${repositoryName}`, default_branch: 'main' };
+  const repositoryOwner = options.repositoryOwner ?? 'acme';
+  const repository = { id: repositoryId, full_name: `${repositoryOwner}/${repositoryName}`,
+    html_url: `https://github.com/${repositoryOwner}/${repositoryName}`, default_branch: 'main' };
   const bundle = encoder.encode(JSON.stringify(options.profile === 'dispatcher' ? {
     schemaVersion: 1, sourceCommit: options.dispatcherSourceMismatch ? 'b'.repeat(40) : sourceCommit,
     versions: { runtime: '2.1.0', vitePlugin: '2.1.0', agents: '0.20.1' },
@@ -81,8 +82,8 @@ export async function createOperatorGitHubFixture(options: {
       ])) : {}) } }));
   const bundleDigest = await sha256(bundle);
   const manifest = encoder.encode(JSON.stringify({ schemaVersion: 1, interfaceVersion: 1,
-    id: repositoryName, name: 'Review operator', description: 'Review fixture', coreVersion: '1', intentVersion: '1',
-    profile: options.profile ?? 'conductor', inputSchema: { type: 'object' },
+    id: options.packageId ?? repositoryName, name: 'Review operator', description: 'Review fixture', coreVersion: '1', intentVersion: options.intentVersion ?? '1',
+    profile: options.profile ?? 'conductor', inputSchema: options.inputSchema ?? { type: 'object' },
     requiredCapabilities: options.requiredCapabilities ?? [],
     artifact: { path: '/operator-bundle.json', sha256: bundleDigest } }));
   const manifestDigest = await sha256(manifest);
@@ -117,7 +118,7 @@ export async function createOperatorGitHubFixture(options: {
       return url.pathname === '/fixture/operator-package' ? new Response(archiveBytes) : new Response('Unknown artifact', { status: 404 });
     if (url.origin !== 'https://api.github.com') return new Response('Unapproved host', { status: 403 });
     const path = url.pathname;
-    if (path === `/repos/acme/${repositoryName}` || path === `/repositories/${repositoryId}`) return Response.json(repository);
+    if (path === `/repos/${repositoryOwner}/${repositoryName}` || path === `/repositories/${repositoryId}`) return Response.json(repository);
     if (path === `/repositories/${repositoryId}/actions/workflows/release.yml`) return Response.json({ id: workflowId,
       path: '.github/workflows/release.yml', state: 'active' });
     if (path === `/repositories/${repositoryId}/releases`) return Response.json(Array.from({ length: publishedReleases }, (_, index) => ({

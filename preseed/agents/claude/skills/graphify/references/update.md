@@ -21,7 +21,6 @@ from pathlib import Path
 
 result = detect_incremental(Path('INPUT_PATH'))
 new_total = result.get('new_total', 0)
-print(json.dumps(result, indent=2))
 Path('.graphify_incremental.json').write_text(json.dumps(result))
 if new_total == 0:
  print('No files changed since last run. Nothing to update.')
@@ -46,7 +45,7 @@ print('code_only:', code_only)
 "
 ```
 
-If `code_only` is True: print `[graphify update] Code-only changes detected - skipping semantic extraction (no LLM needed)`, run only Step 2A (AST) on the changed files, skip Step 2B entirely (no subagents), then go straight to merge and Steps 3-7.
+If `code_only` is True: print `[graphify update] Code-only changes detected - skipping semantic extraction (no LLM needed)`, run Step 2A (AST) on the changed files and skip Step 2B (no subagents). Materialize the current extraction with `cp .graphify_ast.json .graphify_extract.json` before the merge below; never reuse an old semantic/extraction intermediate. Then continue through merge and Steps 3-7. Preserve the selected input root and persisted scan/language options.
 
 If `code_only` is False (any changed file is a doc/paper/image): run the full Steps 2A-2C pipeline as normal.
 
