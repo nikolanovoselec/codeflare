@@ -58,7 +58,8 @@ function branchMarker(ctx: any): Round | undefined {
 function samePending(a: Pending | undefined, b: Pending): boolean {
   return a?.repository === b.repository && a?.repositoryId === b.repositoryId
     && a?.pullRequest === b.pullRequest && a?.head === b.head
-    && a?.sessionFile === b.sessionFile && a?.startedAt === b.startedAt;
+    && a?.sessionFile === b.sessionFile && a?.startedAt === b.startedAt
+    && (a?.ciRequired !== false) === (b.ciRequired !== false);
 }
 function sameRound(a: Round | undefined, b: Round): boolean {
   return samePending(a, b) && a?.activityId === b.activityId;
@@ -67,12 +68,15 @@ function branchHasPlan(ctx: any, round: Round): boolean {
   return sameRound(branchMarker(ctx), round)
     && (!round.sessionFile || ctx.sessionManager.getSessionFile?.() === round.sessionFile);
 }
-function ciTerminal(ctx: any, boundary: Round): 'success' | 'failure' | 'timeout' | undefined {
+function entriesAfterPlan(ctx: any): any[] {
   const entries = ctx.sessionManager.getBranch();
   const markerIndex = entries.map((entry: any) => entry.type === 'custom'
     && entry.customType === ROUND_ENTRY).lastIndexOf(true);
-  if (markerIndex < 0 || !branchHasPlan(ctx, boundary)) return;
-  const after = entries.slice(markerIndex + 1);
+  return markerIndex < 0 ? [] : entries.slice(markerIndex + 1);
+}
+function ciTerminal(ctx: any, boundary: Round): 'success' | 'failure' | 'timeout' | undefined {
+  if (!branchHasPlan(ctx, boundary)) return;
+  const after = entriesAfterPlan(ctx);
   const calls = after.flatMap((entry: any) => entry.type === 'message'
     && entry.message?.role === 'assistant' && Array.isArray(entry.message.content)
     ? entry.message.content.filter((part: any) => part.type === 'toolCall' && part.name === 'subagent') : []);
@@ -112,7 +116,7 @@ export function registerOperatorReviewRemote(pi: ReviewPi, dependencies: Depende
   let epoch = 0;
   let submissionEpoch = 0;
   const stop = () => { epoch += 1; if (timer) clearTimeout(timer); timer = undefined; round = undefined; pending = undefined; };
-  const alreadyDelivered = (ctx: any, active: Round) => ctx.sessionManager.getBranch().some((entry: any) =>
+  const alreadyDelivered = (ctx: any, active: Round) => entriesAfterPlan(ctx).some((entry: any) =>
     entry.type === 'custom_message' && entry.customType === 'pr-boundary-original-findings'
     && entry.details?.repository === active.repository && entry.details?.pr === active.pullRequest
     && entry.details?.head === active.head && entry.details?.activityId === active.activityId);
@@ -167,7 +171,8 @@ export function registerOperatorReviewRemote(pi: ReviewPi, dependencies: Depende
     const next: Round = saved && saved.repository === boundary.repository
       && saved.pullRequest === boundary.pullRequest && saved.head === boundary.head
       && saved.activityId === activityId && branchHasPlan(ctx, saved)
-      ? saved : { ...boundary, activityId,
+      ? { ...saved, ciRequired: saved.ciRequired !== false || boundary.ciRequired !== false }
+      : { ...boundary, activityId,
         sessionFile: ctx.sessionManager.getSessionFile?.(), startedAt: Date.now() };
     if (sameRound(round, next)) return;
     epoch += 1;
@@ -273,15 +278,22 @@ export function registerOperatorReviewRemote(pi: ReviewPi, dependencies: Depende
       || current.pullRequest !== boundary.pullRequest || current.head !== boundary.head) return;
     if (!selected.activityId) {
       const prior = pendingMarker(ctx);
-      if (!prior || prior.repository !== boundary.repository || prior.pullRequest !== boundary.pullRequest
-        || prior.head !== boundary.head || prior.sessionFile !== ctx.sessionManager.getSessionFile?.()) {
+      const next: Pending = prior && prior.repository === boundary.repository
+        && prior.repositoryId === boundary.repositoryId && prior.repo === boundary.repo
+        && prior.pullRequest === boundary.pullRequest && prior.head === boundary.head
+        && prior.sessionFile === ctx.sessionManager.getSessionFile?.()
+        ? { ...prior, ciRequired: prior.ciRequired !== false || boundary.ciRequired !== false }
+        : { ...boundary, sessionFile: ctx.sessionManager.getSessionFile?.(), startedAt: Date.now() };
+      if (!samePending(prior, next)) {
         epoch += 1;
-        pending = { ...boundary, sessionFile: ctx.sessionManager.getSessionFile?.(), startedAt: Date.now() };
-        pi.appendEntry(PENDING_ENTRY, pending);
+        if (timer) { clearTimeout(timer); timer = undefined; }
+        round = undefined;
+        pi.appendEntry(PENDING_ENTRY, next);
         pi.sendMessage({ customType: 'pr-boundary-remote-pending', display: true,
           content: 'Protected Review preparation is pending. Reconcile read-only; do not repeat staging '
             + 'or fall back to local reviewers.' });
-      } else pending = prior;
+      }
+      pending = next;
       schedule(ctx);
       return;
     }
@@ -300,7 +312,7 @@ export function registerOperatorReviewRemote(pi: ReviewPi, dependencies: Depende
   pi.on('agent_end', (_event, ctx) => {
     const active = round;
     if (!active || !branchHasPlan(ctx, active)) return;
-    const entries = ctx.sessionManager.getBranch();
+    const entries = entriesAfterPlan(ctx);
     const delivered = entries.reduce((last: number, entry: any, index: number) =>
       entry.type === 'custom_message' && entry.customType === 'pr-boundary-original-findings'
         && entry.details?.activityId === active.activityId && entry.details?.head === active.head

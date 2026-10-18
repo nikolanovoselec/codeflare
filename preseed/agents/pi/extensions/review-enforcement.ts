@@ -639,7 +639,7 @@ function statusReason(status: ReturnType<typeof readCompletion>["status"]): stri
 export type ConsentedReview = Pick<CurrentReview, "repo" | "identity">;
 type ConsentedLaunch = (review: ConsentedReview, ctx: ReviewContext) => Promise<void>;
 export type ReviewEnforcementController = {
-  consentClone(event: unknown, ctx: ReviewContext, launch: ConsentedLaunch): Promise<void>;
+  consentClone(event: unknown, ctx: ReviewContext, launch: ConsentedLaunch, isCurrent: () => boolean): Promise<void>;
 };
 
 export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependencies): ReviewEnforcementController {
@@ -667,9 +667,11 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
     command?: string,
     createdPr?: CreatedPrTarget,
     consentedLaunch?: ConsentedLaunch,
+    isCurrent = () => true,
   ): Promise<void> => {
+    if (!isCurrent()) return;
     const review = await currentReview(ctx, dependencies, repo, ciEvent, command, createdPr);
-    if (!review) return;
+    if (!isCurrent() || !review) return;
     if (readCompletion(review.identity).status === "complete") return;
     if (activeRound && sameIdentity(activeRound.identity, review.identity)) return;
     let decision: string | undefined;
@@ -690,8 +692,9 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
       }
       if (decision !== MARK_COMPLETE && decision !== LAUNCH_REVIEW) return;
     }
+    if (!isCurrent()) return;
     const refreshed = await currentReview(ctx, dependencies, review.repo, ciEvent, command, review.createdPr);
-    if (!refreshed || !sameIdentity(refreshed.identity, review.identity)) return;
+    if (!isCurrent() || !refreshed || !sameIdentity(refreshed.identity, review.identity)) return;
     if (readCompletion(refreshed.identity).status === "complete") return;
     if (decision === MARK_COMPLETE) {
       writeCompletion(refreshed.identity);
@@ -792,7 +795,8 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
     if (repo) await evaluate(ctx, repo, `startup:${Date.now()}`);
   });
 
-  const handleToolResult = async (event: any, ctx: ReviewContext, consentedLaunch?: ConsentedLaunch): Promise<void> => {
+  const handleToolResult = async (event: any, ctx: ReviewContext, consentedLaunch?: ConsentedLaunch,
+    isCurrent = () => true): Promise<void> => {
     const toolUseId = event?.toolCallId ?? event?.toolUseId ?? event?.id;
     const beforePromise = typeof toolUseId === "string" ? mergeBefore.get(toolUseId) : undefined;
     if (typeof toolUseId === "string") mergeBefore.delete(toolUseId);
@@ -819,7 +823,7 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
         }
         return;
       }
-      await evaluate(ctx, repo, boundary.toolUseId, boundary.classification.event, invocation.command, createdPr, consentedLaunch);
+      await evaluate(ctx, repo, boundary.toolUseId, boundary.classification.event, invocation.command, createdPr, consentedLaunch, isCurrent);
       return;
     }
     if (!beforePromise || typeof toolUseId !== "string") return;
@@ -898,8 +902,9 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
   pi.on("agent_settled", async (_event, ctx) => {
     await settleRound(ctx, false);
   });
-  return { consentClone: async (event, ctx, launch) => {
-    if (latestBoundary(event, ctx.cwd)?.classification.clone) await handleToolResult(event, ctx, launch);
+  return { consentClone: async (event, ctx, launch, isCurrent) => {
+    if (isCurrent() && latestBoundary(event, ctx.cwd)?.classification.clone)
+      await handleToolResult(event, ctx, launch, isCurrent);
   } };
 }
 

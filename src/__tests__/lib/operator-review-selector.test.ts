@@ -53,7 +53,9 @@ function cloneConsentFixture() {
   writeFileSync(sessionFile, JSON.stringify({ type: 'session', version: 3, id: 'root', cwd: parent }) + '\n');
   const identity = { gitHost: 'github.com', repository: 'owner/target', pr: 42,
     branch: 'feature', base: 'main' as const, head: 'a'.repeat(40) };
+  let activeSessionFile = sessionFile;
   const state = { head: identity.head, repository: identity.repository, choice: undefined as string | undefined,
+    beforePr: undefined as (() => Promise<void>) | undefined,
     select: undefined as (() => Promise<string | undefined>) | undefined, unavailable: false, published: false };
   const staged: Array<{ cwd: string; targetHead: string; pullRequest: number }> = [];
   const runner = (async (program: string, args: string[], options: { cwd: string }) => {
@@ -62,8 +64,11 @@ function cloneConsentFixture() {
       const repository = options.cwd === target ? state.repository : 'owner/parent';
       return { stdout: JSON.stringify({ nameWithOwner: repository, url: `https://github.com/${repository}` }) };
     }
-    if (args[0] === 'pr') return { stdout: JSON.stringify({ number: 42, state: 'OPEN', baseRefName: 'main',
-      headRefName: 'feature', headRefOid: state.head }) };
+    if (args[0] === 'pr') {
+      await state.beforePr?.();
+      return { stdout: JSON.stringify({ number: 42, state: 'OPEN', baseRefName: 'main',
+        headRefName: 'feature', headRefOid: state.head }) };
+    }
     if (!args.includes('--include')) return { stdout: '138' };
     const mutating = args.includes('x-codeflare-operator-boundary-select: 1');
     const header = args.find(arg => arg.startsWith('x-codeflare-operator-boundary-input: '))!;
@@ -80,7 +85,7 @@ function cloneConsentFixture() {
   }, events: { emit() {} }, getAllTools: () => [], getActiveTools: () => [], setActiveTools() {},
   appendEntry: (customType: string, data: unknown) => entries.push({ type: 'custom', customType, data }),
   sendMessage: (message: any) => { messages.push(message); entries.push({ type: 'custom_message', ...message }); } };
-  const ctx = { cwd: parent, hasUI: true, sessionManager: { getSessionFile: () => sessionFile,
+  const ctx = { cwd: parent, hasUI: true, sessionManager: { getSessionFile: () => activeSessionFile,
     getHeader: () => ({}), getEntries: () => entries, getBranch: () => entries },
     ui: { select: async (_title: string, options: string[]) => {
       prompts.push({ options }); return state.select ? state.select() : state.choice;
@@ -112,11 +117,52 @@ function cloneConsentFixture() {
     await emit('tool_result', event);
   };
   return { state, prompts, messages, staged, identity, target, emit, clone,
+    moveSession: () => {
+      activeSessionFile = join(home, 'other-root.jsonl');
+      writeFileSync(activeSessionFile, JSON.stringify({ type: 'session', version: 3, id: 'other-root', cwd: parent }) + '\n');
+    },
     status: () => readCompletion(identity).status,
     dispose: async () => { await emit('session_shutdown'); rmSync(home, { recursive: true, force: true }); } };
 }
 
 describe('REQ-AGENT-169 / REQ-OPERATOR-053 AC3: remote-selected clone consent', () => {
+  const staleConsentCases = ['Launch review', 'Mark review complete'].flatMap(choice =>
+    ['shutdown', 'session', 'selection'].flatMap(change =>
+      ['dialog', 'identity-refresh'].map(phase => ({ choice, change, phase }))));
+  it.each(staleConsentCases)(
+    'REQ-AGENT-055 AC2: rejects $choice after $change during $phase', async ({ choice, change, phase }) => {
+      const app = cloneConsentFixture();
+      try {
+        let answer: (value: string) => void = () => {};
+        let entered: () => void = () => {};
+        const dialog = new Promise<void>(resolve => { entered = resolve; });
+        const decision = new Promise<string>(resolve => { answer = resolve; });
+        app.state.select = () => { entered(); return decision; };
+        const exposure = app.clone('git clone https://github.com/owner/target.git copied');
+        await Promise.race([dialog, exposure]);
+        expect(app.prompts).toHaveLength(1);
+        let release: () => void = () => {};
+        if (phase === 'identity-refresh') {
+          let refreshing: () => void = () => {};
+          const refresh = new Promise<void>(resolve => { refreshing = resolve; });
+          const lookup = new Promise<void>(resolve => { release = resolve; });
+          app.state.beforePr = () => { refreshing(); return lookup; };
+          answer(choice);
+          await Promise.race([refresh, exposure]);
+        }
+        if (change === 'shutdown') await app.emit('session_shutdown');
+        if (change === 'session') app.moveSession();
+        if (change === 'selection') await app.emit('tool_call', { toolName: 'bash', toolCallId: 'new-clone',
+          input: { command: 'git clone https://github.com/owner/other.git other' } });
+        if (phase === 'dialog') answer(choice);
+        else release();
+        await exposure;
+        expect(app.staged).toEqual([]);
+        expect(app.messages).toEqual([]);
+        expect(app.status()).toBe('missing');
+      } finally { await app.dispose(); }
+    });
+
   for (const command of ['git clone https://github.com/owner/target.git copied', 'gh repo clone owner/target copied']) {
     it(`asks before staging and launches only remote Review for the produced checkout: ${command}`, async () => {
       const app = cloneConsentFixture();

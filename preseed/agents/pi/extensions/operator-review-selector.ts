@@ -121,7 +121,7 @@ export function registerOperatorReviewSelector(pi: SelectorPi, dependencies: Dep
       }
       await local.consentClone(event, context, async (review, consentContext) => {
         if (isCurrent() && review.repo === repo) await remote.launchConsented(review, consentContext, isCurrent);
-      });
+      }, isCurrent);
       return;
     }
     for (const handler of handlers[selected].get(name) ?? []) await handler(event, ctx);
