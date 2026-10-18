@@ -379,6 +379,7 @@ function writeCaptureNote(harness: Harness, request: Record<string, any>): strin
   writeFileSync(target, [
     '---',
     `session_id: ${harness.sessionId}`,
+    `captured_at: ${JSON.stringify(request.captureTimestamp)}`,
     `captured_prompt_count: ${request.promptCount}`,
     '---',
     '# Captured conversation',
@@ -505,10 +506,16 @@ describe('REQ-MEM-014/REQ-MEM-015: public extraction transcript contracts', () =
       promptFile: '/prompts/memory.md',
       varsFile: '/vars/request.json',
     };
-    expect(buildPublicExtractionRequest(base)).toEqual({
+    expect(buildPublicExtractionRequest(base)).toMatchObject({
       subagent_type: 'memory-capture',
       description: 'Capture session memory',
-      prompt: `CODEFLARE_EXTRACTION_REQUEST=${UUIDS[0]}\nPROMPT_FILE=/prompts/memory.md\nVARS_FILE=/vars/request.json\nVARS_FILE contains the transcript inline; there is no INPUT_FILE or separate transcript file.\nRun the deployed Pi extraction contract end to end.`,
+      run_in_background: true,
+      inherit_context: false,
+      thinking: 'medium',
+      max_turns: 10,
+    });
+    expect(buildPublicExtractionRequest({ ...base, job: 'vault-extract' })).toMatchObject({
+      subagent_type: 'vault-extract',
       run_in_background: true,
       inherit_context: false,
       thinking: 'medium',
@@ -595,6 +602,62 @@ describe('REQ-MEM-014/REQ-MEM-015: public extraction transcript contracts', () =
     }
   });
 
+  it.each([7, 10])('REQ-MEM-016: correlates an exact memory call with supported %i-turn budget', (budget) => {
+    const request = {
+      ...buildPublicExtractionRequest({
+        job: 'memory-capture', requestId: UUIDS[0], promptFile: '/prompt', varsFile: '/frozen.vars',
+      }),
+      max_turns: budget,
+    } as PublicExtractionRequest;
+    const entries = [launchEntry(UUIDS[0], 'memory-capture', 0, request), toolCall('supported', 'memory-capture', request)];
+    const input = { requestId: UUIDS[0], job: 'memory-capture' as const, now: NOW, successQualifies: () => true };
+    expect(extractionTranscriptFacts({ ...input, entries })).toMatchObject({
+      launchCount: 1, attemptCount: 1, pendingLaunch: false, state: 'running',
+    });
+    expect(extractionTranscriptFacts({ ...input, entries: [...entries, notification('supported', 'Completed')] }))
+      .toMatchObject({ attemptCount: 1, state: 'succeeded' });
+  });
+
+  it('REQ-MEM-016: rejects unsupported memory budgets and a ten-turn Vault budget', () => {
+    for (const job of ['memory-capture', 'vault-extract'] as const) {
+      const request = buildPublicExtractionRequest({ job, requestId: UUIDS[0], promptFile: '/prompt', varsFile: '/frozen.vars' });
+      const budgets = [0, 4, 6, 8, 9, 11, 70, '7', '10', null, ...(job === 'vault-extract' ? [10] : [])];
+      for (const max_turns of budgets) {
+        const invalid = { ...request, max_turns } as PublicExtractionRequest;
+        const facts = extractionTranscriptFacts({
+          entries: [launchEntry(UUIDS[0], job, 0, invalid), toolCall('invalid-budget', job, invalid), notification('invalid-budget', 'Completed')],
+          requestId: UUIDS[0], job, now: NOW, successQualifies: () => true,
+        });
+        expect(facts, `${job}: ${String(max_turns)}`).toMatchObject({ launchCount: 0, attemptCount: 0, state: 'missing' });
+      }
+    }
+  });
+
+  it('REQ-MEM-014: supported budgets do not relax exact frozen request and native completion correlation', () => {
+    for (const budget of [7, 10]) {
+      const request = {
+        ...buildPublicExtractionRequest({ job: 'memory-capture', requestId: UUIDS[0], promptFile: '/prompt', varsFile: '/frozen.vars' }),
+        max_turns: budget,
+      } as PublicExtractionRequest;
+      for (const overrides of [
+        { prompt: request.prompt.replace('/frozen.vars', '/different.vars') },
+        { prompt: request.prompt.replace(UUIDS[0], UUIDS[1]) },
+        { max_turns: budget === 7 ? 10 : 7 },
+        { inherit_context: true },
+        { thinking: 'high' },
+      ]) {
+        expect(extractionTranscriptFacts({
+          entries: [launchEntry(UUIDS[0], 'memory-capture', 0, request), toolCall('not-exact', 'memory-capture', request, undefined, overrides), notification('not-exact', 'Completed')],
+          requestId: UUIDS[0], job: 'memory-capture', now: NOW, successQualifies: () => true,
+        })).toMatchObject({ launchCount: 1, attemptCount: 0, pendingLaunch: true, state: 'missing' });
+      }
+      expect(extractionTranscriptFacts({
+        entries: [launchEntry(UUIDS[0], 'memory-capture', 0, request), toolCall('exact', 'memory-capture', request), notification('unrelated', 'Completed')],
+        requestId: UUIDS[0], job: 'memory-capture', now: NOW, successQualifies: () => true,
+      })).toMatchObject({ attemptCount: 1, state: 'running' });
+    }
+  });
+
   it('uses actual public attempts for reminders zero through five and then latches GIVEUP', () => {
     for (let attemptCount = 0; attemptCount < 6; attemptCount += 1) {
       expect(extractionDue({ launchCount: attemptCount, attemptCount, pendingLaunch: false, giveup: false, state: 'failed' })).toEqual({
@@ -662,7 +725,7 @@ describe('REQ-MEM-001/REQ-MEM-002: root-owned memory delivery lifecycle', () => 
       run_in_background: true,
       inherit_context: false,
       thinking: 'medium',
-      max_turns: 7,
+      max_turns: 10,
     });
     expect(launch.request.prompt).toContain(`CODEFLARE_EXTRACTION_REQUEST=${launch.requestId}`);
     const executionPath = memoryExecutionPath(harness, launch.requestId);
@@ -843,6 +906,93 @@ describe('REQ-MEM-001/REQ-MEM-002: root-owned memory delivery lifecycle', () => 
       expect(existsSync(vaultChunkPath(harness, execution.requestId))).toBe(false);
       expect(existsSync(memoryExecutionPath(harness, launch.requestId))).toBe(false);
     }
+  });
+
+  it('REQ-MEM-020 / REQ-MEM-021: published artifacts after a legacy abort wait for an exact completed retry', async () => {
+    const harness = makeHarness();
+    await harness.emit('session_start');
+    mkdirSync(dirname(memoryCounterPath(harness)), { recursive: true });
+    writeFileSync(memoryCounterPath(harness), '0', 'utf8');
+    for (let ordinal = 1; ordinal <= 20; ordinal += 1) await appendPrompt(harness, ordinal);
+    const executionPath = activeExecutionPath(harness, 'memory-capture');
+    const executionBytes = readFileSync(executionPath);
+    const execution = readJson(executionPath);
+    const legacy = {
+      ...buildPublicExtractionRequest({
+        job: 'memory-capture', requestId: execution.requestId,
+        promptFile: harness.paths.memoryPromptFile, varsFile: executionPath,
+      }),
+      max_turns: 7,
+    } as PublicExtractionRequest;
+    // The persisted public launch predates the budget upgrade; its worker published before aborting.
+    appendEntry(harness.sessionFile,
+      launchEntry(execution.requestId, 'memory-capture', 0, legacy),
+      toolCall('legacy-published-abort', 'memory-capture', legacy),
+      notification('legacy-published-abort', 'Aborted'),
+    );
+    const target = writeCaptureNote(harness, execution);
+    writePostCommitChunk(harness, execution.requestId);
+    const noteBytes = readFileSync(target);
+    const chunkBytes = readFileSync(vaultChunkPath(harness, execution.requestId));
+    const pointerBytes = readFileSync(memoryPointerPath(harness));
+
+    await harness.emit('agent_settled');
+    const retry = latestLaunch(harness.pi, 'memory-capture');
+    expect(retry).toMatchObject({ requestId: execution.requestId, reminder: 1, request: { max_turns: 10 } });
+    expect(readFileSync(memoryCounterPath(harness), 'utf8')).toBe('0');
+    expect(readFileSync(memoryPointerPath(harness))).toEqual(pointerBytes);
+    expect(readFileSync(executionPath)).toEqual(executionBytes);
+    expect(launchedMemoryRequest(harness)).toEqual(execution);
+    expect(readFileSync(target)).toEqual(noteBytes);
+    expect(readFileSync(vaultChunkPath(harness, execution.requestId))).toEqual(chunkBytes);
+
+    appendEntry(harness.sessionFile,
+      toolCall('recovered-retry', 'memory-capture', retry.request),
+      notification('some-other-worker', 'Completed'),
+    );
+    await harness.emit('agent_settled');
+    expect(readFileSync(memoryCounterPath(harness), 'utf8')).toBe('0');
+    expect(readFileSync(executionPath)).toEqual(executionBytes);
+    expect(readFileSync(target)).toEqual(noteBytes);
+    expect(readFileSync(vaultChunkPath(harness, execution.requestId))).toEqual(chunkBytes);
+
+    appendEntry(harness.sessionFile, notification('recovered-retry', 'Completed'));
+    await harness.emit('agent_settled');
+    expect(readFileSync(memoryCounterPath(harness), 'utf8')).toBe('20');
+    expect(existsSync(memoryPointerPath(harness))).toBe(false);
+    expect(existsSync(executionPath)).toBe(false);
+    expect(existsSync(vaultChunkPath(harness, execution.requestId))).toBe(false);
+    expect(readFileSync(target, 'utf8')).toContain('# Captured conversation');
+  });
+
+  it('REQ-MEM-016 / REQ-MEM-021: an in-flight legacy seven-turn terminal success still commits after upgrade', async () => {
+    const harness = makeHarness();
+    await harness.emit('session_start');
+    mkdirSync(dirname(memoryCounterPath(harness)), { recursive: true });
+    writeFileSync(memoryCounterPath(harness), '0', 'utf8');
+    for (let ordinal = 1; ordinal <= 20; ordinal += 1) await appendPrompt(harness, ordinal);
+    const executionPath = activeExecutionPath(harness, 'memory-capture');
+    const execution = readJson(executionPath);
+    const legacy = {
+      ...buildPublicExtractionRequest({
+        job: 'memory-capture', requestId: execution.requestId,
+        promptFile: harness.paths.memoryPromptFile, varsFile: executionPath,
+      }),
+      max_turns: 7,
+    } as PublicExtractionRequest;
+    appendEntry(harness.sessionFile,
+      launchEntry(execution.requestId, 'memory-capture', 0, legacy),
+      toolCall('legacy-completed', 'memory-capture', legacy),
+      notification('legacy-completed', 'Completed'),
+    );
+    const target = writeCaptureNote(harness, execution);
+    writePostCommitChunk(harness, execution.requestId);
+    await harness.emit('agent_settled');
+    expect(readFileSync(memoryCounterPath(harness), 'utf8')).toBe('20');
+    expect(existsSync(memoryPointerPath(harness))).toBe(false);
+    expect(existsSync(executionPath)).toBe(false);
+    expect(readFileSync(target, 'utf8')).toContain('# Captured conversation');
+    expect(harness.pi.sent.filter((sent) => sent.message.customType === 'background-extraction-launch')).toHaveLength(0);
   });
 
   it('captures only the uncaptured tail and hash-checks Vault on the first resumed prompt', async () => {
