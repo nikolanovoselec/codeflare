@@ -35,8 +35,9 @@ INPUT=$(cat 2>/dev/null) || true
 # resume, which would cost the budget on sessions that never lost context.
 SOURCE=$(echo "$INPUT" | jq -r '.source // empty' 2>/dev/null) || true
 [ "$SOURCE" = "compact" ] || exit 0
+SESSION_ID=$(echo "$INPUT" | jq -r '.session_id // empty' 2>/dev/null) || true
 
-RAW=$(SESSIONS_DIR="$SESSIONS_DIR" EXTRACT_COUNT="$EXTRACT_COUNT" PER_FILE_BYTES="$PER_FILE_BYTES" \
+RAW=$(SESSIONS_DIR="$SESSIONS_DIR" EXTRACT_COUNT="$EXTRACT_COUNT" PER_FILE_BYTES="$PER_FILE_BYTES" SESSION_ID="$SESSION_ID" \
   timeout 8 python3 -c '
 import os, re, sys
 from datetime import datetime
@@ -44,6 +45,15 @@ from datetime import datetime
 sessions_dir = os.environ["SESSIONS_DIR"]
 cap = int(os.environ["PER_FILE_BYTES"])
 want = int(os.environ["EXTRACT_COUNT"])
+session_id = os.environ.get("SESSION_ID", "")
+
+
+def capture_session_id(text):
+    frontmatter = re.match(r"\A---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)", text)
+    if not frontmatter:
+        return None
+    match = re.search(r"^session_id:[ \t]*(?:\"([A-Za-z0-9_-]+)\"|\x27([A-Za-z0-9_-]+)\x27|([A-Za-z0-9_-]+))[ \t]*$", frontmatter.group(1), re.M)
+    return next((value for value in match.groups() if value is not None), None) if match else None
 
 STAMP = re.compile(r"^(\d{4}-\d{2}-\d{2})T(\d{2})-(\d{2})-(\d{2})([+-]\d{4}|Z)")
 
@@ -77,7 +87,7 @@ try:
 except OSError:
     sys.exit(0)
 
-names = sorted(entries, key=sort_key, reverse=True)[:want]
+names = sorted(entries, key=sort_key, reverse=True)
 if not names:
     sys.exit(0)
 
@@ -122,7 +132,10 @@ def sections(text):
 
 
 blocks = []
-for name in names:
+matching = []
+for index, name in enumerate(names):
+    if (not session_id and index >= want) or len(matching) >= want:
+        break
     path = os.path.join(sessions_dir, name)
     try:
         with open(path, encoding="utf-8", errors="replace") as fh:
@@ -130,6 +143,9 @@ for name in names:
     except OSError:
         continue
 
+    matches = bool(session_id) and capture_session_id(text) == session_id
+    if index >= want and not matches:
+        continue
     title = next((l.strip() for l in text.splitlines() if l.startswith("# ")), "# " + name)
     found = sections(text)
 
@@ -175,8 +191,13 @@ for name in names:
                 rendered_body += "\n" + MARKER
         block = metadata + "\n\n" + rendered_body
 
-    blocks.append(block)
+    if index < want:
+        blocks.append(block)
+    if matches:
+        matching.append(block)
 
+if matching:
+    blocks = matching
 if not blocks:
     sys.exit(0)
 

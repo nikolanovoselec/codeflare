@@ -3022,16 +3022,17 @@ const required = [
   'npm:pi-web-access@0.38.0',
   'npm:pi-mcp-adapter@5.3.1',
   'npm:pi-evaluate@0.1.5',
+  'npm:pi-smart-compact@10.6.2',
   'npm:@narumitw/pi-goal@0.54.11',
   'npm:@narumitw/pi-plan-mode@0.59.2',
   // The managed terminal adapter initializes the native UI once.
   { source: 'npm:pi-open-tui@0.3.11', extensions: [] },
 ];
-// Keep context-mode installed for explicit `/ctx on`, but disable its extension and skills on every
-// fresh container start. The managed foreground-owner bridge attaches only after explicit enablement.
+// Each container boot restores context-mode skills and the managed foreground owner.
+// Suppress the package extension to avoid a second owner; `/ctx off` persists until next boot.
 const defaultPackageIds = new Set(['npm:context-mode']);
 const defaultPackages = [
-  { source: 'npm:context-mode@1.0.169', extensions: [], skills: [] },
+  { source: 'npm:context-mode@1.0.169', extensions: [] },
 ];
 // Migration: hard-remove retired managed packages from existing settings.
 // The graphify wrapper conflicts with first-party graphify-native tools. The glla package is

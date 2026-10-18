@@ -3949,7 +3949,7 @@ Browser IDE settings add explicit company IDs without removing the wildcard pers
 
 **Category:** Agents, Architecture, Performance
 
-**Status:** Accepted (2026-08-24). Supersedes [AD138](#ad138-context-mode-is-on-by-default-in-pi).
+**Status:** Accepted (2026-08-24) for tool exposure and ownership. The startup-off portion below is historical: on 2026-10-18 the user selected enabled-by-default startup under [REQ-AGENT-076](../../sdd/spec/agents.md#req-agent-076-pi-context-mode-enablement-and-tool-extension-defaults), retaining `/ctx off`, foreground-only ownership and the bounded initial tool set. That current policy supersedes only this decision's startup default. This decision originally superseded [AD138](#ad138-context-mode-is-on-by-default-in-pi).
 
 **Context:** The compact skill index reduced the managed Advanced prompt projection from 32,416 to about 12,417 characters, but a fresh production `hi` request still rose from roughly 8,477 to 11,256 input tokens. Provider-boundary evidence separated the successful prompt reduction from active tool schemas: enabling context-mode on every fresh container registered its bridge tools, while capability filtering ran too early to contain later registrations. A tool installed in Pi costs no provider tokens until Pi marks it active and serializes its description and parameter schema.
 

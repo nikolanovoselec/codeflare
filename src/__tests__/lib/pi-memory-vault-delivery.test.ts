@@ -1042,6 +1042,30 @@ describe('REQ-MEM-001/REQ-MEM-002: root-owned memory delivery lifecycle', () => 
     expect(readFileSync(memoryCounterPath(harness), 'utf8')).toBe('1013');
   });
 
+  it('REQ-MEM-002 AC8: replaces exhausted work from an earlier transcript epoch', async () => {
+    const harness = makeHarness();
+    await harness.emit('session_start');
+    mkdirSync(harness.paths.memoryCounterDir, { recursive: true });
+    writeFileSync(memoryCounterPath(harness), '0', 'utf8');
+    for (let ordinal = 1; ordinal <= 20; ordinal += 1) await appendPrompt(harness, ordinal);
+    await failExactAttempts(harness, 'memory-capture');
+    const exhausted = latestLaunch(harness.pi, 'memory-capture');
+    const entries = parseSessionEntries(readFileSync(harness.sessionFile, 'utf8'));
+    writeFileSync(harness.sessionFile, `${entries.filter((entry: any) =>
+      entry.type !== 'message' || entry.message?.role !== 'user').map((entry) => JSON.stringify(entry)).join('\n')}\n`, 'utf8');
+    for (let ordinal = 1; ordinal <= 3; ordinal += 1) {
+      appendEntry(harness.sessionFile, userMessage(`retained after exhaustion ${ordinal}`));
+    }
+
+    await harness.emit('before_agent_start', { prompt: 'retained after exhaustion 3' });
+    await harness.emit('agent_settled');
+
+    expect(latestLaunch(harness.pi, 'memory-capture').requestId).not.toBe(exhausted.requestId);
+    expect(launchedMemoryRequest(harness).transcript).toContain('retained after exhaustion 1');
+    expect(launchedMemoryRequest(harness).transcript).not.toContain('real prompt');
+    expect(readFileSync(memoryCounterPath(harness), 'utf8')).toBe('0');
+  });
+
   it('REQ-MEM-002 AC5: re-arms only after twenty later real prompts', async () => {
     const harness = makeHarness();
     await harness.emit('session_start');

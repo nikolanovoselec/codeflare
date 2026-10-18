@@ -19,14 +19,15 @@ The authoritative inventory is [`preseed/agents/pi/package.json`](../../preseed/
 | `@narumitw/pi-goal` | Native Goal and exact-version continuation/review transform |
 | `@narumitw/pi-plan-mode` | Native Plan and registered-tool policy transform |
 | `pi-open-tui` | Native terminal header, footer, prompt editor and `/open-tui` settings |
-| `context-mode` | Installed, disabled at each container start; explicit foreground opt-in |
+| `pi-smart-compact` | Provider-neutral native-pressure compaction, without a competing footer or memory stack |
+| `context-mode` | Enabled at container start; foreground-owned, with explicit `/ctx off` |
 | `pi-evaluate` | User-invoked reporting skill, no tool or command |
 | `pi-mcp-adapter` | Lazy managed MCP servers and lossless legacy migration |
 | `pi-web-access` | Web retrieval and headless-safe default search workflow |
 
 ## Loading and warm compatibility
 
-Image construction warms RPIV, Subagents, MCP Adapter, web-access, Evaluate, Open TUI, Goal/Plan, and every local TypeScript extension through the exact installed path. Required JITI artifacts must exist. A second fresh Pi process must report cache hits without misses, including imported dependencies. JavaScript entrypoints use native import checks rather than nonexistent JITI artifacts. This is a transpilation-cache gate, not V8-cache evidence or a startup-latency guarantee for restored user content. Runtime updates invalidate only runtime-owned caches.
+Image construction warms RPIV, Subagents, MCP Adapter, web-access, Evaluate, Open TUI, Smart Compact, Goal/Plan, and every local TypeScript extension through the exact installed path. Required JITI artifacts must exist. A second fresh Pi process must report cache hits without misses, including imported dependencies. JavaScript entrypoints use native import checks rather than nonexistent JITI artifacts. This is a transpilation-cache gate, not V8-cache evidence or a startup-latency guarantee for restored user content. Runtime updates invalidate only runtime-owned caches.
 
 Every file scanned as a Pi extension exports a default factory; pure helpers retain a no-op default beside named exports. Package-presence checks cannot replace actual extension loading.
 
@@ -64,11 +65,19 @@ Pi includes native MCP, but deferred tool exposure is not lazy server allocation
 
 Context-mode has image-owned ESM compatibility and update-probe suppression in both installed copies. Version mismatch, missing required bundles, or failed post-write shim/probe verification fails the image build. An already-absent update-probe URL is permitted; no self-update path is introduced. <!-- @impl: scripts/patch-context-mode-bundles.mjs::patchContextModeInstallations --> <!-- @impl: scripts/patch-context-mode-bundles.mjs::patchContextModeDirectory --> <!-- @impl: scripts/patch-context-mode-bundles.mjs::patchContextModeBundle -->
 
-The foreground extension loads the installed adapter without changing package lifecycle ownership. In-process children do not create competing bridges. Fresh startup restores disabled even after earlier opt-in. Every managed workflow retains native fallbacks. Licensing rationale remains [AD49](../decisions/README.md#ad49-context-mode-delivered-as-preseed-plugin-not-runtime-install).
+The foreground extension loads the installed adapter without changing package lifecycle ownership. In-process children do not create competing bridges. Fresh startup restores enabled; `/ctx off` remains effective across Pi reloads until the next container startup. Every managed workflow retains native fallbacks. Licensing rationale remains [AD49](../decisions/README.md#ad49-context-mode-delivered-as-preseed-plugin-not-runtime-install).
 
 Web access retains `web_search`, `source_check`, `fetch_content`, and paged `get_search_content` offset/limit retrieval. Search uses Pi's model registry or zero-config Exa routing without a per-user API key. The [reviewed upstream changelog](https://github.com/nicobailon/pi-web-access/blob/7e6e2386dc9a31d5e2a448172060dd1339c604f7/CHANGELOG.md) specifies all-failed tool errors, structured results, Perplexity Search API snippets for ordinary search and isolated session/cache lifetimes. OpenAI search prefers the newest Luna model; the API-key default is `gpt-6-luna`. Paid Ceramic is explicit-only, excluded from `auto`/`all`.
 
 Its declared native `dist/index.js` remains the image warm target; the standalone MCP CLI is not configured for Claude. Native import evidence is not a V8 cache-hit claim. Create-if-missing `~/.pi/web-search.json` defaults to `{"workflow":"auto-summary"}`; deliberate `summary-review` opt-in survives later boots. Codeflare supplies the retained `librarian` skill in both modes, not a duplicate upstream copy. Optional `web_enable` follows upstream `toolActivation`; an old resumed session may need a new session to acquire its recorded selection ([REQ-AGENT-115](../../sdd/spec/agents.md#req-agent-115-pi-web-access-014-skill-compatibility)).
+
+## Smart Compact
+
+Smart Compact is exact-pinned and integrity-locked in the image inventory; its native `dist/index.js` is an explicit warm-verification target. Both Pi modes receive `00-smart-compact-config.ts`, which fills missing `smartCompact` settings without replacing unrelated settings or explicit user choices. Malformed settings and occupied settings locks are left untouched.
+
+Defaults use Thorough's built-in 10k summary / 30k recent-token budgets, EESV, current-model routing, low summary thinking, four calls and a 120-second generation budget. `autoTriggerStrategy: "native-hook"` replaces compaction only when Pi reaches its own pressure boundary; `minContextPercent: 0` adds no early trigger. The `272000` target does not rewrite provider model-window metadata or Pi's native reserve/recent settings. Manual runs retain approval, backups retain upstream secret scrubbing, and lost-detail monitoring stays on. The package footer, agent tools, additional memory and overlapping cleanup/navigation features default off. Codeflare's existing capture and post-compaction recall remain their owners ([REQ-AGENT-076 AC8](../../sdd/spec/agents.md#req-agent-076-pi-context-mode-enablement-and-tool-extension-defaults)).
+
+A compatible image must exist before publishing a curation release requiring this package. Source configuration and passing source CI do not establish installed or deployed acceptance.
 
 ## Goal and Plan transforms
 

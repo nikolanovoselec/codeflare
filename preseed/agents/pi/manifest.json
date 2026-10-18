@@ -37,6 +37,12 @@
       "advanced"
     ]
   },
+  "extensions/00-smart-compact-config.ts": {
+    "modes": [
+      "default",
+      "advanced"
+    ]
+  },
   "extensions/active-repo-memory.ts": {
     "modes": [
       "default",

@@ -827,12 +827,13 @@ RUN mkdir -p /opt/codeflare/jiti-warm-tmp /home/user/.pi/agent && \
     ask_user_source="/opt/codeflare/pi-agent/npm/node_modules/@juicesharp/rpiv-ask-user-question/index.ts" && \
     todo_source="/opt/codeflare/pi-agent/npm/node_modules/@juicesharp/rpiv-todo/index.ts" && \
     web_source="/opt/codeflare/pi-agent/npm/node_modules/pi-web-access/dist/index.js" && \
+    smart_compact_source="/opt/codeflare/pi-agent/npm/node_modules/pi-smart-compact/dist/index.js" && \
     context_source="/opt/codeflare/pi-agent/npm/node_modules/context-mode/build/adapters/pi/extension.js" && \
     (TMPDIR=/opt/codeflare/jiti-warm-tmp HOME=/home/user PI_CODING_AGENT_DIR=/home/user/.pi/agent PI_OFFLINE=1 PI_SKIP_VERSION_CHECK=1 timeout 240 /opt/codeflare/pi-agent/npm/node_modules/.bin/pi -p "warm" || true) && \
     TMPDIR=/opt/codeflare/jiti-warm-tmp HOME=/home/user PI_CODING_AGENT_DIR=/home/user/.pi/agent PI_OFFLINE=1 PI_SKIP_VERSION_CHECK=1 \
       node /opt/codeflare/scripts/verify-pi-lockstep.mjs --warm-jiti-entrypoints \
       /opt/codeflare/pi-agent/npm/node_modules/.bin/pi /opt/codeflare/jiti-warm-tmp/jiti "$goal_source" "$plan_source" "$open_tui_source" "$evaluate_source" "$subagents_source" "$mcp_source" \
-      "$advisor_source" "$ask_user_source" "$todo_source" "$web_source" "$context_source" /home/user/.pi/agent/extensions/*.ts && \
+      "$advisor_source" "$ask_user_source" "$todo_source" "$web_source" "$smart_compact_source" "$context_source" /home/user/.pi/agent/extensions/*.ts && \
     mv /opt/codeflare/jiti-warm-tmp/jiti /opt/codeflare/jiti-cache && \
     test -n "$(ls -A /opt/codeflare/jiti-cache)" && \
     for ext in /home/user/.pi/agent/extensions/*.ts; do \

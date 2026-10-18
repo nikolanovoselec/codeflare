@@ -18,6 +18,7 @@ import { join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { isChildSessionFirstLine, isChildSessionHeader } from "./memory-vault-helpers";
 import {
+  captureSessionId,
   orderByCaptureInstant,
   recallBlock,
   recallMessage,
@@ -72,7 +73,16 @@ function isChildSession(ctx: any): boolean {
   }
 }
 
-export function buildRecall(dependencies: PostCompactionRecallDependencies): string | null {
+function activeSessionId(ctx: any): string | undefined {
+  try {
+    const id = ctx?.sessionManager?.getSessionId?.() ?? ctx?.sessionManager?.getHeader?.()?.id;
+    return typeof id === "string" && id ? id : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+export function buildRecall(dependencies: PostCompactionRecallDependencies, sessionId?: string): string | null {
   const { sessionsDir, extractCount, perFileBytes } = dependencies;
   let names: string[];
   try {
@@ -82,18 +92,25 @@ export function buildRecall(dependencies: PostCompactionRecallDependencies): str
   }
 
   const blocks: string[] = [];
-  for (const name of orderByCaptureInstant(names).slice(0, extractCount)) {
-    const path = join(sessionsDir, name);
+  const matching: string[] = [];
+  const ordered = orderByCaptureInstant(names);
+  for (let index = 0; index < ordered.length; index += 1) {
+    if ((!sessionId && index >= extractCount) || matching.length >= extractCount) break;
+    const path = join(sessionsDir, ordered[index]);
     let text: string;
     try {
       text = readFileSync(path, "utf8");
     } catch {
       continue;
     }
+    const matches = sessionId !== undefined && captureSessionId(text) === sessionId;
+    if (index >= extractCount && !matches) continue;
     const block = recallBlock(path, text, perFileBytes);
-    if (block) blocks.push(block);
+    if (!block) continue;
+    if (index < extractCount) blocks.push(block);
+    if (matches) matching.push(block);
   }
-  return recallMessage(blocks, sessionsDir);
+  return recallMessage(matching.length > 0 ? matching : blocks, sessionsDir);
 }
 
 export function registerPostCompactionRecall(
@@ -106,7 +123,7 @@ export function registerPostCompactionRecall(
     // for a feature that is a convenience. Failing silently is the contract.
     try {
       if (isChildSession(ctx)) return;
-      const content = buildRecall(dependencies);
+      const content = buildRecall(dependencies, activeSessionId(ctx));
       if (!content) return;
       // followUp without triggerTurn: the recall rides along with whatever runs
       // next - the retried turn on overflow recovery, or the user's next prompt -

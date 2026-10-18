@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { isAbsolute, relative } from "node:path";
 
 export const MEMORY_EVERY_N_PROMPTS = 20;
@@ -38,6 +39,7 @@ export interface MemoryCaptureRequest {
   captureTimestamp: string;
   captureFilename: string;
   transcript: string;
+  transcriptFingerprint?: string;
 }
 
 export interface VaultExtractRequest {
@@ -122,6 +124,8 @@ export function parseMemoryCaptureRequest(value: unknown): MemoryCaptureRequest 
   if (typeof candidate.promptCount !== "number" || !Number.isInteger(candidate.promptCount) || candidate.promptCount < 0) return undefined;
   if (!captureTimestamp || !captureFilename || !transcript) return undefined;
   if (!captureFilename.endsWith(".md") || captureFilename.includes("/") || captureFilename.includes("\\")) return undefined;
+  const transcriptFingerprint = candidate.transcriptFingerprint;
+  if (transcriptFingerprint !== undefined && (typeof transcriptFingerprint !== "string" || !MANIFEST_HASH_PATTERN.test(transcriptFingerprint))) return undefined;
   return {
     version: 1,
     requestId: candidate.requestId,
@@ -130,6 +134,7 @@ export function parseMemoryCaptureRequest(value: unknown): MemoryCaptureRequest 
     captureTimestamp,
     captureFilename,
     transcript,
+    ...(typeof transcriptFingerprint === "string" ? { transcriptFingerprint } : {}),
   };
 }
 
@@ -454,6 +459,12 @@ export function isRealUserPrompt(message: any): boolean {
 
 export function realUserPromptCount(messages: any[]): number {
   return messages.filter(isRealUserPrompt).length;
+}
+
+/** Hash prompt boundaries and text only: extraction/tool lifecycle never changes this prefix. */
+export function realUserPromptFingerprint(messages: any[], promptCount: number): string {
+  const prefix = messages.filter(isRealUserPrompt).slice(0, promptCount).map(messageText);
+  return createHash("sha256").update(JSON.stringify(prefix)).digest("hex");
 }
 
 export function withCurrentPrompt(messages: any[], prompt: string): any[] {
