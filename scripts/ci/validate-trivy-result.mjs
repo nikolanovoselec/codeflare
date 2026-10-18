@@ -21,12 +21,12 @@ function matchesReviewedFinding(reviewed, finding) {
     && reviewed.severity === finding.severity;
 }
 
-export function validateTrivyResult(report) {
+export function validateTrivyResult(report, reviewedFindings = REVIEWED_FINDINGS) {
   if (!report || typeof report !== 'object' || !Array.isArray(report.Results)) {
     throw new Error('Trivy report must contain a Results array');
   }
 
-  const seen = REVIEWED_FINDINGS.map(() => 0);
+  const seen = reviewedFindings.map(() => 0);
   const findings = [];
   const evidence = [];
 
@@ -65,7 +65,7 @@ export function validateTrivyResult(report) {
         fixedVersion: vulnerability.FixedVersion,
         severity: vulnerability.Severity,
       };
-      const reviewedIndex = REVIEWED_FINDINGS.findIndex((reviewed, index) =>
+      const reviewedIndex = reviewedFindings.findIndex((reviewed, index) =>
         seen[index] < (reviewed.occurrences ?? 1) && matchesReviewedFinding(reviewed, finding));
       if (reviewedIndex === -1) {
         findings.push(
@@ -83,7 +83,7 @@ export function validateTrivyResult(report) {
     }
   }
 
-  for (const [index, finding] of REVIEWED_FINDINGS.entries()) {
+  for (const [index, finding] of reviewedFindings.entries()) {
     const occurrences = finding.occurrences ?? 1;
     if (seen[index] < occurrences) {
       findings.push(
@@ -98,17 +98,18 @@ export function validateTrivyResult(report) {
   if (findings.length > 0) throw new Error(findings.join('\n'));
 
   return {
-    accepted: [...new Set(REVIEWED_FINDINGS.map((finding) => `${finding.target}@${finding.installedVersion}`))],
+    accepted: [...new Set(reviewedFindings.map((finding) => `${finding.target}@${finding.installedVersion}`))],
     evidence,
   };
 }
 
-async function main() {
-  const path = process.argv[2];
+// Explicit policies are for controlled in-process fixtures; the CLI always uses
+// the reviewed production policy above, never a flag or environment override.
+export async function main(path = process.argv[2], reviewedFindings = REVIEWED_FINDINGS) {
   if (!path) throw new Error('usage: validate-trivy-result.mjs <trivy-result.json>');
 
   const report = JSON.parse(await readFile(path, 'utf8'));
-  const result = validateTrivyResult(report);
+  const result = validateTrivyResult(report, reviewedFindings);
   console.log(`Validated bounded Trivy exceptions: ${result.accepted.join(', ')}`);
   for (const identity of result.evidence) console.log(`Observed reviewed Trivy identity: ${identity}`);
 }

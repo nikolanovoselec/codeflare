@@ -3,6 +3,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { registerOperatorReviewSelector, selectOperatorReviewApplicability } from '../../../preseed/agents/pi/extensions/operator-review-selector';
+import { registerReviewEnforcement, queryBranch, queryHead, queryPr, queryRepository } from '../../../preseed/agents/pi/extensions/review-enforcement';
+import { currentOperatorBoundary, registerOperatorReviewRemote, selectOperatorBoundary } from '../../../preseed/agents/pi/extensions/operator-review-remote';
+import { readCompletion, writeCompletion } from '../../../preseed/agents/pi/extensions/review-completion-state';
 
 afterEach(() => vi.unstubAllEnvs());
 
@@ -35,6 +38,153 @@ function harness(verdicts: Record<string, Mode>, applicability?: (event: any, ct
       { cwd: target, target, sessionManager: { getBranch: () => [] } });
   } };
 }
+
+// Compose the real consent owner and remote lifecycle. Only Git/GitHub I/O
+// is simulated; dialogs, staging payloads, plans and exact markers are observed.
+function cloneConsentFixture() {
+  const home = mkdtempSync(join(tmpdir(), 'remote-clone-consent-'));
+  vi.stubEnv('HOME', home);
+  vi.stubEnv('SESSION_MODE', 'advanced');
+  vi.stubEnv('ENTERPRISE_MODE', 'active');
+  const parent = join(home, 'parent');
+  mkdirSync(join(parent, '.git'), { recursive: true });
+  const target = join(parent, 'copied');
+  const sessionFile = join(home, 'root.jsonl');
+  writeFileSync(sessionFile, JSON.stringify({ type: 'session', version: 3, id: 'root', cwd: parent }) + '\n');
+  const identity = { gitHost: 'github.com', repository: 'owner/target', pr: 42,
+    branch: 'feature', base: 'main' as const, head: 'a'.repeat(40) };
+  const state = { head: identity.head, repository: identity.repository, choice: undefined as string | undefined,
+    select: undefined as (() => Promise<string | undefined>) | undefined, unavailable: false, published: false };
+  const staged: Array<{ cwd: string; targetHead: string; pullRequest: number }> = [];
+  const runner = (async (program: string, args: string[], options: { cwd: string }) => {
+    if (program === 'git') return { stdout: args[0] === 'symbolic-ref' ? 'feature' : state.head };
+    if (args[0] === 'repo') {
+      const repository = options.cwd === target ? state.repository : 'owner/parent';
+      return { stdout: JSON.stringify({ nameWithOwner: repository, url: `https://github.com/${repository}` }) };
+    }
+    if (args[0] === 'pr') return { stdout: JSON.stringify({ number: 42, state: 'OPEN', baseRefName: 'main',
+      headRefName: 'feature', headRefOid: state.head }) };
+    if (!args.includes('--include')) return { stdout: '138' };
+    const mutating = args.includes('x-codeflare-operator-boundary-select: 1');
+    const header = args.find(arg => arg.startsWith('x-codeflare-operator-boundary-input: '))!;
+    if (mutating) staged.push({ cwd: options.cwd,
+      ...JSON.parse(Buffer.from(header.split(': ')[1]!, 'base64').toString()) });
+    return { stdout: `HTTP/2 200\nx-codeflare-operator-boundary-selection: ${state.unavailable && mutating ? 'unavailable' : 'remote'}\n`
+      + (mutating ? 'x-codeflare-operator-boundary-activity: clone-activity\n' : '') + '\n'
+      + JSON.stringify({ number: 42, head: { sha: state.head } }) };
+  }) as never;
+  const entries: any[] = [], messages: any[] = [], prompts: Array<{ options: string[] }> = [];
+  const handlers = new Map<string, Array<(event: any, ctx: any) => unknown>>();
+  const pi = { on: (name: string, handler: (event: any, ctx: any) => unknown) => {
+    handlers.set(name, [...handlers.get(name) ?? [], handler]); return () => {};
+  }, events: { emit() {} }, getAllTools: () => [], getActiveTools: () => [], setActiveTools() {},
+  appendEntry: (customType: string, data: unknown) => entries.push({ type: 'custom', customType, data }),
+  sendMessage: (message: any) => { messages.push(message); entries.push({ type: 'custom_message', ...message }); } };
+  const ctx = { cwd: parent, hasUI: true, sessionManager: { getSessionFile: () => sessionFile,
+    getHeader: () => ({}), getEntries: () => entries, getBranch: () => entries },
+    ui: { select: async (_title: string, options: string[]) => {
+      prompts.push({ options }); return state.select ? state.select() : state.choice;
+    }, notify() {} } };
+  registerOperatorReviewSelector(pi as never, {
+    applicability: (event, context) => selectOperatorReviewApplicability(event, context, runner),
+    local: api => registerReviewEnforcement(api, { queryPr: (repo, select) => queryPr(repo, runner, select),
+      queryHead: (repo, revision) => queryHead(repo, revision, runner),
+      queryBranch: repo => queryBranch(repo, runner), queryRepository: repo => queryRepository(repo, runner) }),
+    remote: api => registerOperatorReviewRemote(api, {
+      currentBoundary: (event, context) => currentOperatorBoundary(event, context, runner),
+      selectBoundary: (boundary, readOnly) => selectOperatorBoundary(boundary, readOnly, runner),
+      readPublishedResult: async () => state.published ? { status: 'published', repositoryId: 138,
+        pullRequest: 42, activityId: 'clone-activity', head: identity.head, round: 1,
+        artifactDigest: 'f'.repeat(64), findings: [] } : { status: 'unavailable' },
+    }),
+  });
+  const emit = async (name: string, event: any = {}) => {
+    for (const handler of handlers.get(name) ?? []) await handler({ type: name, ...event }, ctx);
+  };
+  const clone = async (command: string, preexists = false, result: Record<string, unknown> = {}) => {
+    const event = { toolName: 'bash', toolCallId: `clone-${prompts.length}`,
+      input: { command }, result: { content: [{ type: 'text', text: "Cloning into 'copied'..." }] }, ...result };
+    const create = () => { mkdirSync(join(target, '.git'), { recursive: true });
+      mkdirSync(join(target, 'sdd'), { recursive: true }); writeFileSync(join(target, 'sdd/README.md'), 'requirements'); };
+    if (preexists) create();
+    await emit('tool_call', event);
+    create();
+    await emit('tool_result', event);
+  };
+  return { state, prompts, messages, staged, identity, target, emit, clone,
+    status: () => readCompletion(identity).status,
+    dispose: async () => { await emit('session_shutdown'); rmSync(home, { recursive: true, force: true }); } };
+}
+
+describe('REQ-AGENT-169 / REQ-OPERATOR-053 AC3: remote-selected clone consent', () => {
+  for (const command of ['git clone https://github.com/owner/target.git copied', 'gh repo clone owner/target copied']) {
+    it(`asks before staging and launches only remote Review for the produced checkout: ${command}`, async () => {
+      const app = cloneConsentFixture();
+      try {
+        let answer: (choice: string) => void = () => {};
+        let entered: () => void = () => {};
+        const dialog = new Promise<void>(resolve => { entered = resolve; });
+        const choice = new Promise<string>(resolve => { answer = resolve; });
+        app.state.select = () => { entered(); return choice; };
+        const exposure = app.clone(command);
+        // Do not await the dialog alone: the broken implementation returns
+        // without showing one. Observe that behavioral failure, not a timeout.
+        await Promise.race([dialog, exposure]);
+        expect(app.prompts).toEqual([{ options: ['Mark review complete', 'Launch review'] }]);
+        expect(app.staged).toEqual([]);
+        answer('Launch review');
+        await exposure;
+        expect(app.staged).toEqual([expect.objectContaining({ cwd: app.target,
+          targetHead: app.identity.head, pullRequest: 42 })]);
+        expect(app.messages.map(message => message.customType)).toEqual(['pr-boundary-remote-plan']);
+        expect(app.messages[0].details).toMatchObject({ repository: 'owner/target', pr: 42, head: app.identity.head });
+        expect(app.messages[0].content).not.toContain('ci-monitor');
+        app.state.published = true;
+        await app.emit('agent_settled');
+        expect(app.messages.map(message => message.customType)).toEqual([
+          'pr-boundary-remote-plan', 'pr-boundary-original-findings']);
+        expect(app.messages[1].details).toMatchObject({ repository: 'owner/target', pr: 42,
+          head: app.identity.head, activityId: 'clone-activity', findings: [] });
+        expect(app.status()).toBe('missing');
+      } finally { await app.dispose(); }
+    });
+  }
+  it.each(['cancel', 'complete', 'saved', 'preexisting', 'failed', 'nested-failed', 'unavailable']) (
+    'preserves consent/completion and failure guards: %s', async scenario => {
+      const app = cloneConsentFixture();
+      try {
+        app.state.choice = scenario === 'complete' ? 'Mark review complete' : scenario === 'unavailable' ? 'Launch review' : undefined;
+        if (scenario === 'saved') writeCompletion(app.identity);
+        app.state.unavailable = scenario === 'unavailable';
+        await app.clone('git clone https://github.com/owner/target.git copied', scenario === 'preexisting',
+          scenario === 'failed' ? { isError: true } : scenario === 'nested-failed' ? { result: { isError: true } } : {});
+        expect(app.prompts.length).toBe(['saved', 'preexisting', 'failed', 'nested-failed'].includes(scenario) ? 0 : 1);
+        expect(app.messages.map(message => message.customType)).toEqual(scenario === 'unavailable' ? ['pr-boundary-remote-unavailable'] : []);
+        expect(app.staged).toHaveLength(scenario === 'unavailable' ? 1 : 0);
+        expect(app.status()).toBe(['complete', 'saved'].includes(scenario) ? 'complete' : 'missing');
+      } finally { await app.dispose(); }
+    });
+  it.each(['head', 'repository', 'shutdown'])('rejects stale clone consent after %s changes', async change => {
+    const app = cloneConsentFixture();
+    try {
+      let answer: (choice: string) => void = () => {};
+      let entered: () => void = () => {};
+      const dialog = new Promise<void>(resolve => { entered = resolve; });
+      const choice = new Promise<string>(resolve => { answer = resolve; });
+      app.state.select = () => { entered(); return choice; };
+      const exposure = app.clone('git clone https://github.com/owner/target.git copied');
+      await Promise.race([dialog, exposure]);
+      expect(app.prompts).toHaveLength(1);
+      if (change === 'head') app.state.head = 'b'.repeat(40);
+      else if (change === 'repository') app.state.repository = 'owner/other';
+      else await app.emit('session_shutdown');
+      answer('Launch review'); await exposure;
+      expect(app.staged).toEqual([]);
+      expect(app.messages).toEqual([]);
+      expect(app.status()).toBe('missing');
+    } finally { await app.dispose(); }
+  });
+});
 
 describe('REQ-OPERATOR-053: exclusive local versus dedicated remote Review extensions', () => {
   it('REQ-OPERATOR-053 AC1: non-enterprise boundaries keep local Review', async () => {
@@ -101,6 +251,30 @@ describe('REQ-OPERATOR-053: exclusive local versus dedicated remote Review exten
         }
       } finally { rmSync(workspace, { recursive: true, force: true }); }
     });
+
+  it('REQ-AGENT-169 AC1: uncertain cd cannot select a same-name clone checkout in the original directory', async () => {
+    vi.stubEnv('ENTERPRISE_MODE', 'active');
+    const workspace = mkdtempSync(join(tmpdir(), 'review-uncertain-clone-'));
+    try {
+      const wrongTarget = join(workspace, 'copied');
+      mkdirSync(join(wrongTarget, '.git'), { recursive: true });
+      mkdirSync(join(wrongTarget, 'sdd'));
+      writeFileSync(join(wrongTarget, 'sdd/README.md'), 'unrelated checkout');
+      const head = 'a'.repeat(40);
+      const runner = (async (_program: string, args: string[]) => {
+        if (args[0] === 'pr') return { stdout: JSON.stringify({ number: 42, state: 'OPEN', baseRefName: 'main', headRefOid: head }) };
+        if (args[0] === 'repo') return { stdout: JSON.stringify({ nameWithOwner: 'owner/target', url: 'https://github.com/owner/target' }) };
+        if (!args.includes('--include')) return { stdout: '138' };
+        return { stdout: 'HTTP/2 200\nx-codeflare-operator-boundary-selection: local\n\n'
+          + JSON.stringify({ number: 42, head: { sha: head } }) };
+      }) as never;
+      const app = harness({}, (event, ctx) => selectOperatorReviewApplicability(event, ctx, runner));
+      // The shell may have cloned somewhere else; the same basename here is not evidence.
+      await app.emit('tool_result', workspace, { toolCallId: 'uncertain-clone',
+        input: { command: 'cd "$CLONE_ROOT"; git clone https://github.com/owner/target.git copied' } });
+      expect(app.messages).toEqual(['pr-boundary-remote-unavailable']);
+    } finally { rmSync(workspace, { recursive: true, force: true }); }
+  });
 
   it('REQ-AGENT-171: failed clones are inert even when the invocation directory has an eligible Review', async () => {
     const app = harness({ '/remote': 'remote' });

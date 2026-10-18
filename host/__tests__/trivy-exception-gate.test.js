@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { validateTrivyResult } from '../../scripts/ci/validate-trivy-result.mjs';
 
 const ROOT = fileURLToPath(new URL('../..', import.meta.url));
@@ -78,6 +78,51 @@ describe('REQ-SEC-011 + REQ-OPS-002: Trivy bounded exception gate', () => {
     input.Results[0].Vulnerabilities.push(basicFtpVulnerability());
     assert.throws(() => validateTrivyResult(input),
       /unexpected HIGH\/CRITICAL finding: CVE-2026-102990 basic-ftp 5\.3\.1.*path=opt\/code-server\/node_modules\/basic-ftp\/package\.json; purl=pkg:npm\/basic-ftp@5\.3\.1/);
+  });
+
+  it('REQ-SEC-011 AC7: emits scanner path and PURL for every accepted fixture occurrence', () => {
+    // Controlled policy fixture only: production has no active exceptions.
+    const first = {
+      vulnerabilityId: 'CVE-2099-0001', packageName: 'reviewed-fixture', target: 'Node.js',
+      packagePath: 'fixtures/first/package.json', packagePurl: 'pkg:npm/reviewed-fixture@1.0.0',
+      installedVersion: '1.0.0', fixedVersion: '1.0.1', severity: 'HIGH', occurrences: 2,
+    };
+    const second = { ...first, packagePath: 'fixtures/second/package.json', occurrences: 1 };
+    const policy = [first, second];
+    const occurrence = reviewed => ({ VulnerabilityID: reviewed.vulnerabilityId,
+      PkgName: reviewed.packageName, InstalledVersion: reviewed.installedVersion,
+      FixedVersion: reviewed.fixedVersion, Severity: reviewed.severity,
+      PkgPath: reviewed.packagePath, PkgIdentifier: { PURL: reviewed.packagePurl } });
+    const input = report([{ Target: 'Node.js',
+      Vulnerabilities: [occurrence(first), occurrence(second), occurrence(first)] }]);
+    const directory = mkdtempSync(join(tmpdir(), 'trivy-reviewed-fixture-'));
+    try {
+      const reportPath = join(directory, 'report.json');
+      writeFileSync(reportPath, JSON.stringify(input));
+      // Run the real validation/output entrypoint with a controlled in-process
+      // fixture. The production CLI has no policy flag or environment override.
+      const script = `import { main } from ${JSON.stringify(pathToFileURL(VALIDATOR).href)};`
+        + `await main(${JSON.stringify(reportPath)}, ${JSON.stringify(policy)});`;
+      const output = execFileSync(process.execPath, ['--input-type=module', '-e', script], { encoding: 'utf8' });
+      const identities = output.split('\n').filter(line => line.startsWith('Observed reviewed Trivy identity:'));
+      assert.deepEqual(identities, [first, second, first].map(reviewed =>
+        `Observed reviewed Trivy identity: ${reviewed.vulnerabilityId} ${reviewed.packageName} `
+        + `${reviewed.installedVersion} at ${reviewed.target} `
+        + `[path=${reviewed.packagePath}; purl=${reviewed.packagePurl}]`));
+      // The fixture cannot broaden policy, omit occurrences or accept duplicates.
+      assert.throws(() => validateTrivyResult(input), /unexpected HIGH\/CRITICAL finding/);
+      const changed = structuredClone(input);
+      changed.Results[0].Vulnerabilities[1].PkgIdentifier.PURL += '?drift';
+      assert.throws(() => validateTrivyResult(changed, policy), /unexpected HIGH\/CRITICAL finding/);
+      const missing = structuredClone(input);
+      missing.Results[0].Vulnerabilities.pop();
+      assert.throws(() => validateTrivyResult(missing, policy), /missing reviewed finding/);
+      const duplicate = structuredClone(input);
+      duplicate.Results[0].Vulnerabilities.push(occurrence(first));
+      assert.throws(() => validateTrivyResult(duplicate, policy), /unexpected HIGH\/CRITICAL finding/);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
   });
 
   it('emits no accepted identities for an exception-free image', () => {

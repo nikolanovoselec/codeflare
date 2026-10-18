@@ -3,8 +3,8 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import type { ExtensionAPI } from '@earendil-works/pi-coding-agent';
-import localReview, { resultText } from './review-enforcement';
-import remoteReview from './operator-review-remote';
+import { createReviewEnforcement, resultText, type ReviewEnforcementController } from './review-enforcement';
+import { createOperatorReviewRemote, type OperatorReviewRemoteController } from './operator-review-remote';
 import { findGitRoot, recallActiveRepo, resolveShellInvocationRepo, shellInvocations, type ShellInvocation } from './active-repo-memory';
 import { cloneTargetHadGit, cloneTargetPath, rememberCloneTargetHadGit } from './graphify-helpers';
 import { classifyReviewBoundaryCommand } from './review-helpers';
@@ -12,31 +12,31 @@ import { classifyReviewBoundaryCommand } from './review-helpers';
 const execFile = promisify(execFileCallback);
 type Mode = 'local' | 'remote' | 'unavailable' | 'none';
 type Handler = (event: unknown, ctx: unknown) => unknown;
-type ReviewFactory = (pi: any) => void;
+type ReviewFactory<T> = (pi: any) => T | void;
 type SelectorPi = Pick<ExtensionAPI, 'on' | 'sendMessage'>;
-type Dependencies = { local: ReviewFactory; remote: ReviewFactory;
+type Dependencies = { local: ReviewFactory<ReviewEnforcementController>; remote: ReviewFactory<OperatorReviewRemoteController>;
   applicability: (event: unknown, ctx: any) => Promise<Mode> };
 
 function invocationRepo(invocation: ShellInvocation, event: unknown): string | undefined {
+  if (!invocation.certain) return undefined;
   if (!classifyReviewBoundaryCommand(invocation.command).clone) return resolveShellInvocationRepo(invocation);
   const target = cloneTargetPath(invocation.command, invocation.cwd, resultText(event));
   return target && existsSync(join(target, '.git')) ? findGitRoot(target) : undefined;
 }
 
 /** The two Review implementations register with distinct, inactive event tables.
- * Only this selector registers Pi event handlers; the original local implementation is unmodified. */
+ * Only this selector registers Pi event handlers; clone consent remains owned by local Review. */
 export function registerOperatorReviewSelector(pi: SelectorPi, dependencies: Dependencies): void {
   const handlers = { local: new Map<string, Handler[]>(), remote: new Map<string, Handler[]>() };
-  for (const mode of ['local', 'remote'] as const) {
-    const reviewPi = { ...pi,
+  const reviewPi = (mode: 'local' | 'remote') => ({ ...pi,
       on: (name: string, handler: Handler) => {
         const entries = handlers[mode].get(name) ?? [];
         entries.push(handler);
         handlers[mode].set(name, entries);
         return () => { handlers[mode].set(name, entries.filter(item => item !== handler)); };
-      } } as unknown as ExtensionAPI;
-    dependencies[mode](reviewPi);
-  }
+      } } as unknown as ExtensionAPI);
+  const local = dependencies.local(reviewPi('local'));
+  const remote = dependencies.remote(reviewPi('remote'));
   let selected: Mode = 'unavailable';
   let selectedRepo: string | undefined;
   let unavailableReported = false;
@@ -83,7 +83,7 @@ export function registerOperatorReviewSelector(pi: SelectorPi, dependencies: Dep
         }
       }
       const startRemote = next === 'remote' && (selected !== 'remote' || remoteChanged)
-        && name !== 'session_start';
+        && name !== 'session_start' && clones.length === 0;
       selected = next;
       if (repo) selectedRepo = repo;
       if (startRemote) {
@@ -105,6 +105,23 @@ export function registerOperatorReviewSelector(pi: SelectorPi, dependencies: Dep
           content: 'Review applicability is unavailable. Neither local nor remote Review can clear this boundary.',
           display: true });
       }
+      return;
+    }
+    if (selected === 'remote' && name === 'tool_result' && clones.length) {
+      const revision = selectionEpoch;
+      const repo = selectedRepo;
+      const context = ctx as any;
+      const file = context.sessionManager?.getSessionFile?.();
+      const isCurrent = () => revision === selectionEpoch && selected === 'remote'
+        && selectedRepo === repo && context.sessionManager?.getSessionFile?.() === file;
+      if (!local || !remote || !repo) {
+        pi.sendMessage({ customType: 'pr-boundary-remote-unavailable', display: true,
+          content: 'Protected clone Review is unavailable. No local fallback or clearance.' });
+        return;
+      }
+      await local.consentClone(event, context, async (review, consentContext) => {
+        if (isCurrent() && review.repo === repo) await remote.launchConsented(review, consentContext, isCurrent);
+      });
       return;
     }
     for (const handler of handlers[selected].get(name) ?? []) await handler(event, ctx);
@@ -179,6 +196,6 @@ export async function selectOperatorReviewApplicability(event: any, ctx: any,
 }
 
 export default function operatorReviewSelector(pi: ExtensionAPI): void {
-  registerOperatorReviewSelector(pi, { local: localReview, remote: remoteReview,
+  registerOperatorReviewSelector(pi, { local: createReviewEnforcement, remote: createOperatorReviewRemote,
     applicability: selectOperatorReviewApplicability });
 }

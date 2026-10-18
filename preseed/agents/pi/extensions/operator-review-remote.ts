@@ -1,6 +1,7 @@
 import { execFile as execFileCallback } from 'node:child_process';
 import { promisify } from 'node:util';
 import type { ExtensionAPI } from '@earendil-works/pi-coding-agent';
+import type { ConsentedReview } from './review-enforcement';
 import { findGitRoot, recallActiveRepo, shellInvocations, resolveShellInvocationRepo } from './active-repo-memory';
 import { classifyReviewBoundaryCommand, exposureTargetsCheckedOutBranch, REVIEW_TRIAGE_HEADER, REVIEW_TRIAGE_DIVIDER } from './review-helpers';
 import { executableShellCommands, shellCommandArguments, shellCommandExecutable } from './guard-helpers';
@@ -9,7 +10,10 @@ const execFile = promisify(execFileCallback);
 type RejectedFinding = { findingId: string; priorActivityId: string; priorRound: number;
   priorHead: string; originalReportDigest: string; rationale: string; evidence: string };
 type Boundary = { repository: string; repositoryId: number; pullRequest: number; head: string; repo: string;
-  rejectedFindings?: RejectedFinding[] };
+  rejectedFindings?: RejectedFinding[]; ciRequired?: boolean };
+export type OperatorReviewRemoteController = {
+  launchConsented(review: ConsentedReview, ctx: any, isCurrent: () => boolean): Promise<void>;
+};
 type Selection = { mode: 'remote' | 'unavailable'; activityId?: string };
 type Dependencies = { currentBoundary: (event: unknown, ctx: unknown) => Promise<Boundary | undefined>;
   selectBoundary: (boundary: Boundary, readOnly?: boolean) => Promise<Selection>;
@@ -100,7 +104,7 @@ function ciTerminal(ctx: any, boundary: Round): 'success' | 'failure' | 'timeout
 }
 
 /** Protected publication consumption belongs exclusively to the remote Review path. */
-export function registerOperatorReviewRemote(pi: ReviewPi, dependencies: Dependencies): void {
+export function registerOperatorReviewRemote(pi: ReviewPi, dependencies: Dependencies): OperatorReviewRemoteController {
   let round: Round | undefined;
   let pending: Pending | undefined;
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -115,16 +119,17 @@ export function registerOperatorReviewRemote(pi: ReviewPi, dependencies: Depende
   const inspect = async (ctx: any): Promise<void> => {
     const active = round;
     const observedEpoch = epoch;
-    if (!active || checking || !branchHasPlan(ctx, active) || !ciTerminal(ctx, active)
+    if (!active || checking || !branchHasPlan(ctx, active) || active.ciRequired !== false && !ciTerminal(ctx, active)
       || alreadyDelivered(ctx, active)) return;
     checking = true;
     try {
       const published = await dependencies.readPublishedResult(active, active.activityId)
         .catch(() => ({ status: 'unavailable' }));
       // Both network waits and Pi session switches can supersede this round.
-      if (epoch !== observedEpoch || !sameRound(round, active) || !branchHasPlan(ctx, active) || !ciTerminal(ctx, active)
+      if (epoch !== observedEpoch || !sameRound(round, active) || !branchHasPlan(ctx, active) || active.ciRequired !== false && !ciTerminal(ctx, active)
         || alreadyDelivered(ctx, active)) return;
-      const current = await dependencies.currentBoundary({ type: 'session_start' }, ctx);
+      const current = await dependencies.currentBoundary({ type: 'session_start' },
+        active.ciRequired === false ? { ...ctx, cwd: active.repo } : ctx);
       if (epoch !== observedEpoch || !sameRound(round, active)) return;
       if (!current || current.repository !== active.repository || current.repositoryId !== active.repositoryId
         || current.pullRequest !== active.pullRequest || current.head !== active.head
@@ -146,10 +151,12 @@ export function registerOperatorReviewRemote(pi: ReviewPi, dependencies: Depende
           activityId: active.activityId, round: result.round, artifactDigest: result.artifactDigest,
           omittedFindings: result.omittedFindings ?? 0, findings },
         content: `Authenticated protected Review publication for ${active.repository}#${active.pullRequest} `
-          + `and exact-head CI are terminal. Original findings (advisory, not clearance):\n`
+          + (active.ciRequired === false ? 'is terminal' : 'and exact-head CI are terminal')
+          + '. Original findings (advisory, not clearance):\n'
           + findings.map((finding: any) => `- ${finding.id}: ${finding.message} — ${finding.evidence}`).join('\n')
           + (result.omittedFindings ? `\n${result.omittedFindings} additional finding(s) omitted by the bounded projection; no clearance.` : '')
-          + '\nTriage these together with CI, present accepted/rejected findings with reasons, '
+          + (active.ciRequired === false ? '\nTriage these findings, ' : '\nTriage these together with CI, ')
+          + 'present accepted/rejected findings with reasons, '
           + 'then enter a separate FIX phase for accepted work. Rejected findings remain unresolved '
           + 'until independently reassessed in the next Review round.' }, { triggerTurn: true });
       if (timer) { clearTimeout(timer); timer = undefined; }
@@ -173,9 +180,10 @@ export function registerOperatorReviewRemote(pi: ReviewPi, dependencies: Depende
         details: { repository: next.repository, pr: next.pullRequest, head: next.head, activityId: next.activityId },
         content: `Protected Operator Review owns ${next.repository}#${next.pullRequest} at ${next.head}. `
           + 'Do not start local reviewers, publish a check or mark this Review complete. '
-          + `Launch only the attached ci-monitor for ${JSON.stringify({ repo: next.repository,
-            pr: next.pullRequest, head: next.head, cwd: next.repo })} `
-          + 'with run_in_background=true and inherit_context=false. '
+          + (next.ciRequired === false ? 'This consented clone exposure does not launch CI. '
+            : `Launch only the attached ci-monitor for ${JSON.stringify({ repo: next.repository,
+              pr: next.pullRequest, head: next.head, cwd: next.repo })} `
+              + 'with run_in_background=true and inherit_context=false. ')
           + 'Monitor the independent protected Action publication; selection is pending, not clearance.' },
       asynchronous ? { triggerTurn: true, deliverAs: 'followUp' } : undefined);
     }
@@ -198,7 +206,8 @@ export function registerOperatorReviewRemote(pi: ReviewPi, dependencies: Depende
           const observedEpoch = epoch;
           const selection = await dependencies.selectBoundary(waiting, true);
           if (observedEpoch !== epoch) return;
-          const current = await dependencies.currentBoundary({ type: 'session_start' }, ctx);
+          const current = await dependencies.currentBoundary({ type: 'session_start' },
+            waiting.ciRequired === false ? { ...ctx, cwd: waiting.repo } : ctx);
           if (observedEpoch !== epoch) return;
           if (!samePending(pending, waiting) || !samePending(pendingMarker(ctx), waiting)
             || waiting.sessionFile && ctx.sessionManager.getSessionFile?.() !== waiting.sessionFile
@@ -237,25 +246,30 @@ export function registerOperatorReviewRemote(pi: ReviewPi, dependencies: Depende
     schedule(ctx);
   });
   pi.on('session_shutdown', stop);
-  pi.on('tool_result', async (event, ctx) => {
-    if (!isBoundary(event, ctx) || (event as any).isError === true
-      || (event as any).result?.isError === true) return;
+  const submit = async (event: unknown, ctx: any, isCurrent = () => true,
+    consent?: ConsentedReview): Promise<void> => {
     const observedEpoch = epoch;
     const revision = ++submissionEpoch;
-    const boundary = await dependencies.currentBoundary(event, ctx);
-    if (observedEpoch !== epoch || revision !== submissionEpoch || !boundary || !sha.test(boundary.head) || !Number.isSafeInteger(boundary.repositoryId)
-      || !Number.isSafeInteger(boundary.pullRequest)) return;
+    const currentBoundary = await dependencies.currentBoundary(event, ctx);
+    if (!isCurrent() || observedEpoch !== epoch || revision !== submissionEpoch || !currentBoundary
+      || !sha.test(currentBoundary.head) || !Number.isSafeInteger(currentBoundary.repositoryId)
+      || !Number.isSafeInteger(currentBoundary.pullRequest)) return;
+    if (consent && (consent.identity.gitHost !== 'github.com' || currentBoundary.repo !== consent.repo
+      || currentBoundary.repository.toLowerCase() !== consent.identity.repository.toLowerCase()
+      || currentBoundary.pullRequest !== consent.identity.pr || currentBoundary.head !== consent.identity.head)) return;
+    const boundary = consent ? { ...currentBoundary, ciRequired: false } : currentBoundary;
     const rejectedFindings = eligibleRejections(ctx, boundary);
     const selected = await dependencies.selectBoundary(rejectedFindings
       ? { ...boundary, rejectedFindings } : boundary);
-    if (observedEpoch !== epoch || revision !== submissionEpoch) return;
+    if (!isCurrent() || observedEpoch !== epoch || revision !== submissionEpoch) return;
     if (selected.mode !== 'remote' || selected.activityId && !id.test(selected.activityId)) {
       pi.sendMessage({ customType: 'pr-boundary-remote-unavailable', display: true,
         content: 'Protected Review is unavailable; do not start local reviewers or claim clearance.' });
       return;
     }
     const current = await dependencies.currentBoundary(event, ctx);
-    if (observedEpoch !== epoch || revision !== submissionEpoch || !current || current.repository !== boundary.repository || current.repositoryId !== boundary.repositoryId
+    if (!isCurrent() || observedEpoch !== epoch || revision !== submissionEpoch || !current
+      || current.repo !== boundary.repo || current.repository !== boundary.repository || current.repositoryId !== boundary.repositoryId
       || current.pullRequest !== boundary.pullRequest || current.head !== boundary.head) return;
     if (!selected.activityId) {
       const prior = pendingMarker(ctx);
@@ -273,6 +287,11 @@ export function registerOperatorReviewRemote(pi: ReviewPi, dependencies: Depende
     }
     activate(boundary, selected.activityId, ctx);
     schedule(ctx);
+  };
+  pi.on('tool_result', async (event, ctx) => {
+    if (!isBoundary(event, ctx) || (event as any).isError === true
+      || (event as any).result?.isError === true) return;
+    await submit(event, ctx);
   });
   pi.on('agent_settled', async (_event, ctx) => {
     await inspect(ctx);
@@ -307,7 +326,7 @@ export function registerOperatorReviewRemote(pi: ReviewPi, dependencies: Depende
       return cells.length === 7 && cells[1] === finding.id
         && /^(?:accepted|rejected)\b/i.test(cells[5] ?? '');
     }))) return;
-    const ci = ciTerminal(ctx, active);
+    const ci = active.ciRequired === false ? 'success' : ciTerminal(ctx, active);
     if (!ci || ci !== 'success' && !lines.slice(table + 2).some(line =>
       line.startsWith('| Exact-head CI |') && line.includes(`CI_RESULT ${ci}`))) return;
     const rejectedFindings: RejectedFinding[] = [];
@@ -330,11 +349,17 @@ export function registerOperatorReviewRemote(pi: ReviewPi, dependencies: Depende
     pi.appendEntry('operator-review-remote-fix', { activityId: active.activityId, head: active.head,
       artifactDigest: report.details.artifactDigest, round: report.details.round });
     pi.sendMessage({ customType: 'pr-boundary-fix-follow-up', display: true,
-      content: 'Joint protected Review and exact-head CI triage is recorded. In a separate FIX phase, '
+      content: (active.ciRequired === false ? 'Joint protected Review triage is recorded. '
+        : 'Joint protected Review and exact-head CI triage is recorded. ') + 'In a separate FIX phase, '
         + 'apply only accepted minimal corrections; do not mark this remote Review complete or '
         + 'resolve rejected findings without independent next-round reassessment.' },
     { triggerTurn: true, deliverAs: 'followUp' });
   });
+  return { launchConsented: async (review, ctx, isCurrent) => {
+    if (!isCurrent()) return;
+    // Query the consented checkout, never the original clone's parent cwd.
+    await submit({ type: 'session_start' }, { ...ctx, cwd: review.repo }, isCurrent, review);
+  } };
 }
 
 function githubRepository(value: string): string | undefined {
@@ -523,7 +548,11 @@ async function readPublishedResult(boundary: Boundary, activityId: string): Prom
   { cwd: boundary.repo, encoding: 'utf8', timeout: 20_000, maxBuffer: 128 * 1024 });
   return JSON.parse(String(stdout));
 }
-export default function operatorReviewRemote(pi: ExtensionAPI): void {
-  registerOperatorReviewRemote(pi, { currentBoundary: currentOperatorBoundary,
+export function createOperatorReviewRemote(pi: ExtensionAPI): OperatorReviewRemoteController {
+  return registerOperatorReviewRemote(pi, { currentBoundary: currentOperatorBoundary,
     selectBoundary: selectOperatorBoundary, readPublishedResult });
+}
+
+export default function operatorReviewRemote(pi: ExtensionAPI): void {
+  createOperatorReviewRemote(pi);
 }

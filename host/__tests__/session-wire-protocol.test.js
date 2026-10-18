@@ -27,6 +27,7 @@
 
 import { describe, it, mock } from 'node:test';
 import assert from 'node:assert/strict';
+import HeadlessPkg from '@xterm/headless';
 
 // ── Mock node-pty so start() can run without forking a real PTY ──────────────
 // spawn() records the (cmd, args, opts) it was called with and returns a fake
@@ -303,6 +304,52 @@ describe('REQ-TERM-023 AC1 / REQ-TERM-028 AC1-AC4: Session owns primary-terminal
 
     session.kill();
   });
+});
+
+describe('REQ-TERM-044 AC1 / REQ-MOB-017 AC3: fullscreen mouse input survives attach', () => {
+  for (const [name, sequence, expected] of [
+    ['SGR', '\x1b[?1006h', ['\x1b[<64;11;3M', '\x1b[<65;11;3M']],
+    ['SGR pixels', '\x1b[?1016h', ['\x1b[<64;105;45M', '\x1b[<65;105;45M']],
+    ['disabled SGR', '\x1b[?1006h\x1b[?1006l', []],
+    ['disabled pixels', '\x1b[?1016h\x1b[?1016l', []],
+    ['terminal reset', '\x1b[?1006h\x1bc\x1b[?1049h\x1b[?1000h', []],
+  ]) {
+    it(`preserves ${name} wheel delivery before any renderer toggle, on first attach and reconnect`, async t => {
+      const session = new Session(`fullscreen-${name}`, 'Terminal');
+      session.start(); // Prewarm: fullscreen initializes before the first browser.
+      const pty = lastSpawn.pty;
+      t.after(() => session.kill());
+      await new Promise(resolve => session.headlessTerminal.write('\x1b[?1049h\x1b[?1000h' + sequence, resolve));
+      for (let attachment = 0; attachment < 2; attachment += 1) {
+        const ws = createWs();
+        session.attach(ws);
+        const restore = ws.sent.map(frame => { try { return JSON.parse(frame); } catch { return null; } })
+          .find(message => message?.type === 'restore');
+        assert.ok(restore, 'application state must reach the attached client');
+        const client = new HeadlessPkg.Terminal({ cols: 80, rows: 24, allowProposedApi: true });
+        try {
+          // Same reset + state replay contract as the browser restore handler.
+          client.reset();
+          await new Promise(resolve => client.write(restore.state, resolve));
+          assert.equal(client.buffer.active.type, 'alternate', 'fullscreen is preserved');
+          const binary = [];
+          const before = pty._writes.length;
+          client.onData(data => session.write(data));
+          client.onBinary(data => binary.push(data));
+          // Inject wheel input at xterm's common mouse service boundary, not a
+          // fake encoder. DEFAULT emits onBinary (not the browser's forwarded
+          // onData channel); SGR must deliver both directions to the PTY.
+          for (const action of [0, 1]) client._core.coreMouseService.triggerMouseEvent({
+            col: 10, row: 2, x: 105, y: 45, button: 4, action, ctrl: false, alt: false, shift: false,
+          });
+          assert.deepEqual(pty._writes.slice(before), expected);
+          if (expected.length) assert.deepEqual(binary, []);
+          else assert.deepEqual(binary, ['\x1b[M`+#', '\x1b[Ma+#']);
+        } finally { client.dispose(); }
+        session.detach(ws);
+      }
+    });
+  }
 });
 
 // ── REQ-TERM-019 AC1: host control messages are JSON with a `type` field ────
