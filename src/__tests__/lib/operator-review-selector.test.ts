@@ -6,8 +6,8 @@ import { registerOperatorReviewSelector, selectOperatorReviewApplicability } fro
 
 afterEach(() => vi.unstubAllEnvs());
 
-type Mode = 'local' | 'remote' | 'unavailable';
-function harness(verdicts: Record<string, Mode>) {
+type Mode = 'local' | 'remote' | 'unavailable' | 'none';
+function harness(verdicts: Record<string, Mode>, applicability?: (event: any, ctx: any) => Promise<Mode>) {
   const handlers = new Map<string, Array<(event: any, ctx: any) => Promise<void> | void>>();
   const messages: string[] = [];
   const pi = {
@@ -28,10 +28,10 @@ function harness(verdicts: Record<string, Mode>) {
       reviewPi.on('tool_call', () => { messages.push('remote-call'); });
       reviewPi.on('tool_result', () => { messages.push('remote-result'); });
     },
-    applicability: async (_event: unknown, ctx: { target: string }) => verdicts[ctx.target] ?? 'unavailable',
+    applicability: applicability ?? (async (_event: unknown, ctx: { target: string }) => verdicts[ctx.target] ?? 'unavailable'),
   });
-  return { messages, emit: async (type: string, target: string) => {
-    for (const handler of handlers.get(type) ?? []) await handler({ type, toolName: 'bash', input: { command: 'git push' } },
+  return { messages, emit: async (type: string, target: string, event: Record<string, unknown> = {}) => {
+    for (const handler of handlers.get(type) ?? []) await handler({ type, toolName: 'bash', input: { command: 'git push' }, ...event },
       { cwd: target, target, sessionManager: { getBranch: () => [] } });
   } };
 }
@@ -70,6 +70,76 @@ describe('REQ-OPERATOR-053: exclusive local versus dedicated remote Review exten
       expect(await selectOperatorReviewApplicability(event, ctx, runner('unavailable'))).toBe('unavailable');
     } finally { rmSync(repo, { recursive: true, force: true }); }
   });
+  it.each(['git clone https://github.com/owner/target.git copied', 'gh repo clone owner/target copied',
+    'git clone --branch develop https://github.com/owner/target.git']) (
+    'REQ-AGENT-169: clone selection uses the produced checkout outside and inside another repository: %s', async command => {
+      vi.stubEnv('ENTERPRISE_MODE', 'active');
+      const workspace = mkdtempSync(join(tmpdir(), 'review-clone-'));
+      try {
+        const parent = join(workspace, 'parent');
+        mkdirSync(join(parent, '.git'), { recursive: true });
+        mkdirSync(join(parent, 'sdd')); writeFileSync(join(parent, 'sdd/README.md'), 'parent');
+        for (const cwd of [workspace, parent]) {
+          const target = join(cwd, command.endsWith(' copied') ? 'copied' : 'target');
+          const head = 'a'.repeat(40);
+          const runner = (async (_program: string, args: string[], options: { cwd: string }) => {
+            // The external GitHub responses differ by checkout; selecting the parent
+            // would choose remote Review rather than the target's local consent path.
+            if (args[0] === 'pr') return { stdout: JSON.stringify({ number: 42, state: 'OPEN', baseRefName: 'main', headRefOid: head }) };
+            if (args[0] === 'repo') return { stdout: JSON.stringify({ nameWithOwner: 'owner/target', url: 'https://github.com/owner/target' }) };
+            if (!args.includes('--include')) return { stdout: '138' };
+            return { stdout: `HTTP/2 200\nx-codeflare-operator-boundary-selection: ${options.cwd === target ? 'local' : 'remote'}\n\n`
+              + JSON.stringify({ number: 42, head: { sha: head } }) };
+          }) as never;
+          const app = harness({}, (event, ctx) => selectOperatorReviewApplicability(event, ctx, runner));
+          const event = { toolCallId: 'clone-target', input: { command } };
+          await app.emit('tool_call', cwd, event);
+          mkdirSync(join(target, '.git'), { recursive: true });
+          mkdirSync(join(target, 'sdd')); writeFileSync(join(target, 'sdd/README.md'), 'target');
+          await app.emit('tool_result', cwd, { ...event, result: { content: [{ type: 'text', text: `Cloning into '${target}'...` }] } });
+          expect(app.messages).toEqual(['local-result']);
+        }
+      } finally { rmSync(workspace, { recursive: true, force: true }); }
+    });
+
+  it('REQ-AGENT-171: failed clones are inert even when the invocation directory has an eligible Review', async () => {
+    const app = harness({ '/remote': 'remote' });
+    const event = { toolCallId: 'failed-clone', input: { command: 'git clone https://github.com/owner/target.git' } };
+    await app.emit('tool_call', '/remote', event);
+    await app.emit('tool_result', '/remote', { ...event, isError: true });
+    expect(app.messages).toEqual([]);
+  });
+
+  it('REQ-OPERATOR-053: a reported successful clone with an unresolved checkout stays unavailable', async () => {
+    vi.stubEnv('ENTERPRISE_MODE', 'active');
+    const workspace = mkdtempSync(join(tmpdir(), 'review-unresolved-clone-'));
+    try {
+      const app = harness({}, (event, ctx) => selectOperatorReviewApplicability(event, ctx));
+      await app.emit('tool_result', workspace, { toolCallId: 'unresolved-clone',
+        input: { command: 'git clone https://github.com/owner/target.git missing' } });
+      expect(app.messages).toEqual(['pr-boundary-remote-unavailable']);
+    } finally { rmSync(workspace, { recursive: true, force: true }); }
+  });
+
+  it.each(['non-sdd', 'no-pr', 'closed', 'unprotected', 'transport', 'malformed', 'malformed-base']) (
+    'REQ-OPERATOR-053: distinguishes confirmed non-candidates from unavailable applicability: %s', async state => {
+      vi.stubEnv('ENTERPRISE_MODE', 'active');
+      const repo = mkdtempSync(join(tmpdir(), 'review-applicability-'));
+      try {
+        mkdirSync(join(repo, '.git'));
+        if (state !== 'non-sdd') { mkdirSync(join(repo, 'sdd')); writeFileSync(join(repo, 'sdd/README.md'), 'requirements'); }
+        const runner = (async () => {
+          if (state === 'no-pr') throw Object.assign(new Error('no PR'), { stderr: 'no pull requests found for branch main' });
+          if (state === 'transport' || state === 'non-sdd') throw new Error('Network unavailable');
+          return { stdout: state === 'malformed' ? '{invalid' : JSON.stringify({ number: 42,
+            state: state === 'closed' ? 'CLOSED' : 'OPEN', baseRefName: state === 'malformed-base' ? '' : state === 'unprotected' ? 'sandbox' : 'main', headRefOid: 'a'.repeat(40) }) };
+        }) as never;
+        const app = harness({}, (event, ctx) => selectOperatorReviewApplicability(event, ctx, runner));
+        await app.emit('session_start', repo);
+        expect(app.messages).toEqual(['transport', 'malformed', 'malformed-base'].includes(state) ? ['pr-boundary-remote-unavailable'] : []);
+      } finally { rmSync(repo, { recursive: true, force: true }); }
+    });
+
   it('runs only dedicated remote handlers for an authenticated applicable Action', async () => {
     const app = harness({ '/remote': 'remote' });
     await app.emit('session_start', '/remote');

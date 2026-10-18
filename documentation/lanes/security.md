@@ -259,6 +259,12 @@ CVE-2026-78667 and CVE-2026-97031 are owner-authorized CVE-level exceptions for 
 
 Historical provenance: retirement of the `gh` CVE-2026-56852 occurrence was verified by workflow run `30612952117` at head `82244a1d117194227c0082b9555f3654f903fbd2`. This receipt is immutable evidence for that occurrence, not a current scanner result.
 
+### Dependabot audit — 2026-10-18
+
+The paginated GitHub alert inventory returned 15 open alerts (3 critical, 12 high), 223 historical fixed alerts and no dismissed alerts. All 15 open entries have patched declarations/locks on `develop` at `00fc7dc81f9652036c29c8a08803c23e2daedf92`: #231–232 MCP client 2.3.1, #233–237 MCP SDK 1.32.1 (including removal of the affected nested Pi copy), #238–240 proxy-addr 2.0.8 and #241–245 source-map-js 1.2.2. [PR #1232](https://github.com/nikolanovoselec/codeflare/pull/1232) remains unmerged into default `main`; these alerts remain open there. This is point-in-time manifest/lock evidence, not fresh image validation or default-branch closure. [Dependabot #1303](https://github.com/nikolanovoselec/codeflare/pull/1303) is superseded by develop's newer repairs; its older Pi lock would leave #231/#233 affected.
+
+Separately, [basic-ftp CVE-2026-102990](https://github.com/advisories/GHSA-c475-qrg2-pj4r) affects versions through 6.2.0, fixed in 6.2.1. The validator retains an exact 5.3.1 code-server exception whose October 9 review deadline has passed. No current repository alert covers this advisory; historical basic-ftp alert closure covers different advisories. The current bundled occurrence was not measured, so neither repair nor renewed acceptance is established. Preserve the exact scanner gate; do not infer safety from an absent alert or a reused image.
+
 <a id="keyless-source-release-identity"></a>
 ### Release identity alias
 

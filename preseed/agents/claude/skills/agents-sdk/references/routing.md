@@ -32,13 +32,15 @@ export default {
   async fetch(req, env) {
     const url = new URL(req.url);
     if (url.pathname.startsWith("/api/")) {
-      const agent = getAgentByName(env.MyAgent, "singleton");
+      const agent = await getAgentByName(env.MyAgent, "singleton");
       return agent.fetch(req);
     }
     return routeAgentRequest(req, env);
   }
 };
 ```
+
+`getAgentByName` is asynchronous. In Agents 0.25+, native async RPC initialization requires named objects; raw `newUniqueId`/`idFromString` objects fail their first async RPC. Use the established named-object path rather than changing an existing object's identity implicitly.
 
 ## Options
 

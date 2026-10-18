@@ -421,7 +421,7 @@ describe('REQ-OPERATOR-081: AC6 retained Dispatcher diagnostics in Activity deta
     render(() => <OperatorManagement />);
     await selectDiagnosticActivity();
     const panel = await openDiagnostics();
-    const event = within(panel.getByRole('list', { name: 'Diagnostic timeline' })).getAllByRole('listitem')[1];
+    const event = within(await panel.findByRole('list', { name: 'Diagnostic timeline' })).getAllByRole('listitem')[1];
     fireEvent.click(within(event).getByRole('button', { name: 'View record e-2' }));
     // The requested evidence must appear beside its record, not below the full history.
     const detail = within(await within(event).findByRole('region', { name: /record.*e-2|e-2.*record/i }));
@@ -450,7 +450,7 @@ describe('REQ-OPERATOR-081: AC6 retained Dispatcher diagnostics in Activity deta
     render(() => <OperatorManagement />);
     await selectDiagnosticActivity();
     const panel = await openDiagnostics();
-    const row = within(panel.getByRole('list', { name: 'Retained operations' })).getAllByRole('listitem')[0];
+    const row = within(await panel.findByRole('list', { name: 'Retained operations' })).getAllByRole('listitem')[0];
     fireEvent.click(within(row).getByRole('button', { name: `View record ${operation.id}` }));
     const detail = within(await within(row).findByRole('region', { name: `Record ${operation.id}` }));
     expect(detail.getByText(operation.operationDigest)).toBeInTheDocument();
@@ -751,7 +751,7 @@ describe('REQ-OPERATOR-081: AC6 retained Dispatcher diagnostics in Activity deta
     render(() => <OperatorManagement />);
     await selectDiagnosticActivity();
     const panel = await openDiagnostics();
-    const event = within(panel.getByRole('list', { name: 'Diagnostic timeline' })).getAllByRole('listitem')[1];
+    const event = within(await panel.findByRole('list', { name: 'Diagnostic timeline' })).getAllByRole('listitem')[1];
     const button = within(event).getByRole('button', { name: 'View record e-2' });
     fireEvent.click(button);
     expect(await within(event).findByRole('status')).toHaveTextContent(/loading.*(?:record|detail)/i);

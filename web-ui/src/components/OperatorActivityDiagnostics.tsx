@@ -1,4 +1,4 @@
-import { For, Show, createEffect, createSignal, onCleanup, type Component } from 'solid-js';
+import { For, Show, createEffect, createSignal, onCleanup, onMount, type Component } from 'solid-js';
 import { ApiError } from '../api/fetch-helper';
 import { exportOperatorActivityDiagnostics, getOperatorActivityDiagnosticHistory,
   getOperatorActivityDiagnosticRecord, getOperatorActivityDiagnostics } from '../api/operator-activities';
@@ -40,6 +40,7 @@ function diagnosticFailure(error: unknown): string {
 }
 const quantity = (value: number | null) => value === null ? 'Unknown / unavailable' : String(value);
 const Retention: Component<{ summary: DiagnosticSummary | DiagnosticHistory | DiagnosticExport; additionalGaps: string[] }> = props => <div class="operator-diagnostic-retention">
+  <h4>Retention and evidence gaps</h4>
   <p>Retained evidence health: {props.summary.health.status}. {props.summary.health.status === 'loss' ? 'Evidence gaps are reported; counters below describe observed retention loss only.'
     : props.summary.health.status === 'unavailable' ? 'Retention loss quantities are unknown / unavailable.' : 'Availability applies only to this captured metadata snapshot.'}</p>
   <p>Routine events evicted: {quantity(props.summary.retention.evictedRoutine)}</p>
@@ -50,7 +51,7 @@ const Retention: Component<{ summary: DiagnosticSummary | DiagnosticHistory | Di
 </div>;
 
 /** Manual metadata reads only. Component lifetime owns responses and download URLs. */
-const OperatorActivityDiagnostics: Component<{ activityId: string }> = props => {
+const OperatorActivityDiagnostics: Component<{ activityId: string; openOnMount?: boolean }> = props => {
   const [opened, setOpened] = createSignal(false);
   const [summary, setSummary] = createSignal<DiagnosticSummary>();
   const [history, setHistory] = createSignal<DiagnosticHistory>();
@@ -80,6 +81,8 @@ const OperatorActivityDiagnostics: Component<{ activityId: string }> = props => 
     releaseDownloads(); setLoading(''); setRecordLoading('');
   }
   createEffect(() => { void props.activityId; discard(); setOpened(false); setError(''); });
+  // The dropdown mounts this reader only after its own explicit View action.
+  onMount(() => { if (props.openOnMount) void open(); });
   onCleanup(() => { active = false; ++revision; ++recordRevision; releaseDownloads(); });
   function current(id: string, token: number) { return active && props.activityId === id && revision === token; }
   function fail(cause: unknown, id: string, token: number) {
@@ -163,15 +166,15 @@ const OperatorActivityDiagnostics: Component<{ activityId: string }> = props => 
   }
   const disabled = () => !!loading() || !!recordLoading();
   return <div class="operator-diagnostics">
-    <div class="operator-actions"><button class="admin-secondary-button" disabled={disabled()} aria-expanded={opened()}
-      onClick={() => void open()}>View diagnostics</button></div>
+    <Show when={!props.openOnMount}><div class="operator-actions"><button class="admin-secondary-button" disabled={disabled()} aria-expanded={opened()}
+      onClick={() => void open()}>View diagnostics</button></div></Show>
     <Show when={opened()}><section aria-label="Activity Diagnostics" aria-busy={disabled()} class="operator-diagnostic-panel">
       <h3>Diagnostics</h3>
       <Show when={loading()}><p role="status" aria-live="polite">{loading()}</p></Show>
-      <Show when={recordLoading()}><p role="status" aria-live="polite">Loading record detail…</p></Show>
       <Show when={error()}><p class="operator-message" role="alert">{error()}</p></Show>
       <Show when={summary()}>{value => <>
         <div class="operator-diagnostic-diagnosis">
+          <h4>Evidence summary</h4>
           <p class="operator-state">{value().diagnosis.state === 'recovered-failure' ? 'Recovered failure — not the successful successor’s terminal cause.'
             : value().diagnosis.state === 'observed-failure' ? 'Observed failure in retained evidence.'
             : value().diagnosis.state === 'evidence-incomplete' ? 'Evidence incomplete — the cause or handoff cannot be fully confirmed.'
@@ -211,18 +214,23 @@ const OperatorActivityDiagnostics: Component<{ activityId: string }> = props => 
           </Show>
           <ol class="operator-diagnostic-timeline" aria-label="Diagnostic timeline"><For each={records().filter(row => row.kind === 'event')}>{record => <li>
             <DiagnosticRecordMetadata record={record} />
-            <button class="admin-secondary-button" disabled={disabled()} onClick={() => void inspect(record.id)}>View record {record.id}</button>
+            <button class="admin-secondary-button" disabled={disabled()} aria-expanded={detail()?.record.id === record.id}
+              onClick={() => void inspect(record.id)}>View record {record.id}</button>
+            <Show when={recordLoading() === record.id}><p role="status" aria-live="polite">Loading record detail…</p></Show>
+            <Show when={detail()?.record.id === record.id ? detail() : undefined}>{selected => <OperatorDiagnosticRecord detail={selected()} />}</Show>
           </li>}</For></ol>
           <Show when={!records().some(row => row.kind === 'event')}><p>No retained diagnostic events in the pages read. {page().pageStatus === 'unavailable' ? 'History is unavailable, not empty complete evidence.' : 'This does not exclude uncaptured failures.'}</p></Show>
           <Show when={records().some(row => row.kind === 'operation')}><h4>Retained operation metadata</h4>
             <ul class="operator-diagnostic-operations" aria-label="Retained operations"><For each={records().filter(row => row.kind === 'operation')}>{record => <li>
               <DiagnosticRecordMetadata record={record} />
-              <button class="admin-secondary-button" disabled={disabled()} onClick={() => void inspect(record.id)}>View record {record.id}</button>
+              <button class="admin-secondary-button" disabled={disabled()} aria-expanded={detail()?.record.id === record.id}
+                onClick={() => void inspect(record.id)}>View record {record.id}</button>
+              <Show when={recordLoading() === record.id}><p role="status" aria-live="polite">Loading record detail…</p></Show>
+              <Show when={detail()?.record.id === record.id ? detail() : undefined}>{selected => <OperatorDiagnosticRecord detail={selected()} />}</Show>
             </li>}</For></ul>
           </Show>
           <Show when={page().nextCursor}><div class="operator-actions"><button class="admin-secondary-button" disabled={disabled()} onClick={() => void nextHistory()}>Load next history page</button></div></Show>
         </div>}</Show>
-        <Show when={detail()}>{record => <OperatorDiagnosticRecord detail={record()} />}</Show>
         <section aria-label="Capture capabilities" class="operator-diagnostic-coverage">
           <h4>Capture capabilities and provenance</h4>
           <p>Support describes this artifact’s capture capability, not identification of an earlier historical failure.</p>

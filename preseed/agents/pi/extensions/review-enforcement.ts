@@ -318,7 +318,7 @@ type ClassifiedBoundary = {
   cloneTargetPreexisted?: boolean;
 };
 
-function resultText(value: unknown): string {
+export function resultText(value: unknown): string {
   if (typeof value === "string") return value;
   if (Array.isArray(value)) return value.map(resultText).join("\n");
   if (!value || typeof value !== "object") return "";

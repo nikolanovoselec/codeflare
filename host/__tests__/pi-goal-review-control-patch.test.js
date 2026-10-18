@@ -601,6 +601,7 @@ function createExtensionHarness() {
   const lifecycle = new Map();
   const eventListeners = new Map();
   const notifications = [];
+  const statuses = new Map();
   const entries = [];
   const messages = [];
   const tools = [
@@ -616,6 +617,7 @@ function createExtensionHarness() {
   };
   const ui = new Proxy({
     notify: (message, level) => notifications.push({ message, level }),
+    setStatus: (key, text) => { if (text === undefined) statuses.delete(key); else statuses.set(key, text); },
   }, { get: (target, property) => target[property] ?? (() => undefined) });
   const api = new Proxy({
     events: {
@@ -673,6 +675,7 @@ function createExtensionHarness() {
     entries,
     messages,
     notifications,
+    statuses,
     tools,
     dispatch: async (name, event = {}) => {
       let result;
@@ -825,6 +828,57 @@ describe('REQ-AGENT-111: pi-goal review control and continuation patch', () => {
       planIntegrity: 'sha512-M91Q8doVHnpXziOnoYV9npEmGghQ0rzAPIGrqwR7SP7L2z6ydGH7Xh3nEoowbZ8DqNCKAluptfQvhHAirtkTyw==' },
   ]) {
   describe(`Goal ${versions.goal}, Plan ${versions.plan}`, () => {
+  it('REQ-AGENT-111 AC7: publishes concise Goal status without changing accounting or continuation details', async (t) => {
+    const root = mkdtempSync(join(tmpdir(), 'pi-goal-status-'));
+    t.after(() => rmSync(root, { recursive: true, force: true }));
+    extractPackage(versions.goalArchive, versions.goalIntegrity, root);
+    patchPiGoalDirectory(versions.goal, root);
+    patchPiGoalDirectory(versions.goal, root);
+    const { GoalRuntime, goalSummary } = await bundleFixture(join(root, 'src/runtime.ts'), join(root, 'runtime.mjs'), 'namespace');
+    const { formatDuration } = await bundleFixture(join(root, 'src/accounting.ts'), join(root, 'accounting.mjs'), 'namespace');
+    const harness = createExtensionHarness();
+    const runtime = new GoalRuntime(harness.api);
+    const goal = { id: 'goal-status', text: 'status presentation', status: 'active', iteration: 4,
+      tokensUsed: 250, startedAt: 0, updatedAt: 0, timeUsedSeconds: 63180, baselineTokens: 0, automaticModelTurns: 10 };
+    for (const automaticTurns of [null, 10, 25]) {
+      runtime.settings = { ...runtime.settings, continuationLimits: { ...runtime.settings.continuationLimits, automaticTurns } };
+      for (const tokenBudget of [undefined, 1000]) {
+        runtime.updateStatus(harness.ctx, { ...goal, tokenBudget });
+        assert.equal(harness.statuses.get('goal'), 'goal - active 17h 33m');
+      }
+      for (const [status, expected] of [['blocked', 'blocked'], ['paused', 'paused'], ['usage_limited', 'usage limited'],
+        ['budget_limited', 'budget limited'], ['complete', 'complete']]) {
+        runtime.updateStatus(harness.ctx, { ...goal, status, tokenBudget: 1000 });
+        assert.equal(harness.statuses.get('goal'), `goal - ${expected}`);
+      }
+      for (const safetyPauseCause of ['continuation_limit', 'no_progress']) {
+        runtime.updateStatus(harness.ctx, { ...goal, status: 'paused', safetyPauseCause });
+        assert.equal(harness.statuses.get('goal'), 'goal - paused');
+      }
+      runtime.updateStatus(harness.ctx, { ...goal, waiting: { reason: 'external event', resumeAt: 1000 } });
+      assert.equal(harness.statuses.get('goal'), 'goal - waiting');
+      const summary = goalSummary({ ...goal, tokenBudget: 1000 }, automaticTurns);
+      assert.match(summary, /automatic/i);
+      assert.match(summary, /250/);
+      assert.match(summary, /1k|1,000|1000/i);
+    }
+    runtime.updateStatus(harness.ctx, { ...goal, timeUsedSeconds: 59 });
+    assert.equal(harness.statuses.get('goal'), 'goal - active 59s');
+    assert.equal(formatDuration(63180), '17h33m');
+  });
+
+  it('REQ-AGENT-111 AC7: unknown Goal status formatter fails before any package bytes are written', (t) => {
+    const root = mkdtempSync(join(tmpdir(), 'pi-goal-status-drift-'));
+    t.after(() => rmSync(root, { recursive: true, force: true }));
+    extractPackage(versions.goalArchive, versions.goalIntegrity, root);
+    const paths = ['package.json', 'src/commands.ts', 'src/goal.ts', 'src/lifecycle.ts', 'src/prompts.ts', 'src/runtime.ts', 'src/settings.ts', 'src/tool-policy.ts'];
+    const runtimePath = join(root, 'src/runtime.ts');
+    writeFileSync(runtimePath, readFileSync(runtimePath, 'utf8').replace('return "complete";', 'return "unknown-status-layout";'));
+    const before = paths.map(path => readFileSync(join(root, path), 'utf8'));
+    assert.throws(() => patchPiGoalDirectory(versions.goal, root), /Goal status formatter/);
+    assert.deepEqual(paths.map(path => readFileSync(join(root, path), 'utf8')), before);
+  });
+
   it('REQ-AGENT-111 AC2/AC6 / REQ-AGENT-178 AC1/AC2: declared pinned Goal entrypoint carries review control and workflow ownership', async () => {
     const goalRoot = mkdtempSync(join(tmpdir(), 'pi-goal-integration-'));
     const planRoot = mkdtempSync(join(tmpdir(), 'pi-plan-integration-'));
@@ -877,6 +931,7 @@ describe('REQ-AGENT-111: pi-goal review control and continuation patch', () => {
     assert.match(harness.notifications.at(-1).message, /Another workflow is active/);
 
     await harness.commands.get('goal').handler('clear', harness.ctx);
+    assert.equal(harness.statuses.has('goal'), false);
     harness.api.setActiveTools(['read']);
     await harness.commands.get('plan').handler('start', harness.ctx);
     await harness.runContext();

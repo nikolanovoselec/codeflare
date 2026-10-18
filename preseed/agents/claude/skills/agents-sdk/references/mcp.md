@@ -2,7 +2,11 @@
 
 Fetch https://developers.cloudflare.com/agents/api-reference/mcp-client-api/ and https://developers.cloudflare.com/agents/api-reference/mcp-agent-api/ for complete documentation.
 
-Agents include a multi-server MCP client for connecting to external MCP servers, and `McpAgent` for building MCP servers.
+Agents include a multi-server MCP client. For Agents 0.28.1, new servers use `createMcpHandler` from `agents/mcp/server` with SDK v2 `McpServer` from `@modelcontextprotocol/server` and its matching peer version (`2.3.1` for this release). Retrieve the [version-matched factory guide](https://github.com/cloudflare/agents/blob/agents%400.28.1/docs/agents/mcp-servers.md) before implementing. `McpAgent` is the retained, feature-frozen stateful SDK v1 path, not the default for new servers.
+
+For standalone Lifecycle hosts, install MCPClientManager as a lifecycle capability; the removed `MCPClientManagerOptions.storage` is not an upgrade path. Existing Agent hosts provide their composed capabilities; do not add a second lifecycle owner.
+
+With SDK v1.31+, preserve stored OAuth tokens/client information's `issuer` and configure the trusted expected issuer for credential providers. SDK v1.32+ HTTP/SSE clients restrict redirects to the same origin (with a same-host default-port HTTP-to-HTTPS exception); configure the final trusted endpoint rather than globally following redirects. These notes do not require converting an existing stdio server to HTTP/OAuth or SDK v2.
 
 ## Add an MCP Server
 
@@ -72,9 +76,9 @@ const prompts = this.mcp.listPrompts();
 await this.removeMcpServer(serverId);
 ```
 
-## Building an MCP Server
+## Legacy Stateful MCP Server (SDK v1)
 
-Use `McpAgent` from the SDK to create an MCP server.
+The following `McpAgent` example is for existing stateful SDK v1 deployments. Prefer the factory above for new servers; do not mix SDK v2 server objects with this retained v1 API.
 
 **Install dependencies:**
 ```bash

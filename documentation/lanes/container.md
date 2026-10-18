@@ -209,6 +209,8 @@ Each crash-restarted launch uses a fresh process group, random generation token 
 | Codex | managed `dismissed_version: "999.0.0"`; managed interactive `--no-daemon` |
 | Pi | `PI_OFFLINE=1`, `PI_SKIP_VERSION_CHECK=1` |
 
+OpenCode 1.19.0 no longer installs updates automatically. Unsetting `OPENCODE_DISABLE_AUTOUPDATE` permits checks/notices, not installation; explicit `opencode upgrade --major` is a separate incompatible-version action, not part of Fast Start OFF or this pin update. Existing config shape and suppression flags remain unchanged ([upstream release](https://github.com/anomalyco/opencode/releases/tag/v1.19.0)).
+
 Codex's managed Classic/Herdr `--no-daemon` prevents default updating-daemon launch only while Fast Start ON. User config, `codex exec`, version probes and explicit startup updater remain unchanged; sync excludes named ephemeral paths, not whole `.codex`.
 
 OFF unsets Docker/entrypoint suppressors and removes managed Codex settings suppressors. Before readiness, installed Pi/Codex explicitly update, Pi reconciles packages, and logs show before/after versions or failure. Pi validates dependencies and real image processing; incomplete install gets one lockfile reinstall. Runtime-temporary downloads are cleared; failures remain visible without stranding readiness. Both image Pi copies are validated ([REQ-AGENT-012](../../sdd/spec/agents.md#req-agent-012-fast-cli-start-configurable), [REQ-AGENT-206](../../sdd/spec/agents.md#req-agent-206-fast-start-off-runtime-updates)). ON does not install restored user Pi packages absent from image cache.

@@ -3,18 +3,25 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import type { ExtensionAPI } from '@earendil-works/pi-coding-agent';
-import localReview from './review-enforcement';
+import localReview, { resultText } from './review-enforcement';
 import remoteReview from './operator-review-remote';
-import { findGitRoot, recallActiveRepo, resolveShellInvocationRepo, shellInvocations } from './active-repo-memory';
+import { findGitRoot, recallActiveRepo, resolveShellInvocationRepo, shellInvocations, type ShellInvocation } from './active-repo-memory';
+import { cloneTargetHadGit, cloneTargetPath, rememberCloneTargetHadGit } from './graphify-helpers';
 import { classifyReviewBoundaryCommand } from './review-helpers';
 
 const execFile = promisify(execFileCallback);
-type Mode = 'local' | 'remote' | 'unavailable';
+type Mode = 'local' | 'remote' | 'unavailable' | 'none';
 type Handler = (event: unknown, ctx: unknown) => unknown;
 type ReviewFactory = (pi: any) => void;
 type SelectorPi = Pick<ExtensionAPI, 'on' | 'sendMessage'>;
 type Dependencies = { local: ReviewFactory; remote: ReviewFactory;
   applicability: (event: unknown, ctx: any) => Promise<Mode> };
+
+function invocationRepo(invocation: ShellInvocation, event: unknown): string | undefined {
+  if (!classifyReviewBoundaryCommand(invocation.command).clone) return resolveShellInvocationRepo(invocation);
+  const target = cloneTargetPath(invocation.command, invocation.cwd, resultText(event));
+  return target && existsSync(join(target, '.git')) ? findGitRoot(target) : undefined;
+}
 
 /** The two Review implementations register with distinct, inactive event tables.
  * Only this selector registers Pi event handlers; the original local implementation is unmodified. */
@@ -36,6 +43,22 @@ export function registerOperatorReviewSelector(pi: SelectorPi, dependencies: Dep
   let selectionEpoch = 0;
   const dispatch = async (name: string, event: unknown, ctx: unknown) => {
     if (name === 'session_shutdown') selectionEpoch += 1;
+    const clones = shellInvocations(event, (ctx as { cwd: string }).cwd)
+      .filter(invocation => classifyReviewBoundaryCommand(invocation.command).clone);
+    if (clones.length && (name === 'tool_call' || name === 'tool_execution_start')) {
+      ++selectionEpoch;
+      // Record the existing consent guard without selecting or starting Review
+      // against a checkout that does not exist yet.
+      const id = (event as any)?.toolCallId ?? (event as any)?.toolUseId ?? (event as any)?.id;
+      if (typeof id === 'string') for (const invocation of clones) {
+        const target = cloneTargetPath(invocation.command, invocation.cwd);
+        if (target && cloneTargetHadGit(id, target) === undefined)
+          rememberCloneTargetHadGit(id, target, existsSync(join(target, '.git')));
+      }
+      return;
+    }
+    if (clones.length && name === 'tool_result'
+      && ((event as any)?.isError === true || (event as any)?.result?.isError === true)) return;
     const isBoundary = (name === 'tool_call' || name === 'tool_result')
       && shellInvocations(event, (ctx as { cwd: string }).cwd).some(invocation =>
         Boolean(classifyReviewBoundaryCommand(invocation.command).kind));
@@ -45,7 +68,7 @@ export function registerOperatorReviewSelector(pi: SelectorPi, dependencies: Dep
       if (revision !== selectionEpoch) return;
       const invocation = isBoundary ? shellInvocations(event, (ctx as { cwd: string }).cwd)
         .filter(item => Boolean(classifyReviewBoundaryCommand(item.command).kind)).at(-1) : undefined;
-      const repo = invocation ? resolveShellInvocationRepo(invocation)
+      const repo = invocation ? invocationRepo(invocation, event)
         : name === 'session_start' ? findGitRoot((ctx as { cwd: string }).cwd)
           ?? (recallActiveRepo() ? findGitRoot(recallActiveRepo()!) : undefined)
           ?? (ctx as any).sessionManager?.getBranch?.().filter((entry: any) => entry?.type === 'custom'
@@ -72,6 +95,8 @@ export function registerOperatorReviewSelector(pi: SelectorPi, dependencies: Dep
       else if (next !== 'remote') selectedRepo = undefined;
       if (next !== 'unavailable') unavailableReported = false;
     }
+    // Confirmed absence is inert, not local fallback or Review completion.
+    if (selected === 'none') return;
     if (selected === 'unavailable') {
       if (!unavailableReported && ((isBoundary && name === 'tool_result')
         || name === 'session_start' && Boolean(findGitRoot((ctx as { cwd: string }).cwd)))) {
@@ -105,16 +130,26 @@ export async function selectOperatorReviewApplicability(event: any, ctx: any,
     ? ctx.sessionManager.getBranch().filter((entry: any) => entry?.type === 'custom'
       && (entry.customType === 'operator-review-remote-round'
         || entry.customType === 'operator-review-remote-pending')).at(-1)?.data?.repo : undefined;
-  const repo = boundary ? resolveShellInvocationRepo(boundary)
+  const repo = boundary ? invocationRepo(boundary, event)
     : findGitRoot(ctx.cwd) ?? (typeof previous === 'string' ? findGitRoot(previous) : undefined)
       ?? (recallActiveRepo() ? findGitRoot(recallActiveRepo()!) : undefined);
-  if (!repo || !existsSync(join(repo, 'sdd', 'README.md'))) return 'unavailable';
+  if (!repo) return boundary && classifyReviewBoundaryCommand(boundary.command).clone ? 'unavailable' : 'none';
+  if (!existsSync(join(repo, 'sdd', 'README.md'))) return 'none';
   try {
-    const { stdout: prText } = await runner('gh', ['pr', 'view', '--json', 'number,state,baseRefName,headRefOid'],
-      { cwd: repo, encoding: 'utf8', timeout: 10_000 });
+    let prText: unknown;
+    try {
+      const response = await runner('gh', ['pr', 'view', '--json', 'number,state,baseRefName,headRefOid'],
+        { cwd: repo, encoding: 'utf8', timeout: 10_000 });
+      prText = response.stdout;
+    } catch (error) {
+      const stderr = String((error as { stderr?: unknown })?.stderr ?? '');
+      if (/no pull requests found|could not resolve to a pullrequest/i.test(stderr)) return 'none';
+      throw error;
+    }
     const pr = JSON.parse(String(prText));
-    if (!Number.isSafeInteger(pr.number) || pr.number < 1 || pr.state !== 'OPEN'
-      || !['main', 'master', 'develop'].includes(pr.baseRefName) || !sha.test(pr.headRefOid)) return 'unavailable';
+    if (!Number.isSafeInteger(pr.number) || pr.number < 1 || !['OPEN', 'CLOSED', 'MERGED'].includes(pr.state)
+      || typeof pr.baseRefName !== 'string' || !pr.baseRefName.trim() || !sha.test(pr.headRefOid)) return 'unavailable';
+    if (pr.state !== 'OPEN' || !['main', 'master', 'develop'].includes(pr.baseRefName)) return 'none';
     const [{ stdout: identity }, { stdout: idText }] = await Promise.all([
       runner('gh', ['repo', 'view', '--json', 'nameWithOwner,url'], { cwd: repo, encoding: 'utf8', timeout: 10_000 }),
       runner('gh', ['api', 'repos/{owner}/{repo}', '--jq', '.id'], { cwd: repo, encoding: 'utf8', timeout: 10_000 }),

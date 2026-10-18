@@ -140,7 +140,7 @@ const OperatorActivityButton: Component<Props> = props => {
           <div id="operator-runs-panel" role="tabpanel" aria-labelledby="operator-runs-tab" hidden={segment() !== 'Runs'} class="operator-dropdown-view">
             <Show when={selected()} fallback={<>
               <div class="operator-run-filters"><label class="operator-run-search"><Icon path={mdiMagnify} size={18} aria-hidden="true" /><input type="search" aria-label="Find a run" placeholder="Find a run…" value={search()} onInput={event => setSearch(event.currentTarget.value)} /></label>
-                <div class="operator-dropdown-heading"><h3>Recent runs</h3><select aria-label="Filter runs by operator" value={operator()} onChange={event => setOperator(event.currentTarget.value)}><option value="">All operators</option><For each={operators()}>{entry => <option value={entry[0]}>{entry[1]}</option>}</For></select></div>
+                <div class="operator-dropdown-heading"><h3>Recent runs</h3><select aria-label="Filter runs by operator" value={operator()} onChange={event => setOperator(event.currentTarget.value)}><option value="">ALL OPERATORS</option><For each={operators()}>{entry => <option value={entry[0]}>{entry[1].toUpperCase()}</option>}</For></select></div>
                 <small class="operator-dropdown-muted">Search and filter apply to the current page.</small></div>
               <Show when={!activities.loading} fallback={<div class="operator-activity-state">Loading activity…</div>}>
                 <Show when={!loadError()} fallback={<div class="operator-activity-state"><strong>Activity unavailable</strong><span>Last known state cannot be treated as current.</span><button type="button" onClick={() => void refetch()}>Retry</button><Show when={cursor()}><button type="button" onClick={() => { setPrevious([]); setCursor(null); }}>Return to newest</button></Show></div>}>
@@ -168,7 +168,7 @@ const OperatorActivityButton: Component<Props> = props => {
                       <Show when={value().attention}><p class="operator-activity-attention">Needs attention</p></Show><Show when={value().progress}><p>Progress: {value().progress}</p></Show><Show when={value().checkpoint != null}><p>Checkpoint saved. Work may still be in progress.</p></Show>
                       <p>Activity ID: <span class="operator-full-id">{value().activityId}</span></p><button type="button" onClick={() => void copyId()}>Copy activity ID</button>
                       <small>Updated {updatedDate(value().updatedAt).toLocaleString()}<Show when={stale(value().updatedAt) && workingStates.has(value().executionStatus)}> · Last observation may be stale</Show></small></div>
-                    <button type="button" aria-expanded={diagnostics()} onClick={() => setDiagnostics(value => !value)}>{diagnostics() ? 'Hide diagnostics' : 'View diagnostics'}</button><Show when={diagnostics()}><OperatorActivityDiagnostics activityId={value().activityId} /></Show>
+                    <button type="button" aria-expanded={diagnostics()} onClick={() => setDiagnostics(value => !value)}>{diagnostics() ? 'Hide diagnostics' : 'View diagnostics'}</button><Show when={diagnostics()}><OperatorActivityDiagnostics activityId={value().activityId} openOnMount /></Show>
                   </div>}
                 </Show></Show>
               </div>

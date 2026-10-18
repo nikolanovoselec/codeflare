@@ -135,8 +135,8 @@ async sendGreeting(payload: { to: string }, schedule: Schedule) {
 ### Manage Schedules
 
 ```typescript
-const schedules = this.getSchedules();
-const crons = this.getSchedules({ type: "cron" });
+const schedules = await this.listSchedules();
+const crons = await this.listSchedules({ type: "cron" });
 await this.cancelSchedule(schedule.id);
 ```
 
