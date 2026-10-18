@@ -321,8 +321,10 @@ RUN SILVERBULLET_VERSION="2.12.1" && \
 # 7.5.21 overlay replaces npm's copy only. code-server retains its upstream fixed
 # IDE tar 7.5.22, independently smoke-tested. The Node image's bundled npm also carries pacote
 # 21.5.0 affected by CVE-2026-9496; an integrity-pinned 21.5.1 artifact replaces
-# that runtime copy. Drop each overlay after its upstream artifact contains at
-# least the pinned fixed version.
+# that runtime copy. code-server's basic-ftp 5.3.1 is replaced with 6.2.3 for
+# CVE-2026-102990, preserving its CommonJS API for the get-uri consumer.
+# Drop each overlay after its upstream artifact contains at least the pinned
+# fixed version.
 RUN CODE_SERVER_VERSION="4.141.0" && \
     CODE_SERVER_SHA256="65bcd20b524d03eb1b5adb7f360244599ef0e5b74089a46a982d32c074b97a29" && \
     CODE_SERVER_COMMIT="8b41915d25547e2edd553bab03ea4cbd621f98c5" && \
@@ -338,6 +340,8 @@ RUN CODE_SERVER_VERSION="4.141.0" && \
     UNDICI_IDE_SHA512="764ad05de1d26a86a69c8b6561b9b31b4c0562b3346700f108883403b68a8d3cb2861f6cbd1cc234513357e566d39ff27a18c2ce30d9df52977c6123612ced0d" && \
     PACOTE_VERSION="21.5.1" && \
     PACOTE_SHA512="2af709f62cb772bcac0ac82a738f8f9271ffc3a8e4ae9f09377ea6a5904fc0d6834704df3190f7ed8cd16b336cb626543a1b85e699e8f5fefc9fd9842416afc2" && \
+    BASIC_FTP_VERSION="6.2.3" && \
+    BASIC_FTP_SHA512="4fb198b50d9e28950de583911bb03cbb659f07d24c3746b8ff0977308eb8aaadaa4d17dadc55f3a0dab40c3a23643903c92b5c2fe4e47cab33e091c4671e6419" && \
     SHELL_QUOTE_VERSION="1.12.0" && \
     SHELL_QUOTE_SHA512="3dc072a8dc93ff7f05da40cd8b4d3a1c031125a50bb81ceafc53acc37a9d66f5ff180f56fe36a60da46c9201e3b9b1e27ed5cae6c205c4b364beb5d4c1ca1fe9" && \
     curl -fsSL --retry 3 --retry-delay 5 --connect-timeout 30 --max-time 600 \
@@ -379,7 +383,11 @@ RUN CODE_SERVER_VERSION="4.141.0" && \
     curl -fsSL --retry 3 --retry-delay 5 --connect-timeout 30 --max-time 300 \
       "https://registry.npmjs.org/shell-quote/-/shell-quote-${SHELL_QUOTE_VERSION}.tgz" -o /tmp/shell-quote.tgz && \
     echo "${SHELL_QUOTE_SHA512}  /tmp/shell-quote.tgz" | sha512sum -c - && \
+    curl -fsSL --retry 3 --retry-delay 5 --connect-timeout 30 --max-time 300 \
+      "https://registry.npmjs.org/basic-ftp/-/basic-ftp-${BASIC_FTP_VERSION}.tgz" -o /tmp/basic-ftp.tgz && \
+    echo "${BASIC_FTP_SHA512}  /tmp/basic-ftp.tgz" | sha512sum -c - && \
     for SECURITY_PAIR in \
+      '/tmp/basic-ftp.tgz:/opt/code-server/node_modules/basic-ftp' \
       '/usr/local/share/codeflare-brace-expansion.tgz:/usr/local/lib/node_modules/npm/node_modules/brace-expansion' \
       '/tmp/undici-npm.tgz:/usr/local/lib/node_modules/npm/node_modules/undici' \
       '/tmp/undici-ide.tgz:/opt/code-server/lib/vscode/node_modules/undici' \
@@ -390,7 +398,8 @@ RUN CODE_SERVER_VERSION="4.141.0" && \
       tar -xzf "$SECURITY_ARCHIVE" -C "$SECURITY_DIR" --strip-components=1 || exit 1; \
     done && \
     test "$(jq -r .version /opt/code-server/lib/vscode/node_modules/shell-quote/package.json)" = "$SHELL_QUOTE_VERSION" && \
-    rm /tmp/shell-quote.tgz && \
+    test "$(jq -r .version /opt/code-server/node_modules/basic-ftp/package.json)" = "$BASIC_FTP_VERSION" && \
+    rm /tmp/shell-quote.tgz /tmp/basic-ftp.tgz && \
     npm --version >/dev/null && \
     ln -sf /opt/code-server/bin/code-server /usr/local/bin/code-server && \
     test -x /opt/code-server/bin/code-server && \

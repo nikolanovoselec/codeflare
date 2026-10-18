@@ -552,6 +552,20 @@ async function verifyCodeServerRuntime() {
   assert.equal(product.codeServerVersion, expected.codeServerVersion);
   assert.equal(product.commit, expected.codeServerCommit);
   assert.equal(await readlink('/usr/local/bin/code-server'), '/opt/code-server/bin/code-server');
+
+  // Exercise the patched FTP module through its installed get-uri consumer.
+  const requireFromCodeServer = createRequire(join(CODE_SERVER_ROOT, 'package.json'));
+  const requireFromGetUri = createRequire(requireFromCodeServer.resolve('get-uri'));
+  const basicFtp = requireFromGetUri('basic-ftp');
+  assert.equal(requireFromGetUri('basic-ftp/package.json').version, '6.2.3');
+  assert.deepEqual(
+    basicFtp.parseList('-rw-r--r-- 1 ftp ftp 5 Jan 01 2026 smoke.txt\r\n')
+      .map(({ name, size }) => ({ name, size })),
+    [{ name: 'smoke.txt', size: 5 }],
+  );
+  const ftpClient = new basicFtp.Client();
+  ftpClient.close();
+  assert.equal(ftpClient.closed, true);
   for (const [packageName, minimumVersion] of [
     ['libde265-0', '1.0.11-1+deb12u3'],
     ['libevent-core-2.1-7', '2.1.12-stable-8+deb12u1'],

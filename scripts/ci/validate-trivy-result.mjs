@@ -3,25 +3,9 @@
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 
-const REVIEWED_FINDINGS = [
-  {
-    // Owner-authorized deployment exception, 2026-10-02, run 37016354448.
-    // GHSA-c475-qrg2-pj4r: a malicious FTP listing can freeze the Node event
-    // loop through quadratic Unix-list parsing. Reachability is not disproved;
-    // accepted risk is denial of service in the user's session/IDE process.
-    // Upstream fix 6.2.1 requires a major upgrade from the vendored 5.3.1.
-    // Accept only this exact code-server copy, never an image-wide suppression.
-    // Review by 2026-10-09; retire when upstream bundles the fixed dependency.
-    target: 'Node.js',
-    vulnerabilityId: 'CVE-2026-102990',
-    packageName: 'basic-ftp',
-    packagePath: 'opt/code-server/node_modules/basic-ftp/package.json',
-    packagePurl: 'pkg:npm/basic-ftp@5.3.1',
-    installedVersion: '5.3.1',
-    fixedVersion: '6.2.1',
-    severity: 'HIGH',
-  },
-];
+// No active bounded exceptions. The image overlays code-server's basic-ftp
+// with 6.2.3; recurrence of CVE-2026-102990 must fail the gate.
+const REVIEWED_FINDINGS = [];
 
 function matchesReviewedFinding(reviewed, finding) {
   const targetMatches = reviewed.targetPattern
