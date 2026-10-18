@@ -6,7 +6,7 @@ import {
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 
-// REQ-AGENT-076 AC8: seed the managed Auto preset once. Existing user
+// REQ-AGENT-223 AC1: seed the managed Auto preset once. Existing user
 // settings, including deliberately removed options, remain user-owned.
 const defaults = {
   mode: "auto",
@@ -84,6 +84,7 @@ export function configureSmartCompact(agentDir: string): boolean {
     }
     if (!isObject(settings)) return false;
     if (Object.hasOwn(settings, "smartCompact")) return isObject(settings.smartCompact);
+    if (Object.hasOwn(settings, "semanticCompact")) return isObject(settings.semanticCompact);
     settings.smartCompact = { ...defaults };
 
     const mode = previous ? previous.mode & 0o777 : 0o600;

@@ -61,14 +61,14 @@ function readSettings(): PiSettings {
   return JSON.parse(readFileSync(settingsPath, 'utf8')) as PiSettings;
 }
 
-describe('REQ-AGENT-076 AC8: provider-neutral Smart Compact settings preparation', () => {
-  it('REQ-AGENT-076 AC8: initializes an absent settings file with the full managed preset in auto mode', async () => {
+describe('REQ-AGENT-223: provider-neutral Smart Compact settings preparation', () => {
+  it('REQ-AGENT-223: initializes an absent settings file with the full managed preset in auto mode', async () => {
     await configureSmartCompact(agentDir);
 
     expect(readSettings()).toEqual({ smartCompact: MANAGED_DEFAULTS });
   });
 
-  it('REQ-AGENT-076 AC8: adds only an absent smartCompact section without changing unrelated settings or auth files', async () => {
+  it('REQ-AGENT-223: adds only an absent smartCompact section without changing unrelated settings or auth files', async () => {
     const initial = {
       auth: { 'user-provider': { type: 'oauth', access: 'fixture-only' } },
       defaultProvider: 'user-provider', defaultModel: 'user-model', defaultThinkingLevel: 'high',
@@ -89,7 +89,7 @@ describe('REQ-AGENT-076 AC8: provider-neutral Smart Compact settings preparation
     expect(readFileSync(authPath, 'utf8')).toBe(authBytes);
   });
 
-  it('REQ-AGENT-076 AC8: preserves explicit false, zero, null, array, model-route, profile, and unknown options byte-for-byte', async () => {
+  it('REQ-AGENT-223: preserves explicit false, zero, null, array, model-route, profile, and unknown options byte-for-byte', async () => {
     const overrides = {
       mode: 'fast', compactionEngines: [],
       summaryModel: 'custom-provider/summary', segmentationModel: 'custom-provider/segment',
@@ -118,7 +118,7 @@ describe('REQ-AGENT-076 AC8: provider-neutral Smart Compact settings preparation
     ['mode only', { mode: 'fast' }],
     ['autoTrigger false only', { autoTrigger: false }],
     ['unknown options only', { futureOption: { enabled: false, budget: 0 } }],
-  ])('REQ-AGENT-076 AC8: leaves an existing %s byte-unchanged across helper and extension reloads', async (_label, smartCompact) => {
+  ])('REQ-AGENT-223: leaves an existing %s byte-unchanged across helper and extension reloads', async (_label, smartCompact) => {
     const bytes = ` { "theme" : "user-theme", "smartCompact" : ${JSON.stringify(smartCompact)} }\n\n`;
     writeFileSync(settingsPath, bytes);
 
@@ -130,7 +130,46 @@ describe('REQ-AGENT-076 AC8: provider-neutral Smart Compact settings preparation
     expect(readFileSync(settingsPath, 'utf8')).toBe(bytes);
   });
 
-  it('REQ-AGENT-076 AC8: user edits after initial configuration survive repeated startup preparation', async () => {
+  it.each([
+    ['empty object', {}],
+    ['automatic-compaction opt-out', { autoTrigger: false }],
+    ['partial configuration', { mode: 'fast', futureOption: { keep: [false, 0] } }],
+  ])('REQ-AGENT-223: preserves semanticCompact-only %s byte-for-byte without inserting smartCompact across reloads', async (_label, semanticCompact) => {
+    const bytes = ` { "theme" : "user-theme", "semanticCompact" : ${JSON.stringify(semanticCompact)} }\n\n`;
+    writeFileSync(settingsPath, bytes);
+
+    await configureSmartCompact(agentDir);
+    expect(readFileSync(settingsPath, 'utf8')).toBe(bytes);
+    vi.stubEnv('PI_CODING_AGENT_DIR', agentDir);
+    await smartCompactConfig({} as never);
+    await smartCompactConfig({} as never);
+
+    expect(readFileSync(settingsPath, 'utf8')).toBe(bytes);
+    expect(Object.hasOwn(readSettings(), 'smartCompact')).toBe(false);
+  });
+
+  it('REQ-AGENT-223: preserves canonical precedence when both supported sections exist', async () => {
+    const bytes = ' { "smartCompact": { "autoTrigger": false }, "semanticCompact": { "autoTrigger": true }, "theme": "user-theme" }\n';
+    writeFileSync(settingsPath, bytes);
+
+    await configureSmartCompact(agentDir);
+    vi.stubEnv('PI_CODING_AGENT_DIR', agentDir);
+    await smartCompactConfig({} as never);
+
+    expect(readFileSync(settingsPath, 'utf8')).toBe(bytes);
+  });
+
+  it.each(['null', '[]', 'false', '0', '"fast"'])('REQ-AGENT-223: preserves a malformed semanticCompact alias %s without inserting canonical defaults', async (json) => {
+    const bytes = `{ "theme": "user-theme", "semanticCompact": ${json} }\n`;
+    writeFileSync(settingsPath, bytes);
+
+    try { await configureSmartCompact(agentDir); } catch { /* Refusal may be signalled by throwing. */ }
+
+    expect(readFileSync(settingsPath, 'utf8')).toBe(bytes);
+    expect(Object.hasOwn(readSettings(), 'smartCompact')).toBe(false);
+  });
+
+  it('REQ-AGENT-223: user edits after initial configuration survive repeated startup preparation', async () => {
     await configureSmartCompact(agentDir);
     const edited = '{\n  "smartCompact": { "mode": "balanced", "autoTrigger": false },\n  "theme": "user-theme"\n}\n';
     writeFileSync(settingsPath, edited);
@@ -141,7 +180,7 @@ describe('REQ-AGENT-076 AC8: provider-neutral Smart Compact settings preparation
     expect(readFileSync(settingsPath, 'utf8')).toBe(edited);
   });
 
-  it('REQ-AGENT-076 AC8: the default extension factory prepares the full auto-mode preset immediately on load, before any session event', async () => {
+  it('REQ-AGENT-223: the default extension factory prepares the full auto-mode preset immediately on load, before any session event', async () => {
     vi.stubEnv('PI_CODING_AGENT_DIR', agentDir);
 
     // No lifecycle dispatch or provider API: configuration must precede the
@@ -151,7 +190,7 @@ describe('REQ-AGENT-076 AC8: provider-neutral Smart Compact settings preparation
     expect(readSettings()).toEqual({ smartCompact: MANAGED_DEFAULTS });
   });
 
-  it('REQ-AGENT-076 AC2/AC8: /ctx off stays disabled across Smart Compact loads until the next container boot', async () => {
+  it('REQ-AGENT-076 AC2 / REQ-AGENT-223: /ctx off stays disabled across Smart Compact loads until the next container boot', async () => {
     const userPackage = { source: 'npm:user-package@1.0.0', extensions: ['keep.ts'] };
     writeSettings({ theme: 'user-theme', packages: [userPackage,
       'npm:pi-smart-compact@10.6.2', { source: 'npm:context-mode@1.0.169', extensions: [] }] });
@@ -168,7 +207,7 @@ describe('REQ-AGENT-076 AC8: provider-neutral Smart Compact settings preparation
       packages: [userPackage, 'npm:pi-smart-compact@10.6.2', disabledPackage], smartCompact: MANAGED_DEFAULTS });
   });
 
-  it('REQ-AGENT-076 AC8: malformed JSON fails closed without overwriting the original settings bytes', async () => {
+  it('REQ-AGENT-223: malformed JSON fails closed without overwriting the original settings bytes', async () => {
     const malformed = '{ "theme": "user-theme", "smartCompact": { "autoTrigger": false },\n';
     writeFileSync(settingsPath, malformed);
 
@@ -179,7 +218,7 @@ describe('REQ-AGENT-076 AC8: provider-neutral Smart Compact settings preparation
     expect(readFileSync(settingsPath, 'utf8')).toBe(malformed);
   });
 
-  it.each(['null', '[]', 'false', '0', '"fast"'])('REQ-AGENT-076 AC8: preserves a nonobject settings root %s without repair', async (json) => {
+  it.each(['null', '[]', 'false', '0', '"fast"'])('REQ-AGENT-223: preserves a nonobject settings root %s without repair', async (json) => {
     const bytes = ` ${json}\n`;
     writeFileSync(settingsPath, bytes);
 
@@ -188,7 +227,7 @@ describe('REQ-AGENT-076 AC8: provider-neutral Smart Compact settings preparation
     expect(readFileSync(settingsPath, 'utf8')).toBe(bytes);
   });
 
-  it.each(['null', '[]', 'false', '0', '"fast"'])('REQ-AGENT-076 AC8: preserves a nonobject smartCompact value %s without repair', async (json) => {
+  it.each(['null', '[]', 'false', '0', '"fast"'])('REQ-AGENT-223: preserves a nonobject smartCompact value %s without repair', async (json) => {
     const bytes = `{ "theme": "user-theme", "smartCompact": ${json} }\n`;
     writeFileSync(settingsPath, bytes);
 
@@ -198,7 +237,7 @@ describe('REQ-AGENT-076 AC8: provider-neutral Smart Compact settings preparation
   });
 
   for (const target of ['settings file', 'ancestor directory'] as const) {
-    it(`REQ-AGENT-076 AC8: refuses a symlinked ${target} without changing the link or target settings`, async () => {
+    it(`REQ-AGENT-223: refuses a symlinked ${target} without changing the link or target settings`, async () => {
       const realDir = join(agentDir, 'real', 'nested');
       mkdirSync(realDir, { recursive: true });
       const realSettings = join(realDir, 'settings.json');
@@ -217,7 +256,7 @@ describe('REQ-AGENT-076 AC8: provider-neutral Smart Compact settings preparation
   }
 
   for (const lockKind of ['directory', 'file', 'symlink'] as const) {
-    it(`REQ-AGENT-076 AC8: an existing settings.json.lock ${lockKind} refuses a concurrent write without changing settings or the owner's lock`, async () => {
+    it(`REQ-AGENT-223: an existing settings.json.lock ${lockKind} refuses a concurrent write without changing settings or the owner's lock`, async () => {
       // The section is absent so configuration needs to seed the preset;
       // an early no-op must not mask a broken lock.
       const initial = { theme: 'user-theme', packages: ['npm:user-package@1.0.0'] };

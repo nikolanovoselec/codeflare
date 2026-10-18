@@ -1022,7 +1022,7 @@ describe('REQ-MEM-001/REQ-MEM-002: root-owned memory delivery lifecycle', () => 
     expect(readJson(activeExecutionPath(harness, 'vault-extract')).changedFiles).toEqual([changed]);
   });
 
-  it('REQ-MEM-002 AC8: rebases a legacy 1013 counter onto three retained prompts', async () => {
+  it('REQ-MEM-025: rebases a legacy 1013 counter onto three retained prompts', async () => {
     const harness = makeHarness();
     await harness.emit('session_start');
     const historicalNote = writeHistoricalCapture(harness);
@@ -1038,7 +1038,7 @@ describe('REQ-MEM-001/REQ-MEM-002: root-owned memory delivery lifecycle', () => 
     expect(readFileSync(harness.sessionFile, 'utf8')).toContain('retained conversation 1');
   });
 
-  it('REQ-MEM-002 AC8: resumes retained history when only a durable 1013 capture count survives', async () => {
+  it('REQ-MEM-025: resumes retained history when only a durable 1013 capture count survives', async () => {
     const harness = makeHarness();
     await harness.emit('session_start');
     const historicalNote = writeHistoricalCapture(harness);
@@ -1057,7 +1057,7 @@ describe('REQ-MEM-001/REQ-MEM-002: root-owned memory delivery lifecycle', () => 
     expect(readFileSync(historicalNote, 'utf8')).toContain('# Historical conversation must remain available');
   });
 
-  it('REQ-MEM-002 AC9: restores successful rebased progress ahead of an older larger count after restart', async () => {
+  it('REQ-MEM-026: restores successful rebased progress ahead of an older larger count after restart', async () => {
     const harness = makeHarness();
     await harness.emit('session_start');
     const historicalNote = writeHistoricalCapture(harness);
@@ -1087,7 +1087,7 @@ describe('REQ-MEM-001/REQ-MEM-002: root-owned memory delivery lifecycle', () => 
     expect(readFileSync(historicalNote, 'utf8')).toContain('# Historical conversation must remain available');
   });
 
-  it.each([20, 21, 40])('REQ-MEM-002 AC8: captures rewritten content with %i prompts under the same session ID', async (rewrittenCount) => {
+  it.each([20, 21, 40])('REQ-MEM-025: captures rewritten content with %i prompts under the same session ID', async (rewrittenCount) => {
     const harness = makeHarness();
     await harness.emit('session_start');
     mkdirSync(harness.paths.memoryCounterDir, { recursive: true });
@@ -1114,7 +1114,7 @@ describe('REQ-MEM-001/REQ-MEM-002: root-owned memory delivery lifecycle', () => 
     expect(readFileSync(memoryCounterPath(harness), 'utf8')).toBe('20');
   });
 
-  it('REQ-MEM-002 AC9: keeps the twenty-prompt cadence for an unchanged captured prefix after rebasing', async () => {
+  it('REQ-MEM-026: keeps the twenty-prompt cadence for an unchanged captured prefix after rebasing', async () => {
     const harness = makeHarness();
     await harness.emit('session_start');
     await startRebasedCapture(harness);
@@ -1139,7 +1139,7 @@ describe('REQ-MEM-001/REQ-MEM-002: root-owned memory delivery lifecycle', () => 
   });
 
   it.each(['unstarted', 'running', 'unrelated-success', 'failed', 'missing-note', 'missing-chunk'])(
-    'REQ-MEM-002 AC9: does not commit rebased progress for a %s request',
+    'REQ-MEM-026: does not commit rebased progress for a %s request',
     async (outcome) => {
       const harness = makeHarness();
       await harness.emit('session_start');
@@ -1170,7 +1170,7 @@ describe('REQ-MEM-001/REQ-MEM-002: root-owned memory delivery lifecycle', () => 
     },
   );
 
-  it('REQ-MEM-002 AC8: keeps an exact in-flight rebased request frozen when the transcript changes again', async () => {
+  it('REQ-MEM-025: keeps an exact in-flight rebased request frozen when the transcript changes again', async () => {
     const harness = makeHarness();
     await harness.emit('session_start');
     await startRebasedCapture(harness);
@@ -1192,7 +1192,7 @@ describe('REQ-MEM-001/REQ-MEM-002: root-owned memory delivery lifecycle', () => 
     expect(readFileSync(memoryCounterPath(harness), 'utf8')).toBe('1013');
   });
 
-  it('REQ-MEM-002 AC8: replaces exhausted work from an earlier transcript epoch', async () => {
+  it('REQ-MEM-025: replaces exhausted work from an earlier transcript epoch', async () => {
     const harness = makeHarness();
     await harness.emit('session_start');
     mkdirSync(harness.paths.memoryCounterDir, { recursive: true });

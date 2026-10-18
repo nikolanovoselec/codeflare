@@ -13,7 +13,7 @@
  * Fail-safe: any error leaves the session untouched. Recall is a convenience,
  * never a gate.
  */
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { closeSync, constants, existsSync, fstatSync, openSync, readdirSync, readFileSync, readSync } from "node:fs";
 import { join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { isChildSessionFirstLine, isChildSessionHeader } from "./memory-vault-helpers";
@@ -94,17 +94,36 @@ export function buildRecall(dependencies: PostCompactionRecallDependencies, sess
   const blocks: string[] = [];
   const matching: string[] = [];
   const ordered = orderByCaptureInstant(names);
+  // Leave time to deliver the collected fallback inside Claude's eight-second
+  // envelope too. Identity lookup never consumes unrelated historical bodies.
+  const lookupDeadline = Date.now() + 6000;
+  const header = Buffer.alloc(2048);
   for (let index = 0; index < ordered.length; index += 1) {
-    if ((!sessionId && index >= extractCount) || matching.length >= extractCount) break;
+    if ((!sessionId && index >= extractCount) || matching.length >= extractCount
+      || (index >= extractCount && Date.now() >= lookupDeadline)) break;
     const path = join(sessionsDir, ordered[index]);
     let text: string;
+    let matches = false;
+    let input: number | undefined;
     try {
-      text = readFileSync(path, "utf8");
+      input = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+      if (!fstatSync(input).isFile()) continue;
+      if (sessionId !== undefined) {
+        let size = 0;
+        while (size < header.length) {
+          const read = readSync(input, header, size, header.length - size, size);
+          if (read === 0) break;
+          size += read;
+        }
+        matches = captureSessionId(header.subarray(0, size).toString("utf8")) === sessionId;
+      }
+      if (index >= extractCount && !matches) continue;
+      text = readFileSync(input, "utf8");
     } catch {
       continue;
+    } finally {
+      if (input !== undefined) closeSync(input);
     }
-    const matches = sessionId !== undefined && captureSessionId(text) === sessionId;
-    if (index >= extractCount && !matches) continue;
     const block = recallBlock(path, text, perFileBytes);
     if (!block) continue;
     if (index < extractCount) blocks.push(block);

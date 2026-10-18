@@ -1,7 +1,7 @@
-import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { captureFilename } from '../../../preseed/agents/pi/extensions/memory-vault-helpers';
 import {
@@ -21,6 +21,7 @@ import {
 const roots: string[] = [];
 
 afterEach(() => {
+  vi.restoreAllMocks();
   while (roots.length > 0) rmSync(roots.pop()!, { recursive: true, force: true });
 });
 
@@ -234,7 +235,7 @@ describe('Pi post-compaction recall (REQ-MEM-019)', () => {
     expect(sent[0].options).toEqual({ deliverAs: 'followUp', triggerTurn: false });
   });
 
-  it('AC7: prefers exact active-session captures over newer unrelated captures without topping up', () => {
+  it('REQ-MEM-027: prefers exact active-session captures over newer unrelated captures without topping up', () => {
     const dir = extractsDir({
       '2026-07-01T10-00-00+0200-one.md': extract('active older', { sessionId: 'active-session' }),
       '2026-07-02T10-00-00+0200-two.md': extract('active newer', { sessionId: 'active-session' }),
@@ -253,7 +254,7 @@ describe('Pi post-compaction recall (REQ-MEM-019)', () => {
     expect(content).toContain('the 2 most recent session extracts');
   });
 
-  it('AC7: bounds matching captures before rendering and ignores session IDs in narrative text', () => {
+  it('REQ-MEM-027: bounds matching captures before rendering and ignores session IDs in narrative text', () => {
     const dir = extractsDir({
       '2026-07-01T10-00-00+0200-a.md': extract('active oldest', { sessionId: 'active' }),
       '2026-07-02T10-00-00+0200-b.md': extract('active middle', { sessionId: 'active' }),
@@ -270,7 +271,7 @@ describe('Pi post-compaction recall (REQ-MEM-019)', () => {
     expect(content).not.toContain('unrelated narrative');
   });
 
-  it('AC7: falls back to the latest global captures when no active-session capture exists', () => {
+  it('REQ-MEM-027: falls back to the latest global captures when no active-session capture exists', () => {
     const dir = extractsDir({
       '2026-07-01T10-00-00+0200-a.md': extract('global oldest'),
       '2026-07-02T10-00-00+0200-b.md': extract('global middle'),
@@ -285,7 +286,91 @@ describe('Pi post-compaction recall (REQ-MEM-019)', () => {
     expect(content).not.toContain('global oldest');
   });
 
-  it('AC7: fails open to global recall if session identity cannot be read', () => {
+  it.each([
+    ['session ID beyond the bound', `---\npadding: ${'x'.repeat(2048)}\nsession_id: active\n---\n`],
+    ['closing delimiter beyond the byte bound', `---\nsession_id: active\npadding: ${'é'.repeat(1030)}\n---\n`],
+  ])('REQ-MEM-027: keeps the latest-five global fallback when an older capture has %s', (_label, frontmatter) => {
+    const files: Record<string, string> = {};
+    for (let day = 1; day <= 6; day += 1) {
+      files[`2026-07-0${day}T10-00-00+0200-global.md`] = extract(`global capture ${day}`, { sessionId: 'other' });
+    }
+    files['2026-06-01T10-00-00+0200-oversized.md'] = `${frontmatter}\n# oversized identity capture\n\n## Context\nMust not replace the global fallback.\n`;
+    const dir = extractsDir(files);
+    const { pi, fire, sent } = fakePi();
+    registerPostCompactionRecall(pi, { sessionsDir: dir, extractCount: 5, perFileBytes: 2600 });
+
+    fire('session_compact', { sessionManager: { getSessionId: () => 'active' } });
+
+    const content = sent[0]?.message.content ?? '';
+    expect(content).toContain('the 5 most recent session extracts');
+    for (let day = 6; day >= 2; day -= 1) {
+      expect(content).toContain(`global capture ${day}`);
+      if (day > 2) expect(content.indexOf(`global capture ${day}`)).toBeLessThan(content.indexOf(`global capture ${day - 1}`));
+    }
+    expect(content).not.toContain('global capture 1');
+    expect(content).not.toContain('oversized identity capture');
+  });
+
+  it('REQ-MEM-027: finds older usable matches beyond the global window after skipping empty matching candidates', () => {
+    const files: Record<string, string> = {
+      '2026-06-01T10-00-00+0200-older.md': extract('older usable match', { sessionId: 'active' }),
+      // Metadata lookup is bounded, but a selected candidate still needs its
+      // body: the wanted section deliberately starts beyond the metadata limit.
+      '2026-06-02T10-00-00+0200-newer.md': `---\nsession_id: active\n---\n# newer usable match\n\n## Observations\n${'x'.repeat(2100)}\n\n## Context\nSelected candidate body survives.\n`,
+      '2026-07-08T10-00-00+0200-empty.md': '---\nsession_id: active\n---\n# empty match one\n',
+      '2026-07-09T10-00-00+0200-empty.md': '---\nsession_id: active\n---\n# empty match two\n',
+    };
+    for (let day = 1; day <= 5; day += 1) {
+      files[`2026-07-0${day}T10-00-00+0200-unrelated.md`] = extract('unrelated capture', { sessionId: 'other' });
+    }
+    const dir = extractsDir(files);
+    const { pi, fire, sent } = fakePi();
+    registerPostCompactionRecall(pi, { sessionsDir: dir, extractCount: 2, perFileBytes: 2600 });
+
+    fire('session_compact', { sessionManager: { getSessionId: () => 'active' } });
+
+    const content = sent[0]?.message.content ?? '';
+    expect(content).toContain('the 2 most recent session extracts');
+    expect(content).toContain('Selected candidate body survives.');
+    expect(content).toContain('older usable match');
+    expect(content.indexOf('newer usable match')).toBeLessThan(content.indexOf('older usable match'));
+    expect(content).not.toContain('unrelated capture');
+    expect(content).not.toContain('empty match');
+  });
+
+  it('REQ-MEM-027 AC5: ignores symlinked capture identities and preserves the global fallback', () => {
+    const dir = extractsDir({
+      '2026-07-03T10-00-00+0200-a.md': extract('global newest', { sessionId: 'other' }),
+      '2026-07-02T10-00-00+0200-b.md': extract('global middle', { sessionId: 'other' }),
+      'receipt.txt': extract('redirected identity', { sessionId: 'active' }),
+    });
+    symlinkSync(join(dir, 'receipt.txt'), join(dir, '2026-07-01T10-00-00+0200-link.md'));
+
+    const content = buildRecall({ sessionsDir: dir, extractCount: 2, perFileBytes: 2600 }, 'active') ?? '';
+
+    expect(content).toContain('global newest');
+    expect(content).toContain('global middle');
+    expect(content).not.toContain('redirected identity');
+  });
+
+  it('REQ-MEM-027 AC6: retains the collected global fallback when the identity-search time budget expires', () => {
+    const dir = extractsDir({
+      '2026-07-03T10-00-00+0200-a.md': extract('global newest', { sessionId: 'other' }),
+      '2026-07-02T10-00-00+0200-b.md': extract('global middle', { sessionId: 'other' }),
+      '2026-07-01T10-00-00+0200-c.md': extract('older active match', { sessionId: 'active' }),
+    });
+    // Intentional lookup-deadline contract: fallback remains deliverable when
+    // the six-second search budget expires, without waiting for wall-clock time.
+    vi.spyOn(Date, 'now').mockReturnValueOnce(0).mockReturnValue(6001);
+
+    const content = buildRecall({ sessionsDir: dir, extractCount: 2, perFileBytes: 2600 }, 'active') ?? '';
+
+    expect(content).toContain('global newest');
+    expect(content).toContain('global middle');
+    expect(content).not.toContain('older active match');
+  });
+
+  it('REQ-MEM-027: fails open to global recall if session identity cannot be read', () => {
     const dir = extractsDir({ '2026-07-03T10-00-00+0200-a.md': extract('global fallback') });
     const { pi, fire, sent } = fakePi();
     registerPostCompactionRecall(pi, { sessionsDir: dir, extractCount: 5, perFileBytes: 2600 });
@@ -293,7 +378,7 @@ describe('Pi post-compaction recall (REQ-MEM-019)', () => {
     expect(sent[0]?.message.content).toContain('global fallback');
   });
 
-  it('AC7: falls back when matching notes contain no usable recall sections', () => {
+  it('REQ-MEM-027: falls back when matching notes contain no usable recall sections', () => {
     const dir = extractsDir({
       '2026-07-01T10-00-00+0200-a.md': extract('usable fallback'),
       '2026-07-02T10-00-00+0200-b.md': '---\nsession_id: active\n---\n# empty capture\n',

@@ -115,9 +115,6 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 4. When the delta reaches 20, the capture subagent is triggered. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh::DELTA --> <!-- @test: host/__tests__/memory-capture-hook.test.js (triggers capture when 20+ NEW real prompts since last_count) -->
 5. After a Pi memory request reaches GIVEUP, twenty later real-user prompts re-arm capture without allowing generated extraction follow-ups to advance the cadence. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::registerMemoryVault --> <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::isSyntheticPrompt --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (REQ-MEM-002 AC5: re-arms only after twenty later real prompts) -->
 6. Only the Pi root advances the prompt counter, after an exact correlated successful result and post-commit capture note/chunk; failed, late, incomplete, or superseded results cannot advance the counter or clear replacement work. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::memorySuccessQualifies --> <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::finalizeMemorySuccess --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (requires the post-commit note and chunk before exact success advances the frozen counter) -->
-7. A missing counter with multiple real-user prompts triggers resumed-session capture immediately on the first new prompt, starting after durable successful progress when it still belongs to the retained transcript. Pi restores the most recent successful capture progress rather than allowing an older, larger prompt count to override a later rebased capture. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh::FORCE_RESUME --> <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::latestCapturedPromptCount --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (captures only the uncaptured tail and hash-checks Vault on the first resumed prompt) -->
-8. Pi detects a shortened transcript when saved progress exceeds its real-user count and detects replacement of a previously captured prefix using a persisted prefix fingerprint. It immediately requests capture from retained history under the same session ID, without changing the transcript, deleting older captures, or mutating exact in-flight work. Legacy captures without a fingerprint remain readable. Exhausted work from a replaced transcript epoch may be replaced immediately; unchanged exhausted work still requires twenty later real prompts. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::registerMemoryVault --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (REQ-MEM-002 AC8: rebases a legacy 1013 counter onto three retained prompts) --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (REQ-MEM-002 AC8: resumes retained history when only a durable 1013 capture count survives) --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (REQ-MEM-002 AC8: captures rewritten content with %i prompts under the same session ID) -->
-9. Only exact correlated success with the required note and graph chunk commits rebased Pi progress. The successful capture retains enough progress metadata to recover after all ephemeral state is lost; ordinary appends then resume the twenty-prompt cadence without recapturing the unchanged prefix. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::finalizeMemorySuccess --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (REQ-MEM-002 AC9: restores successful rebased progress ahead of an older larger count after restart) --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (REQ-MEM-002 AC9: keeps the twenty-prompt cadence for an unchanged captured prefix after rebasing) --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (REQ-MEM-002 AC9: does not commit rebased progress for a %s request) -->
 
 **Notes:** Pi delivery ownership and retry rationale are documented in [AD102](../../documentation/decisions/README.md#ad102-pi-extraction-delivery-is-root-owned-visible-and-transactional); request bounds and uncaptured-window compaction are in [AD103](../../documentation/decisions/README.md#ad103-pi-extraction-agents-use-bounded-medium-reasoning-and-one-pass-inputs).
 
@@ -125,16 +122,77 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 - Counter state MUST use ephemeral, session-scoped storage.
 - `CURRENT_COUNT` alone distinguishes first runs: 1 means a brand-new transcript containing only the submitted prompt; greater values mean prior prompts persisted from a resumed session.
-- Fresh/resume detection uses prompt history and counter state, not timestamps or mtimes. Pi orders durable successful checkpoints by capture instant and name when recovering progress.
-- Pi progress follows persisted real-user history: compaction that leaves that history intact does not rebase it, while a shortened or replaced captured prefix does. Fingerprints exclude tool and extraction lifecycle entries.
-- A rebase never advances successful progress merely because a request was created or delivered.
-- On Pi, one ephemeral active request pointer enables reload discovery while a request-specific execution snapshot in the shared home-backed cache remains immutable after the first exact public call.
+- Fresh/resume detection uses prompt history and counter state, not timestamps or mtimes.
 
 **Priority:** P0
 
 **Dependencies:** [REQ-MEM-001](#req-mem-001-conversation-context-automatically-captured-to-vault)
 
 **Verification:** Automated test ([Pi extraction lifecycle tests](../../src/__tests__/lib/pi-memory-vault-delivery.test.ts), [Claude hook cadence tests](../../host/__tests__/memory-capture-hook.test.js))
+
+**Status:** Implemented
+
+---
+
+### REQ-MEM-025: Pi capture follows transcript epochs
+
+**Intent:** Pi captures retained history after transcript shortening or replacement without destroying history or changing active execution.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Pi detects a shortened transcript when saved progress exceeds its real-user count. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::registerMemoryVault --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (REQ-MEM-025: rebases a legacy 1013 counter onto three retained prompts) --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (REQ-MEM-025: resumes retained history when only a durable 1013 capture count survives) -->
+2. Pi detects replacement of a previously captured prefix using a persisted prefix fingerprint. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::registerMemoryVault --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (REQ-MEM-025: captures rewritten content with %i prompts under the same session ID) -->
+3. A shortened or replaced captured prefix immediately requests capture from retained history under the same session ID. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::registerMemoryVault --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (REQ-MEM-025: rebases a legacy 1013 counter onto three retained prompts) --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (REQ-MEM-025: resumes retained history when only a durable 1013 capture count survives) --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (REQ-MEM-025: captures rewritten content with %i prompts under the same session ID) -->
+4. Rebasing leaves the transcript and older captures unchanged. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::registerMemoryVault --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (REQ-MEM-025: rebases a legacy 1013 counter onto three retained prompts) --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (REQ-MEM-025: resumes retained history when only a durable 1013 capture count survives) --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (REQ-MEM-025: captures rewritten content with %i prompts under the same session ID) -->
+5. Transcript changes never mutate exact in-flight work. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::registerMemoryVault --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (REQ-MEM-025: keeps an exact in-flight rebased request frozen when the transcript changes again) -->
+6. Exhausted work from a replaced transcript epoch may be replaced immediately. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::registerMemoryVault --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (REQ-MEM-025: replaces exhausted work from an earlier transcript epoch) -->
+7. Unchanged exhausted work still requires twenty later real-user prompts before replacement. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::registerMemoryVault --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (REQ-MEM-002 AC5: re-arms only after twenty later real prompts) -->
+
+**Constraints:**
+
+- Compaction preserving real-user history does not rebase progress.
+- Fingerprints exclude tool and extraction lifecycle entries.
+- An ephemeral active request pointer enables reload discovery.
+- The request-specific execution snapshot in the shared home-backed cache remains immutable after the first exact public call.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-MEM-002](#req-mem-002-capture-triggers-every-20-user-messages-and-on-resume)
+
+**Verification:** Automated Pi extraction lifecycle tests
+
+**Status:** Implemented
+
+---
+
+### REQ-MEM-026: Capture resume and durable Pi progress
+
+**Intent:** Resumed capture starts at valid durable progress, including after Pi transcript rebasing and ephemeral-state loss.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. A missing counter with multiple real-user prompts triggers resumed-session capture immediately on the first new prompt. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh::FORCE_RESUME --> <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::latestCapturedPromptCount --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (captures only the uncaptured tail and hash-checks Vault on the first resumed prompt) -->
+2. Resumed capture starts after durable successful progress only when that progress still belongs to the retained transcript. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh::FORCE_RESUME --> <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::latestCapturedPromptCount --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (captures only the uncaptured tail and hash-checks Vault on the first resumed prompt) -->
+3. Pi restores the most recent successful checkpoint by capture instant and name; an older, larger prompt count cannot override a later rebased capture. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::latestCapturedPromptCount --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (REQ-MEM-026: restores successful rebased progress ahead of an older larger count after restart) -->
+4. Only exact correlated success with the required note and graph chunk commits rebased Pi progress. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::finalizeMemorySuccess --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (REQ-MEM-026: does not commit rebased progress for a %s request) -->
+5. A successful Pi capture retains enough progress metadata to recover after all ephemeral state is lost. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::finalizeMemorySuccess --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (REQ-MEM-026: restores successful rebased progress ahead of an older larger count after restart) -->
+6. Ordinary appends after rebasing resume the twenty-prompt cadence without recapturing the unchanged prefix. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::finalizeMemorySuccess --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (REQ-MEM-026: keeps the twenty-prompt cadence for an unchanged captured prefix after rebasing) -->
+7. Legacy captures without a fingerprint remain readable. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::registerMemoryVault --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (REQ-MEM-025: resumes retained history when only a durable 1013 capture count survives) -->
+
+**Constraints:**
+
+- Durable Pi checkpoints sort by capture instant, then name.
+- Creating or delivering a request never advances successful progress.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-MEM-002](#req-mem-002-capture-triggers-every-20-user-messages-and-on-resume), [REQ-MEM-025](#req-mem-025-pi-capture-follows-transcript-epochs)
+
+**Verification:** Automated Pi extraction lifecycle and Claude hook cadence tests
 
 **Status:** Implemented
 
@@ -388,12 +446,15 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 1. Publication refuses and retains the carrier when the request's capture file is absent. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/publish-memory-capture.sh::CAPTURE_FILE --> <!-- @test: host/__tests__/memory-capture-hook.test.js (refuses to publish and keeps the carrier when the capture file is absent) -->
 2. Publication commits the counter and drains the carrier once the capture file exists, and never moves the counter backwards. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/publish-memory-capture.sh::COUNTER_FILE --> <!-- @test: host/__tests__/memory-capture-hook.test.js (commits the counter and drains the carrier once the artifact exists) --> <!-- @test: host/__tests__/memory-capture-hook.test.js (never drags the committed counter backwards) -->
-3. A Pi retry can recognize an already-published note/chunk pair only when the note's exact frontmatter identity matches its frozen request and the chunk matches the deterministic graph derived from that note. Recovery is read-only: it neither recaptures nor republishes, and partial, mismatched or redirected receipts fail closed. Root progress still requires exact successful native completion. <!-- @impl: preseed/agents/pi/scripts/recover-memory-capture.py::main --> <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::finalizeMemorySuccess --> <!-- @test: host/__tests__/pi-memory-capture-recovery.test.js (REQ-MEM-021: recovers an exact published note and real deterministic chunk read-only and idempotently) --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (REQ-MEM-020 / REQ-MEM-021: published artifacts after a legacy abort wait for an exact completed retry) -->
+3. A Pi retry recognizes an already-published note/chunk pair only when the note's exact frontmatter identity matches its frozen request and the chunk matches the deterministic graph derived from that note. <!-- @impl: preseed/agents/pi/scripts/recover-memory-capture.py::main --> <!-- @test: host/__tests__/pi-memory-capture-recovery.test.js (REQ-MEM-021: recovers an exact published note and real deterministic chunk read-only and idempotently) -->
+4. Recovery is read-only: it neither recaptures nor republishes. <!-- @impl: preseed/agents/pi/scripts/recover-memory-capture.py::main --> <!-- @test: host/__tests__/pi-memory-capture-recovery.test.js (REQ-MEM-021: recovers an exact published note and real deterministic chunk read-only and idempotently) -->
+5. Partial, mismatched or redirected receipts fail closed. <!-- @impl: preseed/agents/pi/scripts/recover-memory-capture.py::main --> <!-- @test: host/__tests__/pi-memory-capture-recovery.test.js (REQ-MEM-021: refuses an escaped ${component} FIFO before reading outside the Vault) --> <!-- @test: host/__tests__/pi-memory-capture-recovery.test.js (REQ-MEM-021: rejects a partial post-commit receipt missing its ${missing}) --> <!-- @test: host/__tests__/pi-memory-capture-recovery.test.js (REQ-MEM-021: rejects a deterministic pair whose note ${field} differs from the frozen request) -->
+6. Root progress still requires exact successful native completion. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::finalizeMemorySuccess --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (REQ-MEM-020 / REQ-MEM-021: published artifacts after a legacy abort wait for an exact completed retry) -->
 
 **Constraints:**
 
 - The capture agent carries no `model:` pin; fidelity is selected by `CODEFLARE_MEMORY_MODEL`.
-- Claude capture is bounded to six agent turns (`CODEFLARE_MEMORY_MAX_TURNS`, default 6); Pi's separate execution budget is owned by REQ-MEM-016.
+- Claude capture is bounded to six agent turns (`CODEFLARE_MEMORY_MAX_TURNS`, default 6); Pi's separate execution budget is owned by [REQ-MEM-016](#req-mem-016-pi-extraction-requests-have-a-bounded-execution-profile).
 
 **Priority:** P0
 
@@ -457,8 +518,6 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 5. Content dropped by that bound is marked as truncated, with the exact multibyte source path retained so the remainder stays reachable. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/post-compaction-recall.sh::PER_FILE_BYTES --> <!-- @impl: preseed/agents/pi/extensions/post-compaction-recall-helpers.ts::recallBlock --> <!-- @test: host/__tests__/memory-context-inject.test.js (REQ-MEM-019 AC4: charges title, multibyte source path, body, and marker to one extract budget) --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (bounds complete Pi injection and recall output with multibyte metadata) -->
 6. The Pi runtime covers the same boundary at its own compaction event, selecting and bounding the same extracts and delivering them as a message persisted in the session, and never inside a child session. <!-- @impl: preseed/agents/pi/extensions/post-compaction-recall.ts::registerPostCompactionRecall --> <!-- @impl: preseed/agents/pi/extensions/post-compaction-recall.ts::buildRecall --> <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::captureFilenameAt --> <!-- @test: src/__tests__/lib/pi-post-compaction-recall.test.ts (delivers the recall on compaction as a persisted follow-up) --> <!-- @test: src/__tests__/lib/pi-post-compaction-recall.test.ts (stays out of a child session) --> <!-- @test: src/__tests__/lib/pi-post-compaction-recall.test.ts (AC1: builds the digest newest-first, bounded by the extract count) --> <!-- @test: src/__tests__/lib/pi-post-compaction-recall.test.ts (AC6: selects a filename produced by Pi capture alongside Claude extracts) -->
 
-7. Both runtimes prefer up to the configured count of usable captures whose frontmatter `session_id` exactly matches the active session ID, newest first; a partial matching set is not topped up with unrelated sessions. When identity is unavailable or no usable match exists, recall fails open to the latest global captures under the same count and byte bounds. Identity-like text in a narrative is not metadata. <!-- @impl: preseed/agents/pi/extensions/post-compaction-recall.ts::buildRecall --> <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/post-compaction-recall.sh::RAW --> <!-- @test: src/__tests__/lib/pi-post-compaction-recall.test.ts (AC7: prefers exact active-session captures over newer unrelated captures without topping up) --> <!-- @test: src/__tests__/lib/pi-post-compaction-recall.test.ts (AC7: fails open to global recall if session identity cannot be read) --> <!-- @test: host/__tests__/post-compaction-recall.test.js (AC7: prefers the active session and never fills its recall with other sessions) --> <!-- @test: host/__tests__/post-compaction-recall.test.js (AC7: falls back to global latest captures when no usable session match exists) -->
-
 **Constraints:**
 
 - Only the narrative and decision sections are injected; the rest is reachable through the emitted source path.
@@ -469,12 +528,45 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 - Two extracts sharing a capture instant are ordered by name descending, so the two runtimes agree on a tie. <!-- @test: src/__tests__/lib/pi-post-compaction-recall.test.ts (AC2: breaks a shared instant on the name, descending) -->
 - Both runtimes are fail-safe: an error anywhere — including inside Pi's compaction dispatch — is swallowed with no output and never blocks the session. <!-- @test: src/__tests__/lib/pi-post-compaction-recall.test.ts (swallows a delivery failure instead of throwing into the compaction dispatch) -->
 - Claude and Pi carry separate implementations for differing injection surfaces; the selection, bounds and injected wording are identical.
+- Session selection follows the bounded lookup in [REQ-MEM-027](#req-mem-027-session-scoped-post-compaction-recall).
 
 **Priority:** P1
 
 **Dependencies:** [REQ-MEM-013](#req-mem-013-proactive-memory-injection-on-first-prompt)
 
 **Verification:** Automated tests ([post-compaction-recall](../../host/__tests__/post-compaction-recall.test.js), [pi-post-compaction-recall](../../src/__tests__/lib/pi-post-compaction-recall.test.ts))
+
+**Status:** Implemented
+
+---
+
+### REQ-MEM-027: Session-scoped post-compaction recall
+
+**Intent:** Recall prioritizes usable active-session evidence without mistaking narrative text for session identity or reading unrelated note bodies to discover identity.
+
+**Applies To:** Agent
+
+**Acceptance Criteria:**
+
+1. Within bounded lookup, both runtimes prefer up to the configured count of usable captures whose frontmatter `session_id` exactly matches the active session ID, newest first; a partial matching set is never topped up with unrelated sessions. <!-- @impl: preseed/agents/pi/extensions/post-compaction-recall.ts::buildRecall --> <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/post-compaction-recall.sh::RAW --> <!-- @test: src/__tests__/lib/pi-post-compaction-recall.test.ts (REQ-MEM-027: prefers exact active-session captures over newer unrelated captures without topping up) --> <!-- @test: host/__tests__/post-compaction-recall.test.js (REQ-MEM-027: prefers the active session and never fills its recall with other sessions) -->
+2. If identity is unavailable or no usable match is found within bounded lookup, both runtimes use collected latest global candidates under the same count and byte bounds. <!-- @impl: preseed/agents/pi/extensions/post-compaction-recall.ts::buildRecall --> <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/post-compaction-recall.sh::RAW --> <!-- @test: src/__tests__/lib/pi-post-compaction-recall.test.ts (REQ-MEM-027: fails open to global recall if session identity cannot be read) --> <!-- @test: host/__tests__/post-compaction-recall.test.js (REQ-MEM-027: falls back to global latest captures when no usable session match exists) -->
+3. Identity-like text in a narrative is not metadata. <!-- @impl: preseed/agents/pi/extensions/post-compaction-recall.ts::buildRecall --> <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/post-compaction-recall.sh::RAW --> <!-- @test: src/__tests__/lib/pi-post-compaction-recall.test.ts (REQ-MEM-027: bounds matching captures before rendering and ignores session IDs in narrative text) --> <!-- @test: host/__tests__/post-compaction-recall.test.js (REQ-MEM-027: bounds active-session matches and ignores identity-like narrative text) -->
+4. Session-identity lookup reads at most 2048 bytes per note for frontmatter metadata instead of loading unrelated note bodies. <!-- @impl: preseed/agents/pi/extensions/post-compaction-recall.ts::buildRecall --> <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/post-compaction-recall.sh::RAW --> <!-- @test: src/__tests__/lib/pi-post-compaction-recall.test.ts (REQ-MEM-027: keeps the latest-five global fallback when an older capture has %s) --> <!-- @test: host/__tests__/post-compaction-recall.test.js (REQ-MEM-027: keeps the latest-five global fallback when an older capture has ${label}) -->
+5. Metadata reads use non-following, nonblocking regular-file descriptors. <!-- @impl: preseed/agents/pi/extensions/post-compaction-recall.ts::buildRecall --> <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/post-compaction-recall.sh::RAW --> <!-- @test: src/__tests__/lib/pi-post-compaction-recall.test.ts (REQ-MEM-027 AC5: ignores symlinked capture identities and preserves the global fallback) --> <!-- @test: host/__tests__/post-compaction-recall.test.js (REQ-MEM-027 AC5: skips symlinked and non-regular capture files without losing the global fallback) -->
+6. When its six-second budget expires between candidates, identity lookup stops without discarding collected recall. <!-- @impl: preseed/agents/pi/extensions/post-compaction-recall.ts::buildRecall --> <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/post-compaction-recall.sh::RAW --> <!-- @test: src/__tests__/lib/pi-post-compaction-recall.test.ts (REQ-MEM-027 AC6: retains the collected global fallback when the identity-search time budget expires) -->
+7. Full-body reads are limited to matching-session or global-fallback candidates. <!-- @impl: preseed/agents/pi/extensions/post-compaction-recall.ts::buildRecall --> <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/post-compaction-recall.sh::RAW --> <!-- @test: src/__tests__/lib/pi-post-compaction-recall.test.ts (REQ-MEM-027: finds older usable matches beyond the global window after skipping empty matching candidates) --> <!-- @test: host/__tests__/post-compaction-recall.test.js (REQ-MEM-027: finds older usable matches beyond the global window after skipping empty matching candidates) -->
+
+**Constraints:**
+
+- No index, service, dependency, file-count cutoff, or new setting is introduced for identity lookup.
+- Claude retains its existing eight-second outer envelope.
+- Identity lookup does not promise exhaustive search beyond its deadline.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-MEM-019](#req-mem-019-post-compaction-recall-of-recent-session-extracts)
+
+**Verification:** Automated Claude and Pi post-compaction recall tests
 
 **Status:** Implemented
 
@@ -528,7 +620,9 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 1. Every emitted Pi capture/extract request disables inherited context. <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::buildPublicExtractionRequest --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (REQ-MEM-016: builds one bounded medium-reasoning public background request) -->
 2. Every emitted Pi capture/extract request uses provider-neutral medium reasoning. <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::buildPublicExtractionRequest --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (REQ-MEM-016: builds one bounded medium-reasoning public background request) -->
-3. New Pi memory-capture requests stop after ten agent turns and reserve the final turn for native completion; Vault extraction retains seven turns. Existing seven-turn memory calls remain correlatable so their qualified completion is not lost after upgrade. <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::buildPublicExtractionRequest --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (REQ-MEM-016: builds one bounded medium-reasoning public background request) --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (REQ-MEM-016 / REQ-MEM-021: an in-flight legacy seven-turn terminal success still commits after upgrade) -->
+3. New Pi memory-capture requests stop after ten agent turns and reserve the final turn for native completion. <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::buildPublicExtractionRequest --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (REQ-MEM-016: builds one bounded medium-reasoning public background request) -->
+4. Vault extraction retains seven turns. <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::buildPublicExtractionRequest --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (REQ-MEM-016: builds one bounded medium-reasoning public background request) -->
+5. Existing seven-turn memory calls remain correlatable so their qualified completion is not lost after upgrade. <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::buildPublicExtractionRequest --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (REQ-MEM-016 / REQ-MEM-021: an in-flight legacy seven-turn terminal success still commits after upgrade) -->
 
 **Constraints:**
 

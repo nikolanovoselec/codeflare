@@ -39,8 +39,9 @@ SESSION_ID=$(echo "$INPUT" | jq -r '.session_id // empty' 2>/dev/null) || true
 
 RAW=$(SESSIONS_DIR="$SESSIONS_DIR" EXTRACT_COUNT="$EXTRACT_COUNT" PER_FILE_BYTES="$PER_FILE_BYTES" SESSION_ID="$SESSION_ID" \
   timeout 8 python3 -c '
-import os, re, sys
+import os, re, stat, sys
 from datetime import datetime
+from time import monotonic
 
 sessions_dir = os.environ["SESSIONS_DIR"]
 cap = int(os.environ["PER_FILE_BYTES"])
@@ -133,18 +134,26 @@ def sections(text):
 
 blocks = []
 matching = []
+# Reserve output time inside the existing eight-second outer timeout, retaining
+# the already-collected global fallback if the historical lookup runs out.
+lookup_deadline = monotonic() + 6
 for index, name in enumerate(names):
-    if (not session_id and index >= want) or len(matching) >= want:
+    if ((not session_id and index >= want) or len(matching) >= want
+            or (index >= want and monotonic() >= lookup_deadline)):
         break
     path = os.path.join(sessions_dir, name)
     try:
-        with open(path, encoding="utf-8", errors="replace") as fh:
-            text = fh.read()
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+        with os.fdopen(fd, "rb", buffering=0) as fh:
+            if not stat.S_ISREG(os.fstat(fh.fileno()).st_mode):
+                continue
+            header = fh.read(2048).decode("utf-8", "replace") if session_id else ""
+            matches = bool(session_id) and capture_session_id(header) == session_id
+            if index >= want and not matches:
+                continue
+            fh.seek(0)
+            text = fh.read().decode("utf-8", "replace")
     except OSError:
-        continue
-
-    matches = bool(session_id) and capture_session_id(text) == session_id
-    if index >= want and not matches:
         continue
     title = next((l.strip() for l in text.splitlines() if l.startswith("# ")), "# " + name)
     found = sections(text)

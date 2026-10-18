@@ -153,8 +153,8 @@ describe('Pi settings.json packages assembly (entrypoint.sh)', () => {
 // Exact package/version outputs are the managed Smart Compact delivery contract.
 // Its provider-neutral configuration is exercised against real settings files in
 // src/__tests__/lib/pi-smart-compact-config.test.ts.
-describe('REQ-AGENT-076 AC8: managed Smart Compact package assembly', () => {
-  it('REQ-AGENT-076 AC8: fresh boot installs exactly npm:pi-smart-compact@10.6.2', () => {
+describe('REQ-AGENT-222 AC1: managed Smart Compact package assembly', () => {
+  it('REQ-AGENT-222 AC1: fresh boot installs exactly npm:pi-smart-compact@10.6.2', () => {
     const settings = runAssembly('{}');
     assert.deepEqual(settings.packages.filter(entry => /^npm:pi-smart-compact(?:@|$)/.test(sourceOf(entry))),
       ['npm:pi-smart-compact@10.6.2']);
@@ -163,7 +163,7 @@ describe('REQ-AGENT-076 AC8: managed Smart Compact package assembly', () => {
 
   for (const stale of ['npm:pi-smart-compact', 'npm:pi-smart-compact@9.0.0',
     { source: 'npm:pi-smart-compact@10.6.2', extensions: [], skills: [] }]) {
-    it(`REQ-AGENT-076 AC8: restored ${JSON.stringify(stale)} converges once without changing user settings or similarly named packages`, () => {
+    it(`REQ-AGENT-222 AC1: restored ${JSON.stringify(stale)} converges once without changing user settings or similarly named packages`, () => {
       const user = { source: 'npm:user-extension@1.0.0', extensions: ['keep.ts'], userField: true };
       const initial = {
         packages: [stale, 'npm:pi-smart-compact@10.6.2', 'npm:pi-smart-compact@8.0.0',

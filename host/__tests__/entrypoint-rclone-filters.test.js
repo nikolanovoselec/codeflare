@@ -395,41 +395,43 @@ function extractManagedResourceFilterFunction() {
   return src.slice(start, end);
 }
 
-describe('REQ-STOR-011 / REQ-AGENT-076 AC8: Smart Compact settings round-trip', () => {
+describe('REQ-STOR-011 / REQ-AGENT-223: Smart Compact settings round-trip', () => {
   for (const sessionMode of ['default', 'advanced']) {
     for (const syncMode of ['none', 'metadata', 'full']) {
-      it(`REQ-STOR-011 / REQ-AGENT-076 AC8: preserves user Smart Compact preferences through rclone upload, restore, and startup (${sessionMode}/${syncMode})`, (t) => {
-        const fx = mkdtempSync(join(tmpdir(), 'smart-compact-roundtrip-'));
-        t.after(() => rmSync(fx, { recursive: true, force: true }));
-        const home = join(fx, 'home');
-        const remote = join(fx, 'fake-remote');
-        const restored = join(fx, 'restored-home');
-        const settings = '.pi/agent/settings.json';
-        mkdirSync(dirname(join(home, settings)), { recursive: true });
-        // Deliberately sparse and noncanonical: neither omitted upstream options
-        // nor whitespace may be changed when the restored extension starts.
-        const bytes = '{\n\t"theme": "user-theme",\n\t"smartCompact" : { "mode": "fast", "autoTrigger": false, "futureOption": { "keep": [false, 0] } }\n}\n\n';
-        writeFileSync(join(home, settings), bytes);
-        const script = [
-          'set -eu',
-          'SESSION_MODE="$1"',
-          'SYNC_MODE="$2"',
-          'SESSION_ID="abc12345"',
-          filterSlice,
-          // Both endpoints are local directories. The empty config guarantees
-          // no cloud credentials/configuration are used by the real rclone.
-          'rclone sync --config /dev/null "${RCLONE_FILTERS[@]}" "$3" "$4"',
-          'rclone sync --config /dev/null "${RCLONE_FILTERS[@]}" "$4" "$5"',
-        ].join('\n');
-        const result = spawnSync('bash', ['-c', script, '_', sessionMode, syncMode, home, remote, restored], { encoding: 'utf8' });
-        assert.equal(result.status, 0, result.stderr);
-        assert.equal(readFileSync(join(remote, settings), 'utf8'), bytes, 'upload must persist settings with the real entrypoint filters');
-        assert.equal(readFileSync(join(restored, settings), 'utf8'), bytes, 'container restore must recover the exact user settings');
+      for (const section of ['smartCompact', 'semanticCompact']) {
+        it(`REQ-STOR-011 / REQ-AGENT-223: preserves user Smart Compact preferences through rclone upload, restore, and startup (${sessionMode}/${syncMode}/${section})`, (t) => {
+          const fx = mkdtempSync(join(tmpdir(), 'smart-compact-roundtrip-'));
+          t.after(() => rmSync(fx, { recursive: true, force: true }));
+          const home = join(fx, 'home');
+          const remote = join(fx, 'fake-remote');
+          const restored = join(fx, 'restored-home');
+          const settings = '.pi/agent/settings.json';
+          mkdirSync(dirname(join(home, settings)), { recursive: true });
+          // Deliberately sparse and noncanonical: neither omitted upstream options
+          // nor whitespace may be changed when the restored extension starts.
+          const bytes = `{\n\t"theme": "user-theme",\n\t"${section}" : { "mode": "fast", "autoTrigger": false, "futureOption": { "keep": [false, 0] } }\n}\n\n`;
+          writeFileSync(join(home, settings), bytes);
+          const script = [
+            'set -eu',
+            'SESSION_MODE="$1"',
+            'SYNC_MODE="$2"',
+            'SESSION_ID="abc12345"',
+            filterSlice,
+            // Both endpoints are local directories. The empty config guarantees
+            // no cloud credentials/configuration are used by the real rclone.
+            'rclone sync --config /dev/null "${RCLONE_FILTERS[@]}" "$3" "$4"',
+            'rclone sync --config /dev/null "${RCLONE_FILTERS[@]}" "$4" "$5"',
+          ].join('\n');
+          const result = spawnSync('bash', ['-c', script, '_', sessionMode, syncMode, home, remote, restored], { encoding: 'utf8' });
+          assert.equal(result.status, 0, result.stderr);
+          assert.equal(readFileSync(join(remote, settings), 'utf8'), bytes, 'upload must persist settings with the real entrypoint filters');
+          assert.equal(readFileSync(join(restored, settings), 'utf8'), bytes, 'container restore must recover the exact user settings');
 
-        configureSmartCompact(join(restored, '.pi/agent'));
+          configureSmartCompact(join(restored, '.pi/agent'));
 
-        assert.equal(readFileSync(join(restored, settings), 'utf8'), bytes, 'startup after restore must not fill or reset user Smart Compact preferences');
-      });
+          assert.equal(readFileSync(join(restored, settings), 'utf8'), bytes, 'startup after restore must not fill or reset user Smart Compact preferences');
+        });
+      }
     }
   }
 });
