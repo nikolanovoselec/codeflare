@@ -1135,6 +1135,30 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string; O
       .toArray().map(row => this.parseManagementInstallation(row.data));
   }
 
+  /** REQ-OPERATOR-086 AC2/5: page installation identities after current-human ACL selection. */
+  async listManagementInstallationPage(query: Pick<ManagementCatalogQuery,
+    'email' | 'issuer' | 'groups' | 'platformAdmin' | 'managersEligible' | 'cursor'>): Promise<{ items: ManagementInstallation[]; cursor: string | null }> {
+    this.managementSchema();
+    const params: string[] = [];
+    const clauses: string[] = [];
+    if (!query.platformAdmin) {
+      const principals = JSON.stringify([`u:${query.email.trim().toLowerCase()}`,
+        ...query.groups.map(id => `g:${JSON.stringify([query.issuer, id])}`)]);
+      const selections = ['SELECT id FROM operator_invoker_acl WHERE principal IN (SELECT value FROM json_each(?))'];
+      params.push(principals);
+      if (query.managersEligible) {
+        selections.push('SELECT id FROM operator_acl WHERE principal IN (SELECT value FROM json_each(?))');
+        params.push(principals);
+      }
+      clauses.push(`i.operator_id IN (${selections.join(' UNION ')})`);
+    }
+    clauses.push('i.id>?'); params.push(query.cursor ?? '');
+    const rows = this.ctx.storage.sql.exec<{ data: string }>(
+      `SELECT i.data FROM operator_installations i WHERE ${clauses.join(' AND ')} ORDER BY i.id LIMIT 6`, ...params).toArray();
+    const items = rows.slice(0, 5).map(row => this.parseManagementInstallation(row.data));
+    return { items, cursor: rows.length > 5 ? items[items.length - 1].id : null };
+  }
+
   private managementInstallation(id: string): ManagementInstallation | null {
     this.managementSchema();
     const row = this.ctx.storage.sql.exec<{ data: string }>('SELECT data FROM operator_installations WHERE id=?', id).toArray()[0];

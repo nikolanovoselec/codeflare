@@ -3,6 +3,7 @@ import { Portal } from 'solid-js/web';
 import { mdiDeveloperBoard, mdiClose, mdiMagnify, mdiChevronLeft } from '@mdi/js';
 import Icon from './Icon';
 import OperatorInstalled from './OperatorInstalled';
+import OperatorActivityPages from './OperatorActivityPages';
 import OperatorActivityResult from './OperatorActivityResult';
 import OperatorActivityDiagnostics from './OperatorActivityDiagnostics';
 import { acknowledgeOperatorActivities, cancelOperatorActivity, getOperatorActivity, listOperatorActivities } from '../api/operator-activities';
@@ -155,7 +156,8 @@ const OperatorActivityButton: Component<Props> = props => {
                         <Show when={workingStates.has(item.executionStatus) && item.executionStatus !== 'unknown'}><button type="button" disabled={cancelling() === item.activityId} aria-label={`Cancel ${item.activityId}`} onClick={() => void cancel(item.activityId)}>Cancel</button></Show></nav>
                     </article>}</For>
                   </Show></div>
-                  <nav class="operator-activity-pages"><Show when={previous().length}><button type="button" onClick={newerPage}>Newer 5</button></Show><Show when={activities()?.nextCursor}><button type="button" onClick={nextPage}>Load next 5</button></Show></nav>
+                  <OperatorActivityPages label="Run pages" hasNewer={previous().length > 0} hasNext={!!activities()?.nextCursor}
+                    onNewer={newerPage} onNext={nextPage} />
                 </Show>
               </Show>
             </>}>

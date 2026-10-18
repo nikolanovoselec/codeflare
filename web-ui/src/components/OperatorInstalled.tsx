@@ -1,6 +1,7 @@
 import { For, Show, createResource, createSignal, onCleanup, type Component } from 'solid-js';
 import { mdiChevronLeft, mdiMagnify } from '@mdi/js';
 import Icon from './Icon';
+import OperatorActivityPages from './OperatorActivityPages';
 import { ApiError } from '../api/fetch-helper';
 import { configureInstallation, getInstallationActivityPreview, getManagedOperator, getOwnedActivity,
   listOperatorInstallations, prepareInstallationActivity, startInstallationActivity, type InstalledOperator } from '../api/operator-management';
@@ -165,10 +166,9 @@ const OperatorInstalled: Component<Props> = props => {
             <Show when={!item.canManage && item.automaticRuns === null}><small>Management permission required to configure installations.</small></Show>
           </article>}</For>
         </Show>
-        <nav class="operator-activity-pages" aria-label="Installation pages">
-          <Show when={previous().length}><button type="button" onClick={() => { const values = previous(); setCursor(values[values.length - 1]); setPrevious(values.slice(0, -1)); }}>Newer installations</button></Show>
-          <Show when={current()?.cursor}><button type="button" onClick={() => { setPrevious(values => [...values, cursor()]); setCursor(current()!.cursor); }}>More installations</button></Show>
-        </nav>
+        <OperatorActivityPages label="Installation pages" hasNewer={previous().length > 0} hasNext={!!current()?.cursor}
+          onNewer={() => { const values = previous(); setCursor(values[values.length - 1]); setPrevious(values.slice(0, -1)); }}
+          onNext={() => { setPrevious(values => [...values, cursor()]); setCursor(current()!.cursor); }} />
         <Show when={current()?.items.some(item => item.canManage)}>
           <footer><a href="/operators">Manage installations</a></footer>
         </Show>

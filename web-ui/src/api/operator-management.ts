@@ -111,7 +111,7 @@ const installedOperatorSchema = z.strictObject({ id, operatorId: id, name: z.str
 export type InstalledOperator = z.infer<typeof installedOperatorSchema>;
 export const listOperatorInstallations = (cursor: string | null = null) => activityRequest(
   `/installations${cursor ? `?cursor=${segment(cursor)}` : ''}`,
-  z.strictObject({ items: z.array(installedOperatorSchema).max(100), cursor: id.nullable() }));
+  z.strictObject({ items: z.array(installedOperatorSchema).max(5), cursor: id.nullable() }));
 export const getInstallationActivityPreview = (installationId: string) => activityRequest(`/installations/${segment(installationId)}/preview`,
   z.object({ name: z.string(), version: z.string(), guidedAssessment: z.boolean(),
     guidedMode: z.enum(['repository', 'legacy-pull-request']).nullable(), configuredRepository: z.string().max(201).optional() }));

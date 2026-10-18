@@ -94,7 +94,10 @@ describe('REQ-OPERATOR-086 AC5/6: current-human installed operator projection', 
   it('does not turn platform-admin management visibility into an invocation grant', async () => {
     const f = fixture(); identity.role = 'admin'; f.operator.invokers = grant();
     const response = await f.request(); expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({ items: [expect.objectContaining({ id: 'visible-install', canManage: true, canInvoke: false })] });
+    expect(await response.json()).toMatchObject({ items: [
+      expect.objectContaining({ id: 'visible-install', canManage: true, canInvoke: false }),
+      expect.objectContaining({ id: 'PRIVATE_INSTALL', canManage: true, canInvoke: false }),
+    ], cursor: null });
   });
 
   it('requires a current issuer-bound group claim, not a foreign group or stale identity', async () => {

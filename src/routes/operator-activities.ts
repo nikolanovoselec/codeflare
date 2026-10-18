@@ -150,34 +150,34 @@ app.get('/installations', async c => {
   const controls = await registry.getManagementControls();
   const canManage = (operator: ManagementExecutionSelection['operator']) => platformAdmin || canManageOperator(human, operator, controls.managers);
   if (cursor) {
-    const previous = await registry.getManagementOperator(cursor);
-    if (!previous.ok || !canInvokeOperator(human, previous.value) && !canManage(previous.value)) return c.notFound();
+    const previous = await registry.getManagementInstallation(cursor);
+    if (!previous.ok) return c.notFound();
+    const operator = await registry.getManagementOperator(previous.value.operatorId);
+    if (!operator.ok || !canInvokeOperator(human, operator.value) && !canManage(operator.value)) return c.notFound();
   }
-  // One indexed operator per page bounds installation projection to the existing 100-row limit.
-  const page = await registry.listManagementOperators({ email: human.email, issuer: human.issuer, groups: [...(human.groups ?? [])],
-    platformAdmin, limit: 1, cursor, includeInvokers: true,
-    managersEligible: hasOperatorManagementEligibility(human, controls.managers) });
+  const page = await registry.listManagementInstallationPage({ email: human.email, issuer: human.issuer, groups: [...(human.groups ?? [])],
+    platformAdmin, cursor, managersEligible: hasOperatorManagementEligibility(human, controls.managers) });
   const items = [];
-  for (const operator of page.items) {
+  for (const installation of page.items) {
+    const current = await registry.getManagementOperator(installation.operatorId);
+    if (!current.ok) continue;
+    const operator = current.value;
     const invoke = canInvokeOperator(human, operator);
     const manage = canManage(operator);
     if (!invoke && !manage) continue;
-    const installations = await registry.getManagementInstallations(operator.id);
     const releases = await registry.getManagementReleases(operator.id);
-    for (const installation of installations) {
-      const release = releases.find(value => value.id === installation.releaseId && value.operatorId === operator.id);
-      const approved = release?.approved === true;
-      const selected = approved ? await registry.resolveManagementConfiguration(installation.id) : null;
-      const preview = selected?.ok && selected.value.release.id === installation.releaseId
-        && selected.value.installation.revision === installation.revision ? guidedPreview(selected.value) : null;
-      const settings = preview?.guidedMode === 'repository' ? parseRenovateRunSettings(installation.configurationJson) : null;
-      items.push({ id: installation.id, operatorId: operator.id, name: preview?.name ?? release?.name ?? operator.name ?? operator.id,
-        installationName: installation.name, revision: installation.revision, enabled: installation.enabled, approved,
-        version: release ? release.tagName ?? `GitHub release #${release.githubReleaseId}` : null,
-        canInvoke: invoke, canManage: manage, guidedMode: preview?.guidedMode ?? null,
-        repository: settings?.repository ?? null, automaticRuns: settings?.automaticRuns ?? null,
-        repetitionIntervalSeconds: settings?.repetitionIntervalSeconds ?? null });
-    }
+    const release = releases.find(value => value.id === installation.releaseId && value.operatorId === operator.id);
+    const approved = release?.approved === true;
+    const selected = approved ? await registry.resolveManagementConfiguration(installation.id) : null;
+    const preview = selected?.ok && selected.value.release.id === installation.releaseId
+      && selected.value.installation.revision === installation.revision ? guidedPreview(selected.value) : null;
+    const settings = preview?.guidedMode === 'repository' ? parseRenovateRunSettings(installation.configurationJson) : null;
+    items.push({ id: installation.id, operatorId: operator.id, name: preview?.name ?? release?.name ?? operator.name ?? operator.id,
+      installationName: installation.name, revision: installation.revision, enabled: installation.enabled, approved,
+      version: release ? release.tagName ?? `GitHub release #${release.githubReleaseId}` : null,
+      canInvoke: invoke, canManage: manage, guidedMode: preview?.guidedMode ?? null,
+      repository: settings?.repository ?? null, automaticRuns: settings?.automaticRuns ?? null,
+      repetitionIntervalSeconds: settings?.repetitionIntervalSeconds ?? null });
   }
   c.header('Cache-Control', 'no-store');
   return c.json({ items, cursor: page.cursor });
