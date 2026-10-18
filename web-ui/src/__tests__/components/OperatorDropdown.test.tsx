@@ -6,6 +6,8 @@ import { ApiError } from '../../api/fetch-helper';
 const server = vi.hoisted(() => ({
   page: [] as Array<Record<string, unknown>>, older: [] as Array<Record<string, unknown>>,
   installations: [] as Array<Record<string, unknown>>, olderInstallations: [] as Array<Record<string, unknown>>,
+  runPages: {} as Record<string, { items: Array<Record<string, unknown>>; nextCursor: string | null }>,
+  installationPages: {} as Record<string, { items: Array<Record<string, unknown>>; cursor: string | null }>,
   detail: {} as Record<string, unknown>,
   management: {} as Record<string, unknown>, preview: {} as Record<string, unknown>,
   prepared: {} as Record<string, { installationId: string; invocation: unknown; phase: string }>,
@@ -16,8 +18,10 @@ const server = vi.hoisted(() => ({
   savedPolicy: null as unknown, savedRevision: null as number | null,
 }));
 vi.mock('../../api/operator-activities', () => ({
-  listOperatorActivities: async (cursor: string | null) => ({ items: cursor ? server.older : server.page,
-    nextCursor: cursor ? null : server.nextCursor, workingCount: 0, unreadCount: 0, latestSequence: 1 }),
+  listOperatorActivities: async (cursor: string | null) => ({
+    ...(Object.keys(server.runPages).length ? server.runPages[cursor ?? ''] : {
+      items: cursor ? server.older : server.page, nextCursor: cursor ? null : server.nextCursor }),
+    workingCount: 0, unreadCount: 0, latestSequence: 1 }),
   acknowledgeOperatorActivities: async () => ({ unreadCount: 0 }),
   getOperatorActivity: async () => server.detail,
   cancelOperatorActivity: async () => server.detail,
@@ -29,6 +33,11 @@ vi.mock('../../api/operator-activities', () => ({
 vi.mock('../../api/operator-management', () => ({
   listOperatorInstallations: async (cursor: string | null) => {
     if (server.installError) throw new Error('Unavailable');
+    if (Object.keys(server.installationPages).length) {
+      const page = server.installationPages[cursor ?? ''];
+      if (!page) throw new Error('Unavailable page');
+      return page;
+    }
     if (cursor === 'older-installations') return { items: server.olderInstallations, cursor: null };
     if (cursor) throw new Error('Unavailable page');
     return { items: server.installations, cursor: server.installCursor };
@@ -86,7 +95,7 @@ async function review() {
 }
 beforeEach(() => {
   server.page = [row('run-1')]; server.older = [row('older-run')]; server.installations = [installation()];
-  server.olderInstallations = [];
+  server.olderInstallations = []; server.runPages = {}; server.installationPages = {};
   server.detail = { ...row('run-1'), sdkCleanupReleased: true, checkpoint: null,
     result: { repository: 'acme/updates', results: [{ pullRequest: 42, decision: 'DO_NOT_MERGE', outcome: 'NOT_MERGED',
       comment: 'Compatibility evidence is unavailable.\n\n' + 'Readable assessment. '.repeat(90) }] } };
@@ -130,7 +139,7 @@ describe('REQ-OPERATOR-086: dropdown Runs and Installed workspace', () => {
     expect((screen.getByRole('searchbox', { name: 'Find a run' }) as HTMLInputElement).value).toBe('Renovate');
     await fireEvent.input(screen.getByRole('searchbox', { name: 'Find a run' }), { target: { value: 'no-match' } });
     expect(screen.getByText(/no matching runs/i)).toBeTruthy();
-    await fireEvent.click(screen.getByRole('button', { name: 'Load next 5' }));
+    await fireEvent.click(screen.getByRole('button', { name: 'Load 5 more' }));
     await fireEvent.input(screen.getByRole('searchbox', { name: 'Find a run' }), { target: { value: '' } });
     expect(await screen.findByRole('button', { name: 'View older-run' })).toBeTruthy();
   });
@@ -159,7 +168,7 @@ describe('REQ-OPERATOR-086: dropdown Runs and Installed workspace', () => {
     await fireEvent.input(search, { target: { value: 'older' } });
     expect(within(panel).getByText('No matching installed operators on this page.')).toBeTruthy();
     expect(within(panel).queryByRole('article')).toBeNull();
-    await fireEvent.click(within(panel).getByRole('button', { name: 'More installations' }));
+    await fireEvent.click(within(panel).getByRole('button', { name: 'Load 5 more' }));
     expect(await within(panel).findByRole('article', { name: 'Older updates' })).toBeTruthy();
     expect((within(panel).getByRole('searchbox', { name: 'Find an installed operator' }) as HTMLInputElement).value).toBe('older');
     await fireEvent.click(within(panel).getByRole('button', { name: 'Run manually' }));
@@ -167,11 +176,77 @@ describe('REQ-OPERATOR-086: dropdown Runs and Installed workspace', () => {
     await fireEvent.click(within(panel).getByRole('button', { name: 'Back to installed operators' }));
     expect(await within(panel).findByRole('article', { name: 'Older updates' })).toBeTruthy();
     expect((within(panel).getByRole('searchbox', { name: 'Find an installed operator' }) as HTMLInputElement).value).toBe('older');
-    await fireEvent.click(within(panel).getByRole('button', { name: 'Newer installations' }));
+    await fireEvent.click(within(panel).getByRole('button', { name: 'Newer 5' }));
     expect(await within(panel).findByText('No matching installed operators on this page.')).toBeTruthy();
     expect(within(panel).queryByRole('article', { name: 'Older updates' })).toBeNull();
     await fireEvent.input(within(panel).getByRole('searchbox', { name: 'Find an installed operator' }), { target: { value: '' } });
     expect(within(panel).getByRole('article', { name: 'Review workspace' })).toBeTruthy();
+  });
+
+  it.each(['Runs', 'Installed'])('AC2: %s uses identical five-entry navigation through every row and back', async segment => {
+    const rows = Array.from({ length: 12 }, (_, index) => segment === 'Runs' ? row(`run-${index + 1}`)
+      : installation({ id: `install-${index + 1}`, installationName: `Installation ${index + 1}` }));
+    for (const offset of [0, 5, 10]) {
+      const key = offset ? `page-${offset}` : '';
+      const next = offset === 10 ? null : `page-${offset + 5}`;
+      if (segment === 'Runs') server.runPages[key] = { items: rows.slice(offset, offset + 5), nextCursor: next };
+      else server.installationPages[key] = { items: rows.slice(offset, offset + 5), cursor: next };
+    }
+    await open(segment);
+    const panel = screen.getByRole('tabpanel', { name: segment });
+    const firstRow = (index: number) => segment === 'Runs'
+      ? within(panel).findByRole('button', { name: `View run-${index}` })
+      : within(panel).findByRole('article', { name: `Installation ${index}` });
+    const assertPage = async (start: number, count: number) => {
+      await firstRow(start);
+      expect(within(panel).getAllByRole('article')).toHaveLength(count);
+      for (let index = start; index < start + count; index += 1) await firstRow(index);
+    };
+    await assertPage(1, 5);
+    // Intentional shared user-copy contract, paired with the actual page transitions.
+    expect(within(panel).queryByRole('button', { name: 'Newer 5' })).toBeNull();
+    expect(within(panel).queryByRole('button', { name: /more installations|newer installations/i })).toBeNull();
+    await fireEvent.click(within(panel).getByRole('button', { name: 'Load 5 more' }));
+    await assertPage(6, 5);
+    await fireEvent.click(within(panel).getByRole('button', { name: 'Load 5 more' }));
+    await assertPage(11, 2);
+    expect(within(panel).queryByRole('button', { name: 'Load 5 more' })).toBeNull();
+    await fireEvent.click(within(panel).getByRole('button', { name: 'Newer 5' }));
+    await assertPage(6, 5);
+    await fireEvent.click(screen.getByRole('tab', { name: segment === 'Runs' ? 'Installed' : 'Runs' }));
+    await fireEvent.click(screen.getByRole('tab', { name: segment }));
+    await assertPage(6, 5);
+    await fireEvent.click(within(panel).getByRole('button', { name: 'Newer 5' }));
+    await assertPage(1, 5);
+    expect(within(panel).queryByRole('button', { name: 'Newer 5' })).toBeNull();
+    expect(server.prepared).toEqual({});
+  });
+
+  it('AC2/10: retries an unavailable Installed page without losing its five-entry cursor or search', async () => {
+    const rows = Array.from({ length: 10 }, (_, index) => installation({ id: `install-${index + 1}`,
+      installationName: `Installation ${index + 1}` }));
+    server.installationPages = { '': { items: rows.slice(0, 5), cursor: 'page-5' },
+      'page-5': { items: rows.slice(5), cursor: null } };
+    await open('Installed');
+    const panel = screen.getByRole('tabpanel', { name: 'Installed' });
+    await within(panel).findByRole('article', { name: 'Installation 1' });
+    await fireEvent.input(within(panel).getByRole('searchbox', { name: 'Find an installed operator' }),
+      { target: { value: 'Installation 7' } });
+    expect(within(panel).getByText('No matching installed operators on this page.')).toBeTruthy();
+    server.installError = true;
+    await fireEvent.click(within(panel).getByRole('button', { name: 'Load 5 more' }));
+    await within(panel).findByText('Installations unavailable');
+    server.installError = false;
+    await fireEvent.click(within(panel).getByRole('button', { name: 'Retry installations' }));
+    await within(panel).findByRole('article', { name: 'Installation 7' });
+    expect(within(panel).getAllByRole('article')).toHaveLength(1);
+    expect((within(panel).getByRole('searchbox', { name: 'Find an installed operator' }) as HTMLInputElement).value).toBe('Installation 7');
+    await fireEvent.input(within(panel).getByRole('searchbox', { name: 'Find an installed operator' }), { target: { value: '' } });
+    expect(within(panel).getAllByRole('article')).toHaveLength(5);
+    await fireEvent.click(within(panel).getByRole('button', { name: 'Newer 5' }));
+    await within(panel).findByRole('article', { name: 'Installation 1' });
+    expect(within(panel).getAllByRole('article')).toHaveLength(5);
+    expect(server.prepared).toEqual({});
   });
 
   it('AC2: filters the visible page by operator independently of execution state', async () => {

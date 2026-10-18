@@ -35,6 +35,11 @@ function fixture() {
   const manifests = { value: JSON.stringify({ id: 'renovate-dispatcher', profile: 'dispatcher', name: 'Renovate Dispatcher', intentVersion: '4', inputSchema: schema }) };
   const registry = {
     listManagementOperators: async ({ limit }: { limit: number }) => ({ ...catalog, items: catalog.items.slice(0, limit) }),
+    listManagementInstallationPage: async () => ({ items: [{ ...installed },
+      { ...installed, operatorId: hidden.id, id: 'PRIVATE_INSTALL' }], cursor: catalog.cursor }),
+    getManagementInstallation: async (id: string) => id === installed.id ? { ok: true, value: { ...installed } }
+      : id === 'PRIVATE_INSTALL' ? { ok: true, value: { ...installed, operatorId: hidden.id, id } }
+        : { ok: false, reason: 'not-found' },
     getManagementControls: async () => controls,
     getManagementOperator: async (id: string) => id === operator.id ? { ok: true, value: operator }
       : id === hidden.id ? { ok: true, value: hidden } : { ok: false, reason: 'not-found' },
@@ -128,8 +133,10 @@ describe('REQ-OPERATOR-086 AC5/6: current-human installed operator projection', 
     expect((await f.request('?cursor=visible-operator&cursor=visible-operator')).status).toBe(400);
     const foreign = await f.request('?cursor=hidden-operator'); expect(foreign.status).toBe(404);
     expect(await foreign.text()).not.toContain('PRIVATE_OPERATOR');
-    f.catalog.cursor = f.operator.id;
-    expect(await (await f.request()).json()).toMatchObject({ cursor: 'visible-operator' });
+    f.catalog.cursor = f.installed.id;
+    expect(await (await f.request()).json()).toMatchObject({ cursor: 'visible-install' });
+    expect((await f.request('?cursor=visible-install')).status).toBe(200);
+    expect((await f.request('?cursor=PRIVATE_INSTALL')).status).toBe(404);
   });
 
   it('labels unsupported package scheduling instead of inventing a generic launcher', async () => {

@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { acknowledgeOperatorActivities, getOperatorActivity, listOperatorActivities } from '../../api/operator-activities';
+import { listOperatorInstallations } from '../../api/operator-management';
 
 const detail = { activityId: 'activity-1', operatorId: 'reviewer', executionStatus: 'completed',
   cleanupStatus: 'stopped', collectionStatus: 'ready', attention: false, sessionId: null, source: null,
@@ -7,6 +8,31 @@ const detail = { activityId: 'activity-1', operatorId: 'reviewer', executionStat
   result: { originalReports: [{ lane: 'code-reviewer', findings: [{ message: 'Review finding' }] }] } };
 
 afterEach(() => vi.unstubAllGlobals());
+
+describe('REQ-OPERATOR-086 AC2/5: five-entry installation page wire', () => {
+  const installation = (index: number) => ({ id: `installation-${index}`, operatorId: 'operator-1', name: 'Review',
+    installationName: `Configuration ${index}`, version: null, revision: 1, enabled: false, approved: false,
+    canInvoke: true, canManage: false, guidedMode: null, repository: null, automaticRuns: null, repetitionIntervalSeconds: null });
+
+  it.each([null, 'installation-5'])('reads five installations using the authenticated opaque cursor %s', async cursor => {
+    const items = Array.from({ length: 5 }, (_, index) => installation(index + (cursor ? 6 : 1)));
+    vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
+      const request = new Request(input, init);
+      const url = new URL(request.url);
+      if (url.origin !== window.location.origin || url.pathname !== '/api/operator-activities/installations'
+        || url.searchParams.get('cursor') !== cursor || request.method !== 'GET' || request.credentials !== 'same-origin') {
+        return Response.json({ error: 'Invalid installation read' }, { status: 403 });
+      }
+      return Response.json({ items, cursor: cursor ? null : 'installation-5' });
+    });
+    expect(await listOperatorInstallations(cursor)).toEqual({ items, cursor: cursor ? null : 'installation-5' });
+  });
+
+  it('rejects a six-installation response rather than silently showing a different page size', async () => {
+    vi.stubGlobal('fetch', async () => Response.json({ items: Array.from({ length: 6 }, (_, index) => installation(index + 1)), cursor: null }));
+    await expect(listOperatorInstallations()).rejects.toBeDefined();
+  });
+});
 
 describe('REQ-OPERATOR-041: in-app owned result read', () => {
   it('REQ-OPERATOR-059: acknowledges the observed summary revision with authenticated CSRF POST', async () => {

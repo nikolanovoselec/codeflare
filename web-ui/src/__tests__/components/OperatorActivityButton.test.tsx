@@ -264,7 +264,7 @@ describe('REQ-OPERATOR-027: readable owned activity and bounded history', () => 
     await fireEvent.click(screen.getByRole('button', { name: /operator activity/i }));
     await waitFor(() => expect(screen.getAllByRole('article')).toHaveLength(5));
     expect(screen.getByRole('button', { name: 'View activity-1' })).toBeTruthy();
-    await fireEvent.click(screen.getByRole('button', { name: 'Load next 5' }));
+    await fireEvent.click(screen.getByRole('button', { name: 'Load 5 more' }));
     await waitFor(() => expect(screen.getByRole('button', { name: 'View activity-6' })).toBeTruthy());
     expect(screen.getAllByRole('article')).toHaveLength(5);
     expect(screen.queryByRole('button', { name: 'View activity-1' })).toBeNull();
@@ -281,8 +281,8 @@ describe('REQ-OPERATOR-027: readable owned activity and bounded history', () => 
     render(() => <OperatorActivityButton enabled />);
     const trigger = screen.getByRole('button', { name: /operator activity/i });
     await fireEvent.click(trigger);
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Load next 5' })).toBeTruthy());
-    await fireEvent.click(screen.getByRole('button', { name: 'Load next 5' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Load 5 more' })).toBeTruthy());
+    await fireEvent.click(screen.getByRole('button', { name: 'Load 5 more' }));
     await waitFor(() => expect(screen.getByRole('button', { name: 'View activity-6' })).toBeTruthy());
     await fireEvent.click(trigger);
     await fireEvent.click(trigger);
@@ -310,14 +310,14 @@ describe('REQ-OPERATOR-027: readable owned activity and bounded history', () => 
     await vi.advanceTimersByTimeAsync(0);
     await fireEvent.click(screen.getByRole('button', { name: /operator activity/i }));
     await vi.advanceTimersByTimeAsync(0);
-    await fireEvent.click(screen.getByRole('button', { name: 'Load next 5' }));
+    await fireEvent.click(screen.getByRole('button', { name: 'Load 5 more' }));
     await vi.advanceTimersByTimeAsync(0);
     const olderPage = ['View activity-6', 'View activity-7', 'View activity-8', 'View activity-9', 'View activity-10'];
     expect(visibleActivities()).toEqual(olderPage);
     history = [{ ...active, activityId: 'activity-new' }, ...history];
     await vi.advanceTimersByTimeAsync(15_000);
     expect(visibleActivities()).toEqual(olderPage);
-    await fireEvent.click(screen.getByRole('button', { name: 'Load next 5' }));
+    await fireEvent.click(screen.getByRole('button', { name: 'Load 5 more' }));
     await vi.advanceTimersByTimeAsync(0);
     expect(visibleActivities()).toEqual(['View activity-11', 'View activity-12']);
     await fireEvent.click(screen.getByRole('button', { name: 'Newer 5' }));
@@ -704,8 +704,8 @@ describe('REQ-OPERATOR-027: readable owned activity and bounded history', () => 
     });
     render(() => <OperatorActivityButton enabled />);
     await fireEvent.click(screen.getByRole('button', { name: /operator activity/i }));
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Load next 5' })).toBeTruthy());
-    await fireEvent.click(screen.getByRole('button', { name: 'Load next 5' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Load 5 more' })).toBeTruthy());
+    await fireEvent.click(screen.getByRole('button', { name: 'Load 5 more' }));
     await waitFor(() => expect(screen.getByText('Activity unavailable')).toBeTruthy());
     await fireEvent.click(screen.getByRole('button', { name: 'Return to newest' }));
     await waitFor(() => expect(screen.getByRole('button', { name: 'View activity-1' })).toBeTruthy());
