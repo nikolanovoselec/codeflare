@@ -388,11 +388,12 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 1. Publication refuses and retains the carrier when the request's capture file is absent. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/publish-memory-capture.sh::CAPTURE_FILE --> <!-- @test: host/__tests__/memory-capture-hook.test.js (refuses to publish and keeps the carrier when the capture file is absent) -->
 2. Publication commits the counter and drains the carrier once the capture file exists, and never moves the counter backwards. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/publish-memory-capture.sh::COUNTER_FILE --> <!-- @test: host/__tests__/memory-capture-hook.test.js (commits the counter and drains the carrier once the artifact exists) --> <!-- @test: host/__tests__/memory-capture-hook.test.js (never drags the committed counter backwards) -->
+3. A Pi retry can recognize an already-published note/chunk pair only when the note's exact frontmatter identity matches its frozen request and the chunk matches the deterministic graph derived from that note. Recovery is read-only: it neither recaptures nor republishes, and partial, mismatched or redirected receipts fail closed. Root progress still requires exact successful native completion. <!-- @impl: preseed/agents/pi/scripts/recover-memory-capture.py::main --> <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::finalizeMemorySuccess --> <!-- @test: host/__tests__/pi-memory-capture-recovery.test.js (REQ-MEM-021: recovers an exact published note and real deterministic chunk read-only and idempotently) --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (REQ-MEM-020 / REQ-MEM-021: published artifacts after a legacy abort wait for an exact completed retry) -->
 
 **Constraints:**
 
 - The capture agent carries no `model:` pin; fidelity is selected by `CODEFLARE_MEMORY_MODEL`.
-- The capture contract is bounded to six agent turns (`CODEFLARE_MEMORY_MAX_TURNS`, default 6).
+- Claude capture is bounded to six agent turns (`CODEFLARE_MEMORY_MAX_TURNS`, default 6); Pi's separate execution budget is owned by REQ-MEM-016.
 
 **Priority:** P0
 
@@ -527,7 +528,7 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 1. Every emitted Pi capture/extract request disables inherited context. <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::buildPublicExtractionRequest --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (REQ-MEM-016: builds one bounded medium-reasoning public background request) -->
 2. Every emitted Pi capture/extract request uses provider-neutral medium reasoning. <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::buildPublicExtractionRequest --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (REQ-MEM-016: builds one bounded medium-reasoning public background request) -->
-3. Every emitted Pi capture/extract request stops after seven agent turns, bounding retries while leaving room to page larger 20-prompt and Vault inputs under tool-output limits. <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::buildPublicExtractionRequest --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (REQ-MEM-016: builds one bounded medium-reasoning public background request) -->
+3. New Pi memory-capture requests stop after ten agent turns and reserve the final turn for native completion; Vault extraction retains seven turns. Existing seven-turn memory calls remain correlatable so their qualified completion is not lost after upgrade. <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::buildPublicExtractionRequest --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (REQ-MEM-016: builds one bounded medium-reasoning public background request) --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (REQ-MEM-016 / REQ-MEM-021: an in-flight legacy seven-turn terminal success still commits after upgrade) -->
 
 **Constraints:**
 

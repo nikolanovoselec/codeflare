@@ -6,10 +6,10 @@ import {
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 
-// REQ-AGENT-076 AC8: inherit the active provider/model and the built-in
-// Thorough 10k/30k budgets. Explicit user choices always take precedence.
+// REQ-AGENT-076 AC8: seed the managed Auto preset once. Existing user
+// settings, including deliberately removed options, remain user-owned.
 const defaults = {
-  mode: "thorough",
+  mode: "auto",
   compactionEngines: ["eesv"],
   summaryModel: null,
   segmentationModel: null,
@@ -83,10 +83,8 @@ export function configureSmartCompact(agentDir: string): boolean {
       } finally { closeSync(input); }
     }
     if (!isObject(settings)) return false;
-    const existing = Object.hasOwn(settings, "smartCompact") ? settings.smartCompact : {};
-    if (!isObject(existing)) return false;
-    if (Object.keys(defaults).every(key => Object.hasOwn(existing, key))) return true;
-    settings.smartCompact = { ...defaults, ...existing };
+    if (Object.hasOwn(settings, "smartCompact")) return isObject(settings.smartCompact);
+    settings.smartCompact = { ...defaults };
 
     const mode = previous ? previous.mode & 0o777 : 0o600;
     const candidate = join(agentDir, `.settings.json.${randomUUID()}.tmp`);

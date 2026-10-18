@@ -4,6 +4,7 @@ import { isAbsolute, relative } from "node:path";
 export const MEMORY_EVERY_N_PROMPTS = 20;
 export const VAULT_EVERY_N_PROMPTS = 20;
 export const EXTRACTION_MAX_TURNS = 7;
+export const MEMORY_CAPTURE_MAX_TURNS = 10;
 export const MEMORY_CAPTURE_MAX_TOTAL_CHARS = 200000;
 export const MEMORY_CAPTURE_MAX_TURN_CHARS = 10000;
 export const EXTRACTION_RUNNING_TTL_MS = 30 * 60 * 1000;
@@ -58,7 +59,7 @@ export interface PublicExtractionRequest {
   run_in_background: true;
   inherit_context: false;
   thinking: "medium";
-  max_turns: 7;
+  max_turns: 7 | 10;
   model?: string;
 }
 
@@ -244,7 +245,7 @@ export function buildPublicExtractionRequest(input: {
     run_in_background: true,
     inherit_context: false,
     thinking: "medium",
-    max_turns: EXTRACTION_MAX_TURNS,
+    max_turns: input.job === "memory-capture" ? MEMORY_CAPTURE_MAX_TURNS : EXTRACTION_MAX_TURNS,
     ...(model ? { model } : {}),
   };
 }
@@ -263,7 +264,8 @@ function publicRequestMatches(value: unknown, requestId: string, job: Extraction
     && request.run_in_background === true
     && request.inherit_context === false
     && request.thinking === "medium"
-    && request.max_turns === EXTRACTION_MAX_TURNS
+    && (request.max_turns === EXTRACTION_MAX_TURNS
+      || (job === "memory-capture" && request.max_turns === MEMORY_CAPTURE_MAX_TURNS))
     && hasExactMarker(request.prompt, requestId);
 }
 

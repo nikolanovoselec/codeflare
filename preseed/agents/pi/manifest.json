@@ -306,6 +306,11 @@
       "advanced"
     ]
   },
+  "scripts/recover-memory-capture.py": {
+    "modes": [
+      "advanced"
+    ]
+  },
   "scripts/safe-graphify-update.sh": {
     "modes": [
       "advanced"
