@@ -33,11 +33,11 @@ function extractsDir(files: Record<string, string>): string {
   return dir;
 }
 
-function extract(title: string, options: { context?: string; decisions?: string } = {}): string {
-  const { context = 'ctx body', decisions = '- a decision' } = options;
+function extract(title: string, options: { context?: string; decisions?: string; sessionId?: string } = {}): string {
+  const { context = 'ctx body', decisions = '- a decision', sessionId = 'abc' } = options;
   return [
     '---',
-    'session_id: abc',
+    `session_id: ${sessionId}`,
     '---',
     '',
     `# ${title}`,
@@ -232,6 +232,76 @@ describe('Pi post-compaction recall (REQ-MEM-019)', () => {
     expect(sent[0].message.content).toContain('a session');
     expect(sent[0].message.display).toBe(false);
     expect(sent[0].options).toEqual({ deliverAs: 'followUp', triggerTurn: false });
+  });
+
+  it('AC7: prefers exact active-session captures over newer unrelated captures without topping up', () => {
+    const dir = extractsDir({
+      '2026-07-01T10-00-00+0200-one.md': extract('active older', { sessionId: 'active-session' }),
+      '2026-07-02T10-00-00+0200-two.md': extract('active newer', { sessionId: 'active-session' }),
+      '2026-07-03T10-00-00+0200-three.md': extract('different session', { sessionId: 'other' }),
+      '2026-07-04T10-00-00+0200-four.md': extract('prefix collision', { sessionId: 'active-session-longer' }),
+    });
+    const { pi, fire, sent } = fakePi();
+    registerPostCompactionRecall(pi, { sessionsDir: dir, extractCount: 5, perFileBytes: 2600 });
+    fire('session_compact', { sessionManager: { getSessionId: () => 'active-session' } });
+    const content = sent[0]?.message.content ?? '';
+    expect(content).toContain('active older');
+    expect(content).toContain('active newer');
+    expect(content.indexOf('active newer')).toBeLessThan(content.indexOf('active older'));
+    expect(content).not.toContain('different session');
+    expect(content).not.toContain('prefix collision');
+    expect(content).toContain('the 2 most recent session extracts');
+  });
+
+  it('AC7: bounds matching captures before rendering and ignores session IDs in narrative text', () => {
+    const dir = extractsDir({
+      '2026-07-01T10-00-00+0200-a.md': extract('active oldest', { sessionId: 'active' }),
+      '2026-07-02T10-00-00+0200-b.md': extract('active middle', { sessionId: 'active' }),
+      '2026-07-03T10-00-00+0200-c.md': extract('active newest', { sessionId: 'active' }),
+      '2026-07-04T10-00-00+0200-d.md': extract('unrelated narrative', { sessionId: 'other', context: 'session_id: active\nnot identity metadata' }),
+    });
+    const { pi, fire, sent } = fakePi();
+    registerPostCompactionRecall(pi, { sessionsDir: dir, extractCount: 2, perFileBytes: 2600 });
+    fire('session_compact', { sessionManager: { getSessionId: () => 'active' } });
+    const content = sent[0]?.message.content ?? '';
+    expect(content).toContain('active newest');
+    expect(content).toContain('active middle');
+    expect(content).not.toContain('active oldest');
+    expect(content).not.toContain('unrelated narrative');
+  });
+
+  it('AC7: falls back to the latest global captures when no active-session capture exists', () => {
+    const dir = extractsDir({
+      '2026-07-01T10-00-00+0200-a.md': extract('global oldest'),
+      '2026-07-02T10-00-00+0200-b.md': extract('global middle'),
+      '2026-07-03T10-00-00+0200-c.md': extract('global newest'),
+    });
+    const { pi, fire, sent } = fakePi();
+    registerPostCompactionRecall(pi, { sessionsDir: dir, extractCount: 2, perFileBytes: 2600 });
+    fire('session_compact', { sessionManager: { getSessionId: () => 'missing-session' } });
+    const content = sent[0]?.message.content ?? '';
+    expect(content).toContain('global newest');
+    expect(content).toContain('global middle');
+    expect(content).not.toContain('global oldest');
+  });
+
+  it('AC7: fails open to global recall if session identity cannot be read', () => {
+    const dir = extractsDir({ '2026-07-03T10-00-00+0200-a.md': extract('global fallback') });
+    const { pi, fire, sent } = fakePi();
+    registerPostCompactionRecall(pi, { sessionsDir: dir, extractCount: 5, perFileBytes: 2600 });
+    fire('session_compact', { sessionManager: { getSessionId: () => { throw new Error('session unavailable'); } } });
+    expect(sent[0]?.message.content).toContain('global fallback');
+  });
+
+  it('AC7: falls back when matching notes contain no usable recall sections', () => {
+    const dir = extractsDir({
+      '2026-07-01T10-00-00+0200-a.md': extract('usable fallback'),
+      '2026-07-02T10-00-00+0200-b.md': '---\nsession_id: active\n---\n# empty capture\n',
+    });
+    const { pi, fire, sent } = fakePi();
+    registerPostCompactionRecall(pi, { sessionsDir: dir, extractCount: 5, perFileBytes: 2600 });
+    fire('session_compact', { sessionManager: { getSessionId: () => 'active' } });
+    expect(sent[0]?.message.content).toContain('usable fallback');
   });
 
   it('stays out of a child session', () => {

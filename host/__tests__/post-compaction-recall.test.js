@@ -19,10 +19,10 @@ const HOOK = resolve(
   '../../preseed/agents/claude/plugins/codeflare-memory/scripts/post-compaction-recall.sh',
 );
 
-function extract(title, { context = 'ctx body', decisions = '- a decision' } = {}) {
+function extract(title, { context = 'ctx body', decisions = '- a decision', sessionId = 'abc' } = {}) {
   return [
     '---',
-    'session_id: abc',
+    `session_id: ${sessionId}`,
     '---',
     '',
     `# ${title}`,
@@ -46,10 +46,10 @@ function seed(dir, files) {
   }
 }
 
-function runHook({ sessionsDir, source = 'compact', count, perFileBytes }) {
+function runHook({ sessionsDir, source = 'compact', count, perFileBytes, sessionId = 's1' }) {
   const result = spawnSync('bash', [HOOK], {
     encoding: 'utf-8',
-    input: JSON.stringify({ hook_event_name: 'SessionStart', session_id: 's1', source }),
+    input: JSON.stringify({ hook_event_name: 'SessionStart', session_id: sessionId, source }),
     env: {
       ...process.env,
       POST_COMPACT_SESSIONS_DIR: sessionsDir,
@@ -100,6 +100,55 @@ describe('post-compaction-recall.sh (REQ-MEM-019)', () => {
     // Context and Decisions are carried; Observations deliberately are not.
     assert.ok(context.includes('## Decisions'));
     assert.ok(!context.includes('must NOT be injected'));
+  });
+
+  it('AC7: prefers the active session and never fills its recall with other sessions', () => {
+    const dir = join(baseTmp, 'active-session');
+    seed(dir, {
+      '2026-07-01T10-00-00+0200-a.md': extract('active older', { sessionId: 'active' }),
+      '2026-07-02T10-00-00+0200-b.md': extract('active newer', { sessionId: 'active' }),
+      '2026-07-03T10-00-00+0200-c.md': extract('unrelated newest', { sessionId: 'other' }),
+      '2026-07-04T10-00-00+0200-d.md': extract('prefix collision', { sessionId: 'active-other' }),
+    });
+    const { context, status } = runHook({ sessionsDir: dir, sessionId: 'active' });
+    assert.equal(status, 0);
+    assert.ok(context.includes('active older'));
+    assert.ok(context.includes('active newer'));
+    assert.ok(context.indexOf('active newer') < context.indexOf('active older'));
+    assert.ok(!context.includes('unrelated newest'));
+    assert.ok(!context.includes('prefix collision'));
+    assert.ok(context.includes('the 2 most recent session extracts'));
+  });
+
+  it('AC7: bounds active-session matches and ignores identity-like narrative text', () => {
+    const dir = join(baseTmp, 'active-session-bound');
+    seed(dir, {
+      '2026-07-01T10-00-00+0200-a.md': extract('active oldest', { sessionId: 'active' }),
+      '2026-07-02T10-00-00+0200-b.md': extract('active middle', { sessionId: 'active' }),
+      '2026-07-03T10-00-00+0200-c.md': extract('active newest', { sessionId: 'active' }),
+      '2026-07-04T10-00-00+0200-d.md': extract('unrelated narrative', { context: 'session_id: active', sessionId: 'other' }),
+    });
+    const { context } = runHook({ sessionsDir: dir, sessionId: 'active', count: 2 });
+    assert.ok(context.includes('active newest'));
+    assert.ok(context.includes('active middle'));
+    assert.ok(!context.includes('active oldest'));
+    assert.ok(!context.includes('unrelated narrative'));
+  });
+
+  it('AC7: falls back to global latest captures when no usable session match exists', () => {
+    const dir = join(baseTmp, 'session-fallback');
+    seed(dir, {
+      '2026-07-01T10-00-00+0200-a.md': extract('global oldest'),
+      '2026-07-02T10-00-00+0200-b.md': extract('global middle'),
+      '2026-07-03T10-00-00+0200-c.md': extract('global newest'),
+      '2026-07-04T10-00-00+0200-d.md': '---\nsession_id: empty\n---\n# no recall sections\n',
+    });
+    for (const sessionId of ['missing', 'empty', '']) {
+      const { context } = runHook({ sessionsDir: dir, sessionId, count: 3 });
+      assert.ok(context.includes('global newest'));
+      assert.ok(context.includes('global middle'));
+      assert.ok(!context.includes('global oldest'));
+    }
   });
 
   it('AC2: orders by filename even when mtime disagrees', () => {
