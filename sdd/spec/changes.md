@@ -13,7 +13,7 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-10-19
 
-- Reconcile the known restored local Smart Compact registration with its managed npm declaration before container-start discovery ([REQ-AGENT-222 AC1](agents.md#req-agent-222-pi-smart-compact-defaults)). Curated preparation repairs the same duplicate for the next discovery without forcing reload, while preserving preference values, package filters, local-only installs and memory files ([REQ-AGENT-223](agents.md#req-agent-223-pi-smart-compact-settings-preservation)). CI39312165170 confirmed all20 expected regression failures; final GREEN and managed publication remain separate gates.
+- Reconcile the known restored local Smart Compact registration with its managed npm declaration before container-start discovery ([REQ-AGENT-222 AC1](agents.md#req-agent-222-pi-smart-compact-defaults)). Curated preparation repairs the same duplicate for the next discovery without forcing reload, while preserving preference values, package filters, local-only installs and memory files ([REQ-AGENT-223](agents.md#req-agent-223-pi-smart-compact-settings-preservation)).
 
 ## 2026-10-18
 

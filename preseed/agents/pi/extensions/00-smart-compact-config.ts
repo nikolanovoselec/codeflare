@@ -85,7 +85,8 @@ export function configureSmartCompact(agentDir: string): boolean {
     if (!isObject(settings)) return false;
     const hasCanonical = Object.hasOwn(settings, "smartCompact");
     const hasLegacy = Object.hasOwn(settings, "semanticCompact");
-    if (hasCanonical ? !isObject(settings.smartCompact) : hasLegacy && !isObject(settings.semanticCompact)) return false;
+    if ((hasCanonical && !isObject(settings.smartCompact))
+      || (hasLegacy && !isObject(settings.semanticCompact))) return false;
     let changed = false;
     if (!hasCanonical && !hasLegacy) {
       settings.smartCompact = { ...defaults };

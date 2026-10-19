@@ -261,6 +261,17 @@ describe('REQ-AGENT-223: provider-neutral Smart Compact settings preparation', (
     expect(readFileSync(settingsPath, 'utf8')).toBe(bytes);
   });
 
+  it.each(['null', '[]', 'false', '0', '"fast"'])('REQ-AGENT-223: a malformed shadowed legacy section %s prevents duplicate migration despite a valid canonical section', async value => {
+    const bytes = ` { "smartCompact": {}, "semanticCompact": ${value}, "packages": ["./packages/pi-smart-compact-10.6.2", "npm:pi-smart-compact@10.6.2"] }\n\n`;
+    writeFileSync(settingsPath, bytes);
+    vi.stubEnv('PI_CODING_AGENT_DIR', agentDir);
+
+    await smartCompactConfig({} as never);
+    await smartCompactConfig({} as never);
+
+    expect(readFileSync(settingsPath, 'utf8')).toBe(bytes);
+  });
+
   it('REQ-AGENT-223: a locked settings file retains both registrations until safe reconciliation is possible', async () => {
     const bytes = '{ "smartCompact": {}, "packages": ["./packages/pi-smart-compact-10.6.2", "npm:pi-smart-compact@10.6.2"] }\n';
     writeFileSync(settingsPath, bytes);
