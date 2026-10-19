@@ -79,6 +79,7 @@ Use these to avoid jumping straight to configuration. Ask only the prompts relev
 - Group names and SAML/OIDC attributes are case-sensitive. Verify exact claim names and values before creating group-based rules.
 - SCIM changes and group membership can be stale until sync and re-authentication complete. Troubleshoot with the user's last authenticated identity, not just the IdP state.
 - Access policies are default-deny. A private app with routes but no Allow policy still blocks access.
+- For new Access policies, create an account-scoped reusable policy through `/access/policies`, then attach its returned ID to the application with the intended precedence using the documented attachment payload. Do not send inline policy objects on app creation/update unless explicitly required. Read back the policy and application attachments to verify decision, selectors and ordering; test allowed and denied identities. Do not default new policies to legacy app-scoped `reusable: false`, or migrate existing policies without authorization.
 - Access policy selectors can use IP lists, not Gateway domain or URL lists.
 - SaaS federation handles authentication into the SaaS app. SaaS authorization and tenant restrictions usually require SaaS-side roles and/or Gateway tenant controls.
 - Browser Rendering for SSH/VNC/RDP is an Access capability. Browser Isolation renders general web content remotely. Do not conflate them.
@@ -119,7 +120,7 @@ Use these to avoid jumping straight to configuration. Ask only the prompts relev
 - DNS pre-resolution selectors and post-resolution selectors do not behave like a single strict precedence list. Retrieve current evaluation docs before changing rule order.
 - HTTP Do Not Inspect rules run before HTTP Allow/Block/Isolate behavior. A later block rule will not override an earlier inspection bypass.
 - Certificate-pinned apps need Do Not Inspect exceptions before broad TLS inspection. Deploy the Cloudflare root CA to managed devices before enabling inspection.
-- DLP profiles are detection definitions only. They do nothing until referenced by Gateway HTTP policies or CASB scan settings. Rules with body inspection may be evaluated multiple times in a single pass.
+- DLP profiles define detections, not an enforcement policy. Passive Detection can show sampled matches before enforcement is configured. Reference profiles explicitly from Gateway HTTP policies or CASB scan settings for the intended response. Rules with body inspection may be evaluated multiple times in a single pass.
 - Start DLP with payload logging where appropriate, tune false positives, then block.
 - Gateway Network policies are strict L4 controls. Identity-aware L4 matching requires authenticated device context.
 
@@ -128,14 +129,14 @@ Use these to avoid jumping straight to configuration. Ask only the prompts relev
 - API CASB is out-of-band and periodic. It does not provide real-time inline enforcement although some integrations support "remediation"; use Gateway granular application controls for inline CASB capability for supported applications. Retrieve [Granular application controls](https://developers.cloudflare.com/cloudflare-one/traffic-policies/http-policies/granular-controls/) when creating security policies for specific actions in specific SaaS applications.
 - CASB findings are tied to specific assets and instances. Drill into affected assets before recommending remediation.
 - Use current Dashboard remediation guidance for CASB fixes. Most remediations happen in the SaaS admin console, not Cloudflare.
-- Large SaaS integrations can take 24-48 hours for initial scans. Reauthorizing can restart scan state; check credential health before reconnecting.
+- Initial CASB scan results can appear within hours; subsequent scans generally follow a roughly 24-48-hour cadence, varying by integration and data volume. Reauthorizing can restart scan state; check credential health before reconnecting.
 - User risk scores are behavior-based and asynchronous. CASB findings do not automatically imply high user risk.
 
 ### Infrastructure Access
 
 - [Zero Trust Infrastructure Access](https://developers.cloudflare.com/cloudflare-one/access-controls/applications/non-http/infrastructure-apps/) (ZTIA) is the purpose-built offering for SSH access through the device client. It provides capabilities not available through self-hosted apps: keystroke logging, control over how users authenticate to the target machine, [short-lived certificates](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/use-cases/ssh/ssh-infrastructure-access/#generate-a-cloudflare-ssh-ca) that replace static SSH keys with ephemeral certs tied to Access identity, and lightweight privileged access management. Use Infrastructure Access apps for SSH when the device client is deployed.
 - [Browser Rendering](https://developers.cloudflare.com/cloudflare-one/access-controls/applications/non-http/browser-rendering/) provides clientless SSH, RDP, and VNC through the browser without requiring the device client. Clientless RDP includes session recording and file transfer controls. Use clientless access when a device client cannot be installed (contractors, partner access, unmanaged devices) - typically not as the default for managed users with the client installed.
-- [Audit SSH](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/use-cases/ssh/ssh-infrastructure-access/#enable-ssh-command-logging) is a Gateway Network policy action that logs SSH commands without blocking. It requires the session to be proxied through Cloudflare.
+- Gateway Audit SSH reached end of life on July 15, 2026; remaining Audit SSH rules no longer work. Do not recommend new Audit SSH policies. Use Access for Infrastructure for SSH command logging and its documented prerequisites.
 - Short-lived certificates require CA configuration on the target host and `sshd` configured to trust the Cloudflare CA public key. Retrieve [short-lived certificate setup](https://developers.cloudflare.com/cloudflare-one/identity/users/short-lived-certificates/) docs before configuring.
 - For kubectl and database access behind private networks, use the device client with private destination routing. There is no Infrastructure Access or browser-rendered equivalent for arbitrary TCP protocols today.
 

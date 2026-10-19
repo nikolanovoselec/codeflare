@@ -170,17 +170,6 @@ async alarm(): Promise<void> {
 await this.ctx.storage.deleteAlarm();
 ```
 
-## Testing Quick Start
+## Testing
 
-```typescript
-import { env } from "cloudflare:test";
-import { describe, it, expect } from "vitest";
-
-describe("MyDO", () => {
-  it("should work", async () => {
-    const stub = env.MY_DO.getByName("test");
-    const result = await stub.addItem("test");
-    expect(result).toBe(1);
-  });
-});
-```
+Start with the installed Vitest/Cloudflare integration and existing suite, then follow [version-aware testing guidance](references/testing.md) for setup, APIs and isolation. Adding a test does not by itself require migrating the suite. Do not assume legacy imports or automatic per-test storage isolation apply to every integration version.

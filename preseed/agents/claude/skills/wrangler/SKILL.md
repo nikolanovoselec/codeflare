@@ -848,26 +848,11 @@ wrangler tail --format json
 
 ## Testing
 
-### Local Testing with Vitest
+### Version-Aware Testing with Vitest
 
-```bash
-npm install -D @cloudflare/vitest-pool-workers vitest
-```
+Start with the repository's installed Vitest and `@cloudflare/vitest-pool-workers` versions and existing configuration. Configuration exports, pool options, runtime imports and isolation guarantees vary by integration version; do not apply `defineWorkersConfig`/`poolOptions` as a universal setup or migrate an existing suite merely to add a test.
 
-`vitest.config.ts`:
-```typescript
-import { defineWorkersConfig } from "@cloudflare/vitest-pool-workers/config";
-
-export default defineWorkersConfig({
-  test: {
-    poolOptions: {
-      workers: {
-        wrangler: { configPath: "./wrangler.jsonc" },
-      },
-    },
-  },
-});
-```
+Retrieve the current [Vitest integration documentation](https://developers.cloudflare.com/workers/testing/vitest-integration/) and follow its setup, migration, test-API and isolation guidance for the installed version. Use the repository's approved CI/test route; this reference does not authorize installs, local servers or broad test runs.
 
 ### Test Scheduled Events
 
