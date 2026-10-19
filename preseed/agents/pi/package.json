@@ -7,7 +7,7 @@
     "@gotgenes/pi-subagents": "23.4.2",
     "@juicesharp/rpiv-advisor": "2.12.0",
     "@juicesharp/rpiv-ask-user-question": "2.12.0",
-    "@juicesharp/rpiv-todo": "2.12.0",
+    "@juicesharp/rpiv-todo": "2.13.4",
     "@narumitw/pi-goal": "0.54.11",
     "@narumitw/pi-plan-mode": "0.59.2",
     "context-mode": "1.0.169",
