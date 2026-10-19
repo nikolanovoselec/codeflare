@@ -3044,6 +3044,13 @@ function sourceOf(entry) {
   return entry && typeof entry.source === 'string' ? entry.source : undefined;
 }
 function identity(source) {
+  // Restored homes may retain this earlier local installation alongside npm.
+  // Treat only its known managed location as the same identity before Pi starts;
+  // the required npm entry replaces the registration without deleting any files.
+  const legacy = 'packages/pi-smart-compact-10.6.2';
+  if (source === `./${legacy}` || source === require('path').join(require('path').dirname(path), legacy)) {
+    return 'npm:pi-smart-compact';
+  }
   return source.replace(/@[^/@]+$/, '');
 }
 let settings = {};

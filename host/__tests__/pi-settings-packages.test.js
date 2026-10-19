@@ -40,7 +40,7 @@ function runHeredoc(body, filename, initialJson, times = 1, reviewAssets = false
   const scriptPath = join(dir, 'script.cjs'); // .cjs: the program uses require()/argv
   const jsonPath = join(dir, filename);
   writeFileSync(scriptPath, body);
-  writeFileSync(jsonPath, initialJson);
+  writeFileSync(jsonPath, typeof initialJson === 'function' ? initialJson(dir) : initialJson);
   if (reviewAssets) {
     mkdirSync(join(dir, 'extensions'));
     for (const name of ['review-enforcement.ts', 'operator-review-remote.ts',
@@ -186,6 +186,43 @@ describe('REQ-AGENT-222 AC1: managed Smart Compact package assembly', () => {
       assert.deepEqual(first.extensions, ['user-extension.ts', '-builtin:mcp']);
       for (const required of REQUIRED) assert.ok(first.packages.some(entry => sourceOf(entry) === required), required);
     });
+  }
+});
+
+describe('REQ-AGENT-222 AC1: restored local Smart Compact registration migration', () => {
+  for (const shape of ['relative', 'absolute', 'filtered-relative', 'filtered-absolute']) {
+    it(`REQ-AGENT-222 AC1: ${shape} legacy registration converges to one managed package before discovery`, () => {
+      let original;
+      const settings = runAssembly(agentDir => {
+        const source = shape.includes('absolute')
+          ? join(agentDir, 'packages/pi-smart-compact-10.6.2')
+          : './packages/pi-smart-compact-10.6.2';
+        original = {
+          packages: [shape.startsWith('filtered') ? { source, extensions: ['dist/index.js'] } : source,
+            'npm:pi-smart-compact@10.6.2', 'npm:pi-smart-compact-extra@1.0.0',
+            './custom/pi-smart-compact-10.6.2', './packages/pi-smart-compact-10.6.2-extra'],
+          smartCompact: { mode: 'fast', autoTrigger: false },
+          semanticCompact: { futureOption: false }, theme: 'keep-theme',
+          customPreference: { keep: true }, extensions: ['user-extension.ts'],
+        };
+        return JSON.stringify(original);
+      });
+      expectSingleManagedPackage(settings, original);
+      assert.deepEqual(runAssembly(JSON.stringify(settings)), settings);
+    });
+  }
+
+  function expectSingleManagedPackage(settings, original) {
+    const sources = settings.packages.map(sourceOf);
+    assert.equal(sources.includes(sourceOf(original.packages[0])), false, 'the duplicate local registration is removed');
+    assert.deepEqual(settings.packages.filter(entry => /^npm:pi-smart-compact(?:@|$)/.test(sourceOf(entry))),
+      ['npm:pi-smart-compact@10.6.2']);
+    for (const source of original.packages.slice(2)) assert.ok(sources.includes(source), source);
+    for (const spec of REQUIRED) assert.ok(sources.includes(spec), spec);
+    for (const key of ['smartCompact', 'semanticCompact', 'theme', 'customPreference']) {
+      assert.deepEqual(settings[key], original[key]);
+    }
+    assert.deepEqual(settings.extensions, ['user-extension.ts', '-builtin:mcp']);
   }
 });
 

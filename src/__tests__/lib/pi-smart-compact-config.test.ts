@@ -207,6 +207,80 @@ describe('REQ-AGENT-223: provider-neutral Smart Compact settings preparation', (
       packages: [userPackage, 'npm:pi-smart-compact@10.6.2', disabledPackage], smartCompact: MANAGED_DEFAULTS });
   });
 
+  for (const shape of ['relative', 'absolute', 'filtered-relative', 'filtered-absolute']) {
+    for (const section of ['smartCompact', 'semanticCompact', 'both', 'absent']) {
+      it(`REQ-AGENT-222 AC1 / REQ-AGENT-223: reconciles a ${shape} duplicate with ${section} preferences for the next discovery`, async () => {
+        const source = shape.includes('absolute')
+          ? join(agentDir, 'packages/pi-smart-compact-10.6.2')
+          : './packages/pi-smart-compact-10.6.2';
+        const legacy = shape.startsWith('filtered') ? { source, extensions: ['dist/index.js'] } : source;
+        const canonical = { source: 'npm:pi-smart-compact@10.6.2', extensions: ['dist/index.js'], skills: [] };
+        const userPackage = { source: 'npm:user-extension@1.0.0', extensions: [], custom: true };
+        const initial = {
+          packages: [legacy, canonical, userPackage, './custom/pi-smart-compact-10.6.2',
+            './packages/pi-smart-compact-10.6.2-extra', 'npm:pi-smart-compact-extra@1.0.0'],
+          extensions: ['user-extension.ts'], theme: 'keep-theme',
+          ...(section === 'absent' ? {} : section === 'both'
+            ? { smartCompact: { mode: 'fast', autoTrigger: false }, semanticCompact: { future: [0, null] } }
+            : { [section]: { mode: 'fast', autoTrigger: false, future: [0, null] } }),
+        };
+        writeSettings(initial);
+        const localDir = join(agentDir, 'packages/pi-smart-compact-10.6.2');
+        mkdirSync(localDir, { recursive: true });
+        writeFileSync(join(localDir, 'memory.json'), '{ "keep": true }\n');
+        const authPath = join(agentDir, 'auth.json');
+        writeFileSync(authPath, '{ "provider": "fixture-only" }\n');
+        vi.stubEnv('PI_CODING_AGENT_DIR', agentDir);
+
+        await smartCompactConfig({} as never);
+
+        expect(readSettings()).toEqual({ ...initial, packages: initial.packages.slice(1),
+          ...(section === 'absent' ? { smartCompact: MANAGED_DEFAULTS } : {}) });
+        const once = readFileSync(settingsPath, 'utf8');
+        await smartCompactConfig({} as never);
+        expect(readFileSync(settingsPath, 'utf8')).toBe(once);
+        expect(readFileSync(join(localDir, 'memory.json'), 'utf8')).toBe('{ "keep": true }\n');
+        expect(readFileSync(authPath, 'utf8')).toBe('{ "provider": "fixture-only" }\n');
+      });
+    }
+  }
+
+  it('REQ-AGENT-223: retains a local-only registration and similarly named npm package without inserting a competing registration', async () => {
+    const bytes = JSON.stringify({ smartCompact: { mode: 'fast' }, packages: [
+      './packages/pi-smart-compact-10.6.2', 'npm:pi-smart-compact-extra@1.0.0',
+    ] });
+    writeFileSync(settingsPath, bytes);
+    await configureSmartCompact(agentDir);
+    expect(readFileSync(settingsPath, 'utf8')).toBe(bytes);
+  });
+
+  it.each(['null', '[]', 'false'])('REQ-AGENT-223: refuses duplicate migration with malformed compaction preferences %s', async value => {
+    const bytes = `{ "smartCompact": ${value}, "packages": ["./packages/pi-smart-compact-10.6.2", "npm:pi-smart-compact@10.6.2"] }\n`;
+    writeFileSync(settingsPath, bytes);
+    await configureSmartCompact(agentDir);
+    expect(readFileSync(settingsPath, 'utf8')).toBe(bytes);
+  });
+
+  it.each(['null', '[]', 'false', '0', '"fast"'])('REQ-AGENT-223: a malformed shadowed legacy section %s prevents duplicate migration despite a valid canonical section', async value => {
+    const bytes = ` { "smartCompact": {}, "semanticCompact": ${value}, "packages": ["./packages/pi-smart-compact-10.6.2", "npm:pi-smart-compact@10.6.2"] }\n\n`;
+    writeFileSync(settingsPath, bytes);
+    vi.stubEnv('PI_CODING_AGENT_DIR', agentDir);
+
+    await smartCompactConfig({} as never);
+    await smartCompactConfig({} as never);
+
+    expect(readFileSync(settingsPath, 'utf8')).toBe(bytes);
+  });
+
+  it('REQ-AGENT-223: a locked settings file retains both registrations until safe reconciliation is possible', async () => {
+    const bytes = '{ "smartCompact": {}, "packages": ["./packages/pi-smart-compact-10.6.2", "npm:pi-smart-compact@10.6.2"] }\n';
+    writeFileSync(settingsPath, bytes);
+    mkdirSync(`${settingsPath}.lock`);
+    await configureSmartCompact(agentDir);
+    expect(readFileSync(settingsPath, 'utf8')).toBe(bytes);
+    expect(lstatSync(`${settingsPath}.lock`).isDirectory()).toBe(true);
+  });
+
   it('REQ-AGENT-223: malformed JSON fails closed without overwriting the original settings bytes', async () => {
     const malformed = '{ "theme": "user-theme", "smartCompact": { "autoTrigger": false },\n';
     writeFileSync(settingsPath, malformed);

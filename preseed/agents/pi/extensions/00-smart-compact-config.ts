@@ -83,9 +83,33 @@ export function configureSmartCompact(agentDir: string): boolean {
       } finally { closeSync(input); }
     }
     if (!isObject(settings)) return false;
-    if (Object.hasOwn(settings, "smartCompact")) return isObject(settings.smartCompact);
-    if (Object.hasOwn(settings, "semanticCompact")) return isObject(settings.semanticCompact);
-    settings.smartCompact = { ...defaults };
+    const hasCanonical = Object.hasOwn(settings, "smartCompact");
+    const hasLegacy = Object.hasOwn(settings, "semanticCompact");
+    if ((hasCanonical && !isObject(settings.smartCompact))
+      || (hasLegacy && !isObject(settings.semanticCompact))) return false;
+    let changed = false;
+    if (!hasCanonical && !hasLegacy) {
+      settings.smartCompact = { ...defaults };
+      changed = true;
+    }
+
+    // Package discovery has already happened when a factory runs. Repair only
+    // persisted registrations for the next discovery; never force a reload.
+    const sourceOf = (entry: unknown): string | undefined => typeof entry === "string" ? entry
+      : isObject(entry) && typeof entry.source === "string" ? entry.source : undefined;
+    if (Array.isArray(settings.packages) && settings.packages.some(entry =>
+      /^npm:pi-smart-compact(?:@[^/]+)?$/.test(sourceOf(entry) ?? ""))) {
+      const legacy = "packages/pi-smart-compact-10.6.2";
+      const packages = settings.packages.filter(entry => {
+        const source = sourceOf(entry);
+        return source !== `./${legacy}` && source !== join(agentDir, legacy);
+      });
+      if (packages.length !== settings.packages.length) {
+        settings.packages = packages;
+        changed = true;
+      }
+    }
+    if (!changed) return true;
 
     const mode = previous ? previous.mode & 0o777 : 0o600;
     const candidate = join(agentDir, `.settings.json.${randomUUID()}.tmp`);
