@@ -3475,7 +3475,8 @@ None.
 
 1. Every Turnstile API request applies bounded connection and total deadlines. <!-- @impl: preseed/agents/claude/skills/turnstile-spin/scripts/auth-probe.sh::probe_response --> <!-- @impl: preseed/agents/claude/skills/turnstile-spin/scripts/widget-create.sh::API_RESPONSE --> <!-- @impl: preseed/agents/claude/skills/turnstile-spin/scripts/validate.sh::WIDGET_RESPONSE --> <!-- @manual -->
 2. Error code 10000 is classified as missing scope regardless of HTTP status. <!-- @impl: preseed/agents/claude/skills/turnstile-spin/scripts/auth-probe.sh::first_code --> <!-- @manual -->
-3. Skill persistence returns a nonzero exit and a JSON error receipt with reason `copy_failed` when bundle copying fails, never reports successful persistence for that failure, and removes its temporary clone after failure or success. <!-- @impl: preseed/agents/claude/skills/turnstile-spin/scripts/persist-skill.sh::TEMP_DIR --> <!-- @test: host/__tests__/turnstile-skill-persistence.test.js (REQ-AGENT-138 AC3: skill persistence reports copy errors and cleans its temporary clone) --> <!-- @test: host/__tests__/turnstile-skill-persistence.test.js (REQ-AGENT-138 AC3: successful skill persistence installs the bundle and cleans its temporary clone) -->
+3. Skill persistence removes its temporary clone after failure or success. <!-- @impl: preseed/agents/claude/skills/turnstile-spin/scripts/persist-skill.sh::TEMP_DIR --> <!-- @test: host/__tests__/turnstile-skill-persistence.test.js (REQ-AGENT-138 AC3/AC4: skill persistence reports copy errors and cleans its temporary clone) --> <!-- @test: host/__tests__/turnstile-skill-persistence.test.js (REQ-AGENT-138 AC3: successful skill persistence installs the bundle and cleans its temporary clone) -->
+4. Bundle copy failure returns a nonzero exit and a JSON error receipt with reason `copy_failed`, never a success receipt. <!-- @impl: preseed/agents/claude/skills/turnstile-spin/scripts/persist-skill.sh::SOURCE_DIR --> <!-- @test: host/__tests__/turnstile-skill-persistence.test.js (REQ-AGENT-138 AC3/AC4: skill persistence reports copy errors and cleans its temporary clone) -->
 
 **Constraints:**
 
@@ -3485,7 +3486,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-075](#req-agent-075-cloudflare-platform-skills-bundled-into-the-advanced-seed)
 
-**Verification:** AC1 and AC2 require manual verification. AC3 has an offline regression using the shipped script and a local canonical Git bundle, covering copy failure, successful installation, preservation of an existing destination file, and temporary-clone cleanup.
+**Verification:** AC1 and AC2 require manual verification. AC3 and AC4 have offline regressions using the shipped script and a local canonical Git bundle, covering copy failure, successful installation, preservation of an existing destination file, and temporary-clone cleanup.
 
 **Status:** Implemented
 

@@ -49,7 +49,7 @@ function persistenceFixture(t) {
   };
 }
 
-it('REQ-AGENT-138 AC3: skill persistence reports copy errors and cleans its temporary clone', (t) => {
+it('REQ-AGENT-138 AC3/AC4: skill persistence reports copy errors and cleans its temporary clone', (t) => {
   const fixture = persistenceFixture(t);
   // A file where the destination parent must be a directory makes the real copy fail, including as root.
   writeFileSync(join(fixture.project, '.claude'), 'Existing project file must remain unchanged.\n');
