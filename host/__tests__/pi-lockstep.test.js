@@ -259,6 +259,7 @@ const WARMED_NPM_ENTRYPOINTS = [
   { variable: 'ask_user', package: '@juicesharp/rpiv-ask-user-question', entrypoint: 'index.ts' },
   { variable: 'todo', package: '@juicesharp/rpiv-todo', entrypoint: 'index.ts' },
   { variable: 'web', package: 'pi-web-access', entrypoint: 'dist/index.js' },
+  { variable: 'smart_compact', package: 'pi-smart-compact', entrypoint: 'dist/index.js' },
   { variable: 'context', package: 'context-mode', entrypoint: 'build/adapters/pi/extension.js' },
 ];
 
@@ -349,7 +350,7 @@ describe('REQ-AGENT-111/REQ-AGENT-056/REQ-AGENT-133/REQ-AGENT-152/REQ-AGENT-210:
   });
 
   it('REQ-AGENT-152/REQ-AGENT-210: rejects missing managed startup caches', () => {
-    for (const name of ['pi-open-tui', '@gotgenes/pi-subagents', 'pi-mcp-adapter', '@narumitw/pi-plan-mode', '@juicesharp/rpiv-advisor', '@juicesharp/rpiv-ask-user-question', '@juicesharp/rpiv-todo', 'pi-web-access']) {
+    for (const name of ['pi-open-tui', '@gotgenes/pi-subagents', 'pi-mcp-adapter', '@narumitw/pi-plan-mode', '@juicesharp/rpiv-advisor', '@juicesharp/rpiv-ask-user-question', '@juicesharp/rpiv-todo', 'pi-web-access', 'pi-smart-compact']) {
       const fixture = runImageWarmFixture(name);
       try {
         assert.notEqual(fixture.result.status, 0);

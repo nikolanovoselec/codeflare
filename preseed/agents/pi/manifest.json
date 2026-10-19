@@ -37,6 +37,12 @@
       "advanced"
     ]
   },
+  "extensions/00-smart-compact-config.ts": {
+    "modes": [
+      "default",
+      "advanced"
+    ]
+  },
   "extensions/active-repo-memory.ts": {
     "modes": [
       "default",
@@ -296,6 +302,11 @@
     ]
   },
   "scripts/merge-vault-graph.py": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "scripts/recover-memory-capture.py": {
     "modes": [
       "advanced"
     ]

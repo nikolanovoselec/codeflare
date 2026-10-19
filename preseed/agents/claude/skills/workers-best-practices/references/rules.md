@@ -436,11 +436,11 @@ async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response
 
 ### Test with @cloudflare/vitest-pool-workers
 
-Runs tests inside the Workers runtime with real bindings. Catches issues that Node.js-based tests miss.
+The Workers integration can exercise runtime bindings, but setup and isolation depend on the installed Vitest/pool versions. Inspect the existing suite before recommending changes; adding a test does not require a suite migration. Do not assume legacy `defineWorkersConfig`/`poolOptions`, `cloudflare:test` imports or automatic per-test storage isolation apply to every integration version.
 
-**Known pitfall**: the Vitest pool auto-injects `nodejs_compat`, so tests pass even if your wrangler config is missing the flag. Always confirm your `wrangler.jsonc` includes `nodejs_compat` if your code depends on Node.js built-ins.
+Confirm production compatibility flags separately from test-runtime conveniences; a passing test does not prove production enables the Node.js APIs the application uses.
 
-**Check**: test setup uses `@cloudflare/vitest-pool-workers`. Tests cover nullable returns (e.g., KV `.get()` returning `null`).
+**Check**: follow the installed integration's documented setup and isolation model. Cover observable outcomes, including nullable returns (e.g., KV `.get()` returning `null`). The following example applies only to versions exporting `env` from `cloudflare:test`; use the documented import for your installed version.
 
 ```ts
 import { describe, it, expect } from "vitest";
@@ -460,4 +460,4 @@ describe("KV operations", () => {
 });
 ```
 
-**Retrieve**: `/workers/testing/vitest-integration/` for current setup and configuration.
+**Retrieve**: `/workers/testing/vitest-integration/` and its setup, migration, test-API and isolation references. Use the repository's approved CI/test route; do not install or migrate packages merely to review a suite.

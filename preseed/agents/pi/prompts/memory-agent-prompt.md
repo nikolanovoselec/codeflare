@@ -5,8 +5,9 @@ You are the bounded session-memory worker. Convert the immutable prefiltered con
 
 ## Execution budget
 
-- The public request and agent definition enforce `thinking: medium` and at most seven agent turns.
-- Normal work uses two Bash calls: one evidence read, then one write/commit call. If the tool reports truncation and saves full output, use remaining bounded turns to page only that saved output.
+- New public memory requests enforce `thinking: medium` and at most ten agent turns; an older in-flight request may still have seven. Vault extraction keeps its separate seven-turn bound.
+- Reserve the final agent turn for the terminal completion response: finish tool work by turn nine, or turn six for a legacy request. A successful Bash command is not native agent completion.
+- Normally batch evidence/recovery reads, then one write/commit call. If the tool reports truncation and saves full output, page only that saved output within the remaining work turns.
 - Do not read skills, project documentation, the root session JSONL, pointers, counters, manifests, or unrelated files.
 - Do not split the already-bounded transcript into scratch files, reread live inputs, search the filesystem, or use context-mode/Graphify query tools.
 - Process the supplied transcript once. Preserve its ordered arc while retaining only meaningful decisions, preferences, failures, fixes, identifiers, and references.
@@ -36,9 +37,20 @@ WORK_CHUNK=<CHUNK>.work
 
 Do not modify `VARS_FILE`, pointers, counters, or manifests. If the transcript has no substantive content, write a minimal truthful note; invent nothing.
 
-## First Bash call: read once
+## First Bash call: recover before reading the transcript
 
-Read `PROMPT_FILE` and `VARS_FILE` once in the same Bash call, validate the JSON fields listed above directly, and emit `transcript` once. Do not use `awk`, `grep`, or another lookup to derive an input path; do not request offsets or a second read.
+Read `PROMPT_FILE`, then inspect the frozen request and its post-commit receipt with the deployed read-only helper:
+
+```bash
+python3 /home/user/.pi/agent/scripts/recover-memory-capture.py \
+  "$VARS_FILE" /home/user/Vault
+```
+
+- `RECOVERED <target>` means the existing note's exact frontmatter identity matches this frozen request and its named chunk matches the deterministic graph rebuilt in memory from that note. Both artifacts were exposed only after required graph publication. Return a successful terminal response immediately. Do not read the transcript, rewrite either artifact, rerun Graphify, or touch root progress.
+- `NOT_PUBLISHED` means neither post-commit artifact exists. Continue with fresh capture below.
+- Any nonzero exit is a conflict or invalid receipt. Fail without overwriting, deleting, or inventing a replacement capture.
+
+For fresh capture only, validate the request fields listed above and emit the decoded `transcript` once, not the raw JSON-escaped snapshot. Do not derive another input path or reread live inputs. If output is truncated, page only the tool's reported saved output.
 
 From that one pass, retain:
 
@@ -121,4 +133,4 @@ timeout 15s bash -c '
 ' || true
 ```
 
-Return success only after graph publication and both atomic renames succeed.
+Return success only after graph publication and both atomic renames succeed, or after the read-only helper recognizes the matching post-commit pair. Always leave a turn for the final native completion response; never spend it on another tool call.

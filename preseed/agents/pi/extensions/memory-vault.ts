@@ -37,6 +37,7 @@ import {
   parseSessionEntries,
   parseVaultExtractRequest,
   realUserPromptCount,
+  realUserPromptFingerprint,
   sessionId,
   shouldCapture,
   shouldCheckVault,
@@ -175,19 +176,54 @@ function vaultCheckCounterPath(paths: MemoryVaultPaths, session: string): string
   return join(paths.memoryCounterDir, `${session}.vault-count`);
 }
 
-function latestCapturedPromptCount(paths: MemoryVaultPaths, session: string): number {
+interface MemoryProgress {
+  promptCount: number;
+  transcriptFingerprint?: string;
+}
+
+function progressPath(paths: MemoryVaultPaths, session: string): string {
+  return join(paths.memoryCounterDir, `${session}.progress.json`);
+}
+
+function readMemoryProgress(paths: MemoryVaultPaths, session: string, promptCount: number): MemoryProgress | undefined {
+  const value = readJson(progressPath(paths, session)) as Partial<MemoryProgress> | undefined;
+  if (value?.promptCount !== promptCount || typeof value.transcriptFingerprint !== "string"
+    || !/^[0-9a-f]{64}$/.test(value.transcriptFingerprint)) return undefined;
+  return { promptCount, transcriptFingerprint: value.transcriptFingerprint };
+}
+
+function captureInstant(value: string): number {
+  const normalized = value.replace(/^"(.*)"$/, "$1")
+    .replace(/T(\d{2})-(\d{2})-(\d{2})([+-]\d{2})(\d{2})$/, "T$1:$2:$3$4:$5");
+  const instant = Date.parse(normalized);
+  return Number.isFinite(instant) ? instant : 0;
+}
+
+// Restore the latest capture, not the largest count from a previous transcript epoch.
+function latestCapturedPromptCount(paths: MemoryVaultPaths, session: string): MemoryProgress {
   const sessionsDir = join(paths.vaultRoot, "Raw", "Sessions");
-  let latest = 0;
+  let latest: MemoryProgress = { promptCount: 0 };
+  let latestInstant = -Infinity;
+  let latestName = "";
   try {
     for (const name of readdirSync(sessionsDir)) {
       if (!name.endsWith(".md")) continue;
-      const frontmatter = readFileSync(join(sessionsDir, name), "utf8").slice(0, 2048);
-      const capturedSession = frontmatter.match(/^session_id:\s*(\S+)\s*$/m)?.[1];
-      const capturedCount = Number.parseInt(
-        frontmatter.match(/^captured_prompt_count:\s*(\d+)\s*$/m)?.[1] ?? "0",
-        10,
-      );
-      if (capturedSession === session && Number.isInteger(capturedCount)) latest = Math.max(latest, capturedCount);
+      let frontmatter: string;
+      try {
+        frontmatter = readFileSync(join(sessionsDir, name), "utf8").slice(0, 2048)
+          .match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/)?.[1] ?? "";
+      } catch { continue; }
+      const capturedSession = frontmatter.match(/^session_id:[ \t]*(\S+)[ \t]*$/m)?.[1];
+      const capturedCount = Number(frontmatter.match(/^captured_prompt_count:[ \t]*(\d+)[ \t]*$/m)?.[1]);
+      if (capturedSession !== session || !Number.isSafeInteger(capturedCount) || capturedCount < 0) continue;
+      const timestamp = frontmatter.match(/^captured_at:[ \t]*(.+)$/m)?.[1]?.trim()
+        ?? name.match(/^(\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}[+-]\d{4})/)?.[1] ?? "";
+      const instant = captureInstant(timestamp);
+      if (instant < latestInstant || (instant === latestInstant && name <= latestName)) continue;
+      const transcriptFingerprint = frontmatter.match(/^captured_prompt_fingerprint:[ \t]*([0-9a-f]{64})[ \t]*$/m)?.[1];
+      latest = { promptCount: capturedCount, ...(transcriptFingerprint ? { transcriptFingerprint } : {}) };
+      latestInstant = instant;
+      latestName = name;
     }
   } catch { /* no durable captures yet */ }
   return latest;
@@ -327,6 +363,7 @@ function createMemoryRequest(input: {
     captureTimestamp: timestamp,
     captureFilename: captureFilenameAt(timestamp, input.session),
     transcript,
+    transcriptFingerprint: realUserPromptFingerprint(input.messages, input.promptCount),
   };
   writeJsonAtomic(memoryExecutionVarsPath(input.paths, input.session, request.requestId), request);
   writeJsonAtomic(memoryActiveVarsPath(input.paths, input.session), { version: 1, requestId: request.requestId });
@@ -387,6 +424,25 @@ function vaultSuccessQualifies(paths: MemoryVaultPaths, request: VaultExtractReq
   return request.changedFiles.length === 0 || requestChunkQualifies(paths, request.requestId);
 }
 
+function persistCaptureProgress(paths: MemoryVaultPaths, request: MemoryCaptureRequest): void {
+  const target = captureOutputPath(paths, request);
+  const content = readFileSync(target, "utf8");
+  const existing = content.match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/);
+  const otherMetadata = existing ? existing[1].split(/\r?\n/).filter((line) =>
+    !/^(?:session_id|captured_at|captured_prompt_count|captured_prompt_fingerprint):/.test(line)) : [];
+  const metadata = [
+    `session_id: ${request.sessionId}`,
+    `captured_at: ${JSON.stringify(request.captureTimestamp)}`,
+    `captured_prompt_count: ${request.promptCount}`,
+    ...(request.transcriptFingerprint ? [`captured_prompt_fingerprint: ${request.transcriptFingerprint}`] : []),
+    ...otherMetadata,
+  ];
+  const body = existing ? content.slice(existing[0].length) : content;
+  const temporaryPath = `${target}.tmp.${process.pid}`;
+  writeFileSync(temporaryPath, `---\n${metadata.join("\n")}\n---\n${body}`, "utf8");
+  renameSync(temporaryPath, target);
+}
+
 function finalizeMemorySuccess(
   paths: MemoryVaultPaths,
   dependencies: MemoryVaultDependencies,
@@ -403,10 +459,16 @@ function finalizeMemorySuccess(
     successQualifies: () => memorySuccessQualifies(paths, active.request),
   });
   if (facts.state !== "succeeded") return;
-  const countPath = counterPath(paths, active.request.sessionId);
-  writeFileSync(countPath, String(Math.max(readCount(countPath), active.request.promptCount)), "utf8");
   const currentPointer = readActivePointer(memoryActiveVarsPath(paths, active.request.sessionId));
   if (currentPointer?.requestId !== active.pointer.requestId) return;
+  // Commit the frozen prefix, even when its count is lower than an older epoch.
+  // Durable metadata precedes ephemeral state so a restart can recover this success.
+  persistCaptureProgress(paths, active.request);
+  writeFileSync(counterPath(paths, active.request.sessionId), String(active.request.promptCount), "utf8");
+  writeJsonAtomic(progressPath(paths, active.request.sessionId), {
+    promptCount: active.request.promptCount,
+    ...(active.request.transcriptFingerprint ? { transcriptFingerprint: active.request.transcriptFingerprint } : {}),
+  });
   safeUnlink(memoryActiveVarsPath(paths, active.request.sessionId));
   safeUnlink(active.executionPath);
   safeUnlink(requestChunkPath(paths, active.request.requestId));
@@ -656,13 +718,21 @@ export function registerMemoryVault(pi: MemoryVaultPi, dependencies: MemoryVault
 
     const countFile = counterPath(paths, session);
     const counterExists = existsSync(countFile);
-    const lastCount = counterExists ? readCount(countFile) : latestCapturedPromptCount(paths, session);
+    const savedCount = readCount(countFile);
+    let progress = counterExists ? readMemoryProgress(paths, session, savedCount) : undefined;
+    if (!progress) {
+      const durable = latestCapturedPromptCount(paths, session);
+      progress = !counterExists || durable.promptCount === savedCount ? durable : { promptCount: savedCount };
+    }
     const messages = withCurrentPrompt(sessionMessages(entries, lastMessages), prompt);
     const currentCount = realUserPromptCount(messages);
+    const rebased = currentCount < progress.promptCount || (progress.transcriptFingerprint !== undefined
+      && realUserPromptFingerprint(messages, progress.promptCount) !== progress.transcriptFingerprint);
+    const lastCount = rebased ? 0 : progress.promptCount;
     const vaultCountFile = vaultCheckCounterPath(paths, session);
-    const resumed = isResumedSession(counterExists, currentCount) && !existsSync(vaultCountFile);
+    const resumed = isResumedSession(counterExists, currentCount);
     const previousVaultCount = readCount(vaultCountFile);
-    if (resumed || shouldCheckVault(previousVaultCount, currentCount)) {
+    if ((resumed && !existsSync(vaultCountFile)) || shouldCheckVault(previousVaultCount, currentCount)) {
       detectNewVaultRequestWhenNoneExists(paths, dependencies, session);
       writeFileSync(vaultCountFile, String(currentCount), "utf8");
     }
@@ -675,7 +745,10 @@ export function registerMemoryVault(pi: MemoryVaultPi, dependencies: MemoryVault
         now: dependencies.now(),
         successQualifies: () => memorySuccessQualifies(paths, active.request),
       });
-      if (facts.giveup && shouldCapture(currentCount - active.request.promptCount)) {
+      const activePrefixChanged = currentCount < active.request.promptCount
+        || (active.request.transcriptFingerprint !== undefined
+          && realUserPromptFingerprint(messages, active.request.promptCount) !== active.request.transcriptFingerprint);
+      if (facts.giveup && (activePrefixChanged || shouldCapture(currentCount - active.request.promptCount))) {
         const replacement = createMemoryRequest({
           paths,
           dependencies,
@@ -694,13 +767,13 @@ export function registerMemoryVault(pi: MemoryVaultPi, dependencies: MemoryVault
       return;
     }
 
-    if (isFirstMessage(counterExists, currentCount)) {
+    if (!rebased && isFirstMessage(counterExists, currentCount) && progress.promptCount === 0) {
       writeFileSync(countFile, String(currentCount), "utf8");
       writeFileSync(vaultCountFile, "0", "utf8");
       bestEffortMergeGraphs(paths);
       return;
     }
-    if (!resumed && !shouldCapture(currentCount - lastCount)) return;
+    if (!rebased && !resumed && !shouldCapture(currentCount - lastCount)) return;
     createMemoryRequest({
       paths,
       dependencies,

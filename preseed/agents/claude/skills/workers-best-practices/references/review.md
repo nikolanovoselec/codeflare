@@ -8,20 +8,9 @@ Prefer retrieval over pre-training. Types, config schemas, and APIs change with 
 
 ### Workers types
 
-Fetch the latest `@cloudflare/workers-types` before reviewing. The project may have an older version installed.
+Start with the project's installed Wrangler version, generated `Env`/runtime types, and configured compatibility date and flags. If it uses `@cloudflare/workers-types`, read that installed version and note it.
 
-```bash
-mkdir -p /tmp/workers-types-latest && \
-  npm pack @cloudflare/workers-types --pack-destination /tmp/workers-types-latest && \
-  tar -xzf /tmp/workers-types-latest/cloudflare-workers-types-*.tgz -C /tmp/workers-types-latest
-# Types are at /tmp/workers-types-latest/package/index.d.ts
-```
-
-Search this file for the specific type, class, or interface under review. Do not guess type names.
-
-Alternative: `npx wrangler types` generates a typed `Env` interface from the local wrangler config.
-
-Fallback: read `node_modules/@cloudflare/workers-types/index.d.ts`. Note the installed version.
+Look up the specific API or binding in those declarations and relevant current documentation. Do not substitute an unrelated newer package as the review contract. If generated types are stale, report the discrepancy; use the repository's approved `wrangler types`/CI path when generation is authorized. Reviewing alone does not authorize package installation or a compatibility upgrade.
 
 ### Wrangler config schema
 
@@ -129,28 +118,27 @@ See the full anti-patterns table in `SKILL.md`. The type-specific ones to watch 
 - **`implements` instead of `extends` on platform base classes** — legacy pattern; loses `this.ctx`, `this.env`
 - **`env.X` inside class body** — should be `this.env.X` in platform base classes
 - **`this.env.X` in module export handler** — should be `env.X` parameter
-- **Non-serializable values across boundaries** — `Response`, `Error` in step/queue compiles but fails at runtime
+- **Values incompatible with the actual boundary** — validate the selected encoding/API contract; do not treat every step, queue, storage or WebSocket boundary alike
 
 ---
 
 ## Serialization Boundaries
 
-Data crossing these boundaries must be structured-clone serializable:
+Validate each boundary against its own encoding, type support and size limits:
 
-- **Queue messages**: body passed to `.send()` or `.sendBatch()`
-- **Workflow step return values**: persisted to durable storage
-- **DO storage**: values in `storage.put()` or SQL
-- **`postMessage()`**: WebSocket messages
+- **Queues**: inspect `contentType` for `.send()`/`.sendBatch()` (`json`, `text`, `bytes`, or `v8`). JSON and V8 serialization have different supported values and round-trip behavior.
+- **Workflow steps**: use the documented persisted step-result contract and limits; do not infer support from Queue or DO storage behavior.
+- **DO key/value storage**: `storage.put()` uses structured-clone serialization. `Map`, `Set`, `Date` and other supported cloneable values are not universally invalid.
+- **DO SQL storage**: validate SQL parameter/result types, not a structured-clone object-store contract.
+- **WebSockets**: `send()` accepts the documented text/binary payloads; it is not a generic structured-clone `postMessage()` channel.
 
-Non-serializable types to flag: `Response`, `Request`, `Error`, functions, class instances with methods, `Map`/`Set`, `Symbol`.
-
-Valid: plain objects, arrays, strings, numbers, booleans, null, `ArrayBuffer`, `Date`.
+Do not blanket-reject `Error`, `Map` or `Set` across all APIs, or blanket-approve a type merely because another boundary accepts it. Check successful round-trip semantics as well as rejection/loss of unsupported data.
 
 ---
 
 ## Review Process
 
-1. **Retrieve** — fetch latest workers types, wrangler schema, and best practices page
+1. **Retrieve** — inspect installed/generated types, Wrangler schema and compatibility settings, then relevant current documentation
 2. **Read full files** — not just diffs; context matters for binding access patterns
 3. **Categorize code** — determines what to check:
    - **Illustrative** (concept demo, comments for most logic): verify correct API names and realistic signatures

@@ -20,6 +20,13 @@ const WANTED_SECTIONS = ["## Context", "## Decisions"] as const;
 const STAMP = /^(\d{4}-\d{2}-\d{2})T(\d{2})-(\d{2})-(\d{2})([+-]\d{4}|Z)/;
 const FENCE = /^(`{3,})(.*)$/;
 
+export function captureSessionId(text: string): string | undefined {
+  const frontmatter = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/.exec(text)?.[1];
+  if (!frontmatter) return undefined;
+  const match = /^session_id:[ \t]*(?:"([A-Za-z0-9_-]+)"|'([A-Za-z0-9_-]+)'|([A-Za-z0-9_-]+))[ \t]*$/m.exec(frontmatter);
+  return match?.[1] ?? match?.[2] ?? match?.[3];
+}
+
 /**
  * The instant an extract was captured, from the timestamp its name carries.
  *

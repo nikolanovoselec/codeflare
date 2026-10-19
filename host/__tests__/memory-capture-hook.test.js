@@ -119,7 +119,7 @@ describe('memory-capture.sh - input gating / REQ-MEM-002 (capture triggers every
   });
 });
 
-// REQ-MEM-002 AC2 + AC7 (no counter = fresh container; distinguish brand-new vs resumed)
+// REQ-MEM-002 AC2 / REQ-MEM-026 AC1 (no counter: distinguish brand-new from resumed)
 describe('memory-capture.sh - first-run baseline + resume detection / REQ-MEM-010 (memory capture hook plumbing)', () => {
   // REQ-MEM-002 AC2 + REQ-MEM-010 AC3: brand-new session (1 prompt) baselines and emits directive
   it('first run on a brand-new session baselines and emits memory-scan directive', () => {
@@ -143,7 +143,7 @@ describe('memory-capture.sh - first-run baseline + resume detection / REQ-MEM-01
     );
   });
 
-  // REQ-MEM-002 AC7: resumed session (no counter + transcript has >1 prompt)
+  // REQ-MEM-026 AC1: resumed session (no counter + transcript has >1 prompt)
   // force-fires capture from line 1 AND re-emits graph-query directive.
   // Models the canonical codeflare resume path: container recycled, /tmp wiped,
   // transcript restored on disk, CURRENT_COUNT reflects accumulated prior prompts.
@@ -190,7 +190,7 @@ describe('memory-capture.sh - first-run baseline + resume detection / REQ-MEM-01
     assert.equal(existsSync(join(fx.home, '.cache', 'codeflare-hooks', 'vault-extract.vars')), true);
   });
 
-  // REQ-MEM-002 AC7 boundary: counter absent but transcript has exactly 1 prompt
+  // REQ-MEM-026 AC1 boundary: counter absent but transcript has exactly 1 prompt
   // is the brand-new-session case, NOT a resume - must not force-fire.
   it('AC7 boundary - missing counter + transcript with exactly 1 prompt is brand-new (no capture)', () => {
     const fx = makeFixture();

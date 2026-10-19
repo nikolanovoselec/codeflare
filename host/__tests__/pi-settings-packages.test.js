@@ -1,7 +1,7 @@
 // Runs the real embedded Node program from entrypoint.sh that assembles Pi's
 // ~/.pi/agent/settings.json `packages` array, against fixture settings files.
 // This is the "run the real thing" coverage (per tdd-discipline.md) for:
-//   - context-mode being disabled by default while remaining controllable through explicit /ctx off/on,
+//   - context-mode being enabled at container boot while /ctx off remains a session opt-out,
 //   - the managed extension packages, including Goal, Open TUI, and Evaluate, being present in
 //     `required` so they are
 //     available WITH AND WITHOUT context-mode — toggling /ctx never removes them,
@@ -76,21 +76,23 @@ const REQUIRED = Object.entries(piPackage.dependencies)
   .map(([name, version]) => `npm:${name}@${version}`);
 
 describe('Pi settings.json packages assembly (entrypoint.sh)', () => {
-  it('REQ-AGENT-076 AC1 / REQ-AGENT-133 AC1: fresh container assembles required packages with context-mode disabled', () => {
+  it('REQ-AGENT-076 AC1 / REQ-AGENT-133 AC1: fresh container assembles required packages with context-mode enabled', () => {
     const settings = runAssembly('{}');
     const sources = settings.packages.map(sourceOf);
     assert.ok(REQUIRED.length > 0, 'the derived required set must not be empty');
     for (const spec of REQUIRED) {
       assert.ok(sources.includes(spec), `assembled packages must include ${spec}`);
     }
-    const contextMode = settings.packages.find((entry) => sourceOf(entry) === 'npm:context-mode@1.0.169');
-    assert.deepEqual(contextMode, { source: 'npm:context-mode@1.0.169', extensions: [], skills: [] });
+    assert.deepEqual(settings.packages.filter((entry) => /^npm:context-mode(?:@|$)/.test(sourceOf(entry))),
+      [{ source: 'npm:context-mode@1.0.169', extensions: [] }]);
   });
 
-  it('startup restores the disabled default while preserving managed and unrelated packages', () => {
+  it('REQ-AGENT-076 AC1/AC2: next container boot restores the enabled default after /ctx off while preserving managed and unrelated settings', () => {
     const initial = JSON.stringify({
+      theme: 'user-theme', defaultProvider: 'user-provider', defaultModel: 'user-model',
+      customPreference: { keep: true },
       packages: [
-        { source: 'npm:context-mode@1.0.169', extensions: [] },
+        { source: 'npm:context-mode@1.0.169', extensions: [], skills: [] },
         'npm:pi-goal-list-loop-audit@0.34.16',
         'npm:pi-caveman@1.0.8',
         'npm:some-user-package@1.0.0', // an unrelated package the user added
@@ -99,7 +101,10 @@ describe('Pi settings.json packages assembly (entrypoint.sh)', () => {
     const settings = runAssembly(initial);
     const sources = settings.packages.map(sourceOf);
     const cm = settings.packages.find((e) => sourceOf(e) === 'npm:context-mode@1.0.169');
-    assert.deepEqual(cm, { source: 'npm:context-mode@1.0.169', extensions: [], skills: [] });
+    assert.deepEqual(cm, { source: 'npm:context-mode@1.0.169', extensions: [] });
+    for (const key of ['theme', 'defaultProvider', 'defaultModel', 'customPreference']) {
+      assert.deepEqual(settings[key], JSON.parse(initial)[key]);
+    }
     // Managed packages are present regardless of context-mode's prior state.
     for (const spec of REQUIRED) assert.ok(sources.includes(spec), `must include ${spec}`);
     assert.ok(!sources.includes('npm:pi-goal-list-loop-audit@0.34.16'), 'retired glla package must be removed');
@@ -145,6 +150,45 @@ describe('Pi settings.json packages assembly (entrypoint.sh)', () => {
   });
 });
 
+// Exact package/version outputs are the managed Smart Compact delivery contract.
+// Its provider-neutral configuration is exercised against real settings files in
+// src/__tests__/lib/pi-smart-compact-config.test.ts.
+describe('REQ-AGENT-222 AC1: managed Smart Compact package assembly', () => {
+  it('REQ-AGENT-222 AC1: fresh boot installs exactly npm:pi-smart-compact@10.6.2', () => {
+    const settings = runAssembly('{}');
+    assert.deepEqual(settings.packages.filter(entry => /^npm:pi-smart-compact(?:@|$)/.test(sourceOf(entry))),
+      ['npm:pi-smart-compact@10.6.2']);
+    assert.equal(piPackage.dependencies['pi-smart-compact'], '10.6.2', 'the baked package matches the startup pin');
+  });
+
+  for (const stale of ['npm:pi-smart-compact', 'npm:pi-smart-compact@9.0.0',
+    { source: 'npm:pi-smart-compact@10.6.2', extensions: [], skills: [] }]) {
+    it(`REQ-AGENT-222 AC1: restored ${JSON.stringify(stale)} converges once without changing user settings or similarly named packages`, () => {
+      const user = { source: 'npm:user-extension@1.0.0', extensions: ['keep.ts'], userField: true };
+      const initial = {
+        packages: [stale, 'npm:pi-smart-compact@10.6.2', 'npm:pi-smart-compact@8.0.0',
+          'npm:pi-smart-compact-extra@1.0.0', user],
+        theme: 'user-theme', defaultProvider: 'user-provider', defaultModel: 'user-model',
+        auth: { 'user-provider': { type: 'oauth', access: 'fixture-only' } },
+        smartCompact: { mode: 'fast', autoTrigger: false },
+        customPreference: { keep: ['one', 'two'] }, extensions: ['user-extension.ts'],
+      };
+      const first = runAssembly(JSON.stringify(initial));
+      const second = runAssembly(JSON.stringify(first));
+      assert.deepEqual(first.packages.filter(entry => /^npm:pi-smart-compact(?:@|$)/.test(sourceOf(entry))),
+        ['npm:pi-smart-compact@10.6.2']);
+      assert.deepEqual(second, first, 'repeat startup neither duplicates the package nor changes settings');
+      assert.deepEqual(first.packages.find(entry => sourceOf(entry) === user.source), user);
+      assert.ok(first.packages.includes('npm:pi-smart-compact-extra@1.0.0'));
+      for (const key of ['theme', 'defaultProvider', 'defaultModel', 'auth', 'smartCompact', 'customPreference']) {
+        assert.deepEqual(first[key], initial[key]);
+      }
+      assert.deepEqual(first.extensions, ['user-extension.ts', '-builtin:mcp']);
+      for (const required of REQUIRED) assert.ok(first.packages.some(entry => sourceOf(entry) === required), required);
+    });
+  }
+});
+
 // Exact source/filter and removed-identity outputs are intentional startup
 // migration contracts; native UI behavior belongs to upstream and terminal acceptance.
 describe('REQ-AGENT-056 / REQ-AGENT-209: Open TUI adoption and managed Usage retirement', () => {
@@ -182,7 +226,7 @@ describe('REQ-AGENT-056 / REQ-AGENT-209: Open TUI adoption and managed Usage ret
       for (const key of ['defaultModel', 'defaultThinkingLevel', 'customPreference']) assert.deepEqual(first[key], initial[key]);
       assert.deepEqual(first.extensions, ['user-extension.ts', '-builtin:mcp']);
       assert.deepEqual(first.packages.find(entry => /^npm:context-mode@/.test(sourceOf(entry))),
-        { source: 'npm:context-mode@1.0.169', extensions: [], skills: [] });
+        { source: 'npm:context-mode@1.0.169', extensions: [] });
       for (const required of REQUIRED) assert.ok(first.packages.some(entry => sourceOf(entry) === required), required);
     });
   }

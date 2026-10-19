@@ -12,8 +12,8 @@ it('REQ-AGENT-081 AC1: pinned rpiv-todo isolates foreground tasks through child/
   const todoManifestPath = requirePreseed.resolve('@juicesharp/rpiv-todo/package.json');
   const todoManifest = readJson(todoManifestPath);
   // Intentional version contract: exercise the published artifact pinned by preseed, never a global fallback.
-  assert.equal(manifest.dependencies['@juicesharp/rpiv-todo'], '2.12.0');
-  assert.equal(todoManifest.version, '2.12.0');
+  assert.equal(manifest.dependencies['@juicesharp/rpiv-todo'], '2.13.9');
+  assert.equal(todoManifest.version, '2.13.9');
 
   const sdkEntry = new URL(import.meta.resolve('@earendil-works/pi-coding-agent'));
   const { SessionManager } = await import(sdkEntry.href);
@@ -34,19 +34,26 @@ it('REQ-AGENT-081 AC1: pinned rpiv-todo isolates foreground tasks through child/
   const foreground = context(true);
   const child = context(true);
   const background = context(false);
+  const legacy = context(true);
+  let activeSessionManager;
+  loaded.runtime.appendEntry = (type, data) => activeSessionManager.appendCustomEntry(type, data);
   const emit = async (type, ctx, fields = {}) => {
+    activeSessionManager = ctx.sessionManager;
     for (const handler of extension.handlers.get(type) ?? []) await handler({ type, ...fields }, ctx);
   };
   let callId = 0;
-  const call = async (ctx, params) => {
+  const call = async (ctx, params, recordResult = true) => {
+    activeSessionManager = ctx.sessionManager;
     const toolCallId = `todo-isolation-${++callId}`;
     const result = await todo.execute(toolCallId, params, undefined, undefined, ctx);
     assert.equal(result.details.error, undefined);
-    ctx.sessionManager.appendMessage({
-      role: 'toolResult', toolCallId, toolName: 'todo',
-      content: result.content, details: result.details, isError: false, timestamp: Date.now(),
-    });
-    await emit('tool_execution_end', ctx, { toolCallId, toolName: 'todo', result, isError: false });
+    if (recordResult) {
+      ctx.sessionManager.appendMessage({
+        role: 'toolResult', toolCallId, toolName: 'todo',
+        content: result.content, details: result.details, isError: false, timestamp: Date.now(),
+      });
+      await emit('tool_execution_end', ctx, { toolCallId, toolName: 'todo', result, isError: false });
+    }
     return result;
   };
   const tasks = async (ctx) => (await call(ctx, { action: 'list' })).details.tasks
@@ -85,11 +92,38 @@ it('REQ-AGENT-081 AC1: pinned rpiv-todo isolates foreground tasks through child/
     await emit('session_start', foreground);
     assert.deepEqual(await tasks(foreground), expectedForeground);
     await call(foreground, { action: 'create', subject: 'Continue foreground after switching back' });
-    assert.deepEqual(await tasks(foreground), [
+    const expectedContinued = [
       ...expectedForeground,
       { id: 3, subject: 'Continue foreground after switching back', status: 'pending' },
+    ];
+    assert.deepEqual(await tasks(foreground), expectedContinued);
+
+    // Nested calls need durable state even when their tool result is not added to the transcript.
+    const nested = await call(foreground, { action: 'create', subject: 'Retain nested-call task' }, false);
+    const expectedNested = [
+      ...expectedContinued,
+      { id: 4, subject: 'Retain nested-call task', status: 'pending' },
+    ];
+    await emit('session_tree', foreground);
+    assert.deepEqual(await tasks(foreground), expectedNested);
+    await emit('session_compact', foreground);
+    assert.deepEqual(await tasks(foreground), expectedNested);
+
+    // Legacy wire contract: a normal todo toolResult alone must still restore tasks and their next ID.
+    legacy.sessionManager.appendMessage({
+      role: 'toolResult', toolCallId: 'legacy-todo-create', toolName: 'todo',
+      content: nested.content, details: nested.details, isError: false, timestamp: Date.now(),
+    });
+    await emit('session_start', legacy);
+    assert.deepEqual(await tasks(legacy), expectedNested);
+    await call(legacy, { action: 'create', subject: 'Continue legacy task history' }, false);
+    await emit('session_tree', legacy);
+    assert.deepEqual(await tasks(legacy), [
+      ...expectedNested,
+      { id: 5, subject: 'Continue legacy task history', status: 'pending' },
     ]);
+    assert.deepEqual(await tasks(foreground), expectedNested);
   } finally {
-    for (const ctx of [child, background, foreground]) await emit('session_shutdown', ctx);
+    for (const ctx of [child, background, legacy, foreground]) await emit('session_shutdown', ctx);
   }
 });

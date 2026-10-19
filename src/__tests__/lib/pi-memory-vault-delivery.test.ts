@@ -366,6 +366,63 @@ async function triggerVaultCheck(harness: Harness): Promise<void> {
   await harness.emit('before_agent_start', { prompt: 'vault cadence 20' });
 }
 
+function launchedMemoryRequest(harness: Harness, pi = harness.pi): Record<string, any> {
+  const launch = latestLaunch(pi, 'memory-capture');
+  const varsFile = launch.request.prompt.match(/^VARS_FILE=(.+)$/m)?.[1];
+  if (!varsFile) throw new Error('missing public memory request variables path');
+  return readJson(varsFile);
+}
+
+function writeCaptureNote(harness: Harness, request: Record<string, any>): string {
+  const target = join(harness.paths.vaultRoot, 'Raw', 'Sessions', request.captureFilename);
+  mkdirSync(dirname(target), { recursive: true });
+  writeFileSync(target, [
+    '---',
+    `session_id: ${harness.sessionId}`,
+    `captured_at: ${JSON.stringify(request.captureTimestamp)}`,
+    `captured_prompt_count: ${request.promptCount}`,
+    '---',
+    '# Captured conversation',
+    request.transcript,
+  ].join('\n'), 'utf8');
+  return target;
+}
+
+function writeHistoricalCapture(harness: Harness): string {
+  const target = join(harness.paths.vaultRoot, 'Raw', 'Sessions', 'historical-1013.md');
+  mkdirSync(dirname(target), { recursive: true });
+  writeFileSync(target, [
+    '---',
+    `session_id: ${harness.sessionId}`,
+    'captured_prompt_count: 1013',
+    '---',
+    '# Historical conversation must remain available',
+  ].join('\n'), 'utf8');
+  return target;
+}
+
+async function startRebasedCapture(harness: Harness): Promise<void> {
+  mkdirSync(harness.paths.memoryCounterDir, { recursive: true });
+  writeFileSync(memoryCounterPath(harness), '1013', 'utf8');
+  for (let ordinal = 1; ordinal <= 3; ordinal += 1) {
+    appendEntry(harness.sessionFile, userMessage(`retained conversation ${ordinal}`));
+  }
+  await harness.emit('before_agent_start', { prompt: 'retained conversation 3' });
+  await harness.emit('agent_settled');
+}
+
+async function completeMemoryCapture(harness: Harness): Promise<string> {
+  const launch = latestLaunch(harness.pi, 'memory-capture');
+  const request = launchedMemoryRequest(harness);
+  const toolUseId = nextId('successful-memory');
+  appendEntry(harness.sessionFile, toolCall(toolUseId, 'memory-capture', launch.request));
+  const target = writeCaptureNote(harness, request);
+  writePostCommitChunk(harness, launch.requestId);
+  appendEntry(harness.sessionFile, notification(toolUseId));
+  await harness.emit('agent_settled');
+  return target;
+}
+
 async function failExactAttempts(harness: Harness, job: ExtractionJob): Promise<void> {
   await harness.emit('agent_settled');
   for (let attempt = 1; attempt <= 6; attempt += 1) {
@@ -449,10 +506,16 @@ describe('REQ-MEM-014/REQ-MEM-015: public extraction transcript contracts', () =
       promptFile: '/prompts/memory.md',
       varsFile: '/vars/request.json',
     };
-    expect(buildPublicExtractionRequest(base)).toEqual({
+    expect(buildPublicExtractionRequest(base)).toMatchObject({
       subagent_type: 'memory-capture',
       description: 'Capture session memory',
-      prompt: `CODEFLARE_EXTRACTION_REQUEST=${UUIDS[0]}\nPROMPT_FILE=/prompts/memory.md\nVARS_FILE=/vars/request.json\nVARS_FILE contains the transcript inline; there is no INPUT_FILE or separate transcript file.\nRun the deployed Pi extraction contract end to end.`,
+      run_in_background: true,
+      inherit_context: false,
+      thinking: 'medium',
+      max_turns: 10,
+    });
+    expect(buildPublicExtractionRequest({ ...base, job: 'vault-extract' })).toMatchObject({
+      subagent_type: 'vault-extract',
       run_in_background: true,
       inherit_context: false,
       thinking: 'medium',
@@ -539,6 +602,62 @@ describe('REQ-MEM-014/REQ-MEM-015: public extraction transcript contracts', () =
     }
   });
 
+  it.each([7, 10])('REQ-MEM-016: correlates an exact memory call with supported %i-turn budget', (budget) => {
+    const request = {
+      ...buildPublicExtractionRequest({
+        job: 'memory-capture', requestId: UUIDS[0], promptFile: '/prompt', varsFile: '/frozen.vars',
+      }),
+      max_turns: budget,
+    } as PublicExtractionRequest;
+    const entries = [launchEntry(UUIDS[0], 'memory-capture', 0, request), toolCall('supported', 'memory-capture', request)];
+    const input = { requestId: UUIDS[0], job: 'memory-capture' as const, now: NOW, successQualifies: () => true };
+    expect(extractionTranscriptFacts({ ...input, entries })).toMatchObject({
+      launchCount: 1, attemptCount: 1, pendingLaunch: false, state: 'running',
+    });
+    expect(extractionTranscriptFacts({ ...input, entries: [...entries, notification('supported', 'Completed')] }))
+      .toMatchObject({ attemptCount: 1, state: 'succeeded' });
+  });
+
+  it('REQ-MEM-016: rejects unsupported memory budgets and a ten-turn Vault budget', () => {
+    for (const job of ['memory-capture', 'vault-extract'] as const) {
+      const request = buildPublicExtractionRequest({ job, requestId: UUIDS[0], promptFile: '/prompt', varsFile: '/frozen.vars' });
+      const budgets = [0, 4, 6, 8, 9, 11, 70, '7', '10', null, ...(job === 'vault-extract' ? [10] : [])];
+      for (const max_turns of budgets) {
+        const invalid = { ...request, max_turns } as PublicExtractionRequest;
+        const facts = extractionTranscriptFacts({
+          entries: [launchEntry(UUIDS[0], job, 0, invalid), toolCall('invalid-budget', job, invalid), notification('invalid-budget', 'Completed')],
+          requestId: UUIDS[0], job, now: NOW, successQualifies: () => true,
+        });
+        expect(facts, `${job}: ${String(max_turns)}`).toMatchObject({ launchCount: 0, attemptCount: 0, state: 'missing' });
+      }
+    }
+  });
+
+  it('REQ-MEM-014: supported budgets do not relax exact frozen request and native completion correlation', () => {
+    for (const budget of [7, 10]) {
+      const request = {
+        ...buildPublicExtractionRequest({ job: 'memory-capture', requestId: UUIDS[0], promptFile: '/prompt', varsFile: '/frozen.vars' }),
+        max_turns: budget,
+      } as PublicExtractionRequest;
+      for (const overrides of [
+        { prompt: request.prompt.replace('/frozen.vars', '/different.vars') },
+        { prompt: request.prompt.replace(UUIDS[0], UUIDS[1]) },
+        { max_turns: budget === 7 ? 10 : 7 },
+        { inherit_context: true },
+        { thinking: 'high' },
+      ]) {
+        expect(extractionTranscriptFacts({
+          entries: [launchEntry(UUIDS[0], 'memory-capture', 0, request), toolCall('not-exact', 'memory-capture', request, undefined, overrides), notification('not-exact', 'Completed')],
+          requestId: UUIDS[0], job: 'memory-capture', now: NOW, successQualifies: () => true,
+        })).toMatchObject({ launchCount: 1, attemptCount: 0, pendingLaunch: true, state: 'missing' });
+      }
+      expect(extractionTranscriptFacts({
+        entries: [launchEntry(UUIDS[0], 'memory-capture', 0, request), toolCall('exact', 'memory-capture', request), notification('unrelated', 'Completed')],
+        requestId: UUIDS[0], job: 'memory-capture', now: NOW, successQualifies: () => true,
+      })).toMatchObject({ attemptCount: 1, state: 'running' });
+    }
+  });
+
   it('uses actual public attempts for reminders zero through five and then latches GIVEUP', () => {
     for (let attemptCount = 0; attemptCount < 6; attemptCount += 1) {
       expect(extractionDue({ launchCount: attemptCount, attemptCount, pendingLaunch: false, giveup: false, state: 'failed' })).toEqual({
@@ -606,7 +725,7 @@ describe('REQ-MEM-001/REQ-MEM-002: root-owned memory delivery lifecycle', () => 
       run_in_background: true,
       inherit_context: false,
       thinking: 'medium',
-      max_turns: 7,
+      max_turns: 10,
     });
     expect(launch.request.prompt).toContain(`CODEFLARE_EXTRACTION_REQUEST=${launch.requestId}`);
     const executionPath = memoryExecutionPath(harness, launch.requestId);
@@ -789,6 +908,93 @@ describe('REQ-MEM-001/REQ-MEM-002: root-owned memory delivery lifecycle', () => 
     }
   });
 
+  it('REQ-MEM-020 / REQ-MEM-021: published artifacts after a legacy abort wait for an exact completed retry', async () => {
+    const harness = makeHarness();
+    await harness.emit('session_start');
+    mkdirSync(dirname(memoryCounterPath(harness)), { recursive: true });
+    writeFileSync(memoryCounterPath(harness), '0', 'utf8');
+    for (let ordinal = 1; ordinal <= 20; ordinal += 1) await appendPrompt(harness, ordinal);
+    const executionPath = activeExecutionPath(harness, 'memory-capture');
+    const executionBytes = readFileSync(executionPath);
+    const execution = readJson(executionPath);
+    const legacy = {
+      ...buildPublicExtractionRequest({
+        job: 'memory-capture', requestId: execution.requestId,
+        promptFile: harness.paths.memoryPromptFile, varsFile: executionPath,
+      }),
+      max_turns: 7,
+    } as PublicExtractionRequest;
+    // The persisted public launch predates the budget upgrade; its worker published before aborting.
+    appendEntry(harness.sessionFile,
+      launchEntry(execution.requestId, 'memory-capture', 0, legacy),
+      toolCall('legacy-published-abort', 'memory-capture', legacy),
+      notification('legacy-published-abort', 'Aborted'),
+    );
+    const target = writeCaptureNote(harness, execution);
+    writePostCommitChunk(harness, execution.requestId);
+    const noteBytes = readFileSync(target);
+    const chunkBytes = readFileSync(vaultChunkPath(harness, execution.requestId));
+    const pointerBytes = readFileSync(memoryPointerPath(harness));
+
+    await harness.emit('agent_settled');
+    const retry = latestLaunch(harness.pi, 'memory-capture');
+    expect(retry).toMatchObject({ requestId: execution.requestId, reminder: 1, request: { max_turns: 10 } });
+    expect(readFileSync(memoryCounterPath(harness), 'utf8')).toBe('0');
+    expect(readFileSync(memoryPointerPath(harness))).toEqual(pointerBytes);
+    expect(readFileSync(executionPath)).toEqual(executionBytes);
+    expect(launchedMemoryRequest(harness)).toEqual(execution);
+    expect(readFileSync(target)).toEqual(noteBytes);
+    expect(readFileSync(vaultChunkPath(harness, execution.requestId))).toEqual(chunkBytes);
+
+    appendEntry(harness.sessionFile,
+      toolCall('recovered-retry', 'memory-capture', retry.request),
+      notification('some-other-worker', 'Completed'),
+    );
+    await harness.emit('agent_settled');
+    expect(readFileSync(memoryCounterPath(harness), 'utf8')).toBe('0');
+    expect(readFileSync(executionPath)).toEqual(executionBytes);
+    expect(readFileSync(target)).toEqual(noteBytes);
+    expect(readFileSync(vaultChunkPath(harness, execution.requestId))).toEqual(chunkBytes);
+
+    appendEntry(harness.sessionFile, notification('recovered-retry', 'Completed'));
+    await harness.emit('agent_settled');
+    expect(readFileSync(memoryCounterPath(harness), 'utf8')).toBe('20');
+    expect(existsSync(memoryPointerPath(harness))).toBe(false);
+    expect(existsSync(executionPath)).toBe(false);
+    expect(existsSync(vaultChunkPath(harness, execution.requestId))).toBe(false);
+    expect(readFileSync(target, 'utf8')).toContain('# Captured conversation');
+  });
+
+  it('REQ-MEM-016 / REQ-MEM-021: an in-flight legacy seven-turn terminal success still commits after upgrade', async () => {
+    const harness = makeHarness();
+    await harness.emit('session_start');
+    mkdirSync(dirname(memoryCounterPath(harness)), { recursive: true });
+    writeFileSync(memoryCounterPath(harness), '0', 'utf8');
+    for (let ordinal = 1; ordinal <= 20; ordinal += 1) await appendPrompt(harness, ordinal);
+    const executionPath = activeExecutionPath(harness, 'memory-capture');
+    const execution = readJson(executionPath);
+    const legacy = {
+      ...buildPublicExtractionRequest({
+        job: 'memory-capture', requestId: execution.requestId,
+        promptFile: harness.paths.memoryPromptFile, varsFile: executionPath,
+      }),
+      max_turns: 7,
+    } as PublicExtractionRequest;
+    appendEntry(harness.sessionFile,
+      launchEntry(execution.requestId, 'memory-capture', 0, legacy),
+      toolCall('legacy-completed', 'memory-capture', legacy),
+      notification('legacy-completed', 'Completed'),
+    );
+    const target = writeCaptureNote(harness, execution);
+    writePostCommitChunk(harness, execution.requestId);
+    await harness.emit('agent_settled');
+    expect(readFileSync(memoryCounterPath(harness), 'utf8')).toBe('20');
+    expect(existsSync(memoryPointerPath(harness))).toBe(false);
+    expect(existsSync(executionPath)).toBe(false);
+    expect(readFileSync(target, 'utf8')).toContain('# Captured conversation');
+    expect(harness.pi.sent.filter((sent) => sent.message.customType === 'background-extraction-launch')).toHaveLength(0);
+  });
+
   it('captures only the uncaptured tail and hash-checks Vault on the first resumed prompt', async () => {
     const harness = makeHarness();
     await harness.emit('session_start');
@@ -814,6 +1020,200 @@ describe('REQ-MEM-001/REQ-MEM-002: root-owned memory delivery lifecycle', () => 
     expect(memory.transcript).toContain('resumed prompt 21');
     expect(memory.transcript).toContain('real prompt 61');
     expect(readJson(activeExecutionPath(harness, 'vault-extract')).changedFiles).toEqual([changed]);
+  });
+
+  it('REQ-MEM-025: rebases a legacy 1013 counter onto three retained prompts', async () => {
+    const harness = makeHarness();
+    await harness.emit('session_start');
+    const historicalNote = writeHistoricalCapture(harness);
+
+    await startRebasedCapture(harness);
+
+    const request = launchedMemoryRequest(harness);
+    expect(request.promptCount).toBe(3);
+    expect(request.transcript).toContain('retained conversation 1');
+    expect(request.transcript).toContain('retained conversation 3');
+    expect(readFileSync(memoryCounterPath(harness), 'utf8')).toBe('1013');
+    expect(readFileSync(historicalNote, 'utf8')).toContain('# Historical conversation must remain available');
+    expect(readFileSync(harness.sessionFile, 'utf8')).toContain('retained conversation 1');
+  });
+
+  it('REQ-MEM-025: resumes retained history when only a durable 1013 capture count survives', async () => {
+    const harness = makeHarness();
+    await harness.emit('session_start');
+    const historicalNote = writeHistoricalCapture(harness);
+    for (let ordinal = 1; ordinal <= 3; ordinal += 1) {
+      appendEntry(harness.sessionFile, userMessage(`restored conversation ${ordinal}`));
+    }
+
+    await harness.emit('before_agent_start', { prompt: 'restored conversation 3' });
+    await harness.emit('agent_settled');
+
+    const request = launchedMemoryRequest(harness);
+    expect(request.promptCount).toBe(3);
+    expect(request.transcript).toContain('restored conversation 1');
+    expect(request.transcript).toContain('restored conversation 3');
+    expect(existsSync(memoryCounterPath(harness))).toBe(false);
+    expect(readFileSync(historicalNote, 'utf8')).toContain('# Historical conversation must remain available');
+  });
+
+  it('REQ-MEM-026: restores successful rebased progress ahead of an older larger count after restart', async () => {
+    const harness = makeHarness();
+    await harness.emit('session_start');
+    const historicalNote = writeHistoricalCapture(harness);
+    await startRebasedCapture(harness);
+    const capturedNote = await completeMemoryCapture(harness);
+    expect(readFileSync(memoryCounterPath(harness), 'utf8')).toBe('3');
+
+    // Lose all ephemeral cursor state, but keep the transcript and both durable notes.
+    rmSync(harness.paths.memoryCounterDir, { recursive: true, force: true });
+    rmSync(harness.paths.cacheDir, { recursive: true, force: true });
+    const reloadedPi = new FakePi(harness.sessionFile);
+    registerMemoryVault(reloadedPi, {
+      paths: harness.paths,
+      now: () => NOW,
+      randomUUID: () => UUIDS[3],
+    });
+    await reloadedPi.emit('session_start', {}, harness.ctx);
+    appendEntry(harness.sessionFile, userMessage('later uncaptured conversation'));
+    await reloadedPi.emit('before_agent_start', { prompt: 'later uncaptured conversation' }, harness.ctx);
+    await reloadedPi.emit('agent_settled', {}, harness.ctx);
+
+    const resumed = launchedMemoryRequest(harness, reloadedPi);
+    expect(resumed.promptCount).toBe(4);
+    expect(resumed.transcript).toContain('later uncaptured conversation');
+    expect(resumed.transcript).not.toContain('retained conversation');
+    expect(readFileSync(capturedNote, 'utf8')).toContain('retained conversation 1');
+    expect(readFileSync(historicalNote, 'utf8')).toContain('# Historical conversation must remain available');
+  });
+
+  it.each([20, 21, 40])('REQ-MEM-025: captures rewritten content with %i prompts under the same session ID', async (rewrittenCount) => {
+    const harness = makeHarness();
+    await harness.emit('session_start');
+    mkdirSync(harness.paths.memoryCounterDir, { recursive: true });
+    writeFileSync(memoryCounterPath(harness), '0', 'utf8');
+    for (let ordinal = 1; ordinal <= 20; ordinal += 1) await appendPrompt(harness, ordinal);
+    await harness.emit('agent_settled');
+    const capturedNote = await completeMemoryCapture(harness);
+    expect(readFileSync(memoryCounterPath(harness), 'utf8')).toBe('20');
+
+    // Simulate an external transcript rewrite, not a new session.
+    writeFileSync(harness.sessionFile, `${JSON.stringify({ type: 'session', id: harness.sessionId, cwd: harness.root })}\n`, 'utf8');
+    for (let ordinal = 1; ordinal <= rewrittenCount; ordinal += 1) {
+      appendEntry(harness.sessionFile, userMessage(`rewritten conversation ${ordinal}`));
+    }
+    await harness.emit('before_agent_start', { prompt: `rewritten conversation ${rewrittenCount}` });
+    await harness.emit('agent_settled');
+
+    const rewritten = launchedMemoryRequest(harness);
+    expect(rewritten.promptCount).toBe(rewrittenCount);
+    expect(rewritten.transcript).toContain('rewritten conversation 1\n');
+    expect(rewritten.transcript).toContain(`rewritten conversation ${rewrittenCount}`);
+    expect(rewritten.transcript).not.toContain('real prompt');
+    expect(readFileSync(capturedNote, 'utf8')).toContain('real prompt 1');
+    expect(readFileSync(memoryCounterPath(harness), 'utf8')).toBe('20');
+  });
+
+  it('REQ-MEM-026: keeps the twenty-prompt cadence for an unchanged captured prefix after rebasing', async () => {
+    const harness = makeHarness();
+    await harness.emit('session_start');
+    await startRebasedCapture(harness);
+    await completeMemoryCapture(harness);
+    const deliveredBeforeAppend = harness.pi.sent.length;
+
+    for (let ordinal = 4; ordinal <= 22; ordinal += 1) {
+      await appendPrompt(harness, ordinal);
+      await harness.emit('agent_settled');
+    }
+    expect(harness.pi.sent.slice(deliveredBeforeAppend).filter((sent) =>
+      sent.message.details?.items?.some((item) => item.jobType === 'memory-capture'))).toEqual([]);
+    expect(readFileSync(memoryCounterPath(harness), 'utf8')).toBe('3');
+
+    await appendPrompt(harness, 23);
+    await harness.emit('agent_settled');
+    const next = launchedMemoryRequest(harness);
+    expect(next.promptCount).toBe(23);
+    expect(next.transcript).toContain('real prompt 4');
+    expect(next.transcript).toContain('real prompt 23');
+    expect(next.transcript).not.toContain('retained conversation');
+  });
+
+  it.each(['unstarted', 'running', 'unrelated-success', 'failed', 'missing-note', 'missing-chunk'])(
+    'REQ-MEM-026: does not commit rebased progress for a %s request',
+    async (outcome) => {
+      const harness = makeHarness();
+      await harness.emit('session_start');
+      await startRebasedCapture(harness);
+      const launch = latestLaunch(harness.pi, 'memory-capture');
+      const request = launchedMemoryRequest(harness);
+      if (outcome !== 'unstarted') {
+        appendEntry(harness.sessionFile, toolCall('rebased-call', 'memory-capture', launch.request));
+      }
+      if (outcome !== 'missing-note') writeCaptureNote(harness, request);
+      if (outcome !== 'missing-chunk') writePostCommitChunk(harness, launch.requestId);
+      if (outcome === 'unrelated-success') appendEntry(harness.sessionFile, notification('another-call'));
+      if (outcome === 'failed') appendEntry(harness.sessionFile, notification('rebased-call', 'Error'));
+      if (outcome === 'missing-note' || outcome === 'missing-chunk') {
+        appendEntry(harness.sessionFile, notification('rebased-call'));
+      }
+
+      await harness.emit('agent_settled');
+
+      expect(readFileSync(memoryCounterPath(harness), 'utf8')).toBe('1013');
+      expect(latestLaunch(harness.pi, 'memory-capture').requestId).toBe(launch.requestId);
+      expect(launchedMemoryRequest(harness).transcript).toContain('retained conversation 1');
+      if (outcome === 'failed' || outcome === 'missing-note' || outcome === 'missing-chunk') {
+        expect(latestLaunch(harness.pi, 'memory-capture').reminder).toBe(1);
+      } else {
+        expect(latestLaunch(harness.pi, 'memory-capture').reminder).toBe(0);
+      }
+    },
+  );
+
+  it('REQ-MEM-025: keeps an exact in-flight rebased request frozen when the transcript changes again', async () => {
+    const harness = makeHarness();
+    await harness.emit('session_start');
+    await startRebasedCapture(harness);
+    const launch = latestLaunch(harness.pi, 'memory-capture');
+    const originalTranscript = launchedMemoryRequest(harness).transcript;
+    appendEntry(harness.sessionFile, toolCall('running-rebased-call', 'memory-capture', launch.request));
+    const entries = parseSessionEntries(readFileSync(harness.sessionFile, 'utf8'));
+    // Preserve launch/call correlation while replacing the user history externally.
+    writeFileSync(harness.sessionFile, `${entries.filter((entry: any) =>
+      entry.type !== 'message' || entry.message?.role !== 'user').map((entry) => JSON.stringify(entry)).join('\n')}\n`, 'utf8');
+    appendEntry(harness.sessionFile, userMessage('replacement while capture is running'));
+
+    await harness.emit('before_agent_start', { prompt: 'replacement while capture is running' });
+    await harness.emit('agent_settled');
+
+    expect(latestLaunch(harness.pi, 'memory-capture').requestId).toBe(launch.requestId);
+    expect(launchedMemoryRequest(harness).transcript).toBe(originalTranscript);
+    expect(launchedMemoryRequest(harness).transcript).not.toContain('replacement while capture is running');
+    expect(readFileSync(memoryCounterPath(harness), 'utf8')).toBe('1013');
+  });
+
+  it('REQ-MEM-025: replaces exhausted work from an earlier transcript epoch', async () => {
+    const harness = makeHarness();
+    await harness.emit('session_start');
+    mkdirSync(harness.paths.memoryCounterDir, { recursive: true });
+    writeFileSync(memoryCounterPath(harness), '0', 'utf8');
+    for (let ordinal = 1; ordinal <= 20; ordinal += 1) await appendPrompt(harness, ordinal);
+    await failExactAttempts(harness, 'memory-capture');
+    const exhausted = latestLaunch(harness.pi, 'memory-capture');
+    const entries = parseSessionEntries(readFileSync(harness.sessionFile, 'utf8'));
+    writeFileSync(harness.sessionFile, `${entries.filter((entry: any) =>
+      entry.type !== 'message' || entry.message?.role !== 'user').map((entry) => JSON.stringify(entry)).join('\n')}\n`, 'utf8');
+    for (let ordinal = 1; ordinal <= 3; ordinal += 1) {
+      appendEntry(harness.sessionFile, userMessage(`retained after exhaustion ${ordinal}`));
+    }
+
+    await harness.emit('before_agent_start', { prompt: 'retained after exhaustion 3' });
+    await harness.emit('agent_settled');
+
+    expect(latestLaunch(harness.pi, 'memory-capture').requestId).not.toBe(exhausted.requestId);
+    expect(launchedMemoryRequest(harness).transcript).toContain('retained after exhaustion 1');
+    expect(launchedMemoryRequest(harness).transcript).not.toContain('real prompt');
+    expect(readFileSync(memoryCounterPath(harness), 'utf8')).toBe('0');
   });
 
   it('REQ-MEM-002 AC5: re-arms only after twenty later real prompts', async () => {

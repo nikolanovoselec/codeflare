@@ -1,8 +1,10 @@
+import { createHash } from "node:crypto";
 import { isAbsolute, relative } from "node:path";
 
 export const MEMORY_EVERY_N_PROMPTS = 20;
 export const VAULT_EVERY_N_PROMPTS = 20;
 export const EXTRACTION_MAX_TURNS = 7;
+export const MEMORY_CAPTURE_MAX_TURNS = 10;
 export const MEMORY_CAPTURE_MAX_TOTAL_CHARS = 200000;
 export const MEMORY_CAPTURE_MAX_TURN_CHARS = 10000;
 export const EXTRACTION_RUNNING_TTL_MS = 30 * 60 * 1000;
@@ -38,6 +40,7 @@ export interface MemoryCaptureRequest {
   captureTimestamp: string;
   captureFilename: string;
   transcript: string;
+  transcriptFingerprint?: string;
 }
 
 export interface VaultExtractRequest {
@@ -56,7 +59,7 @@ export interface PublicExtractionRequest {
   run_in_background: true;
   inherit_context: false;
   thinking: "medium";
-  max_turns: 7;
+  max_turns: 7 | 10;
   model?: string;
 }
 
@@ -122,6 +125,8 @@ export function parseMemoryCaptureRequest(value: unknown): MemoryCaptureRequest 
   if (typeof candidate.promptCount !== "number" || !Number.isInteger(candidate.promptCount) || candidate.promptCount < 0) return undefined;
   if (!captureTimestamp || !captureFilename || !transcript) return undefined;
   if (!captureFilename.endsWith(".md") || captureFilename.includes("/") || captureFilename.includes("\\")) return undefined;
+  const transcriptFingerprint = candidate.transcriptFingerprint;
+  if (transcriptFingerprint !== undefined && (typeof transcriptFingerprint !== "string" || !MANIFEST_HASH_PATTERN.test(transcriptFingerprint))) return undefined;
   return {
     version: 1,
     requestId: candidate.requestId,
@@ -130,6 +135,7 @@ export function parseMemoryCaptureRequest(value: unknown): MemoryCaptureRequest 
     captureTimestamp,
     captureFilename,
     transcript,
+    ...(typeof transcriptFingerprint === "string" ? { transcriptFingerprint } : {}),
   };
 }
 
@@ -239,7 +245,7 @@ export function buildPublicExtractionRequest(input: {
     run_in_background: true,
     inherit_context: false,
     thinking: "medium",
-    max_turns: EXTRACTION_MAX_TURNS,
+    max_turns: input.job === "memory-capture" ? MEMORY_CAPTURE_MAX_TURNS : EXTRACTION_MAX_TURNS,
     ...(model ? { model } : {}),
   };
 }
@@ -258,7 +264,8 @@ function publicRequestMatches(value: unknown, requestId: string, job: Extraction
     && request.run_in_background === true
     && request.inherit_context === false
     && request.thinking === "medium"
-    && request.max_turns === EXTRACTION_MAX_TURNS
+    && (request.max_turns === EXTRACTION_MAX_TURNS
+      || (job === "memory-capture" && request.max_turns === MEMORY_CAPTURE_MAX_TURNS))
     && hasExactMarker(request.prompt, requestId);
 }
 
@@ -454,6 +461,12 @@ export function isRealUserPrompt(message: any): boolean {
 
 export function realUserPromptCount(messages: any[]): number {
   return messages.filter(isRealUserPrompt).length;
+}
+
+/** Hash prompt boundaries and text only: extraction/tool lifecycle never changes this prefix. */
+export function realUserPromptFingerprint(messages: any[], promptCount: number): string {
+  const prefix = messages.filter(isRealUserPrompt).slice(0, promptCount).map(messageText);
+  return createHash("sha256").update(JSON.stringify(prefix)).digest("hex");
 }
 
 export function withCurrentPrompt(messages: any[], prompt: string): any[] {

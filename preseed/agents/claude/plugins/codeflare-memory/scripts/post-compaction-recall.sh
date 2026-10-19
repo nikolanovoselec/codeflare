@@ -35,15 +35,26 @@ INPUT=$(cat 2>/dev/null) || true
 # resume, which would cost the budget on sessions that never lost context.
 SOURCE=$(echo "$INPUT" | jq -r '.source // empty' 2>/dev/null) || true
 [ "$SOURCE" = "compact" ] || exit 0
+SESSION_ID=$(echo "$INPUT" | jq -r '.session_id // empty' 2>/dev/null) || true
 
-RAW=$(SESSIONS_DIR="$SESSIONS_DIR" EXTRACT_COUNT="$EXTRACT_COUNT" PER_FILE_BYTES="$PER_FILE_BYTES" \
+RAW=$(SESSIONS_DIR="$SESSIONS_DIR" EXTRACT_COUNT="$EXTRACT_COUNT" PER_FILE_BYTES="$PER_FILE_BYTES" SESSION_ID="$SESSION_ID" \
   timeout 8 python3 -c '
-import os, re, sys
+import os, re, stat, sys
 from datetime import datetime
+from time import monotonic
 
 sessions_dir = os.environ["SESSIONS_DIR"]
 cap = int(os.environ["PER_FILE_BYTES"])
 want = int(os.environ["EXTRACT_COUNT"])
+session_id = os.environ.get("SESSION_ID", "")
+
+
+def capture_session_id(text):
+    frontmatter = re.match(r"\A---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)", text)
+    if not frontmatter:
+        return None
+    match = re.search(r"^session_id:[ \t]*(?:\"([A-Za-z0-9_-]+)\"|\x27([A-Za-z0-9_-]+)\x27|([A-Za-z0-9_-]+))[ \t]*$", frontmatter.group(1), re.M)
+    return next((value for value in match.groups() if value is not None), None) if match else None
 
 STAMP = re.compile(r"^(\d{4}-\d{2}-\d{2})T(\d{2})-(\d{2})-(\d{2})([+-]\d{4}|Z)")
 
@@ -77,7 +88,7 @@ try:
 except OSError:
     sys.exit(0)
 
-names = sorted(entries, key=sort_key, reverse=True)[:want]
+names = sorted(entries, key=sort_key, reverse=True)
 if not names:
     sys.exit(0)
 
@@ -122,14 +133,28 @@ def sections(text):
 
 
 blocks = []
-for name in names:
+matching = []
+# Reserve output time inside the existing eight-second outer timeout, retaining
+# the already-collected global fallback if the historical lookup runs out.
+lookup_deadline = monotonic() + 6
+for index, name in enumerate(names):
+    if ((not session_id and index >= want) or len(matching) >= want
+            or (index >= want and monotonic() >= lookup_deadline)):
+        break
     path = os.path.join(sessions_dir, name)
     try:
-        with open(path, encoding="utf-8", errors="replace") as fh:
-            text = fh.read()
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+        with os.fdopen(fd, "rb", buffering=0) as fh:
+            if not stat.S_ISREG(os.fstat(fh.fileno()).st_mode):
+                continue
+            header = fh.read(2048).decode("utf-8", "replace") if session_id else ""
+            matches = bool(session_id) and capture_session_id(header) == session_id
+            if index >= want and not matches:
+                continue
+            fh.seek(0)
+            text = fh.read().decode("utf-8", "replace")
     except OSError:
         continue
-
     title = next((l.strip() for l in text.splitlines() if l.startswith("# ")), "# " + name)
     found = sections(text)
 
@@ -175,8 +200,13 @@ for name in names:
                 rendered_body += "\n" + MARKER
         block = metadata + "\n\n" + rendered_body
 
-    blocks.append(block)
+    if index < want:
+        blocks.append(block)
+    if matches:
+        matching.append(block)
 
+if matching:
+    blocks = matching
 if not blocks:
     sys.exit(0)
 

@@ -1,6 +1,6 @@
 ---
 name: web-perf
-description: Audit web performance via Chrome DevTools MCP — Core Web Vitals (LCP/INP/CLS), render-blocking, layout shifts, caching, a11y, Lighthouse. Retrieval-first.
+description: Audit web performance with available browser/performance tools — Core Web Vitals, render-blocking, layout shifts, caching, a11y. Retrieval-first.
 ---
 
 # Web Performance Audit
@@ -15,18 +15,11 @@ Your knowledge of web performance metrics, thresholds, and tooling APIs may be o
 | Chrome DevTools docs | `https://developer.chrome.com/docs/devtools/performance` | Tooling APIs, trace analysis |
 | Lighthouse scoring | `https://developer.chrome.com/docs/lighthouse/performance/performance-scoring` | Score weights, metric thresholds |
 
-## FIRST: Verify MCP Tools Available
+## FIRST: Discover Available Capabilities
 
-**Run this before starting.** Try calling `navigate_page` or `performance_start_trace`. If unavailable, STOP—the chrome-devtools MCP server isn't configured.
+Discover the available browser/performance tools and their exposed schemas before calling them. Use Chrome DevTools traces when available; do not assume a particular MCP server or argument shape.
 
-Ask the user to add this to their MCP config:
-
-```json
-"chrome-devtools": {
-  "type": "local",
-  "command": ["npx", "-y", "chrome-devtools-mcp@latest"]
-}
-```
+If tracing is unavailable, continue useful permitted source, network, caching, and asset analysis. Label Core Web Vitals and trace-dependent savings as **not measured**, distinguish estimates from observations, and explain what evidence is missing. Tool installation or MCP configuration changes require explicit user authorization; their absence is not a reason to stop all analysis.
 
 ## Key Guidelines
 
@@ -38,6 +31,8 @@ Ask the user to add this to their MCP config:
 - **Prioritize ruthlessly**: A site with 200ms LCP and 0 CLS is already excellent—say so.
 
 ## Quick Reference
+
+Illustrative Chrome DevTools calls only; use the available tool schemas for actual names and arguments.
 
 | Task | Tool Call |
 |------|-----------|
@@ -195,7 +190,7 @@ Also check `package.json` for framework dependencies and build scripts.
 
 Present findings as:
 
-1. **Core Web Vitals Summary** - Table with metric, value, and rating (good/needs-improvement/poor)
+1. **Core Web Vitals Summary** - Table with metric, measured value, and rating; use **not measured** when trace evidence is unavailable
 2. **Top Issues** - Prioritized list of problems with estimated impact (high/medium/low)
 3. **Recommendations** - Specific, actionable fixes with code snippets or config changes
 4. **Codebase Findings** - Framework/bundler detected, optimization opportunities (omit if no codebase access)

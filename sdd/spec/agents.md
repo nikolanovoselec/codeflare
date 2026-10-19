@@ -204,7 +204,7 @@ These compatibility anchors resolve dated changelog references to retired review
 
 **Acceptance Criteria:**
 
-1. Startup includes `@narumitw/pi-goal` in Pi's required package set. <!-- @impl: entrypoint.sh::required --> <!-- @impl: preseed/agents/pi/package.json::dependencies --> <!-- @test: host/__tests__/pi-settings-packages.test.js (REQ-AGENT-076 AC1 / REQ-AGENT-133 AC1: fresh container assembles required packages with context-mode disabled) -->
+1. Startup includes `@narumitw/pi-goal` in Pi's required package set. <!-- @impl: entrypoint.sh::required --> <!-- @impl: preseed/agents/pi/package.json::dependencies --> <!-- @test: host/__tests__/pi-settings-packages.test.js (REQ-AGENT-076 AC1 / REQ-AGENT-133 AC1: fresh container assembles required packages with context-mode enabled) -->
 2. Image construction makes Goal's declared Pi entrypoint resolve to the reviewed transformed source and warms that same installed path, so a new session uses the control/cadence patch and its path-correct transpile cache. <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchPiGoalDirectory --> <!-- @impl: Dockerfile::goal_source --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-111 AC2/AC6 / REQ-AGENT-178 AC1/AC2: declared pinned Goal entrypoint carries review control and workflow ownership) --> <!-- @manual: Start a new Pi session from the complete image and confirm Goal's installed extension loads from the baked jiti cache. -->
 3. The image build fails if Goal's path-correct transpile-cache artifact is absent. <!-- @impl: Dockerfile::goal_hit --> <!-- @impl: scripts/verify-pi-lockstep.mjs::verifyJitiCacheArtifact --> <!-- @test: host/__tests__/pi-lockstep.test.js (REQ-AGENT-111 AC3: Goal jiti cache path and fail-closed artifact verification) --> <!-- @manual: Run the deployment image build; in a controlled build omit or replace Goal's expected cache file and confirm the jiti warm-cache layer exits non-zero before image publication. -->
 4. Startup supplies `toolVisibility: "after-first-goal"` only when the Goal visibility preference is missing. <!-- @impl: entrypoint.sh::configure_pi_goal_defaults --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-111 AC4 / REQ-AGENT-129 AC1: creates every Codeflare-owned Goal startup default when config is absent) -->
@@ -330,8 +330,8 @@ The former REQ-AGENT-131 Usage installation and warming workflow is retired. [Re
 
 **Acceptance Criteria:**
 
-1. Startup assembles `pi-evaluate` into Pi's required package set. <!-- @impl: entrypoint.sh::required --> <!-- @test: host/__tests__/pi-settings-packages.test.js (REQ-AGENT-076 AC1 / REQ-AGENT-133 AC1: fresh container assembles required packages with context-mode disabled) -->
-2. Evaluate remains in Pi's required package set when Context-mode is disabled. <!-- @impl: entrypoint.sh::required --> <!-- @test: host/__tests__/pi-settings-packages.test.js (REQ-AGENT-076 AC1 / REQ-AGENT-133 AC1: fresh container assembles required packages with context-mode disabled) -->
+1. Startup assembles `pi-evaluate` into Pi's required package set. <!-- @impl: entrypoint.sh::required --> <!-- @test: host/__tests__/pi-settings-packages.test.js (REQ-AGENT-076 AC1 / REQ-AGENT-133 AC1: fresh container assembles required packages with context-mode enabled) -->
+2. Evaluate remains in Pi's required package set when Context-mode is disabled. <!-- @impl: entrypoint.sh::required --> <!-- @test: host/__tests__/pi-settings-packages.test.js (REQ-AGENT-076 AC1 / REQ-AGENT-133 AC1: fresh container assembles required packages with context-mode enabled) -->
 3. Image construction explicitly loads the declared Evaluate entrypoint into the path-correct JITI cache. <!-- @impl: Dockerfile::evaluate_source --> <!-- @impl: scripts/verify-pi-lockstep.mjs::warmAndVerifyJitiEntrypoints --> <!-- @test: host/__tests__/pi-lockstep.test.js (declares, warms, and re-verifies each locked package entrypoint) --> <!-- @test: host/__tests__/pi-lockstep.test.js (REQ-AGENT-210: managed extension JITI warm-cache contract) -->
 4. Image construction fails when Evaluate's path-correct JITI artifact is absent. <!-- @impl: Dockerfile::evaluate_hit --> <!-- @impl: scripts/verify-pi-lockstep.mjs::verifyJitiCacheArtifact --> <!-- @test: host/__tests__/pi-lockstep.test.js (declares, warms, and re-verifies each locked package entrypoint) -->
 
@@ -3475,7 +3475,8 @@ None.
 
 1. Every Turnstile API request applies bounded connection and total deadlines. <!-- @impl: preseed/agents/claude/skills/turnstile-spin/scripts/auth-probe.sh::probe_response --> <!-- @impl: preseed/agents/claude/skills/turnstile-spin/scripts/widget-create.sh::API_RESPONSE --> <!-- @impl: preseed/agents/claude/skills/turnstile-spin/scripts/validate.sh::WIDGET_RESPONSE --> <!-- @manual -->
 2. Error code 10000 is classified as missing scope regardless of HTTP status. <!-- @impl: preseed/agents/claude/skills/turnstile-spin/scripts/auth-probe.sh::first_code --> <!-- @manual -->
-3. Skill persistence removes its temporary clone after failure. <!-- @impl: preseed/agents/claude/skills/turnstile-spin/scripts/persist-skill.sh::TEMP_DIR --> <!-- @manual -->
+3. Skill persistence removes its temporary clone after failure or success. <!-- @impl: preseed/agents/claude/skills/turnstile-spin/scripts/persist-skill.sh::TEMP_DIR --> <!-- @test: host/__tests__/turnstile-skill-persistence.test.js (REQ-AGENT-138 AC3/AC4: skill persistence reports copy errors and cleans its temporary clone) --> <!-- @test: host/__tests__/turnstile-skill-persistence.test.js (REQ-AGENT-138 AC3: successful skill persistence installs the bundle and cleans its temporary clone) -->
+4. Bundle copy failure returns a nonzero exit and a JSON error receipt with reason `copy_failed`, never a success receipt. <!-- @impl: preseed/agents/claude/skills/turnstile-spin/scripts/persist-skill.sh::SOURCE_DIR --> <!-- @test: host/__tests__/turnstile-skill-persistence.test.js (REQ-AGENT-138 AC3/AC4: skill persistence reports copy errors and cleans its temporary clone) -->
 
 **Constraints:**
 
@@ -3485,7 +3486,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-075](#req-agent-075-cloudflare-platform-skills-bundled-into-the-advanced-seed)
 
-**Verification:** Manual verification
+**Verification:** AC1 and AC2 require manual verification. AC3 and AC4 have offline regressions using the shipped script and a local canonical Git bundle, covering copy failure, successful installation, preservation of an existing destination file, and temporary-clone cleanup.
 
 **Status:** Implemented
 
@@ -4008,19 +4009,19 @@ None.
 
 ### REQ-AGENT-076: Pi Context-Mode Enablement and Tool-Extension Defaults
 
-**Intent:** Pi's own default runtime behavior — independent of which Pro/Standard content [REQ-AGENT-005](#req-agent-005-pro-mode-includes-additional-skills-rules-agents-and-mcp-servers) delivers — must stay predictable out of the box: context-mode is installed but disabled on fresh container startup while explicit `/ctx on` and `/ctx off` remain available, the five always-on Pi tool extensions install without duplication, context-mode's own npm update-check probe is neutralized at build time, and `web_search` defaults to the headless-safe non-interactive workflow.
+**Intent:** Pi's own default runtime behavior — independent of which Pro/Standard content [REQ-AGENT-005](#req-agent-005-pro-mode-includes-additional-skills-rules-agents-and-mcp-servers) delivers — must stay predictable out of the box: context-mode is enabled on fresh container startup while explicit `/ctx on` and `/ctx off` remain available, the five always-on Pi tool extensions install without duplication, context-mode's own npm update-check probe is neutralized at build time, and `web_search` defaults to the headless-safe non-interactive workflow.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. On a fresh container, startup installs context-mode but writes its disabled package marker regardless of prior opt-in state, so no foreground bridge, routing skill, or `ctx_*` tool initializes before explicit enablement. <!-- @impl: entrypoint.sh::warm_pi_npm_dependencies --> <!-- @impl: preseed/agents/pi/extensions/context-mode-runtime.ts::attachConfiguredContextMode --> <!-- @test: host/__tests__/pi-settings-packages.test.js (REQ-AGENT-076 AC1 / REQ-AGENT-133 AC1: fresh container assembles required packages with context-mode disabled) --> <!-- @test: host/__tests__/pi-settings-packages.test.js (startup restores the disabled default while preserving managed and unrelated packages) -->
-2. Standard and Advanced Pi expose a state-changing `/ctx` command that reloads Pi into the selected enabled or disabled state. <!-- @impl: preseed/agents/pi/extensions/ctx-command.ts::handleContextModeCommand --> <!-- @manual: Start fresh Standard and Advanced sessions and confirm `/ctx` reports disabled and no `ctx_*` tools are present; run `/ctx on`, reload, activate one context tool through `capability`, and confirm it works; run `/ctx off` and confirm reload removes the bridge. -->
+1. On a fresh container, startup installs context-mode and writes its enabled package marker with package-extension discovery suppressed; the managed foreground owner initializes its bridge and tools without an opt-in command. <!-- @impl: entrypoint.sh::warm_pi_npm_dependencies --> <!-- @impl: preseed/agents/pi/extensions/context-mode-runtime.ts::attachConfiguredContextMode --> <!-- @test: host/__tests__/pi-settings-packages.test.js (REQ-AGENT-076 AC1 / REQ-AGENT-133 AC1: fresh container assembles required packages with context-mode enabled) --> <!-- @test: host/__tests__/pi-settings-packages.test.js (REQ-AGENT-076 AC1/AC2: next container boot restores the enabled default after /ctx off while preserving managed and unrelated settings) -->
+2. Standard and Advanced Pi expose a state-changing `/ctx` command that reloads Pi into the selected enabled or disabled state. <!-- @impl: preseed/agents/pi/extensions/ctx-command.ts::handleContextModeCommand --> <!-- @manual: Start fresh Standard and Advanced sessions and confirm `/ctx` reports enabled; activate one context tool through `capability` and confirm it works; run `/ctx off` and confirm reload removes the bridge; run `/ctx on` and confirm it returns. -->
 3. Custom-tier Claude may receive automatic context-window reduction only while its tier remains eligible. <!-- @impl: src/lib/r2-seed.ts::getConfigsForMode --> <!-- @test: host/__tests__/entrypoint-context-mode.test.js (entrypoint context-mode preseed gate / REQ-AGENT-005 + REQ-AGENT-076 (context-mode MCP registration)) -->
 4. The Pi settings required set installs the five always-on tool extensions independently of context-mode state. <!-- @impl: entrypoint.sh::warm_pi_npm_dependencies --> <!-- @test: host/__tests__/pi-settings-packages.test.js (Pi settings.json packages assembly (entrypoint.sh)) -->
 5. Build-time patching neutralizes context-mode's npm update probe in both installed copies. <!-- @impl: scripts/patch-context-mode-bundles.mjs::patchContextModeInstallations --> <!-- @test: host/__tests__/dockerfile-context-mode-patch.test.js (Context-mode installation patch (createRequire shim + REQ-AGENT-076 AC5 update-check disable)) -->
 6. Pi `web_search` defaults to the headless-safe `auto-summary` workflow. <!-- @impl: entrypoint.sh::PI_WEB_SEARCH_JSON --> <!-- @test: host/__tests__/entrypoint-pi-web-search.test.js (entrypoint.sh Pi web-search workflow default) -->
-7. Explicit context-mode keeps its managed idle policy, preserves a nonzero operator timeout, creates no absent override, and clears stale disabling values. <!-- @impl: preseed/agents/pi/extensions/context-mode-runtime.ts::clearInheritedContextModeBridgeIdleOverride --> <!-- @test: host/__tests__/entrypoint-context-mode-runtime.test.js (REQ-AGENT-076 AC7: entrypoint preserves context-mode bridge idle reaping) -->
+7. Enabled context-mode keeps its managed idle policy, preserves a nonzero operator timeout, creates no absent override, and clears stale disabling values. <!-- @impl: preseed/agents/pi/extensions/context-mode-runtime.ts::clearInheritedContextModeBridgeIdleOverride --> <!-- @test: host/__tests__/entrypoint-context-mode-runtime.test.js (REQ-AGENT-076 AC7: entrypoint preserves context-mode bridge idle reaping) -->
 
 **Constraints:**
 
@@ -4031,7 +4032,8 @@ None.
 - Tool extensions require no per-user API key.
 - The update probe patch is build-owned, not a self-upgrade path.
 - Every Pi workflow retains an equivalent non-context fallback.
-- Container startup restores the disabled context-mode package marker regardless of a prior session's opt-in state.
+- Container startup restores the enabled context-mode package marker.
+- `/ctx off` remains effective across Pi reloads until the next container start.
 - Foreground ownership and in-process subagent isolation while context-mode is enabled are owned by [REQ-AGENT-089](#req-agent-089-pi-context-mode-foreground-ownership).
 
 **Priority:** P1
@@ -4039,6 +4041,62 @@ None.
 **Dependencies:** [REQ-AGENT-005](#req-agent-005-pro-mode-includes-additional-skills-rules-agents-and-mcp-servers), [REQ-AGENT-006](#req-agent-006-preseed-configs-generated-from-single-source-of-truth)
 
 **Verification:** Automated and manual verification
+
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-222: Pi Smart Compact defaults
+
+**Intent:** Both Pi modes receive bounded, provider-neutral compaction at Pi's native pressure boundary without replacing existing memory or UI ownership.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Both Pi modes install the exact integrity-locked Smart Compact package. <!-- @impl: entrypoint.sh::configure_pi_packages_and_review_inventory --> <!-- @test: host/__tests__/pi-settings-packages.test.js (Pi settings.json packages assembly (entrypoint.sh)) -->
+2. The provider-neutral EESV preset uses Auto mode, low summary thinking, at most four calls, a 120-second generation ceiling, scrubbed backups, and lost-detail monitoring. <!-- @impl: preseed/agents/pi/extensions/00-smart-compact-config.ts::configureSmartCompact --> <!-- @test: src/__tests__/lib/pi-smart-compact-config.test.ts (REQ-AGENT-223: provider-neutral Smart Compact settings preparation) -->
+3. Automatic `native-hook` replacement occurs only when Pi requests compaction. <!-- @impl: preseed/agents/pi/extensions/00-smart-compact-config.ts::configureSmartCompact --> <!-- @test: src/__tests__/lib/pi-smart-compact-config.test.ts (REQ-AGENT-223: provider-neutral Smart Compact settings preparation) -->
+4. The footer, additional memory, agent tools, and overlapping cleanup/navigation features default off. <!-- @impl: preseed/agents/pi/extensions/00-smart-compact-config.ts::configureSmartCompact --> <!-- @test: src/__tests__/lib/pi-smart-compact-config.test.ts (REQ-AGENT-223: provider-neutral Smart Compact settings preparation) -->
+
+**Constraints:**
+
+- Existing capture and post-compaction recall retain ownership.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-076](#req-agent-076-pi-context-mode-enablement-and-tool-extension-defaults)
+
+**Verification:** Automated package-assembly and settings tests
+
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-223: Pi Smart Compact settings preservation
+
+**Intent:** Preparation supplies absent defaults without overriding user-owned compaction preferences or unsafe settings.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Before a session starts, preparation seeds the preset only when the entire `smartCompact` section and supported legacy `semanticCompact` alias are absent, preserving unrelated configuration. <!-- @impl: preseed/agents/pi/extensions/00-smart-compact-config.ts::configureSmartCompact --> <!-- @test: src/__tests__/lib/pi-smart-compact-config.test.ts (REQ-AGENT-223: provider-neutral Smart Compact settings preparation) -->
+2. Existing valid `smartCompact` sections, including empty or partial user configuration, remain byte-unchanged across reload and R2 restoration. <!-- @impl: preseed/agents/pi/extensions/00-smart-compact-config.ts::configureSmartCompact --> <!-- @test: src/__tests__/lib/pi-smart-compact-config.test.ts (REQ-AGENT-223: provider-neutral Smart Compact settings preparation) --> <!-- @test: host/__tests__/entrypoint-rclone-filters.test.js (REQ-STOR-011 / REQ-AGENT-223: Smart Compact settings round-trip) -->
+3. An existing valid legacy `semanticCompact` section remains byte-unchanged across reload and R2 restoration and prevents seeding a competing `smartCompact` section. <!-- @impl: preseed/agents/pi/extensions/00-smart-compact-config.ts::configureSmartCompact --> <!-- @test: src/__tests__/lib/pi-smart-compact-config.test.ts (REQ-AGENT-223: preserves semanticCompact-only %s byte-for-byte without inserting smartCompact across reloads) -->
+4. Users may modify or disable automatic compaction; their settings sync through the existing Pi settings path. <!-- @impl: preseed/agents/pi/extensions/00-smart-compact-config.ts::configureSmartCompact --> <!-- @test: host/__tests__/entrypoint-rclone-filters.test.js (REQ-STOR-011 / REQ-AGENT-223: Smart Compact settings round-trip) -->
+5. Preparation respects the package settings lock without changing settings or an occupied lock. <!-- @impl: preseed/agents/pi/extensions/00-smart-compact-config.ts::configureSmartCompact --> <!-- @test: src/__tests__/lib/pi-smart-compact-config.test.ts (REQ-AGENT-223: provider-neutral Smart Compact settings preparation) -->
+6. Preparation leaves malformed settings untouched. <!-- @impl: preseed/agents/pi/extensions/00-smart-compact-config.ts::configureSmartCompact --> <!-- @test: src/__tests__/lib/pi-smart-compact-config.test.ts (REQ-AGENT-223: provider-neutral Smart Compact settings preparation) -->
+
+**Constraints:**
+
+- No missing option is reapplied inside an existing valid section.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-222](#req-agent-222-pi-smart-compact-defaults)
+
+**Verification:** Automated settings and R2 round-trip tests
 
 **Status:** Implemented
 
@@ -5128,7 +5186,7 @@ None.
 
 **Acceptance Criteria:**
 
-1. Startup removes explicitly retired response and Usage package identities from persisted Pi settings. <!-- @impl: entrypoint.sh::removedPackageIds --> <!-- @test: host/__tests__/pi-settings-packages.test.js (startup restores the disabled default while preserving managed and unrelated packages) --> <!-- @test: host/__tests__/pi-settings-packages.test.js (REQ-AGENT-209 AC1/AC2) -->
+1. Startup removes explicitly retired response and Usage package identities from persisted Pi settings. <!-- @impl: entrypoint.sh::removedPackageIds --> <!-- @test: host/__tests__/pi-settings-packages.test.js (REQ-AGENT-076 AC1/AC2: next container boot restores the enabled default after /ctx off while preserving managed and unrelated settings) --> <!-- @test: host/__tests__/pi-settings-packages.test.js (REQ-AGENT-209 AC1/AC2) -->
 2. Startup preserves unrelated user-added packages, credentials and history during retirement migration. <!-- @impl: entrypoint.sh::removedPackageIds --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-001 AC5 / REQ-AGENT-209: real restored boot migrates packages while preserving user npm metadata and credential/history bytes) -->
 
 **Constraints:** Only explicitly retired package identities are removed.

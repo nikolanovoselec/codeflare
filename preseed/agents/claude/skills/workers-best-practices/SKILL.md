@@ -7,7 +7,7 @@ Your knowledge of Cloudflare Workers APIs, types, and configuration may be outda
 
 ## Retrieval Sources
 
-Fetch the **latest** versions before writing or reviewing Workers code. Do not rely on baked-in knowledge for API signatures, config fields, or binding shapes.
+Inspect the project's installed/generated types, Wrangler version, compatibility date and flags, then retrieve relevant current documentation. Do not assume a newer published type package describes this project's runtime contract.
 
 | Source | How to retrieve | Use for |
 |--------|----------------|---------|
@@ -16,17 +16,9 @@ Fetch the **latest** versions before writing or reviewing Workers code. Do not r
 | Wrangler config schema | `node_modules/wrangler/config-schema.json` | Config fields, binding shapes, allowed values |
 | Cloudflare docs | Search tool or `https://developers.cloudflare.com/workers/` | API reference, compatibility dates/flags |
 
-## FIRST: Fetch Latest References
+## FIRST: Establish the Project Contract
 
-Before reviewing or writing Workers code, retrieve the current best practices page and relevant type definitions. If the project's `node_modules` has an older version, **prefer the latest published version**.
-
-```bash
-# Fetch latest workers types
-mkdir -p /tmp/workers-types-latest && \
-  npm pack @cloudflare/workers-types --pack-destination /tmp/workers-types-latest && \
-  tar -xzf /tmp/workers-types-latest/cloudflare-workers-types-*.tgz -C /tmp/workers-types-latest
-# Types at /tmp/workers-types-latest/package/index.d.ts
-```
+Read installed Wrangler/generated `Env` types and configured compatibility settings before reviewing or writing code. Retrieve the current best practices page and documentation for the APIs in use. If types are stale, report the mismatch and use the repository's approved generation/CI path; do not silently install packages, advance compatibility settings, or migrate the project just to perform a review.
 
 ## Reference Documentation
 
@@ -72,7 +64,7 @@ mkdir -p /tmp/workers-types-latest && \
 | Rule | Summary |
 |------|---------|
 | No global request state | Never store request-scoped data in module-level variables |
-| Floating promises | Every Promise must be `await`ed, `return`ed, `void`ed, or passed to `ctx.waitUntil()` |
+| Floating promises | Await/return required work; use `ctx.waitUntil()` for bounded post-response work or durable Queues/Workflows when needed. `void` alone does not extend lifetime or handle rejection |
 
 ### Security
 
@@ -102,7 +94,7 @@ mkdir -p /tmp/workers-types-latest && \
 
 ## Review Workflow
 
-1. **Retrieve** — fetch latest best practices page, workers types, and wrangler schema
+1. **Retrieve** — read installed/generated types and Wrangler schema, configured compatibility settings, and relevant current documentation
 2. **Read full files** — not just diffs; context matters for binding access patterns
 3. **Check types** — binding access, handler signatures, no `any`, no unsafe casts (see `references/review.md`)
 4. **Check config** — compatibility_date, nodejs_compat, observability, secrets, binding-code consistency

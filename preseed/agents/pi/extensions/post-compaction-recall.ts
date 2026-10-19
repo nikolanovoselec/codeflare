@@ -13,11 +13,12 @@
  * Fail-safe: any error leaves the session untouched. Recall is a convenience,
  * never a gate.
  */
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { closeSync, constants, existsSync, fstatSync, openSync, readdirSync, readFileSync, readSync } from "node:fs";
 import { join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { isChildSessionFirstLine, isChildSessionHeader } from "./memory-vault-helpers";
 import {
+  captureSessionId,
   orderByCaptureInstant,
   recallBlock,
   recallMessage,
@@ -72,7 +73,16 @@ function isChildSession(ctx: any): boolean {
   }
 }
 
-export function buildRecall(dependencies: PostCompactionRecallDependencies): string | null {
+function activeSessionId(ctx: any): string | undefined {
+  try {
+    const id = ctx?.sessionManager?.getSessionId?.() ?? ctx?.sessionManager?.getHeader?.()?.id;
+    return typeof id === "string" && id ? id : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+export function buildRecall(dependencies: PostCompactionRecallDependencies, sessionId?: string): string | null {
   const { sessionsDir, extractCount, perFileBytes } = dependencies;
   let names: string[];
   try {
@@ -82,18 +92,44 @@ export function buildRecall(dependencies: PostCompactionRecallDependencies): str
   }
 
   const blocks: string[] = [];
-  for (const name of orderByCaptureInstant(names).slice(0, extractCount)) {
-    const path = join(sessionsDir, name);
+  const matching: string[] = [];
+  const ordered = orderByCaptureInstant(names);
+  // Leave time to deliver the collected fallback inside Claude's eight-second
+  // envelope too. Identity lookup never consumes unrelated historical bodies.
+  const lookupDeadline = Date.now() + 6000;
+  const header = Buffer.alloc(2048);
+  for (let index = 0; index < ordered.length; index += 1) {
+    if ((!sessionId && index >= extractCount) || matching.length >= extractCount
+      || (index >= extractCount && Date.now() >= lookupDeadline)) break;
+    const path = join(sessionsDir, ordered[index]);
     let text: string;
+    let matches = false;
+    let input: number | undefined;
     try {
-      text = readFileSync(path, "utf8");
+      input = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+      if (!fstatSync(input).isFile()) continue;
+      if (sessionId !== undefined) {
+        let size = 0;
+        while (size < header.length) {
+          const read = readSync(input, header, size, header.length - size, size);
+          if (read === 0) break;
+          size += read;
+        }
+        matches = captureSessionId(header.subarray(0, size).toString("utf8")) === sessionId;
+      }
+      if (index >= extractCount && !matches) continue;
+      text = readFileSync(input, "utf8");
     } catch {
       continue;
+    } finally {
+      if (input !== undefined) closeSync(input);
     }
     const block = recallBlock(path, text, perFileBytes);
-    if (block) blocks.push(block);
+    if (!block) continue;
+    if (index < extractCount) blocks.push(block);
+    if (matches) matching.push(block);
   }
-  return recallMessage(blocks, sessionsDir);
+  return recallMessage(matching.length > 0 ? matching : blocks, sessionsDir);
 }
 
 export function registerPostCompactionRecall(
@@ -106,7 +142,7 @@ export function registerPostCompactionRecall(
     // for a feature that is a convenience. Failing silently is the contract.
     try {
       if (isChildSession(ctx)) return;
-      const content = buildRecall(dependencies);
+      const content = buildRecall(dependencies, activeSessionId(ctx));
       if (!content) return;
       // followUp without triggerTurn: the recall rides along with whatever runs
       // next - the retried turn on overflow recovery, or the user's next prompt -

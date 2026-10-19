@@ -7,7 +7,7 @@
 //   AC5: the cap is visible as a truncation marker that keeps the source path
 import { describe, it, before } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync, existsSync, utimesSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, symlinkSync, writeFileSync, existsSync, utimesSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
@@ -19,10 +19,10 @@ const HOOK = resolve(
   '../../preseed/agents/claude/plugins/codeflare-memory/scripts/post-compaction-recall.sh',
 );
 
-function extract(title, { context = 'ctx body', decisions = '- a decision' } = {}) {
+function extract(title, { context = 'ctx body', decisions = '- a decision', sessionId = 'abc' } = {}) {
   return [
     '---',
-    'session_id: abc',
+    `session_id: ${sessionId}`,
     '---',
     '',
     `# ${title}`,
@@ -46,10 +46,10 @@ function seed(dir, files) {
   }
 }
 
-function runHook({ sessionsDir, source = 'compact', count, perFileBytes }) {
+function runHook({ sessionsDir, source = 'compact', count, perFileBytes, sessionId = 's1' }) {
   const result = spawnSync('bash', [HOOK], {
     encoding: 'utf-8',
-    input: JSON.stringify({ hook_event_name: 'SessionStart', session_id: 's1', source }),
+    input: JSON.stringify({ hook_event_name: 'SessionStart', session_id: sessionId, source }),
     env: {
       ...process.env,
       POST_COMPACT_SESSIONS_DIR: sessionsDir,
@@ -73,6 +73,25 @@ describe('post-compaction-recall.sh (REQ-MEM-019)', () => {
   before(() => {
     baseTmp = mkdtempSync(join(tmpdir(), 'post-compact-'));
     assert.ok(existsSync(HOOK), `hook script missing at ${HOOK}`);
+  });
+
+  it('REQ-MEM-027 AC5: skips symlinked and non-regular capture files without losing the global fallback', () => {
+    const dir = join(baseTmp, 'bounded-descriptors');
+    seed(dir, {
+      '2026-07-03T10-00-00+0200-a.md': extract('global newest', { sessionId: 'other' }),
+      '2026-07-02T10-00-00+0200-b.md': extract('global middle', { sessionId: 'other' }),
+      'receipt.txt': extract('redirected identity', { sessionId: 's1' }),
+    });
+    symlinkSync(join(dir, 'receipt.txt'), join(dir, '2026-06-01T10-00-00+0200-link.md'));
+    const fifo = spawnSync('mkfifo', [join(dir, '2026-06-02T10-00-00+0200-pipe.md')]);
+    assert.equal(fifo.status, 0);
+
+    const { status, context } = runHook({ sessionsDir: dir, count: 2 });
+
+    assert.equal(status, 0);
+    assert.ok(context.includes('global newest'));
+    assert.ok(context.includes('global middle'));
+    assert.ok(!context.includes('redirected identity'));
   });
 
   it('AC1: injects the N most recent extracts newest-first as SessionStart context', () => {
@@ -100,6 +119,106 @@ describe('post-compaction-recall.sh (REQ-MEM-019)', () => {
     // Context and Decisions are carried; Observations deliberately are not.
     assert.ok(context.includes('## Decisions'));
     assert.ok(!context.includes('must NOT be injected'));
+  });
+
+  it('REQ-MEM-027: prefers the active session and never fills its recall with other sessions', () => {
+    const dir = join(baseTmp, 'active-session');
+    seed(dir, {
+      '2026-07-01T10-00-00+0200-a.md': extract('active older', { sessionId: 'active' }),
+      '2026-07-02T10-00-00+0200-b.md': extract('active newer', { sessionId: 'active' }),
+      '2026-07-03T10-00-00+0200-c.md': extract('unrelated newest', { sessionId: 'other' }),
+      '2026-07-04T10-00-00+0200-d.md': extract('prefix collision', { sessionId: 'active-other' }),
+    });
+    const { context, status } = runHook({ sessionsDir: dir, sessionId: 'active' });
+    assert.equal(status, 0);
+    assert.ok(context.includes('active older'));
+    assert.ok(context.includes('active newer'));
+    assert.ok(context.indexOf('active newer') < context.indexOf('active older'));
+    assert.ok(!context.includes('unrelated newest'));
+    assert.ok(!context.includes('prefix collision'));
+    assert.ok(context.includes('the 2 most recent session extracts'));
+  });
+
+  it('REQ-MEM-027: bounds active-session matches and ignores identity-like narrative text', () => {
+    const dir = join(baseTmp, 'active-session-bound');
+    seed(dir, {
+      '2026-07-01T10-00-00+0200-a.md': extract('active oldest', { sessionId: 'active' }),
+      '2026-07-02T10-00-00+0200-b.md': extract('active middle', { sessionId: 'active' }),
+      '2026-07-03T10-00-00+0200-c.md': extract('active newest', { sessionId: 'active' }),
+      '2026-07-04T10-00-00+0200-d.md': extract('unrelated narrative', { context: 'session_id: active', sessionId: 'other' }),
+    });
+    const { context } = runHook({ sessionsDir: dir, sessionId: 'active', count: 2 });
+    assert.ok(context.includes('active newest'));
+    assert.ok(context.includes('active middle'));
+    assert.ok(!context.includes('active oldest'));
+    assert.ok(!context.includes('unrelated narrative'));
+  });
+
+  it('REQ-MEM-027: falls back to global latest captures when no usable session match exists', () => {
+    const dir = join(baseTmp, 'session-fallback');
+    seed(dir, {
+      '2026-07-01T10-00-00+0200-a.md': extract('global oldest'),
+      '2026-07-02T10-00-00+0200-b.md': extract('global middle'),
+      '2026-07-03T10-00-00+0200-c.md': extract('global newest'),
+      '2026-07-04T10-00-00+0200-d.md': '---\nsession_id: empty\n---\n# no recall sections\n',
+    });
+    for (const sessionId of ['missing', 'empty', '']) {
+      const { context } = runHook({ sessionsDir: dir, sessionId, count: 3 });
+      assert.ok(context.includes('global newest'));
+      assert.ok(context.includes('global middle'));
+      assert.ok(!context.includes('global oldest'));
+    }
+  });
+
+  for (const [label, frontmatter] of [
+    ['session ID beyond the bound', `---\npadding: ${'x'.repeat(2048)}\nsession_id: active\n---\n`],
+    ['closing delimiter beyond the byte bound', `---\nsession_id: active\npadding: ${'é'.repeat(1030)}\n---\n`],
+  ]) {
+    it(`REQ-MEM-027: keeps the latest-five global fallback when an older capture has ${label}`, () => {
+      const dir = join(baseTmp, `bounded-frontmatter-${label.replaceAll(' ', '-')}`);
+      const files = {};
+      for (let day = 1; day <= 6; day += 1) {
+        files[`2026-07-0${day}T10-00-00+0200-global.md`] = extract(`global capture ${day}`, { sessionId: 'other' });
+      }
+      files['2026-06-01T10-00-00+0200-oversized.md'] = `${frontmatter}\n# oversized identity capture\n\n## Context\nMust not replace the global fallback.\n`;
+      seed(dir, files);
+
+      const { context, status } = runHook({ sessionsDir: dir, sessionId: 'active' });
+
+      assert.equal(status, 0);
+      assert.ok(context.includes('the 5 most recent session extracts'));
+      for (let day = 6; day >= 2; day -= 1) {
+        assert.ok(context.includes(`global capture ${day}`));
+        if (day > 2) assert.ok(context.indexOf(`global capture ${day}`) < context.indexOf(`global capture ${day - 1}`));
+      }
+      assert.ok(!context.includes('global capture 1'));
+      assert.ok(!context.includes('oversized identity capture'));
+    });
+  }
+
+  it('REQ-MEM-027: finds older usable matches beyond the global window after skipping empty matching candidates', () => {
+    const dir = join(baseTmp, 'older-usable-matches');
+    const files = {
+      '2026-06-01T10-00-00+0200-older.md': extract('older usable match', { sessionId: 'active' }),
+      // The selected candidate body is needed even past the metadata bound.
+      '2026-06-02T10-00-00+0200-newer.md': `---\nsession_id: active\n---\n# newer usable match\n\n## Observations\n${'x'.repeat(2100)}\n\n## Context\nSelected candidate body survives.\n`,
+      '2026-07-08T10-00-00+0200-empty.md': '---\nsession_id: active\n---\n# empty match one\n',
+      '2026-07-09T10-00-00+0200-empty.md': '---\nsession_id: active\n---\n# empty match two\n',
+    };
+    for (let day = 1; day <= 5; day += 1) {
+      files[`2026-07-0${day}T10-00-00+0200-unrelated.md`] = extract('unrelated capture', { sessionId: 'other' });
+    }
+    seed(dir, files);
+
+    const { context, status } = runHook({ sessionsDir: dir, sessionId: 'active', count: 2 });
+
+    assert.equal(status, 0);
+    assert.ok(context.includes('the 2 most recent session extracts'));
+    assert.ok(context.includes('Selected candidate body survives.'));
+    assert.ok(context.includes('older usable match'));
+    assert.ok(context.indexOf('newer usable match') < context.indexOf('older usable match'));
+    assert.ok(!context.includes('unrelated capture'));
+    assert.ok(!context.includes('empty match'));
   });
 
   it('AC2: orders by filename even when mtime disagrees', () => {

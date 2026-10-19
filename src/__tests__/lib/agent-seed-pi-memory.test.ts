@@ -83,7 +83,7 @@ describe('Pi memory-vault behavioral tests (REQ-MEM-001/002/010, REQ-VAULT-003/0
     expect(compacted).not.toContain('task-notification');
   });
 
-  it('REQ-MEM-002 AC7: withCurrentPrompt counts the submitted prompt once for resume detection', () => {
+  it('REQ-MEM-026 AC1: withCurrentPrompt counts the submitted prompt once for resume detection', () => {
     const prior = [{ role: 'user', content: 'older prompt' }, { role: 'assistant', content: 'older answer' }];
     const withCurrent = withCurrentPrompt(prior, 'current prompt');
     expect(realUserPromptCount(withCurrent)).toBe(2);
@@ -268,7 +268,7 @@ describe('Pi memory-vault behavioral tests (REQ-MEM-001/002/010, REQ-VAULT-003/0
     expect(isFirstMessage(false, 5)).toBe(false);
   });
 
-  it('REQ-MEM-002 AC7: isResumedSession detects resumed session (no counter, count>1)', () => {
+  it('REQ-MEM-026 AC1: isResumedSession detects resumed session (no counter, count>1)', () => {
     expect(isResumedSession(false, 5)).toBe(true);
     expect(isResumedSession(false, 1)).toBe(false);
     expect(isResumedSession(true, 5)).toBe(false);
