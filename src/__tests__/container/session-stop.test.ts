@@ -34,6 +34,16 @@ async function fixture(initial: 'running' | 'stopping' | 'unreachable' = 'runnin
   const db = createMockSessionD1(kv);
   let confirmationUnavailable = false;
   let databaseUnavailable = false;
+  const checkpoints = new Map<string, { entered: ReturnType<typeof deferred>; release: ReturnType<typeof deferred> }>();
+  const pendingIO = new Set<ReturnType<typeof deferred>>();
+  const pause = async (stage: string) => {
+    const checkpoint = checkpoints.get(stage);
+    if (!checkpoint) return;
+    checkpoint.entered.resolve();
+    pendingIO.add(checkpoint.release);
+    try { await checkpoint.release.promise; }
+    finally { pendingIO.delete(checkpoint.release); }
+  };
   const prepare = db.prepare.bind(db);
   db.prepare = (sql: string) => {
     if (databaseUnavailable) throw Error('D1 unavailable');
@@ -43,6 +53,8 @@ async function fixture(initial: 'running' | 'stopping' | 'unreachable' = 'runnin
       const bound = bind(...values);
       const run = bound.run.bind(bound);
       bound.run = (async () => {
+        if (/SET\s+lifecycle_state='stopping'/.test(sql)) await pause('claim');
+        if (/SET\s+lifecycle_state='stopped'/.test(sql)) await pause('confirmation');
         if (confirmationUnavailable && /SET\s+lifecycle_state='stopped'/.test(sql)) throw Error('D1 unavailable');
         return run();
       }) as typeof bound.run;
@@ -56,6 +68,7 @@ async function fixture(initial: 'running' | 'stopping' | 'unreachable' = 'runnin
   let running = true;
   let draining = false;
   let teardownGate: ReturnType<typeof deferred> | undefined;
+  let teardownEntered = deferred();
   const protectedWork = new Set<Promise<unknown>>();
   async function coordinator() {
     const storage = new Map<string, unknown>(); // operational identity is deliberately absent
@@ -74,6 +87,7 @@ async function fixture(initial: 'running' | 'stopping' | 'unreachable' = 'runnin
     vi.spyOn(instance, 'destroy').mockImplementation(async () => {
       if (draining) throw Error('duplicate concurrent teardown');
       draining = true;
+      teardownEntered.resolve();
       try {
         await teardownGate?.promise;
         running = false; // positive destruction confirmation, including idempotent repeat
@@ -84,8 +98,19 @@ async function fixture(initial: 'running' | 'stopping' | 'unreachable' = 'runnin
   return { env, kv, key, repository, coordinator,
     read: () => repository.getSession(ref.bucket, ref.sessionId),
     running: () => running,
-    holdTeardown: () => { teardownGate = deferred(); return teardownGate; },
-    disconnect: () => { if (!protectedWork.size) teardownGate?.reject(Error('caller disconnected')); },
+    holdTeardown: () => { teardownGate = deferred(); teardownEntered = deferred(); return teardownGate; },
+    enteredTeardown: () => teardownEntered.promise,
+    holdIO: (stage: string) => {
+      const checkpoint = { entered: deferred(), release: deferred() };
+      checkpoints.set(stage, checkpoint);
+      return { entered: checkpoint.entered.promise, resolve: checkpoint.release.resolve };
+    },
+    pause,
+    disconnect: () => {
+      if (protectedWork.size) return;
+      teardownGate?.reject(Error('caller disconnected'));
+      for (const io of pendingIO) io.reject(Error('caller disconnected'));
+    },
     failConfirmation: (fail: boolean) => { confirmationUnavailable = fail; },
     failDatabase: (fail: boolean) => { databaseUnavailable = fail; },
   };
@@ -114,12 +139,46 @@ describe('REQ-SESSION-035: caller-independent Stop and manual recovery', () => {
     expect(await f.read()).toMatchObject({ lifecycleState: 'stopped', lifecycleGeneration: 7, terminationIntentId: undefined });
   });
 
+  it.each(['claim', 'boundary', 'confirmation'] as const)(
+    'protects the entire Stop when the caller disconnects during %s I/O', async stage => {
+      const f = await fixture();
+      if (stage === 'boundary') {
+        f.kv._set(f.key, { id: ref.sessionId, status: 'running', lifecycleGeneration: 7, boundaryActivityId: 'pending-activity' });
+        f.env.OPERATOR_ACTIVITY = { getByName: () => ({
+          getBoundaryStartBinding: async () => ({ session: ref }),
+          cancelBoundaryStart: async () => { await f.pause('boundary'); return { ok: true }; },
+        }) } as unknown as Env['OPERATOR_ACTIVITY'];
+      }
+      const instance = await f.coordinator();
+      const checkpoint = f.holdIO(stage);
+      const stop = instance.stopSession(ref);
+      await checkpoint.entered;
+      f.disconnect();
+      checkpoint.resolve();
+      await stop;
+      expect(f.running()).toBe(false);
+      expect(await f.read()).toMatchObject({ lifecycleState: 'stopped', lifecycleGeneration: 7,
+        terminationIntentId: undefined, boundaryActivityId: undefined });
+    },
+  );
+
+  it('rejects a termination intent pinned to a different generation without changing ownership', async () => {
+    const f = await fixture('stopping');
+    f.kv._set(f.key, { id: ref.sessionId, status: 'stopping', lifecycleGeneration: 7,
+      terminationIntentId: 'retained-intent', terminationGeneration: 6 });
+    const before = await f.read();
+    await expect((await f.coordinator()).stopSession(ref)).rejects.toThrow();
+    expect(await f.read()).toEqual(before);
+    expect(f.running()).toBe(true);
+  });
+
   it('retains the same intent while retrying a reconstructed stopping generation', async () => {
     const f = await fixture('stopping');
     const instance = await f.coordinator();
     const gate = f.holdTeardown();
     const stop = instance.stopSession(ref);
-    await vi.waitFor(async () => expect((await f.read())?.terminationIntentId).toBe('retained-intent'));
+    await f.enteredTeardown();
+    expect((await f.read())?.terminationIntentId).toBe('retained-intent');
     gate.resolve();
     await stop;
     expect(await f.read()).toMatchObject({ lifecycleState: 'stopped', lifecycleGeneration: 7 });

@@ -677,6 +677,27 @@ describe('POST /sessions/:id/stop', () => {
     expect(await mockKV.get(`session:test-bucket:${id}`, 'json')).toMatchObject({ status: 'running', lifecycleGeneration: 7 });
   });
 
+  it.each(['stopping', 'unreachable'] as const)('REQ-SESSION-035: the owner can retry Stop from persisted %s', async status => {
+    const app = createLifecycleApp();
+    const id = 'sessiontostop12345';
+    mockKV._set(`session:test-bucket:${id}`, { id, name: 'Retained', status, lifecycleGeneration: 7,
+      ...(status === 'stopping' ? { terminationIntentId: 'retained-intent', terminationGeneration: 7 } : {}) });
+    const response = await app.request(`/sessions/${id}/stop`, { method: 'POST' });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ success: true, stopped: true, id });
+    expect(await mockKV.get(`session:test-bucket:${id}`, 'json')).toMatchObject({ name: 'Retained', status: 'stopped', lifecycleGeneration: 7 });
+  });
+
+  it('REQ-SESSION-035: Stop cannot borrow another owner\'s session identity', async () => {
+    const app = createLifecycleApp();
+    const id = 'sessiontostop12345';
+    const foreign = { id, name: 'Foreign', status: 'running', lifecycleGeneration: 7 };
+    mockKV._set(`session:other-owner:${id}`, foreign);
+    const response = await app.request(`/sessions/${id}/stop`, { method: 'POST' });
+    expect(response.status).toBe(404);
+    expect(await mockKV.get(`session:other-owner:${id}`, 'json')).toEqual(foreign);
+  });
+
   it('confirms the session stopped after container exit', async () => {
     const app = createLifecycleApp();
     const session: Session = {
