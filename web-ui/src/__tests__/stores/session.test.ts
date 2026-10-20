@@ -972,6 +972,29 @@ describe('Session Store', () => {
       expect(sessionStore.getTerminalsForSession('session-1')).not.toBeNull();
     });
 
+    it('REQ-SESSION-006: a failed Delete during Stop polling leaves Retry Stop usable', async () => {
+      mockStopSession.mockResolvedValue(undefined);
+      mockGetBatchSessionStatus.mockResolvedValue({ statuses: { 'session-1': { status: 'running' } }, maxSessions: 3 });
+      let stopSettled = false;
+      const firstStop = sessionStore.stopSession('session-1').then(() => { stopSettled = true; });
+      await vi.advanceTimersByTimeAsync(STOP_POLL_INTERVAL_MS);
+
+      mockDeleteSession.mockRejectedValueOnce(Error('Delete unavailable'));
+      await sessionStore.deleteSession('session-1');
+      await vi.advanceTimersByTimeAsync(0);
+      expect(stopSettled).toBe(true);
+      expect(sessionStore.sessions[0]).toMatchObject({ id: 'session-1', status: 'stopping' });
+      expect(sessionStore.error).toContain('Delete unavailable');
+      expect(sessionStore.getTerminalsForSession('session-1')).not.toBeNull();
+      await firstStop;
+
+      mockGetBatchSessionStatus.mockResolvedValue({ statuses: { 'session-1': { status: 'stopped' } }, maxSessions: 3 });
+      const retry = sessionStore.stopSession('session-1');
+      await vi.advanceTimersByTimeAsync(STOP_POLL_INTERVAL_MS);
+      await retry;
+      expect(sessionStore.sessions[0]).toMatchObject({ id: 'session-1', status: 'stopped' });
+    });
+
     it('should set status to stopping immediately then stopped after polling', async () => {
       mockStopSession.mockResolvedValue(undefined);
       // First poll returns 'running' (still shutting down), second returns 'stopped'
