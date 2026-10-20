@@ -657,14 +657,18 @@ async function stopSession(id: string): Promise<void> {
       return new Promise((resolve) => {
         let pollCount = 0;
         let consecutiveErrors = 0;
+        let finished = false;
 
-        const finishStopPolling = (confirmed: boolean) => {
+        // Undefined confirmation is neutral cancellation, not a failed Stop.
+        const finishStopPolling = (confirmed?: boolean) => {
+          if (finished) return;
+          finished = true;
           clearInterval(interval);
           startupCleanups.delete(id);
           if (confirmed) {
             updateSessionStatus(id, 'stopped');
             terminalStore.disposeSession(id);
-          } else {
+          } else if (confirmed === false) {
             setState('error', 'Stop could not be confirmed. Refresh status or retry stopping.');
           }
           resolve();
@@ -693,10 +697,8 @@ async function stopSession(id: string): Promise<void> {
           }
         }, STOP_POLL_INTERVAL_MS);
 
-        // Track stop-polling interval for cleanup
-        startupCleanups.set(id, () => {
-          clearInterval(interval);
-        });
+        // Cancellation must settle the caller and release its local attempt.
+        startupCleanups.set(id, () => finishStopPolling());
       });
     };
 
