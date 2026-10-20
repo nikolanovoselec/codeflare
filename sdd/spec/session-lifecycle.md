@@ -759,15 +759,44 @@ None.
 2. Old `stopping` rows retain termination and unreachable ownership, editor readiness, revision and transition reason until positive exit confirmation for their generation. <!-- @impl: src/lib/session-repository.ts::confirmStopped --> <!-- @impl: src/container/container-lifecycle.ts::confirmMonitoredExit --> <!-- @test: src/__tests__/lib/session-d1-lifecycle.test.ts (REQ-SESSION-035: aged Stop ownership remains fenced until its current-generation exit is confirmed) --> <!-- @test: src/__tests__/container/index.test.ts (confirms a running session only when its attached process monitor resolves) -->
 3. A stopping row keeps managed-mutation ownership and cannot claim a replacement Start; other owners and lifecycle states remain unchanged. <!-- @impl: src/lib/session-helpers.ts::hasOwningSessionContainer --> <!-- @impl: src/lib/session-repository.ts::start --> <!-- @test: src/__tests__/routes/session.test.ts (REQ-SESSION-035: old stopping remains owner-scoped and retains managed-mutation ownership without exit evidence) --> <!-- @test: src/__tests__/lib/session-d1-lifecycle.test.ts (REQ-SESSION-035: aged Stop ownership remains fenced until its current-generation exit is confirmed) -->
 
-**Constraints:** Applies to future sessions only; no existing-record repair or migration. Stale duration is diagnostic, not authority to clear a termination intent.
+4. Once the session DO accepts Stop, its complete claim, pending Protected Action cancellation, existing bounded graceful teardown and D1 exit confirmation continue independently of the calling HTTP request. Before DO acceptance the Worker does not claim `stopping`.
+5. An owner can retry the same generation's Stop after coordinator reconstruction, operational identity cleanup or a transient D1 failure. Retry reuses the current termination intent, treats confirmed completion idempotently, and cannot terminate a replacement generation or another owner's session.
+6. Dashboard and session-dropdown actions offer non-deleting Retry Stop for persisted `stopping` and Stop for `unreachable`; an in-flight local request suppresses duplicate submission without permanently disabling retry after failure.
+
+**Constraints:** No automatic existing-record repair, migration or recovery scheduler. Explicit owner Stop retry uses current D1 authority. Stale duration is diagnostic, not authority to clear a termination intent. Browser-independent completion does not promise automatic recovery across DO crashes or persistent D1 outages. Existing final notification drain, authenticated final sync and teardown deadlines remain unchanged.
 
 **Priority:** P0
 
-**Dependencies:** [REQ-SESSION-018](#req-session-018-d1-lifecycle-evidence-is-generation-fenced)
+**Dependencies:** [REQ-SESSION-018](#req-session-018-d1-lifecycle-evidence-is-generation-fenced), [REQ-SESSION-011](#req-session-011-graceful-shutdown-with-final-sync)
 
-**Verification:** Automated D1 repository and route tests.
+**Verification:** Existing D1/route tests and planned caller-cancellation, reconstruction, retry and UI regressions.
 
-**Status:** Implemented
+**Status:** Planned
+
+---
+
+### REQ-SESSION-037: Dashboard navigation remains available during startup
+
+**Intent:** Leaving a session's startup progress selects a usable dashboard without canceling or taking ownership of background startup.
+
+**Applies To:** User (desktop and mobile)
+
+**Acceptance Criteria:**
+
+1. Browser Back to the dashboard and the dashboard button render usable dashboard controls during session start/resume without requiring a page reload.
+2. An initializing terminal session cannot suppress an explicitly selected dashboard, including when that session is not selected.
+3. Navigation preserves per-session startup/progress ownership without issuing Stop, duplicating Start or prematurely dismissing readiness; returning to the session restores its appropriate progress/ready surface.
+4. Background startup completion or failure does not hide the selected dashboard or steal navigation ownership; existing VS Code and MultiView behavior remains intact.
+
+**Constraints:** Keep the existing view transitions, startup protocol and workspace ownership. No router redesign or backend lifecycle change for navigation.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-SESSION-010](#req-session-010-session-lifecycle-is-observable-from-one-d1-projection)
+
+**Verification:** Planned dashboard-rendering, history-navigation and startup-progress regressions; hosted desktop/mobile acceptance after integration deployment.
+
+**Status:** Planned
 
 ---
 
