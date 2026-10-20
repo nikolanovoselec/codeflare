@@ -88,6 +88,12 @@ function host(mode, { deferMount = false } = {}) {
     showOverlay() { return tui.showOverlay({ render: () => ['Existing host overlay'], invalidate() {} }); },
     render() { assert.ok(view.component); return view.component.render(120); },
     answer(value) { assert.ok(view.pending, 'a real host dialog must be waiting'); view.pending(value); },
+    choose(index) {
+      assert.equal(view.dialog?.kind, 'select', 'native choices must answer a select dialog');
+      const offered = view.dialog.options[index];
+      assert.equal(typeof offered, 'string', 'native choices must use an offered option');
+      this.answer(offered);
+    },
     key(data) {
       assert.ok(view.active && view.component);
       for (const listener of listeners) if (listener(data)?.consume) return;
@@ -232,8 +238,8 @@ for (const version of Object.keys(archives)) {
               f.display.key('\r');
             }
           } else if (action === 'cancel') f.display.answer(undefined);
-          else if (action === 'option') f.display.answer('2. Different approach');
-          else { f.display.answer('3. Type something.'); await f.display.wait(); f.display.answer('My own answer'); }
+          else if (action === 'option') f.display.choose(1);
+          else { f.display.choose(2); await f.display.wait(); f.display.answer('My own answer'); }
           const state = observe(first); await turn();
           assert.equal(state.settled, true, `${action} must finish without waiting for timeout`);
           const result = await first;
@@ -244,7 +250,7 @@ for (const version of Object.keys(archives)) {
           const second = f.execute(); const secondState = observe(second); await f.display.wait();
           t.mock.timers.tick(1); await turn(); assert.equal(secondState.settled, false, 'prior deadline cannot finish a new questionnaire');
           if (mode === 'tui') { f.display.key('\x1b[B'); f.display.key('\r'); }
-          else f.display.answer('2. Different approach');
+          else f.display.choose(1);
           assert.equal((await second).details.answers[0].answer, 'Different approach');
           t.mock.timers.tick(600000); await turn(); assert.equal(f.display.view.active, false);
         });
@@ -256,7 +262,7 @@ for (const version of Object.keys(archives)) {
         const result = f.execute(mixed); await f.display.wait();
         t.mock.timers.tick(200000);
         if (mode === 'tui') { f.display.key('\x1b[B'); f.display.key('\r'); }
-        else { f.display.answer('2. Different approach'); await f.display.wait(); }
+        else { f.display.choose(1); await f.display.wait(); }
         t.mock.timers.tick(100000); await turn();
         assert.equal((await result).details.answers[0].answer, 'Different approach');
         assert.notEqual((await result).details.answers[0].automatic, true);
@@ -275,7 +281,7 @@ for (const version of Object.keys(archives)) {
         const result = f.execute({ questions: [question(), { ...question(), question: 'Which next step?', header: 'Next step' }] }, controller.signal);
         await f.display.wait();
         if (mode === 'tui') { f.display.key('\x1b[B'); f.display.key('\r'); }
-        else { f.display.answer('2. Different approach'); await f.display.wait(); }
+        else { f.display.choose(1); await f.display.wait(); }
         controller.abort();
         const value = await result;
         assert.equal(value.details.cancelled, true);
@@ -346,7 +352,7 @@ for (const version of Object.keys(archives)) {
       const two = second.execute(); const secondState = observe(two); await second.display.wait();
       t.mock.timers.tick(100000); await turn(); automatic(await one, 'Small change (Recommended)');
       assert.equal(secondState.settled, false);
-      second.display.answer('2. Different approach');
+      second.display.choose(1);
       assert.equal((await two).details.answers[0].answer, 'Different approach');
       t.mock.timers.tick(300000); await turn();
       assert.equal(first.display.view.active, false); assert.equal(second.display.view.active, false);
@@ -417,12 +423,12 @@ for (const version of Object.keys(archives)) {
           const f = await fixture(t, 'rpc'); clock(t);
           const controller = new AbortController();
           const result = f.execute(params, controller.signal); const state = observe(result);
-          await f.display.wait(); t.mock.timers.tick(200000);
-          f.display.answer('3. Type something.'); await f.display.wait();
+          const initialChoices = [...(await f.display.wait()).options]; t.mock.timers.tick(200000);
+          f.display.choose(2); await f.display.wait();
           f.display.answer(undefined);
           const choices = await f.display.wait();
           assert.equal(choices.kind, 'select');
-          assert.ok(choices.options.includes('2. Different approach'));
+          assert.deepEqual(choices.options, initialChoices, 'cancelling custom input restores the offered choices');
           t.mock.timers.tick(99999); await turn(); assert.equal(state.settled, false);
           if (ending === 'abort') controller.abort(); else t.mock.timers.tick(1);
           await turn(); assert.equal(state.settled, true);
