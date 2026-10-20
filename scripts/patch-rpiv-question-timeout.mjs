@@ -3,7 +3,7 @@ import { copyFileSync, lstatSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-// Exact source identities from the integrity-verified, pinned 2.12.0 npm archive.
+// Exact source identities from integrity-verified, reviewed npm archives.
 // Reverse every owned replacement and verify the pristine digest on repeat runs.
 const layouts = [
   {
@@ -55,6 +55,37 @@ const layouts = [
     ],
   },
 ];
+const candidateDigests = {
+  'ask-user-question.ts': 'd565f9fde43a04e6fe071ea6e0c31f16ca740bffd60b3895e9e03f785b6dd559',
+  'state/questionnaire-session.ts': 'b64f47c1416aaa9d55fa5af322e2c1f2968f6e6ebe042ea91e7f2e0880f03c3c',
+};
+const reviewedLayouts = new Map([
+  ['2.12.0', layouts],
+  ['2.13.8', layouts.map(layout => ({
+    ...layout,
+    sha256: candidateDigests[layout.path],
+    replacements: layout.path !== 'ask-user-question.ts' ? layout.replacements
+      : layout.replacements.flatMap(([before, after]) => {
+        switch (before) {
+          case '\tSession: SessionModule["QuestionnaireSession"];':
+            return [
+              ['\tsessionRef: SessionRef;\n\tSession: SessionModule["QuestionnaireSession"];\n}) {',
+                '\tsessionRef: SessionRef;\n\tSession: SessionModule["QuestionnaireSession"];\n\tdeadline: { start(expire: () => void, cancel: () => void): void };\n}) {'],
+              ['\tpresentation: Presentation;\n\tSession: SessionModule["QuestionnaireSession"];\n}): Promise<QuestionnaireResult | undefined> {',
+                '\tpresentation: Presentation;\n\tSession: SessionModule["QuestionnaireSession"];\n\tdeadline: { start(expire: () => void, cancel: () => void): void };\n}): Promise<QuestionnaireResult | undefined> {'],
+            ];
+          case 'const { ctx, typed, itemsByTab, collapseKey, canReopenWhileHidden, sessionRef, Session } = config;':
+            return [['const { ctx, typed, itemsByTab, collapseKey, canReopenWhileHidden, presentation, sessionRef, Session } = config;',
+              'const { ctx, typed, itemsByTab, collapseKey, canReopenWhileHidden, presentation, sessionRef, Session, deadline } = config;']];
+          case '\t\t\t\t\t\tSession: QuestionnaireSession,':
+            return [['mountQuestionnaire({ ctx, typed, itemsByTab, collapseKey, presentation: p, Session: QuestionnaireSession });',
+              'mountQuestionnaire({ ctx, typed, itemsByTab, collapseKey, presentation: p, Session: QuestionnaireSession, deadline });']];
+          default:
+            return [[before, after]];
+        }
+      }),
+  }))],
+]);
 const digest = source => createHash('sha256').update(source).digest('hex');
 function replaceOnce(source, before, after, path) {
   if (source.split(before).length !== 2) throw new Error(`Questionnaire source layout changed: ${path}`);
@@ -72,17 +103,21 @@ function transform(source, layout) {
 
 export function patchQuestionnaireTimeout(root) {
   const destination = join(root, 'codeflare-question-timeout.mjs');
-  for (const path of [join(root, 'package.json'), ...layouts.map(layout => join(root, layout.path)), destination]) {
+  const manifestPath = join(root, 'package.json');
+  const manifestInfo = lstatSync(manifestPath, { throwIfNoEntry: false });
+  if (!manifestInfo?.isFile() || manifestInfo.isSymbolicLink()) throw new Error(`Unsafe questionnaire source path: ${manifestPath}`);
+  const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
+  const selectedLayouts = reviewedLayouts.get(manifest.version);
+  if (manifest.name !== '@juicesharp/rpiv-ask-user-question' || !selectedLayouts) {
+    throw new Error('Unsupported questionnaire package identity/version; expected @juicesharp/rpiv-ask-user-question 2.12.0 or 2.13.8');
+  }
+  for (const path of [...selectedLayouts.map(layout => join(root, layout.path)), destination]) {
     const info = lstatSync(path, { throwIfNoEntry: false });
     if (!info && path === destination) continue;
     if (!info?.isFile() || info.isSymbolicLink()) throw new Error(`Unsafe questionnaire source path: ${path}`);
   }
-  const manifest = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
-  if (manifest.name !== '@juicesharp/rpiv-ask-user-question' || manifest.version !== '2.12.0') {
-    throw new Error('Unsupported questionnaire package identity/version; expected @juicesharp/rpiv-ask-user-question 2.12.0');
-  }
   // Validate every artifact before any installed-package mutation.
-  const files = layouts.map(layout => ({ path: join(root, layout.path),
+  const files = selectedLayouts.map(layout => ({ path: join(root, layout.path),
     source: transform(readFileSync(join(root, layout.path), 'utf8'), layout) }));
   const helper = fileURLToPath(new URL('./rpiv-question-timeout.mjs', import.meta.url));
   copyFileSync(helper, destination);

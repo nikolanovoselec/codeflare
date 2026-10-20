@@ -24,4 +24,6 @@ Use it only when a decision is **genuinely the user's to make** and you cannot r
 
 ## How
 
+Codeflare defaults unanswered questions after five minutes. Automatic defaults are not user responses or authorization. Protected actions still require explicit current-user approval; cancellation and abort never authorize them.
+
 `ask_user_question` with 1–4 questions; each question has a short `header` chip and 2–4 options with a `label` + `description`. Put your recommended option first and mark it `(Recommended)`. Use `multiSelect: true` only when choices are not mutually exclusive. Use `preview` to show side-by-side artifacts (mockups, code snippets) the user must compare.

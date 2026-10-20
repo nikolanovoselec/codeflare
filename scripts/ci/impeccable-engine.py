@@ -10,7 +10,7 @@ import time
 
 
 def verify_engine(binary, expect_idle_bug=False, expected_version="0.1.15"):
-    assert expected_version in ("0.1.5", "0.1.10", "0.1.11", "0.1.15"), expected_version
+    assert expected_version in ("0.1.5", "0.1.10", "0.1.11", "0.1.15", "0.1.16"), expected_version
     probe = subprocess.run([binary, "engine-probe"], capture_output=True, text=True, timeout=10, check=True)
     assert probe.stdout.strip() == f"impeccable-engine {expected_version}", probe.stdout
     with tempfile.TemporaryDirectory(prefix="impeccable-engine-") as directory:
