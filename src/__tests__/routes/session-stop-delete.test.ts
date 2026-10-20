@@ -20,7 +20,7 @@ import { createMockSessionStop } from '../helpers/mock-session-stop';
 // Hoisted container mock
 const containerState = vi.hoisted(() => ({
   container: null as {
-    destroy: ReturnType<typeof vi.fn>;
+    destroy: ReturnType<typeof vi.fn<() => Promise<void>>>;
     stopSession: ReturnType<typeof vi.fn>;
     fetch: ReturnType<typeof vi.fn>;
     getState: ReturnType<typeof vi.fn>;
