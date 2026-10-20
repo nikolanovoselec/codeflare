@@ -940,6 +940,38 @@ describe('Session Store', () => {
       sessionStore.initializeTerminalsForSession('session-1');
     });
 
+    it('REQ-SESSION-035: suppresses duplicate local Stop submissions until the first attempt finishes', async () => {
+      let accept!: () => void;
+      const accepted = new Promise<void>(resolve => { accept = resolve; });
+      const commands: string[] = [];
+      mockStopSession.mockImplementation(async id => { commands.push(id); await accepted; });
+      mockGetBatchSessionStatus.mockResolvedValue({ statuses: { 'session-1': { status: 'stopped' } }, maxSessions: 3 });
+      const first = sessionStore.stopSession('session-1');
+      const duplicate = sessionStore.stopSession('session-1');
+      try {
+        expect(commands).toEqual(['session-1']); // Stop wire-command contract
+        expect(sessionStore.sessions[0].status).toBe('stopping');
+      } finally {
+        accept();
+        await vi.advanceTimersByTimeAsync(STOP_POLL_INTERVAL_MS);
+        await Promise.all([first, duplicate]);
+      }
+      expect(sessionStore.sessions[0].status).toBe('stopped');
+    });
+
+    it('REQ-SESSION-035: a failed Stop leaves retry available and retry completes the same session', async () => {
+      mockStopSession.mockRejectedValueOnce(Error('confirmation unavailable')).mockResolvedValue(undefined);
+      await sessionStore.stopSession('session-1');
+      expect(sessionStore.sessions[0]).toMatchObject({ id: 'session-1', status: 'stopping' });
+      expect(sessionStore.error).toContain('confirmation unavailable');
+      mockGetBatchSessionStatus.mockResolvedValue({ statuses: { 'session-1': { status: 'stopped' } }, maxSessions: 3 });
+      const retry = sessionStore.stopSession('session-1');
+      await vi.advanceTimersByTimeAsync(STOP_POLL_INTERVAL_MS);
+      await retry;
+      expect(sessionStore.sessions[0]).toMatchObject({ id: 'session-1', status: 'stopped' });
+      expect(sessionStore.getTerminalsForSession('session-1')).not.toBeNull();
+    });
+
     it('should set status to stopping immediately then stopped after polling', async () => {
       mockStopSession.mockResolvedValue(undefined);
       // First poll returns 'running' (still shutting down), second returns 'stopped'

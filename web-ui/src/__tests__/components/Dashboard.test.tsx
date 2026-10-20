@@ -296,6 +296,21 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
     expect(screen.queryByTestId('header-user-dropdown-logout')).not.toBeInTheDocument();
   });
 
+  it.each(['stopping', 'unreachable', 'starting'] as const)(
+    'REQ-SESSION-035: offers non-deleting Stop recovery for a persisted %s dashboard session', status => {
+      const stopped: string[] = [];
+      render(() => <Dashboard {...defaultProps} sessions={[{
+        id: 'recover', name: 'Recover', status, workspace: 'terminal',
+        createdAt: '2024-01-01', lastAccessedAt: '2024-01-01',
+      }]} onStopSession={id => stopped.push(id)}
+        onDeleteSession={() => { throw Error('Stop recovery must not delete'); }} />);
+      fireEvent.click(screen.getByTestId('menu-recover'));
+      fireEvent.click(screen.getByRole('button', { name: status === 'stopping' ? 'Retry Stop' : 'Stop' }));
+      expect(stopped).toEqual(['recover']);
+      expect(screen.queryByTestId('session-context-menu')).not.toBeInTheDocument();
+    },
+  );
+
   // === Initialization Tests ===
 
   it('REQ-IDE-049 AC1 / REQ-IDE-054 AC1: starts a stopped VS Code session from the whole card', () => {

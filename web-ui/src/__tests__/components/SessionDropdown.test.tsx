@@ -24,14 +24,6 @@ vi.mock('../../components/SessionStatCard', () => ({
   ),
 }));
 
-vi.mock('../../components/SessionContextMenu', () => ({
-  default: (props: any) => (
-    <div data-testid="session-context-menu" data-open={String(props.isOpen)}>
-      <button data-testid="scm-rename" onClick={() => props.onRename('Renamed session')}>rename</button>
-    </div>
-  ),
-}));
-
 vi.mock('../../components/CreateSessionDialog', () => ({
   default: (props: any) => (
     <div data-testid="create-session-dialog" data-open={String(props.isOpen)}>
@@ -197,11 +189,27 @@ describe('SessionDropdown', () => {
       render(() => <SessionDropdown {...defaultProps} />);
 
       fireEvent.click(screen.getByTestId('card-menu-s2'));
-      fireEvent.click(screen.getByTestId('scm-rename'));
+      fireEvent.click(screen.getByTestId('context-menu-rename'));
+      fireEvent.input(screen.getByTestId('context-menu-rename-input'), { target: { value: 'Renamed session' } });
+      fireEvent.submit(screen.getByTestId('context-menu-rename-form'));
 
       expect(vi.mocked(sessionStore.renameSession)).toHaveBeenCalledWith('s2', 'Renamed session');
     });
   });
+
+  it.each(['stopping', 'unreachable', 'starting'] as const)(
+    'REQ-SESSION-035: offers non-deleting Stop recovery for a persisted %s session', status => {
+      const stopped: string[] = [];
+      render(() => <SessionDropdown {...defaultProps}
+        sessions={[createSession({ id: 'recover', status })]}
+        onStopSession={id => stopped.push(id)}
+        onDeleteSession={() => { throw Error('Stop recovery must not delete'); }} />);
+      fireEvent.click(screen.getByTestId('card-menu-recover'));
+      fireEvent.click(screen.getByRole('button', { name: status === 'stopping' ? 'Retry Stop' : 'Stop' }));
+      expect(stopped).toEqual(['recover']);
+      expect(screen.queryByTestId('session-context-menu')).not.toBeInTheDocument();
+    },
+  );
 
   describe('Active session highlighting', () => {
     it('marks the active session card as active', () => {
