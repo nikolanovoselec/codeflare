@@ -537,7 +537,9 @@ const Dashboard: Component<DashboardProps> = (props) => {
                   <SessionContextMenu
                     isOpen={menuState().isOpen}
                     position={menuState().position}
-                    canStop={menuState().session ? (menuState().session!.status === 'running' || menuState().session!.status === 'initializing' || (menuState().session!.workspace === 'vscode' && menuState().session!.status === 'error')) : false}
+                    canStop={['running', 'initializing', 'starting', 'unreachable', 'stopping'].includes(menuState().session?.status ?? '')
+                      || (menuState().session?.workspace === 'vscode' && menuState().session?.status === 'error')}
+                    stopLabel={menuState().session?.status === 'stopping' ? 'Retry Stop' : 'Stop'}
                     sessionName={menuState().session?.name || ''}
                     onStop={() => { if (menuState().session) props.onStopSession(menuState().session!.id); }}
                     onDelete={() => { if (menuState().session) props.onDeleteSession(menuState().session!.id); }}

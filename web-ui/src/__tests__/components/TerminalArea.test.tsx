@@ -177,13 +177,25 @@ describe('TerminalArea', () => {
     expect(screen.getByTestId('dashboard')).toBeInTheDocument();
   });
 
-  it('keeps Terminal initialization gating Dashboard unchanged', () => {
-    mockSessions = [{ id: 'terminal-a', name: 'Terminal', status: 'initializing', workspace: 'terminal' }];
-    vi.mocked(sessionStore.isSessionInitializing).mockImplementation((id) => id === 'terminal-a');
+  it.each(['initializing', 'starting', 'running'] as const)(
+    'REQ-SESSION-037: renders the selected dashboard while a %s terminal retains startup progress', status => {
+      mockSessions = [{ id: 'terminal-a', name: 'Terminal', status, workspace: 'terminal' }];
+      vi.mocked(sessionStore.isSessionInitializing).mockImplementation(id => id === 'terminal-a');
+      render(() => <TerminalArea {...defaultProps} showTerminal={false} />);
+      expect(screen.getByTestId('dashboard')).toBeInTheDocument();
+    },
+  );
 
+  it('REQ-SESSION-037: another initializing session cannot hide the dashboard as background startup completes or fails', () => {
+    mockSessions = [{ id: 'background', name: 'Background', status: 'initializing', workspace: 'terminal' }];
+    vi.mocked(sessionStore.isSessionInitializing).mockReturnValue(true);
     render(() => <TerminalArea {...defaultProps} showTerminal={false} />);
-
-    expect(screen.queryByTestId('dashboard')).not.toBeInTheDocument();
+    expect(screen.getByTestId('dashboard')).toBeInTheDocument();
+    for (const status of ['running', 'error']) {
+      mockSessions = [{ ...mockSessions[0], status }];
+      bumpWorkspaceVersion();
+      expect(screen.getByTestId('dashboard')).toBeInTheDocument();
+    }
   });
 
   it('shows error banner when error prop is provided', () => {

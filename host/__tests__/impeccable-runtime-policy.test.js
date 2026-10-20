@@ -67,7 +67,7 @@ describe('Impeccable managed runtime policy', () => {
     assert.deepEqual(result.stdout.trim().split('\n'), ['context', '--target', 'file.ts']);
   }));
 
-  for (const [skillVersion, engineVersion] of [['4.3.1', '0.1.5'], ['4.4.0', '0.1.10'], ['4.5.0', '0.1.11'], ['4.6.0', '0.1.15']]) {
+  for (const [skillVersion, engineVersion] of [['4.3.1', '0.1.5'], ['4.4.0', '0.1.10'], ['4.5.0', '0.1.11'], ['4.6.0', '0.1.15'], ['4.7.0', '0.1.16']]) {
     it(`REQ-AGENT-181: reviewed ${skillVersion} dispatches only to its matching image engine ${engineVersion}`, () => withTempDir(root => {
       const source = join(root, 'source');
       cpSync(join(repoRoot, `host/__fixtures__/impeccable-${skillVersion}`), source, { recursive: true });
@@ -77,7 +77,7 @@ describe('Impeccable managed runtime policy', () => {
         runtimePath: agent === 'claude' ? '~/.claude/skills/impeccable' : '~/.pi/agent/skills/impeccable' }));
       replaceImpeccableTargets(source, readFileSync(join(source, 'SKILL.md'), 'utf8'), targets);
       const engines = join(root, 'engines');
-      for (const otherVersion of ['0.1.5', '0.1.10', '0.1.11', '0.1.15'].filter(version => version !== engineVersion)) {
+      for (const otherVersion of ['0.1.5', '0.1.10', '0.1.11', '0.1.15', '0.1.16'].filter(version => version !== engineVersion)) {
         const other = join(engines, otherVersion, 'impeccable');
         mkdirSync(dirname(other), { recursive: true });
         writeFileSync(other, '#!/bin/sh\necho incorrect-fallback\n', { mode: 0o755 });
@@ -130,6 +130,14 @@ describe('Impeccable managed runtime policy', () => {
     const before = readFileSync(join(source, 'SKILL.md'), 'utf8');
     writeFileSync(join(source, 'scripts/VERSION'), '0.1.11\n');
     assert.throws(() => applyCodeflareImpeccableOverlay(source), /expected image-owned 0\.1\.15/);
+    assert.equal(readFileSync(join(source, 'SKILL.md'), 'utf8'), before);
+  }));
+
+  it('REQ-AGENT-181: 4.7.0 rejects an older engine before source mutation', () => withTempDir(source => {
+    cpSync(join(repoRoot, 'host/__fixtures__/impeccable-4.7.0'), source, { recursive: true });
+    const before = readFileSync(join(source, 'SKILL.md'), 'utf8');
+    writeFileSync(join(source, 'scripts/VERSION'), '0.1.15\n');
+    assert.throws(() => applyCodeflareImpeccableOverlay(source), /expected image-owned 0\.1\.16/);
     assert.equal(readFileSync(join(source, 'SKILL.md'), 'utf8'), before);
   }));
 

@@ -12,7 +12,7 @@ import { getContainerId } from '../../lib/container-helpers';
 import { NotFoundError, ValidationError } from '../../lib/error-types';
 import { fanOutBisyncTrigger } from '../../lib/sync-fanout';
 import { D1SessionRepository } from '../../lib/session-repository';
-import { fencePendingBoundaryStart } from './boundary-stop';
+import type { SessionStopRequest } from '../../container/container-lifecycle';
 import { getPreferencesKey, getTimekeeperKey, getUtcDateString, getUtcMonthString } from '../../lib/kv-keys';
 import { PRESEED_CONTENT_HASH } from '../../lib/agent-seed.generated';
 import { planRegimeReconcile, advanceMigration } from '../../lib/r2-migration';
@@ -221,20 +221,13 @@ app.post('/:id/stop', sessionStopRateLimiter, async (c) => {
   const existing = await repository.getSession(bucketName, sessionId);
   if (!existing) throw new NotFoundError('Session not found');
   if (existing.lifecycleState === 'stopped') return c.json({ success: true, stopped: true, id: sessionId });
-  const intentId = existing.lifecycleState === 'stopping'
-    ? existing.terminationIntentId
-    : crypto.randomUUID();
-  if (!intentId) throw new Error('Session stop ownership unavailable');
-  const claimed = existing.lifecycleState === 'stopping'
-    ? existing
-    : await repository.claimStop(bucketName, sessionId, intentId, new Date().toISOString());
-  if (!claimed) throw new Error('Session stop ownership unavailable');
-  await fencePendingBoundaryStart(c.env, repository, claimed);
+  // Authorize/read here, but let the DO claim and finish the entire Stop.
+  // Caller loss before acceptance must not leave a Worker-owned stopping row.
   const containerId = getContainerId(bucketName, sessionId);
-  await getContainer(c.env.CONTAINER, containerId).destroy();
-  if (!await repository.confirmStoppedOrObserved(bucketName, sessionId, claimed.lifecycleGeneration, intentId, new Date().toISOString())) {
-    throw new Error('Confirmed exit could not be persisted');
-  }
+  const container = getContainer(c.env.CONTAINER, containerId) as unknown as {
+    stopSession(input: SessionStopRequest): Promise<void>;
+  };
+  await container.stopSession({ bucket: bucketName, sessionId, generation: existing.lifecycleGeneration });
 
   return c.json({ success: true, stopped: true, id: sessionId });
 });

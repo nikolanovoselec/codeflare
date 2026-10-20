@@ -53,6 +53,44 @@ export interface LifecycleHost extends ContainerHost {
   superDestroy(): Promise<void>;
 }
 
+export interface SessionStopRequest {
+  bucket: string;
+  sessionId: string;
+  generation: number;
+}
+
+/** Complete an owner-authorized Stop without depending on operational DO keys. */
+export async function stopSession(env: Env, input: SessionStopRequest, destroyContainer: () => Promise<void>): Promise<void> {
+  const { bucket, sessionId, generation } = input;
+  const repository = new D1SessionRepository(env.USAGE_DB);
+  const current = await repository.getSession(bucket, sessionId);
+  if (!current || current.lifecycleGeneration !== generation) throw new Error('Session stop generation changed');
+  if (current.lifecycleState === 'stopped') return;
+
+  const claimed = current.lifecycleState === 'stopping'
+    ? current
+    : await repository.claimStop(bucket, sessionId, crypto.randomUUID(), new Date().toISOString(), generation);
+  if (!claimed || claimed.lifecycleState !== 'stopping' || claimed.lifecycleGeneration !== generation
+      || claimed.terminationGeneration !== generation || !claimed.terminationIntentId) {
+    throw new Error('Session stop ownership unavailable');
+  }
+  const intentId = claimed.terminationIntentId;
+  await fencePendingBoundaryStart(env, repository, claimed);
+
+  // Cancellation may yield to an observed exit or a newer lifecycle. Never
+  // borrow its authority to destroy a replacement after that asynchronous fence.
+  const owned = await repository.getSession(bucket, sessionId);
+  if (owned?.lifecycleGeneration === generation && owned.lifecycleState === 'stopped') return;
+  if (!owned || owned.lifecycleGeneration !== generation || owned.lifecycleState !== 'stopping'
+      || owned.terminationGeneration !== generation || owned.terminationIntentId !== intentId) {
+    throw new Error('Session stop ownership changed');
+  }
+  await destroyContainer();
+  if (!await repository.confirmStoppedOrObserved(bucket, sessionId, generation, intentId, new Date().toISOString())) {
+    throw new Error('Confirmed exit could not be persisted');
+  }
+}
+
 /** Called when the container starts successfully. */
 export async function onStart(host: LifecycleHost): Promise<void> {
   const shutdownAtEntry = host._shutdownStartedAt;
@@ -268,7 +306,7 @@ export async function destroy(host: LifecycleHost): Promise<void> {
   }
 
   // Lifecycle remains stopping until destroy() returns confirmed process-exit evidence.
-  // The route that owns the generation-bound termination intent persists stopped.
+  // The Stop owner persists its captured generation-bound termination intent.
   try { host.deleteSchedules('collectMetrics'); } catch { /* no-op if table empty */ }
   // Recovery residue must not survive teardown even when another operational
   // key deletion fails below.

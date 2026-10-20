@@ -1,19 +1,44 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
-import { render, screen, cleanup, waitFor } from '@solidjs/testing-library';
+import { render, screen, fireEvent, cleanup, waitFor } from '@solidjs/testing-library';
 import { createSignal } from 'solid-js';
 import type { SessionWithStatus } from '../../types';
 
-// Mock all child components to isolate Layout testing
+const navigationRendering = vi.hoisted(() => ({ realTerminalArea: false }));
+
+vi.mock('../../components/Dashboard', () => ({
+  default: (props: any) => <section aria-label="Session dashboard">
+    <button onClick={() => props.onStartSession('abcdef0123456789')}>Start session</button>
+    <button onClick={() => props.onOpenSessionById('abcdef0123456789')}>Return to session</button>
+  </section>,
+}));
+vi.mock('../../components/Terminal', async () => {
+  const { sessionStore } = await import('../../stores/session');
+  const { Show } = await import('solid-js');
+  return { default: (props: any) => <Show when={sessionStore.isSessionInitializing(props.sessionId)}
+    fallback={<div data-testid="workspace-content">Workspace</div>}>
+    <div data-testid="startup-progress">
+      {sessionStore.sessions.find(session => session.id === props.sessionId)?.status === 'running' ? 'Ready to open' : 'Starting'}
+      <button onClick={props.onInitComplete}>Open workspace</button>
+    </div>
+  </Show> };
+});
+vi.mock('../../components/TerminalTabs', () => ({ default: () => <div /> }));
+vi.mock('../../components/FloatingTerminalButtons', () => ({ default: () => <div /> }));
+
+// Existing isolated tests keep their lightweight child; navigation regressions
+// opt into the actual TerminalArea to exercise its dashboard render boundary.
 vi.mock('../../components/Header', () => ({
   default: (props: any) => {
     // Store props on window for inspection in tests (CF-075 vault gating).
     (window as any).__headerProps = props;
-    return <header data-testid="header" />;
+    return <header data-testid="header"><button onClick={props.onLogoClick}>Dashboard</button></header>;
   }
 }));
 
-vi.mock('../../components/TerminalArea', () => ({
-  default: (props: any) => {
+vi.mock('../../components/TerminalArea', async () => {
+  const ActualTerminalArea = (await vi.importActual<typeof import('../../components/TerminalArea')>('../../components/TerminalArea')).default;
+  return { default: (props: any) => {
+    if (navigationRendering.realTerminalArea) return <ActualTerminalArea {...props} />;
     // Store props on window for inspection in tests
     (window as any).__terminalAreaProps = props;
     return (
@@ -21,8 +46,8 @@ vi.mock('../../components/TerminalArea', () => ({
         Terminal Area
       </main>
     );
-  }
-}));
+  } };
+});
 
 vi.mock('../../components/SplashCursor', () => ({
   default: () => <div data-testid="splash-cursor" />
@@ -160,9 +185,19 @@ vi.mock('../../stores/terminal', () => ({
 vi.mock('../../stores/terminal-workspace', () => ({
   terminalWorkspaceStore: {
     getActiveWorkspace: vi.fn(() => mockActiveWorkspace),
-    getVisiblePanes: vi.fn(() => mockVisiblePanes),
+    getVisiblePanes: vi.fn(() => {
+      readSessionStoreVersion();
+      return navigationRendering.realTerminalArea
+        ? mockVisiblePanes.map(pane => ({ ...pane, id: `${pane.sessionId}:${pane.terminalId}`, source: 'session' }))
+        : mockVisiblePanes;
+    }),
+    getFocusedPaneId: vi.fn(() => null),
+    getLayout: vi.fn(() => 'tabbed'),
+    isTerminalSession: vi.fn((session: SessionWithStatus | undefined) => !!session && session.workspace !== 'vscode'),
     setDashboardWorkspace: vi.fn(() => { mockActiveWorkspace = { kind: 'dashboard' }; mockVisiblePanes = []; bumpSessionStoreVersion(); }),
     setSingleSessionWorkspace: vi.fn((sessionId: string, terminalId = '1') => {
+      if (mockActiveWorkspace.kind === 'session' && mockActiveWorkspace.sessionId === sessionId
+          && mockVisiblePanes[0]?.terminalId === terminalId) return;
       mockActiveWorkspace = { kind: 'session', sessionId };
       mockVisiblePanes = [{ sessionId, terminalId }];
       bumpSessionStoreVersion();
@@ -210,6 +245,7 @@ function createMockSession(overrides: Partial<any> = {}) {
 describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    navigationRendering.realTerminalArea = false;
     mockSessions = [];
     mockActiveSessionId = null;
     mockPreferences = {};
@@ -296,6 +332,84 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       await waitFor(() => expect(window.location.pathname).toBe(`/app/session/${sessionId}`));
       (window as any).__headerProps.onLogoClick();
       await waitFor(() => expect(window.location.pathname).toBe('/app/'));
+    });
+  });
+
+  describe('REQ-SESSION-037: navigation through the real dashboard render boundary', () => {
+    it.each([
+      [390, 'back', 'success'], [1440, 'back', 'success'],
+      [390, 'dashboard', 'success'], [1440, 'dashboard', 'success'],
+      [390, 'back', 'failure'], [1440, 'back', 'failure'],
+      [390, 'dashboard', 'failure'], [1440, 'dashboard', 'failure'],
+    ] as const)('preserves startup navigation at %s px via %s through background %s', async (width, action, outcome) => {
+      navigationRendering.realTerminalArea = true;
+      const previousWidth = window.innerWidth;
+      Object.defineProperty(window, 'innerWidth', { configurable: true, value: width });
+      const { sessionStore } = await import('../../stores/session');
+      const sessionId = 'abcdef0123456789';
+      mockSessions = [createMockSession({ id: sessionId, status: 'stopped' })];
+      let finish!: () => void;
+      let fail!: (error: Error) => void;
+      const startup = new Promise<void>((resolve, reject) => { finish = resolve; fail = reject; });
+      const commands: string[] = [];
+      let initializing = false;
+      vi.mocked(sessionStore.isSessionInitializing).mockImplementation(id => {
+        readSessionStoreVersion();
+        return initializing && id === sessionId;
+      });
+      vi.mocked(sessionStore.dismissInitProgressForSession).mockImplementation(() => {
+        initializing = false;
+        bumpSessionStoreVersion();
+      });
+      vi.mocked(sessionStore.startSession).mockImplementation(async id => {
+        commands.push(`start:${id}`);
+        initializing = true;
+        mockSessions = [{ ...mockSessions[0], status: 'initializing' }];
+        bumpSessionStoreVersion();
+        try {
+          await startup;
+          mockSessions = [{ ...mockSessions[0], status: 'running' }];
+        } catch (error) {
+          initializing = false;
+          mockSessions = [{ ...mockSessions[0], status: 'error' }];
+          throw error;
+        } finally {
+          bumpSessionStoreVersion();
+        }
+      });
+      vi.mocked(sessionStore.stopSession).mockImplementation(async id => { commands.push(`stop:${id}`); });
+      try {
+        render(() => <Layout />);
+        await Promise.resolve(); // authenticated session-list routing has settled
+        fireEvent.click(screen.getByRole('button', { name: 'Start session' }));
+        await waitFor(() => expect(screen.getByTestId('startup-progress')).toHaveTextContent('Starting'));
+        if (action === 'back') window.history.back();
+        else fireEvent.click(screen.getByRole('button', { name: 'Dashboard' }));
+        await waitFor(() => expect(screen.getByRole('region', { name: 'Session dashboard' })).toBeInTheDocument());
+        expect(window.location.pathname).toBe('/app/');
+        fireEvent.click(screen.getByRole('button', { name: 'Return to session' }));
+        await waitFor(() => expect(screen.getByTestId('startup-progress')).toHaveTextContent('Starting'));
+        fireEvent.click(screen.getByRole('button', { name: 'Dashboard' }));
+        await waitFor(() => expect(screen.getByRole('region', { name: 'Session dashboard' })).toBeInTheDocument());
+        if (outcome === 'failure') fail(Error('startup failed'));
+        else finish();
+        await startup.catch(() => {});
+        await waitFor(() => expect(screen.getByRole('region', { name: 'Session dashboard' })).toBeInTheDocument());
+        if (outcome === 'success') {
+          fireEvent.click(screen.getByRole('button', { name: 'Return to session' }));
+          await waitFor(() => expect(screen.getByTestId('startup-progress')).toHaveTextContent('Ready to open'));
+          fireEvent.click(screen.getByRole('button', { name: 'Open workspace' }));
+          expect(screen.getByTestId('workspace-content')).toBeInTheDocument();
+        }
+        expect(commands).toEqual([`start:${sessionId}`]); // Start/Stop wire-command contract
+      } finally {
+        finish();
+        vi.mocked(sessionStore.isSessionInitializing).mockReturnValue(false);
+        vi.mocked(sessionStore.startSession).mockReset();
+        vi.mocked(sessionStore.stopSession).mockReset();
+        vi.mocked(sessionStore.dismissInitProgressForSession).mockReset();
+        Object.defineProperty(window, 'innerWidth', { configurable: true, value: previousWidth });
+      }
     });
   });
 

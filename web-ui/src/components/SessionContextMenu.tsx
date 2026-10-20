@@ -7,6 +7,7 @@ interface SessionContextMenuProps {
   isOpen: boolean;
   position: { x: number; y: number };
   canStop: boolean;
+  stopLabel?: string;
   sessionName: string;
   onStop: () => void;
   onDelete: () => void;
@@ -106,7 +107,7 @@ const SessionContextMenu: Component<SessionContextMenuProps> = (props) => {
             onClick={handleStop}
           >
             <Icon path={mdiStop} size={16} />
-            Stop
+            {props.stopLabel ?? 'Stop'}
           </button>
         </Show>
         <Show when={!renaming()}>

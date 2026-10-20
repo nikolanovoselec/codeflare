@@ -15,11 +15,13 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { Session } from '../../types';
 import { createMockKV } from '../helpers/mock-kv';
 import { createTestApp } from '../helpers/test-app';
+import { createMockSessionStop } from '../helpers/mock-session-stop';
 
 // Hoisted container mock
 const containerState = vi.hoisted(() => ({
   container: null as {
-    destroy: ReturnType<typeof vi.fn>;
+    destroy: ReturnType<typeof vi.fn<() => Promise<void>>>;
+    stopSession: ReturnType<typeof vi.fn>;
     fetch: ReturnType<typeof vi.fn>;
     getState: ReturnType<typeof vi.fn>;
   } | null,
@@ -67,6 +69,7 @@ describe('REQ-SESSION-006: User can stop, restart, and delete sessions', () => {
   function makeContainer() {
     return {
       destroy: vi.fn().mockResolvedValue(undefined),
+      stopSession: vi.fn(),
       fetch: vi.fn().mockResolvedValue(new Response(JSON.stringify({ sessions: [] }), { status: 200 })),
       getState: vi.fn().mockResolvedValue({ status: 'running' }),
     };
@@ -78,6 +81,7 @@ describe('REQ-SESSION-006: User can stop, restart, and delete sessions', () => {
   });
 
   function createLifecycleApp() {
+    containerState.container!.stopSession.mockImplementation(createMockSessionStop(mockKV, () => containerState.container!.destroy()));
     return createTestApp({
       routes: [{ path: '/sessions', handler: lifecycleRoutes }],
       mockKV,

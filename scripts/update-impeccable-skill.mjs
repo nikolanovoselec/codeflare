@@ -74,7 +74,10 @@ export function applyCodeflareImpeccableOverlay(source, { allowAlreadyApplied = 
     const file = join(source, relativePath);
     let text = readFileSync(file, 'utf8');
     for (const [search, replacement] of replacements) {
-      text = replaceOverlayAnchor(text, search, replacement, relativePath, allowAlreadyApplied);
+      const anchor = skillVersion === '4.7.0' && relativePath === 'SKILL.md'
+        ? 'This skill gives you the tools and permission to make design that earns the name out-of-distribution craft. Work as an award-winning design director would: production-grade code, a clear POV, a deep grasp of what the client and its users need, and exceptional craft.\n\n'
+        : search;
+      text = replaceOverlayAnchor(text, anchor, replacement, relativePath, allowAlreadyApplied);
     }
     if (native && relativePath === 'SKILL.md') {
       text = replaceOverlayAnchor(text,
@@ -119,17 +122,21 @@ export async function updateImpeccableSkill() {
     const sourceSkill = join(source, 'SKILL.md');
     const version = readFileSync(sourceSkill, 'utf8').match(/^version:\s*(.+)$/m)?.[1];
     if (!version) throw new Error('downloaded Impeccable skill has no version frontmatter');
-    if (version === '4.6.0') {
+    const reviewedBundle = {
+      '4.6.0': { sha256: 'c537beca343b69f8da98ee1c1ad9534b9c7c3883225b060ad36a4466075d73d1', commit: '8a0e198da34ebc5b936a9d5975fb7a3b1cf353b7' },
+      '4.7.0': { sha256: '358c8b6bbc2113e9910bf4adbdba4523612453ec58d56a5c1b14654416a13fe3', commit: 'aeeb3d8c30b5f95aeeb3e893b0f1a308af8fdb8f' },
+    }[version];
+    if (reviewedBundle) {
       // The released ZIP omits the source's redistribution license/notices.
       // Verify reviewed immutable bytes before copying either agent's target.
-      if (createHash('sha256').update(bundle).digest('hex') !== 'c537beca343b69f8da98ee1c1ad9534b9c7c3883225b060ad36a4466075d73d1') {
-        throw new Error('Impeccable 4.6.0 bundle differs from the reviewed release');
+      if (createHash('sha256').update(bundle).digest('hex') !== reviewedBundle.sha256) {
+        throw new Error(`Impeccable ${version} bundle differs from the reviewed release`);
       }
       for (const [name, digest] of [
         ['LICENSE', '02bb8c3b4e70190e3986c0404ad2fd8d639b4f534252d82379cc1b502b6d1812'],
         ['NOTICE.md', 'c60a093c2845fd9fb82f9c6f742ece31f379f8190b535309d32d66c45ccffdcb'],
       ]) {
-        const notice = await fetch(`https://raw.githubusercontent.com/pbakaus/impeccable/8a0e198da34ebc5b936a9d5975fb7a3b1cf353b7/${name}`);
+        const notice = await fetch(`https://raw.githubusercontent.com/pbakaus/impeccable/${reviewedBundle.commit}/${name}`);
         if (!notice.ok) throw new Error(`Impeccable ${name} download failed: ${notice.status}`);
         const bytes = Buffer.from(await notice.arrayBuffer());
         if (createHash('sha256').update(bytes).digest('hex') !== digest) throw new Error(`Impeccable ${name} digest mismatch`);
