@@ -8,6 +8,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createMockKV } from '../helpers/mock-kv';
 import { createTestApp } from '../helpers/test-app';
+import { createMockSessionStop } from '../helpers/mock-session-stop';
 import { createMockR2Config } from '../helpers/mock-factories';
 
 // ── R2 mocks (storage routes need these) ─────────────────────────────
@@ -46,11 +47,14 @@ vi.mock('../../lib/r2-seed', () => ({
 
 // ── Container mocks (session stop/delete need these) ─────────────────
 
+const { mockSessionStop } = vi.hoisted(() => ({ mockSessionStop: vi.fn() }));
+
 vi.mock('@cloudflare/containers', () => ({
   getContainer: vi.fn(() => ({
     getState: vi.fn().mockResolvedValue({ status: 'running' }),
     fetch: vi.fn().mockResolvedValue(new Response(JSON.stringify({ status: 'ok' }), { status: 200 })),
     destroy: vi.fn().mockResolvedValue(undefined),
+    stopSession: mockSessionStop,
   })),
 }));
 
@@ -110,6 +114,7 @@ describe('Rate limit coverage', () => {
 
   beforeEach(() => {
     mockKV = createMockKV();
+    mockSessionStop.mockImplementation(createMockSessionStop(mockKV, async () => {}));
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2024-01-15T10:00:00.000Z'));
     mockR2Fetch.mockReset();

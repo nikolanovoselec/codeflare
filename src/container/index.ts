@@ -865,6 +865,9 @@ export class container extends Container<Env> implements ContainerEnvState {
 
   /** Own claim through confirmation even if the invoking Worker disconnects. */
   async stopSession(input: SessionStopRequest): Promise<void> {
+    if (this.env.CONTAINER.idFromName(`${input.bucket}-${input.sessionId}`).toString() !== this.ctx.id.toString()) {
+      throw new Error('Session stop address mismatch');
+    }
     const pending = this.sessionStopInFlight;
     if (pending) {
       if (pending.bucket !== input.bucket || pending.sessionId !== input.sessionId || pending.generation !== input.generation) {
@@ -875,12 +878,9 @@ export class container extends Container<Env> implements ContainerEnvState {
     }
     // Defer I/O until the whole operation has been registered, not only its
     // teardown. Cleanup belongs to that protected promise too, so failure can retry.
-    const completion: Promise<void> = Promise.resolve().then(async () => {
-      if (this.env.CONTAINER.idFromName(`${input.bucket}-${input.sessionId}`).toString() !== this.ctx.id.toString()) {
-        throw new Error('Session stop address mismatch');
-      }
-      await lifecycleStopSession(this.env, input, () => this.destroy());
-    }).finally(() => {
+    const completion: Promise<void> = Promise.resolve().then(() =>
+      lifecycleStopSession(this.env, input, () => this.destroy())
+    ).finally(() => {
       if (this.sessionStopInFlight?.completion === completion) this.sessionStopInFlight = undefined;
     });
     this.sessionStopInFlight = { ...input, completion };
