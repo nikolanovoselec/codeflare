@@ -69,6 +69,8 @@ import {
   confirmMonitoredExit,
   collectMetrics as lifecycleCollectMetrics,
   destroy as lifecycleDestroy,
+  stopSession as lifecycleStopSession,
+  type SessionStopRequest,
   onStop as lifecycleOnStop,
   onError as lifecycleOnError,
   type LifecycleHost,
@@ -104,6 +106,7 @@ type ExitEvidence = { owner: string; session: string; generation: number };
 export class container extends Container<Env> implements ContainerEnvState {
   logger = createLogger('container');
   private renovateScheduling: Promise<void> = Promise.resolve();
+  private sessionStopInFlight?: SessionStopRequest & { completion: Promise<void> };
 
   private async ensureRenovateSchedule(pin: RenovateScanPin, activate = false, rearm = false): Promise<boolean> {
     const previous = this.renovateScheduling;
@@ -858,6 +861,31 @@ export class container extends Container<Env> implements ContainerEnvState {
    */
   override async destroy(): Promise<void> {
     await lifecycleDestroy(this.lifecycleHost);
+  }
+
+  /** Own claim through confirmation even if the invoking Worker disconnects. */
+  async stopSession(input: SessionStopRequest): Promise<void> {
+    const pending = this.sessionStopInFlight;
+    if (pending) {
+      if (pending.bucket !== input.bucket || pending.sessionId !== input.sessionId || pending.generation !== input.generation) {
+        throw new Error('Another session stop generation is in progress');
+      }
+      await pending.completion;
+      return;
+    }
+    // Defer I/O until the whole operation has been registered, not only its
+    // teardown. Cleanup belongs to that protected promise too, so failure can retry.
+    const completion: Promise<void> = Promise.resolve().then(async () => {
+      if (this.env.CONTAINER.idFromName(`${input.bucket}-${input.sessionId}`).toString() !== this.ctx.id.toString()) {
+        throw new Error('Session stop address mismatch');
+      }
+      await lifecycleStopSession(this.env, input, () => this.destroy());
+    }).finally(() => {
+      if (this.sessionStopInFlight?.completion === completion) this.sessionStopInFlight = undefined;
+    });
+    this.sessionStopInFlight = { ...input, completion };
+    this.ctx.waitUntil(completion);
+    await completion;
   }
 
   /** Parent-only Enterprise session authority; never exported to container env vars. */

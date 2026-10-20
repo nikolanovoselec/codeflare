@@ -64,13 +64,6 @@ const TerminalArea: Component<TerminalAreaProps> = (props) => {
     return visiblePanes().find((pane) => pane.source === 'session' && pane.sessionId === session.id) ?? null;
   });
 
-  const hasInitializingTerminalSession = createMemo(() =>
-    sessionStore.sessions.some((session) =>
-      terminalWorkspaceStore.isTerminalSession(session)
-      && sessionStore.isSessionInitializing(session.id)
-    )
-  );
-
   const isActiveSessionInitializing = createMemo(() => {
     const id = activeSessionId();
     return id ? sessionStore.isSessionInitializing(id) : false;
@@ -275,7 +268,7 @@ const TerminalArea: Component<TerminalAreaProps> = (props) => {
       </div>
 
       {/* Dashboard: shown when no active terminal */}
-      <Show when={!props.showTerminal && !hasInitializingTerminalSession()}>
+      <Show when={!props.showTerminal}>
         <Dashboard
           sessions={sessionStore.sessions}
           onCreateSession={(agentType, tabConfig) => props.onCreateSession(generateSessionName(agentType, sessionStore.sessions), agentType, tabConfig)}

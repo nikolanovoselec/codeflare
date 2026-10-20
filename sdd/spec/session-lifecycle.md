@@ -759,9 +759,9 @@ None.
 2. Old `stopping` rows retain termination and unreachable ownership, editor readiness, revision and transition reason until positive exit confirmation for their generation. <!-- @impl: src/lib/session-repository.ts::confirmStopped --> <!-- @impl: src/container/container-lifecycle.ts::confirmMonitoredExit --> <!-- @test: src/__tests__/lib/session-d1-lifecycle.test.ts (REQ-SESSION-035: aged Stop ownership remains fenced until its current-generation exit is confirmed) --> <!-- @test: src/__tests__/container/index.test.ts (confirms a running session only when its attached process monitor resolves) -->
 3. A stopping row keeps managed-mutation ownership and cannot claim a replacement Start; other owners and lifecycle states remain unchanged. <!-- @impl: src/lib/session-helpers.ts::hasOwningSessionContainer --> <!-- @impl: src/lib/session-repository.ts::start --> <!-- @test: src/__tests__/routes/session.test.ts (REQ-SESSION-035: old stopping remains owner-scoped and retains managed-mutation ownership without exit evidence) --> <!-- @test: src/__tests__/lib/session-d1-lifecycle.test.ts (REQ-SESSION-035: aged Stop ownership remains fenced until its current-generation exit is confirmed) -->
 
-4. Once the session DO accepts Stop, its complete claim, pending Protected Action cancellation, existing bounded graceful teardown and D1 exit confirmation continue independently of the calling HTTP request. Before DO acceptance the Worker does not claim `stopping`.
-5. An owner can retry the same generation's Stop after coordinator reconstruction, operational identity cleanup or a transient D1 failure. Retry reuses the current termination intent, treats confirmed completion idempotently, and cannot terminate a replacement generation or another owner's session.
-6. Dashboard and session-dropdown actions offer non-deleting Retry Stop for persisted `stopping` and Stop for `unreachable`; an in-flight local request suppresses duplicate submission without permanently disabling retry after failure.
+4. Once the session DO accepts Stop, its complete claim, pending Protected Action cancellation, existing bounded graceful teardown and D1 exit confirmation continue independently of the calling HTTP request. Before DO acceptance the Worker does not claim `stopping`. <!-- @impl: src/container/index.ts::container --> <!-- @impl: src/container/container-lifecycle.ts::stopSession --> <!-- @test: src/__tests__/container/session-stop.test.ts (protects the entire Stop when the caller disconnects during %s I/O) --> <!-- @test: src/__tests__/routes/session.test.ts (REQ-SESSION-035: an RPC rejected before DO acceptance cannot leave a Worker-owned stopping claim) -->
+5. An owner can retry the same generation's Stop after coordinator reconstruction, operational identity cleanup or a transient D1 failure. Retry reuses the current termination intent, treats confirmed completion idempotently, and cannot terminate a replacement generation or another owner's session. <!-- @impl: src/container/container-lifecycle.ts::stopSession --> <!-- @test: src/__tests__/container/session-stop.test.ts (finishes the claimed Stop after caller loss and erased operational identity, preserving the session for restart) --> <!-- @test: src/__tests__/container/session-stop.test.ts (retains stopping when D1 confirmation fails and completes after recovery with a new coordinator) --> <!-- @test: src/__tests__/container/session-stop.test.ts (rejects a termination intent pinned to a different generation without changing ownership) --> <!-- @test: src/__tests__/container/session-stop.test.ts (rejects a stale retry without terminating a replacement generation) --> <!-- @test: src/__tests__/container/session-stop.test.ts (rejects an owner/session address mismatch without claiming or terminating either session) -->
+6. Dashboard and session-dropdown actions offer non-deleting Retry Stop for persisted `stopping` and Stop for `unreachable`; an in-flight local request suppresses duplicate submission without permanently disabling retry after failure. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @impl: web-ui/src/components/SessionDropdown.tsx::SessionDropdown --> <!-- @impl: web-ui/src/stores/session.ts::stopSession --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-SESSION-035: offers non-deleting Stop recovery for a persisted %s dashboard session) --> <!-- @test: web-ui/src/__tests__/components/SessionDropdown.test.tsx (REQ-SESSION-035: offers non-deleting Stop recovery for a persisted %s session) --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-SESSION-035: suppresses duplicate local Stop submissions until the first attempt finishes) --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-SESSION-035: a failed Stop leaves retry available and retry completes the same session) -->
 
 **Constraints:** No automatic existing-record repair, migration or recovery scheduler. Explicit owner Stop retry uses current D1 authority. Stale duration is diagnostic, not authority to clear a termination intent. Browser-independent completion does not promise automatic recovery across DO crashes or persistent D1 outages. Existing final notification drain, authenticated final sync and teardown deadlines remain unchanged.
 
@@ -769,9 +769,9 @@ None.
 
 **Dependencies:** [REQ-SESSION-018](#req-session-018-d1-lifecycle-evidence-is-generation-fenced), [REQ-SESSION-011](#req-session-011-graceful-shutdown-with-final-sync)
 
-**Verification:** Existing D1/route tests and planned caller-cancellation, reconstruction, retry and UI regressions.
+**Verification:** Automated D1/route, modeled DO lifetime, reconstruction/retry and UI behavioral tests. Hosted disconnection acceptance remains separate from these platform-boundary models.
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
@@ -783,10 +783,10 @@ None.
 
 **Acceptance Criteria:**
 
-1. Browser Back to the dashboard and the dashboard button render usable dashboard controls during session start/resume without requiring a page reload.
-2. An initializing terminal session cannot suppress an explicitly selected dashboard, including when that session is not selected.
-3. Navigation preserves per-session startup/progress ownership without issuing Stop, duplicating Start or prematurely dismissing readiness; returning to the session restores its appropriate progress/ready surface.
-4. Background startup completion or failure does not hide the selected dashboard or steal navigation ownership; existing VS Code and MultiView behavior remains intact.
+1. Browser Back to the dashboard and the dashboard button render usable dashboard controls during session start/resume without requiring a page reload. <!-- @impl: web-ui/src/components/TerminalArea.tsx::TerminalArea --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (preserves startup navigation at %s px via %s through background %s) -->
+2. An initializing terminal session cannot suppress an explicitly selected dashboard, including when that session is not selected. <!-- @impl: web-ui/src/components/TerminalArea.tsx::TerminalArea --> <!-- @test: web-ui/src/__tests__/components/TerminalArea.test.tsx (REQ-SESSION-037: renders the selected dashboard while a %s terminal retains startup progress) --> <!-- @test: web-ui/src/__tests__/components/TerminalArea.test.tsx (REQ-SESSION-037: another initializing session cannot hide the dashboard as background startup completes or fails) -->
+3. Navigation preserves per-session startup/progress ownership without issuing Stop, duplicating Start or prematurely dismissing readiness; returning to the session restores its appropriate progress/ready surface. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @impl: web-ui/src/components/TerminalArea.tsx::TerminalArea --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (preserves startup navigation at %s px via %s through background %s) -->
+4. Background startup completion or failure does not hide the selected dashboard or steal navigation ownership; existing VS Code and MultiView behavior remains intact. <!-- @impl: web-ui/src/components/TerminalArea.tsx::TerminalArea --> <!-- @test: web-ui/src/__tests__/components/Layout.test.tsx (preserves startup navigation at %s px via %s through background %s) --> <!-- @test: web-ui/src/__tests__/components/TerminalArea.test.tsx (keeps Dashboard mounted while a VS Code session initializes) -->
 
 **Constraints:** Keep the existing view transitions, startup protocol and workspace ownership. No router redesign or backend lifecycle change for navigation.
 
@@ -794,9 +794,9 @@ None.
 
 **Dependencies:** [REQ-SESSION-010](#req-session-010-session-lifecycle-is-observable-from-one-d1-projection)
 
-**Verification:** Planned dashboard-rendering, history-navigation and startup-progress regressions; hosted desktop/mobile acceptance after integration deployment.
+**Verification:** Automated dashboard-rendering and real Layout/TerminalArea history-navigation regressions with modeled progress and desktop/mobile viewport widths; physical-browser acceptance remains separate after integration deployment.
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 

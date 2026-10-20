@@ -635,6 +635,7 @@ function startSession(id: string): Promise<void> {
 }
 
 async function stopSession(id: string): Promise<void> {
+  if (localStopAttempts.has(id)) return;
   try {
     const startupCleanup = startupCleanups.get(id);
     if (startupCleanup) {

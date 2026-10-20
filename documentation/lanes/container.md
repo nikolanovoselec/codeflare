@@ -154,6 +154,10 @@ Backend states are `stopped`, `starting`, `running`, `unreachable`, `stopping`. 
 
 Start admission uses owner-scoped D1 workload ownership (`starting`, `running`, `unreachable`, `stopping`) with existing best-effort capacity rules, not an atomic reservation. A replacement requires D1-confirmed prior exit; SDK or historical KV state cannot authorize it. Failed bucket forwarding/destruction stays retryable. Stop/Delete preserve intent/record on ambiguous destroy; neither reports success until destruction is confirmed. Delayed writers only UPDATE and cannot recreate a deleted row.
 
+User Stop reads/authorizes in the Worker, but the session DO registers the entire claim/reuse, Protected Action cancellation, bounded graceful teardown and D1 confirmation with its own `waitUntil` before starting that work. Closing the dashboard cannot strand a Worker-owned claim before DO acceptance. The response still awaits confirmation; same-generation concurrent requests share completion. Owner retry reconstructs non-secret identity from D1/request even after operational keys were cleared, reuses the termination intent and rejects mismatched generations/addresses. <!-- @impl: src/container/index.ts::container --> <!-- @impl: src/container/container-lifecycle.ts::stopSession --> [REQ-SESSION-035](../../sdd/spec/session-lifecycle.md#req-session-035-stale-stopping-retains-ownership-until-confirmed-exit).
+
+DO `waitUntil` protects execution until settlement or its platform limit (15 minutes), not across crashes/deployments or persistent D1 outages. Those failures remain manually recoverable through Retry Stop once dependencies recover; there is no new scheduler, stale-row reset or exit inference. Existing notification drain, authenticated final sync, credential cleanup and the 135-second teardown bound are unchanged. Process death can still lose unsynced files.
+
 <a id="container-startup"></a>
 ## Runtime Lifecycle
 
