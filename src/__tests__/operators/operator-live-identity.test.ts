@@ -102,6 +102,7 @@ async function fixture(test: (f: {
   kv: ReturnType<typeof createMockKV>;
   claim: () => Promise<unknown>; discover: () => Promise<unknown>; activityId: string; startCapability: string;
   redirectTransport: (target: 'jwks' | 'github' | null) => void;
+  activity: OperatorActivity; reauthenticate: () => ReturnType<OperatorActivity['reauthenticate']>;
 }) => Promise<void>, logLevel?: 'warn', includeUngrantedOperator = false) {
   const kv = createMockKV();
   await kv.put(SETUP_KEYS.AUTH_DOMAIN, domain); await kv.put(SETUP_KEYS.ACCESS_AUD, audience);
@@ -220,7 +221,8 @@ async function fixture(test: (f: {
       event_name: 'pull_request_target', workflow_ref: 'owner/repo/.github/workflows/boundary-reviews.yml@refs/heads/main',
       workflow_sha: workflowSha, run_id: '87', run_attempt: '1' });
     await test({ setFault: value => { fault = value; }, setToken: value => { accessJwt = value; }, token: initialToken, registry, kv,
-      activityId, startCapability: prepared.startCapability,
+      activityId, startCapability: prepared.startCapability, activity,
+      reauthenticate: () => activity.reauthenticate(humanContext.human, accessJwt),
       redirectTransport: target => { redirected = target; },
       claim: async () => claimVerifiedBoundaryAction(actionEnv, await actionToken('boundary'), request),
       discover: async () => discoverVerifiedBoundaryAction(actionEnv, await actionToken('discovery'), request),
@@ -239,6 +241,18 @@ async function fixture(test: (f: {
 }
 
 describe('REQ-OPERATOR-045 AC3 / T01: invalid live identity never becomes empty-group authority', () => {
+  it.each(faults)(
+    'REQ-OPERATOR-047: Activity reauthentication rejects %s live identity without replacing original authority', async fault => fixture(async f => {
+      const before = await f.activity.getExecutionContext();
+      expect(before).toMatchObject({ activityId: f.activityId, operatorId: 'review-operator' });
+      f.setFault(fault);
+      await expect(f.reauthenticate()).rejects.toThrow();
+      expect(await f.activity.getExecutionContext()).toEqual(before);
+      f.setFault('valid');
+      expect(await f.reauthenticate()).toEqual(before);
+      expect(await f.discover()).toEqual({ status: 'match', contextDigest: 'f'.repeat(64) });
+    }));
+
   it.each(labelIdentities)(
     'REQ-OPERATOR-045: verified admin with %s reads ungranted catalog entries and management details; other managers and invalid admins cannot',
     async fault => fixture(async f => {

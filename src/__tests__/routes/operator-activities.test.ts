@@ -7,24 +7,27 @@ import routes from '../../routes/operator-activities';
 import { operatorOwnerKey } from '../../operators/browser-activity';
 
 const claims = {
-  subject: 'owner-subject', email: 'owner@example.test', issuer: 'https://access.example.test',
+  subject: 'owner-subject', email: 'owner@example.test', issuer: 'https://route-identity.cloudflareaccess.com',
   audiences: ['account-audience'], issuedAt: Math.floor(Date.now() / 1000) - 10,
   expiresAt: Math.floor(Date.now() / 1000) + 300,
 };
-const accessState = vi.hoisted(() => ({ active: true }));
-vi.mock('../../lib/access', async importOriginal => ({
-  ...await importOriginal<typeof import('../../lib/access')>(),
-  requireOperatorHumanContext: async () => {
-    if (!accessState.active) throw new AppError('FORBIDDEN', 403, 'Human Access authentication required');
-    return { human: claims, accessJwt: 'private.access.jwt' };
-  },
-  operatorAccessSessionCurrent: async () => accessState.active,
-  resolveOperatorGroupIdentity: async (human: unknown) => human,
-  authenticateRequest: async (_request: Request, bindings: Env) => {
-    const record = JSON.parse((await bindings.KV.get(`user:${claims.email}`)) ?? '{}') as { role?: string };
-    return { user: { email: claims.email, role: record.role }, bucketName: 'owner-bucket' };
-  },
-}));
+const accessState = vi.hoisted(() => ({ active: true, realIdentity: false }));
+vi.mock('../../lib/access', async importOriginal => {
+  const actual = await importOriginal<typeof import('../../lib/access')>();
+  return { ...actual,
+    requireOperatorHumanContext: async () => {
+      if (!accessState.active) throw new AppError('FORBIDDEN', 403, 'Human Access authentication required');
+      return { human: claims, accessJwt: 'private.access.jwt' };
+    },
+    operatorAccessSessionCurrent: async () => accessState.active,
+    resolveOperatorGroupIdentity: async (human: Parameters<typeof actual.resolveOperatorGroupIdentity>[0], accessJwt: string) =>
+      accessState.realIdentity ? actual.resolveOperatorGroupIdentity(human, accessJwt) : human,
+    authenticateRequest: async (_request: Request, bindings: Env) => {
+      const record = JSON.parse((await bindings.KV.get(`user:${claims.email}`)) ?? '{}') as { role?: string };
+      return { user: { email: claims.email, role: record.role }, bucketName: 'owner-bucket' };
+    },
+  };
+});
 const orchestration = vi.hoisted(() => ({
   prepare: vi.fn(async () => ({ activityId: 'prepared-activity', startCapability: 'p'.repeat(43), startExpiresAt: 1_900_000_000_000 })),
   run: vi.fn(async (_activityId: string, _env: Env, _bindCapability: unknown) => {}),
@@ -96,7 +99,7 @@ function fixture() {
   return { activity, registry, env, kv, request, waitUntil, loopback, setGithub };
 }
 
-beforeEach(() => { vi.clearAllMocks(); accessState.active = true; });
+beforeEach(() => { vi.clearAllMocks(); accessState.active = true; accessState.realIdentity = false; });
 
 describe('REQ-OPERATOR-027: authenticated owned activity browser surfaces', () => {
   it('REQ-OPERATOR-027: retired private failure inspection returns 404 for the approved owner', async () => {
@@ -517,6 +520,36 @@ describe('REQ-OPERATOR-061: configured Renovate run settings', () => {
     return { ...f, selected, admitted, armed, reads, command: {
       installationId: 'dispatcher-install', sessionId: 'session0001', sessionGeneration: 3 } };
   }
+  it.each(['revoked', 'unavailable', 'malformed', 'transport-error'] as const)(
+    'REQ-OPERATOR-047: automatic activation recheck rejects %s live identity despite an email grant and admits verified no-group recovery', async fault => {
+      const f = activationFixture();
+      accessState.realIdentity = true;
+      let invalid = true;
+      const identity = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+        const request = new Request(input, init);
+        expect(request.url).toBe(`${claims.issuer}/cdn-cgi/access/get-identity`);
+        expect(request.headers.get('cookie')).toBe('CF_Authorization=private.access.jwt');
+        if (invalid && fault === 'transport-error') throw Error('Identity transport unavailable');
+        if (invalid && fault === 'revoked') return new Response(null, { status: 401 });
+        if (invalid && fault === 'unavailable') return new Response(null, { status: 503 });
+        return Response.json({ user_uuid: claims.subject, email: claims.email,
+          ...(invalid ? { groups: null } : {}) });
+      });
+      try {
+        expect((await f.request('/renovate/activation', 'POST', f.command)).status).toBe(403);
+        expect(f.admitted).toEqual([]);
+        expect(f.armed).toEqual([]);
+        expect(f.reads).toEqual([]);
+        invalid = false;
+        const response = await f.request('/renovate/activation', 'POST', f.command);
+        expect(response.status).toBe(202);
+        expect(await response.json()).toEqual({ activatedAt: '2026-09-28T00:00:00.000Z', repositoryId: 424242 });
+        expect(f.admitted).toEqual([expect.objectContaining({ installationId: f.command.installationId,
+          repository: { repository: 'acme/updates', repositoryId: 424242, baseBranch: 'trunk' } })]);
+        expect(f.armed).toEqual([expect.objectContaining({ registrationId: 'scan-configured' })]);
+      } finally { identity.mockRestore(); accessState.realIdentity = false; }
+    });
+
   it.each(['unset', 'off', 'redirect', 'foreign-name', 'unsafe-id', 'no-branch', 'changed-selection', 'revoked-session'])
     ('denies %s before persisting or arming a registration', async fault => {
       const f = activationFixture();
