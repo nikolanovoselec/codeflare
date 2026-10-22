@@ -1906,7 +1906,8 @@ describe('REQ-OPERATOR-047/048: future inference attempt accounting', () => {
   // REQ-OPERATOR-081: additive retained-evidence assertions; original anchor/title preserved.
     await start(f);
     const result = await f.capability.fetch(inference());
-    expect(result.status).toBe(409); expect(await result.json()).toEqual({ code: 'OPERATOR_INFERENCE_RECOVERY_EXHAUSTED' });
+    expect(result.status).toBe(409); expect(await result.json()).toEqual({ code: 'OPERATOR_INFERENCE_RECOVERY_EXHAUSTED',
+      reason: 'operation-failed', disposition: 'operation-local' });
     expect(paid(f)).toHaveLength(limit);
     f.restart();
     expect((await f.capability.fetch(inference())).status).toBe(403);
@@ -1929,7 +1930,8 @@ describe('REQ-OPERATOR-047/048: future inference attempt accounting', () => {
   it('REQ-OPERATOR-047: the shared operation budget denies a successor even with inference attempts remaining', () => fixture(async f => {
     await start(f); await anchor(f);
     expect(await budget(f)).toMatchObject({ operationCount: 1, operationLimit: 2 });
-    expect(await (await f.capability.fetch(inference())).json()).toEqual({ code: 'OPERATOR_INFERENCE_RECOVERY_EXHAUSTED' });
+    expect(await (await f.capability.fetch(inference())).json()).toEqual({ code: 'OPERATOR_INFERENCE_RECOVERY_EXHAUSTED',
+      reason: 'operation-limit', disposition: 'authority-denied' });
     expect(paid(f)).toHaveLength(1);
     expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
   }, { repositoryOnly: true, recovery: true, operationLimit: 2, inferenceAttemptLimit: 5, inferenceTransport: async () => sse(incomplete) }));
@@ -2170,11 +2172,11 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
     const later = await f.capability.fetch(read('after-refusal-report'));
     expect(later.status).toBe(200);
     expect(await later.json()).toMatchObject({ number: 17, head: { sha: 'b'.repeat(40) } });
+    const assessment = { readOnly: true, observedHead: 'b'.repeat(40), assessment: { classification: 'unknown' } };
+    f.messages([{ submissionId: 'submission-1', parts: [{ type: 'data-assessment', data: assessment }] }]);
     f.settle();
     await f.activity.reconcileDispatcherLease();
-    expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'completed', result: {
-      repository: 'owner/repo', pullRequest: 17, assessment: { classification: 'unknown' },
-    } });
+    expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'completed', result: assessment });
     await f.drainBackground();
     const restarted = f.restart();
     const get = diagnosticsBrowser(f);
@@ -2189,6 +2191,27 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
     expect(summary.fence).toBeNull();
     expect(await restarted.getBrowserDetail()).toMatchObject({ executionStatus: 'completed' });
     expect(await f.activity.collectBrowserResult()).toMatchObject({ ok: true, detail: { executionStatus: 'completed' } });
+    expect(await f.activity.getDispatcherDiagnostics('f'.repeat(64))).toBeNull();
+  }));
+
+  it.each([undefined, 'none'] as const)('REQ-OPERATOR-083: transport-only report with error kind %s survives reconstructed owner readback without invented exception evidence', errorKind => fixture(async f => {
+    await start(f);
+    const metadata = { transportStatus: 403, transportReason: 'request-invalid', transportDisposition: 'operation-local' };
+    expect((await f.capability.fetch(diagnosticReport({ stage: 'producer', role: 'comment', outcome: 'failed',
+      code: 'effect-denied', ...(errorKind === undefined ? {} : { errorKind }), ...metadata }))).status).toBe(204);
+    await f.drainBackground();
+    f.restart();
+    const get = diagnosticsBrowser(f);
+    const exported = await diagnosticTraversal(get, '/diagnostics/v2/export');
+    const originating = exported.records.find(record => record.owner === 'producer' && record.outcome === 'failed');
+    expect(originating).toMatchObject({ kind: 'event', code: 'tool-failed', evidence: 'observed',
+      error: { kind: 'other', publicCode: 'effect-denied', messageDigest: null, stackDigest: null,
+        causes: [], loss: [], fingerprintScope: 'unavailable', ...metadata } });
+    const history = await diagnosticTraversal(get);
+    expect(history.records.find(record => record.id === originating!.id)).toEqual(originating);
+    expect((await f.capability.fetch(read('after-transport-only-report'))).status).toBe(200);
+    expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'running', result: null });
+    expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
     expect(await f.activity.getDispatcherDiagnostics('f'.repeat(64))).toBeNull();
   }));
 
@@ -3499,7 +3522,9 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
       expect(response.status).toBe(status);
       expect(await response.json()).toEqual(name === 'forwarded upstream HTTP 409'
         ? { error: 'upstream-conflict' } : { code: status === 403 ? 'OPERATOR_CAPABILITY_DENIED'
-          : stage === 'reservation' ? 'OPERATOR_OPERATION_CONFLICT' : 'OPERATOR_OPERATION_UNKNOWN' });
+          : stage === 'reservation' ? 'OPERATOR_OPERATION_CONFLICT' : 'OPERATOR_OPERATION_UNKNOWN',
+          reason: status === 403 ? 'execution-inactive' : stage === 'reservation' ? 'operation-conflict' : 'operation-failed',
+          disposition: status === 403 ? 'authority-denied' : 'operation-local' });
       const events = emitted.map(value => JSON.parse(value) as { module: string; message: string;
         data?: Record<string, unknown> }).filter(event => event.module === 'dispatcher-settlement'
         && event.message === 'Dispatcher operation rejected');
@@ -5877,6 +5902,27 @@ describe('REQ-OPERATOR-048: original-lease serial SDK phase ownership', () => {
       }
       expect(f.childSubmissions).toEqual(history); expect(await f.readRemoteComments()).toEqual([]);
     }, { repositoryOnly: true, intent4: true, loggingEnabled: false }));
+
+  it('REQ-OPERATOR-047: exhausted target inference attempts are operation-local while independent work retains original authority', () => fixture(async f => {
+    await start(f); await discovery(f);
+    const original = await context(f);
+    const response = await f.capability.fetch(wire('inference', { operationId: 'target-inference',
+      input: { messages: [{ role: 'user', content: 'Assess the admitted target' }] } }, original.deliveryToken));
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({ code: 'OPERATOR_INFERENCE_RECOVERY_EXHAUSTED',
+      reason: 'operation-failed', disposition: 'operation-local' });
+    expect(await context(f)).toEqual(original);
+    const subsequent = await f.capability.fetch(wire('source', { operationId: 'independent-after-exhaustion',
+      url: 'https://api.github.com/repos/another/service' }, original.deliveryToken));
+    expect(subsequent.status).toBe(200);
+    const retained = await receipt(f, 'independent-after-exhaustion', original.deliveryToken);
+    expect(retained).toMatchObject({ phase: 'completed', operationCount: 3, operationLimit: 128 });
+    expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'running', result: null });
+    expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
+  }, { repositoryOnly: true, intent4: true, recovery: true, operationLimit: 128, inferenceAttemptLimit: 2,
+    capacityPolicy: { inferenceRetryBaseMs: 1, inferenceRetryMaxMs: 2 }, inferenceTransport: async () => new Response(
+      'data: {"choices":[{"delta":{},"finish_reason":null}]}\n\ndata: [DONE]\n\n',
+      { headers: { 'content-type': 'text/event-stream' } }) }));
 
   it('failed PR1 advances only after its exact SDK settlement; PR2 supplies actual complete data and immutable final collection', () => fixture(async f => {
     await start(f);

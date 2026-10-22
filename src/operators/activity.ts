@@ -2467,11 +2467,15 @@ export class OperatorActivity extends Agent {
           if (this.#producerReports >= 2048) return new Response(null, { status: 429 });
           this.#producerReports++;
         }
-        const lineage = diagnostic.errorKind && diagnostic.errorKind !== 'none' ? {
-          kind: diagnostic.errorKind, publicCode: diagnostic.code, messageDigest: diagnostic.errorDigest ?? null,
+        const errorKind = diagnostic.errorKind && diagnostic.errorKind !== 'none' ? diagnostic.errorKind : undefined;
+        const hasTransport = diagnostic.transportStatus !== undefined || diagnostic.transportReason !== undefined
+          || diagnostic.transportDisposition !== undefined;
+        const lineage = errorKind || hasTransport ? {
+          kind: errorKind ?? 'other' as const, publicCode: diagnostic.code, messageDigest: diagnostic.errorDigest ?? null,
           stackDigest: diagnostic.errorStackDigest ?? null, causes: (diagnostic.errorCauseDigests ?? []).map(messageDigest =>
             ({ kind: 'other' as const, messageDigest, stackDigest: null })), loss: diagnostic.errorCaptureLoss ?? [],
-          fingerprintScope: diagnostic.errorCaptureLoss?.length ? 'bounded' as const : 'full' as const,
+          fingerprintScope: !diagnostic.errorDigest && !diagnostic.errorStackDigest && !diagnostic.errorCauseDigests?.length
+            ? 'unavailable' as const : diagnostic.errorCaptureLoss?.length ? 'bounded' as const : 'full' as const,
           ...(diagnostic.transportStatus === undefined ? {} : { transportStatus: diagnostic.transportStatus }),
           ...(diagnostic.transportReason === undefined ? {} : { transportReason: diagnostic.transportReason }),
           ...(diagnostic.transportDisposition === undefined ? {} : { transportDisposition: diagnostic.transportDisposition }),
@@ -2849,6 +2853,7 @@ export class OperatorActivity extends Agent {
     const attemptLimit = lease.inferenceRecovery!.attemptLimit;
     let epoch: number | undefined;
     let terminalCode = 'OPERATOR_OPERATION_UNKNOWN';
+    let exhaustionReason: DispatcherRefusalReason = 'operation-failed';
     let failureClass = 'commit';
     const live = async (tx: DispatcherJournalTx) => {
       const [record, currentLease, owner] = await Promise.all([tx.get<AdmissionState>('admission'),
@@ -2960,6 +2965,7 @@ export class OperatorActivity extends Agent {
           inferenceDiagnostic(trace, { stage: 'journal', outcome: 'denied', resource: 'inference',
             operationCount: next.operationCount, operationLimit, inferenceAttemptLimit: attemptLimit });
           if (next.kind === 'capacity') return rejected('OPERATOR_CAPABILITY_DENIED', 403, 'operation-limit');
+          exhaustionReason = next.operationCount >= operationLimit ? 'operation-limit' : 'operation-failed';
           terminalCode = 'OPERATOR_INFERENCE_RECOVERY_EXHAUSTED'; throw new Error('Dispatcher inference exhausted');
         }
         if (next.kind === 'cached') {
@@ -3069,7 +3075,7 @@ export class OperatorActivity extends Agent {
       inferenceDiagnostic(trace, { stage: 'response-commit', outcome: 'unknown', resource: 'inference', failureClass });
       return rejected(terminalCode, 409, error instanceof DispatcherRefusal ? error.reason
         : failureClass === 'authority' ? 'authority-unverified'
-          : terminalCode === 'OPERATOR_INFERENCE_RECOVERY_EXHAUSTED' ? 'operation-limit' : 'operation-failed');
+          : terminalCode === 'OPERATOR_INFERENCE_RECOVERY_EXHAUSTED' ? exhaustionReason : 'operation-failed');
     }
   }
 
