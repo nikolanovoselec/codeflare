@@ -2178,6 +2178,8 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
     f.settle();
     await f.activity.reconcileDispatcherLease();
     await f.drainBackground();
+    expect(await f.activity.collectBrowserResult()).toMatchObject({ ok: true,
+      detail: { executionStatus: 'completed', result: assessment } });
     expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'completed', result: assessment });
     const restarted = f.restart();
     await f.drainBackground();
