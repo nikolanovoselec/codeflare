@@ -1907,7 +1907,7 @@ describe('REQ-OPERATOR-047/048: future inference attempt accounting', () => {
     await start(f);
     const result = await f.capability.fetch(inference());
     expect(result.status).toBe(409); expect(await result.json()).toEqual({ code: 'OPERATOR_INFERENCE_RECOVERY_EXHAUSTED',
-      reason: 'operation-failed', disposition: 'operation-local' });
+      reason: 'execution-inactive', disposition: 'authority-denied' });
     expect(paid(f)).toHaveLength(limit);
     f.restart();
     expect((await f.capability.fetch(inference())).status).toBe(403);
@@ -2172,13 +2172,15 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
     const later = await f.capability.fetch(read('after-refusal-report'));
     expect(later.status).toBe(200);
     expect(await later.json()).toMatchObject({ number: 17, head: { sha: 'b'.repeat(40) } });
+    await f.drainBackground();
     const assessment = { readOnly: true, observedHead: 'b'.repeat(40), assessment: { classification: 'unknown' } };
     f.messages([{ submissionId: 'submission-1', parts: [{ type: 'data-assessment', data: assessment }] }]);
     f.settle();
     await f.activity.reconcileDispatcherLease();
-    expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'completed', result: assessment });
     await f.drainBackground();
+    expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'completed', result: assessment });
     const restarted = f.restart();
+    await f.drainBackground();
     const get = diagnosticsBrowser(f);
     const exported = await diagnosticTraversal(get, '/diagnostics/v2/export');
     const originating = exported.records.find(record => record.owner === 'producer' && record.outcome === 'failed');

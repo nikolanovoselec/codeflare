@@ -2853,7 +2853,7 @@ export class OperatorActivity extends Agent {
     const attemptLimit = lease.inferenceRecovery!.attemptLimit;
     let epoch: number | undefined;
     let terminalCode = 'OPERATOR_OPERATION_UNKNOWN';
-    let exhaustionReason: DispatcherRefusalReason = 'operation-failed';
+    let exhaustionReason: DispatcherRefusalReason = 'authority-unverified';
     let failureClass = 'commit';
     const live = async (tx: DispatcherJournalTx) => {
       const [record, currentLease, owner] = await Promise.all([tx.get<AdmissionState>('admission'),
@@ -2965,7 +2965,7 @@ export class OperatorActivity extends Agent {
           inferenceDiagnostic(trace, { stage: 'journal', outcome: 'denied', resource: 'inference',
             operationCount: next.operationCount, operationLimit, inferenceAttemptLimit: attemptLimit });
           if (next.kind === 'capacity') return rejected('OPERATOR_CAPABILITY_DENIED', 403, 'operation-limit');
-          exhaustionReason = next.operationCount >= operationLimit ? 'operation-limit' : 'operation-failed';
+          exhaustionReason = next.operationCount >= operationLimit ? 'operation-limit' : 'authority-unverified';
           terminalCode = 'OPERATOR_INFERENCE_RECOVERY_EXHAUSTED'; throw new Error('Dispatcher inference exhausted');
         }
         if (next.kind === 'cached') {
@@ -3067,9 +3067,15 @@ export class OperatorActivity extends Agent {
           const local = current?.serial?.current.phase.kind === 'target'
             && (terminalCode === 'OPERATOR_INFERENCE_RECOVERY_EXHAUSTED' || ['model-completion', 'body-limit', 'body-read'].includes(failureClass))
             && journal.count < operationLimit && await this.#dispatcherDeliveryCurrent(generation, deliveryToken);
-          if (!local) await this.interruptDrive(generation, { boundary: failureClass === 'authority' ? 'admission'
-            : terminalCode === 'OPERATOR_INFERENCE_RECOVERY_EXHAUSTED' ? 'recovery' : 'model',
-            code: failureClass === 'authority' ? 'authority-denied' : terminalCode === 'OPERATOR_INFERENCE_RECOVERY_EXHAUSTED' ? 'capacity-exhausted' : 'provider-failed' });
+          if (local && terminalCode === 'OPERATOR_INFERENCE_RECOVERY_EXHAUSTED') exhaustionReason = 'operation-failed';
+          if (!local) {
+            const fenced = await this.interruptDrive(generation, { boundary: failureClass === 'authority' ? 'admission'
+              : terminalCode === 'OPERATOR_INFERENCE_RECOVERY_EXHAUSTED' ? 'recovery' : 'model',
+              code: failureClass === 'authority' ? 'authority-denied' : terminalCode === 'OPERATOR_INFERENCE_RECOVERY_EXHAUSTED' ? 'capacity-exhausted' : 'provider-failed' });
+            if (fenced.ok && terminalCode === 'OPERATOR_INFERENCE_RECOVERY_EXHAUSTED') {
+              exhaustionReason = journal.count >= operationLimit ? 'operation-limit' : 'execution-inactive';
+            }
+          }
         }
       } catch { /* No fresh inference follows a journal or fence failure. */ }
       inferenceDiagnostic(trace, { stage: 'response-commit', outcome: 'unknown', resource: 'inference', failureClass });
