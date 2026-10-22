@@ -1,6 +1,14 @@
 # Trivy vulnerability suppressions
 # Review monthly and remove entries when upstream fixes are available.
 #
+# Owner-authorized temporary exception, 2026-10-22: CVE-2026-111943 remains
+# in latest lazygit 0.66.2 (Go 1.26.9). gh is bumped to its Go 1.27.3 build;
+# rclone is rebuilt with Go 1.27.3. Accept residual CLI-process risk, not a
+# claim of unreachable code or a patched lazygit. This CVE-level suppression
+# applies across scanner targets, not just lazygit. Trivy stops suppressing it
+# on 2026-10-29; remove sooner when a fixed stable lazygit artifact is pinned.
+CVE-2026-111943 exp:2026-10-29
+#
 # Owner-authorized accepted risk, 2026-10-12: CVE-2026-78669 in the Go
 # dependencies embedded in gh, rclone and lazygit. Integration deployment
 # scans 38295109713 and 38295113082 reported four findings for x/net 0.58.0
