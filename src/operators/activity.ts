@@ -20,6 +20,7 @@ import { parseDispatcherBundle, type DispatcherBundle } from './distribution';
 import { loadOperatorDispatcherClass } from './loader';
 import { DEFAULT_SOURCE_RESPONSE_BYTES, sourceResponseBytes } from './dispatcher-source-limits';
 import { producerDiagnosticSchema, sdkPublicReasonCode, type ProducerDiagnostic } from './dispatcher-diagnostic-wire';
+import { DispatcherRefusal, dispatcherRefusal, dispatcherRefusalBody, type DispatcherRefusalReason } from './dispatcher-refusal';
 import { submissionAttemptLimit } from './dispatcher-submission-limits';
 import { inferenceRequestBytes, inferenceAttemptLimit } from './dispatcher-inference-limits';
 import { dispatcherCapacities, type DispatcherCapacityPolicy } from './dispatcher-capacity-limits';
@@ -1906,17 +1907,20 @@ export class OperatorActivity extends Agent {
   /** Private binding only. Wait for the original ADMISSION receipt, never for this response's settlement. */
   async dispatcherPhaseContext(generation: number, request: Request): Promise<Response> {
     this.#resumeDispatcherOnEntry();
-    const denied = () => Response.json({ code: 'OPERATOR_CAPABILITY_DENIED' }, { status: 403 });
+    const denied = (reason: DispatcherRefusalReason = 'execution-inactive') => dispatcherRefusal(reason);
+    let refusalReason: DispatcherRefusalReason = 'request-invalid';
     try {
       const url = new URL(request.url);
       if (url.href !== 'https://operator.internal/v1/dispatcher/phase-context' || request.method !== 'POST'
-        || request.headers.get('content-type')?.split(';')[0].trim() !== 'application/json'
-        || !await this.dispatcherGenerationCurrent(generation)) return denied();
+        || request.headers.get('content-type')?.split(';')[0].trim() !== 'application/json') return denied('request-invalid');
+      if (!await this.dispatcherGenerationCurrent(generation)) return denied();
       const { deliveryToken } = z.strictObject({ deliveryToken: z.string().regex(/^[A-Za-z0-9_-]{1,128}$/) })
         .parse(JSON.parse(await readDispatcherBody(request, request.signal, 2048)));
       if (request.headers.get('x-codeflare-dispatcher-delivery') !== deliveryToken) return denied();
+      refusalReason = 'execution-inactive';
       let lease = await this.ctx.storage.get<DispatcherLease>(DISPATCHER_LEASE);
       if (!lease?.serial || !this.#phaseTokenMatches(lease, deliveryToken, false)) return denied();
+      refusalReason = 'receipt-unavailable';
       try { await this.#admitDispatcherPhase(generation, deliveryToken); }
       catch {
         // The SDK may enter while the original202 acknowledgement is being lost.
@@ -1929,13 +1933,15 @@ export class OperatorActivity extends Agent {
       }
       const plan = await this.getRuntimePlan();
       if (!plan) return denied();
+      refusalReason = 'authority-unverified';
       await authorizeDispatcherPlan(plan, this.#appEnv);
       if (!await this.#dispatcherDeliveryCurrent(generation, deliveryToken)) return denied();
       lease = await this.ctx.storage.get<DispatcherLease>(DISPATCHER_LEASE);
       if (!lease?.serial || !this.#phaseTokenMatches(lease, deliveryToken)) return denied();
       return Response.json(dispatcherPhaseContext(lease.serial, this.#phaseAuthority(lease, plan), deliveryToken),
         { headers: { 'cache-control': 'no-store' } });
-    } catch { return denied(); }
+    } catch (error) { return denied(error instanceof SyntaxError || error instanceof z.ZodError ? 'request-invalid'
+      : error instanceof DispatcherRefusal ? error.reason : refusalReason); }
   }
 
   #leaseMatches(record: AdmissionState | undefined, lease: DispatcherLease | undefined, generation: number): boolean {
@@ -2466,6 +2472,9 @@ export class OperatorActivity extends Agent {
           stackDigest: diagnostic.errorStackDigest ?? null, causes: (diagnostic.errorCauseDigests ?? []).map(messageDigest =>
             ({ kind: 'other' as const, messageDigest, stackDigest: null })), loss: diagnostic.errorCaptureLoss ?? [],
           fingerprintScope: diagnostic.errorCaptureLoss?.length ? 'bounded' as const : 'full' as const,
+          ...(diagnostic.transportStatus === undefined ? {} : { transportStatus: diagnostic.transportStatus }),
+          ...(diagnostic.transportReason === undefined ? {} : { transportReason: diagnostic.transportReason }),
+          ...(diagnostic.transportDisposition === undefined ? {} : { transportDisposition: diagnostic.transportDisposition }),
         } : undefined;
         const family: Boundary = diagnostic.phase === 'finish' || diagnostic.role === 'finish' ? 'settlement'
           : diagnostic.role === 'provider' ? 'model' : 'tool';
@@ -2505,9 +2514,9 @@ export class OperatorActivity extends Agent {
     const trace: InferenceDiagnosticContext | undefined = diagnosticState ? { activityId: diagnosticState.intent.activityId, generation, loggingEnabled } : undefined;
     const began = performance.now();
     const deliveryToken = request.headers.get('x-codeflare-dispatcher-delivery') ?? undefined;
-    const denied = () => {
+    const denied = (reason: DispatcherRefusalReason = 'execution-inactive') => {
       inferenceDiagnostic(trace, { stage: 'authority', outcome: 'denied' });
-      return Response.json({ code: 'OPERATOR_CAPABILITY_DENIED' }, { status: 403 });
+      return dispatcherRefusal(reason);
     };
     const deadline = (lease?: DispatcherLease) => !lease ? 'unavailable'
       : lease.expiresAt <= Date.now() ? 'expired' : 'current';
@@ -2552,8 +2561,9 @@ export class OperatorActivity extends Agent {
       }
       if (operation.path === '/v1/dispatcher/receipt' || operation.path === '/v1/dispatcher/resolve') {
         const { authority, policy } = await authorizeDispatcherPlan(plan, this.#appEnv);
-        if (!policy.capabilities.includes('fetch') || !await operatorAccessSessionCurrent(authority.human, authority.accessJwt)
-          || JSON.parse(plan.invocationJson).pullRequest !== undefined) return denied();
+        if (!policy.capabilities.includes('fetch')) return denied('policy-denied');
+        if (!await operatorAccessSessionCurrent(authority.human, authority.accessJwt)) return denied('authority-unverified');
+        if (JSON.parse(plan.invocationJson).pullRequest !== undefined) return denied('request-invalid');
         const value = operation.body as { operationId: string; requestDigest?: string;
           readbacks?: Array<{ operationId: string; requestDigest: string; responseDigest: string }> };
         return await this.ctx.storage.transaction(async tx => {
@@ -2562,27 +2572,27 @@ export class OperatorActivity extends Agent {
           if (!this.#leaseMatches(record, live, generation) || !this.#phaseTokenMatches(live, deliveryToken)) return denied();
           const journal = await loadDispatcherJournal(tx, generation);
           const original = await tx.get<DispatcherOperationRecord>(dispatcherEntryKey(journal, value.operationId));
-          if (!original?.request || original.generation !== generation) return denied();
+          if (!original?.request || original.generation !== generation) return denied('receipt-unavailable');
           if (operation.path.endsWith('/receipt')) return Response.json({ operationId: value.operationId,
             generation, requestDigest: original.requestDigest, ...original.request, phase: original.phase,
             operationCount: journal.count, operationLimit,
             ...(original.responseDigest ? { responseDigest: original.responseDigest } : {}) });
-          if (original.requestDigest !== value.requestDigest) return Response.json({ code: 'OPERATOR_OPERATION_CONFLICT' }, { status: 409 });
+          if (original.requestDigest !== value.requestDigest) return dispatcherRefusal('operation-conflict', 409, 'OPERATOR_OPERATION_CONFLICT');
           const readbacks = value.readbacks!;
-          if (original.request.method === 'GET' || new Set(readbacks.map(item => item.operationId)).size !== readbacks.length) return denied();
+          if (original.request.method === 'GET' || new Set(readbacks.map(item => item.operationId)).size !== readbacks.length) return denied('request-invalid');
           if (original.resolution) return JSON.stringify(original.resolution.readbacks) === JSON.stringify(readbacks)
             ? Response.json({ resolved: true, operationId: value.operationId, requestDigest: original.requestDigest })
-            : Response.json({ code: 'OPERATOR_OPERATION_CONFLICT' }, { status: 409 });
-          if (original.phase !== 'unknown') return denied();
+            : dispatcherRefusal('operation-conflict', 409, 'OPERATOR_OPERATION_CONFLICT');
+          if (original.phase !== 'unknown') return denied('receipt-unavailable');
           for (const reference of readbacks) {
             const readback = await tx.get<DispatcherOperationRecord>(dispatcherEntryKey(journal, reference.operationId));
             if (!readback || readback.generation !== generation || readback.phase !== 'completed'
               || readback.request?.method !== 'GET' || original.ordinal === undefined || readback.ordinal === undefined
               || readback.ordinal <= original.ordinal || readback.requestDigest !== reference.requestDigest
-              || readback.responseDigest !== reference.responseDigest) return Response.json({ code: 'OPERATOR_OPERATION_UNKNOWN' }, { status: 409 });
+              || readback.responseDigest !== reference.responseDigest) return dispatcherRefusal('effect-uncertain', 409, 'OPERATOR_OPERATION_UNKNOWN');
             const receipt = await tx.get<NonNullable<DispatcherOperationRecord['response']>>(`dispatcher:response:${reference.operationId}`);
             if (!receipt || receipt.status !== 200 || JSON.parse(receipt.body).status < 200
-              || JSON.parse(receipt.body).status >= 300) return Response.json({ code: 'OPERATOR_OPERATION_UNKNOWN' }, { status: 409 });
+              || JSON.parse(receipt.body).status >= 300) return dispatcherRefusal('effect-uncertain', 409, 'OPERATOR_OPERATION_UNKNOWN');
           }
           const resolved = { resolved: true, operationId: value.operationId, requestDigest: original.requestDigest };
           const response = { status: 200, contentType: 'application/json', body: JSON.stringify(resolved) };
@@ -2627,7 +2637,8 @@ export class OperatorActivity extends Agent {
               ...inferenceCountObservation } : {}) });
         }
       } catch { /* Observability cannot replace the original denial. */ }
-      return denied();
+      return denied(preparationStep === 'parse' || error instanceof z.ZodError || error instanceof SyntaxError
+        ? 'request-invalid' : error instanceof DispatcherRefusal ? error.reason : 'authority-unverified');
     }
     const resource = operation.path === '/v1/dispatcher/inference' ? 'inference'
       : operation.path === '/v1/dispatcher/source' ? 'source'
@@ -2676,7 +2687,7 @@ export class OperatorActivity extends Agent {
           resource, deadline: deadline(reserved.lease), status: 403,
           ...(reserved.reason === 'operation-limit' ? { operationCount: reserved.operationCount, operationLimit } : {}) });
       } catch { /* Observability cannot replace the original denial. */ }
-      return denied();
+      return denied(reserved.reason === 'operation-limit' ? 'operation-limit' : 'execution-inactive');
     }
     if ('ordinal' in reserved && trace) trace.operationOrdinal = reserved.ordinal;
     const operationCorrelation: Correlation = { requestDigest, ...('ordinal' in reserved && reserved.ordinal !== undefined
@@ -2688,14 +2699,14 @@ export class OperatorActivity extends Agent {
       ...(reserved.kind === 'completed' ? { ...inferenceResponseObservation(reserved.response), responseDigest: reserved.responseDigest } : {}) });
     if (reserved.kind === 'conflict') {
       rejected('reservation', resource, lease, 409);
-      return Response.json({ code: 'OPERATOR_OPERATION_CONFLICT' }, { status: 409 });
+      return dispatcherRefusal('operation-conflict', 409, 'OPERATOR_OPERATION_CONFLICT');
     }
     const response = (value: NonNullable<DispatcherOperationRecord['response']>) => new Response(value.body, {
       status: value.status, headers: { 'content-type': value.contentType, 'cache-control': 'no-store' } });
     if (reserved.kind === 'completed') return response(reserved.response);
     const genericMutation = resource === 'source' && ((operation.body as { method?: string }).method ?? 'GET') !== 'GET';
     const readOnly = resource !== 'inference' && resource !== 'comment' && resource !== 'merge' && !genericMutation;
-    if (reserved.kind === 'unknown' && genericMutation) return Response.json({ code: 'OPERATOR_OPERATION_UNKNOWN' }, { status: 409 });
+    if (reserved.kind === 'unknown' && genericMutation) return dispatcherRefusal('effect-uncertain', 409, 'OPERATOR_OPERATION_UNKNOWN');
     let stage: 'reservation' | 'effect' | 'authority' | 'upstream' | 'commit' = 'reservation';
     let upstreamStatus: number | undefined;
     let bodyReading = false;
@@ -2793,7 +2804,9 @@ export class OperatorActivity extends Agent {
             code: stage === 'authority' ? 'authority-denied' : resource === 'inference' ? 'provider-failed' : 'effect-unknown', error: captureError(error) });
       inferenceDiagnostic(trace, { stage: 'response-commit', outcome: 'unknown', resource, failureClass: stage === 'authority' ? 'authority' : stage === 'commit' ? 'commit' : upstreamStatus !== undefined ? 'upstream-status' : bodyReading && error instanceof Error && error.message === 'Dispatcher body exceeds limit' ? 'body-limit' : bodyReading ? 'body-read' : 'unknown', elapsedMs: performance.now() - began });
       rejected(stage, resource, lease, 409, upstreamStatus);
-      return Response.json({ code: 'OPERATOR_OPERATION_UNKNOWN' }, { status: 409 });
+      return dispatcherRefusal(genericMutation || resource === 'comment' || resource === 'merge' ? 'effect-uncertain'
+        : error instanceof DispatcherRefusal ? error.reason : stage === 'authority' ? 'execution-inactive' : 'operation-failed',
+        409, 'OPERATOR_OPERATION_UNKNOWN');
     }
   }
 
@@ -2803,7 +2816,7 @@ export class OperatorActivity extends Agent {
     trace: InferenceDiagnosticContext | undefined, deliveryToken?: string): Promise<Response> {
     const key = `${generation}:${deliveryToken ?? 'legacy'}:${operation.operationId}`;
     let flight = this.#inferenceFlights.get(key);
-    if (flight && flight.digest !== requestDigest) return Response.json({ code: 'OPERATOR_OPERATION_CONFLICT' }, { status: 409 });
+    if (flight && flight.digest !== requestDigest) return dispatcherRefusal('operation-conflict', 409, 'OPERATOR_OPERATION_CONFLICT');
     if (!flight) {
       const controller = new AbortController();
       // Register synchronously before the first reservation can become visible to another delivery.
@@ -2820,7 +2833,7 @@ export class OperatorActivity extends Agent {
         const { authority } = await authorizeDispatcherPlan(plan, this.#appEnv);
         if (!await operatorAccessSessionCurrent(authority.human, authority.accessJwt)
           || !await this.#dispatcherDeliveryCurrent(generation, deliveryToken)) throw new Error('Dispatcher inference denied');
-      } catch { return Response.json({ code: 'OPERATOR_CAPABILITY_DENIED' }, { status: 403 }); }
+      } catch (error) { return dispatcherRefusal(error instanceof DispatcherRefusal ? error.reason : 'authority-unverified'); }
     }
     return new Response(value.body, { status: value.status,
       headers: { 'content-type': value.contentType, 'cache-control': 'no-store' } });
@@ -2829,7 +2842,9 @@ export class OperatorActivity extends Agent {
   async #runDispatcherInference(generation: number, operation: Awaited<ReturnType<typeof parseDispatcherOperation>>,
     requestDigest: string, lease: DispatcherLease, byteLimit: number, operationLimit: number,
     trace: InferenceDiagnosticContext | undefined, controller: AbortController, deliveryToken?: string): Promise<DispatcherInferenceResponse> {
-    const rejected = (code: string, status = 409): DispatcherInferenceResponse => ({ status, contentType: 'application/json', body: JSON.stringify({ code }) });
+    const rejected = (code: string, status = 409, reason: DispatcherRefusalReason = code === 'OPERATOR_OPERATION_CONFLICT'
+      ? 'operation-conflict' : code === 'OPERATOR_CAPABILITY_DENIED' ? 'execution-inactive' : 'operation-failed'): DispatcherInferenceResponse =>
+      ({ status, contentType: 'application/json', body: JSON.stringify(dispatcherRefusalBody(reason, code)) });
     const ownerKey = `dispatcher:inference-owner:${generation}`;
     const attemptLimit = lease.inferenceRecovery!.attemptLimit;
     let epoch: number | undefined;
@@ -2944,7 +2959,7 @@ export class OperatorActivity extends Agent {
           this.#recordDiagnostic(generation, 'admission', 'failed', 'capacity-exhausted');
           inferenceDiagnostic(trace, { stage: 'journal', outcome: 'denied', resource: 'inference',
             operationCount: next.operationCount, operationLimit, inferenceAttemptLimit: attemptLimit });
-          if (next.kind === 'capacity') return rejected('OPERATOR_CAPABILITY_DENIED', 403);
+          if (next.kind === 'capacity') return rejected('OPERATOR_CAPABILITY_DENIED', 403, 'operation-limit');
           terminalCode = 'OPERATOR_INFERENCE_RECOVERY_EXHAUSTED'; throw new Error('Dispatcher inference exhausted');
         }
         if (next.kind === 'cached') {
@@ -3052,7 +3067,9 @@ export class OperatorActivity extends Agent {
         }
       } catch { /* No fresh inference follows a journal or fence failure. */ }
       inferenceDiagnostic(trace, { stage: 'response-commit', outcome: 'unknown', resource: 'inference', failureClass });
-      return rejected(terminalCode);
+      return rejected(terminalCode, 409, error instanceof DispatcherRefusal ? error.reason
+        : failureClass === 'authority' ? 'authority-unverified'
+          : terminalCode === 'OPERATOR_INFERENCE_RECOVERY_EXHAUSTED' ? 'operation-limit' : 'operation-failed');
     }
   }
 

@@ -263,7 +263,7 @@ async function currentOperatorIdentity(human: VerifiedHumanAccessClaims, accessJ
   } catch { return operatorHumanDenied('identity', failure); }
 }
 
-/** Unlike the grant projection, an absent/revoked Access session cannot be treated as empty groups. */
+/** An absent/revoked Access session cannot be treated as empty groups. */
 export async function operatorAccessSessionCurrent(human: VerifiedHumanAccessClaims, accessJwt: string): Promise<boolean> {
   return await currentOperatorIdentity(human, accessJwt) !== null;
 }
@@ -271,7 +271,9 @@ export async function operatorAccessSessionCurrent(human: VerifiedHumanAccessCla
 export async function resolveOperatorGroupIdentity(
   human: VerifiedHumanAccessClaims, accessJwt: string,
 ): Promise<VerifiedHumanAccessClaims> {
-  return { ...human, groups: await currentOperatorIdentity(human, accessJwt) ?? [] };
+  const groups = await currentOperatorIdentity(human, accessJwt);
+  if (groups === null) throw new ForbiddenError('Human Access authentication required');
+  return { ...human, groups };
 }
 
 /** A persisted operator ACL. It is data, never an asserted current identity. */

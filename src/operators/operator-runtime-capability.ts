@@ -12,6 +12,7 @@ import { dispatcherCapacities, type DispatcherCapacityPolicy } from './dispatche
 import { resolveOperatorInference } from './inference-selection';
 import type { DispatcherInferenceSelection } from './dispatcher-inference-recovery';
 import { z } from 'zod';
+import { DispatcherRefusal } from './dispatcher-refusal';
 import { discoverRenovatePulls, eligibleRenovatePull, renovateGithub, executeRenovateDecision } from './renovate-publication';
 import { openOperatorExecutionAccess } from './execution-context';
 import { operatorOwnerKey } from './browser-activity';
@@ -197,7 +198,7 @@ export async function authorizeDispatcherPlan(plan: OperatorRuntimePlan, env: En
   const parent = z.strictObject({ repository: z.string().regex(/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/),
     pullRequest: z.number().safe().int().positive().optional() }).parse(JSON.parse(plan.invocationJson));
   // No resource resolver is introduced: only the direct read/inference profile is supported.
-  if (pinned.installation.policy.resourceProfileId !== null) throw new Error('Dispatcher resource profile unavailable');
+  if (pinned.installation.policy.resourceProfileId !== null) throw new DispatcherRefusal('policy-denied', 'Dispatcher resource profile unavailable');
   let admittedTarget: DispatcherAdmittedTarget | undefined;
   if (plan.prospectiveAdmissionId) {
     const repositoryOnly = parent.pullRequest === undefined;
@@ -267,18 +268,18 @@ export async function createDispatcherOperation(input: {
   const { authority, parent, policy: installationPolicy, admittedTarget } = await authorizeDispatcherPlan(plan, env);
   const current = async () => {
     await authorizeDispatcherPlan(plan, env);
-    if (!await input.current()) throw new Error('Dispatcher generation changed');
+    if (!await input.current()) throw new DispatcherRefusal('execution-inactive', 'Dispatcher generation changed');
   };
   const inference = operation.path === '/v1/dispatcher/inference';
-  if (!installationPolicy.capabilities.includes(inference ? 'inference' : 'fetch')) throw new Error('Dispatcher capability denied');
+  if (!installationPolicy.capabilities.includes(inference ? 'inference' : 'fetch')) throw new DispatcherRefusal('policy-denied', 'Dispatcher capability denied');
   if (operation.path === '/v1/dispatcher/source') {
     // Repository-only packages own source selection. Legacy single-PR profiles retain their fixed reads.
-    if (parent.pullRequest !== undefined) throw new Error('Legacy Dispatcher source selection denied');
+    if (parent.pullRequest !== undefined) throw new DispatcherRefusal('request-invalid', 'Legacy Dispatcher source selection denied');
     const sourceCurrent = async () => {
-      if (operation.signal?.aborted) throw new Error('Dispatcher caller cancelled');
+      if (operation.signal?.aborted) throw new DispatcherRefusal('execution-inactive', 'Dispatcher caller cancelled');
       await current();
       if (!await operatorAccessSessionCurrent(authority.human, authority.accessJwt)) {
-        throw new Error('Dispatcher caller session expired');
+        throw new DispatcherRefusal('authority-unverified', 'Dispatcher caller session expired');
       }
     };
     await sourceCurrent();
@@ -288,28 +289,28 @@ export async function createDispatcherOperation(input: {
     const method = source.method ?? 'GET';
     const github = interceptedGithubHosts(env).includes(url.hostname);
     if (method !== 'GET' && (!github || url.origin !== dispatcherGithubApiOrigin(env))) {
-      throw new Error('Mutation transport denied');
+      throw new DispatcherRefusal('policy-denied', 'Mutation transport denied');
     }
-    if (input.phase && method !== 'GET' && input.phase.value.kind !== 'target') throw new Error('Dispatcher phase mutation denied');
+    if (input.phase && method !== 'GET' && input.phase.value.kind !== 'target') throw new DispatcherRefusal('request-invalid', 'Dispatcher phase mutation denied');
     const phaseTarget = input.phase?.value.kind === 'target'
       ? { repository: input.phase.repository, ...input.phase.value.target } : admittedTarget;
     if (admittedTarget && phaseTarget && (phaseTarget.repository !== admittedTarget.repository
       || phaseTarget.pullRequest !== admittedTarget.pullRequest || phaseTarget.headSha !== admittedTarget.headSha)) {
-      throw new Error('Dispatcher phase admission target changed');
+      throw new DispatcherRefusal('execution-inactive', 'Dispatcher phase admission target changed');
     }
     if (phaseTarget && method !== 'GET') {
       const base = `${dispatcherGithubApiOrigin(env)}/repos/${phaseTarget.repository}`;
       // Compare the original wire, not URL-normalized aliases (queries, encodings or traversal).
       const comment = method === 'POST' && source.url === `${base}/issues/${phaseTarget.pullRequest}/comments`;
       const merge = method === 'PUT' && source.url === `${base}/pulls/${phaseTarget.pullRequest}/merge`;
-      if (!comment && !merge) throw new Error('Prospective mutation target denied');
+      if (!comment && !merge) throw new DispatcherRefusal('policy-denied', 'Prospective mutation target denied');
       const body = JSON.parse(source.body!);
       if (comment) z.strictObject({ body: z.string().min(1).refine(value => value.length <= limits.targetCommentChars)
         .refine(value => value.trim().length > 0) }).parse(body);
       else z.strictObject({ sha: z.literal(phaseTarget.headSha), merge_method: z.literal('merge') }).parse(body);
     }
     const entrypoint = github ? input.exports.GitHubInterceptor : input.exports.EgressController;
-    if (!entrypoint) throw new Error('Dispatcher source transport unavailable');
+    if (!entrypoint) throw new DispatcherRefusal('operation-failed', 'Dispatcher source transport unavailable');
     const bucket = await resolveBucketName(env, authority.human.email);
     // Managed installations grant capabilities, not a manufactured legacy OperatorPolicy.
     // No resource credentials or account-scoped Gateway exemption are granted by fetch.
@@ -394,7 +395,7 @@ export async function createDispatcherOperation(input: {
       return new Response(envelope, { headers: { 'content-type': 'application/json' } });
     };
   }
-  if (input.phase && !inference) throw new Error('Dispatcher serial legacy endpoint denied');
+  if (input.phase && !inference) throw new DispatcherRefusal('request-invalid', 'Dispatcher serial legacy endpoint denied');
   const phase = operation.path === '/v1/dispatcher/github/comment' ? 'comment'
     : operation.path === '/v1/dispatcher/github/merge' ? 'merge' : undefined;
   const effect = phase === 'comment' ? dispatcherCommentSchema(limits).parse(operation.body)
@@ -402,28 +403,28 @@ export async function createDispatcherOperation(input: {
   const read = !inference && !phase ? dispatcherReadSchema.parse(operation.body) : undefined;
   const resource = read?.resource;
   if (admittedTarget && (phase || resource === 'open-pull-requests')) {
-    throw new Error('Prospective legacy endpoint denied');
+    throw new DispatcherRefusal('request-invalid', 'Prospective legacy endpoint denied');
   }
   if (read?.target && (read.pullRequest !== undefined || read.headSha !== undefined)) {
-    throw new Error('Contradictory read target');
+    throw new DispatcherRefusal('request-invalid', 'Contradictory read target');
   }
   const target = effect?.target ?? read?.target ?? read;
   const pullRequest = target?.pullRequest ?? parent.pullRequest;
   if (admittedTarget && !inference && (pullRequest !== admittedTarget.pullRequest
-    || target?.headSha !== admittedTarget.headSha)) throw new Error('Prospective read target denied');
+    || target?.headSha !== admittedTarget.headSha)) throw new DispatcherRefusal('policy-denied', 'Prospective read target denied');
   if (resource === 'open-pull-requests' && (read?.target || read?.pullRequest !== undefined || read?.headSha !== undefined)) {
-    throw new Error('Discovery target denied');
+    throw new DispatcherRefusal('request-invalid', 'Discovery target denied');
   }
   if (!inference && resource !== 'open-pull-requests' && (!pullRequest
     || (parent.pullRequest !== undefined && pullRequest !== parent.pullRequest)
-    || (parent.pullRequest === undefined && !target?.headSha))) throw new Error('Pull request target denied');
+    || (parent.pullRequest === undefined && !target?.headSha))) throw new DispatcherRefusal('request-invalid', 'Pull request target denied');
   const policy = parseOperatorPolicy({ schemaVersion: 1, networkHosts: [],
     github: { repositories: resource === 'release-notes' || resource === 'upstream-guide'
       ? [parent.repository.toLowerCase(), 'amir20/dozzle'] : [parent.repository.toLowerCase()], methods: ['GET'] },
     storage: { readPrefixes: [], writePrefixes: [] },
     inference: { routeIds: [], defaultRouteId: null, reasoningLevels: [], defaultReasoningLevel: null, inheritUserDefaults: false } });
   if (inference) {
-    if (!input.exports.LlmInterceptor) throw new Error('LLM interceptor unavailable');
+    if (!input.exports.LlmInterceptor) throw new DispatcherRefusal('operation-failed', 'LLM interceptor unavailable');
     let groups = await resolveSessionAccessGroup(new Request('https://operator.internal/', {
       headers: { 'cf-access-jwt-assertion': authority.accessJwt },
     }), env);
@@ -459,7 +460,7 @@ export async function createDispatcherOperation(input: {
           max_tokens: value.input.max_tokens ?? limits.inferenceDefaultTokens, model: trusted.routeId, stream: value.input.stream ?? true }) }));
     };
   }
-  if (!input.exports.GitHubInterceptor) throw new Error('GitHub interceptor unavailable');
+  if (!input.exports.GitHubInterceptor) throw new DispatcherRefusal('operation-failed', 'GitHub interceptor unavailable');
   const bucket = await resolveBucketName(env, authority.human.email);
   const transport = input.exports.GitHubInterceptor({ props: { user: authority.human.email, bucket, strict: true, operatorPolicy: policy } });
   const host = env.GITHUB_API_HOST?.trim() || 'api.github.com';

@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import { Buffer } from 'node:buffer';
 import type { DispatcherBundle } from './distribution';
 import { producerCodes } from './dispatcher-diagnostic-wire';
+import { dispatcherRefusalReasons, dispatcherRefusalDispositions, transportDiagnosticShape } from './dispatcher-refusal';
 
 export const boundaries = ['artifact', 'admission', 'construction', 'submission', 'scheduling', 'delivery', 'model',
   'inference-response', 'canonical-commit', 'tool', 'effect', 'recovery', 'settlement', 'continuation', 'fence',
@@ -31,7 +32,7 @@ const sourceSchema = z.strictObject({ package: z.enum(['codeflare', '@codeflare/
 const causeSchema = z.strictObject({ kind: z.enum(kinds), messageDigest: digestSchema.nullable(), stackDigest: digestSchema.nullable() });
 export const errorSchema = z.strictObject({ ...causeSchema.shape,
   publicCode: z.enum(producerCodes).nullable(), causes: z.array(causeSchema).max(3), loss: z.array(z.enum(errorLoss)).max(6),
-  fingerprintScope: z.enum(['full', 'bounded', 'unavailable']) });
+  fingerprintScope: z.enum(['full', 'bounded', 'unavailable']), ...transportDiagnosticShape });
 export const correlationSchema = z.strictObject({ logicalOrdinal: counter.optional(), hostAttemptIndex: counter.optional(),
   chargedOrdinal: counter.optional(), sdkAttemptDigest: digestSchema.optional(), submissionDigest: digestSchema.optional(),
   deliveryDigest: digestSchema.optional(), requestDigest: digestSchema.optional(), responseDigest: digestSchema.optional(),
@@ -92,6 +93,7 @@ export function readSdkDiagnosticHeader(response: Response): z.infer<typeof head
 function captureDiagnosticErrorInternal(original: unknown): ErrorMetadata {
   const loss = new Set<typeof errorLoss[number]>();
   const seen = new Set<object>();
+  const transport: Pick<ErrorMetadata, 'transportStatus' | 'transportReason' | 'transportDisposition'> = {};
   const descriptor = (value: object, key: string): unknown => {
     try { const field = Object.getOwnPropertyDescriptor(value, key);
       if (field && !('value' in field)) loss.add('unsafe-error-access');
@@ -114,6 +116,18 @@ function captureDiagnosticErrorInternal(original: unknown): ErrorMetadata {
     if (value !== null && typeof value === 'object') {
       const name = descriptor(value, 'name');
       if (kind === 'Error' && kinds.includes(name as typeof kinds[number])) kind = name as typeof kinds[number];
+      if (!Object.keys(transport).length) {
+        const status = descriptor(value, 'transportStatus');
+        const reason = descriptor(value, 'transportReason');
+        const disposition = descriptor(value, 'transportDisposition');
+        if (typeof status === 'number' && Number.isInteger(status) && status >= 300 && status <= 599) transport.transportStatus = status;
+        if (typeof reason === 'string' && dispatcherRefusalReasons.includes(reason as typeof dispatcherRefusalReasons[number])) {
+          transport.transportReason = reason as typeof dispatcherRefusalReasons[number];
+        }
+        if (typeof disposition === 'string' && dispatcherRefusalDispositions.includes(disposition as typeof dispatcherRefusalDispositions[number])) {
+          transport.transportDisposition = disposition as typeof dispatcherRefusalDispositions[number];
+        }
+      }
       return { kind, messageDigest: fingerprint(descriptor(value, 'message'), 'message'), stackDigest: fingerprint(descriptor(value, 'stack'), 'stack') };
     }
     if (typeof value === 'bigint' && (value > 18446744073709551615n || value < -18446744073709551615n)) {
@@ -136,7 +150,7 @@ function captureDiagnosticErrorInternal(original: unknown): ErrorMetadata {
     causes.push(inspect(cause)); value = cause;
     if (value !== null && typeof value === 'object') seen.add(value);
   }
-  return { ...root, publicCode: null, causes, loss: [...loss], fingerprintScope:
+  return { ...root, ...transport, publicCode: null, causes, loss: [...loss], fingerprintScope:
     root.messageDigest === null && root.stackDigest === null ? 'unavailable' : loss.size ? 'bounded' : 'full' };
 }
 
