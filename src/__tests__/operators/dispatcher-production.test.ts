@@ -577,6 +577,7 @@ async function fixture(test: (f: {
   changeInferenceAuthority: (field: 'route' | 'installation' | 'digest') => void;
   loseAllocationAcknowledgement: (afterCommit?: () => Promise<void>) => void;
   statusFault: (fault: () => Response | Promise<Response>) => void;
+  admissionFault: (fault: (() => Response | Promise<Response>) | undefined) => void;
   changeRetiredPin: (field: 'inputDigest' | 'artifactDigest') => Promise<void>;
   ownedChildReadbacks: () => Array<() => Promise<Response>>;
   interruptOwnedChild: (error: Error) => void;
@@ -704,6 +705,7 @@ async function fixture(test: (f: {
     const phaseAdmissions = new Map<string, { submissionId: string; offset: string }>();
     let phaseAcknowledgementLost = false;
     let statusFault: (() => Response | Promise<Response>) | undefined;
+    let admissionFault: (() => Response | Promise<Response>) | undefined;
     const child = {
       _cf_initAsFacet: async () => {},
       _cf_checkRunFibersForFacet: async () => 0,
@@ -718,6 +720,7 @@ async function fixture(test: (f: {
         if (request.method === 'POST') {
           childSubmissions.push(request.clone());
           if (options.intent4) {
+            if (admissionFault) return await admissionFault();
             const wire = await request.json() as { idempotencyKey: string; uid: string | null };
             const retained = phaseAdmissions.get(wire.idempotencyKey);
             if (!retained && (phaseAdmissions.size === 0 ? wire.uid !== null : wire.uid !== 'fixture-incarnation')) {
@@ -978,6 +981,7 @@ async function fixture(test: (f: {
       await test({ activity, capability, staleCapability, environment, bundle: fixtureBundle, artifactDigest, activityId, deliveredTail,
         sdkPatchSetDigest: sdkProvenance?.patchSetDigest ?? null, sdkHeader: value => { sdkHeader = value; },
         statusFault: fault => { statusFault = fault; },
+        admissionFault: fault => { admissionFault = fault; },
         afterBundleRead: action => { afterBundleRead = action; },
         changeRetiredPin: async field => {
           const lease = await native.storage.get<Record<string, unknown>>('dispatcher:lease');
@@ -5927,6 +5931,110 @@ describe('REQ-OPERATOR-048: original-lease serial SDK phase ownership', () => {
     capacityPolicy: { inferenceRetryBaseMs: 1, inferenceRetryMaxMs: 2 }, inferenceTransport: async () => new Response(
       'data: {"choices":[{"delta":{},"finish_reason":null}]}\n\ndata: [DONE]\n\n',
       { headers: { 'content-type': 'text/event-stream' } }) }));
+
+  it.each(['failed', 'completed'] as const)(
+    'REQ-OPERATOR-048/081: definitive SDK incarnation refusal after a %s target fences original work and retains witnessed progress', outcome => fixture(async f => {
+      await start(f);
+      await discovery(f);
+      const first = await context(f);
+      f.admissionFault(() => Response.json({ code: 'agent_instance_not_found', detail: 'PRIVATE_ADMISSION_BODY' }, { status: 404 }));
+      if (outcome === 'completed') {
+        progress(f, first, { kind: 'target', index: 1, target: frozen[1] }, { results: [rows[0]] });
+      } else {
+        f.messages([]);
+        f.settle(first.submissionId, 'failed', { type: 'operation_failed' });
+      }
+      await f.activity.reconcileDispatcherLease();
+      await f.drainBackground();
+      expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'unknown', result: null,
+        collectionStatus: 'unavailable', cleanupStatus: 'released', sdkCleanupReleased: true });
+      expect(await f.activity.dispatcherGenerationCurrent(first.generation)).toBe(false);
+      // Restoring the SDK must not resurrect an explicitly refused original incarnation.
+      f.admissionFault(undefined);
+      const cold = await coldOwner(f);
+      f.advanceClock(6000);
+      await cold.activity.alarm();
+      await cold.activity.reconcileDispatcherLease();
+      await f.drainBackground();
+      expect(await cold.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'unknown', result: null,
+        collectionStatus: 'unavailable', sdkCleanupReleased: true });
+      expect(await cold.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
+      const denied = await f.capability.fetch(wire('source', { operationId: 'after-admission-refusal', method: 'POST',
+        url: 'https://api.github.com/repos/another/service/issues/17/comments', body: '{"body":"must not publish"}' }, first.deliveryToken));
+      expect(denied.status).toBe(403);
+      expect(await f.readRemoteComments()).toEqual([]);
+      const get = diagnosticsBrowser(cold);
+      const lifecycle = await (await get('/diagnostics')).json() as { parent: { lease: { resultCount: number } } };
+      expect(lifecycle.parent.lease.resultCount).toBe(outcome === 'completed' ? 1 : 0);
+      const summary = await diagnosticSummary(cold);
+      expect(summary.fence).toMatchObject({ generation: first.generation, boundary: 'submission', code: 'submission-failed' });
+      const history = await diagnosticTraversal(get);
+      expect(history.records).toContainEqual(expect.objectContaining({ owner: 'host', boundary: 'submission', outcome: 'failed',
+        code: 'submission-failed', error: expect.objectContaining({ transportStatus: 404 }) }));
+    }, { repositoryOnly: true, intent4: true, facetContract: true }));
+
+  it.each([500, 503])('REQ-OPERATOR-048/081: retryable admission HTTP%i preserves original keyed work and safe failure status', status => fixture(async f => {
+    await start(f);
+    await discovery(f);
+    const first = await context(f);
+    f.admissionFault(() => Response.json({ detail: 'PRIVATE_TRANSIENT_ADMISSION_BODY' }, { status }));
+    f.messages([]);
+    f.settle(first.submissionId, 'failed', { type: 'operation_failed' });
+    await f.activity.reconcileDispatcherLease();
+    await f.drainBackground();
+    expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'running', result: null,
+      collectionStatus: 'unavailable' });
+    const originalWire = await latestDelivery(f);
+    const history = await diagnosticTraversal(diagnosticsBrowser(f));
+    expect(history.records).toContainEqual(expect.objectContaining({ owner: 'host', boundary: 'submission', outcome: 'failed',
+      error: expect.objectContaining({ transportStatus: status }) }));
+    f.admissionFault(undefined);
+    const cold = await coldOwner(f);
+    await cold.activity.reconcileDispatcherLease();
+    const next = await context(cold, originalWire.attributes.deliveryToken);
+    expect(next).toMatchObject({ generation: first.generation, deadline: first.deadline, releaseDigest: first.releaseDigest,
+      authorityDigest: first.authorityDigest, phase: { kind: 'target', index: 1, target: frozen[1] } });
+    expect((await latestDelivery(cold)).idempotencyKey).toBe(originalWire.idempotencyKey);
+    expect((await latestDelivery(cold)).uid).toBe(originalWire.uid);
+    expect(await cold.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'running', result: null });
+    expect(await cold.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
+  }, { repositoryOnly: true, intent4: true, facetContract: true }));
+
+  it('REQ-OPERATOR-081: a refused SDK admission retains its available validated diagnostic header without exposing response text', () => fixture(async f => {
+    await start(f);
+    await discovery(f);
+    const first = await context(f);
+    const report = await runtimeEnvelope(f);
+    report.sdk!.submissionId = first.submissionId;
+    const header = encodeSdkHeader({ version: 1, records: [report], outbox: { through: report.sequence, dropped: 0, status: 'available' } });
+    f.admissionFault(() => Response.json({ detail: 'PRIVATE_REFUSED_SDK_RESPONSE' }, { status: 503,
+      headers: { 'x-codeflare-sdk-diagnostics': header } }));
+    f.messages([]);
+    f.settle(first.submissionId, 'failed', { type: 'operation_failed' });
+    await f.activity.reconcileDispatcherLease();
+    await f.drainBackground();
+    const history = await diagnosticTraversal(diagnosticsBrowser(f));
+    expect(history.records).toContainEqual(expect.objectContaining({ owner: 'sdk', boundary: report.boundary,
+      code: report.code, outcome: report.outcome }));
+    expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'running', result: null });
+  }, { repositoryOnly: true, intent4: true, sdkDiagnostics: true }));
+
+  it('REQ-OPERATOR-048/081: logging OFF still fences a definitive admission refusal without retaining optional transport details', () => fixture(async f => {
+    await start(f);
+    await discovery(f);
+    const first = await context(f);
+    f.admissionFault(() => Response.json({ code: 'agent_instance_not_found', detail: 'PRIVATE_LOGGING_OFF_RESPONSE' }, { status: 404 }));
+    f.messages([]);
+    f.settle(first.submissionId, 'failed', { type: 'operation_failed' });
+    await f.activity.reconcileDispatcherLease();
+    await f.drainBackground();
+    expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'unknown', result: null, sdkCleanupReleased: true });
+    expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
+    const summary = await diagnosticSummary(f);
+    expect(summary.fence).toMatchObject({ generation: first.generation, code: 'submission-failed' });
+    const history = await diagnosticTraversal(diagnosticsBrowser(f));
+    expect(JSON.stringify(history)).not.toContain('transportStatus');
+  }, { repositoryOnly: true, intent4: true, loggingEnabled: false }));
 
   it('failed PR1 advances only after its exact SDK settlement; PR2 supplies actual complete data and immutable final collection', () => fixture(async f => {
     await start(f);
