@@ -1351,7 +1351,11 @@ describe('REQ-OPERATOR-047: real host transport cancellation', () => {
         const restarted = f.restart(); await f.drainBackground(); await restarted.reconcileDispatcherLease();
         expect(await restarted.getBrowserDetail()).toMatchObject({ executionStatus: 'cancel-requested', result: null });
         expect(await restarted.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
-        expect((await f.capability.fetch(genericWire('inference', { operationId: 'replacement-denied', input: { messages: [{}] } }))).status).toBe(403);
+        const replacement = await f.capability.fetch(genericWire('inference', { operationId: 'replacement-denied',
+          input: { messages: [{ role: 'user', content: 'Bounded task' }] } }));
+        expect(replacement.status).toBe(403);
+        expect(await replacement.json()).toEqual({ code: 'OPERATOR_CAPABILITY_DENIED',
+          reason: 'execution-inactive', disposition: 'authority-denied' });
         const retained = await restarted.getDispatcherDiagnostics(f.proof.ownerKey);
         expect(retained?.parent.operations.records).toEqual(expect.arrayContaining([expect.objectContaining({
           operationDigest: await digest('owned-cancelled-inference'), status: 'unknown',

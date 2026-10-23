@@ -2684,7 +2684,6 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Status:** Planned
 
-<a id="operator-registry-contract"></a>
 ### REQ-OPERATOR-087: Protected transport cancellation
 
 **Intent:** Carry original cancellation through existing protected transports without granting replacement work.
@@ -2785,6 +2784,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 ---
 
+<a id="operator-registry-contract"></a>
 ## Normative appendix: Operator Registry contract
 
 The shared registry, management API, package and directed-profile contracts grant no additional authority. Codeflare owns generic Interface, Loader, lifecycle, resources, sessions, synchronization, GitHub/inference boundaries and publication fencing; Conductor owns Review business behavior. Codeflare retains generic host-side Pi sandbox/security confinement and distributes the Conductor Review Pi extensions, skills and references used for per-repository GitHub Actions. No Review-specific Activity or adapter is introduced.
