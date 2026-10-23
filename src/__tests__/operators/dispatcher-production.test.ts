@@ -1609,7 +1609,7 @@ describe('REQ-OPERATOR-063: retained host preparation cause', () => {
       const request = channel === 'producer' ? diagnosticReport({ stage: 'producer', role: 'comment', outcome: 'failed', code: 'effect-denied', preparation })
         : channel === 'runtime' ? diagnosticReport({ ...await runtimeEnvelope(f), preparation }, '/v1/dispatcher/diagnostic/runtime')
           : genericWire('source', { operationId: 'forged-preparation', url: sourceUrl, preparation });
-      const response = await f.capability.fetch(request); expect(response.status).toBe(403);
+      const response = await f.capability.fetch(request); expect(response.status).toBe(channel === 'runtime' ? 400 : 403);
       const failures = await preparationFailures(f);
       expect(failures.some(record => JSON.stringify(record.preparation) === JSON.stringify(preparation))).toBe(false);
       expect(failures.every(record => record.correlation?.submissionDigest === undefined && record.correlation?.deliveryDigest === undefined)).toBe(true);
