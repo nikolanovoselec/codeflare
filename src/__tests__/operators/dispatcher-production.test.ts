@@ -10,7 +10,7 @@ import { OperatorActivity, OperatorDispatcherCapability, OperatorDispatcherTail,
 import { driveDispatcherRuntime } from '../../operators/runtime';
 import { runOperatorActivity } from '../../operators/orchestrator';
 import { createOperatorExecutionContext } from '../../operators/execution-context';
-import { parseDispatcherOperation } from '../../operators/operator-runtime-capability';
+import { parseDispatcherOperation, readDispatcherBody } from '../../operators/operator-runtime-capability';
 import { captureError } from '../../operators/dispatcher-diagnostics-wire';
 import type { DispatcherCapacityPolicy } from '../../operators/dispatcher-capacity-limits';
 import { setLogLevel } from '../../lib/logger';
@@ -18,6 +18,11 @@ import type { DispatcherBundle } from '../../operators/distribution';
 import type { Env } from '../../types';
 import { operatorOwnerKey } from '../../operators/browser-activity';
 import type { ProspectiveAdmission, CurrentProspectiveRegistration } from '../../operators/registry';
+import { LlmInterceptor } from '../../llm-interceptor';
+import { EgressController } from '../../egress-controller';
+import { getBuiltInProfileRef } from '../../lib/reasoning-profiles';
+import { verifiedRoutingConfiguration } from '../helpers/verified-routing';
+import { pendingRecipient, within } from '../helpers/pending-recipient';
 
 let callerSessionCurrent = true;
 let callerRoute = 'approved';
@@ -29,6 +34,19 @@ vi.mock('../../lib/access', async original => ({ ...await original<typeof import
   loadEnterpriseRouteConfig: async () => ({ routeCatalog: [callerRoute], defaultRoute: callerRoute, defaultReasoning: 'off' }),
 }));
 vi.mock('../../lib/aig-config', () => ({ getAigConfig: async () => ({ gatewayUrl: 'https://gateway.example.test', token: 'parent-only' }) }));
+/** Verified host routing data; the real interceptor owns routing and cancellation. */
+function composedLlm(props: Record<string, unknown>, environment: Env) {
+  const gatewayUrl = 'https://gateway.ai.cloudflare.com/v1/0123456789abcdef0123456789abcdef/gw';
+  const configuration = verifiedRoutingConfiguration({ schemaVersion: 1, customProfileRevisions: [],
+    routeAssignments: { approved: { activeProfile: getBuiltInProfileRef('openai-gpt-chat-tools-off') } },
+    fallbackRouting: { enabled: true, routes: ['approved'], defaultRoute: 'approved', reasoning: 'off' },
+  }, { gatewayUrl, token: 'parent-only' });
+  const kv: Record<string, string> = { 'setup:reasoning_configuration': JSON.stringify(configuration),
+    'setup:dynamic_routes': '["approved"]', 'setup:default_route': '{"route":"approved","reasoning":"off"}' };
+  return new LlmInterceptor({ props: { ...props, gatewayUrl } } as unknown as ExecutionContext,
+    { ...environment, KV: { get: async (key: string, type?: string) => type === 'json' && kv[key]
+      ? JSON.parse(kv[key]) : kv[key] ?? null } } as unknown as Env);
+}
 
 const bundle: DispatcherBundle = { schemaVersion: 1, sourceCommit: 'a'.repeat(40),
   versions: { runtime: '2.1.0', vitePlugin: '2.1.0', agents: '0.20.1' }, className: 'FlueDispatcherAgent',
@@ -589,7 +607,8 @@ async function fixture(test: (f: {
   sourceResponseBytes?: number; installationSourceResponseBytes?: number; sourceBody?: string; sourceDelayMs?: number; inferenceBody?: string; inferenceRequestBytes?: number; inferenceMessageLimit?: number; operationLimit?: number; loggingEnabled?: boolean;
   capacityPolicy?: DispatcherCapacityPolicy; runtimeVersion?: '2.1.0' | '2.2.2'; sdkDiagnostics?: boolean;
   recovery?: boolean; intent4?: boolean; losePhaseAdmission?: number; facetContract?: boolean; receiptFixture?: boolean;
-  inferenceAttemptLimit?: number; inferenceTransport?: (request: Request, attempt: number) => Promise<Response> } = {}) {
+  inferenceAttemptLimit?: number; inferenceTransport?: (request: Request, attempt: number) => Promise<Response>;
+  realInterceptors?: boolean; sourceTransport?: (request: Request) => Promise<Response> } = {}) {
   callerSessionCurrent = true;
   callerRoute = 'approved';
   const configuredTarget = options.configuredTarget ?? { repository: 'nikolanovoselec/komodo', repositoryId: 973175879, baseBranch: 'main' };
@@ -826,7 +845,10 @@ async function fixture(test: (f: {
             if (stage) deliveredTail.push({ ...props, stage });
           },
         }),
-        EgressController: () => ({ fetch: async () => {
+        EgressController: ({ props }: { props: Record<string, unknown> }) => options.realInterceptors
+          ? new EgressController({ props } as unknown as ExecutionContext, { ...environment,
+            EGRESS: { fetch: options.sourceTransport } } as unknown as Env)
+          : ({ fetch: async () => {
           if (options.sourceDelayMs) await new Promise(resolve => setTimeout(resolve, options.sourceDelayMs));
           return new Response(sourceBody, {
             headers: { 'content-type': 'text/plain', etag: 'guide-v3', 'set-cookie': 'private-session' },
@@ -914,7 +936,8 @@ async function fixture(test: (f: {
             user: { login: 'fork-specific-bot[bot]', id: 42, type: 'Bot' },
             base: { sha: baseSha }, head: { sha: headSha } });
         } }),
-        LlmInterceptor: () => ({ fetch: async (request: Request) => {
+        LlmInterceptor: ({ props }: { props: Record<string, unknown> }) => options.realInterceptors
+          ? composedLlm(props, environment) : ({ fetch: async (request: Request) => {
           sent.push(request); inferenceAttempts++;
           if (options.inferenceTransport) return await options.inferenceTransport(request, inferenceAttempts);
           if (uncertain) return Response.json({ error: 'lost response' }, { status: 502 });
@@ -1291,6 +1314,307 @@ async function retainedFence(f: DispatcherFixture, code: string, boundary?: stri
   return summary;
 }
 
+// Test-side view of the proposed owner wire: no future production schema/type imports.
+type PreparationEvent = DiagnosticRecord & { preparation?: { step: string; failureClass: string; route: string;
+  byteLimit?: number; observedBytesLowerBound?: number } };
+async function preparationFailures(f: DispatcherFixture): Promise<PreparationEvent[]> {
+  await f.drainBackground();
+  const { records } = await diagnosticTraversal(diagnosticsBrowser(f));
+  return records.filter(record => record.owner === 'host' && record.outcome === 'failed'
+    && (record.boundary === 'tool' || record.boundary === 'admission'));
+}
+const invalidPreparationRefusal = async (response: Response) => {
+  expect(response.status).toBe(403);
+  expect(await response.json()).toEqual({ code: 'OPERATOR_CAPABILITY_DENIED', reason: 'request-invalid', disposition: 'operation-local' });
+};
+
+// Bounded host operations only; these do not execute or recreate any retired SDK workload.
+describe('REQ-OPERATOR-047: real host transport cancellation', () => {
+  it.each([false, true])(
+    'REQ-OPERATOR-017: AC2/4/5 composed inference cancellation has no replacement or late commit (ignores abort=%s); REQ-OPERATOR-048 AC2/5',
+    ignoreAbort => fixture(async f => {
+      const recipient = pendingRecipient(ignoreAbort);
+      vi.spyOn(globalThis, 'fetch').mockImplementation(input => recipient.fetch(input as Request));
+      await start(f);
+      const submissions = await Promise.all(f.childSubmissions.map(request => request.clone().text()));
+      const result = f.capability.fetch(genericWire('inference', { operationId: 'owned-cancelled-inference',
+        input: { messages: [{ role: 'user', content: 'Bounded task' }] } }));
+      try {
+        const forwarded = await within(recipient.entered, 'composed LLM recipient entry');
+        expect(forwarded.headers.get('authorization')).toBe('Bearer parent-only');
+        expect(forwarded.redirect).toBe('manual');
+        await f.activity.cancelDrive();
+        if (!ignoreAbort) await expect.poll(recipient.aborted, { timeout: 300 }).toBe(true);
+        recipient.release(new Response('data: {"choices":[{"delta":{"content":"late-inference-answer"},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n',
+          { headers: { 'content-type': 'text/event-stream' } }));
+        expect((await within(result, 'fenced inference response')).status).not.toBe(200);
+        const restarted = f.restart(); await f.drainBackground(); await restarted.reconcileDispatcherLease();
+        expect(await restarted.getBrowserDetail()).toMatchObject({ executionStatus: 'cancel-requested', result: null });
+        expect(await restarted.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
+        expect((await f.capability.fetch(genericWire('inference', { operationId: 'replacement-denied', input: { messages: [{}] } }))).status).toBe(403);
+        const retained = await restarted.getDispatcherDiagnostics(f.proof.ownerKey);
+        expect(retained?.parent.operations.records).toEqual(expect.arrayContaining([expect.objectContaining({
+          operationDigest: await digest('owned-cancelled-inference'), status: 'unknown',
+        })]));
+        expect(retained?.parent.operations.records.map(row => row.status)).not.toContain('completed');
+        expect(JSON.stringify(retained)).not.toContain('late-inference-answer');
+        expect(await Promise.all(f.childSubmissions.map(request => request.clone().text()))).toEqual(submissions);
+        expect(recipient.activeUrls).toEqual([forwarded.url]);
+      } finally {
+        recipient.release(); await within(result, 'composed inference cleanup').catch(() => undefined);
+      }
+    }, { repositoryOnly: true, recovery: true, realInterceptors: true }));
+
+  it.each([false, true])(
+    'REQ-OPERATOR-047: AC2 composed source cancellation cannot commit late bytes (ignores abort=%s); REQ-OPERATOR-048 AC5',
+    async ignoreAbort => {
+      const recipient = pendingRecipient(ignoreAbort);
+      await fixture(async f => {
+        await start(f); const original = await f.activity.getBrowserDetail();
+        const submissions = await Promise.all(f.childSubmissions.map(request => request.clone().text()));
+        const controller = new AbortController();
+        const result = f.capability.fetch(new Request(genericWire('source', { operationId: 'owned-cancelled-source',
+          url: 'https://evidence.example.test/guide' }), { signal: controller.signal }));
+        try {
+          const forwarded = await within(recipient.entered, 'composed EGRESS recipient entry');
+          expect(forwarded.url).toBe('https://evidence.example.test/guide'); expect(forwarded.redirect).toBe('manual');
+          expect(forwarded.headers.has('authorization')).toBe(false);
+          await f.activity.cancelDrive(); controller.abort();
+          if (!ignoreAbort) await expect.poll(recipient.aborted, { timeout: 300 }).toBe(true);
+          recipient.release(new Response('late-source-evidence'));
+          expect((await within(result, 'fenced source response')).status).not.toBe(200);
+          const restarted = f.restart(); await f.drainBackground(); await restarted.reconcileDispatcherLease();
+          expect(await restarted.getBrowserDetail()).toMatchObject({ activityId: original?.activityId,
+            executionStatus: 'cancel-requested', result: null });
+          expect(await restarted.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
+          const retained = await restarted.getDispatcherDiagnostics(f.proof.ownerKey);
+          expect(retained?.parent.operations.records).toEqual(expect.arrayContaining([expect.objectContaining({
+            operationDigest: await digest('owned-cancelled-source'), status: 'unknown',
+          })]));
+          expect(retained?.parent.operations.records.map(row => row.status)).not.toContain('completed');
+          expect(JSON.stringify(retained)).not.toContain('late-source-evidence');
+          expect((await f.capability.fetch(genericWire('source', { operationId: 'no-replacement', url: forwarded.url }))).status).toBe(403);
+          expect(await Promise.all(f.childSubmissions.map(request => request.clone().text()))).toEqual(submissions);
+          expect(recipient.activeUrls).toEqual([forwarded.url]);
+        } finally {
+          controller.abort(); recipient.release(); await within(result, 'composed source cleanup').catch(() => undefined);
+        }
+      }, { repositoryOnly: true, realInterceptors: true, sourceTransport: recipient.fetch });
+    });
+
+  it('REQ-OPERATOR-047: AC2 composed source effective timeout cancels EGRESS without renewing authority', async () => {
+    const recipient = pendingRecipient();
+    await fixture(async f => {
+      await start(f); const before = await f.activity.getDispatcherDiagnostics(f.proof.ownerKey);
+      const result = f.capability.fetch(genericWire('source', { operationId: 'bounded-source-timeout', url: 'https://evidence.example.test/pending' }));
+      try {
+        await within(recipient.entered, 'timeout source recipient entry');
+        await expect.poll(recipient.aborted, { timeout: 500 }).toBe(true);
+        expect((await within(result, 'source timeout refusal')).status).not.toBe(200);
+        expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
+        const after = await f.activity.getDispatcherDiagnostics(f.proof.ownerKey);
+        expect(before?.parent.lease).toMatchObject({ generation: 1 });
+        expect(after?.parent.lease).toMatchObject({ generation: before!.parent.lease!.generation,
+          artifactDigest: before!.parent.lease!.artifactDigest, inputDigest: before!.parent.lease!.inputDigest,
+          expiresAt: before!.parent.lease!.expiresAt });
+      } finally { recipient.release(); await within(result, 'source timeout cleanup').catch(() => undefined); }
+    }, { repositoryOnly: true, realInterceptors: true, sourceTransport: recipient.fetch, capacityPolicy: { sourceTimeoutMs: 25 } });
+  });
+});
+
+describe('REQ-OPERATOR-063: retained host preparation cause', () => {
+  const byteLimit = 512;
+  const sourceUrl = 'https://api.github.com/repos/another/service';
+  const corrected = (id: string) => genericWire('source', { operationId: id, url: sourceUrl });
+  const receipt = async (f: DispatcherFixture, id: string) => {
+    const response = await f.capability.fetch(genericWire('receipt', { operationId: id })); expect(response.status).toBe(200);
+    return response.json();
+  };
+  const options = { repositoryOnly: true, inferenceRequestBytes: byteLimit, capacityPolicy: { dispatcherRequestBytes: byteLimit } };
+
+  it.each([{ route: 'inference', crossing: 1 }, { route: 'inference', crossing: 3 },
+    { route: 'source', crossing: 1 }, { route: 'source', crossing: 3 }])(
+    'REQ-OPERATOR-063: AC6 $route overflow by $crossing bytes retains originating bounds and unchanged request-invalid refusal',
+    ({ route, crossing }) => fixture(async f => {
+      await start(f);
+      expect((await f.capability.fetch(corrected('overflow-budget-anchor'))).status).toBe(200);
+      const body = route === 'inference' ? { operationId: 'bounded-request', input: { messages: [{ role: 'user', content: 'é' }] } }
+        : { operationId: 'bounded-request', url: `${sourceUrl}?label=é` };
+      const encoded = new TextEncoder().encode(JSON.stringify(body));
+      const exact = new Uint8Array(byteLimit); exact.set(encoded); exact.fill(32, encoded.byteLength);
+      const exactResponse = await f.capability.fetch(new Request('https://operator.internal/v1/dispatcher/' + route,
+        { method: 'POST', headers: { 'content-type': 'application/json' }, body: exact }));
+      expect(exactResponse.status).toBe(200); const originalBytes = await exactResponse.text();
+      // Receipt budget observations use a source anchor: inference is not a source receipt.
+      expect(await receipt(f, 'overflow-budget-anchor')).toMatchObject({ operationCount: 2, phase: 'completed' });
+      let cancelled = false; let finish!: () => void;
+      const overflow = new ReadableStream<Uint8Array>({ start(controller) {
+        controller.enqueue(exact); controller.enqueue(new TextEncoder().encode(crossing === 1 ? ' ' : ' é'));
+        // Deliberately unfinished remainder: overflow must not wait to determine total length.
+        finish = () => { try { controller.close(); } catch { /* Already cancelled by the reader. */ } };
+      }, cancel() { cancelled = true; } });
+      const rejected = f.capability.fetch(new Request('https://operator.internal/v1/dispatcher/' + route,
+        { method: 'POST', headers: { 'content-type': 'application/json' }, body: overflow }));
+      try { await invalidPreparationRefusal(await within(rejected, 'overflow refusal before EOF')); }
+      finally { finish(); await within(rejected, 'overflow cleanup').catch(() => undefined); }
+      expect(cancelled).toBe(true);
+      const failure = (await preparationFailures(f)).at(-1);
+      // Intentional retained owner diagnostic contract, coupled to the unchanged refusal/receipt outcome.
+      expect(failure).toMatchObject({ owner: 'host', boundary: 'tool', code: 'tool-failed', origin: 'originating',
+        preparation: { step: 'parse', failureClass: 'body-limit', route, byteLimit, observedBytesLowerBound: byteLimit + crossing },
+        error: { transportStatus: 403, transportReason: 'request-invalid', transportDisposition: 'operation-local' } });
+      expect(failure?.preparation).not.toHaveProperty('resource');
+      expect(failure?.correlation).toEqual({});
+      expect(JSON.stringify(failure)).not.toMatch(/bounded-request|label=|api\.github|private\.jwt|owner@example|Dispatcher body exceeds limit/);
+      expect(await receipt(f, 'overflow-budget-anchor')).toMatchObject({ operationCount: 2, phase: 'completed' });
+      const repeated = await f.capability.fetch(new Request('https://operator.internal/v1/dispatcher/' + route,
+        { method: 'POST', headers: { 'content-type': 'application/json' }, body: exact }));
+      expect(repeated.status).toBe(200); expect(await repeated.text()).toBe(originalBytes);
+      expect(await receipt(f, 'overflow-budget-anchor')).toMatchObject({ operationCount: 2 });
+      expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'running', result: null });
+      expect((await f.capability.fetch(corrected('corrected-after-overflow'))).status).toBe(200);
+      expect(await receipt(f, 'corrected-after-overflow')).toMatchObject({ operationCount: 3 });
+    }, options));
+
+  it.each([
+    { name: 'invalid JSON', route: 'inference', failureClass: 'invalid-json', request: () => new Request('https://operator.internal/v1/dispatcher/inference',
+      { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{"PRIVATE_PROMPT":' }) },
+    { name: 'invalid wire', route: 'inference', failureClass: 'invalid-wire', request: () => genericWire('inference', { operationId: 'PRIVATE_OPERATION', input: { messages: [] } }) },
+    { name: 'unsupported method', route: 'inference', failureClass: 'request-denied', request: () => new Request('https://operator.internal/v1/dispatcher/inference') },
+    { name: 'unsupported content type', route: 'source', failureClass: 'request-denied', request: () => new Request('https://operator.internal/v1/dispatcher/source',
+      { method: 'POST', headers: { 'content-type': 'text/plain' }, body: 'PRIVATE_BODY' }) },
+    { name: 'missing body', route: 'inference', failureClass: 'request-denied', request: () => new Request('https://operator.internal/v1/dispatcher/inference',
+      { method: 'POST', headers: { 'content-type': 'application/json' } }) },
+    { name: 'invalid UTF8', route: 'inference', failureClass: 'request-denied', request: () => new Request('https://operator.internal/v1/dispatcher/inference',
+      { method: 'POST', headers: { 'content-type': 'application/json' }, body: new Uint8Array([0xc3, 0x28]) }) },
+    { name: 'unknown route', route: 'unknown', failureClass: 'request-denied', request: () => genericWire('PRIVATE_ROUTE', { operationId: 'PRIVATE_OPERATION' }) },
+    { name: 'foreign origin', route: 'unknown', failureClass: 'request-denied', direct: true, request: () => new Request('https://PRIVATE_ORIGIN.invalid/v1/dispatcher/inference',
+      { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' }) },
+  ])('REQ-OPERATOR-063: AC1/6 $name preparse refusal retains only closed parent-owned context', ({ request, route, failureClass, direct }) => fixture(async f => {
+    await start(f);
+    // Foreign outbound URLs have a separate capability facade; exercise the Activity's own protected parse boundary directly.
+    await invalidPreparationRefusal(await (direct ? f.activity.dispatcherOperation(1, request()) : f.capability.fetch(request())));
+    const failure = (await preparationFailures(f)).at(-1);
+    expect(failure).toMatchObject({ owner: 'host', generation: 1, code: 'tool-failed', preparation: { step: 'parse', failureClass, route },
+      error: { transportStatus: 403, transportReason: 'request-invalid', transportDisposition: 'operation-local' } });
+    expect(failure?.preparation).toEqual({ step: 'parse', failureClass, route });
+    expect(failure?.correlation).toEqual({});
+    expect(JSON.stringify(failure)).not.toMatch(/PRIVATE_|private\.jwt|inline-secret|owner@example|https?:/);
+    expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'running', result: null });
+    expect((await f.capability.fetch(corrected('corrected-after-preparse'))).status).toBe(200);
+    expect(await receipt(f, 'corrected-after-preparse')).toMatchObject({ operationCount: 1 });
+    expect(await f.readRemoteComments()).toEqual([]);
+  }, options));
+
+  it('REQ-OPERATOR-078: AC1 validated capability refusal keeps canonical request digest without inventing SDK attempt', () => fixture(async f => {
+    await start(f);
+    const body = { operationId: 'capability-refusal', input: { messages: [{ role: 'user', content: 'PRIVATE_PROMPT' }] } };
+    const response = await f.capability.fetch(genericWire('inference', body));
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({ code: 'OPERATOR_CAPABILITY_DENIED', reason: 'policy-denied', disposition: 'operation-local' });
+    const failure = (await preparationFailures(f)).at(-1);
+    expect(failure).toMatchObject({ code: 'authority-denied', preparation: { step: 'capability', failureClass: 'authority-denied', route: 'inference' },
+      error: { transportStatus: 403, transportReason: 'policy-denied', transportDisposition: 'operation-local' } });
+    expect(failure?.correlation).toEqual({ requestDigest: await digest(JSON.stringify({ path: '/v1/dispatcher/inference', body })) });
+    expect(JSON.stringify(failure)).not.toMatch(/PRIVATE_|capability-refusal|private\.jwt/);
+    expect((await f.capability.fetch(corrected('permitted-after-capability'))).status).toBe(200);
+    expect(await receipt(f, 'permitted-after-capability')).toMatchObject({ operationCount: 1 });
+  }, { ...options, capabilities: ['fetch'] }));
+
+  it('REQ-OPERATOR-083: AC2/4/5/7 preparation cause survives reconstruction in passive owner history detail and export', () => fixture(async f => {
+    await start(f); await invalidPreparationRefusal(await f.capability.fetch(genericWire('inference', { input: { messages: [] } })));
+    const failure = (await preparationFailures(f)).at(-1)!;
+    expect(failure).toMatchObject({ preparation: { step: 'parse', route: 'inference', failureClass: 'invalid-wire' } });
+    const restarted = f.restart(); await f.drainBackground();
+    const before = await restarted.getBrowserDetail();
+    const submissions = await Promise.all(f.childSubmissions.map(request => request.clone().text()));
+    const oldWire = await restarted.getDispatcherDiagnostics(f.proof.ownerKey);
+    const get = diagnosticsBrowser(f);
+    const history = await diagnosticTraversal(get);
+    expect(history.records.find(record => record.id === failure.id)).toEqual(failure);
+    const detail = await diagnosticJson<{ record: DiagnosticRecord; capsule: { eventId: string } }>(await get(`/diagnostics/v2/records/${failure.id}`));
+    expect(detail.record).toEqual(failure); expect(detail.capsule.eventId).toBe(failure.id);
+    const exported = await diagnosticTraversal(get, '/diagnostics/v2/export');
+    expect(exported.records.find(record => record.id === failure.id)).toEqual(failure);
+    expect((await get('/diagnostics/v2', 'foreign@example.test')).status).toBe(404);
+    expect(await restarted.getBrowserDetail()).toEqual(before);
+    expect((await restarted.getDispatcherDiagnostics(f.proof.ownerKey))?.parent).toEqual(oldWire?.parent);
+    expect(await Promise.all(f.childSubmissions.map(request => request.clone().text()))).toEqual(submissions);
+    expect(await restarted.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
+    expect((await f.capability.fetch(corrected('after-passive-readback'))).status).toBe(200);
+    expect(await receipt(f, 'after-passive-readback')).toMatchObject({ operationCount: 1 });
+  }, options));
+
+  it('REQ-OPERATOR-063: AC5 overflow observer failure preserves the original body-limit Error and reader cancellation', async () => {
+    let observed: unknown; let cancelled = false; let finish!: () => void;
+    const request = new Request('https://operator.internal/v1/dispatcher/inference', { method: 'POST',
+      body: new ReadableStream<Uint8Array>({ start(controller) {
+        controller.enqueue(new Uint8Array([1, 2, 3]));
+        finish = () => { try { controller.close(); } catch { /* Reader already cancelled. */ } };
+      }, cancel() { cancelled = true; } }) });
+    // Invoke the proposed optional trailing callback through the existing public function.
+    // Baseline compiles without a future signature; the missing observation is the intended RED.
+    const result: Promise<string> = Reflect.apply(readDispatcherBody, undefined, [request, request.signal, 2,
+      (value: unknown) => { observed = value; throw new Error('PRIVATE_OBSERVER_ERROR'); }]);
+    try { await expect(within(result, 'overflow observer rejection')).rejects.toThrow('Dispatcher body exceeds limit'); }
+    finally { finish(); await within(result, 'overflow observer cleanup').catch(() => undefined); }
+    expect(cancelled).toBe(true);
+    expect(observed).toEqual({ byteLimit: 2, observedBytesLowerBound: 3 });
+  });
+
+  it.each(['OFF', 'recorder unavailable', 'warning unavailable'])(
+    'REQ-OPERATOR-063: AC5 preparation diagnostics %s preserve original refusal authority and unknown-effect fences', mode => fixture(async f => {
+      await start(f);
+      const mutation = { operationId: 'original-unknown-write', method: 'POST',
+        url: `${sourceUrl}/issues/17/comments`, body: '{"body":"Original uncertain effect"}' };
+      f.loseResponse();
+      expect((await f.capability.fetch(genericWire('source', mutation))).status).toBe(409);
+      f.restoreTransport();
+      const originalReceipt = await receipt(f, mutation.operationId);
+      expect(originalReceipt).toMatchObject({ phase: 'unknown', operationCount: 1 });
+      const remote = await f.readRemoteComments(); await f.drainBackground();
+      if (mode === 'recorder unavailable') await denyDiagnosticWrites(f);
+      if (mode === 'warning unavailable') {
+        setLogLevel('warn'); vi.spyOn(console, 'warn').mockImplementation(() => { throw new Error('PRIVATE_WARNING_OUTAGE'); });
+      }
+      try {
+        await invalidPreparationRefusal(await f.capability.fetch(new Request('https://operator.internal/v1/dispatcher/inference',
+          { method: 'POST', headers: { 'content-type': 'application/json' }, body: 'x'.repeat(byteLimit + 1) })));
+        await f.drainBackground();
+      } finally { vi.restoreAllMocks(); setLogLevel('silent'); }
+      expect(await receipt(f, mutation.operationId)).toEqual(originalReceipt);
+      expect((await f.capability.fetch(genericWire('source', mutation))).status).toBe(409);
+      expect(await f.readRemoteComments()).toEqual(remote);
+      expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'running', result: null });
+      expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
+      expect((await f.capability.fetch(corrected('authorized-after-observer-outage'))).status).toBe(200);
+      expect(await receipt(f, 'authorized-after-observer-outage')).toMatchObject({ operationCount: 2 });
+      if (mode === 'recorder unavailable') {
+        expect((await diagnosticSummary(f)).health.gaps).toContain('recorder-unavailable');
+        expect((await diagnosticsBrowser(f)('/diagnostics/v2/history')).status).toBe(503);
+      } else if (mode === 'OFF') {
+        expect((await diagnosticSummary(f)).capture).toBe('disabled');
+        expect((await preparationFailures(f)).filter(record => record.preparation !== undefined)).toEqual([]);
+      }
+    }, { ...options, loggingEnabled: mode !== 'OFF' }));
+
+  it.each(['producer', 'runtime', 'protected request'])(
+    'REQ-OPERATOR-081: AC2 child %s cannot supply host preparation metadata', channel => fixture(async f => {
+      await start(f);
+      const preparation = { step: 'parse', failureClass: 'body-limit', route: 'source', byteLimit: 1, observedBytesLowerBound: 2 };
+      const request = channel === 'producer' ? diagnosticReport({ stage: 'producer', role: 'comment', outcome: 'failed', code: 'effect-denied', preparation })
+        : channel === 'runtime' ? diagnosticReport({ ...await runtimeEnvelope(f), preparation }, '/v1/dispatcher/diagnostic/runtime')
+          : genericWire('source', { operationId: 'forged-preparation', url: sourceUrl, preparation });
+      const response = await f.capability.fetch(request); expect(response.status).toBe(403);
+      const failures = await preparationFailures(f);
+      expect(failures.some(record => JSON.stringify(record.preparation) === JSON.stringify(preparation))).toBe(false);
+      expect(failures.every(record => record.correlation?.submissionDigest === undefined && record.correlation?.deliveryDigest === undefined)).toBe(true);
+      expect((await f.capability.fetch(corrected('after-forged-preparation'))).status).toBe(200);
+      expect(await receipt(f, 'after-forged-preparation')).toMatchObject({ operationCount: 1 });
+      expect(await f.readRemoteComments()).toEqual([]);
+    }, { ...options, sdkDiagnostics: channel === 'runtime' }));
+});
+
 type FixtureDiagnosticIndex = { version: number; generation: number; artifactDigest: string; inputDigest: string;
   nextSequence: number; firstSequence: number; epoch: number; routineIds: string[]; failureIds: string[];
   terminalIds: string[]; pinnedEventIds: string[]; evictedRoutine: number; droppedFailure: number;
@@ -1580,9 +1904,7 @@ describe('REQ-OPERATOR-081: additive legacy producer lineage', () => {
   }, { repositoryOnly: true }));
 });
 
-describe('REQ-OPERATOR-081: deterministic recorder integrity and budgets', () => {
-  const options = { repositoryOnly: true, sdkDiagnostics: true, recovery: true };
-  const denyDiagnosticWrites = async (f: DispatcherFixture) => f.mutateEvidence(async storage => {
+const denyDiagnosticWrites = async (f: DispatcherFixture) => f.mutateEvidence(async storage => {
     const denied = (key: unknown) => typeof key === 'string' ? key.startsWith('dispatcher:diagnostics:')
       : !!key && typeof key === 'object' && Object.keys(key).some(value => value.startsWith('dispatcher:diagnostics:'));
     const put = storage.put.bind(storage);
@@ -1603,6 +1925,8 @@ describe('REQ-OPERATOR-081: deterministic recorder integrity and budgets', () =>
     }))));
   });
 
+describe('REQ-OPERATOR-081: deterministic recorder integrity and budgets', () => {
+  const options = { repositoryOnly: true, sdkDiagnostics: true, recovery: true };
   it.each(['cancel', 'collect', 'failed-settlement'])(
     'REQ-OPERATOR-081: AC2/3 optional recorder write failure preserves original %s outcome and essential fence', scenario => fixture(async f => {
       await start(f); await importRuntime(f, await runtimeEnvelope(f));
@@ -5367,6 +5691,74 @@ describe('REQ-OPERATOR-048: original-lease serial SDK phase ownership', () => {
     return await response.json() as { phase: string; requestDigest: string; responseDigest?: string;
       method: string; url: string; operationCount: number };
   };
+
+  it.each([{ phase: 'discovery', validated: false }, { phase: 'target', validated: false },
+    { phase: 'discovery', validated: true }, { phase: 'target', validated: true }])(
+    'REQ-OPERATOR-078: AC1 verified $phase delivery binds preparation cause (validated=$validated); REQ-OPERATOR-081 AC2/4/5',
+    ({ phase, validated }) => fixture(async f => {
+      await start(f); if (phase === 'target') await discovery(f);
+      const stamp = await context(f);
+      const body = { operationId: 'current-preparation', input: { messages: validated ? [{ role: 'user', content: 'PRIVATE_PROMPT' }] : [] } };
+      const response = await f.capability.fetch(wire('inference', body, stamp.deliveryToken));
+      expect(response.status).toBe(403);
+      expect(await response.json()).toEqual({ code: 'OPERATOR_CAPABILITY_DENIED', reason: validated ? 'policy-denied' : 'request-invalid', disposition: 'operation-local' });
+      const failure = (await preparationFailures(f)).at(-1);
+      expect(failure).toMatchObject({ generation: stamp.generation, preparation: { route: 'inference',
+        step: validated ? 'capability' : 'parse', failureClass: validated ? 'authority-denied' : 'invalid-wire' } });
+      expect(failure?.correlation).toEqual({ deliveryDigest: await digest(stamp.deliveryToken), submissionDigest: await digest(stamp.submissionId),
+        ...(validated ? { requestDigest: await digest(JSON.stringify({ path: '/v1/dispatcher/inference', body })) } : {}) });
+      // Existing receipt/phase context is the sole authority: no parallel phase/attempt labels.
+      expect(await context(f)).toEqual(stamp);
+      expect(JSON.stringify(failure)).not.toMatch(/PRIVATE_|current-preparation|private\.jwt/);
+      expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'running', result: null });
+      expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
+    }, { repositoryOnly: true, intent4: true, capabilities: ['fetch'] }));
+
+  it.each(['missing', 'spoofed', 'stale'] as const)(
+    'REQ-OPERATOR-081: AC2/4/5 %s delivery cannot borrow current SDK attribution from a preparation refusal', tokenKind => fixture(async f => {
+      await start(f); const original = await context(f);
+      if (tokenKind === 'stale') await discovery(f);
+      const current = await context(f);
+      const request = tokenKind === 'missing' ? genericWire('inference', { input: { messages: [] } })
+        : wire('inference', { input: { messages: [] } }, tokenKind === 'stale' ? original.deliveryToken : 'forged-delivery');
+      const response = await f.capability.fetch(request);
+      expect(response.status).toBe(403);
+      expect(await response.json()).toEqual({ code: 'OPERATOR_CAPABILITY_DENIED', reason: 'execution-inactive', disposition: 'authority-denied' });
+      const failure = (await preparationFailures(f)).at(-1);
+      expect(failure).toMatchObject({ owner: 'host', generation: 1, code: 'authority-denied' });
+      expect(failure?.correlation).toEqual({});
+      expect(failure?.preparation ?? {}).not.toHaveProperty('phaseKind');
+      expect(failure?.preparation ?? {}).not.toHaveProperty('phaseIndex');
+      expect(await context(f)).toEqual(current);
+      const allowed = await f.capability.fetch(wire('source', { operationId: 'current-after-stale', url: 'https://api.github.com/repos/another/service' }, current.deliveryToken));
+      expect(allowed.status).toBe(200);
+      expect(await receipt(f, 'current-after-stale', current.deliveryToken)).toMatchObject({ phase: 'completed', operationCount: 1 });
+    }, { repositoryOnly: true, intent4: true }));
+
+  it('REQ-OPERATOR-081: AC2/4/5 phase transition during a gated preparation read never adopts the newer submission', () => fixture(async f => {
+    await start(f); const original = await context(f);
+    let entered!: () => void; const reading = new Promise<void>(resolve => { entered = resolve; });
+    let release!: () => void; const released = new Promise<void>(resolve => { release = resolve; });
+    const body = new ReadableStream<Uint8Array>({ async pull(controller) {
+      entered(); await released;
+      controller.enqueue(new TextEncoder().encode('{"operationId":"gated-preparation","input":{"messages":[]}}'));
+      controller.close();
+    } }, { highWaterMark: 0 });
+    const result = f.capability.fetch(new Request('https://operator.internal/v1/dispatcher/inference', { method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-codeflare-dispatcher-delivery': original.deliveryToken }, body }));
+    try {
+      await within(reading, 'authorized preparation body read');
+      await discovery(f); const successor = await context(f);
+      expect(successor.submissionId).not.toBe(original.submissionId);
+      release(); await invalidPreparationRefusal(await within(result, 'old-phase parse refusal'));
+      const failure = (await preparationFailures(f)).at(-1);
+      expect(failure).toMatchObject({ code: 'tool-failed', preparation: { step: 'parse', route: 'inference', failureClass: 'invalid-wire' } });
+      expect(failure?.correlation).toEqual({});
+      expect(await context(f)).toEqual(successor);
+      expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'running', result: null });
+      expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
+    } finally { release(); await within(result, 'gated preparation cleanup').catch(() => undefined); }
+  }, { repositoryOnly: true, intent4: true }));
 
   const liveChildRead = async (f: DispatcherFixture) => {
     const readback = f.ownedChildReadbacks().at(-1);

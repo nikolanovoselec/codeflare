@@ -16,6 +16,7 @@ import type { Env } from '../types';
 import { EgressController } from '../egress-controller';
 import type { OperatorPolicy } from '../operators/policy';
 import type { JwtStampingAuthority, JwtStampingPolicy } from '../operators/jwt-stamping';
+import { pendingRecipient, within } from './helpers/pending-recipient';
 
 const policyLogs = vi.hoisted(() => ({
   debug: vi.fn(),
@@ -90,6 +91,42 @@ beforeEach(() => {
   policyLogs.info.mockClear();
   policyLogs.warn.mockClear();
   policyLogs.error.mockClear();
+});
+
+describe('REQ-OPERATOR-047: protected egress cancellation continuity', () => {
+  it.each(['EGRESS', 'JWT EGRESS', 'account-scoped direct'])(
+    'REQ-OPERATOR-047: AC2 %s egress preserves effective cancellation without changing transport policy', async path => {
+      const recipient = pendingRecipient(); const controller = new AbortController();
+      const direct = path === 'account-scoped direct'; const stamped = path === 'JWT EGRESS';
+      const gatewayUrls: string[] = []; const directUrls: string[] = [];
+      const directFetch = vi.spyOn(globalThis, 'fetch').mockImplementation(input => {
+        const request = input as Request; directUrls.push(request.url); return recipient.fetch(request);
+      });
+      const egress = { fetch: (request: Request) => { gatewayUrls.push(request.url); return recipient.fetch(request); } };
+      const { controller: transport } = makeController({ EGRESS: egress as Fetcher }, { accountId: 'acc',
+        ...(!direct ? { operatorPolicy } : {}),
+        ...(stamped ? { jwtStamping: { mode: 'list' as const, destinations: ['allowed.example.test'] }, jwtAuthority } : {}),
+      });
+      const url = direct ? 'https://api.cloudflare.com/client/v4/accounts/acc/workers/scripts' : 'https://allowed.example.test/path';
+      const result = transport.fetch(new Request(url, { method: 'POST', body: 'streamed input', signal: controller.signal,
+        headers: { authorization: 'Bearer specialized', connection: 'keep-alive',
+          ...(stamped ? { 'cf-access-jwt-assertion': 'spoof' } : {}) } }));
+      try {
+        const forwarded = await within(recipient.entered, 'egress recipient entry'); controller.abort();
+        await expect.poll(recipient.aborted, { timeout: 300 }).toBe(true);
+        const response = await within(result, 'egress abort response');
+        expect(response.status).toBe(502);
+        expect(await response.json()).toMatchObject({ code: 'EGRESS_FETCH_FAILED' });
+        expect(forwarded.headers.get('authorization')).toBe('Bearer specialized');
+        expect(forwarded.headers.get('cf-access-jwt-assertion')).toBe(stamped ? 'verified.jwt' : null);
+        expect(forwarded.headers.has('connection')).toBe(false);
+        expect(forwarded.redirect).toBe('manual');
+        // Observable transport isolation, paired with the refusal: no Gateway bypass or replacement.
+        expect({ gatewayUrls, directUrls }).toEqual(direct ? { gatewayUrls: [], directUrls: [url] } : { gatewayUrls: [url], directUrls: [] });
+      } finally {
+        controller.abort(); recipient.release(); await within(result, 'egress cleanup').catch(() => undefined); directFetch.mockRestore();
+      }
+    });
 });
 
 describe('REQ-OPERATOR-019: verified Access stamping in generic egress', () => {
