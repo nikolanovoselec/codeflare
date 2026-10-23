@@ -57,12 +57,25 @@ export const runtimeSchema = z.strictObject({ version: z.literal(1), captureId: 
     settlement: z.enum(['reserved', 'canonical', 'finalized', 'unknown']).optional() }).optional(),
   local: z.strictObject({ through: counter, dropped: counter, status: z.enum(['captured', 'loss', 'unavailable']) })
 }).refine(record => record.boundary === record.source.boundary && record.local.through >= record.sequence);
+const preparationSchema = z.strictObject({ step: z.enum(['parse', 'capability']),
+  failureClass: z.enum(['body-limit', 'invalid-json', 'invalid-wire', 'request-denied', 'authority-denied']),
+  route: z.enum(['inference', 'source', 'github-read', 'github-comment', 'github-merge', 'receipt', 'resolve', 'unknown']),
+  byteLimit: counter.positive().optional(), observedBytesLowerBound: counter.positive().optional(),
+}).refine(value => (value.step === 'capability') === (value.failureClass === 'authority-denied')
+  && (value.failureClass === 'body-limit'
+    ? value.byteLimit !== undefined && value.observedBytesLowerBound !== undefined && value.observedBytesLowerBound > value.byteLimit
+    : value.byteLimit === undefined && value.observedBytesLowerBound === undefined));
+export type DiagnosticPreparation = z.infer<typeof preparationSchema>;
 export const eventSchema = z.strictObject({ kind: z.literal('event'), id: z.string().regex(/^e-[1-9][0-9]*$/), sequence: counter.min(1),
   generation: counter, timestamp: counter, owner: z.enum(['host', 'sdk', 'producer', 'platform', 'recorder']),
   boundary: z.enum(boundaries), outcome: z.enum(['started', 'accepted', 'applied', 'committed', 'completed', 'failed', 'recovered', 'unknown', 'released', 'suppressed']),
   code: z.enum(reasonCodes), evidence: z.enum(['observed', 'unavailable']), origin: z.enum(['originating', 'catching', 'state-transition']),
-  correlation: correlationSchema, source: sourceSchema, error: errorSchema.optional(), capsuleId: z.string().regex(/^(f-[1-9][0-9]*|t-[0-9]+)$/).optional()
-}).refine(record => record.id === `e-${record.sequence}` && record.boundary === record.source.boundary);
+  correlation: correlationSchema, source: sourceSchema, error: errorSchema.optional(), preparation: preparationSchema.optional(),
+  capsuleId: z.string().regex(/^(f-[1-9][0-9]*|t-[0-9]+)$/).optional()
+}).refine(record => record.id === `e-${record.sequence}` && record.boundary === record.source.boundary
+  && (!record.preparation || record.owner === 'host' && record.outcome === 'failed'
+    && (record.preparation.step === 'parse' ? record.boundary === 'tool' && record.code === 'tool-failed'
+      : record.boundary === 'admission' && record.code === 'authority-denied')));
 export type RuntimeEnvelope = z.infer<typeof runtimeSchema>;
 export type DiagnosticEvent = z.infer<typeof eventSchema>;
 export type DiagnosticBinding = z.infer<typeof bindingSchema>;

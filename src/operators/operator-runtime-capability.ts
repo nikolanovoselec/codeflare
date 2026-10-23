@@ -79,6 +79,7 @@ export type DispatcherInferenceCountObservation = {
   messages: number; tools: number | null; messageMinimum: number; messageMaximum: number;
   messageCountViolation: 'below-minimum' | 'above-maximum';
 };
+export type DispatcherBodyOverflowObservation = { byteLimit: number; observedBytesLowerBound: number };
 
 /** Closed private diagnostic labels only; never export Zod paths, keys or values. */
 export function dispatcherWireRules(error: z.ZodError): { wireRules: string[]; wireRulesTruncated: boolean } {
@@ -109,13 +110,14 @@ export function dispatcherWireRules(error: z.ZodError): { wireRules: string[]; w
 /** Bounded transport wire; source reads select a URL, never credentials, identity or transport. */
 export async function parseDispatcherOperation(request: Request, inferenceByteLimit = DEFAULT_INFERENCE_REQUEST_BYTES,
   capacityPolicy?: DispatcherCapacityPolicy,
-  onInferenceCountRejected?: (value: DispatcherInferenceCountObservation) => void): Promise<DispatcherOperation> {
+  onInferenceCountRejected?: (value: DispatcherInferenceCountObservation) => void,
+  onBodyLimitExceeded?: (value: DispatcherBodyOverflowObservation) => void): Promise<DispatcherOperation> {
   const limits = dispatcherCapacities(capacityPolicy);
   const url = new URL(request.url);
   if (url.origin !== 'https://operator.internal' || url.search || url.hash || request.method !== 'POST'
     || request.headers.get('content-type')?.split(';')[0].trim() !== 'application/json') throw new Error('Dispatcher request denied');
   const value: unknown = JSON.parse(await readDispatcherBody(request, request.signal,
-    url.pathname === '/v1/dispatcher/inference' ? inferenceByteLimit : limits.dispatcherRequestBytes));
+    url.pathname === '/v1/dispatcher/inference' ? inferenceByteLimit : limits.dispatcherRequestBytes, onBodyLimitExceeded));
   const schema = url.pathname === '/v1/dispatcher/github/read' ? dispatcherReadSchema
     : url.pathname === '/v1/dispatcher/github/comment' ? dispatcherCommentSchema(limits)
     : url.pathname === '/v1/dispatcher/github/merge' ? dispatcherMergeSchema(limits)
@@ -156,7 +158,8 @@ export async function parseDispatcherOperation(request: Request, inferenceByteLi
 
 /** Primitive body bound; approved inference requests and source responses supply their independent limits. */
 export async function readDispatcherBody(message: Request | Response, signal?: AbortSignal,
-  byteLimit = DEFAULT_DISPATCHER_BODY_BYTES): Promise<string> {
+  byteLimit = DEFAULT_DISPATCHER_BODY_BYTES,
+  onLimitExceeded?: (value: DispatcherBodyOverflowObservation) => void): Promise<string> {
   if (!message.body) throw new Error('Dispatcher body unavailable');
   const reader = message.body.getReader();
   const decoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: false });
@@ -175,7 +178,12 @@ export async function readDispatcherBody(message: Request | Response, signal?: A
       if (signal?.aborted) throw signal.reason;
       if (chunk.done) return value + decode();
       size += chunk.value.byteLength;
-      if (size > byteLimit) throw new Error('Dispatcher body exceeds limit');
+      if (size > byteLimit) {
+        const error = new Error('Dispatcher body exceeds limit');
+        try { onLimitExceeded?.({ byteLimit, observedBytesLowerBound: size }); }
+        catch { /* Optional observation cannot replace the original reader failure. */ }
+        throw error;
+      }
       value += decode(chunk.value, true);
     }
   } finally { signal?.removeEventListener('abort', abort); void reader.cancel().catch(() => {}); reader.releaseLock(); }

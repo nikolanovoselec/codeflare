@@ -7,7 +7,7 @@
  */
 import { WorkerEntrypoint } from 'cloudflare:workers';
 import { captureError, hashDiagnostic, hostSource, readSdkProvenance, readSdkDiagnosticHeader, runtimeSchema, sourceMatches, sdkAdmissionTypes,
-  type SdkProvenance, type Boundary, type ReasonCode, type Correlation, type RuntimeEnvelope, type DiagnosticBinding, type ErrorMetadata } from './dispatcher-diagnostics-wire';
+  type SdkProvenance, type Boundary, type ReasonCode, type Correlation, type RuntimeEnvelope, type DiagnosticBinding, type ErrorMetadata, type DiagnosticPreparation } from './dispatcher-diagnostics-wire';
 import { appendDiagnostic, initializeDiagnostics, diagnosticLoss, observeOutbox,
   type FailureObservation, type FenceReason, type EventObservation, type DiagnosticCapsule } from './dispatcher-diagnostics-store';
 import { readActivityDiagnostics, DiagnosticReadError, type DiagnosticReadOptions, type DiagnosticReadState,
@@ -29,7 +29,7 @@ import { classifyDispatcherInference, inferenceAttemptKey, inferenceRetryDelay,
 import { DEFAULT_DISPATCHER_OPERATION_LIMIT, dispatcherOperationLimit } from './dispatcher-operation-limits';
 import { authorizeDispatcherPlan, createDispatcherOperation, parseDispatcherOperation,
   readDispatcherBody, dispatcherGithubApiOrigin, dispatcherWireRules, type DispatcherAdmittedTarget,
-  type DispatcherInferenceCountObservation } from './operator-runtime-capability';
+  type DispatcherInferenceCountObservation, type DispatcherBodyOverflowObservation } from './operator-runtime-capability';
 import { z } from 'zod';
 import { readDispatcherUpdates, type DispatcherResultProjection } from './dispatcher-result';
 import { readDispatcherSdkDiagnostics, sdkUnavailable, operationsUnavailable, type DispatcherActivityDiagnostics,
@@ -522,12 +522,12 @@ export class OperatorActivity extends Agent {
   #recordDiagnostic(generation: number, boundary: Boundary, outcome: EventObservation['outcome'], code: ReasonCode = 'none',
     error?: unknown, correlation: Correlation = {}, owner: EventObservation['owner'] = 'host', terminalGeneration?: number,
     capturedError?: ErrorMetadata, affectedOperations?: DiagnosticCapsule['affectedOperations'],
-    capturedErrorOrigin: EventObservation['origin'] = 'catching'): void {
+    capturedErrorOrigin: EventObservation['origin'] = 'catching', preparation?: DiagnosticPreparation): void {
     // Capture the original value now, before any transformation/await. It never enters the queued closure.
     const metadata = capturedError ?? (error === undefined ? undefined : captureError(error));
     const observation: EventObservation = { timestamp: Date.now(), boundary, outcome, code, owner,
       evidence: 'observed', origin: metadata ? capturedErrorOrigin : 'state-transition', source: hostSource(boundary),
-      correlation, ...(metadata ? { error: metadata } : {}) };
+      correlation, ...(metadata ? { error: metadata } : {}), ...(preparation ? { preparation } : {}) };
     this.#enqueueDiagnostic(async () => {
       await this.ctx.storage.transaction(async tx => {
         const state = await tx.get<AdmissionState>('admission');
@@ -553,7 +553,18 @@ export class OperatorActivity extends Agent {
             omitted = journal.unresolved - affected.length;
           }
         }
-        await appendDiagnostic(tx, binding, observation, { ...(terminalGeneration === undefined ? {} : { terminalGeneration }),
+        // Preparation can finish after phase advancement. Compare only captured digests;
+        // never borrow the successor's coordinates or retain a raw delivery token.
+        let retained = observation;
+        if (preparation && (lease?.serial || correlation.deliveryDigest || correlation.submissionDigest)) {
+          if (!this.#leaseMatches(state, lease, generation) || !lease?.serial || !lease.submissionId
+            || lease.status !== 'running' || lease.serial.current.receipt?.submissionId !== lease.submissionId
+            || hashDiagnostic(lease.serial.current.deliveryToken) !== correlation.deliveryDigest
+            || hashDiagnostic(lease.submissionId) !== correlation.submissionDigest) {
+            retained = { ...observation, correlation: {} };
+          }
+        }
+        await appendDiagnostic(tx, binding, retained, { ...(terminalGeneration === undefined ? {} : { terminalGeneration }),
           ...(affected ? { affectedOperations: affected, affectedOperationsOmitted: omitted } : {}) });
       });
     });
@@ -2586,11 +2597,26 @@ export class OperatorActivity extends Agent {
     let effectContext: NonNullable<Parameters<typeof createDispatcherOperation>[0]['effectContext']> | undefined;
     let preparationStep: 'parse' | 'capability' = 'parse';
     let inferenceCountObservation: DispatcherInferenceCountObservation | undefined;
+    let bodyOverflow: DispatcherBodyOverflowObservation | undefined;
+    let preparationCorrelation: Correlation = {};
+    const preparationUrl = new URL(request.url);
+    const preparationRoute: DiagnosticPreparation['route'] = preparationUrl.origin !== 'https://operator.internal' ? 'unknown'
+      : preparationUrl.pathname === '/v1/dispatcher/inference' ? 'inference'
+        : preparationUrl.pathname === '/v1/dispatcher/source' ? 'source'
+          : preparationUrl.pathname === '/v1/dispatcher/github/read' ? 'github-read'
+            : preparationUrl.pathname === '/v1/dispatcher/github/comment' ? 'github-comment'
+              : preparationUrl.pathname === '/v1/dispatcher/github/merge' ? 'github-merge'
+                : preparationUrl.pathname === '/v1/dispatcher/receipt' ? 'receipt'
+                  : preparationUrl.pathname === '/v1/dispatcher/resolve' ? 'resolve' : 'unknown';
     try {
       lease = await this.ctx.storage.get<DispatcherLease>(DISPATCHER_LEASE);
       if (!lease) {
         rejected('authority', 'unparsed', undefined, 403);
         return denied();
+      }
+      if (loggingEnabled && lease.generation === generation && lease.serial && lease.submissionId
+        && deliveryToken && this.#phaseTokenMatches(lease, deliveryToken)) {
+        preparationCorrelation = { deliveryDigest: hashDiagnostic(deliveryToken), submissionDigest: hashDiagnostic(lease.submissionId) };
       }
       const plan = await this.getRuntimePlan();
       if (!plan) return denied();
@@ -2599,8 +2625,10 @@ export class OperatorActivity extends Agent {
       inferenceBytes = inferenceRequestBytes(capacityPolicy);
       operationLimit = dispatcherOperationLimit(isManagementReceipt(plan.receipt) ? plan.receipt.selection.operator.policy : undefined);
       operation = await this.#boundedDispatcher(lease, () => parseDispatcherOperation(request, inferenceBytes, capacityPolicy,
-        loggingEnabled ? value => { inferenceCountObservation = value; } : undefined));
+        loggingEnabled ? value => { inferenceCountObservation = value; } : undefined,
+        loggingEnabled ? value => { bodyOverflow = value; } : undefined));
       preparationStep = 'capability';
+      if (trace) trace.requestDigest = hashDiagnostic(JSON.stringify({ path: operation.path, body: operation.body }));
       if (operation.path === '/v1/dispatcher/source' && isManagementReceipt(plan.receipt)) {
         sourceBytes = sourceResponseBytes(plan.receipt.selection.installation.policy);
       }
@@ -2657,7 +2685,6 @@ export class OperatorActivity extends Agent {
           || !await this.#dispatcherDeliveryCurrent(generation, deliveryToken)) throw new Error('Dispatcher effect authority unavailable');
       } };
       if (operation.path === '/v1/dispatcher/github/comment' || operation.path === '/v1/dispatcher/github/merge') await effectContext.authorize();
-      if (trace) trace.requestDigest = await sha256(JSON.stringify({ path: operation.path, body: operation.body }));
       const phaseLease = await this.ctx.storage.get<DispatcherLease>(DISPATCHER_LEASE);
       if (!this.#phaseTokenMatches(phaseLease, deliveryToken)) return denied();
       perform = await createDispatcherOperation({ plan, env: this.#appEnv, operation, effectContext, diagnosticContext: trace,
@@ -2666,24 +2693,27 @@ export class OperatorActivity extends Agent {
         current: () => this.#dispatcherDeliveryCurrent(generation, deliveryToken),
         exports: (this.ctx as unknown as { exports: Parameters<typeof createDispatcherOperation>[0]['exports'] }).exports });
     } catch (error) {
-      this.#recordDiagnostic(generation, preparationStep === 'parse' ? 'tool' : 'admission', 'failed',
-        preparationStep === 'parse' ? 'tool-failed' : 'authority-denied', error);
+      const refusalReason = preparationStep === 'parse' || error instanceof z.ZodError || error instanceof SyntaxError
+        ? 'request-invalid' : error instanceof DispatcherRefusal ? error.reason : 'authority-unverified';
       try {
-        const state = await this.ctx.storage.get<AdmissionState>('admission');
-        if (state) {
-          const failureClass = preparationStep === 'capability' ? 'authority-denied'
-            : error instanceof Error && error.message === 'Dispatcher body exceeds limit' ? 'body-limit'
-              : error instanceof SyntaxError ? 'invalid-json'
-                : error instanceof z.ZodError ? 'invalid-wire' : 'request-denied';
-          // Fixed diagnostic wire only: no request, exception text or child identity.
-          if (loggingEnabled) dispatcherLog.warn('Dispatcher operation rejected', { stage: 'preparation', preparationStep, failureClass,
-            activityId: state.intent.activityId, generation, resource: 'unparsed', deadline: deadline(lease), status: 403,
-            ...(preparationStep === 'parse' && error instanceof z.ZodError ? { ...dispatcherWireRules(error),
-              ...inferenceCountObservation } : {}) });
-        }
+        const failureClass = preparationStep === 'capability' ? 'authority-denied' : bodyOverflow ? 'body-limit'
+          : error instanceof SyntaxError ? 'invalid-json' : error instanceof z.ZodError ? 'invalid-wire' : 'request-denied';
+        const refusal = dispatcherRefusalBody(refusalReason);
+        const metadata: ErrorMetadata = { ...captureError(error), transportStatus: 403,
+          transportReason: refusal.reason, transportDisposition: refusal.disposition };
+        this.#recordDiagnostic(generation, preparationStep === 'parse' ? 'tool' : 'admission', 'failed',
+          preparationStep === 'parse' ? 'tool-failed' : 'authority-denied', undefined,
+          { ...preparationCorrelation, ...(trace?.requestDigest ? { requestDigest: trace.requestDigest } : {}) },
+          'host', undefined, metadata, undefined, bodyOverflow ? 'originating' : 'catching',
+          loggingEnabled ? { step: preparationStep, failureClass, route: preparationRoute, ...bodyOverflow } : undefined);
+        // Fixed diagnostic wire only; no diagnostic I/O is awaited before returning the original refusal.
+        if (loggingEnabled && diagnosticState) dispatcherLog.warn('Dispatcher operation rejected', {
+          stage: 'preparation', preparationStep, failureClass, activityId: diagnosticState.intent.activityId,
+          generation, resource: 'unparsed', deadline: deadline(lease), status: 403,
+          ...(preparationStep === 'parse' && error instanceof z.ZodError ? { ...dispatcherWireRules(error),
+            ...inferenceCountObservation } : {}) });
       } catch { /* Observability cannot replace the original denial. */ }
-      return denied(preparationStep === 'parse' || error instanceof z.ZodError || error instanceof SyntaxError
-        ? 'request-invalid' : error instanceof DispatcherRefusal ? error.reason : 'authority-unverified');
+      return denied(refusalReason);
     }
     const resource = operation.path === '/v1/dispatcher/inference' ? 'inference'
       : operation.path === '/v1/dispatcher/source' ? 'source'
