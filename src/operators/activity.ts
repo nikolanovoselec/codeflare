@@ -6,7 +6,7 @@
  * See sdd/spec/operators.md and documentation/lanes/operators.md for acceptance boundaries.
  */
 import { WorkerEntrypoint } from 'cloudflare:workers';
-import { captureError, hashDiagnostic, hostSource, readSdkProvenance, readSdkDiagnosticHeader, runtimeSchema, sourceMatches,
+import { captureError, hashDiagnostic, hostSource, readSdkProvenance, readSdkDiagnosticHeader, runtimeSchema, sourceMatches, sdkAdmissionTypes,
   type SdkProvenance, type Boundary, type ReasonCode, type Correlation, type RuntimeEnvelope, type DiagnosticBinding, type ErrorMetadata } from './dispatcher-diagnostics-wire';
 import { appendDiagnostic, initializeDiagnostics, diagnosticLoss, observeOutbox,
   type FailureObservation, type FenceReason, type EventObservation, type DiagnosticCapsule } from './dispatcher-diagnostics-store';
@@ -91,6 +91,25 @@ type DispatcherFacet = Fetcher & {
   _cf_checkRunFibersForFacet(ownerPath: DispatcherFacetPath): Promise<number>;
 };
 type DispatcherConnection = Pick<DispatcherFacet, 'fetch' | '_cf_dispatchScheduledCallback' | '_cf_checkRunFibersForFacet'>;
+/** Only the pinned SDK's exact status/type pairs prove refusal of unchanged admission. */
+class DispatcherPhaseAdmissionError extends Error {
+  constructor(readonly transportStatus: number, readonly admissionType?: typeof sdkAdmissionTypes[number]) {
+    super(`Dispatcher phase admission unavailable (HTTP ${transportStatus}${admissionType ? `, ${admissionType}` : ''})`);
+  }
+  get definitive(): boolean {
+    switch (this.transportStatus) {
+      case 400: return this.admissionType === 'invalid_request' || this.admissionType === 'invalid_json';
+      case 415: return this.admissionType === 'unsupported_media_type';
+      case 404: return this.admissionType === 'agent_instance_not_found';
+      case 409: return this.admissionType === 'agent_instance_exists' || this.admissionType === 'submission_conflict';
+      case 500: return this.admissionType === 'conversation_record_invariant' || this.admissionType === 'attachment_integrity'
+        || this.admissionType === 'persisted_format_version_unsupported';
+      default: return false;
+    }
+  }
+}
+const dispatcherAdmissionErrorSchema = z.object({ error: z.object({ type: z.enum(sdkAdmissionTypes) }) });
+
 interface DispatcherLease {
   generation: number; artifactDigest: string; inputDigest: string; expiresAt: number;
   submissionId: string | null; settledSubmissionId?: string; sdkReleased?: boolean;
@@ -1869,7 +1888,17 @@ export class OperatorActivity extends Agent {
           method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(wire),
         }));
         admissionResponse = response;
-        if (response.status !== 202) throw new Error('Dispatcher phase admission unavailable');
+        if (response.status !== 202) {
+          this.#observeSdkHeader(generation, response);
+          let admissionType: typeof sdkAdmissionTypes[number] | undefined;
+          try {
+            const body = await readDispatcherBody(response,
+              AbortSignal.timeout(Math.max(1, Math.min(1000, lease.expiresAt - Date.now()))), 4096);
+            const parsed = dispatcherAdmissionErrorSchema.safeParse(JSON.parse(body));
+            if (parsed.success) admissionType = parsed.data.error.type;
+          } catch { /* Missing, oversized, malformed or stalled bodies leave admission uncertain. */ }
+          throw new DispatcherPhaseAdmissionError(response.status, admissionType);
+        }
         const value = JSON.parse(await readDispatcherBody(response));
         const offset = response.headers.get('stream-next-offset') ?? value.offset;
         return { submissionId: value.submissionId, uid: value.uid, offset,
@@ -1899,6 +1928,13 @@ export class OperatorActivity extends Agent {
       // Every joining caller observes cleanup before rejection. A lost acknowledgement
       // cannot leave an already-rejected flight blocking same-key receipt recovery.
       if (this.#phaseAdmissions.get(key) === admission) this.#phaseAdmissions.delete(key);
+    }).catch(async error => {
+      // Release the admission flight before retiring its owned child. All joining callers
+      // observe the fence before rejection; uncertain acknowledgements stay keyed and live.
+      if (error instanceof DispatcherPhaseAdmissionError && error.definitive) {
+        await this.interruptDrive(generation, { boundary: 'submission', code: 'submission-failed', error });
+      }
+      throw error;
     });
     this.#phaseAdmissions.set(key, admission);
     await admission;
@@ -2068,7 +2104,10 @@ export class OperatorActivity extends Agent {
       if (pendingLease.serial && pendingLease.status === 'admitting') {
         const token = pendingLease.serial.current.deliveryToken;
         try { await this.#admitDispatcherPhase(pendingLease.generation, token); }
-        catch { await this.#scheduleDispatcherRecheck(pendingLease); return; }
+        catch (error) {
+          if (!(error instanceof DispatcherPhaseAdmissionError && error.definitive)) await this.#scheduleDispatcherRecheck(pendingLease);
+          return;
+        }
         pendingLease = await this.ctx.storage.get<DispatcherLease>(DISPATCHER_LEASE);
         if (!pendingLease?.serial || !this.#phaseTokenMatches(pendingLease, token)) return;
       }
@@ -2197,7 +2236,10 @@ export class OperatorActivity extends Agent {
             if (!saved) return;
             for (const flight of this.#inferenceFlights.values()) flight.controller.abort();
             try { await this.#admitDispatcherPhase(lease.generation, next.current.deliveryToken); }
-            catch { /* Same durable admission identity is reattached within the original lease. */ }
+            catch (error) {
+              if (error instanceof DispatcherPhaseAdmissionError && error.definitive) return;
+              // Uncertain admission reattaches only the original durable identity and lease.
+            }
             await this.#scheduleDispatcherRecheck(lease);
             return;
           }

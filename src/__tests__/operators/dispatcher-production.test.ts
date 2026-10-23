@@ -5971,7 +5971,7 @@ describe('REQ-OPERATOR-048: original-lease serial SDK phase ownership', () => {
       expect(summary.fence).toMatchObject({ generation: first.generation, boundary: 'submission', code: 'submission-failed' });
       const history = await diagnosticTraversal(get);
       expect(history.records).toContainEqual(expect.objectContaining({ owner: 'host', boundary: 'submission', outcome: 'failed',
-        code: 'submission-failed', error: expect.objectContaining({ transportStatus: 404 }) }));
+        code: 'submission-failed', error: expect.objectContaining({ transportStatus: 404, admissionType: 'agent_instance_not_found' }) }));
     }, { repositoryOnly: true, intent4: true, facetContract: true }));
 
   it.each([404, 500, 503])('REQ-OPERATOR-048/081: uncertain admission HTTP%i preserves original keyed work and safe failure status', status => fixture(async f => {

@@ -18,6 +18,10 @@ export const gaps = ['legacy-uncaptured', 'sdk-import-incomplete', 'platform-evi
   'recorder-unavailable', 'source-unverified', 'logging-disabled'] as const;
 const errorLoss = ['cause-cycle', 'cause-depth', 'message-truncated', 'stack-truncated', 'unsafe-error-access', 'uninspectable-throw'] as const;
 const kinds = ['Error', 'TypeError', 'RangeError', 'SyntaxError', 'ValidationError', 'TransportDenied', 'DefiniteEffectFailure', 'other'] as const;
+/** Public pinned-SDK error types only; never retain response messages/details/meta. */
+export const sdkAdmissionTypes = ['invalid_request', 'invalid_json', 'unsupported_media_type', 'agent_instance_not_found',
+  'agent_instance_exists', 'submission_conflict', 'conversation_record_invariant', 'attachment_integrity',
+  'persisted_format_version_unsupported', 'internal_error', 'conversation_stream_store_failure', 'runtime_unavailable'] as const;
 export const digestSchema = z.string().regex(/^[a-f0-9]{64}$/);
 export const counter = z.number().int().nonnegative().safe();
 export const bindingSchema = z.strictObject({ generation: counter, artifactDigest: digestSchema, inputDigest: digestSchema });
@@ -32,7 +36,8 @@ const sourceSchema = z.strictObject({ package: z.enum(['codeflare', '@codeflare/
 const causeSchema = z.strictObject({ kind: z.enum(kinds), messageDigest: digestSchema.nullable(), stackDigest: digestSchema.nullable() });
 export const errorSchema = z.strictObject({ ...causeSchema.shape,
   publicCode: z.enum(producerCodes).nullable(), causes: z.array(causeSchema).max(3), loss: z.array(z.enum(errorLoss)).max(6),
-  fingerprintScope: z.enum(['full', 'bounded', 'unavailable']), ...transportDiagnosticShape });
+  fingerprintScope: z.enum(['full', 'bounded', 'unavailable']), ...transportDiagnosticShape,
+  admissionType: z.enum(sdkAdmissionTypes).optional() });
 export const correlationSchema = z.strictObject({ logicalOrdinal: counter.optional(), hostAttemptIndex: counter.optional(),
   chargedOrdinal: counter.optional(), sdkAttemptDigest: digestSchema.optional(), submissionDigest: digestSchema.optional(),
   deliveryDigest: digestSchema.optional(), requestDigest: digestSchema.optional(), responseDigest: digestSchema.optional(),
@@ -93,7 +98,7 @@ export function readSdkDiagnosticHeader(response: Response): z.infer<typeof head
 function captureDiagnosticErrorInternal(original: unknown): ErrorMetadata {
   const loss = new Set<typeof errorLoss[number]>();
   const seen = new Set<object>();
-  const transport: Pick<ErrorMetadata, 'transportStatus' | 'transportReason' | 'transportDisposition'> = {};
+  const transport: Pick<ErrorMetadata, 'transportStatus' | 'transportReason' | 'transportDisposition' | 'admissionType'> = {};
   const descriptor = (value: object, key: string): unknown => {
     try { const field = Object.getOwnPropertyDescriptor(value, key);
       if (field && !('value' in field)) loss.add('unsafe-error-access');
@@ -120,7 +125,11 @@ function captureDiagnosticErrorInternal(original: unknown): ErrorMetadata {
         const status = descriptor(value, 'transportStatus');
         const reason = descriptor(value, 'transportReason');
         const disposition = descriptor(value, 'transportDisposition');
+        const admissionType = descriptor(value, 'admissionType');
         if (typeof status === 'number' && Number.isInteger(status) && status >= 300 && status <= 599) transport.transportStatus = status;
+        if (typeof admissionType === 'string' && sdkAdmissionTypes.includes(admissionType as typeof sdkAdmissionTypes[number])) {
+          transport.admissionType = admissionType as typeof sdkAdmissionTypes[number];
+        }
         if (typeof reason === 'string' && dispatcherRefusalReasons.includes(reason as typeof dispatcherRefusalReasons[number])) {
           transport.transportReason = reason as typeof dispatcherRefusalReasons[number];
         }
