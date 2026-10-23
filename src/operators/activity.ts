@@ -1928,13 +1928,12 @@ export class OperatorActivity extends Agent {
       // Every joining caller observes cleanup before rejection. A lost acknowledgement
       // cannot leave an already-rejected flight blocking same-key receipt recovery.
       if (this.#phaseAdmissions.get(key) === admission) this.#phaseAdmissions.delete(key);
-    }).catch(async error => {
+    }).catch(error => {
       // Release the admission flight before retiring its owned child. All joining callers
       // observe the fence before rejection; uncertain acknowledgements stay keyed and live.
-      if (error instanceof DispatcherPhaseAdmissionError && error.definitive) {
-        await this.interruptDrive(generation, { boundary: 'submission', code: 'submission-failed', error: captureError(error) });
-      }
-      throw error;
+      if (!(error instanceof DispatcherPhaseAdmissionError && error.definitive)) throw error;
+      return this.interruptDrive(generation, { boundary: 'submission', code: 'submission-failed', error: captureError(error) })
+        .then(() => { throw error; });
     });
     this.#phaseAdmissions.set(key, admission);
     await admission;
