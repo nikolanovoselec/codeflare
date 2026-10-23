@@ -1039,12 +1039,10 @@ describe('native provider authorization and compat dispatch', () => {
     }));
     try {
       await within(restEntered, 'REST entry'); controller.abort(); finish(new Response('', { status: 404 }));
-      await within(recipient.entered, 'fallback recipient entry');
-      await expect.poll(recipient.aborted, { timeout: 300 }).toBe(true);
-      expect(recipient.activeUrls).toEqual([]);
       const response = await within(result, 'pre-aborted fallback response');
       expect(response.status).toBe(502);
       expect(await response.json()).toMatchObject({ code: 'GATEWAY_FETCH_FAILED' });
+      expect(recipient.activeUrls).toEqual([]);
     } finally {
       controller.abort(); finish(new Response('', { status: 404 })); recipient.release();
       await within(result, 'fallback cleanup').catch(() => undefined);

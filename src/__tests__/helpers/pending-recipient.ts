@@ -22,7 +22,7 @@ export function pendingRecipient(ignoreAbort = false) {
   });
   return { fetch, entered, activeUrls, aborted: () => observedAbort,
     release: (response = new Response('late-recipient-response')) => {
-      released = response; for (const settle of [...settlers]) settle(response.clone());
+      released = response; for (const settle of settlers) settle(response.clone());
     } };
 }
 
