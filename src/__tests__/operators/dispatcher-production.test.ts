@@ -5937,7 +5937,8 @@ describe('REQ-OPERATOR-048: original-lease serial SDK phase ownership', () => {
       await start(f);
       await discovery(f);
       const first = await context(f);
-      f.admissionFault(() => Response.json({ code: 'agent_instance_not_found', detail: 'PRIVATE_ADMISSION_BODY' }, { status: 404 }));
+      f.admissionFault(() => Response.json({ error: { type: 'agent_instance_not_found',
+        message: 'Agent instance not found', details: 'PRIVATE_ADMISSION_BODY' } }, { status: 404 }));
       if (outcome === 'completed') {
         progress(f, first, { kind: 'target', index: 1, target: frozen[1] }, { results: [rows[0]] });
       } else {
@@ -5973,11 +5974,12 @@ describe('REQ-OPERATOR-048: original-lease serial SDK phase ownership', () => {
         code: 'submission-failed', error: expect.objectContaining({ transportStatus: 404 }) }));
     }, { repositoryOnly: true, intent4: true, facetContract: true }));
 
-  it.each([500, 503])('REQ-OPERATOR-048/081: retryable admission HTTP%i preserves original keyed work and safe failure status', status => fixture(async f => {
+  it.each([404, 500, 503])('REQ-OPERATOR-048/081: uncertain admission HTTP%i preserves original keyed work and safe failure status', status => fixture(async f => {
     await start(f);
     await discovery(f);
     const first = await context(f);
-    f.admissionFault(() => Response.json({ detail: 'PRIVATE_TRANSIENT_ADMISSION_BODY' }, { status }));
+    f.admissionFault(() => Response.json({ ...(status === 404 ? { code: 'agent_instance_not_found' } : {}),
+      detail: 'PRIVATE_UNCLASSIFIED_ADMISSION_BODY' }, { status }));
     f.messages([]);
     f.settle(first.submissionId, 'failed', { type: 'operation_failed' });
     await f.activity.reconcileDispatcherLease();
@@ -6023,7 +6025,8 @@ describe('REQ-OPERATOR-048: original-lease serial SDK phase ownership', () => {
     await start(f);
     await discovery(f);
     const first = await context(f);
-    f.admissionFault(() => Response.json({ code: 'agent_instance_not_found', detail: 'PRIVATE_LOGGING_OFF_RESPONSE' }, { status: 404 }));
+    f.admissionFault(() => Response.json({ error: { type: 'agent_instance_not_found',
+      message: 'Agent instance not found', details: 'PRIVATE_LOGGING_OFF_RESPONSE' } }, { status: 404 }));
     f.messages([]);
     f.settle(first.submissionId, 'failed', { type: 'operation_failed' });
     await f.activity.reconcileDispatcherLease();
