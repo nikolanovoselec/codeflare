@@ -1932,7 +1932,7 @@ export class OperatorActivity extends Agent {
       // Release the admission flight before retiring its owned child. All joining callers
       // observe the fence before rejection; uncertain acknowledgements stay keyed and live.
       if (error instanceof DispatcherPhaseAdmissionError && error.definitive) {
-        await this.interruptDrive(generation, { boundary: 'submission', code: 'submission-failed', error });
+        await this.interruptDrive(generation, { boundary: 'submission', code: 'submission-failed', error: captureError(error) });
       }
       throw error;
     });
