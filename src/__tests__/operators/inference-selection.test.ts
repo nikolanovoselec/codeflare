@@ -60,7 +60,8 @@ describe('REQ-OPERATOR-007: parent-prepared native inference narrowing', () => {
   });
 
   it('does not turn a native default into personal-provider permission', () => {
-    expect(() => resolveOperatorInference({ eligible: { ...nativeEligible, allowPersonalPiProviders: false },
+    const deniedEligibility = { ...nativeEligible, allowPersonalPiProviders: false };
+    expect(() => resolveOperatorInference({ eligible: deniedEligibility,
       policy: nativePolicy, trusted: native })).toThrow();
   });
 
