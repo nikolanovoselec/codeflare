@@ -3,7 +3,7 @@ import { Buffer } from 'node:buffer';
 import { operatorAccessSessionCurrent, resolveOperatorGroupIdentity } from '../../lib/access';
 import type { VerifiedHumanAccessClaims } from '../../lib/jwt';
 import { createOperatorExecutionContext } from '../../operators/execution-context';
-import { createDispatcherOperation, parseDispatcherOperation } from '../../operators/operator-runtime-capability';
+import { authorizeDispatcherPlan, createDispatcherOperation, parseDispatcherOperation } from '../../operators/operator-runtime-capability';
 import type { OperatorRuntimePlan } from '../../operators/activity';
 import type { Env } from '../../types';
 
@@ -65,7 +65,8 @@ async function fixture(identityResponse: IdentityResponse, groupGrant = false, g
       { headers: { 'content-type': 'application/json', etag: '"source-version"' } });
   } }) } as unknown as Parameters<typeof createDispatcherOperation>[0]['exports'];
   const prepare = () => createDispatcherOperation({ plan, env: environment, operation, exports, current: async () => true });
-  return { human, prepare, execute: async () => (await prepare())(),
+  return { human, prepare, authorize: () => authorizeDispatcherPlan(plan, environment),
+    execute: async () => (await prepare())(),
     replaceIdentity: (value: IdentityResponse) => { identity = value; } };
 }
 
@@ -159,11 +160,27 @@ describe('REQ-OPERATOR-045/047: current Access identity gates Dispatcher GET sou
     ['bodyless identity', () => new Response(null)],
     ['invalid JSON identity', () => new Response('{invalid')],
     ['oversized identity body', () => new Response('x'.repeat(65537))],
-  ])('denies an email invoker and produces no source receipt for %s', async (_name, identity) => {
+  ])('REQ-OPERATOR-047: failed live identity %s cannot become an email-granted Dispatcher authority or source receipt', async (_name, identity) => {
     const f = await fixture(identity);
-    expect((await resolveOperatorGroupIdentity(f.human, accessJwt)).groups).toEqual([]);
+    // Intentional authority contract: failure is not a verified session with zero memberships.
+    await expect(resolveOperatorGroupIdentity(f.human, accessJwt)).rejects.toThrow();
+    await expect(f.authorize()).rejects.toThrow();
     expect(await operatorAccessSessionCurrent(f.human, accessJwt)).toBe(false);
     await expect(f.execute()).rejects.toThrow();
+  });
+
+  it.each<[string, IdentityResponse]>([
+    ['unavailable identity transport', () => { throw new Error('Identity transport unavailable'); }],
+    ['unavailable identity service', () => new Response(null, { status: 503 })],
+    ['revoked identity', () => new Response(null, { status: 401 })],
+  ])('REQ-OPERATOR-047: %s denies the current Dispatcher authorization without poisoning later verified no-group work', async (_name, identity) => {
+    const f = await fixture(identity);
+    await expect(f.authorize()).rejects.toThrow();
+    f.replaceIdentity(() => Response.json(documentedIdentity));
+    const authorized = await f.authorize();
+    expect(authorized.authority.human).toMatchObject({ subject, email, groups: [] });
+    expect(authorized.parent).toEqual({ repository: 'owner/project' });
+    await expectSourceReceipt(await f.execute());
   });
 
   it('denies source execution when the current identity is revoked after preparation', async () => {
@@ -173,11 +190,11 @@ describe('REQ-OPERATOR-045/047: current Access identity gates Dispatcher GET sou
     await expect(perform()).rejects.toThrow();
   });
 
-  it('denies source execution once protected human authority has expired', async () => {
+  it('REQ-OPERATOR-047: expired live identity cannot become empty-group authority or execute a prepared source', async () => {
     const f = await fixture(() => Response.json(documentedIdentity));
     const perform = await f.prepare();
     vi.spyOn(Date, 'now').mockReturnValue((f.human.expiresAt + 1) * 1000);
-    expect((await resolveOperatorGroupIdentity(f.human, accessJwt)).groups).toEqual([]);
+    await expect(resolveOperatorGroupIdentity(f.human, accessJwt)).rejects.toThrow();
     expect(await operatorAccessSessionCurrent(f.human, accessJwt)).toBe(false);
     await expect(perform()).rejects.toThrow();
   });

@@ -22,15 +22,15 @@ RUN npm prune --omit=dev
 # ---- Pinned rclone with verified per-side bisync bookkeeping ----
 FROM mirror.gcr.io/library/node:26-bookworm-slim@sha256:86f07bc9c5dce4578cf37e5a418b7bfc7f817cda25cde66e2b66e95ed86c4567 AS rclone-builder
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl python3 && rm -rf /var/lib/apt/lists/*
-RUN curl -fsSL https://go.dev/dl/go1.27.2.linux-amd64.tar.gz -o /tmp/go.tar.gz \
-    && echo "ecbadb99091a3f46e31f5f934b068b1864eafa7995211b39eaddf76996045fe5  /tmp/go.tar.gz" | sha256sum -c - \
+RUN curl -fsSL https://go.dev/dl/go1.27.3.linux-amd64.tar.gz -o /tmp/go.tar.gz \
+    && echo "65efbc80fdc1fa2cd2631cad5b481777a68e8725f34e89f50fc6ac714e379b40  /tmp/go.tar.gz" | sha256sum -c - \
     && tar -C /usr/local -xzf /tmp/go.tar.gz && rm /tmp/go.tar.gz
 ENV PATH="/usr/local/go/bin:${PATH}" CGO_ENABLED=0 GOTOOLCHAIN=local
 WORKDIR /src/rclone
 RUN curl -fsSL https://codeload.github.com/rclone/rclone/tar.gz/refs/tags/v1.73.5 -o /tmp/rclone.tar.gz \
     && echo "e52541bc238dd434a0335f467697d7d9575529698a74aab534ad39b8649f8a49  /tmp/rclone.tar.gz" | sha256sum -c - \
     && tar --strip-components=1 -xzf /tmp/rclone.tar.gz && rm /tmp/rclone.tar.gz \
-    && go mod edit -require=google.golang.org/grpc@v1.83.2 \
+    && go mod edit -require=google.golang.org/grpc@v1.83.2 -require=github.com/klauspost/compress@v1.20.3 \
     && go mod tidy
 COPY scripts/patch-rclone-bisync.py /tmp/patch-rclone-bisync.py
 COPY scripts/ci/rclone-bookkeeping_test.go /tmp/rclone-bookkeeping_test.go
@@ -189,6 +189,7 @@ RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-reco
     openssh-client \
     # Require Debian's fixed regex, media and event builds before image publication.
     libpcre2-8-0 \
+    libexpat1 \
     libde265-0 \
     libevent-core-2.1-7 \
     # Process utilities
@@ -212,6 +213,7 @@ RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-reco
     iptables \
     # REQ-SEC-011: require fixed Debian security builds and invalidate stale apt layers.
     && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' libpcre2-8-0)" ge '10.42-1+deb12u2' \
+    && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' libexpat1)" ge '2.5.0-1+deb12u5' \
     && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' libssh2-1)" ge '1.10.0-3+deb12u1' \
     && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' libgit2-1.5)" ge '1.5.1+ds-1+deb12u2' \
     && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' libde265-0)" ge '1.0.11-1+deb12u3' \
@@ -323,6 +325,7 @@ RUN SILVERBULLET_VERSION="2.12.1" && \
 # 21.5.0 affected by CVE-2026-9496; an integrity-pinned 21.5.1 artifact replaces
 # that runtime copy. code-server's basic-ftp 5.3.1 is replaced with 6.2.3 for
 # CVE-2026-102990, preserving its CommonJS API for the get-uri consumer.
+# follow-redirects 1.16.1 fixes CVE-2026-111755/111756 in its upstream 1.x API.
 # Drop each overlay after its upstream artifact contains at least the pinned
 # fixed version.
 RUN CODE_SERVER_VERSION="4.141.0" && \
@@ -342,6 +345,8 @@ RUN CODE_SERVER_VERSION="4.141.0" && \
     PACOTE_SHA512="2af709f62cb772bcac0ac82a738f8f9271ffc3a8e4ae9f09377ea6a5904fc0d6834704df3190f7ed8cd16b336cb626543a1b85e699e8f5fefc9fd9842416afc2" && \
     BASIC_FTP_VERSION="6.2.3" && \
     BASIC_FTP_SHA512="4fb198b50d9e28950de583911bb03cbb659f07d24c3746b8ff0977308eb8aaadaa4d17dadc55f3a0dab40c3a23643903c92b5c2fe4e47cab33e091c4671e6419" && \
+    FOLLOW_REDIRECTS_VERSION="1.16.1" && \
+    FOLLOW_REDIRECTS_SHA512="14dbc51b3a0c2d6984e988fdb296ffce377bca23421e2016f7f4e0f425eb43cc2ebb7d87b6524ec163b5d4e25a7e5e457d8dc3c53750d2f8f8db353592fbf98e" && \
     SHELL_QUOTE_VERSION="1.12.0" && \
     SHELL_QUOTE_SHA512="3dc072a8dc93ff7f05da40cd8b4d3a1c031125a50bb81ceafc53acc37a9d66f5ff180f56fe36a60da46c9201e3b9b1e27ed5cae6c205c4b364beb5d4c1ca1fe9" && \
     curl -fsSL --retry 3 --retry-delay 5 --connect-timeout 30 --max-time 600 \
@@ -386,8 +391,12 @@ RUN CODE_SERVER_VERSION="4.141.0" && \
     curl -fsSL --retry 3 --retry-delay 5 --connect-timeout 30 --max-time 300 \
       "https://registry.npmjs.org/basic-ftp/-/basic-ftp-${BASIC_FTP_VERSION}.tgz" -o /tmp/basic-ftp.tgz && \
     echo "${BASIC_FTP_SHA512}  /tmp/basic-ftp.tgz" | sha512sum -c - && \
+    curl -fsSL --retry 3 --retry-delay 5 --connect-timeout 30 --max-time 300 \
+      "https://registry.npmjs.org/follow-redirects/-/follow-redirects-${FOLLOW_REDIRECTS_VERSION}.tgz" -o /tmp/follow-redirects.tgz && \
+    echo "${FOLLOW_REDIRECTS_SHA512}  /tmp/follow-redirects.tgz" | sha512sum -c - && \
     for SECURITY_PAIR in \
       '/tmp/basic-ftp.tgz:/opt/code-server/node_modules/basic-ftp' \
+      '/tmp/follow-redirects.tgz:/opt/code-server/node_modules/follow-redirects' \
       '/usr/local/share/codeflare-brace-expansion.tgz:/usr/local/lib/node_modules/npm/node_modules/brace-expansion' \
       '/tmp/undici-npm.tgz:/usr/local/lib/node_modules/npm/node_modules/undici' \
       '/tmp/undici-ide.tgz:/opt/code-server/lib/vscode/node_modules/undici' \
@@ -399,7 +408,8 @@ RUN CODE_SERVER_VERSION="4.141.0" && \
     done && \
     test "$(jq -r .version /opt/code-server/lib/vscode/node_modules/shell-quote/package.json)" = "$SHELL_QUOTE_VERSION" && \
     test "$(jq -r .version /opt/code-server/node_modules/basic-ftp/package.json)" = "$BASIC_FTP_VERSION" && \
-    rm /tmp/shell-quote.tgz /tmp/basic-ftp.tgz && \
+    test "$(jq -r .version /opt/code-server/node_modules/follow-redirects/package.json)" = "$FOLLOW_REDIRECTS_VERSION" && \
+    rm /tmp/shell-quote.tgz /tmp/basic-ftp.tgz /tmp/follow-redirects.tgz && \
     npm --version >/dev/null && \
     ln -sf /opt/code-server/bin/code-server /usr/local/bin/code-server && \
     test -x /opt/code-server/bin/code-server && \
@@ -441,9 +451,9 @@ COPY .cache-bust /tmp/.cache-bust
 # if atlas.plug.js is not present.
 COPY preseed/silverbullet/ /opt/silverbullet-preseed/
 
-# Install an integrity-pinned gh release containing grpc-go's CVE-2026-84304 fix.
-RUN GH_VERSION="2.99.0" && \
-    GH_SHA256="471feb449cc98d527fc9a67601b9ea04296c100b666d970a784a07dc17a59a8f" && \
+# Install an integrity-pinned gh release built with Go 1.27.3 (CVE-2026-111943).
+RUN GH_VERSION="2.103.0" && \
+    GH_SHA256="4a48fa23b9ce9581f3304b822f3e014812f26519b134f89b37db8bc7d74746e1" && \
     curl -fsSL --retry 3 --retry-delay 5 --connect-timeout 30 \
       "https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_${GH_VERSION}_linux_amd64.deb" \
       -o /tmp/gh.deb && \

@@ -369,6 +369,7 @@ export class EgressController extends WorkerEntrypoint<Env> {
       method: effectiveRequest.method,
       headers,
       body: hasBody ? effectiveRequest.body : undefined,
+      signal: effectiveRequest.signal,
       redirect: 'manual',
     });
 

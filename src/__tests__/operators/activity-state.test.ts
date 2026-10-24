@@ -523,7 +523,7 @@ describe('REQ-OPERATOR-003: instrumented activity state outcomes', () => {
 
   it('persists protected parent identity without exposing credentials and permits same-owner reauthentication', () => withActivity(async ({ ctx, activityEnv }) => {
     const claims: VerifiedHumanAccessClaims = { subject: 'owner', email: 'owner@example.test',
-      issuer: 'https://access.example.test', audiences: ['audience'], issuedAt: Math.floor(Date.now() / 1000) - 10,
+      issuer: 'https://activity-reauth.cloudflareaccess.com', audiences: ['audience'], issuedAt: Math.floor(Date.now() / 1000) - 10,
       expiresAt: Math.floor(Date.now() / 1000) + 300 };
     const encryption = { ENCRYPTION_KEY: btoa('a'.repeat(32)) };
     const context = await createOperatorExecutionContext({ activityId: 'activity', operatorId: 'operator',
@@ -537,8 +537,19 @@ describe('REQ-OPERATOR-003: instrumented activity state outcomes', () => {
       owner: { email: 'owner@example.test' }, artifactDigest: 'a'.repeat(64), policyDigest: 'b'.repeat(64) });
     expect(JSON.stringify(await secured.getExecutionContext())).not.toContain('private.jwt');
     const renewed = { ...claims, expiresAt: claims.expiresAt + 300 };
-    expect(await secured.reauthenticate(renewed, 'renewed.jwt')).toMatchObject({ expiresAt: renewed.expiresAt });
-    await expect(secured.reauthenticate({ ...renewed, subject: 'other' }, 'attacker.jwt')).rejects.toThrow('owner');
+    const identity = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const request = new Request(input, init);
+      expect(request.url).toBe(`${claims.issuer}/cdn-cgi/access/get-identity`);
+      const cookie = request.headers.get('cookie');
+      if (cookie !== 'CF_Authorization=renewed.jwt' && cookie !== 'CF_Authorization=attacker.jwt')
+        return new Response(null, { status: 401 });
+      return Response.json({ user_uuid: cookie === 'CF_Authorization=renewed.jwt' ? claims.subject : 'other',
+        email: claims.email });
+    });
+    try {
+      expect(await secured.reauthenticate(renewed, 'renewed.jwt')).toMatchObject({ expiresAt: renewed.expiresAt });
+      await expect(secured.reauthenticate({ ...renewed, subject: 'other' }, 'attacker.jwt')).rejects.toThrow('owner');
+    } finally { identity.mockRestore(); }
   }, false));
 
   it('REQ-OPERATOR-053: stopping the bound session durably fences a prepared Action activity before either start path', () => withActivity(async ({ ctx, activityEnv, token }) => {

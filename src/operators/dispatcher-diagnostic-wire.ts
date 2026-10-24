@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { transportDiagnosticShape } from './dispatcher-refusal';
 
 /** Private, non-authorizing producer wire. No free text, values, URLs or caller identity. */
 const producerRoles = ['discover', 'research', 'decide', 'seal', 'comment', 'merge', 'finish', 'agent', 'provider'] as const;
@@ -23,6 +24,7 @@ export const producerDiagnosticSchema = z.object({
   targetCount: count.optional(), decisionCount: count.optional(), artifactCount: count.optional(), commentCount: count.optional(),
   resultCount: count.optional(), unknownOperationCount: count.optional(), sourceOperationCount: count.optional(),
   discovered: flag.optional(), sealed: flag.optional(), status: z.number().int().min(100).max(599).optional(),
+  ...transportDiagnosticShape,
   claimIndex: count.optional(), claimCount: count.optional(), artifactFound: flag.optional(), artifactComplete: flag.optional(),
   quoteMatched: flag.optional(), commentContainsSource: flag.optional(), repositoryEvidence: flag.optional(),
   upstreamEvidence: flag.optional(), analysisComplete: flag.optional(), gapCount: count.optional(),

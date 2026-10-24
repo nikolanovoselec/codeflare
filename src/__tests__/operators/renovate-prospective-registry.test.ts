@@ -35,13 +35,15 @@ type Prospective = {
 async function fixture(run: (context: { registry: Prospective; restart: () => Prospective;
   native: DurableObjectState; environment: Env; selection: object; proofs: Map<string, unknown>;
   state: { sessions: Map<string, { generation: number; status: string }>;
-    roles: Map<string, string>; revoked: Set<string>; enabled: boolean } }) => Promise<void>) {
+    roles: Map<string, string>; revoked: Set<string>; enabled: boolean;
+    identityFault: 'valid' | 'revoked' | 'unavailable' | 'malformed' | 'transport-error' } }) => Promise<void>) {
   const namespace = (env as unknown as { OPERATOR_REGISTRY: DurableObjectNamespace }).OPERATOR_REGISTRY;
   await runInDurableObject(namespace.getByName(`prospective-registry-${crypto.randomUUID()}`), async (_instance, native) => {
     const state = { sessions: new Map([['asession01', { generation: 3, status: 'running' }],
       ['zsession01', { generation: 4, status: 'running' }]]),
       roles: new Map([['a@example.test', 'admin'], ['z@example.test', 'admin']]),
-      revoked: new Set<string>(), enabled: true };
+      revoked: new Set<string>(), enabled: true,
+      identityFault: 'valid' as 'valid' | 'revoked' | 'unavailable' | 'malformed' | 'transport-error' };
     const kv = createMockKV();
     const database = { prepare: () => ({ bind: (...args: unknown[]) => ({ first: async () => {
       const session = state.sessions.get(String(args[1]));
@@ -80,9 +82,12 @@ async function fixture(run: (context: { registry: Prospective; restart: () => Pr
     globalThis.fetch = async (_request, init) => {
       const cookie = new Headers(init?.headers).get('Cookie') ?? '';
       const token = cookie.replace(/^CF_Authorization=/, '');
-      if (state.revoked.has(token)) return new Response(null, { status: 401 });
+      if (state.revoked.has(token) || state.identityFault === 'revoked') return new Response(null, { status: 401 });
+      if (state.identityFault === 'unavailable') return new Response(null, { status: 503 });
+      if (state.identityFault === 'transport-error') throw new Error('Identity transport unavailable');
       return Response.json({ id: `${token.slice(0, 1)}@example.test`,
-        email: `${token.slice(0, 1)}@example.test`, groups: [] });
+        email: `${token.slice(0, 1)}@example.test`,
+        ...(state.identityFault === 'malformed' ? { groups: null } : {}) });
     };
     try { await run({ registry: registry as unknown as Prospective, restart, native,
       environment, selection, state, proofs }); }
@@ -99,6 +104,23 @@ function pr(registrationId: string, activatedAt: string, patch: Record<string, u
 }
 
 describe('REQ-OPERATOR-061: durable prospective activation and admission', () => {
+  it.each(['revoked', 'unavailable', 'malformed', 'transport-error'] as const)(
+    'REQ-OPERATOR-047: prospective Registry authority with %s live identity denies email-granted reservations without retiring verified no-group registration', fault => fixture(async ({ registry, restart, state }) => {
+      const enrolled = await enroll(registry, 'a');
+      if (!enrolled.ok) throw Error('Activation unavailable');
+      const before = await registry.currentProspectiveRenovateRegistration(enrolled.registrationId);
+      expect(before).toMatchObject({ registrationId: enrolled.registrationId, human: { email: 'a@example.test', groups: [] } });
+      state.identityFault = fault;
+      expect(await restart().currentProspectiveRenovateRegistration(enrolled.registrationId)).toBeNull();
+      expect(await registry.reserveProspectiveRenovateActivity(pr(enrolled.registrationId, enrolled.activatedAt)))
+        .toEqual({ ok: false, reason: 'no-current-admin' });
+      expect(await registry.readProspectiveRenovateAdmission('activity-1')).toBeNull();
+      state.identityFault = 'valid';
+      expect(await restart().currentProspectiveRenovateRegistration(enrolled.registrationId)).toEqual(before);
+      expect(await registry.reserveProspectiveRenovateActivity(pr(enrolled.registrationId, enrolled.activatedAt)))
+        .toMatchObject({ ok: true, activityId: 'activity-1', actor: { registrationId: enrolled.registrationId } });
+    }));
+
   it.each(['old-intent', 'future-intent', 'foreign-package', 'malformed-manifest'])('REQ-OPERATOR-061: unsupported %s cannot activate a prospective current-package registration or retain its cutoff', fault => fixture(async ({ registry, selection }) => {
     const manifest = { id: 'renovate-dispatcher', profile: 'dispatcher', intentVersion: '3' };
     if (fault === 'old-intent') manifest.intentVersion = '2';

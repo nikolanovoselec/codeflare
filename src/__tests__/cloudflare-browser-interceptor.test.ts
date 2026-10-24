@@ -415,3 +415,54 @@ describe('REQ-AGENT-078: enterprise isolation — the AI Gateway host is OAuth-m
 
 // OAuth CDP is exercised through real token resolution and registration in
 // container/browser-interception.test.ts; no owned token helper is mocked there.
+
+describe('REQ-AGENT-078: caller Cloudflare credential precedence', () => {
+  beforeEach(() => { mockGetValidToken.mockRejectedValue(new Error('Managed connection unavailable')); });
+  afterEach(() => vi.restoreAllMocks());
+
+  // Wire contract: caller identity survives even with no usable managed connection,
+  // including an upstream auth refusal. Provider Authorization is a different role.
+  it.each<{ url: string; status: number; headers: Record<string, string> }>([
+    { url: 'https://api.cloudflare.com/client/v4/user/tokens/verify', status: 401,
+      headers: { authorization: 'Bearer caller-cloudflare-token' } },
+    { url: 'https://api.cloudflare.com/client/v4/accounts/other/logpush/jobs', status: 403,
+      headers: { 'x-auth-key': 'caller-global-key', 'x-auth-email': 'caller@example.test' } },
+    { url: 'https://gateway.ai.cloudflare.com/v1/other/gateway/compat/chat/completions', status: 401,
+      headers: { 'cf-aig-authorization': 'Bearer caller-gateway-token', authorization: 'Bearer provider-token' } },
+  ])('preserves caller credentials and upstream$status at $url', async ({ url, status, headers }) => {
+    let received: Request | undefined;
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async input => {
+      received = input as Request;
+      return new Response('upstream auth refusal', { status });
+    });
+    const response = await makeOAuthInterceptor().fetch(new Request(url, {
+      method: 'POST', headers: { ...headers, 'content-type': 'application/json' }, body: '{"input":"caller"}',
+    }));
+    expect(response.status).toBe(status);
+    expect(await response.text()).toBe('upstream auth refusal');
+    expect(received?.url).toBe(url);
+    expect(received?.redirect).toBe('manual');
+    expect(await received?.text()).toBe('{"input":"caller"}');
+    for (const [name, value] of Object.entries(headers)) expect(received?.headers.get(name)).toBe(value);
+  });
+
+  // Error-code contract: ambiguous caller intent cannot select the managed identity.
+  it.each<Record<string, string>>([
+    { authorization: 'Basic caller-credential' },
+    { 'x-auth-key': 'incomplete-key' },
+    { authorization: 'Bearer caller-token', 'x-auth-key': 'key', 'x-auth-email': 'caller@example.test' },
+    { authorization: `Bearer ${PLACEHOLDER}` },
+  ])('refuses malformed, incomplete, conflicting or wrong-mode caller auth: %j', async headers => {
+    const outgoing: Request[] = [];
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async input => {
+      outgoing.push(input as Request);
+      return new Response('must not forward');
+    });
+    const response = await makeOAuthInterceptor().fetch(new Request('https://api.cloudflare.com/client/v4/user', {
+      headers,
+    }));
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({ code: 'CF_CREDENTIALS_INVALID' });
+    expect(outgoing).toEqual([]);
+  });
+});

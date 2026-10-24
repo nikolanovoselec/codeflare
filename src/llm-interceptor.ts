@@ -670,6 +670,7 @@ export class LlmInterceptor extends WorkerEntrypoint<Env> {
         method: request.method,
         headers: h,
         body,
+        signal: request.signal,
         // Do not transparently follow gateway/provider redirects — a 3xx would
         // otherwise be chased to an arbitrary Location host. Surface it to the
         // agent's client instead.

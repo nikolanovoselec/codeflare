@@ -42,6 +42,7 @@ import { createOperatorExecutionContext } from '../operators/execution-context';
 import type { OperatorRuntimePlan } from '../operators/activity';
 import * as access from '../lib/access';
 import { bedrockChunkFrame, bedrockEventFrame, bedrockToolResponse, readOpenAiToolTurn } from './helpers/bedrock-eventstream';
+import { pendingRecipient, within } from './helpers/pending-recipient';
 
 vi.mock('../lib/ai-gateway-management', async (original) => ({
   ...await original<typeof import('../lib/ai-gateway-management')>(),
@@ -980,6 +981,73 @@ describe('native provider authorization and compat dispatch', () => {
       'setup:native_ai_targets': serializeNativeAiTargets({ schemaVersion: 1, targets: includeTarget ? [{ ...target, verification }] : [] }),
     } };
   }
+
+  it.each(['REST', 'native compatibility', 'REST404 fallback', 'JWT REST', 'JWT REST404 fallback'])(
+    'REQ-OPERATOR-047: AC2 LLM %s preserves cancellation to the actual recipient', async leg => {
+      const recipient = pendingRecipient();
+      const controller = new AbortController();
+      const fallback = leg.includes('fallback');
+      const native = leg === 'native compatibility' ? nativeFixture(true, { provider: 'openai', model: 'gpt-5.6-sol',
+        profileId: 'native-openai-compat', providerConfigId: 'openai-default', providerConfigAlias: 'default',
+        adapterVersion: 'native-openai-compat-v1' }) : undefined;
+      const urls: string[] = [];
+      (globalThis.fetch as ReturnType<typeof vi.fn>).mockImplementation((request: Request) => {
+        urls.push(request.url);
+        if (fallback && new URL(request.url).hostname === 'api.cloudflare.com') return Promise.resolve(new Response('', { status: 404 }));
+        return recipient.fetch(request);
+      });
+      const stamped = leg.startsWith('JWT');
+      const interceptor = makeInterceptor(native ? { __kv: native.kv } as Partial<Env> : {}, {
+        user: SESSION_USER, sessionId: 'signal-continuity', ...(native ? { groups: ['engineering'] } : {}),
+        ...(stamped ? { jwtStamping: { mode: 'list' as const, destinations: ['api.cloudflare.com', 'gateway.ai.cloudflare.com'] }, jwtAuthority } : {}),
+      });
+      const result = interceptor.fetch(new Request('https://api.openai.com/v1/chat/completions', {
+        method: 'POST', signal: controller.signal, headers: { authorization: 'Bearer placeholder',
+          ...(stamped ? { 'cf-access-jwt-assertion': 'spoof' } : {}) },
+        body: JSON.stringify({ model: native?.handle ?? 'dynamic/codeflare-enterprise', messages: [{ role: 'user', content: 'cancel me' }] }),
+      }));
+      try {
+        const forwarded = await within(recipient.entered, 'LLM recipient entry');
+        controller.abort();
+        await expect.poll(recipient.aborted, { timeout: 300 }).toBe(true);
+        const response = await within(result, 'LLM abort response');
+        expect(response.status).toBe(502);
+        expect(await response.json()).toEqual({ error: 'gateway fetch failed', code: 'GATEWAY_FETCH_FAILED' });
+        const compat = fallback || !!native;
+        expect(new URL(forwarded.url).hostname).toBe(compat ? 'gateway.ai.cloudflare.com' : 'api.cloudflare.com');
+        expect(forwarded.headers.get(compat ? 'cf-aig-authorization' : 'authorization')).toBe(`Bearer ${AIG_TOKEN}`);
+        expect(forwarded.headers.get('cf-access-jwt-assertion')).toBe(stamped ? 'verified.jwt' : null);
+        expect(forwarded.redirect).toBe('manual');
+        // Recipient trace is paired with abort/error policy: no post-abort replacement leg.
+        expect(urls).toEqual(fallback ? [`${REST_BASE}/v1/chat/completions`, `${GATEWAY}/compat/chat/completions`] : [forwarded.url]);
+      } finally {
+        controller.abort(); recipient.release();
+        await within(result, 'LLM cleanup').catch(() => undefined);
+      }
+    });
+
+  it('REQ-OPERATOR-047: AC2 cancellation before REST404 fallback cannot start live compatibility work', async () => {
+    const recipient = pendingRecipient(); const controller = new AbortController();
+    let entered!: () => void; const restEntered = new Promise<void>(resolve => { entered = resolve; });
+    let finish!: (response: Response) => void; const rest = new Promise<Response>(resolve => { finish = resolve; });
+    (globalThis.fetch as ReturnType<typeof vi.fn>).mockImplementation((request: Request) => {
+      if (new URL(request.url).hostname === 'api.cloudflare.com') { entered(); return rest; }
+      return recipient.fetch(request);
+    });
+    const result = makeInterceptor().fetch(new Request('https://api.openai.com/v1/chat/completions', {
+      method: 'POST', signal: controller.signal, body: '{"model":"dynamic/codeflare-enterprise","messages":[{"role":"user","content":"cancel"}]}',
+    }));
+    try {
+      await within(restEntered, 'REST entry'); controller.abort(); finish(new Response('', { status: 404 }));
+      const response = await within(result, 'pre-aborted fallback response');
+      expect(response.status).toBe(502);
+      expect(await response.json()).toMatchObject({ code: 'GATEWAY_FETCH_FAILED' });
+      expect(recipient.activeUrls).toEqual([]);
+    } finally {
+      controller.abort(); finish(new Response('', { status: 404 })); recipient.release();
+      await within(result, 'fallback cleanup').catch(() => undefined);
+    }
+  });
 
   it('REQ-OPERATOR-048: Dispatcher uses real native inference with stable Activity-isolated signed tool replay', async () => {
     const fixture = nativeFixture(true, { model: 'eu.anthropic.claude-opus-5', profileId: 'bedrock-anthropic-native-opus-stream',
