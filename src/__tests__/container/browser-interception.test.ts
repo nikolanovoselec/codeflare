@@ -70,7 +70,7 @@ it.each([false, true])('REQ-BROWSER-008 AC2: registered Browser dispatch precede
   expect(f.direct.map(request => request.url)).toEqual(['https://api.cloudflare.com/client/v4/accounts/acc/browser-rendering/snapshot']);
 });
 
-it.each(['token', 'account'] as const)('REQ-BROWSER-008 AC2: missing %s leaves Browser traffic without admin credentials', async missing => {
+it.each(['token', 'account'] as const)('REQ-BROWSER-008 AC5: missing %s leaves Browser traffic without admin credentials', async missing => {
   const f = await registered({ strict: true, [missing]: '' });
   // Missing Browser credentials remain a managed-credential refusal, not LLM routing.
   const response = await f.send('/client/v4/accounts/acc/browser-rendering/snapshot');
@@ -126,6 +126,9 @@ it.each([{ containerToken: 'owner-pat' }, { bucket: '' }])('REQ-AGENT-078: OAuth
 // Public transport contract: real registrations preserve caller destination, body
 // and credentials across changed modes; PAT/plain reuse their transparent path.
 it.each([
+  { mode: 'connected OAuth REST inference', enterprise: false, strict: false, token: '', account: '',
+    connected: true, containerToken: 'codeflare-oauth', bucket: 'user-bucket',
+    url: 'https://api.cloudflare.com/client/v4/accounts/other/ai/v1/chat/completions' },
   { mode: 'OAuth REST inference', enterprise: false, strict: false, token: '', account: '',
     containerToken: 'codeflare-oauth', bucket: 'user-bucket',
     url: 'https://api.cloudflare.com/client/v4/accounts/other/ai/v1/chat/completions' },
@@ -148,7 +151,7 @@ it.each([
     token: 'admin-browser-token', account: 'acc', containerToken: '', bucket: 'user-bucket',
     url: 'https://api.cloudflare.com/client/v4/accounts/acc/browser-rendering/snapshot' },
 ])('REQ-BROWSER-008/REQ-AGENT-078: caller identity through registered $mode transport', async options => {
-  const f = await registered({ ...options, connected: false });
+  const f = await registered({ connected: false, ...options });
   const gateway = new URL(options.url).hostname === 'gateway.ai.cloudflare.com';
   const headers: Record<string, string> = gateway
     ? { 'cf-aig-authorization': 'Bearer caller-cloudflare-token', authorization: 'Bearer provider-token' }
