@@ -6,6 +6,8 @@ import { SETUP_KEYS } from './kv-keys';
 import { isEnterpriseMode } from './subscription';
 import { isPersonalPiCloudFamily, isPersonalPiDestination } from './personal-pi-destinations';
 import { jsonError, STRIPPED_REQUEST_HOP_BY_HOP } from './controller-egress';
+import { classifyCloudflareCredentials } from './cloudflare-credentials';
+import { ENTERPRISE_BROWSER_TOKEN_PLACEHOLDER } from './constants';
 
 interface PersonalPiReference { bucket: string; sessionId: string; user: string; generation?: number }
 export interface PersonalPiProps {
@@ -66,9 +68,17 @@ export async function forwardPersonalPi(request: Request, env: Env, props?: Pers
     if (!props?.personalPi || !await authorizePersonalPi(env, props.personalPi)) return denied();
   } catch { return denied(); }
   const headers = new Headers(request.headers);
+  const cloudflare = url.hostname === 'api.cloudflare.com' || url.hostname === 'gateway.ai.cloudflare.com';
+  if (cloudflare) {
+    const credentials = classifyCloudflareCredentials(headers, url.hostname === 'gateway.ai.cloudflare.com',
+      ENTERPRISE_BROWSER_TOKEN_PLACEHOLDER);
+    if (credentials === 'invalid') return jsonError(400, 'CF_CREDENTIALS_INVALID', 'Cloudflare credentials are invalid');
+    if (credentials === 'key-email') headers.delete('authorization');
+  }
   for (const name of ['authorization', 'x-api-key', 'cf-aig-authorization']) {
     const credential = headers.get(name)?.replace(/^Bearer\s+/i, '');
-    if (native && credential && (credential.startsWith('codeflare-enterprise') || credential === props?.token || credential === env.AIG_TOKEN)) return denied();
+    const placeholder = cloudflare ? credential === ENTERPRISE_BROWSER_TOKEN_PLACEHOLDER : credential?.startsWith('codeflare-enterprise');
+    if (native && credential && (placeholder || credential === props?.token || credential === env.AIG_TOKEN)) return denied();
   }
   for (const name of [...STRIPPED_REQUEST_HOP_BY_HOP, 'host', 'content-length', 'cf-access-jwt-assertion', 'cf-aig-metadata', 'cf-aig-gateway-id']) headers.delete(name);
   if (url.hostname !== 'gateway.ai.cloudflare.com') headers.delete('cf-aig-authorization');

@@ -2881,6 +2881,10 @@ Wiring (the `cloudflareOauthApi` interception-registry entry in `container-inter
 
 **Consequences:** A non-enterprise OAuth session now survives indefinitely past the access-token TTL for both wrangler and interactive browser-run. The real OAuth access token never enters the (untrusted) container — the blast radius of a prompt-injected read is a non-secret placeholder — extending the [REQ-SEC-002](../../sdd/spec/security.md#req-sec-002-api-tokens-never-enter-containers) "tokens never enter containers" invariant to the per-user OAuth token. Enterprise is byte-identical: the enterprise interceptor branch and `applyEnterpriseBrowserToken` are unchanged, and the existing REQ-BROWSER-008 suite is the regression oracle. A **PAT**-source non-enterprise session is unchanged (its token is long-lived and still passes to the container). One added per-request worker hop on `api.cloudflare.com` for OAuth sessions — a low-frequency host — with `getValidCloudflareToken` short-circuiting when the cached token is still valid.
 
+**Caller-credential refinement:** The managed refresh decision above applies only to absent credentials or the exact bound-mode placeholder. Explicit API Bearer/key-email or Gateway credentials remain caller-owned, bypassing lookup and refresh without bypassing existing authorization or inspected egress.
+
+Enterprise registers its API handler even without Browser configuration. Managed administrator injection remains account/path-scoped; caller requests never inherit its token or backend exemption. PAT/plain transports and protected managed inference remain unchanged.
+
 **Related:** [REQ-AGENT-078](../../sdd/spec/agents.md#req-agent-078-cloudflare-oauth-token-refreshed-at-the-apicloudflarecom-boundary), [REQ-AGENT-064](../../sdd/spec/agents.md#req-agent-064-connect-to-cloudflare-via-oauth), [REQ-BROWSER-008](../../sdd/spec/browser-run.md#req-browser-008-browser-rendering-token-interception-never-in-the-container), [REQ-SEC-002](../../sdd/spec/security.md#req-sec-002-api-tokens-never-enter-containers), [AD81](#ad81-reuse-the-container-egress-injection-layer-for-per-user-github-tokens).
 
 ---

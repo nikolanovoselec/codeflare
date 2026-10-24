@@ -450,6 +450,7 @@ describe('REQ-AGENT-078: caller Cloudflare credential precedence', () => {
   it.each<Record<string, string>>([
     { authorization: 'Basic caller-credential' },
     { 'x-auth-key': 'incomplete-key' },
+    { 'x-auth-key': OAUTH_PLACEHOLDER, 'x-auth-email': 'caller@example.test' },
     { authorization: 'Bearer caller-token', 'x-auth-key': 'key', 'x-auth-email': 'caller@example.test' },
     { authorization: `Bearer ${PLACEHOLDER}` },
   ])('refuses malformed, incomplete, conflicting or wrong-mode caller auth: %j', async headers => {

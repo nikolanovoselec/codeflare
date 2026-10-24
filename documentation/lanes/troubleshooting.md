@@ -784,7 +784,7 @@ If a direct-internet host is going direct: confirm `ENTERPRISE_MODE=active` (the
 
 **Fix detail:**
 
-Fixed: this account's own R2 (`<accountId>.r2.cloudflarestorage.com`) is account-scoped-exempt and egresses **direct** (never `cf1:network`), so bisync no longer depends on the Gateway path. Update the deploy to the build with the `isAccountScopedDestination()` exemption (`src/lib/controller-egress.ts`). The AI Gateway and the account-scoped Browser Rendering path are exempt the same way.
+Fixed: this account's own R2 (`<accountId>.r2.cloudflarestorage.com`) is account-scoped-exempt and egresses **direct** (never `cf1:network`), so bisync no longer depends on the Gateway path. Update the deploy to the build with the `isAccountScopedDestination()` exemption (`src/lib/controller-egress.ts`). Managed AI Gateway and configured administrator Browser backends are exempt; caller-owned Cloudflare requests still require inspection when strict egress is enabled.
 
 <a id="enterprise-mode-strict-gateway-egress-on-and-interactive-browser-run-f"></a>
 #### Enterprise Mode: Strict Gateway Egress ON and interactive browser-run (Chrome DevTools / Pi `chrome-devtools`) fails with `400` "Could not connect to Chrome" / the CDP WebSocket handshake dies (`Network connection lost`), while non-interactive browser REST calls work
@@ -798,6 +798,12 @@ Returning the upstream `101`+`webSocket` *as-is* (an earlier build) does **not**
 Update the deploy to the build with the WebSocket-**bridge** path (`src/egress-controller.ts`).
 
 **If browser-run still `canceled`s after this deploy** (the open point on whether an *outbound* interceptor propagates a returned `101`): the per-host `CloudflareBrowserInterceptor` already claims `api.cloudflare.com` ahead of the `'*'` catch-all and bridges the CDP WS itself, injecting the real token at that boundary while the container carries only the placeholder ([REQ-BROWSER-008](../../sdd/spec/browser-run.md#req-browser-008-browser-rendering-token-interception-never-in-the-container)).
+
+#### Caller-owned Cloudflare credentials
+
+- `400 CF_CREDENTIALS_INVALID` is a local selection refusal: check malformed Bearer syntax, incomplete key/email pairs, conflicting identities or the wrong mode's reserved placeholder. Do not substitute a managed token.
+- An upstream `401`/`403` remains the caller credential's result, even when a managed connection exists. Native-provider and Operator policy refusals remain distinct and authoritative.
+- `503 EGRESS_UNAVAILABLE` means required strict inspection is unavailable. Restore the binding rather than bypassing inspection; caller credentials never inherit the administrator Browser backend exemption.
 
 ## GitHub Integration
 

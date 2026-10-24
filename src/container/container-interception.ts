@@ -265,33 +265,31 @@ const github: InterceptorSpec = {
  * the real admin Browser Rendering token worker-side, ONLY for the wizard-configured browser
  * account's /browser-rendering/* path (REST + CDP WebSocket). Wired independent of strict so
  * browser-run works in every enterprise configuration; `strict` is passed so the interceptor
- * routes any non-browser-rendering api.cloudflare.com call to the Gateway (else 403).
- * Credential resolution failures are caught here (matching the historical whole-body guard)
- * so they log-and-skip rather than break container start.
+ * routes managed non-Browser API calls to the Gateway (else 403), not the caller-owned lane.
+ * Registration is independent of Browser credentials: caller-owned requests still work when
+ * the administrator configuration is absent or unavailable; managed Browser requests fail closed.
  */
 const browserRendering: InterceptorSpec = {
   mode: 'enterprise',
   async resolve(host) {
+    let token: string | null = null;
+    let accountId: string | null = null;
     try {
       const cryptoKey = await getOrImportKey(host.env);
-      const { token, accountId } = await getEnterpriseBrowserCreds(host.env, cryptoKey);
-      if (!token || !accountId) {
-        host.logger.info('Enterprise Browser Rendering interception not wired (no admin token/account configured)');
-        return null;
-      }
-      return {
-        entrypoint: 'CloudflareBrowserInterceptor',
-        props: { ...await personalPiProps(host), browserAccountId: accountId, browserToken: token, strict: host._strictEgress,
-          ...(host._operatorPolicy ? { operatorPolicy: host._operatorPolicy } : {}), ...jwtProps(host) },
-        hosts: INTERCEPTED_CF_BROWSER_HOSTS,
-        wiredLog: 'Enterprise Browser Rendering interception wired',
-        wiredLogData: { hostCount: INTERCEPTED_CF_BROWSER_HOSTS.length },
-        failLog: 'Failed to wire enterprise Browser Rendering interception',
-      };
+      ({ token, accountId } = await getEnterpriseBrowserCreds(host.env, cryptoKey));
     } catch (err) {
-      host.logger.error('Failed to wire enterprise Browser Rendering interception', toError(err));
-      return null;
+      host.logger.error('Failed to resolve enterprise Browser Rendering credentials', toError(err));
     }
+    return {
+      entrypoint: 'CloudflareBrowserInterceptor',
+      props: { ...await personalPiProps(host), ...(accountId ? { browserAccountId: accountId } : {}),
+        ...(token ? { browserToken: token } : {}), strict: host._strictEgress,
+        ...(host._operatorPolicy ? { operatorPolicy: host._operatorPolicy } : {}), ...jwtProps(host) },
+      hosts: INTERCEPTED_CF_BROWSER_HOSTS,
+      wiredLog: 'Enterprise Browser Rendering interception wired',
+      wiredLogData: { hostCount: INTERCEPTED_CF_BROWSER_HOSTS.length },
+      failLog: 'Failed to wire enterprise Browser Rendering interception',
+    };
   },
 };
 

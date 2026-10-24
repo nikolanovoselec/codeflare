@@ -13,7 +13,7 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-10-24
 
-- **Planned — preserve caller Cloudflare identity across deployment modes** ([REQ-AGENT-078](agents.md#req-agent-078-cloudflare-oauth-token-refreshed-at-the-apicloudflarecom-boundary), [REQ-BROWSER-008](browser-run.md#req-browser-008-browser-rendering-token-interception-never-in-the-container)). Explicit API/Gateway credentials must not be replaced by a managed connection. Missing/exact placeholders retain managed behavior; strict egress, administrator Browser scope and native-provider/Operator restrictions remain authoritative. The focused test/spec-only batch covers caller roles, auth refusals and existing registered transports; implementation follows authoritative RED.
+- Preserve caller Cloudflare identity across deployment modes ([REQ-AGENT-078](agents.md#req-agent-078-cloudflare-oauth-token-refreshed-at-the-apicloudflarecom-boundary), [REQ-BROWSER-008](browser-run.md#req-browser-008-browser-rendering-token-interception-never-in-the-container)). Explicit API Bearer/key-email and Gateway credentials bypass managed lookup/fallback independently of Browser configuration; missing/exact placeholders retain managed behavior, with strict egress, administrator scope and native-provider/Operator restrictions authoritative.
 
 ## 2026-10-22
 

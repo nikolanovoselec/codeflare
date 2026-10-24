@@ -175,6 +175,30 @@ it('REQ-ENTERPRISE-088 AC5: OAuth Codex and native cloud destinations retain aut
   }
 });
 
+it('REQ-AGENT-078: native Cloudflare Gateway preserves caller roles under strict inspection and revocation', async () => {
+  const f = fixture(true);
+  const interceptor = new LlmInterceptor({ props: { user: owner.user, personalPi: owner, strict: true } } as unknown as ExecutionContext, f.env);
+  const url = 'https://gateway.ai.cloudflare.com/v1/other/gateway/compat/chat/completions';
+  const body = JSON.stringify({ model: 'caller-model', messages: [] });
+  const send = () => interceptor.fetch(new Request(url, { method: 'POST', body, headers: {
+    authorization: 'Bearer codeflare-enterprise-caller-provider',
+    'cf-aig-authorization': 'Bearer caller-gateway-token', 'content-type': 'application/json',
+  } }));
+  expect((await send()).status).toBe(200);
+  expect(f.requests).toEqual([]);
+  expect(f.egressRequests.map(request => request.url)).toEqual([url]);
+  const received = f.egressRequests[0];
+  expect(received.method).toBe('POST');
+  expect(received.redirect).toBe('manual');
+  expect(received.headers.get('authorization')).toBe('Bearer codeflare-enterprise-caller-provider');
+  expect(received.headers.get('cf-aig-authorization')).toBe('Bearer caller-gateway-token');
+  expect(await received.text()).toBe(body);
+  f.policy(false);
+  expect((await send()).status).toBe(403);
+  expect(f.egressRequests.map(request => request.url)).toEqual([url]);
+  expect(f.requests).toEqual([]);
+});
+
 it('REQ-ENTERPRISE-088 AC5: reused native WebSockets deny frames after warm policy revocation', async () => {
   const f = fixture();
   const provider = new WebSocketPair();
