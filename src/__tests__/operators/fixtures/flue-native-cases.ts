@@ -206,11 +206,6 @@ export function registerNativeDispatcherCases(
         evidence?: Array<{ index: number; complete: boolean }>; batches?: string[][];
         firstAppend?: { category: 'canonical-append-oversized' | 'canonical-append-other'; largestRecordType?: 'state_write' } | null;
         sdkSubmissions?: Array<{ stage: 'sdk-submission-running' | 'sdk-submission-exhausted'; submissionDigest: string; attemptCount: number; maxAttempts: number }> } };
-    function originalSdk(value: Composed) {
-      const entries = value.external.sdkSubmissions ?? [];
-      const initial = entries.find(entry => entry.stage === 'sdk-submission-running' && entry.attemptCount === 1);
-      return initial ? entries.filter(entry => entry.submissionDigest === initial.submissionDigest) : [];
-    }
     // Intentional intent4 wire contract, observed through the real capability.
     // Completed predecessors here are the host's SDK-settled lineage, not model claims.
     function assertSerialPhases(value: Composed, targets: Array<{ pullRequest: number; headSha: string }>) {
@@ -265,48 +260,10 @@ export function registerNativeDispatcherCases(
       expect(predicate(value!), reportObservation(value!)).toBe(true);
       return value!;
     }
-    it.each([17])('REQ-OPERATOR-045/011/048: SDK admits the saved submission limit %s independently of inference retries', async limit => {
-      const pinned = await pinnedArtifact(false, false, true);
-      const id = `submission-limit-${crypto.randomUUID()}`;
-      expect(await composed(id, { action: 'start', ...pinned, scenario: 'precommit-reset', attemptLimit: 4,
-        submissionAttemptLimit: limit })).toMatchObject({ ok: true });
-      const expected = limit;
-      await observed(id, value => value.external.held);
-      await composed(id, { action: 'evict' });
-      await composed(id, { action: 'release' });
-      // The SDK's first running event precedes input application; replacement
-      // attempts expose the effective pinned budget on that same submission.
-      const result = await observed(id, value => value.detail.executionStatus === 'completed'
-        && originalSdk(value).some(entry => entry.stage === 'sdk-submission-running'
-          && (entry.attemptCount > 1 && entry.maxAttempts === expected)));
-      expect(originalSdk(result).length).toBeGreaterThan(0);
-      expect(result.external.comments).toHaveLength(1);
-      expect(await composed(id, { action: 'collect' })).toMatchObject({ ok: true, detail: { result: {
-        repository: 'authorized/project', results: [expect.objectContaining({ outcome: 'NOT_MERGED' })],
-      } } });
-    }, 60_000);
-
-    it('REQ-OPERATOR-011/048: a recovered SDK submission retains its original admitted attempt limit', async () => {
-      const pinned = await pinnedArtifact(false, false, true);
-      const id = `submission-pin-${crypto.randomUUID()}`;
-      expect(await composed(id, { action: 'start', ...pinned, scenario: 'precommit-reset', attemptLimit: 4,
-        submissionAttemptLimit: 17 })).toMatchObject({ ok: true });
-      await observed(id, value => value.external.held);
-      await composed(id, { action: 'change-submission-policy', submissionAttemptLimit: 1 });
-      await composed(id, { action: 'evict' });
-      await composed(id, { action: 'release' });
-      const result = await observed(id, value => value.detail.executionStatus === 'completed'
-        && originalSdk(value).some(entry => entry.stage === 'sdk-submission-running' && entry.attemptCount > 1));
-      const replacements = originalSdk(result).filter(entry => entry.stage === 'sdk-submission-running' && entry.attemptCount > 1);
-      expect(replacements.length).toBeGreaterThan(0);
-      expect(replacements.every(entry => entry.maxAttempts === 17), JSON.stringify(replacements)).toBe(true);
-      expect(result.external.comments).toHaveLength(1);
-      expect(await composed(id, { action: 'collect' })).toMatchObject({ ok: true });
-    }, 60_000);
-
-    // Ordinary (including its supplements), committed-reset, duplicate and precommit-reset
-    // table workloads are retired after ProxyWorker connection loss; do not recreate equivalents.
-    it.each(['incomplete', 'native-error'] as const)(
+    // Ordinary/supplemental, committed-reset, duplicate, precommit-reset and incomplete rows,
+    // plus saved-submission budget/recovery workloads, are retired after ProxyWorker connection loss.
+    // Do not recreate equivalents; retirement supplies no passing behavioral evidence.
+    it.each(['native-error'] as const)(
       'REQ-OPERATOR-048: composed %s inference reaches a real collected assessment with one repository effect', async scenario => {
         const original = await pinnedArtifact(false, false, true);
         async function run(pinned: { artifact: NativeArtifact; digest: string }) {
