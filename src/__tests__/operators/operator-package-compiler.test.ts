@@ -31,7 +31,7 @@ describe('shared operator package compiler', () => {
     expect(parsed.resources?.files[0]).toMatchObject({ size: 12, sha256: sha(new TextEncoder().encode('exact bytes\n')) });
   });
 
-  it.each(['2.1.0', '2.2.2'])('emits the supported SDK %s bundle and provenance over exact emitted bytes', async version => {
+  it.each(['2.1.0', '2.2.2', '2.3.0'])('emits the supported SDK %s bundle and provenance over exact emitted bytes', async version => {
     const result = await compileOperatorPackage({ manifest: manifest('dispatcher'), bundle: dispatcher(version), provenance: {
       repositoryId: 7, sourceCommit: 'a'.repeat(40), compilerCommit: 'b'.repeat(40), workflow: { id: 8, ref: 'refs/heads/main', runId: 9, runAttempt: 1 },
     } });
@@ -57,6 +57,8 @@ describe('shared operator package compiler', () => {
     { runtime: '2.1.0', vitePlugin: '2.2.2', agents: '0.20.1' },
     { runtime: '2.2.2', vitePlugin: '2.1.0', agents: '0.20.1' },
     { runtime: '2.2.2', vitePlugin: '2.2.2', agents: '0.24.0' },
+    { runtime: '2.3.0', vitePlugin: '2.2.2', agents: '0.20.1' },
+    { runtime: '2.3.0', vitePlugin: '2.3.0', agents: '0.20.1', unapproved: true },
     { runtime: '2.2.3', vitePlugin: '2.2.3', agents: '0.20.1' },
     { runtime: '2.2.2', vitePlugin: '2.2.2', agents: '0.20.1', unapproved: true },
   ])('rejects mixed or unapproved SDK tuple %j without emitting a package', async versions => {

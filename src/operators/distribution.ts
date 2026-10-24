@@ -78,6 +78,7 @@ const dispatcherBundleSchema = z.strictObject({
   versions: z.union([
     z.strictObject({ runtime: z.literal('2.1.0'), vitePlugin: z.literal('2.1.0'), agents: z.literal('0.20.1') }),
     z.strictObject({ runtime: z.literal('2.2.2'), vitePlugin: z.literal('2.2.2'), agents: z.literal('0.20.1') }),
+    z.strictObject({ runtime: z.literal('2.3.0'), vitePlugin: z.literal('2.3.0'), agents: z.literal('0.20.1') }),
   ]),
   className: z.literal('FlueDispatcherAgent'),
   compatibilityDate: z.literal('2026-09-10'),

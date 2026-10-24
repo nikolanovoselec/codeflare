@@ -13,6 +13,7 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-10-24
 
+- Recognize the approved Flue runtime/plugin `2.3.0/2.3.0` build tuple alongside existing tuples, retaining exact Agents `0.20.1`, artifact digests and rejection of mixed/unknown/authority-bearing metadata ([REQ-OPERATOR-048](operators.md#req-operator-048-dispatcher-execution)). This dependency prerequisite does not qualify native inference, runtime patches or deployment; current-head CI remains pending.
 - Preserve caller Cloudflare identity across deployment modes ([REQ-AGENT-078](agents.md#req-agent-078-cloudflare-oauth-token-refreshed-at-the-apicloudflarecom-boundary), [REQ-BROWSER-008](browser-run.md#req-browser-008-browser-rendering-token-interception-never-in-the-container)). Explicit API Bearer/key-email and Gateway credentials bypass managed lookup/fallback independently of Browser configuration; missing/exact placeholders retain managed behavior, with strict egress, administrator scope and native-provider/Operator restrictions authoritative.
 
 ## 2026-10-22

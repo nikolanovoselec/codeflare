@@ -79,7 +79,7 @@ async function buildBundle(raw) {
       || bundle.compatibilityDate !== '2026-09-10' || JSON.stringify(bundle.compatibilityFlags) !== '["nodejs_compat"]') fail('Dispatcher bundle metadata is incompatible');
     const versions = object(bundle.versions, 'bundle.versions');
     exactKeys(versions, ['runtime', 'vitePlugin', 'agents'], 'bundle.versions');
-    if (!['2.1.0', '2.2.2'].includes(versions.runtime) || versions.vitePlugin !== versions.runtime
+    if (!['2.1.0', '2.2.2', '2.3.0'].includes(versions.runtime) || versions.vitePlugin !== versions.runtime
       || versions.agents !== '0.20.1') fail('Dispatcher versions are incompatible');
     validateModules(bundle.modules, bundle.mainModule);
     return { bundle, dispatcher: true };
