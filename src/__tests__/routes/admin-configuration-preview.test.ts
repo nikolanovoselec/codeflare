@@ -105,6 +105,25 @@ describe('POST /admin/configuration-previews (REQ-SETUP-018)', () => {
     }
   });
 
+  it('REQ-ENTERPRISE-088: native default survives preview save and reload without replacing managed defaults', async () => {
+    const { app } = createApp({ ENTERPRISE_MODE: 'active', AIG_TOKEN: 'saved-token', AIG_GATEWAY_URL: routingGatewayUrl });
+    const values = { ...enterpriseAiValues, groupRouting: [{ ...enterpriseAiValues.groupRouting[0],
+      allowPersonalPiProviders: true, piDefaultSource: 'pi-native' }] };
+    const response = await post(app, { section: 'aiRouting', baseRevision: 0, values });
+    expect(response.status).toBe(200);
+    const preview = await response.json() as { warnings: { code: string }[] };
+    const saved = await app.request('/admin/configuration-runs', { method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ section: 'aiRouting', baseRevision: 0, values,
+        confirmedWarnings: preview.warnings.map(item => item.code) }) });
+    expect(saved.status).toBe(200);
+    const events = (await saved.text()).trim().split('\n').map(line => JSON.parse(line));
+    expect(events.at(-1).run.state).toBe('succeeded');
+    const reloaded = await app.request('/admin/configuration');
+    expect(await reloaded.json()).toMatchObject({ sections: { aiRouting: { groupRouting: { engineering: {
+      piDefaultSource: 'pi-native', allowPersonalPiProviders: true, defaultRoute: 'claude', reasoning: 'medium',
+    } } } } });
+  });
+
   it('rejects unauthenticated and non-admin requests', async () => {
     const { app } = createApp();
     mockAuthReject = true;

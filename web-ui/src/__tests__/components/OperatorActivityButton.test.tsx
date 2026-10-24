@@ -735,3 +735,26 @@ describe('REQ-OPERATOR-027: repository-only Dispatcher result presentation', () 
     expect(screen.queryByText(/Result format unavailable/)).toBeNull();
   });
 });
+
+
+describe('REQ-OPERATOR-057: functional Pi login recovery', () => {
+  it('shows safe provider recovery with logging OFF while retaining failed execution state', async () => {
+    const failed = { ...active, executionStatus: 'failed' as const, cleanupStatus: 'stopped' as const,
+      collectionStatus: 'unavailable' as const, attention: true };
+    listMock.mockResolvedValue({ items: [failed] });
+    detailMock.mockResolvedValue({ ...failed, checkpoint: null, result: null, loggingEnabled: false,
+      authFailure: { code: 'PI_LOGIN_REQUIRED', reason: 'expired', provider: 'openai-codex' },
+      inferenceSelection: { source: 'pi-native', provider: 'openai-codex', model: 'gpt-6.1-sol',
+        api: 'openai-codex-responses', reasoningLevel: 'low', reasoningSource: 'installation' } });
+    render(() => <OperatorActivityButton enabled />);
+    await fireEvent.click(screen.getByRole('button', { name: /operator activity/i }));
+    await fireEvent.click(await screen.findByRole('button', { name: 'View activity-1' }));
+    // Intentional recovery-copy contract; neither a new Activity state nor an automatic retry action.
+    expect(await screen.findByText('The saved Pi authentication is missing, expired or rejected. Open your Pi session, run /login or update the API key, wait for successful synchronization to R2, then explicitly retry.')).toBeTruthy();
+    expect(screen.getAllByText(/openai-codex/).length).toBeGreaterThan(0);
+    expect(screen.getByText(/gpt-6\.1-sol/)).toBeTruthy();
+    expect(screen.getByText(/Low/)).toBeTruthy();
+    expect(screen.getByText(/override/i)).toBeTruthy();
+    expect(screen.getAllByText('failed').length).toBeGreaterThan(0);
+  });
+});

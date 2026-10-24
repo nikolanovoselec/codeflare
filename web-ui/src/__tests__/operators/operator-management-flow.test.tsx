@@ -401,3 +401,29 @@ describe('REQ-OPERATOR-049: management decisions and recovery', () => {
     expect(await screen.findByText('Permissions saved. Management does not grant execution.')).toBeInTheDocument();
   });
 });
+
+
+describe('REQ-OPERATOR-007: installation-only Pi reasoning', () => {
+  it('saves the installation-only Low override without enabling the installation', async () => {
+    let current = { ...installation, piReasoningOverride: undefined as string | undefined };
+    let saved: Record<string, unknown> | undefined;
+    serve = (url, init) => {
+      if (url.pathname.endsWith('/configure') && init?.method === 'POST') {
+        saved = JSON.parse(String(init.body));
+        current = { ...current, piReasoningOverride: saved!.piReasoningOverride as string, revision: current.revision + 1 };
+        return json(current);
+      }
+      return url.pathname.endsWith('/operator-1') ? json({ ...detail(), installations: [current] })
+        : json({ items: [operator], cursor: null });
+    };
+    render(() => <OperatorManagement />);
+    fireEvent.click(await screen.findByRole('button', { name: `Manage ${operator.repositoryUrl}` }));
+    const override = await screen.findByRole('combobox', { name: 'test Pi reasoning' });
+    expect(override).toHaveValue('');
+    fireEvent.change(override, { target: { value: 'low' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save restrictions for test' }));
+    await waitFor(() => expect(saved).toMatchObject({ revision: 2, piReasoningOverride: 'low', policy }));
+    await waitFor(() => expect(screen.getByRole('combobox', { name: 'test Pi reasoning' })).toHaveValue('low'));
+    expect(screen.queryByRole('button', { name: 'Disable' })).not.toBeInTheDocument();
+  });
+});

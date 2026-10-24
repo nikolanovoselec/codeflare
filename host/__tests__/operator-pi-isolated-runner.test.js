@@ -35,14 +35,32 @@ async function fixture(t, configOverrides = {}, behavior = {}) {
     await writeFile(path.join(cwd, relative), `approved:${relative}`);
   }
   await mkdir(path.join(root, 'agent'));
-  await writeFile(path.join(root, 'agent/auth.json'), '{"secret":"credential"}');
+  await writeFile(path.join(root, 'agent/auth.json'), behavior.native ? '{}' : '{"secret":"credential"}');
   await mkdir(path.join(cwd, 'src'));
   await writeFile(path.join(cwd, 'src/candidate.ts'), 'candidate source');
   const childSessions = [];
   const abortedChildren = new Set();
   let rootOptions;
+  // Public provider/runtime stand-ins, not a provider protocol qualification.
+  // The fake SDK requests High, while the application must enforce the bound
+  // Low before a request reaches the injected outgoing transport.
+  const outgoing = [];
+  const nativeModel = { provider: 'openai-codex', id: 'gpt-6.1-sol', api: 'openai-codex-responses' };
+  const send = async (model, _context, options = {}) => {
+    const request = new Request('https://chatgpt.com/backend-api/codex/responses', { method: 'POST',
+      headers: { authorization: `Bearer ${options.apiKey}`, ...options.headers, 'content-type': 'application/json' },
+      body: JSON.stringify({ model: model.id, reasoning: { effort: options.reasoningEffort ?? options.reasoning } }) });
+    outgoing.push(request);
+    return new Response('data: [DONE]\n\n', { headers: { 'content-type': 'text/event-stream' } });
+  };
+  let provider = { id: 'openai-codex', models: [nativeModel], auth: {}, stream: send, streamSimple: send };
+  const runtime = { getModel: () => behavior.native ? nativeModel : { provider: 'anthropic', id: 'approved' },
+    getProvider: id => id === provider.id ? provider : undefined,
+    registerNativeProvider: bound => { provider = bound; },
+    stream: (model, context, options) => provider.stream(model, context, options),
+    streamSimple: (model, context, options) => provider.streamSimple(model, context, options) };
   const sdk = {
-    ModelRuntime: { create: async () => ({ getModel: () => ({ provider: 'anthropic', id: 'approved' }) }) },
+    ModelRuntime: { create: async () => runtime },
     SettingsManager: { inMemory: value => value },
     SessionManager: { create: (_cwd, dir) => ({ dir }), open: (file, dir, cwdOverride) => {
       if (statSync(file).size === 0) writeFileSync(file,
@@ -63,6 +81,8 @@ async function fixture(t, configOverrides = {}, behavior = {}) {
         await options.operations.writeFile(absolute, args.content);
         return { content: [{ type: 'text', text: 'written' }] };
       } }),
+    createAgentSessionServices: async options => options,
+    createAgentSessionFromServices: async ({ services, ...options }) => sdk.createAgentSession({ ...services, ...options }),
     createAgentSession: async options => {
       const lane = lanes.find(value => options.sessionManager.dir.endsWith(`approved-${value}`));
       if (lane && behavior.createSession) await behavior.createSession(lane);
@@ -75,6 +95,8 @@ async function fixture(t, configOverrides = {}, behavior = {}) {
         isStreaming: false, agent: { state: { tools: options.customTools ?? [] } },
         prompt: async () => {
           if (!lane) throw new Error('Root cannot impersonate an approved task');
+          if (behavior.native) await options.modelRuntime.streamSimple(options.model, { messages: [] },
+            { reasoning: 'high', apiKey: 'synthetic-child-override' });
           if (behavior.prompt) await behavior.prompt({ lane, options });
           else await options.customTools.find(tool => tool.name === 'write').execute('report',
             { path: `reports/${lane}.json`, content: report(lane) });
@@ -85,14 +107,30 @@ async function fixture(t, configOverrides = {}, behavior = {}) {
       } };
     },
   };
+  const deadline = Date.now() + 60_000;
+  const descriptor = { ownerKey: 'a'.repeat(64), activityId: 'activity-1', sessionId: 'session-1', generation: 7,
+    selectionDigest: 'b'.repeat(64), profileDigest: 'c'.repeat(64), deadline };
   const config = { schemaVersion: 1, activityId: 'activity-1', sessionId: 'session-1', root,
-    profile: { provider: 'anthropic', model: 'approved', thinkingLevel: 'off', systemPrompt: 'Approved parent',
-      tools: ['read', 'write'] }, mode: 'isolated', initialization: init,
-    deadline: Date.now() + 60_000, ...configOverrides };
+    profile: { provider: behavior.native ? 'openai-codex' : 'anthropic', model: behavior.native ? 'gpt-6.1-sol' : 'approved',
+      thinkingLevel: behavior.native ? 'low' : 'off', systemPrompt: 'Approved parent', tools: ['read', 'write'],
+      ...(behavior.native ? { source: 'pi-native', authBinding: descriptor } : {}) },
+    mode: 'isolated', initialization: init, deadline, ...configOverrides };
+  const piAi = { validateToolArguments: (_tool, call) => call.arguments,
+    getSupportedThinkingLevels: () => ['low', 'medium', 'high'],
+    createProvider: ({ id, models, auth, api }) => ({ id, models, auth,
+      stream: (model, context, options) => api.stream(model, context, options),
+      streamSimple: (model, context, options) => api.streamSimple(model, context, options) }) };
   const service = createOperatorPiService({ serializedConfig: JSON.stringify(config), allowedRoot,
-    isolatedOutputRoot: outputRoot, importSdk: async () => sdk,
-    importPiAi: async () => ({ validateToolArguments: (_tool, call) => call.arguments }) });
+    isolatedOutputRoot: outputRoot, importSdk: async () => sdk, importPiAi: async () => piAi });
   assert.ok(service);
+  const post = (route, body) => service.handle({ method: 'POST', pathname: `/internal/operator/pi/${route}`,
+    body: new TextEncoder().encode(JSON.stringify(body)) });
+  const binding = { descriptor, auth: { apiKey: 'synthetic-bound-access', headers: { 'chatgpt-account-id': 'synthetic-account' } },
+    expiresAt: Date.now() + 30_000 };
+  if (behavior.native) {
+    if (behavior.beforeBind) await behavior.beforeBind({ post, binding, root });
+    assert.equal((await post('auth-bind', binding)).status, 200);
+  }
   assert.equal((await service.handle({ method: 'POST', pathname: '/internal/operator/pi/ensure',
     body: new TextEncoder().encode('{}') })).status, 200);
   assert.equal(JSON.parse(await readFile(path.join(root, 'sessions/approved-parent.jsonl'), 'utf8')).cwd, cwd,
@@ -100,7 +138,7 @@ async function fixture(t, configOverrides = {}, behavior = {}) {
   const invoke = (name, arguments_) => rootOptions.customTools.find(tool => tool.name === name)
     .execute('read-write', arguments_);
   return { service, root, cwd, outputRoot, rootOptions, childSessions, abortedChildren, invoke,
-    config, allowedRoot, sdk };
+    config, allowedRoot, sdk, post, binding, outgoing };
 }
 
 async function submit(f, taskId, arguments_ = taskArgs) {
@@ -316,4 +354,79 @@ test('REQ-OPERATOR-021: cancellation during creation or after journal persistenc
     pathname: '/internal/operator/pi/tasks/waiting/abort', body: new TextEncoder().encode('{}') })).body).status, 'cancelled');
   assert.deepEqual([...running.abortedChildren].sort(), [...lanes].sort());
   await assert.rejects(readFile(path.join(running.outputRoot, 'reports/code-reviewer.json')));
+});
+
+test('REQ-OPERATOR-021/047: native private bind precedes ensure, is bounded/idempotent, and rejects foreign or stale descriptors', async t => {
+  const f = await fixture(t, {}, { native: true, beforeBind: async ({ post, binding, root }) => {
+    const missing = await post('ensure', {});
+    assert.equal(JSON.parse(missing.body).authFailure.code, 'PI_LOGIN_REQUIRED');
+    assert.equal(JSON.parse(missing.body).authFailure.reason, 'missing');
+    for (const patch of [{ ownerKey: 'f'.repeat(64) }, { activityId: 'foreign' }, { sessionId: 'foreign' },
+      { generation: 6 }, { profileDigest: 'f'.repeat(64) }, { selectionDigest: 'f'.repeat(64) },
+      { deadline: Date.now() - 1 }]) {
+      const denied = await post('auth-bind', { ...binding, descriptor: { ...binding.descriptor, ...patch } });
+      assert.ok(denied.status >= 400);
+      assert.doesNotMatch(denied.body, /synthetic-bound-access/);
+    }
+    for (const forbidden of [{ refreshToken: 'synthetic-refresh' }, { r2SecretAccessKey: 'synthetic-r2' }]) {
+      assert.ok((await post('auth-bind', { ...binding, ...forbidden })).status >= 400);
+    }
+    assert.equal((await post('auth-bind', { ...binding, auth: { apiKey: 'x'.repeat(65 * 1024) } })).status, 413);
+  } });
+  assert.equal((await f.post('auth-bind', f.binding)).status, 200);
+  assert.ok((await f.post('auth-bind', { ...f.binding, auth: { apiKey: 'synthetic-replacement' } })).status >= 400);
+  assert.deepEqual(JSON.parse(await readFile(path.join(f.root, 'agent/auth.json'), 'utf8')), {});
+  assert.doesNotMatch(await readFile(path.join(f.root, '.codeflare/operator-pi.json'), 'utf8'),
+    /synthetic-bound-access|synthetic-account/);
+});
+
+test('REQ-OPERATOR-007/021/047: native root and actual approved children send the admitted Codex model at Low despite High options', async t => {
+  const f = await fixture(t, {}, { native: true });
+  assert.equal(f.rootOptions.settingsManager.cacheWarming, 'off');
+  // Exercise both public runtime call forms (the raw form is also used by
+  // compaction), not private SDK callbacks or serialization implementation.
+  await f.rootOptions.modelRuntime.stream(f.rootOptions.model, { messages: [] },
+    { reasoningEffort: 'high', apiKey: 'synthetic-root-override' });
+  assert.equal(await submit(f, 'native-approved-round'), 'completed');
+  assert.deepEqual(f.childSessions.map(child => child.lane).sort(), [...lanes].sort());
+  assert.ok(f.outgoing.length > 0);
+  for (const request of f.outgoing) {
+    assert.equal(request.url, 'https://chatgpt.com/backend-api/codex/responses');
+    assert.deepEqual(await request.json(), { model: 'gpt-6.1-sol', reasoning: { effort: 'low' } });
+    assert.equal(request.headers.get('authorization'), 'Bearer synthetic-bound-access');
+    assert.equal(request.headers.get('chatgpt-account-id'), 'synthetic-account');
+  }
+  for (const child of f.childSessions) {
+    assert.equal(child.options.model.provider, 'openai-codex');
+    assert.equal(child.options.thinkingLevel, 'low');
+    const other = lanes.find(lane => lane !== child.lane);
+    await assert.rejects(child.options.customTools.find(tool => tool.name === 'read')
+      .execute('foreign-lane', { path: `review/packets/${other}.json` }));
+    assert.equal(await readFile(path.join(f.outputRoot, `reports/${child.lane}.json`), 'utf8'), report(child.lane));
+  }
+  assert.deepEqual(JSON.parse(await readFile(path.join(f.root, 'agent/auth.json'), 'utf8')), {});
+});
+
+test('REQ-OPERATOR-021/047: actual child auth failure survives task polling and reconstruction without publishing partial reports', async t => {
+  const failure = { code: 'PI_LOGIN_REQUIRED', reason: 'rejected', provider: 'openai-codex' };
+  const f = await fixture(t, {}, { native: true, prompt: async ({ lane, options }) => {
+    if (lane === 'code-reviewer') throw Object.assign(new Error('synthetic-secret SDK body'), failure);
+    await options.customTools.find(tool => tool.name === 'write').execute('report',
+      { path: `reports/${lane}.json`, content: report(lane) });
+  } });
+  assert.equal(await submit(f, 'native-failed-round'), 'failed');
+  const task = { taskId: 'native-failed-round', digest: 'c'.repeat(64), mode: 'tool',
+    toolName: 'run_approved_tasks', arguments: taskArgs };
+  const polled = await f.post('tasks', task);
+  assert.deepEqual(JSON.parse(polled.body), { taskId: task.taskId, status: 'failed', authFailure: failure });
+  const persisted = JSON.parse(await readFile(path.join(f.root, '.codeflare/operator-pi.json'), 'utf8'));
+  assert.doesNotMatch(JSON.stringify(persisted), /synthetic-secret|synthetic-bound-access/);
+  assert.deepEqual([...f.abortedChildren].sort(), [...lanes].sort());
+  for (const lane of lanes) await assert.rejects(readFile(path.join(f.outputRoot, `reports/${lane}.json`)));
+  const restarted = createOperatorPiService({ serializedConfig: JSON.stringify(f.config), allowedRoot: f.allowedRoot,
+    isolatedOutputRoot: f.outputRoot, importSdk: async () => f.sdk,
+    importPiAi: async () => ({ validateToolArguments: (_tool, call) => call.arguments }) });
+  const replay = await restarted.handle({ method: 'POST', pathname: '/internal/operator/pi/tasks',
+    body: new TextEncoder().encode(JSON.stringify(task)) });
+  assert.deepEqual(JSON.parse(replay.body), { taskId: task.taskId, status: 'failed', authFailure: failure });
 });

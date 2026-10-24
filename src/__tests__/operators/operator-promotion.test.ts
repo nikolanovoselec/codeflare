@@ -290,6 +290,26 @@ describe('REQ-OPERATOR-061: configured Renovate run settings', () => {
     expect(created.status).toBe(201);
     expect(await created.json()).toMatchObject({ configuration, enabled: false });
   }));
+  it('REQ-OPERATOR-007: persists an installation-only reasoning override through revision-safe management without changing grants or configuration', () => withManagementApi(async request => {
+    const operator = await setup(request);
+    const configuration = { unrelated: { keep: true }, renovate: {
+      repository: 'acme/updates', automaticRuns: false, repetitionIntervalSeconds: 900 } };
+    const created = await request(`/operators/${operator.operatorId}/installations`, 'POST', {
+      name: 'native-profile', revision: operator.revision, policy, configuration });
+    expect(created.status).toBe(201);
+    const installation = await created.json() as { id: string; revision: number };
+    const saved = await request(`/installations/${installation.id}/configure`, 'POST', {
+      revision: installation.revision, policy, configuration, piReasoningOverride: 'low' });
+    expect(saved.status).toBe(200);
+    expect(await saved.json()).toMatchObject({ id: installation.id, revision: installation.revision + 1,
+      piReasoningOverride: 'low', configuration, policy, enabled: false });
+    expect((await request(`/installations/${installation.id}/configure`, 'POST', {
+      revision: installation.revision, policy, configuration, piReasoningOverride: 'high' })).status).toBe(409);
+    expect(await (await request(`/operators/${operator.operatorId}`)).json()).toMatchObject({ installations: [
+      expect.objectContaining({ id: installation.id, piReasoningOverride: 'low', configuration, policy, enabled: false }),
+    ] });
+  }));
+
   it('validates reserved settings at the Registry RPC boundary and retains state on rejection', () => withManagementApi(async (request, ctx) => {
     const operator = await setup(request);
     const configuration = { renovate: { repository: 'acme/updates', automaticRuns: false, repetitionIntervalSeconds: 900 } };

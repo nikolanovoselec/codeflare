@@ -26,14 +26,31 @@ import { pendingRecipient, within } from '../helpers/pending-recipient';
 
 let callerSessionCurrent = true;
 let callerRoute = 'approved';
+let nativeProfileFiles = new Map<string, unknown>();
 vi.mock('../../lib/access', async original => ({ ...await original<typeof import('../../lib/access')>(),
   resolveOperatorGroupIdentity: async (human: unknown) => human,
   resolveBucketName: async () => 'owner-bucket',
   resolveSessionAccessGroup: async () => [],
   operatorAccessSessionCurrent: async () => callerSessionCurrent,
-  loadEnterpriseRouteConfig: async () => ({ routeCatalog: [callerRoute], defaultRoute: callerRoute, defaultReasoning: 'off' }),
+  loadEnterpriseRouteConfig: async () => ({ routeCatalog: [callerRoute], defaultRoute: callerRoute, defaultReasoning: 'off',
+    ...(nativeProfileFiles.size ? { piDefaultSource: 'pi-native', allowPersonalPiProviders: true } : {}) }),
 }));
 vi.mock('../../lib/aig-config', () => ({ getAigConfig: async () => ({ gatewayUrl: 'https://gateway.example.test', token: 'parent-only' }) }));
+vi.mock('../../lib/r2-client', async original => {
+  const actual = await original<typeof import('../../lib/r2-client')>();
+  return { ...actual, createR2Client: (...args: Parameters<typeof actual.createR2Client>) => nativeProfileFiles.size
+    ? { fetch: async (request: Request) => {
+      const value = nativeProfileFiles.get(new URL(request.url).pathname);
+      return value === undefined ? new Response(null, { status: 404 }) : Response.json(value);
+    } } : actual.createR2Client(...args) };
+});
+vi.mock('../../lib/r2-regime-state', async original => {
+  const actual = await original<typeof import('../../lib/r2-regime-state')>();
+  return { ...actual,
+    isBucketMigrating: (...args: Parameters<typeof actual.isBucketMigrating>) => nativeProfileFiles.size ? false : actual.isBucketMigrating(...args),
+    isR2SseDisabledForBucket: (...args: Parameters<typeof actual.isR2SseDisabledForBucket>) => nativeProfileFiles.size ? true : actual.isR2SseDisabledForBucket(...args),
+  };
+});
 /** Verified host routing data; the real interceptor owns routing and cancellation. */
 function composedLlm(props: Record<string, unknown>, environment: Env) {
   const gatewayUrl = 'https://gateway.ai.cloudflare.com/v1/0123456789abcdef0123456789abcdef/gw';
@@ -608,9 +625,16 @@ async function fixture(test: (f: {
   capacityPolicy?: DispatcherCapacityPolicy; runtimeVersion?: '2.1.0' | '2.2.2'; sdkDiagnostics?: boolean;
   recovery?: boolean; intent4?: boolean; losePhaseAdmission?: number; facetContract?: boolean; receiptFixture?: boolean;
   inferenceAttemptLimit?: number; inferenceTransport?: (request: Request, attempt: number) => Promise<Response>;
+  nativeInference?: boolean;
   realInterceptors?: boolean; sourceTransport?: (request: Request) => Promise<Response> } = {}) {
   callerSessionCurrent = true;
   callerRoute = 'approved';
+  nativeProfileFiles = new Map<string, unknown>(options.nativeInference ? [
+    ['/owner-bucket/.pi/agent/settings.json', { defaultProvider: 'openai-codex', defaultModel: 'gpt-6.1-sol', defaultThinkingLevel: 'high' }],
+    ['/owner-bucket/.pi/agent/auth.json', { 'openai-codex': { type: 'oauth', access: 'synthetic-native-access',
+      refresh: 'synthetic-native-refresh', accountId: 'synthetic-account', expires: Date.now() + 120_000 } }],
+    ['/owner-bucket/.pi/agent/models.json', { providers: {} }],
+  ] : []);
   const configuredTarget = options.configuredTarget ?? { repository: 'nikolanovoselec/komodo', repositoryId: 973175879, baseBranch: 'main' };
   const fixtureInvocation = options.prospective ? { repository: configuredTarget.repository,
     ...(options.legacyProspective ? { pullRequest: 17 } : {}), ...options.inputExtra }
@@ -632,11 +656,14 @@ async function fixture(test: (f: {
     const human = { subject: 'owner', email: 'owner@example.test', issuer: 'https://access.example.test',
       audiences: ['audience'], issuedAt: Math.floor(now / 1000) - 1, expiresAt };
     const policy = { capabilities: options.capabilities ?? ['fetch', 'inference'], resourceProfileId: null,
+      ...(options.nativeInference ? { inference: { allowedSources: ['pi-native'], routeIds: [], defaultRouteId: null,
+        reasoningLevels: ['low'], defaultReasoningLevel: 'low', inheritUserDefaults: false } } : {}),
       ...(options.sourceResponseBytes === undefined ? {} : { sourceResponseBytes: options.sourceResponseBytes }) };
     const fixtureOperatorId = options.prospective || options.intent4 ? 'renovate-dispatcher' : 'operator';
     let inferenceAttempts = 0;
     const selection = { controlsRevision: 1, installation: { id: 'installation', operatorId: fixtureOperatorId, revision: 1,
-      enabled: true, policy: options.installationSourceResponseBytes === undefined ? policy
+      enabled: true, ...(options.nativeInference ? { piReasoningOverride: 'low' } : {}),
+      policy: options.installationSourceResponseBytes === undefined ? policy
         : { ...policy, sourceResponseBytes: options.installationSourceResponseBytes },
       configurationJson: options.prospective ? JSON.stringify({ renovate: { repository: configuredTarget.repository, automaticRuns: true, repetitionIntervalSeconds: 900 } }) : '{}', releaseId: 'release' },
     operator: { operatorId: fixtureOperatorId, profile: 'dispatcher', revision: 1, invokers: { users: [human.email], groups: [] },
@@ -705,6 +732,10 @@ async function fixture(test: (f: {
     let exceedDeadline = false;
     let composeElapsed = false;
     const sent: Request[] = [];
+    const nativeTransport = async (request: Request) => {
+      sent.push(request.clone());
+      return options.sourceTransport!(request);
+    };
     const childSubmissions: Request[] = [];
     const deliveredTail: Array<{ activityId: string; generation: number; stage: string }> = [];
     let configuredTail: Promise<{ tail(events: unknown): Promise<void> }> | undefined;
@@ -845,7 +876,8 @@ async function fixture(test: (f: {
             if (stage) deliveredTail.push({ ...props, stage });
           },
         }),
-        EgressController: ({ props }: { props: Record<string, unknown> }) => options.realInterceptors
+        EgressController: ({ props }: { props: Record<string, unknown> }) => options.nativeInference
+          ? { fetch: nativeTransport } : options.realInterceptors
           ? new EgressController({ props } as unknown as ExecutionContext, { ...environment,
             EGRESS: { fetch: options.sourceTransport } } as unknown as Env)
           : ({ fetch: async () => {
@@ -966,6 +998,8 @@ async function fixture(test: (f: {
       currentProspectiveRenovateRegistration: async () => structuredClone(currentRegistration),
     };
     const environment = { ...encryption, ENTERPRISE_MODE: 'active', GITHUB_API_HOST: options.githubApiHost,
+      ...(options.nativeInference ? { R2_ACCESS_KEY_ID: 'synthetic-scoped-id', R2_SECRET_ACCESS_KEY: 'synthetic-scoped-secret',
+        EGRESS: { fetch: nativeTransport } } : {}),
       OPERATOR_REGISTRY: { getByName: () => registry }, OPERATOR_ACTIVITY: { getByName: () => activity, idFromName: () => native.id },
       LOADER: { get: (_key: string, factory: () => Promise<{ env: Record<string, unknown>; globalOutbound: Fetcher | null; tails?: Array<{ tail(events: unknown): Promise<void> }> }>) => ({
         getDurableObjectClass: () => {
@@ -5695,6 +5729,109 @@ describe('REQ-OPERATOR-048: original-lease serial SDK phase ownership', () => {
     return await response.json() as { phase: string; requestDigest: string; responseDigest?: string;
       method: string; url: string; operationCount: number };
   };
+
+  it('REQ-OPERATOR-047/048: native response commits before delivery, replays after reconstruction, and rejects stale or late outcomes', async () => {
+    const providerUrl = 'https://chatgpt.com/backend-api/codex/responses';
+    const raw = new TextEncoder().encode('event: response.completed\r\ndata: {"type":"response.completed","response":{"id":"native-one","status":"completed","output_text":"✓"}}\r\n\r\n');
+    let holdNativeResponse = false;
+    let release!: () => void;
+    const complete = new Promise<void>(resolve => { release = resolve; });
+    let entered!: () => void;
+    const sending = new Promise<void>(resolve => { entered = resolve; });
+    await fixture(async f => {
+      try {
+        await start(f);
+        const stamp = await context(f);
+        const loaded = await f.loaderEnv();
+        // The fallback descriptor only lets the old managed-only baseline reach
+        // the missing application endpoint assertion, not an import/JSON error.
+        const selected = typeof loaded.OPERATOR_INFERENCE_SELECTION === 'string'
+          ? JSON.parse(loaded.OPERATOR_INFERENCE_SELECTION) : { profileDigest: '9'.repeat(64) };
+        const binding = await f.capability.fetch(wire('native-binding', { profileDigest: selected.profileDigest }, stamp.deliveryToken));
+        expect(binding.status).toBe(200);
+        const bound = await binding.json() as { selection: Record<string, unknown>; auth: { apiKey: string }; expiresAt: number | null };
+        expect(bound.selection).toMatchObject({ source: 'pi-native', provider: 'openai-codex', model: 'gpt-6.1-sol',
+          api: 'openai-codex-responses', reasoningLevel: 'low', profileDigest: selected.profileDigest });
+        expect(JSON.parse(loaded.OPERATOR_INFERENCE_SELECTION as string)).toEqual(bound.selection);
+        expect(bound.auth.apiKey).toBe('synthetic-native-access');
+        expect(bound.expiresAt).toEqual(expect.any(Number));
+        expect(JSON.stringify(loaded)).not.toMatch(/synthetic-native-access|synthetic-native-refresh|synthetic-scoped/);
+        const anchor = await f.capability.fetch(wire('source', { operationId: 'native-budget-anchor',
+          url: 'https://api.github.com/repos/another/service' }, stamp.deliveryToken));
+        expect(anchor.status).toBe(200);
+        const budget = () => receipt(f, 'native-budget-anchor', stamp.deliveryToken);
+        expect(await budget()).toMatchObject({ operationCount: 1 });
+        const admission = { operationId: 'native-logical-operation', profileDigest: selected.profileDigest };
+        const admitted = await f.capability.fetch(wire('native-admission', admission, stamp.deliveryToken));
+        expect(admitted.status).toBe(200);
+        const { handle } = await admitted.json() as { handle: string };
+        expect(handle).toEqual(expect.any(String));
+        expect(handle.length).toBeGreaterThan(0);
+        expect(f.sent.filter(request => request.url === providerUrl)).toHaveLength(0); // Admission is not a physical send.
+        const body = JSON.stringify({ model: 'gpt-6.1-sol', instructions: 'Approved synthetic operator',
+          input: [{ role: 'user', content: [{ type: 'input_text', text: 'Inspect approved input' }] }],
+          reasoning: { effort: 'low' }, stream: true, store: false });
+        const request = (transportHandle = handle, content = body) => new Request(providerUrl, { method: 'POST',
+          headers: { 'content-type': 'application/json', authorization: `Bearer ${bound.auth.apiKey}`,
+            'chatgpt-account-id': 'synthetic-account', 'x-codeflare-native-inference': transportHandle }, body: content });
+        expect((await f.capability.fetch(request('invalid-native-handle'))).status).toBe(403);
+        expect(f.sent.filter(request => request.url === providerUrl)).toHaveLength(0);
+        holdNativeResponse = true;
+        let delivered = false;
+        const first = f.capability.fetch(request()).then(response => { delivered = true; return response; });
+        await Promise.race([sending, first.then(() => { throw new Error('Native response escaped before transport commitment'); })]);
+        const duplicate = f.capability.fetch(request());
+        expect((await f.capability.fetch(request(handle, body.replace('Inspect approved input', 'Changed input')))).status).toBe(409);
+        expect(await budget()).toMatchObject({ operationCount: 2 });
+        expect(delivered).toBe(false); // Incomplete transport bytes cannot escape the durable commit.
+        release();
+        for (const response of await Promise.all([first, duplicate])) {
+          expect(response.status).toBe(201);
+          expect(response.headers.get('content-type')).toBe('text/event-stream; charset=utf-8');
+          expect(response.headers.get('x-request-id')).toBe('native-request-one');
+          expect(response.headers.get('set-cookie')).toBeNull();
+          expect(new Uint8Array(await response.arrayBuffer())).toEqual(raw);
+        }
+        const sent = f.sent.filter(request => request.url === providerUrl);
+        expect(sent).toHaveLength(1);
+        expect(sent[0].headers.get('x-codeflare-native-inference')).toBeNull();
+        expect(sent[0].headers.get('authorization')).toBe('Bearer synthetic-native-access');
+        expect(sent[0].headers.get('chatgpt-account-id')).toBe('synthetic-account');
+        expect(await sent[0].clone().text()).toBe(body);
+        expect((await f.capability.fetch(wire('native-result', { handle, outcome: 'completed' }, stamp.deliveryToken))).status).toBe(200);
+        expect(await context(f)).toEqual(stamp); // SDK outcome is not Flue phase settlement.
+        expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
+        const cold = await coldOwner(f);
+        const reAdmitted = await cold.capability.fetch(wire('native-admission', admission, stamp.deliveryToken));
+        expect(reAdmitted.status).toBe(200);
+        const retained = await reAdmitted.json() as { handle: string };
+        const replay = await cold.capability.fetch(request(retained.handle));
+        expect(replay.status).toBe(201);
+        expect(replay.headers.get('content-type')).toBe('text/event-stream; charset=utf-8');
+        expect(replay.headers.get('x-request-id')).toBe('native-request-one');
+        expect(replay.headers.get('set-cookie')).toBeNull();
+        expect(new Uint8Array(await replay.arrayBuffer())).toEqual(raw);
+        expect(await receipt(cold, 'native-budget-anchor', stamp.deliveryToken)).toMatchObject({ operationCount: 2 });
+        for (const stale of [wire('native-binding', { profileDigest: selected.profileDigest }, stamp.deliveryToken),
+          wire('native-admission', admission, stamp.deliveryToken), request(retained.handle)]) {
+          expect((await cold.staleCapability.fetch(stale)).status).toBe(403);
+        }
+        expect(JSON.stringify(await cold.activity.getRuntimePlan())).not.toMatch(/synthetic-native-access|synthetic-native-refresh|synthetic-scoped/);
+        expect(await cold.activity.cancelDrive()).toMatchObject({ ok: true });
+        const fenced = await cold.activity.getBrowserDetail();
+        expect((await cold.capability.fetch(wire('native-result', { handle: retained.handle, outcome: 'completed' }, stamp.deliveryToken))).status).toBe(403);
+        expect(await cold.activity.getBrowserDetail()).toEqual(fenced);
+        expect(await cold.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
+        expect(f.sent.filter(request => request.url === providerUrl)).toHaveLength(1);
+      } finally { release(); }
+    }, { repositoryOnly: true, recovery: true, intent4: true, facetContract: true, nativeInference: true,
+      sourceTransport: async request => request.url !== providerUrl ? Response.json({ ok: true })
+        : new Response(holdNativeResponse ? new ReadableStream<Uint8Array>({ start(controller) {
+        controller.enqueue(raw.slice(0, 23)); entered();
+        void complete.then(() => { controller.enqueue(raw.slice(23)); controller.close(); });
+      } }) : raw, { status: 201, headers: { 'content-type': 'text/event-stream; charset=utf-8',
+        'x-request-id': 'native-request-one', 'set-cookie': 'synthetic-private-cookie' } }) });
+  });
 
   it.each([{ phase: 'discovery', validated: false }, { phase: 'target', validated: false },
     { phase: 'discovery', validated: true }, { phase: 'target', validated: true }])(

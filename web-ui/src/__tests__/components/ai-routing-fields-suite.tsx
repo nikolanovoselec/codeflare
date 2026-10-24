@@ -207,6 +207,25 @@ describe('Structured AI routing', () => {
     expect(formValues(view.container).fallbackRouting.allowPersonalPiProviders).toBe(true);
   });
 
+  if (partition === 2) it('REQ-ENTERPRISE-088: group and fallback native defaults submit independently of managed routes', async () => {
+    const saved = checkedCurrent();
+    const view = mount({ ...saved, groupRouting: saved.groupRouting.map(group => ({ ...group,
+      allowPersonalPiProviders: true, piDefaultSource: 'managed' })), fallbackRouting: { enabled: true,
+      routes: ['general_usage'], defaultRoute: 'general_usage', reasoning: 'off',
+      allowPersonalPiProviders: true, piDefaultSource: 'managed' } });
+    await view.findByText('Connected · 3 routes readable');
+    await openGroup(view, 'developers');
+    await fireEvent.change(view.getByRole('combobox', { name: 'developers Pi default source' }),
+      { target: { value: 'pi-native' } });
+    expect(formValues(view.container).groupRouting[0]).toMatchObject({ piDefaultSource: 'pi-native',
+      allowPersonalPiProviders: true, defaultRoute: 'development' });
+    expect(formValues(view.container).groupRouting[1]).toMatchObject({ piDefaultSource: 'managed', defaultRoute: 'general_usage' });
+    await fireEvent.change(view.getByRole('combobox', { name: 'Fallback Pi default source' }),
+      { target: { value: 'pi-native' } });
+    expect(formValues(view.container).fallbackRouting).toMatchObject({ piDefaultSource: 'pi-native',
+      allowPersonalPiProviders: true, defaultRoute: 'general_usage' });
+  });
+
   if (partition === 2) it.each([true, false])('REQ-ENTERPRISE-088 AC2: confirmed copy-to-all carries personal-provider permission %s into the save payload', async (enabled) => {
     const saved = checkedCurrent();
     const fallbackRouting = { enabled: true, ...(!enabled && { allowPersonalPiProviders: true }), routes: ['general_usage'], defaultRoute: 'general_usage', reasoning: 'off' };

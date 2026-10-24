@@ -387,3 +387,16 @@ describe('REQ-ENTERPRISE-088: personal Pi startup authority', () => {
     }
   });
 });
+
+
+describe('REQ-ENTERPRISE-089: authorized saved Pi defaults', () => {
+  it('preserves the saved personal provider model and High when native is the permitted startup default', t => {
+    const saved = { defaultProvider: 'openai-codex', defaultModel: 'gpt-6.1-sol', defaultThinkingLevel: 'high',
+      modelThinkingLevels: { 'openai-codex/gpt-6.1-sol': 'high' }, theme: 'dark' };
+    const fixture = enterpriseStartup({ personalProviders: true, piDefaultSource: 'pi-native', settings: saved });
+    t.after(fixture.cleanup);
+    assert.equal(fixture.result.status, 0, fixture.result.stderr);
+    assert.deepEqual(fixture.readSettings(), saved);
+    assert.deepEqual(fixture.readModels().providers['unrelated-provider'], siblingProvider);
+  });
+});

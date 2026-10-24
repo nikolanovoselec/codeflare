@@ -152,3 +152,42 @@ run_operator_startup`;
     assert.deepEqual(JSON.parse(readFileSync(join(agentDir, 'auth.json'), 'utf8')), { anthropic: { type: 'api_key', key: 'synthetic-owner-secret' } });
   } finally { rmSync(home, { recursive: true, force: true }); }
 });
+
+test('REQ-OPERATOR-022: native Operator startup needs no managed route and leaves owned auth empty', () => {
+  const home = mkdtempSync(join(tmpdir(), 'operator-native-startup-'));
+  try {
+    const agent = join(home, '.pi/agent');
+    mkdirSync(agent, { recursive: true });
+    const humanAuth = { 'openai-codex': { type: 'oauth', access: 'synthetic-human-access', refresh: 'synthetic-human-refresh' } };
+    const humanSettings = { defaultProvider: 'openai-codex', defaultModel: 'gpt-6.1-sol', defaultThinkingLevel: 'high' };
+    writeFileSync(join(agent, 'auth.json'), JSON.stringify(humanAuth));
+    writeFileSync(join(agent, 'settings.json'), JSON.stringify(humanSettings));
+    const descriptor = { ownerKey: 'a'.repeat(64), activityId: 'activity', sessionId: 'session', generation: 1,
+      selectionDigest: 'b'.repeat(64), profileDigest: 'c'.repeat(64), deadline: Date.now() + 60_000 };
+    const script = `set -euo pipefail
+validate_coding_agent_selection() { :; }
+update_sync_status() { :; }
+run_post_restore_startup() { :; }
+node() {
+  if [ "$1" = /opt/codeflare/scripts/materialize-operator-inputs.mjs ]; then return 0; fi
+  command node "$@" | sed "s|/home/user/.codeflare/operators|$USER_HOME/.codeflare/operators|"
+}
+${extract('run_operator_startup')}
+run_operator_startup`;
+    const result = spawnSync('bash', ['-c', script], { encoding: 'utf8', env: { ...process.env, USER_HOME: home,
+      PI_PROVIDER_CONFIG: '', CODEFLARE_INIT_FLAG_FILE: join(home, 'initialized'),
+      CODEFLARE_OPERATOR_PI_CONFIG: JSON.stringify({ schemaVersion: 1, activityId: 'activity', sessionId: 'session',
+        root: '/home/user/.codeflare/operators/activity', profile: { source: 'pi-native', provider: 'openai-codex',
+          model: 'gpt-6.1-sol', thinkingLevel: 'low', systemPrompt: 'Approved', tools: ['read', 'write'], authBinding: descriptor } }),
+      CODEFLARE_OPERATOR_SYNC_CONFIG: JSON.stringify({ schemaVersion: 1, activityId: 'activity', sessionId: 'session', root: '/home/user/Operators' }) } });
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(existsSync(join(home, 'initialized')), true);
+    const owned = join(home, '.codeflare/operators/activity/agent');
+    assert.deepEqual(JSON.parse(readFileSync(join(owned, 'auth.json'), 'utf8')), {});
+    assert.deepEqual(JSON.parse(readFileSync(join(agent, 'auth.json'), 'utf8')), humanAuth);
+    assert.deepEqual(JSON.parse(readFileSync(join(agent, 'settings.json'), 'utf8')), humanSettings);
+    for (const file of ['auth.json', 'settings.json', 'models.json']) {
+      if (existsSync(join(owned, file))) assert.doesNotMatch(readFileSync(join(owned, file), 'utf8'), /synthetic-human/);
+    }
+  } finally { rmSync(home, { recursive: true, force: true }); }
+});

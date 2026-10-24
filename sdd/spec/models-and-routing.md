@@ -317,10 +317,10 @@ Setup and Administration configuration remains in [Setup](setup.md); tier behavi
 
 **Acceptance Criteria:**
 
-1. Operators receive neither personal permission nor human authentication or inline provider secrets. <!-- @impl: src/container/container-env.ts::buildEnvVars --> <!-- @impl: entrypoint.sh::run_operator_startup --> <!-- @test: host/__tests__/entrypoint-operator-startup.test.js (REQ-ENTERPRISE-088 AC7: real Operator startup excludes human authentication and inline provider secrets) -->
-2. Stale managed handles cannot fall back to personal inference. <!-- @impl: src/lib/personal-pi-forwarding.ts::forwardPersonalPi --> <!-- @test: src/__tests__/personal-pi-interception.test.ts (REQ-ENTERPRISE-088 AC7: Operator and stale managed handles never use personal transport) --> <!-- @test: src/__tests__/personal-pi-interception.test.ts (REQ-ENTERPRISE-091 AC2: enabling personal providers does not redirect Dynamic or Native Route selectors to personal transport) -->
+1. Managed Operators receive no human authentication. Explicitly approved native Operators may use only their execution owner’s read-only derived request authentication within current parent authority. <!-- @impl: src/container/container-env.ts::buildEnvVars --> <!-- @impl: entrypoint.sh::run_operator_startup --> <!-- @test: host/__tests__/entrypoint-operator-startup.test.js (REQ-ENTERPRISE-088 AC7: real Operator startup excludes human authentication and inline provider secrets) -->
+2. Stale managed handles and native authentication failures never fall back to another inference source or model. <!-- @impl: src/lib/personal-pi-forwarding.ts::forwardPersonalPi --> <!-- @test: src/__tests__/personal-pi-interception.test.ts (REQ-ENTERPRISE-088 AC7: Operator and stale managed handles never use personal transport) --> <!-- @test: src/__tests__/personal-pi-interception.test.ts (REQ-ENTERPRISE-091 AC2: enabling personal providers does not redirect Dynamic or Native Route selectors to personal transport) -->
 
-**Constraints:** No production deployment, Operator activation, new origin or parallel OAuth service is implied.
+**Constraints:** No production deployment, Operator activation, new origin or parallel OAuth service is implied. Native use never logs in, refreshes, writes authentication, reads a live human session or grants general credential access.
 
 **Priority:** P1
 
@@ -328,7 +328,7 @@ Setup and Administration configuration remains in [Setup](setup.md); tier behavi
 
 **Verification:** Anchored real Operator startup and interceptor tests; current-head regression execution and CI remain pending.
 
-**Status:** Implemented
+**Status:** Planned
 
 ---
 
@@ -1369,10 +1369,10 @@ Setup and Administration configuration remains in [Setup](setup.md); tier behavi
 
 **Acceptance Criteria:**
 
-1. Trusted permitted human startup retains owner authentication. <!-- @impl: entrypoint.sh::ENTERPRISE_PI_PERSONAL_PROVIDERS --> <!-- @test: host/__tests__/entrypoint-enterprise-pi-models.test.js (REQ-ENTERPRISE-088 AC4: permitted startup preserves owner authentication and sanctioned models) -->
+1. Trusted permitted human startup retains owner authentication and saved provider, model and reasoning when the native source is selected. <!-- @impl: entrypoint.sh::ENTERPRISE_PI_PERSONAL_PROVIDERS --> <!-- @test: host/__tests__/entrypoint-enterprise-pi-models.test.js (REQ-ENTERPRISE-088 AC4: permitted startup preserves owner authentication and sanctioned models) --> <!-- @test: host/__tests__/entrypoint-enterprise-pi-models.test.js (preserves the saved personal provider model and High when native is the permitted startup default) -->
 2. Pinned Pi exposes authenticated built-ins alongside unchanged sanctioned models. <!-- @impl: src/container/container-env.ts::buildEnvVars --> <!-- @test: preseed/agents/pi/test/enterprise-routing.test.mjs (REQ-ENTERPRISE-088 AC4: pinned Pi retains native authenticated providers alongside sanctioned models) -->
 3. Missing or malformed hints remain default off. <!-- @impl: entrypoint.sh::ENTERPRISE_PI_PERSONAL_PROVIDERS --> <!-- @manual -->
-4. Warm internal configuration can emit or revoke the next-start hint. <!-- @impl: src/container/container-env.ts::buildEnvVars --> <!-- @test: src/__tests__/container/container-router.test.ts (REQ-ENTERPRISE-088 AC4: warm internal configuration emits and revokes the native Pi startup hint) -->
+4. Warm internal configuration can emit or revoke independent permission and default-source hints for the next startup. <!-- @impl: src/container/container-env.ts::buildEnvVars --> <!-- @test: src/__tests__/container/container-router.test.ts (REQ-ENTERPRISE-088 AC4: warm internal configuration emits and revokes the native Pi startup hint) -->
 
 **Constraints:** Startup permission changes require container restart; request authorization never relies on picker state, and owner authentication follows the existing storage/governance regime.
 
@@ -1382,7 +1382,7 @@ Setup and Administration configuration remains in [Setup](setup.md); tier behavi
 
 **Verification:** Anchored startup, pinned-runtime and internal configuration tests; focused startup GREEN is historical, not final exact-head CI.
 
-**Status:** Implemented
+**Status:** Planned
 
 ---
 

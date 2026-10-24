@@ -506,12 +506,19 @@ describe('CF-016 dispatchInternalRoute', () => {
 
 it('REQ-ENTERPRISE-088 AC4: warm internal configuration emits and revokes the native Pi startup hint', async () => {
   const host = makeHost({ env: { ENTERPRISE_MODE: 'active' } as any, _bucketName: 'b', _sessionMode: 'advanced', _userGroups: [] });
-  for (const enabled of [true, false]) {
+  for (const { enabled, source } of [
+    { enabled: true, source: 'pi-native' },
+    { enabled: true, source: 'managed' },
+    { enabled: false, source: 'managed' },
+  ]) {
     const response = await dispatchInternalRoute(host, new Request('http://container/_internal/setBucketName', {
       method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ bucketName: 'b', routeCatalog: [], allowPersonalPiProviders: enabled }),
+      body: JSON.stringify({ bucketName: 'b', routeCatalog: [], allowPersonalPiProviders: enabled, piDefaultSource: source }),
     }))!;
     expect(response.status).toBe(409);
     expect(host.envVars.ENTERPRISE_PI_PERSONAL_PROVIDERS).toBe(enabled ? 'true' : undefined);
+    // Intentional next-start environment contract; source revocation is independent of permission revocation.
+    if (source === 'pi-native') expect(host.envVars.ENTERPRISE_PI_DEFAULT_SOURCE).toBe('pi-native');
+    else expect(host.envVars.ENTERPRISE_PI_DEFAULT_SOURCE).not.toBe('pi-native');
   }
 });

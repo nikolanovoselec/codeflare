@@ -184,3 +184,25 @@ describe('REQ-OPERATOR-041: AC7 retired-effect-receipts.v1 client wire', () => {
     expect(await getOperatorActivity('activity-1')).toMatchObject({ result: detail.result, effectReceipts: unavailable });
   });
 });
+
+
+describe('REQ-OPERATOR-057: nonsecret native selection and functional authentication wire', () => {
+  const selection = { source: 'pi-native', provider: 'openai-codex', model: 'gpt-6.1-sol',
+    api: 'openai-codex-responses', reasoningLevel: 'low', reasoningSource: 'installation' };
+  const failure = { code: 'PI_LOGIN_REQUIRED', reason: 'expired', provider: 'openai-codex' };
+  const failed = { ...detail, executionStatus: 'failed', collectionStatus: 'unavailable', result: null,
+    attention: true, authFailure: failure, inferenceSelection: selection };
+
+  it('reads pinned native selection and login recovery without an optional diagnostic report', async () => {
+    vi.stubGlobal('fetch', async () => Response.json(failed));
+    await expect(getOperatorActivity('activity-1')).resolves.toMatchObject({ executionStatus: 'failed',
+      cleanupStatus: 'stopped', authFailure: failure, inferenceSelection: selection });
+  });
+
+  it.each([{ ...failure, reason: 'network' }, { ...failure, access: 'fixture-private-access' }])(
+    'rejects authentication details outside the closed functional wire %#', async authFailure => {
+      // Intentional closed safe-error wire, not SDK authentication/serialization qualification.
+      vi.stubGlobal('fetch', async () => Response.json({ ...failed, authFailure }));
+      await expect(getOperatorActivity('activity-1')).rejects.toBeDefined();
+    });
+});
