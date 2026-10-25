@@ -168,15 +168,17 @@ describe('REQ-OPERATOR-047: Conductor native egress retains only structured safe
           allowPersonalPiProviders: true, piDefaultSource: 'pi-native' } }),
         [SETUP_KEYS.REASONING_CONFIGURATION]: JSON.stringify({ schemaVersion: 1, customProfileRevisions: [], routeAssignments: {},
           fallbackRouting: { enabled: false } }) };
+      const destinations: string[] = [];
       const { controller } = makeController({ __kv: kv,
         CONTAINER: { getByName: () => ({ getPersonalPiSession: async () => ({ generation: 1, groups: ['native-group'] }) }) } as never,
-        EGRESS: { fetch: async () => Response.json({ error: { code: coded ? 'invalid_api_key' : 'unrelated_failure',
-          message: 'private-upstream-detail synthetic-native-access' } }, { status }) } as unknown as Fetcher,
-      }, { personalPi: { bucket: 'owner-bucket', sessionId: 'native-session', user: 'owner@example.test', generation: 1 },
+        EGRESS: { fetch: async (request: Request) => { destinations.push(request.url);
+          return Response.json({ error: { code: coded ? 'invalid_api_key' : 'unrelated_failure',
+            message: 'private-upstream-detail synthetic-native-access' } }, { status }); } } as unknown as Fetcher,
+      }, { personalPi: { bucket: 'owner-bucket', sessionId: 'nativesession', user: 'owner@example.test', generation: 1 },
         operatorPolicy: { ...operatorPolicy, inference: { ...operatorPolicy.inference,
           allowedSources: ['pi-native'], reasoningLevels: ['low'] } },
         operatorNative: { provider: 'openai-codex', model: 'gpt-6.1-sol', api: 'openai-codex-responses', reasoningLevel: 'low', binding: {
-          ownerKey: 'a'.repeat(64), activityId: 'native-activity', sessionId: 'native-session', generation: 1,
+          ownerKey: 'a'.repeat(64), activityId: 'native-activity', sessionId: 'nativesession', generation: 1,
           profileDigest: 'b'.repeat(64), selectionDigest: 'c'.repeat(64), deadline: Date.now() + 60_000 } } });
       // The SDK's Codex endpoint, not the generic Responses suffix, is allowed.
       const wrongPath = await controller.fetch(new Request('https://chatgpt.com/backend-api/responses', {
@@ -185,11 +187,13 @@ describe('REQ-OPERATOR-047: Conductor native egress retains only structured safe
       }));
       expect(wrongPath.status).toBe(403);
       expect(await wrongPath.json()).not.toHaveProperty('authFailure');
+      expect(destinations).toEqual([]);
       const response = await controller.fetch(new Request('https://chatgpt.com/backend-api/codex/responses', {
         method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer synthetic-native-access' },
         body: JSON.stringify({ model: 'gpt-6.1-sol', reasoning: { effort: 'low' } }),
       }));
       expect(response.status).toBe(status);
+      expect(destinations).toEqual(['https://chatgpt.com/backend-api/codex/responses']);
       const value = await response.json() as { authFailure?: unknown };
       expect(value.authFailure).toEqual(coded ? { code: 'PI_LOGIN_REQUIRED', reason: 'rejected', provider: 'openai-codex' } : undefined);
       expect(JSON.stringify(value)).not.toMatch(/private-upstream-detail|synthetic-native-access/);

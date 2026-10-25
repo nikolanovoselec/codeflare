@@ -16,7 +16,8 @@ export const inferenceSelectionSchema = z.union([
   z.strictObject({ source: z.literal('managed').optional(), routeId: z.string().min(1).max(256),
     reasoningLevel: piReasoningLevel.nullable() }),
   z.strictObject({ source: z.literal('pi-native'), provider: providerId,
-    model: z.string().min(1).max(256).regex(/^[^\x00-\x1f\x7f]+$/),
+    model: z.string().min(1).max(256).refine(value => [...value].every(character =>
+      character.charCodeAt(0) >= 0x20 && character.charCodeAt(0) !== 0x7f)),
     api: z.string().regex(/^[a-z0-9][a-z0-9._-]{0,127}$/), reasoningLevel: piReasoningLevel,
     profileDigest: z.string().regex(/^[a-f0-9]{64}$/).optional(),
     reasoningSource: z.enum(['installation', 'model', 'global', 'default', 'inherited']).optional() }),

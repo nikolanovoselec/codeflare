@@ -405,7 +405,8 @@ describe('REQ-ENTERPRISE-089: authorized saved Pi defaults', () => {
     [true, undefined], [true, 'managed'], [true, 'invalid'], [false, 'pi-native'], [undefined, 'pi-native'],
   ]) {
     it(`retains managed startup defaults without both human permission and native source (${personalProviders}/${piDefaultSource})`, t => {
-      const fixture = enterpriseStartup({ personalProviders, piDefaultSource, reasoning: 'medium', settings: {
+      const fixture = enterpriseStartup({ personalProviders, piDefaultSource, reasoning: 'medium',
+        levels: { bedrock_opus: ['medium'], [nativeHandle]: nativeLevels }, settings: {
         defaultProvider: 'openai-codex', defaultModel: 'gpt-6.1-sol', defaultThinkingLevel: 'high', theme: 'dark',
       } });
       t.after(fixture.cleanup);

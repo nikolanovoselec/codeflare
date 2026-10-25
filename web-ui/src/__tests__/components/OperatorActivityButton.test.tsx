@@ -755,6 +755,6 @@ describe('REQ-OPERATOR-057: functional Pi login recovery', () => {
     expect(screen.getByText(/gpt-6\.1-sol/)).toBeTruthy();
     expect(screen.getByText(/Low/)).toBeTruthy();
     expect(screen.getByText(/override/i)).toBeTruthy();
-    expect(screen.getAllByText('failed').length).toBeGreaterThan(0);
+    expect(screen.getByText('Execution: failed')).toBeTruthy();
   });
 });

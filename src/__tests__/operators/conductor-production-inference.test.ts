@@ -194,15 +194,11 @@ for (const role of ['operator', 'installation'] as const) {
   });
 }
 
-it('REQ-OPERATOR-007/053: legacy null managed selection retains the eligible provider-default before bootstrap', async () => {
-  const capability = await managedCapability({}, null);
-  expect((await capability.fetch(new Request('https://operator.internal/v1/session/ensure', {
-    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ schemaVersion: 1 }),
-  }))).status).toBe(200);
-  expect(piTransport.profiles).toEqual([expect.objectContaining({
-    piProfile: expect.objectContaining({ provider: 'codeflare-gateway', model: 'provider-default', thinkingLevel: 'off' }),
-    policy: expect.objectContaining({ inference: expect.objectContaining({ defaultReasoningLevel: null }) }),
-  })]);
+it('REQ-OPERATOR-007/053: null inference resource denies before bootstrap without inheriting a human default', async () => {
+  await expect(managedCapability({}, null)).rejects.toThrow();
+  expect(piTransport.provisionedBuckets).toEqual(new Set());
+  expect(piTransport.requests).toEqual([]);
+  expect(piTransport.profiles).toEqual([]);
 });
 
 it('REQ-OPERATOR-007/047: null managed selection cannot bypass installed source restrictions before bootstrap', async () => {

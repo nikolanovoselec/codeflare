@@ -64,7 +64,7 @@ const releaseSchema = z.object({ id, operatorId: id, githubReleaseId: z.number()
   tagName: z.string().min(1).max(256).optional(), publishedAt: z.string().datetime().optional(),
   requestedCapabilities: z.array(z.string()).max(32).optional() });
 const installationSchema = z.object({ id, operatorId: id, name: z.string(), releaseId: id.nullable(), revision,
-  enabled: z.boolean(), policy: policySchema, configuration: z.record(z.string(), z.json()).optional(),
+  enabled: z.boolean(), policy: policySchema.strip(), configuration: z.record(z.string(), z.json()).optional(),
   piReasoningOverride: z.enum(piReasoningLevels).optional() });
 const detailSchema = z.object({ operator: operatorSchema, releases: z.array(releaseSchema),
   installations: z.array(installationSchema), grants: z.object({ managers: grantSchema, invokers: grantSchema }) });

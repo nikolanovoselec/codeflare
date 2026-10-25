@@ -42,6 +42,7 @@ function fixture(options: { denied?: boolean; moved?: boolean; graphqlRejected?:
       installation: { id: 'review-install', operatorId: 'conductor-operator', revision: 2,
         policy: { capabilities: [], resourceProfileId: 'review-profile' }, configurationJson: '{}' },
       operator: { operatorId: 'conductor-operator', revision: 3, profile: 'conductor', enabled: true,
+        policy: { capabilities: [], resourceProfileId: 'review-profile' },
         invokers: { users: ['owner@example.test'], groups: [] } },
       release: { id: 'review-release', bundleDigest: 'e'.repeat(64) }, controlsRevision: 4,
     } }),

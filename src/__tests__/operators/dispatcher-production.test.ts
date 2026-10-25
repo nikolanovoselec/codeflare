@@ -5779,8 +5779,11 @@ describe('REQ-OPERATOR-048: original-lease serial SDK phase ownership', () => {
       expect(nativeProfileFiles).toEqual(savedProfile);
       let durable = '';
       await f.mutateEvidence(async storage => { durable = JSON.stringify([...await storage.list()]); });
-      expect(JSON.stringify(loader) + durable).not.toMatch(
-        /synthetic-openai-account-access|synthetic-openai-api-key|synthetic-openai-refresh|synthetic-legacy-codex-access|synthetic-legacy-refresh/);
+      // OPERATOR is an opaque RPC binding; the test double exposes its private env.
+      const descriptor = { ...loader };
+      delete descriptor.OPERATOR;
+      expect(JSON.stringify(descriptor) + durable).not.toMatch(
+        /synthetic-openai-account-access|synthetic-openai-api-key|synthetic-openai-refresh|synthetic-legacy-codex-access|synthetic-legacy-refresh|synthetic-scoped/);
     }, { repositoryOnly: true, recovery: true, intent4: false, facetContract: true, nativeInference: true,
       sourceTransport: async request => request.url === 'https://api.openai.com/v1/responses'
         ? new Response('selected OpenAI response', { status: 201 }) : Response.json({ ok: true }) }));
@@ -6020,7 +6023,10 @@ describe('REQ-OPERATOR-048: original-lease serial SDK phase ownership', () => {
         expect(JSON.parse(loaded.OPERATOR_INFERENCE_SELECTION as string)).toEqual(bound.selection);
         expect(bound.auth.apiKey).toBe('synthetic-native-access');
         expect(bound.expiresAt).toEqual(expect.any(Number));
-        expect(JSON.stringify(loaded)).not.toMatch(/synthetic-native-access|synthetic-native-refresh|synthetic-scoped/);
+        // Inspect every declared metadata value, not the opaque RPC implementation.
+        const descriptor = { ...loaded };
+        delete descriptor.OPERATOR;
+        expect(JSON.stringify(descriptor)).not.toMatch(/synthetic-native-access|synthetic-native-refresh|synthetic-scoped/);
         const anchor = await f.capability.fetch(wire('source', { operationId: 'native-budget-anchor',
           url: 'https://api.github.com/repos/another/service' }, stamp.deliveryToken));
         expect(anchor.status).toBe(200);

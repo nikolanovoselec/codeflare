@@ -137,7 +137,7 @@ export async function createConductorProductionCapability(input: { env: Env; pla
   const invocation = parseOperatorConsumerInvocation(JSON.parse(plan.invocationJson));
   const nativeSelection: NativeOperatorInference | undefined = invocation.resources.inference
     && 'source' in invocation.resources.inference ? invocation.resources.inference : undefined;
-  let managedSelection = invocation.resources.inference && !('source' in invocation.resources.inference)
+  const managedSelection = invocation.resources.inference && !('source' in invocation.resources.inference)
     ? invocation.resources.inference : undefined;
   let resolvedOwnerBucket: string | undefined;
   let nativeOwnerKey: string | undefined;
@@ -163,8 +163,8 @@ export async function createConductorProductionCapability(input: { env: Env; pla
       headers: { 'cf-access-jwt-assertion': authority.accessJwt },
     }), env);
     const routes = await loadEnterpriseRouteConfig(env, groups);
-    if (!nativeSelection) {
-      managedSelection = resolveOperatorInference({ eligible: { routeIds: routes.routeCatalog, defaultRouteId: routes.defaultRoute,
+    if (managedSelection) {
+      resolveOperatorInference({ eligible: { routeIds: routes.routeCatalog, defaultRouteId: routes.defaultRoute,
         defaultReasoningLevel: routes.defaultReasoning }, trusted: managedSelection,
         policy: { inference: { routeIds: routes.routeCatalog, defaultRouteId: routes.defaultRoute,
           reasoningLevels: routes.defaultReasoning ? [routes.defaultReasoning] : [],

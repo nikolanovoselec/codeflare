@@ -90,12 +90,16 @@ function requestAuth(result: AuthResult, provider: Provider, model: Model<Api>):
     || (auth.headers !== undefined && !record(auth.headers))) {
     throw new PiAuthRequiredError(provider.id, 'rejected');
   }
-  const headers = { ...provider.headers, ...auth.headers, ...model.headers };
-  if (Object.keys(headers).length > 64 || Object.entries(headers).some(([key, value]) =>
-    !/^[!#$%&'*+.^_`|~0-9A-Za-z-]{1,128}$/.test(key)
-    || /^(?:host|connection|content-length|transfer-encoding|cf-access-jwt-assertion|x-codeflare-.*)$/i.test(key)
-    || value !== null && (typeof value !== 'string' || value.length > 16 * 1024 || /[\r\n\0]/.test(value)))) {
-    throw new PiAuthRequiredError(provider.id, 'rejected');
+  const entries = Object.entries({ ...provider.headers, ...auth.headers, ...model.headers });
+  if (entries.length > 64) throw new PiAuthRequiredError(provider.id, 'rejected');
+  const headers: Record<string, string | null> = Object.create(null);
+  for (const [key, value] of entries) {
+    if (!/^[!#$%&'*+.^_`|~0-9A-Za-z-]{1,128}$/.test(key)
+      || /^(?:host|connection|content-length|transfer-encoding|cf-access-jwt-assertion|x-codeflare-.*)$/i.test(key)
+      || value !== null && (typeof value !== 'string' || value.length > 16 * 1024 || /[\r\n\0]/.test(value))) {
+      throw new PiAuthRequiredError(provider.id, 'rejected');
+    }
+    headers[key] = value;
   }
   if (result.env !== undefined && (!permittedEnv(result.env, provider.id)
     || Object.entries(result.env).some(([key, value]) => key.endsWith('_BASE_URL') && !allowedEndpoint(value, provider)))) {
