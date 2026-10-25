@@ -134,7 +134,8 @@ it('REQ-OPERATOR-053: a provider-default inference route admits a scoped Conduct
 const nativeSelection = { source: 'pi-native', provider: 'openai-codex', model: 'gpt-6.1-sol',
   api: 'openai-codex-responses', reasoningLevel: 'low', profileDigest: '9'.repeat(64) };
 const recovery = 'The saved Pi authentication is missing, expired or rejected. Open your Pi session, run /login or update the API key, wait for successful synchronization to R2, then explicitly retry.';
-async function nativeCapability(auth: 'valid' | 'missing' | 'expired' = 'valid') {
+async function nativeCapability(auth: 'valid' | 'missing' | 'expired' = 'valid',
+  storageEnvironment: Record<string, unknown> = {}, persisted: { authFailure?: unknown } = {}) {
   piTransport.objects.set('/owner-bucket/.pi/agent/settings.json', {
     defaultProvider: 'openai-codex', defaultModel: 'gpt-6.1-sol', defaultThinkingLevel: 'high',
   });
@@ -156,10 +157,17 @@ async function nativeCapability(auth: 'valid' | 'missing' | 'expired' = 'valid')
     input: {}, attachments: [], resources: { inference: nativeSelection,
       session: { profileId: 'review-profile' }, storage: { scopeId: 'review-profile' } } };
   const activity = { operatorGenerationCurrent: async () => piTransport.current,
+    getRuntimePlan: async () => ({ ...plan, inferenceSelection: nativeSelection, ...persisted }),
+    recordConductorPiAuthFailure: async (generation: number, profileDigest: string, failure: unknown) => {
+      if (!piTransport.current || generation !== 1 || profileDigest !== nativeSelection.profileDigest) return false;
+      persisted.authFailure = failure; return true;
+    },
     getPackageResources: async () => null,
     readApprovedPacketAttachments: async () => ({ schemaVersion: 1, activityId, files: [] }) };
   const env = { ENCRYPTION_KEY: btoa('p'.repeat(32)), CONTAINER: {},
-    OPERATOR_REGISTRY: { getByName: () => ({ resolveManagementExecution: async () => ({ ok: true, value: selected }) }) } };
+    R2_ACCOUNT_ID: 'synthetic-r2-account', R2_ENDPOINT: 'https://r2.example.test',
+    OPERATOR_REGISTRY: { getByName: () => ({ resolveManagementExecution: async () => ({ ok: true, value: selected }) }) },
+    ...storageEnvironment };
   const plan = { activityId, deadline: Date.now() + 300_000, invocationJson: JSON.stringify(invocation),
     receipt: { selection: selected }, executionContext: { ownerKey, policyDigest: 'e'.repeat(64) } };
   return (await createConductorProductionCapability({ env: env as never, plan: plan as never,
@@ -176,7 +184,7 @@ it('REQ-OPERATOR-007/047: Conductor reads only the owner fixed Pi keys and prepa
   expect(await result.json()).toEqual({ status: 'ready' });
   expect(piTransport.profiles).toEqual([expect.objectContaining({ ownerBucket: 'owner-bucket',
     piProfile: expect.objectContaining({ source: 'pi-native', provider: 'openai-codex',
-      model: 'gpt-6.1-sol', thinkingLevel: 'low' }) })]);
+      model: 'gpt-6.1-sol', api: nativeSelection.api, thinkingLevel: 'low' }) })]);
   expect(piTransport.reads.length).toBeGreaterThan(0);
   for (const read of piTransport.reads) {
     expect(read.method).toBe('GET');
@@ -184,6 +192,41 @@ it('REQ-OPERATOR-007/047: Conductor reads only the owner fixed Pi keys and prepa
       '/owner-bucket/.pi/agent/models.json']).toContain(read.path);
   }
   expect(JSON.stringify(piTransport.profiles)).not.toMatch(/synthetic-access|synthetic-refresh|synthetic-scoped/);
+});
+
+it('REQ-OPERATOR-047: native preparation without configured storage denies without account discovery or configuration writes', async () => {
+  const configuration = new Map<string, string>();
+  const destinations: string[] = [];
+  vi.stubGlobal('fetch', async (input: RequestInfo | URL) => {
+    destinations.push(input instanceof Request ? input.url : String(input));
+    return Response.json({ success: true, result: [{ id: 'synthetic-discovered-account' }] });
+  });
+  try {
+    const capability = await nativeCapability('valid', { R2_ACCOUNT_ID: undefined, R2_ENDPOINT: undefined,
+      CLOUDFLARE_API_TOKEN: 'synthetic-platform-token', KV: {
+        get: async (key: string) => configuration.get(key) ?? null,
+        put: async (key: string, value: string) => { configuration.set(key, value); },
+      } });
+    expect((await ensureNative(capability)).status).not.toBe(200);
+    // Read-only native preparation permits no account-discovery destination or setup writes.
+    expect(destinations).toEqual([]);
+    expect(configuration).toEqual(new Map());
+    expect(piTransport.requests).toEqual([]);
+    expect(piTransport.profiles).toEqual([]);
+  } finally { vi.unstubAllGlobals(); }
+});
+
+it('REQ-OPERATOR-047: native preparation can read an already-configured KV account without changing configuration', async () => {
+  const configuration = new Map([['setup:account_id', 'synthetic-r2-account']]);
+  const capability = await nativeCapability('valid', { R2_ACCOUNT_ID: undefined, R2_ENDPOINT: undefined, KV: {
+    get: async (key: string) => configuration.get(key) ?? null,
+    put: async (key: string, value: string) => { configuration.set(key, value); },
+  } });
+  const response = await ensureNative(capability);
+  expect(response.status).toBe(200);
+  expect(await response.json()).toEqual({ status: 'ready' });
+  expect(configuration).toEqual(new Map([['setup:account_id', 'synthetic-r2-account']]));
+  expect(piTransport.profiles).toEqual([expect.objectContaining({ ownerBucket: 'owner-bucket' })]);
 });
 
 it('REQ-OPERATOR-047: mid-read revocation cannot bind credentials or start Conductor native work', async () => {
@@ -202,18 +245,30 @@ it('REQ-OPERATOR-047: mid-read revocation cannot bind credentials or start Condu
 
 it('REQ-OPERATOR-047: missing or expired Conductor native auth remains actionable with logging OFF', async () => {
   for (const reason of ['missing', 'expired'] as const) {
-    const response = await ensureNative(await nativeCapability(reason));
+    const persisted: { authFailure?: unknown } = {};
+    const response = await ensureNative(await nativeCapability(reason, {}, persisted));
     expect(response.status).not.toBe(200);
     expect(await response.json()).toMatchObject({ authFailure: { code: 'PI_LOGIN_REQUIRED', reason,
       provider: 'openai-codex' }, error: recovery });
     expect(piTransport.requests).toEqual([]);
     expect(piTransport.profiles).toEqual([]);
     expect(piTransport.reads.every(read => read.method === 'GET')).toBe(true);
+    expect(persisted.authFailure).toEqual({ code: 'PI_LOGIN_REQUIRED', reason, provider: 'openai-codex' });
+    const before = [...piTransport.reads];
+    const cold = await nativeCapability('valid', {}, persisted);
+    const replay = await ensureNative(cold);
+    expect(await replay.json()).toMatchObject({ authFailure: persisted.authFailure });
+    expect(piTransport.reads).toEqual(before); // New credentials cannot clear the admitted Activity's durable login-stop.
+    const cleanup = await cold.fetch(new Request('https://operator.internal/v1/session/stop', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ schemaVersion: 1 }),
+    }));
+    expect(cleanup.status).toBe(200);
   }
 });
 
 it('REQ-OPERATOR-047: Conductor retains safe rejected child auth failure instead of generic 403 with logging OFF', async () => {
-  const capability = await nativeCapability();
+  const persisted: { authFailure?: unknown } = {};
+  const capability = await nativeCapability('valid', {}, persisted);
   expect((await ensureNative(capability)).status).toBe(200);
   piTransport.authFailure = { code: 'PI_LOGIN_REQUIRED', reason: 'rejected', provider: 'openai-codex' };
   const result = await capability.fetch(new Request('https://operator.internal/v1/pi/tasks', {
@@ -224,4 +279,10 @@ it('REQ-OPERATOR-047: Conductor retains safe rejected child auth failure instead
   expect(result.status).toBe(200);
   expect(await result.json()).toMatchObject({ taskId: 'approved-round', status: 'failed', authFailure: piTransport.authFailure });
   expect(piTransport.reads.every(read => read.method === 'GET')).toBe(true);
+  expect(persisted.authFailure).toEqual(piTransport.authFailure);
+  const before = { reads: [...piTransport.reads], requests: [...piTransport.requests] };
+  const cold = await nativeCapability('valid', {}, persisted);
+  expect(await (await ensureNative(cold)).json()).toMatchObject({ authFailure: persisted.authFailure });
+  expect(piTransport.reads).toEqual(before.reads);
+  expect(piTransport.requests).toEqual(before.requests);
 });

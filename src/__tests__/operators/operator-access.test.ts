@@ -908,3 +908,138 @@ describe('REQ-OPERATOR-045: delegated management and invocation', () => {
     }
   }));
 });
+
+
+describe('REQ-OPERATOR-007/047: production management inference approval', () => {
+  const inference = { allowedSources: ['managed', 'pi-native'] as Array<'managed' | 'pi-native'>,
+    routeIds: ['approved-route'], defaultRouteId: 'approved-route', reasoningLevels: ['low'],
+    defaultReasoningLevel: 'low', inheritUserDefaults: false };
+
+  it('requires explicit operator and installation approval, persists restrictions and fences protected admission until re-enabled', () => withApi(async (request, registry) => {
+    await delegate(request);
+    const registered = await request('/api/operator-management/operators', 'POST', registration);
+    expect(registered.status).toBe(201);
+    const operator = await registered.json() as { id: string; revision: number };
+    const id = await enabledInstallation(request, operator);
+    const detailPath = `/api/operator-management/operators/${operator.id}`;
+    const installationPath = `/api/operator-management/installations/${id}`;
+    const read = async () => await (await request(detailPath)).json() as {
+      operator: { revision: number; policy: ManagementPolicy }; installations: Array<ManagementInstallation & { configuration: unknown }>; grants: unknown };
+    const legacy = await read();
+    expect(legacy.operator.policy.inference).toBeUndefined();
+    expect(legacy.installations[0].policy.inference).toBeUndefined();
+    // An installation override is a preference, not operator source approval.
+    expect((await request(`${installationPath}/configure`, 'POST', {
+      revision: legacy.installations[0].revision, policy: { ...registration.policy, inference },
+      configuration: {}, piReasoningOverride: 'low',
+    })).status).toBe(400);
+    expect(await read()).toEqual(legacy);
+
+    const approved = await request(`${detailPath}/capabilities`, 'POST', {
+      revision: legacy.operator.revision, capabilities: [], inference,
+    });
+    expect(approved.status).toBe(200);
+    expect(await approved.json()).toMatchObject({ revision: legacy.operator.revision + 1, policy: { inference } });
+    const operatorApproved = await read();
+    expect(operatorApproved.installations[0]).toMatchObject({ revision: legacy.installations[0].revision + 1, enabled: false });
+    expect(operatorApproved.installations[0].policy.inference).toBeUndefined();
+    const admission = { installationId: id, activityId: 'management-native-approval', intentDigest: 'a'.repeat(64),
+      expectedInstallationRevision: operatorApproved.installations[0].revision,
+      expectedOperatorRevision: operatorApproved.operator.revision, expectedControlsRevision: 1, deadline: Date.now() + 60_000 };
+    expect(await registry.admitManagement(admission)).toEqual({ ok: false, reason: 'disabled' });
+    expect(await registry.getManagementAdmission(admission.activityId)).toBeNull();
+    expect(await registry.resolveManagementExecution(id)).toEqual({ ok: false, reason: 'disabled' });
+    expect((await request(`${detailPath}/capabilities`, 'POST', {
+      revision: legacy.operator.revision, capabilities: [], inference: { ...inference, reasoningLevels: ['high'], defaultReasoningLevel: 'high' },
+    })).status).toBe(409);
+
+    const configuration = { unrelated: { keep: ['labels'] } };
+    const installed = operatorApproved.installations[0];
+    // Reasoning cannot be widened by a second explicit source approval.
+    expect((await request(`${installationPath}/configure`, 'POST', {
+      revision: installed.revision, policy: { ...registration.policy, inference: { ...inference, reasoningLevels: ['low', 'high'] } }, configuration,
+    })).status).toBe(400);
+    const saved = await request(`${installationPath}/configure`, 'POST', {
+      revision: installed.revision, policy: { ...registration.policy, inference }, configuration, piReasoningOverride: 'low',
+    });
+    expect(saved.status).toBe(200);
+    expect(await saved.json()).toMatchObject({ revision: installed.revision + 1, enabled: false,
+      policy: { ...registration.policy, inference }, configuration, piReasoningOverride: 'low' });
+    expect((await request(`${installationPath}/enable`, 'POST', { revision: installed.revision, enabled: true })).status).toBe(409);
+    expect(await registry.resolveManagementExecution(id)).toEqual({ ok: false, reason: 'disabled' });
+    expect((await request(`${installationPath}/enable`, 'POST', { revision: installed.revision + 1, enabled: true })).status).toBe(200);
+    const selection = await registry.resolveManagementExecution(id);
+    expect(selection).toMatchObject({ ok: true, value: { operator: { policy: { inference } }, installation: {
+      policy: { inference }, enabled: true, configurationJson: JSON.stringify(configuration), piReasoningOverride: 'low',
+    } } });
+    expect(await registry.getManagementConfigurationHistory(id, installed.revision + 1)).toMatchObject({ policy: { inference }, enabled: false });
+    const admitted = await registry.admitManagement({ ...admission, expectedInstallationRevision: installed.revision + 2 });
+    expect(admitted).toMatchObject({ ok: true, value: { selection: { operator: { policy: { inference } },
+      installation: { policy: { inference }, piReasoningOverride: 'low' } } } });
+    expect(await registry.getManagementAdmission(admission.activityId)).toEqual(admitted.ok ? admitted.value : null);
+
+    // Omitted inference on an unrelated operator settings save preserves the approved restrictions.
+    expect((await request(`${detailPath}/capabilities`, 'POST', {
+      revision: operatorApproved.operator.revision, capabilities: [], loggingEnabled: false,
+    })).status).toBe(200);
+    const after = await read();
+    expect(after.operator.policy.inference).toEqual(inference);
+    expect(after.installations[0]).toMatchObject({ policy: { inference }, configuration, piReasoningOverride: 'low', enabled: false });
+    expect(after.grants).toEqual(legacy.grants);
+    const authority = { operatorRevision: after.operator.revision, controlsRevision: 1, expiresAt: Date.now() + 60_000 };
+    const beforeInvalid = await read();
+    await expect(registry.configureManagementInstallation(id, {
+      revision: after.installations[0].revision, policy: { ...registration.policy, inference: { ...inference, defaultReasoningLevel: 'high' } },
+      configurationJson: JSON.stringify(configuration),
+    }, authority)).rejects.toBeDefined();
+    await expect(registry.setManagementCapabilities(operator.id, [], authority, undefined, undefined, undefined, undefined,
+      undefined, undefined, {}, { ...inference, allowedSources: ['pi-native', 'pi-native'] })).rejects.toBeDefined();
+    expect(await read()).toEqual(beforeInvalid);
+  }));
+
+  it('legacy managed-only installation omission cannot widen a native-only operator through HTTP or RPC', () => withApi(async (request, registry) => {
+    await delegate(request);
+    const policy = { ...registration.policy, inference: { ...inference, allowedSources: ['pi-native'] as Array<'pi-native'> } };
+    const registered = await request('/api/operator-management/operators', 'POST', { ...registration, policy });
+    expect(registered.status).toBe(201);
+    const operator = await registered.json() as { id: string; revision: number };
+    const id = await enabledInstallation(request, operator, policy);
+    const path = `/api/operator-management/operators/${operator.id}`;
+    const before = await (await request(path)).json() as { operator: { revision: number }; installations: ManagementInstallation[] };
+    const installation = before.installations[0];
+    expect((await request(`${path}/installations`, 'POST', {
+      revision: before.operator.revision, name: 'legacy-managed', policy: registration.policy,
+    })).status).toBe(400);
+    expect((await request(`/api/operator-management/installations/${id}/configure`, 'POST', {
+      revision: installation.revision, policy: registration.policy, configuration: {},
+    })).status).toBe(400);
+    const authority = { operatorRevision: before.operator.revision, controlsRevision: 1, expiresAt: Date.now() + 60_000 };
+    await expect(registry.createManagementInstallation(operator.id, 'legacy-managed', registration.policy, authority)).rejects.toBeDefined();
+    await expect(registry.configureManagementInstallation(id, {
+      revision: installation.revision, policy: registration.policy, configurationJson: '{}',
+    }, authority)).rejects.toBeDefined();
+    expect(await (await request(path)).json()).toEqual(before);
+  }));
+
+  it('round-trips canonical inference at registration and rejects malformed HTTP and RPC approvals without mutation', () => withApi(async (request, registry) => {
+    await delegate(request);
+    const response = await request('/api/operator-management/operators', 'POST', { ...registration, policy: { ...registration.policy, inference } });
+    expect(response.status).toBe(201);
+    const operator = await response.json() as { id: string; revision: number; policy: ManagementPolicy };
+    expect(operator.policy.inference).toEqual(inference);
+    const path = `/api/operator-management/operators/${operator.id}`;
+    const before = await (await request(path)).json();
+    for (const invalid of [
+      { ...inference, nativeApproved: true }, { ...inference, allowedSources: ['native'] },
+      { ...inference, allowedSources: ['pi-native', 'pi-native'] }, { ...inference, reasoningLevels: ['unrestricted'] },
+      { ...inference, defaultRouteId: 'other-route' }, { ...inference, defaultReasoningLevel: 'high' },
+    ]) {
+      expect((await request(`${path}/capabilities`, 'POST', { revision: operator.revision, capabilities: [], inference: invalid })).status).toBe(400);
+      expect((await request(`${path}/installations`, 'POST', { revision: operator.revision, name: 'invalid', policy: { ...registration.policy, inference: invalid } })).status).toBe(400);
+    }
+    const authority = { operatorRevision: operator.revision, controlsRevision: 1, expiresAt: Date.now() + 60_000 };
+    await expect(registry.createManagementInstallation(operator.id, 'invalid', { ...registration.policy,
+      inference: { ...inference, routeIds: ['other-route'], defaultRouteId: 'approved-route' } }, authority)).rejects.toBeDefined();
+    expect(await (await request(path)).json()).toEqual(before);
+  }));
+});

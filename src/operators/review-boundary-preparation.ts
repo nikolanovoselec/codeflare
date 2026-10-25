@@ -1,13 +1,15 @@
 import type { Env } from '../types';
 import type { VerifiedHumanAccessClaims } from '../lib/jwt';
 import { canInvokeOperator, loadEnterpriseRouteConfig, requireOperatorHumanContext,
-  resolveSessionAccessGroup } from '../lib/access';
+  resolveSessionAccessGroup, resolveBucketName } from '../lib/access';
 import { readBoundedResponse } from '../lib/bounded-stream';
 import { operatorOwnerKey } from './browser-activity';
 import { parseBoundedBoundaryInput, verifyBoundedBoundaryInput } from './boundary-input';
 import { resolveBoundaryAction } from './boundary-action-trust';
 import { verifyGithubPrBoundary } from './github-pr-boundary';
 import { prepareOperatorActivity } from './orchestrator';
+import { createOwnerNativePiProfileReader } from './native-pi-profile';
+import { resolveOperatorInference, type AdmittedOperatorInference, type NativeOperatorInference } from './inference-selection';
 
 export interface ReadyBoundary {
   generation: number;
@@ -170,46 +172,102 @@ export async function prepareVerifiedBoundary(
     || installation.value.installation.id !== selected.installationId
     || installation.value.operator.profile !== 'conductor'
     || !canInvokeOperator(authority.human, installation.value.operator)) throw Error('Operator installation unavailable');
-  // Recheck both mutable GitHub contexts immediately before the durable CAS.
-  const [currentPr, currentBranch, currentWorkflow, currentHeadPulls, currentBranchPulls] = await Promise.all([
-    json(`${root}/pulls/${input.pullRequest}`), json(branchPath),
-    json(`${root}/actions/workflows/${action.workflowId}`),
-    json(`${root}/commits/${head}/pulls?per_page=2`),
-    json(`${root}/pulls?state=open&head=${encodeURIComponent(`${owner}:${branch}`)}&per_page=2`),
-  ]) as [typeof pullRequest, typeof protectedBranch, typeof workflow,
-    Array<{ number: number; state: string; head: { sha: string } }>, Array<{ number: number }>];
-  verifyGithubPrBoundary({ owner, repository, ref, head, pullRequest: input.pullRequest },
-    { ...evidence, pullRequest: currentPr });
-  if (currentPr.node_id !== pullRequest.node_id
-    || currentPr.base.sha !== pullRequest.base.sha || currentPr.base.ref !== pullRequest.base.ref
-    || currentPr.base.repo.id !== pullRequest.base.repo.id
-    || currentPr.head.sha !== pullRequest.head.sha || currentPr.head.ref !== pullRequest.head.ref
-    || currentPr.head.repo.id !== pullRequest.head.repo.id
-    || currentBranch?.commit?.sha !== protectedBranch.commit.sha || !currentBranch.protected
-    || currentBranch.name !== protectedBranch.name
-    || currentWorkflow?.id !== workflow.id || currentWorkflow.path !== workflow.path
-    || currentWorkflow.state !== 'active' || !Array.isArray(currentHeadPulls)
-    || currentHeadPulls.length !== 1 || currentHeadPulls[0]?.number !== input.pullRequest
-    || currentHeadPulls[0]?.state !== 'open' || currentHeadPulls[0]?.head?.sha !== head
-    || !Array.isArray(currentBranchPulls) || currentBranchPulls.length !== 1
-    || currentBranchPulls[0]?.number !== input.pullRequest) throw Error('PR or Action revision moved');
-  const currentAuthority = await requireOperatorHumanContext(new Request('https://codeflare.invalid/', {
-    headers: { 'cf-access-jwt-assertion': authority.accessJwt },
-  }), env, authority.human.email);
-  if (currentAuthority.human.subject !== authority.human.subject
-    || currentAuthority.human.issuer !== authority.human.issuer
-    || JSON.stringify(currentAuthority.human.audiences) !== JSON.stringify(authority.human.audiences)
-    || currentAuthority.human.expiresAt * 1000 <= Date.now()
-    || !canInvokeOperator(currentAuthority.human, installation.value.operator)) throw Error('Human authority changed');
+  // Invoke after profile selection so additional R2 reads cannot stale these proofs.
+  const recheckBoundary = async () => {
+    const [currentPr, currentBranch, currentWorkflow, currentHeadPulls, currentBranchPulls] = await Promise.all([
+      json(`${root}/pulls/${input.pullRequest}`), json(branchPath),
+      json(`${root}/actions/workflows/${action.workflowId}`),
+      json(`${root}/commits/${head}/pulls?per_page=2`),
+      json(`${root}/pulls?state=open&head=${encodeURIComponent(`${owner}:${branch}`)}&per_page=2`),
+    ]) as [typeof pullRequest, typeof protectedBranch, typeof workflow,
+      Array<{ number: number; state: string; head: { sha: string } }>, Array<{ number: number }>];
+    verifyGithubPrBoundary({ owner, repository, ref, head, pullRequest: input.pullRequest },
+      { ...evidence, pullRequest: currentPr });
+    if (currentPr.node_id !== pullRequest.node_id
+      || currentPr.base.sha !== pullRequest.base.sha || currentPr.base.ref !== pullRequest.base.ref
+      || currentPr.base.repo.id !== pullRequest.base.repo.id
+      || currentPr.head.sha !== pullRequest.head.sha || currentPr.head.ref !== pullRequest.head.ref
+      || currentPr.head.repo.id !== pullRequest.head.repo.id
+      || currentBranch?.commit?.sha !== protectedBranch.commit.sha || !currentBranch.protected
+      || currentBranch.name !== protectedBranch.name
+      || currentWorkflow?.id !== workflow.id || currentWorkflow.path !== workflow.path
+      || currentWorkflow.state !== 'active' || !Array.isArray(currentHeadPulls)
+      || currentHeadPulls.length !== 1 || currentHeadPulls[0]?.number !== input.pullRequest
+      || currentHeadPulls[0]?.state !== 'open' || currentHeadPulls[0]?.head?.sha !== head
+      || !Array.isArray(currentBranchPulls) || currentBranchPulls.length !== 1
+      || currentBranchPulls[0]?.number !== input.pullRequest) throw Error('PR or Action revision moved');
+  };
+  const deadline = authority.human.expiresAt * 1000;
+  const currentHuman = async () => {
+    const currentAuthority = await requireOperatorHumanContext(new Request('https://codeflare.invalid/', {
+      headers: { 'cf-access-jwt-assertion': authority.accessJwt },
+    }), env, authority.human.email);
+    if (currentAuthority.human.subject !== authority.human.subject
+      || currentAuthority.human.issuer !== authority.human.issuer
+      || JSON.stringify(currentAuthority.human.audiences) !== JSON.stringify(authority.human.audiences)
+      || Math.min(deadline, currentAuthority.human.expiresAt * 1000) <= Date.now()
+      || !canInvokeOperator(currentAuthority.human, installation.value.operator)) throw Error('Human authority changed');
+    return currentAuthority;
+  };
+  const currentAuthority = await currentHuman();
   const profileId = installation.value.installation.policy.resourceProfileId;
   if (!profileId) throw Error('Conductor resource profile unavailable');
   const groups = await resolveSessionAccessGroup(new Request('https://operator.internal/', {
     headers: { 'cf-access-jwt-assertion': currentAuthority.accessJwt },
   }), env);
   const routes = await loadEnterpriseRouteConfig(env, groups);
-  if (!routes.defaultRoute || !routes.routeCatalog.includes(routes.defaultRoute)) {
-    throw Error('Conductor inference unavailable');
+  let inference: AdmittedOperatorInference;
+  let authorizeNative: (() => Promise<void>) | undefined;
+  if (routes.piDefaultSource === 'pi-native') {
+    const ownerKey = await operatorOwnerKey(currentAuthority.human);
+    let native: NativeOperatorInference | undefined;
+    authorizeNative = async () => {
+      await checkLifecycle();
+      const human = await currentHuman();
+      const latest = await registry.resolveManagementExecution(selected.installationId);
+      if (!latest.ok || latest.value.controlsRevision !== installation.value.controlsRevision
+        || latest.value.installation.id !== installation.value.installation.id
+        || latest.value.installation.revision !== installation.value.installation.revision
+        || latest.value.operator.operatorId !== installation.value.operator.operatorId
+        || latest.value.operator.revision !== installation.value.operator.revision
+        || latest.value.operator.profile !== 'conductor'
+        || latest.value.release.id !== installation.value.release.id
+        || latest.value.release.bundleDigest !== installation.value.release.bundleDigest
+        || !canInvokeOperator(human.human, latest.value.operator)
+        || await operatorOwnerKey(human.human) !== ownerKey
+        || await resolveBucketName(env, human.human.email) !== session.bucket) {
+        throw Error('Conductor native authority changed');
+      }
+      const currentGroups = await resolveSessionAccessGroup(new Request('https://operator.internal/', {
+        headers: { 'cf-access-jwt-assertion': human.accessJwt },
+      }), env);
+      const eligible = await loadEnterpriseRouteConfig(env, currentGroups);
+      if (eligible.piDefaultSource !== 'pi-native' || eligible.allowPersonalPiProviders !== true) {
+        throw Error('Conductor native source unavailable');
+      }
+      for (const policy of [latest.value.operator.policy, latest.value.installation.policy]) {
+        if (!policy.inference?.allowedSources?.includes('pi-native')) throw Error('Conductor native source not approved');
+        if (native) resolveOperatorInference({ policy: { inference: policy.inference }, trusted: native,
+          eligible: { routeIds: eligible.routeCatalog, defaultRouteId: eligible.defaultRoute,
+            defaultReasoningLevel: eligible.defaultReasoning, allowPersonalPiProviders: eligible.allowPersonalPiProviders } });
+      }
+      if (Date.now() >= deadline) throw Error('Boundary authority unavailable');
+      await checkLifecycle();
+    };
+    const reader = await createOwnerNativePiProfileReader({ env, ownerBucket: session.bucket,
+      deadline: Math.min(deadline, currentAuthority.human.expiresAt * 1000), authorize: authorizeNative });
+    native = await reader.resolveSelection(installation.value.installation.piReasoningOverride);
+    await authorizeNative();
+    inference = native;
+  } else {
+    if (!routes.defaultRoute || !routes.routeCatalog.includes(routes.defaultRoute)) {
+      throw Error('Conductor inference unavailable');
+    }
+    inference = { routeId: routes.defaultRoute, reasoningLevel: routes.defaultReasoning || null };
   }
+  if (authorizeNative) await authorizeNative();
+  await recheckBoundary();
+  await currentHuman();
   await checkLifecycle();
   const pinned = { controlsRevision: selected.controlsRevision,
     installationRevision: installation.value.installation.revision,
@@ -223,7 +281,7 @@ export async function prepareVerifiedBoundary(
     pullRequest: context.pullRequest, roundGeneration: 1, contextDigest, ownerKey, installationId: selected.installationId,
     operatorId: installation.value.operator.operatorId,
     revision: { head: context.head, base: context.base, mergeBase: context.mergeBase }, protectedRef,
-    deadline: currentAuthority.human.expiresAt * 1000, expectedContextDigest: original?.contextDigest ?? null,
+    deadline: Math.min(deadline, currentAuthority.human.expiresAt * 1000), expectedContextDigest: original?.contextDigest ?? null,
     session: sessionBinding, ...pinned });
   if (!reservation.ok || !reservation.value.created) return; // Reconcile only: no new capability on ambiguity.
   const activityId = reservation.value.activityId;
@@ -238,8 +296,7 @@ export async function prepareVerifiedBoundary(
     activityId, operatorId, runId: activityId, source: { kind: 'session', reference: `${owner}/${repository}` },
     revision: { reference: head, digest: contextDigest }, inputDigest: await digest(consumerInput),
     input: consumerInput,
-    attachments: [], resources: { inference: { routeId: routes.defaultRoute,
-      reasoningLevel: routes.defaultReasoning || null },
+    attachments: [], resources: { inference,
       session: { profileId }, storage: { scopeId: profileId } } };
   await checkLifecycle();
   const prepared = await prepareOperatorActivity({ installationId: selected.installationId, invocation },

@@ -7,6 +7,7 @@ import { authenticateRequest, requireOperatorHumanContext, canManageOperator, ha
 import { getAllUsers } from '../lib/access-policy';
 import { SETUP_KEYS } from '../lib/kv-keys';
 import { operatorCapabilityChoices } from '../operators/distribution';
+import { inferencePolicySchema } from '../operators/policy';
 import { MAX_SOURCE_RESPONSE_BYTES, sourceResponseBytes } from '../operators/dispatcher-source-limits';
 import { MAX_INFERENCE_REQUEST_BYTES } from '../operators/dispatcher-inference-limits';
 import { pickDispatcherCapacities } from '../operators/dispatcher-capacity-limits';
@@ -33,23 +34,26 @@ const policy = z.strictObject({
   capabilities: z.array(z.string().trim().min(1).max(128)).max(32).refine(values => new Set(values).size === values.length),
   resourceProfileId: z.string().regex(ID).nullable(),
   sourceResponseBytes: z.number().int().min(1).max(MAX_SOURCE_RESPONSE_BYTES).optional(),
+  inference: inferencePolicySchema.optional(),
 });
 const githubPat = z.string().min(1).max(16384).refine(value => !!value.trim() && !/[\r\n\0]/.test(value));
 const repositoryUrl = z.string().min(1).max(2048);
 const registrationBody = z.strictObject({ repositoryUrl, githubPat, profile: z.enum(['conductor', 'dispatcher']), realm: z.enum(['internal', 'external']).default('internal'), managers: grant, invokers: grant, policy });
 const configuration = z.record(z.string().max(256), z.json());
-const installationBody = z.strictObject({ name: z.string().trim().min(1).max(256), policy, revision, configuration: configuration.default({}) });
+const piReasoningOverride = z.enum(['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']).optional();
+const installationBody = z.strictObject({ name: z.string().trim().min(1).max(256), policy, revision, configuration: configuration.default({}), piReasoningOverride });
 const revisionBody = z.strictObject({ revision });
 const sourceBody = z.strictObject({ repositoryUrl, githubPat, revision });
 const promoteBody = z.strictObject({ releaseId: z.string().regex(ID), revision });
 const enableBody = z.strictObject({ revision, enabled: z.boolean() });
 const grantsBody = z.strictObject({ managers: grant, invokers: grant, revision });
 const capabilitiesBody = z.strictObject({ ...dispatcherCapacityShape, revision, capabilities: policy.shape.capabilities, sourceResponseBytes: policy.shape.sourceResponseBytes,
+  inference: policy.shape.inference,
   inferenceRequestBytes: z.number().int().positive().max(MAX_INFERENCE_REQUEST_BYTES).optional(),
   operationLimit: z.number().int().positive().safe().optional(), loggingEnabled: z.boolean().optional(),
   inferenceAttemptLimit: z.number().int().positive().safe().optional(),
   submissionAttemptLimit: z.number().int().positive().safe().optional() });
-const configureBody = z.strictObject({ policy, configuration, revision });
+const configureBody = z.strictObject({ policy, configuration, revision, piReasoningOverride });
 const boundaryEnrollmentBody = z.strictObject({
   repositoryUrl: z.string().min(1).max(2048),
   protectedRef: z.enum(['refs/heads/main', 'refs/heads/develop', 'refs/heads/master']),
@@ -282,7 +286,7 @@ app.post('/operators/:operatorId/installations', async c => {
   const input = await parseJsonBody(c, installationBody);
   const operator = await managed(c, c.req.param('operatorId'));
   withinCeiling(c.get('operatorHuman'), input.policy);
-  return c.json(presentInstallation(result(await c.get('registry').createManagementInstallation(operator.id, input.name, input.policy, authority(c, operator, input.revision), JSON.stringify(input.configuration)))), 201);
+  return c.json(presentInstallation(result(await c.get('registry').createManagementInstallation(operator.id, input.name, input.policy, authority(c, operator, input.revision), JSON.stringify(input.configuration), input.piReasoningOverride))), 201);
 });
 
 app.post('/operators/:operatorId/capabilities', async c => {
@@ -297,7 +301,7 @@ app.post('/operators/:operatorId/capabilities', async c => {
   if (Object.keys(capacityPolicy).length > 0 && operator.profile !== 'dispatcher') throw new ValidationError('Capacity limits require a Dispatcher operator');
   withinCeiling(c.get('operatorHuman'), { ...operator.policy, capabilities: input.capabilities,
     ...(input.sourceResponseBytes === undefined ? {} : { sourceResponseBytes: input.sourceResponseBytes }) });
-  const updated = result(await c.get('registry').setManagementCapabilities(operator.id, input.capabilities, authority(c, operator, input.revision), input.sourceResponseBytes, input.inferenceRequestBytes, input.operationLimit, input.loggingEnabled, input.inferenceAttemptLimit, input.submissionAttemptLimit, capacityPolicy));
+  const updated = result(await c.get('registry').setManagementCapabilities(operator.id, input.capabilities, authority(c, operator, input.revision), input.sourceResponseBytes, input.inferenceRequestBytes, input.operationLimit, input.loggingEnabled, input.inferenceAttemptLimit, input.submissionAttemptLimit, capacityPolicy, input.inference));
   logger.info('Operator capabilities changed', { actor: c.get('operatorHuman').human.email, operatorId: operator.id, revision: updated.revision });
   return c.json(updated);
 });
@@ -341,6 +345,7 @@ app.post('/installations/:installationId/configure', async c => {
   withinCeiling(c.get('operatorHuman'), input.policy);
   const configured = result(await c.get('registry').configureManagementInstallation(installation.id, {
     policy: input.policy, configurationJson: JSON.stringify(input.configuration), revision: input.revision,
+    ...(input.piReasoningOverride !== undefined && { piReasoningOverride: input.piReasoningOverride }),
   }, authority(c, operator)));
   return c.json(presentInstallation(configured));
 });

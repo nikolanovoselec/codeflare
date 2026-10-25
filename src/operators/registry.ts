@@ -10,8 +10,9 @@ import { DurableObject } from 'cloudflare:workers';
 import { createOperatorWebhookKey, openOperatorSecret, sealOperatorSecret } from './protected-secrets';
 import { parseOperatorManifest, validateOperatorEndpoint, type OperatorManifest } from './distribution';
 import { ValidationError } from '../lib/error-types';
+import { isPiReasoningLevel, type PiReasoningLevel } from '../lib/reasoning-profiles';
 import { createLogger } from '../lib/logger';
-import { parseOperatorPolicy } from './policy';
+import { inferencePolicySchema, parseOperatorPolicy, type OperatorPolicy } from './policy';
 import { MAX_SOURCE_RESPONSE_BYTES, sourceResponseBytes as effectiveSourceResponseBytes } from './dispatcher-source-limits';
 import { submissionAttemptLimit as effectiveSubmissionAttemptLimit } from './dispatcher-submission-limits';
 import { inferenceRequestBytes as effectiveInferenceRequestBytes, inferenceAttemptLimit as effectiveInferenceAttemptLimit } from './dispatcher-inference-limits';
@@ -117,7 +118,10 @@ interface ProtectedDistribution {
 export type ManagementOperatorProfile = 'conductor' | 'dispatcher';
 export type ManagementOperatorRealm = 'internal' | 'external';
 export interface ManagementGrant { users: string[]; groups: Array<{ issuer: string; id: string }> }
-export interface ManagementPolicy { capabilities: string[]; resourceProfileId: string | null; sourceResponseBytes?: number }
+export interface ManagementPolicy { capabilities: string[]; resourceProfileId: string | null; sourceResponseBytes?: number;
+  /** Omission preserves legacy managed-only inference; native requires explicit approval at both scopes. */
+  inference?: OperatorPolicy['inference'];
+}
 interface ManagementOperatorPolicy extends ManagementPolicy, DispatcherCapacityPolicy { inferenceRequestBytes?: number; inferenceAttemptLimit?: number; submissionAttemptLimit?: number; operationLimit?: number; loggingEnabled?: boolean }
 export interface ManagementRelease {
   id: string; operatorId: string; githubReleaseId: number; sourceCommit: string;
@@ -212,6 +216,8 @@ export interface ManagementInstallation {
   revision: number; enabled: boolean; policy: ManagementPolicy;
   /** JSON object bytes cross the Durable Object RPC boundary as a string. */
   configurationJson: string;
+  /** Absent means inherit the execution owner's saved Pi reasoning preference. */
+  piReasoningOverride?: PiReasoningLevel;
   approvedSourceRevision: number | null;
 }
 interface ManagementOperatorState {
@@ -979,7 +985,8 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string; O
   private withinManagementCeiling(policy: ManagementPolicy): boolean {
     const controls = this.managementControls();
     const bytes = effectiveSourceResponseBytes(policy);
-    return controls.revision > 0 && policy.capabilities.every(value => controls.ceiling.capabilities.includes(value))
+    return (policy.inference === undefined || inferencePolicySchema.safeParse(policy.inference).success)
+      && controls.revision > 0 && policy.capabilities.every(value => controls.ceiling.capabilities.includes(value))
       && (policy.resourceProfileId === null || controls.ceiling.resourceProfileIds.includes(policy.resourceProfileId))
       && Number.isInteger(bytes) && bytes >= 1 && bytes <= MAX_SOURCE_RESPONSE_BYTES
       && bytes <= effectiveSourceResponseBytes(controls.ceiling);
@@ -988,7 +995,11 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string; O
   private managementState(id: string): ManagementOperatorState | null {
     this.managementSchema();
     const row = this.ctx.storage.sql.exec<{ data: string }>('SELECT data FROM operator_catalog WHERE id=?', id).toArray()[0];
-    return row ? JSON.parse(row.data) as ManagementOperatorState : null;
+    const state = row ? JSON.parse(row.data) as ManagementOperatorState : null;
+    if (state?.policy.inference !== undefined && !inferencePolicySchema.safeParse(state.policy.inference).success) {
+      throw new ValidationError('Invalid operator inference policy');
+    }
+    return state;
   }
 
   private indexManagementSearch(state: ManagementOperatorState): void {
@@ -1167,6 +1178,9 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string; O
 
   private parseManagementInstallation(data: string): ManagementInstallation {
     const parsed = JSON.parse(data) as ManagementInstallation & { configuration?: unknown };
+    if (parsed.policy.inference !== undefined && !inferencePolicySchema.safeParse(parsed.policy.inference).success) {
+      throw new ValidationError('Invalid installation inference policy');
+    }
     if (typeof parsed.configurationJson === 'string') return parsed;
     if (!parsed.configuration || typeof parsed.configuration !== 'object' || Array.isArray(parsed.configuration)) {
       throw new ValidationError('Invalid installation configuration');
@@ -1256,10 +1270,16 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string; O
   private restrictivePolicy(policy: ManagementPolicy, ceiling: ManagementPolicy): boolean {
     return this.withinManagementCeiling(policy) && policy.capabilities.every(capability => ceiling.capabilities.includes(capability))
       && (policy.resourceProfileId === null || policy.resourceProfileId === ceiling.resourceProfileId)
-      && effectiveSourceResponseBytes(policy) <= effectiveSourceResponseBytes(ceiling);
+      && effectiveSourceResponseBytes(policy) <= effectiveSourceResponseBytes(ceiling)
+      && (policy.inference?.allowedSources ?? ['managed']).every(source => (ceiling.inference?.allowedSources ?? ['managed']).includes(source))
+      && (policy.inference === undefined || ceiling.inference === undefined || (
+        policy.inference.routeIds.every(route => ceiling.inference!.routeIds.includes(route))
+        && policy.inference.reasoningLevels.every(level => ceiling.inference!.reasoningLevels.includes(level))
+        && (!policy.inference.inheritUserDefaults || ceiling.inference.inheritUserDefaults)
+      ));
   }
 
-  async createManagementInstallation(operatorId: string, name: string, policy: ManagementPolicy, authority: ManagementAuthority, configurationJson = '{}'): Promise<OperatorRegistryResult<ManagementInstallation>> {
+  async createManagementInstallation(operatorId: string, name: string, policy: ManagementPolicy, authority: ManagementAuthority, configurationJson = '{}', piReasoningOverride?: PiReasoningLevel): Promise<OperatorRegistryResult<ManagementInstallation>> {
     this.managementSchema();
     return this.ctx.storage.transactionSync(() => {
       const state = this.managementState(operatorId);
@@ -1268,7 +1288,9 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string; O
       if (!this.restrictivePolicy(policy, state!.policy)) throw new ValidationError('Installation exceeds operator policy');
       if (this.ctx.storage.sql.exec('SELECT id FROM operator_installations WHERE operator_id=? AND name=?', operatorId, name.toLowerCase()).toArray().length) return { ok: false, reason: 'already-exists' };
       if (this.ctx.storage.sql.exec<{ n: number }>('SELECT COUNT(*) AS n FROM operator_installations WHERE operator_id=?', operatorId).one().n >= 100) throw new ValidationError('Installation limit reached');
+      if (piReasoningOverride !== undefined && !isPiReasoningLevel(piReasoningOverride)) throw new ValidationError('Invalid Pi reasoning override');
       const value: ManagementInstallation = { id: crypto.randomUUID(), operatorId, name, releaseId: null, revision: 1,
+        ...(piReasoningOverride !== undefined && { piReasoningOverride }),
         enabled: false, policy, configurationJson: this.managementConfiguration(configurationJson, state!.profile === 'dispatcher' && state!.repositoryUrl.replace(/\.git$/i, '').toLowerCase() === 'https://github.com/nikolanovoselec/codeflare-operator-dispatcher'), approvedSourceRevision: null };
       this.saveInstallation(value);
       return { ok: true, value };
@@ -1328,7 +1350,7 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string; O
     });
   }
 
-  async configureManagementInstallation(installationId: string, input: { policy: ManagementPolicy; configurationJson: string; revision: number }, authority: ManagementAuthority): Promise<OperatorRegistryResult<ManagementInstallation>> {
+  async configureManagementInstallation(installationId: string, input: { policy: ManagementPolicy; configurationJson: string; revision: number; piReasoningOverride?: PiReasoningLevel }, authority: ManagementAuthority): Promise<OperatorRegistryResult<ManagementInstallation>> {
     this.managementSchema();
     return this.ctx.storage.transactionSync(() => {
       const installation = this.managementInstallation(installationId);
@@ -1338,13 +1360,15 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string; O
       if (fence) return fence;
       if (installation.revision !== input.revision) return { ok: false, reason: 'revision-conflict' };
       if (!this.restrictivePolicy(input.policy, state!.policy)) throw new ValidationError('Installation exceeds operator policy');
-      const value = { ...installation, policy: input.policy, configurationJson: this.managementConfiguration(input.configurationJson, state!.profile === 'dispatcher' && state!.repositoryUrl.replace(/\.git$/i, '').toLowerCase() === 'https://github.com/nikolanovoselec/codeflare-operator-dispatcher'), revision: installation.revision + 1, enabled: false };
+      if (input.piReasoningOverride !== undefined && !isPiReasoningLevel(input.piReasoningOverride)) throw new ValidationError('Invalid Pi reasoning override');
+      const { piReasoningOverride: _previous, ...inherited } = installation;
+      const value: ManagementInstallation = { ...inherited, ...(input.piReasoningOverride !== undefined && { piReasoningOverride: input.piReasoningOverride }), policy: input.policy, configurationJson: this.managementConfiguration(input.configurationJson, state!.profile === 'dispatcher' && state!.repositoryUrl.replace(/\.git$/i, '').toLowerCase() === 'https://github.com/nikolanovoselec/codeflare-operator-dispatcher'), revision: installation.revision + 1, enabled: false };
       this.saveInstallation(value);
       return { ok: true, value };
     });
   }
 
-  async setManagementCapabilities(operatorId: string, capabilities: string[], authority: ManagementAuthority, sourceResponseBytes?: number, inferenceRequestBytes?: number, operationLimit?: number, loggingEnabled?: boolean, inferenceAttemptLimit?: number, submissionAttemptLimit?: number, capacityPolicy: DispatcherCapacityPolicy = {}): Promise<OperatorRegistryResult<ManagementOperatorProjection>> {
+  async setManagementCapabilities(operatorId: string, capabilities: string[], authority: ManagementAuthority, sourceResponseBytes?: number, inferenceRequestBytes?: number, operationLimit?: number, loggingEnabled?: boolean, inferenceAttemptLimit?: number, submissionAttemptLimit?: number, capacityPolicy: DispatcherCapacityPolicy = {}, inference?: OperatorPolicy['inference']): Promise<OperatorRegistryResult<ManagementOperatorProjection>> {
     this.managementSchema();
     return this.ctx.storage.transactionSync(() => {
       const state = this.managementState(operatorId);
@@ -1373,6 +1397,7 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string; O
         throw new ValidationError('Invalid Dispatcher capacity limits');
       }
       const policy = { ...state!.policy, ...capacityPolicy, capabilities,
+        ...(inference === undefined ? {} : { inference }),
         ...(sourceResponseBytes === undefined ? {} : { sourceResponseBytes }),
         ...(inferenceRequestBytes === undefined ? {} : { inferenceRequestBytes }),
         ...(operationLimit === undefined ? {} : { operationLimit }),
@@ -1389,6 +1414,7 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string; O
         && effectiveInferenceAttemptLimit(policy) === effectiveInferenceAttemptLimit(state!.policy)
         && effectiveSubmissionAttemptLimit(policy) === effectiveSubmissionAttemptLimit(state!.policy)
         && dispatcherCapacityKeys.every(key => limits[key] === storedLimits[key])
+        && JSON.stringify(policy.inference) === JSON.stringify(state!.policy.inference)
         && (policy.loggingEnabled ?? true) === (state!.policy.loggingEnabled ?? true)) return { ok: true, value: this.saveManagement(state!) };
       const rows = this.ctx.storage.sql.exec<{ data: string }>('SELECT data FROM operator_installations WHERE operator_id=? AND enabled=1', operatorId).toArray();
       for (const row of rows) {
@@ -1530,7 +1556,9 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string; O
         if (fields.some(key => key === 'resultSummary'
           ? (['assessed', 'merged', 'notMerged', 'deferred', 'unknown'] as const)
             .some(field => prior.resultSummary?.[field] !== observed.resultSummary?.[field])
-          : prior[key] !== observed[key])) return;
+          : key === 'inferenceSelection' || key === 'authFailure'
+            ? JSON.stringify(prior[key]) !== JSON.stringify(observed[key])
+            : prior[key] !== observed[key])) return;
       }
       let count = await tx.get<number>(countKey);
       if (count === undefined) {

@@ -20,7 +20,8 @@ import { publishBoundaryResult } from '../../../scripts/operator-boundary-action
 vi.mock('cloudflare:workers', () => ({ WorkerEntrypoint: class {}, DurableObject: class {}, RpcTarget: class {} }));
 vi.mock('agents', () => ({ Agent: class {} }));
 vi.mock('@cloudflare/containers', () => ({ getContainer: () => { throw Error('Unexpected container port in projection-only composition'); } }));
-const trust = vi.hoisted(() => ({ current: true }));
+const trust = vi.hoisted(() => ({ current: true, native: false, personalAllowed: true,
+  deniedPolicy: '' as '' | 'operator' | 'installation', profileReads: [] as string[], preparation: null as unknown }));
 vi.mock('../../lib/access', async importOriginal => ({
   ...await importOriginal<typeof import('../../lib/access')>(),
   requireOperatorHumanContext: async () => ({ human: human(), accessJwt: 'fixture-access' }),
@@ -28,8 +29,24 @@ vi.mock('../../lib/access', async importOriginal => ({
   operatorAccessSessionCurrent: async () => trust.current,
   resolveBucketName: async () => 'owner-bucket', canInvokeOperator: () => true,
   resolveSessionAccessGroup: async () => [],
-  loadEnterpriseRouteConfig: async () => ({ routeCatalog: ['provider-default'],
-    defaultRoute: 'provider-default', defaultReasoning: '' }),
+  loadEnterpriseRouteConfig: async () => trust.native
+    ? { routeCatalog: [], defaultRoute: '', defaultReasoning: '', piDefaultSource: 'pi-native',
+      allowPersonalPiProviders: trust.personalAllowed }
+    : { routeCatalog: ['provider-default'], defaultRoute: 'provider-default', defaultReasoning: '' },
+}));
+vi.mock('../../lib/r2-regime-state', () => ({
+  isBucketMigrating: async () => false, isR2SseDisabledForBucket: async () => true,
+}));
+vi.mock('../../lib/r2-client', async importOriginal => ({
+  ...await importOriginal<typeof import('../../lib/r2-client')>(),
+  createR2Client: () => ({ fetch: async (request: Request) => {
+    const path = new URL(request.url).pathname;
+    trust.profileReads.push(path);
+    if (path === '/owner-bucket/.pi/agent/settings.json') return Response.json({
+      defaultProvider: 'openai-codex', defaultModel: 'gpt-6.1-sol', defaultThinkingLevel: 'high' });
+    if (path === '/owner-bucket/.pi/agent/models.json') return Response.json({ providers: {} });
+    throw Error('Preparation may read only owner selection, never credentials');
+  } }),
 }));
 vi.mock('../../lib/github-token', () => ({ getValidGithubToken: async () => 'fixture-github' }));
 // The claimed-owner proof is a controlled port here, not native OIDC/D1 acceptance.
@@ -80,7 +97,9 @@ beforeAll(async () => {
   worker = (await import(pathToFileURL(join(moduleRoot, bundle.mainModule)).href)).default;
 });
 afterAll(async () => { if (moduleRoot) await rm(moduleRoot, { recursive: true, force: true }); });
-afterEach(() => { trust.current = true; vi.unstubAllGlobals(); vi.restoreAllMocks(); });
+afterEach(() => { trust.current = true; trust.native = false; trust.personalAllowed = true;
+  trust.deniedPolicy = ''; trust.profileReads = []; trust.preparation = null;
+  vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
 type Mode = 'clean' | 'silent' | 'resolved';
 type Wire = { generation: number; invocation: { inputDigest: string; input: Record<string, any> } };
@@ -89,9 +108,16 @@ type Wire = { generation: number; invocation: { inputDigest: string; input: Reco
  * Registry/Activity and external session/Pi/storage/GitHub ports. No native/live acceptance,
  * reviewer judgment, physical cleanup, or new publication-policy coverage is claimed. */
 async function scenario(mode: Mode = 'clean') {
+  const nativePolicy = { ...policy, inference: { allowedSources: ['pi-native'], routeIds: [],
+    defaultRouteId: null, reasoningLevels: ['low'], defaultReasoningLevel: 'low', inheritUserDefaults: false } };
+  const selectedPolicy = (role: 'operator' | 'installation') => trust.native
+    ? { ...nativePolicy, inference: { ...nativePolicy.inference,
+      allowedSources: trust.deniedPolicy === role ? ['managed'] : ['pi-native'] } } : policy;
   const selection = { controlsRevision: 4,
-    installation: { id: 'review-install', revision: 2, policy },
-    operator: { operatorId: 'review-operator', revision: 3, profile: 'conductor' },
+    installation: { id: 'review-install', revision: 2, policy: selectedPolicy('installation'),
+      ...(trust.native ? { piReasoningOverride: 'low' } : {}) },
+    operator: { operatorId: 'review-operator', revision: 3, profile: 'conductor',
+      ...(trust.native ? { policy: selectedPolicy('operator') } : {}) },
     release: { id: 'review-release', sourceCommit: provenance.sourceCommit, bundleDigest: provenance.bundleDigest } };
   const comments: any[] = [], checks: any[] = [], artifacts: any[] = [];
   const session = { bucket: 'owner-bucket', sessionId: 'session01', generation: 7 };
@@ -248,6 +274,7 @@ async function scenario(mode: Mode = 'clean') {
     getBoundaryPreparation: async () => preparation && structuredClone(preparation),
     reserveBoundaryPreparation: async (input: any) => {
       preparation = { ...input, activityId: 'prepared-activity', phase: 'reserved' };
+      trust.preparation = structuredClone(preparation);
       return { ok: true, value: { ...preparation, created: true } };
     },
     markBoundaryPrepared: async () => { preparation.phase = 'prepared'; return true; },
@@ -313,6 +340,7 @@ async function scenario(mode: Mode = 'clean') {
     },
   } as unknown as Fetcher) }) };
   const env = { ENCRYPTION_KEY: btoa('a'.repeat(32)), LOADER: loader,
+    R2_ACCOUNT_ID: 'synthetic-r2-account', R2_ENDPOINT: 'https://r2.example.test',
     OPERATOR_REGISTRY: { getByName: () => registry }, OPERATOR_ACTIVITY: { getByName: () => activity } } as unknown as Env;
   await prepareVerifiedBoundary({ generation: 7,
     input: { repositoryId: 138, pullRequest: 34, targetHead: head,
@@ -327,7 +355,8 @@ async function scenario(mode: Mode = 'clean') {
     workflowId: 531, workflowSha: base, runId: 87, runAttempt: 2, generation: 7, session };
   const expectedBoundary = { activityId: preparation.activityId, generation: preparation.roundGeneration,
     workflowId: 531, runId: 87, runAttempt: 2, commentAuthorId: 777, checkAppId: 888,
-    inputDigest: original!.inputDigest, packageDigest: provenance.bundleDigest, policyDigest: hash(policy),
+    inputDigest: original!.inputDigest, packageDigest: provenance.bundleDigest,
+    policyDigest: hash(selection.installation.policy),
     resourceDigest: hash(resources.files.map(({ destination, sha256, size }) => ({ destination, sha256, size }))) };
   return {
     original: original!, expectedBoundary, wires, effects,
@@ -347,6 +376,32 @@ async function scenario(mode: Mode = 'clean') {
 }
 
 describe('REQ-OPERATOR-053/056/074: prepared Conductor runtime projection (controlled composition, not native acceptance)', () => {
+  it('REQ-OPERATOR-007/047: prepares the owner native selection and installation Low without a managed route', async () => {
+    trust.native = true;
+    const fixture = await scenario();
+    const invocation = JSON.parse(fixture.original.invocationJson);
+    expect(invocation.resources.inference).toMatchObject({ source: 'pi-native', provider: 'openai-codex',
+      model: 'gpt-6.1-sol', api: 'openai-codex-responses', reasoningLevel: 'low' });
+    expect(invocation.resources.inference.profileDigest).toMatch(/^[a-f0-9]{64}$/);
+    // Protected selection I/O is restricted to this verified owner's nonsecret fixed keys.
+    expect(trust.profileReads.length).toBeGreaterThan(0);
+    expect(trust.profileReads.every(path => ['/owner-bucket/.pi/agent/settings.json',
+      '/owner-bucket/.pi/agent/models.json'].includes(path))).toBe(true);
+    expect(fixture.persisted()).toEqual(fixture.original);
+    expect(fixture.wires).toEqual([]);
+    expect(fixture.effects).toEqual([]);
+  });
+
+  it.each(['permission', 'operator', 'installation'] as const)(
+    'REQ-OPERATOR-007/047: native preparation denied by %s has no profile reads or reserved/child work', async denied => {
+      trust.native = true;
+      if (denied === 'permission') trust.personalAllowed = false;
+      else trust.deniedPolicy = denied;
+      await expect(scenario()).rejects.toThrow();
+      expect(trust.profileReads).toEqual([]);
+      expect(trust.preparation).toBeNull();
+    });
+
   it.each(['silent', 'resolved'] as const)('prepared rejection reaches compiled consumer and authentic prior history: %s', async mode => {
     const fixture = await scenario(mode);
     const before = structuredClone(fixture.original);

@@ -3938,7 +3938,15 @@ COPILOT_BYOK_EOF
             printf '%s\n' "$PI_PROVIDER_CONFIG" > "$PI_MODELS_STAGE" || PI_GATEWAY_CONFIG_OK=0
         fi
         if [ -f "$PI_SETTINGS_JSON" ]; then
-            jq --argjson cfg "$PI_SETTINGS_CFG" 'del(.defaultThinkingLevel) * $cfg' "$PI_SETTINGS_JSON" > "$PI_SETTINGS_STAGE" 2>/dev/null || PI_GATEWAY_CONFIG_OK=0
+            if [ "${ENTERPRISE_PI_PERSONAL_PROVIDERS:-false}" = "true" ] \
+                && [ "${ENTERPRISE_PI_DEFAULT_SOURCE:-managed}" = "pi-native" ] \
+                && [ "${CODEFLARE_OPERATOR_SESSION:-}" != "true" ]; then
+                # Only a permitted human native-default startup retains the saved
+                # provider/model/reasoning. Sanctioned catalog publication is unchanged.
+                cat "$PI_SETTINGS_JSON" > "$PI_SETTINGS_STAGE" || PI_GATEWAY_CONFIG_OK=0
+            else
+                jq --argjson cfg "$PI_SETTINGS_CFG" 'del(.defaultThinkingLevel) * $cfg' "$PI_SETTINGS_JSON" > "$PI_SETTINGS_STAGE" 2>/dev/null || PI_GATEWAY_CONFIG_OK=0
+            fi
         else
             printf '%s\n' "$PI_SETTINGS_CFG" > "$PI_SETTINGS_STAGE" || PI_GATEWAY_CONFIG_OK=0
         fi
@@ -4802,6 +4810,8 @@ const id = /^[A-Za-z0-9_-]{1,128}$/;
 if (!pi || !sync || pi.schemaVersion !== 1 || sync.schemaVersion !== 1
   || !id.test(pi.activityId) || pi.activityId !== sync.activityId
   || !id.test(pi.sessionId) || pi.sessionId !== sync.sessionId) fail();
+if (pi.profile?.source === 'pi-native'
+  && (typeof pi.profile.api !== 'string' || !id.test(pi.profile.api))) fail();
 const root = path.resolve('/home/user/.codeflare/operators', pi.activityId);
 if (path.resolve(pi.root) !== root || path.resolve(sync.root) !== '/home/user/Operators') fail();
 process.stdout.write(root);
@@ -4811,18 +4821,32 @@ NODE
         "$operator_root/sessions" "$operator_root/output" "$operator_root/.codeflare" "$USER_HOME/Operators"
     # Use the image-owned routing publication, never a user-editable provider
     # document: even the managed provider alias may contain personal inline keys.
-    local operator_routing="${PI_PROVIDER_CONFIG:-}"
-    if [ -z "${operator_routing//[[:space:]]/}" ]; then
-        echo "[entrypoint] Managed Operator routing unavailable" >&2
+    local operator_source
+    operator_source=$(printf '%s' "$CODEFLARE_OPERATOR_PI_CONFIG" | jq -er '.profile.source // "managed"')
+    if [ "$operator_source" = "pi-native" ]; then
+        # The nonsecret profile is already parent-bound in OPERATOR_PI_CONFIG.
+        # Derived auth arrives only through the private Host auth-bind endpoint.
+        # No human settings, inline model credentials or managed route is needed.
+        printf '{"providers":{}}\n' > "$operator_root/agent/models.json"
+        printf '{}\n' > "$operator_root/agent/settings.json"
+        chmod 0600 "$operator_root/agent/models.json" "$operator_root/agent/settings.json"
+    elif [ "$operator_source" = "managed" ]; then
+        local operator_routing="${PI_PROVIDER_CONFIG:-}"
+        if [ -z "${operator_routing//[[:space:]]/}" ]; then
+            echo "[entrypoint] Managed Operator routing unavailable" >&2
+            return 1
+        fi
+        printf '%s\n' "$operator_routing" | jq -e '{providers: {"codeflare-gateway": (.providers["codeflare-gateway"] // error("managed Operator routing unavailable"))}}' > "$operator_root/agent/models.json"
+        chmod 0600 "$operator_root/agent/models.json"
+        for trusted_file in settings.json; do
+            if [ -f "$USER_HOME/.pi/agent/$trusted_file" ]; then
+                install -m 0600 "$USER_HOME/.pi/agent/$trusted_file" "$operator_root/agent/$trusted_file"
+            fi
+        done
+    else
+        echo "[entrypoint] Invalid Operator inference source" >&2
         return 1
     fi
-    printf '%s\n' "$operator_routing" | jq -e '{providers: {"codeflare-gateway": (.providers["codeflare-gateway"] // error("managed Operator routing unavailable"))}}' > "$operator_root/agent/models.json"
-    chmod 0600 "$operator_root/agent/models.json"
-    for trusted_file in settings.json; do
-        if [ -f "$USER_HOME/.pi/agent/$trusted_file" ]; then
-            install -m 0600 "$USER_HOME/.pi/agent/$trusted_file" "$operator_root/agent/$trusted_file"
-        fi
-    done
     # Personal human credentials never enter an Operator activity root.
     printf '{}\n' > "$operator_root/agent/auth.json"
     chmod 0600 "$operator_root/agent/auth.json"

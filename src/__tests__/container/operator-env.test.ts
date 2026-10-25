@@ -69,6 +69,31 @@ describe('operator container environment', () => {
     expect(vars.CODEFLARE_OPERATOR_PI_CONFIG).not.toContain('real-github');
   });
 
+  it.each([false, true])('REQ-OPERATOR-007/021/047: native API survives Host config serialization (isolated=%s)', isolated => {
+    const initialization = { schemaVersion: 1 as const, profileId: 'approved-profile', contextPath: 'review/input.json',
+      context: '{}', inputs: [{ kind: 'resource' as const, reference: 'review/child.md',
+        target: 'review/resources/child.md' }], tasks: [{ id: 'child', instruction: 'review/resources/child.md',
+        reads: ['review/input.json', 'review/resources/child.md'], output: 'reports/child.json' }] };
+    const authBinding = { ownerKey: 'a'.repeat(64), activityId: profile.activityId, sessionId: profile.sessionId,
+      generation: 1, selectionDigest: 'c'.repeat(64), profileDigest: 'd'.repeat(64), deadline: profile.deadline };
+    const configured = { ...profile, piProfile: { ...profile.piProfile, source: 'pi-native' as const,
+      provider: 'openai-codex', model: 'gpt-6.1-sol', api: 'openai-codex-responses', authBinding,
+      tools: ['read', 'write'], ...(isolated ? { initialization } : {}) } };
+    const vars = buildEnvVars(state({ _operatorContainerProfile: configured }), { ENTERPRISE_MODE: 'active' } as Env);
+    const config = JSON.parse(vars.CODEFLARE_OPERATOR_PI_CONFIG);
+    // Intentional trusted Host wire contract: API travels beside, not inside,
+    // the unchanged private seven-field authentication descriptor.
+    expect(config.profile).toEqual({ source: 'pi-native', provider: 'openai-codex', model: 'gpt-6.1-sol',
+      api: 'openai-codex-responses', authBinding, thinkingLevel: 'medium',
+      systemPrompt: profile.piProfile.systemPrompt, tools: ['read', 'write'] });
+    expect(config.initialization).toEqual(isolated ? initialization : undefined);
+    // Standard Host configuration is the existing five-field wire; its native
+    // deadline remains bound inside the private nonsecret descriptor.
+    expect(config.deadline).toBe(isolated ? profile.deadline : undefined);
+    expect(config.profile.authBinding.deadline).toBe(profile.deadline);
+    if (!isolated) expect(Object.keys(config).sort()).toEqual(['activityId', 'profile', 'root', 'schemaVersion', 'sessionId']);
+  });
+
   it('preserves ordinary non-enterprise credential and full-sync behavior when no profile exists', () => {
     const vars = buildEnvVars(state({ _operatorContainerProfile: undefined }), {} as Env);
     expect(vars.R2_ACCESS_KEY_ID).toBe('real-r2-key');

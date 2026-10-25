@@ -876,10 +876,9 @@ async function fixture(test: (f: {
             if (stage) deliveredTail.push({ ...props, stage });
           },
         }),
-        EgressController: ({ props }: { props: Record<string, unknown> }) => options.nativeInference
-          ? { fetch: nativeTransport } : options.realInterceptors
+        EgressController: ({ props }: { props: Record<string, unknown> }) => options.nativeInference || options.realInterceptors
           ? new EgressController({ props } as unknown as ExecutionContext, { ...environment,
-            EGRESS: { fetch: options.sourceTransport } } as unknown as Env)
+            EGRESS: { fetch: options.nativeInference ? nativeTransport : options.sourceTransport } } as unknown as Env)
           : ({ fetch: async () => {
           if (options.sourceDelayMs) await new Promise(resolve => setTimeout(resolve, options.sourceDelayMs));
           return new Response(sourceBody, {
@@ -999,6 +998,8 @@ async function fixture(test: (f: {
     };
     const environment = { ...encryption, ENTERPRISE_MODE: 'active', GITHUB_API_HOST: options.githubApiHost,
       ...(options.nativeInference ? { R2_ACCESS_KEY_ID: 'synthetic-scoped-id', R2_SECRET_ACCESS_KEY: 'synthetic-scoped-secret',
+        R2_ACCOUNT_ID: 'synthetic-r2-account', R2_ENDPOINT: 'https://r2.example.test',
+        KV: { get: async (key: string) => key === 'setup:strict_egress' ? 'active' : null },
         EGRESS: { fetch: nativeTransport } } : {}),
       OPERATOR_REGISTRY: { getByName: () => registry }, OPERATOR_ACTIVITY: { getByName: () => activity, idFromName: () => native.id },
       LOADER: { get: (_key: string, factory: () => Promise<{ env: Record<string, unknown>; globalOutbound: Fetcher | null; tails?: Array<{ tail(events: unknown): Promise<void> }> }>) => ({
@@ -5730,6 +5731,219 @@ describe('REQ-OPERATOR-048: original-lease serial SDK phase ownership', () => {
       method: string; url: string; operationCount: number };
   };
 
+  const nativeProviderUrl = 'https://chatgpt.com/backend-api/codex/responses';
+  const nativeBody = JSON.stringify({ model: 'gpt-6.1-sol', input: [], reasoning: { effort: 'low' }, stream: true });
+
+  it.each(['revoked', 'cancelled'] as const)(
+    'REQ-OPERATOR-047/048: ordinary native transport needs no phase token and retains %s authority fences after cold replay', fence => fixture(async f => {
+      await start(f);
+      const selected = JSON.parse((await f.loaderEnv()).OPERATOR_INFERENCE_SELECTION as string);
+      const bindingRequest = () => genericWire('native-binding', { profileDigest: selected.profileDigest });
+      const binding = await f.capability.fetch(bindingRequest());
+      expect(binding.status).toBe(200);
+      const bound = await binding.json() as { auth: { apiKey: string }; selection: unknown };
+      expect(bound.selection).toEqual(selected);
+      const admission = { operationId: 'ordinary-native', profileDigest: selected.profileDigest };
+      const admitted = await f.capability.fetch(genericWire('native-admission', admission));
+      expect(admitted.status).toBe(200);
+      const { handle } = await admitted.json() as { handle: string };
+      const request = () => new Request(nativeProviderUrl, { method: 'POST', headers: {
+        'content-type': 'application/json', authorization: `Bearer ${bound.auth.apiKey}`,
+        'chatgpt-account-id': 'synthetic-account', 'x-codeflare-native-inference': handle }, body: nativeBody });
+      const result = () => genericWire('native-result', { handle, outcome: 'completed' });
+      // SDK setup or admission alone is never a committed transport receipt.
+      expect((await f.capability.fetch(result())).status).toBe(403);
+      expect(f.sent.filter(request => request.url === nativeProviderUrl)).toHaveLength(0);
+      const response = await f.capability.fetch(request());
+      expect(response.status).toBe(201);
+      expect(response.headers.get('x-request-id')).toBe('ordinary-native-response');
+      expect(await response.text()).toBe('exact ordinary native bytes');
+      expect((await f.capability.fetch(result())).status).toBe(200);
+      const cold = await coldOwner(f);
+      const retained = await cold.capability.fetch(genericWire('native-admission', admission));
+      expect(retained.status).toBe(200);
+      expect(await retained.json()).toEqual({ handle });
+      const replay = await cold.capability.fetch(request());
+      expect(replay.status).toBe(201);
+      expect(replay.headers.get('x-request-id')).toBe('ordinary-native-response');
+      expect(await replay.text()).toBe('exact ordinary native bytes');
+      expect((await cold.capability.fetch(result())).status).toBe(200);
+      for (const protectedRequest of [bindingRequest(), genericWire('native-admission', admission), request(), result()]) {
+        expect((await cold.staleCapability.fetch(protectedRequest)).status).toBe(403);
+      }
+      if (fence === 'revoked') cold.revoke();
+      else expect(await cold.activity.cancelDrive()).toMatchObject({ ok: true });
+      for (const protectedRequest of [bindingRequest(), genericWire('native-admission', admission), request(), result()]) {
+        expect((await cold.capability.fetch(protectedRequest)).status).toBe(403);
+      }
+      expect(await cold.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
+      const sent = f.sent.filter(request => request.url === nativeProviderUrl);
+      expect(sent).toHaveLength(1);
+      expect(sent[0].headers.get('x-codeflare-dispatcher-delivery')).toBeNull();
+      expect(sent[0].headers.get('x-codeflare-native-inference')).toBeNull();
+      expect(await sent[0].clone().text()).toBe(nativeBody);
+    }, { repositoryOnly: true, recovery: true, intent4: false, facetContract: true, nativeInference: true,
+      sourceTransport: async request => request.url !== nativeProviderUrl ? Response.json({ ok: true })
+        : new Response('exact ordinary native bytes', { status: 201, headers: { 'x-request-id': 'ordinary-native-response' } }) }));
+
+  it('REQ-OPERATOR-047/048: native zstd inspection denies malformed bodies and forwards original compressed bytes', () => fixture(async f => {
+    // Public Node codec only: CI must expose the same API used by the Parent inspector.
+    // Missing Workerd codec support is a real CI blocker, not a skipped qualification.
+    const { zstdCompressSync } = await import('node:zlib');
+    const compressed = new Uint8Array(zstdCompressSync(new TextEncoder().encode(nativeBody)));
+    await start(f);
+    const selected = JSON.parse((await f.loaderEnv()).OPERATOR_INFERENCE_SELECTION as string);
+    const binding = await f.capability.fetch(genericWire('native-binding', { profileDigest: selected.profileDigest }));
+    expect(binding.status).toBe(200);
+    const bound = await binding.json() as { auth: { apiKey: string } };
+    const admitted = await f.capability.fetch(genericWire('native-admission', {
+      operationId: 'native-compressed', profileDigest: selected.profileDigest }));
+    expect(admitted.status).toBe(200);
+    const { handle } = await admitted.json() as { handle: string };
+    const request = (body: Uint8Array) => new Request(nativeProviderUrl, { method: 'POST', headers: {
+      'content-type': 'application/json', 'content-encoding': 'zstd', authorization: `Bearer ${bound.auth.apiKey}`,
+      'chatgpt-account-id': 'synthetic-account', 'x-codeflare-native-inference': handle }, body });
+    // Invalid compressed input cannot claim or complete the admitted transport.
+    expect((await f.capability.fetch(request(new TextEncoder().encode('not a zstd frame')))).status).toBe(403);
+    expect((await f.capability.fetch(genericWire('native-result', { handle, outcome: 'completed' }))).status).toBe(403);
+    expect(f.sent.filter(request => request.url === nativeProviderUrl)).toHaveLength(0);
+    const response = await f.capability.fetch(request(compressed));
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe('compressed native response');
+    const sent = f.sent.filter(request => request.url === nativeProviderUrl);
+    expect(sent).toHaveLength(1);
+    expect(sent[0].headers.get('content-encoding')).toBe('zstd');
+    expect(new Uint8Array(await sent[0].clone().arrayBuffer())).toEqual(compressed);
+    expect((await f.capability.fetch(genericWire('native-result', { handle, outcome: 'completed' }))).status).toBe(200);
+  }, { repositoryOnly: true, recovery: true, intent4: false, facetContract: true, nativeInference: true,
+    sourceTransport: async request => request.url !== nativeProviderUrl ? Response.json({ ok: true })
+      : new Response('compressed native response') }));
+
+  it.each(['missing', 'stale'] as const)(
+    'REQ-OPERATOR-047/048: serial native admission denies %s delivery without spending an upstream attempt', tokenKind => fixture(async f => {
+      await start(f);
+      const original = await context(f);
+      if (tokenKind === 'stale') await discovery(f);
+      const current = await context(f);
+      const selected = JSON.parse((await f.loaderEnv()).OPERATOR_INFERENCE_SELECTION as string);
+      const admission = { operationId: 'serial-native-current', profileDigest: selected.profileDigest };
+      const deniedRequest = tokenKind === 'missing' ? genericWire('native-admission', admission)
+        : wire('native-admission', admission, original.deliveryToken);
+      await deny(await f.capability.fetch(deniedRequest));
+      expect(f.sent.filter(request => request.url === nativeProviderUrl)).toHaveLength(0);
+      const admitted = await f.capability.fetch(wire('native-admission', admission, current.deliveryToken));
+      expect(admitted.status).toBe(200);
+      const { handle } = await admitted.json() as { handle: string };
+      // No provider request was committed; a successful SDK outcome cannot create one.
+      expect((await f.capability.fetch(wire('native-result', { handle, outcome: 'completed' }, current.deliveryToken))).status).toBe(403);
+      expect(await context(f)).toEqual(current);
+      expect(f.sent.filter(request => request.url === nativeProviderUrl)).toHaveLength(0);
+    }, { repositoryOnly: true, recovery: true, intent4: true, facetContract: true, nativeInference: true,
+      sourceTransport: async () => Response.json({ ok: true }) }));
+
+  it.each(['partial', 'unknown'] as const)(
+    'REQ-OPERATOR-047/048: %s native transport cannot replay or settle after cold reconstruction', failure => fixture(async f => {
+      await start(f);
+      const selected = JSON.parse((await f.loaderEnv()).OPERATOR_INFERENCE_SELECTION as string);
+      const binding = await f.capability.fetch(genericWire('native-binding', { profileDigest: selected.profileDigest }));
+      expect(binding.status).toBe(200);
+      const bound = await binding.json() as { auth: { apiKey: string } };
+      const admission = { operationId: 'native-uncertain', profileDigest: selected.profileDigest };
+      const admitted = await f.capability.fetch(genericWire('native-admission', admission));
+      expect(admitted.status).toBe(200);
+      const { handle } = await admitted.json() as { handle: string };
+      const request = () => new Request(nativeProviderUrl, { method: 'POST', headers: {
+        'content-type': 'application/json', authorization: `Bearer ${bound.auth.apiKey}`,
+        'chatgpt-account-id': 'synthetic-account', 'x-codeflare-native-inference': handle }, body: nativeBody });
+      const response = await f.capability.fetch(request());
+      expect(response.status).toBe(409);
+      expect(await response.json()).toMatchObject({ code: 'OPERATOR_OPERATION_UNKNOWN' });
+      const cold = await coldOwner(f);
+      expect((await cold.capability.fetch(genericWire('native-admission', admission))).status).toBe(409);
+      expect((await cold.capability.fetch(request())).status).toBe(409);
+      for (const outcome of ['completed', 'failed']) {
+        expect((await cold.capability.fetch(genericWire('native-result', { handle, outcome }))).status).toBe(403);
+      }
+      // A new operation label cannot evade the retained canonical wire/attempt fence.
+      const fresh = await cold.capability.fetch(genericWire('native-admission', { ...admission, operationId: 'native-uncertain-fresh' }));
+      expect(fresh.status).toBe(200);
+      const freshHandle = (await fresh.json() as { handle: string }).handle;
+      const freshRequest = request(); freshRequest.headers.set('x-codeflare-native-inference', freshHandle);
+      expect((await cold.capability.fetch(freshRequest)).status).toBe(409);
+      expect(await cold.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
+      expect(await cold.activity.commitDrive(1, { schemaVersion: 1, status: 'completed', checkpoint: null,
+        result: { repository: 'another/service', results: [] } })).toMatchObject({ ok: false });
+      expect(await cold.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
+      // A globally uncertain drive is stricter than an operation-local unknown:
+      // after reconstruction neither old nor fresh native work regains authority.
+      expect(await cold.activity.interruptDrive(1)).toMatchObject({ ok: true });
+      const fenced = await coldOwner(cold);
+      for (const protectedRequest of [genericWire('native-binding', { profileDigest: selected.profileDigest }),
+        genericWire('native-admission', admission), genericWire('native-admission', {
+          ...admission, operationId: 'native-after-global-uncertainty' }), request(),
+        genericWire('native-result', { handle, outcome: 'failed' })]) {
+        expect((await fenced.capability.fetch(protectedRequest)).status).toBe(403);
+      }
+      expect(await fenced.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
+      expect(f.sent.filter(request => request.url === nativeProviderUrl)).toHaveLength(1);
+    }, { repositoryOnly: true, recovery: true, intent4: false, facetContract: true, nativeInference: true,
+      sourceTransport: async request => {
+        if (request.url !== nativeProviderUrl) return Response.json({ ok: true });
+        if (failure === 'unknown') throw new Error('Synthetic provider lost response');
+        return new Response(new ReadableStream<Uint8Array>({ start(controller) {
+          controller.enqueue(new TextEncoder().encode('partial native bytes'));
+        }, pull(controller) { controller.error(new Error('Synthetic provider truncated response')); } }),
+        { headers: { 'content-type': 'text/event-stream' } });
+      } }));
+
+  it.each(['binding', 'send'] as const)(
+    'REQ-OPERATOR-047: expired cached native %s stops with logging OFF and survives cold reconstruction despite updated saved auth', boundary => fixture(async f => {
+      await start(f, 20_000);
+      const selected = JSON.parse((await f.loaderEnv()).OPERATOR_INFERENCE_SELECTION as string);
+      // Saved-profile fixture input: only auth expiry changes, not the admitted selection or lease.
+      nativeProfileFiles.set('/owner-bucket/.pi/agent/auth.json', { 'openai-codex': { type: 'oauth',
+        access: 'synthetic-native-access', refresh: 'synthetic-native-refresh', accountId: 'synthetic-account', expires: Date.now() + 1_000 } });
+      const bindingRequest = () => genericWire('native-binding', { profileDigest: selected.profileDigest });
+      const binding = await f.capability.fetch(bindingRequest());
+      expect(binding.status).toBe(200);
+      const bound = await binding.json() as { auth: { apiKey: string }; expiresAt: number };
+      const admitted = await f.capability.fetch(genericWire('native-admission', {
+        operationId: 'native-expiring', profileDigest: selected.profileDigest }));
+      expect(admitted.status).toBe(200);
+      const { handle } = await admitted.json() as { handle: string };
+      const request = () => new Request(nativeProviderUrl, { method: 'POST', headers: {
+        'content-type': 'application/json', authorization: `Bearer ${bound.auth.apiKey}`,
+        'chatgpt-account-id': 'synthetic-account', 'x-codeflare-native-inference': handle }, body: nativeBody });
+      f.advanceClock(2_000);
+      expect(bound.expiresAt).toBeLessThanOrEqual(Date.now());
+      nativeProfileFiles.set('/owner-bucket/.pi/agent/auth.json', { 'openai-codex': { type: 'oauth',
+        access: 'synthetic-replacement-access', refresh: 'synthetic-replacement-refresh', accountId: 'synthetic-account', expires: Date.now() + 120_000 } });
+      const expired = await f.capability.fetch(boundary === 'binding' ? bindingRequest() : request());
+      expect(expired.status).toBe(403);
+      const authFailure = { code: 'PI_LOGIN_REQUIRED', provider: 'openai-codex', reason: 'expired' };
+      expect(await expired.json()).toEqual({ authFailure });
+      expect(await f.activity.getBrowserDetail()).toMatchObject({ authFailure });
+      const cold = await coldOwner(f);
+      for (const protectedRequest of [bindingRequest(), request(), genericWire('native-admission', {
+        operationId: 'native-after-expiry', profileDigest: selected.profileDigest })]) {
+        const stopped = await cold.capability.fetch(protectedRequest);
+        expect(stopped.status).toBe(403);
+        expect(await stopped.json()).toEqual({ authFailure });
+      }
+      expect((await cold.capability.fetch(genericWire('native-result', { handle, outcome: 'failed' }))).status).toBe(403);
+      expect(await cold.activity.getBrowserDetail()).toMatchObject({ authFailure });
+      expect(await cold.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
+      expect(f.sent.filter(request => request.url === nativeProviderUrl)).toHaveLength(0);
+    }, { repositoryOnly: true, recovery: true, intent4: false, facetContract: true, nativeInference: true, loggingEnabled: false,
+      sourceTransport: async () => Response.json({ ok: true }) }));
+
+  it('REQ-OPERATOR-007/047: unsupported native recovery protocol refuses without managed substitution', () => fixture(async f => {
+    expect(await start(f)).toMatchObject({ ok: true, state: { status: 'unknown' } });
+    expect(f.childSubmissions).toEqual([]);
+    expect(f.sent.filter(request => new URL(request.url).hostname === 'gateway.ai.cloudflare.com'
+      || new URL(request.url).hostname === 'chatgpt.com')).toEqual([]);
+  }, { repositoryOnly: true, recovery: false, intent4: false, facetContract: true, nativeInference: true }));
+
   it('REQ-OPERATOR-047/048: native response commits before delivery, replays after reconstruction, and rejects stale or late outcomes', async () => {
     const providerUrl = 'https://chatgpt.com/backend-api/codex/responses';
     const raw = new TextEncoder().encode('event: response.completed\r\ndata: {"type":"response.completed","response":{"id":"native-one","status":"completed","output_text":"✓"}}\r\n\r\n');
@@ -5812,6 +6026,15 @@ describe('REQ-OPERATOR-048: original-lease serial SDK phase ownership', () => {
         expect(replay.headers.get('set-cookie')).toBeNull();
         expect(new Uint8Array(await replay.arrayBuffer())).toEqual(raw);
         expect(await receipt(cold, 'native-budget-anchor', stamp.deliveryToken)).toMatchObject({ operationCount: 2 });
+        const freshOperation = await cold.capability.fetch(wire('native-admission', {
+          ...admission, operationId: 'native-fresh-label-same-wire' }, stamp.deliveryToken));
+        expect(freshOperation.status).toBe(200);
+        const freshHandle = (await freshOperation.json() as { handle: string }).handle;
+        const conflict = await cold.capability.fetch(request(freshHandle));
+        expect(conflict.status).toBe(409);
+        expect(await conflict.json()).toMatchObject({ code: 'OPERATOR_OPERATION_CONFLICT' });
+        expect((await cold.capability.fetch(wire('native-result', { handle: freshHandle, outcome: 'completed' }, stamp.deliveryToken))).status).toBe(403);
+        expect(f.sent.filter(request => request.url === providerUrl)).toHaveLength(1);
         for (const stale of [wire('native-binding', { profileDigest: selected.profileDigest }, stamp.deliveryToken),
           wire('native-admission', admission, stamp.deliveryToken), request(retained.handle)]) {
           expect((await cold.staleCapability.fetch(stale)).status).toBe(403);
@@ -5831,6 +6054,52 @@ describe('REQ-OPERATOR-048: original-lease serial SDK phase ownership', () => {
         void complete.then(() => { controller.enqueue(raw.slice(23)); controller.close(); });
       } }) : raw, { status: 201, headers: { 'content-type': 'text/event-stream; charset=utf-8',
         'x-request-id': 'native-request-one', 'set-cookie': 'synthetic-private-cookie' } }) });
+  });
+
+  it.each([401, 403])('REQ-OPERATOR-047: native auth rejection crosses real egress and persists safe recovery with logging OFF (HTTP %s)', async status => {
+    const providerUrl = 'https://chatgpt.com/backend-api/codex/responses';
+    await fixture(async f => {
+      await start(f);
+      const stamp = await context(f);
+      const loaded = await f.loaderEnv();
+      expect(typeof loaded.OPERATOR_INFERENCE_SELECTION).toBe('string');
+      const selected = JSON.parse(loaded.OPERATOR_INFERENCE_SELECTION as string);
+      const binding = await f.capability.fetch(wire('native-binding', { profileDigest: selected.profileDigest }, stamp.deliveryToken));
+      expect(binding.status).toBe(200);
+      const bound = await binding.json() as { auth: { apiKey: string } };
+      const admitted = await f.capability.fetch(wire('native-admission', {
+        operationId: 'native-auth-rejection', profileDigest: selected.profileDigest }, stamp.deliveryToken));
+      expect(admitted.status).toBe(200);
+      const { handle } = await admitted.json() as { handle: string };
+      const response = await f.capability.fetch(new Request(providerUrl, { method: 'POST',
+        headers: { 'content-type': 'application/json', authorization: `Bearer ${bound.auth.apiKey}`,
+          'chatgpt-account-id': 'synthetic-account', 'x-codeflare-native-inference': handle },
+        body: JSON.stringify({ model: 'gpt-6.1-sol', input: [], reasoning: { effort: 'low' }, stream: true }) }));
+      expect(response.status).toBe(status);
+      const value = await response.json();
+      const authFailure = { code: 'PI_LOGIN_REQUIRED', reason: 'rejected', provider: 'openai-codex' };
+      expect(value).toMatchObject({ authFailure });
+      expect(JSON.stringify(value)).not.toMatch(/synthetic-native-access|synthetic-native-refresh|private-upstream-detail/);
+      expect(await f.activity.getBrowserDetail()).toMatchObject({ authFailure });
+      expect((await f.capability.fetch(wire('native-binding', {
+        profileDigest: selected.profileDigest }, stamp.deliveryToken))).status).toBe(403);
+      expect(JSON.stringify(await f.activity.getRuntimePlan())).not.toMatch(/synthetic-native-access|synthetic-native-refresh/);
+      expect(f.sent.filter(request => request.url === providerUrl)).toHaveLength(1);
+      nativeProfileFiles.set('/owner-bucket/.pi/agent/auth.json', { 'openai-codex': { type: 'oauth',
+        access: 'synthetic-replacement-access', refresh: 'synthetic-replacement-refresh',
+        accountId: 'synthetic-account', expires: Date.now() + 120_000 } });
+      const cold = await coldOwner(f);
+      const stopped = await cold.capability.fetch(wire('native-binding', { profileDigest: selected.profileDigest }, stamp.deliveryToken));
+      expect(stopped.status).toBe(403);
+      expect(await stopped.json()).toEqual({ authFailure });
+      expect((await cold.capability.fetch(wire('native-admission', {
+        operationId: 'native-after-auth-rejection', profileDigest: selected.profileDigest }, stamp.deliveryToken))).status).toBe(403);
+      expect(await cold.activity.getBrowserDetail()).toMatchObject({ authFailure });
+      expect(await cold.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
+      expect(f.sent.filter(request => request.url === providerUrl)).toHaveLength(1);
+    }, { repositoryOnly: true, recovery: true, intent4: true, facetContract: true, nativeInference: true, loggingEnabled: false,
+      sourceTransport: async request => request.url !== providerUrl ? Response.json({ ok: true })
+        : Response.json({ error: { code: 'invalid_api_key', message: 'private-upstream-detail synthetic-native-access' } }, { status }) });
   });
 
   it.each([{ phase: 'discovery', validated: false }, { phase: 'target', validated: false },

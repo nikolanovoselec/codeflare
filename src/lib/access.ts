@@ -16,6 +16,7 @@ import { gatewayCoordinates, listCustomProviderSlugs, listNativeProviderConfigs,
 import { nativePromptCacheSupported, nativeTargetHandle, nativeVerificationMatches, parseNativeAiTargets } from './native-ai-targets';
 import { connectionFingerprint, verificationMatches } from './reasoning-verification';
 import { readBoundedResponse } from './bounded-stream';
+import { resolvePersonalPiPolicy, type PiDefaultSource } from './personal-pi-policy';
 
 const logger = createLogger('access');
 const NATIVE_PROVIDER_CACHE_TTL_MS = 60_000;
@@ -924,22 +925,7 @@ export async function resolveAdminAccessGroup(request: Request, env: Env): Promi
  */
 /** REQ-ENTERPRISE-088: permission selection is independent of model eligibility. */
 export async function resolvePersonalPiPermission(kv: KVNamespace, groups: string[] = []): Promise<boolean> {
-  try {
-    const [rawGroups, rawConfiguration] = await Promise.all([kv.get(SETUP_KEYS.GROUP_ROUTING), kv.get(SETUP_KEYS.REASONING_CONFIGURATION)]);
-    const policies: unknown = JSON.parse(rawGroups ?? '{}');
-    if (!policies || typeof policies !== 'object' || Array.isArray(policies)) return false;
-    const configuration = parseReasoningConfiguration(rawConfiguration);
-    const first = groups.find(group => Object.hasOwn(policies, group));
-    if (first === undefined) return configuration.fallbackRouting?.enabled === true
-      && configuration.fallbackRouting.allowPersonalPiProviders === true;
-    const policy = (policies as Record<string, unknown>)[first];
-    if (!policy || typeof policy !== 'object' || Array.isArray(policy)) return false;
-    const entry = policy as GroupRoutingEntry & { allowPersonalPiProviders?: unknown };
-    return Array.isArray(entry.routes) && entry.routes.every(route => typeof route === 'string')
-      && typeof entry.defaultRoute === 'string' && isPiReasoningLevel(entry.reasoning)
-      && (entry.routes.length ? entry.routes.includes(entry.defaultRoute) : entry.defaultRoute === '' && entry.reasoning === 'off')
-      && entry.allowPersonalPiProviders === true;
-  } catch { return false; }
+  return (await resolvePersonalPiPolicy(kv, groups)).allowPersonalPiProviders;
 }
 
 export async function loadEnterpriseRouteConfig(
@@ -954,12 +940,14 @@ export async function loadEnterpriseRouteConfig(
   modelDisplayNames: Record<string, string>;
   promptCacheTargets?: string[];
   allowPersonalPiProviders?: boolean;
+  piDefaultSource?: PiDefaultSource;
 }> {
   if (!isEnterpriseMode(env)) {
     return { routeCatalog: [], defaultRoute: '', defaultReasoning: '', routeContextWindows: {}, routeReasoningLevels: {}, modelDisplayNames: {} };
   }
-  const permission = await resolvePersonalPiPermission(env.KV, groups);
-  const personal = permission ? { allowPersonalPiProviders: true as const } : {};
+  const personalPolicy = await resolvePersonalPiPolicy(env.KV, groups);
+  const personal = { piDefaultSource: personalPolicy.piDefaultSource,
+    ...(personalPolicy.allowPersonalPiProviders ? { allowPersonalPiProviders: true as const } : {}) };
   const resolved = await resolveRouteCatalog(env.KV, groups, await getAigConfig(env));
   if (resolved.routeCatalog.length === 0) return { ...personal, routeCatalog: [], defaultRoute: '', defaultReasoning: '', routeContextWindows: {}, routeReasoningLevels: {}, modelDisplayNames: {} };
   const [rawConfiguration, rawLegacyRouteSettings] = await Promise.all([

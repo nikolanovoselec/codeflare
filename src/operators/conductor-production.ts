@@ -6,7 +6,9 @@ import { resolveBucketName, loadEnterpriseRouteConfig, resolveSessionAccessGroup
 import { openOperatorExecutionAccess } from './execution-context';
 import { parseOperatorConsumerInvocation } from './consumer-contracts';
 import { parseOperatorPolicy } from './policy';
-import { resolveOperatorInference } from './inference-selection';
+import { resolveOperatorInference, type NativeOperatorInference } from './inference-selection';
+import { createOwnerNativePiProfileReader, type NativePiBinding } from './native-pi-profile';
+import { PiAuthRequiredError, safePiAuthFailure, type SafePiAuthFailure } from './pi-auth-failure';
 import { bootstrapOperatorSession } from './session-bootstrap';
 import { projectOperatorAttachments, resolveOperatorAttachment,
   persistApprovedPacketAttachment, readApprovedPacketAttachment, parseOperatorAttachmentProjection } from './attachments';
@@ -18,7 +20,7 @@ import { getContainerId } from '../lib/container-helpers';
 import { readBoundedResponse } from '../lib/bounded-stream';
 import { createR2Client } from '../lib/r2-client';
 import { isBucketMigrating, isR2SseDisabledForBucket } from '../lib/r2-regime-state';
-import { ContainerOwnedSessionRuntime, type OperatorContainerStub } from './owned-session-runtime';
+import { ContainerOwnedSessionRuntime, type OperatorContainerStub, type OperatorSessionBootstrap } from './owned-session-runtime';
 import { OwnedOperatorSessionService } from './owned-session';
 import { OperatorConductorCapability } from './conductor-capability';
 import { createAuthenticatedHistoryTransport, readGithubActionsPublisherIdentity,
@@ -124,7 +126,7 @@ export async function bindClaimedConductorInvocation(input: { env: Env; plan: Op
   } } });
 }
 
-/** Profile-neutral managed Conductor composition over existing enterprise owners. */
+/** Profile-neutral managed/native Conductor composition over existing enterprise owners. */
 export async function createConductorProductionCapability(input: { env: Env; plan: OperatorRuntimePlan;
   activity: OperatorActivityStub; generation: number; driveDeadline: number }): Promise<{ capability: Fetcher }> {
   const { env, plan, activity } = input;
@@ -132,8 +134,13 @@ export async function createConductorProductionCapability(input: { env: Env; pla
     throw new Error('Conductor authority denied');
   }
   const pinned = plan.receipt.selection;
+  const invocation = parseOperatorConsumerInvocation(JSON.parse(plan.invocationJson));
+  const nativeSelection: NativeOperatorInference | undefined = invocation.resources.inference
+    && 'source' in invocation.resources.inference ? invocation.resources.inference : undefined;
+  let resolvedOwnerBucket: string | undefined;
+  let nativeOwnerKey: string | undefined;
   const authorize = async () => {
-    if (plan.deadline <= Date.now() || !env.OPERATOR_REGISTRY
+    if (Math.min(plan.deadline, input.driveDeadline) <= Date.now() || !env.OPERATOR_REGISTRY
       || !await activity.operatorGenerationCurrent(input.generation)) throw new Error('Conductor generation changed');
     const selected = await env.OPERATOR_REGISTRY.getByName('registry').resolveManagementExecution(pinned.installation.id);
     if (!selected.ok || selected.value.installation.revision !== pinned.installation.revision
@@ -144,10 +151,31 @@ export async function createConductorProductionCapability(input: { env: Env; pla
     const authority = await openOperatorExecutionAccess(plan.executionContext, env);
     const human = await resolveOperatorGroupIdentity(authority.human, authority.accessJwt);
     if (!canInvokeOperator(human, selected.value.operator)) throw new Error('Conductor invoker denied');
+    if (nativeSelection) {
+      if (nativeOwnerKey !== undefined && await operatorOwnerKey(human) !== nativeOwnerKey
+        || resolvedOwnerBucket !== undefined && await resolveBucketName(env, human.email) !== resolvedOwnerBucket) {
+        throw new Error('Conductor native owner changed');
+      }
+      const groups = await resolveSessionAccessGroup(new Request('https://operator.internal/', {
+        headers: { 'cf-access-jwt-assertion': authority.accessJwt },
+      }), env);
+      const routes = await loadEnterpriseRouteConfig(env, groups);
+      for (const policy of [selected.value.installation.policy, selected.value.operator.policy]) {
+        if (!policy.inference
+          || !['session', 'pi', 'storage'].every(capability => policy.capabilities.includes(capability))) {
+          throw new Error('Conductor native resources denied');
+        }
+        resolveOperatorInference({ eligible: { routeIds: routes.routeCatalog, defaultRouteId: routes.defaultRoute,
+          defaultReasoningLevel: routes.defaultReasoning, allowPersonalPiProviders: routes.allowPersonalPiProviders },
+          policy: { inference: policy.inference }, trusted: nativeSelection });
+      }
+    }
+    if (Math.min(plan.deadline, input.driveDeadline) <= Date.now()
+      || !await activity.operatorGenerationCurrent(input.generation)) throw new Error('Conductor generation changed');
     return { authority: { ...authority, human }, selection: selected.value };
   };
   const admitted = await authorize();
-  const invocation = parseOperatorConsumerInvocation(JSON.parse(plan.invocationJson));
+  nativeOwnerKey = await operatorOwnerKey(admitted.authority.human);
   const installationPolicy = admitted.selection.installation.policy;
   if (!['session', 'pi', 'storage'].every(capability => installationPolicy.capabilities.includes(capability))
     || !installationPolicy.resourceProfileId || invocation.resources.session?.profileId !== installationPolicy.resourceProfileId
@@ -155,8 +183,19 @@ export async function createConductorProductionCapability(input: { env: Env; pla
     throw new Error('Conductor resources denied');
   }
   const ownerBucket = await resolveBucketName(env, admitted.authority.human.email);
-  const { bootstrap } = await bootstrapOperatorSession({ env, authority: admitted.authority, ownerBucket,
-    loggingEnabled: admitted.selection.operator.policy.loggingEnabled !== false });
+  resolvedOwnerBucket = ownerBucket;
+  let bootstrap: OperatorSessionBootstrap | undefined;
+  const sessionBootstrap = async () => {
+    const current = await authorize();
+    if (!bootstrap) {
+      ({ bootstrap } = await bootstrapOperatorSession({ env, authority: current.authority, ownerBucket,
+        loggingEnabled: admitted.selection.operator.policy.loggingEnabled !== false }));
+    }
+    await authorize();
+    return bootstrap;
+  };
+  // Native authentication is checked before any session bootstrap/configuration effect.
+  if (!nativeSelection) await sessionBootstrap();
   const groups = await resolveSessionAccessGroup(new Request('https://operator.internal/', {
     headers: { 'cf-access-jwt-assertion': admitted.authority.accessJwt },
   }), env);
@@ -168,21 +207,30 @@ export async function createConductorProductionCapability(input: { env: Env; pla
     inference: { routeIds: routes.routeCatalog, defaultRouteId: routes.defaultRoute,
       reasoningLevels: routes.defaultReasoning ? [routes.defaultReasoning] : [],
       defaultReasoningLevel: routes.defaultReasoning || null, inheritUserDefaults: false } });
-  const effectiveInference = resolveOperatorInference({ eligible: { routeIds: routes.routeCatalog,
+  const managedInference = nativeSelection ? undefined : resolveOperatorInference({ eligible: { routeIds: routes.routeCatalog,
     defaultRouteId: routes.defaultRoute, defaultReasoningLevel: routes.defaultReasoning },
-    trusted: invocation.resources.inference, policy: eligiblePolicy });
+    trusted: invocation.resources.inference as { routeId: string; reasoningLevel: string | null }, policy: eligiblePolicy });
+  const effectiveInference = nativeSelection ?? managedInference!;
   const policy = parseOperatorPolicy({ schemaVersion: 1, networkHosts: [], github: { repositories: [], methods: [] },
-    storage, inference: { routeIds: [effectiveInference.routeId], defaultRouteId: effectiveInference.routeId,
-      reasoningLevels: effectiveInference.reasoningLevel ? [effectiveInference.reasoningLevel] : [],
-      defaultReasoningLevel: effectiveInference.reasoningLevel, inheritUserDefaults: false } });
+    storage, inference: nativeSelection ? { allowedSources: ['pi-native'], routeIds: [], defaultRouteId: null,
+      reasoningLevels: [nativeSelection.reasoningLevel], defaultReasoningLevel: nativeSelection.reasoningLevel,
+      inheritUserDefaults: false } : { routeIds: [managedInference!.routeId], defaultRouteId: managedInference!.routeId,
+      reasoningLevels: managedInference!.reasoningLevel ? [managedInference!.reasoningLevel] : [],
+      defaultReasoningLevel: managedInference!.reasoningLevel, inheritUserDefaults: false } });
   const sessionId = `conductor${(await digest(plan.activityId)).slice(0, 16)}`;
+  const authBinding = nativeSelection ? { ownerKey: nativeOwnerKey, activityId: plan.activityId,
+    sessionId, generation: input.generation, selectionDigest: await digest(JSON.stringify(nativeSelection)),
+    profileDigest: nativeSelection.profileDigest, deadline: plan.deadline } : undefined;
   const profile = parseOperatorContainerProfile({ schemaVersion: 1, activityId: plan.activityId,
     operatorId: pinned.operator.operatorId, sessionId, ownerBucket,
     policyDigest: plan.executionContext.policyDigest, deadline: plan.deadline, outputPrefix: 'Operators/',
     human: { subject: admitted.authority.human.subject, email: admitted.authority.human.email.toLowerCase(),
       issuer: new URL(admitted.authority.human.issuer).href, audiences: [...admitted.authority.human.audiences] },
-    policy, jwtPolicy: { mode: 'off', destinations: [] }, piProfile: { provider: 'codeflare-gateway',
-      model: effectiveInference.routeId, thinkingLevel: effectiveInference.reasoningLevel ?? 'off',
+    policy, jwtPolicy: { mode: 'off', destinations: [] }, piProfile: {
+      ...(nativeSelection ? { source: 'pi-native', api: nativeSelection.api, authBinding } : {}),
+      provider: nativeSelection?.provider ?? 'codeflare-gateway',
+      model: nativeSelection?.model ?? managedInference!.routeId,
+      thinkingLevel: effectiveInference.reasoningLevel ?? 'off',
       systemPrompt: 'Execute only the installed Conductor package procedure over parent-restored inputs and approved resources.',
       tools: ['read', 'write', 'subagent'] } });
   const admittedAttachments = projectOperatorAttachments(invocation);
@@ -193,12 +241,56 @@ export async function createConductorProductionCapability(input: { env: Env; pla
     return parseOperatorAttachmentProjection({ schemaVersion: 1, activityId: plan.activityId,
       files: [...admittedAttachments.files, ...prepared.files] });
   };
-  const service = (attachments: typeof admittedAttachments) => new OwnedOperatorSessionService(
+  const service = async (attachments: typeof admittedAttachments) => new OwnedOperatorSessionService(
     operatorActivitySessionStore(activity), new ContainerOwnedSessionRuntime({ activityId: plan.activityId,
       ownerBucket, sessionId, userEmail: admitted.authority.human.email.toLowerCase(), userGroups: groups,
-      routes, bootstrap, packageResources, attachments,
+      routes, bootstrap: await sessionBootstrap(), packageResources, attachments,
+      current: async () => { await authorize(); },
       resolve: containerId => getContainer(env.CONTAINER, containerId) as unknown as OperatorContainerStub }));
+  let privateBinding: NativePiBinding | undefined;
+  let loginStop: SafePiAuthFailure | undefined;
+  const authorizeNativeAuth = async () => {
+    await authorize();
+    const current = await activity.getRuntimePlan();
+    if (!nativeSelection || !current || current.activityId !== plan.activityId
+      || current.invocationJson !== plan.invocationJson
+      || JSON.stringify(current.inferenceSelection) !== JSON.stringify(nativeSelection)) {
+      throw new Error('Conductor native admission changed');
+    }
+    if (current.authFailure) {
+      const failure = safePiAuthFailure(current.authFailure);
+      if (!failure || failure.provider !== nativeSelection.provider) throw new Error('Invalid Pi authentication outcome');
+      loginStop = failure; privateBinding = undefined;
+    }
+    if (loginStop) throw new PiAuthRequiredError(loginStop.provider, loginStop.reason);
+  };
+  const persistLoginStop = async (failure: SafePiAuthFailure) => {
+    loginStop = failure; privateBinding = undefined;
+    if (!nativeSelection || !await activity.recordConductorPiAuthFailure(input.generation, nativeSelection.profileDigest, failure)) {
+      throw new Error('Conductor authentication stop unavailable');
+    }
+  };
+  const nativeAuth = async () => {
+    if (!nativeSelection) return undefined;
+    await authorizeNativeAuth();
+    try {
+      if (!privateBinding) {
+        const reader = await createOwnerNativePiProfileReader({ env, ownerBucket,
+          deadline: Math.min(plan.deadline, input.driveDeadline), authorize: authorizeNativeAuth });
+        privateBinding = await reader.bind(nativeSelection);
+      }
+      if (privateBinding.expiresAt !== null && privateBinding.expiresAt <= Date.now()) {
+        throw new PiAuthRequiredError(nativeSelection.provider, 'expired');
+      }
+      await authorizeNativeAuth();
+      return privateBinding;
+    } catch (error) {
+      if (error instanceof PiAuthRequiredError) await persistLoginStop(error.authFailure);
+      throw error;
+    }
+  };
   const ensure = async (request: { initialization?: unknown }) => {
+    await nativeAuth();
     const attachments = await currentAttachments();
     const prepared = await activity.readApprovedPacketAttachments();
     if (prepared.files.length && request.initialization === undefined) throw new Error('Approved input initialization required');
@@ -219,13 +311,73 @@ export async function createConductorProductionCapability(input: { env: Env; pla
       piProfile: { ...profile.piProfile, tools: ['read', 'write'], initialization } }) : profile;
     const requestDigest = await digest(JSON.stringify({ invocationJson: plan.invocationJson,
       attachments, ...(initialization ? { initialization } : {}) }));
-    return service(attachments).ensure({ requestId: 'conductor-session-v1', requestDigest,
-      activityId: plan.activityId, ownerBucket, profile: sessionProfile, authority: admitted.authority });
+    const current = await authorize();
+    const state = await (await service(attachments)).ensure({ requestId: 'conductor-session-v1', requestDigest,
+      activityId: plan.activityId, ownerBucket, profile: sessionProfile, authority: current.authority });
+    if (state.status === 'ready') await bindNativeHost();
+    return state;
   };
-  const stop = () => service(admittedAttachments).stop({ activityId: plan.activityId, ownerBucket, drain: false });
+  // Cleanup keeps its existing authority-independent owned-session destruction path.
+  const stop = async () => {
+    privateBinding = undefined;
+    return new OwnedOperatorSessionService(operatorActivitySessionStore(activity), new ContainerOwnedSessionRuntime({
+      activityId: plan.activityId, ownerBucket, sessionId, userEmail: admitted.authority.human.email.toLowerCase(),
+      userGroups: groups, routes, bootstrap: bootstrap!,
+      resolve: containerId => getContainer(env.CONTAINER, containerId) as unknown as OperatorContainerStub,
+    })).stop({ activityId: plan.activityId, ownerBucket, drain: false });
+  };
   const container = getContainer(env.CONTAINER, `${ownerBucket}-${sessionId}`) as unknown as OperatorContainerStub;
-  const reader = await createOperatorSyncReader(env, ownerBucket, bootstrap);
-  const host = (path: string, init: RequestInit) => container.fetch(new Request(`http://container${path}`, init));
+  const reader = async (key: string, maxBytes: number) => {
+    const read = await createOperatorSyncReader(env, ownerBucket, await sessionBootstrap());
+    return read(key, maxBytes);
+  };
+  const host = async (path: string, init: RequestInit) => {
+    await authorize();
+    const signal = AbortSignal.any([...(init.signal ? [init.signal] : []),
+      AbortSignal.timeout(Math.max(1, Math.min(plan.deadline, input.driveDeadline) - Date.now()))]);
+    let abort: (() => void) | undefined;
+    const cancelled = new Promise<never>((_, reject) => {
+      abort = () => reject(new Error('Conductor Host deadline expired'));
+      signal.addEventListener('abort', abort, { once: true });
+      if (signal.aborted) abort();
+    });
+    let response: Response;
+    try {
+      const pending = container.fetch(new Request(`http://container${path}`, { ...init, signal, redirect: 'manual' }));
+      void pending.then(response => { if (signal.aborted) void response.body?.cancel().catch(() => undefined); }, () => {});
+      response = await Promise.race([pending, cancelled]);
+    } finally { if (abort) signal.removeEventListener('abort', abort); }
+    try { await authorize(); }
+    catch (error) { void response.body?.cancel().catch(() => undefined); throw error; }
+    return response;
+  };
+  const bindNativeHost = async () => {
+    const bound = await nativeAuth();
+    if (!bound) return;
+    await container.bindOperatorAuthority?.((await authorize()).authority);
+    const response = await host('/internal/operator/pi/auth-bind', { method: 'POST',
+      headers: { 'content-type': 'application/json' }, body: JSON.stringify({ descriptor: authBinding,
+        auth: bound.auth, ...(bound.env ? { env: bound.env } : {}), expiresAt: bound.expiresAt }) });
+    await readPiResult(response);
+    if (!response.ok) throw new Error('Pi authentication binding unavailable');
+  };
+  const readPiResult = async (response: Response) => {
+    const signal = AbortSignal.timeout(Math.max(1, Math.min(plan.deadline, input.driveDeadline) - Date.now()));
+    const value: unknown = JSON.parse(new TextDecoder().decode(await readBoundedResponse(response, 64 * 1024, 'Pi result', signal)));
+    await authorize();
+    if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Invalid Pi response');
+    const result = value as Record<string, unknown>;
+    if (result.authFailure !== undefined) {
+      const failure = safePiAuthFailure(result.authFailure);
+      if (!failure || failure.provider !== nativeSelection?.provider) throw new Error('Invalid Pi authentication outcome');
+      await persistLoginStop(failure);
+      if (!response.ok) throw new PiAuthRequiredError(failure.provider, failure.reason);
+      // Host task outcomes retain their existing status and carry only closed safe detail.
+      if (typeof result.taskId !== 'string' || typeof result.status !== 'string') throw new Error('Invalid Pi task outcome');
+      return { taskId: result.taskId, status: result.status, authFailure: failure };
+    }
+    return value;
+  };
   const preparePacket = async ({ preparationId, lane }: { preparationId: string; lane: string }, signal: AbortSignal) => {
     if (!Number.isSafeInteger(input.driveDeadline) || input.driveDeadline <= Date.now()
       || !env.OPERATOR_REGISTRY) throw new Error('Packet drive unavailable');
@@ -263,6 +415,7 @@ export async function createConductorProductionCapability(input: { env: Env; pla
     const locator = `packet-${await digest(`${plan.activityId}:${preparationId}:${lane}`)}`;
     const attachment = accepted.files.find(item => item.name === `packet-${lane}.json`
       && item.locator === locator);
+    const bootstrap = await sessionBootstrap();
     const client = createR2Client({ R2_ACCESS_KEY_ID: bootstrap.r2AccessKeyId,
       R2_SECRET_ACCESS_KEY: bootstrap.r2SecretAccessKey });
     if (attachment) {
@@ -449,12 +602,15 @@ export async function createConductorProductionCapability(input: { env: Env; pla
     attachments: { restore: async request => resolveOperatorAttachment(await currentAttachments(), request) },
     pi: {
       ensure: async () => {
+        await bindNativeHost();
         const response = await host('/internal/operator/pi/ensure', { method: 'POST',
           headers: { 'content-type': 'application/json' }, body: '{}' });
+        const value = await readPiResult(response);
         if (!response.ok) throw new Error('Pi unavailable');
-        return await response.json() as { ready: true; conversationId: string };
+        return value as { ready: true; conversationId: string };
       },
       task: async task => {
+        await bindNativeHost();
         // The parent capability envelope has schemaVersion; the authenticated
         // Host Pi task endpoint accepts only its narrower task fields.
         const hostTask = task.mode === 'tool'
@@ -463,8 +619,9 @@ export async function createConductorProductionCapability(input: { env: Env; pla
           : { taskId: task.taskId, digest: task.digest, mode: task.mode, text: task.text };
         const response = await host('/internal/operator/pi/tasks', { method: 'POST',
           headers: { 'content-type': 'application/json' }, body: JSON.stringify(hostTask) });
+        const value = await readPiResult(response);
         if (!response.ok) throw new Error('Pi task unavailable');
-        return await response.json() as { taskId: string; status: string };
+        return value as { taskId: string; status: string; authFailure?: SafePiAuthFailure };
       },
     },
     sync: { seal: async ({ operationId, paths }) => {

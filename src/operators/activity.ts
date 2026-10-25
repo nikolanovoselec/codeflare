@@ -28,7 +28,7 @@ import { classifyDispatcherInference, inferenceAttemptKey, inferenceRetryDelay,
   type DispatcherInferenceAttempt, type DispatcherInferenceChain, type DispatcherInferenceResponse } from './dispatcher-inference-recovery';
 import { DEFAULT_DISPATCHER_OPERATION_LIMIT, dispatcherOperationLimit } from './dispatcher-operation-limits';
 import { authorizeDispatcherPlan, createDispatcherOperation, parseDispatcherOperation,
-  readDispatcherBody, dispatcherGithubApiOrigin, dispatcherWireRules, type DispatcherAdmittedTarget,
+  readDispatcherBody, dispatcherGithubApiOrigin, dispatcherWireRules, prepareDispatcherNative, type DispatcherAdmittedTarget,
   type DispatcherInferenceCountObservation, type DispatcherBodyOverflowObservation } from './operator-runtime-capability';
 import { z } from 'zod';
 import { readDispatcherUpdates, type DispatcherResultProjection } from './dispatcher-result';
@@ -42,7 +42,7 @@ import type { VerifiedHumanAccessClaims } from '../lib/jwt';
 import { AppError } from '../lib/error-types';
 import { createLogger } from '../lib/logger';
 import { inferenceDiagnostic, inferenceResponseObservation, type InferenceDiagnosticContext } from '../lib/inference-diagnostics';
-import { canInvokeOperator, operatorAccessSessionCurrent, requireOperatorHumanContext, resolveOperatorGroupIdentity } from '../lib/access';
+import { canInvokeOperator, operatorAccessSessionCurrent, requireOperatorHumanContext, resolveOperatorGroupIdentity, resolveBucketName } from '../lib/access';
 import { D1SessionRepository } from '../lib/session-repository';
 import { parsePublishableAssessment, renovateGithub } from './renovate-publication';
 import { openOperatorExecutionAccess, projectOperatorExecution, reauthenticateOperatorExecution,
@@ -53,6 +53,11 @@ import type { OwnedOperatorSessionState } from './owned-session';
 import { parseOperatorPackageResourceProjection, type OperatorPackageResourceProjection } from './package-resources';
 import { parseOperatorAttachmentProjection, projectOperatorAttachments } from './attachments';
 import { prospectiveRenovateRetryProof, type ProspectiveRenovateRetryProof } from './renovate-retry-proof';
+import { parseNativeOperatorInference, type NativeOperatorInference } from './inference-selection';
+import type { NativePiBinding } from './native-pi-profile';
+import { safePiAuthFailure, PiAuthRequiredError, type SafePiAuthFailure } from './pi-auth-failure';
+import { inspectNativeRequest, commitNativeResponse, nativeResponse, nativeDigest,
+  type DispatcherNativeResponse, type DispatcherNativeOperation } from './dispatcher-native';
 
 /** Parent-authorized admission intent; raw capabilities/credentials are not stored. */
 export type OperatorActivityPreparation = (OperatorAdmissionRequest | {
@@ -120,6 +125,8 @@ interface DispatcherLease {
   serial?: DispatcherPhaseState;
   terminalAt?: number;
   inferenceRecovery?: { version: 1; attemptLimit: number };
+  inferenceSelection?: NativeOperatorInference;
+  inferenceSource?: 'managed' | 'pi-native';
   status: 'admitting' | 'running' | 'settled' | 'unknown';
 }
 interface DispatcherOperationRecord {
@@ -132,6 +139,7 @@ interface DispatcherOperationRecord {
   resolution?: { readbacks: Array<{ operationId: string; requestDigest: string; responseDigest: string }> };
   response?: { status: number; contentType: string; body: string };
   inference?: DispatcherInferenceChain;
+  native?: DispatcherNativeOperation;
 }
 const DISPATCHER_LEASE = 'dispatcher:lease';
 const DISPATCHER_OPERATIONS = 'dispatcher:operations';
@@ -314,6 +322,8 @@ export interface OperatorRuntimePlan {
   receipt: OperatorAdmissionReceipt | ManagementAdmissionReceipt;
   executionContext: OperatorExecutionContext;
   prospectiveAdmissionId?: string;
+  inferenceSelection?: NativeOperatorInference;
+  authFailure?: SafePiAuthFailure;
 }
 
 export interface OperatorReviewState {
@@ -359,6 +369,8 @@ interface AdmissionState {
   executionContext?: OperatorExecutionContext;
   invocationJson?: string;
   inferenceRecoveryVersion?: 1;
+  inferenceSelection?: NativeOperatorInference;
+  authFailure?: SafePiAuthFailure;
   diagnosticsVersion?: 1;
   diagnosticBinding?: DiagnosticBinding;
   diagnosticFence?: FenceReason;
@@ -476,6 +488,8 @@ export class OperatorActivity extends Agent {
   #producerFailureReports = 0;
   #reconciling?: Promise<void>;
   #dispatcherTerminalWake = false;
+  #nativeBindings = new Map<number, NativePiBinding>();
+  #nativeFlights = new Map<string, { digest: string; controller: AbortController; result: Promise<DispatcherNativeResponse> }>();
   #inferenceOwner?: { generation: number; epoch: Promise<number> };
   #inferenceFlights = new Map<string, { digest: string; controller: AbortController; result: Promise<DispatcherInferenceResponse> }>();
   #phaseAdmissions = new Map<string, Promise<void>>();
@@ -545,7 +559,7 @@ export class OperatorActivity extends Agent {
             if (entry.generation !== generation || entry.phase === 'completed' || affected.length >= 8) continue;
             affected.push({ operationDigest: hashDiagnostic(key.slice(prefix.length)),
               effect: entry.request?.method === 'GET' ? 'read' : entry.request ? 'write'
-                : entry.inference ? 'none' : ['comment', 'merge'].includes(entry.phaseBinding?.resource ?? '') ? 'write' : 'unknown',
+                : entry.inference || entry.native ? 'none' : ['comment', 'merge'].includes(entry.phaseBinding?.resource ?? '') ? 'write' : 'unknown',
               status: 'unknown' });
           }
           const journal = await tx.get<DispatcherJournal>(DISPATCHER_JOURNAL);
@@ -695,6 +709,8 @@ export class OperatorActivity extends Agent {
     });
     if (result.ok) {
       for (const flight of this.#inferenceFlights.values()) flight.controller.abort();
+      for (const flight of this.#nativeFlights.values()) flight.controller.abort();
+      this.#nativeBindings.clear();
       await this.publishBrowserSummary().catch(() => {});
     }
     return result;
@@ -807,6 +823,8 @@ export class OperatorActivity extends Agent {
     return { activityId: state.intent.activityId, deadline: state.intent.deadline,
       invocationJson: state.invocationJson ?? 'null', receipt: structuredClone(state.receipt),
       executionContext: structuredClone(state.executionContext),
+      ...(state.inferenceSelection ? { inferenceSelection: structuredClone(state.inferenceSelection) } : {}),
+      ...(state.authFailure ? { authFailure: structuredClone(state.authFailure) } : {}),
       ...(prospectiveAdmissionId ? { prospectiveAdmissionId } : {}) };
   }
 
@@ -1082,8 +1100,16 @@ export class OperatorActivity extends Agent {
         || receipt.deadline !== intent.deadline || (!managementValid && !legacyValid)) {
         return { ok: false, reason: 'admission-denied' };
       }
+      let inferenceSelection: NativeOperatorInference | undefined;
+      if (managementReceipt?.selection.operator.profile === 'conductor') {
+        try {
+          const inference = JSON.parse(state.invocationJson ?? 'null')?.resources?.inference;
+          if (inference?.source === 'pi-native') inferenceSelection = parseNativeOperatorInference(inference);
+        } catch { return { ok: false, reason: 'admission-denied' }; }
+      }
       await tx.put<AdmissionState>('admission', {
         ...state, intent: { ...intent, startVerifier: '' }, phase: 'queued', receipt,
+        ...(inferenceSelection ? { inferenceSelection } : {}),
         ...(readVerifier ? { webhook: { readVerifier, expiresAt: intent.deadline + 2 * 60 * 60 * 1000,
           consumed: false } } : {}), updatedAt: Date.now(),
       });
@@ -1463,6 +1489,27 @@ export class OperatorActivity extends Agent {
       && await this.boundaryCurrent(record);
   }
 
+  /** Parent-only Conductor recovery metadata; does not settle work or revoke owned cleanup. */
+  async recordConductorPiAuthFailure(generation: number, profileDigest: string, value: unknown): Promise<boolean> {
+    this.#resumeDispatcherOnEntry();
+    const failure = safePiAuthFailure(value);
+    if (!failure || !Number.isSafeInteger(generation) || generation < 1) return false;
+    const recorded = await this.ctx.storage.transaction(async tx => {
+      const state = await tx.get<AdmissionState>('admission');
+      if (!state || state.phase !== 'queued' || state.intent.deadline <= Date.now()
+        || state.drive?.status !== 'running' || state.drive.generation !== generation
+        || !state.receipt || !isManagementReceipt(state.receipt)
+        || state.receipt.selection.operator.profile !== 'conductor'
+        || !state.inferenceSelection || state.inferenceSelection.profileDigest !== profileDigest
+        || state.inferenceSelection.provider !== failure.provider || !await this.boundaryCurrent(state)) return false;
+      if (state.authFailure) return JSON.stringify(state.authFailure) === JSON.stringify(failure);
+      await tx.put<AdmissionState>('admission', { ...state, authFailure: failure, updatedAt: Date.now() });
+      return true;
+    });
+    if (recorded) await this.publishBrowserSummary();
+    return recorded;
+  }
+
   /** Parent-only checkpoint read for the live generation; browser projections do not grant execution authority. */
   async getCurrentDriveCheckpointJson(generation: number): Promise<string | null> {
     this.#resumeDispatcherOnEntry();
@@ -1632,6 +1679,8 @@ export class OperatorActivity extends Agent {
     });
     if (result.ok) {
       for (const flight of this.#inferenceFlights.values()) flight.controller.abort();
+      for (const flight of this.#nativeFlights.values()) flight.controller.abort();
+      this.#nativeBindings.clear();
       if (originalGeneration !== undefined && reason) {
         this.#enqueueDiagnostic(async () => {
           await this.ctx.storage.transaction(async tx => {
@@ -1950,6 +1999,303 @@ export class OperatorActivity extends Agent {
     await admission;
   }
 
+  async #prepareDispatcherNative(lease: DispatcherLease, plan: OperatorRuntimePlan): Promise<NativeOperatorInference | undefined> {
+    const state = await this.ctx.storage.get<AdmissionState>('admission');
+    if (state?.authFailure) throw new PiAuthRequiredError(state.authFailure.provider, state.authFailure.reason);
+    if (lease.inferenceSource === 'managed' || !lease.inferenceSelection && lease.status !== 'admitting') return undefined;
+    const prepared = await prepareDispatcherNative({ plan: { ...plan, deadline: Math.min(plan.deadline, lease.expiresAt) },
+      env: this.#appEnv, selection: lease.inferenceSelection,
+      current: () => this.dispatcherGenerationCurrent(lease.generation) });
+    const selection = prepared?.selection;
+    if (selection && !lease.inferenceRecovery) throw new Error('Dispatcher native inference protocol unavailable');
+    await this.ctx.storage.transaction(async tx => {
+      const admission = await tx.get<AdmissionState>('admission');
+      const live = await tx.get<DispatcherLease>(DISPATCHER_LEASE);
+      if (!this.#leaseMatches(admission, live, lease.generation) || admission!.authFailure) throw new Error('Dispatcher selection fenced');
+      if (live!.inferenceSource && (live!.inferenceSource !== (selection ? 'pi-native' : 'managed')
+        || JSON.stringify(live!.inferenceSelection) !== JSON.stringify(selection))) throw new Error('Dispatcher selection changed');
+      await tx.put(DISPATCHER_LEASE, { ...live!, inferenceSource: selection ? 'pi-native' : 'managed',
+        ...(selection ? { inferenceSelection: selection } : {}) });
+      if (selection) await tx.put('admission', { ...admission!, inferenceSelection: selection });
+    });
+    return selection;
+  }
+
+  /** Durable functional stop, independent of logging. It never settles or renews a phase. */
+  async #nativeLoginStop(generation: number, failure: SafePiAuthFailure): Promise<void> {
+    this.#nativeBindings.delete(generation);
+    await this.ctx.storage.transaction(async tx => {
+      const state = await tx.get<AdmissionState>('admission');
+      const lease = await tx.get<DispatcherLease>(DISPATCHER_LEASE);
+      if (!this.#leaseMatches(state, lease, generation) || lease!.inferenceSelection?.provider !== failure.provider) return;
+      if (!state!.authFailure) await tx.put('admission', { ...state!, authFailure: failure, updatedAt: Date.now() });
+    });
+    await this.publishBrowserSummary();
+  }
+
+  async #nativeAuthority(generation: number, token?: string, signal?: AbortSignal) {
+    const state = await this.ctx.storage.get<AdmissionState>('admission');
+    const lease = await this.ctx.storage.get<DispatcherLease>(DISPATCHER_LEASE);
+    if (!this.#leaseMatches(state, lease, generation) || !lease!.inferenceSelection
+      || token !== undefined && !this.#phaseTokenMatches(lease, token)) throw new Error('Dispatcher native authority denied');
+    if (state!.authFailure) throw new PiAuthRequiredError(state!.authFailure.provider, state!.authFailure.reason);
+    const selection = parseNativeOperatorInference(lease!.inferenceSelection);
+    const plan = await this.getRuntimePlan();
+    if (!plan) throw new Error('Dispatcher native plan unavailable');
+    const prepared = await prepareDispatcherNative({ plan: { ...plan, deadline: Math.min(plan.deadline, lease!.expiresAt) },
+      env: this.#appEnv, selection, signal,
+      current: () => token === undefined ? this.dispatcherGenerationCurrent(generation) : this.#dispatcherDeliveryCurrent(generation, token) });
+    if (!prepared) throw new Error('Dispatcher native source denied');
+    return { lease: lease!, plan, prepared, selection };
+  }
+
+  /** Trusted EgressController recheck: nonsecret selection only, never a new admission or auth read. */
+  async dispatcherNativeEgressCurrent(generation: number, profileDigest: string): Promise<NativeOperatorInference | null> {
+    try {
+      const current = await this.#nativeAuthority(generation);
+      const bound = this.#nativeBindings.get(generation);
+      if (!bound || current.selection.profileDigest !== profileDigest) return null;
+      if (bound.expiresAt !== null && bound.expiresAt <= Date.now()) {
+        await this.#nativeLoginStop(generation, { code: 'PI_LOGIN_REQUIRED', reason: 'expired', provider: current.selection.provider });
+        return null;
+      }
+      return current.selection;
+    } catch { return null; }
+  }
+
+  async #nativeBinding(generation: number, token?: string, signal?: AbortSignal): Promise<NativePiBinding> {
+    const { prepared, selection } = await this.#nativeAuthority(generation, token, signal);
+    try {
+      let bound = this.#nativeBindings.get(generation);
+      if (!bound) bound = await prepared.bind();
+      if (bound.expiresAt !== null && bound.expiresAt <= Date.now()) throw new PiAuthRequiredError(selection.provider, 'expired');
+      await this.#nativeAuthority(generation, token, signal);
+      this.#nativeBindings.set(generation, bound);
+      return bound;
+    } catch (error) {
+      if (error instanceof PiAuthRequiredError) await this.#nativeLoginStop(generation, error.authFailure);
+      throw error;
+    }
+  }
+
+  /** Private native admission/result wire. Handles bind immutable logical operations, never credentials. */
+  async dispatcherNative(generation: number, request: Request): Promise<Response> {
+    const denied = () => dispatcherRefusal('execution-inactive');
+    try {
+      const url = new URL(request.url);
+      if (url.origin !== 'https://operator.internal') return await this.#dispatcherNativeSend(generation, request);
+      if (url.search || url.hash || request.method !== 'POST'
+        || request.headers.get('content-type')?.split(';')[0].trim() !== 'application/json') return denied();
+      const lease = await this.ctx.storage.get<DispatcherLease>(DISPATCHER_LEASE);
+      if (!lease || !await this.dispatcherGenerationCurrent(generation)) return denied();
+      const value: unknown = JSON.parse(await readDispatcherBody(request,
+        AbortSignal.any([request.signal, AbortSignal.timeout(Math.max(1, lease.expiresAt - Date.now()))]), 2048));
+      const digest = z.string().regex(/^[a-f0-9]{64}$/);
+      if (url.pathname === '/v1/dispatcher/native-binding') {
+        const body = z.strictObject({ profileDigest: digest }).parse(value);
+        const { selection } = await this.#nativeAuthority(generation, undefined, request.signal);
+        if (body.profileDigest !== selection.profileDigest) return denied();
+        return Response.json(await this.#nativeBinding(generation, undefined, request.signal), { headers: { 'cache-control': 'no-store' } });
+      }
+      const token = request.headers.get('x-codeflare-dispatcher-delivery') ?? undefined;
+      if (url.pathname === '/v1/dispatcher/native-admission') {
+        const body = z.strictObject({ operationId: z.string().regex(/^[A-Za-z0-9_-]{1,128}$/), profileDigest: digest }).parse(value);
+        if (!this.#phaseTokenMatches(lease, token)) return denied();
+        const { plan, selection } = await this.#nativeAuthority(generation, token, request.signal);
+        if (body.profileDigest !== selection.profileDigest) return denied();
+        const requestDigest = await sha256(JSON.stringify({ operationId: body.operationId, selection, deliveryToken: token }));
+        return await this.ctx.storage.transaction(async tx => {
+          const state = await tx.get<AdmissionState>('admission');
+          const live = await tx.get<DispatcherLease>(DISPATCHER_LEASE);
+          if (!this.#leaseMatches(state, live, generation) || state!.authFailure || !this.#phaseTokenMatches(live, token)) return denied();
+          const journal = await loadDispatcherJournal(tx, generation);
+          const key = dispatcherEntryKey(journal, body.operationId);
+          const prior = await tx.get<DispatcherOperationRecord>(key);
+          if (prior && (prior.requestDigest !== requestDigest || !prior.native)) return dispatcherRefusal('operation-conflict', 409, 'OPERATOR_OPERATION_CONFLICT');
+          if (prior?.phase === 'unknown' || prior?.native?.phase === 'unknown') return dispatcherRefusal('effect-uncertain', 409, 'OPERATOR_OPERATION_UNKNOWN');
+          const policy = isManagementReceipt(plan.receipt) ? plan.receipt.selection.operator.policy : undefined;
+          const successor = prior?.native?.phase === 'committed' && prior.native.outcome === 'failed';
+          if (prior && !successor) return Response.json({ handle: prior.native!.handle });
+          if (journal.count >= dispatcherOperationLimit(policy)
+            || successor && prior.native!.attempt >= live!.inferenceRecovery!.attemptLimit) return dispatcherRefusal('operation-limit');
+          const attempt = successor ? prior!.native!.attempt : 0;
+          const notBefore = successor ? Date.now() + inferenceRetryDelay(attempt, policy) : Date.now();
+          if (notBefore >= live!.expiresAt) return denied();
+          const native: DispatcherNativeOperation = { handle: crypto.randomUUID(), profileDigest: selection.profileDigest,
+            deliveryToken: token, attempt, notBefore, phase: 'admitted',
+            ...(prior?.native?.wireDigest ? { wireDigest: prior.native.wireDigest } : {}) };
+          await tx.put(`dispatcher:native-handle:${native.handle}`, { generation, operationId: body.operationId, deliveryToken: token });
+          await putDispatcherEntry(tx, journal, body.operationId, prior, { generation, requestDigest, phase: 'reserved',
+            ordinal: successor ? journal.nextOrdinal : prior?.ordinal ?? journal.nextOrdinal, native,
+            phaseBinding: this.#operationPhase(live!, 'inference') }, successor ? 1 : 0);
+          return Response.json({ handle: native.handle });
+        });
+      }
+      if (url.pathname !== '/v1/dispatcher/native-result') return denied();
+      const body = z.strictObject({ handle: z.string().min(1).max(128), outcome: z.enum(['completed', 'failed']), authFailure: z.unknown().optional() }).parse(value);
+      const reference = await this.ctx.storage.get<{ generation: number; operationId: string; deliveryToken?: string }>(`dispatcher:native-handle:${body.handle}`);
+      if (!reference || reference.generation !== generation) return denied();
+      const { selection } = await this.#nativeAuthority(generation, reference.deliveryToken, request.signal);
+      const authFailure = body.authFailure === undefined ? undefined : safePiAuthFailure(body.authFailure);
+      if (body.authFailure !== undefined && (!authFailure || authFailure.provider !== selection.provider || body.outcome !== 'failed')) return denied();
+      const result = await this.ctx.storage.transaction(async tx => {
+        const state = await tx.get<AdmissionState>('admission');
+        const live = await tx.get<DispatcherLease>(DISPATCHER_LEASE);
+        if (!this.#leaseMatches(state, live, generation) || state!.authFailure || !this.#phaseTokenMatches(live, reference.deliveryToken)) return denied();
+        const journal = await loadDispatcherJournal(tx, generation);
+        const prior = await tx.get<DispatcherOperationRecord>(dispatcherEntryKey(journal, reference.operationId));
+        if (!prior?.native || prior.phase === 'unknown' || prior.native.handle !== body.handle
+          || prior.native.phase !== 'committed' || prior.native.outcome && prior.native.outcome !== body.outcome) return denied();
+        const attemptKey = inferenceAttemptKey(generation, reference.operationId, prior.native.attempt);
+        const attempt = await tx.get<DispatcherInferenceAttempt>(attemptKey);
+        if (!attempt || attempt.phase !== 'completed') return denied();
+        await tx.put(attemptKey, { ...attempt, classification: body.outcome === 'completed' ? 'usable' : 'retryable' });
+        await putDispatcherEntry(tx, journal, reference.operationId, prior, { ...prior, phase: 'completed',
+          native: { ...prior.native, outcome: body.outcome } });
+        return Response.json({ recorded: true });
+      });
+      if (result.ok && authFailure) await this.#nativeLoginStop(generation, authFailure);
+      return result;
+    } catch (error) {
+      if (error instanceof PiAuthRequiredError) return Response.json({ authFailure: error.authFailure }, { status: 403, headers: { 'cache-control': 'no-store' } });
+      return denied();
+    }
+  }
+
+  async #dispatcherNativeSend(generation: number, request: Request): Promise<Response> {
+    const denied = () => dispatcherRefusal('execution-inactive');
+    const handle = request.headers.get('x-codeflare-native-inference');
+    if (!handle || !/^[A-Za-z0-9_-]{1,128}$/.test(handle)) return denied();
+    const reference = await this.ctx.storage.get<{ generation: number; operationId: string; deliveryToken?: string }>(`dispatcher:native-handle:${handle}`);
+    if (!reference || reference.generation !== generation) return denied();
+    const { deliveryToken, operationId } = reference;
+    const { plan, lease, selection } = await this.#nativeAuthority(generation, deliveryToken, request.signal);
+    const bound = await this.#nativeBinding(generation, deliveryToken, request.signal);
+    const policy = isManagementReceipt(plan.receipt) ? plan.receipt.selection.operator.policy : undefined;
+    const limit = inferenceRequestBytes(policy);
+    const signal = AbortSignal.any([request.signal, AbortSignal.timeout(Math.max(1, lease.expiresAt - Date.now()))]);
+    const inspected = await inspectNativeRequest(request, selection, bound, limit, signal);
+    if (!inspected) return dispatcherRefusal('policy-denied');
+    const joined = this.#nativeFlights.get(handle);
+    if (joined) {
+      if (joined.digest !== inspected.digest) return dispatcherRefusal('operation-conflict', 409, 'OPERATOR_OPERATION_CONFLICT');
+      return nativeResponse(await joined.result);
+    }
+    // Register the flight before the first asynchronous reservation so duplicates join it.
+    const controller = new AbortController();
+    const runSignal = AbortSignal.any([signal, controller.signal]);
+    const run = async (): Promise<DispatcherNativeResponse> => {
+      let claimed = false;
+      try {
+        await this.#nativeAuthority(generation, deliveryToken, runSignal);
+        const waiting = await this.ctx.storage.get<DispatcherOperationRecord>(`dispatcher:operation:${generation}:${operationId}`);
+        const delay = (waiting?.native?.notBefore ?? 0) - Date.now();
+        if (delay > 0) await new Promise<void>((resolve, reject) => {
+          const abort = () => { clearTimeout(timer); runSignal.removeEventListener('abort', abort); reject(new Error('Native send cancelled')); };
+          const timer = setTimeout(() => { runSignal.removeEventListener('abort', abort); resolve(); }, delay);
+          runSignal.addEventListener('abort', abort, { once: true });
+          if (runSignal.aborted) abort();
+        });
+        const bucket = await resolveBucketName(this.#appEnv, plan.executionContext.owner.email);
+        const exports = (this.ctx as unknown as { exports: Parameters<typeof createDispatcherOperation>[0]['exports'] }).exports;
+        if (!exports.EgressController) throw new Error('Native egress unavailable');
+        const transport = exports.EgressController({ props: { bucket, strict: true,
+          operatorDispatcherNative: { activityId: plan.activityId, generation, profileDigest: selection.profileDigest } } });
+        const headers = new Headers(request.headers);
+        for (const name of [...headers.keys()]) if (name.startsWith('x-codeflare-')
+          || ['host', 'content-length', 'connection', 'transfer-encoding', 'cf-access-jwt-assertion'].includes(name)) headers.delete(name);
+        await this.#nativeAuthority(generation, deliveryToken, runSignal);
+        const reservation = await this.ctx.storage.transaction(async tx => {
+          const state = await tx.get<AdmissionState>('admission');
+          const live = await tx.get<DispatcherLease>(DISPATCHER_LEASE);
+          if (!this.#leaseMatches(state, live, generation) || state!.authFailure || !this.#phaseTokenMatches(live, deliveryToken)) throw new Error('Native send fenced');
+          const journal = await loadDispatcherJournal(tx, generation);
+          const prior = await tx.get<DispatcherOperationRecord>(dispatcherEntryKey(journal, operationId));
+          if (!prior?.native || prior.phase === 'unknown' || prior.native.handle !== handle) throw new Error('Native operation fenced');
+          if (prior.native.wireDigest && prior.native.wireDigest !== inspected.digest) return { conflict: true as const };
+          const wireKey = `dispatcher:native-wire:${generation}:${deliveryToken}:${inspected.digest}`;
+          const canonical = await tx.get<string>(wireKey);
+          // A new SDK correlation/turn label cannot buy another operation's send budget
+          // for the same immutable phase request. Auth and protected headers are not hashed.
+          if (canonical !== undefined && canonical !== operationId) return { conflict: true as const };
+          if (prior.native.phase === 'committed') {
+            const response = await tx.get<DispatcherNativeResponse>(`dispatcher:native-response:${handle}`);
+            if (!response || response.kind !== 'pi-native') throw new Error('Native receipt missing');
+            return { response };
+          }
+          if (prior.native.phase === 'in-flight') {
+            await putDispatcherEntry(tx, journal, operationId, prior, { ...prior, phase: 'unknown',
+              native: { ...prior.native, phase: 'unknown' } });
+            return { unknown: true as const };
+          }
+          if (prior.native.phase !== 'admitted' || Date.now() < prior.native.notBefore
+            || prior.native.attempt >= live!.inferenceRecovery!.attemptLimit) throw new Error('Native attempt unavailable');
+          const attempt = prior.native.attempt + 1;
+          // The logical reservation owns the first ordinal. Successors receive a
+          // separately charged reservation at admission; only this claim starts HTTP.
+          await tx.put(wireKey, operationId);
+          await tx.put(inferenceAttemptKey(generation, operationId, attempt), {
+            index: attempt, ordinal: prior.ordinal!, phase: 'in-flight', notBefore: prior.native.notBefore,
+          } satisfies DispatcherInferenceAttempt);
+          await tx.put(dispatcherEntryKey(journal, operationId), { ...prior, native: { ...prior.native,
+            attempt, wireDigest: inspected.digest, phase: 'in-flight' } });
+          return { claimed: true as const };
+        });
+        if ('conflict' in reservation) throw new DispatcherRefusal('operation-conflict');
+        if ('unknown' in reservation) throw new Error('Native response unknown');
+        if ('response' in reservation && reservation.response) return reservation.response;
+        claimed = true;
+        if (bound.expiresAt !== null && bound.expiresAt <= Date.now()) throw new PiAuthRequiredError(selection.provider, 'expired');
+        runSignal.throwIfAborted();
+        const upstream = await transport.fetch(new Request(request.url, { method: 'POST', headers,
+          body: inspected.bytes, redirect: 'manual', signal: runSignal }));
+        const response = await commitNativeResponse(upstream, selection, limit, runSignal, bound);
+        await this.#nativeAuthority(generation, deliveryToken, runSignal);
+        const responseDigest = await nativeDigest(response.bytes);
+        await this.ctx.storage.transaction(async tx => {
+          const state = await tx.get<AdmissionState>('admission');
+          const live = await tx.get<DispatcherLease>(DISPATCHER_LEASE);
+          if (!this.#leaseMatches(state, live, generation) || state!.authFailure || !this.#phaseTokenMatches(live, deliveryToken)
+            || runSignal.aborted) throw new Error('Native commit fenced');
+          const journal = await loadDispatcherJournal(tx, generation);
+          const prior = await tx.get<DispatcherOperationRecord>(dispatcherEntryKey(journal, operationId));
+          if (prior?.native?.handle !== handle || prior.native.phase !== 'in-flight'
+            || prior.native.wireDigest !== inspected.digest) throw new Error('Native commit superseded');
+          await tx.put(`dispatcher:native-response:${handle}`, response);
+          await tx.put(inferenceAttemptKey(generation, operationId, prior.native.attempt), {
+            index: prior.native.attempt, ordinal: prior.ordinal!, phase: 'completed', notBefore: prior.native.notBefore,
+            responseKey: `dispatcher:native-response:${handle}`, responseDigest,
+          } satisfies DispatcherInferenceAttempt);
+          await tx.put(dispatcherEntryKey(journal, operationId), { ...prior, responseDigest,
+            native: { ...prior.native, phase: 'committed' } });
+        });
+        if (response.authFailure) await this.#nativeLoginStop(generation, response.authFailure);
+        return response;
+      } catch (error) {
+        if (claimed) await this.ctx.storage.transaction(async tx => {
+          const live = await tx.get<DispatcherLease>(DISPATCHER_LEASE);
+          if (live?.generation !== generation) return;
+          const journal = await loadDispatcherJournal(tx, generation);
+          const prior = await tx.get<DispatcherOperationRecord>(dispatcherEntryKey(journal, operationId));
+          if (prior?.native?.handle === handle && prior.native.phase === 'in-flight') {
+            await putDispatcherEntry(tx, journal, operationId, prior, { ...prior, phase: 'unknown', native: { ...prior.native, phase: 'unknown' } });
+          }
+        });
+        if (error instanceof PiAuthRequiredError) await this.#nativeLoginStop(generation, error.authFailure);
+        throw error;
+      }
+    };
+    const result = run().finally(() => { this.#nativeFlights.delete(handle); controller.abort(); });
+    this.#nativeFlights.set(handle, { digest: inspected.digest, controller, result });
+    try { return nativeResponse(await result); }
+    catch (error) {
+      if (error instanceof PiAuthRequiredError) throw error;
+      return error instanceof DispatcherRefusal && error.reason === 'operation-conflict'
+        ? dispatcherRefusal('operation-conflict', 409, 'OPERATOR_OPERATION_CONFLICT')
+        : dispatcherRefusal('effect-uncertain', 409, 'OPERATOR_OPERATION_UNKNOWN');
+    }
+  }
+
   /** Private binding only. Wait for the original ADMISSION receipt, never for this response's settlement. */
   async dispatcherPhaseContext(generation: number, request: Request): Promise<Response> {
     this.#resumeDispatcherOnEntry();
@@ -2050,7 +2396,8 @@ export class OperatorActivity extends Agent {
         bundle = await parseDispatcherBundle(bytes, lease.artifactDigest);
       }
       const context = this.ctx as unknown as { facets: { get(name: string, init: () => unknown): DispatcherFacet } };
-      const dynamicClass = await this.#dispatcherClass(lease, plan, bundle);
+      const inferenceSelection = await this.#prepareDispatcherNative(lease, plan);
+      const dynamicClass = await this.#dispatcherClass({ ...lease, ...(inferenceSelection ? { inferenceSelection } : {}) }, plan, bundle);
       // Preparation may outlive retirement. Recheck the original generation and
       // exact cached promise before get can instantiate a replacement runtime.
       if (!await this.dispatcherGenerationCurrent(lease.generation)
@@ -2096,7 +2443,8 @@ export class OperatorActivity extends Agent {
       JSON.parse(plan.invocationJson).pullRequest === undefined ? dispatcherGithubApiOrigin(this.#appEnv) : undefined,
       isManagementReceipt(plan.receipt) ? sourceResponseBytes(plan.receipt.selection.installation.policy) : undefined,
       admittedTarget ? JSON.stringify(admittedTarget) : undefined, executionLoggingEnabled(plan.receipt),
-      isManagementReceipt(plan.receipt) ? submissionAttemptLimit(plan.receipt.selection.operator.policy) : undefined);
+      isManagementReceipt(plan.receipt) ? submissionAttemptLimit(plan.receipt.selection.operator.policy) : undefined,
+      lease.inferenceSelection);
   }
 
   /** SDK deadline callback and alarm/reconstruction reconciliation. Only exact persisted settlement can wait. */
@@ -2245,6 +2593,8 @@ export class OperatorActivity extends Agent {
             });
             if (!saved) return;
             for (const flight of this.#inferenceFlights.values()) flight.controller.abort();
+            for (const flight of this.#nativeFlights.values()) flight.controller.abort();
+            this.#nativeBindings.clear();
             try { await this.#admitDispatcherPhase(lease.generation, next.current.deliveryToken); }
             catch (error) {
               if (error instanceof DispatcherPhaseAdmissionError && error.definitive) return;
@@ -2627,6 +2977,7 @@ export class OperatorActivity extends Agent {
       operation = await this.#boundedDispatcher(lease, () => parseDispatcherOperation(request, inferenceBytes, capacityPolicy,
         loggingEnabled ? value => { inferenceCountObservation = value; } : undefined,
         loggingEnabled ? value => { bodyOverflow = value; } : undefined));
+      if (operation.path === '/v1/dispatcher/inference' && lease.inferenceSelection) return denied('policy-denied');
       preparationStep = 'capability';
       if (trace) trace.requestDigest = hashDiagnostic(JSON.stringify({ path: operation.path, body: operation.body }));
       if (operation.path === '/v1/dispatcher/source' && isManagementReceipt(plan.receipt)) {
@@ -3460,6 +3811,10 @@ export class OperatorActivity extends Agent {
     return { activityId: state.intent.activityId, operatorId: state.intent.operatorId,
       ...(name ? { operatorName: name } : {}), ...(version ? { version } : {}), ...(resultSummary ? { resultSummary } : {}),
       ...(context ? { context } : {}), ...(progress ? { progress } : {}), executionStatus,
+      ...(state.inferenceSelection ? { inferenceSelection: { ...state.inferenceSelection,
+        ...(state.receipt && isManagementReceipt(state.receipt) ? { reasoningSource:
+          state.receipt.selection.installation.piReasoningOverride === undefined ? 'inherited' as const : 'installation' as const } : {}) } } : {}),
+      ...(state.authFailure ? { authFailure: state.authFailure } : {}),
       cleanupStatus: released === true ? 'released' : executionStatus === 'cancel-requested' ? 'stopping'
         : released === false ? 'pending' : terminal ? 'unknown' : 'pending',
       collectionStatus: state.browserCollectionConsumed ? 'consumed' : terminal ? 'ready' : 'unavailable',
@@ -3838,7 +4193,7 @@ export class OperatorActivity extends Agent {
           || ordinals.has(entry.ordinal) || entry.generation !== lease.generation) { damaged = true; continue; }
         ordinals.add(entry.ordinal);
         if (entry.request?.method === 'POST' || entry.request?.method === 'PUT') candidates.push(row);
-        else if (entry.request?.method !== 'GET' && !entry.inference) unclassifiedEntries++;
+        else if (entry.request?.method !== 'GET' && !entry.inference && !entry.native) unclassifiedEntries++;
       }
       const complete = exhausted && !damaged && unclassifiedEntries === 0
         && entries.length === journal.count && ordinals.size === journal.count;
@@ -4344,7 +4699,12 @@ export class OperatorDispatcherCapability extends WorkerEntrypoint<Env> {
   override async fetch(request: Request): Promise<Response> {
     try {
       const { activity, generation } = this.#binding();
-      if (new URL(request.url).origin !== 'https://operator.internal') {
+      const url = new URL(request.url);
+      if (request.headers.has('x-codeflare-native-inference') || url.origin === 'https://operator.internal'
+        && ['/v1/dispatcher/native-binding', '/v1/dispatcher/native-admission', '/v1/dispatcher/native-result'].includes(url.pathname)) {
+        return await activity.dispatcherNative(generation, request);
+      }
+      if (url.origin !== 'https://operator.internal') {
         // The same generation-bound capability services Loader outbound; identity never comes from HTTP headers.
         const operationId = request.headers.get('x-codeflare-operator-operation-id');
         if (!['GET', 'POST', 'PUT'].includes(request.method) || !operationId || !/^[A-Za-z0-9_-]{1,128}$/.test(operationId)

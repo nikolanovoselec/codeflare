@@ -1,6 +1,7 @@
 /**
  * EgressController — enterprise-mode strict Gateway egress for non-LLM/non-GitHub
- * hosts (REQ-ENTERPRISE-016).
+ * hosts (REQ-ENTERPRISE-016). Activity-bound native Dispatcher inference also uses
+ * this strict transport; its parent owns admission, private auth and raw receipts.
  *
  * A WorkerEntrypoint the container DO wires as a catch-all (`interceptOutboundHttps('*',
  * controller)`) when strict Gateway egress is ON; the DO passes the account, bound bucket,
@@ -64,7 +65,7 @@ import { prepareJwtStampedRequest, type JwtStampingAuthority, type JwtStampingPo
 const logger = createLogger('egress-controller');
 const OPERATOR_SYNC_OPERATION_HEADER = 'x-codeflare-operator-sync-operation';
 
-/** Props the container DO passes at wiring time (resolved once, never per-request). */
+/** Trusted props the container DO or Activity passes when binding this entrypoint. */
 interface EgressProps extends PersonalPiProps {
   /** This deployment's own Cloudflare account id; selects the account-scoped exemption. */
   accountId?: string;
@@ -192,6 +193,9 @@ export class EgressController extends WorkerEntrypoint<Env> {
 
     const personal = await forwardPersonalPi(request, this.env, props);
     if (personal) return personal;
+    if (props.operatorDispatcherNative) {
+      return jsonError(403, 'PERSONAL_PI_DENIED', 'Native Pi provider access is not permitted');
+    }
     const url = new URL(request.url);
     if (isDisallowedEgressHost(url.hostname)) {
       // Reject SSRF targets BEFORE any upstream send.

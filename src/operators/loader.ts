@@ -6,6 +6,7 @@
  * See sdd/spec/operators.md and documentation/lanes/operators.md for acceptance boundaries.
  */
 import type { DispatcherBundle, OperatorBundle } from './distribution';
+import { parseNativeOperatorInference, type NativeOperatorInference } from './inference-selection';
 import { DEFAULT_SOURCE_RESPONSE_BYTES } from './dispatcher-source-limits';
 import { DEFAULT_SUBMISSION_ATTEMPT_LIMIT } from './dispatcher-submission-limits';
 
@@ -16,7 +17,8 @@ interface OperatorLoaderCode {
   mainModule: string;
   modules: OperatorBundle['modules'];
   env: { OPERATOR: Fetcher; GITHUB_API_ORIGIN?: string; OPERATOR_SOURCE_RESPONSE_BYTES?: string;
-    OPERATOR_ADMITTED_TARGET?: string; OPERATOR_LOGGING_ENABLED?: string; OPERATOR_SUBMISSION_ATTEMPT_LIMIT?: string };
+    OPERATOR_ADMITTED_TARGET?: string; OPERATOR_LOGGING_ENABLED?: string; OPERATOR_SUBMISSION_ATTEMPT_LIMIT?: string;
+    OPERATOR_INFERENCE_SELECTION?: string };
   globalOutbound: Fetcher | null;
   tails?: Array<{ tail(events: unknown): Promise<void> }>;
 }
@@ -73,6 +75,7 @@ export function loadOperatorDispatcherClass(
   admittedTargetJson?: string,
   loggingEnabled = true,
   submissionAttemptLimit = DEFAULT_SUBMISSION_ATTEMPT_LIMIT,
+  inferenceSelection?: NativeOperatorInference,
 ): unknown {
   if (!/^[0-9a-f]{64}$/.test(artifactDigest) || !/^[A-Za-z0-9_-]{1,128}$/.test(activityId)
     || !Number.isSafeInteger(generation) || generation < 1
@@ -87,6 +90,7 @@ export function loadOperatorDispatcherClass(
     env: { OPERATOR: capability, OPERATOR_SUBMISSION_ATTEMPT_LIMIT: String(submissionAttemptLimit), ...(githubApiOrigin ? { GITHUB_API_ORIGIN: githubApiOrigin,
       OPERATOR_SOURCE_RESPONSE_BYTES: String(sourceBytes) } : {}),
       ...(admittedTargetJson !== undefined ? { OPERATOR_ADMITTED_TARGET: admittedTargetJson } : {}),
+      ...(inferenceSelection ? { OPERATOR_INFERENCE_SELECTION: JSON.stringify(parseNativeOperatorInference(inferenceSelection)) } : {}),
       ...(loggingEnabled ? {} : { OPERATOR_LOGGING_ENABLED: 'false' }) },
     globalOutbound: outbound,
     tails: [tail],

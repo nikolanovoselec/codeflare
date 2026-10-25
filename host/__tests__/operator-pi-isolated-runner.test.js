@@ -45,12 +45,18 @@ async function fixture(t, configOverrides = {}, behavior = {}) {
   // The fake SDK requests High, while the application must enforce the bound
   // Low before a request reaches the injected outgoing transport.
   const outgoing = [];
-  const nativeModel = { provider: 'openai-codex', id: 'gpt-6.1-sol', api: 'openai-codex-responses' };
+  const nativeModel = { provider: 'openai-codex', id: 'gpt-6.1-sol', api: 'openai-codex-responses',
+    baseUrl: 'https://chatgpt.com/backend-api/codex' };
   const send = async (model, _context, options = {}) => {
     const request = new Request('https://chatgpt.com/backend-api/codex/responses', { method: 'POST',
       headers: { authorization: `Bearer ${options.apiKey}`, ...options.headers, 'content-type': 'application/json' },
       body: JSON.stringify({ model: model.id, reasoning: { effort: options.reasoningEffort ?? options.reasoning } }) });
     outgoing.push(request);
+    if (behavior.upstream) {
+      const response = await options.fetch(request);
+      if (!response.ok) throw new Error(`Provider request failed: ${await response.text()}`);
+      return response;
+    }
     return new Response('data: [DONE]\n\n', { headers: { 'content-type': 'text/event-stream' } });
   };
   let provider = { id: 'openai-codex', models: [nativeModel], auth: {}, stream: send, streamSimple: send };
@@ -113,7 +119,7 @@ async function fixture(t, configOverrides = {}, behavior = {}) {
   const config = { schemaVersion: 1, activityId: 'activity-1', sessionId: 'session-1', root,
     profile: { provider: behavior.native ? 'openai-codex' : 'anthropic', model: behavior.native ? 'gpt-6.1-sol' : 'approved',
       thinkingLevel: behavior.native ? 'low' : 'off', systemPrompt: 'Approved parent', tools: ['read', 'write'],
-      ...(behavior.native ? { source: 'pi-native', authBinding: descriptor } : {}) },
+      ...(behavior.native ? { source: 'pi-native', api: nativeModel.api, authBinding: descriptor } : {}) },
     mode: 'isolated', initialization: init, deadline, ...configOverrides };
   const piAi = { validateToolArguments: (_tool, call) => call.arguments,
     getSupportedThinkingLevels: () => ['low', 'medium', 'high'],
@@ -356,6 +362,50 @@ test('REQ-OPERATOR-021: cancellation during creation or after journal persistenc
   await assert.rejects(readFile(path.join(running.outputRoot, 'reports/code-reviewer.json')));
 });
 
+test('REQ-OPERATOR-007/021/047: missing admitted native API denies Host configuration without protected sends', async t => {
+  const f = await fixture(t, {}, { native: true });
+  const { api: _api, ...profile } = f.config.profile;
+  assert.throws(() => createOperatorPiService({ serializedConfig: JSON.stringify({ ...f.config, profile }),
+    allowedRoot: f.allowedRoot, importSdk: async () => f.sdk }), /configuration/);
+  assert.deepEqual(f.outgoing, []);
+  assert.deepEqual(f.childSessions, []);
+});
+
+test('REQ-OPERATOR-007/021/047: mismatched admitted native API denies ensure and child operations without protected sends', async t => {
+  const f = await fixture(t, {}, { native: true });
+  const service = createOperatorPiService({ serializedConfig: JSON.stringify({ ...f.config,
+    profile: { ...f.config.profile, api: 'openai-responses' } }), allowedRoot: f.allowedRoot,
+    importSdk: async () => f.sdk, importPiAi: async () => ({
+      validateToolArguments: (_tool, call) => call.arguments,
+      createProvider: ({ id, models, auth, api }) => ({ id, models, auth,
+        stream: (model, context, options) => api.stream(model, context, options),
+        streamSimple: (model, context, options) => api.streamSimple(model, context, options) }),
+      getSupportedThinkingLevels: () => ['low'],
+    }) });
+  const post = (route, body) => service.handle({ method: 'POST', pathname: `/internal/operator/pi/${route}`,
+    body: new TextEncoder().encode(JSON.stringify(body)) });
+  assert.equal((await post('auth-bind', f.binding)).status, 200);
+  assert.equal((await post('ensure', {})).status, 500);
+  assert.notEqual((await post('tasks', { taskId: 'wrong-api', digest: 'c'.repeat(64), mode: 'tool',
+    toolName: 'run_approved_tasks', arguments: taskArgs })).status, 202);
+  assert.deepEqual(f.outgoing, []);
+  assert.deepEqual(f.childSessions, []);
+});
+
+test('REQ-OPERATOR-007/021/047: matching admitted API permits root and approved children but not an API substitution', async t => {
+  const f = await fixture(t, {}, { native: true });
+  await f.rootOptions.modelRuntime.stream(f.rootOptions.model, { messages: [] }, { reasoningEffort: 'low' });
+  assert.equal(await submit(f, 'api-bound-round'), 'completed');
+  assert.equal(f.outgoing.length, 1 + lanes.length);
+  for (const request of f.outgoing) assert.equal(request.url, 'https://chatgpt.com/backend-api/codex/responses');
+  for (const session of [f.rootOptions, ...f.childSessions.map(child => child.options)]) {
+    await assert.rejects(async () => session.modelRuntime.streamSimple({ ...session.model,
+      api: 'openai-responses' }, { messages: [] }, {}), /binding mismatch/);
+  }
+  assert.equal(f.outgoing.length, 1 + lanes.length);
+  for (const lane of lanes) assert.equal(await readFile(path.join(f.outputRoot, `reports/${lane}.json`), 'utf8'), report(lane));
+});
+
 test('REQ-OPERATOR-021/047: native private bind precedes ensure, is bounded/idempotent, and rejects foreign or stale descriptors', async t => {
   const f = await fixture(t, {}, { native: true, beforeBind: async ({ post, binding, root }) => {
     const missing = await post('ensure', {});
@@ -405,6 +455,27 @@ test('REQ-OPERATOR-007/021/047: native root and actual approved children send th
     assert.equal(await readFile(path.join(f.outputRoot, `reports/${child.lane}.json`), 'utf8'), report(child.lane));
   }
   assert.deepEqual(JSON.parse(await readFile(path.join(f.root, 'agent/auth.json'), 'utf8')), {});
+});
+
+for (const scenario of [
+  { status: 401, coded: true }, { status: 403, coded: true },
+  { status: 401, coded: false }, { status: 403, coded: false },
+]) test(`REQ-OPERATOR-047: Host native HTTP ${scenario.status} requires structured auth evidence (coded=${scenario.coded})`, async t => {
+  const failure = { code: 'PI_LOGIN_REQUIRED', reason: 'rejected', provider: 'openai-codex' };
+  t.mock.method(globalThis, 'fetch', async () => Response.json(scenario.coded
+    ? scenario.status === 401 ? { error: { code: 'invalid_api_key', message: 'private-upstream synthetic-bound-access' } }
+      : { error: { type: 'request_error', message: 'Native Pi request failed' }, authFailure: failure }
+    : { error: { type: 'unrelated_failure', message: 'private-upstream synthetic-bound-access' } },
+  { status: scenario.status }));
+  const f = await fixture(t, {}, { native: true, upstream: true });
+  assert.equal(await submit(f, 'native-http-failure'), 'failed');
+  const result = await f.post('tasks', { taskId: 'native-http-failure', digest: 'c'.repeat(64), mode: 'tool',
+    toolName: 'run_approved_tasks', arguments: taskArgs });
+  const value = JSON.parse(result.body);
+  assert.deepEqual(value.authFailure, scenario.coded ? failure : undefined);
+  assert.doesNotMatch(result.body, /private-upstream|synthetic-bound-access/);
+  assert.doesNotMatch(await readFile(path.join(f.root, '.codeflare/operator-pi.json'), 'utf8'),
+    /private-upstream|synthetic-bound-access/);
 });
 
 test('REQ-OPERATOR-021/047: actual child auth failure survives task polling and reconstruction without publishing partial reports', async t => {

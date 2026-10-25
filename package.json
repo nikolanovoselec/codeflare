@@ -27,6 +27,7 @@
   "dependencies": {
     "@actions/artifact": "6.3.1",
     "@cloudflare/containers": "^0.3.7",
+    "@earendil-works/pi-ai": "1.4.0",
     "@streamparser/json": "0.0.26",
     "aws4fetch": "^1.0.20",
     "edgepush": "0.1.1",

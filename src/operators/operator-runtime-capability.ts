@@ -9,14 +9,15 @@ import { getAigConfig } from '../lib/aig-config';
 import { sourceResponseBytes } from './dispatcher-source-limits';
 import { DEFAULT_INFERENCE_REQUEST_BYTES } from './dispatcher-inference-limits';
 import { dispatcherCapacities, type DispatcherCapacityPolicy } from './dispatcher-capacity-limits';
-import { resolveOperatorInference } from './inference-selection';
+import { resolveOperatorInference, type NativeOperatorInference } from './inference-selection';
+import { createOwnerNativePiProfileReader } from './native-pi-profile';
 import type { DispatcherInferenceSelection } from './dispatcher-inference-recovery';
 import { z } from 'zod';
 import { DispatcherRefusal } from './dispatcher-refusal';
 import { discoverRenovatePulls, eligibleRenovatePull, renovateGithub, executeRenovateDecision } from './renovate-publication';
 import { openOperatorExecutionAccess } from './execution-context';
 import { operatorOwnerKey } from './browser-activity';
-import { parseOperatorPolicy } from './policy';
+import { parseOperatorPolicy, type OperatorPolicy } from './policy';
 import { projectChangedCompose, projectDispatcherFiles } from './dispatcher-compose-projection';
 import { createConductorProductionCapability } from './conductor-production';
 import type { OperatorRuntimePlan } from './activity';
@@ -58,6 +59,17 @@ const dispatcherInferenceSchema = (limits = dispatcherCapacities()) => z.strictO
   }) });
 
 const dispatcherReceiptSchema = z.strictObject({ operationId: dispatcherOperationId });
+// Structural inference-only guard while the canonical optional management field
+// crosses the registry/RPC boundary. Never manufacture network/storage authority.
+const dispatcherPolicyInferenceSchema = z.strictObject({
+  allowedSources: z.array(z.enum(['managed', 'pi-native'])).optional(),
+  routeIds: z.array(z.string()), defaultRouteId: z.string().nullable(),
+  reasoningLevels: z.array(z.string()), defaultReasoningLevel: z.string().nullable(), inheritUserDefaults: z.boolean(),
+});
+function dispatcherInferencePolicy(policy: unknown): Pick<OperatorPolicy, 'inference'> {
+  if (!policy || typeof policy !== 'object' || !('inference' in policy)) throw new Error('Dispatcher inference approval missing');
+  return { inference: dispatcherPolicyInferenceSchema.parse(policy.inference) };
+}
 const dispatcherResolutionSchema = (limits = dispatcherCapacities()) => z.strictObject({ operationId: dispatcherOperationId,
   requestDigest: z.string().regex(/^[0-9a-f]{64}$/),
   readbacks: z.array(z.strictObject({ operationId: dispatcherOperationId,
@@ -261,6 +273,58 @@ export async function authorizeDispatcherPlan(plan: OperatorRuntimePlan, env: En
   return { authority: { ...authority, human }, parent, policy: pinned.installation.policy, admittedTarget };
 }
 
+/** Current owner/source authority for Dispatcher native bootstrap and every later binding/send.
+ * Management policies expose inference only when explicitly installed; legacy omission denies native.
+ */
+export async function prepareDispatcherNative(input: { plan: OperatorRuntimePlan; env: Env;
+  selection?: NativeOperatorInference; current(): Promise<boolean>; signal?: AbortSignal }) {
+  const { plan, env } = input;
+  if (!isManagementReceipt(plan.receipt)) throw new Error('Dispatcher native authority denied');
+  const pinned = plan.receipt.selection;
+  let ownerBucket: string | undefined;
+  const authorize = async (selection?: NativeOperatorInference) => {
+    if (input.signal?.aborted || !await input.current()) throw new Error('Dispatcher native generation changed');
+    const { authority } = await authorizeDispatcherPlan(plan, env);
+    const selected = await env.OPERATOR_REGISTRY.getByName('registry').resolveManagementExecution(pinned.installation.id);
+    if (!selected.ok || selected.value.installation.revision !== pinned.installation.revision
+      || selected.value.operator.revision !== pinned.operator.revision
+      || selected.value.controlsRevision !== pinned.controlsRevision
+      || selected.value.release.bundleDigest !== pinned.release.bundleDigest) throw new Error('Dispatcher native installation changed');
+    const groups = await resolveSessionAccessGroup(new Request('https://operator.internal/', {
+      headers: { 'cf-access-jwt-assertion': authority.accessJwt },
+    }), env);
+    const routes = await loadEnterpriseRouteConfig(env, groups);
+    const personal = { piDefaultSource: routes.piDefaultSource, allowPersonalPiProviders: routes.allowPersonalPiProviders };
+    if (!selection && !input.selection && personal.piDefaultSource !== 'pi-native') return { native: false as const };
+    if (!await operatorAccessSessionCurrent(authority.human, authority.accessJwt)) throw new Error('Dispatcher native session expired');
+    if (!personal.allowPersonalPiProviders) throw new Error('Dispatcher native permission denied');
+    const bucket = await resolveBucketName(env, authority.human.email);
+    if (ownerBucket !== undefined && ownerBucket !== bucket) throw new Error('Dispatcher native owner changed');
+    ownerBucket = bucket;
+    for (const policy of [pinned.installation.policy, pinned.operator.policy,
+      selected.value.installation.policy, selected.value.operator.policy]) {
+      if (!policy.capabilities.includes('inference')) throw new Error('Dispatcher inference grant denied');
+      const parsed = dispatcherInferencePolicy(policy);
+      if (!parsed.inference.allowedSources?.includes('pi-native')) throw new Error('Dispatcher native source denied');
+      if (selection) resolveOperatorInference({ policy: parsed, trusted: selection, eligible: {
+        routeIds: [], defaultRouteId: '', defaultReasoningLevel: '', allowPersonalPiProviders: personal.allowPersonalPiProviders } });
+    }
+    if (input.signal?.aborted || !await input.current()) throw new Error('Dispatcher native generation changed');
+    return { native: true as const };
+  };
+  if (!(await authorize(input.selection)).native) return undefined;
+  const reader = await createOwnerNativePiProfileReader({ env, ownerBucket: ownerBucket!, deadline: plan.deadline,
+    signal: input.signal, authorize: async () => { await authorize(input.selection); } });
+  const selection = input.selection ?? await reader.resolveSelection(pinned.installation.piReasoningOverride);
+  await authorize(selection);
+  return { selection, bind: async () => {
+    await authorize(selection);
+    const bound = await reader.bind(selection);
+    await authorize(selection);
+    return bound;
+  } };
+}
+
 /** Parent-only composition with the existing credential-injecting interceptors, never direct upstream fetch. */
 export async function createDispatcherOperation(input: {
   plan: OperatorRuntimePlan; env: Env; exports: Record<string, (options: { props: Record<string, unknown> }) => Fetcher>;
@@ -432,6 +496,14 @@ export async function createDispatcherOperation(input: {
     storage: { readPrefixes: [], writePrefixes: [] },
     inference: { routeIds: [], defaultRouteId: null, reasoningLevels: [], defaultReasoningLevel: null, inheritUserDefaults: false } });
   if (inference) {
+    for (const installed of [installationPolicy, plan.receipt.selection.operator.policy]) {
+      if ('inference' in installed) {
+        const narrowed = dispatcherInferencePolicy(installed);
+        if (!(narrowed.inference.allowedSources ?? ['managed']).includes('managed')) {
+          throw new DispatcherRefusal('policy-denied', 'Dispatcher managed source denied');
+        }
+      }
+    }
     if (!input.exports.LlmInterceptor) throw new DispatcherRefusal('operation-failed', 'LLM interceptor unavailable');
     let groups = await resolveSessionAccessGroup(new Request('https://operator.internal/', {
       headers: { 'cf-access-jwt-assertion': authority.accessJwt },

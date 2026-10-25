@@ -34,6 +34,12 @@ import type { OperatorContainerProfile } from './operator-context';
 import type { JwtStampingAuthority, JwtStampingPolicy } from '../operators/jwt-stamping';
 import { D1SessionRepository } from '../lib/session-repository';
 import { SHUTDOWN_REQUESTED_KEY } from './container-metrics';
+import { openOperatorExecutionAccess } from '../operators/execution-context';
+import { operatorOwnerKey } from '../operators/browser-activity';
+import { parseOperatorConsumerInvocation } from '../operators/consumer-contracts';
+import { resolveOperatorInference } from '../operators/inference-selection';
+import { canInvokeOperator, resolveOperatorGroupIdentity, resolveBucketName, resolveSessionAccessGroup,
+  loadEnterpriseRouteConfig } from '../lib/access';
 
 /** The DO surface the interception registry consumes (explicit interface, not inheritance). */
 export interface InterceptionHost {
@@ -67,8 +73,9 @@ export interface InterceptionHost {
 /** One resolved outbound-interception transport, ready to register. */
 async function personalPiProps(host: InterceptionHost): Promise<Record<string, unknown>> {
   if (!host._bucketName || !host._sessionId || !host._userEmail) return {};
-  let generation: number | undefined;
-  try {
+  let generation: number | undefined = host._operatorContainerProfile?.piProfile.source === 'pi-native'
+    ? host._operatorContainerProfile.piProfile.authBinding?.generation : undefined;
+  if (generation === undefined) try {
     const session = await new D1SessionRepository(host.env.USAGE_DB).getSession(host._bucketName, host._sessionId);
     if (session && (session.lifecycleState === 'starting' || session.lifecycleState === 'running')
       && Number.isSafeInteger(session.lifecycleGeneration) && session.lifecycleGeneration > 0) {
@@ -80,6 +87,12 @@ async function personalPiProps(host: InterceptionHost): Promise<Record<string, u
     strict: host._strictEgress === true,
     ...(host._operatorPolicy ? { operatorPolicy: host._operatorPolicy } : {}),
     ...(host._operatorContainerProfile ? { operatorInference: { activityId: host._operatorContainerProfile.activityId } } : {}),
+    ...(host._operatorContainerProfile?.piProfile.source === 'pi-native' ? { operatorNative: {
+      provider: host._operatorContainerProfile.piProfile.provider, model: host._operatorContainerProfile.piProfile.model,
+      api: host._operatorContainerProfile.piProfile.api,
+      reasoningLevel: host._operatorContainerProfile.piProfile.thinkingLevel,
+      binding: host._operatorContainerProfile.piProfile.authBinding,
+    } } : {}),
   };
 }
 
@@ -87,6 +100,9 @@ async function personalPiProps(host: InterceptionHost): Promise<Record<string, u
 export async function getPersonalPiSession(host: InterceptionHost, ref: {
   bucket: string; sessionId: string; email: string;
 }): Promise<{ generation: number; groups: string[] }> {
+  if (host._operatorContainerProfile?.piProfile.source === 'pi-native') {
+    return getNativeOperatorPiSession(host, ref);
+  }
   const owned = () => host._bucketName === ref.bucket && host._sessionId === ref.sessionId
     && host._userEmail?.toLowerCase() === ref.email.toLowerCase()
     && !host._operatorPolicy && !host._operatorContainerProfile;
@@ -103,6 +119,69 @@ export async function getPersonalPiSession(host: InterceptionHost, ref: {
     throw new ForbiddenError('Session authority unavailable');
   }
   return { generation, groups: [...host._userGroups] };
+}
+
+/** Explicit Conductor native grant only: never a general Operator/personal bypass. */
+async function getNativeOperatorPiSession(host: InterceptionHost, ref: {
+  bucket: string; sessionId: string; email: string;
+}): Promise<{ generation: number; groups: string[] }> {
+  const profile = host._operatorContainerProfile;
+  const binding = profile?.piProfile.authBinding;
+  const owned = () => profile === host._operatorContainerProfile && profile?.piProfile.source === 'pi-native'
+    && host._bucketName === ref.bucket && profile.ownerBucket === ref.bucket
+    && host._sessionId === ref.sessionId && profile.sessionId === ref.sessionId
+    && host._userEmail?.toLowerCase() === ref.email.toLowerCase() && profile.human.email === ref.email.toLowerCase()
+    && !!host._jwtAuthority?.accessJwt && host._jwtAuthority.human.expiresAt * 1000 > Date.now()
+    && profile.deadline > Date.now() && !(host._shutdownStartedAt ?? 0);
+  if (!binding || !owned() || !host.env.OPERATOR_ACTIVITY || !host.env.OPERATOR_REGISTRY
+    || await host.ctx.storage.get(SHUTDOWN_REQUESTED_KEY)) throw new ForbiddenError('Native operator authority unavailable');
+  const activity = host.env.OPERATOR_ACTIVITY.getByName(profile!.activityId);
+  if (!await activity.operatorGenerationCurrent(binding.generation)) throw new ForbiddenError('Native operator generation changed');
+  const plan = await activity.getRuntimePlan();
+  if (!plan || plan.authFailure || !('selection' in plan.receipt) || plan.activityId !== profile!.activityId
+    || plan.deadline !== binding.deadline || binding.activityId !== plan.activityId
+    || binding.sessionId !== ref.sessionId || plan.executionContext.policyDigest !== profile!.policyDigest) {
+    throw new ForbiddenError('Native operator admission unavailable');
+  }
+  const pinned = plan.receipt.selection;
+  const current = await host.env.OPERATOR_REGISTRY.getByName('registry').resolveManagementExecution(pinned.installation.id);
+  if (!current.ok || current.value.operator.profile !== 'conductor'
+    || current.value.operator.operatorId !== profile!.operatorId
+    || current.value.installation.revision !== pinned.installation.revision
+    || current.value.operator.revision !== pinned.operator.revision
+    || current.value.controlsRevision !== pinned.controlsRevision
+    || current.value.release.bundleDigest !== pinned.release.bundleDigest) throw new ForbiddenError('Native operator installation changed');
+  const authority = await openOperatorExecutionAccess(plan.executionContext, host.env);
+  const human = await resolveOperatorGroupIdentity(authority.human, authority.accessJwt);
+  if (!canInvokeOperator(human, current.value.operator) || await operatorOwnerKey(human) !== binding.ownerKey
+    || human.email.toLowerCase() !== ref.email.toLowerCase()
+    || await resolveBucketName(host.env, human.email) !== ref.bucket
+    || await operatorOwnerKey(host._jwtAuthority!.human) !== binding.ownerKey) throw new ForbiddenError('Native operator owner changed');
+  const groups = await resolveSessionAccessGroup(new Request('https://operator.internal/', {
+    headers: { 'cf-access-jwt-assertion': authority.accessJwt },
+  }), host.env);
+  const routes = await loadEnterpriseRouteConfig(host.env, groups);
+  const selected = parseOperatorConsumerInvocation(JSON.parse(plan.invocationJson)).resources.inference;
+  if (!selected || !('source' in selected) || selected.source !== 'pi-native'
+    || selected.provider !== profile!.piProfile.provider || selected.model !== profile!.piProfile.model
+    || selected.api !== profile!.piProfile.api
+    || selected.reasoningLevel !== profile!.piProfile.thinkingLevel || selected.profileDigest !== binding.profileDigest) {
+    throw new ForbiddenError('Native operator selection changed');
+  }
+  const selectionDigest = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',
+    new TextEncoder().encode(JSON.stringify(selected))))).map(byte => byte.toString(16).padStart(2, '0')).join('');
+  if (selectionDigest !== binding.selectionDigest) throw new ForbiddenError('Native operator selection changed');
+  for (const policy of [profile!.policy, current.value.installation.policy, current.value.operator.policy]) {
+    if (!policy.inference) throw new ForbiddenError('Native operator inference approval unavailable');
+    resolveOperatorInference({ eligible: { routeIds: routes.routeCatalog, defaultRouteId: routes.defaultRoute,
+      defaultReasoningLevel: routes.defaultReasoning, allowPersonalPiProviders: routes.allowPersonalPiProviders },
+      policy: { inference: policy.inference }, trusted: selected });
+  }
+  if (!owned() || await host.ctx.storage.get(SHUTDOWN_REQUESTED_KEY)
+    || !await activity.operatorGenerationCurrent(binding.generation)) throw new ForbiddenError('Native operator authority changed');
+  const finalPlan = await activity.getRuntimePlan();
+  if (!finalPlan || finalPlan.authFailure) throw new ForbiddenError('Native operator authority changed');
+  return { generation: binding.generation, groups };
 }
 
 function jwtProps(host: InterceptionHost): Record<string, unknown> {
@@ -203,7 +282,8 @@ const llm: InterceptorSpec = {
         } } : {}),
         ...jwtProps(host),
       },
-      hosts: [...new Set([...INTERCEPTED_LLM_HOSTS, ...PERSONAL_PI_HOST_PATTERNS.filter(pattern => !(host._operatorPolicy || host._operatorContainerProfile) || !pattern.startsWith('*')), ...personalPiConfiguredGithubHosts(host.env)])],
+      hosts: [...new Set([...INTERCEPTED_LLM_HOSTS, ...PERSONAL_PI_HOST_PATTERNS.filter(pattern => host._operatorContainerProfile?.piProfile.source === 'pi-native'
+        || !(host._operatorPolicy || host._operatorContainerProfile) || !pattern.startsWith('*')), ...personalPiConfiguredGithubHosts(host.env)])],
       mandatory: true,
       wiredLog: 'Enterprise LLM interception wired',
       wiredLogData: { hostCount: INTERCEPTED_LLM_HOSTS.length },

@@ -1,10 +1,11 @@
 import { For, Show, createEffect, createSignal, onCleanup, type Component } from 'solid-js';
 import * as api from '../api/operator-management';
-import type { OperatorActivitySummary } from '../api/operator-activities';
+import { piLoginRecoveryCopy, type OperatorActivitySummary, type OperatorActivityDetail } from '../api/operator-activities';
 import { ApiError } from '../api/fetch-helper';
 import OperatorActivityDiagnostics from './OperatorActivityDiagnostics';
 
 const working = new Set(['queued', 'running', 'waiting', 'cancel-requested', 'unknown']);
+const nativeSelection = (selection: OperatorActivityDetail['inferenceSelection']) => selection?.source === 'pi-native' ? selection : undefined;
 function message(error: unknown) {
   if (error instanceof ApiError && [401, 403, 404].includes(error.status)) return 'Access denied. Invocation requires its own grant; management is not invocation.';
   if (error instanceof ApiError && error.status === 409) return 'Activity or installation state changed. Refresh and review before acting again.';
@@ -141,6 +142,8 @@ const OperatorManagementActivity: Component<{ installationId?: string; onBackToC
     <Show when={detailLoading()}><p role="status">Loading activity detail…</p></Show>
     <Show when={detail()}>{value => <section class="admin-panel operator-panel"><h2>Activity detail</h2><p>Activity ID: {value().activityId}</p>
       <p>Execution: {value().executionStatus} · Cleanup: {value().cleanupStatus}</p>
+      <Show when={nativeSelection(value().inferenceSelection)}>{selection => <p>Inference: Pi built-in providers · {selection().provider} / {selection().model} · {selection().reasoningLevel.charAt(0).toUpperCase() + selection().reasoningLevel.slice(1)} ({selection().reasoningSource === 'installation' ? 'installation override' : selection().reasoningSource === 'default' ? 'Medium default' : selection().reasoningSource ? 'inherited Pi default' : 'reasoning origin unavailable'})</p>}</Show>
+      <Show when={value().authFailure}>{failure => <div role="alert"><p>Pi login required · {failure().provider}</p><p>{piLoginRecoveryCopy}</p></div>}</Show>
       <Show when={value().checkpoint != null}><h3>Progress</h3><pre class="operator-result">{JSON.stringify(value().checkpoint, null, 2)}</pre></Show>
       <Show when={value().result != null} fallback={<p>No result available.</p>}><h3>Result</h3><pre class="operator-result">{JSON.stringify(value().result, null, 2)}</pre></Show>
       <Show when={value().sessionId}><a href={`/app?session=${encodeURIComponent(value().sessionId!)}`}>Open owned session</a></Show>

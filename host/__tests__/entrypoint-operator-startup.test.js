@@ -153,6 +153,32 @@ run_operator_startup`;
   } finally { rmSync(home, { recursive: true, force: true }); }
 });
 
+test('REQ-OPERATOR-007/021: native startup without a valid admitted API cannot become ready', () => {
+  for (const api of [undefined, '', 'openai/responses']) {
+    const home = mkdtempSync(join(tmpdir(), 'operator-native-api-startup-'));
+    try {
+      const script = `set -euo pipefail
+validate_coding_agent_selection() { :; }
+update_sync_status() { :; }
+run_post_restore_startup() { :; }
+node() {
+  if [ "$1" = /opt/codeflare/scripts/materialize-operator-inputs.mjs ]; then return 0; fi
+  command node "$@" | sed "s|/home/user/.codeflare/operators|$USER_HOME/.codeflare/operators|"
+}
+${extract('run_operator_startup')}
+run_operator_startup`;
+      const result = spawnSync('bash', ['-c', script], { encoding: 'utf8', env: { ...process.env, USER_HOME: home,
+        CODEFLARE_INIT_FLAG_FILE: join(home, 'initialized'), PI_PROVIDER_CONFIG: '',
+        CODEFLARE_OPERATOR_PI_CONFIG: JSON.stringify({ schemaVersion: 1, activityId: 'activity', sessionId: 'session',
+          root: '/home/user/.codeflare/operators/activity', profile: { source: 'pi-native', provider: 'openai-codex',
+            model: 'gpt-6.1-sol', api } }),
+        CODEFLARE_OPERATOR_SYNC_CONFIG: JSON.stringify({ schemaVersion: 1, activityId: 'activity', sessionId: 'session', root: '/home/user/Operators' }) } });
+      assert.notEqual(result.status, 0, result.stderr);
+      assert.equal(existsSync(join(home, 'initialized')), false);
+    } finally { rmSync(home, { recursive: true, force: true }); }
+  }
+});
+
 test('REQ-OPERATOR-022: native Operator startup needs no managed route and leaves owned auth empty', () => {
   const home = mkdtempSync(join(tmpdir(), 'operator-native-startup-'));
   try {
@@ -178,7 +204,7 @@ run_operator_startup`;
       PI_PROVIDER_CONFIG: '', CODEFLARE_INIT_FLAG_FILE: join(home, 'initialized'),
       CODEFLARE_OPERATOR_PI_CONFIG: JSON.stringify({ schemaVersion: 1, activityId: 'activity', sessionId: 'session',
         root: '/home/user/.codeflare/operators/activity', profile: { source: 'pi-native', provider: 'openai-codex',
-          model: 'gpt-6.1-sol', thinkingLevel: 'low', systemPrompt: 'Approved', tools: ['read', 'write'], authBinding: descriptor } }),
+          model: 'gpt-6.1-sol', api: 'openai-codex-responses', thinkingLevel: 'low', systemPrompt: 'Approved', tools: ['read', 'write'], authBinding: descriptor } }),
       CODEFLARE_OPERATOR_SYNC_CONFIG: JSON.stringify({ schemaVersion: 1, activityId: 'activity', sessionId: 'session', root: '/home/user/Operators' }) } });
     assert.equal(result.status, 0, result.stderr);
     assert.equal(existsSync(join(home, 'initialized')), true);

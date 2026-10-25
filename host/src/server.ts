@@ -541,8 +541,11 @@ server.listen(PORT, '0.0.0.0', async () => {
 });
 
 // Graceful shutdown helper
-function shutdown(signal: string): void {
+async function shutdown(signal: string): Promise<void> {
   log('info', `Received ${signal}, shutting down`);
+  // Fence private Pi authentication before awaiting owned SDK cancellation.
+  try { await operatorPi?.stop(); }
+  catch { log('warn', 'Owned Pi shutdown cancellation uncertain'); }
   herdrAgentStatusMonitor?.stop();
   herdrAgentStatusMonitor = null;
   // M2: Kill all active sessions before exit to avoid orphaned PTY processes
@@ -555,5 +558,5 @@ function shutdown(signal: string): void {
 }
 
 // Handle shutdown
-process.on('SIGTERM', () => shutdown('SIGTERM'));
-process.on('SIGINT', () => shutdown('SIGINT'));
+process.on('SIGTERM', () => { void shutdown('SIGTERM'); });
+process.on('SIGINT', () => { void shutdown('SIGINT'); });

@@ -366,6 +366,8 @@ export function buildEnvVars(
         root: `/home/user/.codeflare/operators/${operatorProfile.activityId}`,
         profile: operatorProfile.piProfile.initialization
           ? { provider: operatorProfile.piProfile.provider, model: operatorProfile.piProfile.model,
+            ...(operatorProfile.piProfile.source === 'pi-native' ? { source: 'pi-native',
+              api: operatorProfile.piProfile.api, authBinding: operatorProfile.piProfile.authBinding } : {}),
             thinkingLevel: operatorProfile.piProfile.thinkingLevel,
             systemPrompt: operatorProfile.piProfile.systemPrompt, tools: operatorProfile.piProfile.tools }
           : operatorProfile.piProfile,

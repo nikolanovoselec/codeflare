@@ -5,6 +5,24 @@ import { diagnosticBindingSchema, diagnosticCursorSchema, diagnosticRecordIdSche
   diagnosticSummarySchema, diagnosticHistorySchema, diagnosticDetailSchema, diagnosticExportSchema,
   sameDiagnosticBinding, type DiagnosticSnapshot } from './operator-diagnostics-wire';
 
+// Functional recovery is independent of optional execution diagnostics. Never classify SDK text or HTTP status here.
+const providerId = z.string().regex(/^[a-z0-9][a-z0-9._-]{0,127}$/);
+export const safePiAuthFailureSchema = z.strictObject({ code: z.literal('PI_LOGIN_REQUIRED'),
+  reason: z.enum(['missing', 'expired', 'rejected']), provider: providerId });
+export type SafePiAuthFailure = z.infer<typeof safePiAuthFailureSchema>;
+export const piLoginRecoveryCopy = 'The saved Pi authentication is missing, expired or rejected. Open your Pi session, run /login or update the API key, wait for successful synchronization to R2, then explicitly retry.';
+const piReasoningLevel = z.enum(['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']);
+export const inferenceSelectionSchema = z.union([
+  z.strictObject({ source: z.literal('managed').optional(), routeId: z.string().min(1).max(256),
+    reasoningLevel: piReasoningLevel.nullable() }),
+  z.strictObject({ source: z.literal('pi-native'), provider: providerId,
+    model: z.string().min(1).max(256).regex(/^[^\x00-\x1f\x7f]+$/),
+    api: z.string().regex(/^[a-z0-9][a-z0-9._-]{0,127}$/), reasoningLevel: piReasoningLevel,
+    profileDigest: z.string().regex(/^[a-f0-9]{64}$/).optional(),
+    reasoningSource: z.enum(['installation', 'model', 'global', 'default', 'inherited']).optional() }),
+]);
+export type ActivityInferenceSelection = z.infer<typeof inferenceSelectionSchema>;
+
 const status = z.enum(['queued', 'running', 'waiting', 'completed', 'failed', 'cancel-requested', 'unknown']);
 const cleanup = z.enum(['pending', 'stopping', 'stopped', 'released', 'unknown']);
 const collection = z.enum(['unavailable', 'ready', 'consumed', 'unknown']);
@@ -18,6 +36,8 @@ export const operatorActivitySummarySchema = z.strictObject({
     deferred: z.number().int().nonnegative(), unknown: z.number().int().nonnegative() })
     .refine(value => value.assessed === value.merged + value.notMerged + value.deferred + value.unknown,
       'Contradictory outcome quantities').optional(),
+  inferenceSelection: inferenceSelectionSchema.optional(),
+  authFailure: safePiAuthFailureSchema.optional(),
   context: z.string().max(256).nullable().optional(),
   progress: z.string().max(128).nullable().optional(),
   executionStatus: status,
@@ -85,6 +105,7 @@ const selectedReceipts = z.strictObject({ ...receiptHeader, generation: receiptI
   'Contradictory receipt completeness');
 const effectReceiptsSchema = z.union([unavailableReceipts, selectedReceipts]);
 const detailSchema = operatorActivitySummarySchema.extend({ checkpoint: z.unknown(), result: z.unknown(),
+  authFailure: safePiAuthFailureSchema.optional(), inferenceSelection: inferenceSelectionSchema.optional(),
   sdkCleanupReleased: z.boolean().optional(), effectReceipts: effectReceiptsSchema.optional() })
   .refine(value => !value.effectReceipts || value.effectReceipts.activityId === value.activityId, 'Foreign receipt activity')
   .refine(value => value.cleanupStatus !== 'released' || value.sdkCleanupReleased === true, 'Unconfirmed SDK release');

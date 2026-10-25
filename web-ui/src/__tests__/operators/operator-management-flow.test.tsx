@@ -427,3 +427,63 @@ describe('REQ-OPERATOR-007: installation-only Pi reasoning', () => {
     expect(screen.queryByRole('button', { name: 'Disable' })).not.toBeInTheDocument();
   });
 });
+
+
+describe('REQ-OPERATOR-007: management source approval controls', () => {
+  const inference = { allowedSources: ['managed', 'pi-native'], routeIds: ['approved-route'], defaultRouteId: 'approved-route',
+    reasoningLevels: ['low'], defaultReasoningLevel: 'low', inheritUserDefaults: false };
+
+  it('retains canonical operator and installation restrictions when saving unrelated settings through the real client', async () => {
+    let operatorSave: any; let installationSave: any;
+    const configuration = { unrelated: { keep: true } };
+    serve = (url, init) => {
+      const currentOperator = { ...operator, policy: { ...policy, inference } };
+      const currentInstallation = { ...installation, policy: { ...policy, inference }, configuration, piReasoningOverride: 'low' };
+      if (url.pathname.endsWith('/capabilities') && init?.method === 'POST') {
+        operatorSave = JSON.parse(String(init.body));
+        return json({ ...currentOperator, revision: 4 });
+      }
+      if (url.pathname.endsWith('/configure') && init?.method === 'POST') {
+        installationSave = JSON.parse(String(init.body));
+        return json({ ...currentInstallation, revision: 3 });
+      }
+      return url.pathname.endsWith('/operator-1') ? json({ ...detail(), operator: currentOperator, installations: [currentInstallation] })
+        : json({ items: [currentOperator], cursor: null });
+    };
+    render(() => <OperatorManagement />);
+    fireEvent.click(await screen.findByRole('button', { name: `Manage ${operator.repositoryUrl}` }));
+    const native = await screen.findByRole('checkbox', { name: 'Operator approve Pi-native source' });
+    expect(native).toBeChecked();
+    expect(screen.getByRole('checkbox', { name: 'Operator allow low reasoning' })).toBeChecked();
+    expect(screen.getByRole('checkbox', { name: 'Operator allow high reasoning' })).not.toBeChecked();
+    fireEvent.click(screen.getByRole('checkbox', { name: /Enable logging/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save operator capabilities' }));
+    await waitFor(() => expect(operatorSave).toMatchObject({ inference, loggingEnabled: false }));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Save restrictions for test' })).toBeEnabled());
+    fireEvent.click(screen.getByRole('button', { name: 'Save restrictions for test' }));
+    await waitFor(() => expect(installationSave).toEqual({ revision: 2, policy: { ...policy, inference }, configuration, piReasoningOverride: 'low' }));
+  });
+
+  it('leaves legacy native approval off and requires explicit reasoning choices without broadening either policy', async () => {
+    let saved: any;
+    serve = (url, init) => {
+      if (url.pathname.endsWith('/capabilities') && init?.method === 'POST') {
+        saved = JSON.parse(String(init.body)); return json({ ...operator, policy: { ...policy, inference: saved.inference } });
+      }
+      return url.pathname.endsWith('/operator-1') ? json(detail()) : json({ items: [operator], cursor: null });
+    };
+    render(() => <OperatorManagement />);
+    fireEvent.click(await screen.findByRole('button', { name: `Manage ${operator.repositoryUrl}` }));
+    const native = await screen.findByRole('checkbox', { name: 'Operator approve Pi-native source' });
+    expect(native).not.toBeChecked();
+    expect(screen.getByRole('checkbox', { name: 'test approve Pi-native source' })).not.toBeChecked();
+    expect(screen.getByRole('checkbox', { name: 'test approve Pi-native source' })).toBeDisabled();
+    fireEvent.click(native);
+    expect(screen.getByRole('checkbox', { name: 'Operator allow high reasoning' })).not.toBeChecked();
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Operator allow low reasoning' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save operator capabilities' }));
+    await waitFor(() => expect(saved).toMatchObject({ inference: { allowedSources: ['managed', 'pi-native'], routeIds: [],
+      defaultRouteId: null, reasoningLevels: ['low'], defaultReasoningLevel: null, inheritUserDefaults: false } }));
+    expect(screen.getByRole('checkbox', { name: 'test approve Pi-native source' })).not.toBeChecked();
+  });
+});

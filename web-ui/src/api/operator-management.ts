@@ -1,7 +1,8 @@
 /** Dedicated management client; legacy endpoint administration remains unchanged. */
 import { z } from 'zod';
 import { baseFetch } from './fetch-helper';
-import { operatorActivitySummarySchema } from './operator-activities';
+import { inferencePolicySchema } from '../../../src/operators/policy';
+import { operatorActivitySummarySchema, safePiAuthFailureSchema, inferenceSelectionSchema } from './operator-activities';
 import { dispatcherCapacityKeys, type DispatcherCapacityKey, type DispatcherCapacityPolicy } from '../../../src/operators/dispatcher-capacity-limits';
 export { dispatcherCapacityFields, dispatcherCapacityKeys, pickDispatcherCapacities, validDispatcherCapacities } from '../../../src/operators/dispatcher-capacity-limits';
 export type { DispatcherCapacityKey, DispatcherCapacityPolicy } from '../../../src/operators/dispatcher-capacity-limits';
@@ -24,7 +25,8 @@ export const MAX_INFERENCE_REQUEST_BYTES = Number.MAX_SAFE_INTEGER;
 export const DEFAULT_SOURCE_RESPONSE_BYTES = 1_048_576;
 export const MAX_SOURCE_RESPONSE_BYTES = Number.MAX_SAFE_INTEGER;
 const sourceResponseBytes = z.number().int().positive().max(MAX_SOURCE_RESPONSE_BYTES).optional();
-export const policySchema = z.object({ capabilities: z.array(z.string()).max(32), resourceProfileId: z.string().nullable(), sourceResponseBytes });
+export const policySchema = z.strictObject({ capabilities: z.array(z.string()).max(32), resourceProfileId: z.string().nullable(), sourceResponseBytes,
+  inference: inferencePolicySchema.optional() });
 export type ManagementGrant = z.infer<typeof grantSchema>;
 export type ManagementPolicy = z.infer<typeof policySchema>;
 const summarySchema = z.object({ id, name: z.string().optional(), description: z.string().optional(),
@@ -45,8 +47,11 @@ const releaseSchema = z.object({ id, operatorId: id, githubReleaseId: z.number()
   name: z.string().optional(), description: z.string().optional(), version: z.string().optional(), coreVersion: z.string().optional(), intentVersion: z.string().optional(),
   tagName: z.string().min(1).max(256).optional(), publishedAt: z.string().datetime().optional(),
   requestedCapabilities: z.array(z.string()).max(32).optional() });
+export const piReasoningLevels = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'] as const;
+export type PiReasoningLevel = typeof piReasoningLevels[number];
 const installationSchema = z.object({ id, operatorId: id, name: z.string(), releaseId: id.nullable(), revision,
-  enabled: z.boolean(), policy: policySchema, configuration: z.record(z.string(), z.json()).optional() });
+  enabled: z.boolean(), policy: policySchema, configuration: z.record(z.string(), z.json()).optional(),
+  piReasoningOverride: z.enum(piReasoningLevels).optional() });
 const detailSchema = z.object({ operator: operatorSchema, releases: z.array(releaseSchema),
   installations: z.array(installationSchema), grants: z.object({ managers: grantSchema, invokers: grantSchema }) });
 export type ManagementSummary = z.infer<typeof summarySchema>;
@@ -80,12 +85,12 @@ export const saveManagementAccess = (input: ManagementAccess) => request('/acces
 export const getManagedOperator = (operatorId: string) => request(`/operators/${segment(operatorId)}`, detailSchema);
 export const replaceOperatorSource = (operatorId: string, input: { revision: number; repositoryUrl: string; githubPat: string }) =>
   request(`/operators/${segment(operatorId)}/source`, operatorSchema, input);
-export const configureInstallation = (installationId: string, input: { revision: number; policy: ManagementPolicy; configuration: unknown }) =>
+export const configureInstallation = (installationId: string, input: { revision: number; policy: ManagementPolicy; configuration: unknown; piReasoningOverride?: PiReasoningLevel }) =>
   request(`/installations/${segment(installationId)}/configure`, installationSchema, input);
 export const registerManagedOperator = (input: RegistrationInput) => request('/operators', operatorSchema, input);
 export const refreshManagedReleases = (operatorId: string, revision: number) =>
   request(`/operators/${segment(operatorId)}/releases/refresh`, z.object({ items: z.array(releaseSchema) }), { revision });
-export const createInstallation = (operatorId: string, input: { name: string; policy: ManagementPolicy; revision: number }) =>
+export const createInstallation = (operatorId: string, input: { name: string; policy: ManagementPolicy; revision: number; piReasoningOverride?: PiReasoningLevel }) =>
   request(`/operators/${segment(operatorId)}/installations`, installationSchema, input);
 export const promoteInstallation = (installationId: string, releaseId: string, revision: number) =>
   request(`/installations/${segment(installationId)}/promote`, installationSchema, { releaseId, revision });
@@ -93,7 +98,7 @@ export const enableInstallation = (installationId: string, enabled: boolean, rev
   request(`/installations/${segment(installationId)}/enable`, installationSchema, { enabled, revision });
 export const saveOperatorGrants = (operatorId: string, input: { managers: ManagementGrant; invokers: ManagementGrant; revision: number }) =>
   request(`/operators/${segment(operatorId)}/grants`, operatorSchema, input);
-export const saveOperatorCapabilities = (operatorId: string, input: DispatcherCapacityPolicy & { capabilities: string[]; revision: number; sourceResponseBytes?: number; inferenceRequestBytes?: number; operationLimit?: number; loggingEnabled?: boolean; inferenceAttemptLimit?: number; submissionAttemptLimit?: number }) =>
+export const saveOperatorCapabilities = (operatorId: string, input: DispatcherCapacityPolicy & { capabilities: string[]; revision: number; inference?: ManagementPolicy['inference']; sourceResponseBytes?: number; inferenceRequestBytes?: number; operationLimit?: number; loggingEnabled?: boolean; inferenceAttemptLimit?: number; submissionAttemptLimit?: number }) =>
   request(`/operators/${segment(operatorId)}/capabilities`, operatorSchema, input);
 
 // Directed execution stays under the existing owner-scoped activity API.
@@ -119,7 +124,8 @@ export const prepareInstallationActivity = (installationId: string, invocation: 
   z.object({ activityId: id, startCapability: z.string().min(43).max(128), startExpiresAt: z.number() }), { installationId, invocation });
 export const startInstallationActivity = (activityId: string, capability: string) =>
   activityRequest(`/${segment(activityId)}/start`, z.object({ ok: z.literal(true) }), { capability });
-const activityDetailSchema = operatorActivitySummarySchema.strip().extend({ checkpoint: z.unknown(), result: z.unknown() });
+const activityDetailSchema = operatorActivitySummarySchema.strip().extend({ checkpoint: z.unknown(), result: z.unknown(),
+  authFailure: safePiAuthFailureSchema.optional(), inferenceSelection: inferenceSelectionSchema.optional() });
 export const getOwnedActivity = (activityId: string) => activityRequest(`/${segment(activityId)}`, activityDetailSchema);
 export const cancelOwnedActivity = (activityId: string) => activityRequest(`/${segment(activityId)}/cancel`, operatorActivitySummarySchema.strip(), {});
 export const continueOwnedActivity = (activityId: string) => activityRequest(`/${segment(activityId)}/continue`, z.object({ ok: z.literal(true) }), {});

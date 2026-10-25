@@ -14,6 +14,7 @@ import {
   type ScalarWrite,
 } from './reasoning-profiles';
 import { parseCapabilitySummary, type CapabilitySummary } from './ai-capability-discovery/contract';
+import type { PiDefaultSource } from './personal-pi-policy';
 
 export interface RouteVerification {
   schemaVersion: 1;
@@ -32,6 +33,7 @@ type RoutingTargetRef = { kind: 'dynamic-route'; route: string } | { kind: 'nati
 export type FallbackRouting = { enabled: false } | {
   enabled: true; routes: string[]; defaultRoute: string; reasoning: PiReasoningLevel;
   targets?: RoutingTargetRef[]; defaultTarget?: RoutingTargetRef; allowPersonalPiProviders?: boolean;
+  piDefaultSource?: PiDefaultSource;
 };
 
 const MAX_REASONING_CONFIGURATION_BYTES = 256 * 1024;
@@ -177,7 +179,8 @@ export function parseFallbackRouting(value: unknown): FallbackRouting {
     assertOnly(record, ['enabled'], 'fallback routing');
     return { enabled: false };
   }
-  assertOnly(record, ['enabled', 'routes', 'defaultRoute', 'reasoning', 'targets', 'defaultTarget', 'allowPersonalPiProviders'], 'fallback routing');
+  assertOnly(record, ['enabled', 'routes', 'defaultRoute', 'reasoning', 'targets', 'defaultTarget', 'allowPersonalPiProviders', 'piDefaultSource'], 'fallback routing');
+  if (record.piDefaultSource !== undefined && record.piDefaultSource !== 'managed' && record.piDefaultSource !== 'pi-native') throw new Error('Pi default source is invalid');
   if (record.enabled !== true || !Array.isArray(record.routes) || record.routes.length > 256) throw new Error('fallback routing is invalid');
   if (record.allowPersonalPiProviders !== undefined && typeof record.allowPersonalPiProviders !== 'boolean') throw new Error('personal Pi permission must be boolean');
   const parseRoute = (value: unknown): string => {
@@ -188,13 +191,13 @@ export function parseFallbackRouting(value: unknown): FallbackRouting {
   const targets = record.targets === undefined ? undefined : Array.isArray(record.targets) ? record.targets.map(parseRoutingTarget) : (() => { throw new Error('fallback targets are invalid'); })();
   const defaultRoute = record.defaultRoute === '' && routes.length === 0 ? '' : parseRoute(record.defaultRoute);
   const defaultTarget = record.defaultTarget === undefined ? undefined : parseRoutingTarget(record.defaultTarget);
-  if (!isPiReasoningLevel(record.reasoning) || new Set(routes).size !== routes.length || (!routes.length && !targets?.length)
+  if (!isPiReasoningLevel(record.reasoning) || new Set(routes).size !== routes.length || (!routes.length && !targets?.length && record.allowPersonalPiProviders !== true && record.piDefaultSource !== 'pi-native')
     || (routes.length > 0 && !routes.includes(defaultRoute))
     || (targets && defaultTarget && !targets.some((target) => canonicalJson(target) === canonicalJson(defaultTarget)))) {
     throw new Error('fallback default must belong to its allowed models with a valid reasoning level');
   }
   if (targets?.some((target) => target.kind === 'native-target') && !defaultTarget && routes.length === 0) throw new Error('fallback native default is required');
-  return { enabled: true, routes, defaultRoute, reasoning: record.reasoning, ...(record.allowPersonalPiProviders !== undefined && { allowPersonalPiProviders: record.allowPersonalPiProviders as boolean }), ...(targets && { targets }), ...(defaultTarget && { defaultTarget }) };
+  return { enabled: true, routes, defaultRoute, reasoning: record.reasoning, ...(record.piDefaultSource !== undefined && { piDefaultSource: record.piDefaultSource as PiDefaultSource }), ...(record.allowPersonalPiProviders !== undefined && { allowPersonalPiProviders: record.allowPersonalPiProviders as boolean }), ...(targets && { targets }), ...(defaultTarget && { defaultTarget }) };
 }
 
 function parseWrites(value: unknown, label: string): ScalarWrite[] {

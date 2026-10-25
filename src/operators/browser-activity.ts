@@ -1,5 +1,7 @@
 /** Safe owner-bound projections shared by Activity, registry and authenticated browser routes. */
 import type { VerifiedHumanAccessClaims } from '../lib/jwt';
+import type { NativeOperatorInference } from './inference-selection';
+import type { SafePiAuthFailure } from './pi-auth-failure';
 
 export interface OperatorBrowserSummary {
   activityId: string;
@@ -7,6 +9,8 @@ export interface OperatorBrowserSummary {
   operatorName?: string;
   version?: string;
   resultSummary?: { assessed: number; merged: number; notMerged: number; deferred: number; unknown: number };
+  inferenceSelection?: NativeOperatorInference & { reasoningSource?: 'installation' | 'inherited' };
+  authFailure?: SafePiAuthFailure;
   context?: string | null;
   progress?: string | null;
   executionStatus: 'queued' | 'running' | 'waiting' | 'completed' | 'failed' | 'cancel-requested' | 'unknown';

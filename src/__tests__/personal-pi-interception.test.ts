@@ -5,6 +5,9 @@ import { createMockKV } from './helpers/mock-kv';
 import { SETUP_KEYS } from '../lib/kv-keys';
 import { createMockSessionD1 } from './helpers/mock-session-d1';
 import type { Env } from '../types';
+import * as access from '../lib/access';
+import * as execution from '../operators/execution-context';
+import { operatorOwnerKey } from '../operators/browser-activity';
 
 const owner = { bucket: 'owner-bucket', sessionId: 'ownersession1', user: 'owner@example.test', generation: 1 };
 const issuer = 'https://personal-pi.cloudflareaccess.com';
@@ -294,6 +297,82 @@ it('REQ-ENTERPRISE-088 AC5: an unbound native request cannot borrow the legacy g
   expect(f.requests).toEqual([]);
 });
 
+
+it.each(['already-stopped', 'during-authorization'] as const)(
+  'REQ-OPERATOR-047: actual Conductor parent grant denies durable login-stop %s without retiring cleanup authority', async when => {
+    const f = fixture();
+    const deadline = Date.now() + 60_000;
+    const selection = { source: 'pi-native' as const, provider: 'openai-codex', model: 'gpt-6.1-sol',
+      api: 'openai-codex-responses', reasoningLevel: 'low', profileDigest: 'c'.repeat(64) };
+    const binding = { ownerKey: await operatorOwnerKey(f.human), activityId: 'operator-activity', sessionId: owner.sessionId,
+      generation: 1, selectionDigest: Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',
+        new TextEncoder().encode(JSON.stringify(selection))))).map(byte => byte.toString(16).padStart(2, '0')).join(''),
+      profileDigest: selection.profileDigest, deadline };
+    const inference = { allowedSources: ['pi-native'], routeIds: [], defaultRouteId: null,
+      reasoningLevels: ['low'], defaultReasoningLevel: 'low', inheritUserDefaults: false };
+    const managementPolicy = { capabilities: ['session', 'pi', 'storage'], inference };
+    const pinned = { controlsRevision: 1, operator: { operatorId: 'operator', profile: 'conductor', revision: 1, policy: managementPolicy },
+      installation: { id: 'installation', revision: 1, policy: managementPolicy }, release: { bundleDigest: 'a'.repeat(64) } };
+    const invocation = { schemaVersion: 1, interfaceVersion: 1, consumerId: 'boundary-reviews', activityId: binding.activityId,
+      operatorId: 'operator', runId: binding.activityId, source: { kind: 'session', reference: 'owner/repo' },
+      revision: { reference: 'a'.repeat(40), digest: 'b'.repeat(64) }, inputDigest: 'c'.repeat(64), input: {}, attachments: [],
+      resources: { inference: selection, session: { profileId: 'review-profile' }, storage: { scopeId: 'review-profile' } } };
+    const plan = { activityId: binding.activityId, deadline, receipt: { selection: pinned }, invocationJson: JSON.stringify(invocation),
+      executionContext: { policyDigest: 'e'.repeat(64) }, authFailure: undefined as unknown };
+    const failure = { code: 'PI_LOGIN_REQUIRED', provider: selection.provider, reason: 'rejected' };
+    let stopDuringAuthorization = false;
+    vi.spyOn(execution, 'openOperatorExecutionAccess').mockResolvedValue({ human: f.human, accessJwt: 'synthetic-sealed-assertion' });
+    vi.spyOn(access, 'resolveOperatorGroupIdentity').mockResolvedValue(f.human);
+    vi.spyOn(access, 'resolveBucketName').mockResolvedValue(owner.bucket);
+    vi.spyOn(access, 'canInvokeOperator').mockReturnValue(true);
+    vi.spyOn(access, 'resolveSessionAccessGroup').mockImplementation(async () => {
+      if (stopDuringAuthorization) plan.authFailure = failure;
+      return ['Engineering'];
+    });
+    vi.spyOn(access, 'loadEnterpriseRouteConfig').mockResolvedValue({ routeCatalog: [], defaultRoute: '', defaultReasoning: '',
+      allowPersonalPiProviders: true } as never);
+    f.env.OPERATOR_ACTIVITY = { getByName: () => ({ operatorGenerationCurrent: async () => true, getRuntimePlan: async () => structuredClone(plan) }) } as never;
+    f.env.OPERATOR_REGISTRY = { getByName: () => ({ resolveManagementExecution: async () => ({ ok: true, value: pinned }) }) } as never;
+    const host = { ...f.host, _jwtAuthority: { human: f.human, accessJwt: 'synthetic-sealed-assertion' },
+      _operatorContainerProfile: { schemaVersion: 1, activityId: binding.activityId, operatorId: 'operator', sessionId: owner.sessionId,
+        ownerBucket: owner.bucket, policyDigest: plan.executionContext.policyDigest, deadline, outputPrefix: 'Operators/',
+        human: f.human, policy: { schemaVersion: 1, networkHosts: [], github: { repositories: [], methods: [] },
+          storage: { readPrefixes: [], writePrefixes: [] }, inference }, jwtPolicy: { mode: 'off', destinations: [] },
+        piProfile: { source: 'pi-native', provider: selection.provider, model: selection.model, api: selection.api,
+          thinkingLevel: 'low', systemPrompt: 'Bound native work', tools: ['read', 'write'], authBinding: binding } } } as unknown as InterceptionHost;
+    const ref = { bucket: owner.bucket, sessionId: owner.sessionId, email: owner.user };
+    expect(await getPersonalPiSession(host, ref)).toEqual({ generation: 1, groups: ['Engineering'] });
+    if (when === 'already-stopped') plan.authFailure = failure;
+    else stopDuringAuthorization = true;
+    await expect(getPersonalPiSession(host, ref)).rejects.toThrow();
+    expect(f.requests).toEqual([]);
+  });
+
+it('REQ-OPERATOR-007/047: interceptor trusted native wire carries the admitted API, not a request override', async () => {
+  const f = fixture();
+  const handlers = new Map<string, Fetcher>();
+  const binding = { ownerKey: 'a'.repeat(64), activityId: 'operator-activity', sessionId: owner.sessionId,
+    generation: 1, selectionDigest: 'b'.repeat(64), profileDigest: 'c'.repeat(64), deadline: Date.now() + 60_000 };
+  // Intentional Worker-entrypoint wire contract. The receiver exposes only its
+  // trusted nonsecret selection so request content cannot supply the API.
+  const host = { ...f.host, logger: { info() {}, warn() {}, error() {} }, _strictEgress: false,
+    _operatorContainerProfile: { activityId: 'operator-activity', operatorId: 'operator',
+      policy: { capabilities: ['inference'] }, piProfile: { source: 'pi-native', provider: 'openai-codex',
+        model: 'gpt-6.1-sol', api: 'openai-codex-responses', thinkingLevel: 'low', authBinding: binding } },
+    ctx: { exports: { LlmInterceptor: ({ props }: { props: { operatorNative: unknown } }) => ({
+      fetch: async () => Response.json(props.operatorNative),
+    }) }, container: { interceptOutboundHttps: (name: string, handler: Fetcher) => { handlers.set(name, handler); } } },
+  } as unknown as InterceptionHost;
+  await wireContainerInterception(host);
+  const handler = handlers.get('chatgpt.com');
+  expect(handler).toBeDefined();
+  const response = await handler!.fetch(new Request('https://chatgpt.com/backend-api/codex/responses', {
+    method: 'POST', body: JSON.stringify({ api: 'openai-responses' }),
+  }));
+  expect(await response.json()).toEqual({ provider: 'openai-codex', model: 'gpt-6.1-sol',
+    api: 'openai-codex-responses', reasoningLevel: 'low', binding });
+  expect(f.requests).toEqual([]);
+});
 
 it('REQ-ENTERPRISE-088 AC5: real registry wiring binds human requests and denies unbound and Operator paths', async () => {
   for (const mode of ['human', 'unbound', 'operator']) {

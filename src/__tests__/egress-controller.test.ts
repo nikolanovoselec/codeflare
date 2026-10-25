@@ -13,6 +13,8 @@
 import { createHash } from 'node:crypto';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { Env } from '../types';
+import type { PersonalPiProps } from '../lib/personal-pi-forwarding';
+import { SETUP_KEYS } from '../lib/kv-keys';
 import { EgressController } from '../egress-controller';
 import type { OperatorPolicy } from '../operators/policy';
 import type { JwtStampingAuthority, JwtStampingPolicy } from '../operators/jwt-stamping';
@@ -50,6 +52,9 @@ function makeController(
     r2SseDisabled?: boolean;
     strict?: boolean;
     operatorPolicy?: OperatorPolicy;
+    operatorDispatcherNative?: { activityId: string; generation: number; profileDigest: string };
+    operatorNative?: PersonalPiProps['operatorNative'];
+    personalPi?: PersonalPiProps['personalPi'];
     operatorSync?: { activityId: string; outputPrefix: string; manifestPrefix: string };
     ownedMultipart?: boolean;
     jwtStamping?: JwtStampingPolicy;
@@ -91,6 +96,97 @@ beforeEach(() => {
   policyLogs.info.mockClear();
   policyLogs.warn.mockClear();
   policyLogs.error.mockClear();
+});
+
+describe('REQ-OPERATOR-007/047: Activity-bound Dispatcher native egress', () => {
+  const scope = { activityId: 'native-activity', generation: 4, profileDigest: 'a'.repeat(64) };
+  const selection = { source: 'pi-native', provider: 'openai-codex', model: 'gpt-6.1-sol',
+    api: 'openai-codex-responses', reasoningLevel: 'low', profileDigest: scope.profileDigest };
+  const url = 'https://chatgpt.com/backend-api/codex/responses';
+  it('uses strict Gateway without a container and preserves private error bytes for Activity commitment', async () => {
+    const destinations: string[] = [];
+    const privateError = JSON.stringify({ error: { code: 'invalid_api_key', message: 'private-provider-detail' } });
+    let forwarded: Request | undefined;
+    const { controller } = makeController({
+      OPERATOR_ACTIVITY: { getByName: () => ({ dispatcherNativeEgressCurrent: async () => selection }) } as never,
+      EGRESS: { fetch: async (request: Request) => { destinations.push(request.url); forwarded = request;
+        return new Response(privateError, { status: 401 }); } } as unknown as Fetcher,
+    }, { operatorDispatcherNative: scope });
+    const response = await controller.fetch(new Request(url, { method: 'POST', body: 'opaque actor-inspected bytes',
+      headers: { authorization: 'Bearer private-native-auth', 'chatgpt-account-id': 'private-account',
+        'x-codeflare-native-inference': 'private-handle', 'cf-access-jwt-assertion': 'must-strip' } }));
+    expect(response.status).toBe(401);
+    expect(await response.text()).toBe(privateError);
+    expect(destinations).toEqual([url]);
+    expect(forwarded?.headers.get('authorization')).toBe('Bearer private-native-auth');
+    expect(forwarded?.headers.get('chatgpt-account-id')).toBe('private-account');
+    expect(forwarded?.headers.get('x-codeflare-native-inference')).toBeNull();
+    expect(forwarded?.headers.get('cf-access-jwt-assertion')).toBeNull();
+    expect(await forwarded?.text()).toBe('opaque actor-inspected bytes');
+    expect(forwarded?.redirect).toBe('manual');
+  });
+  it.each(['revoked', 'foreign-profile', 'unrelated-destination', 'websocket', 'missing-gateway'] as const)(
+    'denies %s without a protected send or global-fetch fallback', async denied => {
+      const destinations: string[] = [];
+      const direct = vi.spyOn(globalThis, 'fetch').mockImplementation(async input => {
+        destinations.push(String(input)); return new Response('unexpected direct send');
+      });
+      try {
+        const { controller } = makeController({
+          OPERATOR_ACTIVITY: { getByName: () => ({ dispatcherNativeEgressCurrent: async () => denied === 'revoked'
+            ? null : { ...selection, profileDigest: denied === 'foreign-profile' ? 'b'.repeat(64) : scope.profileDigest } }) } as never,
+          EGRESS: denied === 'missing-gateway' ? undefined : { fetch: async (request: Request) => {
+            destinations.push(request.url); return new Response('unexpected send'); } } as unknown as Fetcher,
+        }, { operatorDispatcherNative: scope });
+        const response = await controller.fetch(new Request(denied === 'unrelated-destination'
+          ? 'https://example.test/unrelated' : url, { method: 'POST', body: '{}',
+          ...(denied === 'websocket' ? { headers: { upgrade: 'websocket' } } : {}) }));
+        expect(response.status).toBe(denied === 'missing-gateway' ? 503 : 403);
+        expect(destinations).toEqual([]);
+      } finally { direct.mockRestore(); }
+    });
+  it('discards a private upstream response when Activity authority changes during the send', async () => {
+    let active = true;
+    let cancelled = false;
+    const { controller } = makeController({
+      OPERATOR_ACTIVITY: { getByName: () => ({ dispatcherNativeEgressCurrent: async () => active ? selection : null }) } as never,
+      EGRESS: { fetch: async () => { active = false;
+        return new Response(new ReadableStream({ cancel() { cancelled = true; } })); } } as unknown as Fetcher,
+    }, { operatorDispatcherNative: scope });
+    const response = await controller.fetch(new Request(url, { method: 'POST', body: '{}' }));
+    expect(response.status).toBe(403);
+    expect(cancelled).toBe(true);
+  });
+});
+
+describe('REQ-OPERATOR-047: Conductor native egress retains only structured safe auth evidence', () => {
+  it.each([{ status: 401, coded: true }, { status: 403, coded: true },
+    { status: 401, coded: false }, { status: 403, coded: false }])(
+    'HTTP $status coded=$coded never exposes private provider errors or infers login from status', async ({ status, coded }) => {
+      const kv = { [STRICT_KEY]: 'active', [SETUP_KEYS.ENTERPRISE_ACCESS_GROUP]: 'native-group',
+        [SETUP_KEYS.GROUP_ROUTING]: JSON.stringify({ 'native-group': { routes: [], defaultRoute: '', reasoning: 'off',
+          allowPersonalPiProviders: true, piDefaultSource: 'pi-native' } }),
+        [SETUP_KEYS.REASONING_CONFIGURATION]: JSON.stringify({ schemaVersion: 1, customProfileRevisions: [], routeAssignments: {},
+          fallbackRouting: { enabled: false } }) };
+      const { controller } = makeController({ __kv: kv,
+        CONTAINER: { getByName: () => ({ getPersonalPiSession: async () => ({ generation: 1, groups: ['native-group'] }) }) } as never,
+        EGRESS: { fetch: async () => Response.json({ error: { code: coded ? 'invalid_api_key' : 'unrelated_failure',
+          message: 'private-upstream-detail synthetic-native-access' } }, { status }) } as unknown as Fetcher,
+      }, { personalPi: { bucket: 'owner-bucket', sessionId: 'native-session', user: 'owner@example.test', generation: 1 },
+        operatorPolicy: { ...operatorPolicy, inference: { ...operatorPolicy.inference,
+          allowedSources: ['pi-native'], reasoningLevels: ['low'] } },
+        operatorNative: { provider: 'openai-codex', model: 'gpt-6.1-sol', api: 'openai-codex-responses', reasoningLevel: 'low', binding: {
+          ownerKey: 'a'.repeat(64), activityId: 'native-activity', sessionId: 'native-session', generation: 1,
+          profileDigest: 'b'.repeat(64), selectionDigest: 'c'.repeat(64), deadline: Date.now() + 60_000 } } });
+      const response = await controller.fetch(new Request('https://chatgpt.com/backend-api/codex/responses', {
+        method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer synthetic-native-access' },
+        body: JSON.stringify({ model: 'gpt-6.1-sol', reasoning: { effort: 'low' } }),
+      }));
+      expect(response.status).toBe(status);
+      const value = await response.json() as { authFailure?: unknown };
+      expect(value.authFailure).toEqual(coded ? { code: 'PI_LOGIN_REQUIRED', reason: 'rejected', provider: 'openai-codex' } : undefined);
+      expect(JSON.stringify(value)).not.toMatch(/private-upstream-detail|synthetic-native-access/);
+    });
 });
 
 describe('REQ-OPERATOR-047: protected egress cancellation continuity', () => {
