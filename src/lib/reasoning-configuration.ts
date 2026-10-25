@@ -14,7 +14,8 @@ import {
   type ScalarWrite,
 } from './reasoning-profiles';
 import { parseCapabilitySummary, type CapabilitySummary } from './ai-capability-discovery/contract';
-import type { PiDefaultSource } from './personal-pi-policy';
+// Keep this shared decoder independent of the server-side personal policy resolver.
+type PiDefaultSource = 'managed' | 'pi-native';
 
 export interface RouteVerification {
   schemaVersion: 1;

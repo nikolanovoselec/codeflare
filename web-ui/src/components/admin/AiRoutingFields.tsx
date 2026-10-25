@@ -69,7 +69,7 @@ function routeAssignment(value: unknown): AssignmentDraft {
 }
 function groupDrafts(value: unknown): GroupDraft[] {
   const source = Array.isArray(value) ? value : Object.entries(record(value)).map(([accessGroup, routing]) => ({ accessGroup, ...record(routing) }));
-  return source.map((item) => {
+  return source.map((item): GroupDraft => {
     const group = record(item);
     return { ...(group.piDefaultSource === 'pi-native' || group.piDefaultSource === 'managed' ? { piDefaultSource: group.piDefaultSource } : {}), ...(group.allowPersonalPiProviders === true && { allowPersonalPiProviders: true }), accessGroup: text(group.accessGroup), routes: stringList(group.routes), defaultRoute: text(group.defaultRoute), reasoning: isLevel(group.reasoning) ? group.reasoning : 'off' as PiReasoningLevel };
   }).filter((group) => group.accessGroup);

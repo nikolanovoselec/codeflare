@@ -8,7 +8,7 @@ export interface PersonalPiPolicy {
   piDefaultSource: PiDefaultSource;
 }
 
-export function isPiDefaultSource(value: unknown): value is PiDefaultSource {
+function isPiDefaultSource(value: unknown): value is PiDefaultSource {
   return value === 'managed' || value === 'pi-native';
 }
 

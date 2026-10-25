@@ -117,7 +117,7 @@ function requestAuth(result: AuthResult, provider: Provider, model: Model<Api>):
  * The returned capability has no path, bucket, credential, login or write operation.
  * `authorize` must recheck the exact owner/bucket and current admitted execution.
  */
-export function createNativePiProfileReader(input: {
+function createNativePiProfileReader(input: {
   ownerBucket: string; endpoint: string; sseKey?: string; deadline: number; signal?: AbortSignal;
   authorize(): Promise<void>; isBucketMigrating(): Promise<boolean>; isSseDisabledForBucket(): Promise<boolean>;
   fetcher(request: Request): Promise<Response>;
