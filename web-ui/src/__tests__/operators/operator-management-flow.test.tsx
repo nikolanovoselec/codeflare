@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@solidjs/testing-library';
 import OperatorManagement, { ManagementAccessPanel } from '../../components/OperatorManagement';
+import { getManagedOperator } from '../../api/operator-management';
 
 const grant = { users: ['manager@example.test'], groups: [] };
 const policy = { capabilities: [], resourceProfileId: null };
@@ -432,6 +433,18 @@ describe('REQ-OPERATOR-007: installation-only Pi reasoning', () => {
 describe('REQ-OPERATOR-007: management source approval controls', () => {
   const inference = { allowedSources: ['managed', 'pi-native'], routeIds: ['approved-route'], defaultRouteId: 'approved-route',
     reasoningLevels: ['low'], defaultReasoningLevel: 'low', inheritUserDefaults: false };
+
+  it.each([
+    { allowedSources: ['unapproved-source'] },
+    { routeIds: ['approved-route', 'approved-route'] },
+    { defaultRouteId: 'unapproved-route' },
+    { reasoningLevels: ['unsupported-level'] },
+    { defaultReasoningLevel: 'high' },
+    { unexpectedAuthority: true },
+  ])('rejects malformed inference restrictions from the management wire contract: %j', async invalid => {
+    serve = () => json({ ...detail(), operator: { ...operator, policy: { ...policy, inference: { ...inference, ...invalid } } } });
+    await expect(getManagedOperator(operator.id)).rejects.toThrow();
+  });
 
   it('retains canonical operator and installation restrictions when saving unrelated settings through the real client', async () => {
     let operatorSave: any; let installationSave: any;

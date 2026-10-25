@@ -8,6 +8,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest
 import type { Env } from '../../types';
 import type { OperatorRuntimePlan, BoundaryActivityBinding } from '../../operators/activity';
 import type { OperatorLoaderBinding } from '../../operators/loader';
+import type { OperatorPolicy } from '../../operators/policy';
 import { parseOperatorBundle } from '../../operators/distribution';
 import { projectOperatorPackageResources } from '../../operators/package-resources';
 import { prepareVerifiedBoundary } from '../../operators/review-boundary-preparation';
@@ -21,7 +22,8 @@ vi.mock('cloudflare:workers', () => ({ WorkerEntrypoint: class {}, DurableObject
 vi.mock('agents', () => ({ Agent: class {} }));
 vi.mock('@cloudflare/containers', () => ({ getContainer: () => { throw Error('Unexpected container port in projection-only composition'); } }));
 const trust = vi.hoisted(() => ({ current: true, native: false, personalAllowed: true,
-  deniedPolicy: '' as '' | 'operator' | 'installation', profileReads: [] as string[], preparation: null as unknown }));
+  deniedPolicy: '' as '' | 'operator' | 'installation', profileReads: [] as string[], preparation: null as unknown,
+  managedRestriction: null as { role: 'operator' | 'installation'; inference: OperatorPolicy['inference'] } | null }));
 vi.mock('../../lib/access', async importOriginal => ({
   ...await importOriginal<typeof import('../../lib/access')>(),
   requireOperatorHumanContext: async () => ({ human: human(), accessJwt: 'fixture-access' }),
@@ -32,7 +34,7 @@ vi.mock('../../lib/access', async importOriginal => ({
   loadEnterpriseRouteConfig: async () => trust.native
     ? { routeCatalog: [], defaultRoute: '', defaultReasoning: '', piDefaultSource: 'pi-native',
       allowPersonalPiProviders: trust.personalAllowed }
-    : { routeCatalog: ['provider-default'], defaultRoute: 'provider-default', defaultReasoning: '' },
+    : { routeCatalog: ['provider-default'], defaultRoute: 'provider-default', defaultReasoning: trust.managedRestriction ? 'off' : '' },
 }));
 vi.mock('../../lib/r2-regime-state', () => ({
   isBucketMigrating: async () => false, isR2SseDisabledForBucket: async () => true,
@@ -98,7 +100,7 @@ beforeAll(async () => {
 });
 afterAll(async () => { if (moduleRoot) await rm(moduleRoot, { recursive: true, force: true }); });
 afterEach(() => { trust.current = true; trust.native = false; trust.personalAllowed = true;
-  trust.deniedPolicy = ''; trust.profileReads = []; trust.preparation = null;
+  trust.deniedPolicy = ''; trust.profileReads = []; trust.preparation = null; trust.managedRestriction = null;
   vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
 type Mode = 'clean' | 'silent' | 'resolved';
@@ -112,12 +114,13 @@ async function scenario(mode: Mode = 'clean') {
     defaultRouteId: null, reasoningLevels: ['low'], defaultReasoningLevel: 'low', inheritUserDefaults: false } };
   const selectedPolicy = (role: 'operator' | 'installation') => trust.native
     ? { ...nativePolicy, inference: { ...nativePolicy.inference,
-      allowedSources: trust.deniedPolicy === role ? ['managed'] : ['pi-native'] } } : policy;
+      allowedSources: trust.deniedPolicy === role ? ['managed'] : ['pi-native'] } }
+    : trust.managedRestriction?.role === role ? { ...policy, inference: trust.managedRestriction.inference } : policy;
   const selection = { controlsRevision: 4,
     installation: { id: 'review-install', revision: 2, policy: selectedPolicy('installation'),
       ...(trust.native ? { piReasoningOverride: 'low' } : {}) },
     operator: { operatorId: 'review-operator', revision: 3, profile: 'conductor',
-      ...(trust.native ? { policy: selectedPolicy('operator') } : {}) },
+      policy: selectedPolicy('operator') },
     release: { id: 'review-release', sourceCommit: provenance.sourceCommit, bundleDigest: provenance.bundleDigest } };
   const comments: any[] = [], checks: any[] = [], artifacts: any[] = [];
   const session = { bucket: 'owner-bucket', sessionId: 'session01', generation: 7 };
@@ -401,6 +404,21 @@ describe('REQ-OPERATOR-053/056/074: prepared Conductor runtime projection (contr
       expect(trust.profileReads).toEqual([]);
       expect(trust.preparation).toBeNull();
     });
+
+  for (const role of ['operator', 'installation'] as const) {
+    const managedPolicy: OperatorPolicy['inference'] = { allowedSources: ['managed'], routeIds: ['provider-default'],
+      defaultRouteId: 'provider-default', reasoningLevels: ['off'], defaultReasoningLevel: 'off', inheritUserDefaults: false };
+    it.each<[string, OperatorPolicy['inference']]>([
+      ['source', { ...managedPolicy, allowedSources: ['pi-native'] }],
+      ['route', { ...managedPolicy, routeIds: ['other-route'], defaultRouteId: 'other-route' }],
+      ['reasoning', { ...managedPolicy, reasoningLevels: ['high'], defaultReasoningLevel: 'high' }],
+    ])(`REQ-OPERATOR-007/053: managed preparation denied by ${role} %s reserves no work`, async (_name, inference) => {
+      trust.managedRestriction = { role, inference };
+      await expect(scenario()).rejects.toThrow();
+      expect(trust.preparation).toBeNull();
+      expect(trust.profileReads).toEqual([]);
+    });
+  }
 
   it.each(['silent', 'resolved'] as const)('prepared rejection reaches compiled consumer and authentic prior history: %s', async mode => {
     const fixture = await scenario(mode);

@@ -868,6 +868,22 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       expect(mockCtx.blockConcurrencyWhile).toHaveBeenCalledTimes(1);
     });
 
+    it.each(['pi-native', 'managed', undefined, 'invalid', true])(
+      'REQ-ENTERPRISE-089: DO wake restores only a valid native startup source (%s)', async source => {
+        const persisted = new Map<string, unknown>([
+          ['bucketName', 'test-bucket'], ['piDefaultSource', source], ['allowPersonalPiProviders', true],
+          ['routeCatalog', ['development']], ['defaultRoute', 'development'], ['defaultReasoning', 'medium'],
+        ]);
+        mockStorage.get.mockImplementation(async (key: string) => persisted.get(key));
+        mockEnv.ENTERPRISE_MODE = 'active';
+        const instance = new ContainerClass(mockCtx as any, mockEnv);
+        await mockCtx.blockConcurrencyWhile.mock.results.at(-1)!.value;
+        expect(instance.envVars.ENTERPRISE_PI_DEFAULT_SOURCE).toBe(source === 'pi-native' ? 'pi-native' : undefined);
+        expect(instance.envVars.ENTERPRISE_PI_PERSONAL_PROVIDERS).toBe('true');
+        expect(instance.envVars.ENTERPRISE_DEFAULT_ROUTE).toBe('development');
+        expect(instance.envVars.ENTERPRISE_DEFAULT_REASONING).toBe('medium');
+      });
+
     it('restores containerAuthToken from storage so DO wake does not desync from a running container', async () => {
       // Regression for the silent-401 bug: prior to persistence, every DO
       // wake regenerated a fresh UUID via updateEnvVars() while the

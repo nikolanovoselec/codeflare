@@ -9,7 +9,7 @@ import { resolveBoundaryAction } from './boundary-action-trust';
 import { verifyGithubPrBoundary } from './github-pr-boundary';
 import { prepareOperatorActivity } from './orchestrator';
 import { createOwnerNativePiProfileReader } from './native-pi-profile';
-import { resolveOperatorInference, type AdmittedOperatorInference, type NativeOperatorInference } from './inference-selection';
+import { resolveOperatorInference, type AdmittedOperatorInference } from './inference-selection';
 
 export interface ReadyBoundary {
   generation: number;
@@ -216,59 +216,62 @@ export async function prepareVerifiedBoundary(
     headers: { 'cf-access-jwt-assertion': currentAuthority.accessJwt },
   }), env);
   const routes = await loadEnterpriseRouteConfig(env, groups);
-  let inference: AdmittedOperatorInference;
-  let authorizeNative: (() => Promise<void>) | undefined;
-  if (routes.piDefaultSource === 'pi-native') {
-    const ownerKey = await operatorOwnerKey(currentAuthority.human);
-    let native: NativeOperatorInference | undefined;
-    authorizeNative = async () => {
-      await checkLifecycle();
-      const human = await currentHuman();
-      const latest = await registry.resolveManagementExecution(selected.installationId);
-      if (!latest.ok || latest.value.controlsRevision !== installation.value.controlsRevision
-        || latest.value.installation.id !== installation.value.installation.id
-        || latest.value.installation.revision !== installation.value.installation.revision
-        || latest.value.operator.operatorId !== installation.value.operator.operatorId
-        || latest.value.operator.revision !== installation.value.operator.revision
-        || latest.value.operator.profile !== 'conductor'
-        || latest.value.release.id !== installation.value.release.id
-        || latest.value.release.bundleDigest !== installation.value.release.bundleDigest
-        || !canInvokeOperator(human.human, latest.value.operator)
-        || await operatorOwnerKey(human.human) !== ownerKey
-        || await resolveBucketName(env, human.human.email) !== session.bucket) {
-        throw Error('Conductor native authority changed');
+  let inference: AdmittedOperatorInference | undefined;
+  const nativeSource = routes.piDefaultSource === 'pi-native';
+  const ownerKey = await operatorOwnerKey(currentAuthority.human);
+  const authorizeInference = async () => {
+    await checkLifecycle();
+    const human = await currentHuman();
+    const latest = await registry.resolveManagementExecution(selected.installationId);
+    if (!latest.ok || latest.value.controlsRevision !== installation.value.controlsRevision
+      || latest.value.installation.id !== installation.value.installation.id
+      || latest.value.installation.revision !== installation.value.installation.revision
+      || latest.value.operator.operatorId !== installation.value.operator.operatorId
+      || latest.value.operator.revision !== installation.value.operator.revision
+      || latest.value.operator.profile !== 'conductor'
+      || latest.value.release.id !== installation.value.release.id
+      || latest.value.release.bundleDigest !== installation.value.release.bundleDigest
+      || !canInvokeOperator(human.human, latest.value.operator)
+      || await operatorOwnerKey(human.human) !== ownerKey
+      || await resolveBucketName(env, human.human.email) !== session.bucket) {
+      throw Error('Conductor inference authority changed');
+    }
+    const currentGroups = await resolveSessionAccessGroup(new Request('https://operator.internal/', {
+      headers: { 'cf-access-jwt-assertion': human.accessJwt },
+    }), env);
+    const eligible = await loadEnterpriseRouteConfig(env, currentGroups);
+    if (nativeSource && (eligible.piDefaultSource !== 'pi-native' || eligible.allowPersonalPiProviders !== true)) {
+      throw Error('Conductor native source unavailable');
+    }
+    if (!nativeSource && inference && !('source' in inference)
+      && !eligible.routeCatalog.includes(inference.routeId)) throw Error('Conductor inference unavailable');
+    for (const policy of [installation.value.operator.policy, installation.value.installation.policy,
+      latest.value.operator.policy, latest.value.installation.policy]) {
+      if (nativeSource && !policy.inference?.allowedSources?.includes('pi-native')) {
+        throw Error('Conductor native source not approved');
       }
-      const currentGroups = await resolveSessionAccessGroup(new Request('https://operator.internal/', {
-        headers: { 'cf-access-jwt-assertion': human.accessJwt },
-      }), env);
-      const eligible = await loadEnterpriseRouteConfig(env, currentGroups);
-      if (eligible.piDefaultSource !== 'pi-native' || eligible.allowPersonalPiProviders !== true) {
-        throw Error('Conductor native source unavailable');
-      }
-      for (const policy of [latest.value.operator.policy, latest.value.installation.policy]) {
-        if (!policy.inference?.allowedSources?.includes('pi-native')) throw Error('Conductor native source not approved');
-        if (native) resolveOperatorInference({ policy: { inference: policy.inference }, trusted: native,
-          eligible: { routeIds: eligible.routeCatalog, defaultRouteId: eligible.defaultRoute,
-            defaultReasoningLevel: eligible.defaultReasoning, allowPersonalPiProviders: eligible.allowPersonalPiProviders } });
-      }
-      if (Date.now() >= deadline) throw Error('Boundary authority unavailable');
-      await checkLifecycle();
-    };
+      if (inference && policy.inference) resolveOperatorInference({ policy: { inference: policy.inference }, trusted: inference,
+        eligible: { routeIds: eligible.routeCatalog, defaultRouteId: eligible.defaultRoute,
+          defaultReasoningLevel: eligible.defaultReasoning, allowPersonalPiProviders: eligible.allowPersonalPiProviders } });
+    }
+    if (Date.now() >= deadline) throw Error('Boundary authority unavailable');
+    await checkLifecycle();
+  };
+  if (nativeSource) {
     const reader = await createOwnerNativePiProfileReader({ env, ownerBucket: session.bucket,
-      deadline: Math.min(deadline, currentAuthority.human.expiresAt * 1000), authorize: authorizeNative });
-    native = await reader.resolveSelection(installation.value.installation.piReasoningOverride);
-    await authorizeNative();
-    inference = native;
+      deadline: Math.min(deadline, currentAuthority.human.expiresAt * 1000), authorize: authorizeInference });
+    inference = await reader.resolveSelection(installation.value.installation.piReasoningOverride);
   } else {
     if (!routes.defaultRoute || !routes.routeCatalog.includes(routes.defaultRoute)) {
       throw Error('Conductor inference unavailable');
     }
     inference = { routeId: routes.defaultRoute, reasoningLevel: routes.defaultReasoning || null };
   }
-  if (authorizeNative) await authorizeNative();
+  await authorizeInference();
   await recheckBoundary();
   await currentHuman();
   await checkLifecycle();
+  await authorizeInference();
   const pinned = { controlsRevision: selected.controlsRevision,
     installationRevision: installation.value.installation.revision,
     operatorRevision: installation.value.operator.revision, releaseId: installation.value.release.id,
@@ -276,7 +279,6 @@ export async function prepareVerifiedBoundary(
     workflowDigest: action.workflowDigest };
   const sessionBinding = { ...session, generation: ready.generation };
   const contextDigest = await digest({ context, accepted, action, pinned, protectedRef, sessionBinding });
-  const ownerKey = await operatorOwnerKey(currentAuthority.human);
   const reservation = await registry.reserveBoundaryPreparation({ repositoryId: context.repositoryId,
     pullRequest: context.pullRequest, roundGeneration: 1, contextDigest, ownerKey, installationId: selected.installationId,
     operatorId: installation.value.operator.operatorId,
@@ -299,6 +301,7 @@ export async function prepareVerifiedBoundary(
     attachments: [], resources: { inference,
       session: { profileId }, storage: { scopeId: profileId } } };
   await checkLifecycle();
+  await authorizeInference();
   const prepared = await prepareOperatorActivity({ installationId: selected.installationId, invocation },
     currentAuthority, env, { activityId, expectedManagement: pinned,
       boundary: { repositoryId: context.repositoryId, pullRequest: context.pullRequest,

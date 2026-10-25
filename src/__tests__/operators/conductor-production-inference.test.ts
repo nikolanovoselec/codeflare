@@ -1,17 +1,19 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { createConductorProductionCapability } from '../../operators/conductor-production';
 import { operatorOwnerKey } from '../../operators/browser-activity';
+import type { OperatorPolicy } from '../../operators/policy';
 
 const human = { subject: 'owner', email: 'owner@example.test', issuer: 'https://access.example.test',
   audiences: ['operator-audience'], expiresAt: Math.floor(Date.now() / 1000) + 300 };
 const piTransport = vi.hoisted(() => ({ task: null as unknown,
   requests: [] as Array<{ path: string; body: unknown }>, profiles: [] as unknown[],
   objects: new Map<string, unknown>(), reads: [] as Array<{ method: string; path: string }>,
-  current: true, bucket: 'owner-bucket', revokeAfterRead: false, authFailure: null as unknown }));
+  current: true, bucket: 'owner-bucket', revokeAfterRead: false, authFailure: null as unknown,
+  reasoning: '', provisionedBuckets: new Set<string>() }));
 afterEach(() => {
   piTransport.requests = []; piTransport.profiles = []; piTransport.objects.clear(); piTransport.reads = [];
   piTransport.current = true; piTransport.bucket = 'owner-bucket'; piTransport.revokeAfterRead = false;
-  piTransport.authFailure = null;
+  piTransport.authFailure = null; piTransport.reasoning = ''; piTransport.provisionedBuckets.clear();
 });
 vi.mock('@cloudflare/containers', () => ({ getContainer: () => ({ fetch: async (request: Request) => {
   const path = new URL(request.url).pathname;
@@ -31,17 +33,18 @@ vi.mock('../../lib/access', async importOriginal => ({
   canInvokeOperator: () => true,
   resolveSessionAccessGroup: async () => [],
   loadEnterpriseRouteConfig: async () => ({ routeCatalog: ['provider-default'],
-    defaultRoute: 'provider-default', defaultReasoning: '', routeContextWindows: {},
+    defaultRoute: 'provider-default', defaultReasoning: piTransport.reasoning, routeContextWindows: {},
     routeReasoningLevels: {}, modelDisplayNames: {},
     ...(piTransport.objects.size ? { piDefaultSource: 'pi-native', allowPersonalPiProviders: true } : {}) }),
 }));
 vi.mock('../../operators/execution-context', () => ({
   openOperatorExecutionAccess: async () => ({ human, accessJwt: 'sealed-access' }),
 }));
-vi.mock('../../operators/session-bootstrap', () => ({ bootstrapOperatorSession: async () => ({ bootstrap: {
-  r2AccessKeyId: 'synthetic-scoped-id', r2SecretAccessKey: 'synthetic-scoped-secret',
-  r2Endpoint: 'https://r2.example.test',
-} }) }));
+vi.mock('../../operators/session-bootstrap', () => ({ bootstrapOperatorSession: async (input: { ownerBucket: string }) => {
+  piTransport.provisionedBuckets.add(input.ownerBucket);
+  return { bootstrap: { r2AccessKeyId: 'synthetic-scoped-id', r2SecretAccessKey: 'synthetic-scoped-secret',
+    r2Endpoint: 'https://r2.example.test' } };
+} }));
 vi.mock('../../lib/r2-regime-state', () => ({
   isBucketMigrating: async () => false, isR2SseDisabledForBucket: async () => true,
 }));
@@ -127,6 +130,86 @@ it('REQ-OPERATOR-053: a provider-default inference route admits a scoped Conduct
     headers: { 'content-type': 'application/json' }, body: JSON.stringify(task) }))).status).toBe(200);
   expect(piTransport.task).toEqual({ taskId: task.taskId, digest: task.digest, mode: task.mode,
     toolName: task.toolName, arguments: task.arguments });
+});
+
+type InferencePolicy = OperatorPolicy['inference'];
+const managedPolicy: InferencePolicy = { allowedSources: ['managed'], routeIds: ['provider-default'],
+  defaultRouteId: 'provider-default', reasoningLevels: ['off'], defaultReasoningLevel: 'off', inheritUserDefaults: false };
+const managedRestrictions: Array<[string, InferencePolicy]> = [
+  ['source', { ...managedPolicy, allowedSources: ['pi-native'] }],
+  ['route', { ...managedPolicy, routeIds: ['other-route'], defaultRouteId: 'other-route' }],
+  ['reasoning', { ...managedPolicy, reasoningLevels: ['high'], defaultReasoningLevel: 'high' }],
+];
+async function managedCapability(policies: { operator?: InferencePolicy; installation?: InferencePolicy },
+  inference: { routeId: string; reasoningLevel: string | null } | null = { routeId: 'provider-default', reasoningLevel: 'off' }) {
+  const selected = structuredClone(selection);
+  const current = () => ({ ...selected,
+    installation: { ...selected.installation, policy: { ...selected.installation.policy, inference: policies.installation } },
+    operator: { ...selected.operator, policy: { ...selected.operator.policy, inference: policies.operator } } });
+  const invocation = { schemaVersion: 1, interfaceVersion: 1, consumerId: 'boundary-reviews',
+    activityId, operatorId: 'review-operator', runId: activityId,
+    source: { kind: 'session', reference: 'owner/repo' },
+    revision: { reference: 'a'.repeat(40), digest: 'b'.repeat(64) }, inputDigest: 'c'.repeat(64),
+    input: {}, attachments: [], resources: { inference,
+      session: { profileId: 'review-profile' }, storage: { scopeId: 'review-profile' } } };
+  const activity = { operatorGenerationCurrent: async () => true, getPackageResources: async () => null,
+    readApprovedPacketAttachments: async () => ({ schemaVersion: 1, activityId, files: [] }) };
+  const env = { OPERATOR_REGISTRY: { getByName: () => ({ resolveManagementExecution: async () => ({ ok: true, value: current() }) }) },
+    CONTAINER: {} };
+  const plan = { activityId, deadline: Date.now() + 300_000, invocationJson: JSON.stringify(invocation),
+    receipt: { selection: structuredClone(current()) }, executionContext: { policyDigest: 'e'.repeat(64) } };
+  return (await createConductorProductionCapability({ env: env as never, plan: plan as never,
+    activity: activity as never, generation: 1, driveDeadline: Date.now() + 25_000 })).capability;
+}
+
+for (const role of ['operator', 'installation'] as const) {
+  it.each(managedRestrictions)(`REQ-OPERATOR-007/047: managed Conductor ${role} %s denial precedes bootstrap`, async (_name, restriction) => {
+    piTransport.reasoning = 'off';
+    await expect(managedCapability({ [role]: restriction })).rejects.toThrow();
+    expect(piTransport.provisionedBuckets).toEqual(new Set());
+    expect(piTransport.requests).toEqual([]);
+    expect(piTransport.profiles).toEqual([]);
+  });
+
+  it.each(managedRestrictions)(`REQ-OPERATOR-007/047: warmed managed Conductor rechecks ${role} %s before execution`, async (_name, restriction) => {
+    piTransport.reasoning = 'off';
+    const policies = { operator: managedPolicy, installation: managedPolicy };
+    const capability = await managedCapability(policies);
+    const ensure = () => capability.fetch(new Request('https://operator.internal/v1/session/ensure', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ schemaVersion: 1 }),
+    }));
+    expect((await ensure()).status).toBe(200);
+    const profiles = structuredClone(piTransport.profiles);
+    const requests = structuredClone(piTransport.requests);
+    policies[role] = restriction;
+    expect((await ensure()).status).toBe(403);
+    const task = await capability.fetch(new Request('https://operator.internal/v1/pi/tasks', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ schemaVersion: 1,
+        taskId: 'denied-round', digest: 'c'.repeat(64), mode: 'tool', toolName: 'run_approved_tasks',
+        arguments: { initializationDigest: 'd'.repeat(64) } }),
+    }));
+    expect(task.status).toBe(403);
+    expect(piTransport.profiles).toEqual(profiles);
+    expect(piTransport.requests).toEqual(requests);
+  });
+}
+
+it('REQ-OPERATOR-007/053: legacy null managed selection retains the eligible provider-default before bootstrap', async () => {
+  const capability = await managedCapability({}, null);
+  expect((await capability.fetch(new Request('https://operator.internal/v1/session/ensure', {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ schemaVersion: 1 }),
+  }))).status).toBe(200);
+  expect(piTransport.profiles).toEqual([expect.objectContaining({
+    piProfile: expect.objectContaining({ provider: 'codeflare-gateway', model: 'provider-default', thinkingLevel: 'off' }),
+    policy: expect.objectContaining({ inference: expect.objectContaining({ defaultReasoningLevel: null }) }),
+  })]);
+});
+
+it('REQ-OPERATOR-007/047: null managed selection cannot bypass installed source restrictions before bootstrap', async () => {
+  await expect(managedCapability({ operator: { ...managedPolicy, allowedSources: ['pi-native'] } }, null)).rejects.toThrow();
+  expect(piTransport.provisionedBuckets).toEqual(new Set());
+  expect(piTransport.requests).toEqual([]);
+  expect(piTransport.profiles).toEqual([]);
 });
 
 // Native obligations belong to 007/047, not completion of 050's historical

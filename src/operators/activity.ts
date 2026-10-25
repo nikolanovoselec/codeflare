@@ -2202,7 +2202,7 @@ export class OperatorActivity extends Agent {
         const transport = exports.EgressController({ props: { bucket, strict: true,
           operatorDispatcherNative: { activityId: plan.activityId, generation, profileDigest: selection.profileDigest } } });
         const headers = new Headers(request.headers);
-        for (const name of [...headers.keys()]) if (name.startsWith('x-codeflare-')
+        for (const name of headers.keys()) if (name.startsWith('x-codeflare-')
           || ['host', 'content-length', 'connection', 'transfer-encoding', 'cf-access-jwt-assertion'].includes(name)) headers.delete(name);
         await this.#nativeAuthority(generation, deliveryToken, runSignal);
         const reservation = await this.ctx.storage.transaction(async tx => {

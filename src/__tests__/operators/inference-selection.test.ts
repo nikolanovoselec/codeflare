@@ -45,7 +45,7 @@ describe('REQ-OPERATOR-007: operator inference intersection', () => {
 describe('REQ-OPERATOR-007: parent-prepared native inference narrowing', () => {
   const native = { source: 'pi-native', provider: 'openai-codex', model: 'gpt-6.1-sol',
     api: 'openai-codex-responses', reasoningLevel: 'low', profileDigest: 'a'.repeat(64) };
-  const nativePolicy = { ...policy, inference: { ...policy.inference,
+  const nativePolicy: OperatorPolicy = { ...policy, inference: { ...policy.inference,
     allowedSources: ['managed', 'pi-native'], reasoningLevels: ['low', 'high'], defaultReasoningLevel: 'high' } };
   const nativeEligible = { ...eligible, piDefaultSource: 'pi-native', allowPersonalPiProviders: true };
 

@@ -24,7 +24,9 @@ export function readOnlyPiRuntime<T extends object>(runtime: T, model: { provide
         if (!candidate || candidate.provider !== model.provider || candidate.id !== model.id || candidate.api !== model.api) {
           throw new Error('Approved Pi model binding mismatch');
         }
-        return Reflect.get(target, key, target).call(target, model, ...args);
+        const dispatch = Reflect.get(target, key, target);
+        if (typeof dispatch !== 'function') throw new Error('Provisioned Pi SDK is incompatible');
+        return dispatch.call(target, model, ...args);
       };
     }
     if (key === 'refresh') return async () => ({ aborted: false, errors: new Map() });

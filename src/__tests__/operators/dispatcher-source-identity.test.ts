@@ -1,6 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Buffer } from 'node:buffer';
 import { operatorAccessSessionCurrent, resolveOperatorGroupIdentity } from '../../lib/access';
+import * as access from '../../lib/access';
+import * as aig from '../../lib/aig-config';
+import type { OperatorPolicy } from '../../operators/policy';
 import type { VerifiedHumanAccessClaims } from '../../lib/jwt';
 import { createOperatorExecutionContext } from '../../operators/execution-context';
 import { authorizeDispatcherPlan, createDispatcherOperation, parseDispatcherOperation } from '../../operators/operator-runtime-capability';
@@ -22,7 +25,8 @@ afterEach(() => {
 });
 
 async function fixture(identityResponse: IdentityResponse, groupGrant = false, grantIssuer = issuer,
-  options: { sourceResponseBytes?: number; sourceBody?: string } = {}) {
+  options: { sourceResponseBytes?: number; sourceBody?: string;
+    inferencePolicies?: { operator?: OperatorPolicy['inference']; installation?: OperatorPolicy['inference'] } } = {}) {
   const now = Math.floor(Date.now() / 1000);
   const human: VerifiedHumanAccessClaims = { subject, email, issuer, audiences: ['operator-audience'],
     issuedAt: now - 1, expiresAt: now + 300, groups: [stableGroup.id] };
@@ -36,11 +40,13 @@ async function fixture(identityResponse: IdentityResponse, groupGrant = false, g
     expect(request.headers.get('cookie')).toBe(`CF_Authorization=${accessJwt}`);
     return identity();
   });
-  const policy = { capabilities: ['fetch'], resourceProfileId: null,
+  const policy = { capabilities: options.inferencePolicies ? ['fetch', 'inference'] : ['fetch'], resourceProfileId: null,
     ...(options.sourceResponseBytes === undefined ? {} : { sourceResponseBytes: options.sourceResponseBytes }) };
   const selection = { controlsRevision: 1,
-    installation: { id: 'installation', revision: 1, policy },
-    operator: { profile: 'dispatcher', revision: 1, invokers: {
+    installation: { id: 'installation', revision: 1,
+      policy: { ...policy, inference: options.inferencePolicies?.installation } },
+    operator: { profile: 'dispatcher', revision: 1,
+      policy: { ...policy, inference: options.inferencePolicies?.operator }, invokers: {
       users: groupGrant ? [] : [email], groups: groupGrant ? [{ ...stableGroup, issuer: grantIssuer }] : [],
     } }, release: { bundleDigest: 'a'.repeat(64) } };
   const environment = {
@@ -53,19 +59,39 @@ async function fixture(identityResponse: IdentityResponse, groupGrant = false, g
   const executionContext = await createOperatorExecutionContext({ activityId, operatorId: 'operator',
     artifactDigest: 'a'.repeat(64), policyDigest: 'b'.repeat(64), human, accessJwt }, environment);
   const plan = { activityId, deadline: (now + 600) * 1000, executionContext,
-    invocationJson: JSON.stringify({ repository: 'owner/project' }), receipt: { selection } } as unknown as OperatorRuntimePlan;
+    invocationJson: JSON.stringify({ repository: 'owner/project' }), receipt: { selection: structuredClone(selection) } } as unknown as OperatorRuntimePlan;
   const operation = await parseDispatcherOperation(new Request('https://operator.internal/v1/dispatcher/source', {
     method: 'POST', headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ operationId: 'source-read', method: 'GET', url: sourceUrl }),
   }));
+  const inferenceRequests: Array<{ body: unknown; inference: unknown }> = [];
   const exports = { GitHubInterceptor: () => ({ fetch: async (request: Request) => {
     expect(request.url).toBe(sourceUrl);
     expect(request.method).toBe('GET');
     return new Response(options.sourceBody ?? JSON.stringify({ full_name: 'owner/project' }),
       { headers: { 'content-type': 'application/json', etag: '"source-version"' } });
+  } }), LlmInterceptor: ({ props }: { props: Record<string, unknown> }) => ({ fetch: async (request: Request) => {
+    inferenceRequests.push({ body: await request.json(), inference: props.operatorInference });
+    return new Response('data: [DONE]\n\n', { headers: { 'content-type': 'text/event-stream' } });
   } }) } as unknown as Parameters<typeof createDispatcherOperation>[0]['exports'];
   const prepare = () => createDispatcherOperation({ plan, env: environment, operation, exports, current: async () => true });
-  return { human, prepare, authorize: () => authorizeDispatcherPlan(plan, environment),
+  const prepareInference = async () => {
+    vi.spyOn(access, 'resolveSessionAccessGroup').mockResolvedValue([]);
+    vi.spyOn(access, 'loadEnterpriseRouteConfig').mockResolvedValue({ routeCatalog: ['approved', 'other-route'],
+      defaultRoute: 'approved', defaultReasoning: 'off', routeContextWindows: {}, routeReasoningLevels: {}, modelDisplayNames: {} });
+    vi.spyOn(aig, 'getAigConfig').mockResolvedValue({ gatewayUrl: 'https://gateway.example.test',
+      gatewayId: undefined, token: 'synthetic-parent-only' });
+    const inferenceOperation = await parseDispatcherOperation(new Request('https://operator.internal/v1/dispatcher/inference', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ operationId: 'managed-inference', input: { messages: [{ role: 'user', content: 'approved input' }] } }),
+    }));
+    return createDispatcherOperation({ plan, env: environment, operation: inferenceOperation, exports, current: async () => true });
+  };
+  return { human, prepare, prepareInference, inferenceRequests,
+    restrictInference: (role: 'operator' | 'installation', inference: OperatorPolicy['inference']) => {
+      selection[role].policy = { ...selection[role].policy, inference };
+    },
+    authorize: () => authorizeDispatcherPlan(plan, environment),
     execute: async () => (await prepare())(),
     replaceIdentity: (value: IdentityResponse) => { identity = value; } };
 }
@@ -241,5 +267,43 @@ describe('REQ-OPERATOR-047: real Access source response allowance', () => {
     const response = await f.execute();
     expect(response.status).toBe(422);
     expect(await response.json()).toEqual({ code: 'OPERATOR_SOURCE_INCOMPLETE' });
+  });
+});
+
+
+describe('REQ-OPERATOR-007/047: managed Dispatcher installed inference intersection', () => {
+  const approved: OperatorPolicy['inference'] = { allowedSources: ['managed'], routeIds: ['approved'],
+    defaultRouteId: 'approved', reasoningLevels: ['off'], defaultReasoningLevel: 'off', inheritUserDefaults: false };
+  const restrictions: Array<[string, OperatorPolicy['inference']]> = [
+    ['source', { ...approved, allowedSources: ['pi-native'] }],
+    ['route', { ...approved, routeIds: ['other-route'], defaultRouteId: 'other-route' }],
+    ['reasoning', { ...approved, reasoningLevels: ['high'], defaultReasoningLevel: 'high' }],
+  ];
+  for (const role of ['operator', 'installation'] as const) {
+    it.each(restrictions)(`${role} %s refuses preparation without a substituted upstream request`, async (_name, restriction) => {
+      const f = await fixture(() => Response.json(documentedIdentity), false, issuer,
+        { inferencePolicies: { [role]: restriction } });
+      await expect(f.prepareInference()).rejects.toThrow();
+      expect(f.inferenceRequests).toEqual([]);
+    });
+
+    it.each(restrictions)(`${role} %s is rechecked at send after preparation`, async (_name, restriction) => {
+      const f = await fixture(() => Response.json(documentedIdentity), false, issuer,
+        { inferencePolicies: { operator: approved, installation: approved } });
+      const perform = await f.prepareInference();
+      f.restrictInference(role, restriction);
+      await expect(perform()).rejects.toThrow();
+      expect(f.inferenceRequests).toEqual([]);
+    });
+  }
+
+  it.each([false, true])('retains the exact human selection for allowed managed policies; legacy omission=%s', async legacy => {
+    const f = await fixture(() => Response.json(documentedIdentity), false, issuer,
+      { inferencePolicies: legacy ? {} : { operator: approved, installation: approved } });
+    const response = await (await f.prepareInference())();
+    expect(response.status).toBe(200);
+    expect(f.inferenceRequests).toEqual([{ body: expect.objectContaining({ model: 'approved' }),
+      inference: expect.objectContaining({ trusted: { routeId: 'approved', reasoningLevel: 'off' },
+        policy: expect.objectContaining({ inference: expect.objectContaining({ routeIds: ['approved'], reasoningLevels: ['off'] }) }) }) }]);
   });
 });

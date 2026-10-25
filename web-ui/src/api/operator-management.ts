@@ -1,11 +1,27 @@
 /** Dedicated management client; legacy endpoint administration remains unchanged. */
 import { z } from 'zod';
 import { baseFetch } from './fetch-helper';
-import { inferencePolicySchema } from '../../../src/operators/policy';
 import { operatorActivitySummarySchema, safePiAuthFailureSchema, inferenceSelectionSchema } from './operator-activities';
 import { dispatcherCapacityKeys, type DispatcherCapacityKey, type DispatcherCapacityPolicy } from '../../../src/operators/dispatcher-capacity-limits';
 export { dispatcherCapacityFields, dispatcherCapacityKeys, pickDispatcherCapacities, validDispatcherCapacities } from '../../../src/operators/dispatcher-capacity-limits';
 export type { DispatcherCapacityKey, DispatcherCapacityPolicy } from '../../../src/operators/dispatcher-capacity-limits';
+
+export const piReasoningLevels = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'] as const;
+export type PiReasoningLevel = typeof piReasoningLevels[number];
+
+// Decode the management wire contract with this package's Zod instance, not
+// the backend execution-policy module and its server-side dependencies.
+const uniquePolicyItems = <T extends z.ZodType<string>>(item: T, max = 128) => z.array(item).max(max)
+  .refine(values => new Set(values).size === values.length);
+const policyRouteId = z.string().min(1).max(128).refine(value => value.trim() === value);
+const policyReasoning = z.enum(piReasoningLevels);
+const inferencePolicySchema = z.strictObject({
+  allowedSources: uniquePolicyItems(z.enum(['managed', 'pi-native']), 2).optional(),
+  routeIds: uniquePolicyItems(policyRouteId), defaultRouteId: policyRouteId.nullable(),
+  reasoningLevels: uniquePolicyItems(policyReasoning, 7), defaultReasoningLevel: policyReasoning.nullable(),
+  inheritUserDefaults: z.boolean(),
+}).refine(value => (value.defaultRouteId === null || value.routeIds.includes(value.defaultRouteId))
+  && (value.defaultReasoningLevel === null || value.reasoningLevels.includes(value.defaultReasoningLevel)));
 
 // Use this package's Zod instance; shared metadata stays independent of backend dependencies.
 const dispatcherCapacityShape = Object.fromEntries(dispatcherCapacityKeys.map(key => [key,
@@ -47,8 +63,6 @@ const releaseSchema = z.object({ id, operatorId: id, githubReleaseId: z.number()
   name: z.string().optional(), description: z.string().optional(), version: z.string().optional(), coreVersion: z.string().optional(), intentVersion: z.string().optional(),
   tagName: z.string().min(1).max(256).optional(), publishedAt: z.string().datetime().optional(),
   requestedCapabilities: z.array(z.string()).max(32).optional() });
-export const piReasoningLevels = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'] as const;
-export type PiReasoningLevel = typeof piReasoningLevels[number];
 const installationSchema = z.object({ id, operatorId: id, name: z.string(), releaseId: id.nullable(), revision,
   enabled: z.boolean(), policy: policySchema, configuration: z.record(z.string(), z.json()).optional(),
   piReasoningOverride: z.enum(piReasoningLevels).optional() });

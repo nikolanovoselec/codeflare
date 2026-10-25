@@ -86,7 +86,8 @@ function requestAuth(result: AuthResult, provider: Provider, model: Model<Api>):
   if (!record(auth) || Object.keys(auth).some(key => !['apiKey', 'headers', 'baseUrl'].includes(key))
     || (auth.apiKey !== undefined && (typeof auth.apiKey !== 'string' || !auth.apiKey.length
       || auth.apiKey.length > 32 * 1024 || /[\r\n\0]/.test(auth.apiKey)))
-    || (auth.baseUrl !== undefined && !allowedEndpoint(auth.baseUrl, provider))) {
+    || (auth.baseUrl !== undefined && (typeof auth.baseUrl !== 'string' || !allowedEndpoint(auth.baseUrl, provider)))
+    || (auth.headers !== undefined && !record(auth.headers))) {
     throw new PiAuthRequiredError(provider.id, 'rejected');
   }
   const headers = { ...provider.headers, ...auth.headers, ...model.headers };
@@ -163,7 +164,7 @@ export function createNativePiProfileReader(input: {
     await current();
     if (!bytes) return {};
     let parsed: unknown;
-    try { parsed = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes)); }
+    try { parsed = JSON.parse(new TextDecoder('utf-8', { fatal: true, ignoreBOM: false }).decode(bytes)); }
     catch { throw new InvalidSavedPiProfileError('Invalid saved Pi profile'); }
     if (!record(parsed)) throw new InvalidSavedPiProfileError('Invalid saved Pi profile');
     return parsed;
@@ -283,7 +284,7 @@ export async function validateNativePiEgress(request: Request, selection: {
   if (!allowedEndpoint(destination.href, provider)) return false;
   let payload: unknown;
   try {
-    payload = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(await readBoundedResponse(
+    payload = JSON.parse(new TextDecoder('utf-8', { fatal: true, ignoreBOM: false }).decode(await readBoundedResponse(
       new Response(request.clone().body), limit, 'Native Pi request', signal)));
   } catch { return false; }
   if (!record(payload)) return false;
@@ -298,7 +299,9 @@ export async function validateNativePiEgress(request: Request, selection: {
     case 'openai-responses':
     case 'openai-codex-responses':
     case 'azure-openai-responses':
-      return (operationPath('responses') || provider.id === 'azure' && path === '/openai/v1/responses')
+      // Pi's Codex API adds /codex to the registered backend-api base.
+      return (operationPath(model.api === 'openai-codex-responses' ? 'codex/responses' : 'responses')
+        || provider.id === 'azure' && path === '/openai/v1/responses')
         && payload.model === model.id && (selection.reasoningLevel === 'off'
           ? payload.reasoning === undefined || record(payload.reasoning) && payload.reasoning.effort === 'none'
           : record(payload.reasoning) && payload.reasoning.effort === selection.reasoningLevel);

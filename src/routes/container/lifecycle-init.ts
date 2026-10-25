@@ -90,6 +90,7 @@ function buildSetBucketNameBody(params: ContainerConfigPayload): string {
     ...(params.routeCatalog !== undefined && {
       routeCatalog: params.routeCatalog,
       allowPersonalPiProviders: params.allowPersonalPiProviders === true,
+      piDefaultSource: params.piDefaultSource ?? 'managed',
       defaultRoute: params.defaultRoute ?? '',
       defaultReasoning: params.defaultReasoning ?? '',
       routeContextWindows: params.routeContextWindows ?? {},

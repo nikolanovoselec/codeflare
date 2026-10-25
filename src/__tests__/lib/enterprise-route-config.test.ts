@@ -158,8 +158,10 @@ describe('loadEnterpriseRouteConfig (REQ-ENTERPRISE-043/-044)', () => {
 
     const cfg = await loadEnterpriseRouteConfig(env, groups);
 
-    // Exact public output excludes inactive assignments AND all native model/provider/credential state.
+    // The public source hint is nonsecret; inactive assignments and native
+    // model/provider/credential state remain excluded by this exact DTO contract.
     expect(cfg).toStrictEqual({
+      piDefaultSource: 'managed',
       routeCatalog: ['bedrock_opus', handle], defaultRoute: 'bedrock_opus', defaultReasoning: '',
       routeReasoningLevels: { bedrock_opus: [], [handle]: ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'] },
       modelDisplayNames: { [handle]: 'AWS Bedrock Claude Opus' },

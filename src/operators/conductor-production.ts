@@ -137,6 +137,8 @@ export async function createConductorProductionCapability(input: { env: Env; pla
   const invocation = parseOperatorConsumerInvocation(JSON.parse(plan.invocationJson));
   const nativeSelection: NativeOperatorInference | undefined = invocation.resources.inference
     && 'source' in invocation.resources.inference ? invocation.resources.inference : undefined;
+  let managedSelection = invocation.resources.inference && !('source' in invocation.resources.inference)
+    ? invocation.resources.inference : undefined;
   let resolvedOwnerBucket: string | undefined;
   let nativeOwnerKey: string | undefined;
   const authorize = async () => {
@@ -156,18 +158,29 @@ export async function createConductorProductionCapability(input: { env: Env; pla
         || resolvedOwnerBucket !== undefined && await resolveBucketName(env, human.email) !== resolvedOwnerBucket) {
         throw new Error('Conductor native owner changed');
       }
-      const groups = await resolveSessionAccessGroup(new Request('https://operator.internal/', {
-        headers: { 'cf-access-jwt-assertion': authority.accessJwt },
-      }), env);
-      const routes = await loadEnterpriseRouteConfig(env, groups);
-      for (const policy of [selected.value.installation.policy, selected.value.operator.policy]) {
-        if (!policy.inference
-          || !['session', 'pi', 'storage'].every(capability => policy.capabilities.includes(capability))) {
-          throw new Error('Conductor native resources denied');
-        }
+    }
+    const groups = await resolveSessionAccessGroup(new Request('https://operator.internal/', {
+      headers: { 'cf-access-jwt-assertion': authority.accessJwt },
+    }), env);
+    const routes = await loadEnterpriseRouteConfig(env, groups);
+    if (!nativeSelection) {
+      managedSelection = resolveOperatorInference({ eligible: { routeIds: routes.routeCatalog, defaultRouteId: routes.defaultRoute,
+        defaultReasoningLevel: routes.defaultReasoning }, trusted: managedSelection,
+        policy: { inference: { routeIds: routes.routeCatalog, defaultRouteId: routes.defaultRoute,
+          reasoningLevels: routes.defaultReasoning ? [routes.defaultReasoning] : [],
+          defaultReasoningLevel: routes.defaultReasoning || null, inheritUserDefaults: false } } });
+    }
+    for (const policy of [pinned.installation.policy, pinned.operator.policy,
+      selected.value.installation.policy, selected.value.operator.policy]) {
+      if (nativeSelection && (!policy.inference
+        || !['session', 'pi', 'storage'].every(capability => policy.capabilities.includes(capability)))) {
+        throw new Error('Conductor native resources denied');
+      }
+      // Omitted installation inference is legacy managed-only, never native approval.
+      if (policy.inference) {
         resolveOperatorInference({ eligible: { routeIds: routes.routeCatalog, defaultRouteId: routes.defaultRoute,
           defaultReasoningLevel: routes.defaultReasoning, allowPersonalPiProviders: routes.allowPersonalPiProviders },
-          policy: { inference: policy.inference }, trusted: nativeSelection });
+          policy: { inference: policy.inference }, trusted: nativeSelection ?? managedSelection });
       }
     }
     if (Math.min(plan.deadline, input.driveDeadline) <= Date.now()
@@ -194,22 +207,16 @@ export async function createConductorProductionCapability(input: { env: Env; pla
     await authorize();
     return bootstrap;
   };
-  // Native authentication is checked before any session bootstrap/configuration effect.
-  if (!nativeSelection) await sessionBootstrap();
   const groups = await resolveSessionAccessGroup(new Request('https://operator.internal/', {
     headers: { 'cf-access-jwt-assertion': admitted.authority.accessJwt },
   }), env);
   const routes = await loadEnterpriseRouteConfig(env, groups);
   const storage = { readPrefixes: ['Operators/', `.codeflare/operators/${plan.activityId}/`],
     writePrefixes: ['Operators/', `.codeflare/operators/${plan.activityId}/`] };
-  const eligiblePolicy = parseOperatorPolicy({ schemaVersion: 1, networkHosts: [],
-    github: { repositories: [], methods: [] }, storage,
-    inference: { routeIds: routes.routeCatalog, defaultRouteId: routes.defaultRoute,
-      reasoningLevels: routes.defaultReasoning ? [routes.defaultReasoning] : [],
-      defaultReasoningLevel: routes.defaultReasoning || null, inheritUserDefaults: false } });
-  const managedInference = nativeSelection ? undefined : resolveOperatorInference({ eligible: { routeIds: routes.routeCatalog,
-    defaultRouteId: routes.defaultRoute, defaultReasoningLevel: routes.defaultReasoning },
-    trusted: invocation.resources.inference as { routeId: string; reasoningLevel: string | null }, policy: eligiblePolicy });
+  const managedInference = managedSelection;
+  // Both installed restrictions and human eligibility precede bootstrap effects.
+  // Native authentication remains checked before its deferred bootstrap.
+  if (!nativeSelection) await sessionBootstrap();
   const effectiveInference = nativeSelection ?? managedInference!;
   const policy = parseOperatorPolicy({ schemaVersion: 1, networkHosts: [], github: { repositories: [], methods: [] },
     storage, inference: nativeSelection ? { allowedSources: ['pi-native'], routeIds: [], defaultRouteId: null,

@@ -367,8 +367,8 @@ describe('REQ-OPERATOR-050/053: claimed parent packet crosses only the ordinary 
   it('denies a stale captured drive deadline before transport even when human authority remains live', async () => {
     state.current = true; state.stopAfterHost = false; state.stopAfterR2 = false; state.ownedSession = false;
     state.reserveDuringHost = false; state.hostRequests = []; state.files = []; state.objects.clear();
-    const owner = await capability(Date.now() - 1);
-    expect((await prepare(owner)).status).toBe(403);
+    // The initial generation/deadline guard refuses before a capability or bootstrap exists.
+    await expect(capability(Date.now() - 1)).rejects.toThrow('Conductor generation changed');
     expect(state.hostRequests).toEqual([]);
     expect(state.objects.size).toBe(0);
   });

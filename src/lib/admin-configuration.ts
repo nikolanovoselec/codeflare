@@ -761,7 +761,7 @@ function aiRoutingComparison(values: ConfigurationValues): ConfigurationValues {
   const policy = (value: Record<string, unknown>) => ({
     routes: value.routes ?? [], defaultRoute: value.defaultRoute ?? '', reasoning: value.reasoning ?? 'off',
     ...(value.allowPersonalPiProviders === true && { allowPersonalPiProviders: true }),
-    piDefaultSource: value.piDefaultSource ?? 'managed',
+    ...(value.piDefaultSource === 'pi-native' && { piDefaultSource: 'pi-native' }),
   });
   const groups = Array.isArray(values.groupRouting)
     ? values.groupRouting as Array<Record<string, unknown>>

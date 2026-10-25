@@ -28,6 +28,7 @@
  */
 import { Container } from '@cloudflare/containers';
 import type { Env, ManagedResourcePolicy, SessionWorkspace, TabConfig, TerminalMode } from '../types';
+import type { PiDefaultSource } from '../lib/personal-pi-policy';
 import { getR2Config } from '../lib/r2-config';
 import { D1SessionRepository } from '../lib/session-repository';
 import { toErrorMessage } from '../lib/error-types';
@@ -230,6 +231,7 @@ export class container extends Container<Env> implements ContainerEnvState {
    */
   _routeCatalog: string[] = [];
   _allowPersonalPiProviders = false;
+  _piDefaultSource: PiDefaultSource = 'managed';
   _defaultRoute: string | null = null;
   _defaultReasoning: string | null = null;
   _routeContextWindows: Record<string, number> = {};
@@ -407,6 +409,7 @@ export class container extends Container<Env> implements ContainerEnvState {
       // re-emits the entrypoint env (matches the userGroups / userEmail pattern).
       this._routeCatalog = await this.ctx.storage.get<string[]>('routeCatalog') || [];
       this._allowPersonalPiProviders = await this.ctx.storage.get<boolean>('allowPersonalPiProviders') === true;
+      this._piDefaultSource = await this.ctx.storage.get<string>('piDefaultSource') === 'pi-native' ? 'pi-native' : 'managed';
       this._defaultRoute = await this.ctx.storage.get<string>('defaultRoute') || null;
       this._defaultReasoning = await this.ctx.storage.get<string>('defaultReasoning') || null;
       this._routeContextWindows = await this.ctx.storage.get<Record<string, number>>('routeContextWindows') || {};

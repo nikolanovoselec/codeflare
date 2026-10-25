@@ -397,6 +397,22 @@ describe('REQ-ENTERPRISE-089: authorized saved Pi defaults', () => {
     t.after(fixture.cleanup);
     assert.equal(fixture.result.status, 0, fixture.result.stderr);
     assert.deepEqual(fixture.readSettings(), saved);
+    assert.deepEqual(fixture.readModels().providers['codeflare-gateway'].models.map(model => model.id), authorizedRoutes);
     assert.deepEqual(fixture.readModels().providers['unrelated-provider'], siblingProvider);
   });
+
+  for (const [personalProviders, piDefaultSource] of [
+    [true, undefined], [true, 'managed'], [true, 'invalid'], [false, 'pi-native'], [undefined, 'pi-native'],
+  ]) {
+    it(`retains managed startup defaults without both human permission and native source (${personalProviders}/${piDefaultSource})`, t => {
+      const fixture = enterpriseStartup({ personalProviders, piDefaultSource, reasoning: 'medium', settings: {
+        defaultProvider: 'openai-codex', defaultModel: 'gpt-6.1-sol', defaultThinkingLevel: 'high', theme: 'dark',
+      } });
+      t.after(fixture.cleanup);
+      assert.equal(fixture.result.status, 0, fixture.result.stderr);
+      assert.deepEqual(fixture.readSettings(), { defaultProvider: 'codeflare-gateway', defaultModel: 'bedrock_opus',
+        defaultThinkingLevel: 'medium', theme: 'dark' });
+      assert.deepEqual(fixture.readModels().providers['codeflare-gateway'].models.map(model => model.id), authorizedRoutes);
+    });
+  }
 });

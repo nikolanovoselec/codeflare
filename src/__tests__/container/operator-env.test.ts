@@ -30,7 +30,8 @@ function state(overrides: Partial<ContainerEnvState> = {}): ContainerEnvState {
 
 describe('operator container environment', () => {
   it('emits parent-bound Pi config and no broad credentials or whole-home restore', () => {
-    const vars = buildEnvVars(state({ _operatorContainerProfile: profile }), { ENTERPRISE_MODE: 'active' } as Env);
+    const vars = buildEnvVars(state({ _operatorContainerProfile: profile,
+      _allowPersonalPiProviders: true, _piDefaultSource: 'pi-native' }), { ENTERPRISE_MODE: 'active' } as Env);
     expect(vars.R2_ACCESS_KEY_ID).not.toBe('real-r2-key');
     expect(vars.R2_SECRET_ACCESS_KEY).not.toBe('real-r2-secret');
     expect(vars).not.toHaveProperty('ENCRYPTION_KEY');
@@ -51,6 +52,9 @@ describe('operator container environment', () => {
     expect(vars.CODEFLARE_OPERATOR_SYNC_CONFIG).not.toContain('owner@example.test');
     expect(vars).not.toHaveProperty('GIT_CLONE_REPO');
     expect(vars).not.toHaveProperty('REMOTE_CURATION_ACTIVE');
+    // REQ-ENTERPRISE-089: human source/permission hints never enter Operator startup.
+    expect(vars).not.toHaveProperty('ENTERPRISE_PI_PERSONAL_PROVIDERS');
+    expect(vars).not.toHaveProperty('ENTERPRISE_PI_DEFAULT_SOURCE');
   });
 
   it('separates finite initialization from the SDK profile without granting ambient tools', () => {

@@ -9,7 +9,7 @@ import { getAigConfig } from '../lib/aig-config';
 import { sourceResponseBytes } from './dispatcher-source-limits';
 import { DEFAULT_INFERENCE_REQUEST_BYTES } from './dispatcher-inference-limits';
 import { dispatcherCapacities, type DispatcherCapacityPolicy } from './dispatcher-capacity-limits';
-import { resolveOperatorInference, type NativeOperatorInference } from './inference-selection';
+import { resolveOperatorInference, type EligibleInference, type NativeOperatorInference } from './inference-selection';
 import { createOwnerNativePiProfileReader } from './native-pi-profile';
 import type { DispatcherInferenceSelection } from './dispatcher-inference-recovery';
 import { z } from 'zod';
@@ -270,7 +270,9 @@ export async function authorizeDispatcherPlan(plan: OperatorRuntimePlan, env: En
       pullRequest: proof.pullRequest, headSha: proof.head, createdAt: proof.createdAt,
       createdAfter: proof.activatedAt, baseBranch: proof.baseBranch };
   }
-  return { authority: { ...authority, human }, parent, policy: pinned.installation.policy, admittedTarget };
+  return { authority: { ...authority, human }, parent, policy: pinned.installation.policy, admittedTarget,
+    inferencePolicies: [pinned.installation.policy, pinned.operator.policy,
+      selected.value.installation.policy, selected.value.operator.policy] };
 }
 
 /** Current owner/source authority for Dispatcher native bootstrap and every later binding/send.
@@ -285,6 +287,7 @@ export async function prepareDispatcherNative(input: { plan: OperatorRuntimePlan
   const authorize = async (selection?: NativeOperatorInference) => {
     if (input.signal?.aborted || !await input.current()) throw new Error('Dispatcher native generation changed');
     const { authority } = await authorizeDispatcherPlan(plan, env);
+    if (!env.OPERATOR_REGISTRY) throw new Error('Dispatcher native authority denied');
     const selected = await env.OPERATOR_REGISTRY.getByName('registry').resolveManagementExecution(pinned.installation.id);
     if (!selected.ok || selected.value.installation.revision !== pinned.installation.revision
       || selected.value.operator.revision !== pinned.operator.revision
@@ -337,7 +340,7 @@ export async function createDispatcherOperation(input: {
 }): Promise<() => Promise<Response>> {
   const { plan, env, operation } = input;
   const limits = dispatcherCapacities(isManagementReceipt(plan.receipt) ? plan.receipt.selection.operator.policy : undefined);
-  const { authority, parent, policy: installationPolicy, admittedTarget } = await authorizeDispatcherPlan(plan, env);
+  const { authority, parent, policy: installationPolicy, admittedTarget, inferencePolicies } = await authorizeDispatcherPlan(plan, env);
   const current = async () => {
     await authorizeDispatcherPlan(plan, env);
     if (!await input.current()) throw new DispatcherRefusal('execution-inactive', 'Dispatcher generation changed');
@@ -496,14 +499,6 @@ export async function createDispatcherOperation(input: {
     storage: { readPrefixes: [], writePrefixes: [] },
     inference: { routeIds: [], defaultRouteId: null, reasoningLevels: [], defaultReasoningLevel: null, inheritUserDefaults: false } });
   if (inference) {
-    for (const installed of [installationPolicy, plan.receipt.selection.operator.policy]) {
-      if ('inference' in installed) {
-        const narrowed = dispatcherInferencePolicy(installed);
-        if (!(narrowed.inference.allowedSources ?? ['managed']).includes('managed')) {
-          throw new DispatcherRefusal('policy-denied', 'Dispatcher managed source denied');
-        }
-      }
-    }
     if (!input.exports.LlmInterceptor) throw new DispatcherRefusal('operation-failed', 'LLM interceptor unavailable');
     let groups = await resolveSessionAccessGroup(new Request('https://operator.internal/', {
       headers: { 'cf-access-jwt-assertion': authority.accessJwt },
@@ -514,17 +509,32 @@ export async function createDispatcherOperation(input: {
       reasoningLevels: [routes.defaultReasoning], defaultReasoningLevel: routes.defaultReasoning, inheritUserDefaults: false };
     const trusted = resolveOperatorInference({ policy, eligible: { routeIds: routes.routeCatalog,
       defaultRouteId: routes.defaultRoute, defaultReasoningLevel: routes.defaultReasoning } });
+    const enforcePolicies = (policies: typeof inferencePolicies, eligible: EligibleInference) => {
+      for (const installed of policies) {
+        // Legacy omission permits managed inference only; explicit restrictions all intersect.
+        if (installed.inference) {
+          resolveOperatorInference({ policy: dispatcherInferencePolicy(installed), eligible, trusted });
+        }
+      }
+    };
+    enforcePolicies(inferencePolicies, { routeIds: routes.routeCatalog,
+      defaultRouteId: routes.defaultRoute, defaultReasoningLevel: routes.defaultReasoning });
     await input.pinInferenceSelection?.({ routeId: trusted.routeId, reasoningLevel: trusted.reasoningLevel });
     const aig = await getAigConfig(env);
     const value = dispatcherInferenceSchema(limits).parse(operation.body);
     return async () => {
       await current();
+      const latestAuthority = await authorizeDispatcherPlan(plan, env);
+      groups = await resolveSessionAccessGroup(new Request('https://operator.internal/', {
+        headers: { 'cf-access-jwt-assertion': latestAuthority.authority.accessJwt },
+      }), env);
+      const latest = await loadEnterpriseRouteConfig(env, groups);
+      resolveOperatorInference({ policy, trusted, eligible: { routeIds: latest.routeCatalog,
+        defaultRouteId: latest.defaultRoute, defaultReasoningLevel: latest.defaultReasoning } });
+      enforcePolicies(latestAuthority.inferencePolicies, { routeIds: latest.routeCatalog,
+        defaultRouteId: latest.defaultRoute, defaultReasoningLevel: latest.defaultReasoning });
       if (input.pinInferenceSelection) {
-        groups = await resolveSessionAccessGroup(new Request('https://operator.internal/', {
-          headers: { 'cf-access-jwt-assertion': authority.accessJwt },
-        }), env);
-        const latest = await loadEnterpriseRouteConfig(env, groups);
-        if (!latest.routeCatalog.includes(trusted.routeId) || latest.defaultRoute !== trusted.routeId
+        if (latest.defaultRoute !== trusted.routeId
           || latest.defaultReasoning !== trusted.reasoningLevel) throw new Error('Dispatcher inference route changed');
         await input.pinInferenceSelection({ routeId: trusted.routeId, reasoningLevel: trusted.reasoningLevel });
       }

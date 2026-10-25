@@ -325,6 +325,34 @@ describe('applyBucketName / applyPrefsOnRestart propagate userTimezone (REQ-SESS
     };
   }
 
+  it('REQ-ENTERPRISE-089: bucket configuration persists native source and warm source-only changes regenerate startup hints', async () => {
+    const state = baseState();
+    const { writes, storage } = makeStorage();
+    const env = { ENTERPRISE_MODE: 'active' } as Env;
+    await applyBucketName(state, 'codeflare-test', env, storage, {
+      routeCatalog: ['development'], defaultRoute: 'development', defaultReasoning: 'medium',
+      allowPersonalPiProviders: true, piDefaultSource: 'pi-native',
+    });
+    expect(writes.piDefaultSource).toBe('pi-native');
+    expect(buildEnvVars(state, env).ENTERPRISE_PI_DEFAULT_SOURCE).toBe('pi-native');
+    expect(buildEnvVars(state, {} as Env)).not.toHaveProperty('ENTERPRISE_PI_DEFAULT_SOURCE');
+    expect(await applyPrefsOnRestart(state, storage, { piDefaultSource: 'managed' })).toBe(true);
+    expect(writes.piDefaultSource).toBe('managed');
+    expect(buildEnvVars(state, env)).not.toHaveProperty('ENTERPRISE_PI_DEFAULT_SOURCE');
+    expect(buildEnvVars(state, env).ENTERPRISE_PI_PERSONAL_PROVIDERS).toBe('true');
+    expect(buildEnvVars(state, env).ENTERPRISE_DEFAULT_ROUTE).toBe('development');
+    expect(buildEnvVars(state, env).ENTERPRISE_DEFAULT_REASONING).toBe('medium');
+    expect(await applyPrefsOnRestart(state, storage, { piDefaultSource: 'pi-native' })).toBe(true);
+    expect(await applyPrefsOnRestart(state, storage, { allowPersonalPiProviders: false })).toBe(true);
+    expect(writes.piDefaultSource).toBe('pi-native');
+    expect(buildEnvVars(state, env).ENTERPRISE_PI_DEFAULT_SOURCE).toBe('pi-native');
+    expect(buildEnvVars(state, env)).not.toHaveProperty('ENTERPRISE_PI_PERSONAL_PROVIDERS');
+    // A legacy authoritative catalog snapshot resets source to managed, not stale native.
+    await applyBucketName(state, 'codeflare-test', env, storage, { routeCatalog: ['development'] });
+    expect(writes.piDefaultSource).toBe('managed');
+    expect(buildEnvVars(state, env)).not.toHaveProperty('ENTERPRISE_PI_DEFAULT_SOURCE');
+  });
+
   it('REQ-ENTERPRISE-083: publishes and revokes opaque native cache capabilities on restart', async () => {
     const state = baseState();
     const { writes, storage } = makeStorage();

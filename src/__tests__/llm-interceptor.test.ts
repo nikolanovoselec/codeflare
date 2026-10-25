@@ -1056,7 +1056,7 @@ describe('native provider authorization and compat dispatch', () => {
     const encryption = Buffer.alloc(32, 7).toString('base64');
     const installationPolicy = { capabilities: ['inference', 'fetch'], resourceProfileId: null };
     const selection = { controlsRevision: 1, installation: { id: 'installation', revision: 1, policy: installationPolicy },
-      operator: { profile: 'dispatcher', revision: 1, invokers: { users: [SESSION_USER], groups: [] } },
+      operator: { profile: 'dispatcher', revision: 1, policy: installationPolicy, invokers: { users: [SESSION_USER], groups: [] } },
       release: { bundleDigest: 'a'.repeat(64) } };
     const environment = { ENCRYPTION_KEY: encryption, AIG_GATEWAY_URL: GATEWAY, AIG_TOKEN,
       KV: { get: async (key: string, type?: string) => type === 'json' && kv[key] ? JSON.parse(kv[key]) : kv[key] ?? null },

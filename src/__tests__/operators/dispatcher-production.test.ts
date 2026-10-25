@@ -5734,6 +5734,57 @@ describe('REQ-OPERATOR-048: original-lease serial SDK phase ownership', () => {
   const nativeProviderUrl = 'https://chatgpt.com/backend-api/codex/responses';
   const nativeBody = JSON.stringify({ model: 'gpt-6.1-sol', input: [], reasoning: { effort: 'low' }, stream: true });
 
+  it.each(['oauth', 'api_key'] as const)(
+    'REQ-OPERATOR-007/047/048: saved OpenAI %s selection uses matching auth, never the separate Codex login', kind => fixture(async f => {
+      const token = kind === 'oauth' ? 'synthetic-openai-account-access' : 'synthetic-openai-api-key';
+      const savedSettings = { defaultProvider: 'openai', defaultModel: 'gpt-6.1-sol', defaultThinkingLevel: 'high' };
+      nativeProfileFiles.set('/owner-bucket/.pi/agent/settings.json', savedSettings);
+      nativeProfileFiles.set('/owner-bucket/.pi/agent/auth.json', {
+        openai: kind === 'oauth'
+          ? { type: 'oauth', access: token, refresh: 'synthetic-openai-refresh', expires: Date.now() + 120_000 }
+          : { type: 'api_key', key: token },
+        'openai-codex': { type: 'oauth', access: 'synthetic-legacy-codex-access', refresh: 'synthetic-legacy-refresh',
+          accountId: 'synthetic-legacy-account', expires: Date.now() + 120_000 },
+      });
+      const savedProfile = structuredClone(nativeProfileFiles);
+      await start(f);
+      const loader = await f.loaderEnv();
+      const selected = JSON.parse(loader.OPERATOR_INFERENCE_SELECTION as string);
+      expect(selected).toMatchObject({ source: 'pi-native', provider: 'openai', model: savedSettings.defaultModel,
+        api: 'openai-responses', reasoningLevel: 'low' });
+      const binding = await f.capability.fetch(genericWire('native-binding', { profileDigest: selected.profileDigest }));
+      expect(binding.status).toBe(200);
+      const bound = await binding.json() as { selection: unknown; auth: { apiKey: string; headers?: Record<string, string | null> } };
+      expect(bound.selection).toEqual(selected);
+      expect(bound.auth.apiKey).toBe(token);
+      const admitted = await f.capability.fetch(genericWire('native-admission', {
+        operationId: 'selected-openai-auth', profileDigest: selected.profileDigest }));
+      expect(admitted.status).toBe(200);
+      const { handle } = await admitted.json() as { handle: string };
+      const headers = new Headers({ 'content-type': 'application/json', authorization: `Bearer ${bound.auth.apiKey}`,
+        'x-codeflare-native-inference': handle });
+      for (const [name, value] of Object.entries(bound.auth.headers ?? {})) {
+        if (value !== null) headers.set(name, value);
+      }
+      const response = await f.capability.fetch(new Request('https://api.openai.com/v1/responses', {
+        method: 'POST', headers, body: nativeBody }));
+      expect(response.status).toBe(201);
+      expect(await response.text()).toBe('selected OpenAI response');
+      expect((await f.capability.fetch(genericWire('native-result', { handle, outcome: 'completed' }))).status).toBe(200);
+      const sent = f.sent.filter(request => request.url === 'https://api.openai.com/v1/responses');
+      expect(sent).toHaveLength(1);
+      expect(sent[0].headers.get('authorization')).toBe(`Bearer ${token}`);
+      expect(sent[0].headers.has('chatgpt-account-id')).toBe(false);
+      expect(await sent[0].clone().json()).toMatchObject({ model: savedSettings.defaultModel, reasoning: { effort: 'low' } });
+      expect(nativeProfileFiles).toEqual(savedProfile);
+      let durable = '';
+      await f.mutateEvidence(async storage => { durable = JSON.stringify([...await storage.list()]); });
+      expect(JSON.stringify(loader) + durable).not.toMatch(
+        /synthetic-openai-account-access|synthetic-openai-api-key|synthetic-openai-refresh|synthetic-legacy-codex-access|synthetic-legacy-refresh/);
+    }, { repositoryOnly: true, recovery: true, intent4: false, facetContract: true, nativeInference: true,
+      sourceTransport: async request => request.url === 'https://api.openai.com/v1/responses'
+        ? new Response('selected OpenAI response', { status: 201 }) : Response.json({ ok: true }) }));
+
   it.each(['revoked', 'cancelled'] as const)(
     'REQ-OPERATOR-047/048: ordinary native transport needs no phase token and retains %s authority fences after cold replay', fence => fixture(async f => {
       await start(f);

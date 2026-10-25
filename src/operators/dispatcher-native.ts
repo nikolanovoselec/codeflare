@@ -59,7 +59,9 @@ export async function inspectNativeRequest(request: Request, selection: NativeOp
     signal.addEventListener('abort', abort, { once: true });
     try {
       signal.throwIfAborted();
-      const output = Readable.toWeb(decoder) as ReadableStream<Uint8Array>;
+      // Node's web-stream type lacks Workerd's extra BYOB declarations;
+      // Response consumes only the shared standard ReadableStream contract.
+      const output = Readable.toWeb(decoder) as unknown as ReadableStream<Uint8Array>;
       decoder.end(bytes);
       inspection = await readBoundedResponse(new Response(output), limit, 'Native request inspection', signal);
     } finally { signal.removeEventListener('abort', abort); decoder.destroy(); }
@@ -92,7 +94,7 @@ export async function commitNativeResponse(response: Response, selection: Native
   let authFailure: SafePiAuthFailure | undefined;
   if (response.status === 401 || response.status === 403) try {
     authFailure = nativePiAuthFailure(response.status,
-      JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes)), selection.provider, selection.api);
+      JSON.parse(new TextDecoder('utf-8', { fatal: true, ignoreBOM: false }).decode(bytes)), selection.provider, selection.api);
   } catch { /* Unrecognized failure remains an ordinary sanitized request error. */ }
   headers['content-type'] = 'application/json';
   return { kind: 'pi-native', status: response.status >= 300 && response.status < 400 ? 502 : response.status,

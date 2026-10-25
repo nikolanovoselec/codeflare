@@ -154,7 +154,7 @@ export async function forwardPersonalPi(request: Request, env: Env, props?: Pers
         // allowance, never provider text or a new model/output limit.
         const bytes = await readBoundedResponse(response, 16 * 1024, 'Native Pi error', signal);
         authFailure = nativePiAuthFailure(response.status,
-          JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes)), operatorNative.provider, operatorNative.api);
+          JSON.parse(new TextDecoder('utf-8', { fatal: true, ignoreBOM: false }).decode(bytes)), operatorNative.provider, operatorNative.api);
       } catch { /* Malformed/oversized errors remain ordinary sanitized failures. */ }
       void response.body?.cancel().catch(() => undefined);
       if (!props?.personalPi || !await authorizePersonalPi(env, props.personalPi)

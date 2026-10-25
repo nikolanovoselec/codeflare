@@ -178,6 +178,13 @@ describe('REQ-OPERATOR-047: Conductor native egress retains only structured safe
         operatorNative: { provider: 'openai-codex', model: 'gpt-6.1-sol', api: 'openai-codex-responses', reasoningLevel: 'low', binding: {
           ownerKey: 'a'.repeat(64), activityId: 'native-activity', sessionId: 'native-session', generation: 1,
           profileDigest: 'b'.repeat(64), selectionDigest: 'c'.repeat(64), deadline: Date.now() + 60_000 } } });
+      // The SDK's Codex endpoint, not the generic Responses suffix, is allowed.
+      const wrongPath = await controller.fetch(new Request('https://chatgpt.com/backend-api/responses', {
+        method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer synthetic-native-access' },
+        body: JSON.stringify({ model: 'gpt-6.1-sol', reasoning: { effort: 'low' } }),
+      }));
+      expect(wrongPath.status).toBe(403);
+      expect(await wrongPath.json()).not.toHaveProperty('authFailure');
       const response = await controller.fetch(new Request('https://chatgpt.com/backend-api/codex/responses', {
         method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer synthetic-native-access' },
         body: JSON.stringify({ model: 'gpt-6.1-sol', reasoning: { effort: 'low' } }),
