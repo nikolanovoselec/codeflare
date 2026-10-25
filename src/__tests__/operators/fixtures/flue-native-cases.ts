@@ -183,7 +183,8 @@ export function registerNativeDispatcherCases(
     return { id, value };
   }
 
-  if (group === 'flue') describe('REQ-OPERATOR-047/048: production Activity plus pinned Flue recovery', () => {
+  const composedAttemptLimits = group === 'flue' ? [1, 2].filter(() => ownsNext()) : [];
+  if (composedAttemptLimits.length) describe('REQ-OPERATOR-047/048: production Activity plus pinned Flue recovery', () => {
     beforeEach(() => harness.reset(), 60_000);
     type Composed = { instance: string; fiberEvents: FiberObservation[] | null;
       nativeSettlement?: NativeFaultSettlement | null; nativeImport?: NativeFaultImport | null; nativeOmission?: NativeImportOmission | null;
@@ -242,7 +243,7 @@ export function registerNativeDispatcherCases(
     // Ordinary/supplemental, committed-reset, duplicate, precommit-reset, incomplete and native-error rows,
     // plus saved-submission budget/recovery workloads, are retired after ProxyWorker connection loss.
     // Do not recreate equivalents; retirement supplies no passing behavioral evidence.
-    it.each([1, 2])('REQ-OPERATOR-048: composed persistent interruption exhausts the configured %i attempts without an effect or collection', async attemptLimit => {
+    vitestIt.each(composedAttemptLimits)('REQ-OPERATOR-048: composed persistent interruption exhausts the configured %i attempts without an effect or collection', async attemptLimit => {
       const pinned = await pinnedArtifact(false, false, true);
       const id = `exhausted-${crypto.randomUUID()}`;
       const admission = await composed(id, { action: 'start', ...pinned, scenario: 'persistent', attemptLimit });
