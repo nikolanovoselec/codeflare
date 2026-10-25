@@ -4,7 +4,8 @@ import { captureError, type Boundary, type ReasonCode } from './dispatcher-diagn
 import type { Env } from '../types';
 import type { VerifiedHumanAccessClaims } from '../lib/jwt';
 import { AppError, ValidationError } from '../lib/error-types';
-import { canInvokeOperator } from '../lib/access';
+import { canInvokeOperator, loadEnterpriseRouteConfig, requireOperatorHumanContext,
+  resolveBucketName, resolveSessionAccessGroup } from '../lib/access';
 import { createOperatorExecutionContext, openOperatorExecutionAccess } from './execution-context';
 import { openOperatorSecret } from './protected-secrets';
 import { parseDispatcherBundle, parseOperatorBundle, parseOperatorManifest } from './distribution';
@@ -17,6 +18,8 @@ import type { ManagementAdmissionReceipt, ManagementExecutionSelection, Operator
 import { parseOperatorConsumerInvocation } from './consumer-contracts';
 import { projectOperatorPackageResources, type OperatorPackageResourceProjection } from './package-resources';
 import { bindClaimedConductorInvocation } from './conductor-production';
+import { createOwnerNativePiProfileReader } from './native-pi-profile';
+import { resolveOperatorInference, type NativeOperatorInference } from './inference-selection';
 
 const ID = z.string().regex(/^[A-Za-z0-9_-]{1,128}$/);
 const invocationSchema = z.json();
@@ -103,10 +106,73 @@ export async function prepareOperatorActivity(input: unknown, authority: {
     bounded = configuredRenovateInvocation(managementSelection.installation.configurationJson, bounded);
   }
   const usesConsumerContract = managementSelection?.operator.profile === 'conductor';
+  const deadline = authority.human.expiresAt * 1000;
   const invocation = usesConsumerContract
-    ? (() => {
+    ? await (async () => {
       const consumer = parseOperatorConsumerInvocation(bounded);
       if (consumer.operatorId !== operatorId) throw new ValidationError('Invalid operator invocation');
+      const requested = consumer.resources.inference;
+      // Verified boundary preparation already resolved its owner selection before reserving the Activity.
+      if (requested && 'source' in requested && !parentReservation?.boundary) {
+        const pinned = managementSelection!;
+        if (Date.now() >= deadline) throw new AppError('FORBIDDEN', 403, 'Human authority expired');
+        const ownerBucket = await resolveBucketName(env, authority.human.email);
+        let selected: NativeOperatorInference | undefined;
+        const authorizeInference = async () => {
+          const request = new Request('https://operator.internal/', {
+            headers: { 'cf-access-jwt-assertion': authority.accessJwt },
+          });
+          const current = await requireOperatorHumanContext(request, env, authority.human.email);
+          if (current.human.subject !== authority.human.subject
+            || current.human.email.toLowerCase() !== authority.human.email.toLowerCase()
+            || current.human.issuer !== authority.human.issuer
+            || JSON.stringify(current.human.audiences) !== JSON.stringify(authority.human.audiences)
+            || Math.min(deadline, current.human.expiresAt * 1000) <= Date.now()) {
+            throw new AppError('FORBIDDEN', 403, 'Conductor inference authority changed');
+          }
+          const latest = await registry.resolveManagementExecution(pinned.installation.id);
+          if (!latest.ok || latest.value.controlsRevision !== pinned.controlsRevision
+            || latest.value.installation.id !== pinned.installation.id
+            || latest.value.installation.revision !== pinned.installation.revision
+            || latest.value.operator.operatorId !== pinned.operator.operatorId
+            || latest.value.operator.revision !== pinned.operator.revision
+            || latest.value.operator.profile !== 'conductor'
+            || latest.value.release.id !== pinned.release.id
+            || latest.value.release.bundleDigest !== pinned.release.bundleDigest
+            || !canInvokeOperator(current.human, latest.value.operator)
+            || await resolveBucketName(env, current.human.email) !== ownerBucket) {
+            throw new AppError('FORBIDDEN', 403, 'Conductor inference authority changed');
+          }
+          const groups = await resolveSessionAccessGroup(request, env);
+          const eligible = await loadEnterpriseRouteConfig(env, groups);
+          if (eligible.allowPersonalPiProviders !== true) {
+            throw new AppError('FORBIDDEN', 403, 'Conductor native source unavailable');
+          }
+          for (const policy of [pinned.operator.policy, pinned.installation.policy,
+            latest.value.operator.policy, latest.value.installation.policy]) {
+            const restriction = policy.inference;
+            if (!restriction?.allowedSources?.includes('pi-native')) {
+              throw new AppError('FORBIDDEN', 403, 'Conductor native source not approved');
+            }
+            if (selected) {
+              try { resolveOperatorInference({ policy: { inference: restriction }, trusted: selected,
+                eligible: { routeIds: eligible.routeCatalog, defaultRouteId: eligible.defaultRoute,
+                  defaultReasoningLevel: eligible.defaultReasoning, allowPersonalPiProviders: true } }); }
+              catch { throw new ValidationError('Conductor native selection is not eligible'); }
+            }
+          }
+          if (Date.now() >= deadline) throw new AppError('FORBIDDEN', 403, 'Human authority expired');
+        };
+        const reader = await createOwnerNativePiProfileReader({ env, ownerBucket, deadline, authorize: authorizeInference });
+        selected = await reader.resolveSelection(pinned.installation.piReasoningOverride);
+        if (requested.provider !== selected.provider || requested.model !== selected.model
+          || requested.api !== selected.api || requested.reasoningLevel !== selected.reasoningLevel
+          || requested.profileDigest !== selected.profileDigest) {
+          throw new ValidationError('Conductor native selection conflicts with the owner profile');
+        }
+        await authorizeInference();
+        consumer.resources.inference = selected;
+      }
       return parseOperatorConsumerInvocation({ ...consumer, operatorId, activityId });
     })()
     : bounded;
@@ -120,7 +186,6 @@ export async function prepareOperatorActivity(input: unknown, authority: {
   }
   const startCapability = capability();
   const startVerifier = await digest(startCapability);
-  const deadline = authority.human.expiresAt * 1000;
   const startExpiresAt = Math.min(deadline, Date.now() + 5 * 60_000);
   const artifactDigest = managementSelection ? managementSelection.release.bundleDigest : legacySelection!.artifactDigest;
   const policyJson = managementSelection ? JSON.stringify(managementSelection.installation.policy) : legacySelection!.policyJson;

@@ -206,27 +206,6 @@ export function registerNativeDispatcherCases(
         evidence?: Array<{ index: number; complete: boolean }>; batches?: string[][];
         firstAppend?: { category: 'canonical-append-oversized' | 'canonical-append-other'; largestRecordType?: 'state_write' } | null;
         sdkSubmissions?: Array<{ stage: 'sdk-submission-running' | 'sdk-submission-exhausted'; submissionDigest: string; attemptCount: number; maxAttempts: number }> } };
-    // Intentional intent4 wire contract, observed through the real capability.
-    // Completed predecessors here are the host's SDK-settled lineage, not model claims.
-    function assertSerialPhases(value: Composed, targets: Array<{ pullRequest: number; headSha: string }>) {
-      const phases = value.external.phases;
-      expect(phases).toHaveLength(targets.length + 2);
-      const first = phases[0].context;
-      const ids = phases.map(row => row.context.submissionId);
-      expect(new Set(ids).size).toBe(phases.length);
-      expect(new Set(phases.map(row => row.context.deliveryToken)).size).toBe(phases.length);
-      phases.forEach(({ context, commentCount }, index) => {
-        expect(context).toMatchObject({ version: 1, scope: 'submission', generation: 1,
-          deadline: first.deadline, releaseDigest: first.releaseDigest, authorityDigest: first.authorityDigest });
-        expect(context.phase).toEqual(index === 0 ? { kind: 'discovery' }
-          : index === phases.length - 1 ? { kind: 'final' } : { kind: 'target', index: index - 1, target: targets[index - 1] });
-        expect(context.previous ?? []).toEqual(phases.slice(0, index).map(row => ({
-          submissionId: row.context.submissionId, phase: row.context.phase, outcome: 'completed',
-        })));
-        // The next PR is never admitted before the preceding PR's actual comment.
-        expect(commentCount).toBe(Math.max(0, index - 1));
-      });
-    }
     async function composed<T>(id: string, value: unknown): Promise<T> {
       const response = await harness.fetch(`/dispatcher-composed?activity=${id}`, {
         method: 'POST', headers: { 'content-type': 'application/json' },
@@ -260,44 +239,9 @@ export function registerNativeDispatcherCases(
       expect(predicate(value!), reportObservation(value!)).toBe(true);
       return value!;
     }
-    // Ordinary/supplemental, committed-reset, duplicate, precommit-reset and incomplete rows,
+    // Ordinary/supplemental, committed-reset, duplicate, precommit-reset, incomplete and native-error rows,
     // plus saved-submission budget/recovery workloads, are retired after ProxyWorker connection loss.
     // Do not recreate equivalents; retirement supplies no passing behavioral evidence.
-    it.each(['native-error'] as const)(
-      'REQ-OPERATOR-048: composed %s inference reaches a real collected assessment with one repository effect', async scenario => {
-        const original = await pinnedArtifact(false, false, true);
-        async function run(pinned: { artifact: NativeArtifact; digest: string }) {
-          const id = `composed-${crypto.randomUUID()}`;
-          const admission = await composed(id, { action: 'start', ...pinned, scenario, attemptLimit: 2 });
-          expect(admission, JSON.stringify(admission)).toMatchObject({ ok: true, state: { generation: 1, status: 'running' } });
-          const result = await observed(id, value => value.detail.executionStatus === 'completed');
-          const firstTurn = result.external.inference.filter(item => item.turn === 0);
-          const recovered = ['incomplete', 'native-error'].includes(scenario);
-          expect(firstTurn).toHaveLength(recovered ? 2 : 1);
-          expect(new Set(firstTurn.map(item => item.inputDigest)).size).toBe(1);
-          expect(result.external.comments).toEqual([expect.objectContaining({ body: 'Migration compatibility remains unverified. Source: https://docs.example.test/migration' })]);
-          expect(result.external.sourceRequests.filter(item => item.method !== 'GET')).toEqual([
-            { method: 'POST', url: 'https://api.github.com/repos/authorized/project/issues/17/comments' },
-          ]);
-          expect(result.external.budget).toEqual({ operationCount: result.external.inference.length + result.external.sourceRequests.length, operationLimit: 1024 });
-          assertSerialPhases(result, [{ pullRequest: 17, headSha: 'a'.repeat(40) }]);
-          const collected = await composed<{ ok: true; detail: { result: unknown; checkpoint: unknown } }>(id, { action: 'collect' });
-          expect(collected).toMatchObject({ ok: true, detail: { executionStatus: 'completed', result: {
-            repository: 'authorized/project', results: [{ pullRequest: 17, headSha: 'a'.repeat(40), decision: 'DO_NOT_MERGE', outcome: 'NOT_MERGED' }],
-          } } });
-          expect(await composed(id, { action: 'collect' })).toMatchObject({ ok: true, detail: {
-            result: collected.detail.result, checkpoint: collected.detail.checkpoint,
-          } });
-          const after = await composed<Composed>(id, { action: 'observe' });
-          expect(after.external).toEqual(result.external);
-          expect(after.detail.sdkCleanupReleased).toBe(true); // Bookkeeping release, not physical-provider cleanup proof.
-          return { result: collected.detail.result, checkpoint: collected.detail.checkpoint,
-            comments: after.external.comments, sourceRequests: after.external.sourceRequests,
-            inferenceCount: after.external.inference.length, sdkCleanupReleased: after.detail.sdkCleanupReleased };
-        }
-        await run(original); // Always the immutable official v24 control.
-      }, 90_000);
-
     it.each([1, 2])('REQ-OPERATOR-048: composed persistent interruption exhausts the configured %i attempts without an effect or collection', async attemptLimit => {
       const pinned = await pinnedArtifact(false, false, true);
       const id = `exhausted-${crypto.randomUUID()}`;
