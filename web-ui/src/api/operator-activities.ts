@@ -9,7 +9,6 @@ import { diagnosticBindingSchema, diagnosticCursorSchema, diagnosticRecordIdSche
 const providerId = z.string().regex(/^[a-z0-9][a-z0-9._-]{0,127}$/);
 export const safePiAuthFailureSchema = z.strictObject({ code: z.literal('PI_LOGIN_REQUIRED'),
   reason: z.enum(['missing', 'expired', 'rejected']), provider: providerId });
-export type SafePiAuthFailure = z.infer<typeof safePiAuthFailureSchema>;
 export const piLoginRecoveryCopy = 'The saved Pi authentication is missing, expired or rejected. Open your Pi session, run /login or update the API key, wait for successful synchronization to R2, then explicitly retry.';
 const piReasoningLevel = z.enum(['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']);
 export const inferenceSelectionSchema = z.union([
@@ -22,7 +21,6 @@ export const inferenceSelectionSchema = z.union([
     profileDigest: z.string().regex(/^[a-f0-9]{64}$/).optional(),
     reasoningSource: z.enum(['installation', 'model', 'global', 'default', 'inherited']).optional() }),
 ]);
-export type ActivityInferenceSelection = z.infer<typeof inferenceSelectionSchema>;
 
 const status = z.enum(['queued', 'running', 'waiting', 'completed', 'failed', 'cancel-requested', 'unknown']);
 const cleanup = z.enum(['pending', 'stopping', 'stopped', 'released', 'unknown']);

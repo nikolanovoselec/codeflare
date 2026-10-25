@@ -732,7 +732,7 @@ async function fixture(test: (f: {
     let exceedDeadline = false;
     let composeElapsed = false;
     const sent: Request[] = [];
-    const nativeTransport = async (request: Request) => {
+    const nativeTransport = (request: Request) => {
       sent.push(request.clone());
       return options.sourceTransport!(request);
     };
