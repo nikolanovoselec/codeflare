@@ -187,7 +187,8 @@ RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-reco
     # Network tools
     curl \
     openssh-client \
-    # Require Debian's fixed regex, media and event builds before image publication.
+    # Require Debian's fixed compression, regex, media and event builds before publication.
+    libbrotli1 \
     libpcre2-8-0 \
     libexpat1 \
     libde265-0 \
@@ -212,6 +213,7 @@ RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-reco
     slirp4netns \
     iptables \
     # REQ-SEC-011: require fixed Debian security builds and invalidate stale apt layers.
+    && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' libbrotli1)" ge '1.0.9-2+deb12u1' \
     && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' libpcre2-8-0)" ge '10.42-1+deb12u2' \
     && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' libexpat1)" ge '2.5.0-1+deb12u5' \
     && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' libssh2-1)" ge '1.10.0-3+deb12u1' \
