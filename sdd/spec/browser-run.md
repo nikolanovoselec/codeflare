@@ -254,7 +254,7 @@ A real-browser capability for advanced-mode agents, backed by Cloudflare Browser
 
 1. The container's `CLOUDFLARE_API_TOKEN` is the non-secret placeholder `ENTERPRISE_BROWSER_TOKEN_PLACEHOLDER` (`'codeflare-enterprise'`), emitted only when an admin token is configured (else absent → browser-run unregistered per [REQ-BROWSER-007](#req-browser-007-enterprise-admin-configured-browser-rendering-token) AC6). The real token is read worker-side and never written to container env. <!-- @impl: src/lib/browser-render-token.ts::applyEnterpriseBrowserToken --> <!-- @impl: src/lib/browser-render-token.ts::getEnterpriseBrowserCreds --> <!-- @test: src/__tests__/lib/browser-render-token.test.ts (REQ-BROWSER-008: enterprise + configured sets the PLACEHOLDER (never the real token) + admin account, preserves githubToken) -->
 2. Enterprise registers Cloudflare API transport ahead of the strict-egress catch-all, independently of Browser configuration and strict mode. <!-- @impl: src/container/container-interception.ts::browserRendering --> <!-- @test: src/__tests__/container/browser-interception.test.ts (REQ-BROWSER-008 AC2: registered Browser dispatch precedes strict catch-all with strict=%s) -->
-3. Managed requests with absent credentials or the exact enterprise placeholder receive direct forwarding with the Worker-held admin token only on the configured account's `/browser-rendering/*` path. <!-- @impl: src/cloudflare-browser-interceptor.ts::CloudflareBrowserInterceptor --> <!-- @impl: src/cloudflare-browser-interceptor.ts::isBrowserRenderingPath --> <!-- @test: src/__tests__/cloudflare-browser-interceptor.test.ts (REQ-BROWSER-008: CloudflareBrowserInterceptor CDP WebSocket) -->
+3. Managed REST and CDP requests with absent credentials or the exact enterprise placeholder receive the Worker-held admin token only on the configured account's `/browser-rendering/*` path. Strict ON forwards through `EGRESS`; strict OFF retains direct forwarding. Strict ON without the binding returns `503 EGRESS_UNAVAILABLE`; Gateway/API refusals surface unchanged and transport exceptions return the bounded `502 BROWSER_FETCH_FAILED`, with no direct or alternate-identity retry. Successful CDP upgrades retain the existing fresh-socket bridge. <!-- @test: src/__tests__/cloudflare-browser-interceptor.test.ts (managed REST preserves the request and wrapped Markdown response with strict=%s) --> <!-- @test: src/__tests__/cloudflare-browser-interceptor.test.ts (managed strict REST/CDP upgrade=$upgrade fails closed on $failure without identity fallback) --> <!-- @test: src/__tests__/cloudflare-browser-interceptor.test.ts (REQ-BROWSER-008: CloudflareBrowserInterceptor CDP WebSocket) --> <!-- @test: src/__tests__/container/browser-interception.test.ts (REQ-BROWSER-008 AC3: registered Markdown tool preserves Gateway result/refusal blocked=%s) -->
 4. Managed non-Browser API requests use strict inspection when enabled, otherwise return `403`, except for permitted current-human Workers AI delegation under [REQ-ENTERPRISE-090](models-and-routing.md#req-enterprise-090-native-pi-forwarding-under-current-administration-permission). <!-- @impl: src/cloudflare-browser-interceptor.ts::CloudflareBrowserInterceptor --> <!-- @test: src/__tests__/cloudflare-browser-interceptor.test.ts (REQ-BROWSER-008: CloudflareBrowserInterceptor REST path) -->
 5. Managed Browser requests without configured administrator credentials fail closed with `401 BROWSER_NO_TOKEN` before any upstream call. <!-- @impl: src/cloudflare-browser-interceptor.ts::CloudflareBrowserInterceptor --> <!-- @test: src/__tests__/container/browser-interception.test.ts (REQ-BROWSER-008 AC5: missing %s leaves Browser traffic without admin credentials) -->
 6. Authorized caller-authenticated Cloudflare API traffic uses strict inspection when enabled, otherwise direct egress, independently of Browser configuration. <!-- @impl: src/cloudflare-browser-interceptor.ts::CloudflareBrowserInterceptor --> <!-- @test: src/__tests__/container/browser-interception.test.ts (REQ-BROWSER-008/REQ-AGENT-078: caller identity through registered $mode transport) -->
@@ -262,12 +262,13 @@ A real-browser capability for advanced-mode agents, backed by Cloudflare Browser
 
 **Constraints:**
 
-- Mirrors the GitHub interception pattern: placeholder in container, real credential stamped at the boundary; the trusted account is bound in session-scoped configuration, never read from the request (no request can widen the injection to another account).
-- Browser tool registration and administrator placeholder emission retain their existing credential prerequisites.
-- Caller credentials never widen administrator token scope.
-- Native-provider permissions and Operator restrictions remain authoritative for every credential lane.
-- The `CloudflareBrowserInterceptor` serves **two modes** on `api.cloudflare.com`, discriminated by props: this enterprise mode (fixed admin token, `/browser-rendering/*`-scoped) and the `!isEnterpriseMode`-guarded non-enterprise OAuth mode ([REQ-AGENT-078](agents.md#req-agent-078-cloudflare-oauth-token-refreshed-at-the-apicloudflarecom-boundary)), which never coexist.
-- The Workers Browser Rendering binding (`env.BROWSER`) cannot replace this: it is in-Worker-only and exposes no browser-level CDP WebSocket, which `chrome-devtools-mcp` (running in the container) requires ([REQ-BROWSER-006](#req-browser-006-pi-interactive-browser-via-chrome-devtools-through-the-pi-mcp-adapter)).
+- Container placeholders become real credentials only at the Worker boundary; session configuration, never requests, binds the trusted account.
+- Tool registration and administrator-placeholder prerequisites remain unchanged; caller credentials never widen administrator scope.
+- Native permissions and Operator restrictions govern every credential lane.
+- Enterprise administrator `/browser-rendering/*` and guarded non-enterprise OAuth modes never coexist ([REQ-AGENT-078](agents.md#req-agent-078-cloudflare-oauth-token-refreshed-at-the-apicloudflarecom-boundary)).
+- Existing CDP clients retain Gateway transport and fresh-socket bridging; no Browser binding/client migration ([REQ-BROWSER-006](#req-browser-006-pi-interactive-browser-via-chrome-devtools-through-the-pi-mcp-adapter)).
+- Gateway enables eligible Browser API REST policy/AV/DLP, not remote Chrome network inspection, Markdown sanitization, prompt-injection prevention or WebSocket-frame DLP; authorized live compatibility/inspection evidence remains separate.
+- Both namespace exclusions grant routing, not wider administrator authority ([REQ-ENTERPRISE-023](security.md#req-enterprise-023-strict-gateway-egress-controller-transport)). REST formats, output limits, six-minute deadlines and cancellation remain unchanged ([REQ-BROWSER-010](#req-browser-010-rest-request-lifecycle)).
 
 **Priority:** P2
 
@@ -275,7 +276,9 @@ A real-browser capability for advanced-mode agents, backed by Cloudflare Browser
 
 **Verification:** Automated test ([interceptor tests](../../src/__tests__/cloudflare-browser-interceptor.test.ts) (account-scoped REST + CDP WS injection, rest→Gateway, fail-closed) + [registered caller/managed transport](../../src/__tests__/container/browser-interception.test.ts) + [container placeholder](../../src/__tests__/container/container-env-llm.test.ts) + [worker-side resolver](../../src/__tests__/lib/browser-render-token.test.ts))
 
-**Status:** Implemented
+**Status:** Planned
+
+Task #114 amendment: the complete test/spec RED batch is authored; behavioral RED is not yet executed. The baseline still forwards trusted managed Browser traffic directly. Existing credential/dispatch controls remain implemented; strict-aware managed REST/CDP transport and its acceptance evidence are pending GREEN and CI. Changed AC3 intentionally has test anchors but no implemented-transport anchor yet.
 
 ---
 

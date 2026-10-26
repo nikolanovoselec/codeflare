@@ -601,20 +601,48 @@ describe('REQ-ENTERPRISE-016 / AD86: EgressController account-scoped exemption (
     fetchSpy.mockRestore();
   });
 
-  it('forwards THIS account CF API (browser-rendering path) DIRECT and transparent — never env.EGRESS, no re-sign', async () => {
-    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('cf', { status: 200 }));
-    const { controller, egressFetch } = makeController({}, { accountId: 'acc' });
-    await controller.fetch(
-      new Request('https://api.cloudflare.com/client/v4/accounts/acc/browser-rendering/snapshot', {
-        headers: { authorization: 'Bearer caller-cf-token' },
-      }),
-    );
-    expect(fetchSpy).toHaveBeenCalled();
-    expect(egressFetch).not.toHaveBeenCalled();
-    // CF API is a transparent passthrough (REQ-BROWSER-007): caller token preserved, not re-signed.
-    const fwd = fetchSpy.mock.calls[0][0] as Request;
-    expect(fwd.headers.get('authorization')).toBe('Bearer caller-cf-token');
-    fetchSpy.mockRestore();
+  it('routes own-account Browser REST through Gateway transparently without re-signing or admin injection', async () => {
+    const direct: Request[] = [];
+    const inspected: Request[] = [];
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async input => {
+      direct.push(input as Request); return new Response('unsafe direct result');
+    });
+    try {
+      const { controller } = makeController({ EGRESS: { fetch: async (request: Request) => {
+        inspected.push(request); return new Response('inspected Browser result');
+      } } as Fetcher }, { accountId: 'acc' });
+      const url = 'https://api.cloudflare.com/client/v4/accounts/acc/browser-rendering/snapshot';
+      const response = await controller.fetch(new Request(url, { method: 'POST', body: '{"url":"https://example.com/"}',
+        headers: { authorization: 'Bearer caller-cf-token', cookie: 'caller=session', connection: 'keep-alive' } }));
+      expect(response.status).toBe(200);
+      expect(await response.text()).toBe('inspected Browser result');
+      expect(inspected.map(request => ({ url: request.url, authorization: request.headers.get('authorization'),
+        cookie: request.headers.get('cookie'), connection: request.headers.get('connection'),
+        method: request.method, redirect: request.redirect }))).toEqual([{
+        url, authorization: 'Bearer caller-cf-token', cookie: 'caller=session', connection: null,
+        method: 'POST', redirect: 'manual',
+      }]);
+      expect(await inspected[0]?.text()).toBe('{"url":"https://example.com/"}');
+      expect(direct).toEqual([]);
+    } finally { fetchSpy.mockRestore(); }
+  });
+
+  it.each([false, true])('own-account Browser fallback upgrade=%s refuses missing Gateway without a direct send', async upgrade => {
+    const direct: Request[] = [];
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async input => {
+      direct.push(input as Request); return new Response('unsafe direct result');
+    });
+    try {
+      const { controller } = makeController({ EGRESS: undefined }, { accountId: 'acc' });
+      const response = await controller.fetch(new Request(
+        `https://api.cloudflare.com/client/v4/accounts/acc/browser-rendering/${upgrade ? 'devtools/browser' : 'markdown'}`,
+        { headers: { authorization: 'Bearer codeflare-enterprise', ...(upgrade ? { upgrade: 'websocket' } : {}) } },
+      ));
+      expect(response.status).toBe(503);
+      expect(await response.json()).toMatchObject({ code: 'EGRESS_UNAVAILABLE' });
+      expect(response.webSocket).toBeNull();
+      expect(direct).toEqual([]);
+    } finally { fetchSpy.mockRestore(); }
   });
 
   it('routes ANOTHER account R2 through env.EGRESS (Gateway) — NOT direct (closes cross-account exfil)', async () => {
@@ -679,39 +707,72 @@ describe('REQ-ENTERPRISE-016: EgressController bridges WebSocket upgrades (catch
     vi.unstubAllGlobals();
   });
 
-  it('bridges a THIS-account CDP upgrade: accepts the upstream, returns a 101 with a FRESH client webSocket (not as-is), direct not env.EGRESS', async () => {
-    const upstreamWs = makeUpstreamWs();
-    const ws101 = { status: 101, webSocket: upstreamWs, headers: new Headers() } as unknown as Response;
-    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ws101);
-    const { controller, egressFetch } = makeController({}, { accountId: 'acc' });
-    const res = await controller.fetch(
-      new Request('https://api.cloudflare.com/client/v4/accounts/acc/browser-rendering/devtools/browser', {
-        headers: { Upgrade: 'websocket' },
-      }),
-    );
-    expect(res.status).toBe(101);
-    const clientWs = (res as unknown as { webSocket?: unknown }).webSocket;
-    expect(clientWs).toBeTruthy();
-    expect(clientWs).not.toBe(upstreamWs); // bridged, NOT returned as-is
-    expect(upstreamWs.accept).toHaveBeenCalled(); // upstream socket taken up
-    // upstream→client frame + close forwarding is wired (fails if the bridge reverts to return-as-is)
-    expect(upstreamWs.addEventListener).toHaveBeenCalledWith('message', expect.any(Function));
-    expect(upstreamWs.addEventListener).toHaveBeenCalledWith('close', expect.any(Function));
-    expect(fetchSpy).toHaveBeenCalled();
-    expect(egressFetch).not.toHaveBeenCalled();
-    fetchSpy.mockRestore();
+  it('bridges own-account CDP through Gateway with a fresh client and bidirectional text/binary', async () => {
+    const upstream = new WebSocketPair();
+    const browser = upstream[1];
+    browser.accept();
+    const direct: Request[] = [];
+    const inspected: Request[] = [];
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async input => {
+      direct.push(input as Request); return new Response('unsafe direct result');
+    });
+    let client: WebSocket | undefined;
+    const next = (socket: WebSocket) => new Promise<string | ArrayBuffer>(resolve => {
+      socket.addEventListener('message', event => resolve(event.data), { once: true });
+    });
+    try {
+      const { controller } = makeController({ EGRESS: { fetch: async (request: Request) => {
+        inspected.push(request); return new Response(null, { status: 101, webSocket: upstream[0] });
+      } } as Fetcher }, { accountId: 'acc' });
+      const url = 'https://api.cloudflare.com/client/v4/accounts/acc/browser-rendering/devtools/browser';
+      const response = await controller.fetch(new Request(url, {
+        headers: { Upgrade: 'websocket', authorization: 'Bearer caller-cf-token' },
+      }));
+      expect(response.status).toBe(101);
+      client = response.webSocket!;
+      expect(client).not.toBe(upstream[0]);
+      client.accept();
+      for (const [sender, receiver] of [[client, browser], [browser, client]]) {
+        const text = next(receiver);
+        sender.send('cdp-frame');
+        expect(await text).toBe('cdp-frame');
+        const binary = next(receiver);
+        sender.send(new Uint8Array([0, 127, 255]).buffer);
+        expect(new Uint8Array(await binary as ArrayBuffer)).toEqual(new Uint8Array([0, 127, 255]));
+      }
+      expect(inspected.map(request => ({ url: request.url, authorization: request.headers.get('authorization'),
+        upgrade: request.headers.get('upgrade') }))).toEqual([{
+        url, authorization: 'Bearer caller-cf-token', upgrade: 'websocket',
+      }]);
+      expect(direct).toEqual([]);
+      const closed = new Promise<CloseEvent>(resolve => client!.addEventListener('close', resolve, { once: true }));
+      browser.close(1000, 'browser done');
+      const event = await closed;
+      expect(event.code).toBe(1000);
+      expect(event.reason).toBe('browser done');
+    } finally { client?.close(); browser.close(); fetchSpy.mockRestore(); }
   });
 
-  it('surfaces a non-101 upstream (e.g. an error response) unchanged', async () => {
-    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('denied', { status: 403 }));
-    const { controller } = makeController({}, { accountId: 'acc' });
-    const res = await controller.fetch(
-      new Request('https://api.cloudflare.com/client/v4/accounts/acc/browser-rendering/devtools/browser', {
-        headers: { Upgrade: 'websocket' },
-      }),
-    );
-    expect(res.status).toBe(403);
-    fetchSpy.mockRestore();
+  it('surfaces a non-101 Gateway CDP refusal unchanged without direct retry', async () => {
+    const direct: Request[] = [];
+    const inspected: Request[] = [];
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async input => {
+      direct.push(input as Request); return new Response('unsafe direct result');
+    });
+    try {
+      const { controller } = makeController({ EGRESS: { fetch: async (request: Request) => {
+        inspected.push(request); return new Response('Gateway policy refusal', { status: 403 });
+      } } as Fetcher }, { accountId: 'acc' });
+      const url = 'https://api.cloudflare.com/client/v4/accounts/acc/browser-rendering/devtools/browser';
+      const res = await controller.fetch(new Request(url, { headers: { Upgrade: 'websocket', authorization: 'Bearer caller-cf-token' } }));
+      expect(res.status).toBe(403);
+      expect(await res.text()).toBe('Gateway policy refusal');
+      expect(res.webSocket).toBeNull();
+      expect(inspected.map(request => ({ url: request.url, authorization: request.headers.get('authorization') }))).toEqual([
+        { url, authorization: 'Bearer caller-cf-token' },
+      ]);
+      expect(direct).toEqual([]);
+    } finally { fetchSpy.mockRestore(); }
   });
 
   it('bridges a non-account-scoped WS upgrade through env.EGRESS with the Upgrade header preserved (not stripped)', async () => {

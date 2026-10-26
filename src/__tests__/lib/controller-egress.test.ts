@@ -4,10 +4,10 @@
  * - hasStrictGatewayEgress: true ONLY when enterprise mode AND the KV toggle is
  *   'active'; default OFF on an absent key or non-enterprise deploy.
  * - isAccountScopedDestination: true ONLY for THIS deployment's own account — its R2
- *   endpoint (path-style + vhost-bucket) and its account-scoped CF API path. Any other
- *   account's host, and an absent/empty accountId, are NOT exempt (fail-secure).
- * - controllerFetch: account-scoped destinations egress DIRECT (global fetch); every
- *   other host rides env.EGRESS, fail-closed with 503 EGRESS_UNAVAILABLE (no global-fetch
+ *   endpoint (path-style + vhost-bucket) and non-Browser account-scoped CF API paths.
+ *   Browser namespaces, other accounts, and absent accountId are NOT exempt.
+ * - controllerFetch: exempt destinations egress DIRECT (global fetch); Browser and
+ *   every other host ride env.EGRESS, fail-closed with 503 EGRESS_UNAVAILABLE (no global-fetch
  *   fallback) when the binding is unbound.
  * - isDisallowedEgressHost: SSRF guard — rejects loopback / RFC 1918 / link-local /
  *   metadata / IPv6 literals, allows public hosts.
@@ -69,7 +69,7 @@ describe('REQ-ENTERPRISE-016 / AD86: isAccountScopedDestination (own account onl
     'https://mybucket.acc123.r2.cloudflarestorage.com/key', // own R2 virtual-hosted bucket form
     'https://acc123.r2.cloudflarestorage.com./b/k', // trailing-dot FQDN form normalizes
     'https://ACC123.R2.CLOUDFLARESTORAGE.COM/b/k', // case-insensitive host
-    'https://api.cloudflare.com/client/v4/accounts/acc123/browser-rendering/snapshot', // own CF API path
+    'https://api.cloudflare.com/client/v4/accounts/acc123/workers/scripts', // unrelated own CF API remains direct
     'https://api.cloudflare.com/client/v4/accounts/acc123/ai/v1/chat/completions', // own CF API path
   ])('exempts THIS account destination %s', (url) => {
     expect(isAccountScopedDestination(new URL(url), ACCT)).toBe(true);
@@ -78,6 +78,8 @@ describe('REQ-ENTERPRISE-016 / AD86: isAccountScopedDestination (own account onl
   it.each([
     'https://other.r2.cloudflarestorage.com/bucket/key', // ANOTHER account R2 -> Gateway
     'https://b.other.r2.cloudflarestorage.com/key', // another account vhost -> Gateway
+    'https://api.cloudflare.com/client/v4/accounts/acc123/browser-rendering/snapshot', // Browser is inspected even on own account
+    'https://api.cloudflare.com/client/v4/accounts/acc123/browser-run/markdown', // routing exclusion, not admin authority
     'https://api.cloudflare.com/client/v4/accounts/other/browser-rendering/snapshot', // another account CF path
     'https://api.cloudflare.com/client/v4/zones', // CF API but not the account path
     'https://gateway.ai.cloudflare.com/v1/acc123/gw/compat/chat/completions', // AIG compat is NOT container-direct
@@ -128,17 +130,54 @@ describe('REQ-ENTERPRISE-016: controllerFetch transport selection', () => {
     fetchSpy.mockRestore();
   });
 
-  it('egresses THIS account destinations DIRECT even when env.EGRESS is unbound — no 503', async () => {
-    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('ok', { status: 200 }));
-    for (const url of [
-      'https://acc123.r2.cloudflarestorage.com/b/k',
-      'https://api.cloudflare.com/client/v4/accounts/acc123/browser-rendering/devtools',
-    ]) {
-      const res = await controllerFetch(makeEnv({ EGRESS: undefined } as Partial<Env>), new Request(url), 'acc123');
-      expect(res.status).toBe(200);
-    }
-    expect(fetchSpy).toHaveBeenCalledTimes(2);
-    fetchSpy.mockRestore();
+  it('egresses own R2 and unrelated own CF API DIRECT even when EGRESS is unbound', async () => {
+    const direct: Request[] = [];
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async input => {
+      direct.push(input as Request); return new Response('platform response');
+    });
+    try {
+      const urls = ['https://acc123.r2.cloudflarestorage.com/b/k',
+        'https://api.cloudflare.com/client/v4/accounts/acc123/workers/scripts'];
+      for (const url of urls) {
+        const res = await controllerFetch(makeEnv({ EGRESS: undefined }), new Request(url), 'acc123');
+        expect(res.status).toBe(200);
+        expect(await res.text()).toBe('platform response');
+      }
+      expect(direct.map(request => request.url)).toEqual(urls);
+    } finally { fetchSpy.mockRestore(); }
+  });
+
+  it.each(['browser-rendering', 'browser-run'])('own-account %s fallback uses Gateway or 503, never direct or administrator identity', async namespace => {
+    const direct: Request[] = [];
+    const inspected: Request[] = [];
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async input => {
+      direct.push(input as Request); return new Response('unsafe direct result');
+    });
+    try {
+      const base = `https://api.cloudflare.com/client/v4/accounts/acc123/${namespace}/`;
+      const request = (upgrade: boolean) => new Request(`${base}${upgrade ? 'devtools/browser' : 'markdown'}`, {
+        method: upgrade ? 'GET' : 'POST', body: upgrade ? undefined : '{"url":"https://example.com/"}',
+        headers: { authorization: 'Bearer codeflare-enterprise', ...(upgrade ? { upgrade: 'websocket' } : {}) }, redirect: 'manual',
+      });
+      const env = makeEnv({ EGRESS: { fetch: async (forwarded: Request) => {
+        inspected.push(forwarded); return new Response('Gateway policy refusal', { status: 403 });
+      } } as Fetcher });
+      for (const upgrade of [false, true]) {
+        const response = await controllerFetch(env, request(upgrade), 'acc123');
+        expect(response.status).toBe(403);
+        expect(await response.text()).toBe('Gateway policy refusal');
+        const unavailable = await controllerFetch(makeEnv({ EGRESS: undefined }), request(upgrade), 'acc123');
+        expect(unavailable.status).toBe(503);
+        expect(await unavailable.json()).toMatchObject({ code: 'EGRESS_UNAVAILABLE' });
+      }
+      expect(inspected.map(forwarded => ({ url: forwarded.url, authorization: forwarded.headers.get('authorization'),
+        method: forwarded.method, redirect: forwarded.redirect, upgrade: forwarded.headers.get('upgrade') }))).toEqual([
+        { url: `${base}markdown`, authorization: 'Bearer codeflare-enterprise', method: 'POST', redirect: 'manual', upgrade: null },
+        { url: `${base}devtools/browser`, authorization: 'Bearer codeflare-enterprise', method: 'GET', redirect: 'manual', upgrade: 'websocket' },
+      ]);
+      expect(await inspected[0]?.text()).toBe('{"url":"https://example.com/"}');
+      expect(direct).toEqual([]);
+    } finally { fetchSpy.mockRestore(); }
   });
 
   it('routes ANOTHER account R2 through env.EGRESS (Gateway), NOT direct — closes cross-account exfil', async () => {

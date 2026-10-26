@@ -709,7 +709,7 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 ### REQ-ENTERPRISE-016: Strict Gateway Egress
 
-**Intent:** An enterprise admin can force the container's **direct-internet** HTTP/HTTPS egress through the customer's Cloudflare (Zero Trust) Gateway — over the Workers VPC `EGRESS` binding — with one setup-wizard toggle, so every agent call to the outside world is subject to the account's existing egress policies. Only THIS deployment's own Cloudflare account destinations (its R2 + account-scoped CF API / Browser Rendering) are exempt and egress direct — they are codeflare's own control-plane backends, not the agent's external reach; any OTHER account's host rides the Gateway, closing the cross-account exfiltration channel ([AD86](../../documentation/decisions/README.md#ad86-platform-native-cloudflare-primitives-bypass-strict-gateway-egress-only-direct-internet-egress-takes-cf1network)). A deployment with the toggle OFF (the default) is byte-identical to today.
+**Intent:** An enterprise admin can force the container's **direct-internet** HTTP/HTTPS egress through the customer's Cloudflare (Zero Trust) Gateway — over the Workers VPC `EGRESS` binding — with one setup-wizard toggle, so every agent call to the outside world is subject to the account's existing egress policies. Only THIS deployment's own R2 and non-Browser account-scoped Cloudflare API destinations are exempt and egress direct. Browser Run REST and CDP use Gateway when strict is ON, including own-account Browser endpoints; any OTHER account's host also rides Gateway, closing the cross-account exfiltration channel ([AD86](../../documentation/decisions/README.md#ad86-platform-native-cloudflare-primitives-bypass-strict-gateway-egress-only-direct-internet-egress-takes-cf1network)). A deployment with the toggle OFF (the default) is byte-identical to today.
 
 **Applies To:** System
 
@@ -725,13 +725,13 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Constraints:**
 
-- The global admin toggle is stored explicitly as `active` or `inactive`, read directly from KV, and never threaded through session configuration.
-- Per-host LLM/GitHub interceptors take precedence over the transparent catch-all `EgressController`; denied hosts and allowed-host policy retain the SDK's established precedence.
-- Existing Cloudflare Gateway traffic policies remain authoritative; Codeflare does not create or modify them.
-- Only this deployment's account-scoped R2 and Cloudflare API or Browser Rendering destinations egress directly; absent account identity and every other account ride the Gateway ([AD86](../../documentation/decisions/README.md#ad86-platform-native-cloudflare-primitives-bypass-strict-gateway-egress-only-direct-internet-egress-takes-cf1network)).
-- The LLM interceptor always egresses directly; GitHub and other external destinations use `EGRESS`.
-- The enterprise-only Workers VPC `EGRESS` binding is injected only for active enterprise deploys; default, fork, and test deployments remain unaffected, and unavailable egress fails closed.
-- `EGRESS` carries HTTP, HTTPS, and WebSocket traffic; upgrades use the fresh-socket bridge specified by [REQ-ENTERPRISE-023](#req-enterprise-023-strict-gateway-egress-controller-transport).
+- Store the global toggle as `active`/`inactive`; read KV directly, never session configuration.
+- Per-host LLM/GitHub precede the transparent catch-all; SDK denied/allowed-host precedence stays unchanged.
+- Customer Gateway policies remain authoritative and unmodified.
+- Only own R2 and non-Browser account-scoped APIs bypass `EGRESS`; both own `/browser-rendering/` and `/browser-run/` namespaces require Gateway or refuse. Exclusion grants no administrator authority. Unknown/other accounts use Gateway ([AD86](../../documentation/decisions/README.md#ad86-platform-native-cloudflare-primitives-bypass-strict-gateway-egress-only-direct-internet-egress-takes-cf1network)).
+- LLM remains direct; GitHub/other external destinations require `EGRESS`.
+- Inject Workers VPC `EGRESS` only for active Enterprise deployments; default/fork/test deployments remain unaffected; unavailable egress fails closed.
+- `EGRESS` carries HTTP, HTTPS and WebSockets; retain the fresh-socket bridge ([REQ-ENTERPRISE-023](#req-enterprise-023-strict-gateway-egress-controller-transport)).
 
 **Priority:** P2
 
@@ -739,30 +739,32 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Verification:** Automated test ([setup persistence](../../src/__tests__/routes/setup.test.ts), [prefill](../../src/__tests__/routes/setup/handlers.test.ts), [setup store](../../web-ui/src/__tests__/stores/setup.test.ts), [container catch-all wiring + enableInternet](../../src/__tests__/container/index.test.ts), and [strict-gate resolver tests](../../src/__tests__/lib/controller-egress.test.ts). The `[[vpc_networks]]` `EGRESS` binding is deploy-time config (a Constraint: enterprise-only, committed commented-out and injected by `deploy.yml` when `ENTERPRISE_MODE=active`) — verified at deploy time, not unit-testable.)
 
-**Status:** Implemented
+**Status:** Planned
+
+Task #114 amendment: Browser exclusion is specified with authored RED tests, not yet executed or implemented. Toggle/default/resolution, startup, network settings and lifecycle ACs are unchanged. AD86 and other directly affected runtime/documentation rationale await GREEN; this amendment is not live Gateway inspection evidence.
 
 ---
 
 ### REQ-ENTERPRISE-023: Strict Gateway Egress Controller Transport
 
-**Intent:** When Strict Gateway Egress is active, the catch-all egress controller transparently proxies direct-internet traffic through the Gateway while preserving the deployment's own Cloudflare control-plane paths.
+**Intent:** When Strict Gateway Egress is active, the catch-all egress controller transparently proxies direct-internet and Browser endpoint traffic through Gateway while preserving own R2 and unrelated own-account Cloudflare API direct paths.
 
 **Applies To:** System
 
 **Acceptance Criteria:**
 
-1. The strict-egress controller transparently proxies every destination except this account's own R2. It adds no authorization or identity header, preserves caller authorization and cookies, strips only hop-by-hop headers, and does not follow redirects. <!-- @impl: src/egress-controller.ts::EgressController --> <!-- @impl: src/lib/controller-egress.ts::controllerFetch --> <!-- @test: src/__tests__/egress-controller.test.ts (REQ-ENTERPRISE-016 / AD86: EgressController account-scoped exemption (own account direct, all else Gateway)) -->
-2. Only this deployment's account-scoped R2 endpoint and Cloudflare API account path bypass the strict-egress binding; every other account uses the binding. <!-- @impl: src/lib/controller-egress.ts::isAccountScopedDestination --> <!-- @impl: src/lib/controller-egress.ts::isOwnAccountR2 --> <!-- @impl: src/lib/controller-egress.ts::controllerFetch --> <!-- @test: src/__tests__/lib/controller-egress.test.ts (REQ-ENTERPRISE-016 / AD86: isAccountScopedDestination (own account only)) -->
+1. The strict-egress controller transparently proxies every destination except this account's own R2 credential-signing path. It adds no authorization or identity header, preserves caller authorization and cookies, strips only hop-by-hop headers, and does not follow redirects. Both own-account Browser namespaces specified in AC2 use Gateway, not the generic direct exemption, without administrator injection. <!-- @test: src/__tests__/egress-controller.test.ts (REQ-ENTERPRISE-016 / AD86: EgressController account-scoped exemption (own account direct, all else Gateway) / REQ-ENTERPRISE-026) -->
+2. Only this deployment's account-scoped R2 endpoint and non-Browser Cloudflare API account paths bypass the strict-egress binding. Both `/client/v4/accounts/<own>/browser-rendering/` and `/client/v4/accounts/<own>/browser-run/` are excluded for REST and CDP, even when the specialized Browser handler is absent; every other account also uses the binding. This is routing only, not expanded administrator-token injection. <!-- @test: src/__tests__/lib/controller-egress.test.ts (REQ-ENTERPRISE-016 / AD86: isAccountScopedDestination (own account only)) --> <!-- @test: src/__tests__/lib/controller-egress.test.ts (own-account %s fallback uses Gateway or 503, never direct or administrator identity) --> <!-- @test: src/__tests__/egress-controller.test.ts (bridges own-account CDP through Gateway with a fresh client and bidirectional text/binary) -->
 3. **WebSocket proxying (bridged).** WebSocket upgrades reaching the strict-egress catch-all are forwarded **transparently** through the account-scoped selector, then **bridged** through a fresh client/server pair that forwards messages, closure, and errors in both directions. <!-- @impl: src/egress-controller.ts::EgressController --> <!-- @impl: src/lib/controller-egress.ts::controllerFetch --> <!-- @test: src/__tests__/egress-controller.test.ts (REQ-ENTERPRISE-016: EgressController bridges WebSocket upgrades (catch-all fallback)) -->
 4. **Container holds no real R2 key (strict only).** When strict is active, a non-secret placeholder R2 access key/secret is emitted into the container instead of the real key. <!-- @impl: src/container/container-env.ts::buildEnvVars --> <!-- @impl: src/lib/constants.ts::ENTERPRISE_R2_KEY_PLACEHOLDER --> <!-- @test: src/__tests__/container/container-env.test.ts (buildEnvVars (REQ-SESSION-016 AC3) / REQ-MEM-010 AC4 (USER_TIMEZONE feeds capture pipeline) / REQ-AGENT-031 (LLM API keys + agent-specific keys propagated to container env)) -->
 5. Before any upstream send, the strict-egress controller rejects loopback, RFC 1918/private, link-local (including `169.254.169.254`), unspecified, and IPv4-mapped prohibited IPv6 targets with `403 EGRESS_TARGET_BLOCKED` and performs no fetch. Public IPv6 literals remain permitted. <!-- @impl: src/lib/controller-egress.ts::isDisallowedEgressHost --> <!-- @impl: src/egress-controller.ts::EgressController --> <!-- @test: src/__tests__/lib/controller-egress.test.ts (REQ-ENTERPRISE-016: isDisallowedEgressHost SSRF guard) -->
-6. Unbound strict egress makes direct-internet and GitHub paths return `503 EGRESS_UNAVAILABLE` without fallback; this account's own platform destinations and LLM routing remain direct and independent of the strict-egress binding. <!-- @impl: src/lib/controller-egress.ts::controllerFetch --> <!-- @impl: src/egress-controller.ts::EgressController --> <!-- @impl: src/github-interceptor.ts::GitHubInterceptor --> <!-- @test: src/__tests__/lib/controller-egress.test.ts (REQ-ENTERPRISE-016: controllerFetch transport selection) -->
+6. Unbound strict egress makes direct-internet, GitHub and both own-account Browser namespaces return `503 EGRESS_UNAVAILABLE` without direct fallback, for REST and CDP alike. Gateway refusals remain refusals, never a direct or alternate-identity retry. Own R2, unrelated own-account Cloudflare API paths and LLM routing remain direct and independent of the binding. <!-- @test: src/__tests__/lib/controller-egress.test.ts (REQ-ENTERPRISE-016: controllerFetch transport selection) --> <!-- @test: src/__tests__/egress-controller.test.ts (own-account Browser fallback upgrade=%s refuses missing Gateway without a direct send) --> <!-- @test: src/__tests__/egress-controller.test.ts (surfaces a non-101 Gateway CDP refusal unchanged without direct retry) -->
 
 **Constraints:**
 
 - `EgressController` remains a transparent proxy, not an identity-stamping interceptor.
-- Only this deployment's own account-scoped Cloudflare control-plane destinations bypass `env.EGRESS`; other accounts ride the Gateway.
-- Direct-internet failures fail closed when strict egress is active and the binding is unavailable.
+- Only this deployment's own R2 and non-Browser account-scoped Cloudflare API destinations bypass `env.EGRESS`; both Browser namespaces and other accounts ride Gateway. Namespace recognition never authorizes administrator authentication.
+- Direct-internet and Browser transport fail closed when strict egress is active and the binding is unavailable; no policy refusal or transport exception permits a direct retry.
 
 **Priority:** P2
 
@@ -770,7 +772,9 @@ Security requirements for authentication enforcement, credential isolation, encr
 
 **Verification:** Automated test ([controller-egress resolver/transport/SSRF/account-scoped](../../src/__tests__/lib/controller-egress.test.ts), [EgressController transparent proxy + fail-closed + account-scoped passthrough + WebSocket](../../src/__tests__/egress-controller.test.ts), [container catch-all wiring + account-id prop](../../src/__tests__/container/index.test.ts), and [container env vars placeholder R2 key](../../src/__tests__/container/container-env.test.ts).)
 
-**Status:** Implemented
+**Status:** Planned
+
+Task #114 amendment: AC1/2/6 Browser routing changes have authored RED tests; behavioral RED, implementation and GREEN CI remain pending. The baseline own-account API exemption still includes Browser. Changed AC1/2/6 retain test anchors without implemented-routing anchors until GREEN. Existing AC3 fresh WebSocket bridging, R2 signing/authority and transparent caller credentials are preserved; no live compatibility or AV/DLP claim is made.
 
 ---
 

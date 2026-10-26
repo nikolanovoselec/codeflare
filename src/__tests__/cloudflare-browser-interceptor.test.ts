@@ -90,34 +90,100 @@ describe('REQ-BROWSER-008: CloudflareBrowserInterceptor REST path', () => {
     } finally { fetchSpy.mockRestore(); }
   });
 
-  it('REQ-OPERATOR-004: stamps verified Access while preserving the Browser credential', async () => {
-    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('ok', { status: 200 }));
+  it.each([true, false])('REQ-OPERATOR-004: stamps verified Access while preserving the Browser credential with strict=%s', async strict => {
+    const direct: Request[] = [];
+    const inspected: Request[] = [];
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async input => {
+      direct.push(input as Request);
+      return new Response('ok');
+    });
     try {
-      const { interceptor } = makeInterceptor({ browserAccountId: 'acc', browserToken: REAL_TOKEN,
-        jwtStamping: { mode: 'list', destinations: ['api.cloudflare.com'] }, jwtAuthority });
-      expect((await interceptor.fetch(new Request('https://api.cloudflare.com/client/v4/accounts/acc/browser-rendering/snapshot'))).status).toBe(200);
-      const forwarded = fetchSpy.mock.calls[0][0] as Request;
-      expect(forwarded.headers.get('cf-access-jwt-assertion')).toBe('verified.jwt');
-      expect(forwarded.headers.get('authorization')).toBe(`Bearer ${REAL_TOKEN}`);
+      const { interceptor } = makeInterceptor({ browserAccountId: 'acc', browserToken: REAL_TOKEN, strict,
+        jwtStamping: { mode: 'list', destinations: ['api.cloudflare.com'] }, jwtAuthority }, {
+        EGRESS: { fetch: async (request: Request) => { inspected.push(request); return new Response('ok'); } } as Fetcher,
+      });
+      expect((await interceptor.fetch(new Request('https://api.cloudflare.com/client/v4/accounts/acc/browser-rendering/snapshot', {
+        headers: { 'cf-access-jwt-assertion': 'spoof' },
+      }))).status).toBe(200);
+      const outgoing = strict ? inspected : direct;
+      expect(outgoing.map(request => request.url)).toEqual(['https://api.cloudflare.com/client/v4/accounts/acc/browser-rendering/snapshot']);
+      expect(outgoing[0]?.headers.get('cf-access-jwt-assertion')).toBe('verified.jwt');
+      expect(outgoing[0]?.headers.get('authorization')).toBe(`Bearer ${REAL_TOKEN}`);
+      expect(strict ? direct : inspected).toEqual([]);
     } finally { fetchSpy.mockRestore(); }
   });
 
-  it('strips the placeholder + injects the real token on the configured account path, egress DIRECT (not Gateway)', async () => {
-    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('ok', { status: 200 }));
-    const { interceptor, egressFetch } = makeInterceptor({ browserAccountId: 'acc', browserToken: REAL_TOKEN });
-    await interceptor.fetch(
-      new Request('https://api.cloudflare.com/client/v4/accounts/acc/browser-rendering/snapshot', {
-        method: 'POST',
-        headers: { authorization: `Bearer ${PLACEHOLDER}`, 'content-type': 'application/json' },
-        body: '{}',
-      }),
-    );
-    expect(fetchSpy).toHaveBeenCalled();
-    expect(egressFetch).not.toHaveBeenCalled();
-    const fwd = fetchSpy.mock.calls[0][0] as Request;
-    // The placeholder is gone; the real token is stamped — fails if the inject is removed.
-    expect(fwd.headers.get('authorization')).toBe(`Bearer ${REAL_TOKEN}`);
-    fetchSpy.mockRestore();
+  it.each([true, false])('managed REST preserves the request and wrapped Markdown response with strict=%s', async strict => {
+    const direct: Request[] = [];
+    const inspected: Request[] = [];
+    const markdown = { success: true, result: '# Public page\n\nRendered **Markdown**.' };
+    const respond = () => Response.json(markdown, { headers: { 'set-cookie': 'upstream=private' } });
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async input => {
+      direct.push(input as Request);
+      return respond();
+    });
+    try {
+      const { interceptor } = makeInterceptor({ strict }, {
+        EGRESS: { fetch: async (request: Request) => { inspected.push(request); return respond(); } } as Fetcher,
+      });
+      const url = 'https://api.cloudflare.com/client/v4/accounts/acc/browser-rendering/markdown';
+      const body = JSON.stringify({ url: 'https://example.com/page', gotoOptions: { waitUntil: 'networkidle0' } });
+      const response = await interceptor.fetch(new Request(url, {
+        method: 'POST', headers: { authorization: `Bearer ${PLACEHOLDER}`, 'content-type': 'application/json' }, body,
+      }));
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual(markdown);
+      expect(response.headers.get('set-cookie')).toBeNull();
+      const outgoing = strict ? inspected : direct;
+      expect(outgoing.map(request => request.url)).toEqual([url]);
+      const [forwarded] = outgoing;
+      expect(forwarded.method).toBe('POST');
+      expect(forwarded.redirect).toBe('manual');
+      expect(await forwarded.text()).toBe(body);
+      expect(forwarded.headers.get('content-type')).toBe('application/json');
+      expect(forwarded.headers.get('authorization')).toBe(`Bearer ${REAL_TOKEN}`);
+      expect(strict ? direct : inspected).toEqual([]);
+    } finally { fetchSpy.mockRestore(); }
+  });
+
+  // REST and CDP share the managed transport refusal contract. A direct success fixture
+  // makes an inspection bypass observable without contacting any real destination.
+  it.each([
+    { upgrade: false, failure: 'missing binding' }, { upgrade: true, failure: 'missing binding' },
+    { upgrade: false, failure: 'policy refusal' }, { upgrade: true, failure: 'policy refusal' },
+    { upgrade: false, failure: 'binding throw' }, { upgrade: true, failure: 'binding throw' },
+  ])('managed strict REST/CDP upgrade=$upgrade fails closed on $failure without identity fallback', async ({ upgrade, failure }) => {
+    const direct: Request[] = [];
+    const inspected: Request[] = [];
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async input => {
+      direct.push(input as Request);
+      return Response.json({ success: true, result: 'unsafe direct result' });
+    });
+    try {
+      const refusal = 'Gateway policy refusal';
+      const { interceptor } = makeInterceptor({}, {
+        EGRESS: failure === 'missing binding' ? undefined : { fetch: async (request: Request) => {
+          inspected.push(request);
+          if (failure === 'binding throw') throw new Error('Gateway transport unavailable');
+          return new Response(refusal, { status: 403 });
+        } } as Fetcher,
+      });
+      const url = `https://api.cloudflare.com/client/v4/accounts/acc/browser-rendering/${upgrade ? 'devtools/browser' : 'markdown'}`;
+      const response = await interceptor.fetch(new Request(url, {
+        headers: { authorization: `Bearer ${PLACEHOLDER}`, ...(upgrade ? { upgrade: 'websocket' } : {}) },
+      }));
+      expect(response.status).toBe(failure === 'missing binding' ? 503 : failure === 'binding throw' ? 502 : 403);
+      expect(response.webSocket).toBeNull();
+      if (failure === 'policy refusal') expect(await response.text()).toBe(refusal);
+      else expect(await response.json()).toMatchObject({
+        code: failure === 'missing binding' ? 'EGRESS_UNAVAILABLE' : 'BROWSER_FETCH_FAILED',
+      });
+      expect(direct).toEqual([]);
+      expect(inspected.map(request => ({ url: request.url, authorization: request.headers.get('authorization'),
+        redirect: request.redirect, upgrade: request.headers.get('upgrade') }))).toEqual(failure === 'missing binding' ? [] : [{
+        url, authorization: `Bearer ${REAL_TOKEN}`, redirect: 'manual', upgrade: upgrade ? 'websocket' : null,
+      }]);
+    } finally { fetchSpy.mockRestore(); }
   });
 
   it('fails closed 401 on the trusted path when NO admin token is configured (no upstream call)', async () => {
@@ -147,13 +213,25 @@ describe('REQ-BROWSER-008: CloudflareBrowserInterceptor REST path', () => {
     fetchSpy.mockRestore();
   });
 
-  it('routes a non-browser-rendering api.cloudflare.com path (own account) to the Gateway — not trusted', async () => {
-    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('x'));
-    const { interceptor, egressFetch } = makeInterceptor({ browserAccountId: 'acc', browserToken: REAL_TOKEN, strict: true });
-    await interceptor.fetch(new Request('https://api.cloudflare.com/client/v4/accounts/acc/tokens/verify'));
-    expect(egressFetch).toHaveBeenCalled();
-    expect(fetchSpy).not.toHaveBeenCalled();
-    fetchSpy.mockRestore();
+  it.each(['tokens/verify', 'browser-run/markdown'])('routes own-account %s through Gateway without granting administrator credentials', async path => {
+    const direct: Request[] = [];
+    const inspected: Request[] = [];
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async input => {
+      direct.push(input as Request); return new Response('unsafe direct result');
+    });
+    try {
+      const { interceptor } = makeInterceptor({}, { EGRESS: { fetch: async (request: Request) => {
+        inspected.push(request); return new Response('gateway');
+      } } as Fetcher });
+      const url = `https://api.cloudflare.com/client/v4/accounts/acc/${path}`;
+      const response = await interceptor.fetch(new Request(url, { headers: { authorization: `Bearer ${PLACEHOLDER}` } }));
+      expect(response.status).toBe(200);
+      expect(await response.text()).toBe('gateway');
+      expect(inspected.map(request => ({ url: request.url, authorization: request.headers.get('authorization') }))).toEqual([
+        { url, authorization: `Bearer ${PLACEHOLDER}` },
+      ]);
+      expect(direct).toEqual([]);
+    } finally { fetchSpy.mockRestore(); }
   });
 
   it('fails closed 403 for an untrusted path when strict egress is OFF (no Gateway to inspect through)', async () => {
@@ -207,29 +285,32 @@ describe('REQ-BROWSER-008: CloudflareBrowserInterceptor CDP WebSocket', () => {
     vi.unstubAllGlobals();
   });
 
-  it('bridges the CDP upgrade on the trusted path, injecting the token, returning a FRESH client socket, direct not Gateway', async () => {
+  it.each([true, false])('bridges trusted CDP with a fresh client, text/binary and lifecycle propagation with strict=%s', async strict => {
     const upstreamPair = new WebSocketPair();
     const upstreamWs = upstreamPair[0];
     const browser = upstreamPair[1];
     browser.accept();
-    const forwarded: Request[] = [];
-    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async input => {
-      forwarded.push(input as Request);
-      return new Response(null, { status: 101, webSocket: upstreamWs });
-    });
+    const direct: Request[] = [];
     const inspected: Request[] = [];
-    const { interceptor } = makeInterceptor({ browserAccountId: 'acc', browserToken: REAL_TOKEN }, {
-      EGRESS: { fetch: async (request: Request) => { inspected.push(request); return new Response('gateway'); } } as unknown as Fetcher,
+    const upgrade = () => new Response(null, { status: 101, webSocket: upstreamWs });
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async input => {
+      direct.push(input as Request);
+      return upgrade();
     });
-    const res = await interceptor.fetch(
-      new Request('https://api.cloudflare.com/client/v4/accounts/acc/browser-rendering/devtools/browser', {
-        headers: { Upgrade: 'websocket', authorization: `Bearer ${PLACEHOLDER}` },
-      }),
-    );
-    expect(res.status).toBe(101);
-    const clientWs = res.webSocket!;
-    clientWs.accept();
+    const { interceptor } = makeInterceptor({ strict,
+      jwtStamping: { mode: 'list', destinations: ['api.cloudflare.com'] }, jwtAuthority }, {
+      EGRESS: { fetch: async (request: Request) => { inspected.push(request); return upgrade(); } } as Fetcher,
+    });
+    let clientWs: WebSocket | undefined;
     try {
+      const url = 'https://api.cloudflare.com/client/v4/accounts/acc/browser-rendering/devtools/browser';
+      const res = await interceptor.fetch(new Request(url, {
+        headers: { Upgrade: 'websocket', authorization: `Bearer ${PLACEHOLDER}`, 'cf-access-jwt-assertion': 'spoof' },
+      }));
+      expect(res.status).toBe(101);
+      clientWs = res.webSocket!;
+      expect(clientWs).not.toBe(upstreamWs);
+      clientWs.accept();
       const command = JSON.stringify({ id: 1, method: 'Browser.getVersion' });
       const atBrowser = nextFrame(browser);
       clientWs.send(command);
@@ -243,11 +324,24 @@ describe('REQ-BROWSER-008: CloudflareBrowserInterceptor CDP WebSocket', () => {
         sender.send(new Uint8Array([0, 1, 127, 255]).buffer);
         expect(new Uint8Array(await received as ArrayBuffer)).toEqual(new Uint8Array([0, 1, 127, 255]));
       }
-      // Intentional outbound credential contract, observed by the external endpoint.
-      expect(forwarded.map(request => request.headers.get('authorization'))).toEqual([`Bearer ${REAL_TOKEN}`]);
-      expect(inspected).toEqual([]);
+      const outgoing = strict ? inspected : direct;
+      expect(outgoing.map(request => ({ url: request.url, authorization: request.headers.get('authorization'),
+        access: request.headers.get('cf-access-jwt-assertion'), upgrade: request.headers.get('upgrade'),
+        redirect: request.redirect }))).toEqual([{
+        url, authorization: `Bearer ${REAL_TOKEN}`, access: 'verified.jwt', upgrade: 'websocket', redirect: 'manual',
+      }]);
+      expect(strict ? direct : inspected).toEqual([]);
+      // Exercise actual close/error propagation at the socket boundary, not listener wiring.
+      const closed = new Promise<CloseEvent>(resolve => {
+        (strict ? clientWs! : browser).addEventListener('close', resolve, { once: true });
+      });
+      if (strict) upstreamWs.dispatchEvent(new Event('error'));
+      else clientWs.close(1000, 'client done');
+      const event = await closed;
+      expect(event.code).toBe(strict ? 1011 : 1000);
+      expect(event.reason).toBe(strict ? 'upstream error' : 'client done');
     } finally {
-      clientWs.close();
+      clientWs?.close();
       browser.close();
       fetchSpy.mockRestore();
     }

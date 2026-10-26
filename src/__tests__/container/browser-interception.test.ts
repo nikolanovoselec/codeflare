@@ -8,6 +8,7 @@ import { SETUP_KEYS } from '../../lib/kv-keys';
 import { storeCloudflareConnection } from '../../lib/cloudflare-token';
 import { createMockKV } from '../helpers/mock-kv';
 import type { Env } from '../../types';
+import { executeBrowserAction } from '../../../preseed/agents/pi/extensions/browser-run-helpers';
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -15,17 +16,18 @@ afterEach(() => vi.restoreAllMocks());
 // exact hosts before its catch-all; every registered Worker entrypoint is real.
 async function registered({ enterprise = true, strict = false, token = 'admin-browser-token',
   account = 'acc', bucket = 'user-bucket', containerToken = 'codeflare-oauth',
-  upstream = undefined as Response | undefined, connected = true } = {}) {
+  upstream = undefined as Response | undefined, inspectedUpstream = undefined as Response | undefined,
+  gatewayBound = true, connected = true } = {}) {
   const kv = createMockKV();
   if (token) kv._set(SETUP_KEYS.BROWSER_RENDER_TOKEN, { token });
   if (account) kv._store.set(SETUP_KEYS.BROWSER_RENDER_ACCOUNT_ID, account);
   const direct: Request[] = [];
   const inspected: Request[] = [];
   const env = { KV: kv, ENTERPRISE_MODE: enterprise ? 'active' : undefined,
-    EGRESS: { fetch: async (request: Request) => {
+    EGRESS: gatewayBound ? { fetch: async (request: Request) => {
       inspected.push(request);
-      return new Response('gateway-response');
-    } } } as unknown as Env;
+      return inspectedUpstream ?? new Response('gateway-response');
+    } } : undefined } as unknown as Env;
   vi.spyOn(globalThis, 'fetch').mockImplementation(async input => {
     direct.push(input as Request);
     return upstream ?? new Response('browser-response');
@@ -58,26 +60,65 @@ async function registered({ enterprise = true, strict = false, token = 'admin-br
 
 it.each([false, true])('REQ-BROWSER-008 AC2: registered Browser dispatch precedes strict catch-all with strict=%s', async strict => {
   const f = await registered({ strict });
-  expect(await (await f.send('/client/v4/accounts/acc/browser-rendering/snapshot')).text()).toBe('browser-response');
-  expect(f.direct.map(request => request.headers.get('authorization'))).toEqual(['Bearer admin-browser-token']);
-  expect(f.inspected).toEqual([]);
+  const path = '/client/v4/accounts/acc/browser-rendering/snapshot';
+  expect(await (await f.send(path)).text()).toBe(strict ? 'gateway-response' : 'browser-response');
+  const outgoing = strict ? f.inspected : f.direct;
+  expect(outgoing.map(request => ({ url: request.url, authorization: request.headers.get('authorization'),
+    redirect: request.redirect }))).toEqual([{
+    url: `https://api.cloudflare.com${path}`, authorization: 'Bearer admin-browser-token', redirect: 'manual',
+  }]);
+  expect(strict ? f.direct : f.inspected).toEqual([]);
   const other = await f.send('/client/v4/accounts/other/browser-rendering/snapshot');
   expect(other.status).toBe(strict ? 200 : 403);
   if (strict) {
     expect(await other.text()).toBe('gateway-response');
-    expect(f.inspected.map(request => request.headers.get('authorization'))).toEqual(['Bearer codeflare-enterprise']);
+    expect(f.inspected.map(request => request.headers.get('authorization'))).toEqual([
+      'Bearer admin-browser-token', 'Bearer codeflare-enterprise',
+    ]);
   }
-  expect(f.direct.map(request => request.url)).toEqual(['https://api.cloudflare.com/client/v4/accounts/acc/browser-rendering/snapshot']);
+  expect(f.direct.map(request => request.url)).toEqual(strict ? [] : [`https://api.cloudflare.com${path}`]);
 });
 
 it.each(['token', 'account'] as const)('REQ-BROWSER-008 AC5: missing %s leaves Browser traffic without admin credentials', async missing => {
-  const f = await registered({ strict: true, [missing]: '' });
-  // Missing Browser credentials remain a managed-credential refusal, not LLM routing.
-  const response = await f.send('/client/v4/accounts/acc/browser-rendering/snapshot');
-  expect(response.status).toBe(401);
-  expect(await response.json()).toMatchObject({ code: 'BROWSER_NO_TOKEN' });
+  for (const strict of [false, true]) {
+    // An unavailable binding must not displace the earlier administrator refusal.
+    const f = await registered({ strict, gatewayBound: false, [missing]: '' });
+    for (const upgrade of [false, true]) {
+      const response = await f.send(`/client/v4/accounts/acc/browser-rendering/${upgrade ? 'devtools/browser' : 'snapshot'}`, upgrade);
+      expect(response.status).toBe(401);
+      expect(await response.json()).toMatchObject({ code: 'BROWSER_NO_TOKEN' });
+    }
+    expect(f.direct).toEqual([]);
+    expect(f.inspected).toEqual([]);
+  }
+});
+
+it.each([false, true])('REQ-BROWSER-008 AC3: registered Markdown tool preserves Gateway result/refusal blocked=%s', async blocked => {
+  const markdown = '# Public page\n\nRendered **Markdown**.';
+  const f = await registered({ strict: true,
+    upstream: Response.json({ success: true, result: 'unsafe direct result' }),
+    inspectedUpstream: blocked
+      ? new Response('Gateway policy refusal', { status: 403 })
+      : Response.json({ success: true, result: markdown }),
+  });
+  const result = await executeBrowserAction({ tool: 'browser_markdown', params: { url: 'https://example.com/page' },
+    accountId: 'acc', token: 'codeflare-enterprise',
+    fetchImpl: (input, init) => f.sendRequest(new Request(input, init as RequestInit)),
+  });
+  if (blocked) {
+    expect(result.isError).toBe(true);
+    expect(result.text).toBe('Browser Run /markdown failed: HTTP 403');
+  } else {
+    expect(result.isError).not.toBe(true);
+    expect(result.text).toBe(markdown);
+  }
   expect(f.direct).toEqual([]);
-  expect(f.inspected).toEqual([]);
+  expect(f.inspected.map(request => ({ url: request.url, authorization: request.headers.get('authorization'),
+    method: request.method, redirect: request.redirect }))).toEqual([{
+    url: 'https://api.cloudflare.com/client/v4/accounts/acc/browser-rendering/markdown',
+    authorization: 'Bearer admin-browser-token', method: 'POST', redirect: 'manual',
+  }]);
+  expect(await f.inspected[0]?.json()).toEqual({ url: 'https://example.com/page' });
 });
 
 it('REQ-AGENT-078: registered OAuth dispatch resolves the bound owner token', async () => {
@@ -147,6 +188,9 @@ it.each([
   { mode: 'Enterprise inspected without Browser config', enterprise: true, strict: true, token: '', account: '',
     containerToken: '', bucket: 'user-bucket',
     url: 'https://api.cloudflare.com/client/v4/accounts/other/logpush/jobs' },
+  { mode: 'Enterprise inspected Browser caller', enterprise: true, strict: true,
+    token: 'admin-browser-token', account: 'acc', containerToken: '', bucket: 'user-bucket',
+    url: 'https://api.cloudflare.com/client/v4/accounts/acc/browser-rendering/snapshot' },
   { mode: 'Enterprise configured Browser caller', enterprise: true, strict: false,
     token: 'admin-browser-token', account: 'acc', containerToken: '', bucket: 'user-bucket',
     url: 'https://api.cloudflare.com/client/v4/accounts/acc/browser-rendering/snapshot' },
