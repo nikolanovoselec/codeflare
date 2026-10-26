@@ -18,10 +18,10 @@
  *     that bucket's Worker-held scoped R2 key (aws4fetch,
  *     reusing the request's `x-amz-content-sha256` so the body streams through unbuffered
  *     while trusted SSE-C headers are applied) — so neither R2 nor encryption keys enter the container.
- *   - own account-scoped CF API: direct passthrough (dormant fallback — `api.cloudflare.com`
- *     Browser Rendering is normally claimed by the per-host CloudflareBrowserInterceptor
- *     (REQ-BROWSER-008), which strips the placeholder + injects the real token and TAKES
- *     PRECEDENCE over this catch-all, so it does not reach here).
+ *   - own non-Browser account-scoped CF API: direct transparent passthrough.
+ * Browser REST/CDP uses Gateway even in this fallback; namespace recognition never injects
+ * administrator credentials. The per-host CloudflareBrowserInterceptor normally takes
+ * precedence and owns configured-account Browser token injection (REQ-BROWSER-008).
  *
  * WebSocket upgrades are proxied by BRIDGING a fresh `WebSocketPair` to
  * the upstream socket (accept both ends, forward frames/close/error) and returning a 101
@@ -313,10 +313,9 @@ export class EgressController extends WorkerEntrypoint<Env> {
     }
 
     // WebSocket upgrades through the catch-all: bridge a fresh WebSocketPair to the upstream
-    // socket. Forward the original request VERBATIM (transparent proxy). Browser-run's CDP WS
-    // (api.cloudflare.com /browser-rendering/devtools/...) does NOT arrive here — it is claimed
-    // by the per-host CloudflareBrowserInterceptor (REQ-BROWSER-008). Returning the upstream
-    // response as-is does not hand the socket back to the container, so we accept+forward both ends.
+    // socket. Browser CDP normally uses the per-host handler, but if it reaches this fallback
+    // the same selector still requires Gateway. Returning the upstream response as-is does
+    // not hand the socket back to the container, so we accept+forward both ends.
     if (effectiveRequest.headers.get('Upgrade')?.toLowerCase() === 'websocket') {
       const t0 = Date.now();
       try {
@@ -400,7 +399,7 @@ export class EgressController extends WorkerEntrypoint<Env> {
         upstream = await fetch(signed);
         resigned = true;
       } else {
-        // Transparent: account-scoped CF API → direct (caller auth preserved);
+        // Transparent: non-Browser account-scoped CF API → direct (caller auth preserved);
         // everything else → env.EGRESS (fail-closed 503 when the binding is unbound).
         upstream = await controllerFetch(this.env, forward, accountId);
       }

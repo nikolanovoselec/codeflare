@@ -27,8 +27,8 @@
  *     for absent credentials or the exact enterprise placeholder, where `<browserAccountId>`
  *     equals the SETUP-WIZARD-configured Browser Rendering account
  *     (props, bound at wiring): strip the placeholder `authorization`, inject the real
- *     "Browser Rendering - Edit" token (resolved worker-side at wiring), egress DIRECT
- *     (own-account platform backend, AD86). REST and the CDP WebSocket upgrade
+ *     "Browser Rendering - Edit" token (resolved worker-side at wiring), use `env.EGRESS`
+ *     when strict is on and direct forwarding otherwise. REST and the CDP WebSocket upgrade
  *     (`/browser-rendering/devtools/...`) are both handled — the WS is bridged via a fresh
  *     `WebSocketPair` so the socket actually returns to the container.
  *   - Other MANAGED requests on `api.cloudflare.com` (a different account id, or any non-
@@ -83,7 +83,7 @@ interface BrowserInterceptorProps extends PersonalPiProps {
   browserAccountId?: string;
   /** The real admin "Browser Rendering - Edit" token, resolved worker-side at wiring. */
   browserToken?: string;
-  /** Strict gateway egress: route non-trusted api.cloudflare.com via env.EGRESS, else 403. */
+  /** Strict egress requires env.EGRESS for managed Browser and other CF API traffic. */
   strict?: boolean;
   jwtStamping?: JwtStampingPolicy;
   jwtAuthority?: JwtStampingAuthority;
@@ -193,7 +193,6 @@ export class CloudflareBrowserInterceptor extends WorkerEntrypoint<Env> {
     }
 
     // Strip the container placeholder + recomputed headers, then stamp the real token.
-    // Own-account platform backend ⇒ egress DIRECT (AD86), never cf1:network.
     const headers = new Headers(request.headers);
     for (const h of STRIPPED_REQUEST_HEADERS) headers.delete(h);
     headers.set('authorization', `Bearer ${browserToken}`);
@@ -206,9 +205,13 @@ export class CloudflareBrowserInterceptor extends WorkerEntrypoint<Env> {
       try { forward = prepareJwtStampedRequest(forward, props.jwtStamping, props.jwtAuthority); }
       catch { return jsonError(403, 'JWT_STAMPING_AUTHORITY_UNAVAILABLE', 'Current human Access authority is required'); }
     }
+    // Browser REST requests/results carry web content eligible for Gateway policy/AV/DLP.
+    // CDP shares the required transport and bridge, not remote Chrome networking or frame DLP.
+    const egress = this.env.EGRESS;
+    if (strict && !egress) return jsonError(503, 'EGRESS_UNAVAILABLE', 'Strict gateway egress unavailable');
     let upstream: Response;
     try {
-      upstream = await fetch(forward);
+      upstream = strict ? await egress!.fetch(forward) : await fetch(forward);
     } catch (err) {
       console.error('CloudflareBrowserInterceptor: upstream fetch failed', {
         error: err instanceof Error ? err.message : String(err),

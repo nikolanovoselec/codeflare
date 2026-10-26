@@ -10,18 +10,15 @@
  * byte-identical until enabled.
  *
  * This deployment's OWN-account platform destinations (its R2 endpoint + its
- * account-scoped CF API path) are EXEMPT and egress direct — they are codeflare's own
- * control-plane backends, not the agent's external reach (see {@link isAccountScopedDestination}
- * and AD86). Everything else — genuine direct-internet egress AND any OTHER account's R2/CF
- * host — takes the Gateway path for inspection. NOTE: browser-run's Browser Rendering traffic
- * (api.cloudflare.com /browser-rendering/*) is normally claimed by the per-host
- * CloudflareBrowserInterceptor (REQ-BROWSER-008, takes precedence over this catch-all); the
- * CF-API exemption here is a dormant fallback and can only ever carry the container's non-secret
- * placeholder token (the real token never enters the container).
+ * non-Browser account-scoped CF API path) are EXEMPT and egress direct — they are codeflare's
+ * control-plane backends (see {@link isAccountScopedDestination} and AD86). Browser API traffic,
+ * direct-internet egress and any OTHER account's R2/CF host take the Gateway path. The per-host
+ * CloudflareBrowserInterceptor normally handles Browser requests, but the catch-all excludes
+ * both Browser namespaces from direct exemption too; it grants no administrator credentials.
  *
  * The defining security property is FAIL-CLOSED: when strict is ON but `env.EGRESS`
  * is unbound (the [[vpc_networks]] binding is committed commented-out until Cloudflare
- * Mesh is provisioned), every forward returns 503 EGRESS_UNAVAILABLE and NEVER falls
+ * Mesh is provisioned), Gateway-bound forwards return 503 EGRESS_UNAVAILABLE and NEVER fall
  * back to global `fetch`. The dormant state (OFF + unbound) is therefore inert.
  */
 import type { Env } from '../types';
@@ -98,15 +95,14 @@ export async function hasStrictGatewayEgress(env: Env): Promise<boolean> {
  *      forcing it through cf1:network couples every container's bootstrap-critical
  *      persistence to the shared, rate-limited Gateway egress path (account-wide
  *      connection/rate limits at fleet scale).
- *   2. Boundary — an egress firewall polices the workload's reach to the OUTSIDE
- *      world, not the platform's own storage/AI/browser backends, which carry
- *      codeflare-managed credentials and have their own audit (R2 logs, AI Gateway).
+ *   2. Boundary — own storage and unrelated control-plane APIs remain platform backends;
+ *      Browser API content instead follows strict Gateway transport. LLM traffic retains
+ *      its separate direct AI Gateway interceptor.
  *
  * The exemption is **account-scoped** — ONLY the deployment's own account is direct:
  *   - R2:  `<accountId>.r2.cloudflarestorage.com` (+ the `<bucket>.<accountId>.…` vhost form)
- *   - CF API: `api.cloudflare.com` path `/client/v4/accounts/<accountId>/…` (dormant fallback —
- *     Browser Rendering normally goes via the per-host CloudflareBrowserInterceptor; this branch
- *     only ever forwards the container's non-secret placeholder token).
+ *   - CF API: `api.cloudflare.com` path `/client/v4/accounts/<accountId>/…`, excluding
+ *     `/browser-rendering/` and `/browser-run/`, even without the specialized interceptor.
  * ANY OTHER account's R2/CF host falls through to the Gateway (inspected) — this closes
  * the cross-account exfil channel. `gateway.ai.cloudflare.com` is intentionally NOT
  * exempt: the container never reaches it directly (the worker-side LlmInterceptor does).
@@ -131,15 +127,20 @@ export function isOwnAccountR2(url: URL, accountId: string | undefined): boolean
   return host === r2 || host.endsWith(`.${r2}`);
 }
 
-/** True when `url` targets THIS account's R2 or account-scoped CF API (direct egress, never cf1:network). */
+/** True for own R2 or non-Browser account-scoped CF API destinations eligible for direct egress. */
 export function isAccountScopedDestination(url: URL, accountId: string | undefined): boolean {
   const acct = (accountId ?? '').trim().toLowerCase();
   if (!acct) return false; // fail-secure: no account ⇒ nothing exempt ⇒ all egress Gateway-inspected
   // R2: own account's S3 endpoint (path-style) or a vhost-bucket subdomain of it.
   if (isOwnAccountR2(url, accountId)) return true;
-  // CF API (Browser Rendering / browser-run): own account's path namespace only.
   const host = url.hostname.trim().toLowerCase().replace(/^\[|\]$/g, '').replace(/\.$/, '');
-  if (host === 'api.cloudflare.com' && url.pathname.startsWith(`/client/v4/accounts/${acct}/`)) return true;
+  const accountPath = `/client/v4/accounts/${acct}/`;
+  if (host === 'api.cloudflare.com' && url.pathname.startsWith(accountPath)) {
+    // Browser content needs strict inspection even without the specialized handler.
+    // Excluding both namespaces closes that fallback bypass; it grants no administrator auth.
+    const resource = url.pathname.slice(accountPath.length);
+    return !resource.startsWith('browser-rendering/') && !resource.startsWith('browser-run/');
+  }
   return false;
 }
 
@@ -147,16 +148,16 @@ export function isAccountScopedDestination(url: URL, accountId: string | undefin
  * Forward `request` to its upstream.
  *
  * Account-scoped platform destinations ({@link isAccountScopedDestination}: this account's
- * R2 + CF API / Browser Rendering) egress DIRECT via global `fetch` and NEVER traverse
+ * R2 + non-Browser CF API) egress DIRECT via global `fetch` and NEVER traverse
  * cf1:network — checked first so they reach upstream even when the VPC binding is unbound.
  *
- * Every OTHER host (genuine direct-internet egress, INCLUDING any other account's R2/CF
+ * Every other destination (including own Browser endpoints and any other account's R2/CF
  * API) is forced through the mandatory Workers VPC `env.EGRESS` Fetcher binding for Gateway
  * inspection. When that binding is unbound, fail closed with 503 EGRESS_UNAVAILABLE — there
  * is NO fallback to global `fetch`, which is the entire security point of the feature.
  *
  * The same selector serves WebSocket upgrades: the caller (EgressController) passes the
- * VERBATIM upgrade request here for WS and returns the upstream `101`+`webSocket` as-is.
+ * upgrade request here and bridges the upstream `101`+`webSocket` through its fresh pair.
  */
 export async function controllerFetch(env: Env, request: Request, accountId: string | undefined): Promise<Response> {
   if (isAccountScopedDestination(new URL(request.url), accountId)) return fetch(request);

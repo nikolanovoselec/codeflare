@@ -13,7 +13,7 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-10-26
 
-- Plan strict-aware managed Browser Run REST/CDP forwarding and exclude both own-account Browser namespaces from generic direct egress ([REQ-BROWSER-008 AC3](browser-run.md#req-browser-008-browser-rendering-token-interception-never-in-the-container), [REQ-ENTERPRISE-016](security.md#req-enterprise-016-strict-gateway-egress), [REQ-ENTERPRISE-023 AC1/2/6](security.md#req-enterprise-023-strict-gateway-egress-controller-transport)). This test/spec-only batch preserves existing credential, socket, strict-OFF, LLM/R2 and REST-lifecycle contracts; runtime changes, CI outcomes and separately authorized live compatibility/inspection evidence remain pending.
+- Implement strict-aware managed Browser Run REST/CDP forwarding and exclude both own-account Browser namespaces from generic direct egress ([REQ-BROWSER-008 AC3](browser-run.md#req-browser-008-browser-rendering-token-interception-never-in-the-container), [REQ-ENTERPRISE-016](security.md#req-enterprise-016-strict-gateway-egress), [REQ-ENTERPRISE-023 AC1/2/6](security.md#req-enterprise-023-strict-gateway-egress-controller-transport)). [CI40255590866](https://github.com/nikolanovoselec/codeflare/actions/runs/40255590866) established 21 intended RED failures; this implementation preserves credential, socket, strict-OFF, LLM/R2 and REST-lifecycle contracts, while final GREEN and separately authorized deployed compatibility/inspection evidence remain pending.
 
 ## 2026-10-25
 

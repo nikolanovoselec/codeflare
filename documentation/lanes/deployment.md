@@ -85,6 +85,8 @@ The enterprise GitHub Environment layout, activation variable, account overrides
 
 The enterprise-only binding procedure, Gateway policy preparation, verification steps, and rollback runbook are maintained in the [Strict Gateway Egress runbook](https://github.com/nikolanovoselec/codeflare-private/blob/main/docs/operations/strict-gateway-egress.md). The behavioral contract remains public in [Security](security.md#strict-gateway-egress-enterprise-mode) and [REQ-ENTERPRISE-016](../../sdd/spec/security.md#req-enterprise-016-strict-gateway-egress).
 
+Strict mode includes Browser REST/CDP, not just direct-internet calls. Authorized deployment verification must separately establish correlated REST policy/scanner outcomes and real Gateway-routed CDP compatibility; CI socket fixtures or binding presence alone prove neither. No Gateway policy or subscription change is implied.
+
 ---
 
 ## Production Rollback
