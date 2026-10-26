@@ -5932,6 +5932,106 @@ describe('REQ-OPERATOR-048: original-lease serial SDK phase ownership', () => {
   const modelOutcome = (handle: string, outcome = 'completed') => genericWire('native-result', { handle, outcome });
   const nativeSends = (f: DispatcherFixture) => f.sent.filter(request => request.url === nativeProviderUrl);
 
+  // Historical v1 durable contract, independent of whichever admission format the
+  // current implementation writes. Assertions below use only capability outcomes.
+  const seedNativeV1 = async (f: DispatcherFixture, selection: Record<string, unknown>, entries: Array<{
+    operationId: string; handle: string; stamp: Context; phase: 'admitted' | 'committed' | 'in-flight' | 'unknown';
+  }>) => f.mutateEvidence(async storage => {
+    const url = new URL(nativeProviderUrl);
+    const wireDigest = await digest(JSON.stringify([selection, 'POST', url.origin, url.pathname, url.search]) + nativeBody);
+    const notBefore = Date.now() - 1;
+    for (const [ordinal, entry] of entries.entries()) {
+      const { operationId, handle, stamp, phase } = entry;
+      const committed = phase === 'committed';
+      const attempt = phase === 'admitted' ? 0 : 1;
+      const responseKey = `dispatcher:native-response:${handle}`;
+      const bytes = new TextEncoder().encode(`Legacy native bytes: ${operationId}`);
+      const responseDigest = committed ? await digest(bytes) : undefined;
+      await storage.put(`dispatcher:operation:${stamp.generation}:${operationId}`, {
+        generation: stamp.generation, ordinal,
+        requestDigest: await digest(JSON.stringify({ operationId, selection, deliveryToken: stamp.deliveryToken })),
+        phase: committed ? 'completed' : phase === 'unknown' ? 'unknown' : 'reserved',
+        ...(committed ? { responseDigest } : {}),
+        native: { handle, profileDigest: selection.profileDigest, deliveryToken: stamp.deliveryToken,
+          attempt, notBefore, phase, ...(attempt ? { wireDigest } : {}), ...(committed ? { outcome: 'completed' } : {}) },
+        phaseBinding: { submissionId: stamp.submissionId, deliveryToken: stamp.deliveryToken, phase: stamp.phase, resource: 'inference' },
+      });
+      await storage.put(`dispatcher:native-handle:${handle}`, {
+        generation: stamp.generation, operationId, deliveryToken: stamp.deliveryToken,
+      });
+      if (attempt) {
+        await storage.put(`dispatcher:native-wire:${stamp.generation}:${stamp.deliveryToken}:${wireDigest}`, operationId);
+        await storage.put(`dispatcher:inference-attempt:${stamp.generation}:${operationId}:${attempt}`, {
+          index: attempt, ordinal, notBefore, phase: committed ? 'completed' : phase,
+          ...(committed ? { responseKey, responseDigest, classification: 'usable' } : {}),
+        });
+      }
+      if (committed) await storage.put(responseKey, { kind: 'pi-native', status: 201,
+        headers: { 'content-type': 'text/plain; charset=utf-8', 'x-request-id': handle }, bytes });
+    }
+    await storage.put('dispatcher:journal', { generation: entries[0].stamp.generation,
+      count: entries.length, nextOrdinal: entries.length, unresolved: entries.filter(entry => entry.phase !== 'committed').length });
+  });
+
+  it('REQ-OPERATOR-047/048: legacy v1 admission reuses the original token-bound digest and handle without duplicate provider IO', () => fixture(async f => {
+    await start(f); const stamp = await context(f);
+    const { selected, bound } = await nativeSetup(f);
+    const operationId = 'legacy-native-admission'; const handle = 'legacy-native-handle';
+    await seedNativeV1(f, selected, [{ operationId, handle, stamp, phase: 'admitted' }]);
+    const cold = await coldOwner(f);
+    expect(await admitNative(cold, operationId, selected.profileDigest, stamp.deliveryToken)).toBe(handle);
+    expect(nativeSends(f)).toEqual([]);
+    const sent = await cold.capability.fetch(nativeRequest(handle, bound.auth.apiKey));
+    expect(sent.status).toBe(201);
+    expect(await sent.text()).toBe('Original legacy admission response');
+    expect((await cold.capability.fetch(modelOutcome(handle))).status).toBe(200);
+    const restored = await coldOwner(cold);
+    expect(await admitNative(restored, operationId, selected.profileDigest, stamp.deliveryToken)).toBe(handle);
+    const replay = await restored.capability.fetch(nativeRequest(handle, bound.auth.apiKey));
+    expect(replay.status).toBe(201);
+    expect(await replay.text()).toBe('Original legacy admission response');
+    expect(nativeSends(f)).toHaveLength(1);
+  }, { repositoryOnly: true, recovery: true, intent4: true, facetContract: true, nativeInference: true,
+    sourceTransport: async () => new Response('Original legacy admission response', { status: 201 }) }));
+
+  it('REQ-OPERATOR-047/048: owned legacy v1 committed bytes replay despite another historical phase canonical owner without external IO', () => fixture(async f => {
+    await start(f); const historical = await discovery(f); const stamp = await context(f);
+    const { selected, bound } = await nativeSetup(f);
+    const operationId = 'legacy-owned-commit'; const handle = 'legacy-owned-commit-handle';
+    await seedNativeV1(f, selected, [
+      { operationId: 'legacy-historical-owner', handle: 'legacy-historical-handle', stamp: historical, phase: 'committed' },
+      { operationId, handle, stamp, phase: 'committed' },
+    ]);
+    const cold = await coldOwner(f); const outbound = [...f.sent];
+    expect(await admitNative(cold, operationId, selected.profileDigest, stamp.deliveryToken)).toBe(handle);
+    const replay = await cold.capability.fetch(nativeRequest(handle, bound.auth.apiKey));
+    expect(replay.status).toBe(201);
+    expect(replay.headers.get('x-request-id')).toBe(handle);
+    expect(await replay.text()).toBe(`Legacy native bytes: ${operationId}`);
+    expect((await cold.capability.fetch(modelOutcome(handle))).status).toBe(200);
+    expect(f.sent).toEqual(outbound);
+    expect(nativeSends(f)).toEqual([]);
+  }, { repositoryOnly: true, recovery: true, intent4: true, facetContract: true, nativeInference: true }));
+
+  it.each(['in-flight', 'unknown'] as const)(
+    'REQ-OPERATOR-047/048: legacy v1 %s canonical wire blocks a fresh operation label without provider IO', phase => fixture(async f => {
+      await start(f); const stamp = await context(f);
+      const { selected, bound } = await nativeSetup(f);
+      const handle = 'legacy-uncertain-handle';
+      await seedNativeV1(f, selected, [{ operationId: 'legacy-uncertain-owner', handle, stamp, phase }]);
+      const cold = await coldOwner(f);
+      const retained = await cold.capability.fetch(nativeRequest(handle, bound.auth.apiKey));
+      expect(retained.status).toBe(409);
+      expect(await retained.json()).toMatchObject({ code: 'OPERATOR_OPERATION_UNKNOWN' });
+      const fresh = await admitNative(cold, 'legacy-uncertain-fresh-label', selected.profileDigest, stamp.deliveryToken);
+      const conflict = await cold.capability.fetch(nativeRequest(fresh, bound.auth.apiKey));
+      expect(conflict.status).toBe(409);
+      expect(await conflict.json()).toMatchObject({ code: 'OPERATOR_OPERATION_CONFLICT' });
+      expect((await cold.capability.fetch(modelOutcome(fresh))).status).toBe(403);
+      expect(nativeSends(f)).toEqual([]);
+      expect(await cold.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
+    }, { repositoryOnly: true, recovery: true, intent4: true, facetContract: true, nativeInference: true }));
+
   it('REQ-OPERATOR-007/047/048/081: tokenless serial model sends use pinned owner selection, Activity receipts and no latest-phase binding', () => fixture(async f => {
     const saved = structuredClone(nativeProfileFiles);
     await start(f);
