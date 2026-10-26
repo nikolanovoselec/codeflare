@@ -610,6 +610,8 @@ async function fixture(test: (f: {
   afterRegistryResolve: (action: () => Promise<void>) => void;
   afterBundleRead: (action: () => Promise<void>) => void;
   changeInferenceAuthority: (field: 'route' | 'installation' | 'digest') => void;
+  changeNativeAuthority: (field: 'operator-revision' | 'controls-revision' | 'installation-source' | 'operator-source'
+    | 'installation-inference' | 'operator-inference') => void;
   loseAllocationAcknowledgement: (afterCommit?: () => Promise<void>) => void;
   statusFault: (fault: () => Response | Promise<Response>) => void;
   admissionFault: (fault: (() => Response | Promise<Response>) | undefined) => void;
@@ -618,7 +620,7 @@ async function fixture(test: (f: {
   interruptOwnedChild: (error: Error) => void;
   failOwnedAbort: () => void;
   seedCancelledReleased: () => Promise<void>;
-}) => Promise<void>, options: { humanLifetimeSeconds?: number; repositoryOnly?: boolean; prospective?: boolean;
+}) => Promise<void>, options: { humanLifetimeSeconds?: number; humanEmail?: string; repositoryOnly?: boolean; prospective?: boolean;
   configuredTarget?: { repository: string; repositoryId: number; baseBranch: string };
   legacyProspective?: boolean; inputExtra?: Record<string, unknown>; capabilities?: string[]; pagedStatus?: boolean; githubApiHost?: string;
   sourceResponseBytes?: number; installationSourceResponseBytes?: number; sourceBody?: string; sourceDelayMs?: number; inferenceBody?: string; inferenceRequestBytes?: number; inferenceMessageLimit?: number; operationLimit?: number; loggingEnabled?: boolean;
@@ -653,7 +655,7 @@ async function fixture(test: (f: {
     const artifactDigest = await digest(fixtureBytes);
     const now = Date.now();
     const expiresAt = Math.floor(now / 1000) + (options.humanLifetimeSeconds ?? 300);
-    const human = { subject: 'owner', email: 'owner@example.test', issuer: 'https://access.example.test',
+    const human = { subject: 'owner', email: options.humanEmail ?? 'owner@example.test', issuer: 'https://access.example.test',
       audiences: ['audience'], issuedAt: Math.floor(now / 1000) - 1, expiresAt };
     const policy = { capabilities: options.capabilities ?? ['fetch', 'inference'], resourceProfileId: null,
       ...(options.nativeInference ? { inference: { allowedSources: ['pi-native'], routeIds: [], defaultRouteId: null,
@@ -1083,6 +1085,15 @@ async function fixture(test: (f: {
             }
             return outcome;
           });
+        },
+        changeNativeAuthority: field => {
+          if (field === 'operator-revision') selection.operator.revision++;
+          else if (field === 'controls-revision') selection.controlsRevision++;
+          else {
+            const policy = field.startsWith('installation-') ? selection.installation.policy : selection.operator.policy;
+            if (field.endsWith('-source')) policy.inference = { ...policy.inference!, allowedSources: ['managed'] };
+            else policy.capabilities = policy.capabilities.filter(capability => capability !== 'inference');
+          }
         },
         revokeGrant: () => { selection.operator.invokers.users = []; },
         messages: value => { streamBatch++; messages = value; messagesSet = true; },
@@ -5874,29 +5885,352 @@ describe('REQ-OPERATOR-048: original-lease serial SDK phase ownership', () => {
       : new Response('compressed native response') }));
 
   it.each(['missing', 'stale'] as const)(
-    'REQ-OPERATOR-047/048: serial native admission denies %s delivery without spending an upstream attempt', tokenKind => fixture(async f => {
+    'REQ-OPERATOR-007/047/048: Activity-authorized serial native admission accepts %s model delivery without spending an upstream attempt', tokenKind => fixture(async f => {
       await start(f);
       const original = await context(f);
       if (tokenKind === 'stale') await discovery(f);
       const current = await context(f);
       const selected = JSON.parse((await f.loaderEnv()).OPERATOR_INFERENCE_SELECTION as string);
       const admission = { operationId: 'serial-native-current', profileDigest: selected.profileDigest };
-      const deniedRequest = tokenKind === 'missing' ? genericWire('native-admission', admission)
+      const modelRequest = tokenKind === 'missing' ? genericWire('native-admission', admission)
         : wire('native-admission', admission, original.deliveryToken);
-      await deny(await f.capability.fetch(deniedRequest));
-      expect(f.sent.filter(request => request.url === nativeProviderUrl)).toHaveLength(0);
-      const admitted = await f.capability.fetch(wire('native-admission', admission, current.deliveryToken));
+      const admitted = await f.capability.fetch(modelRequest);
       expect(admitted.status).toBe(200);
       const { handle } = await admitted.json() as { handle: string };
-      // No provider request was committed; a successful SDK outcome cannot create one.
-      expect((await f.capability.fetch(wire('native-result', { handle, outcome: 'completed' }, current.deliveryToken))).status).toBe(403);
+      // Phase headers neither grant model authority nor change a logical operation's identity.
+      const repeated = await f.capability.fetch(wire('native-admission', admission, current.deliveryToken));
+      expect(repeated.status).toBe(200);
+      expect(await repeated.json()).toEqual({ handle });
+      // Admission alone is still not a physical send or a committed result.
+      expect((await f.capability.fetch(genericWire('native-result', { handle, outcome: 'completed' }))).status).toBe(403);
       expect(await context(f)).toEqual(current);
       expect(f.sent.filter(request => request.url === nativeProviderUrl)).toHaveLength(0);
     }, { repositoryOnly: true, recovery: true, intent4: true, facetContract: true, nativeInference: true,
       sourceTransport: async () => Response.json({ ok: true }) }));
 
-  it.each(['partial', 'unknown'] as const)(
-    'REQ-OPERATOR-047/048: %s native transport cannot replay or settle after cold reconstruction', failure => fixture(async f => {
+  // Activity-scoped MODEL authority is separate from serial protected-tool authority.
+  // These are parent HTTP/egress tests, not generated-SDK or hosted qualification.
+  const nativeSetup = async (f: DispatcherFixture) => {
+    const selected = JSON.parse((await f.loaderEnv()).OPERATOR_INFERENCE_SELECTION as string);
+    const response = await f.capability.fetch(genericWire('native-binding', { profileDigest: selected.profileDigest }));
+    expect(response.status).toBe(200);
+    const bound = await response.json() as { selection: unknown; auth: { apiKey: string } };
+    expect(bound.selection).toEqual(selected);
+    return { selected, bound };
+  };
+  const nativeRequest = (handle: string, apiKey: string, body = nativeBody) => new Request(nativeProviderUrl, {
+    method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${apiKey}`,
+      'chatgpt-account-id': 'synthetic-account', 'x-codeflare-native-inference': handle }, body,
+  });
+  const admitNative = async (f: DispatcherFixture, operationId: string, profileDigest: string, token?: string) => {
+    const body = { operationId, profileDigest };
+    const response = await f.capability.fetch(token === undefined ? genericWire('native-admission', body)
+      : wire('native-admission', body, token));
+    expect(response.status).toBe(200);
+    return (await response.json() as { handle: string }).handle;
+  };
+  const modelOutcome = (handle: string, outcome = 'completed') => genericWire('native-result', { handle, outcome });
+  const nativeSends = (f: DispatcherFixture) => f.sent.filter(request => request.url === nativeProviderUrl);
+
+  it('REQ-OPERATOR-007/047/048/081: tokenless serial model sends use pinned owner selection, Activity receipts and no latest-phase binding', () => fixture(async f => {
+    const saved = structuredClone(nativeProfileFiles);
+    await start(f);
+    const first = await context(f);
+    const { selected, bound } = await nativeSetup(f);
+    expect(selected).toMatchObject({ source: 'pi-native', provider: 'openai-codex', model: 'gpt-6.1-sol',
+      api: 'openai-codex-responses', reasoningLevel: 'low' });
+    const anchor = await f.capability.fetch(wire('source', { operationId: 'activity-model-anchor',
+      url: 'https://api.github.com/repos/another/service' }, first.deliveryToken));
+    expect(anchor.status).toBe(200);
+    const handle = await admitNative(f, 'activity-model', selected.profileDigest);
+    expect(nativeSends(f)).toEqual([]);
+    expect((await f.capability.fetch(modelOutcome(handle))).status).toBe(403);
+    const response = await f.capability.fetch(nativeRequest(handle, bound.auth.apiKey));
+    expect(response.status).toBe(201);
+    expect(response.headers.get('x-request-id')).toBe('activity-model-response');
+    expect(await response.text()).toBe('Activity-authorized native bytes');
+    expect((await f.capability.fetch(modelOutcome(handle))).status).toBe(200);
+    expect(await receipt(f, 'activity-model-anchor', first.deliveryToken)).toMatchObject({ operationCount: 2 });
+    expect(await context(f)).toEqual(first);
+    expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
+    expect(nativeProfileFiles).toEqual(saved);
+
+    await discovery(f);
+    const current = await context(f);
+    const cold = await coldOwner(f);
+    const retained = await cold.capability.fetch(wire('native-admission', {
+      operationId: 'activity-model', profileDigest: selected.profileDigest }, current.deliveryToken));
+    expect(retained.status).toBe(200);
+    expect(await retained.json()).toEqual({ handle });
+    const replay = await cold.capability.fetch(nativeRequest(handle, bound.auth.apiKey));
+    expect(replay.status).toBe(201);
+    expect(await replay.text()).toBe('Activity-authorized native bytes');
+    expect((await cold.capability.fetch(modelOutcome(handle))).status).toBe(200);
+    const originalDigest = await digest('activity-model');
+    const beforeNext = await cold.activity.getDispatcherDiagnostics(f.proof.ownerKey);
+    const original = beforeNext?.parent.operations.records.find(record => record.operationDigest === originalDigest);
+    expect(original).toMatchObject({ status: 'completed', requestDigest: expect.any(String), responseDigest: expect.any(String) });
+    expect(beforeNext?.parent.journal).toMatchObject({ count: 2 });
+
+    // Later personal defaults do not retarget the admitted Activity model/reasoning.
+    nativeProfileFiles.set('/owner-bucket/.pi/agent/settings.json', {
+      defaultProvider: 'openai', defaultModel: 'gpt-6.1-sol', defaultThinkingLevel: 'high',
+    });
+    const fresh = await admitNative(cold, 'activity-model-next', selected.profileDigest);
+    const nextBody = JSON.stringify({ model: 'gpt-6.1-sol', input: [{ role: 'user', content: 'Independent approved turn' }],
+      reasoning: { effort: 'low' }, stream: true });
+    expect((await cold.capability.fetch(nativeRequest(fresh, bound.auth.apiKey, nextBody))).status).toBe(201);
+    expect((await cold.capability.fetch(modelOutcome(fresh))).status).toBe(200);
+    expect((await nativeSetup(cold)).selected).toEqual(selected);
+    const diagnostic = await cold.activity.getDispatcherDiagnostics(f.proof.ownerKey);
+    for (const operationId of ['activity-model', 'activity-model-next']) {
+      // Public diagnostics must not invent a phase/submission for Activity model authority.
+      const operationDigest = await digest(operationId);
+      expect(diagnostic?.parent.operations.records.find(record => record.operationDigest === operationDigest))
+        .toMatchObject({ status: 'completed', binding: null });
+    }
+    expect(diagnostic?.parent.operations.records.find(record => record.operationDigest === originalDigest)).toMatchObject({
+      requestDigest: original!.requestDigest, responseDigest: original!.responseDigest,
+    });
+    expect(diagnostic?.parent.journal).toMatchObject({ count: 3 });
+    const sends = nativeSends(f);
+    expect(sends).toHaveLength(2);
+    for (const send of sends) {
+      expect(send.headers.get('authorization')).toBe('Bearer synthetic-native-access');
+      expect(send.headers.get('x-codeflare-native-inference')).toBeNull();
+      expect(send.headers.get('x-codeflare-dispatcher-delivery')).toBeNull();
+      expect(await send.clone().json()).toMatchObject({ model: selected.model, reasoning: { effort: 'low' } });
+    }
+    // An old model call cannot turn its former token into tool or publication authority.
+    await deny(await cold.capability.fetch(wire('source', { operationId: 'old-model-tool',
+      url: 'https://api.github.com/repos/another/service' }, first.deliveryToken)));
+    await deny(await cold.capability.fetch(wire('source', { operationId: 'old-model-write', method: 'POST',
+      url: 'https://api.github.com/repos/another/service/issues/17/comments', body: '{"body":"must not publish"}' }, first.deliveryToken)));
+    expect(f.sent.filter(request => new URL(request.url).hostname === 'api.github.com' && request.method !== 'GET')).toEqual([]);
+    expect(await context(cold)).toEqual(current);
+  }, { repositoryOnly: true, recovery: true, intent4: true, facetContract: true, nativeInference: true,
+    sourceTransport: async request => request.url === nativeProviderUrl
+      ? new Response('Activity-authorized native bytes', { status: 201, headers: { 'x-request-id': 'activity-model-response' } })
+      : Response.json({ ok: true }) }));
+
+  it.each(['before-send', 'in-flight', 'before-result'] as const)(
+    'REQ-OPERATOR-047/048/081: phase advance %s neither fences an admitted model call nor rebinds it to the successor', async boundary => {
+      let entered!: () => void; const sending = new Promise<void>(resolve => { entered = resolve; });
+      let release!: () => void; const released = new Promise<void>(resolve => { release = resolve; });
+      await fixture(async f => {
+        let pending: Promise<Response> | undefined;
+        try {
+          await start(f);
+          const first = await context(f);
+          const { selected, bound } = await nativeSetup(f);
+          const handle = await admitNative(f, 'model-across-phase', selected.profileDigest, first.deliveryToken);
+          if (boundary !== 'before-send') pending = f.capability.fetch(nativeRequest(handle, bound.auth.apiKey));
+          if (boundary === 'in-flight') await within(sending, 'native provider body before phase advance');
+          if (boundary === 'before-result') {
+            release();
+            const response = await within(pending!, 'native response before phase advance');
+            expect(response.status).toBe(201); expect(await response.text()).toBe('original Activity model response');
+          }
+          await discovery(f);
+          const current = await context(f);
+          expect(current.submissionId).not.toBe(first.submissionId);
+          if (boundary === 'before-send') pending = f.capability.fetch(nativeRequest(handle, bound.auth.apiKey));
+          release();
+          if (boundary !== 'before-result') {
+            const response = await within(pending!, 'native response after phase advance');
+            expect(response.status).toBe(201); expect(await response.text()).toBe('original Activity model response');
+          }
+          expect((await f.capability.fetch(modelOutcome(handle))).status).toBe(200);
+          for (const token of [undefined, first.deliveryToken, current.deliveryToken]) {
+            expect(await admitNative(f, 'model-across-phase', selected.profileDigest, token)).toBe(handle);
+          }
+          const diagnostic = await f.activity.getDispatcherDiagnostics(f.proof.ownerKey);
+          const operationDigest = await digest('model-across-phase');
+          expect(diagnostic?.parent.operations.records.find(record => record.operationDigest === operationDigest))
+            .toMatchObject({ status: 'completed', binding: null });
+          expect(await context(f)).toEqual(current);
+          expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
+          expect(nativeSends(f)).toHaveLength(1);
+        } finally { release(); await pending?.catch(() => undefined); }
+      }, { repositoryOnly: true, recovery: true, intent4: true, facetContract: true, nativeInference: true,
+        sourceTransport: async request => request.url !== nativeProviderUrl ? Response.json({ ok: true })
+          : new Response(new ReadableStream<Uint8Array>({ start(controller) {
+            entered(); void released.then(() => {
+              controller.enqueue(new TextEncoder().encode('original Activity model response')); controller.close();
+            });
+          } }), { status: 201 }) });
+    });
+
+  it.each(['revoked', 'session', 'invoker-grant', 'installation-revision', 'operator-revision', 'controls-revision',
+    'release-digest', 'installation-source', 'operator-source', 'installation-inference', 'operator-inference',
+    'personal-permission', 'deadline', 'cancelled', 'uncertain', 'stale-generation'] as const)(
+    'REQ-OPERATOR-007/047/048: Activity-native authority denies new sends, replay and settlement after %s', fault => fixture(async f => {
+      await start(f);
+      const stamp = await context(f);
+      const { selected, bound } = await nativeSetup(f);
+      // A valid current token reaches the existing model pipeline before the authority fault;
+      // the negative control must not pass merely because setup lacks a phase header.
+      const handle = await admitNative(f, 'authority-before-fault', selected.profileDigest, stamp.deliveryToken);
+      const committed = await admitNative(f, 'authority-committed-before-fault', selected.profileDigest, stamp.deliveryToken);
+      const complete = await f.capability.fetch(nativeRequest(committed, bound.auth.apiKey));
+      expect(complete.status).toBe(201); expect(await complete.text()).toBe('authorized before revocation');
+      if (fault === 'revoked') f.revoke();
+      else if (fault === 'session') f.revokeSession();
+      else if (fault === 'invoker-grant') f.revokeGrant();
+      else if (fault === 'installation-revision') f.changeInferenceAuthority('installation');
+      else if (fault === 'release-digest') f.changeInferenceAuthority('digest');
+      else if (fault === 'personal-permission') vi.spyOn(access, 'loadEnterpriseRouteConfig').mockResolvedValue({
+        piDefaultSource: 'pi-native', allowPersonalPiProviders: false,
+      } as Awaited<ReturnType<typeof access.loadEnterpriseRouteConfig>>);
+      else if (fault === 'deadline') f.expire();
+      else if (fault === 'cancelled') expect(await f.activity.cancelDrive()).toMatchObject({ ok: true });
+      else if (fault === 'uncertain') expect(await f.activity.interruptDrive(1)).toMatchObject({ ok: true });
+      else if (fault !== 'stale-generation') f.changeNativeAuthority(fault);
+      const caller = fault === 'stale-generation' ? f.staleCapability : f.capability;
+      for (const request of [genericWire('native-binding', { profileDigest: selected.profileDigest }),
+        genericWire('native-admission', { operationId: 'authority-after-fault', profileDigest: selected.profileDigest }),
+        nativeRequest(handle, bound.auth.apiKey), nativeRequest(committed, bound.auth.apiKey), modelOutcome(committed)]) {
+        await deny(await caller.fetch(request));
+      }
+      expect(nativeSends(f)).toHaveLength(1);
+      expect(f.sent.filter(request => new URL(request.url).hostname === 'api.github.com' && request.method !== 'GET')).toEqual([]);
+      expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
+    }, { repositoryOnly: true, recovery: true, intent4: true, facetContract: true, nativeInference: true,
+      sourceTransport: async () => new Response('authorized before revocation', { status: 201 }) }));
+
+  it.each(['model', 'reasoning', 'auth', 'destination'] as const)(
+    'REQ-OPERATOR-007/047/048: Activity-native %s substitution cannot reach the provider or manufacture a result', fault => fixture(async f => {
+      await start(f); const stamp = await context(f);
+      const { selected, bound } = await nativeSetup(f);
+      const handle = await admitNative(f, 'model-policy-control', selected.profileDigest, stamp.deliveryToken);
+      expect((await f.capability.fetch(genericWire('native-binding', { profileDigest: 'f'.repeat(64) }))).status).toBe(403);
+      expect((await f.capability.fetch(wire('native-admission', {
+        operationId: 'foreign-profile', profileDigest: 'f'.repeat(64) }, stamp.deliveryToken))).status).toBe(403);
+      const body = fault === 'model' ? nativeBody.replace('gpt-6.1-sol', 'unapproved-model')
+        : fault === 'reasoning' ? nativeBody.replace('low', 'high') : nativeBody;
+      const request = nativeRequest(handle, fault === 'auth' ? 'foreign-owner-token' : bound.auth.apiKey, body);
+      const deniedRequest = fault === 'destination' ? new Request('https://api.openai.com/v1/responses', {
+        method: 'POST', headers: request.headers, body,
+      }) : request;
+      expect((await f.capability.fetch(deniedRequest)).status).toBe(403);
+      expect(f.sent).toEqual([]);
+      expect((await f.capability.fetch(modelOutcome(handle))).status).toBe(403);
+      expect(await context(f)).toEqual(stamp);
+      expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
+    }, { repositoryOnly: true, recovery: true, intent4: true, facetContract: true, nativeInference: true,
+      sourceTransport: async () => Response.json({ ok: true }) }));
+
+  it('REQ-OPERATOR-003/047/048: another Activity cannot send, finish or replay the original native handle', () => fixture(async original => {
+    await start(original);
+    const { selected, bound } = await nativeSetup(original);
+    const handle = await admitNative(original, 'tenant-local-model', selected.profileDigest, (await context(original)).deliveryToken);
+    await fixture(async other => {
+      await start(other);
+      expect(other.activityId).not.toBe(original.activityId);
+      for (const caller of [other.capability, other.staleCapability]) {
+        await deny(await caller.fetch(nativeRequest(handle, bound.auth.apiKey)));
+        await deny(await caller.fetch(modelOutcome(handle)));
+      }
+      expect(other.proof.ownerKey).not.toBe(original.proof.ownerKey);
+      expect(await other.activity.getDispatcherDiagnostics(original.proof.ownerKey)).toBeNull();
+      expect(nativeSends(other)).toEqual([]);
+      expect(await other.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
+    }, { repositoryOnly: true, recovery: true, intent4: true, facetContract: true, nativeInference: true,
+      humanEmail: 'other-owner@example.test' });
+    expect(nativeSends(original)).toEqual([]);
+  }, { repositoryOnly: true, recovery: true, intent4: true, facetContract: true, nativeInference: true }));
+
+  it('REQ-OPERATOR-047/048: phase changes and fresh model labels cannot reset the Activity operation budget', () => fixture(async f => {
+    await start(f); const first = await context(f);
+    const { selected, bound } = await nativeSetup(f);
+    const handle = await admitNative(f, 'last-model-slot', selected.profileDigest, first.deliveryToken);
+    expect((await f.capability.fetch(nativeRequest(handle, bound.auth.apiKey))).status).toBe(201);
+    expect((await f.capability.fetch(modelOutcome(handle))).status).toBe(200);
+    // Capacity is reached after discovery advances, not before its settlement.
+    await discovery(f); const current = await context(f);
+    const next = await admitNative(f, 'second-model-slot', selected.profileDigest);
+    const body = nativeBody.replace('"input":[]', '"input":[{"role":"user","content":"second turn"}]');
+    expect((await f.capability.fetch(nativeRequest(next, bound.auth.apiKey, body))).status).toBe(201);
+    expect((await f.capability.fetch(modelOutcome(next))).status).toBe(200);
+    for (const token of [undefined, first.deliveryToken, current.deliveryToken]) {
+      const admission = { operationId: 'over-model-budget', profileDigest: selected.profileDigest };
+      const response = await f.capability.fetch(token === undefined ? genericWire('native-admission', admission)
+        : wire('native-admission', admission, token));
+      expect(response.status).toBe(403);
+      expect(await response.json()).toMatchObject({ reason: 'operation-limit', disposition: 'authority-denied' });
+    }
+    expect(await admitNative(f, 'last-model-slot', selected.profileDigest)).toBe(handle);
+    const replay = await f.capability.fetch(nativeRequest(handle, bound.auth.apiKey));
+    expect(replay.status).toBe(201);
+    expect((await f.activity.getDispatcherDiagnostics(f.proof.ownerKey))?.parent.journal).toMatchObject({ count: 2 });
+    expect(nativeSends(f)).toHaveLength(2);
+    expect(await context(f)).toEqual(current);
+    expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
+  }, { repositoryOnly: true, recovery: true, intent4: true, facetContract: true, nativeInference: true, operationLimit: 2,
+    sourceTransport: async () => new Response('bounded native response', { status: 201 }) }));
+
+  it('REQ-OPERATOR-047/048: phase advancement cannot replenish a failed native model attempt allowance', () => fixture(async f => {
+    await start(f); const first = await context(f);
+    const { selected, bound } = await nativeSetup(f);
+    const handle = await admitNative(f, 'one-model-attempt', selected.profileDigest, first.deliveryToken);
+    expect((await f.capability.fetch(nativeRequest(handle, bound.auth.apiKey))).status).toBe(201);
+    expect((await f.capability.fetch(modelOutcome(handle, 'failed'))).status).toBe(200);
+    await discovery(f); const current = await context(f);
+    for (const token of [undefined, first.deliveryToken, current.deliveryToken]) {
+      const admission = { operationId: 'one-model-attempt', profileDigest: selected.profileDigest };
+      const response = await f.capability.fetch(token === undefined ? genericWire('native-admission', admission)
+        : wire('native-admission', admission, token));
+      expect(response.status).toBe(403);
+      expect(await response.json()).toMatchObject({ reason: 'operation-limit', disposition: 'authority-denied' });
+    }
+    const fresh = await admitNative(f, 'fresh-label-same-attempt', selected.profileDigest);
+    const conflict = await f.capability.fetch(nativeRequest(fresh, bound.auth.apiKey));
+    expect(conflict.status).toBe(409);
+    expect(await conflict.json()).toMatchObject({ code: 'OPERATOR_OPERATION_CONFLICT' });
+    expect((await f.capability.fetch(modelOutcome(fresh))).status).toBe(403);
+    expect(nativeSends(f)).toHaveLength(1);
+    expect(await context(f)).toEqual(current);
+    expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
+  }, { repositoryOnly: true, recovery: true, intent4: true, facetContract: true, nativeInference: true, inferenceAttemptLimit: 1,
+    sourceTransport: async () => new Response('one charged model attempt', { status: 201 }) }));
+
+  it.each(['cancelled', 'deadline', 'revoked'] as const)(
+    'REQ-OPERATOR-047/048: an in-flight Activity model cannot commit late bytes after %s even when the provider ignores abort', async fault => {
+      let entered!: () => void; const sending = new Promise<void>(resolve => { entered = resolve; });
+      let release!: () => void; const released = new Promise<void>(resolve => { release = resolve; });
+      await fixture(async f => {
+        let pending: Promise<Response> | undefined;
+        try {
+          await start(f); const stamp = await context(f);
+          const { selected, bound } = await nativeSetup(f);
+          const handle = await admitNative(f, 'late-activity-model', selected.profileDigest, stamp.deliveryToken);
+          pending = f.capability.fetch(nativeRequest(handle, bound.auth.apiKey));
+          await within(sending, 'native send before authority retirement');
+          if (fault === 'cancelled') expect(await f.activity.cancelDrive()).toMatchObject({ ok: true });
+          else if (fault === 'deadline') f.expire();
+          else f.revoke();
+          release();
+          const response = await within(pending, 'late native provider response refusal');
+          expect(response.status).toBe(409);
+          expect(await response.json()).toMatchObject({ code: 'OPERATOR_OPERATION_UNKNOWN' });
+          await deny(await f.capability.fetch(modelOutcome(handle)));
+          await deny(await f.capability.fetch(nativeRequest(handle, bound.auth.apiKey)));
+          expect(nativeSends(f)).toHaveLength(1);
+          expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
+        } finally { release(); await pending?.catch(() => undefined); }
+      }, { repositoryOnly: true, recovery: true, intent4: true, facetContract: true, nativeInference: true,
+        sourceTransport: async request => {
+          if (request.url !== nativeProviderUrl) return Response.json({ ok: true });
+          entered(); await released;
+          return new Response('late provider bytes must not escape', { status: 201 });
+        } });
+    });
+
+  it.each([
+    { failure: 'partial', serial: false }, { failure: 'unknown', serial: false },
+    { failure: 'partial', serial: true }, { failure: 'unknown', serial: true },
+  ] as const)(
+    'REQ-OPERATOR-047/048: $failure native transport cannot replay or settle after cold reconstruction (serial=$serial)', ({ failure, serial }) => fixture(async f => {
       await start(f);
       const selected = JSON.parse((await f.loaderEnv()).OPERATOR_INFERENCE_SELECTION as string);
       const binding = await f.capability.fetch(genericWire('native-binding', { profileDigest: selected.profileDigest }));
@@ -5940,7 +6274,7 @@ describe('REQ-OPERATOR-048: original-lease serial SDK phase ownership', () => {
       }
       expect(await fenced.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
       expect(f.sent.filter(request => request.url === nativeProviderUrl)).toHaveLength(1);
-    }, { repositoryOnly: true, recovery: true, intent4: false, facetContract: true, nativeInference: true,
+    }, { repositoryOnly: true, recovery: true, intent4: serial, facetContract: true, nativeInference: true,
       sourceTransport: async request => {
         if (request.url !== nativeProviderUrl) return Response.json({ ok: true });
         if (failure === 'unknown') throw new Error('Synthetic provider lost response');
