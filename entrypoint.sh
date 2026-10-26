@@ -3020,7 +3020,7 @@ const required = [
   'npm:@juicesharp/rpiv-ask-user-question@2.12.0',
   'npm:@juicesharp/rpiv-todo@2.13.9',
   'npm:pi-web-access@0.40.0',
-  'npm:pi-mcp-adapter@5.3.1',
+  'npm:pi-mcp-adapter@5.3.2',
   'npm:pi-evaluate@0.1.5',
   'npm:pi-smart-compact@10.6.2',
   'npm:@narumitw/pi-goal@0.54.11',
