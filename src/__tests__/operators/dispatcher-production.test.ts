@@ -641,7 +641,7 @@ async function fixture(test: (f: {
     : options.repositoryOnly ? { repository: 'another/service' } : invocation;
   const sdkProvenance = options.sdkDiagnostics ? await syntheticSdkProvenance() : null;
   const baseBundle: DispatcherBundle = options.runtimeVersion === '2.2.2' || options.sdkDiagnostics ? { ...bundle,
-    versions: { ...bundle.versions, runtime: '2.2.2', vitePlugin: '2.2.2' } } : bundle;
+    versions: { runtime: '2.2.2', vitePlugin: '2.2.2', agents: '0.20.1' } } : bundle;
   const fixtureBundle: DispatcherBundle = sdkProvenance ? { ...baseBundle, modules: { ...baseBundle.modules,
     'codeflare/sdk-diagnostics-provenance.json': { text: canonicalDiagnosticJson(sdkProvenance) },
     ...Object.fromEntries([...syntheticFramePaths, ...syntheticBudgetPaths()].map((path, index) => [path, { text: syntheticFrameText(index) }])),

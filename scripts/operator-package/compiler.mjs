@@ -80,7 +80,8 @@ async function buildBundle(raw) {
     const versions = object(bundle.versions, 'bundle.versions');
     exactKeys(versions, ['runtime', 'vitePlugin', 'agents'], 'bundle.versions');
     if (!['2.1.0', '2.2.2', '2.3.0'].includes(versions.runtime) || versions.vitePlugin !== versions.runtime
-      || versions.agents !== '0.20.1') fail('Dispatcher versions are incompatible');
+      || (versions.agents !== '0.20.1'
+        && !(versions.runtime === '2.3.0' && versions.agents === '0.30.1'))) fail('Dispatcher versions are incompatible');
     validateModules(bundle.modules, bundle.mainModule);
     return { bundle, dispatcher: true };
   }
