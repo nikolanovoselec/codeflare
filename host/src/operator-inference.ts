@@ -127,7 +127,7 @@ export async function ownerInference(owner: OperatorInferenceOwner, profile: boo
       if (event.type === 'error') throw new Refusal(502);
       const encoded = JSON.stringify(event);
       size += Buffer.byteLength(encoded) + 1;
-      if (size > owner.maxResponseBytes) { controller.abort(); throw new Refusal(413); }
+      if (size > owner.maxResponseBytes) throw new Refusal(413);
       events.push(JSON.parse(encoded) as JsonObject);
     }
     const result = await stream.result();

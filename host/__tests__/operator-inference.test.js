@@ -648,7 +648,8 @@ test('REQ-OPERATOR-047: production lookup metadata preserves admitted large cont
   const context = { ...transcript(), systemPrompt: 'admitted-large-context '.repeat(4000) };
   const response = await post(f.origin, '/operator-inference', modelRequest(f, { context }), TOKEN, headers);
   assert.equal(successful(response).content.find(part => part.type === 'text').text, f.answer);
-  assert.deepEqual(f.sends[0].body.context, context);
+  const { normalizeContext } = await import(pathToFileURL(AI_ENTRY).href);
+  assert.deepEqual(f.sends[0].body.context, normalizeContext(context));
   const foreign = await post(f.origin, '/operator-inference', modelRequest(f, { generation: f.binding.generation + 1 }), TOKEN, headers);
   assert.equal(foreign.status, 403, foreign.raw);
   assert.equal(foreign.body?.events, undefined);

@@ -8145,7 +8145,7 @@ describe('normal installed Dispatcher control', () => {
 
   it('REQ-OPERATOR-048: non-inference normal work requires no owner SDK profile or inference approval', () => fixture(async f => {
     expect(await start(f)).toMatchObject({ ok: true });
-    expect(control(f, 'dispatch')[0].body.initialData.selection).toBeUndefined();
+    expect(control(f, 'dispatch')[0].body.initialData).not.toHaveProperty('selection');
     expect((await callback(f, 'source', source)).status).toBe(200);
     expect((await callback(f, 'inference', { operationId: 'not-granted', context: { messages: [{ role: 'user', content: 'Denied' }] },
       options: {} })).status).toBe(403);
@@ -8212,7 +8212,8 @@ describe('normal installed Dispatcher control', () => {
   }, options));
 
   it('REQ-OPERATOR-007/047: normal serial inference is Activity-scoped while protected tools still require the original phase token', () => fixture(async f => {
-    expect(await start(f)).toMatchObject({ ok: true });
+    expect(await start(f)).toMatchObject({ ok: true, state: { status: 'running', generation: 1 } });
+    expect([...f.normalTransport!.admissions.values()]).toMatchObject([{ receipt: { submissionId: expect.any(String), uid: expect.any(String) } }]);
     const response = await callback(f, 'inference', { operationId: 'serial-owner-model',
       context: { messages: [{ role: 'user', content: 'Assess the original phase' }] }, options: { reasoning: 'low', maxTokens: 128 } });
     expect(response.status).toBe(200);
@@ -8254,6 +8255,26 @@ describe('normal installed Dispatcher control', () => {
       expect(await storage.get('dispatcher:lease')).toMatchObject({ receipt: accepted, expiresAt: before });
     });
     expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
+  }, options));
+
+  it.each([500, 502, 503])('REQ-OPERATOR-048: transient read HTTP%i retains original receipt and authority until exact settlement', status => fixture(async f => {
+    expect(await start(f)).toMatchObject({ ok: true, state: { status: 'running', generation: 1 } });
+    const admitted = [...f.normalTransport!.admissions.values()];
+    const originalDeadline = (await f.activity.getRuntimePlan())!.deadline;
+    f.normalTransport!.failNextRead(status);
+    await f.activity.reconcileDispatcherLease();
+    expect(await f.activity.dispatcherGenerationCurrent(1)).toBe(true);
+    expect((await f.activity.getBrowserDetail())?.executionStatus).toBe('running');
+    expect((await f.activity.getRuntimePlan())!.deadline).toBe(originalDeadline);
+    expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
+    f.normalTransport!.settle('completed', [{ name: 'assessment', data: result }]);
+    const activity = await cold(f);
+    await activity.reconcileDispatcherLease();
+    expect(await activity.collectBrowserResult()).toMatchObject({ ok: true, detail: { executionStatus: 'completed', result } });
+    expect((await activity.getBrowserDetail())?.executionStatus).toBe('completed');
+    expect([...f.normalTransport!.admissions.values()]).toEqual(admitted);
+    for (const read of control(f, 'read')) expect(read.body).toMatchObject({ id: `${f.activityId}-g1`, receipt: admitted[0].receipt });
+    expect(control(f, 'abort')).toEqual([]);
   }, options));
 
   it('REQ-OPERATOR-048: AC4 exact completed SDK assessment collects immutably across cold reads without new execution', () => fixture(async f => {
@@ -8383,7 +8404,7 @@ describe('normal installed Dispatcher control', () => {
     'REQ-OPERATOR-044: deployment identity constraint rejects substituted %s before any job admission', field => fixture(async f => {
       f.changeConnection({ [field]: field.endsWith('Commit') ? 'b'.repeat(40) : field.endsWith('Digest') ? 'b'.repeat(64) : 'other-release' });
       const started = await start(f);
-      expect(started).toMatchObject({ ok: false });
+      expect(started).toMatchObject({ ok: true, state: { status: 'unknown', generation: 2 } });
       expect(f.normalTransport!.admissions.size).toBe(0);
       expect(f.sent).toEqual([]);
       expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });

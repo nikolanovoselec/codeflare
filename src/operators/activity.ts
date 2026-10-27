@@ -2041,9 +2041,9 @@ export class OperatorActivity extends Agent {
         body: JSON.stringify(body),
       }));
     } catch { throw new NormalDispatcherObservationUnavailable('Normal Dispatcher observation unavailable'); }
-    if (action === 'dispatch' && response.status >= 500) {
+    if (action !== 'abort' && response.status >= 500) {
       void response.body?.cancel().catch(() => {});
-      throw new NormalDispatcherObservationUnavailable('Normal Dispatcher admission acknowledgement unavailable');
+      throw new NormalDispatcherObservationUnavailable('Normal Dispatcher control acknowledgement unavailable');
     }
     if (response.headers.get('content-type')?.split(';')[0].trim().toLowerCase() !== 'application/json'
       || ![200, 202].includes(response.status)) {
@@ -3564,7 +3564,7 @@ export class OperatorActivity extends Agent {
         const selection = lease.configuredSelection;
         perform = async () => {
           try { return await forwardDispatcherOwnerInference({ plan: { ...plan, deadline: Math.min(plan.deadline, lease!.expiresAt) },
-            generation, env: this.#appEnv, operation: configuredOperation, selection, signal: controller.signal,
+            generation, env: this.#appEnv, operation: configuredOperation, selection, signal: request.signal,
             current: () => this.#dispatcherDeliveryCurrent(generation, deliveryToken, modelScope) }); }
           catch (error) { if (error instanceof PiAuthRequiredError) await this.#nativeLoginStop(generation, error.authFailure); throw error; }
         };

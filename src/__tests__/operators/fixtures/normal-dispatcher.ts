@@ -44,6 +44,7 @@ export function createNormalDispatcherTransport() {
   const requests: Array<{ path: string; authorization: string | null; body: Record<string, unknown> }> = [];
   const admissions = new Map<string, { wire: string; receipt: NormalReceipt }>();
   let loseNextAcknowledgement = false;
+  let nextReadFailure: number | undefined;
   let outcome: 'pending' | 'completed' | 'failed' | 'aborted' = 'pending';
   let data: Record<string, unknown[]> = {};
   let replyPatch: Record<string, unknown> = {};
@@ -69,6 +70,10 @@ export function createNormalDispatcherTransport() {
     }
     if (path === '/control/abort') return Response.json({ status: 'intent-recorded' }, { status: 202 });
     if (path === '/control/read') {
+      if (nextReadFailure !== undefined) {
+        const status = nextReadFailure; nextReadFailure = undefined;
+        return new Response('Temporary platform failure', { status, headers: { 'content-type': 'text/html' } });
+      }
       const receipt = [...admissions.values()].find(item => item.receipt.submissionId === (body.receipt as NormalReceipt)?.submissionId)?.receipt;
       if (!receipt) return Response.json({ code: 'unknown-submission' }, { status: 404 });
       return Response.json({ status: outcome, receipt: { ...receipt, ...receiptPatch },
@@ -80,6 +85,7 @@ export function createNormalDispatcherTransport() {
   };
   return { fetcher, requests, admissions,
     loseAcknowledgement: () => { loseNextAcknowledgement = true; },
+    failNextRead: (status: number) => { nextReadFailure = status; },
     settle: (status: typeof outcome, assessmentData: Array<{ name: string; data: unknown }> = []) => {
       outcome = status;
       data = {};
