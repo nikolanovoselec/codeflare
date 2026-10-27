@@ -1,0 +1,89 @@
+name: Prepare SDK audit lock (temporary)
+
+on:
+  push:
+    branches: [automation/sdk-audit-lock-preparation]
+
+permissions:
+  contents: read
+
+jobs:
+  prepare:
+    if: github.repository == 'nikolanovoselec/codeflare'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      NPM_CONFIG_IGNORE_SCRIPTS: 'true'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22'
+      - name: Bind original inputs
+        run: |
+          mkdir -p .audit-lock-preparation
+          node --input-type=commonjs <<'NODE'
+          const fs = require('node:fs');
+          const crypto = require('node:crypto');
+          const cp = require('node:child_process');
+          const hash = p => crypto.createHash('sha256').update(fs.readFileSync(p)).digest('hex');
+          const parent = cp.execFileSync('git', ['rev-parse', 'HEAD^'], {encoding:'utf8'}).trim();
+          if (parent !== '5047fd00b889812e402f89e5832d272b7e91ec4f') throw Error('Unexpected preparation baseline');
+          fs.copyFileSync('package.json', '.audit-lock-preparation/original-package.json');
+          fs.writeFileSync('.audit-lock-preparation/provenance.json', JSON.stringify({
+            repository: process.env.GITHUB_REPOSITORY,
+            preparationCommit: process.env.GITHUB_SHA,
+            baselineCommit: parent,
+            runId: process.env.GITHUB_RUN_ID,
+            node: process.version,
+            npm: cp.execFileSync('npm', ['--version'], {encoding:'utf8'}).trim(),
+            originalManifestSha256: hash('package.json'),
+            originalLockSha256: hash('package-lock.json'),
+            preparationCommand: 'npm install --package-lock-only --save-dev --save-exact --ignore-scripts --no-audit --no-fund @cloudflare/vitest-plugin@1.4.8',
+            validationCommands: [
+              'npm ci --ignore-scripts --no-audit --no-fund',
+              'npm audit --package-lock-only --audit-level=high --omit=dev'
+            ]
+          }, null, 2) + '\n');
+          NODE
+      - name: Generate canonical root lock
+        id: prepare
+        run: npm install --package-lock-only --save-dev --save-exact --ignore-scripts --no-audit --no-fund @cloudflare/vitest-plugin@1.4.8
+      - name: Verify direct pins and capture generated outputs
+        run: |
+          node --input-type=commonjs <<'NODE'
+          const fs = require('node:fs');
+          const crypto = require('node:crypto');
+          const original = JSON.parse(fs.readFileSync('.audit-lock-preparation/original-package.json', 'utf8'));
+          const manifest = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+          original.devDependencies['@cloudflare/vitest-plugin'] = '1.4.8';
+          if (JSON.stringify(original) !== JSON.stringify(manifest)) throw Error('Unrelated manifest change');
+          if (manifest.dependencies.zod !== '^4.6.7' || manifest.overrides.undici !== '7.30.1'
+            || manifest.devDependencies.agents !== '0.30.1') throw Error('Required security/SDK pins changed');
+          const provenance = JSON.parse(fs.readFileSync('.audit-lock-preparation/provenance.json', 'utf8'));
+          provenance.outputs = {};
+          for (const p of ['package.json', 'package-lock.json']) {
+            provenance.outputs[p] = crypto.createHash('sha256').update(fs.readFileSync(p)).digest('hex');
+            fs.copyFileSync(p, '.audit-lock-preparation/' + p);
+          }
+          fs.writeFileSync('.audit-lock-preparation/provenance.json', JSON.stringify(provenance, null, 2) + '\n');
+          NODE
+      - name: Validate clean installation without package scripts
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Validate backend production audit
+        run: npm audit --package-lock-only --audit-level=high --omit=dev
+      - name: Upload generated closure and provenance
+        if: always() && steps.prepare.outcome == 'success'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: sdk-audit-lock-${{ github.sha }}
+          path: |
+            .audit-lock-preparation/package.json
+            .audit-lock-preparation/package-lock.json
+            .audit-lock-preparation/provenance.json
+          if-no-files-found: error
+          retention-days: 5
+          include-hidden-files: true
