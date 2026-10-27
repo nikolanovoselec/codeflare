@@ -2,10 +2,12 @@
  * Genuine SDK context; no ModelRuntime replacement, global fetch override or SDK patch.
  */
 import { readFile } from 'node:fs/promises';
+import { channel } from 'node:diagnostics_channel';
 
 export default async function register(pi) {
   const config = JSON.parse(await readFile(new URL('./operator-inference-config.json', import.meta.url), 'utf8'));
   const { createAssistantMessageEventStream } = await import(config.aiEntry);
+  const lifecycle = config.lifecycleChannel ? channel(config.lifecycleChannel) : undefined;
   // Registration deliberately completes asynchronously, as configured user extensions may.
   await new Promise(resolve => setTimeout(resolve, 1));
   if (config.initializationFailure) throw new Error(`Provider initialization failed ${config.privateMarker}`);
@@ -33,7 +35,7 @@ export default async function register(pi) {
           scopedEnv: options.env?.FIXTURE_SCOPE };
         payload = await options.onPayload?.(payload, model) ?? payload;
         const response = await fetch(`${model.baseUrl}/infer`, {
-          method: 'POST', signal: options.signal,
+          method: 'POST', ...(config.ignoreAbort ? {} : { signal: options.signal }),
           headers: { ...model.headers, ...options.headers, 'content-type': 'application/json',
             authorization: `Bearer ${options.apiKey}` },
           body: JSON.stringify(payload),
@@ -69,7 +71,7 @@ export default async function register(pi) {
         message.errorMessage = error.message;
         stream.push({ type: 'error', reason: message.stopReason, error: message });
         stream.end();
-      }
+      } finally { lifecycle?.publish({ type: 'settled' }); }
     })();
     return stream;
   };
@@ -115,6 +117,7 @@ export default async function register(pi) {
       thinkingLevels: ['low', 'medium'], contextWindow: 48000, maxTokens: 2048,
       route(request, ctx) {
         if (ctx.sessionManager.getSessionFile() !== undefined) throw new Error('Routing requires nonpersistent SDK context');
+        lifecycle?.publish({ type: 'context', context: ctx });
         const second = request.messages.some(message => message.role === 'user'
           && typeof message.content === 'string' && message.content.includes('second physical'));
         return { model: ctx.modelRegistry.find(config.provider, second ? 'second-model' : 'saved-model'),

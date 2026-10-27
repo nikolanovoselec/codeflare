@@ -8,12 +8,14 @@ import test, { before, after } from 'node:test';
 import http from 'node:http';
 import { once } from 'node:events';
 import { createHash } from 'node:crypto';
+import { channel } from 'node:diagnostics_channel';
 import { mkdtemp, mkdir, writeFile, readFile, readdir, copyFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { createRequestHandler } from '../dist/request-router.js';
 import { createOperatorInferenceOwnerResolver } from '../dist/operator-inference-owner.js';
+import { ownerInference } from '../dist/operator-inference.js';
 
 const SDK_ROOT = process.env.OPERATOR_INFERENCE_TEST_SDK_ROOT
   ?? '/opt/codeflare/npm-tools/node_modules/@earendil-works/pi-coding-agent';
@@ -94,6 +96,19 @@ async function fixture(t, options = {}) {
   const owner = options.owner ?? 'owner-one';
   const f = { cwd, agentDir, logs: [], sends: [], refreshes: [], live: true,
     status: 200, answer: `${owner} configured response`, toolCall: false, hold: null };
+  const lifecycleChannel = options.lifecycle ? `operator-inference:${root}` : undefined;
+  if (lifecycleChannel) {
+    const events = channel(lifecycleChannel);
+    let settled;
+    f.providerSettled = new Promise(resolve => { settled = resolve; });
+    f.providerFinished = false;
+    const observe = event => {
+      if (event.type === 'context') f.sdkContext = event.context;
+      if (event.type === 'settled') { f.providerFinished = true; settled(); }
+    };
+    events.subscribe(observe);
+    t.after(() => events.unsubscribe(observe));
+  }
   f.providerOrigin = await listen(t, async (req, res) => {
     let raw = ''; for await (const chunk of req) raw += chunk;
     const body = JSON.parse(raw || '{}');
@@ -144,7 +159,7 @@ async function fixture(t, options = {}) {
       provider, endpoint: f.providerOrigin, aiEntry: pathToFileURL(AI_ENTRY).href,
       kind: options.legacy ? 'legacy' : 'native', virtual: options.virtual,
       command: `!printf '%s' 'synthetic-command-${owner}'`, privateMarker: PRIVATE,
-      initializationFailure: options.initializationFailure,
+      initializationFailure: options.initializationFailure, lifecycleChannel, ignoreAbort: options.ignoreAbort,
     }));
   }
   f.binding = { ownerKey: owner, sessionId: `session-${owner}`, sessionGeneration: 4,
@@ -256,6 +271,51 @@ test('REQ-OPERATOR-007: AC4/5 virtual logical profile remains pinned while publi
   assert.deepEqual((await readdir(f.agentDir, { recursive: true })).filter(file => file.endsWith('.jsonl')), [],
     'Headless SDK context must not persist a conversation');
 });
+
+for (const outcome of ['success', 'provider-failure', 'caller-abort', 'deadline']) {
+  test(`REQ-OPERATOR-047/048: genuine SDK context retires after ${outcome} without late delivery`, { timeout: 15000 }, async t => {
+    const cancelled = outcome === 'caller-abort' || outcome === 'deadline';
+    const f = await fixture(t, { virtual: true, lifecycle: true, ignoreAbort: cancelled });
+    await admit(f);
+    if (outcome === 'provider-failure') f.status = 503;
+    if (outcome === 'deadline') f.trusted.deadline = Date.now() + 5000;
+    let entered;
+    const started = new Promise(resolve => { entered = resolve; });
+    let release;
+    f.hold = new Promise(resolve => { release = resolve; });
+    t.after(() => release());
+    f.onSend = entered;
+    const caller = new AbortController();
+    // Public Host entrypoint and genuine caller signal; provider I/O remains real HTTP.
+    const pending = ownerInference(f.trusted, false, Buffer.from(JSON.stringify(modelRequest(f))), caller.signal);
+    await Promise.race([started, pending.then(response => {
+      assert.fail(`Expected a live provider request, received ${response.status}: ${response.body}`);
+    })]);
+    assert.ok(f.sdkContext, 'Virtual routing must supply a genuine SDK context');
+    assert.equal(f.sdkContext.cwd, f.cwd);
+    assert.equal(f.providerFinished, false);
+    if (outcome === 'caller-abort') caller.abort();
+    if (!cancelled) release();
+    const response = await pending;
+    assert.equal(response.status, outcome === 'success' ? 200 : outcome === 'provider-failure' ? 502 : 403, response.body);
+    const body = JSON.parse(response.body);
+    if (outcome === 'success') {
+      assert.equal(body.events.at(-1).type, 'done');
+      assert.equal(body.result.content.find(part => part.type === 'text').text, f.answer);
+    } else {
+      assert.equal(body.events, undefined);
+      assert.equal(body.result, undefined);
+    }
+    assert.throws(() => f.sdkContext.cwd, 'Retired SDK context must no longer be usable');
+    if (cancelled) {
+      assert.equal(f.providerFinished, false, 'Disposal must not wait for an abort-ignoring provider');
+      release();
+    }
+    await f.providerSettled;
+    assert.throws(() => f.sdkContext.cwd, 'Late provider completion must not restore SDK context');
+    assert.equal(f.sends.length, 1, 'No replacement paid request after retirement');
+  });
+}
 
 for (const auth of ['command', 'oauth']) {
   test(`REQ-OPERATOR-007: AC4 SDK-owned ${auth} credentials execute without interactive session or public credential exposure`, async t => {
