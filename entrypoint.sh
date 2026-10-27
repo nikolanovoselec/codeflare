@@ -418,6 +418,16 @@ else
 fi
 
 RCLONE_FILTERS_COMMON=(
+    # Disposable agent checkouts/downloads must precede the positive Temporary tray rule.
+    # Use /tmp for future scratch work; preserve ordinary user tray files and recovery notes.
+    --filter "- Temporary/.agent-work/**"
+    --filter "- Temporary/codeflare-sdk-audit/**"
+    --filter "- Temporary/codeflare-sdk-audit-lock-prep/**"
+    --filter "- Temporary/codeflare-questionnaire-timeout/**"
+    --filter "- Temporary/native-promise-proof-20261025/**"
+    --filter "- Temporary/operator-native-release-20261025/**"
+    --filter "- Temporary/dispatcher-v0.1.32-4034621/**"
+
     # Regenerable Python artifacts: precede positive home/agent/tray rules.
     # Directory-content patterns also cover flat object-store listings without
     # excluding similarly named regular files or arbitrary source directories.
