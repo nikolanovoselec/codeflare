@@ -104,7 +104,7 @@ These compatibility anchors resolve dated changelog references to retired review
 
 **Verification:** Existing actual-package deadline/regression tests and managed-seed compiler plus executable extension/prompt checks. The authorization policy is managed content; signed publication and runtime adoption remain separate gates.
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 

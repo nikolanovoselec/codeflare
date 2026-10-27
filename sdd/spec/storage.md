@@ -386,7 +386,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Verification:** Automated test ([entrypoint-hooks-merge](../../host/__tests__/entrypoint-hooks-merge.test.js), [behavioral rclone filters](../../host/__tests__/entrypoint-rclone-filters.test.js))
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
