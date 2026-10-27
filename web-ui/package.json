@@ -21,7 +21,7 @@
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/xterm": "6.1.0-beta.304",
     "solid-js": "^1.9.17",
-    "zod": "^4.6.5"
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@solidjs/testing-library": "^0.8.10",
