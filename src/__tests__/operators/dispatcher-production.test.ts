@@ -6,7 +6,7 @@ import { Hono } from 'hono';
 import * as access from '../../lib/access';
 import activityRoutes from '../../routes/operator-activities';
 import { AppError } from '../../lib/error-types';
-import { OperatorActivity, OperatorDispatcherCapability, OperatorDispatcherTail, createOperatorIntentDigest } from '../../operators/activity';
+import { OperatorActivity, OperatorDispatcherCapability, OperatorInstalledDispatcherCapability, OperatorDispatcherTail, createOperatorIntentDigest } from '../../operators/activity';
 import { driveDispatcherRuntime } from '../../operators/runtime';
 import { runOperatorActivity } from '../../operators/orchestrator';
 import { createOperatorExecutionContext } from '../../operators/execution-context';
@@ -24,6 +24,7 @@ import { getBuiltInProfileRef } from '../../lib/reasoning-profiles';
 import { verifiedRoutingConfiguration } from '../helpers/verified-routing';
 import { pendingRecipient, within } from '../helpers/pending-recipient';
 import { sealOperatorSecret } from '../../operators/protected-secrets';
+import { OperatorOwnerInferenceAuthority } from '../../operators/dispatcher-owner-inference';
 import { connectionSecret, createNormalDispatcherTransport, normalCallback, normalDeployment, normalDispatcherBundle } from './fixtures/normal-dispatcher';
 
 let callerSessionCurrent = true;
@@ -579,8 +580,9 @@ async function importRuntime(f: DispatcherFixture, report: unknown, capability =
 async function fixture(test: (f: {
   activity: OperatorActivity; capability: OperatorDispatcherCapability; staleCapability: OperatorDispatcherCapability; environment: Env;
   normalTransport: ReturnType<typeof createNormalDispatcherTransport> | undefined;
-  installationCapability: OperatorDispatcherCapability;
+  installationCapability: OperatorInstalledDispatcherCapability;
   changeConnection: (patch: Record<string, unknown>) => void;
+  refuseNormalHostAuth: () => void;
   bundle: DispatcherBundle; artifactDigest: string; activityId: string; deliverTail: (events: unknown) => Promise<void>;
   deliveredTail: Array<{ activityId: string; generation: number; stage: string }>;
   sdkPatchSetDigest: string | null; sdkHeader: (value: string | undefined) => void;
@@ -630,7 +632,7 @@ async function fixture(test: (f: {
   capacityPolicy?: DispatcherCapacityPolicy; runtimeVersion?: '2.1.0' | '2.2.2'; sdkDiagnostics?: boolean;
   recovery?: boolean; intent4?: boolean; losePhaseAdmission?: number; facetContract?: boolean; receiptFixture?: boolean;
   inferenceAttemptLimit?: number; inferenceTransport?: (request: Request, attempt: number) => Promise<Response>;
-  nativeInference?: boolean;
+  nativeInference?: boolean; managedProviderDefault?: boolean;
   realInterceptors?: boolean; sourceTransport?: (request: Request) => Promise<Response>; normalHosting?: boolean } = {}) {
   callerSessionCurrent = true;
   callerRoute = 'approved';
@@ -663,7 +665,9 @@ async function fixture(test: (f: {
       audiences: ['audience'], issuedAt: Math.floor(now / 1000) - 1, expiresAt };
     const policy = { capabilities: options.capabilities ?? ['fetch', 'inference'], resourceProfileId: null,
       ...(options.nativeInference ? { inference: { allowedSources: ['pi-native'], routeIds: [], defaultRouteId: null,
-        reasoningLevels: ['low'], defaultReasoningLevel: 'low', inheritUserDefaults: false } } : {}),
+        reasoningLevels: ['low'], defaultReasoningLevel: 'low', inheritUserDefaults: false } }
+        : options.managedProviderDefault ? { inference: { allowedSources: ['managed'], routeIds: ['approved'], defaultRouteId: 'approved',
+          reasoningLevels: ['off', 'low'], defaultReasoningLevel: null, inheritUserDefaults: false } } : {}),
       ...(options.sourceResponseBytes === undefined ? {} : { sourceResponseBytes: options.sourceResponseBytes }) };
     const fixtureOperatorId = options.prospective || options.intent4 ? 'renovate-dispatcher' : 'operator';
     let inferenceAttempts = 0;
@@ -991,6 +995,7 @@ async function fixture(test: (f: {
       ...normalDeployment, manifestDigest: 'd'.repeat(64), bundleDigest: artifactDigest,
       connectionSecretCiphertext: await sealOperatorSecret(connectionSecret, encryption, { purpose: 'connection', recordId: 'installation' }) };
     if (normalTransport) vi.stubGlobal('fetch', normalTransport.fetcher);
+    const originalAbortConnection = structuredClone(connectionRecord);
     const registry = { getManagementBundle: async () => {
       const action = afterBundleRead; afterBundleRead = undefined;
       await action?.();
@@ -999,6 +1004,8 @@ async function fixture(test: (f: {
       // Registry is the platform authority seam, not a mocked control implementation.
       getManagementDispatcherConnection: async (installationId: string) =>
         options.normalHosting && installationId === 'installation' ? structuredClone(connectionRecord) : null,
+      getManagementDispatcherAbortConnection: async (installationId: string, revision: number) =>
+        options.normalHosting && installationId === 'installation' && revision === 1 ? structuredClone(originalAbortConnection) : null,
       resolveManagementExecution: async () => {
         const action = afterRegistryResolve; afterRegistryResolve = undefined;
         await action?.();
@@ -1011,7 +1018,32 @@ async function fixture(test: (f: {
       readProspectiveRenovateAdmission: async () => structuredClone(currentProof),
       currentProspectiveRenovateRegistration: async () => structuredClone(currentRegistration),
     };
+    const normalIdentity = options.nativeInference
+      ? { provider: 'configured-provider', model: 'saved-model', api: 'configured-api', reasoningLevel: 'low' }
+      : { provider: 'codeflare-gateway', model: 'approved', api: 'openai-completions', reasoningLevel: options.managedProviderDefault ? null : 'off' };
+    const normalProfile = { ...normalIdentity, profileDigest: await digest(JSON.stringify(normalIdentity)) };
+    let normalModelOrdinal = 0;
+    let normalHostAuthMissing = false;
     const environment = { ...encryption, ENTERPRISE_MODE: 'active', GITHUB_API_HOST: options.githubApiHost,
+      ...(options.normalHosting ? { CONTAINER: { getByName: () => ({
+        getPersonalPiSession: async (ref: { bucket: string; sessionId: string; email: string }) => {
+          if (ref.bucket !== 'owner-bucket' || ref.sessionId !== 'ownerhost123' || ref.email !== human.email
+            || !callerSessionCurrent) throw new Error('Owner session unavailable');
+          return { generation: 3 };
+        },
+        forwardExisting: async (request: Request) => {
+          const input = await request.json() as { sessionGeneration: number; profileDigest?: string; context?: unknown; options?: unknown };
+          if (input.sessionGeneration !== 3) return Response.json({}, { status: 403 });
+          if (new URL(request.url).pathname === '/operator-inference/profile') return Response.json(normalProfile);
+          if (input.profileDigest !== normalProfile.profileDigest) return Response.json({}, { status: 409 });
+          if (normalHostAuthMissing) return Response.json({ error: 'Configured inference unavailable',
+            authFailure: { code: 'PI_LOGIN_REQUIRED', reason: 'missing', provider: normalProfile.provider } }, { status: 401 });
+          const result = { role: 'assistant', provider: normalProfile.provider, model: normalProfile.model,
+            api: normalProfile.api, content: [{ type: 'text', text: JSON.stringify({ context: input.context, options: input.options, ordinal: ++normalModelOrdinal }) }],
+            stopReason: 'stop', timestamp: Date.now() };
+          return Response.json({ events: [{ type: 'done', reason: 'stop', message: result }], result });
+        },
+      }) } } : {}),
       ...(options.nativeInference ? { R2_ACCESS_KEY_ID: 'synthetic-scoped-id', R2_SECRET_ACCESS_KEY: 'synthetic-scoped-secret',
         R2_ACCOUNT_ID: 'synthetic-r2-account', R2_ENDPOINT: 'https://r2.example.test',
         KV: { get: async (key: string) => key === 'setup:strict_egress' ? 'active' : null },
@@ -1039,6 +1071,8 @@ async function fixture(test: (f: {
       intentDigest: await createOperatorIntentDigest(fixtureOperatorId, activityId, invocationJson),
       expectedRevision: 1, expectedInstallationRevision: 1, expectedControlsRevision: 1,
       deadline: expiresAt * 1000, startExpiresAt: expiresAt * 1000, startVerifier: await digest('s'.repeat(43)) }, execution, invocationJson);
+    if (options.normalHosting) expect(await activity.bindDispatcherOwnerSource({ bucket: 'owner-bucket',
+      sessionId: 'ownerhost123', sessionGeneration: 3 })).toBe(true);
     if (!options.recovery) {
       // Compatibility cases retain the admission format persisted before inference recovery existed.
       // New-policy cases below use the unmodified current prepareAuthorized outcome instead.
@@ -1054,8 +1088,9 @@ async function fixture(test: (f: {
     try {
       await test({ activity, capability, staleCapability, environment, bundle: fixtureBundle, artifactDigest, activityId, deliveredTail,
         normalTransport, changeConnection: patch => { connectionRecord = { ...connectionRecord, ...patch }; },
-        installationCapability: new OperatorDispatcherCapability({ props: {} } as unknown as ExecutionContext,
-          environment as unknown as ConstructorParameters<typeof OperatorDispatcherCapability>[1]),
+        refuseNormalHostAuth: () => { normalHostAuthMissing = true; },
+        installationCapability: new OperatorInstalledDispatcherCapability({ props: {} } as unknown as ExecutionContext,
+          environment as unknown as ConstructorParameters<typeof OperatorInstalledDispatcherCapability>[1]),
         sdkPatchSetDigest: sdkProvenance?.patchSetDigest ?? null, sdkHeader: value => { sdkHeader = value; },
         statusFault: fault => { statusFault = fault; },
         admissionFault: fault => { admissionFault = fault; },
@@ -8089,6 +8124,101 @@ describe('normal installed Dispatcher control', () => {
     expect(permitted.status).toBe(200);
     expect(await permitted.json()).toMatchObject({ status: 200, url: source.url });
   }, options));
+
+  it('REQ-OPERATOR-007/048: normal managed lifecycle retains verified routes without personal/native approvals', () => fixture(async f => {
+    expect(await start(f)).toMatchObject({ ok: true });
+    expect(await f.activity.getBrowserDetail()).toMatchObject({ inferenceSelection: {
+      source: 'managed', routeId: 'approved', reasoningLevel: 'off' } });
+    expect((await callback(f, 'source', source)).status).toBe(200);
+  }, options));
+
+  it('REQ-OPERATOR-007: normal managed policy preserves provider-default instead of inheriting Off or caller reasoning', () => fixture(async f => {
+    expect(await start(f)).toMatchObject({ ok: true });
+    expect(await f.activity.getBrowserDetail()).toMatchObject({ inferenceSelection: {
+      source: 'managed', routeId: 'approved', reasoningLevel: null } });
+    const response = await callback(f, 'inference', { operationId: 'managed-default',
+      context: { messages: [{ role: 'user', content: 'Use the admitted SDK default' }] }, options: { reasoning: 'high' } });
+    expect(response.status).toBe(200);
+    const value = await response.json() as { result: { content: Array<{ text: string }> } };
+    expect(JSON.parse(value.result.content[0].text).options).toEqual({});
+  }, { ...options, managedProviderDefault: true }));
+
+  it('REQ-OPERATOR-048: non-inference normal work requires no owner SDK profile or inference approval', () => fixture(async f => {
+    expect(await start(f)).toMatchObject({ ok: true });
+    expect(control(f, 'dispatch')[0].body.initialData.selection).toBeUndefined();
+    expect((await callback(f, 'source', source)).status).toBe(200);
+    expect((await callback(f, 'inference', { operationId: 'not-granted', context: { messages: [{ role: 'user', content: 'Denied' }] },
+      options: {} })).status).toBe(403);
+  }, { ...options, capabilities: ['fetch'] }));
+
+  it('REQ-OPERATOR-007: AC2/3 configured owner callback preserves normalized tools metadata and SDK results without replay', () => fixture(async f => {
+    expect(await start(f)).toMatchObject({ ok: true });
+    const context = { systemPrompt: 'Preserve normalized context', messages: [{ role: 'user', content: 'Configured owner' }],
+      tools: [{ name: 'read_owned', description: 'Finite input', parameters: { type: 'object', properties: {} } }],
+      metadata: { trace: 'opaque-user-metadata' } };
+    const input = { operationId: 'normal-configured-sdk', context, options: { reasoning: 'low', maxTokens: 128 } };
+    const response = await callback(f, 'inference', input);
+    expect(response.status).toBe(200);
+    const result = await response.json() as { result: { content: Array<{ type: string; text: string }> } };
+    expect(result).toMatchObject({ result: { role: 'assistant', provider: 'configured-provider', model: 'saved-model' } });
+    expect(JSON.parse(result.result.content[0].text)).toEqual({ context, options: input.options, ordinal: 1 });
+    expect((await callback(f, 'inference', input)).status).toBe(200);
+    expect(await (await callback(f, 'inference', input)).json()).toEqual(result);
+    const receipt = await callback(f, 'receipt', { operationId: input.operationId });
+    expect(await receipt.json()).toMatchObject({ phase: 'completed', operationCount: 1 });
+    expect((await callback(f, 'inference', { ...input, context: { ...context, systemPrompt: 'Changed' } })).status).toBe(409);
+  }, { ...options, nativeInference: true }));
+
+  it('REQ-OPERATOR-003/047: production parent context is bound to the live owner source and cannot be borrowed by a foreign container', () => fixture(async f => {
+    expect(await start(f)).toMatchObject({ ok: true });
+    const lookup = () => new Request('https://operator.internal/v1/dispatcher/owner-context', { method: 'POST',
+      headers: { 'content-type': 'application/json' }, body: JSON.stringify({ activityId: f.activityId, generation: 1 }) });
+    const authority = (bucket: string) => new OperatorOwnerInferenceAuthority({ props: {
+      bucket, sessionId: 'ownerhost123', email: 'owner@example.test' } } as unknown as ExecutionContext, f.environment);
+    const response = await authority('owner-bucket').fetch(lookup());
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ sessionId: 'ownerhost123', sessionGeneration: 3,
+      selection: { provider: 'configured-provider', model: 'saved-model' } });
+    expect((await authority('foreign-bucket').fetch(lookup())).status).toBe(403);
+    f.revokeSession();
+    expect((await authority('owner-bucket').fetch(lookup())).status).toBe(403);
+  }, { ...options, nativeInference: true }));
+
+  it('REQ-OPERATOR-007/047: closed owner SDK missing-auth evidence survives without diagnostics and cannot enable fallback', () => fixture(async f => {
+    expect(await start(f)).toMatchObject({ ok: true }); f.refuseNormalHostAuth();
+    const input = { operationId: 'missing-owner-auth', context: { messages: [{ role: 'user', content: 'No credential guessing' }] },
+      options: { reasoning: 'low', maxTokens: 128 } };
+    expect((await callback(f, 'inference', input)).status).not.toBe(200);
+    expect(await f.activity.getBrowserDetail()).toMatchObject({ authFailure: {
+      code: 'PI_LOGIN_REQUIRED', reason: 'missing', provider: 'configured-provider' } });
+    expect((await callback(f, 'inference', { ...input, operationId: 'not-a-login-retry' })).status).toBe(403);
+    expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
+  }, { ...options, nativeInference: true, loggingEnabled: false }));
+
+  it('REQ-OPERATOR-048: receiver authorization retains original fenced abort after live connection rotation but cannot fence or start work', () => fixture(async f => {
+    expect(await start(f)).toMatchObject({ ok: true });
+    const wire = control(f, 'dispatch')[0].body;
+    const receipt = [...f.normalTransport!.admissions.values()][0].receipt;
+    const { id, installationId, activityId, generation, releaseId, connectionRevision, workerVersionId } = wire;
+    const original = { id, installationId, activityId, generation, releaseId, connectionRevision, workerVersionId, receipt };
+    expect((await callback(f, 'abort-authority', original)).status).toBe(403);
+    expect(await f.activity.cancelDrive()).toMatchObject({ ok: true, state: { status: 'cancel-requested' } });
+    f.changeConnection({ connectionRevision: 2, workerVersionId: 'new-version', connectionSecretCiphertext: 'v1:unverified-rotation' });
+    const authorized = await callback(f, 'abort-authority', original);
+    expect(authorized.status).toBe(200); expect(await authorized.json()).toEqual({ id, uid: receipt.uid });
+    expect((await callback(f, 'abort-authority', { ...original, id: 'foreign-job' })).status).toBe(403);
+    expect((await callback(f, 'source', source)).status).toBe(403);
+    expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
+  }, options));
+
+  it('REQ-OPERATOR-007/047: normal serial inference is Activity-scoped while protected tools still require the original phase token', () => fixture(async f => {
+    expect(await start(f)).toMatchObject({ ok: true });
+    const response = await callback(f, 'inference', { operationId: 'serial-owner-model',
+      context: { messages: [{ role: 'user', content: 'Assess the original phase' }] }, options: { reasoning: 'low', maxTokens: 128 } });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ result: { role: 'assistant', provider: 'configured-provider' } });
+    expect((await callback(f, 'source', source)).status).toBe(403);
+  }, { ...options, nativeInference: true, intent4: true }));
 
   it('REQ-OPERATOR-048: AC2 lost admission acknowledgement cold-reconciles the exact original wire and full SDK receipt', () => fixture(async f => {
     f.normalTransport!.loseAcknowledgement();

@@ -76,7 +76,7 @@ const dispatcherBundleSchema = z.strictObject({
   schemaVersion: z.union([z.literal(1), z.literal(2)]),
   hosting: z.strictObject({
     kind: z.literal('normal'),
-    binding: z.literal('FlueDispatcherAgent'),
+    binding: z.literal('FLUE_DISPATCHER_AGENT'),
     className: z.literal('FlueDispatcherAgent'),
     migrationTag: z.literal('v1'),
   }).optional(),

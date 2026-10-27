@@ -134,8 +134,9 @@ export const listOperatorInstallations = (cursor: string | null = null) => activ
 export const getInstallationActivityPreview = (installationId: string) => activityRequest(`/installations/${segment(installationId)}/preview`,
   z.object({ name: z.string(), version: z.string(), guidedAssessment: z.boolean(),
     guidedMode: z.enum(['repository', 'legacy-pull-request']).nullable(), configuredRepository: z.string().max(201).optional() }));
-export const prepareInstallationActivity = (installationId: string, invocation: unknown) => activityRequest('',
-  z.object({ activityId: id, startCapability: z.string().min(43).max(128), startExpiresAt: z.number() }), { installationId, invocation });
+export const prepareInstallationActivity = (installationId: string, invocation: unknown, sourceSession?: { sessionId: string; sessionGeneration: number }) => activityRequest('',
+  z.object({ activityId: id, startCapability: z.string().min(43).max(128), startExpiresAt: z.number() }),
+  { installationId, invocation, ...(sourceSession ? { sourceSession } : {}) });
 export const startInstallationActivity = (activityId: string, capability: string) =>
   activityRequest(`/${segment(activityId)}/start`, z.object({ ok: z.literal(true) }), { capability });
 const activityDetailSchema = operatorActivitySummarySchema.strip().extend({ checkpoint: z.unknown(), result: z.unknown(),

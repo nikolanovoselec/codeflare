@@ -6,7 +6,8 @@ import { diagnosticBindingSchema, diagnosticCursorSchema, diagnosticRecordIdSche
   sameDiagnosticBinding, type DiagnosticSnapshot } from './operator-diagnostics-wire';
 
 // Functional recovery is independent of optional execution diagnostics. Never classify SDK text or HTTP status here.
-const providerId = z.string().regex(/^[a-z0-9][a-z0-9._-]{0,127}$/);
+const providerId = z.string().min(1).max(512).refine(value => [...value].every(character =>
+  character.charCodeAt(0) >= 0x20 && character.charCodeAt(0) !== 0x7f));
 export const safePiAuthFailureSchema = z.strictObject({ code: z.literal('PI_LOGIN_REQUIRED'),
   reason: z.enum(['missing', 'expired', 'rejected']), provider: providerId });
 export const piLoginRecoveryCopy = 'The saved Pi authentication is missing, expired or rejected. Open your Pi session, run /login or update the API key, wait for successful synchronization to R2, then explicitly retry.';
@@ -15,9 +16,9 @@ export const inferenceSelectionSchema = z.union([
   z.strictObject({ source: z.literal('managed').optional(), routeId: z.string().min(1).max(256),
     reasoningLevel: piReasoningLevel.nullable() }),
   z.strictObject({ source: z.literal('pi-native'), provider: providerId,
-    model: z.string().min(1).max(256).refine(value => [...value].every(character =>
+    model: z.string().min(1).max(512).refine(value => [...value].every(character =>
       character.charCodeAt(0) >= 0x20 && character.charCodeAt(0) !== 0x7f)),
-    api: z.string().regex(/^[a-z0-9][a-z0-9._-]{0,127}$/), reasoningLevel: piReasoningLevel,
+    api: providerId, reasoningLevel: piReasoningLevel,
     profileDigest: z.string().regex(/^[a-f0-9]{64}$/).optional(),
     reasoningSource: z.enum(['installation', 'model', 'global', 'default', 'inherited']).optional() }),
 ]);

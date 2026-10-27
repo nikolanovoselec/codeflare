@@ -12,7 +12,8 @@ import { parse as parseUrl } from 'node:url';
 import fs from 'node:fs';
 import { spawn } from 'node:child_process';
 import { checkContainerAuth } from './auth-check.js';
-import { ownerInference, type OperatorInferenceOwner } from './operator-inference.js';
+import { ownerInference, OperatorInferenceRefusal, type OperatorInferenceOwner,
+  type OperatorInferenceOwnerResolver } from './operator-inference.js';
 import { getSyncStatus, getSystemMetrics, collectWorkspaceRepos, isWorkspaceInventoryReady } from './metrics.js';
 import { evaluateFinalSync } from './final-sync.js';
 import { AGENT_EVENT_LIMITS, type AgentEventDrainResult, type AgentEventKind } from './agent-events.js';
@@ -90,7 +91,7 @@ export interface RequestRouterDeps {
   /** Present only for a parent-configured restricted operator session; container auth remains outermost. */
   operatorPi?: OperatorPiHttpController;
   /** Configured owner SDK services; never supplied by an HTTP caller or a restricted Conductor profile. */
-  operatorInference?: OperatorInferenceOwner;
+  operatorInference?: OperatorInferenceOwner | OperatorInferenceOwnerResolver;
   /** Fixed explicit-upload service; presence also disables ordinary bisync endpoints. */
   operatorSync?: OperatorSyncHttpController;
   /** Installed only by a trusted parent configuration; no credential, command, URL or script in the request. */
@@ -295,19 +296,43 @@ export function createRequestHandler(deps: RequestRouterDeps): (req: http.Incomi
       req.once('aborted', cancelled);
       res.once('close', cancelled);
       try {
-        const response = method !== 'POST'
-          ? { status: 405, body: JSON.stringify({ error: 'Method not allowed' }) }
-          : await ownerInference(deps.operatorInference, pathname.endsWith('/profile'),
-            await readBoundedBody(req, deps.operatorInference.maxRequestBytes,
-              AbortSignal.any([controller.signal, AbortSignal.timeout(Math.max(1,
-                Math.min(2_147_483_647, deps.operatorInference.deadline - Date.now())))])), controller.signal);
+        let response: { status: number; body: string };
+        if (method !== 'POST') {
+          req.resume();
+          response = { status: 405, body: JSON.stringify({ error: 'Method not allowed' }) };
+        } else {
+          const configured = deps.operatorInference;
+          const activity = req.headers['x-codeflare-operator-activity'];
+          const generation = req.headers['x-codeflare-operator-generation'];
+          let owner: OperatorInferenceOwner;
+          let bytes: Uint8Array;
+          if (typeof configured === 'function' && (activity !== undefined || generation !== undefined)) {
+            // The parent sends lookup identifiers separately so a finite configured
+            // transcript allowance is not reduced to the metadata admission limit.
+            if (typeof activity !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(activity)
+              || typeof generation !== 'string' || !/^[1-9][0-9]{0,15}$/.test(generation)
+              || !Number.isSafeInteger(Number(generation))) throw new OperatorInferenceRefusal(400);
+            owner = await configured(Buffer.from(JSON.stringify({ activityId: activity, generation: Number(generation) })), controller.signal);
+            bytes = await readBoundedBody(req, owner.maxRequestBytes, AbortSignal.any([controller.signal,
+              AbortSignal.timeout(Math.max(1, Math.min(2_147_483_647, owner.deadline - Date.now())))]));
+          } else {
+            const dynamic = typeof configured === 'function';
+            const limit = dynamic ? 64 * 1024 : configured.maxRequestBytes;
+            const readMs = dynamic ? 10_000 : Math.max(1, Math.min(2_147_483_647, configured.deadline - Date.now()));
+            bytes = await readBoundedBody(req, limit, AbortSignal.any([controller.signal, AbortSignal.timeout(readMs)]));
+            if (bytes.byteLength > limit) throw new OperatorInferenceRefusal(413);
+            owner = dynamic ? await configured(bytes, controller.signal) : configured;
+          }
+          response = await ownerInference(owner, pathname.endsWith('/profile'), bytes, controller.signal);
+        }
         if (!res.destroyed) {
           res.writeHead(response.status, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
           res.end(response.body);
         }
-      } catch {
+      } catch (error) {
         if (!res.destroyed) {
-          res.writeHead(503, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+          res.writeHead(error instanceof OperatorInferenceRefusal ? error.status : 503,
+            { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
           res.end(JSON.stringify({ error: 'Configured inference unavailable' }));
         }
       } finally {

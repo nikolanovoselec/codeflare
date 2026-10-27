@@ -19,9 +19,11 @@ import { parseJsonBody } from '../lib/request-helpers';
 import { bindOperatorRuntimeCapability, prepareOperatorActivity, runOperatorActivity } from '../operators/orchestrator';
 
 const identifier = z.string().regex(/^[A-Za-z0-9_-]{1,128}$/);
+const ownerSourceBody = z.strictObject({ sessionId: z.string().regex(/^[a-z0-9]{8,24}$/),
+  sessionGeneration: z.number().int().positive().safe() }).optional();
 const preparationBody = z.union([
   z.strictObject({ operatorId: identifier, invocation: z.json() }),
-  z.strictObject({ installationId: identifier, invocation: z.json() }),
+  z.strictObject({ installationId: identifier, invocation: z.json(), sourceSession: ownerSourceBody }),
 ]);
 type HumanAuthority = Awaited<ReturnType<typeof requireOperatorHumanContext>>;
 type ActivityRouteEnv = { Bindings: Env; Variables: { ownerKey: string; operatorHuman: HumanAuthority;

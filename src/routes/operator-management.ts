@@ -8,9 +8,11 @@ import { getAllUsers } from '../lib/access-policy';
 import { SETUP_KEYS } from '../lib/kv-keys';
 import { operatorCapabilityChoices } from '../operators/distribution';
 import { inferencePolicySchema } from '../operators/policy';
+import { verifyDispatcherDeployment, type DispatcherDeploymentVerification } from '../operators/dispatcher-deployment';
 import { MAX_SOURCE_RESPONSE_BYTES, sourceResponseBytes } from '../operators/dispatcher-source-limits';
 import { MAX_INFERENCE_REQUEST_BYTES } from '../operators/dispatcher-inference-limits';
 import { pickDispatcherCapacities } from '../operators/dispatcher-capacity-limits';
+import { submissionAttemptLimit } from '../operators/dispatcher-submission-limits';
 import { dispatcherCapacityShape } from '../operators/dispatcher-capacity-schema';
 import { isEnterpriseMode } from '../lib/subscription';
 import { AppError, ValidationError } from '../lib/error-types';
@@ -45,6 +47,11 @@ const installationBody = z.strictObject({ name: z.string().trim().min(1).max(256
 const revisionBody = z.strictObject({ revision });
 const sourceBody = z.strictObject({ repositoryUrl, githubPat, revision });
 const promoteBody = z.strictObject({ releaseId: z.string().regex(ID), revision });
+const dispatcherConnectionBody = z.strictObject({ revision, connectionSecret: githubPat.max(4096),
+  workerName: z.string().regex(/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/),
+  workerVersionId: z.string().uuid(), releaseId: z.string().regex(ID),
+  sourceCommit: z.string().regex(/^[a-f0-9]{40}$/), compilerCommit: z.string().regex(/^[a-f0-9]{40}$/),
+  manifestDigest: z.string().regex(/^[a-f0-9]{64}$/), bundleDigest: z.string().regex(/^[a-f0-9]{64}$/) });
 const enableBody = z.strictObject({ revision, enabled: z.boolean() });
 const grantsBody = z.strictObject({ managers: grant, invokers: grant, revision });
 const capabilitiesBody = z.strictObject({ ...dispatcherCapacityShape, revision, capabilities: policy.shape.capabilities, sourceResponseBytes: policy.shape.sourceResponseBytes,
@@ -331,11 +338,28 @@ app.post('/installations/:installationId/promote', async c => {
   return c.json(presentInstallation(promoted));
 });
 
+app.post('/installations/:installationId/dispatcher-connection', async c => {
+  const input = await parseJsonBody(c, dispatcherConnectionBody);
+  const { installation, operator } = await managedInstallation(c);
+  const configured = result(await c.get('registry').configureManagementDispatcherConnection(installation.id, input, authority(c, operator)));
+  return c.json(presentInstallation(configured));
+});
+
 app.post('/installations/:installationId/enable', async c => {
   const input = await parseJsonBody(c, enableBody);
   const { installation, operator } = await managedInstallation(c);
   if (input.enabled) withinCeiling(c.get('operatorHuman'), installation.policy);
-  const enabled = result(await c.get('registry').setManagementInstallationEnabled(installation.id, input.enabled, input.revision, authority(c, operator)));
+  let verification: DispatcherDeploymentVerification | undefined;
+  if (input.enabled && operator.profile === 'dispatcher') {
+    const connection = await c.get('registry').getConfiguredDispatcherConnection(installation.id);
+    if (connection) {
+      const bytes = await c.get('registry').getManagementBundle(connection.bundleDigest);
+      if (!bytes) throw new AppError('CONFLICT', 409, 'Dispatcher artifact unavailable');
+      try { verification = await verifyDispatcherDeployment(c.env, connection, bytes, submissionAttemptLimit(operator.policy)); }
+      catch { throw new AppError('CONFLICT', 409, 'Dispatcher deployment verification failed'); }
+    }
+  }
+  const enabled = result(await c.get('registry').setManagementInstallationEnabled(installation.id, input.enabled, input.revision, authority(c, operator), verification));
   return c.json(presentInstallation(enabled));
 });
 

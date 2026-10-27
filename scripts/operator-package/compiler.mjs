@@ -82,7 +82,7 @@ async function buildBundle(raw) {
     if (bundle.schemaVersion === 2) {
       const hosting = object(bundle.hosting, 'bundle.hosting');
       exactKeys(hosting, ['kind', 'binding', 'className', 'migrationTag'], 'bundle.hosting');
-      if (hosting.kind !== 'normal' || hosting.binding !== 'FlueDispatcherAgent'
+      if (hosting.kind !== 'normal' || hosting.binding !== 'FLUE_DISPATCHER_AGENT'
         || hosting.className !== bundle.className || hosting.migrationTag !== 'v1') fail('Dispatcher hosting is incompatible');
     }
     const versions = object(bundle.versions, 'bundle.versions');

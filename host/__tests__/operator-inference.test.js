@@ -13,6 +13,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { createRequestHandler } from '../dist/request-router.js';
+import { createOperatorInferenceOwnerResolver } from '../dist/operator-inference-owner.js';
 
 const SDK_ROOT = process.env.OPERATOR_INFERENCE_TEST_SDK_ROOT
   ?? '/opt/codeflare/npm-tools/node_modules/@earendil-works/pi-coding-agent';
@@ -49,12 +50,12 @@ async function listen(t, handler) {
   t.after(() => new Promise(resolve => { server.close(resolve); server.closeAllConnections(); }));
   return `http://127.0.0.1:${server.address().port}`;
 }
-function post(origin, pathname, value, authorization = TOKEN) {
+function post(origin, pathname, value, authorization = TOKEN, lookupHeaders = {}) {
   const bytes = Buffer.isBuffer(value) ? value : Buffer.from(JSON.stringify(value));
   return new Promise((resolve, reject) => {
     const req = http.request(`${origin}${pathname}`, { method: 'POST', headers: {
       'content-type': 'application/json', 'content-length': bytes.length,
-      ...(authorization ? { authorization: `Bearer ${authorization}` } : {}),
+      ...(authorization ? { authorization: `Bearer ${authorization}` } : {}), ...lookupHeaders,
     } }, response => {
       let raw = '';
       response.setEncoding('utf8');
@@ -119,7 +120,7 @@ async function fixture(t, options = {}) {
     res.end(JSON.stringify(f.status === 200 ? { text: f.answer, toolCall: f.toolCall }
       : { error: `PI_LOGIN_REQUIRED rejected ${PRIVATE} ${agentDir}` }));
   });
-  const provider = options.builtin ? 'openai' : 'fixture-provider';
+  const provider = options.builtin ? 'openai' : options.providerId ?? 'fixture-provider';
   const savedProvider = options.virtual ? 'fixture-router' : provider;
   const savedModel = options.builtin ? 'gpt-5' : options.virtual ? 'automatic' : 'saved-model';
   f.settings = { defaultProvider: savedProvider, defaultModel: savedModel,
@@ -138,7 +139,7 @@ async function fixture(t, options = {}) {
           cost: { input: 1, output: 2, cacheRead: 0, cacheWrite: 0 }, contextWindow: 32768, maxTokens: 2048 }] },
     } }));
   } else {
-    await copyFile(new URL('./fixtures/operator-inference-provider.mjs', import.meta.url), path.join(extensions, 'provider.mjs'));
+    await copyFile(new URL('./fixtures/operator-inference-provider.mjs', import.meta.url), path.join(extensions, 'provider.js'));
     await writeFile(path.join(extensions, 'operator-inference-config.json'), JSON.stringify({
       provider, endpoint: f.providerOrigin, aiEntry: pathToFileURL(AI_ENTRY).href,
       kind: options.legacy ? 'legacy' : 'native', virtual: options.virtual,
@@ -447,4 +448,239 @@ test('REQ-OPERATOR-048: AC7 ordinary Host without owner composition exposes neit
   for (const endpoint of ['/operator-inference', '/operator-inference/profile']) {
     assert.equal((await post(origin, endpoint, {})).status, 404);
   }
+});
+
+/** Real router + real public SDK + external HTTP parent, with only DNS/egress
+ * replaced. Successful HTTP/model delivery also verifies the fixed parent URL:
+ * no other URL is reachable through the injected public-network transport.
+ */
+async function productionFixture(t, options = {}) {
+  const f = await fixture(t, options);
+  f.parentContext = {
+    ownerKey: f.binding.ownerKey, sessionId: f.binding.sessionId,
+    sessionGeneration: f.binding.sessionGeneration, deadline: f.trusted.deadline,
+    maxRequestBytes: f.trusted.maxRequestBytes, maxResponseBytes: f.trusted.maxResponseBytes,
+  };
+  f.parentStatus = 200;
+  f.parentRequests = [];
+  const parentOrigin = await listen(t, async (req, res) => {
+    let raw = ''; for await (const chunk of req) raw += chunk;
+    const input = JSON.parse(raw || '{}');
+    f.parentRequests.push(input);
+    const valid = req.method === 'POST' && req.url === '/v1/dispatcher/owner-context'
+      && JSON.stringify(input) === JSON.stringify({ activityId: f.binding.activityId, generation: f.binding.generation });
+    res.writeHead(valid ? f.parentStatus : 403, { 'content-type': 'application/json' });
+    res.end(JSON.stringify(f.parentContext));
+  });
+  const resolver = createOperatorInferenceOwnerResolver({ cwd: f.cwd, agentDir: f.agentDir, sdkRoot: SDK_ROOT,
+    fetch: async (input, init) => {
+      if (String(input) !== 'https://operator.internal/v1/dispatcher/owner-context') {
+        return new Response(null, { status: 403 });
+      }
+      return fetch(`${parentOrigin}/v1/dispatcher/owner-context`, init);
+    },
+  });
+  f.origin = await listen(t, router(resolver, f.logs));
+  f.admit = async () => {
+    const profile = await admit(f);
+    f.parentContext.selection = { ...profile.body };
+    return profile;
+  };
+  return f;
+}
+
+async function observeSdkStartup(f) {
+  // An externally observable SDK resource-discovery effect, not a private-call
+  // spy: even starting discovery would send an HTTP message to the provider.
+  await writeFile(path.join(f.agentDir, 'extensions', 'startup-probe.js'),
+    `export default async function () { await fetch(${JSON.stringify(`${f.providerOrigin}/sdk-started`)}, `
+      + `{ method: 'POST', headers: { 'content-type': 'application/json' }, body: '{"sdkStarted":true}' }); }`);
+}
+
+test('REQ-OPERATOR-003/007/048: production ordinary-Host factory serves saved profile and complete configured model result', async t => {
+  const f = await productionFixture(t);
+  const profile = await f.admit();
+  assert.equal(profile.body.provider, 'fixture-provider');
+  assert.equal(profile.body.model, 'saved-model');
+  const result = successful(await call(f));
+  assert.equal(result.content.find(part => part.type === 'text').text, f.answer);
+  assert.equal(f.sends[0].headers.authorization, `Bearer synthetic-key-${f.binding.ownerKey}`);
+  assert.deepEqual(f.sends[0].body.context, transcript());
+});
+
+test('REQ-OPERATOR-047: production authentication precedes parent context resolution and SDK discovery', async t => {
+  const f = await productionFixture(t);
+  await observeSdkStartup(f);
+  for (const endpoint of ['/operator-inference', '/operator-inference/profile']) {
+    const response = await post(f.origin, endpoint, profileRequest(f), null);
+    assert.equal(response.status, 401);
+  }
+  assert.deepEqual(f.parentRequests, []);
+  assert.deepEqual(f.sends, []);
+});
+
+for (const invalid of ['denied', 'missing', 'malformed', 'expired', 'invalid-limit', 'invalid-selection']) {
+  test(`REQ-OPERATOR-003/047: production ${invalid} parent context refuses before SDK discovery or model spend`, async t => {
+    const f = await productionFixture(t);
+    await observeSdkStartup(f);
+    if (invalid === 'denied') f.parentStatus = 403;
+    if (invalid === 'missing') f.parentContext = null;
+    if (invalid === 'malformed') f.parentContext = { ownerKey: 'unbound' };
+    if (invalid === 'expired') f.parentContext.deadline = Date.now() - 1;
+    if (invalid === 'invalid-limit') f.parentContext.maxResponseBytes = 0;
+    if (invalid === 'invalid-selection') f.parentContext.selection = { provider: 'foreign' };
+    for (const endpoint of ['/operator-inference', '/operator-inference/profile']) {
+      const response = await post(f.origin, endpoint, profileRequest(f));
+      assert.equal(response.status, 403, response.raw);
+      assert.equal(response.body?.result, undefined);
+      privateResponse(f, response);
+    }
+    assert.deepEqual(f.sends, []);
+  });
+}
+
+test('REQ-OPERATOR-007: production parent reasoning override controls saved profile and model delivery', async t => {
+  const f = await productionFixture(t);
+  f.parentContext.reasoningOverride = 'medium';
+  const profile = await f.admit();
+  assert.equal(profile.body.reasoningLevel, 'medium');
+  const response = await call(f, modelRequest(f, { options: { reasoning: 'medium', maxTokens: 91 } }));
+  assert.equal(successful(response).content.find(part => part.type === 'text').text, f.answer);
+  assert.equal(f.sends[0].body.options.reasoning, 'medium');
+});
+
+test('REQ-OPERATOR-003/007: production caller cannot select paths owner SDK configuration model or parent destination', async t => {
+  const f = await productionFixture(t);
+  await f.admit();
+  const foreign = await fixture(t, { owner: 'foreign' });
+  const changes = [
+    { cwd: foreign.cwd, agentDir: foreign.agentDir, sdkRoot: '/foreign' },
+    { ownerKey: foreign.binding.ownerKey, sessionId: foreign.binding.sessionId },
+    { selection: { provider: 'fixture-provider', model: 'second-model' }, reasoningOverride: 'high' },
+    { url: `${foreign.providerOrigin}/infer`, config: { defaultModel: 'second-model' } },
+  ];
+  for (const override of changes) {
+    const response = await call(f, modelRequest(f, override));
+    assert.equal(response.status, 400, response.raw);
+    privateResponse(f, response);
+  }
+  const result = successful(await call(f));
+  assert.equal(result.model, 'saved-model');
+  assert.equal(result.content.find(part => part.type === 'text').text, f.answer);
+  assert.equal(f.sends[0].headers.authorization, `Bearer synthetic-key-${f.binding.ownerKey}`);
+  assert.deepEqual(foreign.sends, []);
+});
+
+for (const change of ['owner', 'session', 'session-generation', 'activity-generation', 'deadline', 'selection', 'reasoning', 'limits', 'revoked']) {
+  test(`REQ-OPERATOR-047/048: production late ${change} parent drift cannot deliver model events or result`, async t => {
+    const f = await productionFixture(t);
+    await f.admit();
+    let entered; const started = new Promise(resolve => { entered = resolve; });
+    let release; f.hold = new Promise(resolve => { release = resolve; });
+    t.after(() => release()); f.onSend = entered;
+    const pending = call(f);
+    await Promise.race([started, pending.then(response => {
+      assert.fail(`Expected configured provider execution, received ${response.status}: ${response.raw}`);
+    })]);
+    if (change === 'owner') f.parentContext.ownerKey = 'changed-owner';
+    if (change === 'session') f.parentContext.sessionId = 'changed-session';
+    if (change === 'session-generation') f.parentContext.sessionGeneration++;
+    if (change === 'activity-generation') f.binding.generation++;
+    if (change === 'deadline') f.parentContext.deadline += 1000;
+    if (change === 'selection') f.parentContext.selection.model = 'second-model';
+    if (change === 'reasoning') f.parentContext.reasoningOverride = 'high';
+    if (change === 'limits') f.parentContext.maxResponseBytes++;
+    if (change === 'revoked') f.parentStatus = 403;
+    release();
+    const response = await pending;
+    assert.equal(response.status, 403, response.raw);
+    assert.equal(response.body?.events, undefined);
+    assert.equal(response.body?.result, undefined);
+    assert.equal(response.raw.includes(f.answer), false);
+  });
+}
+
+test('REQ-OPERATOR-047: production bounds unresolved metadata body before parent and applies narrower admitted request/response limits', async t => {
+  const f = await productionFixture(t);
+  const overTransport = await post(f.origin, '/operator-inference/profile', Buffer.alloc(64 * 1024 + 1, 32));
+  assert.equal(overTransport.status, 413);
+  assert.deepEqual(f.parentRequests, []);
+  assert.deepEqual(f.sends, []);
+  await f.admit();
+  f.parentContext.maxRequestBytes = 128;
+  assert.equal((await call(f)).status, 413);
+  assert.deepEqual(f.sends, []);
+  f.parentContext.maxRequestBytes = 64 * 1024;
+  f.parentContext.maxResponseBytes = 1024;
+  f.answer = 'bounded-response-'.repeat(2000);
+  const response = await call(f);
+  assert.equal(response.status, 413, response.raw);
+  assert.equal(response.body?.events, undefined);
+  assert.equal(response.body?.result, undefined);
+});
+
+test('REQ-OPERATOR-047: production incomplete metadata body expires without resolving parent or discovering SDK', { timeout: 20000 }, async t => {
+  const f = await productionFixture(t);
+  const response = await new Promise((resolve, reject) => {
+    const req = http.request(`${f.origin}/operator-inference/profile`, { method: 'POST', headers: {
+      authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json', 'content-length': 100,
+    } }, res => {
+      res.resume();
+      res.on('end', () => { resolve(res.statusCode); req.destroy(); });
+    });
+    t.after(() => req.destroy());
+    req.on('error', reject);
+    req.setTimeout(15000, () => req.destroy(new Error('Metadata read was not bounded')));
+    req.write('{'); // Deliberately leave the body unfinished.
+  });
+  assert.equal(response, 503);
+  assert.deepEqual(f.parentRequests, []);
+  assert.deepEqual(f.sends, []);
+});
+
+
+test('REQ-OPERATOR-047: production lookup metadata preserves admitted large context allowance and cannot substitute body generation', async t => {
+  const f = await productionFixture(t);
+  await f.admit();
+  f.parentContext.maxRequestBytes = 256 * 1024;
+  const headers = { 'x-codeflare-operator-activity': f.binding.activityId,
+    'x-codeflare-operator-generation': String(f.binding.generation) };
+  const context = { ...transcript(), systemPrompt: 'admitted-large-context '.repeat(4000) };
+  const response = await post(f.origin, '/operator-inference', modelRequest(f, { context }), TOKEN, headers);
+  assert.equal(successful(response).content.find(part => part.type === 'text').text, f.answer);
+  assert.deepEqual(f.sends[0].body.context, context);
+  const foreign = await post(f.origin, '/operator-inference', modelRequest(f, { generation: f.binding.generation + 1 }), TOKEN, headers);
+  assert.equal(foreign.status, 403, foreign.raw);
+  assert.equal(foreign.body?.events, undefined);
+  assert.equal(foreign.body?.result, undefined);
+});
+
+
+test('REQ-OPERATOR-007: public SDK custom provider identity is preserved without a catalogue or family mapping', async t => {
+  const f = await productionFixture(t, { providerId: 'Owner.Custom/router' });
+  const profile = await f.admit();
+  assert.equal(profile.body.provider, 'Owner.Custom/router');
+  const result = successful(await call(f));
+  assert.equal(result.provider, 'Owner.Custom/router');
+  assert.equal(result.content.find(part => part.type === 'text').text, f.answer);
+});
+
+
+test('REQ-OPERATOR-007: managed source selects its configured SDK route without personal-provider grants or saved-native substitution', async t => {
+  const f = await productionFixture(t, { providerId: 'codeflare-gateway' });
+  f.parentContext.managed = { provider: 'codeflare-gateway', model: 'second-model', reasoningLevel: 'low' };
+  const profile = await f.admit();
+  assert.equal(profile.body.provider, 'codeflare-gateway'); assert.equal(profile.body.model, 'second-model');
+  const result = successful(await call(f));
+  assert.equal(result.model, 'second-model');
+  const saved = JSON.parse(await readFile(path.join(f.agentDir, 'settings.json'), 'utf8'));
+  assert.equal(saved.defaultModel, 'saved-model');
+});
+
+test('REQ-OPERATOR-007: managed provider-default remains null and is not forced to Off', async t => {
+  const f = await productionFixture(t, { providerId: 'codeflare-gateway' });
+  f.parentContext.managed = { provider: 'codeflare-gateway', model: 'saved-model', reasoningLevel: null };
+  const profile = await f.admit();
+  assert.equal(profile.body.reasoningLevel, null);
+  assert.equal(successful(await call(f, modelRequest(f, { options: { maxTokens: 91 } }))).model, 'saved-model');
 });

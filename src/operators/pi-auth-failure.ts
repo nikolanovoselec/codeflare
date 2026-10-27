@@ -10,8 +10,8 @@ export function safePiAuthFailure(value: unknown): SafePiAuthFailure | undefined
   const item = value as Record<string, unknown>;
   if (Object.keys(item).length !== 3 || item.code !== 'PI_LOGIN_REQUIRED'
     || !['missing', 'expired', 'rejected'].includes(String(item.reason))
-    || typeof item.provider !== 'string' || !/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/.test(item.provider)
-    || item.provider.length > 64) return undefined;
+    || typeof item.provider !== 'string' || !item.provider.length || item.provider.length > 512
+    || [...item.provider].some(character => character.charCodeAt(0) < 0x20 || character.charCodeAt(0) === 0x7f)) return undefined;
   return { code: 'PI_LOGIN_REQUIRED', reason: item.reason as SafePiAuthFailure['reason'], provider: item.provider };
 }
 /** Closed native rejection evidence; status/text alone never selects login recovery. */

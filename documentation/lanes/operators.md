@@ -16,8 +16,8 @@
 - [Identity and restrictive policy](#verified-human-context)
 - [Distribution and package formats](#distribution-validation)
 - [Registry management and admission](#registrationadmission-ordering)
-- [Runtime and Dispatcher host](#worker-loader-boundary)
 - [Trusted Dispatcher hosting](#normal-dispatcher-hosting)
+- [Runtime and Dispatcher host](#worker-loader-boundary)
 - [Repository-only transport and recovery](#repository-only-transport-and-recovery)
 - [Retained Dispatcher causal evidence](#retained-dispatcher-causal-evidence)
 - [Owned sessions, resources and persistence](#owned-session-and-structured-pi)
@@ -175,9 +175,13 @@ The approved Dispatcher contract uses the application's normal compiler-generate
 
 Public Flue admission, reattachable reads and abort own execution lifecycle; the SDK owns state, alarms, scheduling and recovery. Nonsecret job configuration uses public initial data and phase context, never per-run environment mutation. Historical SDK and schedule rows remain retained without replay, migration or relabelling.
 
-Dispatcher model calls use the owner's configured public Pi services, including native, dynamic, virtual and registered custom providers and SDK-supported credential commands. Owner, cwd and agent paths are server-derived; no built-in-only catalogue, provider-family mapper, silent substitution, additional AgentSession or interactive-window dependency is introduced. Conductor's restricted factory remains unchanged.
+Dispatcher model calls use the owner's configured public Pi services, including native, dynamic, virtual and registered custom providers and SDK-supported credential commands. Source selection still follows current managed/native policy: managed routes use the existing provisioned `codeflare-gateway` SDK namespace and verified route catalog, while native requires all original personal-provider/source approvals. Non-inference work does not require a Pi profile. The parent pins the nonsecret SDK identity; it never builds a vendor model catalog or substitutes a native model for a managed route. Owner, cwd and agent paths are server-derived; no built-in-only catalogue, provider-family mapper, silent substitution, additional AgentSession or interactive-window dependency is introduced. Conductor's restricted factory remains unchanged.
 
-Normal-host metadata identifies the generated entry, Durable Object binding/class and SQLite migration. Exact acquired modules, source/compiler/SDK inputs, asset digests and deployed Worker version bind the installed release; packages cannot supply account authority, connection secrets or protected services. Publication, acquisition, connection configuration, enablement and deployment verification remain distinct gates.
+Manual preparation may include `sourceSession: { sessionId, sessionGeneration }` outside the application invocation. The parent validates that ordinary source session against the invoking owner and binds it immutably before start; prospective work uses its original admitted source proof. Only that source Host serves configured inference. No additional Pi conversation or interactive Pi window is required.
+
+Normal-host metadata identifies the generated entry, SDK-standard `FLUE_DISPATCHER_AGENT` binding, `FlueDispatcherAgent` class and SQLite migration. Exact acquired modules, source/compiler/SDK inputs, asset digests and deployed Worker version bind the installed release; packages cannot supply account authority, connection secrets or protected services. Publication, acquisition, connection configuration, enablement and deployment verification remain distinct gates.
+
+The original connection revision and ciphertext remain frozen for cancellation. Verified installation revisions are retained for abort-only authentication: after a legitimate same-origin upgrade or rotation, the receiver asks the parent to authorize only the already-fenced original job before calling public Flue abort. Retired credentials cannot dispatch, read or perform effects. Original endpoints and SDK namespaces must remain available while their jobs exist; deleting them is not a supported rotation.
 
 Abort intent, exact settlement, validated collection, closed run authority and bookkeeping release are distinct observations; the shared deployment may remain available to other jobs. The [requirements](../../sdd/spec/operators.md#req-operator-048-dispatcher-execution) retain Planned status until integration and authoritative verification; metadata parsing and component tests alone do not establish runtime qualification or hosted acceptance.
 

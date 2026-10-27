@@ -433,9 +433,23 @@ const strictEgress: InterceptorSpec = {
   resolve: resolveStrictEgress,
 };
 
+/** Fixed parent authority lookup for configured services in an ordinary owner Host. */
+const ownerInferenceAuthority: InterceptorSpec = {
+  mode: 'enterprise',
+  resolve(host) {
+    if (host._operatorPolicy || host._operatorContainerProfile || !host._bucketName || !host._sessionId
+      || !host._userEmail || !host.env.OPERATOR_ACTIVITY || !host.env.OPERATOR_REGISTRY) return null;
+    return { entrypoint: 'OperatorOwnerInferenceAuthority',
+      props: { bucket: host._bucketName, sessionId: host._sessionId, email: host._userEmail },
+      hosts: ['operator.internal'], mandatory: true,
+      wiredLog: 'Owner inference authority transport wired', failLog: 'Owner inference authority unavailable' };
+  },
+};
+
 /** The registry: one entry per transport, in wiring order. */
 const CONTAINER_INTERCEPTION_REGISTRY: readonly InterceptorSpec[] = [
   cloudflareOauthApi,
+  ownerInferenceAuthority,
   llm,
   github,
   browserRendering,

@@ -1,6 +1,6 @@
 /** External installed-Worker wire fixture, NOT proof of Flue execution/scheduling/recovery. */
 export const normalHosting = {
-  kind: 'normal', binding: 'FlueDispatcherAgent', className: 'FlueDispatcherAgent', migrationTag: 'v1',
+  kind: 'normal', binding: 'FLUE_DISPATCHER_AGENT', className: 'FlueDispatcherAgent', migrationTag: 'v1',
 } as const;
 
 export function normalDispatcherBundle() {
@@ -24,6 +24,7 @@ type NormalDispatch = {
 };
 export const connectionSecret = 'fixture-installation-secret-not-a-provider-credential';
 export const normalDeployment = {
+  controlOrigin: 'https://installed-dispatcher.example.test',
   workerName: 'installed-dispatcher', workerVersionId: '11111111-2222-4333-8444-555555555555',
   sourceCommit: 'a'.repeat(40), compilerCommit: 'c'.repeat(40),
 };
@@ -31,7 +32,8 @@ export const normalDeployment = {
 export function normalCallback(activityId: string, path: string, body: unknown, headers: Record<string, string> = {}) {
   return new Request(`https://operator.internal/v1/dispatcher/${path}`, {
     method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${connectionSecret}`,
-      'x-codeflare-operator-installation': 'installation', 'x-codeflare-operator-activity': activityId,
+      'x-codeflare-operator-installation': 'installation',
+      'x-codeflare-operator-worker-version': normalDeployment.workerVersionId, 'x-codeflare-operator-activity': activityId,
       'x-codeflare-operator-generation': '1', 'x-codeflare-operator-release': 'release',
       'x-codeflare-operator-connection-revision': '1', ...headers }, body: JSON.stringify(body),
   });

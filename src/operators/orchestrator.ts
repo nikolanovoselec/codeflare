@@ -4,6 +4,7 @@ import { captureError, type Boundary, type ReasonCode } from './dispatcher-diagn
 import type { Env } from '../types';
 import type { VerifiedHumanAccessClaims } from '../lib/jwt';
 import { AppError, ValidationError } from '../lib/error-types';
+import { getContainerId } from '../lib/container-helpers';
 import { canInvokeOperator, loadEnterpriseRouteConfig, requireOperatorHumanContext,
   resolveBucketName, resolveSessionAccessGroup } from '../lib/access';
 import { createOperatorExecutionContext, openOperatorExecutionAccess } from './execution-context';
@@ -23,9 +24,11 @@ import { resolveOperatorInference, type NativeOperatorInference } from './infere
 
 const ID = z.string().regex(/^[A-Za-z0-9_-]{1,128}$/);
 const invocationSchema = z.json();
+const ownerSourceBody = z.strictObject({ sessionId: z.string().regex(/^[a-z0-9]{8,24}$/),
+  sessionGeneration: z.number().int().positive().safe() }).optional();
 const preparationSchema = z.union([
   z.strictObject({ operatorId: ID, invocation: invocationSchema }),
-  z.strictObject({ installationId: ID, invocation: invocationSchema }),
+  z.strictObject({ installationId: ID, invocation: invocationSchema, sourceSession: ownerSourceBody }),
 ]);
 const MAX_INVOCATION_BYTES = 64 * 1024;
 
@@ -97,6 +100,18 @@ export async function prepareOperatorActivity(input: unknown, authority: {
     if (!canInvokeOperator(authority.human, selection.operator)) {
       throw new AppError('NOT_FOUND', 404, 'Operator installation is not available for execution');
     }
+  }
+  let ownerSource: { bucket: string; sessionId: string; sessionGeneration: number } | undefined;
+  if ('sourceSession' in parsed.data && parsed.data.sourceSession && managementSelection?.operator.profile === 'dispatcher') {
+    const source = parsed.data.sourceSession;
+    const bucket = await resolveBucketName(env, authority.human.email);
+    const reference = { bucket, sessionId: source.sessionId, email: authority.human.email };
+    const container = env.CONTAINER.getByName(getContainerId(bucket, source.sessionId)) as unknown as {
+      getPersonalPiSession(input: typeof reference): Promise<{ generation: number }> };
+    if ((await container.getPersonalPiSession(reference)).generation !== source.sessionGeneration) {
+      throw new AppError('CONFLICT', 409, 'Owner source session changed');
+    }
+    ownerSource = { bucket, ...source };
   }
   const operatorId = managementSelection ? managementSelection.operator.operatorId : requestedOperatorId!;
   if (operatorId === 'codeflare-gate1-fixture') {
@@ -207,6 +222,9 @@ export async function prepareOperatorActivity(input: unknown, authority: {
     ? await activity.prepareAuthorized(intent, executionContext, invocationJson, parentReservation.boundary)
     : await activity.prepareAuthorized(intent, executionContext, invocationJson);
   if (!prepared.ok) throw new AppError('CONFLICT', 409, 'Operator activity could not be prepared');
+  if (ownerSource && !await activity.bindDispatcherOwnerSource(ownerSource)) {
+    throw new AppError('CONFLICT', 409, 'Owner source could not be bound');
+  }
   return { activityId, startCapability, startExpiresAt };
 }
 

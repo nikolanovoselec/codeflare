@@ -265,6 +265,17 @@ Non-enterprise or unknown routes return `404`; an invalid method returns `405`; 
 
 These routes are private container-host contracts for a restricted operator session; they are not public Worker endpoints. Every request first requires the container Bearer token. The routes exist only when trusted parent startup supplied the matching operator service configuration, use `Cache-Control: no-store`, accept at most 64 KiB of JSON, and are governed by [REQ-OPERATOR-021](../../sdd/spec/operators.md#req-operator-021-structured-owned-pi-conversation) and [REQ-OPERATOR-023](../../sdd/spec/operators.md#req-operator-023-explicit-operator-synchronization). Candidate input cannot choose the activity, Codeflare session, filesystem root, model, tools, bucket, R2 credentials, policy, remote prefix, or authority deadline.
 
+### Configured Dispatcher inference on an ordinary source Host
+
+These two authenticated, `no-store` routes are separate from the restricted conversation/sync APIs below. The ordinary Host uses configured public Pi services, not another `AgentSession`. Parent-bound source-session identity, original Activity generation, deadline, logical selection and all current grants are revalidated before SDK discovery, model dispatch and delivery. Caller JSON cannot choose owner, paths, SDK root, destination or credentials.
+
+| Method | Private host path | Request | Success |
+|---|---|---|---|
+| POST | `/operator-inference/profile` | `{ schemaVersion: 1, activityId, generation, sessionGeneration }` | Nonsecret `{ provider, model, api, reasoningLevel, profileDigest }`; managed provider-default reasoning is `null`, not Off |
+| POST | `/operator-inference` | Same identity plus `{ operationId, context, options, requestDigest, profileDigest }`; normalized SDK transcript/tools and provider-neutral options only | Complete bounded `{ events, result }`, after final authority recheck; no partial late delivery |
+
+The parent supplies Activity/generation lookup headers so the admitted transcript allowance is not reduced to the 64 KiB unresolved-metadata limit. Header/body mismatches deny execution. Without separate lookup metadata, the initial body is bounded to 64 KiB and ten seconds; the resolved owner's original inference allowance/deadline still governs the call. The fixed container-bound `https://operator.internal/v1/dispatcher/owner-context` lookup derives the owner from server props, never caller identity. It is not an installed application's general context endpoint. Missing authority, selection drift, malformed input, unsupported SDK behavior and exceeded bounds fail closed. Closed SDK missing-credential evidence can return safe `PI_LOGIN_REQUIRED`; arbitrary provider text is not authentication evidence.
+
 ### Structured Pi
 
 | Method | Private host path | Request | Success response | Errors |
