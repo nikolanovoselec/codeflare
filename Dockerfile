@@ -688,8 +688,8 @@ RUN node -e "import('/opt/codeflare/browser-run-mcp/index.mjs').then(() => conso
 # ---------------------------------------------------------------------------
 # Upstream 0.9.72+ auto-refresh must not replace signed managed skills.
 ENV GRAPHIFY_NO_AUTO_REFRESH=1
-ARG UV_VERSION=0.13.0
-ARG UV_X86_64_LINUX_SHA256=1468ebd5a5541121837c5a2817b9972ba6090fa6caa3d142620850a47fb75154
+ARG UV_VERSION=0.13.1
+ARG UV_X86_64_LINUX_SHA256=eadd9d27c134ab5ac1ffd4473b97a741407f3ea238288f03121fc4deddf90220
 COPY preseed/agents/claude/plugins/graphify/.claude-plugin/plugin.json /tmp/graphify-plugin.json
 RUN <<'EOF'
 set -e
