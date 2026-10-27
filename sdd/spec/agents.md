@@ -104,7 +104,7 @@ These compatibility anchors resolve dated changelog references to retired review
 
 **Dependencies:** [REQ-AGENT-210](#req-agent-210-managed-extension-startup-preparation)
 
-**Verification:** Existing actual-package deadline/regression tests and managed-seed compiler plus executable extension/prompt checks. The authorization policy is managed content; signed publication and runtime adoption remain separate gates.
+**Verification:** Existing actual-package tests cover questionnaire deadlines and automatic-answer provenance, not the managed authorization handler. Handler behavioral coverage is absent under the user-authorized no-new-questionnaire-tests exception; source/seed consistency is not behavioral proof. Signed publication and runtime adoption remain separate gates.
 
 **Status:** Implemented
 
