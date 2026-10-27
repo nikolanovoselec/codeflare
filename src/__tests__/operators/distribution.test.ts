@@ -108,8 +108,10 @@ describe('REQ-OPERATOR-048: production Dispatcher bundle boundary', () => {
     modules: { 'index.js': { js: 'export class FlueDispatcherAgent {}' } },
   });
 
-  it.each(['2.1.0', '2.2.2', '2.3.0'])('accepts exact approved bytes for supported SDK %s', async version => {
-    const input = { ...dispatcherBundle(), versions: { runtime: version, vitePlugin: version, agents: '0.20.1' } };
+  it.each([
+    ['2.1.0', '0.20.1'], ['2.2.2', '0.20.1'], ['2.3.0', '0.20.1'], ['2.3.0', '0.30.1'],
+  ])('REQ-OPERATOR-048: accepts exact approved bytes for SDK %s / Agents %s', async (version, agents) => {
+    const input = { ...dispatcherBundle(), versions: { runtime: version, vitePlugin: version, agents } };
     const bytes = encode(input);
 
     expect(await parseDispatcherBundle(bytes, await digest(bytes))).toEqual(input);
@@ -128,9 +130,16 @@ describe('REQ-OPERATOR-048: production Dispatcher bundle boundary', () => {
     ['native-line tuple authority', { versions: { runtime: '2.3.0', vitePlugin: '2.3.0', agents: '0.20.1', authority: true } }],
     ['unknown tuple', { versions: { runtime: '2.2.3', vitePlugin: '2.2.3', agents: '0.20.1' } }],
     ['tuple-supplied authority', { versions: { runtime: '2.2.2', vitePlugin: '2.2.2', agents: '0.20.1', authority: true } }],
+    ['new Agents on legacy runtime', { versions: { runtime: '2.1.0', vitePlugin: '2.1.0', agents: '0.30.1' } }],
+    ['new Agents on intermediate runtime', { versions: { runtime: '2.2.2', vitePlugin: '2.2.2', agents: '0.30.1' } }],
+    ['new Agents mixed plugin', { versions: { runtime: '2.3.0', vitePlugin: '2.2.2', agents: '0.30.1' } }],
+    ['unknown Agents patch', { versions: { runtime: '2.3.0', vitePlugin: '2.3.0', agents: '0.30.2' } }],
+    ['new Agents unknown runtime', { versions: { runtime: '2.3.1', vitePlugin: '2.3.1', agents: '0.30.1' } }],
+    ['new tuple authority', { versions: { runtime: '2.3.0', vitePlugin: '2.3.0', agents: '0.30.1', authority: true } }],
+    ['new tuple outbound authority', { versions: { runtime: '2.3.0', vitePlugin: '2.3.0', agents: '0.30.1' }, globalOutbound: true }],
     ['child compatibility date', { compatibilityDate: '2026-02-05' }],
     ['outbound authority', { globalOutbound: true }],
-  ])('rejects Dispatcher bytes with changed %s', async (_label, patch) => {
+  ])('REQ-OPERATOR-048: rejects Dispatcher bytes with changed %s', async (_label, patch) => {
     const input = { ...dispatcherBundle(), ...patch };
     const bytes = encode(input);
     await expect(parseDispatcherBundle(bytes, await digest(bytes))).rejects.toThrow(ValidationError);

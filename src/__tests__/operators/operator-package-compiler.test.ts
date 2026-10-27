@@ -11,8 +11,8 @@ const standard = () => ({ schemaVersion: 1, interfaceVersion: 1, compatibilityDa
   compatibilityFlags: ['nodejs_compat'], mainModule: 'worker.js', modules: {
     'worker.js': { js: 'export default {}' }, 'resources/rules.txt': { text: 'exact bytes\n' },
   }, resources: { schemaVersion: 1, files: [{ source: 'resources/rules.txt', destination: 'review/rules.txt' }] } });
-const dispatcher = (version = '2.1.0') => ({ schemaVersion: 1, sourceCommit: 'a'.repeat(40),
-  versions: { runtime: version, vitePlugin: version, agents: '0.20.1' }, className: 'FlueDispatcherAgent',
+const dispatcher = (version = '2.1.0', agents = '0.20.1') => ({ schemaVersion: 1, sourceCommit: 'a'.repeat(40),
+  versions: { runtime: version, vitePlugin: version, agents }, className: 'FlueDispatcherAgent',
   compatibilityDate: '2026-09-10', compatibilityFlags: ['nodejs_compat'], mainModule: 'dispatcher.js',
   modules: { 'dispatcher.js': { js: 'export class FlueDispatcherAgent {}' } } });
 
@@ -31,15 +31,17 @@ describe('shared operator package compiler', () => {
     expect(parsed.resources?.files[0]).toMatchObject({ size: 12, sha256: sha(new TextEncoder().encode('exact bytes\n')) });
   });
 
-  it.each(['2.1.0', '2.2.2', '2.3.0'])('emits the supported SDK %s bundle and provenance over exact emitted bytes', async version => {
-    const result = await compileOperatorPackage({ manifest: manifest('dispatcher'), bundle: dispatcher(version), provenance: {
+  it.each([
+    ['2.1.0', '0.20.1'], ['2.2.2', '0.20.1'], ['2.3.0', '0.20.1'], ['2.3.0', '0.30.1'],
+  ])('REQ-OPERATOR-044: emits SDK %s / Agents %s with provenance over exact emitted bytes', async (version, agents) => {
+    const result = await compileOperatorPackage({ manifest: manifest('dispatcher'), bundle: dispatcher(version, agents), provenance: {
       repositoryId: 7, sourceCommit: 'a'.repeat(40), compilerCommit: 'b'.repeat(40), workflow: { id: 8, ref: 'refs/heads/main', runId: 9, runAttempt: 1 },
     } });
     const parsedManifest = parseOperatorManifest(new TextDecoder().decode(bytes(result, 'operator-manifest.json')), 'https://operators.example.test/');
     await expect(parseDispatcherBundle(bytes(result, 'operator-bundle.json'), parsedManifest.artifact.sha256)).resolves.toMatchObject({
-      className: 'FlueDispatcherAgent', versions: { runtime: version, vitePlugin: version, agents: '0.20.1' },
+      className: 'FlueDispatcherAgent', versions: { runtime: version, vitePlugin: version, agents },
     });
-    const repeated = await compileOperatorPackage({ manifest: manifest('dispatcher'), bundle: dispatcher(version), provenance: {
+    const repeated = await compileOperatorPackage({ manifest: manifest('dispatcher'), bundle: dispatcher(version, agents), provenance: {
       repositoryId: 7, sourceCommit: 'a'.repeat(40), compilerCommit: 'b'.repeat(40), workflow: { id: 8, ref: 'refs/heads/main', runId: 9, runAttempt: 1 },
     } });
     expect([...result.files].map(([name, value]) => [name, Buffer.from(value).toString('hex')]))
@@ -61,7 +63,13 @@ describe('shared operator package compiler', () => {
     { runtime: '2.3.0', vitePlugin: '2.3.0', agents: '0.20.1', unapproved: true },
     { runtime: '2.2.3', vitePlugin: '2.2.3', agents: '0.20.1' },
     { runtime: '2.2.2', vitePlugin: '2.2.2', agents: '0.20.1', unapproved: true },
-  ])('rejects mixed or unapproved SDK tuple %j without emitting a package', async versions => {
+    { runtime: '2.1.0', vitePlugin: '2.1.0', agents: '0.30.1' },
+    { runtime: '2.2.2', vitePlugin: '2.2.2', agents: '0.30.1' },
+    { runtime: '2.3.0', vitePlugin: '2.2.2', agents: '0.30.1' },
+    { runtime: '2.3.0', vitePlugin: '2.3.0', agents: '0.30.2' },
+    { runtime: '2.3.1', vitePlugin: '2.3.1', agents: '0.30.1' },
+    { runtime: '2.3.0', vitePlugin: '2.3.0', agents: '0.30.1', unapproved: true },
+  ])('REQ-OPERATOR-048: rejects mixed or unapproved SDK tuple %j without emitting a package', async versions => {
     await expect(compileOperatorPackage({ manifest: manifest('dispatcher'), bundle: { ...dispatcher(), versions } }))
       .rejects.toThrow(/Invalid operator package/);
   });
@@ -72,7 +80,8 @@ describe('shared operator package compiler', () => {
     () => ({ manifest: manifest(), bundle: { ...standard(), bindings: { SECRET: 'value' } } }),
     () => ({ manifest: { ...manifest(), credentials: 'secret' }, bundle: standard() }),
     () => ({ manifest: manifest(), bundle: { ...standard(), outbound: 'https://example.test' } }),
-  ])('denies unsafe paths, invalid resources, and package-supplied authority', async makeInput => {
+    () => ({ manifest: manifest('dispatcher'), bundle: { ...dispatcher('2.3.0', '0.30.1'), globalOutbound: true } }),
+  ])('REQ-OPERATOR-044: denies unsafe paths, invalid resources, and package-supplied authority', async makeInput => {
     await expect(compileOperatorPackage(makeInput())).rejects.toThrow(/Invalid operator package/);
   });
 });
