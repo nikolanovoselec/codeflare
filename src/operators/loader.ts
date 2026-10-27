@@ -77,6 +77,9 @@ export function loadOperatorDispatcherClass(
   submissionAttemptLimit = DEFAULT_SUBMISSION_ATTEMPT_LIMIT,
   inferenceSelection?: NativeOperatorInference,
 ): unknown {
+  if (bundle.schemaVersion !== 1 || bundle.hosting !== undefined) {
+    throw new Error('Normal Dispatcher deployments cannot use the Worker Loader');
+  }
   if (!/^[0-9a-f]{64}$/.test(artifactDigest) || !/^[A-Za-z0-9_-]{1,128}$/.test(activityId)
     || !Number.isSafeInteger(generation) || generation < 1
     || !Number.isSafeInteger(submissionAttemptLimit) || submissionAttemptLimit < 1) {

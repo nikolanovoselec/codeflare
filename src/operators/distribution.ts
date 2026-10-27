@@ -71,9 +71,15 @@ const bundleSchema = z.strictObject({
 }).refine(bundle => Object.hasOwn(bundle.modules, bundle.mainModule)
   && 'js' in bundle.modules[bundle.mainModule]);
 
-/** Exact profile-CI output accepted by the production Dispatcher facet host. */
+/** Approved generated modules; normal deployment metadata grants no resource authority. */
 const dispatcherBundleSchema = z.strictObject({
-  schemaVersion: z.literal(1),
+  schemaVersion: z.union([z.literal(1), z.literal(2)]),
+  hosting: z.strictObject({
+    kind: z.literal('normal'),
+    binding: z.literal('FlueDispatcherAgent'),
+    className: z.literal('FlueDispatcherAgent'),
+    migrationTag: z.literal('v1'),
+  }).optional(),
   sourceCommit: z.string().regex(/^[0-9a-f]{40}$/),
   versions: z.union([
     z.strictObject({ runtime: z.literal('2.1.0'), vitePlugin: z.literal('2.1.0'), agents: z.literal('0.20.1') }),
@@ -86,7 +92,8 @@ const dispatcherBundleSchema = z.strictObject({
   compatibilityFlags: z.tuple([z.literal('nodejs_compat')]),
   mainModule: relativePath,
   modules: modulesSchema,
-}).refine(bundle => Object.hasOwn(bundle.modules, bundle.mainModule)
+}).refine(bundle => (bundle.schemaVersion === 2) === (bundle.hosting !== undefined)
+  && Object.hasOwn(bundle.modules, bundle.mainModule)
   && 'js' in bundle.modules[bundle.mainModule]);
 
 /** Validated discovery data; artifact URL is derived, never supplied as authority. */

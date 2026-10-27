@@ -17,7 +17,7 @@ export function normalDispatcherBundle() {
 }
 
 export type NormalReceipt = { submissionId: string; acceptedAt: string; uid: string; deduplicated?: true };
-export type NormalDispatch = {
+type NormalDispatch = {
   id: string; uid?: string; installationId: string; activityId: string; generation: number;
   releaseId: string; connectionRevision: number; workerVersionId: string; idempotencyKey: string;
   message: unknown; initialData?: unknown;

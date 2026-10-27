@@ -12,6 +12,7 @@ import { parse as parseUrl } from 'node:url';
 import fs from 'node:fs';
 import { spawn } from 'node:child_process';
 import { checkContainerAuth } from './auth-check.js';
+import { ownerInference, type OperatorInferenceOwner } from './operator-inference.js';
 import { getSyncStatus, getSystemMetrics, collectWorkspaceRepos, isWorkspaceInventoryReady } from './metrics.js';
 import { evaluateFinalSync } from './final-sync.js';
 import { AGENT_EVENT_LIMITS, type AgentEventDrainResult, type AgentEventKind } from './agent-events.js';
@@ -88,6 +89,8 @@ export interface RequestRouterDeps {
   openvscode: ProxyTarget;
   /** Present only for a parent-configured restricted operator session; container auth remains outermost. */
   operatorPi?: OperatorPiHttpController;
+  /** Configured owner SDK services; never supplied by an HTTP caller or a restricted Conductor profile. */
+  operatorInference?: OperatorInferenceOwner;
   /** Fixed explicit-upload service; presence also disables ordinary bisync endpoints. */
   operatorSync?: OperatorSyncHttpController;
   /** Installed only by a trusted parent configuration; no credential, command, URL or script in the request. */
@@ -200,19 +203,33 @@ function rewriteVscodeResponseHeaders(
   };
 }
 
-async function readBoundedBody(req: http.IncomingMessage, limit: number): Promise<Uint8Array> {
+async function readBoundedBody(req: http.IncomingMessage, limit: number, signal?: AbortSignal): Promise<Uint8Array> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
     let size = 0;
     let oversized = false;
-    req.on('data', (chunk: Buffer) => {
+    const cleanup = () => {
+      req.removeListener('data', data);
+      req.removeListener('end', end);
+      req.removeListener('aborted', aborted);
+      // Keep the one-shot error listener: an aborted IncomingMessage can emit
+      // its connection error after 'aborted', even when this read has settled.
+      signal?.removeEventListener('abort', aborted);
+    };
+    const data = (chunk: Buffer) => {
       size += chunk.length;
       if (size > limit) { oversized = true; chunks.length = 0; }
       else if (!oversized) chunks.push(chunk);
-    });
-    req.on('end', () => resolve(oversized ? new Uint8Array(limit + 1) : Buffer.concat(chunks)));
-    req.on('aborted', () => reject(new Error('Request aborted')));
-    req.on('error', reject);
+    };
+    const end = () => { cleanup(); resolve(oversized ? new Uint8Array(limit + 1) : Buffer.concat(chunks)); };
+    const error = (cause: Error) => { cleanup(); reject(cause); };
+    const aborted = () => { error(new Error('Request aborted')); req.resume(); };
+    req.on('data', data);
+    req.once('end', end);
+    req.once('aborted', aborted);
+    req.once('error', error);
+    signal?.addEventListener('abort', aborted, { once: true });
+    if (signal?.aborted) aborted();
   });
 }
 
@@ -269,6 +286,34 @@ export function createRequestHandler(deps: RequestRouterDeps): (req: http.Incomi
     if (!authOutcome.allowed) {
       res.writeHead(authOutcome.status, { 'Content-Type': 'application/json' });
       res.end(authOutcome.body);
+      return;
+    }
+
+    if (deps.operatorInference && (pathname === '/operator-inference' || pathname === '/operator-inference/profile')) {
+      const controller = new AbortController();
+      const cancelled = () => controller.abort();
+      req.once('aborted', cancelled);
+      res.once('close', cancelled);
+      try {
+        const response = method !== 'POST'
+          ? { status: 405, body: JSON.stringify({ error: 'Method not allowed' }) }
+          : await ownerInference(deps.operatorInference, pathname.endsWith('/profile'),
+            await readBoundedBody(req, deps.operatorInference.maxRequestBytes,
+              AbortSignal.any([controller.signal, AbortSignal.timeout(Math.max(1,
+                Math.min(2_147_483_647, deps.operatorInference.deadline - Date.now())))])), controller.signal);
+        if (!res.destroyed) {
+          res.writeHead(response.status, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+          res.end(response.body);
+        }
+      } catch {
+        if (!res.destroyed) {
+          res.writeHead(503, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+          res.end(JSON.stringify({ error: 'Configured inference unavailable' }));
+        }
+      } finally {
+        req.removeListener('aborted', cancelled);
+        res.removeListener('close', cancelled);
+      }
       return;
     }
 
