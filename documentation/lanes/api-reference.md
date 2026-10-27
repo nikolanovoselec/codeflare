@@ -265,10 +265,10 @@ Non-enterprise or unknown routes return `404`; an invalid method returns `405`; 
 
 These enterprise-only management mutations require a current verified human manager and same-origin CSRF protection under [REQ-OPERATOR-045](../../sdd/spec/operators.md#req-operator-045-delegated-management-and-invocation) and [REQ-OPERATOR-046](../../sdd/spec/operators.md#req-operator-046-explicit-release-promotion).
 
-| Method | Path | Request | Outcome |
-|---|---|---|---|
-| POST | `/api/operator-management/installations/:installationId/dispatcher-connection` | `{ revision, connectionSecret, workerName, workerVersionId, releaseId, sourceCommit, compilerCommit, manifestDigest, bundleDigest }` | Saves exact approved release/deployment pins, increments installation and connection revisions, disables starts and invalidates prior deployment verification |
-| POST | `/api/operator-management/installations/:installationId/enable` | `{ revision, enabled: true }`, using the revision returned by connection configuration | Verifies current platform deployment facts before enablement; unavailable/mismatched deployment evidence returns `409` |
+| Method | Path | Auth | Implements | Request | Outcome |
+|---|---|---|---|---|---|
+| POST | `/api/operator-management/installations/:installationId/dispatcher-connection` | Verified human manager, CSRF | [REQ-OPERATOR-045](../../sdd/spec/operators.md#req-operator-045-delegated-management-and-invocation), [REQ-OPERATOR-046](../../sdd/spec/operators.md#req-operator-046-explicit-release-promotion) | `{ revision, connectionSecret, workerName, workerVersionId, releaseId, sourceCommit, compilerCommit, manifestDigest, bundleDigest }` | Saves exact approved release/deployment pins, increments installation and connection revisions, disables starts and invalidates prior deployment verification |
+| POST | `/api/operator-management/installations/:installationId/enable` | Verified human manager, CSRF | [REQ-OPERATOR-045](../../sdd/spec/operators.md#req-operator-045-delegated-management-and-invocation), [REQ-OPERATOR-046](../../sdd/spec/operators.md#req-operator-046-explicit-release-promotion) | `{ revision, enabled: true }`, using the revision returned by connection configuration | Verifies current platform deployment facts before enablement; unavailable/mismatched deployment evidence returns `409` |
 
 `connectionSecret` is write-only and encrypted at rest; ordinary projections never return its plaintext or ciphertext. Re-read after a conflict instead of resending a stale revision. Actual deployment commands and secret values belong in the private operator runbook. <!-- @impl: src/routes/operator-management.ts --> <!-- @impl: src/operators/registry.ts::OperatorRegistry.configureManagementDispatcherConnection --> <!-- @impl: src/operators/dispatcher-deployment.ts::verifyDispatcherDeployment -->
 
@@ -278,7 +278,9 @@ These routes are private container-host contracts for a restricted operator sess
 
 ### Configured Dispatcher inference on an ordinary source Host
 
-These two authenticated, `no-store` routes are separate from the restricted conversation/sync APIs below. They implement [REQ-OPERATOR-007](../../sdd/spec/operators.md#req-operator-007-operator-aware-inference-selection), [REQ-OPERATOR-047](../../sdd/spec/operators.md#req-operator-047-generic-directed-profile-admission) and [REQ-OPERATOR-048](../../sdd/spec/operators.md#req-operator-048-dispatcher-execution). The ordinary Host uses configured public Pi services, not another `AgentSession`. Parent-bound source-session identity, original Activity generation, deadline, logical selection and all current grants are revalidated before SDK discovery, model dispatch and delivery. Caller JSON cannot choose owner, paths, SDK root, destination or credentials.
+These two authenticated, `no-store` routes are separate from the restricted conversation/sync APIs below. They implement [REQ-OPERATOR-007](../../sdd/spec/operators.md#req-operator-007-operator-aware-inference-selection), [REQ-OPERATOR-047](../../sdd/spec/operators.md#req-operator-047-generic-directed-profile-admission) and [REQ-OPERATOR-048](../../sdd/spec/operators.md#req-operator-048-dispatcher-execution).
+
+The ordinary Host uses configured public Pi services and genuine headless, in-memory SDK context for model execution, with no SDK tools or prompt loop. Parent-bound source-session identity, original Activity generation, deadline, logical selection and all current grants are revalidated before SDK discovery, model dispatch and delivery. Caller JSON cannot choose owner, paths, SDK root, destination or credentials.
 
 | Method | Private host path | Request | Success |
 |---|---|---|---|

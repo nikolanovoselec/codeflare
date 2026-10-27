@@ -1,4 +1,4 @@
-/** Configured owner Pi services, not an AgentSession or provider-wire adapter.
+/** Configured owner Pi services with the public SDK's nonpersistent extension lifecycle.
  * REQ-OPERATOR-003/007/047/048: parent composition owns paths, selection and authority.
  */
 import { createHash } from 'node:crypto';
@@ -10,6 +10,7 @@ import { pathToFileURL } from 'node:url';
 type JsonObject = Record<string, unknown>;
 type Selection = { provider: string; model: string; api: string; reasoningLevel: string | null; profileDigest: string };
 interface Model { provider: string; id: string; api: string; maxTokens: number }
+interface InferenceSession { model?: Model; thinkingLevel: string; dispose(): void }
 interface Services {
   modelRuntime: {
     getModel(provider: string, model: string): Model | undefined;
@@ -54,6 +55,12 @@ export async function ownerInference(owner: OperatorInferenceOwner, profile: boo
   const signal = AbortSignal.any([callerSignal, controller.signal]);
   let timer: ReturnType<typeof setTimeout> | undefined;
   let abort: (() => void) | undefined;
+  let session: InferenceSession | undefined;
+  const disposeSession = () => {
+    const completed = session;
+    session = undefined;
+    completed?.dispose();
+  };
   const work = async () => {
     if (bytes.byteLength > owner.maxRequestBytes) throw new Refusal(413);
     let input: unknown;
@@ -75,8 +82,12 @@ export async function ownerInference(owner: OperatorInferenceOwner, profile: boo
     const root = path.resolve(owner.sdkRoot ?? '/opt/codeflare/npm-tools/node_modules/@earendil-works/pi-coding-agent');
     const sdk = await import(pathToFileURL(path.join(root, 'dist/index.js')).href) as {
       createAgentSessionServices(options: object): Promise<Services>;
+      createAgentSessionFromServices(options: object): Promise<{ session: InferenceSession }>;
+      SessionManager: { inMemory(cwd: string): unknown };
     };
-    if (typeof sdk.createAgentSessionServices !== 'function') throw new Refusal(503);
+    if (typeof sdk.createAgentSessionServices !== 'function'
+      || typeof sdk.createAgentSessionFromServices !== 'function'
+      || typeof sdk.SessionManager?.inMemory !== 'function') throw new Refusal(503);
     const services = await sdk.createAgentSessionServices({ cwd: owner.cwd, agentDir: owner.agentDir, modelRuntimeSignal: signal });
     await current();
     if (services.diagnostics.some(item => item.type === 'error') || services.resourceLoader.getExtensions().errors.length) {
@@ -119,24 +130,35 @@ export async function ownerInference(owner: OperatorInferenceOwner, profile: boo
       throw new Refusal(401, { code: 'PI_LOGIN_REQUIRED', reason: 'missing', provider });
     }
     await current();
-    const stream = services.modelRuntime.streamSimple(model, input.context, { ...input.options, signal });
-    const events: JsonObject[] = [];
-    let size = 0;
-    for await (const event of stream) {
+    try {
+      // SDK construction binds genuine extension context. Flue still owns the
+      // transcript, tools and loop: never prompt this nonpersistent session.
+      session = (await sdk.createAgentSessionFromServices({ services,
+        sessionManager: sdk.SessionManager.inMemory(owner.cwd), model, noTools: true, tools: [],
+        ...(reasoningLevel === null ? {} : { thinkingLevel: reasoningLevel }),
+      })).session;
       await current();
-      if (event.type === 'error') throw new Refusal(502);
-      const encoded = JSON.stringify(event);
-      size += Buffer.byteLength(encoded) + 1;
-      if (size > owner.maxResponseBytes) throw new Refusal(413);
-      events.push(JSON.parse(encoded) as JsonObject);
-    }
-    const result = await stream.result();
-    await current();
-    if (result.stopReason === 'error' || result.stopReason === 'aborted'
-      || events.at(-1)?.type !== 'done') throw new Refusal(502);
-    const response = reply(200, { events, result });
-    if (Buffer.byteLength(response.body) > owner.maxResponseBytes) throw new Refusal(413);
-    return response;
+      if (session.model?.provider !== provider || session.model.id !== modelId || session.model.api !== model.api
+        || reasoningLevel !== null && session.thinkingLevel !== reasoningLevel) throw new Refusal(409);
+      const stream = services.modelRuntime.streamSimple(model, input.context, { ...input.options, signal });
+      const events: JsonObject[] = [];
+      let size = 0;
+      for await (const event of stream) {
+        await current();
+        if (event.type === 'error') throw new Refusal(502);
+        const encoded = JSON.stringify(event);
+        size += Buffer.byteLength(encoded) + 1;
+        if (size > owner.maxResponseBytes) throw new Refusal(413);
+        events.push(JSON.parse(encoded) as JsonObject);
+      }
+      const result = await stream.result();
+      await current();
+      if (result.stopReason === 'error' || result.stopReason === 'aborted'
+        || events.at(-1)?.type !== 'done') throw new Refusal(502);
+      const response = reply(200, { events, result });
+      if (Buffer.byteLength(response.body) > owner.maxResponseBytes) throw new Refusal(413);
+      return response;
+    } finally { disposeSession(); }
   };
   try {
     if (!Number.isSafeInteger(owner.deadline) || owner.deadline <= Date.now()) throw new Refusal(403);
@@ -155,5 +177,6 @@ export async function ownerInference(owner: OperatorInferenceOwner, profile: boo
   } finally {
     clearTimeout(timer);
     if (abort) signal.removeEventListener('abort', abort);
+    disposeSession();
   }
 }

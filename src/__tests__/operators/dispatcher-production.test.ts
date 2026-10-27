@@ -8165,7 +8165,8 @@ describe('normal installed Dispatcher control', () => {
     expect((await callback(f, 'inference', input)).status).toBe(200);
     expect(await (await callback(f, 'inference', input)).json()).toEqual(result);
     const receipt = await callback(f, 'receipt', { operationId: input.operationId });
-    expect(await receipt.json()).toMatchObject({ phase: 'completed', operationCount: 1 });
+    expect(receipt.status).toBe(403);
+    expect(await receipt.json()).toMatchObject({ code: 'OPERATOR_CAPABILITY_DENIED', reason: 'receipt-unavailable' });
     expect((await callback(f, 'inference', { ...input, context: { ...context, systemPrompt: 'Changed' } })).status).toBe(409);
   }, { ...options, nativeInference: true }));
 

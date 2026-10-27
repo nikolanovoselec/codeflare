@@ -1,5 +1,5 @@
 /** External provider fixture, discovered by real createAgentSessionServices.
- * No AgentSession, ModelRuntime replacement, global fetch override or SDK patch.
+ * Genuine SDK context; no ModelRuntime replacement, global fetch override or SDK patch.
  */
 import { readFile } from 'node:fs/promises';
 
@@ -113,10 +113,11 @@ export default async function register(pi) {
     pi.registerVirtualModel({
       provider: 'fixture-router', id: 'automatic', name: 'Configured automatic',
       thinkingLevels: ['low', 'medium'], contextWindow: 48000, maxTokens: 2048,
-      route(request) {
+      route(request, ctx) {
+        if (ctx.sessionManager.getSessionFile() !== undefined) throw new Error('Routing requires nonpersistent SDK context');
         const second = request.messages.some(message => message.role === 'user'
           && typeof message.content === 'string' && message.content.includes('second physical'));
-        return { model: models.find(model => model.id === (second ? 'second-model' : 'saved-model')),
+        return { model: ctx.modelRegistry.find(config.provider, second ? 'second-model' : 'saved-model'),
           thinkingLevel: request.thinkingLevel };
       },
     });

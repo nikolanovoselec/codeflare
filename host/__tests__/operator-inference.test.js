@@ -1,6 +1,6 @@
-/** Normal-host inference contract: real public SDK services, no AgentSession.
- * CI supplies the selected public SDK; baseline positives reach the existing
- * request router and fail HTTP 404 until the owner-composed route is implemented.
+/** Normal-host inference contract: real public SDK services and nonpersistent context.
+ * CI supplies the selected public SDK; the real router executes configured
+ * providers without a second prompt loop, SDK replacement or persistent history.
  * REQ-OPERATOR-007 selection; 003 owner authority; 047/048 protected effects.
  */
 import assert from 'node:assert/strict';
@@ -8,7 +8,7 @@ import test, { before, after } from 'node:test';
 import http from 'node:http';
 import { once } from 'node:events';
 import { createHash } from 'node:crypto';
-import { mkdtemp, mkdir, writeFile, readFile, copyFile, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, readFile, readdir, copyFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -252,6 +252,9 @@ test('REQ-OPERATOR-007: AC4/5 virtual logical profile remains pinned while publi
   const afterRouting = await post(f.origin, '/operator-inference/profile', profileRequest(f));
   assert.equal(afterRouting.status, 200);
   assert.deepEqual(afterRouting.body, admitted.body);
+  assert.deepEqual(JSON.parse(await readFile(path.join(f.agentDir, 'settings.json'), 'utf8')), f.settings);
+  assert.deepEqual((await readdir(f.agentDir, { recursive: true })).filter(file => file.endsWith('.jsonl')), [],
+    'Headless SDK context must not persist a conversation');
 });
 
 for (const auth of ['command', 'oauth']) {
