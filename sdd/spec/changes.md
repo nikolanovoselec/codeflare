@@ -2,6 +2,12 @@
 
 Semantic changes to the specification. Git history captures diffs; this file captures intent.
 
+## 2026-10-27
+
+- Approve trusted installed Dispatcher applications on normal compiler-generated Flue Worker/Durable Object hosting, with installation-authenticated ordinary run identities rather than a Loader/facet sandbox or per-run capability binding ([REQ-OPERATOR-015](operators.md#req-operator-015-isolated-approved-worker-loading), [048](operators.md#req-operator-048-dispatcher-execution)). Preserve owner/installation authority, original budgets/deadlines, uncertainty, exact settlement, immutable collection and historical state; shared-host completion does not claim Worker destruction.
+- Delegate Dispatcher Pi selection and model execution to public SDK-configured services supporting native/dynamic/virtual/custom providers and SDK-owned authentication, without OpenAI-specific wiring, built-in-only lookup, family mappers, a live-session broker or another AgentSession ([REQ-OPERATOR-007](operators.md#req-operator-007-operator-aware-inference-selection), [047](operators.md#req-operator-047-generic-directed-profile-admission)). Closed Conductor and unrelated interceptor routes remain unchanged.
+- Extend exact approved-artifact identity to normal deployment metadata and platform version, deliver nonsecret job configuration through public SDK context, and use public SDK lifecycle evidence rather than private facet SQL ([REQ-OPERATOR-030](operators.md#req-operator-030-immutable-approved-bundle-validation), [044](operators.md#req-operator-044-github-immutable-package-acquisition), [062](operators.md#req-operator-062-repository-only-dispatcher-transport), [080](operators.md#req-operator-080-owned-dispatcher-lifecycle-readback)). These changed contracts remain Planned pending behavioral CI, reviews, rollout and fresh acceptance.
+
 ## 2026-11-23
 
 - Enable context-mode at each container start while preserving `/ctx off` through Pi reloads until the next container start ([REQ-AGENT-076](agents.md#req-agent-076-pi-context-mode-enablement-and-tool-extension-defaults)). Add bounded native-pressure Smart Compact defaults and preserve user settings, including the legacy alias, across reload and R2 restore ([REQ-AGENT-222](agents.md#req-agent-222-pi-smart-compact-defaults), [REQ-AGENT-223](agents.md#req-agent-223-pi-smart-compact-settings-preservation)).
