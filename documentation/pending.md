@@ -1,4 +1,38 @@
-# Pending Dispatcher serial execution and retry
+# Pending Dispatcher normal Flue hosting
+
+## Current implementation and acceptance plan
+
+The user-approved design is a **trusted installed Dispatcher using normal Flue Worker/Durable Object hosting in Dispatcher**, not a Codeflare-hosted facet or sandbox. Codeflare admits, starts, cancels, authorizes and collects jobs. An installation-authenticated connection carries ordinary run/generation identifiers; no dedicated capability binding per job is required. Existing owner/installation checks, grants, revisions, original deadlines, budgets, phase fences, uncertain-write rules and immutable result collection remain server-owned.
+
+Pi’s actual configured SDK runtime is authoritative for provider, logical model, native/dynamic/virtual/custom route and authentication. All configurations supported by that runtime remain eligible, including registered providers, OAuth and API keys. No OpenAI-specific implementation, built-in-only model lookup, provider-family mapper or silent substitution is permitted. The present live configuration is only one acceptance example, not the supported-provider boundary.
+
+Use the SDK’s public `createAgentSessionServices({cwd, agentDir})` in the existing authenticated owner Host context, then its `modelRuntime.getModel()` and `streamSimple()`. This default loads configured provider, native-provider and virtual-model registrations without creating an AgentSession. Paths and owner/session identity are server-derived; credentials and credential-bearing headers/URLs stay at the owner runtime. Do not add a live-session broker, interactive-Pi uptime requirement, preseed adapter, curation change or second agent/history runtime. Use public SDK job context/initialData for nonsecret per-run metadata; do not add a duplicate SQL metadata table without a proven public-context limitation.
+
+### Requirement and proof map
+
+| Owning contract | Required observable outcome |
+| --- | --- |
+| REQ-OPERATOR-015/048 and REQ-DISPATCHER-001 | An approved normal Flue deployment accepts and completes jobs through public SDK interfaces, owns its state/alarms/recovery, and uses no application-authored private SDK attachment or lifecycle forwarding. Default-entrypoint and Conductor controls remain unchanged. |
+| REQ-OPERATOR-003/047/048 | Installation authentication cannot access another owner/installation; valid run/generation requests retain original permissions, revisions, budgets, cancellation and expiry. The trusted application is not sandboxed against its own sibling jobs. |
+| REQ-OPERATOR-007/047 and REQ-DISPATCHER-001 | The configured Pi SDK runtime resolves ordinary, custom and dynamic selections and SDK-supported auth without provider substitution. Representative configured-provider, virtual-route, OAuth/API-key and unsupported-selection cases observe actual requests/results; credentials never enter exported or durable job records. |
+| REQ-OPERATOR-016/017/048 and REQ-DISPATCHER-008 | Lost acknowledgement reuses the original SDK identity/receipt; cancelled, expired and uncertain work cannot restart or replay writes. Cold recovery retains confirmed work and original authority. |
+| REQ-OPERATOR-030/035/044/048 and REQ-DISPATCHER-010 | Deployment executes the exact approved source/compiler/release and original SDK inputs. Tampered or mixed inputs fail before execution; package identity is not relabelled into deployment proof. |
+| REQ-OPERATOR-041/048 | Collection requires the designated exact SDK settlement and validated immutable result. Abort intent, settlement, closed authority, bookkeeping release and physical cessation are not conflated; the shared deployment may remain running for other jobs. |
+
+### Execution order
+
+1. Update these existing requirements and the reusable integration guide; retain stable requirement IDs and truthful Planned statuses. The old dynamic Loader/facet-adoption and per-run sandbox conditions are superseded only for Dispatcher.
+2. Verify the minimal normal deployment/control and installation-authentication path using documented SDK/platform interfaces. Reuse existing installation, release, protected-operation and configured Pi-runtime facilities; introduce no second agent/history runtime, auth service, scheduler, paid platform or SDK shim. Resolve SDK dependency consistency through ordinary declared compatibility, not forced overrides.
+3. Add the complete mapped behavioral RED suite in one test-only phase, then run authoritative CI once for RED. Dependency, import, fixture or setup failures are not behavioral RED. Do not restore, rename or replace the retired broken-transport workloads.
+4. Implement the normal-hosted Dispatcher and generic configured-Pi integration; remove the private bridge and Dispatcher-specific private lifecycle/scheduling adapter. Leave domain policy in the supplied application and preserve unaffected default-entrypoint/Conductor behavior. Run final GREEN CI, consult the advisor, and follow actual PR boundary review/triage/fix procedures.
+5. Publish exact reviewed assets and deploy the matching Codeflare/Dispatcher source through the established Integration and Enterprise Integration workflows. Verify active deployment identity and installation settings independently; preserve grants, budgets and automatic-run settings.
+6. Start **one fresh** ordinary acceptance run after verified rollout. Measure real configured-Pi inference, tools, SDK settlement, validated assessment, immutable collection/recollection and truthful cleanup. Existing historical/admitted Activities are not replayed, relabelled or moved to the new backend. Existing SDK rows remain byte-for-byte retained.
+
+Current evidence: requirements and the execution plan are updated; disjoint Host and Dispatcher authors are writing the complete test-only batch. The advisor approved the public SDK-services correction. Host SDK-maintenance PR #1339 has clean code/spec/documentation reviews and exact-head GREEN at `99b05dacdc3ecf43f0e19d55ec9901be85193d21` after one unchanged shard retry; it qualifies only the dependency bump. Dispatcher dependency consistency and original-input automation are being reconciled separately before behavioral RED. No normal-hosting implementation, rollout or fresh acceptance is claimed.
+
+## Historical facet delivery evidence
+
+The sections below preserve prior receipts and retirement limits. They describe the former facet backend, not instructions to recreate it or evidence that the normal-hosted replacement passes.
 
 The approved contract is [REQ-OPERATOR-048](../sdd/spec/operators.md#req-operator-048-dispatcher-execution), [061](../sdd/spec/operators.md#req-operator-061-prospective-admin-session-renovate-scan) and [062](../sdd/spec/operators.md#req-operator-062-repository-only-dispatcher-transport). The intent4 host is deployed in both Integration environments; v0.1.24 is published, byte-verified and installed/enabled in Enterprise Integration; ordinary Integration installation remains unverified. Complete hosted assessment, collection and cessation remain unverified. The package's [coordinated intent4 contract](https://github.com/nikolanovoselec/codeflare-operator-dispatcher/blob/382005334f12b0005befe0c8720caee6336dde3e/documentation/pending.md) owns Renovate policy and its deferred result.
 
