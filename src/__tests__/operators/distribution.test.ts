@@ -6,6 +6,7 @@
 import { describe, expect, it } from 'vitest';
 import { ValidationError } from '../../lib/error-types';
 import { parseOperatorManifest, parseOperatorBundle, parseDispatcherBundle } from '../../operators/distribution';
+import { normalDispatcherBundle, normalHosting } from './fixtures/normal-dispatcher';
 
 const ENDPOINT = 'https://operator.example.test/discovery';
 const manifest = () => ({
@@ -196,5 +197,45 @@ describe('REQ-OPERATOR-030: approved bundle boundary', () => {
       .rejects.toThrow(ValidationError);
     const bytes = encode(bundle());
     await expect(parseOperatorBundle(bytes, 'not-a-digest')).rejects.toThrow(ValidationError);
+  });
+});
+
+describe('normal installed Dispatcher artifact contract', () => {
+  it('REQ-OPERATOR-048: AC1/7 normal generated deployment metadata preserves exact acquired modules without execution', async () => {
+    const input = normalDispatcherBundle();
+    const received = encode(input);
+    const parsed = await parseDispatcherBundle(received, await digest(received));
+    expect(parsed).toEqual(input);
+    expect(parsed).toMatchObject({ schemaVersion: 2, hosting: normalHosting,
+      modules: { 'resources/intent.txt': { text: 'Trusted installed application\néxact resource bytes\n' } } });
+    const legacy = { ...input, schemaVersion: 1 } as Record<string, unknown>;
+    delete legacy.hosting;
+    const historical = encode(legacy);
+    expect(await parseDispatcherBundle(historical, await digest(historical))).toEqual(legacy);
+    await expect(parseDispatcherBundle(received, await digest(historical))).rejects.toThrow(ValidationError);
+  });
+
+  it.each([
+    ['account', { ...normalHosting, accountId: 'package-owned-account' }],
+    ['binding authority', { ...normalHosting, services: { HOST: 'other-owner' } }],
+    ['connection credential', { ...normalHosting, connectionSecret: 'package-secret' }],
+    ['arbitrary class', { ...normalHosting, className: 'OtherAgent' }],
+    ['invalid binding', { ...normalHosting, binding: 'OTHER_OWNER' }],
+    ['migration replacement', { ...normalHosting, migrationTag: 'drop-existing-data' }],
+  ])('REQ-OPERATOR-030: AC4/5 normal deployment rejects package-supplied %s', async (_name, hosting) => {
+    const received = encode({ ...normalDispatcherBundle(), hosting });
+    await expect(parseDispatcherBundle(received, await digest(received))).rejects.toThrow(ValidationError);
+  });
+
+  it.each([
+    ['source', { sourceCommit: 'not-a-commit' }],
+    ['tuple', { versions: { runtime: '2.3.0', vitePlugin: '2.2.2', agents: '0.30.1' } }],
+    ['module path', { mainModule: '../escape.js' }],
+    ['module type', { modules: { 'index.js': { text: 'not executable' } } }],
+    ['undiscriminated deployment', { schemaVersion: 1 }],
+    ['missing deployment', { hosting: undefined }],
+  ])('REQ-OPERATOR-030: AC4/5 normal deployment refuses invalid %s before execution', async (_name, patch) => {
+    const received = encode({ ...normalDispatcherBundle(), ...patch });
+    await expect(parseDispatcherBundle(received, await digest(received))).rejects.toThrow(ValidationError);
   });
 });

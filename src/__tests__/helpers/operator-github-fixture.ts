@@ -1,4 +1,5 @@
 /** Deterministic GitHub REST/release/Actions wire fixtures; no acquisition implementation is mocked. */
+import { normalDispatcherBundle } from '../operators/fixtures/normal-dispatcher';
 const encoder = new TextEncoder();
 const sourceCommit = 'a'.repeat(40);
 const repositoryId = 417;
@@ -59,6 +60,7 @@ export async function createOperatorGitHubFixture(options: {
     | 'productionresultssa22.blob.core.windows.net' | 'productionresultssa66.blob.core.windows.net'
     | 'productionresultssa2.blob.core.windows.net.attacker.example';
   profile?: 'conductor' | 'dispatcher'; dispatcherSourceMismatch?: boolean; requiredCapabilities?: string[];
+  normalDispatcher?: boolean;
   omitCompilerCommit?: boolean; provenanceWorkflowRef?: string;
   bundlePaddingBytes?: number; releaseCount?: number;
 } = {}) {
@@ -69,7 +71,7 @@ export async function createOperatorGitHubFixture(options: {
   const repositoryOwner = options.repositoryOwner ?? 'acme';
   const repository = { id: repositoryId, full_name: `${repositoryOwner}/${repositoryName}`,
     html_url: `https://github.com/${repositoryOwner}/${repositoryName}`, default_branch: 'main' };
-  const bundle = encoder.encode(JSON.stringify(options.profile === 'dispatcher' ? {
+  const bundle = encoder.encode(JSON.stringify(options.normalDispatcher ? normalDispatcherBundle() : options.profile === 'dispatcher' ? {
     schemaVersion: 1, sourceCommit: options.dispatcherSourceMismatch ? 'b'.repeat(40) : sourceCommit,
     versions: { runtime: '2.1.0', vitePlugin: '2.1.0', agents: '0.20.1' },
     className: 'FlueDispatcherAgent', compatibilityDate: '2026-09-10', compatibilityFlags: ['nodejs_compat'],

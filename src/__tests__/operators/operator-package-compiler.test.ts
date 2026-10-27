@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import { compileOperatorPackage } from '../../../scripts/operator-package/compiler.mjs';
 import { parseDispatcherBundle, parseOperatorBundle, parseOperatorManifest } from '../../operators/distribution';
+import { normalDispatcherBundle, normalHosting } from './fixtures/normal-dispatcher';
 
 const sha = (bytes: Uint8Array) => createHash('sha256').update(bytes).digest('hex');
 const manifest = (profile: 'conductor' | 'dispatcher' = 'conductor') => ({ schemaVersion: 1, interfaceVersion: 1,
@@ -21,6 +22,31 @@ function bytes(result: Awaited<ReturnType<typeof compileOperatorPackage>>, name:
 }
 
 describe('shared operator package compiler', () => {
+  it('REQ-OPERATOR-044: AC4 normal packaging emits exactly three immutable assets with generated deployment metadata', async () => {
+    const bundle = normalDispatcherBundle();
+    const provenance = { repositoryId: 7, sourceCommit: bundle.sourceCommit, compilerCommit: 'c'.repeat(40),
+      workflow: { id: 8, ref: 'refs/heads/main', runId: 9, runAttempt: 1 } };
+    const first = await compileOperatorPackage({ manifest: manifest('dispatcher'), bundle, provenance });
+    const second = await compileOperatorPackage({ manifest: manifest('dispatcher'), bundle, provenance });
+    expect([...first.files.keys()].sort()).toEqual(['operator-bundle.json', 'operator-manifest.json', 'operator-provenance.json']);
+    expect([...first.files].map(([name, value]) => [name, Buffer.from(value).toString('hex')]))
+      .toEqual([...second.files].map(([name, value]) => [name, Buffer.from(value).toString('hex')]));
+    const published = parseOperatorManifest(new TextDecoder().decode(bytes(first, 'operator-manifest.json')), 'https://operators.example.test/');
+    const parsed = await parseDispatcherBundle(bytes(first, 'operator-bundle.json'), published.artifact.sha256);
+    expect(parsed).toEqual(bundle);
+    expect(parsed).toMatchObject({ schemaVersion: 2, hosting: normalHosting });
+    expect(JSON.parse(new TextDecoder().decode(bytes(first, 'operator-provenance.json')))).toEqual({ ...provenance,
+      manifestDigest: sha(bytes(first, 'operator-manifest.json')), bundleDigest: sha(bytes(first, 'operator-bundle.json')) });
+  });
+
+  it('REQ-OPERATOR-030: AC4/5 normal packaging refuses authority metadata rather than silently stripping it', async () => {
+    const bundle = normalDispatcherBundle();
+    await expect(compileOperatorPackage({ manifest: manifest('dispatcher'), bundle: { ...bundle,
+      hosting: { ...bundle.hosting, connectionSecret: 'package-must-not-supply-authority' } } })).rejects.toThrow(/Invalid operator package/);
+    await expect(compileOperatorPackage({ manifest: manifest('dispatcher'), bundle: { ...bundle,
+      env: { HOST: 'another-owner' } } })).rejects.toThrow(/Invalid operator package/);
+  });
+
   it('deterministically emits the existing standard bundle and exact resource metadata', async () => {
     const input = { manifest: manifest(), bundle: standard() };
     const first = await compileOperatorPackage(input); const second = await compileOperatorPackage(input);

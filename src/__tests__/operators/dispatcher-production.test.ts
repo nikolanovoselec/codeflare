@@ -23,6 +23,8 @@ import { EgressController } from '../../egress-controller';
 import { getBuiltInProfileRef } from '../../lib/reasoning-profiles';
 import { verifiedRoutingConfiguration } from '../helpers/verified-routing';
 import { pendingRecipient, within } from '../helpers/pending-recipient';
+import { sealOperatorSecret } from '../../operators/protected-secrets';
+import { connectionSecret, createNormalDispatcherTransport, normalCallback, normalDeployment, normalDispatcherBundle } from './fixtures/normal-dispatcher';
 
 let callerSessionCurrent = true;
 let callerRoute = 'approved';
@@ -576,6 +578,9 @@ async function importRuntime(f: DispatcherFixture, report: unknown, capability =
 /** Instrumented SDK owner, not native Flue proof: native cases remain in loader-runtime.test.ts. */
 async function fixture(test: (f: {
   activity: OperatorActivity; capability: OperatorDispatcherCapability; staleCapability: OperatorDispatcherCapability; environment: Env;
+  normalTransport: ReturnType<typeof createNormalDispatcherTransport> | undefined;
+  installationCapability: OperatorDispatcherCapability;
+  changeConnection: (patch: Record<string, unknown>) => void;
   bundle: DispatcherBundle; artifactDigest: string; activityId: string; deliverTail: (events: unknown) => Promise<void>;
   deliveredTail: Array<{ activityId: string; generation: number; stage: string }>;
   sdkPatchSetDigest: string | null; sdkHeader: (value: string | undefined) => void;
@@ -626,7 +631,7 @@ async function fixture(test: (f: {
   recovery?: boolean; intent4?: boolean; losePhaseAdmission?: number; facetContract?: boolean; receiptFixture?: boolean;
   inferenceAttemptLimit?: number; inferenceTransport?: (request: Request, attempt: number) => Promise<Response>;
   nativeInference?: boolean;
-  realInterceptors?: boolean; sourceTransport?: (request: Request) => Promise<Response> } = {}) {
+  realInterceptors?: boolean; sourceTransport?: (request: Request) => Promise<Response>; normalHosting?: boolean } = {}) {
   callerSessionCurrent = true;
   callerRoute = 'approved';
   nativeProfileFiles = new Map<string, unknown>(options.nativeInference ? [
@@ -642,11 +647,12 @@ async function fixture(test: (f: {
   const sdkProvenance = options.sdkDiagnostics ? await syntheticSdkProvenance() : null;
   const baseBundle: DispatcherBundle = options.runtimeVersion === '2.2.2' || options.sdkDiagnostics ? { ...bundle,
     versions: { runtime: '2.2.2', vitePlugin: '2.2.2', agents: '0.20.1' } } : bundle;
-  const fixtureBundle: DispatcherBundle = sdkProvenance ? { ...baseBundle, modules: { ...baseBundle.modules,
+  // The untrusted schema-2 fixture intentionally reaches today's parser rather than requiring a new export at import time.
+  const fixtureBundle: DispatcherBundle = options.normalHosting ? normalDispatcherBundle() as unknown as DispatcherBundle : sdkProvenance ? { ...baseBundle, modules: { ...baseBundle.modules,
     'codeflare/sdk-diagnostics-provenance.json': { text: canonicalDiagnosticJson(sdkProvenance) },
     ...Object.fromEntries([...syntheticFramePaths, ...syntheticBudgetPaths()].map((path, index) => [path, { text: syntheticFrameText(index) }])),
   } } : baseBundle;
-  const fixtureBytes = options.runtimeVersion || sdkProvenance ? new TextEncoder().encode(JSON.stringify(fixtureBundle)) : bytes;
+  const fixtureBytes = options.normalHosting || options.runtimeVersion || sdkProvenance ? new TextEncoder().encode(JSON.stringify(fixtureBundle)) : bytes;
   const namespace = (env as unknown as { OPERATOR_ACTIVITY: DurableObjectNamespace }).OPERATOR_ACTIVITY;
   await runInDurableObject(namespace.getByName(`dispatcher-${crypto.randomUUID()}`), async (_instance, native) => {
     const activityId = `activity-${crypto.randomUUID()}`;
@@ -669,6 +675,7 @@ async function fixture(test: (f: {
     operator: { operatorId: fixtureOperatorId, profile: 'dispatcher', revision: 1, invokers: { users: [human.email], groups: [] },
       policy: { ...policy, ...options.capacityPolicy, ...(options.inferenceMessageLimit === undefined ? {} : { inferenceMessageLimit: options.inferenceMessageLimit }), ...(options.inferenceAttemptLimit === undefined ? {} : { inferenceAttemptLimit: options.inferenceAttemptLimit }), ...(options.loggingEnabled === undefined ? {} : { loggingEnabled: options.loggingEnabled }), ...(options.operationLimit === undefined ? {} : { operationLimit: options.operationLimit }), ...(options.inferenceRequestBytes === undefined ? {} : { inferenceRequestBytes: options.inferenceRequestBytes }) } },
     release: { id: 'release', operatorId: fixtureOperatorId, bundleDigest: artifactDigest, sourceCommit: bundle.sourceCommit,
+      ...(options.normalHosting ? { manifestDigest: 'd'.repeat(64), provenance: { compilerCommit: normalDeployment.compilerCommit } } : {}),
       ...(options.prospective || options.intent4 ? { intentVersion: options.intent4 ? '4' : options.legacyProspective ? '2' : '3', coreVersion: '1' } : {}) },
     manifestJson: options.prospective || options.intent4 ? JSON.stringify({ schemaVersion: 1, interfaceVersion: 1,
       id: 'renovate-dispatcher', name: 'Renovate Dispatcher', description: 'Prospective singleton fixture',
@@ -979,11 +986,19 @@ async function fixture(test: (f: {
     });
     const context = native;
     const encryption = { ENCRYPTION_KEY: btoa('a'.repeat(32)) };
+    const normalTransport = options.normalHosting ? createNormalDispatcherTransport() : undefined;
+    let connectionRecord: Record<string, unknown> = { installationId: 'installation', releaseId: 'release', connectionRevision: 1,
+      ...normalDeployment, manifestDigest: 'd'.repeat(64), bundleDigest: artifactDigest,
+      connectionSecretCiphertext: await sealOperatorSecret(connectionSecret, encryption, { purpose: 'connection', recordId: 'installation' }) };
+    if (normalTransport) vi.stubGlobal('fetch', normalTransport.fetcher);
     const registry = { getManagementBundle: async () => {
       const action = afterBundleRead; afterBundleRead = undefined;
       await action?.();
       return fixtureBytes;
     },
+      // Registry is the platform authority seam, not a mocked control implementation.
+      getManagementDispatcherConnection: async (installationId: string) =>
+        options.normalHosting && installationId === 'installation' ? structuredClone(connectionRecord) : null,
       resolveManagementExecution: async () => {
         const action = afterRegistryResolve; afterRegistryResolve = undefined;
         await action?.();
@@ -1012,6 +1027,7 @@ async function fixture(test: (f: {
         },
       }) },
     } as unknown as Env;
+    if (options.normalHosting) delete (environment as unknown as Record<string, unknown>).LOADER;
     const activityEnvironment = environment as unknown as ConstructorParameters<typeof OperatorActivity>[1];
     activity = new OperatorActivity(context, activityEnvironment);
     await drainBackground();
@@ -1037,6 +1053,9 @@ async function fixture(test: (f: {
       environment as unknown as ConstructorParameters<typeof OperatorDispatcherCapability>[1]);
     try {
       await test({ activity, capability, staleCapability, environment, bundle: fixtureBundle, artifactDigest, activityId, deliveredTail,
+        normalTransport, changeConnection: patch => { connectionRecord = { ...connectionRecord, ...patch }; },
+        installationCapability: new OperatorDispatcherCapability({ props: {} } as unknown as ExecutionContext,
+          environment as unknown as ConstructorParameters<typeof OperatorDispatcherCapability>[1]),
         sdkPatchSetDigest: sdkProvenance?.patchSetDigest ?? null, sdkHeader: value => { sdkHeader = value; },
         statusFault: fault => { statusFault = fault; },
         admissionFault: fault => { admissionFault = fault; },
@@ -1178,6 +1197,7 @@ async function fixture(test: (f: {
       failOwnedAbort = false;
       await activity.cancelDrive();
       vi.restoreAllMocks();
+      vi.unstubAllGlobals();
       await Promise.allSettled(pending);
     }
   });
@@ -8029,4 +8049,213 @@ describe('REQ-OPERATOR-048: original-lease serial SDK phase ownership', () => {
       expect(second).toMatchObject({ pageStatus: 'complete', unresolvedJournalEntries: 1 });
     }, options));
   });
+});
+
+/** Parent HTTP/Activity contracts only; generated Flue lifecycle is qualified in Dispatcher CI. */
+describe('normal installed Dispatcher control', () => {
+  const options = { normalHosting: true, repositoryOnly: true };
+  const source = { operationId: 'normal-read', url: 'https://api.github.com/repos/another/service' };
+  const result = { repository: 'another/service', results: [] };
+  const control = (f: DispatcherFixture, path: string) => f.normalTransport!.requests.filter(request => request.path === `/control/${path}`);
+  const callback = (f: DispatcherFixture, path: string, body: unknown, headers?: Record<string, string>) =>
+    f.installationCapability.fetch(normalCallback(f.activityId, path, body, headers));
+  const cold = async (f: DispatcherFixture) => {
+    const activity = f.restart(); await f.drainBackground(); await activity.getAdmission(); await f.drainBackground(); return activity;
+  };
+  const stable = (value: Awaited<ReturnType<OperatorActivity['collectBrowserResult']>>) => {
+    if (!value.ok) return value;
+    const { updatedAt: _observationTimestamp, ...detail } = value.detail;
+    return { ok: true, detail };
+  };
+
+  it('REQ-OPERATOR-048: AC1/6 trusted installation starts through public keyed control without a per-Activity Loader', () => fixture(async f => {
+    const started = await start(f);
+    expect(started).toMatchObject({ ok: true, state: { generation: 1, status: 'running' } });
+    const sent = control(f, 'dispatch');
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatchObject({ authorization: `Bearer ${connectionSecret}`, body: {
+      id: `${f.activityId}-g1`, installationId: 'installation', activityId: f.activityId, generation: 1,
+      releaseId: 'release', connectionRevision: 1, workerVersionId: normalDeployment.workerVersionId,
+      idempotencyKey: expect.any(String), message: expect.anything(), initialData: expect.anything(),
+    } });
+    expect(sent[0].body.uid).toBeUndefined();
+    expect(JSON.stringify(sent[0].body.initialData)).toContain('another/service');
+    expect(JSON.stringify(sent[0].body)).not.toMatch(/fixture-installation-secret|private\.jwt|parent-only|synthetic-native-access|connectionSecretCiphertext/);
+    const accepted = [...f.normalTransport!.admissions.values()][0].receipt;
+    await f.mutateEvidence(async storage => {
+      expect(await storage.get('dispatcher:lease')).toMatchObject({ hosting: 'normal', receipt: accepted });
+    });
+    const permitted = await callback(f, 'source', source);
+    expect(permitted.status).toBe(200);
+    expect(await permitted.json()).toMatchObject({ status: 200, url: source.url });
+  }, options));
+
+  it('REQ-OPERATOR-048: AC2 lost admission acknowledgement cold-reconciles the exact original wire and full SDK receipt', () => fixture(async f => {
+    f.normalTransport!.loseAcknowledgement();
+    await start(f);
+    const original = control(f, 'dispatch')[0];
+    expect(original).toMatchObject({ body: { id: `${f.activityId}-g1`, idempotencyKey: expect.any(String) } });
+    const retained = [...f.normalTransport!.admissions.values()][0].receipt;
+    const activity = await cold(f);
+    await activity.reconcileDispatcherLease();
+    const retries = control(f, 'dispatch');
+    expect(retries.length).toBeGreaterThanOrEqual(2);
+    expect(retries.every(request => JSON.stringify(request) === JSON.stringify(original))).toBe(true);
+    // External admission count is the no-replacement-work contract, not an internal call count.
+    expect(f.normalTransport!.admissions.size).toBe(1);
+    await f.mutateEvidence(async storage => {
+      expect(await storage.get('dispatcher:lease')).toMatchObject({ hosting: 'normal', receipt: retained });
+    });
+    expect(await activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
+    expect((await callback(f, 'source', source)).status).toBe(200);
+  }, options));
+
+  it('REQ-OPERATOR-048: AC3 pending public read preserves receipt and original authority without replacement admission or abort', () => fixture(async f => {
+    await start(f);
+    const accepted = [...f.normalTransport!.admissions.values()][0].receipt;
+    let before: unknown;
+    await f.mutateEvidence(async storage => { before = (await storage.get<{ expiresAt: number }>('dispatcher:lease'))?.expiresAt; });
+    for (let wake = 0; wake < 2; wake++) await f.activity.reconcileDispatcherLease();
+    expect(control(f, 'read').length).toBeGreaterThan(0);
+    for (const read of control(f, 'read')) expect(read.body).toMatchObject({ id: `${f.activityId}-g1`, receipt: accepted });
+    expect(control(f, 'abort')).toEqual([]);
+    expect(f.normalTransport!.admissions.size).toBe(1);
+    await f.mutateEvidence(async storage => {
+      expect(await storage.get('dispatcher:lease')).toMatchObject({ receipt: accepted, expiresAt: before });
+    });
+    expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
+  }, options));
+
+  it('REQ-OPERATOR-048: AC4 exact completed SDK assessment collects immutably across cold reads without new execution', () => fixture(async f => {
+    await start(f);
+    f.normalTransport!.settle('completed', [{ name: 'assessment', data: result }]);
+    await f.activity.reconcileDispatcherLease();
+    const collected = await f.activity.collectBrowserResult();
+    expect(collected).toMatchObject({ ok: true, detail: { executionStatus: 'completed', result } });
+    const admissions = [...f.normalTransport!.admissions.values()];
+    const activity = await cold(f);
+    f.normalTransport!.settle('completed', [{ name: 'assessment', data: { ...result, results: [{ forged: true }] } }]);
+    await activity.reconcileDispatcherLease();
+    expect(stable(await activity.collectBrowserResult())).toEqual(stable(collected));
+    expect([...f.normalTransport!.admissions.values()]).toEqual(admissions);
+  }, { ...options, loggingEnabled: false }));
+
+  it.each(['uid', 'submissionId'] as const)(
+    'REQ-OPERATOR-048: AC4 foreign completed reply %s cannot authorize collection', field => fixture(async f => {
+      await start(f); f.normalTransport!.settle('completed', [{ name: 'assessment', data: result }]);
+      f.normalTransport!.changeReply({ [field]: 'foreign-submission-or-incarnation' });
+      await f.activity.reconcileDispatcherLease();
+      expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
+      expect((await f.activity.getBrowserDetail())?.result).toBeNull();
+      expect(f.normalTransport!.admissions.size).toBe(1);
+    }, options));
+
+  it.each(['failed', 'aborted', 'missing-assessment', 'duplicate-assessment'] as const)(
+    'REQ-OPERATOR-048: AC4 normal %s settlement is not a completed validated result', outcome => fixture(async f => {
+      await start(f);
+      const assessment = { name: 'assessment', data: result };
+      f.normalTransport!.settle(outcome === 'failed' || outcome === 'aborted' ? outcome : 'completed',
+        outcome === 'duplicate-assessment' ? [assessment, assessment] : []);
+      await f.activity.reconcileDispatcherLease();
+      expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
+      expect((await f.activity.getBrowserDetail())?.result).toBeNull();
+      expect(f.normalTransport!.admissions.size).toBe(1);
+    }, options));
+
+  it('REQ-OPERATOR-016: AC6 normal abort is intent only and retains SDK state without claiming settlement or collection', () => fixture(async f => {
+    await start(f);
+    const accepted = [...f.normalTransport!.admissions.values()][0].receipt;
+    expect(await f.activity.cancelDrive()).toMatchObject({ ok: true });
+    expect(control(f, 'abort')).toContainEqual(expect.objectContaining({ body: expect.objectContaining({
+      id: `${f.activityId}-g1`, receipt: accepted,
+    }) }));
+    expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
+    expect((await callback(f, 'source', source)).status).toBe(403);
+    expect(f.normalTransport!.admissions.size).toBe(1);
+    expect([...f.normalTransport!.admissions.values()][0].receipt).toEqual(accepted);
+  }, options));
+
+  it.each([
+    ['installation', { 'x-codeflare-operator-installation': 'another-installation' }],
+    ['activity', { 'x-codeflare-operator-activity': 'another-activity' }],
+    ['generation', { 'x-codeflare-operator-generation': '2' }],
+    ['release', { 'x-codeflare-operator-release': 'another-release' }],
+    ['connection revision', { 'x-codeflare-operator-connection-revision': '2' }],
+    ['credential', { authorization: 'Bearer wrong-installation-secret' }],
+  ] as const)('REQ-OPERATOR-047: AC2/3 connection refuses foreign %s without protected effects', async (_name, headers) => fixture(async f => {
+    await start(f);
+    const denied = await callback(f, 'source', source, headers);
+    expect(denied.status).toBe(403);
+    expect(await denied.text()).not.toMatch(/inline-secret|owner@example|private\.jwt|fixture-installation-secret/);
+    expect(f.sent).toEqual([]);
+    const permitted = await callback(f, 'source', source);
+    expect(permitted.status).toBe(200);
+    expect(await permitted.json()).toMatchObject({ url: source.url, status: 200 });
+  }, options));
+
+  it.each(['cancel', 'expiry', 'revocation'] as const)(
+    'REQ-OPERATOR-048: AC5 normal %s denies current installation callbacks and prevents late result collection', fault => fixture(async f => {
+      await start(f);
+      if (fault === 'cancel') await f.activity.cancelDrive();
+      else if (fault === 'expiry') f.expire();
+      else f.revoke();
+      expect((await callback(f, 'source', source)).status).toBe(403);
+      expect(f.sent).toEqual([]);
+      f.normalTransport!.settle('completed', [{ name: 'assessment', data: result }]);
+      await f.activity.reconcileDispatcherLease();
+      expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
+      expect(f.normalTransport!.admissions.size).toBe(1);
+    }, options));
+
+  it('REQ-OPERATOR-047: AC4/5 normal callbacks retain exact replay conflicts and the original one-operation budget across cold wake', () => fixture(async f => {
+    await start(f);
+    const first = await callback(f, 'source', source);
+    expect(first.status).toBe(200);
+    const committed = await first.text();
+    const effects = f.sent.map(request => ({ url: request.url, method: request.method }));
+    await cold(f);
+    const replay = await callback(f, 'source', source);
+    expect(replay.status).toBe(200); expect(await replay.text()).toBe(committed);
+    expect((await callback(f, 'source', { ...source, url: `${source.url}/pulls/17` })).status).toBe(409);
+    expect((await callback(f, 'source', { ...source, operationId: 'new-over-budget' })).status).toBe(403);
+    expect(f.sent.map(request => ({ url: request.url, method: request.method }))).toEqual(effects);
+    const receipt = await callback(f, 'receipt', { operationId: source.operationId });
+    expect(receipt.status).toBe(200);
+    expect(await receipt.json()).toMatchObject({ phase: 'completed', operationCount: 1, operationLimit: 1 });
+  }, { ...options, operationLimit: 1 }));
+
+  it('REQ-OPERATOR-047: AC4/5 uncertain normal mutation remains original and cannot resend or collect after cold wake', () => fixture(async f => {
+    await start(f);
+    const mutation = { operationId: 'normal-unknown-comment', method: 'POST', url: `${source.url}/issues/17/comments`, body: '{"body":"original judgment"}' };
+    f.loseResponse();
+    expect((await callback(f, 'source', mutation)).status).toBe(409);
+    f.restoreTransport(); await cold(f);
+    const replay = await callback(f, 'source', mutation);
+    expect(replay.status).toBe(409);
+    expect(await replay.json()).toMatchObject({ code: 'OPERATOR_OPERATION_UNKNOWN' });
+    expect(await f.readRemoteComments()).toEqual([{ id: 91, body: 'original judgment', user: { id: 42 } }]);
+    expect(f.sent.filter(request => request.method === 'POST').map(request => request.url)).toEqual([mutation.url]);
+    f.normalTransport!.settle('completed', [{ name: 'assessment', data: result }]);
+    await f.activity.reconcileDispatcherLease();
+    expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
+  }, options));
+
+  it('REQ-OPERATOR-003: AC2 normal authenticated operation cannot substitute the server-derived owner', () => fixture(async f => {
+    await start(f);
+    expect((await callback(f, 'source', { ...source, owner: 'another-owner', bucket: 'another-bucket' })).status).toBe(403);
+    expect(f.sent).toEqual([]);
+    const permitted = await callback(f, 'source', source);
+    expect(permitted.status).toBe(200);
+    expect(await permitted.json()).toMatchObject({ url: source.url, status: 200 });
+  }, options));
+
+  it.each(['bundleDigest', 'sourceCommit', 'compilerCommit', 'releaseId'] as const)(
+    'REQ-OPERATOR-044: deployment identity constraint rejects substituted %s before any job admission', field => fixture(async f => {
+      f.changeConnection({ [field]: field.endsWith('Commit') ? 'b'.repeat(40) : field.endsWith('Digest') ? 'b'.repeat(64) : 'other-release' });
+      const started = await start(f);
+      expect(started).toMatchObject({ ok: false });
+      expect(f.normalTransport!.admissions.size).toBe(0);
+      expect(f.sent).toEqual([]);
+      expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
+    }, options));
 });
