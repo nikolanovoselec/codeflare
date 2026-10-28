@@ -79,15 +79,17 @@ async function ownerRpc(id: string, command: OwnerRpcCommand): Promise<OwnerRpcS
   expect(response.status, 'owner RPC fixture command must reach its configured boundary').toBe(200);
   return await response.json() as OwnerRpcSnapshot;
 }
-async function ownerRpcUntil(id: string, ready: (value: OwnerRpcSnapshot) => boolean, label: string, timeoutMs = 10_000) {
+async function ownerRpcUntil(id: string, ready: (value: OwnerRpcSnapshot) => boolean, label: string, timeoutMs = 10_000,
+  action: 'snapshot' | 'advance-body' = 'snapshot') {
   const stop = Date.now() + timeoutMs;
   let value: OwnerRpcSnapshot;
   do {
-    value = await ownerRpc(id, { action: 'snapshot' });
+    value = await ownerRpc(id, { action });
     if (ready(value)) return value;
     await new Promise(resolve => setTimeout(resolve, 25));
   } while (Date.now() < stop);
-  throw new Error(`Owner RPC bounded wait: ${label}; outcome=${value.outcome.status}`);
+  throw new Error(`Owner RPC bounded wait: ${label}; outcome=${value.outcome.status}; bodyOffered=${value.recipient.bodyOffered}; `
+    + `bodyAdvanced=${value.recipient.bodyAdvanced}; bodyReleased=${value.recipient.bodyReleased}; cancelled=${value.recipient.cancelled}`);
 }
 async function ownerRpcBarrier(id: string, barrier: 'headers' | 'body') {
   const value = await ownerRpcUntil(id, value => value.outcome.status !== 'pending'
@@ -97,6 +99,7 @@ async function ownerRpcBarrier(id: string, barrier: 'headers' | 'body') {
   expect(value.recipient.entered).toBe(true);
   if (barrier === 'headers') expect(value.recipient.bodyOffered).toBe(false);
   else expect(value.recipient.bodyOffered).toBe(true);
+  expect(value.recipient.bodyAdvanced).toBe(false);
   expect(value.recipient.bodyReleased).toBe(false);
   return value;
 }
@@ -182,12 +185,15 @@ describe('REQ-OPERATOR-007/047/048: configured owner profile and inference over 
         const refused = await ownerRpcUntil(id, value => value.outcome.status !== 'pending', 'refusal before barrier release',
           trigger === 'original deadline' ? Math.max(0, held.deadline - Date.now()) + 5000 : 5000);
         expect(refused.outcome).toMatchObject({ status: 'refused', failure: 'owner-refused' });
+        expect(refused.recipient.bodyAdvanced).toBe(false);
         expect(refused.recipient.bodyReleased).toBe(false);
         expect(refused.recipient.headersReleased).toBe(false);
         if (trigger === 'original deadline') expect(Date.now()).toBeGreaterThanOrEqual(held.deadline);
         if (barrier === 'headers') await ownerRpc(id, { action: 'release-headers' });
-        // Even an abort-ignoring late response must retire its open byte stream.
-        await ownerRpcUntil(id, value => value.recipient.cancelled, 'late/open response body cancellation');
+        // Idle producer notification is not guaranteed by default RPC. Progress only
+        // after refusal, without closing, and still require genuine source cancellation.
+        const retired = await ownerRpcUntil(id, value => value.recipient.cancelled, 'late/open response body cancellation', 10_000, 'advance-body');
+        expect(retired.recipient.bodyReleased).toBe(false);
         const late = await ownerRpc(id, { action: 'release-body' });
         expect(late.recipient.bodyReleased).toBe(true);
         expect(late.outcome).toEqual(refused.outcome);
@@ -243,8 +249,12 @@ describe('REQ-OPERATOR-007/047/048: configured owner profile and inference over 
         expect(value.outcome).toMatchObject({ status: 'refused', failure: 'owner-refused' });
         if (size === 'actual-over') expect(value.recipient.responseBytes).toBe(1025);
         else {
+          expect(value.recipient.bodyAdvanced).toBe(false);
           expect(value.recipient.bodyReleased).toBe(false);
-          await ownerRpcUntil(id, value => value.recipient.cancelled, 'declared oversized body retirement');
+          const retired = await ownerRpcUntil(id, value => value.recipient.cancelled, 'declared oversized body retirement', 10_000, 'advance-body');
+          expect(retired.recipient.bodyReleased).toBe(false);
+          const late = await ownerRpc(id, { action: 'release-body' });
+          expect(late.outcome).toEqual(value.outcome);
         }
       }));
   });

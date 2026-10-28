@@ -32,10 +32,10 @@ type OwnerRpcFault = z.infer<typeof faultSchema>;
 const commandSchema = z.discriminatedUnion('action', [
   z.strictObject({ action: z.literal('start'), config: configSchema }),
   z.strictObject({ action: z.literal('change'), fault: faultSchema }),
-  ...['snapshot', 'abort', 'release-headers', 'release-body', 'cleanup'].map(action => z.strictObject({ action: z.literal(action) })),
+  ...['snapshot', 'abort', 'release-headers', 'advance-body', 'release-body', 'cleanup'].map(action => z.strictObject({ action: z.literal(action) })),
 ]);
 export type OwnerRpcCommand = { action: 'start'; config: OwnerRpcConfig } | { action: 'change'; fault: OwnerRpcFault }
-  | { action: 'snapshot' | 'abort' | 'release-headers' | 'release-body' | 'cleanup' };
+  | { action: 'snapshot' | 'abort' | 'release-headers' | 'advance-body' | 'release-body' | 'cleanup' };
 
 const OWNER_RPC_LIMIT = 1024;
 const ownerRpcContext = { systemPrompt: 'Fixture system', messages: [
@@ -59,7 +59,7 @@ type Wire = { url: string; method: string; contentType: string | null; activityH
 type Outcome = { status: 'pending' } | { status: 'refused'; failure: 'rpc-data-clone' | 'owner-refused' }
   | { status: 'accepted'; profile?: ConfiguredDispatcherInference; response?: { events: unknown[]; result: typeof ownerRpcResult }; responseBytes?: number };
 export type OwnerRpcSnapshot = { outcome: Outcome; deadline: number; activityId: string; sessionGeneration: number;
-  recipient: { entered: boolean; bodyOffered: boolean; headersReleased: boolean; bodyReleased: boolean;
+  recipient: { entered: boolean; bodyOffered: boolean; bodyAdvanced: boolean; headersReleased: boolean; bodyReleased: boolean;
     cancelled: boolean; responseBytes: number; wire: Wire | null } };
 interface FixtureEnv { OWNER_RPC: DurableObjectNamespace<FixtureOwnerRpc> }
 
@@ -80,6 +80,8 @@ export class FixtureOwnerRpc extends DurableObject<FixtureEnv> {
   private bodyOffered = false;
   private headersReleased = false;
   private bodyReleased = false;
+  private advanceRequested = false;
+  private bodyOffset = 0;
   private cancelled = false;
   private responseBytes = 0;
   private releaseHeaders?: () => void;
@@ -131,22 +133,34 @@ export class FixtureOwnerRpc extends DurableObject<FixtureEnv> {
       cancel: () => { this.cancelled = true; this.bodyController = undefined; },
     });
     this.bodyOffered = true;
+    if (this.advanceRequested) this.advanceBody();
     if (config.barrier === 'none' || this.bodyReleased) this.releaseBody();
     return new Response(stream, { headers: { 'content-type': 'application/json',
       ...(config.size === 'declared-over' ? { 'content-length': String(OWNER_RPC_LIMIT + 1) } : {}) } });
   }
   releaseHeaderBarrier(): void { this.headersReleased = true; this.releaseHeaders?.(); this.releaseHeaders = undefined; }
+  advanceBody(): void {
+    this.advanceRequested = true;
+    if (this.bodyController && this.bodyOffset < this.responseBody.byteLength - 1) {
+      // Default RPC learns of receiver cancellation on a later write, not while idle.
+      // Advance original bytes only; keep the final byte and EOF held until release.
+      const next = this.bodyOffset + 1;
+      this.bodyController.enqueue(this.responseBody.slice(this.bodyOffset, next));
+      this.bodyOffset = next;
+    }
+  }
   releaseBody(): void {
     this.bodyReleased = true;
     if (this.bodyController) {
-      this.bodyController.enqueue(this.responseBody);
+      this.bodyController.enqueue(this.responseBody.slice(this.bodyOffset));
       this.bodyController.close();
       this.bodyController = undefined;
     }
   }
   recipientSnapshot(): OwnerRpcSnapshot['recipient'] {
-    return { entered: this.wire !== null, bodyOffered: this.bodyOffered, headersReleased: this.headersReleased,
-      bodyReleased: this.bodyReleased, cancelled: this.cancelled, responseBytes: this.responseBytes, wire: this.wire };
+    return { entered: this.wire !== null, bodyOffered: this.bodyOffered, bodyAdvanced: this.bodyOffset > 0,
+      headersReleased: this.headersReleased, bodyReleased: this.bodyReleased,
+      cancelled: this.cancelled, responseBytes: this.responseBytes, wire: this.wire };
   }
 
   private async change(fault: OwnerRpcFault) {
@@ -228,6 +242,7 @@ export class FixtureOwnerRpc extends DurableObject<FixtureEnv> {
     if (command.action === 'abort' || command.action === 'cleanup') this.controller.abort();
     if (command.action === 'change') await this.change(command.fault);
     if (command.action === 'release-headers' || command.action === 'cleanup') await this.recipient.releaseHeaderBarrier();
+    if (command.action === 'advance-body') await this.recipient.advanceBody();
     if (command.action === 'release-body' || command.action === 'cleanup') await this.recipient.releaseBody();
     return { outcome: this.outcome, deadline: this.deadline, activityId: this.activityId, sessionGeneration: 3,
       recipient: await this.recipient.recipientSnapshot() };
