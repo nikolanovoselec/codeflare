@@ -25,6 +25,7 @@ export function createDispatcherCloudflareFixture() {
   const writes: Array<{ method: string; path: string }> = [];
   const unexpected: string[] = [];
   let fault: DispatcherPlatformFault = 'none';
+  let settingsOverride: { value: unknown } | undefined;
   let afterUpload: ((script: UploadedDispatcher) => Promise<void>) | undefined;
   let beforeVersionRead: (() => Promise<void>) | undefined;
   const ok = (result: unknown) => Response.json({ success: true, errors: [], messages: [], result });
@@ -47,7 +48,7 @@ export function createDispatcherCloudflareFixture() {
     const service = url.pathname.match(new RegExp(`^${workers}/services/([a-z0-9_-]+)$`));
     if (service && request.method === 'GET' && (service[1] === parentName || scripts.has(service[1]!)))
       return ok({ id: service[1], default_environment: { environment: 'production', script: { id: service[1] } } });
-    const scriptRoute = url.pathname.match(new RegExp(`^${workers}/scripts/([a-z0-9_-]+)(/deployments|/subdomain)?$`));
+    const scriptRoute = url.pathname.match(new RegExp(`^${workers}/scripts/([a-z0-9_-]+)(/deployments|/subdomain|/settings)?$`));
     if (scriptRoute) {
       const name = scriptRoute[1]!;
       const suffix = scriptRoute[2] ?? '';
@@ -74,6 +75,10 @@ export function createDispatcherCloudflareFixture() {
       }
       const script = scripts.get(name);
       if (!script) return missing();
+      if (suffix === '/settings' && request.method === 'GET') {
+        const observability = settingsOverride ? settingsOverride.value : script.metadata.observability;
+        return ok({ ...(observability === undefined ? {} : { observability: structuredClone(observability) }) });
+      }
       if (suffix === '/subdomain') {
         if (request.method === 'POST') {
           if (fault === 'subdomain-denied') return fail();
@@ -118,6 +123,7 @@ export function createDispatcherCloudflareFixture() {
   };
   return { accountId, token, parentName, scripts, uploads, writes, unexpected, fetcher,
     setFault: (value: DispatcherPlatformFault) => { fault = value; },
+    setObservability: (value: unknown) => { settingsOverride = { value }; },
     afterUpload: (hook: (script: UploadedDispatcher) => Promise<void>) => { afterUpload = hook; },
     beforeVersionRead: (hook: () => Promise<void>) => { beforeVersionRead = hook; } };
 }

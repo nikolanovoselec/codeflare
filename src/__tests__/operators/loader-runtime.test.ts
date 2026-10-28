@@ -131,6 +131,19 @@ function expectOwnerRpcWire(value: OwnerRpcSnapshot, operation: 'discovery' | 'i
 }
 
 describe('REQ-OPERATOR-007/047/048: configured owner profile and inference over native RPC', () => {
+  it.each([
+    { operation: 'discovery', loggingEnabled: true }, { operation: 'discovery', loggingEnabled: false },
+    { operation: 'inference', loggingEnabled: true }, { operation: 'inference', loggingEnabled: false },
+  ] as const)('REQ-OPERATOR-003/007/047/079: $operation delivers original logging=$loggingEnabled as a distinct native RPC argument without changing result authority', ({ operation, loggingEnabled }) =>
+    withOwnerRpc({ operation, loggingEnabled }, async id => {
+      const value = await ownerRpcUntil(id, value => value.outcome.status !== 'pending', 'trusted logging context native RPC');
+      if (operation === 'discovery') expect(value.outcome).toEqual({ status: 'accepted', profile: rpcLogicalProfile });
+      else expect(value.outcome).toMatchObject({ status: 'accepted', response: {
+        events: [{ type: 'done', reason: 'stop', message: rpcResult }], result: rpcResult,
+      } });
+      expectOwnerRpcWire(value, operation);
+      expect(value.recipient.loggingContext).toEqual({ activityId: value.activityId, generation: 7, loggingEnabled });
+    }));
   // REQ-007 AC4/5: a saved logical custom identity, not a physical/vendor substitute.
   it('delivers the configured custom logical profile across real owner RPC with original Activity/generation/session wire', () =>
     withOwnerRpc({ operation: 'discovery' }, async id => {

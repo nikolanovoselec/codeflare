@@ -42,6 +42,7 @@ export function normalCallback(activityId: string, path: string, body: unknown, 
 /** Durable remote acceptance exists independently of the Activity's receipt storage. */
 export function createNormalDispatcherTransport() {
   const requests: Array<{ path: string; authorization: string | null; body: Record<string, unknown> }> = [];
+  const networkRequests: Array<{ url: string; method: string }> = [];
   const admissions = new Map<string, { wire: string; receipt: NormalReceipt }>();
   let loseNextAcknowledgement = false;
   let nextReadFailure: number | undefined;
@@ -51,6 +52,7 @@ export function createNormalDispatcherTransport() {
   let receiptPatch: Record<string, unknown> = {};
   const fetcher = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     const request = new Request(input, init);
+    networkRequests.push({ url: request.url, method: request.method });
     const path = new URL(request.url).pathname;
     if (!path.startsWith('/control/')) throw new Error(`Unexpected external network path: ${path}`);
     const body = await request.json() as Record<string, unknown>;
@@ -83,7 +85,7 @@ export function createNormalDispatcherTransport() {
     }
     return new Response(null, { status: 404 });
   };
-  return { fetcher, requests, admissions,
+  return { fetcher, requests, networkRequests, admissions,
     loseAcknowledgement: () => { loseNextAcknowledgement = true; },
     failNextRead: (status: number) => { nextReadFailure = status; },
     settle: (status: typeof outcome, assessmentData: Array<{ name: string; data: unknown }> = []) => {

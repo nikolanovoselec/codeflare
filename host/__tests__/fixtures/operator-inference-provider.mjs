@@ -52,8 +52,16 @@ export default async function register(pi) {
         stream.push({ type: 'thinking_end', contentIndex: 0, content: message.content[0].thinking, partial: message });
         message.content.push({ type: 'text', text: '' });
         stream.push({ type: 'text_start', contentIndex: 1, partial: message });
-        message.content[1].text = body.text;
-        stream.push({ type: 'text_delta', contentIndex: 1, delta: body.text, partial: message });
+        // Real public provider stream: functional fragments are deliberately
+        // small in the raw-log cases, including credentials split across events.
+        const fragments = config.fragmentSize
+          ? Array.from({ length: Math.ceil(body.text.length / config.fragmentSize) },
+            (_, index) => body.text.slice(index * config.fragmentSize, (index + 1) * config.fragmentSize))
+          : [body.text];
+        for (const delta of fragments) {
+          message.content[1].text += delta;
+          stream.push({ type: 'text_delta', contentIndex: 1, delta, partial: message });
+        }
         stream.push({ type: 'text_end', contentIndex: 1, content: body.text, partial: message });
         if (body.toolCall) {
           const toolCall = { type: 'toolCall', id: 'call-new', name: 'inspect', arguments: {} };
@@ -64,8 +72,15 @@ export default async function register(pi) {
           stream.push({ type: 'toolcall_end', contentIndex: 2, toolCall: message.content[2], partial: message });
           message.stopReason = 'toolUse';
         }
-        stream.push({ type: 'done', reason: message.stopReason, message });
-        stream.end();
+        if (config.failedResult) {
+          // Public stream can settle after partial data without a usable done.
+          message.stopReason = 'error';
+          message.errorMessage = `Incomplete provider result ${config.privateMarker}`;
+          stream.end(message);
+        } else {
+          stream.push({ type: 'done', reason: message.stopReason, message });
+          stream.end();
+        }
       } catch (error) {
         message.stopReason = options.signal?.aborted ? 'aborted' : 'error';
         message.errorMessage = error.message;

@@ -24,7 +24,7 @@ import { getBuiltInProfileRef } from '../../lib/reasoning-profiles';
 import { verifiedRoutingConfiguration } from '../helpers/verified-routing';
 import { pendingRecipient, within } from '../helpers/pending-recipient';
 import { sealOperatorSecret } from '../../operators/protected-secrets';
-import { OperatorOwnerInferenceAuthority } from '../../operators/dispatcher-owner-inference';
+import { OperatorOwnerInferenceAuthority, discoverDispatcherOwnerProfile, forwardDispatcherOwnerInference } from '../../operators/dispatcher-owner-inference';
 import { connectionSecret, createNormalDispatcherTransport, normalCallback, normalDeployment, normalDispatcherBundle } from './fixtures/normal-dispatcher';
 
 let callerSessionCurrent = true;
@@ -583,6 +583,9 @@ async function fixture(test: (f: {
   installationCapability: OperatorInstalledDispatcherCapability;
   changeConnection: (patch: Record<string, unknown>) => void;
   refuseNormalHostAuth: () => void;
+  ownerPortRequests: Array<{ url: string; loggingContext: unknown; body: unknown }>;
+  setCurrentLogging: (enabled: boolean) => void;
+  waitUntil: (promise: Promise<unknown>) => void;
   bundle: DispatcherBundle; artifactDigest: string; activityId: string; deliverTail: (events: unknown) => Promise<void>;
   deliveredTail: Array<{ activityId: string; generation: number; stage: string }>;
   sdkPatchSetDigest: string | null; sdkHeader: (value: string | undefined) => void;
@@ -633,6 +636,7 @@ async function fixture(test: (f: {
   recovery?: boolean; intent4?: boolean; losePhaseAdmission?: number; facetContract?: boolean; receiptFixture?: boolean;
   inferenceAttemptLimit?: number; inferenceTransport?: (request: Request, attempt: number) => Promise<Response>;
   nativeInference?: boolean; managedProviderDefault?: boolean;
+  ownerTransport?: (request: Request) => Promise<Response | undefined>;
   realInterceptors?: boolean; sourceTransport?: (request: Request) => Promise<Response>; normalHosting?: boolean } = {}) {
   callerSessionCurrent = true;
   callerRoute = 'approved';
@@ -1024,6 +1028,7 @@ async function fixture(test: (f: {
     const normalProfile = { ...normalIdentity, profileDigest: await digest(JSON.stringify(normalIdentity)) };
     let normalModelOrdinal = 0;
     let normalHostAuthMissing = false;
+    const ownerPortRequests: Array<{ url: string; loggingContext: unknown; body: unknown }> = [];
     const environment = { ...encryption, ENTERPRISE_MODE: 'active', GITHUB_API_HOST: options.githubApiHost,
       ...(options.normalHosting ? { CONTAINER: { getByName: () => ({
         getPersonalPiSession: async (ref: { bucket: string; sessionId: string; email: string }) => {
@@ -1031,7 +1036,10 @@ async function fixture(test: (f: {
             || !callerSessionCurrent) throw new Error('Owner session unavailable');
           return { generation: 3 };
         },
-        forwardExisting: async (request: Request) => {
+        forwardExisting: async (request: Request, loggingContext?: unknown) => {
+          ownerPortRequests.push({ url: request.url, loggingContext, body: await request.clone().json() });
+          const controlled = await options.ownerTransport?.(request.clone());
+          if (controlled) return controlled;
           const input = await request.json() as { sessionGeneration: number; profileDigest?: string; context?: unknown; options?: unknown };
           if (input.sessionGeneration !== 3) return Response.json({}, { status: 403 });
           if (new URL(request.url).pathname === '/operator-inference/profile') return Response.json(normalProfile);
@@ -1089,6 +1097,8 @@ async function fixture(test: (f: {
       await test({ activity, capability, staleCapability, environment, bundle: fixtureBundle, artifactDigest, activityId, deliveredTail,
         normalTransport, changeConnection: patch => { connectionRecord = { ...connectionRecord, ...patch }; },
         refuseNormalHostAuth: () => { normalHostAuthMissing = true; },
+        ownerPortRequests, setCurrentLogging: enabled => { selection.operator.policy.loggingEnabled = enabled; },
+        waitUntil: native.waitUntil.bind(native),
         installationCapability: new OperatorInstalledDispatcherCapability({ props: {} } as unknown as ExecutionContext,
           environment as unknown as ConstructorParameters<typeof OperatorInstalledDispatcherCapability>[1]),
         sdkPatchSetDigest: sdkProvenance?.patchSetDigest ?? null, sdkHeader: value => { sdkHeader = value; },
@@ -2285,7 +2295,12 @@ describe('REQ-OPERATOR-047/048: future inference attempt accounting', () => {
   it.each([true, false])('REQ-OPERATOR-078: inference attempts emit only closed metadata under logging=%s', loggingEnabled => fixture(async f => {
     const logs: string[] = [];
     setLogLevel('info');
-    const spy = vi.spyOn(console, 'log').mockImplementation(value => { logs.push(String(value)); });
+    const spy = vi.spyOn(console, 'log').mockImplementation(value => {
+      // This existing privacy contract covers bounded metadata, not the separate
+      // protected raw channel qualified by the new ON/OFF cases below.
+      try { if (JSON.parse(String(value)).module === 'operator-execution') return; } catch { /* Keep unknown logs under the privacy assertion. */ }
+      logs.push(String(value));
+    });
     try {
       await start(f); await anchor(f);
       expect(await (await f.capability.fetch(inference())).text()).toBe(complete);
@@ -8410,4 +8425,420 @@ describe('normal installed Dispatcher control', () => {
       expect(f.sent).toEqual([]);
       expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
     }, options));
+});
+
+/** Approved raw-log batch: real parent authorization/SQLite, synthetic external owner port only. */
+describe('protected raw parent execution evidence', () => {
+  const options = { normalHosting: true, repositoryOnly: true };
+  const captureRaw = () => {
+    const records: Array<{ module: string; message: string; data: Record<string, unknown> }> = [];
+    for (const method of ['log', 'warn', 'error'] as const) vi.spyOn(console, method).mockImplementation((line: unknown) => {
+      if (typeof line !== 'string') return;
+      try { const record = JSON.parse(line); if (record.module === 'operator-execution') records.push(record); }
+      catch { /* Other SDK/platform console records are not this intentional JSON wire. */ }
+    });
+    return records;
+  };
+  const rawText = (records: Array<{ data: Record<string, unknown> }>) => JSON.stringify(records.map(record => record.data));
+  const inputFor = async (f: DispatcherFixture) => ({ generation: 1, plan: (await f.activity.getRuntimePlan())!,
+    env: f.environment, current: () => f.activity.operatorGenerationCurrent(1), waitUntil: f.waitUntil });
+
+  it.each([true, false])('REQ-OPERATOR-079: AC4/7 original admitted logging=%s controls full request and SDK response despite mutable current setting', loggingEnabled => fixture(async f => {
+    expect(await start(f)).toMatchObject({ ok: true });
+    f.setCurrentLogging(!loggingEnabled);
+    const records = captureRaw(); setLogLevel('silent');
+    const context = { systemPrompt: 'FULL_RAW_SYSTEM_é🦊', messages: [{ role: 'user', content: 'FULL_RAW_REQUEST_é🦊' }],
+      tools: [{ name: 'domain_tool', parameters: { type: 'object', properties: { input: { type: 'string' } } } }] };
+    const response = await f.installationCapability.fetch(normalCallback(f.activityId, 'inference', {
+      operationId: 'original-logging-decision', context, options: { reasoning: 'high', temperature: 0.25 } }));
+    expect(response.status).toBe(200);
+    const value = await response.json() as { events: unknown[]; result: { content: Array<{ text: string }> } };
+    expect(JSON.parse(value.result.content[0].text)).toEqual({ context, options: { temperature: 0.25, reasoning: 'off' }, ordinal: 1 });
+    const own = records.filter(record => record.data.activityId === f.activityId);
+    if (loggingEnabled) {
+      expect(rawText(own)).toContain('FULL_RAW_SYSTEM_é🦊');
+      expect(rawText(own)).toContain('FULL_RAW_REQUEST_é🦊');
+      expect(rawText(own)).toContain('domain_tool');
+      expect(rawText(own)).toContain('assistant');
+      expect(own.every(record => record.data.generation === 1)).toBe(true);
+    } else expect(own).toEqual([]);
+    expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
+    expect(f.normalTransport!.networkRequests.filter(request => new URL(request.url).hostname === 'api.cloudflare.com')).toEqual([]);
+    setLogLevel('silent');
+  }, { ...options, loggingEnabled }));
+
+  it.each([true, false])('REQ-OPERATOR-079: AC4/7 admission and protected tool input/output logging=%s preserve full raw content and the original single remote effect', loggingEnabled => fixture(async f => {
+    const records = captureRaw();
+    expect(await start(f)).toMatchObject({ ok: true });
+    const text = 'COMPLETE_TOOL_IO_é🦊'.repeat(601) + 'FINAL_TOOL_IO_BYTE';
+    const operation = { operationId: 'raw-source-tool', method: 'POST', url: 'https://api.github.com/repos/another/service/issues/17/comments',
+      body: JSON.stringify({ body: text }) };
+    const response = await f.installationCapability.fetch(normalCallback(f.activityId, 'source', operation));
+    expect(response.status).toBe(200);
+    const envelope = await response.json() as { status: number; body: string };
+    expect(envelope.status).toBe(201);
+    expect(JSON.parse(envelope.body)).toMatchObject({ id: 91, body: text });
+    expect(await f.readRemoteComments()).toEqual([{ id: 91, body: text, user: { id: 42 } }]);
+    const originalBody = envelope.body;
+    const replay = await f.installationCapability.fetch(normalCallback(f.activityId, 'source', operation));
+    expect(replay.status).toBe(200); expect((await replay.json() as { body: string }).body).toBe(originalBody);
+    expect(await f.readRemoteComments()).toEqual([{ id: 91, body: text, user: { id: 42 } }]);
+    if (loggingEnabled) {
+      const raw = rawText(records);
+      expect(raw).toContain(text); expect(raw).toContain('another/service');
+      expect(raw).toContain('raw-source-tool');
+      expect(raw).toContain('initialData');
+      expect(raw).not.toMatch(/private\.jwt|parent-only|fixture-installation-secret-not-a-provider-credential/);
+    } else expect(records).toEqual([]);
+    const history = await diagnosticTraversal(diagnosticsBrowser(f));
+    expect(JSON.stringify(history)).not.toMatch(/COMPLETE_TOOL_IO_|FINAL_TOOL_IO_BYTE/);
+    expect(f.normalTransport!.networkRequests.filter(request => new URL(request.url).hostname === 'api.cloudflare.com')).toEqual([]);
+  }, { ...options, loggingEnabled, sourceResponseBytes: 65536, installationSourceResponseBytes: 65536 }));
+
+  it.each(['profile', 'inference'] as const)('REQ-OPERATOR-003/007/047: trusted %s forwarding passes admitted logging as a separate exact RPC context', operation => fixture(async f => {
+    expect(await start(f)).toMatchObject({ ok: true });
+    const input = await inputFor(f);
+    if (operation === 'profile') expect(await discoverDispatcherOwnerProfile(input)).toMatchObject({ source: 'managed', model: 'approved' });
+    else {
+      const selected = await discoverDispatcherOwnerProfile(input);
+      const response = await forwardDispatcherOwnerInference({ ...input, selection: selected, operation: { operationId: 'trusted-rpc-context',
+        context: { messages: [{ role: 'user', content: 'ORIGINAL_RPC_PAYLOAD' }] }, options: {}, requestDigest: 'a'.repeat(64) } });
+      expect(response.status).toBe(200);
+      expect(await response.json()).toMatchObject({ result: { role: 'assistant', model: 'approved' } });
+    }
+    const sent = f.ownerPortRequests.filter(request => new URL(request.url).pathname === `/operator-inference${operation === 'profile' ? '/profile' : ''}`);
+    expect(sent.length).toBeGreaterThan(0);
+    for (const request of sent) {
+      expect(request.loggingContext).toEqual({ activityId: f.activityId, generation: 1, loggingEnabled: true });
+      expect(request.body).toMatchObject({ activityId: f.activityId, generation: 1, sessionGeneration: 3 });
+      expect(request.body).not.toHaveProperty('loggingEnabled');
+    }
+  }, options));
+
+  it.each([true, false])('REQ-OPERATOR-079: AC4/7 full upstream non-OK body and status are captured before the same generic refusal with logging=%s', loggingEnabled => {
+    const body = 'ORIGINAL_UPSTREAM_BODY_é🦊'.repeat(503) + 'LAST_UPSTREAM_BYTE';
+    return fixture(async f => {
+      expect(await start(f)).toMatchObject({ ok: true });
+      const records = captureRaw(); setLogLevel('silent');
+      const response = await f.installationCapability.fetch(normalCallback(f.activityId, 'inference', {
+        operationId: 'non-ok-raw', context: { messages: [{ role: 'user', content: 'Observe failure' }] }, options: {} }));
+      expect(response.status).toBe(409);
+      expect(await response.json()).toEqual({ code: 'OPERATOR_OPERATION_UNKNOWN', reason: 'operation-failed', disposition: 'operation-local' });
+      const text = rawText(records);
+      if (loggingEnabled) { expect(text).toContain(body); expect(text).toMatch(/"status":503/); }
+      else expect(records).toEqual([]);
+      expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
+      expect(await f.readRemoteComments()).toEqual([]);
+    }, { ...options, loggingEnabled, ownerTransport: async request => new URL(request.url).pathname === '/operator-inference'
+      ? new Response(body, { status: 503 }) : undefined });
+  });
+
+  it.each([
+    { failure: 'forward', loggingEnabled: true }, { failure: 'forward', loggingEnabled: false },
+    { failure: 'body-read', loggingEnabled: true }, { failure: 'body-read', loggingEnabled: false },
+  ] as const)('REQ-OPERATOR-078/082: original $failure Error identity survives logging=$loggingEnabled with full admitted cause/stack capture', ({ failure, loggingEnabled }) => {
+    const cause = new Error('ORIGINAL_OWNER_CAUSE_é🦊'); cause.stack = 'Error: ORIGINAL_OWNER_CAUSE_é🦊\n at exactCause (owner.ts:31:7)';
+    const original = new Error('ORIGINAL_OWNER_FAILURE', { cause }); original.stack = 'Error: ORIGINAL_OWNER_FAILURE\n at exactForward (rpc.ts:92:4)';
+    let broken = false;
+    return fixture(async f => {
+      expect(await start(f)).toMatchObject({ ok: true });
+      const input = await inputFor(f); const selection = await discoverDispatcherOwnerProfile(input);
+      const records = captureRaw(); broken = true;
+      const work = () => forwardDispatcherOwnerInference({ ...input, selection, operation: { operationId: 'original-error-identity',
+        context: { messages: [{ role: 'user', content: 'Original request' }] }, options: {}, requestDigest: 'a'.repeat(64) } });
+      await expect(work()).rejects.toBe(original);
+      const text = rawText(records);
+      if (loggingEnabled) for (const retained of [original.message, cause.message, 'exactForward (rpc.ts:92:4)', 'exactCause (owner.ts:31:7)'])
+        expect(text).toContain(retained);
+      else expect(records).toEqual([]);
+      expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'running', result: null });
+    }, { ...options, loggingEnabled, ownerTransport: async request => {
+      if (!broken || new URL(request.url).pathname !== '/operator-inference') return undefined;
+      if (failure === 'forward') throw original;
+      return new Response(new ReadableStream<Uint8Array>({ start(controller) { controller.error(original); } }));
+    } });
+  });
+
+  it.each([true, false])('REQ-OPERATOR-079/081/083: pre-lease original failure logging=%s retains readable ordered history/detail/export without invented submission', loggingEnabled => fixture(async f => {
+    const cause = new TypeError('PRIVATE_PRELEASE_CAUSE');
+    const original = new Error('PRIVATE_PRELEASE_ORIGINAL', { cause });
+    const fingerprint = captureError(original);
+    const records = captureRaw();
+    f.afterBundleRead(async () => { throw original; });
+    await start(f); await f.drainBackground();
+    const reconstructed = f.restart(); await f.drainBackground();
+    const before = await reconstructed.getBrowserDetail();
+    expect(before).toMatchObject({ executionStatus: 'unknown', result: null, sdkCleanupReleased: false });
+    const legacy = await reconstructed.getDispatcherDiagnostics(f.proof.ownerKey);
+    expect(legacy?.parent.lease).toBeNull();
+    expect(f.normalTransport!.admissions.size).toBe(0);
+    expect(f.childSubmissions).toEqual([]);
+    const summary = await diagnosticSummary(f);
+    expect(summary.binding).toMatchObject({ generation: 1, artifactDigest: f.artifactDigest });
+    expect(summary.fence).toMatchObject({ generation: 1, code: 'artifact-mismatch' });
+    const get = diagnosticsBrowser(f);
+    const history = await diagnosticTraversal(get);
+    if (loggingEnabled) {
+      const failures = history.records.filter(record => record.outcome === 'failed' && record.code === 'artifact-mismatch');
+      expect(failures).toHaveLength(1);
+      expect(failures[0]).toMatchObject({ generation: 1, owner: 'host', boundary: 'artifact', error: fingerprint });
+      const terminal = history.records.find(record => record.outcome === 'unknown' && record.code === 'artifact-mismatch');
+      expect(terminal).toMatchObject({ generation: 1 });
+      expect(failures[0].sequence!).toBeLessThan(terminal!.sequence!);
+      const detail = await diagnosticJson<{ record: DiagnosticRecord; capsule: Record<string, unknown> }>(await get(`/diagnostics/v2/records/${failures[0].id}`));
+      expect(detail.record).toEqual(failures[0]);
+      expect(detail.capsule).toMatchObject({ eventId: failures[0].id, error: fingerprint, sdk: null });
+      const exported = await diagnosticTraversal(get, '/diagnostics/v2/export');
+      expect(exported.records.find(record => record.id === failures[0].id)).toEqual(failures[0]);
+      expect(rawText(records)).toContain(original.message);
+      expect(rawText(records)).toContain(cause.message);
+      expect(JSON.stringify({ history, detail, exported })).not.toMatch(/PRIVATE_PRELEASE_/);
+    } else {
+      expect(summary.capture).toBe('disabled');
+      expect(history.records.filter(record => record.outcome === 'failed')).toEqual([]);
+      expect(records).toEqual([]);
+    }
+    expect((await get('/diagnostics/v2/history', 'foreign@example.test')).status).toBe(404);
+    expect(await reconstructed.getBrowserDetail()).toEqual(before);
+    expect((await reconstructed.getDispatcherDiagnostics(f.proof.ownerKey))?.parent).toEqual(legacy?.parent);
+    expect(await reconstructed.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
+    expect(f.normalTransport!.admissions.size).toBe(0);
+  }, { ...options, loggingEnabled }));
+
+  it('REQ-OPERATOR-081/082/083: optional pre-lease recorder initialization failure cannot roll back the fence or disguise unreadable history', () => fixture(async f => {
+    await denyDiagnosticWrites(f);
+    f.afterBundleRead(async () => { throw new Error('PRIVATE_ORIGINAL_PRELEASE_WRITE_OUTAGE'); });
+    await start(f); await f.drainBackground();
+    vi.restoreAllMocks(); f.restart(); await f.drainBackground();
+    expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'unknown', result: null });
+    const summary = await diagnosticSummary(f);
+    expect(summary.fence).toMatchObject({ generation: 1, code: 'artifact-mismatch' });
+    expect(summary.health.gaps).toContain('recorder-unavailable');
+    const get = diagnosticsBrowser(f);
+    for (const path of ['/diagnostics/v2/history', '/diagnostics/v2/export', '/diagnostics/v2/records/e-1']) {
+      const response = await get(path); expect(response.status).toBe(503);
+      expect(await response.json()).toMatchObject({ code: 'DIAGNOSTICS_UNAVAILABLE' });
+    }
+    expect((await f.capability.fetch(genericWire('source', { operationId: 'no-prelease-replay', url: 'https://api.github.com/repos/another/service' }))).status).toBe(403);
+    expect(f.normalTransport!.admissions.size).toBe(0);
+    expect((await f.activity.getDispatcherDiagnostics(f.proof.ownerKey))?.parent.lease).toBeNull();
+    expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
+  }, options));
+});
+
+/** Frozen passive policy wire: bodyless installation-authenticated POST.
+ * The parent proves the original lease/deployment/receipt from its retained state.
+ * The response grants no execution authority and does not reconstruct history.
+ */
+describe('original installed Dispatcher logging-policy read', () => {
+  const options = { normalHosting: true, repositoryOnly: true };
+  const proof = (f: DispatcherFixture) => {
+    const wire = f.normalTransport!.requests.find(request => request.path === '/control/dispatch')!.body;
+    const { id, installationId, activityId, generation, releaseId, connectionRevision, workerVersionId } = wire;
+    return { id, installationId, activityId, generation, releaseId, connectionRevision, workerVersionId,
+      receipt: [...f.normalTransport!.admissions.values()][0].receipt };
+  };
+  const read = (f: DispatcherFixture, body: unknown = undefined, headers?: Record<string, string>) =>
+    f.installationCapability.fetch(normalCallback(f.activityId, 'logging-policy', body, headers));
+  const expected = (f: DispatcherFixture, loggingEnabled: boolean) => ({ schemaVersion: 1, loggingEnabled, activityId: f.activityId, generation: 1,
+    deployment: { installationId: 'installation', releaseId: 'release', connectionRevision: 1, workerVersionId: normalDeployment.workerVersionId } });
+  const persistentState = async (f: DispatcherFixture) => {
+    let snapshot: Map<string, unknown> = new Map();
+    await f.mutateEvidence(async storage => { snapshot = structuredClone(await storage.list()); });
+    return snapshot;
+  };
+
+  it.each([true, false])('REQ-OPERATOR-079: AC4/5/7 passive policy returns immutable original logging=%s and no credentials or work authority', loggingEnabled => fixture(async f => {
+    expect(await start(f)).toMatchObject({ ok: true }); await f.drainBackground();
+    f.setCurrentLogging(!loggingEnabled);
+    const state = await persistentState(f), calls = structuredClone(f.normalTransport!.networkRequests), profiles = structuredClone(f.ownerPortRequests);
+    const response = await read(f);
+    expect(response.status).toBe(200); expect(response.headers.get('cache-control')).toBe('no-store');
+    expect(await response.json()).toEqual(expected(f, loggingEnabled));
+    expect(await persistentState(f)).toEqual(state);
+    expect(f.normalTransport!.networkRequests).toEqual(calls);
+    expect(f.ownerPortRequests).toEqual(profiles);
+    expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
+  }, { ...options, loggingEnabled }));
+
+  it.each(['cancelled', 'completed', 'disabled-and-rotated', 'expired'] as const)(
+    'REQ-OPERATOR-003/047/079: exact original %s policy remains readable but grants no execution or current authority', terminal => fixture(async f => {
+      expect(await start(f)).toMatchObject({ ok: true });
+      if (terminal === 'completed') {
+        f.normalTransport!.settle('completed', [{ name: 'assessment', data: { repository: 'another/service', results: [] } }]);
+        await f.activity.reconcileDispatcherLease();
+        expect(await f.activity.collectBrowserResult()).toMatchObject({ ok: true, detail: { executionStatus: 'completed' } });
+      } else await f.activity.cancelDrive();
+      if (terminal === 'disabled-and-rotated') {
+        f.revoke(); f.changeConnection({ connectionRevision: 2, workerVersionId: 'new-version', connectionSecretCiphertext: 'v1:rotated-connection' });
+      }
+      if (terminal === 'expired') { f.expire(); f.revokeSession(); }
+      f.restart(); await f.drainBackground();
+      const state = await persistentState(f), calls = structuredClone(f.normalTransport!.networkRequests), profiles = structuredClone(f.ownerPortRequests);
+      const response = await read(f);
+      expect(response.status).toBe(200); expect(await response.json()).toEqual(expected(f, true));
+      expect(await persistentState(f)).toEqual(state); expect(f.normalTransport!.networkRequests).toEqual(calls); expect(f.ownerPortRequests).toEqual(profiles);
+      const forbidden = await f.installationCapability.fetch(normalCallback(f.activityId, 'source', { operationId: 'policy-is-not-work',
+        url: 'https://api.github.com/repos/another/service' }));
+      expect(forbidden.status).toBe(403); expect(await f.readRemoteComments()).toEqual([]);
+    }, options));
+
+  it.each([
+    { name: 'empty JSON', patch: null },
+    { name: 'foreign Activity', patch: { activityId: 'foreign-activity' } },
+    { name: 'fresh generation', patch: { generation: 2 } },
+    { name: 'foreign job', patch: { id: 'foreign-job' } },
+    { name: 'foreign receipt', patch: { receipt: { submissionId: 'foreign-submission', uid: 'foreign-instance', acceptedAt: '2026-10-28T00:00:00.000Z' } } },
+    { name: 'foreign deployment', patch: { workerVersionId: 'foreign-version' } },
+    { name: 'caller logging override', patch: { loggingEnabled: true } },
+  ])('REQ-OPERATOR-003/047/079: supplied $name body is refused rather than used as passive policy authority', ({ patch }) => fixture(async f => {
+    await start(f); await f.drainBackground();
+    const state = await persistentState(f), calls = structuredClone(f.normalTransport!.networkRequests), profiles = structuredClone(f.ownerPortRequests);
+    const denied = await read(f, patch === null ? {} : { ...proof(f), ...patch });
+    expect(denied.status).toBe(403); expect(await denied.text()).not.toMatch(/fixture-installation-secret|private\.jwt|parent-only/);
+    expect(await persistentState(f)).toEqual(state); expect(f.normalTransport!.networkRequests).toEqual(calls); expect(f.ownerPortRequests).toEqual(profiles);
+    const control = await read(f); expect(control.status).toBe(200); expect(await control.json()).toEqual(expected(f, false));
+  }, { ...options, loggingEnabled: false }));
+
+  it.each([
+    { name: 'missing credential', headers: { authorization: '' } },
+    { name: 'foreign credential', headers: { authorization: 'Bearer foreign-secret' } },
+    { name: 'ambiguous generation', headers: { 'x-codeflare-operator-generation': '1, 1' } },
+    { name: 'foreign Activity', headers: { 'x-codeflare-operator-activity': 'foreign-activity' } },
+    { name: 'foreign installation', headers: { 'x-codeflare-operator-installation': 'foreign-installation' } },
+    { name: 'foreign release', headers: { 'x-codeflare-operator-release': 'foreign-release' } },
+    { name: 'fresh connection', headers: { 'x-codeflare-operator-connection-revision': '2' } },
+    { name: 'foreign Worker version', headers: { 'x-codeflare-operator-worker-version': 'foreign-version' } },
+  ])('REQ-OPERATOR-003/047/079: $name fails installation authentication before policy disclosure', ({ headers }) => fixture(async f => {
+    await start(f); await f.drainBackground();
+    const response = await read(f, undefined, headers);
+    expect(response.status).toBe(403);
+    const text = await response.text(); expect(text).not.toMatch(/loggingEnabled|fixture-installation-secret|private\.jwt|parent-only/);
+    expect((await read(f)).status).toBe(200);
+  }, options));
+
+  it.each(['GET', 'query', 'hash', 'foreign origin', 'unretained requested generation'] as const)(
+    'REQ-OPERATOR-003/047/079: %s cannot turn passive logging policy into alternate authority', variant => fixture(async f => {
+      await start(f); await f.drainBackground();
+      const request = normalCallback(f.activityId, 'logging-policy', undefined,
+        variant === 'unretained requested generation' ? { 'x-codeflare-operator-generation': '2' } : undefined);
+      const url = new URL(request.url);
+      if (variant === 'query') url.search = '?loggingEnabled=true';
+      if (variant === 'hash') url.hash = '#loggingEnabled=true';
+      if (variant === 'foreign origin') url.hostname = 'foreign.example.test';
+      const method = variant === 'GET' ? 'GET' : 'POST';
+      const state = await persistentState(f), network = structuredClone(f.normalTransport!.networkRequests);
+      const response = await f.installationCapability.fetch(new Request(url, { method, headers: request.headers }));
+      expect(response.status).toBe(403); expect(await response.text()).not.toContain('loggingEnabled');
+      expect(await persistentState(f)).toEqual(state); expect(f.normalTransport!.networkRequests).toEqual(network);
+      expect((await read(f)).status).toBe(200);
+    }, options));
+
+  it('REQ-OPERATOR-079: original admitting lease policy is readable before an uncertain admission acknowledgement without observation or redispatch', () => fixture(async f => {
+    f.normalTransport!.loseAcknowledgement(); await start(f); await f.drainBackground();
+    await f.mutateEvidence(async storage => { expect(await storage.get('dispatcher:lease')).toMatchObject({ generation: 1, status: 'admitting' }); });
+    const state = await persistentState(f), network = structuredClone(f.normalTransport!.networkRequests);
+    const response = await read(f);
+    expect(response.status).toBe(200); expect(await response.json()).toEqual(expected(f, true));
+    expect(await persistentState(f)).toEqual(state); expect(f.normalTransport!.networkRequests).toEqual(network);
+    expect(f.normalTransport!.admissions.size).toBe(1);
+    expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
+  }, options));
+
+  it.each(['overwritten generation', 'foreign deployment', 'mismatched receipt', 'missing accepted receipt'] as const)(
+    'REQ-OPERATOR-003/047/079: retained %s denies policy instead of reconstructing authority from historical connection metadata', fault => fixture(async f => {
+      await start(f); await f.drainBackground();
+      await f.mutateEvidence(async storage => {
+        const lease = (await storage.get<Record<string, unknown>>('dispatcher:lease'))!;
+        if (fault === 'overwritten generation') await storage.put('dispatcher:lease', { ...lease, generation: 2 });
+        else if (fault === 'foreign deployment') await storage.put('dispatcher:lease', { ...lease,
+          deployment: { ...(lease.deployment as Record<string, unknown>), workerVersionId: 'foreign-version' } });
+        else if (fault === 'mismatched receipt') await storage.put('dispatcher:lease', { ...lease,
+          receipt: { ...(lease.receipt as Record<string, unknown>), submissionId: 'foreign-submission' } });
+        else { const { receipt: _receipt, ...unproven } = lease; await storage.put('dispatcher:lease', unproven); }
+      });
+      const state = await persistentState(f), network = structuredClone(f.normalTransport!.networkRequests), profiles = structuredClone(f.ownerPortRequests);
+      const response = await read(f);
+      expect(response.status).toBe(403); expect(await response.text()).not.toContain('loggingEnabled');
+      expect(await persistentState(f)).toEqual(state); expect(f.normalTransport!.networkRequests).toEqual(network); expect(f.ownerPortRequests).toEqual(profiles);
+    }, options));
+
+  it('REQ-OPERATOR-003/047/079: unleased Activity cannot supply an original logging-policy binding', () => fixture(async f => {
+    const response = await read(f);
+    expect(response.status).toBe(403);
+    expect(await response.text()).not.toContain('loggingEnabled');
+    expect(f.normalTransport!.admissions.size).toBe(0);
+    expect(f.ownerPortRequests).toEqual([]);
+  }, options));
+});
+
+// Admission profile failures are earlier than any normal SDK dispatch/lease.
+// These synthetic failures do not identify the originating cause of 51978c9f.
+describe('configured-owner pre-lease failure evidence', () => {
+  it.each([
+    { failure: 'status', loggingEnabled: true }, { failure: 'status', loggingEnabled: false },
+    { failure: 'forward', loggingEnabled: true }, { failure: 'forward', loggingEnabled: false },
+    { failure: 'body-read', loggingEnabled: true }, { failure: 'body-read', loggingEnabled: false },
+  ] as const)('REQ-OPERATOR-007/079/081/082/083: profile $failure with logging=$loggingEnabled retains original evidence before generic admission refusal', ({ failure, loggingEnabled }) => {
+    const cause = new Error('PRIVATE_PROFILE_ORIGIN'); cause.stack = 'Error: PRIVATE_PROFILE_ORIGIN\n at profileOrigin (configured.ts:3:1)';
+    const original = new TypeError('PRIVATE_PROFILE_FORWARD_FAILURE', { cause });
+    original.stack = 'TypeError: PRIVATE_PROFILE_FORWARD_FAILURE\n at profileForward (configured.ts:11:4)';
+    const body = 'PROFILE_UPSTREAM_é🦊'.repeat(601) + 'FINAL_PROFILE_BYTE';
+    return fixture(async f => {
+      const records: Array<{ data: Record<string, unknown> }> = [];
+      for (const method of ['log', 'warn', 'error'] as const) vi.spyOn(console, method).mockImplementation((line: unknown) => {
+        if (typeof line !== 'string') return;
+        try { const record = JSON.parse(line); if (record.module === 'operator-execution') records.push(record); } catch { /* Not our wire. */ }
+      });
+      await start(f); await f.drainBackground(); f.restart(); await f.drainBackground();
+      expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'unknown', result: null, sdkCleanupReleased: false });
+      expect((await f.activity.getDispatcherDiagnostics(f.proof.ownerKey))?.parent.lease).toBeNull();
+      expect(f.normalTransport!.admissions.size).toBe(0); expect(f.childSubmissions).toEqual([]);
+      const summary = await diagnosticSummary(f);
+      expect(summary.fence).toMatchObject({ generation: 1, code: 'authority-denied' });
+      if (loggingEnabled) {
+        const raw = JSON.stringify(records);
+        if (failure === 'status') { expect(raw).toContain(body); expect(raw).toMatch(/"status":502/); }
+        else {
+          for (const retained of [original.message, cause.message, 'profileOrigin (configured.ts:3:1)', 'profileForward (configured.ts:11:4)'])
+            expect(raw).toContain(retained);
+        }
+        const history = await diagnosticTraversal(diagnosticsBrowser(f));
+        const failures = history.records.filter(record => record.outcome === 'failed' && record.code === 'authority-denied');
+        expect(failures).toHaveLength(1);
+        if (failure !== 'status') expect(failures[0]).toMatchObject({ error: captureError(original) });
+        expect(JSON.stringify(history)).not.toMatch(/PRIVATE_PROFILE_|PROFILE_UPSTREAM_/);
+      } else { expect(records).toEqual([]); expect(summary.capture).toBe('disabled'); }
+      expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
+    }, { normalHosting: true, repositoryOnly: true, loggingEnabled, ownerTransport: async request => {
+      if (new URL(request.url).pathname !== '/operator-inference/profile') return undefined;
+      if (failure === 'status') return new Response(body, { status: 502 });
+      if (failure === 'forward') throw original;
+      return new Response(new ReadableStream<Uint8Array>({ start(controller) { controller.error(original); } }));
+    } });
+  });
+
+  it('REQ-OPERATOR-079/082: throwing raw console cannot change configured-owner response bytes or replace the original transport failure', () => {
+    const original = new Error('ORIGINAL_TRANSPORT_FAILURE_WITH_CONSOLE_DOWN'); let broken = false;
+    return fixture(async f => {
+      expect(await start(f)).toMatchObject({ ok: true });
+      const plan = (await f.activity.getRuntimePlan())!;
+      const input = { generation: 1, plan, env: f.environment, current: () => f.activity.operatorGenerationCurrent(1), waitUntil: f.waitUntil };
+      const selection = await discoverDispatcherOwnerProfile(input);
+      for (const method of ['log', 'warn', 'error'] as const) vi.spyOn(console, method).mockImplementation(() => { throw new Error('OPTIONAL_CONSOLE_DOWN'); });
+      const context = { messages: [{ role: 'user', content: 'FULL_ORIGINAL_RESPONSE_é🦊' }] };
+      const operation = { operationId: 'console-independent', context, options: {}, requestDigest: 'b'.repeat(64) };
+      const response = await forwardDispatcherOwnerInference({ ...input, selection, operation });
+      expect(response.status).toBe(200);
+      const result = await response.json() as { events: unknown[]; result: { content: Array<{ text: string }> } };
+      expect(JSON.parse(result.result.content[0].text)).toEqual({ context, options: { reasoning: 'off' }, ordinal: 1 });
+      expect(result.events).toEqual([{ type: 'done', reason: 'stop', message: result.result }]);
+      broken = true;
+      await expect(forwardDispatcherOwnerInference({ ...input, selection, operation: { ...operation, operationId: 'console-independent-failure' } })).rejects.toBe(original);
+      expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'running', result: null });
+    }, { normalHosting: true, repositoryOnly: true, ownerTransport: async request => {
+      if (broken && new URL(request.url).pathname === '/operator-inference') throw original;
+      return undefined;
+    } });
+  });
 });

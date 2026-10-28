@@ -5,6 +5,7 @@ import type { Env } from '../../types';
 import { setLogLevel } from '../../lib/logger';
 import { OperatorRegistry, type DispatcherConnectionMetadata } from '../../operators/registry';
 import { parseDispatcherBundle } from '../../operators/distribution';
+import { verifyDispatcherDeployment } from '../../operators/dispatcher-deployment';
 import { openOperatorSecret } from '../../operators/protected-secrets';
 import { createMockKV } from '../helpers/mock-kv';
 import { createOperatorGitHubFixture } from '../helpers/operator-github-fixture';
@@ -589,4 +590,79 @@ describe('approved normal Dispatcher activation through existing management Enab
       expect(f.platform.scripts.size).toBe(0);
       await expectNoActivity(f.ctx);
     }, options));
+});
+
+// Public Cloudflare upload/settings wire, not a source-text assertion and not
+// evidence of real deployed delivery. Readiness is additive to deployment identity:
+// an optional logging gap must NEVER invalidate existing execution authority.
+describe('persisted installed Worker execution log configuration', () => {
+  const desired = { enabled: true, head_sampling_rate: 1,
+    logs: { enabled: true, head_sampling_rate: 1, invocation_logs: true, persist: true },
+    traces: { enabled: true, head_sampling_rate: 1, persist: true } };
+
+  it('REQ-OPERATOR-030/044/045/046/079: provision requests complete persisted logs and traces at sampling one on the actual public upload wire', () => withActivation(async f => {
+    const response = await enable(f); expect(response.status).toBe(200);
+    const active = await response.json() as Installation;
+    const script = f.platform.scripts.get(active.dispatcherConnection!.workerName)!;
+    expect(script.metadata.observability).toEqual(desired);
+    expect(script.versionId).toBe(active.dispatcherConnection!.workerVersionId);
+    expect(script.metadata.bindings).toEqual(expect.arrayContaining([
+      expect.objectContaining({ name: 'OPERATOR', service: f.platform.parentName, entrypoint: 'OperatorInstalledDispatcherCapability' }),
+    ]));
+    expect(script.namespaceId).toMatch(/^[a-f0-9]{32}$/);
+    await expectNoActivity(f.ctx);
+  }));
+
+  it('REQ-OPERATOR-046/079: actual settings readback qualifies logging readiness separately from exact immutable deployment identity', () => withActivation(async f => {
+    expect((await enable(f)).status).toBe(200);
+    const selected = (await f.detail()).installations[0]!.dispatcherConnection!;
+    f.platform.setObservability(desired);
+    const original = structuredClone(f.platform.scripts.get(selected.workerName));
+    const writes = structuredClone(f.platform.writes);
+    const bytes = (await f.registry.getManagementBundle(f.release.bundleDigest))!;
+    // Intentional additive public verification result; baseline has no readiness field.
+    const verification = await verifyDispatcherDeployment(f.bindings as unknown as Env, selected, bytes, 17) as
+      Awaited<ReturnType<typeof verifyDispatcherDeployment>> & { observabilityReady?: boolean };
+    expect(verification).toMatchObject({ connectionRevision: selected.connectionRevision, workerVersionId: selected.workerVersionId,
+      bundleDigest: selected.bundleDigest, controlOrigin: `https://${selected.workerName}.platform-account.workers.dev`, observabilityReady: true });
+    expect(f.platform.writes).toEqual(writes);
+    expect(f.platform.scripts.get(selected.workerName)).toEqual(original);
+    await expectNoActivity(f.ctx);
+  }));
+
+  it.each([
+    { name: 'null actual settings', value: null },
+    { name: 'missing actual settings', value: undefined },
+    { name: 'global disabled', value: { ...desired, enabled: false } },
+    { name: 'logs disabled', value: { ...desired, logs: { ...desired.logs, enabled: false } } },
+    { name: 'nonpersisted logs', value: { ...desired, logs: { ...desired.logs, persist: false } } },
+    { name: 'invocation logs disabled', value: { ...desired, logs: { ...desired.logs, invocation_logs: false } } },
+    { name: 'sampled logs', value: { ...desired, logs: { ...desired.logs, head_sampling_rate: 0.1 } } },
+    { name: 'sampled global', value: { ...desired, head_sampling_rate: 0.1 } },
+    { name: 'traces disabled', value: { ...desired, traces: { ...desired.traces, enabled: false } } },
+    { name: 'nonpersisted traces', value: { ...desired, traces: { ...desired.traces, persist: false } } },
+    { name: 'sampled traces', value: { ...desired, traces: { ...desired.traces, head_sampling_rate: 0.1 } } },
+  ])('REQ-OPERATOR-046/048/079: $name is not observability-ready but cannot invalidate an exact deployment or existing runtime', ({ value }) => withActivation(async f => {
+    const first = await enable(f); expect(first.status).toBe(200);
+    const enabled = await first.json() as Installation;
+    const selected = enabled.dispatcherConnection!;
+    f.platform.setObservability(value);
+    const bytes = (await f.registry.getManagementBundle(f.release.bundleDigest))!;
+    const original = structuredClone(f.platform.scripts.get(selected.workerName)), writes = structuredClone(f.platform.writes);
+    const verification = await verifyDispatcherDeployment(f.bindings as unknown as Env, selected, bytes, 17) as
+      Awaited<ReturnType<typeof verifyDispatcherDeployment>> & { observabilityReady?: boolean };
+    expect(verification).toMatchObject({ connectionRevision: selected.connectionRevision, workerVersionId: selected.workerVersionId,
+      bundleDigest: selected.bundleDigest, observabilityReady: false });
+    expect(f.platform.writes).toEqual(writes); expect(f.platform.scripts.get(selected.workerName)).toEqual(original);
+    const detail = await f.detail();
+    expect(detail.installations[0]).toMatchObject({ enabled: true, dispatcherConnection: selected });
+    // Explicit disable/re-enable can still reuse the exact pre-existing runtime;
+    // readiness must not become a new logging-dependent authentication fence.
+    const disabled = await f.request(`/installations/${enabled.id}/enable`, 'POST', { revision: enabled.revision, enabled: false });
+    expect(disabled.status).toBe(200);
+    const reused = await enable(f, await disabled.json() as Installation);
+    expect(reused.status).toBe(200); expect(await reused.json()).toMatchObject({ enabled: true, dispatcherConnection: selected });
+    expect(f.platform.scripts.get(selected.workerName)).toEqual(original); expect(f.platform.writes).toEqual(writes);
+    await expectNoActivity(f.ctx);
+  }));
 });

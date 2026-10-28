@@ -20,6 +20,7 @@ import { browserAccess } from './dispatcher-owner-diagnostics';
 
 const configSchema = z.strictObject({
   operation: z.enum(['discovery', 'inference']), source: z.enum(['native', 'managed-default', 'managed-off']).default('native'),
+  loggingEnabled: z.boolean().default(true),
   barrier: z.enum(['none', 'headers', 'body']).default('none'),
   size: z.enum(['ordinary', 'exact', 'actual-over', 'declared-over']).default('ordinary'),
   lifetimeMs: z.number().int().min(1000).max(30_000).default(30_000),
@@ -60,7 +61,7 @@ type Outcome = { status: 'pending' } | { status: 'refused'; failure: 'rpc-data-c
   | { status: 'accepted'; profile?: ConfiguredDispatcherInference; response?: { events: unknown[]; result: typeof ownerRpcResult }; responseBytes?: number };
 export type OwnerRpcSnapshot = { outcome: Outcome; deadline: number; activityId: string; sessionGeneration: number;
   recipient: { entered: boolean; bodyOffered: boolean; bodyAdvanced: boolean; headersReleased: boolean; bodyReleased: boolean;
-    cancelled: boolean; responseBytes: number; wire: Wire | null } };
+    cancelled: boolean; responseBytes: number; wire: Wire | null; loggingContext: unknown } };
 interface FixtureEnv { OWNER_RPC: DurableObjectNamespace<FixtureOwnerRpc> }
 
 /** A runner and a distinct recipient address share this fixture-only class/namespace.
@@ -77,6 +78,7 @@ export class FixtureOwnerRpc extends DurableObject<FixtureEnv> {
   private activityId = '';
   private sessionGeneration = 3;
   private wire: Wire | null = null;
+  private loggingContext: unknown = null;
   private bodyOffered = false;
   private headersReleased = false;
   private bodyReleased = false;
@@ -99,7 +101,8 @@ export class FixtureOwnerRpc extends DurableObject<FixtureEnv> {
   configure(config: Config): void { this.config = config; }
   changeSession(): void { this.sessionGeneration++; }
 
-  async forwardExisting(request: Request): Promise<Response> {
+  async forwardExisting(request: Request, loggingContext?: unknown): Promise<Response> {
+    this.loggingContext = loggingContext ?? null;
     const config = this.config;
     if (!config) throw new Error('Recipient not configured');
     const body = await request.json<Wire>();
@@ -160,7 +163,7 @@ export class FixtureOwnerRpc extends DurableObject<FixtureEnv> {
   recipientSnapshot(): OwnerRpcSnapshot['recipient'] {
     return { entered: this.wire !== null, bodyOffered: this.bodyOffered, bodyAdvanced: this.bodyOffset > 0,
       headersReleased: this.headersReleased, bodyReleased: this.bodyReleased,
-      cancelled: this.cancelled, responseBytes: this.responseBytes, wire: this.wire };
+      cancelled: this.cancelled, responseBytes: this.responseBytes, wire: this.wire, loggingContext: this.loggingContext };
   }
 
   private async change(fault: OwnerRpcFault) {
@@ -190,7 +193,7 @@ export class FixtureOwnerRpc extends DurableObject<FixtureEnv> {
         releaseId: 'rpc-release', approvedSourceRevision: 1, policy, configurationJson: '{}' },
       operator: { id: 'rpc-dispatcher', operatorId: 'rpc-dispatcher', revision: 1, repositoryUrl: 'https://github.com/example/fixture',
         repositoryId: 1, profile: 'dispatcher', realm: 'internal', enabled: true, managers: grants, invokers: grants,
-        policy: { ...policy, inferenceRequestBytes: OWNER_RPC_LIMIT }, source: { kind: 'github-release', repositoryUrl: 'https://github.com/example/fixture',
+        policy: { ...policy, inferenceRequestBytes: OWNER_RPC_LIMIT, loggingEnabled: config.loggingEnabled }, source: { kind: 'github-release', repositoryUrl: 'https://github.com/example/fixture',
           repositoryId: 1, credentialConfigured: true, approvedWorkflow: null } },
       release: { id: 'rpc-release', operatorId: 'rpc-dispatcher', githubReleaseId: 1, sourceCommit: 'a'.repeat(40),
         manifestDigest: 'b'.repeat(64), bundleDigest: 'c'.repeat(64), interfaceVersion: 1, approved: true,
