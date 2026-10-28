@@ -4,6 +4,8 @@
  * authorization logic. The adjacent Wrangler file is isolated from deployment configuration.
  */
 import { WorkerEntrypoint } from 'cloudflare:workers';
+import { ownerRpcFixture, type FixtureOwnerRpc } from './dispatcher-owner-rpc';
+export { FixtureOwnerRpc } from './dispatcher-owner-rpc';
 import { flueFixture, type FixtureTailInbox } from './flue-native-fixture';
 export { FixtureFlueRoot, FixtureFlueTransport, FixtureTailProbe, FixtureTailInbox } from './flue-native-fixture';
 import { loadOperatorWorker, type OperatorLoaderBinding } from '../../../operators/loader';
@@ -95,6 +97,7 @@ interface FixtureEnv {
   OPERATOR_REGISTRY: DurableObjectNamespace<OperatorRegistry>;
   ACTIVITY: DurableObjectNamespace<FixtureActivity>;
   TAIL_INBOX: DurableObjectNamespace<FixtureTailInbox>;
+  OWNER_RPC: DurableObjectNamespace<FixtureOwnerRpc>;
 }
 
 /** Test-only RPC capability. Identity comes from the parent binding, not arguments. */
@@ -191,6 +194,8 @@ export default {
     const props = { principal: 'fixture-owner' };
     try {
       const url = new URL(request.url);
+      // This route exercises owner/send RPC only; it never enters Flue/Activity.
+      if (url.pathname === '/dispatcher-owner-rpc') return ownerRpcFixture(request, env);
       if (url.pathname === '/dispatcher-composed') {
         try { return await composedFixture(request, env as unknown as Parameters<typeof composedFixture>[1]); }
         catch {

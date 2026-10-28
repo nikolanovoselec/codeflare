@@ -23,7 +23,7 @@ browser.onError((error, c) => error instanceof AppError
 browser.route('/api/operator-activities', activityRoutes);
 const base64url = (bytes: Uint8Array) => btoa(String.fromCharCode(...bytes)).replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/, '');
 const json = (value: unknown) => base64url(new TextEncoder().encode(JSON.stringify(value)));
-function browserAccess() {
+export function browserAccess() {
   return access ??= (async () => {
     const pair = await crypto.subtle.generateKey({ name: 'RSASSA-PKCS1-v1_5', modulusLength: 2048,
       publicExponent: new Uint8Array([1, 0, 1]), hash: 'SHA-256' }, true, ['sign', 'verify']);
