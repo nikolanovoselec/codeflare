@@ -205,7 +205,8 @@ export class FixtureOwnerRpc extends DurableObject<FixtureEnv> {
         expectedOperatorRevision: 1, expectedControlsRevision: 1, deadline: this.deadline, admittedAt: Date.now(), selection: pinned } };
     if (config.fault === 'aborted') this.controller.abort();
     else if (config.fault && config.fault !== 'expired') await this.change(config.fault);
-    const input = { generation: 7, plan, env: environment, current: async () => this.current, signal: this.controller.signal };
+    const input = { generation: 7, plan, env: environment, current: async () => this.current, signal: this.controller.signal,
+      waitUntil: (promise: Promise<unknown>) => this.ctx.waitUntil(promise) };
     // Public functions are the SUT. No wrapper changes their Request or cancellation.
     this.ctx.waitUntil((async () => {
       try {

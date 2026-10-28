@@ -1862,7 +1862,7 @@ export class OperatorActivity extends Agent {
         const inference = await authorizeDispatcherPlan(plan, this.#appEnv);
         if (inference.inferencePolicies.every(policy => policy.capabilities.includes('inference'))) {
           const selection = await discoverDispatcherOwnerProfile({ generation, plan, env: this.#appEnv,
-            current: () => this.operatorGenerationCurrent(generation) });
+            waitUntil: promise => this.ctx.waitUntil(promise), current: () => this.operatorGenerationCurrent(generation) });
           if (plan.configuredSelection && !sameDispatcherPhaseValue(plan.configuredSelection, selection)) throw new Error('Normal Dispatcher selection changed');
           lease.configuredSelection = selection;
         }
@@ -3565,6 +3565,7 @@ export class OperatorActivity extends Agent {
         perform = async () => {
           try { return await forwardDispatcherOwnerInference({ plan: { ...plan, deadline: Math.min(plan.deadline, lease!.expiresAt) },
             generation, env: this.#appEnv, operation: configuredOperation, selection, signal: request.signal,
+            waitUntil: promise => this.ctx.waitUntil(promise),
             current: () => this.#dispatcherDeliveryCurrent(generation, deliveryToken, modelScope) }); }
           catch (error) { if (error instanceof PiAuthRequiredError) await this.#nativeLoginStop(generation, error.authFailure); throw error; }
         };

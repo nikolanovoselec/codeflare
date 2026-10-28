@@ -20,6 +20,7 @@ const profile = z.strictObject({ provider: identity, model: identity, api: ident
 export type ConfiguredDispatcherInference = z.infer<typeof profile> & (
   { source: 'pi-native' } | { source: 'managed'; routeId: string });
 type Input = { generation: number; plan: OperatorRuntimePlan; env: Env; current(): Promise<boolean>; signal?: AbortSignal };
+type SendInput = Input & Pick<ExecutionContext, 'waitUntil'>;
 
 /** Current grants select the source. The SDK resolves models/authentication; no vendor lookup or fallback. */
 async function ownerContext(input: Input, selection?: ConfiguredDispatcherInference) {
@@ -77,7 +78,7 @@ async function ownerContext(input: Input, selection?: ConfiguredDispatcherInfere
       reasoningOverride: plan.receipt.selection.installation.piReasoningOverride }) };
 }
 
-async function send(input: Input, pathname: string, body: Record<string, unknown>, selection?: ConfiguredDispatcherInference): Promise<Response> {
+async function send(input: SendInput, pathname: string, body: Record<string, unknown>, selection?: ConfiguredDispatcherInference): Promise<Response> {
   const context = await ownerContext(input, selection);
   const signal = input.signal ? AbortSignal.any([input.signal, AbortSignal.timeout(Math.max(1, context.deadline - Date.now()))])
     : AbortSignal.timeout(Math.max(1, context.deadline - Date.now()));
@@ -97,11 +98,13 @@ async function send(input: Input, pathname: string, body: Record<string, unknown
   let response: Response;
   try {
     const pending = forwardExisting(context.container, request);
-    void pending.then(response => { if (signal.aborted) void response.body?.cancel().catch(() => undefined); }, () => {});
+    input.waitUntil(pending.then(response => {
+      if (signal.aborted) return response.body?.cancel().catch(() => undefined);
+    }, () => {}));
     response = await Promise.race([pending, cancelled]);
   } finally { if (abort) signal.removeEventListener('abort', abort); }
   const bytes = await readBoundedResponse(response, context.maxResponseBytes, 'Owner inference response', signal).catch(error => {
-    void response.body?.cancel().catch(() => undefined);
+    if (response.body) input.waitUntil(response.body.cancel().catch(() => undefined));
     throw error;
   });
   await ownerContext(input, selection);
@@ -113,7 +116,7 @@ async function send(input: Input, pathname: string, body: Record<string, unknown
   }
   return new Response(bytes, { status: response.status, headers: { 'content-type': 'application/json', 'cache-control': 'no-store' } });
 }
-export async function discoverDispatcherOwnerProfile(input: Input): Promise<ConfiguredDispatcherInference> {
+export async function discoverDispatcherOwnerProfile(input: SendInput): Promise<ConfiguredDispatcherInference> {
   const context = await ownerContext(input);
   const response = await send(input, '/operator-inference/profile', {});
   const selected = profile.parse(await response.json());
@@ -125,7 +128,7 @@ export async function discoverDispatcherOwnerProfile(input: Input): Promise<Conf
   await ownerContext(input, result);
   return result;
 }
-export async function forwardDispatcherOwnerInference(input: Input & { selection: ConfiguredDispatcherInference;
+export async function forwardDispatcherOwnerInference(input: SendInput & { selection: ConfiguredDispatcherInference;
   operation: { operationId: string; context: unknown; options: Record<string, unknown>; requestDigest: string } }): Promise<Response> {
   // Caller options cannot replace admitted reasoning; null remains the SDK provider default, not Off.
   const { reasoning: _callerReasoning, ...options } = input.operation.options;
