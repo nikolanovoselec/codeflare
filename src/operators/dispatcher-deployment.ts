@@ -39,7 +39,7 @@ export async function provisionDispatcherDeployment(env: Env,
   const signal = AbortSignal.timeout(15000);
   const json = async (url: string, method: 'GET' | 'PUT' | 'POST', body?: BodyInit, contentType?: string) => {
     await reauthorize();
-    const response = await fetch(url, { method, body, signal, redirect: 'manual',
+    const response = await fetch(url, { method, ...(method === 'GET' ? {} : { body }), signal, redirect: 'manual',
       headers: { authorization: `Bearer ${env.CLOUDFLARE_API_TOKEN}`, ...(contentType ? { 'content-type': contentType } : {}) } });
     if (!response.ok) { void response.body?.cancel().catch(() => {}); return denied(); }
     const data = JSON.parse(new TextDecoder().decode(await readBoundedResponse(response, 256 * 1024, 'Dispatcher deployment', signal)));
