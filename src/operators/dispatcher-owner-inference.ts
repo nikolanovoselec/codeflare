@@ -81,12 +81,29 @@ async function send(input: Input, pathname: string, body: Record<string, unknown
   const context = await ownerContext(input, selection);
   const signal = input.signal ? AbortSignal.any([input.signal, AbortSignal.timeout(Math.max(1, context.deadline - Date.now()))])
     : AbortSignal.timeout(Math.max(1, context.deadline - Date.now()));
+  // Stable RPC supports Request/Response, but not an explicit AbortSignal; keep cancellation local.
   const request = new Request(`http://container${pathname}`, { method: 'POST', headers: { 'content-type': 'application/json',
     'x-codeflare-operator-activity': input.plan.activityId, 'x-codeflare-operator-generation': String(input.generation) },
     body: JSON.stringify({ schemaVersion: 1, activityId: input.plan.activityId,
-      generation: input.generation, sessionGeneration: context.sessionGeneration, ...body }), signal });
-  const response = await forwardExisting(context.container, request);
-  const bytes = await readBoundedResponse(response, context.maxResponseBytes, 'Owner inference response', signal);
+      generation: input.generation, sessionGeneration: context.sessionGeneration, ...body }) });
+  signal.throwIfAborted();
+  if (Date.now() >= context.deadline) throw new Error('Owner inference deadline expired');
+  let abort: (() => void) | undefined;
+  const cancelled = new Promise<never>((_, reject) => {
+    abort = () => reject(new Error('Owner inference response aborted'));
+    signal.addEventListener('abort', abort, { once: true });
+    if (signal.aborted) abort();
+  });
+  let response: Response;
+  try {
+    const pending = forwardExisting(context.container, request);
+    void pending.then(response => { if (signal.aborted) void response.body?.cancel().catch(() => undefined); }, () => {});
+    response = await Promise.race([pending, cancelled]);
+  } finally { if (abort) signal.removeEventListener('abort', abort); }
+  const bytes = await readBoundedResponse(response, context.maxResponseBytes, 'Owner inference response', signal).catch(error => {
+    void response.body?.cancel().catch(() => undefined);
+    throw error;
+  });
   await ownerContext(input, selection);
   if (!response.ok) {
     let failure;

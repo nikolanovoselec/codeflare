@@ -84,7 +84,7 @@ export class FixtureOwnerRpc extends DurableObject<FixtureEnv> {
   private responseBytes = 0;
   private releaseHeaders?: () => void;
   private bodyController?: ReadableByteStreamController;
-  private responseBody = new Uint8Array();
+  private responseBody: Uint8Array = new Uint8Array();
 
   // Synthetic bucket-ownership collaborator; the production resolver still derives
   // the bucket and the real namespace resolves the resulting container address.
