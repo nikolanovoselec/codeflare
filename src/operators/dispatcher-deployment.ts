@@ -5,6 +5,7 @@ import { SETUP_KEYS } from '../lib/kv-keys';
 import { readBoundedResponse } from '../lib/bounded-stream';
 import { parseDispatcherBundle } from './distribution';
 import { DEFAULT_SUBMISSION_ATTEMPT_LIMIT } from './dispatcher-submission-limits';
+import { sealOperatorSecret } from './protected-secrets';
 import type { DispatcherConnectionMetadata } from './registry';
 
 export interface DispatcherDeploymentVerification {
@@ -12,9 +13,75 @@ export interface DispatcherDeploymentVerification {
 }
 const denied = (): never => { throw new Error('Dispatcher deployment could not be verified'); };
 
+/** REQ-OPERATOR-046 AC4/6/7: one new shared installation candidate; never overwrite SDK storage.
+ * The authorized caller owns Registry selection. An uncertain upload is not retried or deleted. */
+export async function provisionDispatcherDeployment(env: Env,
+  pin: Omit<DispatcherConnectionMetadata, 'workerName' | 'workerVersionId'>,
+  bytes: Uint8Array, admittedSubmissionAttemptLimit: number, reauthorize: () => Promise<void>): Promise<{
+    connection: DispatcherConnectionMetadata; connectionSecret: string; verification: DispatcherDeploymentVerification;
+  }> {
+  const bundle = await parseDispatcherBundle(bytes, pin.bundleDigest);
+  if (bundle.schemaVersion !== 2 || !bundle.hosting || bundle.sourceCommit !== pin.sourceCommit
+    || !/^[0-9a-f]{40}$/.test(pin.compilerCommit)
+    || !Number.isSafeInteger(admittedSubmissionAttemptLimit) || admittedSubmissionAttemptLimit < 1) return denied();
+  const parentName = env.CLOUDFLARE_WORKER_NAME;
+  if (typeof parentName !== 'string' || !/^[a-z0-9_][a-z0-9_-]*$/.test(parentName)
+    || !env.CLOUDFLARE_API_TOKEN) return denied();
+  const account = await env.KV.get(SETUP_KEYS.ACCOUNT_ID);
+  if (!account || !/^[a-f0-9]{32}$/.test(account)) return denied();
+  await reauthorize();
+  const connectionSecret = btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(32))))
+    .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  // Prove encryption is available before protected upload; Registry owns the persisted envelope.
+  await sealOperatorSecret(connectionSecret, env, { purpose: 'connection', recordId: pin.installationId });
+  const workerName = `dispatcher-${crypto.randomUUID()}`;
+  const base = `${CF_API_BASE}/accounts/${account}/workers/scripts/${workerName}`;
+  const signal = AbortSignal.timeout(15000);
+  const json = async (url: string, method: 'GET' | 'PUT' | 'POST', body?: BodyInit, contentType?: string) => {
+    await reauthorize();
+    const response = await fetch(url, { method, body, signal, redirect: 'manual',
+      headers: { authorization: `Bearer ${env.CLOUDFLARE_API_TOKEN}`, ...(contentType ? { 'content-type': contentType } : {}) } });
+    if (!response.ok) { void response.body?.cancel().catch(() => {}); return denied(); }
+    const data = JSON.parse(new TextDecoder().decode(await readBoundedResponse(response, 256 * 1024, 'Dispatcher deployment', signal)));
+    if (data?.success !== true || !data.result) return denied();
+    await reauthorize();
+    return data.result;
+  };
+  const metadata = {
+    main_module: bundle.mainModule, compatibility_date: bundle.compatibilityDate, compatibility_flags: bundle.compatibilityFlags,
+    migrations: { new_tag: bundle.hosting.migrationTag, new_sqlite_classes: [bundle.hosting.className] },
+    bindings: [
+      { name: bundle.hosting.binding, type: 'durable_object_namespace', class_name: bundle.hosting.className },
+      { name: 'OPERATOR', type: 'service', service: parentName, entrypoint: 'OperatorInstalledDispatcherCapability' },
+      { name: 'CF_VERSION_METADATA', type: 'version_metadata' },
+      { name: 'OPERATOR_CONNECTION_SECRET', type: 'secret_text', text: connectionSecret },
+      ...Object.entries({ OPERATOR_INSTALLATION_ID: pin.installationId, OPERATOR_RELEASE_ID: pin.releaseId,
+        OPERATOR_CONNECTION_REVISION: String(pin.connectionRevision), OPERATOR_SUBMISSION_ATTEMPT_LIMIT: String(admittedSubmissionAttemptLimit) })
+        .map(([name, text]) => ({ name, type: 'plain_text', text })),
+    ],
+  };
+  const form = new FormData();
+  form.set('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }), 'metadata.json');
+  for (const [name, module] of Object.entries(bundle.modules)) {
+    form.set(name, new Blob(['js' in module ? module.js : module.text],
+      { type: 'js' in module ? 'application/javascript+module' : 'text/plain' }), name);
+  }
+  await json(base, 'PUT', form);
+  // Script upload has no documented version UUID receipt. Pin the concrete active deployment.
+  const deployments = await json(`${base}/deployments`, 'GET');
+  const latest = deployments.deployments?.[0];
+  const version = latest?.versions?.[0];
+  if (latest?.versions?.length !== 1 || version?.percentage !== 100
+    || typeof version.version_id !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(version.version_id)) return denied();
+  await json(`${base}/subdomain`, 'POST', JSON.stringify({ enabled: true, previews_enabled: false }), 'application/json');
+  const connection: DispatcherConnectionMetadata = { ...pin, workerName, workerVersionId: version.version_id };
+  const verification = await verifyDispatcherDeployment(env, connection, bytes, admittedSubmissionAttemptLimit, reauthorize);
+  return { connection, connectionSecret, verification };
+}
+
 /** Called only after human management authorization. GETs are bounded; no deployment is mutated. */
 export async function verifyDispatcherDeployment(env: Env, connection: DispatcherConnectionMetadata,
-  bytes: Uint8Array, admittedSubmissionAttemptLimit: number): Promise<DispatcherDeploymentVerification> {
+  bytes: Uint8Array, admittedSubmissionAttemptLimit: number, reauthorize?: () => Promise<void>): Promise<DispatcherDeploymentVerification> {
   if (!Number.isSafeInteger(admittedSubmissionAttemptLimit) || admittedSubmissionAttemptLimit < 1) return denied();
   const bundle = await parseDispatcherBundle(bytes, connection.bundleDigest);
   const hosting = bundle.hosting;
@@ -30,10 +97,12 @@ export async function verifyDispatcherDeployment(env: Env, connection: Dispatche
   const workers = `${CF_API_BASE}/accounts/${account}/workers`;
   const base = `${workers}/scripts/${connection.workerName}`;
   const json = async (url: string, limit = 256 * 1024) => {
+    await reauthorize?.();
     const response = await fetch(url, { headers, signal, redirect: 'manual' });
     if (!response.ok) { void response.body?.cancel().catch(() => {}); denied(); }
     const data = JSON.parse(new TextDecoder().decode(await readBoundedResponse(response, limit, 'Dispatcher deployment', signal)));
     if (data?.success !== true || !data.result) return denied();
+    await reauthorize?.();
     return data.result;
   };
   const active = async () => {

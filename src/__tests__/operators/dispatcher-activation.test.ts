@@ -209,7 +209,7 @@ describe('approved normal Dispatcher activation through existing management Enab
     await expectNoActivity(f.ctx);
   }));
 
-  it('REQ-OPERATOR-046/048: AC4 matching connection verifies and reuses its existing Worker, secret and namespace', () => withActivation(async f => {
+  it('REQ-OPERATOR-046/048: AC5 matching connection verifies and reuses its existing Worker, secret and namespace', () => withActivation(async f => {
     const first = await enable(f); expect(first.status).toBe(200);
     const active = await first.json() as Installation;
     const selected = active.dispatcherConnection!;
@@ -225,7 +225,7 @@ describe('approved normal Dispatcher activation through existing management Enab
     await expectNoActivity(f.ctx);
   }));
 
-  it('REQ-OPERATOR-046/048: AC3/4 upgrade creates a distinct Worker and SQLite namespace while preserving original runtime and history', () => withActivation(async f => {
+  it('REQ-OPERATOR-046/048: AC3/7 upgrade creates a distinct Worker and SQLite namespace while preserving original runtime and history', () => withActivation(async f => {
     const first = await enable(f); expect(first.status).toBe(200);
     const originalInstallation = await first.json() as Installation;
     const original = structuredClone(f.platform.scripts.get(originalInstallation.dispatcherConnection!.workerName)!);
@@ -256,6 +256,49 @@ describe('approved normal Dispatcher activation through existing management Enab
     await expectNoActivity(f.ctx);
   }));
 
+  it.each(['upload-uncertain', 'changed-module'] as const)(
+    'REQ-OPERATOR-046/048: AC6/7 failed upgrade with %s retains the original connection, Worker, namespace and history', fault => withActivation(async f => {
+      const first = await enable(f); expect(first.status).toBe(200);
+      const originalInstallation = await first.json() as Installation;
+      const connection = originalInstallation.dispatcherConnection!;
+      const original = structuredClone(f.platform.scripts.get(connection.workerName)!);
+      const historical = await f.registry.getManagementConfigurationHistory(originalInstallation.id, originalInstallation.revision);
+      expect(historical).toMatchObject({ id: originalInstallation.id, revision: originalInstallation.revision,
+        releaseId: f.release.id, enabled: true, dispatcherConnection: connection });
+      const abortConnection = await f.registry.getManagementDispatcherAbortConnection(originalInstallation.id, connection.connectionRevision);
+      expect(abortConnection).toMatchObject({ workerName: original.name, workerVersionId: original.versionId,
+        releaseId: f.release.id, connectionRevision: connection.connectionRevision });
+      f.github.setReleaseCount(2);
+      const operator = (await f.detail()).operator;
+      const refreshed = await f.request(`/operators/${f.operatorId}/releases/refresh`, 'POST', { revision: operator.revision });
+      expect(refreshed.status).toBe(200);
+      const releases = (await refreshed.json() as { items: Release[] }).items;
+      const next = releases.find(release => release.id !== f.release.id)!;
+      const promoted = await f.request(`/installations/${originalInstallation.id}/promote`, 'POST', {
+        revision: originalInstallation.revision, releaseId: next.id });
+      expect(promoted.status).toBe(200);
+      const pending = await promoted.json() as Installation;
+      expect(pending).toMatchObject({ enabled: false, releaseId: next.id, configuration, policy, dispatcherConnection: connection });
+
+      f.platform.setFault(fault);
+      const response = await enable(f, pending);
+      expect(response.status).toBeGreaterThanOrEqual(400);
+      const candidates = [...f.platform.scripts.values()].filter(script => script.name !== original.name);
+      expect(candidates).toEqual([expect.objectContaining({ name: expect.any(String) })]);
+      const candidate = candidates[0]!;
+      expect(candidate.namespaceId).not.toBe(original.namespaceId);
+      expect(candidate.metadata.bindings).toContainEqual({ name: 'OPERATOR_RELEASE_ID', type: 'plain_text', text: next.id });
+      const current = (await f.detail()).installations.find(installation => installation.id === originalInstallation.id)!;
+      expect(current).toMatchObject({ enabled: false, releaseId: next.id, configuration, policy, dispatcherConnection: connection });
+      expect(current.dispatcherConnection!.workerName).not.toBe(candidate.name);
+      expect(current.dispatcherConnection!.workerVersionId).not.toBe(candidate.versionId);
+      expect(f.platform.scripts.get(original.name)).toEqual(original);
+      expect(await f.registry.getManagementDispatcherAbortConnection(originalInstallation.id, connection.connectionRevision)).toEqual(abortConnection);
+      expect(await f.registry.getManagementConfigurationHistory(originalInstallation.id, originalInstallation.revision)).toEqual(historical);
+      expect((await f.registry.resolveManagementExecution(originalInstallation.id)).ok).toBe(false);
+      await expectNoActivity(f.ctx);
+    }));
+
   it('REQ-OPERATOR-046/048: AC4 separate installations never share deployment storage or connection credentials', () => withActivation(async f => {
     const first = await enable(f); expect(first.status).toBe(200);
     const originalInstallation = await first.json() as Installation;
@@ -281,7 +324,7 @@ describe('approved normal Dispatcher activation through existing management Enab
     await expectNoActivity(f.ctx);
   }));
 
-  it('REQ-OPERATOR-046/048: AC4 retry after uncertain upload creates a fresh candidate without mutating the retained orphan', () => withActivation(async f => {
+  it('REQ-OPERATOR-046/048: AC6 retry after uncertain upload creates a fresh candidate without mutating the retained orphan', () => withActivation(async f => {
     f.platform.setFault('upload-uncertain');
     expect((await enable(f)).status).toBeGreaterThanOrEqual(400);
     expect([...f.platform.scripts.values()]).toEqual([expect.objectContaining({ name: expect.any(String) })]);
@@ -302,7 +345,7 @@ describe('approved normal Dispatcher activation through existing management Enab
 
   it.each<DispatcherPlatformFault>(['upload-denied', 'upload-uncertain', 'active-version-missing', 'subdomain-denied',
     'changed-module', 'foreign-parent', 'non-sqlite', 'active-version-drift', 'version-unavailable', 'wrong-installation', 'wrong-limit'])(
-    'REQ-OPERATOR-030/044/046/048: AC4 %s cannot enable or expose platform/connection credentials', fault => withActivation(async f => {
+    'REQ-OPERATOR-030/044/046/048: AC6 %s cannot enable or expose platform/connection credentials', fault => withActivation(async f => {
       const logs = captureLogs();
       f.platform.setFault(fault);
       const response = await enable(f);
@@ -328,7 +371,7 @@ describe('approved normal Dispatcher activation through existing management Enab
     }));
 
   it.each<DispatcherPlatformFault>(['changed-module', 'foreign-parent', 'non-sqlite', 'active-version-drift', 'version-unavailable'])(
-    'REQ-OPERATOR-046/048: AC4 matching connection with %s drift fails verification without overwriting the deployment', fault => withActivation(async f => {
+    'REQ-OPERATOR-046/048: AC5/6 matching connection with %s drift fails verification without overwriting the deployment', fault => withActivation(async f => {
       const initial = await enable(f); expect(initial.status).toBe(200);
       const enabled = await initial.json() as Installation;
       const disabled = await f.request(`/installations/${enabled.id}/enable`, 'POST', { revision: enabled.revision, enabled: false });
@@ -345,7 +388,7 @@ describe('approved normal Dispatcher activation through existing management Enab
     }));
 
   it.each(['stale', 'foreign', 'invoker', 'csrf', 'caller-account', 'caller-script', 'caller-url', 'caller-service'] as const)(
-    'REQ-OPERATOR-045/046: AC2/4 %s Enable is refused before any protected Cloudflare upload', variant => withActivation(async f => {
+    'REQ-OPERATOR-045/046: AC2/6 %s Enable is refused before any protected Cloudflare upload', variant => withActivation(async f => {
       const before = await f.detail();
       const body: Record<string, unknown> = { revision: f.installation.revision, enabled: true };
       let csrf = true;
@@ -367,25 +410,32 @@ describe('approved normal Dispatcher activation through existing management Enab
     }));
 
   it.each(['missing-account', 'invalid-account', 'missing-parent', 'missing-token', 'missing-encryption', 'invalid-encryption'] as const)(
-    'REQ-OPERATOR-030/045/046: AC4 %s configuration fails closed without protected upload', variant => withActivation(async f => {
+    'REQ-OPERATOR-030/045/046: AC6 %s configuration fails closed without protected upload', variant => withActivation(async f => {
       if (variant === 'missing-account') f.kv._store.delete('setup:account_id');
       if (variant === 'invalid-account') f.kv._store.set('setup:account_id', '../foreign-account');
       if (variant === 'missing-parent') delete f.bindings.CLOUDFLARE_WORKER_NAME;
       if (variant === 'missing-token') delete f.bindings.CLOUDFLARE_API_TOKEN;
       if (variant === 'missing-encryption') delete f.bindings.ENCRYPTION_KEY;
-      if (variant === 'invalid-encryption') f.bindings.ENCRYPTION_KEY = 'not-valid-key-material';
-      const response = await enable(f);
-      expect(response.status).toBeGreaterThanOrEqual(400);
+      if (variant === 'invalid-encryption') {
+        f.bindings.ENCRYPTION_KEY = 'not-valid-key-material';
+        try {
+          // Worker.fetch imports the configured key before entering the management HTTP error boundary.
+          await expect(enable(f)).rejects.toThrow();
+        } finally { f.bindings.ENCRYPTION_KEY = encryption.ENCRYPTION_KEY; }
+      } else {
+        const response = await enable(f);
+        expect(response.status).toBeGreaterThanOrEqual(400);
+      }
       expect((await f.detail()).installations[0]).toMatchObject({ enabled: false, policy, configuration });
       expect(f.platform.writes).toEqual([]);
       await expectNoActivity(f.ctx);
     }));
 
   it.each(['missing-bytes', 'digest-mismatch', 'invalid-schema', 'unapproved-release', 'source-mismatch', 'missing-compiler'] as const)(
-    'REQ-OPERATOR-030/044/046: AC4 %s artifact cannot cause any protected upload', variant => withActivation(async f => {
+    'REQ-OPERATOR-030/044/046: AC6 %s artifact cannot cause any protected upload', variant => withActivation(async f => {
       if (variant === 'missing-bytes') f.ctx.storage.sql.exec('DELETE FROM operator_bytes WHERE digest=?', f.release.bundleDigest);
       else if (variant === 'digest-mismatch') f.ctx.storage.sql.exec('UPDATE operator_bytes SET bytes=? WHERE digest=?',
-        new TextEncoder().encode('{"schemaVersion":2,"bindings":{"SECRET":"must-not-deploy"}}').buffer, f.release.bundleDigest);
+        new TextEncoder().encode('not-json-must-not-deploy').buffer, f.release.bundleDigest);
       else if (variant === 'invalid-schema') {
         // Corrupt retained storage with a self-consistent byte digest: the activation boundary must still parse the schema.
         const original = await f.registry.getManagementBundle(f.release.bundleDigest);
@@ -413,7 +463,7 @@ describe('approved normal Dispatcher activation through existing management Enab
       await expectNoActivity(f.ctx);
     }));
 
-  it('REQ-OPERATOR-046: AC1/4 unpromoted acquired release never provisions or becomes enabled', () => withActivation(async f => {
+  it('REQ-OPERATOR-046: AC1/6 unpromoted acquired release never provisions or becomes enabled', () => withActivation(async f => {
     const before = await f.detail();
     expect(before.releases[0]).toMatchObject({ approved: false });
     expect((await enable(f)).status).toBe(409);
@@ -423,7 +473,7 @@ describe('approved normal Dispatcher activation through existing management Enab
   }, { promote: false }));
 
   it.each(['identity-revoked', 'identity-expired', 'controls-changed', 'operator-grants-changed', 'installation-changed'] as const)(
-    'REQ-OPERATOR-045/046: AC3/4 %s during account lookup is rechecked before protected upload', variant => withActivation(async f => {
+    'REQ-OPERATOR-045/046: AC3/6 %s during account lookup is rechecked before protected upload', variant => withActivation(async f => {
       let accountLookupSettled = false;
       f.beforeAccountRead(async () => {
         accountLookupSettled = true;
@@ -454,7 +504,7 @@ describe('approved normal Dispatcher activation through existing management Enab
     }));
 
   it.each(['identity-revoked', 'identity-expired', 'controls-changed', 'operator-changed', 'installation-changed'] as const)(
-    'REQ-OPERATOR-045/046: AC3/4 %s after upload cannot select a connection or enable late work', variant => withActivation(async f => {
+    'REQ-OPERATOR-045/046: AC3/6 %s after upload cannot select a connection or enable late work', variant => withActivation(async f => {
       f.platform.afterUpload(async () => {
         if (variant === 'identity-revoked') identityCurrent = false;
         if (variant === 'identity-expired') identityExpiry = Math.floor(Date.now() / 1000) - 1;
@@ -484,7 +534,7 @@ describe('approved normal Dispatcher activation through existing management Enab
       await expectNoActivity(f.ctx);
     }));
 
-  it('REQ-OPERATOR-045/046: AC3/4 revocation during actual version verification cannot enable an uploaded Worker', () => withActivation(async f => {
+  it('REQ-OPERATOR-045/046: AC3/6 revocation during actual version verification cannot enable an uploaded Worker', () => withActivation(async f => {
     let versionReadSettled = false;
     f.platform.beforeVersionRead(async () => { versionReadSettled = true; identityCurrent = false; });
     const response = await enable(f);
@@ -497,7 +547,7 @@ describe('approved normal Dispatcher activation through existing management Enab
     await expectNoActivity(f.ctx);
   }));
 
-  it('REQ-OPERATOR-046/048: AC2/4 concurrent Enable attempts select one runtime without overwriting selected code or namespace', () => withActivation(async f => {
+  it('REQ-OPERATOR-046/048: AC2/6 concurrent Enable attempts select one runtime without overwriting selected code or namespace', () => withActivation(async f => {
     const uploaded = deferred(); const release = deferred();
     let firstUpload = true;
     f.platform.afterUpload(async () => {

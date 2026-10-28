@@ -561,9 +561,12 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 1. Discovery never approves or enables, and approval never enables. <!-- @impl: src/operators/registry.ts::OperatorRegistry.replaceManagementReleases --> <!-- @impl: src/operators/registry.ts::OperatorRegistry.promoteManagementInstallation --> <!-- @test: src/__tests__/operators/operator-promotion.test.ts (REQ-OPERATOR-046) -->
 2. Mutations require the current revision and persist exact approved release and configuration bytes. <!-- @impl: src/operators/registry.ts::OperatorRegistry.promoteManagementInstallation --> <!-- @impl: src/operators/registry.ts::OperatorRegistry.configureManagementInstallation --> <!-- @test: src/__tests__/operators/operator-promotion.test.ts (REQ-OPERATOR-046) -->
 3. A source or trust change disables subsequent starts, and a retained approved release can be selected for rollback. <!-- @impl: src/operators/registry.ts::OperatorRegistry.setManagementSource --> <!-- @impl: src/operators/registry.ts::OperatorRegistry.promoteManagementInstallation --> <!-- @test: src/__tests__/operators/operator-promotion.test.ts (REQ-OPERATOR-046) -->
-4. Enabling an approved normal Dispatcher through the existing management operation provisions its exact acquired normal deployment when no matching connection exists, protects the installation-only connection secret and independently verifies platform facts before enabling. Existing matching connections are verified without replacement. Stale or lost authority, upload uncertainty and failed verification cannot enable work or overwrite a previously selected runtime. Upgrades retain original deployment endpoints and SDK storage. <!-- @test: src/__tests__/operators/dispatcher-activation.test.ts (REQ-OPERATOR-046) -->
+4. Enabling an approved normal Dispatcher provisions its exact acquired deployment when no matching connection exists, protects the installation-only secret and independently verifies platform facts before enabling. <!-- @impl: src/operators/dispatcher-deployment.ts::provisionDispatcherDeployment --> <!-- @test: src/__tests__/operators/dispatcher-activation.test.ts (REQ-OPERATOR-046) -->
+5. A matching existing connection is verified and reused without replacing its runtime. <!-- @impl: src/routes/operator-management.ts --> <!-- @test: src/__tests__/operators/dispatcher-activation.test.ts (matching connection verifies and reuses) -->
+6. Stale or lost authority, upload uncertainty and verification failure cannot enable work or overwrite a previously selected runtime. <!-- @impl: src/routes/operator-management.ts --> <!-- @test: src/__tests__/operators/dispatcher-activation.test.ts (REQ-OPERATOR-046) -->
+7. Upgrades retain original deployment endpoints, configuration history and SDK storage. <!-- @impl: src/operators/dispatcher-deployment.ts::provisionDispatcherDeployment --> <!-- @test: src/__tests__/operators/dispatcher-activation.test.ts (REQ-OPERATOR-046) -->
 
-**Notes:** Existing promotion is implemented; the newly approved normal-deployment activation handoff awaits behavioral RED, implementation and exact-head GREEN.
+**Notes:** Activation and its qualification boundary are documented in [Trusted Dispatcher hosting](../../documentation/lanes/operators.md#normal-dispatcher-hosting).
 
 **Constraints:** Promotion never expands installation policy or caller authority.
 
@@ -571,7 +574,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-044](#req-operator-044-github-immutable-package-acquisition)
 
-**Verification:** Existing promotion regressions remain; the complete normal-activation HTTP/platform-wire regression batch and exact-head CI are required before claiming the new handoff delivered.
+**Verification:** Existing promotion and normal-activation HTTP/platform-wire regressions cover these contracts. CI has demonstrated the missing-handoff RED state; the implementation and corrected coverage require exact-head GREEN. Hosted lifecycle acceptance remains separate.
 
 **Status:** Planned
 

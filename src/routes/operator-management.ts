@@ -8,7 +8,7 @@ import { getAllUsers } from '../lib/access-policy';
 import { SETUP_KEYS } from '../lib/kv-keys';
 import { operatorCapabilityChoices } from '../operators/distribution';
 import { inferencePolicySchema } from '../operators/policy';
-import { verifyDispatcherDeployment, type DispatcherDeploymentVerification } from '../operators/dispatcher-deployment';
+import { provisionDispatcherDeployment, verifyDispatcherDeployment, type DispatcherDeploymentVerification } from '../operators/dispatcher-deployment';
 import { MAX_SOURCE_RESPONSE_BYTES, sourceResponseBytes } from '../operators/dispatcher-source-limits';
 import { MAX_INFERENCE_REQUEST_BYTES } from '../operators/dispatcher-inference-limits';
 import { pickDispatcherCapacities } from '../operators/dispatcher-capacity-limits';
@@ -350,16 +350,68 @@ app.post('/installations/:installationId/enable', async c => {
   const { installation, operator } = await managedInstallation(c);
   if (input.enabled) withinCeiling(c.get('operatorHuman'), installation.policy);
   let verification: DispatcherDeploymentVerification | undefined;
+  let expectedRevision = input.revision;
   if (input.enabled && operator.profile === 'dispatcher') {
-    const connection = await c.get('registry').getConfiguredDispatcherConnection(installation.id);
-    if (connection) {
-      const bytes = await c.get('registry').getManagementBundle(connection.bundleDigest);
-      if (!bytes) throw new AppError('CONFLICT', 409, 'Dispatcher artifact unavailable');
-      try { verification = await verifyDispatcherDeployment(c.env, connection, bytes, submissionAttemptLimit(operator.policy)); }
-      catch { throw new AppError('CONFLICT', 409, 'Dispatcher deployment verification failed'); }
+    const registry = c.get('registry');
+    const conflict = (): never => { throw new AppError('CONFLICT', 409, 'Dispatcher activation state changed or unavailable'); };
+    const selection = result(await registry.resolveManagementConfiguration(installation.id));
+    if (selection.installation.revision !== expectedRevision || selection.operator.revision !== operator.revision) conflict();
+    const bytes = await registry.getManagementBundle(selection.release.bundleDigest);
+    if (!bytes) throw new AppError('CONFLICT', 409, 'Dispatcher artifact unavailable');
+    const digest = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', Uint8Array.from(bytes))))
+      .map(byte => byte.toString(16).padStart(2, '0')).join('');
+    if (digest !== selection.release.bundleDigest) return conflict();
+    // Match the Registry's historical approval boundary only after integrity has been established.
+    let schema: unknown;
+    try { schema = JSON.parse(new TextDecoder().decode(bytes)); } catch { /* opaque historical approval */ }
+    if (schema && typeof schema === 'object' && 'schemaVersion' in schema && schema.schemaVersion === 2) {
+      const compilerCommit = selection.release.provenance.compilerCommit;
+      if (typeof compilerCommit !== 'string' || !/^[0-9a-f]{40}$/.test(compilerCommit)) return conflict();
+      const pin = { releaseId: selection.release.id, sourceCommit: selection.release.sourceCommit,
+        compilerCommit, manifestDigest: selection.release.manifestDigest, bundleDigest: selection.release.bundleDigest };
+      const originalExpiry = c.get('operatorHuman').human.expiresAt * 1000;
+      const controlsRevision = c.get('operatorHuman').controls.revision;
+      const refreshHuman = acquisitionContext(c).reauthorize;
+      const reauthorize = async () => {
+        const human = await refreshHuman();
+        if (Date.now() >= originalExpiry || Date.now() >= human.expiresAt * 1000) denied();
+        const freshOperator = await managed(c, operator.id);
+        const fresh = result(await registry.resolveManagementConfiguration(installation.id));
+        if (freshOperator.revision !== operator.revision || fresh.operator.revision !== operator.revision
+          || fresh.controlsRevision !== controlsRevision || fresh.installation.revision !== expectedRevision
+          || fresh.release.id !== pin.releaseId || fresh.release.sourceCommit !== pin.sourceCommit
+          || fresh.release.provenance.compilerCommit !== pin.compilerCommit
+          || fresh.release.manifestDigest !== pin.manifestDigest || fresh.release.bundleDigest !== pin.bundleDigest) conflict();
+        withinCeiling(c.get('operatorHuman'), fresh.installation.policy);
+        if (!fresh.release.requestedCapabilities.every(capability => fresh.installation.policy.capabilities.includes(capability)
+          && c.get('operatorHuman').controls.ceiling.capabilities.includes(capability))) conflict();
+      };
+      await reauthorize();
+      const connection = selection.installation.dispatcherConnection;
+      if (connection?.releaseId === pin.releaseId) {
+        if (connection.sourceCommit !== pin.sourceCommit || connection.compilerCommit !== pin.compilerCommit
+          || connection.manifestDigest !== pin.manifestDigest || connection.bundleDigest !== pin.bundleDigest) conflict();
+        try { verification = await verifyDispatcherDeployment(c.env, connection, bytes, submissionAttemptLimit(operator.policy), reauthorize); }
+        catch { throw new AppError('CONFLICT', 409, 'Dispatcher deployment verification failed'); }
+      } else {
+        // Independent verification precedes Registry selection; losing/uncertain candidates never replace old SDK storage.
+        let candidate: Awaited<ReturnType<typeof provisionDispatcherDeployment>>;
+        try {
+          candidate = await provisionDispatcherDeployment(c.env, { ...pin, installationId: installation.id,
+            connectionRevision: (connection?.connectionRevision ?? 0) + 1 }, bytes, submissionAttemptLimit(operator.policy), reauthorize);
+        } catch { throw new AppError('CONFLICT', 409, 'Dispatcher deployment could not be established'); }
+        await reauthorize();
+        const configured = result(await registry.configureManagementDispatcherConnection(installation.id, {
+          ...pin, revision: expectedRevision, connectionSecret: candidate.connectionSecret,
+          workerName: candidate.connection.workerName, workerVersionId: candidate.connection.workerVersionId,
+        }, authority(c, operator)));
+        expectedRevision = configured.revision;
+        verification = candidate.verification;
+      }
+      await reauthorize();
     }
   }
-  const enabled = result(await c.get('registry').setManagementInstallationEnabled(installation.id, input.enabled, input.revision, authority(c, operator), verification));
+  const enabled = result(await c.get('registry').setManagementInstallationEnabled(installation.id, input.enabled, expectedRevision, authority(c, operator), verification));
   return c.json(presentInstallation(enabled));
 });
 
