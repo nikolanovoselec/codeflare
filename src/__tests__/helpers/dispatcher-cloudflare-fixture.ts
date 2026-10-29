@@ -77,7 +77,7 @@ export function createDispatcherCloudflareFixture() {
       if (!script) return missing();
       if (suffix === '/settings' && request.method === 'GET') {
         const observability = settingsOverride ? settingsOverride.value : script.metadata.observability;
-        return ok({ ...(observability === undefined ? {} : { observability: structuredClone(observability) }) });
+        return ok(observability === undefined ? {} : { observability: structuredClone(observability) });
       }
       if (suffix === '/subdomain') {
         if (request.method === 'POST') {

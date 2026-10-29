@@ -25,7 +25,7 @@ function valueOf(records: RawRecord[]) {
 afterEach(() => { vi.restoreAllMocks(); setLogLevel('silent'); });
 
 describe('protected raw execution logging through the existing diagnostic entrypoint', () => {
-  it.each(['info', 'error', 'silent'] as const)('REQ-OPERATOR-079: AC7/8 admitted raw capture survives global level %s with complete large Unicode and noncredential data', level => {
+  it.each(['info', 'error', 'silent'] as const)('REQ-OPERATOR-090: AC2/3 admitted raw capture survives global level %s with complete large Unicode and noncredential data', level => {
     const records = capture(); setLogLevel(level);
     const payload = { text: '🦊é漢字'.repeat(12_001) + 'END_OF_RAW_VALUE', email: 'actual-owner@example.test',
       prompt: 'Keep the original task', toolName: 'arbitrary_domain_tool', requestId: 'original-request' };
@@ -33,7 +33,7 @@ describe('protected raw execution logging through the existing diagnostic entryp
     expect(valueOf(records())).toEqual(payload);
   });
 
-  it('REQ-OPERATOR-079: AC7/8 retains deep objects, every array element and every object entry without inspection cutoffs', () => {
+  it('REQ-OPERATOR-090: AC2/3 retains deep objects, every array element and every object entry without inspection cutoffs', () => {
     const records = capture();
     const entries = Object.fromEntries(Array.from({ length: 151 }, (_, index) => [`field-${index}`, `value-${index}`]));
     const array = Array.from({ length: 151 }, (_, index) => ({ index, result: `tool-output-${index}` }));
@@ -42,14 +42,14 @@ describe('protected raw execution logging through the existing diagnostic entryp
     expect(valueOf(records())).toEqual(payload);
   });
 
-  it('REQ-OPERATOR-079: AC7/8 emits all admitted events without sampling or an event-count budget', () => {
+  it('REQ-OPERATOR-090: AC2/3 emits all admitted events without sampling or an event-count budget', () => {
     const records = capture();
     const events = Array.from({ length: 2051 }, (_, index) => ({ type: 'public-sdk-event', index, output: `raw-${index}` }));
     for (const event of events) emit(event);
     expect(records().map(record => record.data.value)).toEqual(events);
   });
 
-  it('REQ-OPERATOR-079: AC7 preserves original Error messages, stacks, deep causes, AggregateError members and non-Error throws', () => {
+  it('REQ-OPERATOR-090: AC2 preserves original Error messages, stacks, deep causes, AggregateError members and non-Error throws', () => {
     const records = capture();
     const origin = new Error('ORIGINAL_UNICODE_é🦊'); origin.stack = 'Error: ORIGINAL_UNICODE_é🦊\n at original (service.ts:17:9)';
     const nested = new Error('CATCHING_FAILURE', { cause: new Error('INTERMEDIATE', { cause: origin }) });
@@ -68,14 +68,14 @@ describe('protected raw execution logging through the existing diagnostic entryp
   });
 
   it.each([null, undefined, 'plain thrown value', 73, false, { reason: 'nonError', nested: { original: true } }])(
-    'REQ-OPERATOR-079: AC7 non-Error raw value %# remains explicit rather than disappearing', raw => {
+    'REQ-OPERATOR-090: AC2 non-Error raw value %# remains explicit rather than disappearing', raw => {
       const records = capture(); emit(raw);
       const observed = valueOf(records());
       if (raw === undefined) expect(JSON.stringify(observed)).toMatch(/undefined/i);
       else expect(observed).toEqual(raw);
     });
 
-  it('REQ-OPERATOR-079: AC7 cycles and repeated shared objects are explicit without losing noncyclic neighbors', () => {
+  it('REQ-OPERATOR-090: AC2 cycles and repeated shared objects are explicit without losing noncyclic neighbors', () => {
     const records = capture();
     const shared = { marker: 'SHARED_RAW_VALUE', deep: { leaf: 'RETAINED_LEAF' } };
     const cyclic: Record<string, unknown> = { first: shared, second: shared, neighbor: 'RETAINED_NEIGHBOR' };
@@ -117,7 +117,7 @@ describe('protected raw execution logging through the existing diagnostic entryp
     expect(JSON.stringify(observed)).toMatch(/accessor|unavailable|getter/i);
   });
 
-  it('REQ-OPERATOR-079: AC7 circular Error causes remain explicit while retaining original messages and stacks', () => {
+  it('REQ-OPERATOR-090: AC2 circular Error causes remain explicit while retaining original messages and stacks', () => {
     const records = capture();
     const error = new Error('CYCLIC_ERROR_ORIGIN'); error.stack = 'Error: CYCLIC_ERROR_ORIGIN\n at KEEP_CYCLE_FRAME (cycle.ts:7:1)';
     error.cause = error; emit(error);
@@ -126,13 +126,15 @@ describe('protected raw execution logging through the existing diagnostic entryp
     expect(JSON.stringify(observed.cause)).toMatch(/reference|ref|circular/i);
   });
 
-  it('REQ-OPERATOR-079: AC7 redacts nested credential fields, auth, cookies, signed URLs and stringified JSON but preserves adjacent raw data', () => {
+  it('REQ-OPERATOR-090: AC4 redacts nested credential fields, auth, cookies, signed URLs and stringified JSON but preserves adjacent raw data', () => {
     const records = capture();
     const secrets = ['credential-password-value', 'credential-access-token', 'credential-api-key', 'credential-cookie-value',
-      'credential-url-user', 'credential-url-password', 'credential-signature', 'credential-json-secret'];
+      'credential-url-user', 'credential-url-password', 'credential-signature', 'credential-json-secret',
+      'credential-cf-access-jwt-value', 'credential-access-key-id-value'];
     const raw = { text: 'NORMAL_RAW_TEXT', nested: { password: secrets[0], access_token: secrets[1], apiKey: secrets[2], keep: 'KEEP_NESTED' },
       headers: { Authorization: `Bearer ${secrets[1]}`, Cookie: `session=${secrets[3]}`, 'Set-Cookie': `session=${secrets[3]}; HttpOnly`,
-        'content-type': 'application/json', 'x-request-id': 'KEEP_REQUEST_ID' },
+        'cf-access-jwt-assertion': secrets[8], 'content-type': 'application/json', 'x-request-id': 'KEEP_REQUEST_ID' },
+      accessKeyId: secrets[9], thinkingSignature: 'KEEP_TRANSCRIPT_SIGNATURE',
       url: `https://${secrets[4]}:${secrets[5]}@service.example.test/path?X-Amz-Signature=${secrets[6]}&label=KEEP_QUERY`,
       body: JSON.stringify({ client_secret: secrets[7], description: 'KEEP_JSON_NEIGHBOR', deep: { toolOutput: 'KEEP_TOOL_OUTPUT' } }) };
     emit(raw);
@@ -140,11 +142,11 @@ describe('protected raw execution logging through the existing diagnostic entryp
     const wire = JSON.stringify(observed);
     for (const secret of secrets) expect(wire).not.toContain(secret);
     for (const retained of ['NORMAL_RAW_TEXT', 'KEEP_NESTED', 'application/json', 'KEEP_REQUEST_ID',
-      'service.example.test/path', 'label=KEEP_QUERY', 'KEEP_JSON_NEIGHBOR', 'KEEP_TOOL_OUTPUT']) expect(wire).toContain(retained);
+      'service.example.test/path', 'label=KEEP_QUERY', 'KEEP_JSON_NEIGHBOR', 'KEEP_TOOL_OUTPUT', 'KEEP_TRANSCRIPT_SIGNATURE']) expect(wire).toContain(retained);
     expect(raw.nested.password).toBe(secrets[0]); // Redaction cannot mutate the functional input.
   });
 
-  it('REQ-OPERATOR-079: AC7 known credential literals echoed in messages, stacks and unrelated string fields are redacted', () => {
+  it('REQ-OPERATOR-090: AC4 known credential literals echoed in messages, stacks and unrelated string fields are redacted', () => {
     const records = capture();
     const credential = 'echoed-sensitive-credential-47';
     const error = new Error(`Provider refused ${credential} while processing KEEP_ERROR_CONTEXT`);
@@ -157,7 +159,7 @@ describe('protected raw execution logging through the existing diagnostic entryp
     expect(error.message).toContain(credential);
   });
 
-  it('REQ-OPERATOR-079: AC4 OFF does not evaluate even a throwing lazy raw supplier and preserves output and original thrown values', async () => {
+  it('REQ-OPERATOR-090: AC1 OFF does not evaluate even a throwing lazy raw supplier and preserves output and original thrown values', async () => {
     const records = capture(); let effect = 'not evaluated';
     const disabled = { ...admitted, loggingEnabled: false };
     const diagnostic = () => Reflect.apply(inferenceDiagnostic, undefined, [disabled, metadata, () => {

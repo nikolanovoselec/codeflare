@@ -1118,7 +1118,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 <a id="req-operator-079-shared-execution-diagnostic-control"></a>
 ### REQ-OPERATOR-079: Shared execution diagnostic control
 
-**Intent:** Users control complete private execution logging with one admitted setting, while bounded diagnostic projections remain non-authorizing.
+**Intent:** Users control execution diagnostics together while retaining bounded, private, non-authorizing failure observations.
 
 **Applies To:** User
 
@@ -1130,18 +1130,16 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 4. One admitted operator logging setting suppresses all execution diagnostic channels together, preserving effects, original failures, result fences and independent security audits. <!-- @impl: src/lib/inference-diagnostics.ts::inferenceDiagnostic --> <!-- @impl: src/operators/activity.ts::OperatorActivity.dispatcherOperation --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-049/078: one disabled logging setting suppresses execution diagnostics without changing fences or effects) --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-079: the real Tail entrypoint honors logging=%s without forwarding private child records) --> <!-- @test: src/__tests__/lib/bedrock-native-diagnostics.test.ts (REQ-OPERATOR-079: disabled native logging preserves successful=%s provider completion) -->
 5. One Enable logging checkbox saves the operator-wide boolean with existing revision/disable/re-enable fences; omitted settings retain enabled compatibility, independent of installation restrictions. <!-- @impl: web-ui/src/components/OperatorManagement.tsx::OperatorDetail --> <!-- @impl: src/operators/registry.ts::OperatorRegistry.setManagementCapabilities --> <!-- @test: web-ui/src/__tests__/operators/operator-management-flow.test.tsx (loads logging=%s through the public client and saves the single execution-diagnostics checkbox) --> <!-- @test: src/__tests__/operators/operator-access.test.ts (persists %s execution logging independently of installation restrictions and Environment limits) -->
 6. Response-tool observations expose bounded allowlisted argument shape, mark incomplete sampling and exclude private values or unknown names. <!-- @impl: src/lib/inference-diagnostics.ts::inferenceResponseObservation --> <!-- @test: src/__tests__/lib/inference-diagnostics.test.ts (reconstructs fragmented SSE arguments and emits only allowlisted shape metadata) --> <!-- @test: src/__tests__/lib/inference-diagnostics.test.ts (classifies malformed or non-object arguments without exposing their content: %s) --> <!-- @test: src/__tests__/lib/inference-diagnostics.test.ts (marks call-cap overflow sampled and does not claim complete argument shape) --> <!-- @test: src/__tests__/lib/inference-diagnostics.test.ts (marks %s sampling without inventing complete argument observations) --> <!-- @test: src/__tests__/lib/inference-diagnostics.test.ts (suppresses response-shape logs when the admitted logging setting is disabled) -->
-7. Logging enabled captures raw technical execution detail in protected runtime logs: admission and configured-owner profile stages, requests and responses, available public SDK events, tool inputs and outputs, and original errors with cause chains and stacks. Generic refusals or fingerprints do not replace the original captured failure. Credentials, authorization headers, cookies, passwords and signed credential material are redacted. Logging disabled suppresses this optional capture; admitted runs retain their original setting. <!-- @test: src/__tests__/lib/operator-raw-logging.test.ts (REQ-OPERATOR-079: AC7/8 admitted raw capture survives global level %s with complete large Unicode and noncredential data) --> <!-- @test: host/__tests__/operator-inference-raw.test.js (REQ-OPERATOR-079: AC7 authenticated ON transport captures the first owner lookup original error causes stacks and unbounded detail before the same 403) -->
-8. Enabled execution logs are persisted through the supported Cloudflare observability configuration for the actual Host and installed Flue Worker, rather than depending on an attached live tail. Correlation identifies the actual Activity, generation, request and available SDK submission. Application logging introduces no truncation, depth limit, sampling or event-count cap. Only unavoidable platform logging limits may cut off output; known platform loss or unavailable evidence is explicit, never silently presented as complete. Capture uses supported application/public SDK interfaces, requires no interactive session start, and cannot change authorization, response bytes, effects, cancellation, deadlines, SDK storage or settlement. <!-- @test: src/__tests__/operators/dispatcher-activation.test.ts (REQ-OPERATOR-030/044/045/046/079: provision requests complete persisted logs and traces at sampling one on the actual public upload wire) --> <!-- @test: src/__tests__/operators/dispatcher-activation.test.ts (REQ-OPERATOR-046/079: actual settings readback qualifies logging readiness separately from exact immutable deployment identity) -->
 
 **Constraints:**
 
 - Diagnostic privacy, trusted correlation and non-authorizing pipeline boundaries follow [REQ-OPERATOR-078](#req-operator-078-correlated-inference-pipeline-diagnostics).
 - Producer bodies are limited to2048bytes per report.
 - Each live generation permits2048 non-failed and64 failed producer reports independently of eight legacy reports.
-- Bounded SDK tool projections cap at2048; their opaque correlations remain private. Protected raw runtime logs may retain correlation identifiers supplied by the public SDK, never credential material.
-- Settlement fingerprints hash only the observed reason; readable codes in bounded diagnostic projections require exact public implementation errors. They supplement rather than replace enabled raw execution logs.
-- The no-private-body/raw-error constraints on bounded producer reports, owner diagnostic APIs and pipeline metadata remain unchanged. They do not suppress the protected raw runtime logs explicitly requested under AC7. Raw capture does not widen log access, tenant access or execution authority.
-- Bounded metadata projections retain their existing limits. Protected raw logging adds no application-side truncation, depth limit, sampling or event-count cap; credential redaction is not truncation. Unavoidable platform logging limits and delivery failures remain possible. Existing authorization and functional request/response limits remain unchanged. Logging failures cannot replace the original execution failure or consume the application's response stream.
+- Bounded SDK tool observations cap at2048; opaque correlations remain private.
+- Settlement fingerprints hash only the observed reason; readable codes require exact public implementation errors.
+- Unknown/private suffixes never become bounded diagnostic error text.
+- Bounded logging is best-effort, not guaranteed delivery; separate protected raw capture follows [REQ-OPERATOR-090](#req-operator-090-protected-raw-execution-logs).
 - Changed-setting saves disable enabled installations for new runs until explicit re-enablement; effective no-ops preserve enablement.
 - Admitted runs retain their original logging configuration; security audits remain independent.
 
@@ -1149,7 +1147,7 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 **Dependencies:** [REQ-OPERATOR-078](#req-operator-078-correlated-inference-pipeline-diagnostics), [REQ-OPERATOR-049](#req-operator-049-operators-management-interface)
 
-**Verification:** Existing adjacent bounded producer-wire, SDK-tool, settlement and management coverage does not qualify the newly requested raw execution logging. The complete Worker and Host test-only batches are authored, not executed: ON/OFF, original-error, credential-redaction, full payload/event capture without application-side truncation, capture-failure reporting and noninterference. RED, implementation and exact-source GREEN remain unverified. Reviewed deployment, actual persisted logs and genuine end-to-end acceptance remain separate gates.
+**Verification:** Existing bounded producer-wire, SDK-tool, settlement and management coverage remains distinct from raw capture. Root9d exercised genuine RED, including a pre-SDK setup barrier; candidate source awaits final exact-head CI and hosted acceptance. Raw capture qualification is tracked under REQ-OPERATOR-090.
 
 **Status:** Planned
 
@@ -2832,6 +2830,40 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 **Dependencies:** [REQ-OPERATOR-063](#req-operator-063-bounded-dispatcher-diagnostics), [REQ-OPERATOR-078](#req-operator-078-correlated-inference-pipeline-diagnostics), [REQ-OPERATOR-081](#req-operator-081-retained-dispatcher-causal-evidence)
 
 **Verification:** Automated test
+
+**Status:** Planned
+
+---
+
+### REQ-OPERATOR-090: Protected raw execution logs
+
+**Intent:** Preserve complete credential-redacted execution evidence in supported protected runtime logs, independently of bounded diagnostic projections.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. The original admitted logging boolean controls raw capture independently of global log level; OFF never evaluates the lazy supplier. Later settings changes cannot rewrite that decision. <!-- @impl: src/lib/inference-diagnostics.ts::inferenceDiagnostic --> <!-- @test: src/__tests__/lib/operator-raw-logging.test.ts (REQ-OPERATOR-090: AC1 OFF does not evaluate even a throwing lazy raw supplier and preserves output and original thrown values) --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-090: AC1/2 original admitted logging=%s controls full request and SDK response despite mutable current setting) -->
+2. Enabled capture retains original errors, causes and stacks, admission/profile evidence, requests, responses, available public SDK events and tool inputs/outputs before generic refusals. <!-- @impl: host/src/operator-inference.ts::ownerInference --> <!-- @test: host/__tests__/operator-inference-raw.test.js (REQ-OPERATOR-090: authenticated ON transport captures the first owner lookup original error causes stacks and unbounded detail before the same 403) --> <!-- @impl: src/operators/dispatcher-owner-inference.ts::send --> <!-- @impl: src/operators/activity.ts::OperatorActivity.admitDispatcher --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-007/090/081/082/083: profile $failure with logging=$loggingEnabled retains original evidence before generic admission refusal) --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-090: AC1/2 admission and protected tool input/output logging=%s preserve full raw content and the original single remote effect) -->
+3. Application capture adds no string, depth, array, entry, sampling or event-count cutoff. Inaccessible evidence and capture failures remain explicit when output is available; platform delivery limits are not completeness proof. <!-- @impl: host/src/operator-raw-logging.ts::emitRaw --> <!-- @test: src/__tests__/lib/operator-raw-logging.test.ts (REQ-OPERATOR-090: AC2/3 retains deep objects, every array element and every object entry without inspection cutoffs) --> <!-- @test: src/__tests__/lib/operator-raw-logging.test.ts (REQ-OPERATOR-090: AC2/3 emits all admitted events without sampling or an event-count budget) -->
+4. Credential-only redaction removes credential fields, known echoes, authorization, cookies, passwords and signed credential material while retaining adjacent noncredential evidence and original functional values. <!-- @impl: host/src/operator-raw-logging.ts::emitRaw --> <!-- @test: src/__tests__/lib/operator-raw-logging.test.ts (REQ-OPERATOR-090: AC4 redacts nested credential fields, auth, cookies, signed URLs and stringified JSON but preserves adjacent raw data) -->
+5. First-lookup preparation receives parent-owned Activity, generation and original logging decision as a separate trusted forwarding context; public/caller fields cannot replace owner, tenant, model, authentication or generation authority. <!-- @impl: src/operators/dispatcher-owner-inference.ts::send --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-003/007/047: trusted %s forwarding passes admitted logging as a separate exact RPC context) --> <!-- @test: src/__tests__/operators/loader-runtime.test.ts (REQ-OPERATOR-003/007/047/090: $operation delivers original logging=$loggingEnabled as a distinct native RPC argument without changing result authority) -->
+6. Actual Host and installed Worker use supported persisted, unsampled invocation logs without requiring a live tail or traces. Settings readback qualifies logging readiness separately from exact immutable deployment identity and cannot invalidate existing execution authority. <!-- @impl: src/operators/dispatcher-deployment.ts::provisionDispatcherDeployment --> <!-- @impl: src/operators/dispatcher-deployment.ts::verifyDispatcherDeployment --> <!-- @test: src/__tests__/operators/dispatcher-activation.test.ts (REQ-OPERATOR-030/044/045/046/090: provision requests complete persisted invocation logs at sampling one on the actual public upload wire) --> <!-- @test: src/__tests__/operators/dispatcher-activation.test.ts (REQ-OPERATOR-046/090: actual settings readback qualifies logging readiness separately from exact immutable deployment identity) -->
+7. Bodyless installation-authenticated policy reads prove the exact retained Activity/generation, deployment, receipt and original logging decision, including terminal runs and credential rotation; absent or malformed proof denies without mutable-setting fallback, dispatch, accounting, lease/status mutation or renewal. <!-- @impl: src/operators/activity.ts::OperatorActivity.dispatcherLoggingPolicy --> <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-003/047/090: exact original %s policy remains readable but grants no execution or current authority) -->
+
+**Constraints:**
+
+- Bounded producer, owner diagnostic and metadata wires retain all privacy limits; raw logs do not widen read access, tenant access or execution authority.
+- Use supported application/public SDK interfaces only; no interactive session, SDK storage/internal modification, new pin or dependency is required.
+- Original outcomes, authorization, request/response limits, deadlines, accounting, uncertainty fences and local cancellation remain unchanged; capture cannot consume functional streams. <!-- @test: src/__tests__/operators/dispatcher-production.test.ts (REQ-OPERATOR-090/082: throwing raw console cannot change configured-owner response bytes or replace the original transport failure) -->
+- Platform logging loss remains possible and explicit when known; unavailable output cannot certify completeness or identify an uncaptured historical cause.
+- Passive terminal policy disclosure is not work authority. Missing or malformed original proof denies; current settings cannot repair it.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-OPERATOR-079](#req-operator-079-shared-execution-diagnostic-control), [REQ-OPERATOR-088](#req-operator-088-host-request-preparation-evidence), [REQ-OPERATOR-089](#req-operator-089-verified-preparation-attribution), [REQ-OPERATOR-082](#req-operator-082-diagnostic-fence-noninterference), [REQ-OPERATOR-003](#req-operator-003-principal-bound-activity-context), [REQ-OPERATOR-047](#req-operator-047-generic-directed-profile-admission), [REQ-OPERATOR-048](#req-operator-048-dispatcher-execution), [REQ-OPERATOR-087](#req-operator-087-protected-transport-cancellation)
+
+**Verification:** Root9d genuinely exercised RED: backend shard3 had53 failures, shard8 had20, and approved no-Flue nativeRPC had1 failure/5 passes. The first-lookup closed-context rejection was a pre-SDK setup barrier, not SDK runtime qualification. Candidate implementation is unexecuted locally; final exact-head CI, reviewed deployment, actual persisted-log readback and hosted acceptance remain required. Dispatcher b37c496 companion GREEN is separate evidence, not Root GREEN.
 
 **Status:** Planned
 

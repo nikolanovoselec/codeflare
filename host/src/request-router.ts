@@ -14,6 +14,7 @@ import { spawn } from 'node:child_process';
 import { checkContainerAuth } from './auth-check.js';
 import { ownerInference, OperatorInferenceRefusal, type OperatorInferenceOwner,
   type OperatorInferenceOwnerResolver } from './operator-inference.js';
+import { emitRaw, type RawLogContext } from './operator-raw-logging.js';
 import { getSyncStatus, getSystemMetrics, collectWorkspaceRepos, isWorkspaceInventoryReady } from './metrics.js';
 import { evaluateFinalSync } from './final-sync.js';
 import { AGENT_EVENT_LIMITS, type AgentEventDrainResult, type AgentEventKind } from './agent-events.js';
@@ -295,6 +296,7 @@ export function createRequestHandler(deps: RequestRouterDeps): (req: http.Incomi
       const cancelled = () => controller.abort();
       req.once('aborted', cancelled);
       res.once('close', cancelled);
+      let loggingContext: RawLogContext | undefined;
       try {
         let response: { status: number; body: string };
         if (method !== 'POST') {
@@ -312,7 +314,12 @@ export function createRequestHandler(deps: RequestRouterDeps): (req: http.Incomi
             if (typeof activity !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(activity)
               || typeof generation !== 'string' || !/^[1-9][0-9]{0,15}$/.test(generation)
               || !Number.isSafeInteger(Number(generation))) throw new OperatorInferenceRefusal(400);
-            owner = await configured(Buffer.from(JSON.stringify({ activityId: activity, generation: Number(generation) })), controller.signal);
+            const decision = req.headers['x-codeflare-operator-logging'];
+            if (decision === 'on' || decision === 'off') loggingContext = {
+              activityId: activity, generation: Number(generation), loggingEnabled: decision === 'on',
+              credentials: process.env.CONTAINER_AUTH_TOKEN ? [process.env.CONTAINER_AUTH_TOKEN] : [],
+            };
+            owner = await configured(Buffer.from(JSON.stringify({ activityId: activity, generation: Number(generation) })), controller.signal, loggingContext);
             bytes = await readBoundedBody(req, owner.maxRequestBytes, AbortSignal.any([controller.signal,
               AbortSignal.timeout(Math.max(1, Math.min(2_147_483_647, owner.deadline - Date.now())))]));
           } else {
@@ -323,13 +330,16 @@ export function createRequestHandler(deps: RequestRouterDeps): (req: http.Incomi
             if (bytes.byteLength > limit) throw new OperatorInferenceRefusal(413);
             owner = dynamic ? await configured(bytes, controller.signal) : configured;
           }
-          response = await ownerInference(owner, pathname.endsWith('/profile'), bytes, controller.signal);
+          emitRaw(loggingContext, 'owner-inference-request', () => ({ profile: pathname.endsWith('/profile'),
+            body: new TextDecoder().decode(bytes) }));
+          response = await ownerInference(owner, pathname.endsWith('/profile'), bytes, controller.signal, loggingContext);
         }
         if (!res.destroyed) {
           res.writeHead(response.status, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
           res.end(response.body);
         }
       } catch (error) {
+        emitRaw(loggingContext, 'owner-inference-failed', () => error);
         if (!res.destroyed) {
           res.writeHead(error instanceof OperatorInferenceRefusal ? error.status : 503,
             { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });

@@ -134,7 +134,7 @@ describe('REQ-OPERATOR-007/047/048: configured owner profile and inference over 
   it.each([
     { operation: 'discovery', loggingEnabled: true }, { operation: 'discovery', loggingEnabled: false },
     { operation: 'inference', loggingEnabled: true }, { operation: 'inference', loggingEnabled: false },
-  ] as const)('REQ-OPERATOR-003/007/047/079: $operation delivers original logging=$loggingEnabled as a distinct native RPC argument without changing result authority', ({ operation, loggingEnabled }) =>
+  ] as const)('REQ-OPERATOR-003/007/047/090: $operation delivers original logging=$loggingEnabled as a distinct native RPC argument without changing result authority', ({ operation, loggingEnabled }) =>
     withOwnerRpc({ operation, loggingEnabled }, async id => {
       const value = await ownerRpcUntil(id, value => value.outcome.status !== 'pending', 'trusted logging context native RPC');
       if (operation === 'discovery') expect(value.outcome).toEqual({ status: 'accepted', profile: rpcLogicalProfile });

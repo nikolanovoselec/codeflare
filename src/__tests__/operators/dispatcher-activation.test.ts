@@ -597,10 +597,9 @@ describe('approved normal Dispatcher activation through existing management Enab
 // an optional logging gap must NEVER invalidate existing execution authority.
 describe('persisted installed Worker execution log configuration', () => {
   const desired = { enabled: true, head_sampling_rate: 1,
-    logs: { enabled: true, head_sampling_rate: 1, invocation_logs: true, persist: true },
-    traces: { enabled: true, head_sampling_rate: 1, persist: true } };
+    logs: { enabled: true, head_sampling_rate: 1, invocation_logs: true, persist: true } };
 
-  it('REQ-OPERATOR-030/044/045/046/079: provision requests complete persisted logs and traces at sampling one on the actual public upload wire', () => withActivation(async f => {
+  it('REQ-OPERATOR-030/044/045/046/090: provision requests complete persisted invocation logs at sampling one on the actual public upload wire', () => withActivation(async f => {
     const response = await enable(f); expect(response.status).toBe(200);
     const active = await response.json() as Installation;
     const script = f.platform.scripts.get(active.dispatcherConnection!.workerName)!;
@@ -613,7 +612,7 @@ describe('persisted installed Worker execution log configuration', () => {
     await expectNoActivity(f.ctx);
   }));
 
-  it('REQ-OPERATOR-046/079: actual settings readback qualifies logging readiness separately from exact immutable deployment identity', () => withActivation(async f => {
+  it('REQ-OPERATOR-046/090: actual settings readback qualifies logging readiness separately from exact immutable deployment identity', () => withActivation(async f => {
     expect((await enable(f)).status).toBe(200);
     const selected = (await f.detail()).installations[0]!.dispatcherConnection!;
     f.platform.setObservability(desired);
@@ -639,10 +638,7 @@ describe('persisted installed Worker execution log configuration', () => {
     { name: 'invocation logs disabled', value: { ...desired, logs: { ...desired.logs, invocation_logs: false } } },
     { name: 'sampled logs', value: { ...desired, logs: { ...desired.logs, head_sampling_rate: 0.1 } } },
     { name: 'sampled global', value: { ...desired, head_sampling_rate: 0.1 } },
-    { name: 'traces disabled', value: { ...desired, traces: { ...desired.traces, enabled: false } } },
-    { name: 'nonpersisted traces', value: { ...desired, traces: { ...desired.traces, persist: false } } },
-    { name: 'sampled traces', value: { ...desired, traces: { ...desired.traces, head_sampling_rate: 0.1 } } },
-  ])('REQ-OPERATOR-046/048/079: $name is not observability-ready but cannot invalidate an exact deployment or existing runtime', ({ value }) => withActivation(async f => {
+  ])('REQ-OPERATOR-046/048/090: $name is not observability-ready but cannot invalidate an exact deployment or existing runtime', ({ value }) => withActivation(async f => {
     const first = await enable(f); expect(first.status).toBe(200);
     const enabled = await first.json() as Installation;
     const selected = enabled.dispatcherConnection!;

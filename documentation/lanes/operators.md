@@ -436,6 +436,14 @@ Forwarded HTTP409 preserves its body/running lease and differs from parent-fence
 
 Dispatcher-only Tail examines ≤64 events/128 log records and forwards ≤8 exact child-reported fetch-rejected or http-rejected integer300–599; arbitrary logs/exceptions/extra fields/prompts/bodies/IDs drop. Missing/delayed Tail proves nothing. The legacy variants of explicit POST `/v1/dispatcher/diagnostic` carry the same exact two JSON forms, ≤256 bytes/250ms and ≤8 valid logs per live instance/generation (transient reset on eviction, no durable ledger). Trusted binding correlates; wrong route/method/type/syntax/status/size/unfinished/stale denies. Best-effort failure cannot replace original inference error, postpone settlement indefinitely, renew authority or mutate cleanup/results. <!-- @impl: src/operators/activity.ts::readDispatcherDiagnostic --> <!-- @impl: src/operators/activity.ts::OperatorActivity.dispatcherDiagnosticReport -->
 
+### Protected raw runtime logs
+
+[REQ-OPERATOR-090](../../sdd/spec/operators.md#req-operator-090-protected-raw-execution-logs) separates protected raw application logs from the bounded diagnostic wires above. The original admitted logging decision controls lazy capture of original errors, requests/responses, available public SDK events and tool evidence, with credential-only redaction and no application capture caps. OFF evaluates no supplier; capture cannot consume functional streams or change authorization, outcomes, budgets, deadlines or cancellation.
+
+Owner profile/inference forwarding carries trusted Activity/generation/logging context separately from the request body. Installation-authenticated bodyless `POST https://operator.internal/v1/dispatcher/logging-policy` discloses only the exact retained run's original setting and deployment identity. Original credentials may read that passive policy after rotation or termination; malformed/missing proof denies. The read cannot authorize work, renew authority, dispatch, observe SDK status or change accounting.
+
+Supported persisted invocation logs use sampling1; actual settings readback is additive to immutable deployment verification. Neither a live tail nor traces are prerequisites. Root9d exercised genuine RED and exposed a pre-SDK preparation-context barrier. Candidate source still requires final exact-head CI and hosted persisted-log acceptance; companion Dispatcher GREEN does not qualify Root or historical failure attribution.
+
 <a id="retained-dispatcher-causal-evidence"></a>
 ## Retained Dispatcher causal evidence
 

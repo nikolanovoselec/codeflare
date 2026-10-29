@@ -184,9 +184,9 @@ async function run() {
   context.messages[3].content[0].text = `Private tool output ${huge}`;
   if (scenario.startsWith('native-')) context.messages = [{ role: 'user', content: huge, timestamp: 1 }];
   f.answer = scenario.startsWith('many-events-')
-    ? Array.from({ length: 161 }, (_, index) => String.fromCharCode(0x400 + index)).join('')
+    ? Array.from({ length: 161 }, (_, index) => String.fromCharCode(0x20 + index)).join('')
     : scenario.startsWith('fragmented-')
-      ? JSON.stringify({ apiKey: 'fragmented-credential-secret-674', note: safe })
+      ? JSON.stringify({ apiKey: 'fragmented-sensitive-material-674', note: safe })
       : `Private configured response ${huge}`;
   const input = modelRequest(f, { context,
     ...(scenario.startsWith('managed-') ? { options: { maxTokens: 91 } } : {}) });
@@ -198,7 +198,7 @@ async function run() {
   const response = await call(f, input);
   const saved = JSON.parse(await (await import('node:fs/promises')).readFile(path.join(f.agentDir, 'settings.json'), 'utf8'));
   return { response, binding: f.binding, sends: f.sends, input, saved, expected: {
-    answer: f.answer, safe, huge, secret: 'fragmented-credential-secret-674',
+    answer: f.answer, safe, huge, secret: 'fragmented-sensitive-material-674',
     credential: `synthetic-key-${f.binding.ownerKey}`,
     responseCookie: 'synthetic-provider-response-cookie-845',
   } };

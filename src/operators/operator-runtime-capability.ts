@@ -392,6 +392,8 @@ export async function createDispatcherOperation(input: {
     const transport = entrypoint({ props: github
       ? { user: authority.human.email, bucket, strict: true }
       : { bucket, strict: true } });
+    const diagnosticContext = input.diagnosticContext ? { ...input.diagnosticContext,
+      credentials: [...(input.diagnosticContext.credentials ?? []), authority.accessJwt] } : undefined;
     return async () => {
       await sourceCurrent();
       const timeout = AbortSignal.timeout(Math.max(1, Math.min(limits.sourceTimeoutMs, plan.deadline - Date.now())));
@@ -422,14 +424,14 @@ export async function createDispatcherOperation(input: {
         if (signal.aborted) throw new Error('Prospective preflight expired');
       }
       const fetchBegan = performance.now();
-      inferenceDiagnostic(input.diagnosticContext, { stage: 'source-fetch', outcome: 'started', resource: 'source' });
+      inferenceDiagnostic(diagnosticContext, { stage: 'source-fetch', outcome: 'started', resource: 'source' }, () => ({ url: url.href, method, body: source.body }));
       let response: Response;
       try {
         response = await transport.fetch(new Request(url, { method, body: source.body, redirect: 'manual', signal,
           headers: { accept: 'application/json, text/plain, text/html', 'user-agent': 'Codeflare-Operator-Dispatcher',
             ...(method !== 'GET' ? { 'content-type': 'application/json' } : {}) } }));
-      } catch {
-        inferenceDiagnostic(input.diagnosticContext, { stage: 'source-fetch', outcome: 'failed', failureClass: 'source-fetch', elapsedMs: performance.now() - fetchBegan });
+      } catch (error) {
+        inferenceDiagnostic(diagnosticContext, { stage: 'source-fetch', outcome: 'failed', failureClass: 'source-fetch', elapsedMs: performance.now() - fetchBegan }, () => error);
         await sourceCurrent();
         if (method !== 'GET') throw new Error('Mutation response unknown');
         return Response.json({ code: 'OPERATOR_SOURCE_UNAVAILABLE' }, { status: 422 });
@@ -437,12 +439,14 @@ export async function createDispatcherOperation(input: {
       inferenceDiagnostic(input.diagnosticContext, { stage: 'source-fetch', outcome: 'completed', sourceStatus: response.status, elapsedMs: performance.now() - fetchBegan });
       let body: string;
       try { body = response.body ? await readDispatcherBody(response, signal, responseBytes) : ''; }
-      catch {
-        inferenceDiagnostic(input.diagnosticContext, { stage: 'source-read', outcome: signal.aborted ? 'canceled' : 'failed', failureClass: 'source-read', sourceStatus: response.status });
+      catch (error) {
+        inferenceDiagnostic(diagnosticContext, { stage: 'source-read', outcome: signal.aborted ? 'canceled' : 'failed', failureClass: 'source-read', sourceStatus: response.status }, () => error);
         await sourceCurrent();
         if (method !== 'GET') throw new Error('Mutation body unknown');
         return Response.json({ code: 'OPERATOR_SOURCE_INCOMPLETE' }, { status: 422 });
       }
+      inferenceDiagnostic(diagnosticContext, { stage: 'source-read', outcome: 'completed', sourceStatus: response.status },
+        () => ({ status: response.status, headers: response.headers, body }));
       await sourceCurrent();
       if (method !== 'GET' && (signal.aborted || response.status >= 500
         || input.phase !== undefined && response.status === 408 || (response.status >= 300 && response.status < 400))) {

@@ -29,6 +29,7 @@
 import { Container } from '@cloudflare/containers';
 import type { Env, ManagedResourcePolicy, SessionWorkspace, TabConfig, TerminalMode } from '../types';
 import type { PiDefaultSource } from '../lib/personal-pi-policy';
+import type { OperatorLoggingContext } from '../lib/container-helpers';
 import { getR2Config } from '../lib/r2-config';
 import { D1SessionRepository } from '../lib/session-repository';
 import { toErrorMessage } from '../lib/error-types';
@@ -706,7 +707,7 @@ export class container extends Container<Env> implements ContainerEnvState {
   }
 
   /** Low-level port forwarding cannot start a replacement or trust stale SDK state. */
-  async forwardExisting(request: Request): Promise<Response> {
+  async forwardExisting(request: Request, loggingContext?: OperatorLoggingContext): Promise<Response> {
     const token = await this.ctx.storage.get<string>('containerAuthToken');
     if (!this.ctx.container || !token) return new Response('Existing container unavailable', { status: 503 });
     try {
@@ -717,6 +718,19 @@ export class container extends Container<Env> implements ContainerEnvState {
       privateUrl.pathname = url.pathname;
       privateUrl.search = url.search;
       const forwarded = new Request(privateUrl, request);
+      forwarded.headers.delete('x-codeflare-operator-logging');
+      if (loggingContext && typeof loggingContext === 'object'
+        && Object.keys(loggingContext).length === 3
+        && Object.keys(loggingContext).every(key => ['activityId', 'generation', 'loggingEnabled'].includes(key))
+        && typeof loggingContext.activityId === 'string' && /^[A-Za-z0-9_-]{1,128}$/.test(loggingContext.activityId)
+        && Number.isSafeInteger(loggingContext.generation) && loggingContext.generation > 0
+        && typeof loggingContext.loggingEnabled === 'boolean' && request.method === 'POST'
+        && (url.pathname === '/operator-inference' || url.pathname === '/operator-inference/profile')
+        && !url.search && !url.hash
+        && request.headers.get('x-codeflare-operator-activity') === loggingContext.activityId
+        && request.headers.get('x-codeflare-operator-generation') === String(loggingContext.generation)) {
+        forwarded.headers.set('x-codeflare-operator-logging', loggingContext.loggingEnabled ? 'on' : 'off');
+      }
       forwarded.headers.set('Authorization', `Bearer ${token}`);
       // `running` can itself transiently read false after DO reconstruction.
       // Only an answer from the existing private port proves it survived.
@@ -737,6 +751,12 @@ export class container extends Container<Env> implements ContainerEnvState {
 
   /** Override fetch to handle internal routes via typed dispatch (CF-016). */
   override async fetch(request: Request): Promise<Response> {
+    // Ordinary ingress cannot manufacture the separate admitted RPC context.
+    if (request.headers.has('x-codeflare-operator-logging')) {
+      const headers = new Headers(request.headers);
+      headers.delete('x-codeflare-operator-logging');
+      request = new Request(request, { headers });
+    }
     // WebSocket responses cannot cross the DO RPC serialization boundary.
     // Stub.fetch has native WebSocket response transport; keep terminal and IDE
     // sockets on the same no-start private-port forwarding used for health probes.

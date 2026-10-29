@@ -10,6 +10,7 @@ import type { DispatcherConnectionMetadata } from './registry';
 
 export interface DispatcherDeploymentVerification {
   connectionRevision: number; workerVersionId: string; bundleDigest: string; controlOrigin: string;
+  observabilityReady?: boolean;
 }
 const denied = (): never => { throw new Error('Dispatcher deployment could not be verified'); };
 
@@ -50,6 +51,8 @@ export async function provisionDispatcherDeployment(env: Env,
   const metadata = {
     main_module: bundle.mainModule, compatibility_date: bundle.compatibilityDate, compatibility_flags: bundle.compatibilityFlags,
     migrations: { new_tag: bundle.hosting.migrationTag, new_sqlite_classes: [bundle.hosting.className] },
+    observability: { enabled: true, head_sampling_rate: 1,
+      logs: { enabled: true, head_sampling_rate: 1, invocation_logs: true, persist: true } },
     bindings: [
       { name: bundle.hosting.binding, type: 'durable_object_namespace', class_name: bundle.hosting.className },
       { name: 'OPERATOR', type: 'service', service: parentName, entrypoint: 'OperatorInstalledDispatcherCapability' },
@@ -196,7 +199,17 @@ export async function verifyDispatcherDeployment(env: Env, connection: Dispatche
   if (typeof subdomain.subdomain !== 'string' || !/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(subdomain.subdomain)) return denied();
   const workerSubdomain = await json(`${base}/subdomain`);
   if (workerSubdomain.enabled !== true) return denied();
+  // Delivery readiness is additive, never a new authentication/deployment fence.
+  let observabilityReady = false;
+  try {
+    const settings = await json(`${base}/settings`);
+    const actual = settings.observability;
+    observabilityReady = actual?.enabled === true && actual.head_sampling_rate === 1
+      && actual.logs?.enabled === true && actual.logs.head_sampling_rate === 1
+      && actual.logs.invocation_logs === true && actual.logs.persist === true;
+  } catch { /* Missing optional delivery evidence is not an invalid immutable deployment. */ }
+  await reauthorize?.();
   if (await active() !== deployment) return denied();
-  return { connectionRevision: connection.connectionRevision, workerVersionId: connection.workerVersionId,
+  return { observabilityReady, connectionRevision: connection.connectionRevision, workerVersionId: connection.workerVersionId,
     bundleDigest: connection.bundleDigest, controlOrigin: `https://${connection.workerName}.${subdomain.subdomain}.workers.dev` };
 }
