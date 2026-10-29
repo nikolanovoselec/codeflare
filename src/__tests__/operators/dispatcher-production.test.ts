@@ -27,6 +27,26 @@ import { sealOperatorSecret } from '../../operators/protected-secrets';
 import { OperatorOwnerInferenceAuthority, discoverDispatcherOwnerProfile, forwardDispatcherOwnerInference } from '../../operators/dispatcher-owner-inference';
 import { connectionSecret, createNormalDispatcherTransport, normalCallback, normalDeployment, normalDispatcherBundle } from './fixtures/normal-dispatcher';
 
+// Controlled sink comparison: retain every console argument, then assert the
+// complete raw operation alongside the unchanged production-path outcomes.
+async function withCollectedLargeLogs<T>(collect: boolean, run: (output: unknown[][]) => Promise<T>): Promise<T> {
+  const output: unknown[][] = [];
+  if (!collect) return run(output);
+  const spies = (['log', 'warn', 'error'] as const).map(method => vi.spyOn(console, method)
+    .mockImplementation((...args: unknown[]) => { output.push(args); }));
+  try { return await run(output); }
+  finally { spies.forEach(spy => spy.mockRestore()); }
+}
+function collectedRawValues(output: unknown[][], stage: string): unknown[] {
+  return output.flatMap(args => args.flatMap(arg => {
+    if (typeof arg !== 'string') return [];
+    try {
+      const record = JSON.parse(arg);
+      return record.module === 'operator-execution' && record.message === stage ? [record.data.value] : [];
+    } catch { return []; }
+  }));
+}
+
 let callerSessionCurrent = true;
 let callerRoute = 'approved';
 let nativeProfileFiles = new Map<string, unknown>();
@@ -4138,7 +4158,7 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
     }, { repositoryOnly: true, recovery: true, inferenceRequestBytes: limit, inferenceBody });
   });
 
-  it.each([65537, 1048576])('REQ-OPERATOR-047: admitted operator inference bytes forward %i-byte content without child authority', contentBytes => fixture(async f => {
+  it.each([65537, 1048576])('REQ-OPERATOR-047: admitted operator inference bytes forward %i-byte content without child authority', contentBytes => withCollectedLargeLogs(contentBytes === 1048576, output => fixture(async f => {
     await start(f);
     const content = 'x'.repeat(contentBytes);
     const response = await f.capability.fetch(genericWire('inference', {
@@ -4153,9 +4173,12 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
     expect((await f.capability.fetch(genericWire('inference', {
       operationId: 'revoked-large-inference', input: { messages: [{ role: 'user', content }] },
     }))).status).toBe(403);
-  }, { inferenceRequestBytes: Number.MAX_SAFE_INTEGER }));
+    if (contentBytes === 1048576) expect(collectedRawValues(output, 'operation-prepared')).toContainEqual(expect.objectContaining({
+      body: { operationId: 'configured-inference', input: { messages: [{ role: 'user', content }] } },
+    }));
+  }, { inferenceRequestBytes: Number.MAX_SAFE_INTEGER })));
 
-  it('REQ-OPERATOR-047: absent inference limit accepts an exact 1 MiB request and rejects one extra byte', () => fixture(async f => {
+  it('REQ-OPERATOR-047: absent inference limit accepts an exact 1 MiB request and rejects one extra byte', () => withCollectedLargeLogs(true, output => fixture(async f => {
     await start(f);
     const operationId = 'default-inference-bytes';
     const empty = { operationId, input: { messages: [{ role: 'user', content: '' }] } };
@@ -4165,7 +4188,10 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
       input: { messages: [{ role: 'user', content }] } }))).status).toBe(200);
     expect((await f.capability.fetch(genericWire('inference', { operationId,
       input: { messages: [{ role: 'user', content: content + 'x' }] } }))).status).toBe(403);
-  }));
+    expect(collectedRawValues(output, 'operation-prepared')).toContainEqual(expect.objectContaining({
+      body: { operationId, input: { messages: [{ role: 'user', content }] } },
+    }));
+  })));
 
   it('REQ-OPERATOR-047: operator inference bytes enforce exact UTF-8 request boundaries', async () => {
     const body = { operationId: 'exact-inference', input: { messages: [{ role: 'user', content: '🙂'.repeat(30) }] } };
@@ -4575,7 +4601,7 @@ describe('REQ-OPERATOR-047/048: parent-composed source response allowance', () =
     expect(await cached.json()).toEqual(body);
   }, { repositoryOnly: true, sourceResponseBytes, sourceBody: 'x'.repeat(100 * 1024) }));
 
-  it('REQ-OPERATOR-047: SQL-backed default capacity completes 1024 distinct maximum-length source URLs and reuses cached slots after reload', () => fixture(async f => {
+  it('REQ-OPERATOR-047: SQL-backed default capacity completes 1024 distinct maximum-length source URLs and reuses cached slots after reload', () => withCollectedLargeLogs(true, output => fixture(async f => {
     await start(f);
     const urlFor = (index: number) => {
       const prefix = `https://docs.example.test/migration?request=${String(index).padStart(4, '0')}&padding=`;
@@ -4596,6 +4622,12 @@ describe('REQ-OPERATOR-047/048: parent-composed source response allowance', () =
         headers: { 'content-type': 'text/plain', etag: 'guide-v3' }, body: 'Official migration guidance' });
       if (index === 0 || index === 511 || index === 1023) await receipt(0, index + 1);
     }
+    const preparedById = new Map((collectedRawValues(output, 'operation-prepared') as Array<{
+      body: { operationId: string; url: string };
+    }>).map(value => [value.body.operationId, value.body]));
+    for (let index = 0; index < 1024; index++) {
+      expect(preparedById.get(`max-url-${index}`)).toEqual({ operationId: `max-url-${index}`, url: urlFor(index) });
+    }
     f.sourceBody('Changed upstream content must not replace completed long-URL receipts');
     f.restart();
     for (const index of [0, 511, 1023]) {
@@ -4611,7 +4643,7 @@ describe('REQ-OPERATOR-047/048: parent-composed source response allowance', () =
     expect((await f.capability.fetch(genericWire('receipt', { operationId: 'max-url-next' }))).status).toBe(403);
     await receipt(0, 1024);
     expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'running', result: null });
-  }, { repositoryOnly: true }), 120000);
+  }, { repositoryOnly: true })), 120000);
 
   it.each(['reserved', 'unknown'] as const)(
     'REQ-OPERATOR-047: legacy aggregate recovery preserves counts cached receipts conflicts and %s mutation ordering across reload', phase => fixture(async f => {
@@ -8443,7 +8475,7 @@ describe('protected raw parent execution evidence', () => {
   const inputFor = async (f: DispatcherFixture) => ({ generation: 1, plan: (await f.activity.getRuntimePlan())!,
     env: f.environment, current: () => f.activity.operatorGenerationCurrent(1), waitUntil: f.waitUntil });
 
-  it.each([true, false])('REQ-OPERATOR-079: AC4/7 original admitted logging=%s controls full request and SDK response despite mutable current setting', loggingEnabled => fixture(async f => {
+  it.each([true, false])('REQ-OPERATOR-090: AC1/3/4 original admitted logging=%s controls full request and SDK response despite mutable current setting', loggingEnabled => fixture(async f => {
     expect(await start(f)).toMatchObject({ ok: true });
     f.setCurrentLogging(!loggingEnabled);
     const records = captureRaw(); setLogLevel('silent');
@@ -8467,7 +8499,7 @@ describe('protected raw parent execution evidence', () => {
     setLogLevel('silent');
   }, { ...options, loggingEnabled }));
 
-  it.each([true, false])('REQ-OPERATOR-079: AC4/7 admission and protected tool input/output logging=%s preserve full raw content and the original single remote effect', loggingEnabled => fixture(async f => {
+  it.each([true, false])('REQ-OPERATOR-090: AC1/4 admission and protected tool input/output logging=%s preserve full raw content and the original single remote effect', loggingEnabled => fixture(async f => {
     const records = captureRaw();
     expect(await start(f)).toMatchObject({ ok: true });
     const text = 'COMPLETE_TOOL_IO_é🦊'.repeat(601) + 'FINAL_TOOL_IO_BYTE';
@@ -8515,7 +8547,7 @@ describe('protected raw parent execution evidence', () => {
     }
   }, options));
 
-  it.each([true, false])('REQ-OPERATOR-079: AC4/7 full upstream non-OK body and status are captured before the same generic refusal with logging=%s', loggingEnabled => {
+  it.each([true, false])('REQ-OPERATOR-090: AC1/4 full upstream non-OK body and status are captured before the same generic refusal with logging=%s', loggingEnabled => {
     const body = 'ORIGINAL_UPSTREAM_BODY_é🦊'.repeat(503) + 'LAST_UPSTREAM_BYTE';
     return fixture(async f => {
       expect(await start(f)).toMatchObject({ ok: true });
@@ -8559,7 +8591,7 @@ describe('protected raw parent execution evidence', () => {
     } });
   });
 
-  it.each([true, false])('REQ-OPERATOR-079/081/083: pre-lease original failure logging=%s retains readable ordered history/detail/export without invented submission', loggingEnabled => fixture(async f => {
+  it.each([true, false])('REQ-OPERATOR-090/081/083: pre-lease original failure logging=%s retains readable ordered history/detail/export without invented submission', loggingEnabled => fixture(async f => {
     const cause = new TypeError('PRIVATE_PRELEASE_CAUSE');
     const original = new Error('PRIVATE_PRELEASE_ORIGINAL', { cause });
     const fingerprint = captureError(original);
@@ -8648,7 +8680,7 @@ describe('original installed Dispatcher logging-policy read', () => {
     return snapshot;
   };
 
-  it.each([true, false])('REQ-OPERATOR-079: AC4/5/7 passive policy returns immutable original logging=%s and no credentials or work authority', loggingEnabled => fixture(async f => {
+  it.each([true, false])('REQ-OPERATOR-091: AC4 passive policy returns immutable original logging=%s and no credentials or work authority', loggingEnabled => fixture(async f => {
     expect(await start(f)).toMatchObject({ ok: true }); await f.drainBackground();
     f.setCurrentLogging(!loggingEnabled);
     const state = await persistentState(f), calls = structuredClone(f.normalTransport!.networkRequests), profiles = structuredClone(f.ownerPortRequests);
@@ -8662,7 +8694,7 @@ describe('original installed Dispatcher logging-policy read', () => {
   }, { ...options, loggingEnabled }));
 
   it.each(['cancelled', 'completed', 'disabled-and-rotated', 'expired'] as const)(
-    'REQ-OPERATOR-003/047/079: exact original %s policy remains readable but grants no execution or current authority', terminal => fixture(async f => {
+    'REQ-OPERATOR-003/047/091: exact original %s policy remains readable but grants no execution or current authority', terminal => fixture(async f => {
       expect(await start(f)).toMatchObject({ ok: true });
       if (terminal === 'completed') {
         f.normalTransport!.settle('completed', [{ name: 'assessment', data: { repository: 'another/service', results: [] } }]);
@@ -8691,7 +8723,7 @@ describe('original installed Dispatcher logging-policy read', () => {
     { name: 'foreign receipt', patch: { receipt: { submissionId: 'foreign-submission', uid: 'foreign-instance', acceptedAt: '2026-10-28T00:00:00.000Z' } } },
     { name: 'foreign deployment', patch: { workerVersionId: 'foreign-version' } },
     { name: 'caller logging override', patch: { loggingEnabled: true } },
-  ])('REQ-OPERATOR-003/047/079: supplied $name body is refused rather than used as passive policy authority', ({ patch }) => fixture(async f => {
+  ])('REQ-OPERATOR-003/047/091: supplied $name body is refused rather than used as passive policy authority', ({ patch }) => fixture(async f => {
     await start(f); await f.drainBackground();
     const state = await persistentState(f), calls = structuredClone(f.normalTransport!.networkRequests), profiles = structuredClone(f.ownerPortRequests);
     const denied = await read(f, patch === null ? {} : { ...proof(f), ...patch });
@@ -8700,7 +8732,7 @@ describe('original installed Dispatcher logging-policy read', () => {
     const control = await read(f); expect(control.status).toBe(200); expect(await control.json()).toEqual(expected(f, false));
   }, { ...options, loggingEnabled: false }));
 
-  it.each([
+  const credentialCases: Array<{ name: string; headers: Record<string, string> }> = [
     { name: 'missing credential', headers: { authorization: '' } },
     { name: 'foreign credential', headers: { authorization: 'Bearer foreign-secret' } },
     { name: 'ambiguous generation', headers: { 'x-codeflare-operator-generation': '1, 1' } },
@@ -8709,7 +8741,8 @@ describe('original installed Dispatcher logging-policy read', () => {
     { name: 'foreign release', headers: { 'x-codeflare-operator-release': 'foreign-release' } },
     { name: 'fresh connection', headers: { 'x-codeflare-operator-connection-revision': '2' } },
     { name: 'foreign Worker version', headers: { 'x-codeflare-operator-worker-version': 'foreign-version' } },
-  ])('REQ-OPERATOR-003/047/079: $name fails installation authentication before policy disclosure', ({ headers }) => fixture(async f => {
+  ];
+  it.each(credentialCases)('REQ-OPERATOR-003/047/091: $name fails installation authentication before policy disclosure', ({ headers }) => fixture(async f => {
     await start(f); await f.drainBackground();
     const response = await read(f, undefined, headers);
     expect(response.status).toBe(403);
@@ -8718,7 +8751,7 @@ describe('original installed Dispatcher logging-policy read', () => {
   }, options));
 
   it.each(['GET', 'query', 'hash', 'foreign origin', 'unretained requested generation'] as const)(
-    'REQ-OPERATOR-003/047/079: %s cannot turn passive logging policy into alternate authority', variant => fixture(async f => {
+    'REQ-OPERATOR-003/047/091: %s cannot turn passive logging policy into alternate authority', variant => fixture(async f => {
       await start(f); await f.drainBackground();
       const request = normalCallback(f.activityId, 'logging-policy', undefined,
         variant === 'unretained requested generation' ? { 'x-codeflare-operator-generation': '2' } : undefined);
@@ -8734,7 +8767,7 @@ describe('original installed Dispatcher logging-policy read', () => {
       expect((await read(f)).status).toBe(200);
     }, options));
 
-  it('REQ-OPERATOR-079: original admitting lease policy is readable before an uncertain admission acknowledgement without observation or redispatch', () => fixture(async f => {
+  it('REQ-OPERATOR-091: original admitting lease policy is readable before an uncertain admission acknowledgement without observation or redispatch', () => fixture(async f => {
     f.normalTransport!.loseAcknowledgement(); await start(f); await f.drainBackground();
     await f.mutateEvidence(async storage => { expect(await storage.get('dispatcher:lease')).toMatchObject({ generation: 1, status: 'admitting' }); });
     const state = await persistentState(f), network = structuredClone(f.normalTransport!.networkRequests);
@@ -8746,7 +8779,7 @@ describe('original installed Dispatcher logging-policy read', () => {
   }, options));
 
   it.each(['overwritten generation', 'foreign deployment', 'mismatched receipt', 'missing accepted receipt'] as const)(
-    'REQ-OPERATOR-003/047/079: retained %s denies policy instead of reconstructing authority from historical connection metadata', fault => fixture(async f => {
+    'REQ-OPERATOR-003/047/091: retained %s denies policy instead of reconstructing authority from historical connection metadata', fault => fixture(async f => {
       await start(f); await f.drainBackground();
       await f.mutateEvidence(async storage => {
         const lease = (await storage.get<Record<string, unknown>>('dispatcher:lease'))!;
@@ -8763,7 +8796,7 @@ describe('original installed Dispatcher logging-policy read', () => {
       expect(await persistentState(f)).toEqual(state); expect(f.normalTransport!.networkRequests).toEqual(network); expect(f.ownerPortRequests).toEqual(profiles);
     }, options));
 
-  it('REQ-OPERATOR-003/047/079: unleased Activity cannot supply an original logging-policy binding', () => fixture(async f => {
+  it('REQ-OPERATOR-003/047/091: unleased Activity cannot supply an original logging-policy binding', () => fixture(async f => {
     const response = await read(f);
     expect(response.status).toBe(403);
     expect(await response.text()).not.toContain('loggingEnabled');
@@ -8779,7 +8812,7 @@ describe('configured-owner pre-lease failure evidence', () => {
     { failure: 'status', loggingEnabled: true }, { failure: 'status', loggingEnabled: false },
     { failure: 'forward', loggingEnabled: true }, { failure: 'forward', loggingEnabled: false },
     { failure: 'body-read', loggingEnabled: true }, { failure: 'body-read', loggingEnabled: false },
-  ] as const)('REQ-OPERATOR-007/079/081/082/083: profile $failure with logging=$loggingEnabled retains original evidence before generic admission refusal', ({ failure, loggingEnabled }) => {
+  ] as const)('REQ-OPERATOR-007/090/081/082/083: profile $failure with logging=$loggingEnabled retains original evidence before generic admission refusal', ({ failure, loggingEnabled }) => {
     const cause = new Error('PRIVATE_PROFILE_ORIGIN'); cause.stack = 'Error: PRIVATE_PROFILE_ORIGIN\n at profileOrigin (configured.ts:3:1)';
     const original = new TypeError('PRIVATE_PROFILE_FORWARD_FAILURE', { cause });
     original.stack = 'TypeError: PRIVATE_PROFILE_FORWARD_FAILURE\n at profileForward (configured.ts:11:4)';
@@ -8818,7 +8851,7 @@ describe('configured-owner pre-lease failure evidence', () => {
     } });
   });
 
-  it('REQ-OPERATOR-079/082: throwing raw console cannot change configured-owner response bytes or replace the original transport failure', () => {
+  it('REQ-OPERATOR-090/082: throwing raw console cannot change configured-owner response bytes or replace the original transport failure', () => {
     const original = new Error('ORIGINAL_TRANSPORT_FAILURE_WITH_CONSOLE_DOWN'); let broken = false;
     return fixture(async f => {
       expect(await start(f)).toMatchObject({ ok: true });

@@ -90,7 +90,7 @@ describe('trusted prelookup logging context on existing authenticated owner port
     expect(wire.body).toBe(JSON.stringify({ loggingEnabled: true, payload: 'ORIGINAL_BODY_é🦊' }));
   }));
 
-  it.each([
+  const invalidLoggingContexts: Array<{ name: string; path: string; method: string; headers: Record<string, string>; context: unknown }> = [
     { name: 'wrong Activity header', path: '/operator-inference', method: 'POST', headers: { 'x-codeflare-operator-activity': 'foreign-activity' }, context: binding },
     { name: 'wrong generation header', path: '/operator-inference/profile', method: 'POST', headers: { 'x-codeflare-operator-generation': '8' }, context: binding },
     { name: 'ambiguous generation header', path: '/operator-inference', method: 'POST', headers: { 'x-codeflare-operator-generation': '7, 7' }, context: binding },
@@ -101,7 +101,8 @@ describe('trusted prelookup logging context on existing authenticated owner port
     { name: 'zero generation', path: '/operator-inference', method: 'POST', headers: {}, context: { ...binding, generation: 0 } },
     { name: 'nonboolean setting', path: '/operator-inference', method: 'POST', headers: {}, context: { ...binding, loggingEnabled: 'true' } },
     { name: 'extra authority', path: '/operator-inference', method: 'POST', headers: {}, context: { ...binding, owner: 'foreign-owner' } },
-  ])('REQ-OPERATOR-003/047: $name cannot inject trusted logging context into the private port', ({ path, method, headers, context }) => fixture(async f => {
+  ];
+  it.each(invalidLoggingContexts)('REQ-OPERATOR-003/047: $name cannot inject trusted logging context into the private port', ({ path, method, headers, context }) => fixture(async f => {
     const source = request(path, method, headers);
     const response: Response = await Reflect.apply(f.instance.forwardExisting, f.instance, [source, context]);
     const wire = await forwarded(response);

@@ -6,6 +6,7 @@ import { findPackageJSON } from 'node:module';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { emitRaw, captureRawValue, type RawLogContext } from './operator-raw-logging.js';
 
 type JsonObject = Record<string, unknown>;
 type Selection = { provider: string; model: string; api: string; reasoningLevel: string | null; profileDigest: string };
@@ -29,9 +30,11 @@ export interface OperatorInferenceOwner {
   managed?: { provider: string; model: string; reasoningLevel: string | null };
   ownerKey: string; sessionId: string; sessionGeneration: number; deadline: number;
   maxRequestBytes: number; maxResponseBytes: number;
+  /** Original admitted decision; never read from caller options or current UI. */
+  loggingEnabled?: boolean;
   current(binding: { ownerKey: string; sessionId: string; sessionGeneration: number; activityId: string; generation: number }): Promise<boolean>;
 }
-export type OperatorInferenceOwnerResolver = (bytes: Uint8Array, signal: AbortSignal) => Promise<OperatorInferenceOwner>;
+export type OperatorInferenceOwnerResolver = (bytes: Uint8Array, signal: AbortSignal, loggingContext?: RawLogContext) => Promise<OperatorInferenceOwner>;
 
 class Refusal extends Error {
   constructor(readonly status: number, readonly authFailure?: { code: 'PI_LOGIN_REQUIRED'; reason: 'missing'; provider: string }) {
@@ -49,13 +52,24 @@ const sameSelection = (a: Selection, b: Selection) => ['provider', 'model', 'api
 
 /** Existing authenticated HTTP transport invokes this only with a server-composed owner. */
 export async function ownerInference(owner: OperatorInferenceOwner, profile: boolean, bytes: Uint8Array,
-  callerSignal: AbortSignal): Promise<{ status: number; body: string }> {
+  callerSignal: AbortSignal, transportLogging?: RawLogContext): Promise<{ status: number; body: string }> {
   const reply = (status: number, value: unknown) => ({ status, body: JSON.stringify(value) });
   const controller = new AbortController();
   const signal = AbortSignal.any([callerSignal, controller.signal]);
   let timer: ReturnType<typeof setTimeout> | undefined;
   let abort: (() => void) | undefined;
   let session: InferenceSession | undefined;
+  let loggingContext: RawLogContext | undefined;
+  const observations: unknown[] = [];
+  const observe = (stage: string, value: unknown) => {
+    if (loggingContext?.loggingEnabled === true) observations.push({ stage, value: captureRawValue(value) });
+  };
+  const flush = () => {
+    if (!observations.length) return;
+    // Assemble all observed values before redaction: deltas alone can expose
+    // fragments of credentials that only become recognizable at completion.
+    emitRaw(loggingContext, 'configured-owner-observations', () => observations.splice(0));
+  };
   const disposeSession = () => {
     const completed = session;
     session = undefined;
@@ -79,6 +93,10 @@ export async function ownerInference(owner: OperatorInferenceOwner, profile: boo
         || signal.aborted || Date.now() >= owner.deadline) throw new Refusal(403);
     };
     await current();
+    loggingContext = { activityId: binding.activityId, generation: binding.generation,
+      loggingEnabled: owner.loggingEnabled === true && transportLogging?.loggingEnabled !== false,
+      credentials: transportLogging?.credentials ?? [] };
+    emitRaw(loggingContext, profile ? 'configured-profile-request' : 'configured-inference-request', () => input);
     const root = path.resolve(owner.sdkRoot ?? '/opt/codeflare/npm-tools/node_modules/@earendil-works/pi-coding-agent');
     const sdk = await import(pathToFileURL(path.join(root, 'dist/index.js')).href) as {
       createAgentSessionServices(options: object): Promise<Services>;
@@ -90,17 +108,21 @@ export async function ownerInference(owner: OperatorInferenceOwner, profile: boo
       || typeof sdk.SessionManager?.inMemory !== 'function') throw new Refusal(503);
     const services = await sdk.createAgentSessionServices({ cwd: owner.cwd, agentDir: owner.agentDir, modelRuntimeSignal: signal });
     await current();
-    if (services.diagnostics.some(item => item.type === 'error') || services.resourceLoader.getExtensions().errors.length) {
+    const extensionErrors = services.resourceLoader.getExtensions().errors;
+    observe('sdk-services', { diagnostics: services.diagnostics, extensionErrors });
+    if (services.diagnostics.some(item => item.type === 'error') || extensionErrors.length) {
       throw new Refusal(503);
     }
     const provider = owner.managed?.provider ?? services.settingsManager.getDefaultProvider();
     const modelId = owner.managed?.model ?? services.settingsManager.getDefaultModel();
     if (!provider || !modelId) throw new Refusal(409);
     const model = services.modelRuntime.getModel(provider, modelId);
+    observe('configured-model', { provider, modelId, model });
     if (!model || model.provider !== provider || model.id !== modelId) throw new Refusal(409);
     const reasoningLevel = owner.managed ? owner.managed.reasoningLevel : owner.reasoningOverride
       ?? services.settingsManager.getModelThinkingLevel(provider, modelId) ?? services.settingsManager.getDefaultThinkingLevel() ?? 'medium';
     const identity = { provider, model: modelId, api: model.api, reasoningLevel };
+    observe('configured-selection', identity);
     const selection = { ...identity, profileDigest: digest(identity) };
     const aiPackage = findPackageJSON('@earendil-works/pi-ai', pathToFileURL(path.join(root, 'package.json')));
     if (!aiPackage) throw new Refusal(503);
@@ -140,10 +162,17 @@ export async function ownerInference(owner: OperatorInferenceOwner, profile: boo
       await current();
       if (session.model?.provider !== provider || session.model.id !== modelId || session.model.api !== model.api
         || reasoningLevel !== null && session.thinkingLevel !== reasoningLevel) throw new Refusal(409);
-      const stream = services.modelRuntime.streamSimple(model, input.context, { ...input.options, signal });
+      const stream = services.modelRuntime.streamSimple(model, input.context, { ...input.options, signal,
+        ...(loggingContext?.loggingEnabled === true ? {
+          onPayload: (payload: unknown) => { observe('provider-request', payload); },
+          onResponse: (response: unknown) => { observe('provider-response', response); },
+          onProviderStreamEvent: (event: unknown) => { observe('provider-stream-event', event); },
+        } : {}),
+      });
       const events: JsonObject[] = [];
       let size = 0;
       for await (const event of stream) {
+        observe('sdk-event', event);
         await current();
         if (event.type === 'error') throw new Refusal(502);
         const encoded = JSON.stringify(event);
@@ -152,13 +181,14 @@ export async function ownerInference(owner: OperatorInferenceOwner, profile: boo
         events.push(JSON.parse(encoded) as JsonObject);
       }
       const result = await stream.result();
+      observe('sdk-result', result);
       await current();
       if (result.stopReason === 'error' || result.stopReason === 'aborted'
         || events.at(-1)?.type !== 'done') throw new Refusal(502);
       const response = reply(200, { events, result });
       if (Buffer.byteLength(response.body) > owner.maxResponseBytes) throw new Refusal(413);
       return response;
-    } finally { disposeSession(); }
+    } finally { disposeSession(); flush(); }
   };
   try {
     if (!Number.isSafeInteger(owner.deadline) || owner.deadline <= Date.now()) throw new Refusal(403);
@@ -170,6 +200,7 @@ export async function ownerInference(owner: OperatorInferenceOwner, profile: boo
     });
     return await Promise.race([work(), cancelled]);
   } catch (error) {
+    observe('configured-owner-failed', error);
     controller.abort();
     return error instanceof Refusal
       ? reply(error.status, { error: error.message, ...(error.authFailure ? { authFailure: error.authFailure } : {}) })
@@ -178,5 +209,6 @@ export async function ownerInference(owner: OperatorInferenceOwner, profile: boo
     clearTimeout(timer);
     if (abort) signal.removeEventListener('abort', abort);
     disposeSession();
+    flush();
   }
 }

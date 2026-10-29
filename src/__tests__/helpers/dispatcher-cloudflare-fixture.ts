@@ -28,10 +28,12 @@ export function createDispatcherCloudflareFixture() {
   let settingsOverride: { value: unknown } | undefined;
   let afterUpload: ((script: UploadedDispatcher) => Promise<void>) | undefined;
   let beforeVersionRead: (() => Promise<void>) | undefined;
+  let beforeSettingsRead: (() => Promise<void>) | undefined;
   const ok = (result: unknown) => Response.json({ success: true, errors: [], messages: [], result });
   const missing = () => Response.json({ success: false, errors: [{ code: 10007, message: 'Worker not found' }], result: null }, { status: 404 });
   const fail = () => Response.json({ success: false, errors: [{ code: 10000, message: 'Platform refused synthetic-platform-token acquisition-only-pat' }], result: null }, { status: 403 });
   const fetcher = async (request: Request): Promise<Response> => {
+    request.signal.throwIfAborted();
     const url = new URL(request.url);
     if (url.origin !== 'https://api.cloudflare.com' || request.headers.get('authorization') !== `Bearer ${token}`)
       return fail();
@@ -76,8 +78,10 @@ export function createDispatcherCloudflareFixture() {
       const script = scripts.get(name);
       if (!script) return missing();
       if (suffix === '/settings' && request.method === 'GET') {
+        if (beforeSettingsRead) await beforeSettingsRead();
+        request.signal.throwIfAborted();
         const observability = settingsOverride ? settingsOverride.value : script.metadata.observability;
-        return ok({ ...(observability === undefined ? {} : { observability: structuredClone(observability) }) });
+        return ok(observability === undefined ? {} : { observability: structuredClone(observability) });
       }
       if (suffix === '/subdomain') {
         if (request.method === 'POST') {
@@ -125,5 +129,6 @@ export function createDispatcherCloudflareFixture() {
     setFault: (value: DispatcherPlatformFault) => { fault = value; },
     setObservability: (value: unknown) => { settingsOverride = { value }; },
     afterUpload: (hook: (script: UploadedDispatcher) => Promise<void>) => { afterUpload = hook; },
-    beforeVersionRead: (hook: () => Promise<void>) => { beforeVersionRead = hook; } };
+    beforeVersionRead: (hook: () => Promise<void>) => { beforeVersionRead = hook; },
+    beforeSettingsRead: (hook: () => Promise<void>) => { beforeSettingsRead = hook; } };
 }

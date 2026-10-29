@@ -49,6 +49,31 @@ describe('REQ-OPERATOR-063: complete native inference diagnostic wire', () => {
     expect(text).toContain('data: [DONE]');
     expect(observations(events)).toEqual([]);
   }));
+  it.each([true, false])('REQ-OPERATOR-090: native stream logging=%s preserves bytes without reconstructible credential fragments', async loggingEnabled => capture(async events => {
+    const secret = 'worker-native-sensitive-material-492';
+    const answer = JSON.stringify({ apiKey: secret, note: 'KEEP_NATIVE_WORKER_NEIGHBOR' });
+    const fragments = Array.from({ length: Math.ceil(answer.length / 8) }, (_, index) => answer.slice(index * 8, (index + 1) * 8));
+    const storage = replay();
+    storage.diagnosticContext = { activityId: 'native-fragment-activity', generation: 1, loggingEnabled };
+    const response = await adaptBedrockAnthropicResponse(stream([start,
+      frame({ type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } }),
+      ...fragments.map(text => frame({ type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text } })),
+      frame({ type: 'content_block_stop', index: 0 }), reason('end_turn'), stop,
+    ]), 'eventstream', storage);
+    const wire = await response.text();
+    const functional = wire.split('\n').filter(line => line.startsWith('data: {')).map(line => JSON.parse(line.slice(6)));
+    expect(functional.map(event => event.choices?.[0]?.delta?.content ?? '').join('')).toBe(answer);
+    expect(wire).toContain('"finish_reason":"stop"');
+    const raw = events.filter(event => event.module === 'operator-execution');
+    if (!loggingEnabled) { expect(raw).toEqual([]); return; }
+    const native = raw.flatMap(event => Array.isArray(event.data?.value) ? event.data.value : [])
+      .filter(event => event.stage === 'provider-stream-event');
+    const reconstructed = native.map(event => event.value?.delta?.text ?? '').join('');
+    expect(reconstructed).not.toContain(secret);
+    expect(reconstructed).toContain('KEEP_NATIVE_WORKER_NEIGHBOR');
+    expect(JSON.stringify(raw)).not.toContain(secret);
+  }));
+
   it.each([
     ['missing-stop', () => [start], 'missing-stop'],
     ['truncated-frame', () => [start, stop.subarray(0, 9)], 'truncated-frame'],

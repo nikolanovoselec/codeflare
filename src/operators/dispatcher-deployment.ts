@@ -10,6 +10,7 @@ import type { DispatcherConnectionMetadata } from './registry';
 
 export interface DispatcherDeploymentVerification {
   connectionRevision: number; workerVersionId: string; bundleDigest: string; controlOrigin: string;
+  observabilityReady?: boolean;
 }
 const denied = (): never => { throw new Error('Dispatcher deployment could not be verified'); };
 
@@ -50,6 +51,8 @@ export async function provisionDispatcherDeployment(env: Env,
   const metadata = {
     main_module: bundle.mainModule, compatibility_date: bundle.compatibilityDate, compatibility_flags: bundle.compatibilityFlags,
     migrations: { new_tag: bundle.hosting.migrationTag, new_sqlite_classes: [bundle.hosting.className] },
+    observability: { enabled: true, head_sampling_rate: 1,
+      logs: { enabled: true, head_sampling_rate: 1, invocation_logs: true, persist: true } },
     bindings: [
       { name: bundle.hosting.binding, type: 'durable_object_namespace', class_name: bundle.hosting.className },
       { name: 'OPERATOR', type: 'service', service: parentName, entrypoint: 'OperatorInstalledDispatcherCapability' },
@@ -96,11 +99,11 @@ export async function verifyDispatcherDeployment(env: Env, connection: Dispatche
   const headers = { authorization: `Bearer ${env.CLOUDFLARE_API_TOKEN}` };
   const workers = `${CF_API_BASE}/accounts/${account}/workers`;
   const base = `${workers}/scripts/${connection.workerName}`;
-  const json = async (url: string, limit = 256 * 1024) => {
+  const json = async (url: string, limit = 256 * 1024, requestSignal = signal) => {
     await reauthorize?.();
-    const response = await fetch(url, { headers, signal, redirect: 'manual' });
+    const response = await fetch(url, { headers, signal: requestSignal, redirect: 'manual' });
     if (!response.ok) { void response.body?.cancel().catch(() => {}); denied(); }
-    const data = JSON.parse(new TextDecoder().decode(await readBoundedResponse(response, limit, 'Dispatcher deployment', signal)));
+    const data = JSON.parse(new TextDecoder().decode(await readBoundedResponse(response, limit, 'Dispatcher deployment', requestSignal)));
     if (data?.success !== true || !data.result) return denied();
     await reauthorize?.();
     return data.result;
@@ -112,6 +115,18 @@ export async function verifyDispatcherDeployment(env: Env, connection: Dispatche
       || latest.versions[0].percentage !== 100 || typeof latest.id !== 'string' || !latest.id) return denied();
     return latest.id as string;
   };
+  // Optional delivery evidence runs alongside mandatory verification, not after
+  // its final identity fence. Its shorter deadline shares the existing budget.
+  const observability = (async () => {
+    try {
+      const settingsSignal = AbortSignal.any([signal, AbortSignal.timeout(1000)]);
+      const settings = await json(`${base}/settings`, 256 * 1024, settingsSignal);
+      const actual = settings.observability;
+      return actual?.enabled === true && actual.head_sampling_rate === 1
+        && actual.logs?.enabled === true && actual.logs.head_sampling_rate === 1
+        && actual.logs.invocation_logs === true && actual.logs.persist === true;
+    } catch { return false; /* Optional delivery evidence never qualifies immutable identity. */ }
+  })();
   const deployment = await active();
   // The version-addressed API explicitly includes source bytes AND module kinds.
   // No public contract links content/v2's unqualified ETag to this active version.
@@ -196,7 +211,9 @@ export async function verifyDispatcherDeployment(env: Env, connection: Dispatche
   if (typeof subdomain.subdomain !== 'string' || !/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(subdomain.subdomain)) return denied();
   const workerSubdomain = await json(`${base}/subdomain`);
   if (workerSubdomain.enabled !== true) return denied();
+  const observabilityReady = await observability;
+  await reauthorize?.();
   if (await active() !== deployment) return denied();
-  return { connectionRevision: connection.connectionRevision, workerVersionId: connection.workerVersionId,
+  return { observabilityReady, connectionRevision: connection.connectionRevision, workerVersionId: connection.workerVersionId,
     bundleDigest: connection.bundleDigest, controlOrigin: `https://${connection.workerName}.${subdomain.subdomain}.workers.dev` };
 }

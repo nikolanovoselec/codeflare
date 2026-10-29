@@ -2,6 +2,7 @@
 import { WorkerEntrypoint } from 'cloudflare:workers';
 import { z } from 'zod';
 import type { Env } from '../types';
+import { emitRaw } from '../../host/src/operator-raw-logging';
 import { getContainerId, forwardExisting } from '../lib/container-helpers';
 import { readBoundedResponse, readBoundedStream } from '../lib/bounded-stream';
 import { loadEnterpriseRouteConfig, resolveSessionAccessGroup, resolveBucketName, operatorAccessSessionCurrent } from '../lib/access';
@@ -68,6 +69,7 @@ async function ownerContext(input: Input, selection?: ConfiguredDispatcherInfere
   if ((await trusted.getPersonalPiSession(reference)).generation !== ownerSource.sessionGeneration
     || input.signal?.aborted || !await input.current()) throw new Error('Owner source changed');
   return { container, reference, source, ownerKey: await operatorOwnerKey(authority.human), sessionId: ownerSource.sessionId,
+    loggingEnabled: plan.receipt.selection.operator.policy.loggingEnabled !== false,
     sessionGeneration: ownerSource.sessionGeneration, deadline: plan.deadline,
     maxRequestBytes: inferenceRequestBytes(plan.receipt.selection.operator.policy),
     maxResponseBytes: inferenceRequestBytes(plan.receipt.selection.operator.policy),
@@ -79,54 +81,71 @@ async function ownerContext(input: Input, selection?: ConfiguredDispatcherInfere
 }
 
 async function send(input: SendInput, pathname: string, body: Record<string, unknown>, selection?: ConfiguredDispatcherInference): Promise<Response> {
-  const context = await ownerContext(input, selection);
-  const signal = input.signal ? AbortSignal.any([input.signal, AbortSignal.timeout(Math.max(1, context.deadline - Date.now()))])
-    : AbortSignal.timeout(Math.max(1, context.deadline - Date.now()));
-  // Stable RPC supports Request/Response, but not an explicit AbortSignal; keep cancellation local.
-  const request = new Request(`http://container${pathname}`, { method: 'POST', headers: { 'content-type': 'application/json',
-    'x-codeflare-operator-activity': input.plan.activityId, 'x-codeflare-operator-generation': String(input.generation) },
-    body: JSON.stringify({ schemaVersion: 1, activityId: input.plan.activityId,
-      generation: input.generation, sessionGeneration: context.sessionGeneration, ...body }) });
-  signal.throwIfAborted();
-  if (Date.now() >= context.deadline) throw new Error('Owner inference deadline expired');
-  let abort: (() => void) | undefined;
-  const cancelled = new Promise<never>((_, reject) => {
-    abort = () => reject(new Error('Owner inference response aborted'));
-    signal.addEventListener('abort', abort, { once: true });
-    if (signal.aborted) abort();
-  });
-  let response: Response;
+  const loggingContext = { activityId: input.plan.activityId, generation: input.generation,
+    loggingEnabled: 'selection' in input.plan.receipt && input.plan.receipt.selection.operator.policy.loggingEnabled !== false };
   try {
-    const pending = forwardExisting(context.container, request);
-    input.waitUntil(pending.then(response => {
-      if (signal.aborted) return response.body?.cancel().catch(() => undefined);
-    }, () => {}));
-    response = await Promise.race([pending, cancelled]);
-  } finally { if (abort) signal.removeEventListener('abort', abort); }
-  const bytes = await readBoundedResponse(response, context.maxResponseBytes, 'Owner inference response', signal).catch(error => {
-    if (response.body) input.waitUntil(response.body.cancel().catch(() => undefined));
+    const context = await ownerContext(input, selection);
+    const signal = input.signal ? AbortSignal.any([input.signal, AbortSignal.timeout(Math.max(1, context.deadline - Date.now()))])
+      : AbortSignal.timeout(Math.max(1, context.deadline - Date.now()));
+    // Stable RPC supports Request/Response, but not an explicit AbortSignal; keep cancellation local.
+    const request = new Request(`http://container${pathname}`, { method: 'POST', headers: { 'content-type': 'application/json',
+      'x-codeflare-operator-activity': input.plan.activityId, 'x-codeflare-operator-generation': String(input.generation) },
+      body: JSON.stringify({ schemaVersion: 1, activityId: input.plan.activityId,
+        generation: input.generation, sessionGeneration: context.sessionGeneration, ...body }) });
+    signal.throwIfAborted();
+    if (Date.now() >= context.deadline) throw new Error('Owner inference deadline expired');
+    let abort: (() => void) | undefined;
+    const cancelled = new Promise<never>((_, reject) => {
+      abort = () => reject(new Error('Owner inference response aborted'));
+      signal.addEventListener('abort', abort, { once: true });
+      if (signal.aborted) abort();
+    });
+    let response: Response;
+    try {
+      emitRaw(loggingContext, 'owner-request', () => ({ pathname, body }));
+      const pending = forwardExisting(context.container, request, loggingContext);
+      input.waitUntil(pending.then(response => {
+        if (signal.aborted) return response.body?.cancel().catch(() => undefined);
+      }, () => {}));
+      response = await Promise.race([pending, cancelled]);
+    } finally { if (abort) signal.removeEventListener('abort', abort); }
+    const bytes = await readBoundedResponse(response, context.maxResponseBytes, 'Owner inference response', signal).catch(error => {
+      if (response.body) input.waitUntil(response.body.cancel().catch(() => undefined));
+      throw error;
+    });
+    emitRaw(loggingContext, 'owner-response', () => ({ pathname, status: response.status,
+      headers: response.headers, body: new TextDecoder().decode(bytes) }));
+    await ownerContext(input, selection);
+    if (!response.ok) {
+      let failure;
+      try { failure = safePiAuthFailure(JSON.parse(new TextDecoder().decode(bytes)).authFailure); } catch { /* private failure */ }
+      if (failure && selection?.source === 'pi-native' && failure.provider === selection.provider) throw new PiAuthRequiredError(failure.provider, failure.reason);
+      throw new Error('Configured owner inference unavailable');
+    }
+    return new Response(bytes, { status: response.status, headers: { 'content-type': 'application/json', 'cache-control': 'no-store' } });
+  } catch (error) {
+    emitRaw(loggingContext, 'owner-failure', () => error);
     throw error;
-  });
-  await ownerContext(input, selection);
-  if (!response.ok) {
-    let failure;
-    try { failure = safePiAuthFailure(JSON.parse(new TextDecoder().decode(bytes)).authFailure); } catch { /* private failure */ }
-    if (failure && selection?.source === 'pi-native' && failure.provider === selection.provider) throw new PiAuthRequiredError(failure.provider, failure.reason);
-    throw new Error('Configured owner inference unavailable');
   }
-  return new Response(bytes, { status: response.status, headers: { 'content-type': 'application/json', 'cache-control': 'no-store' } });
 }
 export async function discoverDispatcherOwnerProfile(input: SendInput): Promise<ConfiguredDispatcherInference> {
-  const context = await ownerContext(input);
-  const response = await send(input, '/operator-inference/profile', {});
-  const selected = profile.parse(await response.json());
-  const result: ConfiguredDispatcherInference = context.source === 'pi-native' ? { source: 'pi-native', ...selected }
-    : { source: 'managed', routeId: context.managed!.model, ...selected };
-  if (result.source === 'pi-native' && result.reasoningLevel === null) throw new Error('Native reasoning unavailable');
-  if (context.managed && (selected.provider !== context.managed.provider || selected.model !== context.managed.model
-    || selected.reasoningLevel !== context.managed.reasoningLevel)) throw new Error('Managed SDK binding changed');
-  await ownerContext(input, result);
-  return result;
+  try {
+    const context = await ownerContext(input);
+    const response = await send(input, '/operator-inference/profile', {});
+    const selected = profile.parse(await response.json());
+    const result: ConfiguredDispatcherInference = context.source === 'pi-native' ? { source: 'pi-native', ...selected }
+      : { source: 'managed', routeId: context.managed!.model, ...selected };
+    if (result.source === 'pi-native' && result.reasoningLevel === null) throw new Error('Native reasoning unavailable');
+    if (context.managed && (selected.provider !== context.managed.provider || selected.model !== context.managed.model
+      || selected.reasoningLevel !== context.managed.reasoningLevel)) throw new Error('Managed SDK binding changed');
+    await ownerContext(input, result);
+    return result;
+  } catch (error) {
+    emitRaw({ activityId: input.plan.activityId, generation: input.generation,
+      loggingEnabled: 'selection' in input.plan.receipt && input.plan.receipt.selection.operator.policy.loggingEnabled !== false },
+    'owner-profile-failure', () => error);
+    throw error;
+  }
 }
 export async function forwardDispatcherOwnerInference(input: SendInput & { selection: ConfiguredDispatcherInference;
   operation: { operationId: string; context: unknown; options: Record<string, unknown>; requestDigest: string } }): Promise<Response> {

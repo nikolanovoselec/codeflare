@@ -31,7 +31,11 @@ export default async function register(pi) {
     };
     void (async () => {
       try {
-        let payload = { model, context, options: { reasoning: options.reasoning, maxTokens: options.maxTokens },
+        // Provider-default reasoning is absent on the JSON wire. Keep it absent
+        // in the public payload too, rather than presenting an undefined field
+        // that raw capture correctly preserves but JSON.stringify later omits.
+        let payload = { model, context, options: {
+          ...(options.reasoning === undefined ? {} : { reasoning: options.reasoning }), maxTokens: options.maxTokens },
           scopedEnv: options.env?.FIXTURE_SCOPE };
         payload = await options.onPayload?.(payload, model) ?? payload;
         const response = await fetch(`${model.baseUrl}/infer`, {

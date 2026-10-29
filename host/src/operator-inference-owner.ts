@@ -3,6 +3,7 @@
  * authority from its server-bound owner/session and performs the live checks.
  */
 import path from 'node:path';
+import { emitRaw, type RawLogContext } from './operator-raw-logging.js';
 import { OperatorInferenceRefusal, type OperatorInferenceOwner,
   type OperatorInferenceOwnerResolver } from './operator-inference.js';
 
@@ -16,7 +17,7 @@ const CONTEXT_TIMEOUT_MS = 10_000;
  */
 export type OperatorInferenceOwnerContext = Pick<OperatorInferenceOwner,
   'ownerKey' | 'sessionId' | 'sessionGeneration' | 'deadline' | 'maxRequestBytes' | 'maxResponseBytes'
-  | 'selection' | 'reasoningOverride' | 'managed'>;
+  | 'selection' | 'reasoningOverride' | 'managed' | 'loggingEnabled'>;
 
 export interface OperatorInferenceOwnerResolverOptions {
   cwd?: string;
@@ -36,11 +37,12 @@ const allowed = (value: RecordValue, names: string[]) => Object.keys(value).ever
 
 function parseContext(value: unknown): OperatorInferenceOwnerContext {
   if (!record(value) || !allowed(value, ['ownerKey', 'sessionId', 'sessionGeneration', 'deadline',
-    'maxRequestBytes', 'maxResponseBytes', 'selection', 'reasoningOverride', 'managed'])
+    'maxRequestBytes', 'maxResponseBytes', 'selection', 'reasoningOverride', 'managed', 'loggingEnabled'])
     || !text(value.ownerKey, 512) || !id(value.sessionId) || !positive(value.sessionGeneration)
     || !positive(value.deadline) || value.deadline <= Date.now()
     || !positive(value.maxRequestBytes) || !positive(value.maxResponseBytes)
-    || value.reasoningOverride !== undefined && !text(value.reasoningOverride, 128)) {
+    || value.reasoningOverride !== undefined && !text(value.reasoningOverride, 128)
+    || value.loggingEnabled !== undefined && typeof value.loggingEnabled !== 'boolean') {
     throw new OperatorInferenceRefusal(403);
   }
   let selection: OperatorInferenceOwner['selection'];
@@ -64,11 +66,14 @@ function parseContext(value: unknown): OperatorInferenceOwnerContext {
   // Project only the public contract, in stable order for exact recheck equality.
   return { ownerKey: value.ownerKey, sessionId: value.sessionId, sessionGeneration: value.sessionGeneration,
     deadline: value.deadline, maxRequestBytes: value.maxRequestBytes, maxResponseBytes: value.maxResponseBytes,
-    selection, managed, reasoningOverride: value.reasoningOverride as string | undefined };
+    selection, managed, reasoningOverride: value.reasoningOverride as string | undefined,
+    ...(value.loggingEnabled === undefined ? {} : { loggingEnabled: value.loggingEnabled as boolean }) };
 }
 
-async function readContext(response: Response): Promise<OperatorInferenceOwnerContext> {
+async function readContext(response: Response, loggingContext?: RawLogContext): Promise<OperatorInferenceOwnerContext> {
   if (response.status !== 200 || !response.body) {
+    emitRaw(loggingContext, 'owner-context-response', () => ({ status: response.status,
+      headers: Object.fromEntries(response.headers), captureUnavailable: 'body not consumed by authority reader' }));
     await response.body?.cancel();
     throw new OperatorInferenceRefusal(403);
   }
@@ -83,7 +88,10 @@ async function readContext(response: Response): Promise<OperatorInferenceOwnerCo
       if (size > MAX_CONTEXT_BYTES) throw new OperatorInferenceRefusal(403);
       chunks.push(part.value);
     }
-    return parseContext(JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(Buffer.concat(chunks))));
+    const body = new TextDecoder('utf-8', { fatal: true }).decode(Buffer.concat(chunks));
+    emitRaw(loggingContext, 'owner-context-response', () => ({ status: response.status,
+      headers: Object.fromEntries(response.headers), body }));
+    return parseContext(JSON.parse(body));
   } finally {
     await reader.cancel().catch(() => {});
     reader.releaseLock();
@@ -98,7 +106,7 @@ export function createOperatorInferenceOwnerResolver(options: OperatorInferenceO
   const cwd = path.resolve(options.cwd ?? process.env.WORKSPACE ?? '/home/user/workspace');
   const agentDir = path.resolve(options.agentDir ?? process.env.PI_CODING_AGENT_DIR ?? '/home/user/.pi/agent');
   const send = options.fetch ?? globalThis.fetch;
-  return async (bytes, callerSignal) => {
+  return async (bytes, callerSignal, loggingContext) => {
     if (bytes.byteLength > MAX_METADATA_BYTES) throw new OperatorInferenceRefusal(413);
     let input: unknown;
     try { input = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes)); }
@@ -114,10 +122,13 @@ export function createOperatorInferenceOwnerResolver(options: OperatorInferenceO
       try {
         const response = await send(OWNER_CONTEXT_URL, { method: 'POST', redirect: 'error', signal,
           headers: { 'content-type': 'application/json', accept: 'application/json' }, body: JSON.stringify(metadata) });
-        const context = await readContext(response);
+        const context = await readContext(response, loggingContext);
         signal.throwIfAborted();
         return context;
-      } catch { throw new OperatorInferenceRefusal(403); }
+      } catch (error) {
+        emitRaw(loggingContext, 'owner-context-failed', () => error);
+        throw new OperatorInferenceRefusal(403);
+      }
     };
     const original = await lookup();
     const snapshot = JSON.stringify(original);

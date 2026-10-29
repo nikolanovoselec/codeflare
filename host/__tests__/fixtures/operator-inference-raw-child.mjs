@@ -22,6 +22,7 @@ const headers = (binding, enabled) => ({
 const binding = { activityId: 'raw-first-lookup', generation: 3 };
 const plainProfile = { schemaVersion: 1, ...binding, sessionGeneration: 4 };
 const safe = 'noncredential-private-neighbor-✓';
+const headerSafe = 'noncredential-private-header-neighbor';
 const huge = '完整🙂raw-private-body-'.repeat(900);
 const secrets = {
   bearer: 'synthetic-bearer-sensitive-921', cookie: 'synthetic-cookie-sensitive-922',
@@ -165,7 +166,7 @@ async function run() {
   const f = await productionFixture(t, { loggingEnabled: enabled,
     builtin: scenario.startsWith('native-'),
     providerId: scenario.startsWith('managed-') ? 'owner-managed-route' : 'Owner.Custom/raw-route',
-    fragmentSize: scenario.startsWith('fragmented-') ? 8 : scenario.startsWith('many-events-') ? 1 : undefined });
+    fragmentSize: scenario.includes('fragmented-') ? 8 : scenario.startsWith('many-events-') ? 1 : undefined });
   // Functional policy bounds remain explicit and finite; only logging has no cap.
   f.parentContext.maxRequestBytes = 512 * 1024;
   f.parentContext.maxResponseBytes = scenario.startsWith('bounded-response-') ? 1024 : 2 * 1024 * 1024;
@@ -174,8 +175,10 @@ async function run() {
   };
   await f.admit();
   f.responseHeaders = { 'set-cookie': 'session=synthetic-provider-response-cookie-845; HttpOnly',
-    'x-noncredential-debug': safe };
-  f.toolCall = !scenario.startsWith('native-');
+    'x-noncredential-debug': headerSafe };
+  f.toolCall = scenario.startsWith('native-fragmented-tool-')
+    ? { path: 'release.json', apiKey: 'fragmented-tool-sensitive-material-982', note: safe }
+    : !scenario.startsWith('native-');
   const context = transcript();
   context.messages[1].content = huge;
   context.messages[2].content[1].arguments = { path: 'private/release.json',
@@ -184,9 +187,9 @@ async function run() {
   context.messages[3].content[0].text = `Private tool output ${huge}`;
   if (scenario.startsWith('native-')) context.messages = [{ role: 'user', content: huge, timestamp: 1 }];
   f.answer = scenario.startsWith('many-events-')
-    ? Array.from({ length: 161 }, (_, index) => String.fromCharCode(0x400 + index)).join('')
-    : scenario.startsWith('fragmented-')
-      ? JSON.stringify({ apiKey: 'fragmented-credential-secret-674', note: safe })
+    ? Array.from({ length: 161 }, (_, index) => String.fromCharCode(0x20 + index)).join('')
+    : scenario.includes('fragmented-')
+      ? JSON.stringify({ apiKey: 'fragmented-sensitive-material-674', note: safe })
       : `Private configured response ${huge}`;
   const input = modelRequest(f, { context,
     ...(scenario.startsWith('managed-') ? { options: { maxTokens: 91 } } : {}) });
@@ -198,7 +201,8 @@ async function run() {
   const response = await call(f, input);
   const saved = JSON.parse(await (await import('node:fs/promises')).readFile(path.join(f.agentDir, 'settings.json'), 'utf8'));
   return { response, binding: f.binding, sends: f.sends, input, saved, expected: {
-    answer: f.answer, safe, huge, secret: 'fragmented-credential-secret-674',
+    answer: f.answer, safe, headerSafe, huge, secret: 'fragmented-sensitive-material-674',
+    toolSecret: 'fragmented-tool-sensitive-material-982',
     credential: `synthetic-key-${f.binding.ownerKey}`,
     responseCookie: 'synthetic-provider-response-cookie-845',
   } };

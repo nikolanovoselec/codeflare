@@ -1,4 +1,4 @@
-/** REQ-OPERATOR-079 AC4/5/7/8 protected raw logs, not bounded Owner API data.
+/** REQ-OPERATOR-090 protected raw logs, not bounded Owner API data.
  * Uses real router/resolver/ownerInference and the installed public Pi SDK.
  * Child stdio is the log observation boundary; no global console replacement,
  * fake SDK, extra AgentSession/prompt, source assertions or stream teeing.
@@ -82,7 +82,7 @@ for (const auth of ['missing', 'invalid']) {
   });
 }
 
-test('REQ-OPERATOR-079: AC7 authenticated ON transport captures the first owner lookup original error causes stacks and unbounded detail before the same 403', { timeout: 30000 }, async t => {
+test('REQ-OPERATOR-090: authenticated ON transport captures the first owner lookup original error causes stacks and unbounded detail before the same 403', { timeout: 30000 }, async t => {
   const out = await scenario(t, 'first-lookup-on');
   for (const response of out.responses) safeRefusal(response, 403);
   const raw = captured(out);
@@ -100,7 +100,7 @@ test('REQ-OPERATOR-079: AC7 authenticated ON transport captures the first owner 
     'Protected raw logs must not expand the private Owner HTTP error projection');
 });
 
-test('REQ-OPERATOR-079: AC4 OFF trusted transport preserves the first lookup 403 without optional raw capture', { timeout: 30000 }, async t => {
+test('REQ-OPERATOR-090: OFF trusted transport preserves the first lookup 403 without optional raw capture', { timeout: 30000 }, async t => {
   const out = await scenario(t, 'first-lookup-off');
   for (const response of out.responses) safeRefusal(response, 403);
   assert.deepEqual(out.records, []);
@@ -109,7 +109,7 @@ test('REQ-OPERATOR-079: AC4 OFF trusted transport preserves the first lookup 403
 });
 
 for (const kind of ['object', 'string']) {
-  test(`REQ-OPERATOR-079: AC7 first lookup retains a thrown non-Error ${kind} without changing its 403 refusal`, { timeout: 30000 }, async t => {
+  test(`REQ-OPERATOR-090: first lookup retains a thrown non-Error ${kind} without changing its 403 refusal`, { timeout: 30000 }, async t => {
     const out = await scenario(t, `non-error-${kind}`);
     for (const response of out.responses) safeRefusal(response, 403);
     const raw = captured(out);
@@ -120,7 +120,7 @@ for (const kind of ['object', 'string']) {
   });
 }
 
-test('REQ-OPERATOR-079: AC7 redacts only credentials in headers nested fields signed URLs stringified JSON and literal echoes while preserving private neighbors', { timeout: 30000 }, async t => {
+test('REQ-OPERATOR-090: redacts only credentials in headers nested fields signed URLs stringified JSON and literal echoes while preserving private neighbors', { timeout: 30000 }, async t => {
   const out = await scenario(t, 'credentials');
   for (const response of out.responses) safeRefusal(response, 403);
   const raw = captured(out);
@@ -170,7 +170,7 @@ test('REQ-OPERATOR-003: request body loggingEnabled cannot replace the original 
   assert.deepEqual(out.records, []);
 });
 
-test('REQ-OPERATOR-079: AC5 original owner logging flag participates in exact current snapshot fencing during provider execution', { timeout: 30000 }, async t => {
+test('REQ-OPERATOR-090: original owner logging flag participates in exact current snapshot fencing during provider execution', { timeout: 30000 }, async t => {
   const out = await scenario(t, 'original-logging-drift');
   safeRefusal(out.response, 403);
   assert.equal(out.sends.length, 1, 'Original in-flight request is not replaced after owner-context drift');
@@ -180,7 +180,7 @@ test('REQ-OPERATOR-079: AC5 original owner logging flag participates in exact cu
 
 for (const kind of ['import', 'initialization', 'loader']) {
   for (const enabled of [true, false]) {
-    test(`REQ-OPERATOR-079: AC7 real SDK ${kind} failure logging ${enabled ? 'ON retains original diagnostics' : 'OFF is quiet'} before unchanged 503`, { timeout: 30000 }, async t => {
+    test(`REQ-OPERATOR-090: real SDK ${kind} failure logging ${enabled ? 'ON retains original diagnostics' : 'OFF is quiet'} before unchanged 503`, { timeout: 30000 }, async t => {
       const out = await scenario(t, `sdk-${kind}-${enabled ? 'on' : 'off'}`);
       safeRefusal(out.response, 503);
       assert.deepEqual(out.sends, [], 'Failed SDK setup must not substitute a provider request');
@@ -236,7 +236,7 @@ for (const kind of ['stream-error', 'failed-result']) {
 
 for (const source of ['custom', 'native', 'managed']) {
   for (const enabled of [true, false]) {
-    test(`REQ-OPERATOR-079: AC4/8 ${source} logging ${enabled ? 'ON captures full large deep request response SDK and tool data' : 'OFF preserves successful configured bytes quietly'}`, { timeout: 60000 }, async t => {
+    test(`REQ-OPERATOR-090: ${source} logging ${enabled ? 'ON captures full large deep request response SDK and tool data' : 'OFF preserves successful configured bytes quietly'}`, { timeout: 60000 }, async t => {
       const out = await scenario(t, `${source}-${enabled ? 'on' : 'off'}`);
       succeeded(out);
       const result = out.response.body.result;
@@ -253,7 +253,7 @@ for (const source of ['custom', 'native', 'managed']) {
       hasExact(raw, out.response.body.events.at(-1), 'Public SDK done event remains complete');
       assert.equal(JSON.stringify(raw).includes(out.expected.credential), false);
       assert.equal(JSON.stringify(raw).includes(out.expected.responseCookie), false);
-      assert.ok([...values(raw)].some(value => value?.headers?.['x-noncredential-debug'] === out.expected.safe),
+      assert.ok([...values(raw)].some(value => value?.headers?.['x-noncredential-debug'] === out.expected.headerSafe),
         'Public response-header observation preserves private noncredential neighbors while redacting cookies');
       if (source !== 'native') {
         hasExact(raw, out.sends[0].body, 'Public onPayload observes the actual outgoing provider request, including configured model metadata');
@@ -265,7 +265,7 @@ for (const source of ['custom', 'native', 'managed']) {
   }
 }
 
-test('REQ-OPERATOR-079: AC8 raw public SDK events beyond 100 remain complete without consuming or replacing the functional stream', { timeout: 60000 }, async t => {
+test('REQ-OPERATOR-090: raw public SDK events beyond 100 remain complete without consuming or replacing the functional stream', { timeout: 60000 }, async t => {
   const out = await scenario(t, 'many-events-on');
   succeeded(out);
   const events = out.response.body.events.filter(event => event.type === 'text_delta');
@@ -275,7 +275,7 @@ test('REQ-OPERATOR-079: AC8 raw public SDK events beyond 100 remain complete wit
   for (const event of events) hasExact(raw, event, `Observed event ${event.delta} must not disappear behind a logging count cap`);
 });
 
-test('REQ-OPERATOR-079: AC7 fragmented credential text is redacted using assembled functional values without changing original SDK bytes', { timeout: 60000 }, async t => {
+test('REQ-OPERATOR-090: fragmented credential text is redacted using assembled functional values without changing original SDK bytes', { timeout: 60000 }, async t => {
   const out = await scenario(t, 'fragmented-on');
   succeeded(out);
   const raw = captured(out);
@@ -292,6 +292,32 @@ test('REQ-OPERATOR-079: AC7 fragmented credential text is redacted using assembl
   assert.ok(out.response.body.result.content.some(part => part.type === 'text' && part.text.includes(out.expected.secret)),
     'Raw-log sanitization cannot mutate the original functional result');
 });
+
+for (const kind of ['text', 'tool']) {
+  for (const enabled of [true, false]) {
+    test(`REQ-OPERATOR-090: real native ${kind} fragments logging ${enabled ? 'ON redacts reconstructible credentials' : 'OFF remains quiet'} without changing SDK bytes`, { timeout: 60000 }, async t => {
+      const out = await scenario(t, `native-fragmented-${kind}-${enabled ? 'on' : 'off'}`);
+      succeeded(out);
+      assert.equal(out.response.body.result.content.find(part => part.type === 'text').text, out.expected.answer);
+      if (kind === 'tool') assert.equal(out.response.body.result.content.find(part => part.type === 'toolCall').arguments.apiKey, out.expected.toolSecret);
+      if (!enabled) { assert.deepEqual(out.records, []); return; }
+      const raw = captured(out);
+      const native = [...values(raw)].filter(value => value?.object === 'chat.completion.chunk' && Array.isArray(value.choices));
+      assert.ok(native.length > 1, 'Actual public built-in adapter observes fragmented provider HTTP events');
+      const text = native.flatMap(value => value.choices).map(choice => choice.delta?.content ?? '').join('');
+      const argumentsText = native.flatMap(value => value.choices).flatMap(choice => choice.delta?.tool_calls ?? [])
+        .map(call => call.function?.arguments ?? '').join('');
+      assert.equal(text.includes(out.expected.secret), false, 'Joining raw native text cannot recover the credential');
+      assert.ok(text.includes(out.expected.safe), 'Native noncredential response text remains complete');
+      if (kind === 'tool') {
+        assert.equal(argumentsText.includes(out.expected.toolSecret), false, 'Joining native tool argument fragments cannot recover the credential');
+        assert.ok(argumentsText.includes(out.expected.safe), 'Native noncredential tool arguments remain complete');
+      }
+      assert.equal(JSON.stringify(raw).includes(out.expected.secret), false);
+      assert.equal(JSON.stringify(raw).includes(out.expected.toolSecret), false);
+    });
+  }
+}
 
 for (const mode of ['cancel', 'deadline']) {
   for (const enabled of [true, false]) {
