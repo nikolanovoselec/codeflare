@@ -30,7 +30,7 @@ Both are Pro (advanced) only, and only when a Cloudflare API token with the **Br
 
 ## Version and tool discovery
 
-The consolidation source pins Chrome DevTools MCP 1.10.1; verify the installed version independently. Use the configured remote CDP server and discover its current tool names and input schemas; do not install `npx @latest`, implicitly launch a local browser, or replace the user's MCP configuration to make a tool appear. Missing interactive tools do not authorize bypassing authentication. Performance tools may send trace URLs to Google's CrUX service; do not submit private URLs or sensitive traces without authorization.
+The consolidation source pins Chrome DevTools MCP 1.12.0; verify the installed version independently. Use the configured remote CDP server and discover its current tool names and input schemas; do not install `npx @latest`, implicitly launch a local browser, or replace the user's MCP configuration to make a tool appear. Missing interactive tools do not authorize bypassing authentication. Performance tools may send trace URLs to Google's CrUX service; do not submit private URLs or sensitive traces without authorization.
 
 ## Notes
 
