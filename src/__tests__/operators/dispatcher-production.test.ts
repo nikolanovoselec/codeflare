@@ -4138,7 +4138,27 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
     }, { repositoryOnly: true, recovery: true, inferenceRequestBytes: limit, inferenceBody });
   });
 
-  it.each([65537, 1048576])('REQ-OPERATOR-047: admitted operator inference bytes forward %i-byte content without child authority', contentBytes => fixture(async f => {
+  // Controlled sink comparison: retain every console argument, then assert the
+  // complete raw operation alongside the unchanged production-path outcomes.
+  async function withCollectedLargeLogs<T>(collect: boolean, run: (output: unknown[][]) => Promise<T>): Promise<T> {
+    const output: unknown[][] = [];
+    if (!collect) return run(output);
+    const spies = (['log', 'warn', 'error'] as const).map(method => vi.spyOn(console, method)
+      .mockImplementation((...args: unknown[]) => { output.push(args); }));
+    try { return await run(output); }
+    finally { spies.forEach(spy => spy.mockRestore()); }
+  }
+  function collectedRawValues(output: unknown[][], stage: string): unknown[] {
+    return output.flatMap(args => args.flatMap(arg => {
+      if (typeof arg !== 'string') return [];
+      try {
+        const record = JSON.parse(arg);
+        return record.module === 'operator-execution' && record.message === stage ? [record.data.value] : [];
+      } catch { return []; }
+    }));
+  }
+
+  it.each([65537, 1048576])('REQ-OPERATOR-047: admitted operator inference bytes forward %i-byte content without child authority', contentBytes => withCollectedLargeLogs(contentBytes === 1048576, output => fixture(async f => {
     await start(f);
     const content = 'x'.repeat(contentBytes);
     const response = await f.capability.fetch(genericWire('inference', {
@@ -4153,9 +4173,12 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
     expect((await f.capability.fetch(genericWire('inference', {
       operationId: 'revoked-large-inference', input: { messages: [{ role: 'user', content }] },
     }))).status).toBe(403);
-  }, { inferenceRequestBytes: Number.MAX_SAFE_INTEGER }));
+    if (contentBytes === 1048576) expect(collectedRawValues(output, 'operation-prepared')).toContainEqual(expect.objectContaining({
+      body: { operationId: 'configured-inference', input: { messages: [{ role: 'user', content }] } },
+    }));
+  }, { inferenceRequestBytes: Number.MAX_SAFE_INTEGER })));
 
-  it('REQ-OPERATOR-047: absent inference limit accepts an exact 1 MiB request and rejects one extra byte', () => fixture(async f => {
+  it('REQ-OPERATOR-047: absent inference limit accepts an exact 1 MiB request and rejects one extra byte', () => withCollectedLargeLogs(true, output => fixture(async f => {
     await start(f);
     const operationId = 'default-inference-bytes';
     const empty = { operationId, input: { messages: [{ role: 'user', content: '' }] } };
@@ -4165,7 +4188,10 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
       input: { messages: [{ role: 'user', content }] } }))).status).toBe(200);
     expect((await f.capability.fetch(genericWire('inference', { operationId,
       input: { messages: [{ role: 'user', content: content + 'x' }] } }))).status).toBe(403);
-  }));
+    expect(collectedRawValues(output, 'operation-prepared')).toContainEqual(expect.objectContaining({
+      body: { operationId, input: { messages: [{ role: 'user', content }] } },
+    }));
+  })));
 
   it('REQ-OPERATOR-047: operator inference bytes enforce exact UTF-8 request boundaries', async () => {
     const body = { operationId: 'exact-inference', input: { messages: [{ role: 'user', content: '🙂'.repeat(30) }] } };

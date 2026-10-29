@@ -209,6 +209,42 @@ describe('protected raw execution logging through the existing diagnostic entryp
     expect(error.message).toContain(credential);
   });
 
+  it.each(['current-prefix', 'already-advanced'] as const)('REQ-OPERATOR-090: AC7 SDK delta channels redact credentials with %s partials without changing functional values', mode => {
+    const records = capture();
+    const kinds = ['thinking', 'text', 'toolcall'] as const;
+    const secrets = kinds.map(kind => `sdk-${kind}-sensitive-material-738`);
+    const bodies = secrets.map((apiKey, index) => JSON.stringify({ apiKey, note: `KEEP_SDK_NEIGHBOR_${index}` }));
+    const message = { role: 'assistant', provider: 'configured-custom-provider', model: 'saved-model', timestamp: 27,
+      content: [{ type: 'thinking', thinking: bodies[0] }, { type: 'text', text: bodies[1] },
+        { type: 'toolCall', id: 'actual-call', name: 'inspect', arguments: JSON.parse(bodies[2]) }] };
+    const deltas = bodies.flatMap((body, contentIndex) => Array.from({ length: Math.ceil(body.length / 7) }, (_, step) => ({
+      contentIndex, step, delta: body.slice(step * 7, (step + 1) * 7),
+    }))).sort((a, b) => a.step - b.step);
+    const events = deltas.map(({ contentIndex, step, delta }) => {
+      const partial = mode === 'already-advanced' ? message : { ...message, content: message.content.map((part, index) => {
+        if (index !== contentIndex || contentIndex === 2) return part;
+        return { ...part, [contentIndex === 0 ? 'thinking' : 'text']: bodies[contentIndex].slice(0, (step + 1) * 7) };
+      }) };
+      return { stage: 'sdk-event', value: { type: `${kinds[contentIndex]}_delta`, contentIndex, delta, partial } };
+    });
+    const payload = [...events, { stage: 'sdk-result', value: message }];
+    emit(payload);
+    const observed = valueOf(records()) as Array<{ stage: string; value: { contentIndex?: number; delta?: string } }>;
+    for (const contentIndex of [0, 1, 2]) {
+      const reconstructed = observed.filter(item => item.stage === 'sdk-event' && item.value.contentIndex === contentIndex)
+        .map(item => item.value.delta ?? '').join('');
+      expect(reconstructed).not.toContain(secrets[contentIndex]);
+      expect(reconstructed).toContain(`KEEP_SDK_NEIGHBOR_${contentIndex}`);
+    }
+    expect(JSON.stringify(observed)).not.toContain(secrets[0]);
+    expect(JSON.stringify(observed)).not.toContain(secrets[1]);
+    expect(JSON.stringify(observed)).not.toContain(secrets[2]);
+    expect(message.content[0].thinking).toBe(bodies[0]);
+    expect(message.content[1].text).toBe(bodies[1]);
+    expect(message.content[2].arguments.apiKey).toBe(secrets[2]);
+    expect(events.map(event => event.value.delta)).toEqual(deltas.map(event => event.delta));
+  });
+
   it('REQ-OPERATOR-090: native text and tool-argument fragments cannot reconstruct credentials while neighboring data survives', () => {
     const records = capture();
     const secret = 'native-fragment-sensitive-material-629';

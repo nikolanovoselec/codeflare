@@ -154,9 +154,10 @@ function redact(value: unknown, credentials: readonly string[]): unknown {
     }
   };
   collect(value);
-  // Public native events do not carry SDK partial/contentIndex metadata. Join
-  // their string channels within the existing observation batch, then redact
-  // intersecting spans before emitting any fragment. No vendor/model dispatch.
+  // Join public string channels within the existing observation batch before
+  // redacting spans. A queued SDK event's mutable partial may already be ahead
+  // of its delta; event order, not that partial's suffix, locates the fragment.
+  // Native channels retain their structural identities; no vendor dispatch.
   const nativeLeaves = new WeakMap<object, Map<string, { text: string; start: number; stream: { text: string } }>>();
   const nativeStreams = new Map<string, { text: string }>();
   const registerNative = (parent: object, key: string, item: unknown, scope: string, eventType: unknown, path = key): void => {
@@ -188,8 +189,15 @@ function redact(value: unknown, credentials: readonly string[]): unknown {
     for (const record of value) {
       if (!record || typeof record !== 'object') continue;
       if (record.stage === 'provider-request') attempt++;
-      if (record.stage !== 'provider-stream-event') continue;
       const event = record.value;
+      if (record.stage === 'sdk-event' && event && typeof event === 'object'
+        && typeof event.delta === 'string' && typeof event.type === 'string'
+        && /^(?:text|thinking|toolcall)_delta$/.test(event.type)
+        && assistant(event.partial) && Number.isSafeInteger(event.contentIndex)) {
+        registerNative(event, 'delta', event.delta,
+          `${attempt}:sdk:${streamKey(event.partial, event.contentIndex)}:${event.type}`, undefined);
+      }
+      if (record.stage !== 'provider-stream-event') continue;
       const positions = event && typeof event === 'object' ? [event.index, event.output_index, event.content_index] : [];
       registerNative(record, 'value', event, `${attempt}:${JSON.stringify(positions)}`, event?.type);
     }

@@ -1362,8 +1362,9 @@ describe('native provider authorization and compat dispatch', () => {
           const requestEvidence = protectedRecords.find(record => record.message === 'gateway-request')!.data.value as { body: string };
           expect(JSON.parse(requestEvidence.body).messages[0].content).toEqual([{ type: 'text', text: fullrawOriginalEvidence }]);
           if (scenario === 'complete') expect(protectedRecords).toContainEqual(expect.objectContaining({ message: 'native-event',
-            data: expect.objectContaining({ value: { type: 'content_block_delta', index: 0,
-              delta: { type: 'text_delta', text: fullrawOriginalEvidence } } }) }));
+            data: expect.objectContaining({ value: expect.arrayContaining([{ stage: 'provider-stream-event',
+              value: { type: 'content_block_delta', index: 0,
+                delta: { type: 'text_delta', text: fullrawOriginalEvidence } } }]) }) }));
           if (scenario === 'fetch-failure') expect(protectedRecords).toContainEqual(expect.objectContaining({ message: 'gateway-fetch',
             data: expect.objectContaining({ value: expect.objectContaining({ message: fullrawOriginalEvidence }) }) }));
           if (scenario === 'native-failure') expect(protectedRecords).toContainEqual(expect.objectContaining({ message: 'native-stream',
