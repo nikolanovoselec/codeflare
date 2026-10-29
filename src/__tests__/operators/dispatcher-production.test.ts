@@ -27,6 +27,26 @@ import { sealOperatorSecret } from '../../operators/protected-secrets';
 import { OperatorOwnerInferenceAuthority, discoverDispatcherOwnerProfile, forwardDispatcherOwnerInference } from '../../operators/dispatcher-owner-inference';
 import { connectionSecret, createNormalDispatcherTransport, normalCallback, normalDeployment, normalDispatcherBundle } from './fixtures/normal-dispatcher';
 
+// Controlled sink comparison: retain every console argument, then assert the
+// complete raw operation alongside the unchanged production-path outcomes.
+async function withCollectedLargeLogs<T>(collect: boolean, run: (output: unknown[][]) => Promise<T>): Promise<T> {
+  const output: unknown[][] = [];
+  if (!collect) return run(output);
+  const spies = (['log', 'warn', 'error'] as const).map(method => vi.spyOn(console, method)
+    .mockImplementation((...args: unknown[]) => { output.push(args); }));
+  try { return await run(output); }
+  finally { spies.forEach(spy => spy.mockRestore()); }
+}
+function collectedRawValues(output: unknown[][], stage: string): unknown[] {
+  return output.flatMap(args => args.flatMap(arg => {
+    if (typeof arg !== 'string') return [];
+    try {
+      const record = JSON.parse(arg);
+      return record.module === 'operator-execution' && record.message === stage ? [record.data.value] : [];
+    } catch { return []; }
+  }));
+}
+
 let callerSessionCurrent = true;
 let callerRoute = 'approved';
 let nativeProfileFiles = new Map<string, unknown>();
@@ -4138,26 +4158,6 @@ describe('REQ-OPERATOR-047/048: production Dispatcher lease and restricted effec
     }, { repositoryOnly: true, recovery: true, inferenceRequestBytes: limit, inferenceBody });
   });
 
-  // Controlled sink comparison: retain every console argument, then assert the
-  // complete raw operation alongside the unchanged production-path outcomes.
-  async function withCollectedLargeLogs<T>(collect: boolean, run: (output: unknown[][]) => Promise<T>): Promise<T> {
-    const output: unknown[][] = [];
-    if (!collect) return run(output);
-    const spies = (['log', 'warn', 'error'] as const).map(method => vi.spyOn(console, method)
-      .mockImplementation((...args: unknown[]) => { output.push(args); }));
-    try { return await run(output); }
-    finally { spies.forEach(spy => spy.mockRestore()); }
-  }
-  function collectedRawValues(output: unknown[][], stage: string): unknown[] {
-    return output.flatMap(args => args.flatMap(arg => {
-      if (typeof arg !== 'string') return [];
-      try {
-        const record = JSON.parse(arg);
-        return record.module === 'operator-execution' && record.message === stage ? [record.data.value] : [];
-      } catch { return []; }
-    }));
-  }
-
   it.each([65537, 1048576])('REQ-OPERATOR-047: admitted operator inference bytes forward %i-byte content without child authority', contentBytes => withCollectedLargeLogs(contentBytes === 1048576, output => fixture(async f => {
     await start(f);
     const content = 'x'.repeat(contentBytes);
@@ -4601,7 +4601,7 @@ describe('REQ-OPERATOR-047/048: parent-composed source response allowance', () =
     expect(await cached.json()).toEqual(body);
   }, { repositoryOnly: true, sourceResponseBytes, sourceBody: 'x'.repeat(100 * 1024) }));
 
-  it('REQ-OPERATOR-047: SQL-backed default capacity completes 1024 distinct maximum-length source URLs and reuses cached slots after reload', () => fixture(async f => {
+  it('REQ-OPERATOR-047: SQL-backed default capacity completes 1024 distinct maximum-length source URLs and reuses cached slots after reload', () => withCollectedLargeLogs(true, output => fixture(async f => {
     await start(f);
     const urlFor = (index: number) => {
       const prefix = `https://docs.example.test/migration?request=${String(index).padStart(4, '0')}&padding=`;
@@ -4622,6 +4622,12 @@ describe('REQ-OPERATOR-047/048: parent-composed source response allowance', () =
         headers: { 'content-type': 'text/plain', etag: 'guide-v3' }, body: 'Official migration guidance' });
       if (index === 0 || index === 511 || index === 1023) await receipt(0, index + 1);
     }
+    const preparedById = new Map((collectedRawValues(output, 'operation-prepared') as Array<{
+      body: { operationId: string; url: string };
+    }>).map(value => [value.body.operationId, value.body]));
+    for (let index = 0; index < 1024; index++) {
+      expect(preparedById.get(`max-url-${index}`)).toEqual({ operationId: `max-url-${index}`, url: urlFor(index) });
+    }
     f.sourceBody('Changed upstream content must not replace completed long-URL receipts');
     f.restart();
     for (const index of [0, 511, 1023]) {
@@ -4637,7 +4643,7 @@ describe('REQ-OPERATOR-047/048: parent-composed source response allowance', () =
     expect((await f.capability.fetch(genericWire('receipt', { operationId: 'max-url-next' }))).status).toBe(403);
     await receipt(0, 1024);
     expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'running', result: null });
-  }, { repositoryOnly: true }), 120000);
+  }, { repositoryOnly: true })), 120000);
 
   it.each(['reserved', 'unknown'] as const)(
     'REQ-OPERATOR-047: legacy aggregate recovery preserves counts cached receipts conflicts and %s mutation ordering across reload', phase => fixture(async f => {
