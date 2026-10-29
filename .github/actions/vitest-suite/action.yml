@@ -125,6 +125,21 @@ runs:
           false) ;;
           *) echo "::error::unsupported timing reporter: $TIMING_REPORTER"; exit 1 ;;
         esac
+        # A separate process still reports CPU ownership if Vitest's event loop
+        # is blocked. Scope diagnostics to the cancelled lane, not every suite.
+        sampler_pid=''
+        stop_sampler() {
+          if [ -n "$sampler_pid" ]; then
+            kill "$sampler_pid" 2>/dev/null || true
+            wait "$sampler_pid" 2>/dev/null || true
+            sampler_pid=''
+          fi
+        }
+        trap stop_sampler EXIT
+        if [ "$NAME" = backend-shard-3 ]; then
+          node "$GITHUB_WORKSPACE/scripts/ci/sample-suite-processes.mjs" "$$" &
+          sampler_pid=$!
+        fi
         set +e
         # CLI reporters replace the config one; JSON remains mandatory for the gate.
         npm run "$SCRIPT" -- "${test_args[@]}" ${SHARD:+--shard="$SHARD"} \
@@ -133,6 +148,7 @@ runs:
           2>&1 | tee "$RUNNER_TEMP/${NAME}.log"
         status=${PIPESTATUS[0]}
         set -e
+        stop_sampler
         node "$GITHUB_WORKSPACE/scripts/ci/check-vitest-report.mjs" \
           "$status" "$RUNNER_TEMP/${NAME}.json" "$RUNNER_TEMP/${NAME}.log" "$TOLERATE"
 
