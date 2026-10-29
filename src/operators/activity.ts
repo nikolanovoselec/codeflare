@@ -1818,6 +1818,7 @@ export class OperatorActivity extends Agent {
     this.#resumeDispatcherOnEntry();
     let trace: InferenceDiagnosticContext | undefined;
     let boundary = 'authority';
+    let leaseCommitted = false;
     try {
       const plan = await this.getRuntimePlan();
       if (plan) trace = { activityId: plan.activityId, generation, loggingEnabled: executionLoggingEnabled(plan.receipt) };
@@ -1900,6 +1901,7 @@ export class OperatorActivity extends Agent {
         // Old completed entries remain isolated; a continued generation reserves its own reads.
         await tx.put<DispatcherJournal>(DISPATCHER_JOURNAL, { generation, count: 0, nextOrdinal: 0, unresolved: 0 });
       });
+      leaseCommitted = true;
       this.#enqueueDiagnostic(async () => {
         await this.ctx.storage.transaction(tx => initializeDiagnostics(tx, lease, !!lease.sdkProvenance));
       });
@@ -1971,14 +1973,18 @@ export class OperatorActivity extends Agent {
       this.#observeSdkHeader(generation, admitted.response);
       return result;
     } catch (error) {
+      const metadata = captureError(error);
       const family: Boundary = boundary === 'artifact' ? 'artifact' : boundary === 'loader' ? 'construction'
         : boundary === 'scheduling' ? 'scheduling' : ['admission', 'cursor', 'commit'].includes(boundary) ? 'submission' : 'admission';
       const code: ReasonCode = family === 'artifact' ? (error instanceof Error && error.message === 'Dispatcher artifact unavailable'
         ? 'artifact-unavailable' : 'artifact-mismatch') : family === 'construction' ? 'startup-failed'
           : family === 'submission' ? 'submission-failed' : family === 'scheduling' ? 'unclassified' : 'authority-denied';
-      this.#recordDiagnostic(generation, family, 'failed', code, error);
+      // Before a lease commits, fenceDrive initializes the ledger before recording
+      // this failure. Keep the existing post-lease observation, even if fencing declines.
+      if (leaseCommitted) this.#recordDiagnostic(generation, family, 'failed', code,
+        undefined, {}, 'host', undefined, metadata);
       inferenceDiagnostic(trace, { stage: 'drive', outcome: 'failed', boundary }, () => error);
-      return this.interruptDrive(generation, { boundary: family, code, error: captureError(error) });
+      return this.interruptDrive(generation, { boundary: family, code, error: metadata });
     }
   }
 
