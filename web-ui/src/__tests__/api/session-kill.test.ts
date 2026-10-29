@@ -8,7 +8,7 @@ function killSession(id: string): Promise<void> {
   return (client as typeof client & { killSession: (id: string) => Promise<void> }).killSession(id);
 }
 
-describe('REQ-SESSION-038 AC2: KILL HTTP contract', () => {
+describe('REQ-SESSION-039 AC1: KILL HTTP contract', () => {
   const requests: Array<{ url: string; init: RequestInit }> = [];
   let respond: () => Promise<Response>;
 
@@ -50,7 +50,7 @@ describe('REQ-SESSION-038 AC2: KILL HTTP contract', () => {
     },
   );
 
-  it.each([403, 409, 503])('surfaces HTTP %s failure rather than reporting success, and permits retry', async status => {
+  it.each([403, 409, 503])('REQ-SESSION-038 AC5: surfaces HTTP %s failure rather than reporting success, and permits retry', async status => {
     respond = async () => Response.json({ error: 'KILL exit is not confirmed' }, { status });
     await expect(killSession('session123abc')).rejects.toMatchObject({
       status,
@@ -64,7 +64,7 @@ describe('REQ-SESSION-038 AC2: KILL HTTP contract', () => {
     ]);
   });
 
-  it('rejects ambiguous network loss and lets the caller retry the same session', async () => {
+  it('REQ-SESSION-038 AC5: rejects ambiguous network loss and lets the caller retry the same session', async () => {
     respond = async () => { throw new TypeError('Connection lost before confirmation'); };
     await expect(killSession('session123abc')).rejects.toThrow('Connection lost before confirmation');
     respond = async () => new Response(null, { status: 204 });

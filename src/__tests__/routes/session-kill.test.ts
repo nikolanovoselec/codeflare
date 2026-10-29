@@ -163,7 +163,7 @@ async function fixture(status = 'running') {
   const token = async (owner: string) => signSessionJWT({ email: owner, sub: owner,
     ghLogin: owner.split('@')[0], aud: SESSION_JWT_AUD }, jwtSecret);
   const ownerToken = await token(email), otherToken = await token(otherEmail);
-  const request = (path = `/api/sessions/${id}/kill`, options: { owner?: 'owner' | 'other' | 'anonymous';
+  const request = async (path = `/api/sessions/${id}/kill`, options: { owner?: 'owner' | 'other' | 'anonymous';
     mutationHeader?: boolean; method?: string; body?: Record<string, unknown>; cookie?: string } = {}) => {
     const headers = new Headers();
     if (options.owner !== 'anonymous') headers.set('Cookie', options.cookie ??
@@ -201,9 +201,9 @@ afterEach(async () => {
   finally { vi.unstubAllGlobals(); vi.useRealTimers(); resetAuthConfigCache(); }
 });
 
-describe('REQ-SESSION-038: owner-authenticated POST /api/sessions/:id/kill', () => {
+describe('REQ-SESSION-039 / REQ-SESSION-040: owner-authenticated POST /api/sessions/:id/kill', () => {
   it.each(['starting', 'running', 'unreachable', 'stopping'])(
-    'captures owner D1 generation and force-kills %s while retaining the session and files (AC2/3/4)', async status => {
+    'captures owner D1 generation and force-kills %s while retaining the session and files (REQ-SESSION-039 AC1-AC2/AC5-AC7 / REQ-SESSION-040 AC1)', async status => {
       const f = await fixture(status);
       // If the route reads KV instead of D1 it will incorrectly skip teardown.
       f.kv._set(`session:${f.bucket}:${id}`, { id, status: 'stopped', lifecycleGeneration: 99 });
@@ -220,7 +220,7 @@ describe('REQ-SESSION-038: owner-authenticated POST /api/sessions/:id/kill', () 
     },
   );
 
-  it('does not report success until native destruction positively confirms exit (AC3/4/5)', async () => {
+  it('does not report success until native destruction positively confirms exit (REQ-SESSION-040 AC1-AC2)', async () => {
     const f = await fixture(), gate = f.holdNative();
     let response: Response | undefined;
     const request = f.request().then(value => { response = value; });
@@ -238,7 +238,7 @@ describe('REQ-SESSION-038: owner-authenticated POST /api/sessions/:id/kill', () 
     } finally { gate.resolve(); }
   });
 
-  it('returns idempotent success for a confirmed-stopped owner row even when the DO is unavailable (AC2/5)', async () => {
+  it('returns idempotent success for a confirmed-stopped owner row even when the DO is unavailable (REQ-SESSION-040 AC5)', async () => {
     const f = await fixture('stopped'), before = await f.read();
     gateway.unavailable = true;
     const response = await f.finish();
@@ -250,7 +250,7 @@ describe('REQ-SESSION-038: owner-authenticated POST /api/sessions/:id/kill', () 
   });
 
   it.each(['anonymous', 'invalid-cookie'])(
-    'rejects %s authentication before changing session ownership (AC2)', async mode => {
+    'rejects %s authentication before changing session ownership (REQ-SESSION-039 AC1)', async mode => {
       const f = await fixture(), before = await f.read();
       const response = await f.finish(undefined, mode === 'anonymous'
         ? { owner: 'anonymous' } : { cookie: 'codeflare_session=not-a-valid-signed-cookie' });
@@ -261,7 +261,7 @@ describe('REQ-SESSION-038: owner-authenticated POST /api/sessions/:id/kill', () 
     },
   );
 
-  it('enforces the existing state-changing request protection (AC2)', async () => {
+  it('enforces the existing state-changing request protection (REQ-SESSION-039 AC1)', async () => {
     const f = await fixture(), before = await f.read();
     const response = await f.finish(undefined, { mutationHeader: false });
     expect(response.status).toBe(403);
@@ -269,7 +269,7 @@ describe('REQ-SESSION-038: owner-authenticated POST /api/sessions/:id/kill', () 
     expect(f.running()).toBe(true);
   });
 
-  it('denies a blocked authenticated user under the existing access-tier policy (AC2)', async () => {
+  it('denies a blocked authenticated user under the existing access-tier policy (REQ-SESSION-039 AC1)', async () => {
     const f = await fixture(), before = await f.read();
     f.kv._set(`user:${email}`, { role: 'user', subscriptionTier: 'blocked' });
     const response = await f.finish();
@@ -279,7 +279,7 @@ describe('REQ-SESSION-038: owner-authenticated POST /api/sessions/:id/kill', () 
     expect(f.running()).toBe(true);
   });
 
-  it('cannot KILL another owner session even with a forged owner/generation request body (AC2/6)', async () => {
+  it('cannot KILL another owner session even with a forged owner/generation request body (REQ-SESSION-039 AC1)', async () => {
     const f = await fixture(), before = await f.read();
     const response = await f.finish(undefined, { owner: 'other', body: { bucket: f.bucket, sessionId: id, generation: 7 } });
     expect(response.status).toBe(404);
@@ -289,7 +289,7 @@ describe('REQ-SESSION-038: owner-authenticated POST /api/sessions/:id/kill', () 
     expect(f.files()).toEqual(f.originalFiles);
   });
 
-  it('takes the target solely from the authenticated owner and URL, ignoring body authority (AC2/6)', async () => {
+  it('takes the target solely from the authenticated owner and URL, ignoring body authority (REQ-SESSION-039 AC1-AC2)', async () => {
     const f = await fixture();
     f.seed(f.otherBucket, 'othersession1234');
     const other = await f.repository.getSession(f.otherBucket, 'othersession1234');
@@ -300,7 +300,7 @@ describe('REQ-SESSION-038: owner-authenticated POST /api/sessions/:id/kill', () 
     expect(await f.repository.getSession(f.otherBucket, 'othersession1234')).toEqual(other);
   });
 
-  it.each(['INVALID-ID', 'short', 'a'.repeat(25)])('rejects malformed session ID %s without teardown (AC2)', async invalid => {
+  it.each(['INVALID-ID', 'short', 'a'.repeat(25)])('rejects malformed session ID %s without teardown (REQ-SESSION-039 AC1)', async invalid => {
     const f = await fixture(), before = await f.read();
     const response = await f.finish(`/api/sessions/${invalid}/kill`);
     expect(response.status).toBe(400);
@@ -309,7 +309,7 @@ describe('REQ-SESSION-038: owner-authenticated POST /api/sessions/:id/kill', () 
     expect(f.running()).toBe(true);
   });
 
-  it('returns owner-scoped not found for an absent D1 row despite a live-looking KV record (AC2)', async () => {
+  it('returns owner-scoped not found for an absent D1 row despite a live-looking KV record (REQ-SESSION-039 AC2)', async () => {
     const f = await fixture();
     const missing = 'missing12345678';
     f.kv._set(`session:${f.bucket}:${missing}`, { id: missing, status: 'running', lifecycleGeneration: 7 });
@@ -320,7 +320,7 @@ describe('REQ-SESSION-038: owner-authenticated POST /api/sessions/:id/kill', () 
     expect(f.running()).toBe(true);
   });
 
-  it('fails closed on owner-authority D1 outage without relying on KV (AC2/5)', async () => {
+  it('fails closed on owner-authority D1 outage without relying on KV (REQ-SESSION-039 AC2)', async () => {
     const f = await fixture();
     f.kv._set(`session:${f.bucket}:${id}`, { id, status: 'running', lifecycleGeneration: 7 });
     f.failDatabase(true);
@@ -333,7 +333,7 @@ describe('REQ-SESSION-038: owner-authenticated POST /api/sessions/:id/kill', () 
     expect(f.running()).toBe(false);
   });
 
-  it('does not leave a Worker-owned stopping claim when DO acceptance fails (AC2/3/5)', async () => {
+  it('does not leave a Worker-owned stopping claim when DO acceptance fails (REQ-SESSION-039 AC2)', async () => {
     const f = await fixture(), before = await f.read();
     gateway.unavailable = true;
     const response = await f.finish();
@@ -345,7 +345,7 @@ describe('REQ-SESSION-038: owner-authenticated POST /api/sessions/:id/kill', () 
     expect(f.running()).toBe(false);
   });
 
-  it('rejects a generation replaced between the Worker D1 read and DO acceptance (AC2/6)', async () => {
+  it('rejects a generation replaced between the Worker D1 read and DO acceptance (REQ-SESSION-040 AC6)', async () => {
     const f = await fixture();
     gateway.beforeDispatch = () => { f.seed(f.bucket, id, 'running', 8); };
     const response = await f.finish();
@@ -356,7 +356,7 @@ describe('REQ-SESSION-038: owner-authenticated POST /api/sessions/:id/kill', () 
     expect(f.files()).toEqual(f.originalFiles);
   });
 
-  it('returns failure for unconfirmed native exit and lets the owner retry the retained intent (AC4/5)', async () => {
+  it('returns failure for unconfirmed native exit and lets the owner retry the retained intent (REQ-SESSION-040 AC1-AC3)', async () => {
     const f = await fixture(); f.failNative(true);
     const failure = await f.finish();
     expect(failure.status).toBeGreaterThanOrEqual(500);
@@ -385,7 +385,7 @@ describe('REQ-SESSION-038: owner-authenticated POST /api/sessions/:id/kill', () 
     } finally { gate.resolve(); }
   });
 
-  it('coalesces concurrent owner KILL requests and preserves idempotency after a lost success response (AC5)', async () => {
+  it('coalesces concurrent owner KILL requests and preserves idempotency after a lost success response (REQ-SESSION-040 AC4-AC5)', async () => {
     const f = await fixture(), gate = f.holdNative();
     const first = f.request();
     try {
@@ -406,7 +406,7 @@ describe('REQ-SESSION-038: owner-authenticated POST /api/sessions/:id/kill', () 
     } finally { gate.resolve(); }
   });
 
-  it('enforces the existing ten-per-minute owner mutation limit with HTTP retry guidance (AC2/7)', async () => {
+  it('enforces the existing ten-per-minute owner mutation limit with HTTP retry guidance (REQ-SESSION-039 AC1)', async () => {
     const f = await fixture('stopped');
     for (let index = 0; index < 10; index++) expect((await f.finish()).status).toBe(200);
     // A blocked attempt must not kill even a currently live row.
@@ -424,7 +424,7 @@ describe('REQ-SESSION-038: owner-authenticated POST /api/sessions/:id/kill', () 
     expect(f.running()).toBe(false);
   });
 
-  it('keeps the mutation limit owner-scoped rather than allowing one owner to exhaust another (AC2)', async () => {
+  it('keeps the mutation limit owner-scoped rather than allowing one owner to exhaust another (REQ-SESSION-039 AC1)', async () => {
     const f = await fixture('stopped');
     f.seed(f.otherBucket, id, 'stopped');
     for (let index = 0; index < 10; index++) expect((await f.finish()).status).toBe(200);
@@ -435,7 +435,7 @@ describe('REQ-SESSION-038: owner-authenticated POST /api/sessions/:id/kill', () 
     expect(f.running()).toBe(true);
   });
 
-  it('does not expose KILL as a state-changing GET (AC2/7)', async () => {
+  it('does not expose KILL as a state-changing GET (REQ-SESSION-039 AC1)', async () => {
     const f = await fixture(), before = await f.read();
     const response = await f.finish(undefined, { method: 'GET' });
     expect(response.status).toBe(404);

@@ -215,21 +215,88 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 **Acceptance Criteria:**
 
-1. The existing session dropdown context menu offers `KILL` for a potentially live session, including `starting`, `running`, `unreachable` and persisted `stopping`; it remains usable while a local Stop attempt is pending. It is not offered for a confirmed-stopped session. Clicking targets only that session and closes the menu.
-2. KILL uses the owner-authenticated `POST /api/sessions/:id/kill` contract with the existing session validation and mutation protections. The Worker reads current owner-scoped D1 authority; the addressed DO validates the captured session identity and lifecycle generation before process control.
-3. The DO owns the complete accepted operation independently of the HTTP caller. It reuses the generation's termination intent and Protected Action cancellation fence, performs operational teardown cleanup, and awaits the SDK's native force-destroy without the final notification drain, workspace final-sync wait or SIGTERM polling. An already-stuck graceful Stop cannot block KILL.
-4. Successful KILL confirms exit for the captured generation and retains the D1 session row, workspace identity and persistent R2 files. It does not promise to save unsynced container-local edits. The frontend retains the session and disposes its mounted runtime only after authoritative stopped evidence.
-5. Unconfirmed or failed destruction remains visibly retryable with its termination ownership intact; neither client nor backend invents stopped or deleted state. Same-generation retries work after operational identity cleanup, and duplicate KILL requests do not perform competing teardowns.
-6. KILL rejects an owner/address mismatch or replacement generation. Graceful teardown superseded by KILL cannot later clear a replacement's operational state, signal it or destroy it.
-7. Existing Stop, Rename, Delete and idle-timeout behavior remains unchanged; KILL adds no automatic recovery scheduler, idle-policy change or new user setting.
+1. The existing session dropdown context menu offers `KILL` for `starting`, `running`, `unreachable` and persisted `stopping`, but not for a confirmed-stopped session.
+2. KILL remains usable while a local Stop attempt is pending.
+3. Clicking KILL targets only the selected session and closes its context menu.
+4. The frontend retains the session row, workspace identity and tabs; its mounted runtime is disposed only after newer authoritative stopped evidence.
+5. Failed or uncertain KILL presents a retryable error without inventing stopped or deleted state.
+6. An active local KILL attempt suppresses duplicate submissions.
+7. Existing Stop, Rename, Delete and idle-timeout behavior remains unchanged.
 
-**Constraints:** Native force-destroy executes inside the owning DO through the public Containers SDK. No SDK patch, forged identity, historical Activity replay, session-row deletion or persistent-storage deletion is part of KILL.
+**Constraints:**
+
+- No automatic recovery scheduler, idle-policy change or new user setting.
+- KILL does not promise to save unsynced container-local edits.
 
 **Priority:** P0
 
-**Dependencies:** [REQ-SESSION-006](#req-session-006-user-can-stop-restart-and-delete-sessions), [REQ-SESSION-009](#req-session-009-container-destroy-wipes-session-state), [REQ-SESSION-018](#req-session-018-d1-lifecycle-evidence-is-generation-fenced), [REQ-SESSION-035](#req-session-035-stale-stopping-retains-ownership-until-confirmed-exit)
+**Dependencies:** [REQ-SESSION-006](#req-session-006-user-can-stop-restart-and-delete-sessions), [REQ-SESSION-039](#req-session-039-authorized-do-owned-native-kill), [REQ-SESSION-040](#req-session-040-kill-confirmation-retry-and-generation-fencing)
 
-**Verification:** Planned behavioral dropdown, HTTP/store, route and modeled DO/native-process tests; hosted native termination remains separately qualified.
+**Verification:** Planned behavioral dropdown, context-menu, HTTP/client and store tests; these do not establish hosted native termination.
+
+**Status:** Planned
+
+---
+
+### REQ-SESSION-039: Authorized DO-owned native KILL
+
+**Intent:** An explicit owner-authorized KILL reaches native force-destroy independently of graceful Stop and the calling request.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. KILL is an owner-authenticated addressed mutation using existing session validation, access policy and mutation protections.
+2. The Worker reads current owner-scoped D1 authority and fails closed if unavailable; it does not claim stopping before DO acceptance.
+3. The DO owns the complete accepted operation independently of the HTTP caller, including termination claim, Protected Action cancellation, operational cleanup, native destruction and D1 exit confirmation.
+4. The generation's Protected Action cancellation fence must settle successfully before operational cleanup or native termination.
+5. Operational teardown cleanup precedes awaited native force-destroy.
+6. KILL bypasses final notification drain, workspace final-sync wait and SIGTERM polling; a hung graceful Stop cannot block it.
+7. KILL preserves the D1 session row, workspace identity and persistent R2 files.
+
+**Constraints:**
+
+- Native force-destroy uses the public Containers SDK inside the owning DO.
+- No SDK patch, forged identity or historical Activity replay.
+- No session-row deletion or persistent-storage deletion.
+- No promise to save unsynced container-local edits.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-SESSION-006](#req-session-006-user-can-stop-restart-and-delete-sessions), [REQ-SESSION-009](#req-session-009-container-destroy-wipes-session-state), [REQ-SESSION-040](#req-session-040-kill-confirmation-retry-and-generation-fencing)
+
+**Verification:** Planned route and modeled DO/native-process behavioral tests; models are not hosted native termination or disconnection proof.
+
+**Status:** Planned
+
+---
+
+### REQ-SESSION-040: KILL confirmation, retry and generation fencing
+
+**Intent:** KILL retains authoritative termination ownership through uncertainty and cannot affect a replacement runtime.
+
+**Applies To:** System (session lifecycle)
+
+**Acceptance Criteria:**
+
+1. D1 confirms stopped only from a generation-fenced positive process-exit monitor observation or awaited native destruction confirming exit. Stale stopping, SDK hints, unevidenced callbacks, transport rejection and elapsed time cannot establish exit.
+2. Failed or unconfirmed destruction or D1 confirmation retains retryable termination ownership without reporting stopped or deleted.
+3. Same-generation retries reuse the retained termination intent, including after operational identity erasure or coordinator reconstruction.
+4. Duplicate KILL requests do not perform competing native teardowns.
+5. A retry after confirmed stopped succeeds idempotently without another teardown.
+6. Before effects and after asynchronous work, the addressed DO validates captured owner/session identity, address, lifecycle generation and termination-intent ownership; mismatches fail closed.
+7. Graceful teardown superseded by KILL cannot later clear a replacement generation's operational state, signal it or destroy it.
+
+**Constraints:**
+
+- Current D1 authority, not erased operational keys, governs same-intent retry.
+- Caller-independent completion is not automatic crash recovery or a new scheduler.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-SESSION-018](#req-session-018-d1-lifecycle-evidence-is-generation-fenced), [REQ-SESSION-035](#req-session-035-stale-stopping-retains-ownership-until-confirmed-exit)
+
+**Verification:** Planned route and modeled DO/native-process confirmation, retry and fencing tests; models are not hosted native termination proof.
 
 **Status:** Planned
 

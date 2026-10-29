@@ -269,9 +269,9 @@ afterEach(async () => {
   finally { vi.unstubAllGlobals(); vi.useRealTimers(); }
 });
 
-describe('REQ-SESSION-038: DO-owned native force termination', () => {
+describe('REQ-SESSION-039 / REQ-SESSION-040: DO-owned native force termination', () => {
   it.each(['starting', 'running', 'unreachable', 'stopping'])(
-    'force-kills %s without graceful drain, sync or SIGTERM and retains row and R2 files (AC3/4)', async status => {
+    'force-kills %s without graceful drain, sync or SIGTERM and retains row and R2 files (REQ-SESSION-039 AC5-AC7 / REQ-SESSION-040 AC1)', async status => {
       const f = await fixture({ status });
       const instance = await f.coordinator();
       const work = observe(() => (instance as unknown as KillContainer).killSession(ref));
@@ -289,7 +289,7 @@ describe('REQ-SESSION-038: DO-owned native force termination', () => {
     },
   );
 
-  it('treats already confirmed stopped as idempotent without terminating a runtime (AC4/5)', async () => {
+  it('treats already confirmed stopped as idempotent without terminating a runtime (REQ-SESSION-040 AC5)', async () => {
     const f = await fixture({ status: 'stopped' });
     const instance = await f.coordinator(), before = await f.read();
     await completed(observe(() => (instance as unknown as KillContainer).killSession(ref)));
@@ -299,7 +299,7 @@ describe('REQ-SESSION-038: DO-owned native force termination', () => {
   });
 
   it.each(['claim', 'boundary', 'cleanup', 'native', 'confirmation'])(
-    'owns pending %s I/O through caller disconnect and completes D1 confirmation (AC3/4)', async stage => {
+    'owns pending %s I/O through caller disconnect and completes D1 confirmation (REQ-SESSION-039 AC3 / REQ-SESSION-040 AC1)', async stage => {
       const f = await fixture();
       if (stage === 'boundary') {
         f.kv._set(f.key, { id: ref.sessionId, name: 'Retained workspace', status: 'running',
@@ -323,7 +323,7 @@ describe('REQ-SESSION-038: DO-owned native force termination', () => {
     },
   );
 
-  it('fences pending Protected Action cancellation before operational cleanup or native termination (AC3)', async () => {
+  it('fences pending Protected Action cancellation before operational cleanup or native termination (REQ-SESSION-039 AC4)', async () => {
     const f = await fixture();
     f.kv._set(f.key, { id: ref.sessionId, status: 'running', lifecycleGeneration: 7,
       boundaryActivityId: 'pending-activity' });
@@ -345,7 +345,7 @@ describe('REQ-SESSION-038: DO-owned native force termination', () => {
   });
 
   it.each(['unavailable', 'wrong-binding', 'unconfirmed'])(
-    'retains termination ownership and live runtime when Protected Action cancellation is %s (AC3/5)', async failure => {
+    'retains termination ownership and live runtime when Protected Action cancellation is %s (REQ-SESSION-039 AC4 / REQ-SESSION-040 AC2)', async failure => {
       const f = await fixture();
       f.kv._set(f.key, { id: ref.sessionId, status: 'running', lifecycleGeneration: 7,
         boundaryActivityId: 'pending-activity' });
@@ -364,7 +364,7 @@ describe('REQ-SESSION-038: DO-owned native force termination', () => {
     },
   );
 
-  it.each([false, true])('retries failed native destruction after operational identity erasure; reconstruct=%s (AC5)', async reconstruct => {
+  it.each([false, true])('retries failed native destruction after operational identity erasure; reconstruct=%s (REQ-SESSION-040 AC2-AC3)', async reconstruct => {
     const f = await fixture();
     let instance = await f.coordinator();
     f.failNative(true);
@@ -387,7 +387,7 @@ describe('REQ-SESSION-038: DO-owned native force termination', () => {
     expect(await f.read()).toMatchObject({ lifecycleState: 'stopped', lifecycleGeneration: 7 });
   });
 
-  it('reconstructs a retained same-generation intent without operational keys (AC5)', async () => {
+  it('reconstructs a retained same-generation intent without operational keys (REQ-SESSION-040 AC3)', async () => {
     const f = await fixture({ status: 'stopping', operational: false });
     const instance = await f.coordinator(), gate = f.hold('native');
     const work = observe(() => (instance as unknown as KillContainer).killSession(ref));
@@ -398,7 +398,7 @@ describe('REQ-SESSION-038: DO-owned native force termination', () => {
     expect(await f.read()).toMatchObject({ lifecycleState: 'stopped', lifecycleGeneration: 7 });
   });
 
-  it('coalesces duplicate KILL without competing native teardown (AC5)', async () => {
+  it('coalesces duplicate KILL without competing native teardown (REQ-SESSION-040 AC4-AC5)', async () => {
     const f = await fixture(), instance = await f.coordinator(), gate = f.hold('native');
     const first = observe(() => (instance as unknown as KillContainer).killSession(ref));
     await vi.waitFor(() => expect(gate.reached()).toBe(true));
@@ -415,7 +415,7 @@ describe('REQ-SESSION-038: DO-owned native force termination', () => {
     expect(f.program().running).toBe(false);
   });
 
-  it('never infers exit from an old stopping row, false running hint, callback or elapsed time (AC4/5)', async () => {
+  it('never infers exit from an old stopping row, false running hint, callback or elapsed time (REQ-SESSION-040 AC1-AC2)', async () => {
     const f = await fixture({ status: 'stopping' });
     f.hint(false);
     const instance = await f.coordinator(), gate = f.hold('native');
@@ -433,7 +433,7 @@ describe('REQ-SESSION-038: DO-owned native force termination', () => {
     expect(f.files()).toEqual(f.originalFiles);
   });
 
-  it('does not treat monitor transport rejection as positive exit while native destruction is unconfirmed (AC4/5)', async () => {
+  it('does not treat monitor transport rejection as positive exit while native destruction is unconfirmed (REQ-SESSION-040 AC1-AC2)', async () => {
     const f = await fixture({ status: 'stopping' });
     const instance = await f.coordinator(), gate = f.hold('native');
     const work = observe(() => (instance as unknown as KillContainer).killSession(ref));
@@ -447,7 +447,7 @@ describe('REQ-SESSION-038: DO-owned native force termination', () => {
     expect(f.files()).toEqual(f.originalFiles);
   });
 
-  it.each([false, true])('retains stopped-confirmation failure for retry; reconstruct=%s (AC5)', async reconstruct => {
+  it.each([false, true])('retains stopped-confirmation failure for retry; reconstruct=%s (REQ-SESSION-040 AC2-AC3)', async reconstruct => {
     const f = await fixture(); let instance = await f.coordinator();
     f.failConfirmation(true);
     await rejected(observe(() => (instance as unknown as KillContainer).killSession(ref)));
@@ -461,7 +461,7 @@ describe('REQ-SESSION-038: DO-owned native force termination', () => {
     expect(f.files()).toEqual(f.originalFiles);
   });
 
-  it('fails closed before claiming on a D1 outage and permits retry after recovery (AC2/5)', async () => {
+  it('fails closed before claiming on a D1 outage and permits retry after recovery (REQ-SESSION-039 AC2)', async () => {
     const f = await fixture(), instance = await f.coordinator();
     f.failDatabase(true);
     await rejected(observe(() => (instance as unknown as KillContainer).killSession(ref)));
@@ -475,7 +475,7 @@ describe('REQ-SESSION-038: DO-owned native force termination', () => {
 
   it.each([
     { bucket: 'other-owner' }, { sessionId: 'othersession1234' }, { generation: 6 }, { generation: 8 },
-  ])('rejects mismatched captured authority %j without mutating either owner (AC2/6)', async mismatch => {
+  ])('rejects mismatched captured authority %j without mutating either owner (REQ-SESSION-040 AC6)', async mismatch => {
     const f = await fixture(), instance = await f.coordinator();
     f.kv._set(`session:other-owner:${ref.sessionId}`, { id: ref.sessionId, status: 'running', lifecycleGeneration: 7 });
     const before = await f.read();
@@ -488,7 +488,7 @@ describe('REQ-SESSION-038: DO-owned native force termination', () => {
     expect(f.files()).toEqual(f.originalFiles);
   });
 
-  it('rejects a retained termination intent from a different generation (AC5/6)', async () => {
+  it('rejects a retained termination intent from a different generation (REQ-SESSION-040 AC6)', async () => {
     const f = await fixture({ status: 'stopping', intentGeneration: 6 });
     const instance = await f.coordinator(), before = await f.read();
     await rejected(observe(() => (instance as unknown as KillContainer).killSession(ref)));
@@ -497,7 +497,7 @@ describe('REQ-SESSION-038: DO-owned native force termination', () => {
     expect(f.storage.get('_sessionId')).toBe(ref.sessionId);
   });
 
-  it('revalidates intent ownership after asynchronous Protected Action cancellation (AC3/6)', async () => {
+  it('revalidates intent ownership after asynchronous Protected Action cancellation (REQ-SESSION-039 AC4 / REQ-SESSION-040 AC6)', async () => {
     const f = await fixture();
     f.kv._set(f.key, { id: ref.sessionId, status: 'stopping', lifecycleGeneration: 7,
       terminationIntentId: 'original-intent', terminationGeneration: 7, boundaryActivityId: 'pending-activity' });
@@ -518,7 +518,7 @@ describe('REQ-SESSION-038: DO-owned native force termination', () => {
     expect(f.storage.get('_sessionId')).toBe(ref.sessionId);
   });
 
-  it.each(['agent-drain', 'sync'])('preempts real Stop blocked on %s, then fences its late continuation from replacement generation 8 (AC3/4/6/7)', async stage => {
+  it.each(['agent-drain', 'sync'])('preempts real Stop blocked on %s, then fences its late continuation from replacement generation 8 (REQ-SESSION-039 AC6-AC7 / REQ-SESSION-040 AC1/AC3/AC7)', async stage => {
     const f = await fixture(); f.allowGraceful();
     const instance = await f.coordinator(), sync = f.hold(stage);
     const stop = observe(() => instance.stopSession(ref));
@@ -563,7 +563,7 @@ describe('REQ-SESSION-038: DO-owned native force termination', () => {
     } finally { sync.resolve(); }
   });
 
-  it('ordinary Stop still drains and syncs before native exit when no KILL supersedes it (AC7)', async () => {
+  it('ordinary Stop still drains and syncs before native exit when no KILL supersedes it (REQ-SESSION-038 AC7)', async () => {
     const f = await fixture(); f.allowGraceful();
     const instance = await f.coordinator(), sync = f.hold('sync');
     const stop = observe(() => instance.stopSession(ref));

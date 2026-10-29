@@ -6,8 +6,8 @@ import { promisify } from 'node:util';
 // report's assertion durations omit. Log alongside the fail-closed JSON gate.
 export default class BackendTimingReporter {
   async onInit() {
-    // Only the cancelled lane needs live profiles; ordinary timing stays unchanged.
-    if (process.env.NAME !== 'backend-shard-3') return;
+    // Weighted files can move between Workers shards; no number owns the stall.
+    if (!process.env.NAME?.startsWith('backend-shard-')) return;
     try {
       this.cpuSession = new Session();
       this.cpuSession.connect();

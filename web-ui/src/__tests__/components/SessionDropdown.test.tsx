@@ -212,9 +212,9 @@ describe('SessionDropdown', () => {
     },
   );
 
-  describe('REQ-SESSION-038 AC1/AC7: KILL in the existing session menu', () => {
+  describe('REQ-SESSION-038: KILL in the existing session menu', () => {
     it.each(['starting', 'running', 'unreachable', 'stopping'] as const)(
-      'offers one KILL for %s, targets only the selected session and closes its menu', status => {
+      'AC1/AC3/AC7: offers one KILL for %s, targets only the selected session and closes its menu', status => {
         const killed: string[] = [];
         const store = sessionStore as typeof sessionStore & { killSession: (id: string) => Promise<void> };
         vi.mocked(store.killSession).mockImplementation(async id => { killed.push(id); });
@@ -247,7 +247,7 @@ describe('SessionDropdown', () => {
       },
     );
 
-    it('hides KILL for a confirmed-stopped session without hiding Rename or Delete', () => {
+    it('AC1/AC7: hides KILL for a confirmed-stopped session without hiding Rename or Delete', () => {
       render(() => <SessionDropdown {...defaultProps} />);
       fireEvent.click(screen.getByTestId('card-menu-s2'));
       expect(screen.queryByRole('button', { name: 'KILL' })).not.toBeInTheDocument();
@@ -255,7 +255,7 @@ describe('SessionDropdown', () => {
       expect(screen.getByRole('button', { name: 'Delete' })).toBeEnabled();
     });
 
-    it('keeps KILL usable after Stop is submitted but has not settled', async () => {
+    it('AC2/AC3: keeps KILL usable after Stop is submitted but has not settled', async () => {
       const stopped: string[] = [];
       const killed: string[] = [];
       let finishStop!: () => void;
@@ -283,7 +283,7 @@ describe('SessionDropdown', () => {
       }
     });
 
-    it('keeps Stop, Rename and confirmed Delete targeting the selected session with KILL present', () => {
+    it('AC7: keeps Stop, Rename and confirmed Delete targeting the selected session with KILL present', () => {
       const stopped: string[] = [];
       const renamed: Array<[string, string]> = [];
       const deleted: string[] = [];
