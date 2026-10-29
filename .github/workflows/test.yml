@@ -958,7 +958,7 @@ jobs:
           rm -rf "$RUNNER_TEMP/pi-runtime"
           mkdir -p "$RUNNER_TEMP/pi-runtime/npm"
           ln -s "$GITHUB_WORKSPACE/preseed/agents/pi/node_modules" "$RUNNER_TEMP/pi-runtime/npm/node_modules"
-          node -e 'const fs=require("fs");const p=require("./preseed/agents/pi/package.json");const packages=Object.entries(p.dependencies).map(([name,version])=>name==="context-mode"?{source:`npm:${name}@${version}`,extensions:[],skills:[]}:name==="pi-open-tui"?{source:`npm:${name}@${version}`,extensions:[]}:`npm:${name}@${version}`);fs.writeFileSync(process.argv[1],JSON.stringify({packages}));' "$RUNNER_TEMP/pi-runtime/settings.json"
+          node -e 'const fs=require("fs");const p=require("./preseed/agents/pi/package.json");const packages=Object.entries(p.dependencies).filter(([name])=>name!=="@blackbelt-technology/pi-dashboard-extension"&&name!=="@blackbelt-technology/pi-dashboard-server").map(([name,version])=>name==="context-mode"?{source:`npm:${name}@${version}`,extensions:[],skills:[]}:name==="pi-open-tui"?{source:`npm:${name}@${version}`,extensions:[]}:`npm:${name}@${version}`);fs.writeFileSync(process.argv[1],JSON.stringify({packages}));' "$RUNNER_TEMP/pi-runtime/settings.json"
           node scripts/verify-pi-prompt.mjs \
             --generated src/lib/agent-seed.generated.ts \
             --runtime-agent-dir "$RUNNER_TEMP/pi-runtime" \

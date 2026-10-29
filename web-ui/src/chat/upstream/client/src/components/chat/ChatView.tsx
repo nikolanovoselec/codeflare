@@ -7,7 +7,7 @@ import {
   isNotifyRowVisible,
   toolCallPrefKey,
 } from "@blackbelt-technology/pi-dashboard-shared/display-prefs.js";
-import { mdiAlertCircleOutline, mdiCheck, mdiChevronDown, mdiChevronUp, mdiClose, mdiCommentQuestionOutline, mdiContentCopy, mdiLanDisconnect, mdiLoading, mdiSourceFork, mdiTextBox } from "@mdi/js";
+import { mdiAlertCircleOutline, mdiCheck, mdiChevronDown, mdiChevronUp, mdiCommentQuestionOutline, mdiContentCopy, mdiLanDisconnect, mdiLoading, mdiSourceFork, mdiTextBox } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import { defaultRangeExtractor, useVirtualizer } from "@tanstack/react-virtual";
 import React, { forwardRef, lazy, Suspense, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useReducer, useRef, useState } from "react";

@@ -96,15 +96,15 @@ export function ChatViewMenu({ sessionId, send, currentOverride, iconOnly = fals
 
   const patch = useCallback((delta: DisplayPrefsPatch) => {
     const next: PartialDisplayPrefs = {
-      ...(currentOverride ?? {}),
+      ...currentOverride,
       ...delta,
     };
     if (delta.toolCalls) {
-      next.toolCalls = { ...(currentOverride?.toolCalls ?? {}), ...delta.toolCalls };
+      next.toolCalls = { ...currentOverride?.toolCalls, ...delta.toolCalls };
     }
     if (delta.customEventGroups) {
       next.customEventGroups = {
-        ...(currentOverride?.customEventGroups ?? {}),
+        ...currentOverride?.customEventGroups,
         ...delta.customEventGroups,
       };
     }

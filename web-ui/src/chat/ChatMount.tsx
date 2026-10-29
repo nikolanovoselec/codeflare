@@ -66,6 +66,16 @@ function BoundChat(props: ChatMountProps & { layerHost: HTMLElement }) {
   const registry = useMemo(() => createHostPrimitiveRegistry(), []);
   const stateRef = useRef(new Map<string, SessionState>());
   stateRef.current = new Map([[id, state]]);
+  // Transport correlation only; the upstream reducer/native Pi still own state.
+  const responseProtocols = useRef(new Map<string, 'prompt_response' | 'extension_ui_response'>());
+  const sendAction = useCallback<SessionActionDeps['send']>(message => {
+    if (message.type === 'prompt_response' || message.type === 'extension_ui_response') {
+      const requestId = message.type === 'prompt_response' ? message.promptId : message.requestId;
+      if (responseProtocols.current.get(requestId) !== message.type) return;
+      responseProtocols.current.delete(requestId);
+    }
+    return send(message);
+  }, [send]);
   const callbacks = useRef(props);
   callbacks.current = props;
 
@@ -116,7 +126,7 @@ function BoundChat(props: ChatMountProps & { layerHost: HTMLElement }) {
     });
   }, [id, update]);
   const actions = useSessionActions({
-    ...unusedActions, selectedId: id, send, sessions, setSessions, setSessionStates, sessionStatesRef: stateRef,
+    ...unusedActions, selectedId: id, send: sendAction, sessions, setSessions, setSessionStates, sessionStatesRef: stateRef,
   });
 
   useEffect(() => onMessage(message => {
@@ -124,6 +134,11 @@ function BoundChat(props: ChatMountProps & { layerHost: HTMLElement }) {
     // selects a target by cwd, name, ordering, or registration recency.
     if (String(message.type).startsWith('agent-event')) return;
     if ('sessionId' in message && message.sessionId !== id) return;
+    if (message.type === 'prompt_request') responseProtocols.current.set(message.promptId, 'prompt_response');
+    else if (message.type === 'extension_ui_request') responseProtocols.current.set(message.requestId, 'extension_ui_response');
+    else if (message.type === 'prompt_dismiss' || message.type === 'prompt_cancel') responseProtocols.current.delete(message.promptId);
+    else if (message.type === 'ui_dismiss') responseProtocols.current.delete(message.requestId);
+    else if (message.type === 'session_removed') responseProtocols.current.clear();
     apply(message);
     if (message.type === 'sessions_snapshot') {
       const bound = message.sessions.find(session => session.id === id);
@@ -194,6 +209,8 @@ function BoundChat(props: ChatMountProps & { layerHost: HTMLElement }) {
     callbacks.current.onDraftChange?.('');
   };
   const respond: React.ComponentProps<typeof ChatView>['onRespondToUi'] = (requestId, result, cancelled) => {
+    if (!responseProtocols.current.has(requestId)
+      || !stateRef.current.get(id)?.interactiveRequests.some(request => request.requestId === requestId && request.status === 'pending')) return;
     manual(() => actions.handleRespondToUi(requestId, result, cancelled));
   };
   const abort = () => manual(actions.handleAbort);

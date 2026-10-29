@@ -33,7 +33,7 @@ export function PptxPreview({ target }: Props) {
   // provenance (surface-denial-remedy-in-previews, D4).
   const { fetch: previewFetch } = usePreviewFetch();
   const [state, setState] = useState<State>("idle");
-  const [error, setError] = useState<string | null>(null);
+  const [, setError] = useState<string | null>(null);
 
   async function activate() {
     setState("loading");

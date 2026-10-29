@@ -56,6 +56,7 @@ test_globs:
   - "web-ui/src/__tests__/operators/operator-source-response-suite.tsx"
   - "web-ui/src/__tests__/**/*.test.{ts,tsx,jsx}"
   - "web-ui/src/__tests__/**/*.spec.{ts,tsx,jsx}"
+  - "web-ui/src/chat/__tests__/*.test.{ts,tsx}"
   - "landing/src/__tests__/**/*.test.{ts,tsx}"
   - "openvscode/**/test/**/*.test.{ts,js,mjs}"
 

@@ -19,7 +19,9 @@ import { resolve, join } from 'path';
 // cascade is not worth it here), and landing/src/__tests__/token-integrity.test.ts
 // is a near-copy of this file — keep the two in step by hand.
 const SRC = resolve(__dirname, '../..');
-const SKIP = /(^|\/)(__tests__|node_modules)(\/|$)/;
+// The shell owns token contracts in chat/presentation.css, not the donor's
+// element-scoped/runtime-injected variables under the explicit source boundary.
+const SKIP = /(^|\/)(__tests__|node_modules)(\/|$)|(^|\/)chat\/upstream(\/|$)/;
 
 function sourceFiles(dir: string, acc: string[] = []): string[] {
   for (const entry of readdirSync(dir, { withFileTypes: true })) {

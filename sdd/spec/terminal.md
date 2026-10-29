@@ -47,21 +47,22 @@ PTY management, immutable classic or Herdr terminal ownership, WebSocket transpo
 1. Classic single-session view supports terminal IDs `1` through `6`, tabs, labels, saved layouts, and tiling. <!-- @impl: web-ui/src/components/TerminalArea.tsx::TerminalArea --> <!-- @test: web-ui/src/__tests__/components/TerminalArea.test.tsx (renders classic tabs and tiling controls) -->
 2. Herdr view mounts one outer xterm.js surface at terminal ID `1` without classic topology controls. <!-- @impl: web-ui/src/components/TerminalArea.tsx::TerminalArea --> <!-- @test: web-ui/src/__tests__/components/TerminalArea.test.tsx (renders one Herdr surface without classic tabs or tiling controls) -->
 3. Dashboard view mounts no terminal surface. <!-- @impl: web-ui/src/components/TerminalArea.tsx::TerminalArea --> <!-- @test: web-ui/src/__tests__/components/TerminalArea.test.tsx (REQ-TERM-011: renders no terminal panes on Dashboard even when sessions are running) -->
-4. A VS Code workspace mounts no standalone terminal surface during ordinary creation, card selection or deep links. Only explicit session-local Chat/Terminal entry under REQ-AGENT-224 permits the configured-primary surface; Chat itself mounts no terminal. <!-- @impl: web-ui/src/components/Layout.tsx::openSessionSurface --> <!-- @test: web-ui/src/__tests__/components/Layout-chat.test.tsx (REQ-IDE-048 / REQ-IDE-049 / REQ-TERM-035: normal %s VS Code selection stays editor-first until explicit surface entry) --> <!-- @impl: web-ui/src/components/TerminalArea.tsx::TerminalArea --> <!-- @test: web-ui/src/__tests__/components/TerminalArea.test.tsx (does not give a VS Code active session terminal workspace or WebSocket ownership) -->
+4. Ordinary VS Code creation, card selection and deep links mount no standalone terminal surface. <!-- @impl: web-ui/src/components/Layout.tsx::openSessionSurface --> <!-- @test: web-ui/src/__tests__/components/Layout-chat.test.tsx (REQ-IDE-048 / REQ-IDE-049 / REQ-TERM-035: normal %s VS Code selection stays editor-first until explicit surface entry) --> <!-- @impl: web-ui/src/components/TerminalArea.tsx::TerminalArea --> <!-- @test: web-ui/src/__tests__/components/TerminalArea.test.tsx (does not give a VS Code active session terminal workspace or WebSocket ownership) -->
 5. MultiView resolves each member from its ownership mode. <!-- @impl: web-ui/src/stores/terminal-workspace.ts::openMultiView --> <!-- @test: web-ui/src/__tests__/stores/terminal-workspace.test.ts (resolves mixed MultiView members by immutable terminal mode) -->
 
 **Constraints:**
 
 - The stable WebSocket path remains `/api/terminal/{sessionId}-{terminalId}/ws`.
 - Previously deleted browser-local layouts cannot be recovered; absent classic layout state initializes defaults.
+- Only explicit shared-surface entry under [REQ-AGENT-224](agents.md#req-agent-224-shared-live-pi-chat-and-session-local-surfaces) permits its configured primary; Chat itself mounts no Terminal.
 
 **Priority:** P0
 
 **Dependencies:** [REQ-SESSION-002](session-lifecycle.md#req-session-002-one-container-per-session-isolation), [REQ-TERM-034](#req-term-034-terminal-mode-assignment-is-immutable)
 
-**Verification:** Shared-Chat amendments and adjacent tests are authored only; execution/CI and deployed acceptance remain pending. Existing baseline test scope is retained. Automated frontend and terminal-route tests.
+**Verification:** Shared-Chat corrections and adjacent tests await fresh exact-head CI and deployed acceptance; the initial CI run failed. Existing baseline test scope is retained. Automated frontend and terminal-route tests.
 
-**Status:** Implemented
+**Status:** Planned
 
 ---
 
@@ -89,7 +90,7 @@ PTY management, immutable classic or Herdr terminal ownership, WebSocket transpo
 
 **Dependencies:** [REQ-SESSION-002](session-lifecycle.md#req-session-002-one-container-per-session-isolation)
 
-**Verification:** Shared-Chat amendments and adjacent tests are authored only; execution/CI and deployed acceptance remain pending. Existing baseline test scope is retained. Automated preference and session-route tests.
+**Verification:** Shared-Chat corrections and adjacent tests await fresh exact-head CI and deployed acceptance; the initial CI run failed. Existing baseline test scope is retained. Automated preference and session-route tests.
 
 **Status:** Implemented
 
@@ -286,7 +287,7 @@ PTY management, immutable classic or Herdr terminal ownership, WebSocket transpo
 1. Terminal prewarm preserves the existing outer Session and adoption flow. <!-- @impl: host/src/server.ts::beginSettlementWhenReady --> <!-- @manual: In integration, confirm both stamped modes adopt the prewarmed outer Session. -->
 2. Herdr does not report readiness until configured-command bootstrap completes. <!-- @impl: host/src/server.ts::beginSettlementWhenReady --> <!-- @impl: host/src/terminal-mode.ts::isPrewarmTimeoutReady --> <!-- @test: host/__tests__/terminal-mode.test.js (REQ-AGENT-003 AC6 / REQ-TERM-035 AC2: Herdr timeout readiness requires bootstrap) -->
 3. Classic retains first-output readiness and its bounded timeout fallback. <!-- @impl: host/src/server.ts::beginSettlementWhenReady --> <!-- @manual: In integration, confirm classic settles from first PTY output and remains reachable after the timeout fallback. -->
-4. VS Code workspaces start no Herdr runtime during ordinary editor startup and retain existing Browser IDE terminal profiles. Only explicit Chat/Terminal entry under REQ-AGENT-224 may later start/adopt the configured host primary, using the immutable terminal-mode stamp and existing readiness/adoption path without taking over the IDE conversation. <!-- @impl: host/src/server.ts::ensurePrimary --> <!-- @impl: host/src/session-manager.ts::ensurePrimary --> <!-- @test: host/__tests__/chat-primary.test.js (REQ-AGENT-224: Chat-only entry adopts the exact prewarm without a hidden terminal client) --> <!-- @test: host/__tests__/workspace-readiness.test.js (never constructs, inserts, or starts a host Session for VS Code) --> <!-- @test: web-ui/src/__tests__/components/Layout-chat.test.tsx (REQ-IDE-048 / REQ-IDE-049 / REQ-TERM-035: normal %s VS Code selection stays editor-first until explicit surface entry) --> <!-- @test: host/__tests__/chat-boundary.test.js (REQ-AGENT-224: routes explicit HTTP attachment through the authenticated optional adapter) --> <!-- @manual: Verify concurrent explicit late entry/adoption, actual prewarm reuse, and independent IDE ownership for both modes. Router injection does not establish those effects. -->
+4. Ordinary VS Code startup creates no Herdr runtime and retains Browser IDE terminal profiles. <!-- @impl: host/src/server.ts::ensurePrimary --> <!-- @impl: host/src/session-manager.ts::ensurePrimary --> <!-- @test: host/__tests__/chat-primary.test.js (REQ-AGENT-224: Chat-only entry adopts the exact prewarm without a hidden terminal client) --> <!-- @test: host/__tests__/workspace-readiness.test.js (never constructs, inserts, or starts a host Session for VS Code) --> <!-- @test: web-ui/src/__tests__/components/Layout-chat.test.tsx (REQ-IDE-048 / REQ-IDE-049 / REQ-TERM-035: normal %s VS Code selection stays editor-first until explicit surface entry) --> <!-- @test: host/__tests__/chat-boundary.test.js (REQ-AGENT-224: routes explicit HTTP attachment through the authenticated optional adapter) --> <!-- @manual: Verify concurrent explicit late entry/adoption, actual prewarm reuse, and independent IDE ownership for both modes. Router injection does not establish those effects. -->
 5. An expired Herdr prewarm without completed bootstrap terminates the terminal host for container recovery instead of remaining indefinitely in preparation. <!-- @impl: host/src/server.ts::server.listen --> <!-- @impl: host/src/prewarm-readiness.ts::handlePrewarmOrphanExpiry --> <!-- @test: host/__tests__/prewarm-orphan-expiry.test.js (REQ-TERM-035 AC5: orphan expiry terminates unbootstrapped Herdr after cleanup) -->
 6. Fresh Herdr Pi sessions do not report ready before Pi finishes initialization when supported readiness evidence is available. <!-- @impl: image/herdr/codeflare-herdr-terminal::run_agent --> <!-- @impl: image/herdr/codeflare-herdr-terminal::wait_for_live_pi --> <!-- @test: host/__tests__/herdr-launcher.test.js (waits for live Pi integration on a fresh start) -->
 7. Unsupported or unavailable readiness evidence does not block access after normal fresh Pi startup. <!-- @impl: image/herdr/codeflare-herdr-terminal::supports_pi_live_readiness --> <!-- @impl: image/herdr/codeflare-herdr-terminal::run_agent --> <!-- @test: host/__tests__/herdr-launcher.test.js (uses regular fresh Pi startup when native readiness version changes) --> <!-- @test: host/__tests__/herdr-launcher.test.js (uses regular fresh Pi startup when the native readiness probe hangs) --> <!-- @test: host/__tests__/herdr-launcher.test.js (uses regular fresh Pi startup when pinned live readiness fails) -->
@@ -294,6 +295,8 @@ PTY management, immutable classic or Herdr terminal ownership, WebSocket transpo
 **Constraints:**
 
 - Readiness uses the persisted session stamp rather than current preferences.
+- Terminal workspace startup prewarms its immutable classic primary or outer Herdr surface while editor creation remains lazy.
+- Explicit [REQ-AGENT-224](agents.md#req-agent-224-shared-live-pi-chat-and-session-local-surfaces) entry may adopt the configured primary through existing stamped readiness, without taking over the IDE conversation.
 
 **Priority:** P0
 
@@ -503,16 +506,16 @@ None.
 
 **Constraints:**
 
-- Chat unmounts/disconnects hidden Terminal ownership without stopping the primary PTY/Pi. Its real Chat WS is not a terminal attachment and receives no terminal output/restore or resize authority. <!-- @impl: web-ui/src/components/TerminalArea.tsx::TerminalArea --> <!-- @impl: host/src/session.ts::registerAgentEventClient --> <!-- @test: web-ui/src/__tests__/components/Layout-chat.test.tsx (REQ-AGENT-224: %s surface switches unmount hidden ownership without stopping or restamping the session) --> <!-- @test: host/__tests__/session-chat-notifications.test.js (shares terminal/Chat cancellation while keeping PTY bytes and resize ownership terminal-only) -->
-
 - Hidden terminal preservation cannot be used as an instant-switching optimization if it opens a WebSocket.
 - Dashboard status must remain a polling/storage concern and must not depend on terminal component side effects.
+- Hidden Terminal ownership disconnects without stopping the primary PTY/Pi. <!-- @impl: web-ui/src/components/TerminalArea.tsx::TerminalArea --> <!-- @impl: host/src/session.ts::registerAgentEventClient --> <!-- @test: web-ui/src/__tests__/components/Layout-chat.test.tsx (REQ-AGENT-224: %s surface switches unmount hidden ownership without stopping or restamping the session) --> <!-- @test: host/__tests__/session-chat-notifications.test.js (shares terminal/Chat cancellation while keeping PTY bytes and resize ownership terminal-only) -->
+- Chat receives no PTY output, restore data or terminal resize authority.
 
 **Priority:** P0
 
 **Dependencies:** [REQ-TERM-002](#req-term-002-websocket-connection-to-container-pty), [REQ-TERM-003](#req-term-003-automatic-websocket-reconnection-on-transient-failures)
 
-**Verification:** Shared-Chat amendments and adjacent tests are authored only; execution/CI and deployed acceptance remain pending. Existing baseline test scope is retained. Automated test ([TerminalArea](../../web-ui/src/__tests__/components/TerminalArea.test.tsx), [Hook tests](../../web-ui/src/__tests__/hooks/useTerminal.test.ts), [Terminal store tests](../../web-ui/src/__tests__/stores/terminal.test.ts), [Layout tests](../../web-ui/src/__tests__/components/Layout.test.tsx))
+**Verification:** Shared-Chat corrections and adjacent tests await fresh exact-head CI and deployed acceptance; the initial CI run failed. Existing baseline test scope is retained. Automated test ([TerminalArea](../../web-ui/src/__tests__/components/TerminalArea.test.tsx), [Hook tests](../../web-ui/src/__tests__/hooks/useTerminal.test.ts), [Terminal store tests](../../web-ui/src/__tests__/stores/terminal.test.ts), [Layout tests](../../web-ui/src/__tests__/components/Layout.test.tsx))
 
 **Status:** Implemented
 
@@ -585,16 +588,15 @@ None.
 
 **Constraints:**
 
-- MultiView remains terminal-only. Explicit Chat/Terminal entry neither admits VS Code-workspace members nor restamps them; Chat is not a MultiView pane. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @impl: web-ui/src/stores/terminal-workspace.ts::isTerminalSession --> <!-- @test: web-ui/src/__tests__/stores/terminal-workspace.test.ts (keeps missing workspace terminal-compatible but excludes VS Code during validation and creation) -->
-
 - MultiView is frontend workspace state and must not be sent to backend session lifecycle, terminal route validation, storage, quota, or metrics APIs as a real session ID.
 - MultiView membership is local browser state unless a future requirement adds cross-browser workspace sync.
+- MultiView admits only Terminal workspaces; explicit Chat/Terminal entry neither restamps nor enrolls VS Code members. <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @impl: web-ui/src/stores/terminal-workspace.ts::isTerminalSession --> <!-- @test: web-ui/src/__tests__/stores/terminal-workspace.test.ts (keeps missing workspace terminal-compatible but excludes VS Code during validation and creation) -->
 
 **Priority:** P1
 
 **Dependencies:** [REQ-TERM-001](#req-term-001-terminal-surface-count-follows-session-mode), [REQ-TERM-002](#req-term-002-websocket-connection-to-container-pty), [REQ-TERM-011](#req-term-011-visible-terminal-panes-own-websocket-connections)
 
-**Verification:** Shared-Chat amendments and adjacent tests are authored only; execution/CI and deployed acceptance remain pending. Existing baseline test scope is retained. Automated test ([Workspace store tests](../../web-ui/src/__tests__/stores/terminal-workspace.test.ts) + [TerminalArea tests](../../web-ui/src/__tests__/components/TerminalArea.test.tsx) + [TerminalGrid tests](../../web-ui/src/__tests__/components/TerminalGrid.test.tsx) + [Dashboard tests](../../web-ui/src/__tests__/components/Dashboard.test.tsx) + [Floating button tests](../../web-ui/src/__tests__/components/FloatingTerminalButtons.test.tsx))
+**Verification:** Shared-Chat corrections and adjacent tests await fresh exact-head CI and deployed acceptance; the initial CI run failed. Existing baseline test scope is retained. Automated test ([Workspace store tests](../../web-ui/src/__tests__/stores/terminal-workspace.test.ts) + [TerminalArea tests](../../web-ui/src/__tests__/components/TerminalArea.test.tsx) + [TerminalGrid tests](../../web-ui/src/__tests__/components/TerminalGrid.test.tsx) + [Dashboard tests](../../web-ui/src/__tests__/components/Dashboard.test.tsx) + [Floating button tests](../../web-ui/src/__tests__/components/FloatingTerminalButtons.test.tsx))
 
 **Status:** Implemented
 
@@ -851,17 +853,16 @@ None.
 
 **Constraints:**
 
-- A current-generation real Chat WS is an additional consumer of the same Session AgentEventQueue, never a producer, terminal attachment or resize/restore owner. Existing suppression, single grant, confirmation, fallback, expiry and deduplication remain authoritative. <!-- @impl: host/src/chat-proxy.ts::createChatProxy --> <!-- @impl: host/src/session.ts::registerAgentEventClient --> <!-- @test: host/__tests__/chat-proxy.test.js (REQ-SESSION-002 / REQ-TERM-023/028/031: real Chat WS consumes the existing queue, without terminal attachment, wake, output or resize rights) -->
-
 - Herdr mode is selected only by `HERDR_ENV=1`; managed producers invoke `/usr/local/bin/codeflare-agent-event` rather than inner OSC 777.
 - The helper accepts only `input-required`, `task-completed`, or `task-failed` and sends an enum-only request to the Bearer-protected loopback ingress for terminal ID `1`.
 - Prompts, output, paths, credentials, arbitrary display text, user activity, and terminal content never cross or are logged by ingress.
+- Chat consumes the existing attention queue without terminal ownership, production or alternate grant authority. <!-- @impl: host/src/chat-proxy.ts::createChatProxy --> <!-- @impl: host/src/session.ts::registerAgentEventClient --> <!-- @test: host/__tests__/chat-proxy.test.js (REQ-SESSION-002 / REQ-TERM-023/028/031: real Chat WS consumes the existing queue, without terminal attachment, wake, output or resize rights) -->
 
 **Priority:** P1
 
 **Dependencies:** [REQ-TERM-023](#req-term-023-away-only-agent-notification-delivery), [REQ-SEC-024](security.md#req-sec-024-agent-notification-delivery-trust-boundaries)
 
-**Verification:** Shared-Chat amendments and adjacent tests are authored only; execution/CI and deployed acceptance remain pending. Existing baseline test scope is retained. Automated producer, ingress, and queue tests.
+**Verification:** Shared-Chat corrections and adjacent tests await fresh exact-head CI and deployed acceptance; the initial CI run failed. Existing baseline test scope is retained. Automated producer, ingress, and queue tests.
 
 **Status:** Implemented
 
@@ -1055,24 +1056,22 @@ None.
 4. Zero-client and timed-out events enter the authenticated DO drain and remain re-offered until fully processed, acknowledged, or expired after 15 minutes. <!-- @impl: host/src/agent-events.ts::AgentEventQueue --> <!-- @impl: host/src/request-router.ts::createRequestHandler --> <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @test: host/__tests__/agent-events.test.js (REQ-TERM-023 AC2-AC4 / H2-H3: global client coordination) --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-TERM-023 AC4 / D2-D4: drains, validates, enriches, sends, then ACK-clears on every running tick) -->
 5. Every notification contains fixed reason text plus trusted Session identity; terminal or agent prose, names, paths, output, tool data, and arbitrary links never reach display. <!-- @impl: web-ui/src/lib/agent-notifications.ts::showGrantedAgentEvent --> <!-- @impl: src/lib/push-sender.ts::sendAgentEventPushes --> <!-- @test: web-ui/src/__tests__/lib/agent-notifications.test.ts (REQ-TERM-023 AC3/AC5: granted local display) --> <!-- @test: src/__tests__/lib/push-sender.test.ts (sends only the fixed seven-field payload enriched from the DO-owned Session) -->
 6. Notification coordination, polling, delivery, and worker handling never mutate user activity, extend idle time, wake a stopped container, or create notification history. <!-- @impl: host/src/agent-events.ts::AgentEventQueue --> <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @impl: web-ui/public/agent-notifications-sw.js::push --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-TERM-023 AC5: a stalled push provider cannot stop metrics or alarm re-arming) --> <!-- @test: src/__tests__/container-metrics.test.ts (D3/D4: notification polling never mutates activity or usage inputs) --> <!-- @test: web-ui/src/__tests__/lib/agent-notification-worker.test.ts (registers no fetch, cache, or sync handlers) -->
-
-**Notes:** Deployed evidence remains pending for deployed one-active-client suppression, all-away single local display, no-client Push fallback, bounded pickup residue, and no-wake/no-idle-extension evidence.
+7. Focused, visible Chat for the matching primary counts as attended without acquiring terminal ownership. <!-- @impl: host/src/chat-proxy.ts::createChatProxy --> <!-- @impl: web-ui/src/lib/agent-notifications.ts::createAgentEventConsumer --> <!-- @test: host/__tests__/chat-proxy.test.js (REQ-AGENT-224 / REQ-SESSION-004/005 / REQ-TERM-024: draft activity is text-free, local, and cancels the primary queue) --> <!-- @test: web-ui/src/chat/__tests__/manual-input.test.tsx (reports human edits/send but not subscription/replay traffic to the shell) --> <!-- @test: web-ui/src/chat/__tests__/notifications.test.tsx (suppresses focused visible Chat with bound controls on its only real WS) --> <!-- @impl: host/src/session.ts::recordHumanActivity -->
 
 **Constraints:**
-
-- A current-generation real Chat WS is an additional consumer of the same Session AgentEventQueue, never a producer, terminal attachment or resize/restore owner. Existing suppression, single grant, confirmation, fallback, expiry and deduplication remain authoritative. <!-- @impl: host/src/chat-proxy.ts::createChatProxy --> <!-- @impl: host/src/session.ts::registerAgentEventClient --> <!-- @test: host/__tests__/chat-proxy.test.js (REQ-SESSION-002 / REQ-TERM-023/028/031: real Chat WS consumes the existing queue, without terminal attachment, wake, output or resize rights) -->
-- Visible, focused Chat for the matching session may suppress via optional `chatView`; it never claims terminal-one focus/resize. Both surfaces use the shared cancellation-safe consumer, preserving grants and deduplication. <!-- @impl: web-ui/src/lib/agent-notifications.ts::agentEventDisposition --> <!-- @impl: web-ui/src/lib/agent-notifications.ts::createAgentEventConsumer --> <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/lib/agent-notifications.test.ts (explicit Chat attendance suppresses without terminal pane/resize ownership) --> <!-- @test: web-ui/src/chat/__tests__/notifications.test.tsx (suppresses focused visible Chat with bound controls on its only real WS) -->
 
 - Queue, drain, and per-user subscription counts are bounded at 16, 8, and 10; events expire after 15 minutes and provider pickup TTL is one hour.
 - Delivery is at least once until the host receives an acknowledgement.
 - Trusted session records determine every display-facing identity and path; terminal bytes do not.
 - Client coordination is event-specific and Session-bound.
+- Chat consumes the same attention queue under its existing suppression, grant, confirmation, fallback, expiry and deduplication authority. <!-- @impl: host/src/chat-proxy.ts::createChatProxy --> <!-- @impl: host/src/session.ts::registerAgentEventClient --> <!-- @test: host/__tests__/chat-proxy.test.js (REQ-SESSION-002 / REQ-TERM-023/028/031: real Chat WS consumes the existing queue, without terminal attachment, wake, output or resize rights) --> <!-- @impl: web-ui/src/lib/agent-notifications.ts::agentEventDisposition --> <!-- @impl: web-ui/src/lib/agent-notifications.ts::createAgentEventConsumer --> <!-- @impl: web-ui/src/hooks/useTerminal.ts::useTerminal --> <!-- @test: web-ui/src/__tests__/lib/agent-notifications.test.ts (explicit Chat attendance suppresses without terminal pane/resize ownership) --> <!-- @test: web-ui/src/chat/__tests__/notifications.test.tsx (suppresses focused visible Chat with bound controls on its only real WS) -->
+- Visible, focused, matching-session Chat counts as attended without terminal focus/resize ownership.
 
 **Priority:** P1
 
 **Dependencies:** [REQ-TERM-005](#req-term-005-herdr-runtime-and-configured-agent-startup), [REQ-SEC-023](security.md#req-sec-023-agent-notification-capability-boundaries), [REQ-SEC-024](security.md#req-sec-024-agent-notification-delivery-trust-boundaries)
 
-**Verification:** Shared-Chat amendments and adjacent tests are authored only; execution/CI and deployed acceptance remain pending. Existing baseline test scope is retained. Automated host, Worker, frontend, and service-worker tests plus deployed suppression, pickup, and no-wake checks.
+**Verification:** Shared-Chat corrections and adjacent tests await fresh exact-head CI and deployed acceptance; the initial CI run failed. Existing baseline test scope is retained. Automated host, Worker, frontend, and service-worker tests plus deployed suppression, pickup, and no-wake checks.
 
 **Status:** Planned
 
@@ -1091,21 +1090,20 @@ None.
 3. A newly attached client's event-specific suppress disposition cancels local display and undelivered fallback globally. <!-- @impl: host/src/agent-events.ts::AgentEventQueue --> <!-- @impl: host/src/session.ts::Session --> <!-- @test: host/__tests__/agent-events.test.js (lets a newly attached active client suppress an unresolved fallback event) --> <!-- @test: host/__tests__/session-wire-protocol.test.js (a new attachment reconciles the pending event before active presence can suppress it) -->
 4. Classified user input cancels pending, eligible, and drained-unacknowledged events. <!-- @impl: host/src/session.ts::Session --> <!-- @impl: host/src/agent-events.ts::AgentEventQueue --> <!-- @test: host/__tests__/agent-events.test.js (classified input cancels pending, eligible, and drained-unacknowledged events) --> <!-- @test: host/__tests__/session-wire-protocol.test.js (classified user input cancels pending and drained-unacknowledged events) -->
 
-**Notes:** Deployed evidence remains pending for deployed hidden-reconnect fallback preservation and active-reconnect suppression evidence.
-
 **Constraints:**
-
-- A current-generation real Chat WS is an additional consumer of the same Session AgentEventQueue, never a producer, terminal attachment or resize/restore owner. Existing suppression, single grant, confirmation, fallback, expiry and deduplication remain authoritative. <!-- @impl: host/src/chat-proxy.ts::createChatProxy --> <!-- @impl: host/src/session.ts::registerAgentEventClient --> <!-- @test: host/__tests__/chat-proxy.test.js (REQ-SESSION-002 / REQ-TERM-023/028/031: real Chat WS consumes the existing queue, without terminal attachment, wake, output or resize rights) -->
-- Chat registration reconciles unresolved events without terminal enrollment/wake. Stale/disconnected consumers cannot receive or authorize queue delivery. Manual live Chat input cancels through the same human-activity effect; replay, background traffic and automatic answers do not. <!-- @impl: host/src/session.ts::recordHumanActivity --> <!-- @test: host/__tests__/session-chat-notifications.test.js (reconciles pending events without a terminal wake; stale/disconnected consumers cannot act) -->
 
 - Reconciliation remains event-specific and Session-bound.
 - Already copied or provider-accepted delivery remains bounded pickup residue.
+- Chat consumes the same attention queue under existing grants, suppression and deduplication. <!-- @impl: host/src/chat-proxy.ts::createChatProxy --> <!-- @impl: host/src/session.ts::registerAgentEventClient --> <!-- @test: host/__tests__/chat-proxy.test.js (REQ-SESSION-002 / REQ-TERM-023/028/031: real Chat WS consumes the existing queue, without terminal attachment, wake, output or resize rights) --> <!-- @impl: host/src/session.ts::recordHumanActivity --> <!-- @test: host/__tests__/session-chat-notifications.test.js (reconciles pending events without a terminal wake; stale/disconnected consumers cannot act) -->
+- Registration reconciles unresolved events without terminal enrollment or wake.
+- Stale/disconnected consumers cannot receive or authorize delivery.
+- Only live manual input cancels attention; replay/background/automatic traffic cannot.
 
 **Priority:** P1
 
 **Dependencies:** [REQ-TERM-023](#req-term-023-away-only-agent-notification-delivery), [REQ-SEC-024](security.md#req-sec-024-agent-notification-delivery-trust-boundaries)
 
-**Verification:** Shared-Chat amendments and adjacent tests are authored only; execution/CI and deployed acceptance remain pending. Existing baseline test scope is retained. Automated host queue and Session protocol tests plus deployed reconnect acceptance.
+**Verification:** Deployed evidence remains pending for deployed hidden-reconnect fallback preservation and active-reconnect suppression evidence. Shared-Chat corrections and adjacent tests await fresh exact-head CI and deployed acceptance; the initial CI run failed. Existing baseline test scope is retained. Automated host queue and Session protocol tests plus deployed reconnect acceptance.
 
 **Status:** Planned
 
@@ -1188,13 +1186,16 @@ None.
 
 **Notes:** Herdr completion authority is documented at [Herdr attention and completion](../../documentation/lanes/terminal-and-ide.md#herdr-attention-and-completion).
 
-**Constraints:** Prompts, model output, tool data, commands, file content, and credentials never enter producer payloads. Chat adds no producer: existing fixed native/Herdr events feed the same queue. Text-free live `chat-input` only records manual activity/cancels pending events; it cannot enqueue notification events or write PTY bytes. <!-- @impl: host/src/session.ts::recordHumanActivity --> <!-- @test: host/__tests__/chat-proxy.test.js (REQ-AGENT-224 / REQ-SESSION-004/005 / REQ-TERM-024: draft activity is text-free, local, and cancels the primary queue) -->
+**Constraints:**
+
+- Producer payloads exclude prompts, model/tool output, commands, file content and credentials.
+- Chat creates no producer or PTY input; text-free live activity only records human input and cancels pending attention. <!-- @impl: host/src/session.ts::recordHumanActivity --> <!-- @test: host/__tests__/chat-proxy.test.js (REQ-AGENT-224 / REQ-SESSION-004/005 / REQ-TERM-024: draft activity is text-free, local, and cancels the primary queue) -->
 
 **Priority:** P1
 
 **Dependencies:** [REQ-TERM-005](#req-term-005-herdr-runtime-and-configured-agent-startup), [REQ-TERM-023](#req-term-023-away-only-agent-notification-delivery)
 
-**Verification:** Shared-Chat amendments and adjacent tests are authored only; execution/CI and deployed acceptance remain pending. Existing baseline test scope is retained. Automated Pi extension tests plus deployed interactive-run verification.
+**Verification:** Shared-Chat corrections and adjacent tests await fresh exact-head CI and deployed acceptance; the initial CI run failed. Existing baseline test scope is retained. Automated Pi extension tests plus deployed interactive-run verification.
 
 **Status:** Implemented
 

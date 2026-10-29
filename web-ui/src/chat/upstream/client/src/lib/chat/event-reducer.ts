@@ -665,7 +665,7 @@ function neutralSettleAgentRow(state: SessionState, idx: number, timestamp: numb
     toolStatus: "complete",
     result: SUBAGENT_STOPPED_SENTINEL_BODY,
     duration: m.startedAt ? timestamp - m.startedAt : undefined,
-    toolDetails: { ...(m.toolDetails ?? {}), status: "completed", healedBy: "turn_settled", resultMissing: true },
+    toolDetails: { ...m.toolDetails, status: "completed", healedBy: "turn_settled", resultMissing: true },
   };
   return { ...state, messages };
 }
@@ -2577,7 +2577,7 @@ export function reduceEvent(
             // plugin keeps a card of a finished subagent terminal the same way.)
             // See change: finalize-agent-card-on-subagent-stop (D5).
             if (priorRow.toolName === "Agent" && priorRow.toolStatus !== "running" && priorRow.toolDetails?.healedBy === "turn_settled") {
-              const kept: Record<string, unknown> = { ...(next.messages[idx].toolDetails ?? {}) };
+              const kept: Record<string, unknown> = { ...next.messages[idx].toolDetails };
               for (const key of ["status", "error", ...HEAL_ONLY_DETAIL_KEYS]) {
                 if (priorRow.toolDetails && key in priorRow.toolDetails) kept[key] = priorRow.toolDetails[key];
                 else delete kept[key];
@@ -2657,7 +2657,7 @@ export function reduceEvent(
           // carry `status:"running"`, and preserving it would leave the card's
           // details contradicting its `toolStatus`.
           mergedDetails = {
-            ...(next.messages[idx].toolDetails ?? {}),
+            ...next.messages[idx].toolDetails,
             ...endDetails,
             status: isError ? "error" : "completed",
           };

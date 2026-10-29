@@ -1,6 +1,6 @@
 /** @jsxImportSource react */
 import { parsePathInput, withTrailingSep } from "@blackbelt-technology/pi-dashboard-shared/platform/paths.js";
-import type { BrowseEntry, BrowseResult } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
+import type { BrowseEntry } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import { mdiArrowUp, mdiCheck, mdiFolder, mdiFolderPlusOutline } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import type React from "react";

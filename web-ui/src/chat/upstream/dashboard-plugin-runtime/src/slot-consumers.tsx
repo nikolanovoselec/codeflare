@@ -1159,7 +1159,7 @@ function normaliseWildcardParams(
   path: string | null,
   params: Record<string, string> | null | undefined,
 ): Record<string, string> {
-  const out = { ...(params ?? {}) };
+  const out = { ...params };
   if (path?.endsWith("/*?") && out["*"] === undefined) out["*"] = "";
   return out;
 }

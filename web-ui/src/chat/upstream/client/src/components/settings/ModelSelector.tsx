@@ -889,7 +889,7 @@ function useCatalogueView(models: ModelInfo[] | undefined, favoritesEnabled: boo
       if (providerFilter && m.provider !== providerFilter) return false;
       if (favoritesEnabled && favOnly && !favSet.has(labelOf(m))) return false;
       const full = labelOf(m).toLowerCase();
-      return tokens.length === 0 || tokens.every((t) => full.includes(t));
+      return tokens.every((t) => full.includes(t));
     });
   }, [hasModels, models, providerFilter, favOnly, favoritesEnabled, filter, favSet]);
   const { providerGroups, flat } = useMemo(() => {

@@ -58,8 +58,8 @@ export function wrapAsciiTables(content: string): string {
   const lines = content.split("\n");
 
   // Pass 1: Mark code fences and table lines
-  const inFence: boolean[] = new Array(lines.length).fill(false);
-  const isTable: boolean[] = new Array(lines.length).fill(false);
+  const inFence: boolean[] = Array.from({ length: lines.length }, () => false);
+  const isTable: boolean[] = Array.from({ length: lines.length }, () => false);
   let fenceOpen = false;
   let inBlock = false;
 

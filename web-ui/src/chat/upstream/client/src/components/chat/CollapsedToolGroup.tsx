@@ -47,7 +47,6 @@ export function CollapsedToolGroup({ group, toolContext }: Props) {
       </>
     );
   }
-  const lastMsg = group.messages[group.messages.length - 1];
   const firstArgs = group.messages[0]?.args;
 
   return (

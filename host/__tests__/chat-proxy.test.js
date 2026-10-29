@@ -185,6 +185,33 @@ describe('Codeflare primary-only Chat public adapter boundary', { timeout: 15000
     }
     assert.deepEqual(input, ['human', 'human']); ws.terminate();
   });
+  it('REQ-AGENT-224: each inline response/cancellation reaches the primary once and leaves Chat usable', async () => {
+    const ws = await connect(port);
+    for (const protocol of ['prompt', 'dialog']) {
+      for (const cancelled of [false, true]) {
+        const requestId = `${protocol}-${cancelled}`;
+        const notice = protocol === 'prompt'
+          ? { type: 'prompt_request', sessionId: identity.sessionId, promptId: requestId }
+          : { type: 'extension_ui_request', sessionId: identity.sessionId, requestId };
+        const announced = next(ws);
+        for (const backend of upstreamWss.clients) backend.send(JSON.stringify(notice));
+        await announced;
+        const answer = protocol === 'prompt'
+          ? { type: 'prompt_response', sessionId: identity.sessionId, promptId: requestId, source: 'dashboard-default',
+              ...(cancelled ? { cancelled: true } : { answer: '[{"value":"0"}]' }) }
+          : { type: 'extension_ui_response', sessionId: identity.sessionId, requestId,
+              ...(cancelled ? { cancelled: true } : { result: 'yes' }) };
+        const receipt = next(ws); ws.send(JSON.stringify(answer));
+        assert.deepEqual((await receipt).event.message, answer);
+        const usable = next(ws);
+        ws.send(JSON.stringify({ type: 'subscribe', sessionId: identity.sessionId, lastSeq: 0 }));
+        assert.equal((await usable).event.message.type, 'subscribe');
+      }
+    }
+    assert.deepEqual(effects.filter(value => value.type?.endsWith('_response')).map(value => value.type),
+      ['prompt_response', 'prompt_response', 'extension_ui_response', 'extension_ui_response']);
+    ws.terminate();
+  });
   it('REQ-AGENT-224: concurrent explicit attach returns actual primary identity, with no terminal client or manual input', async () => {
     live = null;
     const results = await Promise.all(Array.from({ length: 6 }, () => request(port, `${prefix}/attach`, {

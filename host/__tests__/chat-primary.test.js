@@ -134,17 +134,19 @@ describe('Codeflare configured-primary ownership', { timeout: 15000 }, () => {
     client.on('message', data => { browserOutput += data.toString(); });
     await once(client, 'open');
     client.send(JSON.stringify({ type: 'resize', cols: 113, rows: 37 }));
-    client.send("printf '%s%s\\n' 'FOCUS_' 'RELEASED'; stty size\r");
-    client.send(JSON.stringify({ type: 'data', data: "printf '%s%s\\n' 'JSON_' 'DELIVERED'\r" }));
+    client.send("printf '<RAW:%s>\\n' 'DELIVERED'; printf '<SIZE:%s>\\n' \"$(stty size)\"\r");
+    client.send(JSON.stringify({ type: 'data', data: "printf '<JSON:%s>\\n' 'DELIVERED'\r" }));
     // Deliberately leave focus unresolved while OPEN frames arrive at Host.
     await delay(75);
     assert.equal(host.manager.clients.size, 0, 'pending focus must not attach a terminal');
-    assert.doesNotMatch(ptyOutput, /FOCUS_RELEASED|JSON_DELIVERED/, 'no input reaches the PTY before focus');
+    assert.doesNotMatch(ptyOutput, /<RAW:DELIVERED>|<SIZE:\d|<JSON:DELIVERED>/, 'no input reaches the PTY before focus');
     focus.resolve();
-    await waitFor(() => /FOCUS_RELEASED\r?\n37 113/.test(ptyOutput) && /JSON_DELIVERED/.test(ptyOutput),
-      'early raw/JSON input and resize must reach the real PTY after focus');
-    await waitFor(() => /FOCUS_RELEASED\r?\n37 113/.test(browserOutput) && /JSON_DELIVERED/.test(browserOutput),
-      'the browser must receive the resulting PTY output');
+    // Interactive-shell echo/control bytes may interleave output. Each frame
+    // proves execution independently; echoed printf formats cannot satisfy it.
+    for (const marker of ['<RAW:DELIVERED>', '<SIZE:37 113>', '<JSON:DELIVERED>']) {
+      await waitFor(() => ptyOutput.includes(marker), `${marker} must reach the same PTY after focus`);
+      await waitFor(() => browserOutput.includes(marker), `the browser must receive ${marker}`);
+    }
     assert.equal(session.ptyProcess.pid, pid, 'focus must not replace the PTY');
     assert.equal(host.manager.clients.size, 1);
   });

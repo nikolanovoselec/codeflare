@@ -12,7 +12,13 @@ import { useRuntimeT } from "./plugin-context.js";
 
 // ── Path validation (D5) ─────────────────────────────────────────────────────
 
-const UNSAFE_CHARS = /[\\\s\u0000-\u001f\u007f]/;
+function hasUnsafeChars(value: string): boolean {
+  for (let i = 0; i < value.length; i++) {
+    const code = value.charCodeAt(i);
+    if (code <= 0x1f || code === 0x7f) return true;
+  }
+  return /[\\\s]/.test(value);
+}
 
 /**
  * Whether `path` is a root-relative, scheme-free dashboard path: starts with
@@ -23,14 +29,14 @@ const UNSAFE_CHARS = /[\\\s\u0000-\u001f\u007f]/;
  */
 export function isSafeDashboardPath(path: string, opts: { allowApps?: boolean } = {}): boolean {
   if (typeof path !== "string" || !path.startsWith("/") || path.startsWith("//")) return false;
-  if (UNSAFE_CHARS.test(path)) return false;
+  if (hasUnsafeChars(path)) return false;
   let decoded: string;
   try {
     decoded = decodeURIComponent(path);
   } catch {
     return false;
   }
-  if (decoded.startsWith("//") || UNSAFE_CHARS.test(decoded)) return false;
+  if (decoded.startsWith("//") || hasUnsafeChars(decoded)) return false;
   const pathname = decoded.split(/[?#]/, 1)[0] ?? "";
   const segs = pathname.split("/");
   if (segs.some((s) => s === "." || s === "..")) return false;

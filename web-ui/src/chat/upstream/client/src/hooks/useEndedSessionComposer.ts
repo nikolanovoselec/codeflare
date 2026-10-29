@@ -83,7 +83,7 @@ export function useEndedSessionComposer({ selectedId, selectedSession, hasOwnCom
   const setPickField = useCallback((sessionId: string, field: keyof ResumePick, value: string) => {
     setPicks((prev) => {
       const next = new Map(prev);
-      next.set(sessionId, { ...(prev.get(sessionId) ?? {}), [field]: value });
+      next.set(sessionId, { ...prev.get(sessionId), [field]: value });
       return next;
     });
   }, []);

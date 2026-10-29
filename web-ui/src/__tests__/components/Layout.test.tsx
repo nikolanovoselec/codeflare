@@ -1541,21 +1541,7 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
     });
   });
 
-  // =========================================================================
-  // Logout Behavior
-  //
-  // Logout is now handled by the Dashboard/Header user dropdown internally,
-  // not via a prop from Layout. Layout no longer passes onLogout to TerminalArea.
-  // =========================================================================
-
-  describe('Logout Behavior', () => {
-    it('does not pass onLogout prop to TerminalArea', () => {
-      render(() => <Layout userName="test@example.com" userRole="user" />);
-
-      const props = (window as any).__terminalAreaProps;
-      expect(props.onLogout).toBeUndefined();
-    });
-  });
+  // Public logout cleanup is exercised with the real Header/Chat in Layout-chat.
 
   // =========================================================================
   // Visibility Return: Keyboard State Reset
@@ -1621,16 +1607,17 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       mockIsSamsungBrowser = true;
       mockSessions = [createMockSession({ status: 'running' })];
       mockActiveSessionId = 'sess1';
+      mockActiveWorkspace = { kind: 'session', sessionId: 'sess1' };
+      mockVisiblePanes = [{ sessionId: 'sess1', terminalId: '1' }];
 
       render(() => <Layout />);
-
-      vi.mocked(sessionStore.setActiveSession).mockClear();
+      expect(screen.getByTestId('header')).toBeInTheDocument();
 
       Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
       document.dispatchEvent(new Event('visibilitychange'));
 
-      // Should deactivate session immediately (dashboard bounce)
-      expect(sessionStore.setActiveSession).toHaveBeenCalledWith(null);
+      expect(sessionStore.activeSessionId).toBeNull();
+      expect(screen.queryByTestId('header')).not.toBeInTheDocument();
     });
   });
 

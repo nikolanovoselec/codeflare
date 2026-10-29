@@ -54,7 +54,7 @@ describe('REQ-AGENT-224: immutable Host generation originates in owner-scoped D1
 
   it('passes the claimed D1 generation to the process environment, not a cached value or preference', () => fixture(async f => {
     f.kv._set(`preferences:${bucket}`, { chatGeneration: 800, sessionMode: 'default' });
-    f.instance.envVars.CODEFLARE_CHAT_GENERATION = '900';
+    (f.instance.envVars ??= {}).CODEFLARE_CHAT_GENERATION = '900';
     await f.instance.startAndWaitForPorts();
     expect(f.started().at(-1)).toMatchObject({ CODEFLARE_CHAT_GENERATION: '7', SESSION_ID: sid,
       CONTAINER_AUTH_TOKEN: 'private-bearer' });

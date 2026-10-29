@@ -9,7 +9,7 @@ import { ThemeProvider } from '../upstream/client/src/components/settings/ThemeP
 import type { InteractiveRendererProps } from '../upstream/client/src/components/interactive-renderers/types';
 import { encodeDialogAnswer } from '../upstream/client/src/lib/questions/dialog-answer';
 
-// REQ-AGENT-224 AC9 / REQ-AGENT-218 submitted-answer preservation:
+// REQ-AGENT-218 AC7 / REQ-AGENT-219 AC6/7 submitted-answer preservation:
 // only the Codeflare opt-in presentation and intentional answer wire contract.
 // No donor/SDK regression suite, timer, native-state or draft-sync claims.
 const authoredOptions = [

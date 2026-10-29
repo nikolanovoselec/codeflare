@@ -346,7 +346,6 @@ function RunningPreview({ toolName, args }: { toolName: string; args?: Record<st
 
 function CtxBody({
   parsed,
-  toolName,
   args,
   context,
 }: {

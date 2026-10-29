@@ -1,7 +1,7 @@
 /** @jsxImportSource react */
 import { mdiContentCopy, mdiTable } from "@mdi/js";
 import { Icon } from "@mdi/react";
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useMemo, useRef, useState } from "react";
 import ReactMarkdown, { type Components, type Options } from "react-markdown";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import rehypeRaw from "rehype-raw";
@@ -13,7 +13,6 @@ import { repairMarkdown } from "../../lib/preview/markup-repair-md.js";
 import { useMathEngine } from "../../lib/preview/math-engine.js";
 import { MermaidSourceContext, type MermaidSourceInfo } from "../../lib/preview/mermaid-source-context.js";
 import { parseOrdinalStamp, remarkMermaidOrdinal } from "../../lib/preview/remark-mermaid-ordinal.js";
-import { wrapAsciiTables } from "../../lib/preview/wrap-ascii-tables.js";
 import { useSessionAssets } from "../../lib/session/SessionAssetsContext.js";
 import { getSyntaxTheme } from "../../lib/theme/syntax-theme.js";
 import { useLoopbackLinkOpen } from "../../lib/use-loopback-link-open.js";
@@ -291,74 +290,6 @@ function LinkifiedP({ node: _node, children, ...props }: React.ComponentPropsWit
 function LinkifiedLi({ node: _node, children, ...props }: React.ComponentPropsWithoutRef<"li"> & MarkdownNodeProps) {
   const { toolContext } = useMarkdownRenderContext();
   return <li {...props}>{toolContext?.fileLink ? linkifyChildren(children, toolContext) : children}</li>;
-}
-
-/**
- * Regex matching characters that may render wider than 1ch in monospace fonts.
- * Includes:
- * - Emoji (1F300-1F9FF, 2600-26FF, 2700-27BF)
- * - Arrows (2190-21FF) e.g. → ← ↑ ↓
- * - Em/en dashes (2014, 2013)
- * - General punctuation wide chars (2012-2015)
- * - Math operators (some wide ones)
- * - CJK would be here too but less common in LLM ASCII art
- */
-const WIDE_CHARS = /[\u{1F300}-\u{1F9FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u2190-\u21FF\u2012-\u2015][\uFE0E\uFE0F]?/gu;
-
-/** Check if a codepoint is an emoji (renders double-width in terminals) */
-function isEmoji(cp: number): boolean {
-  return (cp >= 0x1F300 && cp <= 0x1F9FF) ||
-         (cp >= 0x2600 && cp <= 0x26FF) ||
-         (cp >= 0x2700 && cp <= 0x27BF);
-}
-
-/**
- * Walk text nodes inside <pre> elements and wrap wide Unicode characters
- * in fixed-width spans. Emoji get 2ch (terminal double-width), other
- * wide chars (arrows, em-dashes) get 1ch to prevent them rendering wider.
- */
-function fixWideCharsInCodeBlocks(container: HTMLElement) {
-  const pres = container.querySelectorAll("pre");
-  for (const pre of pres) {
-    const walker = document.createTreeWalker(pre, NodeFilter.SHOW_TEXT);
-    const textNodes: Text[] = [];
-    let node: Text | null;
-    while ((node = walker.nextNode() as Text | null)) {
-      if (WIDE_CHARS.test(node.data)) {
-        textNodes.push(node);
-      }
-      WIDE_CHARS.lastIndex = 0;
-    }
-
-    for (const textNode of textNodes) {
-      const frag = document.createDocumentFragment();
-      let lastIndex = 0;
-      let match: RegExpExecArray | null;
-      WIDE_CHARS.lastIndex = 0;
-
-      while ((match = WIDE_CHARS.exec(textNode.data)) !== null) {
-        if (match.index > lastIndex) {
-          frag.appendChild(document.createTextNode(textNode.data.slice(lastIndex, match.index)));
-        }
-        const cp = match[0].codePointAt(0)!;
-        const span = document.createElement("span");
-        span.style.display = "inline-block";
-        // Emoji = 2ch (terminal double-width), other wide chars = 1ch
-        span.style.width = isEmoji(cp) ? "2ch" : "1ch";
-        span.style.textAlign = "center";
-        span.style.overflow = "hidden";
-        span.textContent = match[0];
-        frag.appendChild(span);
-        lastIndex = match.index + match[0].length;
-      }
-
-      if (lastIndex < textNode.data.length) {
-        frag.appendChild(document.createTextNode(textNode.data.slice(lastIndex)));
-      }
-
-      textNode.parentNode?.replaceChild(frag, textNode);
-    }
-  }
 }
 
 /**

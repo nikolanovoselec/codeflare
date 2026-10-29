@@ -69,21 +69,22 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 2. The container address uniquely addresses a single isolated runtime; no two sessions share one. <!-- @impl: src/lib/container-helpers.ts::getContainerId --> <!-- @test: src/__tests__/lib/container-id-isolation.test.ts (REQ-SESSION-002: One container per session (isolation)) -->
 3. Different sessions belonging to the same user run in separate containers with separate PTY processes. <!-- @impl: src/container/index.ts::container --> <!-- @test: src/__tests__/lib/container-id-isolation.test.ts (REQ-SESSION-002: One container per session (isolation)) -->
 4. A session's container cannot access files, processes, or network state of another session's container. <!-- @impl: src/container/index.ts::container --> <!-- @test: src/__tests__/lib/container-id-isolation.test.ts (REQ-SESSION-002: One container per session (isolation)) -->
+5. Shared Chat forwarding authorizes only the current owner, entitlement, origin and generation for the configured primary. <!-- @test: src/__tests__/routes/chat-integration.test.ts (Codeflare shared-primary Chat boundary) --> <!-- @test: host/__tests__/chat-boundary.test.js (Codeflare Host Chat adapter composition) --> <!-- @impl: src/routes/chat.ts::handleChatRequest -->
 
 **Constraints:**
 
-- Shared Chat binds only this owner-scoped session/current generation and its configured live primary, never another session or an IDE/secondary/child runtime. Attachment/status/reconnect cannot wake stopped compute. <!-- @impl: src/routes/chat.ts::handleChatRequest --> <!-- @impl: host/src/chat-proxy.ts::createChatProxy --> <!-- @test: src/__tests__/routes/chat-integration.test.ts (REQ-SESSION-002 / REQ-AGENT-224: %s attach and reconnect never wake compute) --> <!-- @test: host/__tests__/chat-proxy.test.js (REQ-SESSION-002 / REQ-TERM-023: stale Chat consumers cannot receive or authorize protected queue delivery) -->
-
+- Shared Chat cannot target another session, IDE/secondary runtime or SDK child. <!-- @impl: src/routes/chat.ts::handleChatRequest --> <!-- @impl: host/src/chat-proxy.ts::createChatProxy --> <!-- @test: src/__tests__/routes/chat-integration.test.ts (REQ-SESSION-002 / REQ-AGENT-224: %s attach and reconnect never wake compute) --> <!-- @test: host/__tests__/chat-proxy.test.js (REQ-SESSION-002 / REQ-TERM-023: stale Chat consumers cannot receive or authorize protected queue delivery) -->
+- Attachment reads and reconnects never wake stopped compute.
 - The container address derivation must never produce collisions for distinct sessions of the same user.
 - The container address is never a fallback or default; validation rejects malformed inputs before container interaction.
 
 **Priority:** P0
 
-**Dependencies:** [REQ-SESSION-001](#req-session-001-session-creation-with-name-and-agent-type)
+**Dependencies:** [REQ-SESSION-001](#req-session-001-session-creation-with-name-and-agent-type), [REQ-AUTH-001](authentication.md#req-auth-001-two-authentication-modes), [REQ-AUTH-014](authentication.md#req-auth-014-auth-expiry-detection-mid-session), [REQ-SEC-022](security.md#req-sec-022-container-proxy-bearer-validation), [REQ-SEC-024](security.md#req-sec-024-agent-notification-delivery-trust-boundaries)
 
-**Verification:** Shared-Chat amendments and adjacent tests are authored only; execution/CI and deployed acceptance remain pending. Existing baseline test scope is retained. Automated test ([Integration test](../../src/__tests__/lib/container-id-isolation.test.ts))
+**Verification:** Shared-Chat corrections and adjacent tests await fresh exact-head CI and deployed acceptance; the initial CI run failed. Existing baseline test scope is retained. Automated test ([Integration test](../../src/__tests__/lib/container-id-isolation.test.ts))
 
-**Status:** Implemented
+**Status:** Planned
 
 ---
 
@@ -133,8 +134,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 **Constraints:**
 
-- Bound manual Chat edits use text-free `{type:"chat-input",sessionId}` on the already-open real Chat WS, outside upstream outbox/replay; accepted manual prompt/Stop/question/dialog responses reach existing activity handling. This control transmits no draft text and requires no hidden terminal socket. Polling, heartbeat, replay, notification controls and automatic answers earn no input credit. <!-- @impl: web-ui/src/chat/ChatMount.tsx::mountChat --> <!-- @impl: host/src/chat-proxy.ts::createChatProxy --> <!-- @impl: host/src/session.ts::recordHumanActivity --> <!-- @test: web-ui/src/chat/__tests__/manual-input.test.tsx (reports human edits/send but not subscription/replay traffic to the shell) --> <!-- @test: host/__tests__/chat-proxy.test.js (REQ-TERM-023/031: unknown controls cannot consume a pending event; subscription, heartbeat and replay never count input) -->
-
+- Only live manual Chat edits or accepted manual actions earn input credit; draft text, replay, heartbeat, notification controls and automatic answers never do. <!-- @impl: web-ui/src/chat/ChatMount.tsx::mountChat --> <!-- @impl: host/src/chat-proxy.ts::createChatProxy --> <!-- @impl: host/src/session.ts::recordHumanActivity --> <!-- @test: web-ui/src/chat/__tests__/manual-input.test.tsx (reports human edits/send but not subscription/replay traffic to the shell) --> <!-- @test: host/__tests__/chat-proxy.test.js (REQ-TERM-023/031: unknown controls cannot consume a pending event; subscription, heartbeat and replay never count input) --> <!-- @impl: host/src/chat-proxy.ts::createChatProxy --> <!-- @impl: web-ui/src/lib/agent-notifications.ts::createAgentEventConsumer --> <!-- @test: host/__tests__/chat-proxy.test.js (REQ-AGENT-224 / REQ-SESSION-004/005 / REQ-TERM-024: draft activity is text-free, local, and cancels the primary queue) --> <!-- @test: web-ui/src/chat/__tests__/manual-input.test.tsx (reports human edits/send but not subscription/replay traffic to the shell) --> <!-- @test: web-ui/src/chat/__tests__/notifications.test.tsx (suppresses focused visible Chat with bound controls on its only real WS) --> <!-- @impl: host/src/session.ts::recordHumanActivity -->
 - The idle timeout is validated server-side against the supported value set.
 - The preference survives container-orchestration resets; the storage shape is preserved for backwards compatibility with existing sessions.
 - Free-tier override cannot be bypassed via API.
@@ -144,9 +144,9 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 **Dependencies:** [REQ-SESSION-005](#req-session-005-input-based-idle-detection)
 
-**Verification:** Shared-Chat amendments and adjacent tests are authored only; execution/CI and deployed acceptance remain pending. Existing baseline test scope is retained. Automated test ([container-metrics](../../src/__tests__/container-metrics.test.ts))
+**Verification:** Shared-Chat corrections and adjacent tests await fresh exact-head CI and deployed acceptance; the initial CI run failed. Existing baseline test scope is retained. Automated test ([container-metrics](../../src/__tests__/container-metrics.test.ts))
 
-**Status:** Implemented
+**Status:** Planned
 
 ---
 
@@ -166,8 +166,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 **Constraints:**
 
-- Bound manual Chat edits use text-free `{type:"chat-input",sessionId}` on the already-open real Chat WS, outside upstream outbox/replay; accepted manual prompt/Stop/question/dialog responses reach existing activity handling. This control transmits no draft text and requires no hidden terminal socket. Polling, heartbeat, replay, notification controls and automatic answers earn no input credit. <!-- @impl: web-ui/src/chat/ChatMount.tsx::mountChat --> <!-- @impl: host/src/chat-proxy.ts::createChatProxy --> <!-- @impl: host/src/session.ts::recordHumanActivity --> <!-- @test: web-ui/src/chat/__tests__/manual-input.test.tsx (reports human edits/send but not subscription/replay traffic to the shell) --> <!-- @test: host/__tests__/chat-proxy.test.js (REQ-TERM-023/031: unknown controls cannot consume a pending event; subscription, heartbeat and replay never count input) -->
-
+- Only live manual Chat edits or accepted manual actions earn input credit; draft text, replay, heartbeat, notification controls and automatic answers never do. <!-- @impl: web-ui/src/chat/ChatMount.tsx::mountChat --> <!-- @impl: host/src/chat-proxy.ts::createChatProxy --> <!-- @impl: host/src/session.ts::recordHumanActivity --> <!-- @test: web-ui/src/chat/__tests__/manual-input.test.tsx (reports human edits/send but not subscription/replay traffic to the shell) --> <!-- @test: host/__tests__/chat-proxy.test.js (REQ-TERM-023/031: unknown controls cannot consume a pending event; subscription, heartbeat and replay never count input) -->
 - If no input is ever received, idle time is measured from a valid durable container-start reference.
 - A container with an open terminal but no typing stops after the configured idle timeout has elapsed from that reference.
 
@@ -175,9 +174,9 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 **Dependencies:** None.
 
-**Verification:** Shared-Chat amendments and adjacent tests are authored only; execution/CI and deployed acceptance remain pending. Existing baseline test scope is retained. Automated test
+**Verification:** Shared-Chat corrections and adjacent tests await fresh exact-head CI and deployed acceptance; the initial CI run failed. Existing baseline test scope is retained. Automated test
 
-**Status:** Implemented
+**Status:** Planned
 
 ---
 
