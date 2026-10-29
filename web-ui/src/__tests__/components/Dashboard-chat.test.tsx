@@ -22,34 +22,49 @@ vi.mock('../../stores/session', () => ({
     isAtSessionLimit: () => false, startR2Polling() {},
     getMetricsForSession: () => null, getInitProgressForSession: () => null,
   }, isAtUsageQuota: () => false,
+  getUsageState: () => ({ monthlySeconds: 0, monthlyQuotaSeconds: null }),
 }));
 
 const session: SessionWithStatus = {
   id: 'abcdef0123456789', name: 'Editor Pi', workspace: 'vscode',
-  agentType: 'pi', terminalMode: 'classic', status: 'running', generation: 7,
+  agentType: 'pi', terminalMode: 'classic', status: 'running', generation: 7, editorReady: true,
   tabConfig: [{ id: '1', command: 'pi', label: 'Pi' }],
   createdAt: '2026-10-29T00:00:00Z', lastAccessedAt: '2026-10-29T00:00:00Z',
 };
 function mount(candidate = session) {
   const [opened, setOpened] = createSignal('');
+  const [catalog, setCatalog] = createSignal([candidate]);
   render(() => <>
-    <Dashboard sessions={[candidate]} viewState="dashboard"
-      onCreateSession={() => {}} onStartSession={() => {}} onStopSession={() => {}}
-      onDeleteSession={() => {}} onOpenVscodeSession={() => {}} onOpenSessionById={() => {}}
+    <Dashboard sessions={catalog()} viewState="dashboard"
+      onCreateSession={() => {}} onStartSession={id => setOpened(`${id}:start`)} onStopSession={() => {}}
+      onDeleteSession={() => {}} onOpenVscodeSession={id => setOpened(`${id}:editor`)} onOpenSessionById={id => setOpened(`${id}:selection`)}
       onOpenChatSession={id => setOpened(`${id}:chat`)}
       onOpenTerminalSession={id => setOpened(`${id}:terminal`)} />
     <output aria-label="Explicit entry">{opened()}</output>
   </>);
+  return (next: SessionWithStatus) => setCatalog([next]);
 }
 afterEach(cleanup);
 
 describe('Dashboard explicit primary surface entry', () => {
   it.each(['Chat', 'Terminal'] as const)('REQ-AGENT-224: existing card menu explicitly opens eligible Pi in %s without changing normal selection', async surface => {
     mount();
+    await fireEvent.click(screen.getByRole('button', { name: `Activate session ${session.name}` }));
+    expect(screen.getByLabelText('Explicit entry')).toHaveTextContent(`${session.id}:editor`);
     await fireEvent.click(screen.getByTestId(`session-stat-card-${session.id}-menu`));
     await fireEvent.click(screen.getByRole('button', { name: `Open in ${surface}` }));
     expect(screen.getByLabelText('Explicit entry')).toHaveTextContent(`${session.id}:${surface.toLowerCase()}`);
     expect(screen.queryByTestId('session-context-menu')).not.toBeInTheDocument();
+  });
+
+  it('REQ-AGENT-224: an open card menu withdraws explicit entry after authoritative stop', async () => {
+    const update = mount();
+    await fireEvent.click(screen.getByTestId(`session-stat-card-${session.id}-menu`));
+    expect(screen.getByRole('button', { name: 'Open in Chat' })).toBeInTheDocument();
+    update({ ...session, status: 'stopped' });
+    expect(screen.queryByRole('button', { name: 'Open in Chat' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Open in Terminal' })).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Explicit entry')).toBeEmptyDOMElement();
   });
 
   it.each([
@@ -61,6 +76,6 @@ describe('Dashboard explicit primary surface entry', () => {
     await fireEvent.click(screen.getByTestId(`session-stat-card-${session.id}-menu`));
     expect(screen.queryByRole('button', { name: 'Open in Chat' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Open in Terminal' })).not.toBeInTheDocument();
-    expect(screen.getByLabelText('Explicit entry')).toHaveTextContent('');
+    expect(screen.getByLabelText('Explicit entry')).toBeEmptyDOMElement();
   });
 });

@@ -53,8 +53,9 @@ const TerminalArea: Component<TerminalAreaProps> = (props) => {
   const activeSessionId = () => sessionStore.activeSessionId;
   const isHerdrSession = () => resolveTerminalMode(activeSession()?.terminalMode) === 'herdr';
   const isExplicitPrimary = (id: string) => {
+    if (props.explicitPrimarySessionId !== id) return false;
     const workspace = terminalWorkspaceStore.getActiveWorkspace();
-    return props.explicitPrimarySessionId === id && workspace.kind === 'session' && workspace.sessionId === id;
+    return workspace.kind === 'session' && workspace.sessionId === id;
   };
   const activeTerminalSession = createMemo(() => {
     const session = activeSession();
@@ -85,7 +86,7 @@ const TerminalArea: Component<TerminalAreaProps> = (props) => {
 
   const activeTiling = createMemo(() => {
     const session = activeTerminalSession();
-    if (!session) return null;
+    if (!session || isExplicitPrimary(session.id)) return null;
     return sessionStore.getTilingForSession(session.id);
   });
 
@@ -97,7 +98,7 @@ const TerminalArea: Component<TerminalAreaProps> = (props) => {
 
   const activeTerminals = createMemo(() => {
     const session = activeTerminalSession();
-    if (!session) return null;
+    if (!session || isExplicitPrimary(session.id)) return null;
     return sessionStore.getTerminalsForSession(session.id);
   });
 
@@ -170,7 +171,7 @@ const TerminalArea: Component<TerminalAreaProps> = (props) => {
       </Show>
 
       {/* Terminal tabs - explicit VS Code entry owns only primary id 1. */}
-      <Show when={props.showTerminal && activeTerminalSession() && activeTerminals() && !isMultiViewWorkspace() && !isHerdrSession()}>
+      <Show when={props.showTerminal && activeTerminalSession() && activeTerminalSession()?.workspace !== 'vscode' && !isMultiViewWorkspace() && !isHerdrSession()}>
         <TerminalTabs sessionId={activeTerminalSession()!.id} />
       </Show>
 

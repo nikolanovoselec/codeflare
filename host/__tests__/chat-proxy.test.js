@@ -4,6 +4,8 @@ import http from 'node:http';
 import { once } from 'node:events';
 import WebSocket, { WebSocketServer } from 'ws';
 import { createChatProxy } from '../dist/chat-proxy.js';
+import { Session } from '../dist/session.js';
+import { createActivityTracker } from '../dist/activity-tracker.js';
 
 const cfid = 'abcdef0123456789';
 const prefix = `/api/chat/${cfid}`;
@@ -34,9 +36,11 @@ async function connect(port) {
 function next(ws) { return once(ws, 'message').then(([data]) => JSON.parse(data.toString())); }
 
 describe('Codeflare primary-only Chat public adapter boundary', { timeout: 15000 }, () => {
-  let upstream, upstreamWss, host, chat, port, live, effects, input, adopted;
+  let upstream, upstreamWss, host, chat, port, live, effects, input, adopted, session, tracker;
   beforeEach(async () => {
     live = identity; effects = []; input = []; adopted = false;
+    tracker = createActivityTracker();
+    session = new Session(`${cfid}-1`, 'Primary', false, { activityTracker: tracker });
     upstreamWss = new WebSocketServer({ noServer: true });
     upstream = http.createServer((req, res) => {
       assert.equal(req.headers['x-pi-local-token'], 'private-backend-token');
@@ -68,18 +72,119 @@ describe('Codeflare primary-only Chat public adapter boundary', { timeout: 15000
       ensurePrimary: async () => { await new Promise(resolve => setTimeout(resolve, 10));
         adopted = true; live = identity; return identity; },
       upstream: { port: upstreamPort, token: () => 'private-backend-token' },
-      recordInput: () => input.push('human'),
+      notificationSession: () => session,
+      recordInput: () => { input.push('human'); session.recordHumanActivity(); },
     });
     host = http.createServer((req, res) => chat.handleHttp(req, res));
     host.on('upgrade', (req, socket, head) => chat.handleUpgrade(req, socket, head));
     port = await listen(host);
   });
   afterEach(async () => {
-    chat.close();
+    chat.close(); session.headlessTerminal.dispose();
     for (const ws of upstreamWss.clients) ws.terminate(); upstreamWss.close();
     await Promise.all([new Promise(resolve => host.close(resolve)), new Promise(resolve => upstream.close(resolve))]);
   });
 
+  it('REQ-AGENT-224 / REQ-SESSION-004/005 / REQ-TERM-024: draft activity is text-free, local, and cancels the primary queue', async () => {
+    const ws = await connect(port);
+    const announcement = next(ws); session.enqueueAgentEvent('input-required');
+    const event = await announcement;
+    assert.equal(event.type, 'agent-event');
+    assert.equal(tracker.getActivityInfo().lastInputAt, null);
+    const cancelled = next(ws);
+    ws.send(JSON.stringify({ type: 'chat-input', sessionId: identity.sessionId }));
+    assert.deepEqual(await cancelled, { type: 'agent-event-cancelled', eventId: event.eventId });
+    assert.ok(tracker.getActivityInfo().lastInputAt > 0);
+    assert.deepEqual(effects, []);
+    assert.deepEqual(session.drainAgentEvents({ ackEventIds: [], final: true }).events, []);
+    ws.terminate();
+  });
+  it('REQ-SESSION-002 / REQ-TERM-023/028/031: real Chat WS consumes the existing queue, without terminal attachment, wake, output or resize rights', async () => {
+    const ws = await connect(port);
+    assert.equal(session.clients.size, 0);
+    assert.equal(session.ptyProcess, null);
+    assert.equal(session.resizeAuthorityClient, null);
+    assert.equal(session.keepAliveTimeout, null);
+    assert.deepEqual(ws.initial, { type: 'questions_update', questions: [{ id: 'question-a', sessionId: identity.sessionId }] });
+    const announcement = next(ws); session.enqueueAgentEvent('task-completed');
+    const event = await announcement;
+    const grant = next(ws);
+    ws.send(JSON.stringify({ type: 'agent-event-disposition', sessionId: identity.sessionId,
+      eventId: event.eventId, disposition: 'display-request' }));
+    assert.deepEqual(await grant, { type: 'agent-event-display-granted', eventId: event.eventId, kind: 'task-completed' });
+    ws.send(JSON.stringify({ type: 'agent-event-displayed', sessionId: identity.sessionId, eventId: event.eventId }));
+    // Ordered stock reply is a barrier after the intercepted confirmation.
+    const barrier = next(ws); ws.send(JSON.stringify({ type: 'subscribe', sessionId: identity.sessionId })); await barrier;
+    assert.deepEqual(session.drainAgentEvents({ ackEventIds: [], final: true }).events, []);
+    assert.equal(tracker.getActivityInfo().lastInputAt, null);
+    assert.deepEqual(effects, [{ type: 'subscribe', sessionId: identity.sessionId }]);
+    const closed = once(ws, 'close'); ws.close(); await closed;
+    const again = await connect(port);
+    assert.equal(again.initial.type, 'questions_update', 'confirmed events are not announced again on reconnect');
+    const nextEvent = next(again); session.enqueueAgentEvent('task-failed');
+    const fresh = await nextEvent;
+    const cancellation = next(again);
+    again.send(JSON.stringify({ type: 'agent-event-disposition', sessionId: identity.sessionId,
+      eventId: fresh.eventId, disposition: 'suppress' }));
+    assert.equal((await cancellation).eventId, fresh.eventId);
+    assert.deepEqual(session.drainAgentEvents({ ackEventIds: [], final: true }).events, []);
+    assert.equal(session.clients.size, 0); assert.equal(session.ptyProcess, null);
+    again.terminate();
+  });
+  it('REQ-SESSION-002 / REQ-TERM-023: stale Chat consumers cannot receive or authorize protected queue delivery', async () => {
+    const ws = await connect(port); const received = [];
+    ws.on('message', bytes => received.push(JSON.parse(bytes.toString())));
+    live = { sessionId: 'replacement', generation: 7 };
+    session.enqueueAgentEvent('task-failed');
+    const drained = session.drainAgentEvents({ ackEventIds: [], final: true }).events;
+    assert.equal(drained.length, 1, 'stale consumers do not hold delivery hostage');
+    assert.equal(drained[0].kind, 'task-failed');
+    const closed = once(ws, 'close');
+    ws.send(JSON.stringify({ type: 'agent-event-disposition', sessionId: identity.sessionId,
+      eventId: drained[0].eventId, disposition: 'suppress' }));
+    assert.equal((await closed)[0], 1008);
+    assert.deepEqual(received, []); assert.deepEqual(effects, []); assert.deepEqual(input, []);
+  });
+  it('REQ-AGENT-224 / REQ-TERM-023: rejects text-bearing activity, wrong identity and forged notification controls', async () => {
+    for (const message of [
+      { type: 'chat-input', sessionId: identity.sessionId, text: 'private draft' },
+      { type: 'chat-input', sessionId: 'secondary' },
+      { type: 'agent-event-disposition', sessionId: identity.sessionId, eventId: 'a', disposition: 'other' },
+      { type: 'agent-event-displayed', sessionId: identity.sessionId, eventId: 'bad.id' },
+      { type: 'agent-event-displayed', sessionId: identity.sessionId, eventId: 'a', automatic: true },
+      { type: 'agent-event', sessionId: identity.sessionId, eventId: 'a', kind: 'task-failed' },
+    ]) {
+      const ws = await connect(port); const closed = once(ws, 'close');
+      ws.send(JSON.stringify(message)); assert.equal((await closed)[0], 1008);
+    }
+    assert.deepEqual(input, []); assert.deepEqual(effects, []);
+  });
+  it('REQ-TERM-023/031: unknown controls cannot consume a pending event; subscription, heartbeat and replay never count input', async () => {
+    const ws = await connect(port);
+    const announced = next(ws); session.enqueueAgentEvent('task-completed'); const event = await announced;
+    ws.send(JSON.stringify({ type: 'agent-event-displayed', sessionId: identity.sessionId, eventId: 'unknown' }));
+    ws.send(JSON.stringify({ type: 'agent-event-disposition', sessionId: identity.sessionId, eventId: 'unknown', disposition: 'suppress' }));
+    ws.ping();
+    const barrier = next(ws); ws.send(JSON.stringify({ type: 'history_backfill', sessionId: identity.sessionId, fromSeq: 0, toSeq: 1 })); await barrier;
+    assert.deepEqual(input, []);
+    const grant = next(ws);
+    ws.send(JSON.stringify({ type: 'agent-event-disposition', sessionId: identity.sessionId, eventId: event.eventId, disposition: 'display-request' }));
+    assert.equal((await grant).eventId, event.eventId);
+    ws.terminate();
+  });
+  it('REQ-SESSION-004/005: live manual prompt/dialog answers count input, while automatic provenance is rejected', async () => {
+    const ws = await connect(port);
+    for (const [notice, answer] of [
+      [{ type: 'prompt_request', sessionId: identity.sessionId, promptId: 'prompt-a' },
+       { type: 'prompt_response', sessionId: identity.sessionId, promptId: 'prompt-a', source: 'dashboard-default', answer: 'yes' }],
+      [{ type: 'extension_ui_request', sessionId: identity.sessionId, requestId: 'dialog-a' },
+       { type: 'extension_ui_response', sessionId: identity.sessionId, requestId: 'dialog-a', result: 'yes' }],
+    ]) {
+      const received = next(ws); for (const backend of upstreamWss.clients) backend.send(JSON.stringify(notice)); await received;
+      const reply = next(ws); ws.send(JSON.stringify(answer)); assert.deepEqual((await reply).event.message, answer);
+    }
+    assert.deepEqual(input, ['human', 'human']); ws.terminate();
+  });
   it('REQ-AGENT-224: concurrent explicit attach returns actual primary identity, with no terminal client or manual input', async () => {
     live = null;
     const results = await Promise.all(Array.from({ length: 6 }, () => request(port, `${prefix}/attach`, {
@@ -171,6 +276,11 @@ describe('Codeflare primary-only Chat public adapter boundary', { timeout: 15000
       const progress = next(ws);
       for (const backend of upstreamWss.clients) backend.send(JSON.stringify(notice));
       assert.deepEqual(await progress, notice); assert.deepEqual(input, []);
+      const automatic = { type: 'event', sessionId: identity.sessionId, seq: 2,
+        event: { type: 'tool_result', automatic: true, answer: 'first authored option' } };
+      const answer = next(ws);
+      for (const backend of upstreamWss.clients) backend.send(JSON.stringify(automatic));
+      assert.deepEqual(await answer, automatic); assert.deepEqual(input, []);
     } finally { ws.terminate(); }
   });
   it('REQ-AGENT-224: an upstream ended primary fences input rather than entering stock auto-resume', async () => {

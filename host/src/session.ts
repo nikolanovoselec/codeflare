@@ -121,6 +121,7 @@ export class Session {
   private readonly clientResizeRequests: Map<WebSocket, { cols: number; rows: number }>;
   private readonly agentEventParser: OscAgentEventParser;
   private readonly agentEventQueue: AgentEventQueue;
+  private readonly agentEventClients = new Map<WebSocket, () => boolean>();
   private primaryRetained = false;
 
   // Injected dependencies
@@ -266,8 +267,7 @@ export class Session {
 
       if (this.terminalId === '1') {
         for (const kind of this.agentEventParser.push(data)) {
-          const clients = [...this.clients].filter((client) => client.readyState === WebSocket.OPEN);
-          this.applyAgentEventActions(this.agentEventQueue.enqueue(kind, clients).actions);
+          this.enqueueAgentEvent(kind);
         }
       }
 
@@ -414,14 +414,31 @@ export class Session {
       if (filtered) {
         const isUserInput = containsUserInput(data);
         if (isUserInput) {
-          this.applyAgentEventActions(this.agentEventQueue.cancelForPresence().actions);
+          this.recordHumanActivity();
         }
         this.ptyProcess.write(filtered);
-        if (this._activityTracker && isUserInput) {
-          this._activityTracker.recordInput();
-        }
       }
     }
+  }
+
+  // @impl REQ-AGENT-224 / REQ-SESSION-004/005 / REQ-TERM-028
+  // Shared human-input effect; Chat must never synthesize PTY bytes.
+  recordHumanActivity(): void {
+    this.applyAgentEventActions(this.agentEventQueue.cancelForPresence().actions);
+    this._activityTracker?.recordInput();
+  }
+
+  // @impl REQ-AGENT-224 / REQ-TERM-023/028/031
+  // A real Chat WS consumes only notifications, not PTY lifetime/output/resize.
+  registerAgentEventClient(ws: WebSocket, stillBound: () => boolean): () => void {
+    this.agentEventClients.set(ws, stillBound);
+    this.applyAgentEventActions(this.agentEventQueue.reconcileClient(ws).actions);
+    return () => { this.agentEventClients.delete(ws); };
+  }
+
+  private isAgentEventClient(ws: WebSocket): boolean {
+    return ws.readyState === WebSocket.OPEN
+      && (this.clients.has(ws) || this.agentEventClients.get(ws)?.() === true);
   }
 
   submitAgentEventDisposition(
@@ -429,21 +446,22 @@ export class Session {
     ws: WebSocket,
     disposition: AgentEventDisposition,
   ): boolean {
-    if (!this.clients.has(ws)) return false;
+    if (!this.isAgentEventClient(ws)) return false;
     const result = this.agentEventQueue.submitDisposition(eventId, ws, disposition);
     this.applyAgentEventActions(result.actions);
     return result.accepted;
   }
 
   confirmAgentEventDisplay(eventId: string, ws: WebSocket): boolean {
-    if (!this.clients.has(ws)) return false;
+    if (!this.isAgentEventClient(ws)) return false;
     const result = this.agentEventQueue.confirmDisplay(eventId, ws);
     this.applyAgentEventActions(result.actions);
     return result.accepted;
   }
 
   enqueueAgentEvent(kind: AgentEventKind): void {
-    const clients = [...this.clients].filter((client) => client.readyState === WebSocket.OPEN);
+    const clients = [...new Set([...this.clients, ...this.agentEventClients.keys()])]
+      .filter((client) => this.isAgentEventClient(client));
     this.applyAgentEventActions(this.agentEventQueue.enqueue(kind, clients).actions);
   }
 
@@ -482,7 +500,7 @@ export class Session {
   private sendAgentEventControl(clients: readonly object[], message: string): void {
     for (const client of clients) {
       const ws = client as WebSocket;
-      if (this.clients.has(ws) && ws.readyState === WebSocket.OPEN) {
+      if (this.isAgentEventClient(ws)) {
         ws.send(message);
       }
     }

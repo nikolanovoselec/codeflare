@@ -72,6 +72,8 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 **Constraints:**
 
+- Shared Chat binds only this owner-scoped session/current generation and its configured live primary, never another session or an IDE/secondary/child runtime. Attachment/status/reconnect cannot wake stopped compute. <!-- @impl: src/routes/chat.ts::handleChatRequest --> <!-- @impl: host/src/chat-proxy.ts::createChatProxy --> <!-- @test: src/__tests__/routes/chat-integration.test.ts (REQ-SESSION-002 / REQ-AGENT-224: %s attach and reconnect never wake compute) --> <!-- @test: host/__tests__/chat-proxy.test.js (REQ-SESSION-002 / REQ-TERM-023: stale Chat consumers cannot receive or authorize protected queue delivery) -->
+
 - The container address derivation must never produce collisions for distinct sessions of the same user.
 - The container address is never a fallback or default; validation rejects malformed inputs before container interaction.
 
@@ -79,7 +81,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 **Dependencies:** [REQ-SESSION-001](#req-session-001-session-creation-with-name-and-agent-type)
 
-**Verification:** Automated test ([Integration test](../../src/__tests__/lib/container-id-isolation.test.ts))
+**Verification:** Shared-Chat amendments and adjacent tests are authored only; execution/CI and deployed acceptance remain pending. Existing baseline test scope is retained. Automated test ([Integration test](../../src/__tests__/lib/container-id-isolation.test.ts))
 
 **Status:** Implemented
 
@@ -124,12 +126,14 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 1. The idle timeout is user-configurable with allowed values: 15m, 30m, 1h, 2h, 4h. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @test: src/__tests__/container-metrics.test.ts (Container Metrics / REQ-SESSION-004 (idle timeout extension via collectMetrics + activity probe) / REQ-SESSION-005 (activity tracker emits idle/active transitions to DO via HTTP)) -->
 2. Default is 30m for paying users; free-tier users are locked to 15m regardless of stored preference. <!-- @impl: src/routes/container/lifecycle-validation.ts::resolveEffectiveSleepAfter --> <!-- @test: src/__tests__/lib/enterprise-mode.test.ts (flag-off: free tier is locked to 15m regardless of stored preference) -->
-3. The idle timer resets for classified terminal input and for each client-to-server Browser IDE frame; reconnections and server-to-client output do not reset it. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @impl: host/src/vscode-proxy.ts::bridgeVscodeClientMessages --> <!-- @test: src/__tests__/container-metrics.test.ts (Container Metrics / REQ-SESSION-004 (idle timeout extension via collectMetrics + activity probe) / REQ-SESSION-005 (activity tracker emits idle/active transitions to DO via HTTP)) -->
+3. The idle timer resets for classified terminal input, bound manual Chat input and for each client-to-server Browser IDE frame; reconnections and server-to-client output do not reset it. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @impl: host/src/vscode-proxy.ts::bridgeVscodeClientMessages --> <!-- @test: src/__tests__/container-metrics.test.ts (Container Metrics / REQ-SESSION-004 (idle timeout extension via collectMetrics + activity probe) / REQ-SESSION-005 (activity tracker emits idle/active transitions to DO via HTTP)) -->
 4. The container is stopped once the user-configured idle threshold is exceeded; the host-side per-PTY keepalive is a separate safety net floor-clamped at the maximum idle timeout (see [AD47](../../documentation/decisions/README.md#ad47-pty-keepalive-as-safety-net-only-not-the-idle-policy)). <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @test: src/__tests__/container-metrics.test.ts (Container Metrics / REQ-SESSION-004 (idle timeout extension via collectMetrics + activity probe) / REQ-SESSION-005 (activity tracker emits idle/active transitions to DO via HTTP)) --> <!-- @test: src/__tests__/container-metrics.test.ts (stops after genuine idle expiry from the persisted startup reference) -->
 5. The platform-level idle timer is functionally inert; idle policy is owned by the per-container metrics layer. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @manual -->
 6. Admins can always change their own idle timeout; non-subscribed users have the dropdown disabled. <!-- @impl: web-ui/src/components/settings/SessionSection.tsx::SessionSection --> <!-- @test: web-ui/src/__tests__/components/settings/SessionSection.test.tsx (REQ-SESSION-004 AC6: idle-timeout dropdown gating) -->
 
 **Constraints:**
+
+- Bound manual Chat edits use text-free `{type:"chat-input",sessionId}` on the already-open real Chat WS, outside upstream outbox/replay; accepted manual prompt/Stop/question/dialog responses reach existing activity handling. This control transmits no draft text and requires no hidden terminal socket. Polling, heartbeat, replay, notification controls and automatic answers earn no input credit. <!-- @impl: web-ui/src/chat/ChatMount.tsx::mountChat --> <!-- @impl: host/src/chat-proxy.ts::createChatProxy --> <!-- @impl: host/src/session.ts::recordHumanActivity --> <!-- @test: web-ui/src/chat/__tests__/manual-input.test.tsx (reports human edits/send but not subscription/replay traffic to the shell) --> <!-- @test: host/__tests__/chat-proxy.test.js (REQ-TERM-023/031: unknown controls cannot consume a pending event; subscription, heartbeat and replay never count input) -->
 
 - The idle timeout is validated server-side against the supported value set.
 - The preference survives container-orchestration resets; the storage shape is preserved for backwards compatibility with existing sessions.
@@ -140,7 +144,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 **Dependencies:** [REQ-SESSION-005](#req-session-005-input-based-idle-detection)
 
-**Verification:** Automated test ([container-metrics](../../src/__tests__/container-metrics.test.ts))
+**Verification:** Shared-Chat amendments and adjacent tests are authored only; execution/CI and deployed acceptance remain pending. Existing baseline test scope is retained. Automated test ([container-metrics](../../src/__tests__/container-metrics.test.ts))
 
 **Status:** Implemented
 
@@ -148,19 +152,21 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 ### REQ-SESSION-005: Input-based idle detection
 
-**Intent:** Idle detection uses classified terminal input and client-to-server Browser IDE frames, not connection presence or server output.
+**Intent:** Idle detection uses classified terminal input, bound manual Chat input and client-to-server Browser IDE frames, not connection presence or server output.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. The host tracks one last-input timestamp shared by terminal input and client-to-server Browser IDE frames. <!-- @impl: host/src/activity-tracker.ts::createActivityTracker --> <!-- @impl: host/src/vscode-proxy.ts::bridgeVscodeClientMessages --> <!-- @test: host/__tests__/openvscode-proxy.test.js (REQ-IDE-004: advances the idle policy lastInputAt for every client-to-server frame) -->
+1. The host tracks one last-input timestamp shared by terminal input, bound manual Chat input and client-to-server Browser IDE frames. <!-- @impl: host/src/activity-tracker.ts::createActivityTracker --> <!-- @impl: host/src/vscode-proxy.ts::bridgeVscodeClientMessages --> <!-- @test: host/__tests__/openvscode-proxy.test.js (REQ-IDE-004: advances the idle policy lastInputAt for every client-to-server frame) -->
 2. User-input classification uses a whitelist: printable characters, control keys, arrow keys, function keys, Alt+key, and mouse clicks count as input. <!-- @impl: host/src/session.ts::Session --> <!-- @test: host/__tests__/session-contains-user-input.test.js (containsUserInput) -->
 3. Terminal protocol responses (cursor-position reports, OSC color queries, mouse movement, device-attribute reports) do not count as input. <!-- @impl: host/src/session.ts::Session --> <!-- @test: host/__tests__/session-contains-user-input.test.js (containsUserInput) -->
 4. Terminal-emulator response sequences are stripped before being written to the PTY so the agent never sees them. <!-- @impl: host/src/session.ts::Session --> <!-- @test: src/__tests__/container-metrics.test.ts (Container Metrics / REQ-SESSION-004 (idle timeout extension via collectMetrics + activity probe) / REQ-SESSION-005 (activity tracker emits idle/active transitions to DO via HTTP)) -->
-5. Idle detection reads the authoritative host timestamp, which advances only for classified terminal input or client-to-server Browser IDE frames; background process and server-to-client output cannot reset it. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @impl: host/src/vscode-proxy.ts::bridgeVscodeClientMessages --> <!-- @manual -->
+5. Idle detection reads the authoritative host timestamp, which advances only for classified terminal input, bound manual Chat input or client-to-server Browser IDE frames; background process and server-to-client output cannot reset it. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @impl: host/src/vscode-proxy.ts::bridgeVscodeClientMessages --> <!-- @manual -->
 
 **Constraints:**
+
+- Bound manual Chat edits use text-free `{type:"chat-input",sessionId}` on the already-open real Chat WS, outside upstream outbox/replay; accepted manual prompt/Stop/question/dialog responses reach existing activity handling. This control transmits no draft text and requires no hidden terminal socket. Polling, heartbeat, replay, notification controls and automatic answers earn no input credit. <!-- @impl: web-ui/src/chat/ChatMount.tsx::mountChat --> <!-- @impl: host/src/chat-proxy.ts::createChatProxy --> <!-- @impl: host/src/session.ts::recordHumanActivity --> <!-- @test: web-ui/src/chat/__tests__/manual-input.test.tsx (reports human edits/send but not subscription/replay traffic to the shell) --> <!-- @test: host/__tests__/chat-proxy.test.js (REQ-TERM-023/031: unknown controls cannot consume a pending event; subscription, heartbeat and replay never count input) -->
 
 - If no input is ever received, idle time is measured from a valid durable container-start reference.
 - A container with an open terminal but no typing stops after the configured idle timeout has elapsed from that reference.
@@ -169,7 +175,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 **Dependencies:** None.
 
-**Verification:** Automated test
+**Verification:** Shared-Chat amendments and adjacent tests are authored only; execution/CI and deployed acceptance remain pending. Existing baseline test scope is retained. Automated test
 
 **Status:** Implemented
 

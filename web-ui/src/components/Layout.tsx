@@ -31,6 +31,7 @@ interface SessionSurfaceState {
   generation: number;
   draft: string;
   terminalEntered?: boolean;
+  invalidated?: boolean;
   takePrimaryHandoff?: () => boolean;
 }
 
@@ -95,7 +96,7 @@ const Layout: Component<LayoutProps> = (props) => {
   const [viewState, setViewState] = createSignal<ViewState>('dashboard');
   // REQ-AGENT-224: transient shell state only. No route, preference or storage contract.
   const [surfaces, setSurfaces] = createSignal<Record<string, SessionSurfaceState>>({});
-  let pendingEntry: { sessionId: string; generation: number; controller: AbortController } | undefined;
+  let pendingEntry: { sessionId: string; generation: number; originSessionId: string | null; controller: AbortController } | undefined;
   const cancelPendingEntry = () => { pendingEntry?.controller.abort(); pendingEntry = undefined; };
   const clearSurfaceState = () => { cancelPendingEntry(); setSurfaces({}); };
   onCleanup(clearSurfaceState);
@@ -107,15 +108,15 @@ const Layout: Component<LayoutProps> = (props) => {
   const chatSelected = createMemo(() => !multiViewActive() && activeSurfaceState()?.surface === 'chat');
   const chatSession = createMemo(() => {
     const session = sessionStore.getActiveSession();
-    if (!chatSelected() || sessionStore.authExpired || !isChatEligibleSession(session)
+    if (!chatSelected() || sessionStore.authExpired || activeSurfaceState()?.invalidated || !isChatEligibleSession(session)
       || activeSurfaceState()?.generation !== session.generation) return undefined;
     return { sessionId: session.id, generation: session.generation };
   });
   const explicitPrimarySessionId = createMemo(() => {
     const session = sessionStore.getActiveSession();
     return !multiViewActive() && !sessionStore.authExpired && session?.workspace === 'vscode'
-      && isChatEligibleSession(session) && activeSurfaceState()?.generation === session.generation
-      ? session.id : undefined;
+      && isChatEligibleSession(session) && !activeSurfaceState()?.invalidated
+      && activeSurfaceState()?.generation === session.generation ? session.id : undefined;
   });
   const surfaceControlsAvailable = createMemo(() => !multiViewActive() && !sessionStore.authExpired
     && isChatEligibleSession(sessionStore.getActiveSession()));
@@ -125,18 +126,28 @@ const Layout: Component<LayoutProps> = (props) => {
   // remain fenced until a new explicit entry, never remounted by polling.
   createEffect(() => {
     const sessions = sessionStore.sessions;
+    const selectedId = sessionStore.activeSessionId;
+    const multiView = multiViewActive();
     if (sessionStore.authExpired) { clearSurfaceState(); return; }
-    const ids = new Set(sessions.map(session => session.id));
+    const byId = new Map(sessions.map(session => [session.id, session]));
     setSurfaces(previous => {
-      const removed = Object.keys(previous).filter(id => !ids.has(id));
-      if (!removed.length) return previous;
-      const next = { ...previous };
-      for (const id of removed) delete next[id];
+      let next = previous;
+      for (const [id, entry] of Object.entries(previous)) {
+        const session = byId.get(id);
+        if (!session) {
+          if (next === previous) next = { ...previous };
+          delete next[id];
+        } else if (!entry.invalidated && (!isChatEligibleSession(session) || session.generation !== entry.generation)) {
+          if (next === previous) next = { ...previous };
+          next[id] = { ...entry, invalidated: true, terminalEntered: false, takePrimaryHandoff: undefined };
+        }
+      }
       return next;
     });
     if (pendingEntry) {
-      const session = sessions.find(candidate => candidate.id === pendingEntry!.sessionId);
-      if (!isChatEligibleSession(session) || session.generation !== pendingEntry.generation) cancelPendingEntry();
+      const session = byId.get(pendingEntry.sessionId);
+      if (!isChatEligibleSession(session) || session.generation !== pendingEntry.generation
+        || selectedId !== pendingEntry.originSessionId || multiView) cancelPendingEntry();
     }
   });
   let viewTransitionTimer: ReturnType<typeof setTimeout> | undefined;
@@ -644,28 +655,32 @@ const Layout: Component<LayoutProps> = (props) => {
     if (shouldStart) void sessionStore.startSession(id).catch(() => {});
   };
 
-  // An explicit late Terminal gesture must finish the same HTTP primary
-  // adoption used by Chat BEFORE any terminal browser connection can mount.
+  // Every new explicit Terminal entry must confirm the current primary through
+  // the same HTTP adoption used by Chat BEFORE its browser connection can mount.
+  // Ordinary Terminal creation/card/deep-link routing never enters this handler.
   const openSessionSurface = async (id: string, surface: SessionSurface) => {
     const session = sessionStore.sessions.find(candidate => candidate.id === id);
     if (!isChatEligibleSession(session) || sessionStore.authExpired) return;
     if (sessionStore.activeSessionId === id && !multiViewActive()
-      && viewState() !== 'dashboard' && (chatSelected() ? 'chat' : 'terminal') === surface) {
-      // A fenced Chat needs a new gesture, even though its old choice is retained.
-      if (surface !== 'chat' || activeSurfaceState()?.generation === session.generation) return;
+      && viewState() !== 'dashboard' && (chatSelected() ? 'chat' : 'terminal') === surface
+      && !activeSurfaceState()?.invalidated) {
+      // An already visible surface is a no-op; a fenced choice needs a fresh
+      // gesture even when its label and backend generation have not changed.
+      if (surface === 'chat' ? activeSurfaceState()?.generation === session.generation
+        : session.workspace !== 'vscode' || explicitPrimarySessionId() === id) return;
     }
     cancelPendingEntry();
     const generation = session.generation;
     const previous = untrack(surfaces)[id];
-    let terminalEntered = previous?.generation === generation && previous.terminalEntered === true;
-    if (surface === 'terminal' && session.workspace === 'vscode' && !terminalEntered) {
-      const entry = { sessionId: id, generation, controller: new AbortController() };
+    let terminalEntered = previous?.generation === generation && !previous.invalidated && previous.terminalEntered === true;
+    if (surface === 'terminal' && !terminalEntered) {
+      const entry = { sessionId: id, generation, originSessionId: sessionStore.activeSessionId, controller: new AbortController() };
       pendingEntry = entry;
       try {
         await attachChatSession(id, generation, entry.controller.signal);
         const current = sessionStore.sessions.find(candidate => candidate.id === id);
         if (pendingEntry !== entry || entry.controller.signal.aborted || !isChatEligibleSession(current)
-          || current.generation !== generation || sessionStore.authExpired) return;
+          || current.generation !== generation || sessionStore.activeSessionId !== entry.originSessionId || sessionStore.authExpired) return;
         terminalEntered = true;
       } catch (cause) {
         if (pendingEntry === entry && !entry.controller.signal.aborted) {
@@ -727,6 +742,7 @@ const Layout: Component<LayoutProps> = (props) => {
   };
 
   const handleStartSession = async (id: string) => {
+    cancelPendingEntry();
     const session = sessionStore.sessions.find((candidate) => candidate.id === id);
     if (!session) return;
 
@@ -754,6 +770,7 @@ const Layout: Component<LayoutProps> = (props) => {
   };
 
   const handleCreateSession = async (name: string, agentType?: AgentType, tabConfig?: TabConfig[]) => {
+    cancelPendingEntry();
     const session = await sessionStore.createSession(name, agentType, tabConfig);
     if (!session) return;
 
@@ -975,7 +992,7 @@ const Layout: Component<LayoutProps> = (props) => {
             : undefined}
           surface={chatSelected() ? 'chat' : 'terminal'}
           onSurfaceChange={surfaceControlsAvailable() ? handleSurfaceChange : undefined}
-          onLogout={clearSurfaceState}
+          onLogout={() => { keepDashboardOwnership(); clearSurfaceState(); }}
           vaultReady={vaultReady()}
           vaultStatus={vaultButtonStatus()}
           onLogoClick={showDashboard() ? undefined : handleOpenDashboard}
@@ -994,7 +1011,7 @@ const Layout: Component<LayoutProps> = (props) => {
       <div class="layout-middle">
         {/* Main content */}
         <TerminalArea
-          showTerminal={(showTerminal() && !chatSelected()) ?? false}
+          showTerminal={showTerminal() && !chatSelected() && !sessionStore.authExpired}
           chatSelected={showTerminal() && chatSelected()}
           chatSession={showTerminal() ? chatSession() : undefined}
           chatDraft={activeSurfaceState()?.draft ?? ''}
@@ -1003,7 +1020,7 @@ const Layout: Component<LayoutProps> = (props) => {
           takePrimaryHandoff={activeSurfaceState()?.takePrimaryHandoff}
           onOpenChatSession={id => { void openSessionSurface(id, 'chat'); }}
           onOpenTerminalSession={id => { void openSessionSurface(id, 'terminal'); }}
-          onLogout={clearSurfaceState}
+          onLogout={() => { keepDashboardOwnership(); clearSurfaceState(); }}
           showTilingOverlay={showTilingOverlay()}
           onTilingButtonClick={handleTilingButtonClick}
           onSelectTilingLayout={handleSelectTilingLayout}

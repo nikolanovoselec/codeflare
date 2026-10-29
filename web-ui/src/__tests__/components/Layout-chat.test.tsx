@@ -79,11 +79,14 @@ describe('Codeflare session-local Chat composition', () => {
   let attachStatus: number;
   let releaseAttach: (() => void) | undefined;
   let deferAttach: boolean;
+  let expiredPolling: boolean;
   const viewport = Object.getOwnPropertyDescriptor(window, 'innerWidth');
+  const visibility = Object.getOwnPropertyDescriptor(document, 'visibilityState');
   beforeEach(async () => {
     cleanup();
     sessionStore.stopAllPolling();
     sessionStore.stopSessionListPolling();
+    sessionStore._resetAuthExpired();
     sessionStore.setActiveSession(null);
     terminalWorkspaceStore.setDashboardWorkspace();
     sessions = [];
@@ -92,6 +95,7 @@ describe('Codeflare session-local Chat composition', () => {
     attachStatus = 200;
     releaseAttach = undefined;
     deferAttach = false;
+    expiredPolling = false;
     ChatWire.wires = [];
     vi.stubGlobal('WebSocket', ChatWire);
     vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -100,6 +104,7 @@ describe('Codeflare session-local Chat composition', () => {
       const path = new URL(request.url).pathname;
       if (path === '/api/sessions') return Response.json({ sessions });
       if (path === '/api/preferences') return Response.json(preferences);
+      if (path === '/api/sessions/batch-status' && expiredPolling) return Response.json({ error: 'Session expired' }, { status: 401 });
       if (path === '/api/sessions/batch-status') return Response.json({ statuses: Object.fromEntries(sessions.map(s => [s.id, {
         status: s.status, generation: s.generation, revision: s.revision,
       }])) });
@@ -127,6 +132,8 @@ describe('Codeflare session-local Chat composition', () => {
     cleanup(); terminalStore.disposeAll(); sessionStore.stopAllPolling(); sessionStore.stopSessionListPolling(); sessionStore.setActiveSession(null);
     terminalWorkspaceStore.setDashboardWorkspace();
     if (viewport) Object.defineProperty(window, 'innerWidth', viewport);
+    if (visibility) Object.defineProperty(document, 'visibilityState', visibility);
+    else Reflect.deleteProperty(document, 'visibilityState');
     vi.unstubAllGlobals(); vi.restoreAllMocks();
   });
   async function openTerminalSession() {
@@ -183,6 +190,7 @@ describe('Codeflare session-local Chat composition', () => {
     await waitFor(() => expect(ChatWire.wires.flatMap(w => w.frames).filter(f => f.type === 'send_prompt'))
       .toEqual([expect.objectContaining({ sessionId: 'bound-primary-pi', text: 'Continue the current primary task' })]));
     await fireEvent.click(screen.getByRole('button', { name: /^Terminal$/i }));
+    await screen.findByRole('region', { name: `Terminal ${firstId} 1` });
     await enterChat();
     await waitFor(() => expect(openWires().filter(w => String(w.url).includes('/api/chat/'))).toHaveLength(1));
     expect(ChatWire.wires.flatMap(w => w.frames).filter(f => f.type === 'send_prompt'))
@@ -211,6 +219,7 @@ describe('Codeflare session-local Chat composition', () => {
     await openTerminalSession();
     await fireEvent.input(await enterChat(), { target: { value: 'Unsent draft from primary' } });
     await fireEvent.click(screen.getByRole('button', { name: /^Terminal$/i }));
+    await screen.findByRole('region', { name: `Terminal ${firstId} 1` });
     expect(await enterChat()).toHaveValue('Unsent draft from primary');
     sessionStore.setActiveSession(secondId);
     await screen.findByRole('region', { name: `Terminal ${secondId} 1` });
@@ -300,10 +309,80 @@ describe('Codeflare session-local Chat composition', () => {
     expect(url.pathname).toBe(`/api/terminal/${firstId}-1/ws`);
     expect(url.searchParams.get('primary')).toBe('1');
     expect(url.searchParams.has('manual')).toBe(false);
+    // Even stale/local classic tab state cannot widen this narrow primary-only
+    // render exception into secondary panes or a tiled VS Code workspace.
+    sessionStore.initializeTerminalsForSession(firstId);
+    sessionStore.addTerminalTab(firstId);
+    sessionStore.setTilingLayout(firstId, '2-split');
+    expect(screen.queryByRole('region', { name: `Terminal ${firstId} 2` })).not.toBeInTheDocument();
+    await sessionStore.loadSessions();
+    expect(screen.getByRole('region', { name: `Terminal ${firstId} 1` })).toBeInTheDocument();
     expect(sessionStore.sessions[0]).toMatchObject({ workspace: 'vscode', terminalMode, generation: 7 });
     expect(terminalWorkspaceStore.isTerminalSession(sessionStore.sessions[0])).toBe(false);
     expect(terminalWorkspaceStore.validateMultiViewMemberIds([firstId], sessionStore.sessions, 'desktop')).toEqual([]);
     expect(requests.filter(r => /\/container\/(start|stop|restart)/.test(new URL(r.url).pathname))).toEqual([]);
+  });
+
+  it.each(['classic', 'herdr'] as const)('REQ-AGENT-224: explicit %s Terminal-created entry confirms the primary over HTTP before mounting', async terminalMode => {
+    sessions = [makeSession({ terminalMode })]; await sessionStore.loadSessions();
+    deferAttach = true;
+    render(() => <Layout />);
+    await fireEvent.click(screen.getByRole('button', { name: 'Open Primary Pi in Terminal' }));
+    await waitFor(() => expect(releaseAttach).toBeTypeOf('function'));
+    expect(screen.queryByRole('region', { name: `Terminal ${firstId} 1` })).not.toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Session dashboard' })).toBeInTheDocument();
+    expect(await attachRequests()[0].json()).toEqual({ generation: 7 });
+    releaseAttach!();
+    const terminal = await screen.findByRole('region', { name: `Terminal ${firstId} 1` });
+    expect(new URL(terminal.querySelector('a')!.href).searchParams.get('primary')).toBe('1');
+    expect(sessionStore.getActiveSession()).toMatchObject({ workspace: 'terminal', terminalMode, generation: 7 });
+    expect(requests.filter(r => r.method !== 'GET' && !new URL(r.url).pathname.endsWith('/attach'))).toEqual([]);
+  });
+
+  it.each(['classic', 'herdr'] as const)('REQ-AGENT-224: failed explicit %s Terminal-created confirmation shows an error without mounting a fallback', async terminalMode => {
+    sessions = [makeSession({ terminalMode })]; await sessionStore.loadSessions();
+    attachStatus = 401;
+    render(() => <Layout />);
+    await fireEvent.click(screen.getByRole('button', { name: 'Open Primary Pi in Terminal' }));
+    expect(await screen.findByText('Session expired')).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Session dashboard' })).toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: `Terminal ${firstId} 1` })).not.toBeInTheDocument();
+    expect(ChatWire.wires).toEqual([]);
+    expect(attachRequests()).toHaveLength(1);
+  });
+
+  it.each(['classic', 'herdr'] as const)('REQ-AGENT-224: fenced-generation %s Terminal return waits for HTTP confirmation of the replacement primary', async terminalMode => {
+    sessions = [makeSession({ terminalMode })]; await sessionStore.loadSessions();
+    await openTerminalSession();
+    expect(attachRequests()).toEqual([]); // Ordinary Terminal card routing stays unchanged.
+    await enterChat();
+    sessions = [makeSession({ terminalMode, generation: 8, revision: 2 })]; await sessionStore.loadSessions();
+    await waitFor(() => expect(screen.queryByRole('textbox')).not.toBeInTheDocument());
+    expect(attachRequests()).toHaveLength(1); // Polling must not confirm a replacement.
+    deferAttach = true;
+    await fireEvent.click(screen.getByRole('button', { name: /^Terminal$/i }));
+    await waitFor(() => expect(releaseAttach).toBeTypeOf('function'));
+    expect(screen.queryByRole('region', { name: `Terminal ${firstId} 1` })).not.toBeInTheDocument();
+    expect(await attachRequests()[1].json()).toEqual({ generation: 8 });
+    releaseAttach!();
+    const terminal = await screen.findByRole('region', { name: `Terminal ${firstId} 1` });
+    expect(new URL(terminal.querySelector('a')!.href).searchParams.get('primary')).toBe('1');
+    expect(openWires()).toEqual([]);
+  });
+
+  it.each(['classic', 'herdr'] as const)('REQ-AGENT-224: failed fenced-generation %s Terminal confirmation preserves the fence and visible error', async terminalMode => {
+    sessions = [makeSession({ terminalMode })]; await sessionStore.loadSessions();
+    await openTerminalSession(); await enterChat();
+    sessions = [makeSession({ terminalMode, generation: 8, revision: 2 })]; await sessionStore.loadSessions();
+    await waitFor(() => expect(screen.queryByRole('textbox')).not.toBeInTheDocument());
+    attachStatus = 401;
+    await fireEvent.click(screen.getByRole('button', { name: /^Terminal$/i }));
+    expect(await screen.findByText('Session expired')).toBeInTheDocument();
+    expect(screen.getByText(/Pi session changed/)).toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: `Terminal ${firstId} 1` })).not.toBeInTheDocument();
+    expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
+    expect(openWires()).toEqual([]);
+    expect(attachRequests()).toHaveLength(2);
   });
 
   it.each(['classic', 'herdr'] as const)('REQ-AGENT-224: explicit %s VS Code Chat entry owns no terminal and returns to the primary', async terminalMode => {
@@ -346,10 +425,15 @@ describe('Codeflare session-local Chat composition', () => {
     await waitFor(() => expect(screen.queryByRole('textbox')).not.toBeInTheDocument());
     expect(openWires().filter(w => String(w.url).includes('/api/chat/'))).toEqual([]);
     expect(attachRequests()).toHaveLength(1);
-    if (change === 'generation') {
-      expect(await enterChat()).toHaveValue('');
-      expect(await attachRequests()[1].json()).toEqual({ generation: 8 });
+    if (change !== 'generation') {
+      // Recovery/polling is not a new entry gesture, even if a backend projection
+      // still carries the prior generation. The old binding must stay fenced.
+      sessions = [makeSession({ revision: 3 })]; await sessionStore.loadSessions();
+      expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
+      expect(attachRequests()).toHaveLength(1);
     }
+    expect(await enterChat()).toHaveValue('');
+    expect(await attachRequests()[1].json()).toEqual({ generation: change === 'generation' ? 8 : 7 });
   });
 
   it('REQ-AGENT-224: stale pending VS Code entry cannot mount a replacement generation', async () => {
@@ -362,6 +446,35 @@ describe('Codeflare session-local Chat composition', () => {
     releaseAttach!();
     await waitFor(() => expect(screen.getByRole('region', { name: 'Session dashboard' })).toBeInTheDocument());
     expect(screen.queryByRole('region', { name: `Terminal ${firstId} 1` })).not.toBeInTheDocument();
+    expect(attachRequests()).toHaveLength(1);
+  });
+
+  it('REQ-AGENT-224: a pending explicit entry cannot steal selection after another session is selected', async () => {
+    sessions = [makeSession({ workspace: 'vscode' }), makeSession({ id: secondId, name: 'Other Pi' })];
+    await sessionStore.loadSessions();
+    deferAttach = true;
+    render(() => <Layout />);
+    await fireEvent.click(screen.getByRole('button', { name: 'Open Primary Pi in Terminal' }));
+    await waitFor(() => expect(releaseAttach).toBeTypeOf('function'));
+    // Use the public selection boundary, not a private entry-controller spy.
+    sessionStore.setActiveSession(secondId);
+    await screen.findByRole('region', { name: `Terminal ${secondId} 1` });
+    releaseAttach!();
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(sessionStore.activeSessionId).toBe(secondId);
+    expect(screen.getByRole('region', { name: `Terminal ${secondId} 1` })).toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: `Terminal ${firstId} 1` })).not.toBeInTheDocument();
+  });
+
+  it('REQ-AGENT-224: a failed explicit VS Code Terminal attach keeps editor ownership and a useful error without retrying', async () => {
+    sessions = [makeSession({ workspace: 'vscode' })]; await sessionStore.loadSessions();
+    attachStatus = 401;
+    render(() => <Layout />);
+    await fireEvent.click(screen.getByRole('button', { name: 'Open Primary Pi in Terminal' }));
+    expect(await screen.findByText('Session expired')).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Session dashboard' })).toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: `Terminal ${firstId} 1` })).not.toBeInTheDocument();
+    expect(ChatWire.wires).toEqual([]);
     expect(attachRequests()).toHaveLength(1);
   });
 
@@ -420,6 +533,18 @@ describe('Codeflare session-local Chat composition', () => {
     expect(await screen.findByText(/session expired|sign in|log in/i)).toBeInTheDocument();
     expect(openWires()).toEqual([]);
     expect(attachRequests().map(r => new URL(r.url).pathname)).toEqual([`/api/chat/${firstId}/attach`]);
+  });
+
+  it('REQ-AGENT-224: background auth expiry disposes Chat without falling through to a terminal attachment', async () => {
+    await openTerminalSession();
+    await fireEvent.input(await enterChat(), { target: { value: 'Clear on auth expiry' } });
+    expiredPolling = true;
+    await sessionStore.refreshSessionStatuses();
+    await screen.findByTestId('auth-expired-banner');
+    expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: `Terminal ${firstId} 1` })).not.toBeInTheDocument();
+    expect(openWires()).toEqual([]);
+    expect(attachRequests()).toHaveLength(1);
   });
 
   it('REQ-AGENT-224: surface controls remain native keyboard-focusable buttons at phone width', async () => {

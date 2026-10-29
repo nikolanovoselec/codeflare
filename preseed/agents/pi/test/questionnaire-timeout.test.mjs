@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, it } from 'node:test';
-import { createAgentSession, DefaultResourceLoader, initTheme, ModelRuntime, SessionManager, SettingsManager, Theme } from '@earendil-works/pi-coding-agent';
+import { createAgentSession, createEventBus, DefaultResourceLoader, initTheme, ModelRuntime, SessionManager, SettingsManager, Theme } from '@earendil-works/pi-coding-agent';
 import { getKeybindings, TuiMainScreen } from '@earendil-works/pi-tui';
 import { patchQuestionnaireTimeout } from '../../../../scripts/patch-rpiv-question-timeout.mjs';
 
@@ -14,6 +14,7 @@ const installed = dirname(fileURLToPath(import.meta.resolve('@juicesharp/rpiv-as
 const archives = {
   '2.12.0': 'f407893638f1893a3730444f467b4edc1924cf2d206ae584f7525e1e8ae860f6',
   '2.13.8': '1c27ed656cf56b0af7eb45d1e4240fc3c9e3e064a05880f15acc380893159cd5',
+  '2.15.0': '3b3dfb5f2836e897c2884a70a80afcde2a5370af4ced8a2c927e0ed7bf8fb81f',
 };
 const artifacts = ['package.json', 'ask-user-question.ts', 'state/questionnaire-session.ts', 'codeflare-question-timeout.mjs'];
 function pristine(t, version) {
@@ -158,7 +159,13 @@ async function questionnaireFixture(t, version, mode = 'tui', options) {
   mkdirSync(agentDir, { recursive: true });
   writeFileSync(join(agentDir, 'settings.json'), JSON.stringify({ packages: [root] }));
   const settingsManager = SettingsManager.create(home, agentDir);
-  const resourceLoader = new DefaultResourceLoader({ cwd: home, agentDir, settingsManager,
+  const eventBus = createEventBus();
+  t.after(() => eventBus.clear());
+  const prompts = [];
+  const verdicts = [];
+  eventBus.on('rpiv:ask-user:prompt', payload => prompts.push(payload));
+  eventBus.on('rpiv:ask-user:answer-result', payload => verdicts.push(payload));
+  const resourceLoader = new DefaultResourceLoader({ cwd: home, agentDir, settingsManager, eventBus,
     noSkills: true, noPromptTemplates: true, noThemes: true, noContextFiles: true });
   await resourceLoader.reload();
   assert.deepEqual(resourceLoader.getExtensions().errors, []);
@@ -175,7 +182,16 @@ async function questionnaireFixture(t, version, mode = 'tui', options) {
   const tool = session.agent.state.tools.find(item => item.name === 'ask_user_question');
   assert.ok(tool, 'actual pinned package must register the SDK-wrapped tool');
   let sequence = 0;
-  return { root, display, execute: (input = params, signal) => tool.execute(`question-${++sequence}`, input, signal) };
+  let request = 0;
+  return { root, display, prompts,
+    external(toolCallId, payload) {
+      const requestId = `external-${++request}`;
+      eventBus.emit('rpiv:ask-user:answer', { ...payload, toolCallId, requestId });
+      const verdict = verdicts.find(value => value.requestId === requestId);
+      assert.ok(verdict, 'the public answer API must report whether the answer applied');
+      return verdict;
+    },
+    execute: (input = params, signal) => tool.execute(`question-${++sequence}`, input, signal) };
 }
 
 function observe(promise) {
@@ -326,20 +342,20 @@ for (const version of Object.keys(archives)) {
         await f.display.wait();
         if (mode === 'tui') {
           f.display.key(' '); f.display.key('\x1b[B'); f.display.key(' ');
-          if (version === '2.13.8') {
+          if (version !== '2.12.0') {
             f.display.key('\x1b[B'); f.display.key('Also retain the audit log'); f.display.key('\r');
           } else {
             // The public Tab navigation commits the current multi-select answer.
             f.display.key('\t');
           }
         } else {
-          f.display.answer(version === '2.13.8' ? '1,2; Also retain the audit log' : '1,2');
+          f.display.answer(version !== '2.12.0' ? '1,2; Also retain the audit log' : '1,2');
           await f.display.wait();
         }
         t.mock.timers.tick(300000); await turn();
         const answers = (await result).details.answers;
         assert.deepEqual(answers[0].selected, ['Small change (Recommended)', 'Different approach']);
-        assert.equal(answers[0].answer, version === '2.13.8' ? 'Also retain the audit log' : null);
+        assert.equal(answers[0].answer, version !== '2.12.0' ? 'Also retain the audit log' : null);
         assert.notEqual(answers[0].automatic, true);
         assert.equal(answers[1].automatic, true);
         assert.equal(f.display.view.active, false);
@@ -365,7 +381,7 @@ for (const version of Object.keys(archives)) {
       t.mock.timers.tick(300000); await turn(); assert.notEqual(result.details.automatic, true);
     });
 
-    if (version === '2.13.8') {
+    if (version !== '2.12.0') {
       it('inline yield remounts visibly over an existing overlay and releases the slot after timeout', { timeout: 20000 }, async t => {
         const f = await fixture(t, 'tui', { deferMount: true }); clock(t);
         const background = f.display.showOverlay();
@@ -461,6 +477,126 @@ for (const version of Object.keys(archives)) {
         assert.equal(f.display.view.active, false);
         assert.deepEqual(value.details.unanswered, [1]);
       });
+    }
+
+    if (version === '2.15.0') {
+      it('REQ-AGENT-218 AC2 / REQ-AGENT-220 AC2: a public answer before mount settles without starting a deadline', { timeout: 20000 }, async t => {
+        const f = await fixture(t, 'tui', { deferMount: true }); clock(t);
+        const result = f.execute(); await f.display.waitForMount();
+        const id = f.prompts.at(-1).toolCallId;
+        assert.equal(f.external(id, { answers: [{ questionIndex: 0, optionIndexes: [1] }] }).ok, true);
+        const value = await result;
+        assert.equal(value.details.answers[0].answer, 'Different approach');
+        assert.notEqual(value.details.automatic, true);
+        f.display.mount(); // A late native factory must close, not start a new wait.
+        assert.equal(f.display.view.active, false);
+        t.mock.timers.tick(600000); await turn();
+        assert.notEqual(value.details.automatic, true);
+      });
+
+      it('REQ-AGENT-218 AC2/AC3: complete public submission retains answers and notes and releases the native deadline', { timeout: 20000 }, async t => {
+        const f = await fixture(t); clock(t);
+        const result = f.execute({ questions: [question(), { ...question(true), header: 'Checks', question: 'Which checks?' }] });
+        await f.display.wait(); t.mock.timers.tick(299999);
+        const id = f.prompts.at(-1).toolCallId;
+        assert.equal(f.external(id, { answers: [
+          { questionIndex: 0, optionIndexes: [1], notes: 'Keep this submitted note' },
+          { questionIndex: 1, optionIndexes: [0, 1], text: 'Also retain the audit log', notes: 'Keep both checks' },
+        ], globalNote: 'User submitted this questionnaire' }).ok, true);
+        const value = await result;
+        assert.equal(value.details.cancelled, false);
+        assert.notEqual(value.details.automatic, true);
+        assert.equal(value.details.answers[0].answer, 'Different approach');
+        assert.equal(value.details.answers[0].notes, 'Keep this submitted note');
+        assert.deepEqual(value.details.answers[1].selected, ['Small change (Recommended)', 'Different approach']);
+        assert.equal(value.details.answers[1].answer, 'Also retain the audit log');
+        assert.equal(value.details.answers[1].notes, 'Keep both checks');
+        assert.equal(value.details.globalNote, 'User submitted this questionnaire');
+        assert.ok(value.details.answers.every(answer => answer.automatic !== true));
+        assert.equal(f.display.view.active, false);
+        t.mock.timers.tick(1); await turn();
+        assert.notEqual(value.details.automatic, true, 'a submitted answer cannot become automatic at the former deadline');
+        assert.equal(f.external(id, { cancel: true }).code, 'not_found');
+      });
+
+      for (const ending of ['timeout', 'abort', 'native', 'external-cancel']) {
+        it(`REQ-AGENT-219 AC1/AC4 / REQ-AGENT-220 AC2: ${ending} owns settlement before a competing public answer`, { timeout: 20000 }, async t => {
+          const f = await fixture(t); clock(t);
+          const controller = new AbortController();
+          const first = f.execute(params, controller.signal); await f.display.wait();
+          const id = f.prompts.at(-1).toolCallId;
+          t.mock.timers.tick(299999);
+          if (ending === 'timeout') t.mock.timers.tick(1);
+          else if (ending === 'abort') controller.abort();
+          else if (ending === 'native') { f.display.key('\x1b[B'); f.display.key('\r'); }
+          else assert.equal(f.external(id, { cancel: true }).ok, true);
+          // Deliberately send before yielding: the winner must own the shared gate,
+          // not merely close the answer channel later in execute's finally.
+          assert.equal(f.external(id, { answers: [{ questionIndex: 0, optionIndexes: [0] }] }).code, 'not_found');
+          const value = await first;
+          if (ending === 'timeout') automatic(value, 'Small change (Recommended)');
+          else {
+            assert.notEqual(value.details.automatic, true);
+            assert.equal(value.details.cancelled, ending !== 'native');
+            if (ending === 'native') assert.equal(value.details.answers[0].answer, 'Different approach');
+          }
+          assert.equal(f.display.view.active, false);
+          const next = f.execute(); const state = observe(next); await f.display.wait();
+          assert.equal(f.external(id, { cancel: true }).code, 'not_found');
+          t.mock.timers.tick(1); await turn(); assert.equal(state.settled, false);
+          const nextId = f.prompts.at(-1).toolCallId;
+          assert.equal(f.external(nextId, { answers: [{ questionIndex: 0, text: 'New manual answer' }] }).ok, true);
+          assert.equal((await next).details.answers[0].answer, 'New manual answer');
+          t.mock.timers.tick(600000); await turn(); assert.equal(f.display.view.active, false);
+        });
+      }
+
+      it('REQ-AGENT-218 AC3: an incomplete public submission cannot overwrite native selections or edited notes at expiry', { timeout: 20000 }, async t => {
+        const f = await fixture(t); clock(t);
+        const result = f.execute({ questions: [question(true), { ...question(), header: 'Second', question: 'Which next step?' }] });
+        await f.display.wait();
+        f.display.key(' '); f.display.key('\x1b[B'); f.display.key(' ');
+        f.display.key('n'); f.display.key('Retain this edited native note');
+        assert.equal(f.external(f.prompts.at(-1).toolCallId, {
+          answers: [{ questionIndex: 0, optionIndexes: [0], notes: 'Unsubmitted browser replacement' }],
+        }).code, 'invalid_answer');
+        t.mock.timers.tick(300000); await turn();
+        const value = await result;
+        assert.equal(value.details.automatic, true);
+        assert.deepEqual(value.details.answers[0].selected, ['Small change (Recommended)', 'Different approach']);
+        assert.equal(value.details.answers[0].notes, 'Retain this edited native note');
+        assert.notEqual(value.details.answers[0].automatic, true);
+        assert.equal(value.details.answers[1].automatic, true);
+        assert.equal(f.display.view.active, false);
+      });
+
+      it('REQ-AGENT-218 AC3: native global notes survive expiry on the review tab', { timeout: 20000 }, async t => {
+        const f = await fixture(t); clock(t);
+        const result = f.execute({ questions: [question(), { ...question(), header: 'Second', question: 'Which next step?' }] });
+        await f.display.wait();
+        f.display.key('\t'); f.display.key('\t');
+        f.display.key('n'); f.display.key('Keep the global native note');
+        t.mock.timers.tick(300000); await turn();
+        const value = await result;
+        assert.equal(value.details.globalNote, 'Keep the global native note');
+        assert.equal(value.details.automatic, true);
+        assert.ok(value.details.answers.every(answer => answer.automatic === true));
+        assert.equal(f.display.view.active, false);
+      });
+
+      for (const mode of ['rpc', 'legacy']) {
+        it(`REQ-AGENT-218 AC1 / REQ-AGENT-219 AC4: public answers cannot replace the ${mode} native dialog deadline`, { timeout: 20000 }, async t => {
+          const f = await fixture(t, mode); clock(t);
+          const result = f.execute(); const state = observe(result); await f.display.wait();
+          assert.equal(f.external(f.prompts.at(-1).toolCallId, {
+            answers: [{ questionIndex: 0, optionIndexes: [1] }],
+          }).code, 'unsupported_host');
+          t.mock.timers.tick(299999); await turn(); assert.equal(state.settled, false);
+          t.mock.timers.tick(1); await turn();
+          automatic(await result, 'Small change (Recommended)');
+          assert.equal(f.display.view.active, false);
+        });
+      }
     }
 
     for (const damage of ['version', 'identity', 'version/source', 'entry', 'layout', 'patched-layout',

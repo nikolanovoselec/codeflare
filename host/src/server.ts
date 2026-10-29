@@ -399,9 +399,10 @@ async function ensurePrimary(): Promise<ChatPrimary> {
 }
 const chat = chatEligible ? createChatProxy({ cfid: process.env.SESSION_ID!, generation: CHAT_GENERATION,
   primary, ensurePrimary, upstream: { port: CHAT_PORT, token: privateChatToken },
+  notificationSession: () => sessionManager.get(primaryTerminalId),
   recordInput: () => {
     sessionManager.retainPrimary(primaryTerminalId);
-    state.activityTracker.recordInput();
+    sessionManager.get(primaryTerminalId)?.recordHumanActivity();
   },
 }) : undefined;
 

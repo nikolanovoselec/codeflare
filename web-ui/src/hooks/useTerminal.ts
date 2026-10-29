@@ -15,7 +15,7 @@ import { loadSettings } from '../lib/settings';
 import { getIframeInput, scrollBufferToBottom, resyncViewportScrollState } from '../lib/xterm-internals';
 import { attachWheelScrolling } from '../lib/terminal-wheel';
 import { useScrollCorrection } from './useScrollCorrection';
-import { agentEventDisposition, showGrantedAgentEvent } from '../lib/agent-notifications';
+import { agentEventDisposition, createAgentEventConsumer, showGrantedAgentEvent } from '../lib/agent-notifications';
 import { beginClipboardWrite, completeClipboardWrite, parseOsc52ClipboardWrite, retainFailedClipboardWrite, takeFailedClipboardWrite } from '../lib/osc52';
 import { resolveTerminalMode, type TerminalMode } from '../types';
 
@@ -79,8 +79,6 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
   let hasInitialScrolled = false;
   let kbDebounceTimer: ReturnType<typeof setTimeout> | null = null;
   let disposed = false;
-  const cancelledAgentEventIds = new Set<string>();
-  const MAX_CANCELLED_AGENT_EVENT_IDS = 16;
 
   const [dimensions, setDimensions] = createSignal({ cols: 80, rows: 24 });
   const [terminalInstance, setTerminalInstance] = createSignal<Terminal | undefined>(undefined);
@@ -476,77 +474,26 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
       });
     };
 
-    agentEventDisposable = terminalStore.registerAgentEventCallback(
-      props.sessionId,
-      props.terminalId,
-      async (message) => {
-        if (message.type === 'agent-event') {
-          terminalStore.submitAgentEventDisposition(
-            props.sessionId,
-            props.terminalId,
-            message.eventId,
-            currentAgentEventDisposition(),
-          );
-          return;
-        }
-
-        if (message.type === 'agent-event-cancelled') {
-          cancelledAgentEventIds.delete(message.eventId);
-          cancelledAgentEventIds.add(message.eventId);
-          if (cancelledAgentEventIds.size > MAX_CANCELLED_AGENT_EVENT_IDS) {
-            const oldestEventId = cancelledAgentEventIds.values().next().value;
-            if (oldestEventId !== undefined) cancelledAgentEventIds.delete(oldestEventId);
-          }
-          return;
-        }
-
-        if (
-          message.type !== 'agent-event-display-granted'
-          || cancelledAgentEventIds.has(message.eventId)
-        ) return;
-        const session = sessionStore.sessions?.find(
-          (candidate) => candidate.id === props.sessionId,
-        );
-        const agent = session?.agentType === 'pi'
-          ? 'Pi'
-          : session?.agentType === 'claude-code'
-            ? 'Claude Code'
-            : undefined;
-        if (!session || !agent) return;
-        if (currentAgentEventDisposition() === 'suppress') {
-          terminalStore.submitAgentEventDisposition(
-            props.sessionId,
-            props.terminalId,
-            message.eventId,
-            'suppress',
-          );
-          return;
-        }
-
-        const displayed = await showGrantedAgentEvent({
-          eventId: message.eventId,
-          kind: message.kind,
-          agent,
-          sessionName: session.name,
-          sessionPath: `/app/session/${props.sessionId}`,
-        });
-        if (!displayed || cancelledAgentEventIds.has(message.eventId)) return;
-        if (currentAgentEventDisposition() === 'suppress') {
-          terminalStore.submitAgentEventDisposition(
-            props.sessionId,
-            props.terminalId,
-            message.eventId,
-            'suppress',
-          );
-          return;
-        }
-        terminalStore.confirmAgentEventDisplay(
-          props.sessionId,
-          props.terminalId,
-          message.eventId,
-        );
+    const consumer = createAgentEventConsumer({
+      disposition: currentAgentEventDisposition,
+      context: () => {
+        const session = sessionStore.sessions?.find(candidate => candidate.id === props.sessionId);
+        const agent = session?.agentType === 'pi' ? 'Pi'
+          : session?.agentType === 'claude-code' ? 'Claude Code' : undefined;
+        return session && agent ? {
+          agent, sessionName: session.name, sessionPath: `/app/session/${props.sessionId}`,
+        } : undefined;
       },
+      submitDisposition: (eventId, disposition) => terminalStore.submitAgentEventDisposition(
+        props.sessionId, props.terminalId, eventId, disposition,
+      ),
+      confirmDisplay: eventId => terminalStore.confirmAgentEventDisplay(props.sessionId, props.terminalId, eventId),
+      show: (event, mayDisplay) => showGrantedAgentEvent(event, undefined, mayDisplay),
+    });
+    const unregisterAgentEvents = terminalStore.registerAgentEventCallback(
+      props.sessionId, props.terminalId, consumer.onMessage,
     );
+    agentEventDisposable = () => { consumer.dispose(); unregisterAgentEvents(); };
 
     cleanupGestures = attachSwipeGestures(
       containerEl,

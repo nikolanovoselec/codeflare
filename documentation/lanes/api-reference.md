@@ -14,6 +14,7 @@ Public Worker, authenticated proxy, and integration endpoint contracts for Codef
 - [Operator Activities](#operator-activities)
 - [Internal Operator Host APIs](#internal-operator-host-apis)
 - [Terminal](#terminal)
+- [Shared primary Pi Chat](#shared-primary-pi-chat)
 - [Vault](#vault)
 - [Browser IDE](#browser-ide)
 - [User Management](#user-management)
@@ -331,6 +332,23 @@ Inspection and upload read declared files from the fixed `~/Operators` root with
 **Enterprise reconnect authority:** After session ownership, lifecycle, readiness and rate-limit gates, terminal reconnect refreshes the sealed current-human credential without compute restart. Invalid human context revokes only the same-generation credential, not the immutable principal; failed revocation rejects reconnect with close code `1011`. Native provider requests independently require bound-session authority, current Administration permission and generation/shutdown checks, not a browser-derived lease, under [REQ-ENTERPRISE-090](../../sdd/spec/models-and-routing.md#req-enterprise-090-native-pi-forwarding-under-current-administration-permission). <!-- @impl: src/routes/terminal.ts::handleWebSocketUpgrade -->
 
 **Terminal frame contract:** Client→server sends raw PTY input or JSON control frames `{type:"focus"}`, `{type:"resize", cols, rows}`, or `{type:"kill"}`. Server→client sends raw PTY output or JSON frames `{type:"restore", state}` and `{type:"process-name", terminalId, processName}`. <!-- @impl: host/src/terminal-ws.ts::attachTerminalConnectionHandler --> <!-- @impl: host/src/session.ts::attach --> <!-- @impl: host/src/session.ts::start -->
+
+## Shared primary Pi Chat
+
+**Source-authored contract; execution unverified.** [REQ-AGENT-224](../../sdd/spec/agents.md#req-agent-224-shared-live-pi-chat-and-session-local-surfaces) is owned by `src/routes/chat.ts::handleChatRequest` and `host/src/chat-proxy.ts::createChatProxy`, not a general Dashboard proxy. Each route checks authentication, owner, active tier/origin, eligible configured Pi workspace/mode and current container generation before existing-container forwarding; browser cookies/credentials are not forwarded as private backend credentials, and backend cookies are stripped. Stopped/stopping sessions reject without waking compute.
+
+| Method | Public path | Request / result |
+|---|---|---|
+| POST | `/api/chat/:sid/attach` | Exactly `{generation}` with no query; explicit primary start/adoption only. Success `{sessionId,generation}` identifies the allowed live Dashboard/Pi primary, not an arbitrary browser-selected target. |
+| WS (GET upgrade) | `/api/chat/:sid/ws?generation=n` | Existing-primary reconnect only; same per-user WS connection limiter as Terminal. |
+| GET | `/api/chat/:sid/api/questions/:id?generation=n` | Detail only after Host verifies current bound-primary question ownership. |
+| POST | `/api/chat/:sid/api/questions/:id/answer?generation=n` | Exactly `{answer:string}` XOR `{cancelled:true}`; no provenance/target fields. Host rejects unanswerable or file-origin approvals. |
+
+No additional public Chat roads exist: no summary, session provisioning, global registry, account/provider/plugin management or catch-all proxy. Worker rejects unknown roads (404), wrong methods (405), invalid/query/body fields (400), oversized bodies above 64 KiB (413), stale generation/stopped/ineligible sessions (409), denied origin/tier (403), expired authentication (401), another owner (404) and limited reconnect (429); unavailable transport/authority fails closed. These are layered outcomes, not guarantees that every private Host failure has the Worker's JSON error shape.
+
+Host permits only bound `subscribe`, `unsubscribe`, `history_backfill`, `prompt_resync_request`, `send_prompt`, `abort`, live `prompt_response` and live `extension_ui_response`, with per-operation schema/ownership checks. Slash/`!` command dispatch, management, foreign targets, binary/malformed frames and forged provenance are denied. It filters server messages to the bound session/questions. Existing protocol/replay owns pending input; the Host adds no replay/send queue. Complete Chat WS frames/bridge buffers are capped at 8 MiB for image prompts; HTTP bodies remain 64 KiB.
+
+Only the same real WS carries local text-free `{type:"chat-input",sessionId}`, event-specific `agent-event-disposition` and `agent-event-displayed` controls. They are not upstream/replay messages or notification producers. Only live manual input advances existing activity; notification coordination never does. The Session queue retains existing grants/suppression/confirmation/deduplication, without Terminal enrollment, restore or resize authority. HTTP/WS fixtures are authored only; CI, image and deployed acceptance are pending.
 
 ## Vault
 

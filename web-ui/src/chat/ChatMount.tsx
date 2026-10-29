@@ -20,6 +20,9 @@ import { setQuestionTransport } from './upstream/client/src/lib/questions/questi
 import { setGlobalApiBase } from './upstream/client/src/lib/api/api-context';
 import type { SessionAssets } from './upstream/client/src/lib/session/SessionAssetsContext';
 import type { ThemeState } from './upstream/client/src/hooks/useTheme';
+import { sessionStore } from '../stores/session';
+import { parseControlMessage } from '../stores/terminal-protocol';
+import { agentEventDisposition, createAgentEventConsumer } from '../lib/agent-notifications';
 import './presentation.css';
 
 export interface ChatMountProps {
@@ -53,7 +56,7 @@ function BoundChat(props: ChatMountProps & { layerHost: HTMLElement }) {
   url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
   url.searchParams.set('generation', String(props.generation));
   const { state, apply, update } = useSessionState(id);
-  const { send, onMessage, status, onOutboxExpiry } = useWebSocket(url.href, undefined, { hostAuthenticated: true });
+  const { send, onMessage, status, ws, onOutboxExpiry } = useWebSocket(url.href, undefined, { hostAuthenticated: true });
   const [sessions, setSessions] = useState<Map<string, DashboardSession>>(() => new Map());
   const [metadata, setMetadata] = useState<Partial<DashboardSession>>({});
   const [assets, setAssets] = useState<SessionAssets>({});
@@ -65,6 +68,44 @@ function BoundChat(props: ChatMountProps & { layerHost: HTMLElement }) {
   stateRef.current = new Map([[id, state]]);
   const callbacks = useRef(props);
   callbacks.current = props;
+
+  // Host-only controls never enter Dashboard's send/outbox/replay road.
+  const sendControl = useCallback((message: Record<string, unknown>) => {
+    if (ws?.readyState !== WebSocket.OPEN) return;
+    try { ws.send(JSON.stringify({ ...message, sessionId: id })); }
+    catch { /* a close race must not retain activity or notification controls */ }
+  }, [ws, id]);
+
+  // @impl REQ-AGENT-224 / REQ-TERM-023/028/031 — an authorized visible Chat
+  // is attendance, not a terminal pane or resize owner. Trust shell identity,
+  // never Dashboard metadata, notify frames or transcript text.
+  useEffect(() => {
+    if (!ws) return;
+    const consumer = createAgentEventConsumer({
+      disposition: () => agentEventDisposition({
+        documentVisible: document.visibilityState === 'visible',
+        windowFocused: document.hasFocus(),
+        terminalView: false, terminalOnePaneFocused: false, chatView: true,
+        activeSessionMatches: sessionStore.activeSessionId === props.sessionId
+          && sessionStore.sessions.some(session => session.id === props.sessionId && session.agentType === 'pi'),
+      }),
+      context: () => {
+        const session = sessionStore.sessions.find(candidate => candidate.id === props.sessionId);
+        return ws.readyState === WebSocket.OPEN && session?.agentType === 'pi' ? {
+          agent: 'Pi', sessionName: session.name, sessionPath: `/app/session/${props.sessionId}`,
+        } : undefined;
+      },
+      submitDisposition: (eventId, disposition) => sendControl({ type: 'agent-event-disposition', eventId, disposition }),
+      confirmDisplay: eventId => sendControl({ type: 'agent-event-displayed', eventId }),
+    });
+    const receive = (event: MessageEvent) => {
+      if (typeof event.data !== 'string' || ws.readyState !== WebSocket.OPEN) return;
+      const control = parseControlMessage(event.data);
+      if (control.kind === 'agent-event' && control.message) void consumer.onMessage(control.message);
+    };
+    ws.addEventListener('message', receive);
+    return () => { consumer.dispose(); ws.removeEventListener('message', receive); };
+  }, [ws, props.sessionId, sendControl]);
 
   // Let the unchanged upstream action hook write into the SAME accumulator as
   // replay/live events. No second reducer, prompt queue, receipt, or resend path.
@@ -81,6 +122,7 @@ function BoundChat(props: ChatMountProps & { layerHost: HTMLElement }) {
   useEffect(() => onMessage(message => {
     // Target selection is exclusively the attach response. Metadata never
     // selects a target by cwd, name, ordering, or registration recency.
+    if (String(message.type).startsWith('agent-event')) return;
     if ('sessionId' in message && message.sessionId !== id) return;
     apply(message);
     if (message.type === 'sessions_snapshot') {
@@ -173,6 +215,7 @@ function BoundChat(props: ChatMountProps & { layerHost: HTMLElement }) {
               </div>
               <QueuePanel followUp={queue.followUp} />
               <CommandInput sessionId={id} commands={[]} draft={props.draft} onDraftChange={draft => {
+                sendControl({ type: 'chat-input' });
                 callbacks.current.onManualInput?.(); callbacks.current.onDraftChange?.(draft);
               }}
                 disabled={status !== 'connected' || composerStatus === 'ended'} sessionStatus={composerStatus}

@@ -4,8 +4,9 @@ import type { ImageContent } from "@blackbelt-technology/pi-dashboard-shared/typ
 import { mdiCheck, mdiCheckCircle, mdiImageMultiple, mdiViewListOutline } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import type React from "react";
-import { useState } from "react";
+import { useId, useState } from "react";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
+import { MarkdownContent } from "../preview/MarkdownContent.js";
 import { InlineMarkdown } from "./InlineMarkdown.js";
 import { InputComposer } from "./InputComposer.js";
 import { OtherOption } from "./OtherOption.js";
@@ -30,6 +31,12 @@ interface SubQuestion {
   placeholder?: string;
   /** Inline "Other" opt-in. See change: add-ask-user-inline-other. */
   allowOther?: boolean;
+  /** Codeflare's native questionnaire presentation; ordinary batches omit this. */
+  codeflareQuestionnaire?: {
+    header: string;
+    options: Array<{ label: string; description: string; preview?: string }>;
+    last: boolean;
+  };
 }
 
 /** Per-step inline-Other draft; lives next to `answers` so it survives step changes. */
@@ -38,10 +45,36 @@ interface OtherDraft {
   text: string;
 }
 
-type Answer =
+type Answer = (
   | { confirmed: boolean }
   | { value: string; images?: ImageContent[] }
-  | { values: string[] };
+  | { values: string[] }
+) & {
+  codeflare?: { optionIndexes: number[]; text?: string };
+  notes?: string;
+  globalNote?: string;
+};
+
+/** Keep native choices authoritative and separate from token-shaped custom text. */
+function questionnaireAnswer(q: SubQuestion, indexes: number[], other: OtherDraft): Answer {
+  const optionIndexes = indexes.slice().sort((a, b) => a - b);
+  const text = other.active ? other.text.trim() : "";
+  const tokens = optionIndexes.map((index) => q.options![index]);
+  return {
+    ...(q.method === "multiselect"
+      ? { values: Array.from(new Set(text ? [...tokens, text] : tokens)) }
+      : { value: text || tokens[0] || "" }),
+    codeflare: { optionIndexes, ...(text ? { text } : {}) },
+  };
+}
+
+function isAnswered(q: SubQuestion, a: Answer | undefined): boolean {
+  if (!q.codeflareQuestionnaire) return a !== undefined;
+  const owned = a?.codeflare;
+  const count = owned?.optionIndexes.length ?? 0;
+  const hasText = !!owned?.text?.trim();
+  return q.method === "multiselect" ? count > 0 || hasText : (count === 1 && !hasText) || (count === 0 && hasText);
+}
 
 function initialAnswer(q: SubQuestion): Answer | undefined {
   if (q.method === "input") return { value: "" };
@@ -51,6 +84,19 @@ function initialAnswer(q: SubQuestion): Answer | undefined {
 
 function answerToText(q: SubQuestion, a: Answer | undefined): React.ReactNode {
   if (!a) return <span className="text-[var(--text-tertiary)] italic">(unanswered)</span>;
+  if (q.codeflareQuestionnaire && a.codeflare) {
+    if (!isAnswered(q, a)) return <span className="text-[var(--text-tertiary)] italic">(unanswered)</span>;
+    return (
+      <span className="flex flex-wrap gap-1">
+        {a.codeflare.optionIndexes.map((index) => (
+          <span key={index} className="inline-block rounded px-2 py-0.5 text-[11px] bg-blue-500/15 text-blue-300">
+            {q.codeflareQuestionnaire!.options[index]?.label}
+          </span>
+        ))}
+        {a.codeflare.text && <span className="whitespace-pre-wrap">{a.codeflare.text}</span>}
+      </span>
+    );
+  }
   if ("confirmed" in a) return a.confirmed ? "Yes" : "No";
   if ("values" in a) {
     if (a.values.length === 0) return <span className="text-[var(--text-tertiary)] italic">(none)</span>;
@@ -88,6 +134,19 @@ export function BatchRenderer({ params, status, result, onRespond, onCancel }: I
   // step in 0..questions.length-1 are questions; questions.length is Review.
   const [step, setStep] = useState(0);
   const [otherDraft, setOtherDraft] = useState<Array<OtherDraft | undefined>>([]);
+  const [notes, setNotes] = useState<string[]>([]);
+  const [globalNote, setGlobalNote] = useState("");
+  const hasQuestionnaire = questions.some((q) => !!q.codeflareQuestionnaire);
+
+  function answerWithNotes(q: SubQuestion, i: number): Answer | undefined {
+    const answer = answers[i];
+    if (!q.codeflareQuestionnaire || !answer) return answer;
+    return {
+      ...answer,
+      ...(notes[i] ? { notes: notes[i] } : {}),
+      ...(i === questions.length - 1 && globalNote ? { globalNote } : {}),
+    };
+  }
 
   // ── Resolved / cancelled / dismissed: read-only summary ──────────
   if (status !== "pending") {
@@ -131,8 +190,10 @@ export function BatchRenderer({ params, status, result, onRespond, onCancel }: I
 
   const draft = otherDraft[step];
   const otherBlocked =
-    !onReview && current?.method === "multiselect" && isOtherAllowed({ allowOther: current.allowOther, options: current.options }) && !!draft?.active && !draft.text.trim();
-  const canAdvance = onReview || (answers[step] !== undefined && !otherBlocked);
+    !onReview && !current?.codeflareQuestionnaire && current?.method === "multiselect" && isOtherAllowed({ allowOther: current.allowOther, options: current.options }) && !!draft?.active && !draft.text.trim();
+  const canAdvance = onReview || (isAnswered(current, answers[step]) && !otherBlocked);
+  // Review is reachable via the stepper, so being on Review is not completion.
+  const canSubmit = !hasQuestionnaire || questions.every((q, i) => isAnswered(q, answers[i]));
 
   function setDraft(d: OtherDraft | undefined) {
     setOtherDraft((prev) => {
@@ -155,7 +216,7 @@ export function BatchRenderer({ params, status, result, onRespond, onCancel }: I
         </div>
         <div className="flex gap-1.5 mt-3">
           {questions.map((q, i) => {
-            const done = answers[i] !== undefined;
+            const done = isAnswered(q, answers[i]);
             const active = i === step;
             return (
               <button
@@ -200,19 +261,30 @@ export function BatchRenderer({ params, status, result, onRespond, onCancel }: I
                 key={i}
                 num={i + 1}
                 question={q}
-                answer={answers[i]}
+                answer={answerWithNotes(q, i)}
                 onEdit={() => setStep(i)}
               />
             ))}
+            {hasQuestionnaire && <NoteInput label="Global note (optional)" value={globalNote} onChange={setGlobalNote} />}
           </div>
         ) : (
-          <StepBody
-            question={current}
-            answer={answers[step]}
-            onChange={setAnswer}
-            other={draft}
-            onOtherChange={setDraft}
-          />
+          <>
+            <StepBody
+              key={current?.codeflareQuestionnaire ? step : "stock"}
+              question={current}
+              answer={answers[step]}
+              onChange={setAnswer}
+              other={draft}
+              onOtherChange={setDraft}
+            />
+            {current?.codeflareQuestionnaire && (
+              <NoteInput label="Notes (optional)" value={notes[step] ?? ""} onChange={(text) => setNotes((prev) => {
+                const next = prev.slice();
+                next[step] = text;
+                return next;
+              })} />
+            )}
+          </>
         )}
       </div>
 
@@ -236,8 +308,9 @@ export function BatchRenderer({ params, status, result, onRespond, onCancel }: I
         <div className="flex-1" />
         {onReview ? (
           <button
-            onClick={() => onRespond({ answers })}
-            className="px-3 py-1 text-xs rounded bg-green-600 hover:bg-green-500 text-white transition-colors inline-flex items-center gap-1"
+            onClick={() => { if (canSubmit) onRespond({ answers: hasQuestionnaire ? questions.map(answerWithNotes) : answers }); }}
+            disabled={!canSubmit}
+            className="px-3 py-1 text-xs rounded bg-green-600 hover:bg-green-500 disabled:opacity-40 disabled:cursor-not-allowed text-white transition-colors inline-flex items-center gap-1"
           >
             <Icon path={mdiCheck} size={0.5} /> {i18nT("common.submitAll", undefined, "Submit all")} {questions.length}
           </button>
@@ -274,6 +347,8 @@ function ReviewRow({
       <div className="min-w-0 flex-1">
         <div className="text-[10px] uppercase tracking-wide text-[var(--text-tertiary)]">{question.title}</div>
         <div className="text-xs text-[var(--text-primary)] font-medium mt-0.5">{answerToText(question, answer)}</div>
+        {question.codeflareQuestionnaire && answer?.notes && <p className="mt-1 text-xs whitespace-pre-wrap text-[var(--text-secondary)]">{answer.notes}</p>}
+        {question.codeflareQuestionnaire && answer?.globalNote && !onEdit && <p className="mt-1 text-xs whitespace-pre-wrap text-[var(--text-secondary)]">Global note: {answer.globalNote}</p>}
       </div>
       {onEdit && (
         <button onClick={onEdit} className="text-[11px] text-blue-400 hover:text-blue-300 self-center shrink-0">
@@ -281,6 +356,21 @@ function ReviewRow({
         </button>
       )}
     </div>
+  );
+}
+
+/** Plain-text notes reuse the existing InputComposer textarea's styling, without image input. */
+function NoteInput({ label, value, onChange }: { label: string; value: string; onChange: (text: string) => void }) {
+  return (
+    <label className="mt-3 block text-[11px] text-[var(--text-secondary)]">
+      {label}
+      <textarea
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        rows={2}
+        className="mt-1 w-full px-2.5 py-1.5 text-xs rounded bg-[var(--bg-primary)] border border-[var(--border-secondary)] text-[var(--text-primary)] outline-none focus:border-blue-500 resize-y"
+      />
+    </label>
   );
 }
 
@@ -304,11 +394,22 @@ function StepBody({
   onOtherChange: (d: OtherDraft | undefined) => void;
 }) {
   const options = question.options ?? [];
+  const presentation = question.codeflareQuestionnaire;
   const otherAllowed = isOtherAllowed({ allowOther: question.allowOther, options });
   const draft: OtherDraft = other ?? { active: false, text: "" };
+  const [previewIndex, setPreviewIndex] = useState<number>();
+  const previewId = useId();
+  const indexes = answer?.codeflare?.optionIndexes ?? [];
+
+  function changeOther(next: OtherDraft) {
+    onOtherChange(next);
+    onChange(questionnaireAnswer(question, question.method === "select" && next.active ? [] : indexes, next));
+  }
+
   return (
     <div>
-      <div className="text-sm font-medium text-[var(--text-primary)] mb-1">{question.title}</div>
+      {presentation?.header && <span className="mb-2 inline-block rounded px-2 py-0.5 text-[10px] bg-blue-500/15 text-blue-300">{presentation.header}</span>}
+      <div className={`text-sm font-medium text-[var(--text-primary)] mb-1${presentation ? " whitespace-pre-wrap" : ""}`}>{question.title}</div>
       {question.message && (
         <div className="text-[11px] text-[var(--text-tertiary)] mb-3"><InlineMarkdown content={question.message} /></div>
       )}
@@ -345,7 +446,70 @@ function StepBody({
           })}
         </div>
       )}
-      {question.method === "select" && (
+      {presentation && (
+        <div className="flex flex-col gap-1.5">
+          {presentation.options.map((option, index) => {
+            const picked = indexes.includes(index);
+            const description = (
+              <span className="min-w-0">
+                <span className="block text-xs font-medium">{option.label}</span>
+                {option.description && <span className="block text-[11px] whitespace-pre-wrap text-[var(--text-tertiary)] mt-0.5">{option.description}</span>}
+              </span>
+            );
+            const className = picked
+              ? "w-full text-left flex items-start gap-2 px-3 py-2 rounded-lg border border-blue-500 bg-blue-500/10 text-[var(--text-primary)]"
+              : "w-full text-left flex items-start gap-2 px-3 py-2 rounded-lg border border-[var(--border-secondary)] bg-[var(--bg-surface)] text-[var(--text-primary)] hover:border-blue-500";
+            function choose() {
+              if (question.method === "select") {
+                const next = { ...draft, active: false };
+                onOtherChange(next);
+                onChange(questionnaireAnswer(question, [index], next));
+              } else {
+                onChange(questionnaireAnswer(question, picked ? indexes.filter((i) => i !== index) : [...indexes, index], draft));
+              }
+            }
+            return (
+              <div key={index}>
+                {question.method === "select" ? (
+                  <button type="button" aria-pressed={picked} onClick={choose} className={className}>{description}</button>
+                ) : (
+                  <label className={`${className} cursor-pointer`}>
+                    <input type="checkbox" checked={picked} onChange={choose} className="accent-blue-500" />
+                    {description}
+                  </label>
+                )}
+                {option.preview && (
+                  <div className="mt-1 ml-3">
+                    <button
+                      type="button"
+                      aria-label={`Preview: ${option.label}`}
+                      aria-expanded={previewIndex === index}
+                      aria-controls={`${previewId}-${index}`}
+                      onClick={() => setPreviewIndex(previewIndex === index ? undefined : index)}
+                      className="text-[11px] text-blue-400 hover:text-blue-300 focus-ring"
+                    >
+                      {previewIndex === index ? "Hide preview" : "Preview"}
+                    </button>
+                    {previewIndex === index && (
+                      <div id={`${previewId}-${index}`} role="region" aria-label={`Preview: ${option.label}`} tabIndex={0} className="mt-2 max-h-64 overflow-auto text-xs text-[var(--text-secondary)]">
+                        <MarkdownContent content={option.preview} />
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+          <OtherOption
+            variant={question.method === "multiselect" ? "checkbox" : "radio"}
+            active={draft.active}
+            text={draft.text}
+            onActiveChange={(active) => changeOther({ ...draft, active })}
+            onTextChange={(text) => changeOther({ ...draft, text })}
+          />
+        </div>
+      )}
+      {!presentation && question.method === "select" && (
         <div className="flex flex-col gap-1.5">
           {(question.options ?? []).filter((o) => !isCancelOption(o)).map((option) => {
             const { title: oTitle, description } = parseOption(option);
@@ -389,7 +553,7 @@ function StepBody({
           )}
         </div>
       )}
-      {question.method === "multiselect" && (
+      {!presentation && question.method === "multiselect" && (
         <MultiselectStep
           options={options}
           values={((answer as { values: string[] } | undefined)?.values ?? []).filter((v) => options.includes(v))}

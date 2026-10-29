@@ -6,6 +6,8 @@
 import http from 'node:http';
 import type { Duplex } from 'node:stream';
 import { WebSocket, WebSocketServer } from 'ws';
+import type { Session } from './session.js';
+import { AGENT_EVENT_LIMITS } from './agent-events.js';
 
 export interface ChatPrimary { sessionId: string; generation: number }
 export interface ChatPort {
@@ -19,6 +21,7 @@ interface ChatOptions {
   ensurePrimary(): Promise<ChatPrimary>;
   upstream: { port: number; token(): string };
   recordInput(): void;
+  notificationSession?(): Session | undefined;
 }
 const MAX_BYTES = 64 * 1024;
 const MAX_UPSTREAM_BYTES = 8 * 1024 * 1024;
@@ -168,12 +171,35 @@ export function createChatProxy(options: ChatOptions): ChatPort & { close(): voi
         const prompts = new Set<string>(); const dialogs = new Set<string>();
         const stop = (code = 1008): void => { client.close(code, 'Chat binding or operation unavailable'); upstream.close(); };
         const stillBound = (): boolean => current(bound!);
+        const notifications = options.notificationSession?.();
+        const unregister = notifications?.registerAgentEventClient(client, stillBound);
+        client.once('close', () => unregister?.());
+        client.once('error', () => unregister?.());
         // No host queue/replay: client must wait for OPEN; stock owns pending input.
         client.on('message', (bytes, binary) => {
           if (binary || !stillBound() || upstream.readyState !== WebSocket.OPEN || upstream.bufferedAmount > MAX_UPSTREAM_BYTES) { stop(); return; }
           let msg: unknown;
           try { msg = JSON.parse(bytes.toString()); } catch { stop(); return; }
           if (!object(msg) || msg.sessionId !== bound!.sessionId || typeof msg.type !== 'string') { stop(); return; }
+          // Host-only frames use the same authenticated bound socket, never the
+          // upstream protocol or its replay/outbox. Draft text is not accepted.
+          if (msg.type === 'chat-input' || msg.type === 'agent-event-disposition' || msg.type === 'agent-event-displayed') {
+            if (Buffer.byteLength(bytes.toString()) > AGENT_EVENT_LIMITS.maxFrameBytes) { stop(); return; }
+            if (msg.type === 'chat-input') {
+              if (!keys(msg, ['type', 'sessionId'])) { stop(); return; }
+              options.recordInput(); return;
+            }
+            if (typeof msg.eventId !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(msg.eventId)) { stop(); return; }
+            if (msg.type === 'agent-event-disposition') {
+              if (!keys(msg, ['type', 'sessionId', 'eventId', 'disposition'])
+                || (msg.disposition !== 'suppress' && msg.disposition !== 'display-request')) { stop(); return; }
+              notifications?.submitAgentEventDisposition(msg.eventId, client, msg.disposition);
+            } else {
+              if (!keys(msg, ['type', 'sessionId', 'eventId'])) { stop(); return; }
+              notifications?.confirmAgentEventDisplay(msg.eventId, client);
+            }
+            return;
+          }
           let allowed = false; let human = false;
           switch (msg.type) {
             case 'subscribe': allowed = keys(msg, ['type', 'sessionId', 'lastSeq']) && (msg.lastSeq === undefined || integer(msg.lastSeq)); break;

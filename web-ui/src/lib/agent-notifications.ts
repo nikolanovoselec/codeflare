@@ -1,4 +1,5 @@
 import type { AgentType } from '../types';
+import type { AgentEventControlMessage } from '../stores/terminal-protocol';
 import {
   deleteAgentNotificationSubscription,
   getAgentNotificationVapidPublicKey,
@@ -139,6 +140,7 @@ export interface AgentPresence {
   readonly documentVisible: boolean;
   readonly windowFocused: boolean;
   readonly terminalView: boolean;
+  readonly chatView?: boolean;
   readonly activeSessionMatches: boolean;
   readonly terminalOnePaneFocused: boolean;
 }
@@ -157,11 +159,71 @@ export interface GrantedAgentEvent {
 export function agentEventDisposition(presence: AgentPresence): AgentEventDisposition {
   return presence.documentVisible
     && presence.windowFocused
-    && presence.terminalView
     && presence.activeSessionMatches
-    && presence.terminalOnePaneFocused
+    && (presence.chatView === true || presence.terminalView && presence.terminalOnePaneFocused)
     ? 'suppress'
     : 'display-request';
+}
+
+// @impl REQ-AGENT-224 / REQ-TERM-023/028 — one consumer for validated
+// Host grants on either surface. No producer, transport queue or event authority.
+export function createAgentEventConsumer(options: {
+  disposition(): AgentEventDisposition;
+  context(): Omit<GrantedAgentEvent, 'eventId' | 'kind'> | undefined;
+  submitDisposition(eventId: string, disposition: AgentEventDisposition): void;
+  confirmDisplay(eventId: string): void;
+  show?(event: GrantedAgentEvent, mayDisplay: () => boolean): Promise<boolean>;
+}) {
+  let disposed = false;
+  const cancelled = new Set<string>();
+  const displayed = new Set<string>();
+  const displaying = new Map<string, { cancelled: boolean }>();
+  const remember = (set: Set<string>, id: string) => {
+    set.delete(id); set.add(id);
+    if (set.size > 16) {
+      const oldest = set.values().next().value;
+      if (oldest !== undefined) set.delete(oldest);
+    }
+  };
+  return {
+    async onMessage(message: AgentEventControlMessage): Promise<void> {
+      if (disposed) return;
+      if (message.type === 'agent-event') {
+        options.submitDisposition(message.eventId, options.disposition());
+        return;
+      }
+      if (message.type === 'agent-event-cancelled') {
+        remember(cancelled, message.eventId);
+        const pending = displaying.get(message.eventId);
+        if (pending) pending.cancelled = true;
+        return;
+      }
+      const id = message.eventId;
+      if (cancelled.has(id) || displayed.has(id) || displaying.has(id)) return;
+      const context = options.context();
+      if (!context) return;
+      const pending = { cancelled: false };
+      const mayDisplay = () => {
+        if (disposed || pending.cancelled || cancelled.has(id) || !options.context()) return false;
+        if (options.disposition() === 'suppress') {
+          options.submitDisposition(id, 'suppress');
+          return false;
+        }
+        return true;
+      };
+      if (!mayDisplay()) return;
+      displaying.set(id, pending);
+      try {
+        const event = { ...context, eventId: id, kind: message.kind };
+        const shown = await (options.show
+          ? options.show(event, mayDisplay)
+          : showGrantedAgentEvent(event, undefined, mayDisplay));
+        if (shown) remember(displayed, id);
+        if (shown && mayDisplay()) options.confirmDisplay(id);
+      } finally { displaying.delete(id); }
+    },
+    dispose() { disposed = true; },
+  };
 }
 
 function validSubscription(subscription: AgentNotificationSubscription | undefined): subscription is AgentNotificationSubscription {
@@ -304,6 +366,7 @@ export async function setAgentNotificationsEnabled(
 export async function showGrantedAgentEvent(
   event: GrantedAgentEvent,
   browser: AgentNotificationBrowser = defaultBrowser,
+  mayDisplay: () => boolean = () => true,
 ): Promise<boolean> {
   const bodies: Readonly<Record<GrantedAgentEvent['kind'], string>> = Object.freeze({
     'input-required': 'Needs your input',
@@ -338,10 +401,11 @@ export async function showGrantedAgentEvent(
 
   try {
     if (browser.showNotification) {
+      if (!mayDisplay()) return false;
       await browser.showNotification(title, options);
     } else {
       const worker = await browser.getWorker?.();
-      if (!worker) return false;
+      if (!worker || !mayDisplay()) return false;
       await worker.showNotification(title, options);
     }
     return true;
