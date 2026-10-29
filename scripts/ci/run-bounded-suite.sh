@@ -25,7 +25,9 @@ exec timeout --signal=KILL "$duration" bash --noprofile --norc -o pipefail -c '
   log=$1
   console_output=$2
   shift 2
-  "$@" 2>&1 | tee "$log" > "$console_output"
+  # Inherit live stdout: reopening /dev/stdout fails for socket-backed pipes.
+  if [ "$console_output" != /dev/stdout ]; then exec > "$console_output" || exit 1; fi
+  "$@" 2>&1 | tee "$log"
   statuses=("${PIPESTATUS[@]}")
   if [ "${statuses[1]}" -ne 0 ]; then exit "${statuses[1]}"; fi
   exit "${statuses[0]}"

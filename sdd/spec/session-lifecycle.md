@@ -247,8 +247,8 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 **Acceptance Criteria:**
 
 1. KILL is an owner-authenticated addressed mutation using existing session validation, access policy and mutation protections.
-2. The Worker reads current owner-scoped D1 authority and fails closed if unavailable; it does not claim stopping before DO acceptance.
-3. The DO owns the complete accepted operation independently of the HTTP caller, including termination claim, Protected Action cancellation, operational cleanup, native destruction and D1 exit confirmation.
+2. The Worker reads current owner-scoped D1 authority and fails closed if unavailable.
+3. The DO alone claims stopping upon acceptance and owns completion independently of the HTTP caller, from termination claim through Protected Action cancellation, operational cleanup, native destruction and D1 exit confirmation.
 4. The generation's Protected Action cancellation fence must settle successfully before operational cleanup or native termination.
 5. Operational teardown cleanup precedes awaited native force-destroy.
 6. KILL bypasses final notification drain, workspace final-sync wait and SIGTERM polling; a hung graceful Stop cannot block it.

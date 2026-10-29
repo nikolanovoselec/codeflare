@@ -333,7 +333,7 @@ describe('REQ-SESSION-039 / REQ-SESSION-040: owner-authenticated POST /api/sessi
     expect(f.running()).toBe(false);
   });
 
-  it('does not leave a Worker-owned stopping claim when DO acceptance fails (REQ-SESSION-039 AC2)', async () => {
+  it('does not leave a Worker-owned stopping claim when DO acceptance fails (REQ-SESSION-039 AC3)', async () => {
     const f = await fixture(), before = await f.read();
     gateway.unavailable = true;
     const response = await f.finish();
