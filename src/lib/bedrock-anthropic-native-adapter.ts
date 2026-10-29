@@ -1,5 +1,5 @@
 import { inferenceDiagnostic, type InferenceDiagnosticContext } from './inference-diagnostics';
-import { emitRaw } from '../../host/src/operator-raw-logging';
+import { emitRaw, captureRawValue } from '../../host/src/operator-raw-logging';
 
 export type BedrockAnthropicTransport = 'invoke' | 'eventstream';
 type JsonObject = Record<string, any>;
@@ -594,6 +594,14 @@ async function adaptEventstream(response: Response, state: BedrockReplayState, o
   if (!response.ok || !response.body) return response;
   let frameBuffer: Uint8Array<ArrayBufferLike> = new Uint8Array(0);
   const blocks = new Map<number, JsonObject>();
+  const rawEvents: Array<{ stage: string; value: unknown }> = [];
+  const captureEnabled = !!state.diagnosticContext && state.diagnosticContext.loggingEnabled !== false;
+  const flushRaw = () => {
+    if (!rawEvents.length) return;
+    const captured = rawEvents.splice(0);
+    captured.push({ stage: 'assembled-response', value: captureRawValue([...blocks.values()]) });
+    emitRaw(state.diagnosticContext, 'native-event', () => captured);
+  };
   let replayBytes = 0; let sawStop = false; let sawStart = false;
   const reserveReplay = (value: unknown) => {
     replayBytes += encoder.encode(typeof value === 'string' ? value : JSON.stringify(value)).byteLength;
@@ -623,7 +631,7 @@ async function adaptEventstream(response: Response, state: BedrockReplayState, o
         const parsed = parseFrames(frameBuffer, () => { metrics.frames++; }); frameBuffer = parsed.remainder;
         for (const event of parsed.events) {
         metrics.events++;
-        emitRaw(state.diagnosticContext, 'native-event', () => event);
+        if (captureEnabled) rawEvents.push({ stage: 'provider-stream-event', value: captureRawValue(event) });
         if (sawStop) throw new Error('Bedrock eventstream data follows message_stop');
         if (!sawStart && event.type !== 'message_start') throw new Error('Bedrock eventstream must begin with message_start');
         if (event.type === 'message_start' && plain(event.message)) {
@@ -663,6 +671,7 @@ async function adaptEventstream(response: Response, state: BedrockReplayState, o
       } catch (error) {
         diagnostic('failed', { failureClass: streamFailureClass(error) }, () => error);
         emitTerminalError(controller);
+        flushRaw();
       }
     },
     async flush(controller) {
@@ -701,7 +710,7 @@ async function adaptEventstream(response: Response, state: BedrockReplayState, o
       } catch (error) {
         diagnostic('failed', { failureClass: streamFailureClass(error) }, () => error);
         emitTerminalError(controller);
-      }
+      } finally { flushRaw(); }
     },
   });
   // Observe at the writable boundary without adding an async-pull readable.
@@ -726,6 +735,7 @@ async function adaptEventstream(response: Response, state: BedrockReplayState, o
       sourceReadFailed = true;
       inferenceDiagnostic(state.diagnosticContext, { stage: 'native-stream', outcome: 'failed', transport: 'eventstream',
         ...metrics, failureClass: 'stream-read', elapsedMs: performance.now() - began }, () => error);
+      flushRaw();
       const aborted = writer.abort(error);
       observeReadiness();
       return aborted;
@@ -733,6 +743,7 @@ async function adaptEventstream(response: Response, state: BedrockReplayState, o
   });
   observeReadiness();
   void writer.closed.catch(error => {
+    flushRaw();
     observeReadiness();
     if (!sourceReadFailed) inferenceDiagnostic(state.diagnosticContext,
       { stage: 'native-stream', outcome: 'canceled', transport: 'eventstream', ...metrics }, () => error);

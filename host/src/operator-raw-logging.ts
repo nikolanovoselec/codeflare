@@ -17,7 +17,42 @@ const credentialKey = (key: string) => {
     || /^(?:signature|sig|xamzcredential|xamzsignature|xgoogcredential|xgoogsignature)$/.test(name);
 };
 
-/** Snapshot only data descriptors. Noncyclic shared data remains complete. */
+// V8 exposes Error stacks as an intrinsic accessor in Workers/newer Node.
+// Recognize that exact getter, never an application-supplied replacement.
+const nativeStackGetter = Object.getOwnPropertyDescriptor(new Error(), 'stack')?.get;
+const bootstrapFormatter = Object.getOwnPropertyDescriptor(Error, 'prepareStackTrace');
+function safeStackFormatter(): boolean {
+  let owner: object | null = Error;
+  let current: PropertyDescriptor | undefined;
+  const seen = new Set<object>();
+  while (owner) {
+    if (seen.has(owner)) return false;
+    seen.add(owner);
+    current = Object.getOwnPropertyDescriptor(owner, 'prepareStackTrace');
+    if (current) break;
+    owner = Object.getPrototypeOf(owner);
+  }
+  return !current || 'value' in current && (current.value === undefined
+    || !!bootstrapFormatter && 'value' in bootstrapFormatter && current.value === bootstrapFormatter.value);
+}
+function safeStackFormatting(error: object): boolean {
+  for (const key of ['name', 'message']) {
+    let current: object | null = error;
+    const seen = new Set<object>();
+    while (current && !seen.has(current)) {
+      seen.add(current);
+      const descriptor = Object.getOwnPropertyDescriptor(current, key);
+      if (descriptor) {
+        if (!('value' in descriptor) || descriptor.value !== undefined && typeof descriptor.value !== 'string') return false;
+        break;
+      }
+      current = Object.getPrototypeOf(current);
+    }
+  }
+  return true;
+}
+
+/** Snapshot data descriptors and provably native Error stacks, without app hooks. */
 function snapshot(value: unknown, ancestors = new Map<object, string>(), path = '$'): unknown {
   if (value === null || typeof value === 'string' || typeof value === 'boolean') return value;
   if (typeof value === 'number') return Number.isFinite(value) ? value : { number: String(value) };
@@ -28,17 +63,28 @@ function snapshot(value: unknown, ancestors = new Map<object, string>(), path = 
   try {
     ancestors.set(value, path);
     if (value instanceof Headers) return snapshot(Object.fromEntries(Headers.prototype.entries.call(value)), ancestors, path);
-    const descriptors = Object.getOwnPropertyDescriptors(value);
+    const error = value instanceof Error;
+    const names = Object.getOwnPropertyNames(value);
+    const stackSafe = names.includes('stack') && safeStackFormatter() && safeStackFormatting(value);
+    // Older V8 may materialize stack while retrieving its descriptor, which
+    // itself would coerce a hostile name/message. Inspect those fields first,
+    // including non-Error targets populated by public Error.captureStackTrace.
+    const descriptors: PropertyDescriptorMap = Object.fromEntries(names.map(key => [key,
+      key === 'stack' && !stackSafe && !nativeStackGetter ? { value: unavailable('unsafe Error stack formatting') }
+        : Object.getOwnPropertyDescriptor(value, key) ?? { value: unavailable('missing descriptor') }]));
     const result: Record<string, unknown> | unknown[] = Array.isArray(value) ? new Array(descriptors.length.value) : Object.create(null);
-    if (value instanceof Error && !descriptors.name) {
+    if (error && !descriptors.name) {
       const name = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(value), 'name');
       Object.defineProperty(result, 'name', { enumerable: true, configurable: true, writable: true,
         value: name && 'value' in name ? snapshot(name.value, ancestors, `${path}.name`) : 'Error' });
     }
     for (const [key, descriptor] of Object.entries(descriptors)) {
       if (Array.isArray(value) && key === 'length') continue;
+      const original = 'value' in descriptor ? descriptor.value
+        : key === 'stack' && stackSafe && nativeStackGetter && descriptor.get === nativeStackGetter
+          ? nativeStackGetter.call(value) : unavailable('accessor');
       Object.defineProperty(result, key, { enumerable: true, configurable: true, writable: true,
-        value: 'value' in descriptor ? snapshot(descriptor.value, ancestors, `${path}.${key}`) : unavailable('accessor') });
+        value: snapshot(original, ancestors, `${path}.${key}`) });
     }
     return result;
   } catch { return unavailable('uninspectable value'); }
@@ -71,12 +117,14 @@ function redact(value: unknown, credentials: readonly string[]): unknown {
   // noncredential spelling/encoding instead of reserializing the query string.
   const urls = (text: string, replace: boolean): string => text.replace(/(?:https?|wss?):\/\/[^\s"'<>]+/gi, original =>
     original.replace(/^((?:https?|wss?):\/\/)([^/?#]*)@/i, (match, prefix, userinfo) => {
-      add(userinfo);
-      for (const part of userinfo.split(':')) { add(part); add(decode(part)); }
+      if (!replace) {
+        add(userinfo);
+        for (const part of userinfo.split(':')) { add(part); add(decode(part)); }
+      }
       return replace ? `${prefix}${REDACTED}@` : match;
     }).replace(/([?&])([^=&#]+)=([^&#]*)/g, (match, separator, key, item) => {
       if (!credentialKey(decode(key))) return match;
-      add(item); add(decode(item));
+      if (!replace) { add(item); add(decode(item)); }
       return replace ? `${separator}${key}=${REDACTED}` : match;
     }));
   const collectCredential = (item: unknown, field?: string): void => {
@@ -106,6 +154,70 @@ function redact(value: unknown, credentials: readonly string[]): unknown {
     }
   };
   collect(value);
+  // Public native events do not carry SDK partial/contentIndex metadata. Join
+  // their string channels within the existing observation batch, then redact
+  // intersecting spans before emitting any fragment. No vendor/model dispatch.
+  const nativeLeaves = new WeakMap<object, Map<string, { text: string; start: number; stream: { text: string } }>>();
+  const nativeStreams = new Map<string, { text: string }>();
+  const registerNative = (parent: object, key: string, item: unknown, scope: string, eventType: unknown, path = key): void => {
+    if (typeof item === 'string') {
+      // Only the public content-block start/delta protocol establishes these
+      // aliases. Other branches retain their exact structural identities.
+      const channelPath = eventType === 'content_block_start' && /^value\/content_block\/(?:text|thinking)$/.test(path)
+        ? path.replace('/content_block/', '/block/')
+        : eventType === 'content_block_delta' && /^value\/delta\/(?:text|thinking)$/.test(path)
+          ? path.replace('/delta/', '/block/') : path;
+      const channel = `${scope}:${channelPath}`;
+      const stream = nativeStreams.get(channel) ?? { text: '' };
+      const start = stream.text.length;
+      stream.text += item;
+      nativeStreams.set(channel, stream);
+      const fields = nativeLeaves.get(parent) ?? new Map();
+      fields.set(key, { text: item, start, stream });
+      nativeLeaves.set(parent, fields);
+    } else if (item && typeof item === 'object') {
+      for (const [childKey, child] of Object.entries(item)) {
+        const index = Array.isArray(item) ? (child && typeof child === 'object'
+          && Number.isSafeInteger((child as Record<string, unknown>).index) ? (child as Record<string, unknown>).index : childKey) : undefined;
+        registerNative(item, childKey, child, scope, eventType, `${path}/${index === undefined ? childKey : `[${index}]`}`);
+      }
+    }
+  };
+  if (Array.isArray(value)) {
+    let attempt = 0;
+    for (const record of value) {
+      if (!record || typeof record !== 'object') continue;
+      if (record.stage === 'provider-request') attempt++;
+      if (record.stage !== 'provider-stream-event') continue;
+      const event = record.value;
+      const positions = event && typeof event === 'object' ? [event.index, event.output_index, event.content_index] : [];
+      registerNative(record, 'value', event, `${attempt}:${JSON.stringify(positions)}`, event?.type);
+    }
+    for (const stream of nativeStreams.values()) collect(stream.text);
+  }
+  const knownByLength = [...known].sort((a, b) => b.length - a.length);
+  const intervals = new Map<string, Array<[number, number]>>();
+  const credentialIntervals = (full: string): Array<[number, number]> => {
+    const cached = intervals.get(full);
+    if (cached) return cached;
+    const ranges: Array<[number, number]> = [];
+    for (const secret of known) {
+      let last: [number, number] | undefined;
+      for (let at = full.indexOf(secret); at >= 0; at = full.indexOf(secret, at + 1)) {
+        if (last && at <= last[1]) last[1] = Math.max(last[1], at + secret.length);
+        else { last = [at, at + secret.length]; ranges.push(last); }
+      }
+    }
+    ranges.sort((a, b) => a[0] - b[0]);
+    const merged: Array<[number, number]> = [];
+    for (const range of ranges) {
+      const last = merged[merged.length - 1];
+      if (last && range[0] <= last[1]) last[1] = Math.max(last[1], range[1]);
+      else merged.push(range);
+    }
+    intervals.set(full, merged);
+    return merged;
+  };
   const cleanText = (text: string): string => {
     const parsed = jsonValue(text);
     if (parsed !== undefined) {
@@ -115,31 +227,39 @@ function redact(value: unknown, credentials: readonly string[]): unknown {
     let result = urls(text, true)
       .replace(/\b(Bearer|Basic)\s+[^\s"',;}\]]+/gi, `$1 ${REDACTED}`)
       .replace(/\b(api[_-]?key|password|passwd|access[_-]?token|refresh[_-]?token|client[_-]?secret|token)\b(\s*(?::|=)\s*)(?:"[^"]*"|'[^']*'|[^\s,;}\]]+)/gi, `$1$2${REDACTED}`);
-    for (const secret of [...known].sort((a, b) => b.length - a.length)) result = result.split(secret).join(REDACTED);
+    for (const secret of knownByLength) result = result.split(secret).join(REDACTED);
     return result;
   };
   const redactSpan = (text: string, full: string, start: number): string => {
-    const hidden = new Set<number>();
-    for (const secret of known) {
-      for (let at = full.indexOf(secret); at >= 0; at = full.indexOf(secret, at + 1)) {
-        for (let i = Math.max(start, at); i < Math.min(start + text.length, at + secret.length); i++) hidden.add(i - start);
-      }
+    const ranges = credentialIntervals(full);
+    let low = 0; let high = ranges.length;
+    while (low < high) {
+      const middle = Math.floor((low + high) / 2);
+      if (ranges[middle][1] <= start) low = middle + 1; else high = middle;
     }
-    let output = '';
-    for (let i = 0; i < text.length; i++) {
-      if (!hidden.has(i)) output += text[i];
-      else if (i === 0 || !hidden.has(i - 1)) output += REDACTED;
+    let output = ''; let cursor = 0;
+    for (let i = low; i < ranges.length && ranges[i][0] < start + text.length; i++) {
+      const from = Math.max(0, ranges[i][0] - start);
+      const to = Math.min(text.length, ranges[i][1] - start);
+      output += text.slice(cursor, from) + REDACTED;
+      cursor = to;
     }
-    return output;
+    return cursor ? output + text.slice(cursor) : text;
+  };
+  const nativeText = (parent: object, key: string): string | undefined => {
+    const part = nativeLeaves.get(parent)?.get(key);
+    return part ? cleanText(redactSpan(part.text, part.stream.text, part.start)) : undefined;
   };
   const clean = (item: unknown): unknown => {
     if (typeof item === 'string') return cleanText(item);
     if (typeof item === 'number' && known.has(String(item))) return REDACTED;
     if (!item || typeof item !== 'object') return item;
-    if (Array.isArray(item)) return item.map(child => clean(child));
+    if (Array.isArray(item)) return item.map((child, index) => nativeText(item, String(index)) ?? clean(child));
     const data = item as Record<string, unknown>;
     return Object.fromEntries(Object.entries(item).map(([key, child]) => {
       if (credentialKey(key)) return [cleanText(key), REDACTED];
+      const native = nativeText(item, key);
+      if (native !== undefined) return [cleanText(key), native];
       if (key === 'delta' && typeof child === 'string' && assistant(data.partial) && Number.isSafeInteger(data.contentIndex)) {
         const index = data.contentIndex as number;
         const part = data.partial.content[index] as Record<string, unknown> | undefined;

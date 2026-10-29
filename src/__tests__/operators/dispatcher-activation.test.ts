@@ -599,7 +599,7 @@ describe('persisted installed Worker execution log configuration', () => {
   const desired = { enabled: true, head_sampling_rate: 1,
     logs: { enabled: true, head_sampling_rate: 1, invocation_logs: true, persist: true } };
 
-  it('REQ-OPERATOR-030/044/045/046/090: provision requests complete persisted invocation logs at sampling one on the actual public upload wire', () => withActivation(async f => {
+  it('REQ-OPERATOR-030/044/045/046/091: provision requests complete persisted invocation logs at sampling one on the actual public upload wire', () => withActivation(async f => {
     const response = await enable(f); expect(response.status).toBe(200);
     const active = await response.json() as Installation;
     const script = f.platform.scripts.get(active.dispatcherConnection!.workerName)!;
@@ -612,7 +612,7 @@ describe('persisted installed Worker execution log configuration', () => {
     await expectNoActivity(f.ctx);
   }));
 
-  it('REQ-OPERATOR-046/090: actual settings readback qualifies logging readiness separately from exact immutable deployment identity', () => withActivation(async f => {
+  it('REQ-OPERATOR-046/091: actual settings readback qualifies logging readiness separately from exact immutable deployment identity', () => withActivation(async f => {
     expect((await enable(f)).status).toBe(200);
     const selected = (await f.detail()).installations[0]!.dispatcherConnection!;
     f.platform.setObservability(desired);
@@ -629,6 +629,91 @@ describe('persisted installed Worker execution log configuration', () => {
     await expectNoActivity(f.ctx);
   }));
 
+  // Drive the public timeout signal at the HTTP boundary, without waiting for
+  // wall-clock deadlines or depending on runtime-specific fake-timer behavior.
+  function timeoutSettings(platform: ReturnType<typeof createDispatcherCloudflareFixture>, beforeTimeout?: () => void | Promise<void>,
+    afterTimeout?: () => void) {
+    let now = 0;
+    const deadlines: Array<{ at: number; controller: AbortController }> = [];
+    vi.spyOn(AbortSignal, 'timeout').mockImplementation(milliseconds => {
+      const controller = new AbortController();
+      deadlines.push({ at: now + milliseconds, controller });
+      return controller.signal;
+    });
+    platform.beforeSettingsRead(async () => {
+      await beforeTimeout?.();
+      // Advance to the first elapsed public deadline. Equal/longer optional
+      // deadlines would also expire mandatory verification and deny reuse.
+      now = Math.min(...deadlines.filter(deadline => !deadline.controller.signal.aborted).map(deadline => deadline.at));
+      for (const deadline of deadlines) if (deadline.at <= now)
+        deadline.controller.abort(new DOMException('Settings deadline elapsed', 'TimeoutError'));
+      afterTimeout?.();
+    });
+  }
+
+  it('REQ-OPERATOR-030/044/045/046/091: AC3 optional settings timeout preserves exact verification with readiness false and runtime reuse', () => withActivation(async f => {
+    const first = await enable(f); expect(first.status).toBe(200);
+    const enabled = await first.json() as Installation;
+    const selected = enabled.dispatcherConnection!;
+    const original = structuredClone(f.platform.scripts.get(selected.workerName)), writes = structuredClone(f.platform.writes);
+    const bytes = (await f.registry.getManagementBundle(f.release.bundleDigest))!;
+    timeoutSettings(f.platform);
+    const verification = await verifyDispatcherDeployment(f.bindings as unknown as Env, selected, bytes, 17);
+    expect(verification).toEqual({ connectionRevision: selected.connectionRevision, workerVersionId: selected.workerVersionId,
+      bundleDigest: selected.bundleDigest, controlOrigin: `https://${selected.workerName}.platform-account.workers.dev`, observabilityReady: false });
+    const disabled = await f.request(`/installations/${enabled.id}/enable`, 'POST', { revision: enabled.revision, enabled: false });
+    expect(disabled.status).toBe(200);
+    const reused = await enable(f, await disabled.json() as Installation);
+    expect(reused.status).toBe(200);
+    expect(await reused.json()).toMatchObject({ enabled: true, dispatcherConnection: selected });
+    expect(f.platform.scripts.get(selected.workerName)).toEqual(original);
+    expect(f.platform.writes).toEqual(writes);
+    expect(f.platform.unexpected).toEqual([]);
+    await expectNoActivity(f.ctx);
+  }));
+
+  it.each(['identity-drift', 'authority-revoked'] as const)(
+    'REQ-OPERATOR-030/044/045/046/091: AC3 optional settings timeout cannot excuse %s or enable protected work', variant => withActivation(async f => {
+      const first = await enable(f); expect(first.status).toBe(200);
+      const enabled = await first.json() as Installation;
+      const selected = enabled.dispatcherConnection!;
+      const disabled = await f.request(`/installations/${enabled.id}/enable`, 'POST', { revision: enabled.revision, enabled: false });
+      expect(disabled.status).toBe(200);
+      const stopped = await disabled.json() as Installation;
+      const writes = structuredClone(f.platform.writes);
+      timeoutSettings(f.platform, () => { if (variant === 'authority-revoked') identityCurrent = false; });
+      if (variant === 'identity-drift') f.platform.setFault('active-version-drift');
+      expect((await enable(f, stopped)).status).toBe(409);
+      identityCurrent = true;
+      expect((await f.detail()).installations[0]).toMatchObject({ enabled: false, dispatcherConnection: selected });
+      expect((await f.registry.resolveManagementExecution(enabled.id)).ok).toBe(false);
+      expect(f.platform.writes).toEqual(writes);
+      expect(f.platform.unexpected).toEqual([]);
+      await expectNoActivity(f.ctx);
+    }));
+
+  it.each(['during-settings', 'after-settings-timeout'] as const)(
+    'REQ-OPERATOR-030/044/045/046/091: AC3 deployment drift %s is rejected by the final identity fence', phase => withActivation(async f => {
+      const first = await enable(f); expect(first.status).toBe(200);
+      const enabled = await first.json() as Installation;
+      const selected = enabled.dispatcherConnection!;
+      const disabled = await f.request(`/installations/${enabled.id}/enable`, 'POST', { revision: enabled.revision, enabled: false });
+      expect(disabled.status).toBe(200);
+      const stopped = await disabled.json() as Installation;
+      const writes = structuredClone(f.platform.writes);
+      const versionRead = deferred();
+      f.platform.beforeVersionRead(async () => { versionRead.resolve(); });
+      const drift = () => { f.platform.scripts.get(selected.workerName)!.deploymentId = 'replaced-during-settings'; };
+      if (phase === 'during-settings') f.platform.beforeSettingsRead(async () => { await versionRead.promise; drift(); });
+      else timeoutSettings(f.platform, () => versionRead.promise, drift);
+      expect((await enable(f, stopped)).status).toBe(409);
+      expect((await f.detail()).installations[0]).toMatchObject({ enabled: false, dispatcherConnection: selected });
+      expect((await f.registry.resolveManagementExecution(enabled.id)).ok).toBe(false);
+      expect(f.platform.writes).toEqual(writes);
+      expect(f.platform.unexpected).toEqual([]);
+      await expectNoActivity(f.ctx);
+    }));
+
   it.each([
     { name: 'null actual settings', value: null },
     { name: 'missing actual settings', value: undefined },
@@ -638,7 +723,7 @@ describe('persisted installed Worker execution log configuration', () => {
     { name: 'invocation logs disabled', value: { ...desired, logs: { ...desired.logs, invocation_logs: false } } },
     { name: 'sampled logs', value: { ...desired, logs: { ...desired.logs, head_sampling_rate: 0.1 } } },
     { name: 'sampled global', value: { ...desired, head_sampling_rate: 0.1 } },
-  ])('REQ-OPERATOR-046/048/090: $name is not observability-ready but cannot invalidate an exact deployment or existing runtime', ({ value }) => withActivation(async f => {
+  ])('REQ-OPERATOR-046/048/091: $name is not observability-ready but cannot invalidate an exact deployment or existing runtime', ({ value }) => withActivation(async f => {
     const first = await enable(f); expect(first.status).toBe(200);
     const enabled = await first.json() as Installation;
     const selected = enabled.dispatcherConnection!;

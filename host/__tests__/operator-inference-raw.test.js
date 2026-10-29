@@ -253,7 +253,7 @@ for (const source of ['custom', 'native', 'managed']) {
       hasExact(raw, out.response.body.events.at(-1), 'Public SDK done event remains complete');
       assert.equal(JSON.stringify(raw).includes(out.expected.credential), false);
       assert.equal(JSON.stringify(raw).includes(out.expected.responseCookie), false);
-      assert.ok([...values(raw)].some(value => value?.headers?.['x-noncredential-debug'] === out.expected.safe),
+      assert.ok([...values(raw)].some(value => value?.headers?.['x-noncredential-debug'] === out.expected.headerSafe),
         'Public response-header observation preserves private noncredential neighbors while redacting cookies');
       if (source !== 'native') {
         hasExact(raw, out.sends[0].body, 'Public onPayload observes the actual outgoing provider request, including configured model metadata');
@@ -292,6 +292,32 @@ test('REQ-OPERATOR-090: fragmented credential text is redacted using assembled f
   assert.ok(out.response.body.result.content.some(part => part.type === 'text' && part.text.includes(out.expected.secret)),
     'Raw-log sanitization cannot mutate the original functional result');
 });
+
+for (const kind of ['text', 'tool']) {
+  for (const enabled of [true, false]) {
+    test(`REQ-OPERATOR-090: real native ${kind} fragments logging ${enabled ? 'ON redacts reconstructible credentials' : 'OFF remains quiet'} without changing SDK bytes`, { timeout: 60000 }, async t => {
+      const out = await scenario(t, `native-fragmented-${kind}-${enabled ? 'on' : 'off'}`);
+      succeeded(out);
+      assert.equal(out.response.body.result.content.find(part => part.type === 'text').text, out.expected.answer);
+      if (kind === 'tool') assert.equal(out.response.body.result.content.find(part => part.type === 'toolCall').arguments.apiKey, out.expected.toolSecret);
+      if (!enabled) { assert.deepEqual(out.records, []); return; }
+      const raw = captured(out);
+      const native = [...values(raw)].filter(value => value?.object === 'chat.completion.chunk' && Array.isArray(value.choices));
+      assert.ok(native.length > 1, 'Actual public built-in adapter observes fragmented provider HTTP events');
+      const text = native.flatMap(value => value.choices).map(choice => choice.delta?.content ?? '').join('');
+      const argumentsText = native.flatMap(value => value.choices).flatMap(choice => choice.delta?.tool_calls ?? [])
+        .map(call => call.function?.arguments ?? '').join('');
+      assert.equal(text.includes(out.expected.secret), false, 'Joining raw native text cannot recover the credential');
+      assert.ok(text.includes(out.expected.safe), 'Native noncredential response text remains complete');
+      if (kind === 'tool') {
+        assert.equal(argumentsText.includes(out.expected.toolSecret), false, 'Joining native tool argument fragments cannot recover the credential');
+        assert.ok(argumentsText.includes(out.expected.safe), 'Native noncredential tool arguments remain complete');
+      }
+      assert.equal(JSON.stringify(raw).includes(out.expected.secret), false);
+      assert.equal(JSON.stringify(raw).includes(out.expected.toolSecret), false);
+    });
+  }
+}
 
 for (const mode of ['cancel', 'deadline']) {
   for (const enabled of [true, false]) {

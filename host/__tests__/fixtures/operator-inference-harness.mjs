@@ -115,8 +115,18 @@ async function fixture(t, options = {}) {
       res.setHeader('content-type', 'text/event-stream');
       const chunk = (delta, finish_reason) => ({ id: 'chat-fixture', object: 'chat.completion.chunk',
         created: 1, model: 'gpt-5', choices: [{ index: 0, delta, finish_reason }] });
-      res.end(`data: ${JSON.stringify(chunk({ role: 'assistant', content: f.answer }, null))}\n\n`
-        + `data: ${JSON.stringify(chunk({}, 'stop'))}\n\ndata: [DONE]\n\n`);
+      const fragments = text => options.fragmentSize
+        ? Array.from({ length: Math.ceil(text.length / options.fragmentSize) },
+          (_, index) => text.slice(index * options.fragmentSize, (index + 1) * options.fragmentSize))
+        : [text];
+      const events = [chunk({ role: 'assistant' }, null), ...fragments(f.answer).map(content => chunk({ content }, null))];
+      if (f.toolCall) {
+        events.push(chunk({ tool_calls: [{ index: 0, id: 'call-new', type: 'function', function: { name: 'inspect', arguments: '' } }] }, null));
+        for (const argumentsPart of fragments(JSON.stringify(f.toolCall === true ? { path: 'release.json' } : f.toolCall)))
+          events.push(chunk({ tool_calls: [{ index: 0, function: { arguments: argumentsPart } }] }, null));
+      }
+      events.push(chunk({}, f.toolCall ? 'tool_calls' : 'stop'));
+      res.end(events.map(event => `data: ${JSON.stringify(event)}\n\n`).join('') + 'data: [DONE]\n\n');
       return;
     }
     res.statusCode = f.status;
