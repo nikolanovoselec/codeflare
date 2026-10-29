@@ -207,6 +207,34 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 ---
 
+### REQ-SESSION-038: User can force-kill a session container
+
+**Intent:** The session dropdown offers an explicit KILL recovery action that reaches SDK force-destroy without waiting for graceful Stop, while retaining the session and persistent files.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. The existing session dropdown context menu offers `KILL` for a potentially live session, including `starting`, `running`, `unreachable` and persisted `stopping`; it remains usable while a local Stop attempt is pending. It is not offered for a confirmed-stopped session. Clicking targets only that session and closes the menu.
+2. KILL uses the owner-authenticated `POST /api/sessions/:id/kill` contract with the existing session validation and mutation protections. The Worker reads current owner-scoped D1 authority; the addressed DO validates the captured session identity and lifecycle generation before process control.
+3. The DO owns the complete accepted operation independently of the HTTP caller. It reuses the generation's termination intent and Protected Action cancellation fence, performs operational teardown cleanup, and awaits the SDK's native force-destroy without the final notification drain, workspace final-sync wait or SIGTERM polling. An already-stuck graceful Stop cannot block KILL.
+4. Successful KILL confirms exit for the captured generation and retains the D1 session row, workspace identity and persistent R2 files. It does not promise to save unsynced container-local edits. The frontend retains the session and disposes its mounted runtime only after authoritative stopped evidence.
+5. Unconfirmed or failed destruction remains visibly retryable with its termination ownership intact; neither client nor backend invents stopped or deleted state. Same-generation retries work after operational identity cleanup, and duplicate KILL requests do not perform competing teardowns.
+6. KILL rejects an owner/address mismatch or replacement generation. Graceful teardown superseded by KILL cannot later clear a replacement's operational state, signal it or destroy it.
+7. Existing Stop, Rename, Delete and idle-timeout behavior remains unchanged; KILL adds no automatic recovery scheduler, idle-policy change or new user setting.
+
+**Constraints:** Native force-destroy executes inside the owning DO through the public Containers SDK. No SDK patch, forged identity, historical Activity replay, session-row deletion or persistent-storage deletion is part of KILL.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-SESSION-006](#req-session-006-user-can-stop-restart-and-delete-sessions), [REQ-SESSION-009](#req-session-009-container-destroy-wipes-session-state), [REQ-SESSION-018](#req-session-018-d1-lifecycle-evidence-is-generation-fenced), [REQ-SESSION-035](#req-session-035-stale-stopping-retains-ownership-until-confirmed-exit)
+
+**Verification:** Planned behavioral dropdown, HTTP/store, route and modeled DO/native-process tests; hosted native termination remains separately qualified.
+
+**Status:** Planned
+
+---
+
 ### REQ-SESSION-027: User can rename sessions
 
 **Intent:** A user can change a session's display name without affecting its runtime or workspace.
@@ -348,13 +376,13 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 ### REQ-SESSION-011: Graceful shutdown with final sync
 
-**Intent:** Deliberate stop paths complete one bounded live workspace sync before terminating the container; the SIGTERM trap remains only a best-effort backstop.
+**Intent:** Graceful stop/delete paths complete one bounded live workspace sync before terminating the container; the SIGTERM trap remains only a best-effort backstop. Explicit KILL ([REQ-SESSION-038](#req-session-038-user-can-force-kill-a-session-container)) intentionally bypasses this graceful drain.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. Before signalling the container to stop, every deliberate stop path runs a live bidirectional R2 sync to completion while the container is still fully running including a delete where the platform reports `running:false` transiently. <!-- @impl: src/container/container-lifecycle.ts::destroy --> <!-- @impl: src/container/container-lifecycle.ts::drainFinalSyncAudited --> <!-- @impl: src/container/container-lifecycle.ts::recordFinalSyncAudit --> <!-- @impl: src/container/container-metrics.ts::drainFinalSync --> <!-- @test: src/__tests__/container/index.test.ts (container DO class / REQ-SESSION-002 (one container per session)) -->
+1. Before signalling the container to stop, every graceful stop/delete path runs a live bidirectional R2 sync to completion while the container is still fully running including a delete where the platform reports `running:false` transiently. <!-- @impl: src/container/container-lifecycle.ts::destroy --> <!-- @impl: src/container/container-lifecycle.ts::drainFinalSyncAudited --> <!-- @impl: src/container/container-lifecycle.ts::recordFinalSyncAudit --> <!-- @impl: src/container/container-metrics.ts::drainFinalSync --> <!-- @test: src/__tests__/container/index.test.ts (container DO class / REQ-SESSION-002 (one container per session)) -->
 2. For runnable sync, the final-sync endpoint starts and awaits its own run, distinguishing success, failure and timeout. <!-- @impl: host/src/request-router.ts::createRequestHandler --> <!-- @test: host/__tests__/final-sync-endpoint.test.js (REQ-SESSION-011 AC2: final-sync HTTP boundary (behavioral)) -->
 3. The sync-status record carries a monotonic timestamp and a `syncing`->`success`/`failed` transition, and the endpoint accepts a terminal status only after observing its own run's `syncing` (stamped strictly after the trigger), never a bare `success`. <!-- @impl: host/src/final-sync.ts::FinalSyncEval --> <!-- @test: host/__tests__/final-sync-endpoint.test.js (REQ-SESSION-011 AC2/AC3: evaluateFinalSync completion detection (behavioral)) -->
 4. The Durable Object waits up to a bounded sync budget (120s) for the live sync to report completion; a failed or timed-out sync still proceeds to stop rather than blocking teardown. <!-- @impl: src/container/container-lifecycle.ts::destroy --> <!-- @test: src/__tests__/container/index.test.ts (destroy) -->

@@ -43,6 +43,7 @@ vi.mock('../../stores/session', () => {
       getMetricsForSession: vi.fn(() => null),
       getInitProgressForSession: vi.fn(() => null),
       renameSession: vi.fn(),
+      killSession: vi.fn().mockResolvedValue(undefined),
       sessions: [],
       get preseedUpgrading() { return _preseedUpgrading; },
       get preseedUpgradeFailed() { return _preseedUpgradeFailed; },
@@ -210,6 +211,107 @@ describe('SessionDropdown', () => {
       expect(screen.queryByTestId('session-context-menu')).not.toBeInTheDocument();
     },
   );
+
+  describe('REQ-SESSION-038 AC1/AC7: KILL in the existing session menu', () => {
+    it.each(['starting', 'running', 'unreachable', 'stopping'] as const)(
+      'offers one KILL for %s, targets only the selected session and closes its menu', status => {
+        const killed: string[] = [];
+        const store = sessionStore as typeof sessionStore & { killSession: (id: string) => Promise<void> };
+        vi.mocked(store.killSession).mockImplementation(async id => { killed.push(id); });
+        const stopped: string[] = [];
+        const deleted: string[] = [];
+        render(() => <SessionDropdown {...defaultProps}
+          sessions={[
+            createSession({ id: 'active-other', status: 'running' }),
+            createSession({ id: 'kill-target', status }),
+          ]}
+          activeSessionId="active-other"
+          onStopSession={id => stopped.push(id)}
+          onDeleteSession={id => deleted.push(id)} />);
+
+        fireEvent.click(screen.getByTestId('card-menu-kill-target'));
+        // KILL's exact user copy is the deliberate recovery-action contract.
+        const kill = screen.getByRole('button', { name: 'KILL' });
+        expect(kill).toBeEnabled();
+        expect(screen.getByRole('button', { name: status === 'stopping' ? 'Retry Stop' : 'Stop' })).toBeEnabled();
+        expect(screen.getByRole('button', { name: 'Rename' })).toBeEnabled();
+        expect(screen.getByRole('button', { name: 'Delete' })).toBeEnabled();
+        fireEvent.click(kill);
+
+        expect(killed).toEqual(['kill-target']);
+        expect(stopped).toEqual([]);
+        expect(deleted).toEqual([]);
+        expect(screen.queryByTestId('session-context-menu')).not.toBeInTheDocument();
+        expect(screen.getByTestId('session-stat-card-kill-target')).toBeInTheDocument();
+        expect(screen.getByTestId('session-stat-card-active-other')).toBeInTheDocument();
+      },
+    );
+
+    it('hides KILL for a confirmed-stopped session without hiding Rename or Delete', () => {
+      render(() => <SessionDropdown {...defaultProps} />);
+      fireEvent.click(screen.getByTestId('card-menu-s2'));
+      expect(screen.queryByRole('button', { name: 'KILL' })).not.toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Rename' })).toBeEnabled();
+      expect(screen.getByRole('button', { name: 'Delete' })).toBeEnabled();
+    });
+
+    it('keeps KILL usable after Stop is submitted but has not settled', async () => {
+      const stopped: string[] = [];
+      const killed: string[] = [];
+      let finishStop!: () => void;
+      const pendingStop = new Promise<void>(resolve => { finishStop = resolve; });
+      const store = sessionStore as typeof sessionStore & { killSession: (id: string) => Promise<void> };
+      vi.mocked(store.killSession).mockImplementation(async id => { killed.push(id); });
+      render(() => <SessionDropdown {...defaultProps}
+        sessions={[createSession({ id: 'pending-stop', status: 'stopping' })]}
+        onStopSession={id => { stopped.push(id); return pendingStop; }} />);
+      try {
+        fireEvent.click(screen.getByTestId('card-menu-pending-stop'));
+        fireEvent.click(screen.getByRole('button', { name: 'Retry Stop' }));
+        expect(stopped).toEqual(['pending-stop']);
+        expect(screen.queryByTestId('session-context-menu')).not.toBeInTheDocument();
+
+        fireEvent.click(screen.getByTestId('card-menu-pending-stop'));
+        const kill = screen.getByRole('button', { name: 'KILL' });
+        expect(kill).toBeEnabled();
+        fireEvent.click(kill);
+        expect(killed).toEqual(['pending-stop']);
+        expect(screen.queryByTestId('session-context-menu')).not.toBeInTheDocument();
+      } finally {
+        finishStop();
+        await pendingStop;
+      }
+    });
+
+    it('keeps Stop, Rename and confirmed Delete targeting the selected session with KILL present', () => {
+      const stopped: string[] = [];
+      const renamed: Array<[string, string]> = [];
+      const deleted: string[] = [];
+      vi.mocked(sessionStore.renameSession).mockImplementation(async (id, name) => { renamed.push([id, name]); });
+      render(() => <SessionDropdown {...defaultProps}
+        onStopSession={id => stopped.push(id)} onDeleteSession={id => deleted.push(id)} />);
+
+      fireEvent.click(screen.getByTestId('card-menu-s1'));
+      expect(screen.getByRole('button', { name: 'KILL' })).toBeEnabled();
+      fireEvent.click(screen.getByRole('button', { name: 'Stop' }));
+      expect(stopped).toEqual(['s1']);
+      expect(screen.queryByTestId('session-context-menu')).not.toBeInTheDocument();
+
+      fireEvent.click(screen.getByTestId('card-menu-s1'));
+      fireEvent.click(screen.getByRole('button', { name: 'Rename' }));
+      fireEvent.input(screen.getByRole('textbox', { name: 'Session name' }), { target: { value: 'Still retained' } });
+      fireEvent.submit(screen.getByTestId('context-menu-rename-form'));
+      expect(renamed).toEqual([['s1', 'Still retained']]);
+      expect(screen.queryByTestId('session-context-menu')).not.toBeInTheDocument();
+
+      fireEvent.click(screen.getByTestId('card-menu-s1'));
+      fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+      expect(deleted).toEqual([]);
+      fireEvent.click(screen.getByRole('button', { name: 'Are you sure?' }));
+      expect(deleted).toEqual(['s1']);
+      expect(screen.queryByTestId('session-context-menu')).not.toBeInTheDocument();
+    });
+  });
 
   describe('Active session highlighting', () => {
     it('marks the active session card as active', () => {
