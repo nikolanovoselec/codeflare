@@ -60,4 +60,3 @@ export function ReadToolRenderer({ args, status, result, images, context }: Tool
     </div>
   );
 }
-

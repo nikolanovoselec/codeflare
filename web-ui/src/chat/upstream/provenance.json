@@ -14,7 +14,8 @@
     "lib/questions/questions-api.ts: optional scoped transport; default fetch/error semantics unchanged.",
     "client-utils/src/DialogPortal.tsx + client/src/components/questions/QuestionStack.tsx: honor the existing LayerHostContext for isolated host overlays; standalone portal/scroll behavior retained.",
     "client/src/index.css: omit generated optional Dashboard application-plugin Tailwind source import; scan only the retained source siblings.",
-    "client/src/components/interactive-renderers/BatchRenderer.tsx: Codeflare questionnaire metadata opt-in adds authored labels/descriptions, bounded full-Markdown previews, per-question/review notes and all-question completion gating. Keeps native choice indices separate from Other drafts; emits stock batch value/values plus codeflare optionIndexes/text, optional notes and final-entry globalNote, without automatic/provenance claims. Ordinary batches retain upstream behavior; original source inventory and hashes remain the upstream baseline."
+    "client/src/components/interactive-renderers/BatchRenderer.tsx: Codeflare questionnaire metadata opt-in adds authored labels/descriptions, bounded full-Markdown previews, per-question/review notes and all-question completion gating. Keeps native choice indices separate from Other drafts; emits stock batch value/values plus codeflare optionIndexes/text, optional notes and final-entry globalNote, without automatic/provenance claims. Ordinary batches retain upstream behavior; original source inventory and hashes remain the upstream baseline.",
+    "Formatting only: remove upstream extra blank line at EOF in client/src/components/tool-renderers/ReadToolRenderer.tsx for the repository whitespace gate; original source hash retained."
   ],
   "originalSourceSha256": {
     "client-utils/src/ActionList.tsx": "6ddc8907d2ea23eb45e6d42afa60b4aec991a295e7f788d8e0b9ed10f66a89dd",
