@@ -38,6 +38,9 @@ export default defineConfig({
     slowTestThreshold: 5000,
     testTimeout: 30000,
     hookTimeout: 30000,
+    // Keep Workers logs on native output, not buffered per-test console RPC.
+    // This retains logging; the separate Node-suite configuration is unchanged.
+    disableConsoleIntercept: true,
     include: ['src/**/*.test.ts'],
     exclude: [
       'web-ui/**',
