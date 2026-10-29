@@ -434,7 +434,7 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
     const { default: BackendTimingReporter } = await import(reporterUrl);
     const output = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
     try {
-      new BackendTimingReporter().onTestRunEnd([{
+      await new BackendTimingReporter().onTestRunEnd([{
         moduleId: join(REPO, 'src/__tests__/example.test.ts'),
         diagnostic: () => ({ environmentSetupDuration: 2, prepareDuration: 3,
           collectDuration: 17, setupDuration: 4, duration: 9 }),

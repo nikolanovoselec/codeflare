@@ -140,12 +140,18 @@ runs:
           node "$GITHUB_WORKSPACE/scripts/ci/sample-suite-processes.mjs" "$$" &
           sampler_pid=$!
         fi
+        # Preserve the complete log artifact while isolating duplicate live-output
+        # delivery on the stalled lane. No test output is removed from the log.
+        console_output=/dev/stdout
+        if [ "$NAME" = backend-shard-3 ]; then
+          console_output=/dev/null
+        fi
         set +e
         # CLI reporters replace the config one; JSON remains mandatory for the gate.
         npm run "$SCRIPT" -- "${test_args[@]}" ${SHARD:+--shard="$SHARD"} \
           "${coverage_args[@]}" \
           --reporter="$HUMAN_REPORTER" --reporter=json "${timing_args[@]}" --outputFile.json="$RUNNER_TEMP/${NAME}.json" \
-          2>&1 | tee "$RUNNER_TEMP/${NAME}.log"
+          2>&1 | tee "$RUNNER_TEMP/${NAME}.log" > "$console_output"
         status=${PIPESTATUS[0]}
         set -e
         stop_sampler
