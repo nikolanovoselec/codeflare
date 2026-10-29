@@ -140,12 +140,12 @@ runs:
           node "$GITHUB_WORKSPACE/scripts/ci/sample-suite-processes.mjs" "$$" &
           sampler_pid=$!
         fi
-        # Preserve the complete log artifact while isolating duplicate live-output
-        # delivery on the stalled lane. No test output is removed from the log.
+        # Keep complete Workers logs in the artifact without duplicate live-output
+        # delivery. Other suites retain live output; no log content is removed.
         console_output=/dev/stdout
-        if [ "$NAME" = backend-shard-3 ]; then
-          console_output=/dev/null
-        fi
+        case "$NAME" in
+          backend-shard-*) console_output=/dev/null ;;
+        esac
         set +e
         # CLI reporters replace the config one; JSON remains mandatory for the gate.
         npm run "$SCRIPT" -- "${test_args[@]}" ${SHARD:+--shard="$SHARD"} \
