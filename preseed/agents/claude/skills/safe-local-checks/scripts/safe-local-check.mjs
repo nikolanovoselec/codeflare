@@ -307,7 +307,11 @@ async function checkPiPreseed() {
   const manifest = JSON.parse(await readFile(packagePath, 'utf8'));
   const entrypoint = await readFile(entrypointPath, 'utf8');
   for (const [name, version] of Object.entries(manifest.dependencies ?? {})) {
-    if (name === '@earendil-works/pi-coding-agent') continue;
+    // @impl REQ-AGENT-224: image-installed primary transport is not global
+    // package discovery. Its full lock and seed integrity remain checked above.
+    if (name === '@earendil-works/pi-coding-agent'
+      || name === '@blackbelt-technology/pi-dashboard-extension'
+      || name === '@blackbelt-technology/pi-dashboard-server') continue;
     const spec = `npm:${name}@${version}`;
     if (!entrypoint.includes(`'${spec}'`)) throw new Error(`entrypoint.sh missing ${spec}`);
   }
