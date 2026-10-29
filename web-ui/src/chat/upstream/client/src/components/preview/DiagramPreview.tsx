@@ -1,0 +1,172 @@
+/** @jsxImportSource react */
+/**
+ * Diagram preview component (design D1/D7).
+ *
+ * Fetches rendered SVG from the server proxy (`/api/diagram/render`).
+ * On success, displays the SVG inside the shared zoom-pan viewport.
+ * On failure or decline (code === "unavailable"), falls back to displaying
+ * the plain diagram source with an informative notice.
+ *
+ * See change: diagram-rendering.
+ */
+import { useEffect, useState } from "react";
+import { useZoomPan } from "../../hooks/useZoomPan.js";
+import { getApiBase } from "../../lib/api/api-context.js";
+import { t as i18nT } from "../../lib/i18n/i18n.js";
+import { trustedSanitizedHtml } from "../../lib/security/trusted-types.js";
+import { logRejection } from "../../lib/report-error.js";
+import { readTextUrl } from "./raw-url.js";
+import { ZoomControls } from "./ZoomControls.js";
+import { usePreviewFetch } from "../../lib/access-grants/preview-provenance.js";
+
+interface Props {
+  target: { kind: "file"; cwd: string; path: string };
+  sourceText?: string;
+  /** Embedded in a document flow: size to the diagram (width-capped) instead of filling a fixed-height parent. */
+  inline?: boolean;
+}
+
+export function DiagramPreview({ target, sourceText, inline = false }: Props) {
+  // Opted out of the access-grant dialog unless a provider declares operator
+  // provenance (surface-denial-remedy-in-previews, D4).
+  const { fetch: previewFetch } = usePreviewFetch();
+  const [source, setSource] = useState<string | null>(sourceText ?? null);
+  const [svg, setSvg] = useState<TrustedHTML | string | null>(null);
+  const [loading, setLoading] = useState<boolean>(true);
+  const [statusNotice, setStatusNotice] = useState<string | null>(null);
+  const { state: zoom, handlers, zoomIn, zoomOut, reset } = useZoomPan();
+
+  // 1. Fetch source text if not provided directly
+  useEffect(() => {
+    if (sourceText !== undefined) {
+      setSource(sourceText);
+      return;
+    }
+    setSource(null);
+    setSvg(null);
+    setStatusNotice(null);
+    setLoading(true);
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await previewFetch(readTextUrl(target));
+        const body = await res.json();
+        if (cancelled) return;
+        if (body.success && typeof body.data?.content === "string") {
+          setSource(body.data.content);
+        } else {
+          setStatusNotice(body.error || "Failed to load diagram source");
+          setLoading(false);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setStatusNotice(err instanceof Error ? err.message : "Failed to load diagram source");
+          setLoading(false);
+        }
+      }
+    })().catch(logRejection("DiagramPreview.loadSource"));
+
+    return () => {
+      cancelled = true;
+    };
+  }, [target.cwd, target.path, sourceText, previewFetch]);
+
+  // 2. Once source is available, request render from proxy
+  useEffect(() => {
+    if (source === null) return;
+
+    let cancelled = false;
+    setLoading(true);
+    setStatusNotice(null);
+    setSvg(null);
+
+    void (async () => {
+      try {
+        const base = getApiBase();
+        const res = await fetch(`${base}/api/diagram/render`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            type: "plantuml",
+            source,
+          }),
+        });
+        const body = await res.json();
+        if (cancelled) return;
+
+        if (res.ok && body.success && typeof body.data?.svg === "string") {
+          // Re-sanitized client-side with the server's own profile; a sanitizer
+          // failure throws into the catch below (fail closed). See change: harden-client-sinks.
+          setSvg(trustedSanitizedHtml(body.data.svg, "diagram-svg"));
+          setLoading(false);
+        } else if (body.code === "unavailable") {
+          setStatusNotice("Diagram rendering is not configured");
+          setLoading(false);
+        } else {
+          setStatusNotice(body.error || "Failed to render diagram");
+          setLoading(false);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setStatusNotice(err instanceof Error ? err.message : "Upstream diagram render failed");
+          setLoading(false);
+        }
+      }
+    })().catch(logRejection("DiagramPreview.renderDiagram"));
+
+    return () => {
+      cancelled = true;
+    };
+  }, [source]);
+
+  if (loading) {
+    return (
+      <div className="flex h-full items-center justify-center p-4 text-sm text-[var(--text-muted)]" data-testid="diagram-preview-loading">
+        {i18nT("status.loadingDiagram", undefined, "Loading diagram…")}
+      </div>
+    );
+  }
+
+  // If we have rendered SVG, mount in zoom-pan viewport
+  if (svg) {
+    return (
+      <div
+        className={`relative w-full overflow-hidden bg-[var(--bg-surface)] select-none ${inline ? "" : "h-full"}`}
+        data-testid="diagram-preview-viewport"
+      >
+        <ZoomControls onZoomIn={zoomIn} onZoomOut={zoomOut} onReset={reset} scale={zoom.scale} />
+        <div
+          className={`flex w-full items-center justify-center ${inline ? "py-2" : "h-full"}`}
+          {...handlers}
+          style={{ cursor: zoom.scale > 1 ? "grab" : "default", touchAction: "none" }}
+        >
+          <div
+            data-testid="diagram-svg-container"
+            // Inline: scale Kroki's fixed-size SVG (inline style width/height) to the column, keeping aspect.
+            className={`flex items-center justify-center ${inline ? "max-w-full [&_svg]:max-w-full [&_svg]:!h-auto" : ""}`}
+            style={{
+              transform: `translate(${zoom.translateX}px, ${zoom.translateY}px) scale(${zoom.scale})`,
+              transformOrigin: "center center",
+            }}
+            // client-sinks: allow — trusted via pi-sanitized-html (diagram-svg profile)
+            dangerouslySetInnerHTML={{ __html: svg }}
+          />
+        </div>
+      </div>
+    );
+  }
+
+  // Universal fallback: display source text with explanatory notice
+  return (
+    <div className="flex flex-col h-full overflow-auto p-4 bg-[var(--bg-primary)] font-mono text-xs" data-testid="diagram-preview-fallback">
+      {statusNotice && (
+        <div className="mb-3 px-3 py-2 rounded bg-amber-950/30 border border-amber-800/40 text-amber-200" data-testid="diagram-status-notice">
+          {statusNotice}
+        </div>
+      )}
+      <pre className="text-[var(--text-secondary)] whitespace-pre overflow-x-auto">
+        <code>{source}</code>
+      </pre>
+    </div>
+  );
+}

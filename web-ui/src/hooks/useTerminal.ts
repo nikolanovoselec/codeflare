@@ -34,6 +34,7 @@ export interface UseTerminalOptions {
   visible?: boolean;
   focused?: boolean;
   connect?: boolean;
+  takePrimaryHandoff?: () => boolean;
   alwaysObserveResize?: boolean;
   hideInitProgress?: boolean;
   onActivate?: () => void;
@@ -665,14 +666,16 @@ export function useTerminal(props: UseTerminalOptions): UseTerminalResult {
       logger.debug(`[Terminal ${props.sessionId}:${props.terminalId}] Connecting WebSocket (stage: ${stage || 'running'})`);
       const terminals = sessionStore.getTerminalsForSession(props.sessionId);
       const tab = terminals?.tabs.find((candidate) => candidate.id === props.terminalId);
+      const primaryHandoff = props.terminalId === '1' && props.takePrimaryHandoff?.() === true;
       cleanup = terminalStore.connect(
         props.sessionId,
         props.terminalId,
         term,
         props.onError,
-        !isHerdr() && tab?.manual === true,
+        !primaryHandoff && !isHerdr() && tab?.manual === true,
         !isHerdr(),
         isHerdr(),
+        primaryHandoff,
       );
     }
   });

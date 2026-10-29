@@ -121,6 +121,7 @@ export class Session {
   private readonly clientResizeRequests: Map<WebSocket, { cols: number; rows: number }>;
   private readonly agentEventParser: OscAgentEventParser;
   private readonly agentEventQueue: AgentEventQueue;
+  private primaryRetained = false;
 
   // Injected dependencies
   private readonly _tabConfigMap: TabConfigMap;
@@ -352,6 +353,16 @@ export class Session {
     this._log('info', 'Client attached', { session: this.id.substring(0, 8), totalClients: this.clients.size });
   }
 
+  /** Explicit Chat adoption transfers primary lifetime to container idle policy. */
+  retainPrimary(): void {
+    if (this.manual || this.terminalId !== '1') return;
+    this.primaryRetained = true;
+    if (this.keepAliveTimeout) {
+      clearTimeout(this.keepAliveTimeout);
+      this.keepAliveTimeout = null;
+    }
+  }
+
   /**
    * Detach a WebSocket client from this session
    */
@@ -373,6 +384,9 @@ export class Session {
 
     if (this.clients.size === 0 && this.ptyProcess) {
       this.disconnectedAt = new Date().toISOString();
+      // Adoption may finish before the old Terminal close arrives. Do not
+      // install a new Terminal-only reaper after Chat has retained this PTY.
+      if (this.primaryRetained) return;
       this._log('info', 'No clients remaining, PTY kept alive', { session: this.id.substring(0, 8), keepAliveSec: this._ptyKeepaliveMs / 1000 });
 
       this.keepAliveTimeout = setTimeout(() => {

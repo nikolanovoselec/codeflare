@@ -31,6 +31,7 @@ import type { Env, ManagedResourcePolicy, SessionWorkspace, TabConfig, TerminalM
 import type { PiDefaultSource } from '../lib/personal-pi-policy';
 import { getR2Config } from '../lib/r2-config';
 import { D1SessionRepository } from '../lib/session-repository';
+import { SESSION_ID_PATTERN } from '../lib/constants';
 import { toErrorMessage } from '../lib/error-types';
 import { createLogger } from '../lib/logger';
 import { hasStrictGatewayEgress } from '../lib/controller-egress';
@@ -49,6 +50,8 @@ import {
 } from './operator-context';
 import {
   validateBucketNameInput,
+  buildEnvVars,
+  type ContainerRuntimeContext,
   type ContainerEnvState,
   type SetBucketNameCreds,
 } from './container-env';
@@ -738,10 +741,12 @@ export class container extends Container<Env> implements ContainerEnvState {
   /** Override fetch to handle internal routes via typed dispatch (CF-016). */
   override async fetch(request: Request): Promise<Response> {
     // WebSocket responses cannot cross the DO RPC serialization boundary.
-    // Stub.fetch has native WebSocket response transport; keep terminal and IDE
-    // sockets on the same no-start private-port forwarding used for health probes.
+    // Stub.fetch has native WebSocket response transport; keep terminal, IDE
+    // and the exact Chat socket on the no-start private port used for health.
     const pathname = new URL(request.url).pathname;
-    if ((pathname === '/terminal' || pathname.startsWith('/api/vscode/')) &&
+    const chatSessionId = pathname.match(/^\/api\/chat\/([^/]+)\/ws$/)?.[1];
+    const isChatSocket = request.method === 'GET' && !!chatSessionId && SESSION_ID_PATTERN.test(chatSessionId);
+    if ((pathname === '/terminal' || pathname.startsWith('/api/vscode/') || isChatSocket) &&
         request.headers.get('Upgrade')?.toLowerCase() === 'websocket') {
       return this.forwardExisting(request);
     }
@@ -830,6 +835,24 @@ export class container extends Container<Env> implements ContainerEnvState {
     ...args: Parameters<Container<Env>['startAndWaitForPorts']>
   ): Promise<void> {
     await wireContainerInterception(this.interceptionHost);
+    // /start claims the D1 generation before calling this existing pre-start
+    // seam. Bind the process environment here, not in the earlier preference
+    // payload (which precedes that claim), nor from a browser/private-hop header.
+    let runtime: ContainerRuntimeContext | undefined;
+    if (this._bucketName && this._sessionId && !this._operatorContainerProfile) {
+      try {
+        const session = await new D1SessionRepository(this.env.USAGE_DB).getSession(this._bucketName, this._sessionId);
+        if (session && (session.lifecycleState === 'starting' || session.lifecycleState === 'running')
+          && Number.isSafeInteger(session.lifecycleGeneration) && session.lifecycleGeneration > 0) {
+          runtime = { lifecycleGeneration: session.lifecycleGeneration };
+        }
+      } catch (error) {
+        // Chat fails closed without a binding; unrelated Terminal/IDE startup
+        // does not gain a new dependency or a fabricated generation fallback.
+        this.logger.warn('Chat runtime generation unavailable', { error: toErrorMessage(error) });
+      }
+    }
+    this.envVars = buildEnvVars(this, this.env, runtime);
     await super.startAndWaitForPorts(...args);
   }
 

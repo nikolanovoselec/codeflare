@@ -1,0 +1,173 @@
+{
+  "name": "@blackbelt-technology/pi-dashboard-client-utils",
+  "version": "0.11.0",
+  "description": "Small reusable React components, hooks, and helpers shared between the pi-dashboard shell and dashboard plugins. Per-subpath exports; no markdown stack.",
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/BlackBeltTechnology/pi-agent-dashboard",
+    "directory": "packages/client-utils"
+  },
+  "exports": {
+    "./AgentCardShell": {
+      "types": "./src/AgentCardShell.tsx",
+      "default": "./src/AgentCardShell.tsx"
+    },
+    "./agent-card-utils": {
+      "types": "./src/agent-card-utils.ts",
+      "default": "./src/agent-card-utils.ts"
+    },
+    "./DialogPortal": {
+      "types": "./src/DialogPortal.tsx",
+      "default": "./src/DialogPortal.tsx"
+    },
+    "./LayerPortal": {
+      "types": "./src/LayerPortal.tsx",
+      "default": "./src/LayerPortal.tsx"
+    },
+    "./tone": {
+      "types": "./src/tone.ts",
+      "default": "./src/tone.ts"
+    },
+    "./escape-stack": {
+      "types": "./src/escape-stack.ts",
+      "default": "./src/escape-stack.ts"
+    },
+    "./identity/pkce": {
+      "types": "./src/identity/pkce.ts",
+      "default": "./src/identity/pkce.ts"
+    },
+    "./identity/token-store": {
+      "types": "./src/identity/token-store.ts",
+      "default": "./src/identity/token-store.ts"
+    },
+    "./identity/oidc-flow": {
+      "types": "./src/identity/oidc-flow.ts",
+      "default": "./src/identity/oidc-flow.ts"
+    },
+    "./identity/login-flow": {
+      "types": "./src/identity/login-flow.ts",
+      "default": "./src/identity/login-flow.ts"
+    },
+    "./identity/dpop": {
+      "types": "./src/identity/dpop.ts",
+      "default": "./src/identity/dpop.ts"
+    },
+    "./Popover": {
+      "types": "./src/Popover.tsx",
+      "default": "./src/Popover.tsx"
+    },
+    "./Dialog": {
+      "types": "./src/Dialog.tsx",
+      "default": "./src/Dialog.tsx"
+    },
+    "./Confirm": {
+      "types": "./src/Confirm.tsx",
+      "default": "./src/Confirm.tsx"
+    },
+    "./useFocusTrap": {
+      "types": "./src/useFocusTrap.ts",
+      "default": "./src/useFocusTrap.ts"
+    },
+    "./SearchableSelectDialog": {
+      "types": "./src/SearchableSelectDialog.tsx",
+      "default": "./src/SearchableSelectDialog.tsx"
+    },
+    "./ZoomControls": {
+      "types": "./src/ZoomControls.tsx",
+      "default": "./src/ZoomControls.tsx"
+    },
+    "./useZoomPan": {
+      "types": "./src/useZoomPan.ts",
+      "default": "./src/useZoomPan.ts"
+    },
+    "./useMobile": {
+      "types": "./src/useMobile.tsx",
+      "default": "./src/useMobile.tsx"
+    },
+    "./useMediaQuery": {
+      "types": "./src/useMediaQuery.ts",
+      "default": "./src/useMediaQuery.ts"
+    },
+    "./extension-ui/AgentMetricSlot": {
+      "types": "./src/extension-ui/AgentMetricSlot.tsx",
+      "default": "./src/extension-ui/AgentMetricSlot.tsx"
+    },
+    "./extension-ui/BreadcrumbSlot": {
+      "types": "./src/extension-ui/BreadcrumbSlot.tsx",
+      "default": "./src/extension-ui/BreadcrumbSlot.tsx"
+    },
+    "./extension-ui/GateSlot": {
+      "types": "./src/extension-ui/GateSlot.tsx",
+      "default": "./src/extension-ui/GateSlot.tsx"
+    },
+    "./extension-ui/decorator-utils": {
+      "types": "./src/extension-ui/decorator-utils.ts",
+      "default": "./src/extension-ui/decorator-utils.ts"
+    },
+    "./ActionList": {
+      "types": "./src/ActionList.tsx",
+      "default": "./src/ActionList.tsx"
+    },
+    "./ActionListMenuContext": {
+      "types": "./src/ActionListMenuContext.ts",
+      "default": "./src/ActionListMenuContext.ts"
+    },
+    "./mdi-by-key": {
+      "types": "./src/mdi-by-key.ts",
+      "default": "./src/mdi-by-key.ts"
+    },
+    "./StatusPill": {
+      "types": "./src/StatusPill.tsx",
+      "default": "./src/StatusPill.tsx"
+    },
+    "./EmptyState": {
+      "types": "./src/EmptyState.tsx",
+      "default": "./src/EmptyState.tsx"
+    },
+    "./Skeleton": {
+      "types": "./src/Skeleton.tsx",
+      "default": "./src/Skeleton.tsx"
+    },
+    "./focusRing": {
+      "types": "./src/focusRing.ts",
+      "default": "./src/focusRing.ts"
+    },
+    "./statusPresentation": {
+      "types": "./src/statusPresentation.ts",
+      "default": "./src/statusPresentation.ts"
+    },
+    "./minimal-chat": {
+      "types": "./src/minimal-chat/index.ts",
+      "default": "./src/minimal-chat/index.ts"
+    }
+  },
+  "files": [
+    "src/",
+    "!**/AGENTS.md",
+    "!**/*.AGENTS.md",
+    "!**/__tests__",
+    "!**/*.test.ts",
+    "!**/*.test.tsx"
+  ],
+  "peerDependencies": {
+    "react": ">=18.0.0",
+    "react-dom": ">=18.0.0"
+  },
+  "dependencies": {
+    "@blackbelt-technology/dashboard-plugin-runtime": "^0.11.0",
+    "@blackbelt-technology/pi-dashboard-shared": "^0.11.0",
+    "@mdi/js": "^7.4.47",
+    "@mdi/react": "^1.6.1"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  }
+}

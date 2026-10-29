@@ -1,5 +1,5 @@
 import { Component, Show, createSignal, createEffect } from 'solid-js';
-import { mdiPencilOutline, mdiStop, mdiTrashCanOutline } from '@mdi/js';
+import { mdiPencilOutline, mdiStop, mdiTrashCanOutline, mdiChatOutline, mdiConsole } from '@mdi/js';
 import Icon from './Icon';
 import '../styles/session-context-menu.css';
 
@@ -9,6 +9,8 @@ interface SessionContextMenuProps {
   canStop: boolean;
   stopLabel?: string;
   sessionName: string;
+  onOpenChat?: () => void;
+  onOpenTerminal?: () => void;
   onStop: () => void;
   onDelete: () => void;
   /** REQ-SESSION-027 AC1: rename the session this menu was opened for. */
@@ -41,7 +43,7 @@ const SessionContextMenu: Component<SessionContextMenuProps> = (props) => {
 
   const clampedPosition = () => {
     const menuWidth = 160;
-    const menuHeight = 120;
+    const menuHeight = 120 + (props.onOpenChat ? 40 : 0) + (props.onOpenTerminal ? 40 : 0);
     const pad = 8;
     return {
       x: Math.max(pad, Math.min(props.position.x, window.innerWidth - menuWidth - pad)),
@@ -99,6 +101,20 @@ const SessionContextMenu: Component<SessionContextMenuProps> = (props) => {
         data-testid="session-context-menu"
         style={{ top: `${clampedPosition().y}px`, left: `${clampedPosition().x}px` }}
       >
+        <Show when={props.onOpenChat}>
+          <button type="button" class="session-context-menu__item"
+            onClick={() => { props.onOpenChat?.(); resetTransient(); props.onClose(); }}>
+            <Icon path={mdiChatOutline} size={16} />
+            Open in Chat
+          </button>
+        </Show>
+        <Show when={props.onOpenTerminal}>
+          <button type="button" class="session-context-menu__item"
+            onClick={() => { props.onOpenTerminal?.(); resetTransient(); props.onClose(); }}>
+            <Icon path={mdiConsole} size={16} />
+            Open in Terminal
+          </button>
+        </Show>
         <Show when={props.canStop}>
           <button
             type="button"

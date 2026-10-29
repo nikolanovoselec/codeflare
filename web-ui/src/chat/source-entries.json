@@ -1,0 +1,23 @@
+{
+  "@blackbelt-technology/dashboard-plugin-runtime": "dashboard-plugin-runtime/src/index.ts",
+  "@blackbelt-technology/dashboard-plugin-runtime/host": "dashboard-plugin-runtime/src/host.ts",
+  "@blackbelt-technology/pi-dashboard-client-utils/ActionList": "client-utils/src/ActionList.tsx",
+  "@blackbelt-technology/pi-dashboard-client-utils/AgentCardShell": "client-utils/src/AgentCardShell.tsx",
+  "@blackbelt-technology/pi-dashboard-client-utils/Confirm": "client-utils/src/Confirm.tsx",
+  "@blackbelt-technology/pi-dashboard-client-utils/Dialog": "client-utils/src/Dialog.tsx",
+  "@blackbelt-technology/pi-dashboard-client-utils/DialogPortal": "client-utils/src/DialogPortal.tsx",
+  "@blackbelt-technology/pi-dashboard-client-utils/EmptyState": "client-utils/src/EmptyState.tsx",
+  "@blackbelt-technology/pi-dashboard-client-utils/LayerPortal": "client-utils/src/LayerPortal.tsx",
+  "@blackbelt-technology/pi-dashboard-client-utils/Popover": "client-utils/src/Popover.tsx",
+  "@blackbelt-technology/pi-dashboard-client-utils/SearchableSelectDialog": "client-utils/src/SearchableSelectDialog.tsx",
+  "@blackbelt-technology/pi-dashboard-client-utils/Skeleton": "client-utils/src/Skeleton.tsx",
+  "@blackbelt-technology/pi-dashboard-client-utils/StatusPill": "client-utils/src/StatusPill.tsx",
+  "@blackbelt-technology/pi-dashboard-client-utils/ZoomControls": "client-utils/src/ZoomControls.tsx",
+  "@blackbelt-technology/pi-dashboard-client-utils/agent-card-utils": "client-utils/src/agent-card-utils.ts",
+  "@blackbelt-technology/pi-dashboard-client-utils/escape-stack": "client-utils/src/escape-stack.ts",
+  "@blackbelt-technology/pi-dashboard-client-utils/identity/token-store": "client-utils/src/identity/token-store.ts",
+  "@blackbelt-technology/pi-dashboard-client-utils/useFocusTrap": "client-utils/src/useFocusTrap.ts",
+  "@blackbelt-technology/pi-dashboard-client-utils/useMediaQuery": "client-utils/src/useMediaQuery.ts",
+  "@blackbelt-technology/pi-dashboard-client-utils/useMobile": "client-utils/src/useMobile.tsx",
+  "@blackbelt-technology/pi-dashboard-client-utils/useZoomPan": "client-utils/src/useZoomPan.ts"
+}

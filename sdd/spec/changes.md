@@ -2,6 +2,12 @@
 
 Semantic changes to the specification. Git history captures diffs; this file captures intent.
 
+## 2026-10-29
+
+- Plan session-local beginner Chat over the actual configured live primary Pi, preserving independent Terminal/Herdr/IDE ownership, generation/auth boundaries, input-based idle policy, away-only notification delivery and bounded questionnaire policy ([REQ-AGENT-224](agents.md#req-agent-224-shared-live-pi-chat-and-session-local-surfaces)). Pin the minimal explicit attach/WS/component-question boundary and one optional Host adapter port; do not add management/global proxying, a second session owner, persistent surface preferences, a questionnaire framework or a new delivery mechanism.
+- Narrow only the blanket editor-workspace/no-host-terminal rule for an explicit later Chat/Terminal gesture ([REQ-IDE-048](browser-ide.md#req-ide-048-default-workspace-and-dashboard-owned-vs-code-sessions), [REQ-IDE-049](browser-ide.md#req-ide-049-dashboard-vs-code-startup-and-recovery), [REQ-TERM-035](terminal.md#req-term-035-terminal-readiness-follows-mode-and-workspace)). Ordinary creation/selection/deep links and editor recovery remain editor-first; the immutable workspace/mode and independent IDE conversation remain authoritative. These amended contracts are Planned, not partially implemented or verified.
+- Author first-party Worker auth/generation/allowlist, shell surface/lifecycle and Host-router adapter-composition tests only. The user accepted selected upstream compatibility and waived its initial passing proof; no local or CI execution, RED/GREEN evidence, implementation or deployed acceptance is claimed. Untouched imported widgets/reducers/protocol/PromptBus/SDK internals are deliberately not re-tested; focused policy-adapter tests are added only before a concrete owned/cherry-picked policy change.
+
 ## 2026-10-27
 
 - Approve trusted installed Dispatcher applications on normal compiler-generated Flue Worker/Durable Object hosting, with installation-authenticated ordinary run identities rather than a Loader/facet sandbox or per-run capability binding ([REQ-OPERATOR-015](operators.md#req-operator-015-isolated-approved-worker-loading), [048](operators.md#req-operator-048-dispatcher-execution)). Preserve owner/installation authority, original budgets/deadlines, uncertainty, exact settlement, immutable collection and historical state; shared-host completion does not claim Worker destruction.

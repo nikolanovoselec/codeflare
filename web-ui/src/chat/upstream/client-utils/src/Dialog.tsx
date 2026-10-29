@@ -1,0 +1,240 @@
+/** @jsxImportSource react */
+import { mdiClose } from "@mdi/js";
+import { Icon } from "@mdi/react";
+import {
+  type ReactNode,
+  useCallback,
+  useId,
+  useRef,
+  useState,
+} from "react";
+import { DialogPortal } from "./DialogPortal.js";
+import { useEscapeDismiss } from "./escape-stack.js";
+import { LayerHostProvider } from "./LayerPortal.js";
+import { useFocusTrap } from "./useFocusTrap.js";
+
+export type DialogSize = "sm" | "md" | "lg" | "full";
+export type DialogIntent = "primary" | "danger" | "neutral";
+
+interface DialogProps {
+  open: boolean;
+  onClose: () => void;
+  title?: string;
+  /** Optional leading icon (mdi path string) rendered in the header. */
+  icon?: string;
+  size?: DialogSize;
+  testId?: string;
+  /** Used for aria-label when no `title` is given. */
+  ariaLabel?: string;
+  /** Edge-to-edge body: drop the inner padding, clip overflow, and establish a
+   *  flex COLUMN context so a self-framed child (e.g. a chat/detail view with
+   *  its own header) fills the dialog as a single window and manages its own
+   *  scroll. The panel carries only a `max-h` cap and no definite height, so a
+   *  flush child must size itself `flex-1 min-h-0` — an `h-full` child resolves
+   *  against an indefinite parent, grows to content, and its own
+   *  `overflow-y-auto` never becomes a scroller. The built-in ✕ is suppressed
+   *  in this mode (see `showClose`). See change:
+   *  improve-flow-graph-dialog-and-card-interaction,
+   *  fix-flush-dialog-scroll-and-close-collision. */
+  flush?: boolean;
+  /** Restore the built-in ✕ under `flush`. For a flush child that renders no
+   *  header (and therefore no dismissal affordance) of its own — notably a
+   *  third-party plugin dialog. A flush child with NO focusable element of its
+   *  own MUST set this, or the focus trap falls back to the container and
+   *  keyboard users get no target and no visible exit. Ignored when `flush` is
+   *  false (the ✕ always renders there). See change:
+   *  fix-flush-dialog-scroll-and-close-collision. */
+  showClose?: boolean;
+  children: ReactNode;
+}
+
+const SIZE_MAX_W: Record<DialogSize, string> = {
+  sm: "max-w-sm",
+  md: "max-w-md",
+  lg: "max-w-lg",
+  full: "max-w-[95vw]",
+};
+
+// `full` gets a taller cap (near-fullscreen wide stage, e.g. horizontal flow
+// graphs); sm/md/lg keep the 80vh column cap. See change:
+// improve-flow-graph-dialog-and-card-interaction.
+const SIZE_MAX_H: Record<DialogSize, string> = {
+  sm: "max-h-[80vh]",
+  md: "max-h-[80vh]",
+  lg: "max-h-[80vh]",
+  full: "max-h-[92vh]",
+};
+
+export function Dialog({
+  open,
+  onClose,
+  title,
+  icon,
+  size = "md",
+  testId,
+  ariaLabel,
+  flush = false,
+  showClose = false,
+  children,
+}: DialogProps) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const titleId = useId();
+  // The panel doubles as the layer host for any `LayerPortal` overlay a child
+  // opens (e.g. the run-config ModelSelector): portaling to `document.body`
+  // would land it at `z-popover`, BELOW this dialog's `z-dialog` backdrop. State
+  // (not just the ref) so children re-render once the element exists.
+  // See change: fix-composer-popover-layering.
+  const [panelEl, setPanelEl] = useState<HTMLDivElement | null>(null);
+  const setPanel = useCallback((el: HTMLDivElement | null) => {
+    containerRef.current = el;
+    setPanelEl(el);
+  }, []);
+
+  useFocusTrap(containerRef, open);
+
+  // Escape dismissal routes through the shared escape-stack: onClose fires only
+  // when this dialog is the topmost registered layer, so an overlay opened above
+  // it consumes the Escape first. See change: fix-stacked-escape-closes-layers.
+  useEscapeDismiss(open, onClose);
+
+  if (!open) return null;
+
+  const hasHeader = Boolean(title || icon);
+  // A flush child is self-framed: it renders its own header and its own back
+  // affordance, and the panel reserves no corner for the ✕ (there is no header
+  // branch to apply `pr-8`). Rendering it anyway paints a duplicate dismissal
+  // control on top of whatever the child put there.
+  const renderClose = !flush || showClose;
+
+  return (
+    <DialogPortal>
+      <div className="fixed inset-0 z-dialog flex items-center justify-center">
+        <div
+          className="absolute inset-0 bg-[var(--bg-overlay)]"
+          onClick={onClose}
+          data-testid={testId ? `${testId}-overlay` : undefined}
+        />
+        <div
+          ref={setPanel}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby={title ? titleId : undefined}
+          aria-label={!title ? ariaLabel : undefined}
+          tabIndex={-1}
+          data-testid={testId}
+          className={`relative w-full mx-4 ${SIZE_MAX_W[size]} ${SIZE_MAX_H[size]} ${flush ? "overflow-hidden flex flex-col min-h-0" : "overflow-y-auto p-5 space-y-4"} bg-[var(--bg-secondary)] border border-[var(--border-secondary)] rounded-xl shadow-xl focus:outline-none`}
+        >
+          {/* Standard close affordance on every non-flush dialog (Escape +
+              backdrop also close). Absolutely positioned; the headered branch
+              reserves its corner with `pr-8`. Suppressed under `flush` unless
+              `showClose` opts it back in. */}
+          {renderClose && (
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="Close"
+              data-testid={testId ? `${testId}-close` : undefined}
+              className="absolute top-2 right-2 z-10 flex items-center justify-center min-h-[44px] min-w-[44px] sm:min-h-[36px] sm:min-w-[36px] rounded text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface)] transition-colors"
+            >
+              <Icon path={mdiClose} size={0.8} />
+            </button>
+          )}
+          {hasHeader && (
+            <div className="flex items-center gap-3 pr-12">
+              {icon && (
+                <div className="flex-shrink-0 flex items-center justify-center w-9 h-9 rounded-md border border-[var(--severity-info-border)] bg-[var(--severity-info-bg)] text-[var(--severity-info-fg)]">
+                  <Icon path={icon} size={0.85} />
+                </div>
+              )}
+              {title && (
+                <h3
+                  id={titleId}
+                  className="text-lg font-semibold text-[var(--text-primary)]"
+                >
+                  {title}
+                </h3>
+              )}
+            </div>
+          )}
+          <LayerHostProvider host={panelEl}>{children}</LayerHostProvider>
+        </div>
+      </div>
+    </DialogPortal>
+  );
+}
+
+// ── Footer composition ───────────────────────────────────────────────────
+
+function DialogFooter({ children }: { children: ReactNode }) {
+  return (
+    <div className="flex justify-end items-center gap-2 pt-1">{children}</div>
+  );
+}
+
+// Shared by every action and Cancel: contract target size (44 px below `sm`,
+// 36 px from `sm`) and semibold text. See change: align-ui-contract-recipes.
+const ACTION_BASE =
+  "inline-flex items-center justify-center text-xs font-semibold px-3 rounded transition-colors min-h-[44px] sm:min-h-[36px]";
+
+interface DialogCancelProps {
+  onClick: () => void;
+  children?: ReactNode;
+  testId?: string;
+}
+
+function DialogCancel({ onClick, children = "Cancel", testId }: DialogCancelProps) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      data-testid={testId}
+      className={`${ACTION_BASE} border border-[var(--border-primary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]`}
+    >
+      {children}
+    </button>
+  );
+}
+
+// Primary fills with --accent-solid (white on it is 5.17:1 in every theme);
+// --accent-primary under white text is only 3.68:1.
+// See change: add-pi-spec-driven-schema.
+const INTENT_CLASS: Record<DialogIntent, string> = {
+  primary:
+    "bg-[var(--accent-solid)] text-white hover:opacity-90 border border-transparent",
+  danger:
+    "bg-[var(--tint-red-bg)] text-[var(--tint-red-fg)] border border-[var(--tint-red-border)] hover:opacity-90",
+  neutral:
+    "bg-transparent border border-[var(--border-primary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]",
+};
+
+interface DialogActionProps {
+  onClick: () => void;
+  intent?: DialogIntent;
+  disabled?: boolean;
+  children: ReactNode;
+  testId?: string;
+}
+
+function DialogAction({
+  onClick,
+  intent = "primary",
+  disabled,
+  children,
+  testId,
+}: DialogActionProps) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      data-testid={testId}
+      className={`${ACTION_BASE} disabled:opacity-50 disabled:cursor-not-allowed ${INTENT_CLASS[intent]}`}
+    >
+      {children}
+    </button>
+  );
+}
+
+Dialog.Footer = DialogFooter;
+Dialog.Cancel = DialogCancel;
+Dialog.Action = DialogAction;

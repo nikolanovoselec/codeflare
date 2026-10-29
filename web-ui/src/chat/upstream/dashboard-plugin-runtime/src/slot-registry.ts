@@ -1,0 +1,355 @@
+/**
+ * Typed slot registry for the dashboard plugin system.
+ *
+ * The registry holds a Map<SlotId, ClaimEntry[]> pre-sorted by
+ * (priority asc, pluginId asc) for deterministic render order.
+ */
+import type { EventTypeOwner } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/event-type-owners.js";
+import type { FileHandlerClaimMeta } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/file-handler.js";
+import type { SlotId, SlotPredicateInput } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/slot-types.js";
+import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+
+/** A folder descriptor for sidebar-folder-section filtering. */
+export interface FolderDescriptor {
+  cwd: string;
+  label?: string;
+}
+
+/**
+ * A resolved slot claim entry held in the registry.
+ *
+ * Generic over `S extends SlotId` with a default of `SlotId` so that callers
+ * iterating mixed-slot arrays (`ClaimEntry[]`) keep working unchanged, while
+ * the static-registry generator can emit each entry with its literal slot id
+ * to get strong predicate/shouldRender input typing per slot.
+ *
+ * See change: slot-generic-claim-entry.
+ */
+export interface ClaimEntry<S extends SlotId = SlotId> {
+  pluginId: string;
+  priority: number;
+  slot: S;
+  componentName?: string;
+  command?: string;
+  trigger?: string;
+  toolName?: string;
+  /**
+   * The `customType` a `custom-entry-renderer` claim owns, matched by EXACT
+   * equality against a chat custom row's `customType`.
+   * See change: add-custom-entry-renderer-slot.
+   */
+  customType?: string;
+  /**
+   * The virtual-path prefix an `editor-pane-tab` claim owns.
+   * See change: add-browser-editor-pane-tab.
+   */
+  pathPrefix?: string;
+  /**
+   * Validated claim metadata of an `editor-pane-file-handler` claim (id,
+   * extensions, mode, label, keepAlive, maxBytes, …). Claim key =
+   * `<pluginId>/<fileHandler.id>`. See change: add-editor-pane-file-handlers.
+   */
+  fileHandler?: FileHandlerClaimMeta;
+  /** Resource page a `resource-page-section` claim is restricted to. See change: add-skill-atlas-screen. */
+  resourceType?: "skill" | "agent" | "extension" | "prompt" | "theme";
+  /** Exported label component name for an `editor-pane-tab` claim. */
+  labelComponentName?: string;
+  /** The resolved `editor-pane-tab` label component (set at registration time). */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  LabelComponent?: React.ComponentType<any>;
+  /** Wouter path pattern for `shell-overlay-route` claims. */
+  path?: string;
+  /** Session-id URL parameter name for `shell-overlay-route` claims. */
+  sessionParam?: string;
+  /** Back-action depth for `shell-overlay-route` claims (1 = detail, 2 = overlay). */
+  depth?: 1 | 2;
+  /** Back-action parent path pattern for `depth: 2` `shell-overlay-route` claims. */
+  parentPath?: string;
+  /** Presentation for `shell-overlay-route` claims: route-backed dialog (default)
+   *  or full-viewport page on desktop AND mobile. See change: add-route-backed-overlay-dialogs. */
+  presentation?: "page" | "dialog" | "content";
+  tab?: string;
+  /** Slot-specific extra config (escape hatch — prefer first-class fields). */
+  config?: Record<string, unknown>;
+  /**
+   * Filters whether this claim *targets* the given props (session, folder, …).
+   * Failing the predicate removes the claim from the slot's claim list entirely.
+   * Use for structural targeting (e.g. "only sessions whose cwd is X").
+   *
+   * Input shape is determined by the slot id via `SlotPredicateInput<S>`:
+   *   session-scoped slots → `DashboardSession | null | undefined`
+   *   folder-scoped slots  → `FolderDescriptor`
+   *   other slots          → `never` (the predicate is never invoked; bivariance still
+   *                          lets the type checker accept one — `shell-headless` is
+   *                          enforced by the manifest validator instead)
+   *
+   * NOTE on syntax: this field uses TypeScript **method-shorthand** rather than
+   * arrow-property syntax. Method-shorthand parameter types are bivariant under
+   * `strictFunctionTypes`, which is required so that the static-registry
+   * generator can emit each entry as `ClaimEntry<"literal-slot-id">` and still
+   * pack the entries into a mixed-slot `ClaimEntry[]` array. Soundness is
+   * preserved by the registry's slot-pre-filtering contract (filter helpers
+   * receive only claims for one slot id). See change: slot-generic-claim-entry.
+   */
+  predicate?(input: SlotPredicateInput<S>): boolean;
+  /**
+   * Indicates whether this claim's `Component` will produce visible output
+   * for the given props. Runs synchronously alongside `predicate` but at the
+   * wrapper-gate layer. When it returns `false`, the claim is NOT mounted and
+   * counts as absent for `useSlotHasClaimsForSession` (so the wrapper subcard
+   * hides).
+   *
+   * Use when the component itself conditionally returns `null` based on dynamic
+   * state (e.g. "extension not installed", "user not authenticated"). MUST be
+   * synchronous — plugins requiring async state must maintain a sync-readable
+   * cache and default to `false` (closed) while the cache is unpopulated.
+   *
+   * See change: auto-hide-empty-session-subcards. Syntax note (method-shorthand
+   * for bivariance): see the matching note on `predicate` above and change:
+   * slot-generic-claim-entry.
+   */
+  shouldRender?(input: SlotPredicateInput<S>): boolean;
+  /**
+   * `tool-renderer` claims: the row starts expanded while its status is `running`.
+   * See change: decouple-plugins-from-core (design D5 item 7).
+   */
+  expandWhileRunning?: boolean;
+  /**
+   * `tool-renderer` claims: sync predicate resolved from the manifest's
+   * `resultPending` export. True = the row's result never reached this browser
+   * (the shell shows its "recovered" badge). `session` is `ToolContext.session`.
+   * Method-shorthand for the same bivariance reason as `predicate`.
+   */
+  resultPending?(toolDetails: Record<string, unknown> | undefined, session: unknown): boolean;
+  /** The resolved React component (set at registration time). */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  Component?: React.ComponentType<any>;
+}
+
+/** Manifest summary of one registered plugin (see `SlotRegistry.registerPlugin`). */
+export interface PluginSummary {
+  id: string;
+  displayName: string;
+  /** Event types the plugin owns: exact names or `prefix_*`. */
+  eventTypes?: readonly string[];
+}
+
+/** {@link PluginSummary} plus the plugin's claims, for the activation UI. */
+export interface PluginActivationSummary {
+  id: string;
+  displayName: string;
+  eventTypes: string[];
+  claims: ClaimEntry[];
+}
+
+export interface SlotRegistry {
+  /**
+   * All claims for the given slot, pre-sorted.
+   *
+   * After `setEnabledSet` has been called at least once, claims whose
+   * `pluginId` is not in the enabled set are filtered out. Before any
+   * `setEnabledSet` call, every claim is returned (preserves SSR/legacy
+   * behaviour). See change: add-plugin-activation-ui.
+   */
+  getClaims(slotId: SlotId): ClaimEntry[];
+  /** All claims across all slots (subject to the same enable filter as `getClaims`). */
+  getAllClaims(): ClaimEntry[];
+  /** Add a claim. Inserts in sorted order. */
+  addClaim(claim: ClaimEntry): void;
+  /** Remove all claims belonging to a plugin. */
+  removeClaims(pluginId: string): void;
+  /**
+   * Replace the active enabled-plugins set. After the first call, every
+   * `getClaims` / `getAllClaims` query SHALL omit claims whose `pluginId`
+   * is not in the set.
+   * See change: add-plugin-activation-ui.
+   */
+  setEnabledSet(ids: ReadonlySet<string>): void;
+  /**
+   * Read the enabled-set membership for a plugin id.
+   *
+   * Returns `true` before any `setEnabledSet` call (filter inactive), matching
+   * `getClaims`' unfiltered default. Consumers that render non-claim data
+   * (intents, descriptors) MUST gate on this — the registry's own filter only
+   * covers claims. See change: plugin-settings-pages (design D6).
+   */
+  isPluginEnabled(id: string): boolean;
+  /**
+   * Record the manifest summary (`{id, displayName, eventTypes}`) of a plugin.
+   * Independent of claims and of the enabled set, so a plugin with no claims
+   * (subagents) or a disabled one keeps its metadata. Re-registering an id
+   * replaces its summary. See change: decouple-plugins-from-core (D5).
+   */
+  registerPlugin(summary: PluginSummary): void;
+  /**
+   * Activation-UI escape hatch: one summary per registered plugin
+   * (`id`, `displayName`, `eventTypes`, claims), sorted by id, IGNORING the
+   * enabled-set filter. Used by the Plugins tab and the event-type owner
+   * lookup so disabled plugins stay visible. Every other consumer SHOULD use
+   * `getClaims` and get free filtering.
+   * See changes: add-plugin-activation-ui, decouple-plugins-from-core.
+   */
+  getAllPluginsForActivationUi(): PluginActivationSummary[];
+  /**
+   * Plugins that declare `eventTypes`, read only from the unfiltered summary
+   * (never from `getClaims`), so a disabled plugin's ownership survives
+   * `setEnabledSet`. Sorted by id.
+   */
+  getEventTypeOwners(): EventTypeOwner[];
+}
+
+function compareClaims(a: ClaimEntry, b: ClaimEntry): number {
+  const pa = a.priority ?? 1000;
+  const pb = b.priority ?? 1000;
+  if (pa !== pb) return pa - pb;
+  return a.pluginId.localeCompare(b.pluginId);
+}
+
+export function createSlotRegistry(): SlotRegistry {
+  const store = new Map<SlotId, ClaimEntry[]>();
+  // `null` = filter inactive (default state, returns all claims).
+  // `Set<string>` = filter active, only listed pluginIds are kept.
+  let enabledSet: ReadonlySet<string> | null = null;
+  // Manifest summaries — never filtered by `enabledSet`.
+  const summaries = new Map<string, PluginSummary>();
+
+  function getBucket(slotId: SlotId): ClaimEntry[] {
+    if (!store.has(slotId)) store.set(slotId, []);
+    return store.get(slotId)!;
+  }
+
+  function applyFilter(claims: ClaimEntry[]): ClaimEntry[] {
+    if (enabledSet === null) return claims;
+    const set = enabledSet;
+    return claims.filter((c) => set.has(c.pluginId));
+  }
+
+  return {
+    getClaims(slotId: SlotId): ClaimEntry[] {
+      return applyFilter(store.get(slotId) ?? []);
+    },
+
+    getAllClaims(): ClaimEntry[] {
+      const all: ClaimEntry[] = [];
+      for (const claims of store.values()) all.push(...claims);
+      return applyFilter(all);
+    },
+
+    addClaim(claim: ClaimEntry): void {
+      const bucket = getBucket(claim.slot);
+      bucket.push(claim);
+      bucket.sort(compareClaims);
+    },
+
+    removeClaims(pluginId: string): void {
+      for (const [slotId, claims] of store.entries()) {
+        const filtered = claims.filter(c => c.pluginId !== pluginId);
+        store.set(slotId, filtered);
+      }
+    },
+
+    setEnabledSet(ids: ReadonlySet<string>): void {
+      enabledSet = ids;
+    },
+
+    isPluginEnabled(id: string): boolean {
+      return enabledSet === null ? true : enabledSet.has(id);
+    },
+
+    registerPlugin(summary: PluginSummary): void {
+      summaries.set(summary.id, summary);
+    },
+
+    getAllPluginsForActivationUi(): PluginActivationSummary[] {
+      const claimsById = new Map<string, ClaimEntry[]>();
+      for (const bucket of store.values()) {
+        for (const claim of bucket) {
+          let arr = claimsById.get(claim.pluginId);
+          if (!arr) {
+            arr = [];
+            claimsById.set(claim.pluginId, arr);
+          }
+          arr.push(claim);
+        }
+      }
+      const ids = new Set<string>([...summaries.keys(), ...claimsById.keys()]);
+      return [...ids].sort().map((id) => {
+        const summary = summaries.get(id);
+        return {
+          id,
+          displayName: summary?.displayName ?? id,
+          eventTypes: [...(summary?.eventTypes ?? [])],
+          claims: claimsById.get(id) ?? [],
+        };
+      });
+    },
+
+    getEventTypeOwners(): EventTypeOwner[] {
+      return [...summaries.values()]
+        .filter((s) => (s.eventTypes?.length ?? 0) > 0)
+        .sort((a, b) => a.id.localeCompare(b.id))
+        .map((s) => ({ ownerId: s.id, displayName: s.displayName, eventTypes: [...(s.eventTypes ?? [])] }));
+    },
+  };
+}
+
+// ── Filter helpers ───────────────────────────────────────────────────────────
+
+/** Filter session-scoped claims using the claim's optional predicate. */
+export function forSession(claims: ClaimEntry[], session: DashboardSession): ClaimEntry[] {
+  return claims.filter(c => !c.predicate || c.predicate(session));
+}
+
+/**
+ * Filter session-scoped claims by BOTH `predicate` AND `shouldRender`.
+ *
+ * Use this variant at the wrapper-gate layer (e.g. `useSlotHasClaimsForSession`,
+ * slot consumers) when an empty render path should cause the parent container
+ * to hide. The plain `forSession` should still be used when you only care about
+ * structural targeting (e.g. counting registered claims).
+ *
+ * See change: auto-hide-empty-session-subcards.
+ */
+export function forSessionRendered(
+  claims: ClaimEntry[],
+  session: DashboardSession,
+): ClaimEntry[] {
+  return claims.filter(
+    c =>
+      (!c.predicate || c.predicate(session)) &&
+      (!c.shouldRender || c.shouldRender(session)),
+  );
+}
+
+/** Filter folder-scoped claims using the claim's optional predicate. */
+export function forFolder(claims: ClaimEntry[], folder: FolderDescriptor): ClaimEntry[] {
+  return claims.filter(c => !c.predicate || c.predicate(folder));
+}
+
+/** Filter command-route claims by command string. */
+export function forCommand(claims: ClaimEntry[], command: string): ClaimEntry[] {
+  return claims.filter(c => c.command === command);
+}
+
+/** Filter tool-renderer claims by tool name. */
+export function forToolName(claims: ClaimEntry[], toolName: string): ClaimEntry[] {
+  return claims.filter(c => c.toolName === toolName);
+}
+
+/**
+ * Filter `custom-entry-renderer` claims by `customType` (exact match).
+ * See change: add-custom-entry-renderer-slot.
+ */
+export function forCustomType(claims: ClaimEntry[], customType: string): ClaimEntry[] {
+  return claims.filter(c => c.customType === customType);
+}
+
+/**
+ * Filter `automation-action-editor` claims by the automation action id.
+ * A claim targets an action id via `config.actionId` (the generic config
+ * escape hatch — there is no first-class field for it).
+ * See change: wire-flow-inputs-in-automation.
+ */
+export function forActionId(claims: ClaimEntry[], actionId: string): ClaimEntry[] {
+  return claims.filter(c => c.config?.actionId === actionId);
+}

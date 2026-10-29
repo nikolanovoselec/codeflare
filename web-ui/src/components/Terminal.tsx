@@ -17,6 +17,8 @@ interface TerminalProps {
   visible?: boolean;
   focused?: boolean;
   connect?: boolean;
+  /** Consume one explicit primary-focus handoff, never on ordinary reconnect. */
+  takePrimaryHandoff?: () => boolean;
   /** When true, always observe resize (used in tiled mode where multiple terminals are visible) */
   alwaysObserveResize?: boolean;
   /** When true, skip rendering the per-terminal InitProgress overlay (used in tiled mode) */

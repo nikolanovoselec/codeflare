@@ -1,0 +1,46 @@
+/** @jsxImportSource react */
+import { act } from 'react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { mountChat } from '../ChatMount';
+
+let mounted: ReturnType<typeof mountChat> | undefined;
+let host: HTMLDivElement | undefined;
+afterEach(async () => { if (mounted) await act(() => mounted!.dispose()); host?.remove(); mounted = undefined; vi.unstubAllGlobals(); });
+
+// Codeflare-owned activity/draft wiring only: no upstream widget assertions.
+describe('REQ-AGENT-224 manual Chat activity boundary', () => {
+  it('reports human edits/send but not subscription/replay traffic to the shell', async () => {
+    const manual: string[] = [];
+    let draft = '';
+    let socket!: Wire;
+    class Wire {
+      static OPEN = 1;
+      readyState = 1;
+      onopen: (() => void) | null = null;
+      onclose: (() => void) | null = null;
+      onmessage: ((e: { data: string }) => void) | null = null;
+      constructor(_url: string) { socket = this; }
+      send(_data: string) {}
+      close() {}
+    }
+    vi.stubGlobal('WebSocket', Wire);
+    host = document.createElement('div'); host.className = 'codeflare-chat'; document.body.append(host);
+    const props = { sessionId: 'cf-primary', generation: 7, boundSessionId: 'bound-primary', draft,
+      onManualInput: () => { manual.push('human'); }, onDraftChange: (next: string) => { draft = next; mounted?.update({ ...props, draft }); } };
+    await act(() => { mounted = mountChat(host!, props); });
+    await act(() => { socket.onopen?.(); socket.onmessage?.({ data: JSON.stringify({ type: 'event_replay', sessionId: 'bound-primary', events: [] }) }); });
+    expect(manual).toEqual([]);
+    const input = host.querySelector('textarea')!;
+    await act(() => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(input, 'Continue');
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    expect(draft).toBe('Continue');
+    expect(manual.length).toBeGreaterThan(0);
+    const beforeSend = manual.length;
+    const send = Array.from(host.querySelectorAll('button')).find(button => button.textContent?.trim() === 'Send')!;
+    await act(() => { send.click(); });
+    expect(manual.length).toBeGreaterThan(beforeSend);
+    expect(draft).toBe('');
+  });
+});

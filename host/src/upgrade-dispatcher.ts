@@ -23,8 +23,10 @@ import {
 } from './vscode-proxy.js';
 import type { ProxyTarget } from './request-router.js';
 import type { ActivityTracker, Logger } from './types.js';
+import type { ChatPort } from './chat-proxy.js';
 
 interface UpgradeDispatcherDeps {
+  chat?: ChatPort;
   /** The /terminal WSS (owned by server.ts, where its connection handler is attached). */
   terminalWss: WebSocketServer;
   activityTracker: ActivityTracker;
@@ -244,6 +246,11 @@ export function createUpgradeDispatcher(deps: UpgradeDispatcherDeps): UpgradeDis
       const reason = authOutcome.status === 401 ? 'Unauthorized' : 'Service Unavailable';
       socket.write(`HTTP/1.1 ${authOutcome.status} ${reason}\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n${authOutcome.body}`);
       socket.destroy();
+      return;
+    }
+
+    if (deps.chat && /^\/api\/chat\/[a-z0-9]{8,24}\/ws$/.test(pathname ?? '')) {
+      deps.chat.handleUpgrade(req, socket, head);
       return;
     }
 

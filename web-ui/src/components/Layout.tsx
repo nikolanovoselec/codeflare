@@ -1,6 +1,7 @@
-import { Component, createSignal, createMemo, createEffect, onMount, onCleanup, Show, untrack } from 'solid-js';
+import { Component, batch, createSignal, createMemo, createEffect, onMount, onCleanup, Show, untrack } from 'solid-js';
 import Header from './Header';
 import TerminalArea from './TerminalArea';
+import { attachChatSession, ChatAttachError } from '../chat/api';
 import SettingsPanel from './SettingsPanel';
 import StoragePanel from './StoragePanel';
 import SplashCursor from './SplashCursor';
@@ -24,6 +25,20 @@ import { createBrowserIdeWindowOpener } from '../lib/browser-ide-window';
 import { isMountedLifecycle } from '../lib/session-presentation';
 
 type ViewState = 'dashboard' | 'expanding' | 'terminal' | 'collapsing';
+type SessionSurface = 'chat' | 'terminal';
+interface SessionSurfaceState {
+  surface: SessionSurface;
+  generation: number;
+  draft: string;
+  terminalEntered?: boolean;
+  takePrimaryHandoff?: () => boolean;
+}
+
+function isChatEligibleSession(session: SessionWithStatus | null | undefined): session is SessionWithStatus & { generation: number } {
+  return session?.status === 'running' && session.agentType === 'pi'
+    && (session.tabConfig?.find(tab => tab.id === '1')?.command ?? (session.tabConfig?.length ? '' : session.agentType)) === 'pi'
+    && Number.isSafeInteger(session.generation) && session.generation! >= 0;
+}
 
 const BROWSER_IDE_POPUP_BLOCKED_ERROR = 'Browser blocked the Browser IDE window. Allow pop-ups and try again.';
 const BROWSER_IDE_INVALID_SESSION_ERROR = 'Browser IDE could not open because the session ID is invalid.';
@@ -78,6 +93,52 @@ const Layout: Component<LayoutProps> = (props) => {
   const [isStoragePanelOpen, setIsStoragePanelOpen] = createSignal(false);
   const [showTilingOverlay, setShowTilingOverlay] = createSignal(false);
   const [viewState, setViewState] = createSignal<ViewState>('dashboard');
+  // REQ-AGENT-224: transient shell state only. No route, preference or storage contract.
+  const [surfaces, setSurfaces] = createSignal<Record<string, SessionSurfaceState>>({});
+  let pendingEntry: { sessionId: string; generation: number; controller: AbortController } | undefined;
+  const cancelPendingEntry = () => { pendingEntry?.controller.abort(); pendingEntry = undefined; };
+  const clearSurfaceState = () => { cancelPendingEntry(); setSurfaces({}); };
+  onCleanup(clearSurfaceState);
+  const multiViewActive = createMemo(() => terminalWorkspaceStore.getActiveWorkspace().kind === 'multiview');
+  const activeSurfaceState = createMemo(() => {
+    const id = sessionStore.activeSessionId;
+    return id ? surfaces()[id] : undefined;
+  });
+  const chatSelected = createMemo(() => !multiViewActive() && activeSurfaceState()?.surface === 'chat');
+  const chatSession = createMemo(() => {
+    const session = sessionStore.getActiveSession();
+    if (!chatSelected() || sessionStore.authExpired || !isChatEligibleSession(session)
+      || activeSurfaceState()?.generation !== session.generation) return undefined;
+    return { sessionId: session.id, generation: session.generation };
+  });
+  const explicitPrimarySessionId = createMemo(() => {
+    const session = sessionStore.getActiveSession();
+    return !multiViewActive() && !sessionStore.authExpired && session?.workspace === 'vscode'
+      && isChatEligibleSession(session) && activeSurfaceState()?.generation === session.generation
+      ? session.id : undefined;
+  });
+  const surfaceControlsAvailable = createMemo(() => !multiViewActive() && !sessionStore.authExpired
+    && isChatEligibleSession(sessionStore.getActiveSession()));
+
+  // Catalog removal is authoritative deletion/logout cleanup; a mere session
+  // switch must retain the other session's draft and choice. Stale generations
+  // remain fenced until a new explicit entry, never remounted by polling.
+  createEffect(() => {
+    const sessions = sessionStore.sessions;
+    if (sessionStore.authExpired) { clearSurfaceState(); return; }
+    const ids = new Set(sessions.map(session => session.id));
+    setSurfaces(previous => {
+      const removed = Object.keys(previous).filter(id => !ids.has(id));
+      if (!removed.length) return previous;
+      const next = { ...previous };
+      for (const id of removed) delete next[id];
+      return next;
+    });
+    if (pendingEntry) {
+      const session = sessions.find(candidate => candidate.id === pendingEntry!.sessionId);
+      if (!isChatEligibleSession(session) || session.generation !== pendingEntry.generation) cancelPendingEntry();
+    }
+  });
   let viewTransitionTimer: ReturnType<typeof setTimeout> | undefined;
 
   const clearViewTransitionTimer = () => {
@@ -407,6 +468,9 @@ const Layout: Component<LayoutProps> = (props) => {
       : sessionStore.getTerminalsForSession(session.id)?.activeTabId || '1';
 
   const visibleTerminalKeys = createMemo(() => {
+    if (chatSelected() || sessionStore.authExpired) return [];
+    const explicitId = explicitPrimarySessionId();
+    if (explicitId) return [`${explicitId}:1`];
     const activeWorkspace = terminalWorkspaceStore.getActiveWorkspace();
     const sessionId = activeWorkspace && activeWorkspace.kind === 'session' ? activeWorkspace.sessionId : null;
     const session = sessionId ? sessionStore.sessions.find((candidate) => candidate.id === sessionId) : null;
@@ -457,7 +521,7 @@ const Layout: Component<LayoutProps> = (props) => {
   // a stuck "Reconnecting..." overlay that only clears on full page refresh.
   {
     const onVisibilityChange = () => {
-      if (document.visibilityState === 'visible' && viewState() !== 'dashboard') {
+      if (document.visibilityState === 'visible' && viewState() !== 'dashboard' && visibleTerminalKeys().length > 0) {
         forceResetKeyboardState();
 
         if (isSamsungBrowser) {
@@ -481,7 +545,7 @@ const Layout: Component<LayoutProps> = (props) => {
         }
 
         setTimeout(() => {
-          if (viewState() !== 'dashboard') enableVirtualKeyboardOverlay();
+          if (viewState() !== 'dashboard' && visibleTerminalKeys().length > 0) enableVirtualKeyboardOverlay();
         }, 300);
         reconnectOnVisibilityReturn(undefined, visibleTerminalKeys());
       }
@@ -499,14 +563,14 @@ const Layout: Component<LayoutProps> = (props) => {
   createEffect(() => {
     const session = sessionStore.getActiveSession();
     const hasActiveTerminal = session
-      && session.workspace !== 'vscode'
+      && (session.workspace !== 'vscode' || explicitPrimarySessionId() === session.id)
       && (session.status === 'initializing' || sessionStore.isSessionInitializing(session.id)
         || (session.status !== 'error' && isMountedLifecycle(session.status as 'stopped' | 'starting' | 'running' | 'unreachable' | 'stopping')));
     const hasActiveMultiView = terminalWorkspaceStore.getActiveWorkspace().kind === 'multiview';
 
     if ((hasActiveTerminal || hasActiveMultiView) && viewState() === 'dashboard') {
       setViewState('terminal');
-      setTimeout(() => terminalStore.triggerLayoutResize(), 50);
+      if (!chatSelected()) setTimeout(() => terminalStore.triggerLayoutResize(), 50);
     } else if (!hasActiveTerminal && !hasActiveMultiView && viewState() === 'terminal') {
       terminalWorkspaceStore.setDashboardWorkspace();
       setViewState('dashboard');
@@ -520,7 +584,7 @@ const Layout: Component<LayoutProps> = (props) => {
     viewTransitionTimer = setTimeout(() => {
       viewTransitionTimer = undefined;
       setViewState('terminal');
-      terminalStore.triggerLayoutResize();
+      if (!chatSelected()) terminalStore.triggerLayoutResize();
     }, VIEW_TRANSITION_DURATION_MS);
   };
 
@@ -543,6 +607,7 @@ const Layout: Component<LayoutProps> = (props) => {
   };
 
   const keepDashboardOwnership = (historyMode?: 'push' | 'replace') => {
+    cancelPendingEntry();
     terminalWorkspaceStore.setDashboardWorkspace();
     setShowTilingOverlay(false);
     clearViewTransitionTimer();
@@ -558,6 +623,7 @@ const Layout: Component<LayoutProps> = (props) => {
     const session = sessionStore.sessions.find((candidate) => candidate.id === id);
     if (!session) return;
     const { shouldStart = false, updateHistory = true, explicitVscodeOpen = false } = options;
+    cancelPendingEntry();
 
     if (explicitVscodeOpen) {
       openVscodeSession(id);
@@ -578,6 +644,71 @@ const Layout: Component<LayoutProps> = (props) => {
     if (shouldStart) void sessionStore.startSession(id).catch(() => {});
   };
 
+  // An explicit late Terminal gesture must finish the same HTTP primary
+  // adoption used by Chat BEFORE any terminal browser connection can mount.
+  const openSessionSurface = async (id: string, surface: SessionSurface) => {
+    const session = sessionStore.sessions.find(candidate => candidate.id === id);
+    if (!isChatEligibleSession(session) || sessionStore.authExpired) return;
+    if (sessionStore.activeSessionId === id && !multiViewActive()
+      && viewState() !== 'dashboard' && (chatSelected() ? 'chat' : 'terminal') === surface) {
+      // A fenced Chat needs a new gesture, even though its old choice is retained.
+      if (surface !== 'chat' || activeSurfaceState()?.generation === session.generation) return;
+    }
+    cancelPendingEntry();
+    const generation = session.generation;
+    const previous = untrack(surfaces)[id];
+    let terminalEntered = previous?.generation === generation && previous.terminalEntered === true;
+    if (surface === 'terminal' && session.workspace === 'vscode' && !terminalEntered) {
+      const entry = { sessionId: id, generation, controller: new AbortController() };
+      pendingEntry = entry;
+      try {
+        await attachChatSession(id, generation, entry.controller.signal);
+        const current = sessionStore.sessions.find(candidate => candidate.id === id);
+        if (pendingEntry !== entry || entry.controller.signal.aborted || !isChatEligibleSession(current)
+          || current.generation !== generation || sessionStore.authExpired) return;
+        terminalEntered = true;
+      } catch (cause) {
+        if (pendingEntry === entry && !entry.controller.signal.aborted) {
+          setTerminalError(cause instanceof ChatAttachError || cause instanceof Error ? cause.message : 'Unable to open Terminal.');
+        }
+        return;
+      } finally {
+        if (pendingEntry === entry) pendingEntry = undefined;
+      }
+    }
+    let handoffPending = surface === 'terminal';
+    // Commit the surface and primary selection together: no transient secondary
+    // tab/browser owner may mount between dropping Chat and focusing tab one.
+    batch(() => {
+      setSurfaces(state => ({ ...state, [id]: {
+        surface, generation, draft: state[id]?.draft ?? '', terminalEntered,
+        takePrimaryHandoff: () => {
+          const current = untrack(() => sessionStore.getActiveSession());
+          if (!handoffPending || !isChatEligibleSession(current) || current.id !== id || current.generation !== generation) return false;
+          handoffPending = false;
+          return true;
+        },
+      } }));
+      setTerminalError(null);
+      setShowTilingOverlay(false);
+      if (surface === 'terminal' && session.workspace !== 'vscode') sessionStore.setActiveTerminalTab(id, '1');
+      sessionStore.setActiveSession(id);
+      terminalWorkspaceStore.setSingleSessionWorkspace(id, '1', session, { explicitPrimary: true });
+      enterTerminalView();
+      // Keep the existing route contract. VS Code remains editor-first on reload.
+      if (session.workspace !== 'vscode') writeSessionHistoryPath(id, 'push');
+    });
+  };
+
+  const handleSurfaceChange = (surface: SessionSurface) => {
+    const id = sessionStore.activeSessionId;
+    if (id && !multiViewActive()) void openSessionSurface(id, surface);
+  };
+  const handleChatDraftChange = (sessionId: string, generation: number, draft: string) => {
+    setSurfaces(state => state[sessionId]?.generation === generation
+      ? { ...state, [sessionId]: { ...state[sessionId], draft } } : state);
+  };
+
   const handleVscodeOpen = () => {
     const session = sessionStore.getActiveSession();
     if (!session) return;
@@ -585,6 +716,7 @@ const Layout: Component<LayoutProps> = (props) => {
   };
 
   const handleSelectSession = (id: string) => {
+    cancelPendingEntry();
     const session = sessionStore.sessions.find((s) => s.id === id);
     if (session && (session.status === 'initializing'
       || (session.status !== 'error' && isMountedLifecycle(session.status as 'stopped' | 'starting' | 'running' | 'unreachable' | 'stopping')))) {
@@ -641,6 +773,7 @@ const Layout: Component<LayoutProps> = (props) => {
   };
 
   const handleOpenMultiView = () => {
+    cancelPendingEntry();
     if (!terminalWorkspaceStore.openMultiView(
       sessionStore.sessions,
       (sessionId) => sessionStore.getTerminalsForSession(sessionId)?.activeTabId || '1',
@@ -714,6 +847,7 @@ const Layout: Component<LayoutProps> = (props) => {
   };
 
   const handleOpenDashboard = () => {
+    cancelPendingEntry();
     // Keyboard cleanup is handled reactively by Terminal.tsx when props.active
     // becomes false (via onCleanup in the keyboard lifecycle effect).
     terminalWorkspaceStore.setDashboardWorkspace();
@@ -839,6 +973,9 @@ const Layout: Component<LayoutProps> = (props) => {
             && sessionStore.getActiveSession()?.status === 'running'
             ? handleVscodeOpen
             : undefined}
+          surface={chatSelected() ? 'chat' : 'terminal'}
+          onSurfaceChange={surfaceControlsAvailable() ? handleSurfaceChange : undefined}
+          onLogout={clearSurfaceState}
           vaultReady={vaultReady()}
           vaultStatus={vaultButtonStatus()}
           onLogoClick={showDashboard() ? undefined : handleOpenDashboard}
@@ -857,7 +994,16 @@ const Layout: Component<LayoutProps> = (props) => {
       <div class="layout-middle">
         {/* Main content */}
         <TerminalArea
-          showTerminal={showTerminal() ?? false}
+          showTerminal={(showTerminal() && !chatSelected()) ?? false}
+          chatSelected={showTerminal() && chatSelected()}
+          chatSession={showTerminal() ? chatSession() : undefined}
+          chatDraft={activeSurfaceState()?.draft ?? ''}
+          onChatDraftChange={handleChatDraftChange}
+          explicitPrimarySessionId={explicitPrimarySessionId()}
+          takePrimaryHandoff={activeSurfaceState()?.takePrimaryHandoff}
+          onOpenChatSession={id => { void openSessionSurface(id, 'chat'); }}
+          onOpenTerminalSession={id => { void openSessionSurface(id, 'terminal'); }}
+          onLogout={clearSurfaceState}
           showTilingOverlay={showTilingOverlay()}
           onTilingButtonClick={handleTilingButtonClick}
           onSelectTilingLayout={handleSelectTilingLayout}

@@ -2234,6 +2234,10 @@ configure_tab_autostart() {
     local classic_agent_kind="" classic_agent_state="" classic_agent_id="" classic_agent_launch=""
     local classic_binding_dir classic_binding_file classic_binding_tmp configured_primary
     local classic_pi_cwd classic_pi_session_dir classic_pi_session_file classic_pi_session_tmp classic_pi_timestamp
+    local classic_pi_bin=pi
+    if [[ "${CODEFLARE_CHAT_GENERATION:-}" =~ ^(0|[1-9][0-9]{0,15})$ ]]; then
+        classic_pi_bin=/usr/local/bin/codeflare-primary-pi
+    fi
 
     # A Classic session owns one native Pi/Claude conversation UUID. The UUID is
     # created only after initial restore and is scoped by the immutable Codeflare
@@ -2306,8 +2310,8 @@ configure_tab_autostart() {
             fi
 
             case "$classic_agent_kind:$classic_agent_state" in
-                pi:fresh) classic_agent_launch="pi --session-id $classic_agent_id" ;;
-                pi:resume) classic_agent_launch="pi --session-id $classic_agent_id" ;;
+                pi:fresh) classic_agent_launch="$classic_pi_bin --session-id $classic_agent_id" ;;
+                pi:resume) classic_agent_launch="$classic_pi_bin --session-id $classic_agent_id" ;;
                 claude:fresh) classic_agent_launch="claude --dangerously-skip-permissions --session-id $classic_agent_id" ;;
                 claude:resume) classic_agent_launch="claude --dangerously-skip-permissions --resume $classic_agent_id" ;;
                 *:unavailable) classic_agent_launch="printf '%s\\n' 'Codeflare: saved Classic agent transcript is unavailable; start or resume it manually.' >&2" ;;
@@ -2447,10 +2451,14 @@ CASE_EOF
 CASE_EOF
                     ;;
                 pi)
+                    # Only configured tab 1 receives the shared bridge and native
+                    # primary identity. Other Pi tabs keep independent conversations.
+                    local pi_tab_launch=pi
+                    if [ "$key" = "1" ]; then pi_tab_launch="${classic_agent_launch:-$classic_pi_bin}"; fi
                     cat >> "$BASHRC_FILE" << CASE_EOF
         ${key})
             # Pi (bash stays as session leader for TTY stability)
-            ${classic_agent_launch:-pi}
+            ${pi_tab_launch}
             ;;
 CASE_EOF
                     ;;

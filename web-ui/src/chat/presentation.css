@@ -1,0 +1,28 @@
+@import './upstream/client/src/index.css';
+/* Retained source siblings are scanned without mounting their applications. */
+@source './upstream/client-utils/src';
+@source './upstream/dashboard-plugin-runtime/src';
+@source './upstream/client/src';
+
+.codeflare-chat {
+  --bg-primary: var(--color-bg-base);
+  --bg-secondary: var(--color-bg-surface);
+  --bg-tertiary: var(--color-bg-tertiary);
+  --bg-surface: var(--color-bg-elevated);
+  --bg-hover: var(--color-bg-muted);
+  --text-primary: var(--color-text-primary);
+  --text-secondary: var(--color-text-secondary);
+  --border-primary: var(--color-border-subtle);
+  --border-secondary: var(--color-border-default);
+  color: var(--text-primary);
+  background: var(--bg-primary);
+  font-family: var(--font-mono);
+  font-size: var(--text-base);
+  min-width: 0;
+  min-height: 0;
+}
+.cf-chat-content { display: flex; flex: 1; flex-direction: column; min-height: 0; min-width: 0; height: 100%; }
+.cf-chat-transcript { display: flex; flex: 1; flex-direction: column; min-height: 0; overflow: hidden; }
+.cf-chat-status { padding: 0.75rem; flex-shrink: 0; }
+/* No layout box: fixed upstream overlays measure the real viewport. */
+.cf-chat-overlays { display: contents; }

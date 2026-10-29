@@ -153,6 +153,44 @@ describe('Terminal control-message handling', () => {
     });
   });
 
+  it.each([false, true])('REQ-AGENT-224: explicit primary handoff is one-shot on the %s Herdr transport and never manual', async herdr => {
+    const ws = installCapturingWebSocket();
+    try {
+      terminalStore.connect(SESSION_ID, '1', createMockTerminal(), undefined, false, !herdr, herdr, true);
+      await vi.advanceTimersByTimeAsync(0);
+      const handoff = new URL(ws.created[0].url);
+      expect(handoff.pathname).toBe(`/api/terminal/${SESSION_ID}-1/ws`);
+      expect(handoff.searchParams.get('primary')).toBe('1');
+      expect(handoff.searchParams.has('manual')).toBe(false);
+      terminalStore.reconnect(SESSION_ID, '1');
+      await vi.advanceTimersByTimeAsync(0);
+      const reconnect = new URL(ws.created[1].url);
+      expect(reconnect.searchParams.has('primary')).toBe(false);
+      expect(reconnect.searchParams.has('manual')).toBe(false);
+    } finally { ws.restore(); }
+  });
+
+  it('REQ-AGENT-224: automatic retry omits an already issued primary handoff', async () => {
+    const ws = installCapturingWebSocket();
+    try {
+      terminalStore.connect(SESSION_ID, '1', createMockTerminal(), undefined, false, true, false, true);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(new URL(ws.created[0].url).searchParams.get('primary')).toBe('1');
+      (ws.created[0] as unknown as { onclose: (event: CloseEvent) => void }).onclose(new CloseEvent('close', { code: 1006 }));
+      await vi.advanceTimersByTimeAsync(250);
+      expect(new URL(ws.created[1].url).searchParams.has('primary')).toBe(false);
+    } finally { ws.restore(); }
+  });
+
+  it.each(['1', '2'])('REQ-AGENT-224: ordinary terminal %s attachment never requests primary focus', async terminalId => {
+    const ws = installCapturingWebSocket();
+    try {
+      terminalStore.connect(SESSION_ID, terminalId, createMockTerminal());
+      await vi.advanceTimersByTimeAsync(0);
+      expect(new URL(ws.created[0].url).searchParams.has('primary')).toBe(false);
+    } finally { ws.restore(); }
+  });
+
   // ── REQ-TERM-009 AC2: type-discriminator routing of control vs raw frames ───
   describe('REQ-TERM-009 AC2: parseControlMessage discriminates frames by leading type field', () => {
     it('REQ-TERM-009 AC2: routes a non-empty string process name to the process-name kind', () => {
