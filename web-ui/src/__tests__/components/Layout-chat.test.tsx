@@ -92,6 +92,10 @@ describe('Codeflare session-local Chat composition', () => {
   const viewport = Object.getOwnPropertyDescriptor(window, 'innerWidth');
   const visibility = Object.getOwnPropertyDescriptor(document, 'visibilityState');
   beforeEach(async () => {
+    vi.useFakeTimers({
+      shouldAdvanceTime: true,
+      toFake: ['setTimeout', 'clearTimeout', 'requestAnimationFrame', 'cancelAnimationFrame'],
+    });
     await act(async () => { cleanup(); });
     sessionStore.stopAllPolling();
     sessionStore.stopSessionListPolling();
@@ -150,6 +154,9 @@ describe('Codeflare session-local Chat composition', () => {
       cleanup(); terminalStore.disposeAll(); sessionStore.stopAllPolling(); sessionStore.stopSessionListPolling(); sessionStore.setActiveSession(null);
       terminalWorkspaceStore.setDashboardWorkspace();
     });
+    // Dispose fixture-owned resize callbacks before restoring the browser globals.
+    vi.clearAllTimers();
+    vi.useRealTimers();
     if (viewport) Object.defineProperty(window, 'innerWidth', viewport);
     if (visibility) Object.defineProperty(document, 'visibilityState', visibility);
     else Reflect.deleteProperty(document, 'visibilityState');
