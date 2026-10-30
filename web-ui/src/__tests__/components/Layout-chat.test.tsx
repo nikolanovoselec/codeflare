@@ -170,7 +170,7 @@ describe('Codeflare session-local Chat composition', () => {
   const attachRequests = () => requests.filter(r => new URL(r.url).pathname.endsWith('/attach'));
   const openWires = () => ChatWire.wires.filter(w => w.readyState === ChatWire.OPEN);
 
-  it.each([undefined, 'claude-code'] as const)('REQ-AGENT-224: configured primary Pi exposes working Chat when the legacy creation agent is %s', async agentType => {
+  it.each([undefined, 'claude-code', 'codex', 'bash'] as const)('REQ-AGENT-224: configured primary Pi exposes working Chat when the legacy creation agent is %s', async agentType => {
     sessions = [makeSession({ agentType })];
     await act(async () => { await sessionStore.loadSessions(); });
     await openTerminalSession();
@@ -298,7 +298,8 @@ describe('Codeflare session-local Chat composition', () => {
   });
 
   it.each(['claude-code', 'codex', 'bash'] as const)('REQ-AGENT-224: %s sessions retain Terminal and never open Pi Chat', async agentType => {
-    sessions = [makeSession({ agentType })]; await act(async () => { await sessionStore.loadSessions(); });
+    sessions = [makeSession({ agentType, tabConfig: [{ id: '1', command: agentType, label: agentType }] })];
+    await act(async () => { await sessionStore.loadSessions(); });
     await openTerminalSession();
     expect(screen.queryByRole('button', { name: /^Chat$/i })).not.toBeInTheDocument();
     expect(attachRequests()).toEqual([]);
