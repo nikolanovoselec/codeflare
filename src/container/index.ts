@@ -629,7 +629,8 @@ export class container extends Container<Env> implements ContainerEnvState {
           let prepared;
           try {
             prepared = await prepareOperatorActivity({ installationId: pin.installationId,
-              invocation: { repository: winner.repository } },
+              invocation: { repository: winner.repository },
+              sourceSession: { sessionId: proof.actor.sessionId, sessionGeneration: proof.actor.sessionGeneration } },
             { human: winner.human, accessJwt: winner.accessJwt }, this.env,
             { activityId: reserved.activityId, expectedManagement: { controlsRevision: winner.controlsRevision,
               installationRevision: winner.installationRevision, operatorRevision: winner.operatorRevision,
@@ -958,10 +959,10 @@ export class container extends Container<Env> implements ContainerEnvState {
     await bindReviewSessionHuman(this as unknown as Parameters<typeof bindReviewSessionHuman>[0], input, expected);
   }
 
-  async getPersonalPiSession(ref: { bucket: string; sessionId: string; email: string }): Promise<{
+  async getPersonalPiSession(ref: { bucket: string; sessionId: string; email: string }, ordinaryOnly = false): Promise<{
     generation: number; groups: string[];
   }> {
-    return await getPersonalPiSession(this.interceptionHost, ref);
+    return await getPersonalPiSession(this.interceptionHost, ref, ordinaryOnly);
   }
 
   async openReviewHuman(ref: { bucket: string; sessionId: string; email: string }): Promise<{

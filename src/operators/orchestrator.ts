@@ -101,21 +101,27 @@ export async function prepareOperatorActivity(input: unknown, authority: {
       throw new AppError('NOT_FOUND', 404, 'Operator installation is not available for execution');
     }
   }
+  const operatorId = managementSelection ? managementSelection.operator.operatorId : requestedOperatorId!;
+  if (operatorId === 'codeflare-gate1-fixture') {
+    throw new AppError('NOT_FOUND', 404, 'Operator is not available for execution');
+  }
+  const requiresSourceHost = managementSelection?.operator.profile === 'dispatcher'
+    && managementSelection.operator.policy.capabilities.includes('inference')
+    && managementSelection.installation.policy.capabilities.includes('inference');
+  if (requiresSourceHost && !('sourceSession' in parsed.data && parsed.data.sourceSession)) {
+    throw new ValidationError('Select an existing ordinary source Host before preparing configured inference');
+  }
   let ownerSource: { bucket: string; sessionId: string; sessionGeneration: number } | undefined;
   if ('sourceSession' in parsed.data && parsed.data.sourceSession && managementSelection?.operator.profile === 'dispatcher') {
     const source = parsed.data.sourceSession;
     const bucket = await resolveBucketName(env, authority.human.email);
     const reference = { bucket, sessionId: source.sessionId, email: authority.human.email };
     const container = env.CONTAINER.getByName(getContainerId(bucket, source.sessionId)) as unknown as {
-      getPersonalPiSession(input: typeof reference): Promise<{ generation: number }> };
-    if ((await container.getPersonalPiSession(reference)).generation !== source.sessionGeneration) {
+      getPersonalPiSession(input: typeof reference, ordinaryOnly?: boolean): Promise<{ generation: number }> };
+    if ((await container.getPersonalPiSession(reference, true)).generation !== source.sessionGeneration) {
       throw new AppError('CONFLICT', 409, 'Owner source session changed');
     }
     ownerSource = { bucket, ...source };
-  }
-  const operatorId = managementSelection ? managementSelection.operator.operatorId : requestedOperatorId!;
-  if (operatorId === 'codeflare-gate1-fixture') {
-    throw new AppError('NOT_FOUND', 404, 'Operator is not available for execution');
   }
   if (managementSelection?.operator.profile === 'dispatcher' && prospectiveRenovatePackageSupported(managementSelection.manifestJson)) {
     bounded = configuredRenovateInvocation(managementSelection.installation.configurationJson, bounded);

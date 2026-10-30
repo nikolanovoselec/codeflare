@@ -132,7 +132,7 @@ export const listOperatorInstallations = (cursor: string | null = null) => activ
   `/installations${cursor ? `?cursor=${segment(cursor)}` : ''}`,
   z.strictObject({ items: z.array(installedOperatorSchema).max(5), cursor: id.nullable() }));
 export const getInstallationActivityPreview = (installationId: string) => activityRequest(`/installations/${segment(installationId)}/preview`,
-  z.object({ name: z.string(), version: z.string(), guidedAssessment: z.boolean(),
+  z.object({ name: z.string(), version: z.string(), guidedAssessment: z.boolean(), requiresSourceHost: z.boolean(),
     guidedMode: z.enum(['repository', 'legacy-pull-request']).nullable(), configuredRepository: z.string().max(201).optional() }));
 export const prepareInstallationActivity = (installationId: string, invocation: unknown, sourceSession?: { sessionId: string; sessionGeneration: number }) => activityRequest('',
   z.object({ activityId: id, startCapability: z.string().min(43).max(128), startExpiresAt: z.number() }),

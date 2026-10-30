@@ -4,6 +4,7 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-10-30
 
+- Correct standalone guided Dispatcher inference preparation through an explicitly selected existing ordinary Host and parent-verified owner/lifecycle/generation, without warming sessions or changing saved Pi configuration ([REQ-OPERATOR-058](operators.md#req-operator-058-guided-dispatcher-invocation)). Preserve source-free non-inference preparation, original prospective proofs and legitimate Conductor authority. Exact-head CI established the intended RED failures; implementation awaits final GREEN, review and fresh hosted acceptance, so the requirement remains Planned.
 - Implement the approved explicit session KILL recovery path without joining graceful Stop: owner-authenticated mutation, caller-independent DO ownership, public SDK force-destroy, retained session/files, retryable uncertainty and generation fencing ([REQ-SESSION-038](session-lifecycle.md#req-session-038-user-can-force-kill-a-session-container), [039](session-lifecycle.md#req-session-039-authorized-do-owned-native-kill), [040](session-lifecycle.md#req-session-040-kill-confirmation-retry-and-generation-fencing)). Existing Stop/Rename/Delete and idle policy remain unchanged. Implementation is authored against the complete RED suite; final GREEN CI, review and hosted native qualification remain pending, so requirements remain Planned.
 
 ## 2026-10-27

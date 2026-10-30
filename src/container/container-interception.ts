@@ -99,8 +99,8 @@ async function personalPiProps(host: InterceptionHost): Promise<Record<string, u
 /** Parent-only native context: no browser credential or Review authority is required. */
 export async function getPersonalPiSession(host: InterceptionHost, ref: {
   bucket: string; sessionId: string; email: string;
-}): Promise<{ generation: number; groups: string[] }> {
-  if (host._operatorContainerProfile?.piProfile.source === 'pi-native') {
+}, ordinaryOnly = false): Promise<{ generation: number; groups: string[] }> {
+  if (!ordinaryOnly && host._operatorContainerProfile?.piProfile.source === 'pi-native') {
     return getNativeOperatorPiSession(host, ref);
   }
   const owned = () => host._bucketName === ref.bucket && host._sessionId === ref.sessionId

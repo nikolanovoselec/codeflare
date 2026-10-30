@@ -190,7 +190,11 @@ app.get('/installations/:installationId/preview', async c => {
   const selected = await c.get('registry').resolveManagementExecution(id);
   if (!selected.ok || !canInvokeOperator(c.get('operatorHuman').human, selected.value.operator)) return c.notFound();
   const preview = guidedPreview(selected.value);
-  return preview ? c.json(preview) : c.notFound();
+  return preview ? c.json({ ...preview,
+    requiresSourceHost: selected.value.operator.profile === 'dispatcher'
+      && selected.value.operator.policy.capabilities.includes('inference')
+      && selected.value.installation.policy.capabilities.includes('inference'),
+  }) : c.notFound();
 });
 app.post('/', async c => {
   const body = await parseJsonBody(c, preparationBody);

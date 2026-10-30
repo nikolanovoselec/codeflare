@@ -116,10 +116,11 @@ describe('REQ-OPERATOR-027: authenticated owned activity browser surfaces', () =
   it('previews only an enabled, authorized pinned Renovate Dispatcher without creating an Activity or exposing credentials', async () => {
     const { request, registry, activity } = fixture();
     const selection = { operator: { id: 'operator-1', profile: 'dispatcher', repositoryUrl: 'https://github.com/nikolanovoselec/codeflare-operator-dispatcher',
-      invokers: { users: [claims.email], groups: [] } },
+      policy: { capabilities: ['fetch'] }, invokers: { users: [claims.email], groups: [] } },
       release: { tagName: 'v0.1.2', githubReleaseId: 17 }, manifestJson: JSON.stringify({ name: 'Renovate Dispatcher', inputSchema: { type: 'object', additionalProperties: false,
         required: ['repository', 'pullRequest'], properties: { repository: { type: 'string' }, pullRequest: { type: 'integer', minimum: 1 } } } }),
-      installation: { id: 'installation-1', releaseId: 'release-1', configurationJson: '{}' } };
+      installation: { id: 'installation-1', releaseId: 'release-1', configurationJson: '{}',
+        policy: { capabilities: ['fetch'], resourceProfileId: null } } };
     registry.resolveManagementExecution.mockResolvedValue({ ok: true, value: selection });
     const preview = await request('/installations/installation-1/preview');
     expect(preview.status).toBe(200);
@@ -496,7 +497,8 @@ describe('REQ-OPERATOR-061: configured Renovate run settings', () => {
     const f = fixture();
     const selected = { operator: { id: 'dispatcher', profile: 'dispatcher',
       repositoryUrl: 'https://github.com/nikolanovoselec/codeflare-operator-dispatcher',
-      invokers: { users: [claims.email], groups: [] } }, installation: { id: 'install', enabled: true,
+      policy: { capabilities: ['fetch'] }, invokers: { users: [claims.email], groups: [] } },
+      installation: { id: 'install', enabled: true, policy: { capabilities: ['fetch'], resourceProfileId: null },
       configurationJson: JSON.stringify({ renovate: { repository: 'acme/updates', automaticRuns: false,
         repetitionIntervalSeconds: 900 }, privateSetting: 'DO_NOT_PROJECT' }) },
       release: { tagName: 'v1', githubReleaseId: 17 }, manifestJson: JSON.stringify({ id: 'renovate-dispatcher',

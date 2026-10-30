@@ -65,8 +65,8 @@ async function ownerContext(input: Input, selection?: ConfiguredDispatcherInfere
   if (!ownerSource || ownerSource.bucket !== bucket) throw new Error('Owner source unavailable');
   const reference = { bucket, sessionId: ownerSource.sessionId, email: authority.human.email };
   const container = env.CONTAINER.getByName(getContainerId(bucket, ownerSource.sessionId));
-  const trusted = container as unknown as { getPersonalPiSession(ref: typeof reference): Promise<{ generation: number }> };
-  if ((await trusted.getPersonalPiSession(reference)).generation !== ownerSource.sessionGeneration
+  const trusted = container as unknown as { getPersonalPiSession(ref: typeof reference, ordinaryOnly?: boolean): Promise<{ generation: number }> };
+  if ((await trusted.getPersonalPiSession(reference, true)).generation !== ownerSource.sessionGeneration
     || input.signal?.aborted || !await input.current()) throw new Error('Owner source changed');
   return { container, reference, source, ownerKey: await operatorOwnerKey(authority.human), sessionId: ownerSource.sessionId,
     loggingEnabled: plan.receipt.selection.operator.policy.loggingEnabled !== false,
