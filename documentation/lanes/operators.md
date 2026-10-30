@@ -613,7 +613,7 @@ Legacy preserved-clause and contract-detail fragment aliases above now lead to t
 
 Signed-token/parsers prove identity and input boundaries; native Loader/generated SDK fixtures prove only exercised native composition. Instrumented parent transport is not authenticated upstream or deployed end-to-end evidence. Host upload is not independent durability, fencing is not physical cessation, child warning is not root-cause diagnosis, compatible assessment is not merge readiness. Owning requirements separately qualify exact-head CI, native eviction/alarm, deployed effects/collection/cleanup, browser/manual and protected Action evidence. No campaign head or prior deployment is asserted as current.
 
-The retired Miniflare/ProxyWorker large, submission-limit, recovered-attempt and composed workloads provide no current coverage. Do not retry, instrument, recreate, rename or replace them. Historical SDK storage and uncertain Activities remain untouched; bookkeeping release is not physical cessation.
+The retired Miniflare/ProxyWorker large, submission-limit, recovered-attempt and composed workloads provide no current coverage. The one-attempt persistent-interruption case is also retired after connection loss in CI41078574326; its two-attempt control remains active but does not restore one-attempt native coverage. Do not retry, instrument, recreate, rename or replace retired workloads. Retirement is not a Dispatcher repair or hosted acceptance. Historical SDK storage and uncertain Activities remain untouched; bookkeeping release is not physical cessation.
 
 <a id="requirement-and-source-map"></a>
 ## Requirement and Source Map

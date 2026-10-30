@@ -183,7 +183,8 @@ export function registerNativeDispatcherCases(
     return { id, value };
   }
 
-  const composedAttemptLimits = group === 'flue' ? [1, 2].filter(() => ownsNext()) : [];
+  // The one-attempt case is retired after ProxyWorker connection loss; retain the two-attempt control.
+  const composedAttemptLimits = group === 'flue' ? [2].filter(() => ownsNext()) : [];
   if (composedAttemptLimits.length) describe('REQ-OPERATOR-047/048: production Activity plus pinned Flue recovery', () => {
     beforeEach(() => harness.reset(), 60_000);
     type Composed = { instance: string; fiberEvents: FiberObservation[] | null;
