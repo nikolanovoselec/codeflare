@@ -145,6 +145,66 @@ describe('SessionContextMenu', () => {
     });
   });
 
+  describe('REQ-SESSION-038: optional KILL action', () => {
+    it('AC3: offers one KILL, invokes only that action and closes immediately', () => {
+      const actions: string[] = [];
+      const [open, setOpen] = createSignal(true);
+      const killProps = { canKill: true, onKill: () => { actions.push('kill'); } };
+      render(() => <SessionContextMenu {...defaultProps} {...killProps} isOpen={open()}
+        onStop={() => { actions.push('stop'); }}
+        onDelete={() => { actions.push('delete'); }}
+        onRename={() => { actions.push('rename'); }}
+        onClose={() => setOpen(false)} />);
+
+      // Exact KILL user copy distinguishes force termination from ordinary Stop.
+      fireEvent.click(screen.getByRole('button', { name: 'KILL' }));
+      expect(actions).toEqual(['kill']);
+      expect(screen.queryByTestId('session-context-menu')).not.toBeInTheDocument();
+    });
+
+    it('AC1/AC7: does not offer KILL when canKill is false', () => {
+      const killProps = { canKill: false, onKill: () => { throw Error('Stopped sessions cannot be killed'); } };
+      render(() => <SessionContextMenu {...defaultProps} {...killProps} />);
+      expect(screen.queryByRole('button', { name: 'KILL' })).not.toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Stop' })).toBeEnabled();
+      expect(screen.getByRole('button', { name: 'Rename' })).toBeEnabled();
+      expect(screen.getByRole('button', { name: 'Delete' })).toBeEnabled();
+    });
+
+    it('AC7: leaves existing callers without KILL callbacks unchanged', () => {
+      render(() => <SessionContextMenu {...defaultProps} />);
+      expect(screen.queryByRole('button', { name: 'KILL' })).not.toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Stop' })).toBeEnabled();
+      expect(screen.getByRole('button', { name: 'Rename' })).toBeEnabled();
+      fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+      expect(screen.getByRole('button', { name: 'Are you sure?' })).toBeEnabled();
+    });
+
+    it.each(['Stop', 'Rename', 'Delete'] as const)(
+      'AC7: preserves the ordinary %s flow when KILL is available', action => {
+        const actions: string[] = [];
+        const [open, setOpen] = createSignal(true);
+        const killProps = { canKill: true, onKill: () => { actions.push('kill'); } };
+        render(() => <SessionContextMenu {...defaultProps} {...killProps} isOpen={open()}
+          onStop={() => { actions.push('stop'); }}
+          onDelete={() => { actions.push('delete'); }}
+          onRename={name => { actions.push(`rename:${name}`); }}
+          onClose={() => setOpen(false)} />);
+        expect(screen.getByRole('button', { name: 'KILL' })).toBeEnabled();
+        fireEvent.click(screen.getByRole('button', { name: action }));
+        if (action === 'Rename') {
+          fireEvent.input(screen.getByRole('textbox', { name: 'Session name' }), { target: { value: 'New name' } });
+          fireEvent.submit(screen.getByTestId('context-menu-rename-form'));
+        } else if (action === 'Delete') {
+          expect(actions).toEqual([]);
+          fireEvent.click(screen.getByRole('button', { name: 'Are you sure?' }));
+        }
+        expect(actions).toEqual([action === 'Rename' ? 'rename:New name' : action.toLowerCase()]);
+        expect(screen.queryByTestId('session-context-menu')).not.toBeInTheDocument();
+      },
+    );
+  });
+
   describe('Viewport clamping', () => {
     it('clamps position to stay within viewport on right edge', () => {
       Object.defineProperty(window, 'innerWidth', { value: 400, writable: true, configurable: true });

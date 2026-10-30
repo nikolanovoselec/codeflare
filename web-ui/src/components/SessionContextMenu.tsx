@@ -7,6 +7,8 @@ interface SessionContextMenuProps {
   isOpen: boolean;
   position: { x: number; y: number };
   canStop: boolean;
+  canKill?: boolean;
+  onKill?: () => void;
   stopLabel?: string;
   sessionName: string;
   onStop: () => void;
@@ -41,7 +43,7 @@ const SessionContextMenu: Component<SessionContextMenuProps> = (props) => {
 
   const clampedPosition = () => {
     const menuWidth = 160;
-    const menuHeight = 120;
+    const menuHeight = props.canKill && props.onKill ? 160 : 120;
     const pad = 8;
     return {
       x: Math.max(pad, Math.min(props.position.x, window.innerWidth - menuWidth - pad)),
@@ -51,6 +53,12 @@ const SessionContextMenu: Component<SessionContextMenuProps> = (props) => {
 
   const handleStop = () => {
     props.onStop();
+    resetTransient();
+    props.onClose();
+  };
+
+  const handleKill = () => {
+    props.onKill?.();
     resetTransient();
     props.onClose();
   };
@@ -108,6 +116,16 @@ const SessionContextMenu: Component<SessionContextMenuProps> = (props) => {
           >
             <Icon path={mdiStop} size={16} />
             {props.stopLabel ?? 'Stop'}
+          </button>
+        </Show>
+        <Show when={props.canKill && props.onKill}>
+          <button
+            type="button"
+            class="session-context-menu__item session-context-menu__item--danger"
+            onClick={handleKill}
+          >
+            <Icon path={mdiStop} size={16} />
+            KILL
           </button>
         </Show>
         <Show when={!renaming()}>
