@@ -340,6 +340,19 @@ describe('API Client', () => {
       expect(status.details.containerStatus).toBe('running');
     });
 
+    it('REQ-SESSION-017: rejects invalid generation or revision in the startup wire projection', async () => {
+      const ready = {
+        stage: 'ready', progress: 100, message: 'Container ready', generation: 8, revision: 42,
+        details: { bucketName: 'my-bucket', container: 'container-abc', path: '/workspace' },
+      };
+      for (const field of ['generation', 'revision'] as const) {
+        for (const invalid of [-1, 1.5, Number.MAX_SAFE_INTEGER + 1, '8', null]) {
+          mockFetch.mockResolvedValueOnce(Response.json({ ...ready, [field]: invalid }));
+          await expect(getStartupStatus('session00001')).rejects.toThrow();
+        }
+      }
+    });
+
     it('should throw ZodError when startup status has invalid stage', async () => {
       mockFetch.mockResolvedValueOnce({
         ok: true,
@@ -524,6 +537,38 @@ describe('API Client', () => {
 
     afterEach(() => {
       vi.useRealTimers();
+    });
+
+    it('REQ-SESSION-010 / REQ-SESSION-017: ready polling completes with only the validated canonical pair', async () => {
+      const details = { bucketName: 'my-bucket', container: 'container-abc', path: '/workspace' };
+      const completed: Array<{ generation?: number; revision?: number } | undefined> = [];
+      const errors: string[] = [];
+      mockFetch
+        .mockResolvedValueOnce({ ok: true, status: 200, text: () => Promise.resolve('') })
+        .mockResolvedValueOnce(Response.json({
+          stage: 'mounting', progress: 90, message: 'Preparing terminal...',
+          generation: 7, revision: 40, details,
+        }))
+        .mockResolvedValueOnce(Response.json({
+          stage: 'ready', progress: 100, message: 'Container ready',
+          generation: 8, revision: 42, details,
+        }));
+
+      const cleanup = startSession(
+        'session00123', () => {},
+        (projection?: { generation?: number; revision?: number }) => { completed.push(projection); },
+        (error) => { errors.push(error); },
+      );
+      try {
+        await vi.advanceTimersByTimeAsync(0);
+        expect(completed).toEqual([]);
+        await vi.advanceTimersByTimeAsync(1500);
+        // The public receipt contract is the pair, not the full readiness payload.
+        expect(completed).toEqual([{ generation: 8, revision: 42 }]);
+        expect(errors).toEqual([]);
+      } finally {
+        cleanup();
+      }
     });
 
     it('should trigger container start and send initial progress', async () => {

@@ -103,7 +103,7 @@ A successful stop ends Container vCPU, provisioned-memory, and local-disk meteri
 | GET | `/api/container/startup-status` | Session cookie | [REQ-SESSION-017](../../sdd/spec/session-lifecycle.md#req-session-017-container-health-and-startup-status-api) AC2, AC3 | Poll startup progress |
 | GET | `/api/container/health` | Session cookie | [REQ-SESSION-017](../../sdd/spec/session-lifecycle.md#req-session-017-container-health-and-startup-status-api) AC1 | Health check |
 
-`GET /api/container/startup-status` returns a derived `stage`, numeric `progress`, human-readable `message`, and `details`. Its observable progress contract is:
+`GET /api/container/startup-status` returns a derived `stage`, numeric `progress`, human-readable `message`, and `details`. When the owner's D1 session exists, top-level `generation` and `revision` carry that canonical snapshot's ordering receipt. The browser applies this receipt before startup completion exposes the session as running; an older completion cannot replace a newer generation/revision. Legacy readiness responses may omit these fields. Its observable progress contract is:
 
 | Stage | Progress | Condition |
 |---|---:|---|

@@ -354,6 +354,8 @@ export interface StartupStatusResponse {
   stage: InitStage;
   progress: number;
   message: string;
+  generation?: number;
+  revision?: number;
   details: {
     bucketName: string;
     container: string;

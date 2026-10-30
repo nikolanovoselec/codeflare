@@ -601,7 +601,27 @@ function startSession(id: string): Promise<void> {
           })
         );
       },
-      () => {
+      (projection) => {
+        const current = state.sessions.find((candidate) => candidate.id === id);
+        if (current && projection) {
+          const currentProjection = {
+            lifecycle: (current.lifecycle ?? 'starting') as BackendLifecycle,
+            generation: current.generation,
+            revision: current.revision,
+          };
+          const incomingProjection = { ...currentProjection, ...projection };
+          if (applyOrderedProjection(currentProjection, incomingProjection) !== incomingProjection) {
+            resolve();
+            return;
+          }
+          // Publish the accepted epoch before a running surface can attach.
+          setState(produce((s) => {
+            const session = s.sessions.find((candidate) => candidate.id === id);
+            if (!session) return;
+            if (projection.generation !== undefined) session.generation = projection.generation;
+            if (projection.revision !== undefined) session.revision = projection.revision;
+          }));
+        }
         startupCleanups.delete(id);
         updateSessionStatus(id, 'running');
         const index = state.sessions.findIndex((session) => session.id === id);

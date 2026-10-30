@@ -288,6 +288,8 @@ export const StartupStatusResponseSchema = z.object({
   stage: InitStageSchema,
   progress: z.number(),
   message: z.string(),
+  generation: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).optional(),
+  revision: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).optional(),
   details: z.object({
     bucketName: z.string(),
     container: z.string(),

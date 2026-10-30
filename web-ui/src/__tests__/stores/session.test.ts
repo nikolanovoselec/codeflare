@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { createComputed, createRoot } from 'solid-js';
 
 const terminalLifecycle = vi.hoisted(() => ({
   ownedSessionIds: new Set<string>(),
@@ -1170,6 +1171,103 @@ describe('Session Store', () => {
     it('should return null for non-initializing session', () => {
       expect(sessionStore.getInitProgressForSession('session-1')).toBeNull();
     });
+  });
+
+  describe('startup completion projection', () => {
+    it.each([
+      { run: 'fresh', generation: 0, revision: 0, acceptedGeneration: 1, acceptedRevision: 3 },
+      { run: 'restart', generation: 7, revision: 40, acceptedGeneration: 8, acceptedRevision: 42 },
+    ])(
+      'REQ-SESSION-010 / REQ-SESSION-017 / REQ-AGENT-224: $run startup publishes its canonical pair before running or promise completion',
+      async ({ run, generation, revision, acceptedGeneration, acceptedRevision }) => {
+        const id = `startup-${run}`;
+        mockGetSessions.mockResolvedValue([{
+          id, name: 'Terminal', workspace: 'terminal', terminalMode: 'classic',
+          status: 'stopped', lifecycle: 'stopped', generation, revision,
+          createdAt: new Date().toISOString(), lastAccessedAt: new Date().toISOString(),
+        }]);
+        await sessionStore.loadSessions();
+        let completeStart: ((projection?: { generation?: number; revision?: number }) => void) | undefined;
+        vi.mocked(api.startSession).mockImplementation((_id, _progress, onComplete) => {
+          completeStart = onComplete;
+          return () => {};
+        });
+
+        // Observe the same public state a surface entry reads on becoming running.
+        const runningProjections: Array<{ generation?: number; revision?: number }> = [];
+        const dispose = createRoot((dispose) => {
+          createComputed(() => {
+            const session = sessionStore.sessions.find((candidate) => candidate.id === id);
+            if (session?.status === 'running') {
+              runningProjections.push({ generation: session.generation, revision: session.revision });
+            }
+          });
+          return dispose;
+        });
+        try {
+          const starting = sessionStore.startSession(id);
+          expect(sessionStore.sessions.find((session) => session.id === id)).toMatchObject({
+            status: 'initializing', generation, revision,
+          });
+          completeStart!({ generation: acceptedGeneration, revision: acceptedRevision });
+
+          expect(runningProjections[0]).toEqual({ generation: acceptedGeneration, revision: acceptedRevision });
+          await starting;
+          expect(sessionStore.sessions.find((session) => session.id === id)).toMatchObject({
+            status: 'running', generation: acceptedGeneration, revision: acceptedRevision,
+            workspace: 'terminal', terminalMode: 'classic',
+          });
+        } finally {
+          dispose();
+        }
+      },
+    );
+
+    it.each([
+      { newer: 'generation', generation: 9, revision: 1 },
+      { newer: 'revision', generation: 8, revision: 43 },
+    ])(
+      'REQ-SESSION-010 / REQ-AGENT-224: a delayed completion cannot overwrite a newer $newer or finish its startup',
+      async ({ newer, generation, revision }) => {
+        const id = `delayed-startup-${newer}`;
+        const base = {
+          id, name: 'Terminal', workspace: 'terminal' as const,
+          createdAt: new Date().toISOString(), lastAccessedAt: new Date().toISOString(),
+        };
+        mockGetSessions.mockResolvedValue([{
+          ...base, status: 'stopped', lifecycle: 'stopped', generation: 7, revision: 40,
+        }]);
+        await sessionStore.loadSessions();
+        const completions: Array<(projection?: { generation?: number; revision?: number }) => void> = [];
+        vi.mocked(api.startSession).mockImplementation((_id, _progress, onComplete) => {
+          completions.push(onComplete);
+          return () => {};
+        });
+        void sessionStore.startSession(id);
+
+        // A newer owner-scoped catalog projection arrives while the old poll is delayed.
+        mockGetSessions.mockResolvedValue([{
+          ...base, status: 'starting', lifecycle: 'starting', generation, revision,
+        }]);
+        await sessionStore.loadSessions();
+        const newerStart = sessionStore.startSession(id);
+        try {
+          completions[0]({ generation: 8, revision: 42 });
+
+          expect(sessionStore.sessions.find((session) => session.id === id)).toMatchObject({
+            status: 'initializing', lifecycle: 'starting', generation, revision,
+          });
+          expect(sessionStore.isSessionInitializing(id)).toBe(true);
+          expect(sessionStore.getTerminalsForSession(id)).toBeNull();
+        } finally {
+          completions[1]({ generation, revision });
+          await newerStart;
+        }
+        expect(sessionStore.sessions.find((session) => session.id === id)).toMatchObject({
+          status: 'running', generation, revision,
+        });
+      },
+    );
   });
 
   describe('dismissInitProgressForSession', () => {

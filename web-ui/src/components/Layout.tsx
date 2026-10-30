@@ -29,6 +29,7 @@ type SessionSurface = 'chat' | 'terminal';
 interface SessionSurfaceState {
   surface: SessionSurface;
   generation: number;
+  boundSessionId?: string;
   draft: string;
   terminalEntered?: boolean;
   invalidated?: boolean;
@@ -108,9 +109,10 @@ const Layout: Component<LayoutProps> = (props) => {
   const chatSelected = createMemo(() => !multiViewActive() && activeSurfaceState()?.surface === 'chat');
   const chatSession = createMemo(() => {
     const session = sessionStore.getActiveSession();
+    const boundSessionId = activeSurfaceState()?.boundSessionId;
     if (!chatSelected() || sessionStore.authExpired || activeSurfaceState()?.invalidated || !isChatEligibleSession(session)
-      || activeSurfaceState()?.generation !== session.generation) return undefined;
-    return { sessionId: session.id, generation: session.generation };
+      || activeSurfaceState()?.generation !== session.generation || !boundSessionId) return undefined;
+    return { sessionId: session.id, generation: session.generation, boundSessionId };
   });
   const explicitPrimarySessionId = createMemo(() => {
     const session = sessionStore.getActiveSession();
@@ -655,12 +657,13 @@ const Layout: Component<LayoutProps> = (props) => {
     if (shouldStart) void sessionStore.startSession(id).catch(() => {});
   };
 
-  // Every new explicit Terminal entry must confirm the current primary through
-  // the same HTTP adoption used by Chat BEFORE its browser connection can mount.
+  // Confirm explicit primary entry before disposing the current surface. A
+  // failed Chat attachment must leave ordinary Terminal/dashboard ownership intact.
   // Ordinary Terminal creation/card/deep-link routing never enters this handler.
   const openSessionSurface = async (id: string, surface: SessionSurface) => {
     const session = sessionStore.sessions.find(candidate => candidate.id === id);
     if (!isChatEligibleSession(session) || sessionStore.authExpired) return;
+    cancelPendingEntry();
     if (sessionStore.activeSessionId === id && !multiViewActive()
       && viewState() !== 'dashboard' && (chatSelected() ? 'chat' : 'terminal') === surface
       && !activeSurfaceState()?.invalidated) {
@@ -669,22 +672,24 @@ const Layout: Component<LayoutProps> = (props) => {
       if (surface === 'chat' ? activeSurfaceState()?.generation === session.generation
         : session.workspace !== 'vscode' || explicitPrimarySessionId() === id) return;
     }
-    cancelPendingEntry();
     const generation = session.generation;
     const previous = untrack(surfaces)[id];
+    let boundSessionId: string | undefined;
     let terminalEntered = previous?.generation === generation && !previous.invalidated && previous.terminalEntered === true;
-    if (surface === 'terminal' && !terminalEntered) {
+    if (surface === 'chat' || surface === 'terminal' && !terminalEntered) {
       const entry = { sessionId: id, generation, originSessionId: sessionStore.activeSessionId, controller: new AbortController() };
       pendingEntry = entry;
       try {
-        await attachChatSession(id, generation, entry.controller.signal);
+        const attached = await attachChatSession(id, generation, entry.controller.signal);
         const current = sessionStore.sessions.find(candidate => candidate.id === id);
         if (pendingEntry !== entry || entry.controller.signal.aborted || !isChatEligibleSession(current)
           || current.generation !== generation || sessionStore.activeSessionId !== entry.originSessionId || sessionStore.authExpired) return;
-        terminalEntered = true;
+        boundSessionId = attached.sessionId;
+        if (surface === 'terminal') terminalEntered = true;
       } catch (cause) {
         if (pendingEntry === entry && !entry.controller.signal.aborted) {
-          setTerminalError(cause instanceof ChatAttachError || cause instanceof Error ? cause.message : 'Unable to open Terminal.');
+          setTerminalError(cause instanceof ChatAttachError || cause instanceof Error ? cause.message
+            : `Unable to open ${surface === 'chat' ? 'Chat' : 'Terminal'}.`);
         }
         return;
       } finally {
@@ -696,7 +701,7 @@ const Layout: Component<LayoutProps> = (props) => {
     // tab/browser owner may mount between dropping Chat and focusing tab one.
     batch(() => {
       setSurfaces(state => ({ ...state, [id]: {
-        surface, generation, draft: state[id]?.draft ?? '', terminalEntered,
+        surface, generation, boundSessionId, draft: state[id]?.draft ?? '', terminalEntered,
         takePrimaryHandoff: () => {
           const current = untrack(() => sessionStore.getActiveSession());
           if (!handoffPending || !isChatEligibleSession(current) || current.id !== id || current.generation !== generation) return false;

@@ -17,7 +17,7 @@ import { generateSessionName } from '../lib/session-utils';
 interface TerminalAreaProps {
   showTerminal: boolean;
   chatSelected?: boolean;
-  chatSession?: { sessionId: string; generation: number };
+  chatSession?: { sessionId: string; generation: number; boundSessionId?: string };
   chatDraft?: string;
   onChatDraftChange?: (sessionId: string, generation: number, draft: string) => void;
   explicitPrimarySessionId?: string;
@@ -163,6 +163,7 @@ const TerminalArea: Component<TerminalAreaProps> = (props) => {
             {() => {
               const binding = props.chatSession!;
               return <ChatArea sessionId={binding.sessionId} generation={binding.generation}
+                boundSessionId={binding.boundSessionId}
                 draft={props.chatDraft}
                 onDraftChange={draft => props.onChatDraftChange?.(binding.sessionId, binding.generation, draft)} />;
             }}

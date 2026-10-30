@@ -7,6 +7,8 @@ export interface ChatAreaProps {
   /** Codeflare session id, NOT an upstream Dashboard id. */
   sessionId: string;
   generation: number;
+  /** Reuse the shell's confirmed explicit-entry binding without attaching twice. */
+  boundSessionId?: string;
   draft?: string;
   onDraftChange?: (draft: string) => void;
   onManualInput?: () => void;
@@ -27,7 +29,7 @@ export default function ChatArea(props: ChatAreaProps) {
     onAuthError: message => props.onAuthError?.(message),
   });
 
-  createEffect(on([() => props.sessionId, () => props.generation], ([sessionId, generation]) => {
+  createEffect(on([() => props.sessionId, () => props.generation, () => props.boundSessionId], ([sessionId, generation, boundSessionId]) => {
     const controller = new AbortController();
     let disposed = false;
     mounted?.dispose(); mounted = undefined; binding = undefined;
@@ -37,7 +39,9 @@ export default function ChatArea(props: ChatAreaProps) {
     });
     void (async () => {
       try {
-        const attached = await attachChatSession(sessionId, generation, controller.signal);
+        const attached = boundSessionId === undefined
+          ? await attachChatSession(sessionId, generation, controller.signal)
+          : { sessionId: boundSessionId, generation };
         if (disposed) return;
         binding = { sessionId, generation, boundSessionId: attached.sessionId };
         // The normal Vite chunk is fetched only after explicit authorized entry.

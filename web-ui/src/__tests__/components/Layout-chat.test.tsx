@@ -85,6 +85,7 @@ describe('Codeflare session-local Chat composition', () => {
   let preferences: { sessionMode: 'default' | 'advanced'; defaultWorkspace: 'terminal' | 'vscode' };
   let requests: Request[];
   let attachStatus: number;
+  let attachFailure: { error: string; code?: string };
   let releaseAttach: (() => void) | undefined;
   let deferAttach: boolean;
   let expiredPolling: boolean;
@@ -101,6 +102,7 @@ describe('Codeflare session-local Chat composition', () => {
     preferences = { sessionMode: 'advanced', defaultWorkspace: 'terminal' };
     requests = [];
     attachStatus = 200;
+    attachFailure = { error: 'Session expired', code: 'AUTH_FAILED' };
     releaseAttach = undefined;
     deferAttach = false;
     expiredPolling = false;
@@ -127,7 +129,7 @@ describe('Codeflare session-local Chat composition', () => {
         if (deferAttach) await new Promise<void>(resolve => { releaseAttach = resolve; });
         return Response.json(attachStatus === 200
           ? { sessionId: 'bound-primary-pi', generation }
-          : { error: 'Session expired', code: 'AUTH_FAILED' }, { status: attachStatus });
+          : attachFailure, { status: attachStatus });
       }
       if (path.includes('gravatar')) return new Response(null, { status: 404 });
       return new Response('{}', { status: 404 });
@@ -182,6 +184,95 @@ describe('Codeflare session-local Chat composition', () => {
       && frame.text === 'Continue the configured primary'))).toBe(true));
     expect(sessionStore.getActiveSession()?.agentType).toBe(agentType);
     expect(sessionStore.getActiveSession()?.tabConfig?.[0].command).toBe('pi');
+  });
+
+  it.each(['classic', 'herdr'] as const)('REQ-AGENT-224: failed Chat attachment preserves the mounted %s Terminal and permits retry', async terminalMode => {
+    sessions = [makeSession({ terminalMode })]; await act(async () => { await sessionStore.loadSessions(); });
+    await openTerminalSession();
+    const terminal = screen.getByRole('region', { name: `Terminal ${firstId} 1` });
+    const path = window.location.pathname;
+    attachStatus = 404;
+    attachFailure = { error: 'Not found' };
+    await fireEvent.click(screen.getByRole('button', { name: /^Chat$/i }));
+    expect(await screen.findByText('Not found')).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: `Terminal ${firstId} 1` })).toBe(terminal);
+    expect(screen.queryByRole('region', { name: 'Pi Chat' })).not.toBeInTheDocument();
+    expect(ChatWire.wires).toEqual([]);
+    await fireEvent.click(screen.getByRole('button', { name: /^Terminal$/i }));
+    expect(screen.getByRole('region', { name: `Terminal ${firstId} 1` })).toBe(terminal);
+    expect(window.location.pathname).toBe(path);
+    expect(sessionStore.getActiveSession()).toMatchObject({ workspace: 'terminal', terminalMode, generation: 7 });
+    attachStatus = 200;
+    await enterChat();
+    expect(screen.queryByText('Not found')).not.toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: `Terminal ${firstId} 1` })).not.toBeInTheDocument();
+    expect(requests.filter(r => !['GET', 'HEAD'].includes(r.method) && !new URL(r.url).pathname.endsWith('/attach'))).toEqual([]);
+  });
+
+  it.each([
+    { status: 404, body: { error: 'Session not found', code: 'SESSION_NOT_FOUND' } },
+    { status: 503, body: { error: 'Chat Host unavailable' } },
+  ])('REQ-AGENT-224: rejected Chat entry ($status) keeps the dashboard and does not select a fallback session', async ({ status, body }) => {
+    sessions = [makeSession({ workspace: 'vscode' })]; await act(async () => { await sessionStore.loadSessions(); });
+    await renderLayout();
+    attachStatus = status;
+    attachFailure = body;
+    await fireEvent.click(screen.getByRole('button', { name: 'Open Primary Pi in Chat' }));
+    expect(await screen.findByText(body.error)).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Session dashboard' })).toBeInTheDocument();
+    expect(sessionStore.activeSessionId).toBeNull();
+    expect(screen.queryByRole('region', { name: 'Pi Chat' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: `Terminal ${firstId} 1` })).not.toBeInTheDocument();
+    expect(ChatWire.wires).toEqual([]);
+    expect(requests.filter(r => !['GET', 'HEAD'].includes(r.method) && !new URL(r.url).pathname.endsWith('/attach'))).toEqual([]);
+  });
+
+  it('REQ-AGENT-224: Chat entry retains Terminal ownership until its primary binding is confirmed', async () => {
+    await openTerminalSession();
+    const terminal = screen.getByRole('region', { name: `Terminal ${firstId} 1` });
+    deferAttach = true;
+    await fireEvent.click(screen.getByRole('button', { name: /^Chat$/i }));
+    await waitFor(() => expect(releaseAttach).toBeTypeOf('function'));
+    expect(screen.getByRole('region', { name: `Terminal ${firstId} 1` })).toBe(terminal);
+    expect(screen.queryByRole('region', { name: 'Pi Chat' })).not.toBeInTheDocument();
+    expect(ChatWire.wires).toEqual([]);
+    deferAttach = false;
+    await act(async () => { releaseAttach!(); });
+    await screen.findByRole('textbox');
+    expect(screen.queryByRole('region', { name: `Terminal ${firstId} 1` })).not.toBeInTheDocument();
+    // One explicit-entry handshake is the wire contract: rendering the confirmed
+    // binding must not initiate another primary-adoption request.
+    expect(attachRequests().map(r => new URL(r.url).pathname)).toEqual([`/api/chat/${firstId}/attach`]);
+  });
+
+  it('REQ-AGENT-224: choosing the visible Terminal cancels pending Chat entry even if its response arrives late', async () => {
+    await openTerminalSession();
+    const terminal = screen.getByRole('region', { name: `Terminal ${firstId} 1` });
+    deferAttach = true;
+    await fireEvent.click(screen.getByRole('button', { name: /^Chat$/i }));
+    await waitFor(() => expect(releaseAttach).toBeTypeOf('function'));
+    const finishChatEntry = releaseAttach!;
+    await fireEvent.click(screen.getByRole('button', { name: /^Terminal$/i }));
+    await act(async () => { finishChatEntry(); });
+    expect(await screen.findByRole('region', { name: `Terminal ${firstId} 1` })).toBe(terminal);
+    expect(screen.queryByRole('region', { name: 'Pi Chat' })).not.toBeInTheDocument();
+    expect(ChatWire.wires).toEqual([]);
+    expect(window.location.pathname).toBe(`/app/session/${firstId}`);
+  });
+
+  it('REQ-AGENT-224: a generation change during pending Chat entry cannot select or attach the replacement primary', async () => {
+    await openTerminalSession();
+    deferAttach = true;
+    await fireEvent.click(screen.getByRole('button', { name: /^Chat$/i }));
+    await waitFor(() => expect(releaseAttach).toBeTypeOf('function'));
+    sessions = [makeSession({ generation: 8, revision: 2 })];
+    await act(async () => { await sessionStore.loadSessions(); });
+    await act(async () => { releaseAttach!(); });
+    expect(screen.getByRole('region', { name: `Terminal ${firstId} 1` })).toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'Pi Chat' })).not.toBeInTheDocument();
+    expect(ChatWire.wires).toEqual([]);
+    expect(sessionStore.getActiveSession()?.generation).toBe(8);
+    expect(await Promise.all(attachRequests().map(r => r.json()))).toEqual([{ generation: 7 }]);
   });
 
   it.each(['classic', 'herdr'] as const)('REQ-AGENT-224: %s surface switches unmount hidden ownership without stopping or restamping the session', async terminalMode => {

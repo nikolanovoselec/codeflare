@@ -2,6 +2,11 @@
 
 Semantic changes to the specification. Git history captures diffs; this file captures intent.
 
+## 2026-10-30
+
+- Carry the existing owner-scoped D1 generation/revision through startup readiness and apply it before marking the browser session running ([REQ-SESSION-017](session-lifecycle.md#req-session-017-container-health-and-startup-status-api), [REQ-SESSION-010](session-lifecycle.md#req-session-010-session-lifecycle-is-observable-from-one-d1-projection), [REQ-AGENT-224](agents.md#req-agent-224-shared-live-pi-chat-and-session-local-surfaces)). Preserve ordered stale-response rejection, the Worker generation fence, legacy Terminal readiness and immutable creation stamps. This corrects the creation-generation/startup-completion mismatch; CI and live attachment remain required evidence.
+- Keep the current Terminal/dashboard owner until explicit Chat attachment confirms the primary, reuse that confirmed binding without a second adoption request, and leave failed, cancelled or generation-stale entry unable to select a replacement ([REQ-AGENT-224](agents.md#req-agent-224-shared-live-pi-chat-and-session-local-surfaces)). Preserve immutable stamps, ordinary navigation, drafts, no-wake/auth fences and Terminal primary handoff. Focused first-party recovery regressions are authored; behavioral CI and deployed behavior are not claimed.
+
 ## 2026-10-29
 
 - Plan session-local beginner Chat over the actual configured live primary Pi, preserving independent Terminal/Herdr/IDE ownership, generation/auth boundaries, input-based idle policy, away-only notification delivery and bounded questionnaire policy ([REQ-AGENT-224](agents.md#req-agent-224-shared-live-pi-chat-and-session-local-surfaces)). Pin the minimal explicit attach/WS/component-question boundary and one optional Host adapter port; do not add management/global proxying, a second session owner, persistent surface preferences, a questionnaire framework or a new delivery mechanism.

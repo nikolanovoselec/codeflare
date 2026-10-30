@@ -283,6 +283,29 @@ describe('Container Status Routes', () => {
       expect(body.message).toBe('Container ready (sync in progress)');
     });
 
+    it.each(['terminal', 'vscode'] as const)(
+      'REQ-SESSION-010 / REQ-SESSION-017: ready %s startup carries the canonical D1 generation and revision',
+      async (workspace) => {
+        const app = createStatusApp();
+        // createTestApp exposes these existing fixtures through its D1 adapter.
+        mockKV._set('session:test-bucket:abcdef1234567890abcdef12', {
+          id: 'abcdef1234567890abcdef12', name: 'Canonical startup', userId: 'test-bucket',
+          workspace, status: 'running', lifecycleGeneration: 8, responseRevision: 42,
+          createdAt: new Date().toISOString(), lastAccessedAt: new Date().toISOString(),
+        });
+        testState.container!.fetch.mockResolvedValue(new Response(JSON.stringify({
+          status: 'ok', syncStatus: 'success', terminalPid: 5678, editorReady: true,
+        }), { status: 200 }));
+
+        const res = await app.request(`/container/startup-status${sessionQuery}`);
+
+        expect(res.status).toBe(200);
+        expect(await res.json()).toMatchObject({
+          stage: 'ready', progress: 100, generation: 8, revision: 42,
+        });
+      },
+    );
+
     it('returns ready stage when all checks pass (sync success)', async () => {
       const app = createStatusApp();
       testState.container!.getState.mockResolvedValue({ status: 'running' });

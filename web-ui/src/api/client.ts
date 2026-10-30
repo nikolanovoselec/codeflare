@@ -425,7 +425,7 @@ export async function getStartupStatus(sessionId: string): Promise<StartupStatus
 export function startSession(
   id: string,
   onProgress: (progress: InitProgress) => void,
-  onComplete: () => void,
+  onComplete: (projection?: Pick<StartupStatusResponse, 'generation' | 'revision'>) => void,
   onError: (error: string, code?: string) => void,
   options: { retryEditorTimeout?: boolean } = {},
 ): () => void {
@@ -486,7 +486,7 @@ export function startSession(
 
         if (status.stage === 'ready') {
           if (pollInterval) clearInterval(pollInterval);
-          onComplete();
+          onComplete({ generation: status.generation, revision: status.revision });
         } else if (status.stage === 'error') {
           const isPriorEditorTimeout = ignorePriorEditorTimeout
             && status.error === 'VS Code did not become ready. Retry starting the session.';

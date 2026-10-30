@@ -30,6 +30,8 @@ interface StartupResponse {
   stage: StartupStage;
   progress: number;
   message: string;
+  generation?: number;
+  revision?: number;
   details: Record<string, unknown>;
   error?: string;
 }
@@ -167,6 +169,8 @@ app.get('/startup-status', async (c) => {
     stage: 'stopped' | 'starting' | 'syncing' | 'mounting' | 'verifying' | 'ready' | 'error';
     progress: number;
     message: string;
+    generation?: number;
+    revision?: number;
     details: {
       bucketName: string;
       container: string;
@@ -194,6 +198,10 @@ app.get('/startup-status', async (c) => {
     const repository = new D1SessionRepository(c.env.USAGE_DB);
     const session = await repository.getSession(bucketName, sessionId);
     const sessionWorkspace = resolveSessionWorkspace(session?.workspace);
+    if (session) {
+      response.generation = session.lifecycleGeneration;
+      response.revision = session.responseRevision;
+    }
 
     // Populate response details now that we have context
     response.details.bucketName = bucketName;
