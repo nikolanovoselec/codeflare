@@ -57,6 +57,16 @@ describe('Dashboard explicit primary surface entry', () => {
     expect(screen.queryByTestId('session-context-menu')).not.toBeInTheDocument();
   });
 
+  it.each([undefined, 'claude-code', 'bash'] as const)('REQ-AGENT-224: configured primary Pi opens both surfaces when the legacy creation agent is %s', async agentType => {
+    mount({ ...session, agentType });
+    for (const surface of ['Chat', 'Terminal'] as const) {
+      await fireEvent.click(screen.getByTestId(`session-stat-card-${session.id}-menu`));
+      await fireEvent.click(screen.getByRole('button', { name: `Open in ${surface}` }));
+      expect(screen.getByLabelText('Explicit entry')).toHaveTextContent(`${session.id}:${surface.toLowerCase()}`);
+      expect(screen.queryByTestId('session-context-menu')).not.toBeInTheDocument();
+    }
+  });
+
   it('REQ-AGENT-224: an open card menu withdraws explicit entry after authoritative stop', async () => {
     const update = mount();
     await fireEvent.click(screen.getByTestId(`session-stat-card-${session.id}-menu`));
@@ -69,7 +79,7 @@ describe('Dashboard explicit primary surface entry', () => {
 
   it.each([
     { status: 'stopped' as const }, { status: 'stopping' as const },
-    { agentType: 'bash' as const },
+    { agentType: 'bash' as const, tabConfig: undefined },
     { tabConfig: [{ id: '1', command: 'bash' as const, label: 'Shell' }] },
   ])('REQ-AGENT-224: card menu excludes non-running or non-Pi primary entry %j', async overrides => {
     mount({ ...session, ...overrides });

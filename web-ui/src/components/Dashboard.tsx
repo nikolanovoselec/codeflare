@@ -317,7 +317,7 @@ const Dashboard: Component<DashboardProps> = (props) => {
 
   const canOpenPrimarySurface = () => {
     const session = props.sessions.find(candidate => candidate.id === menuState().session?.id);
-    return session?.status === 'running' && session.agentType === 'pi'
+    return session?.status === 'running'
       && (session.tabConfig?.find(tab => tab.id === '1')?.command ?? (session.tabConfig?.length ? '' : session.agentType)) === 'pi'
       && Number.isSafeInteger(session.generation) && session.generation! >= 0;
   };
