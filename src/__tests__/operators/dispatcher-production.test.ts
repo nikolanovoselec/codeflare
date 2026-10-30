@@ -7900,7 +7900,7 @@ describe('REQ-OPERATOR-048: original-lease serial SDK phase ownership', () => {
         try {
           vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'] });
           let settled = false;
-          const observing = diagnosticsBrowser(f)(`${v2}/history`).then(response => {
+          const observing = Promise.resolve(diagnosticsBrowser(f)(`${v2}/history`)).then(response => {
             settled = true;
             return response;
           });
