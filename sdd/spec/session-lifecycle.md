@@ -234,7 +234,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 **Dependencies:** [REQ-SESSION-006](#req-session-006-user-can-stop-restart-and-delete-sessions), [REQ-SESSION-039](#req-session-039-authorized-do-owned-native-kill), [REQ-SESSION-040](#req-session-040-kill-confirmation-retry-and-generation-fencing)
 
-**Verification:** Behavioral dropdown, context-menu, HTTP/client and store suites have passing exact-tree CI evidence; hosted native qualification and owner acceptance remain pending. These tests are not hosted proof.
+**Verification:** Behavioral dropdown, context-menu, HTTP/client and store suites passed predecessor CI (`00358f73`, run `41022257374`); changed revisions require independently passing CI. Hosted native qualification and owner acceptance remain pending. These tests are not hosted proof.
 
 **Status:** Planned
 
@@ -267,7 +267,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 **Dependencies:** [REQ-SESSION-006](#req-session-006-user-can-stop-restart-and-delete-sessions), [REQ-SESSION-009](#req-session-009-container-destroy-wipes-session-state), [REQ-SESSION-040](#req-session-040-kill-confirmation-retry-and-generation-fencing)
 
-**Verification:** Route and modeled DO/native-process behavioral suites have passing exact-tree CI evidence; hosted native termination/disconnection qualification remains pending. Models are not hosted proof.
+**Verification:** Route and modeled DO/native-process behavioral suites passed predecessor CI (`00358f73`, run `41022257374`); changed revisions require independently passing CI. Hosted native termination/disconnection qualification remains pending. Models are not hosted proof.
 
 **Status:** Planned
 
@@ -298,7 +298,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 **Dependencies:** [REQ-SESSION-018](#req-session-018-d1-lifecycle-evidence-is-generation-fenced), [REQ-SESSION-035](#req-session-035-stale-stopping-retains-ownership-until-confirmed-exit)
 
-**Verification:** Route and modeled DO/native-process confirmation, retry and fencing suites have passing exact-tree CI evidence; hosted qualification remains pending. Models are not hosted native termination proof.
+**Verification:** Route and modeled DO/native-process confirmation, retry and fencing suites passed predecessor CI (`00358f73`, run `41022257374`); changed revisions require independently passing CI. Hosted qualification remains pending. Models are not hosted native termination proof.
 
 **Status:** Planned
 
