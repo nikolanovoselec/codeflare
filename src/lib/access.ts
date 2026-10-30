@@ -446,7 +446,12 @@ async function validateServiceAuthHeader(request: Request, env?: Env): Promise<A
     // not a hardcoded secret. The .local TLD is RFC 6762 reserved and
     // obviously non-production; the actual auth gate is the worker secret.
     const serviceEmail = env.SERVICE_TOKEN_EMAIL || 'e2e-service@codeflare.local';
-    return markIdentityVerified({ email: normalizeEmail(serviceEmail), authenticated: true, role: 'admin' });
+    return markIdentityVerified({
+      email: normalizeEmail(serviceEmail),
+      authenticated: true,
+      role: 'admin',
+      accessTier: 'advanced',
+    });
   }
   // timingSafeEqual failed
   return { email: '', authenticated: false};
