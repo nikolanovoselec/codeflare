@@ -1,6 +1,7 @@
 /** @jsxImportSource react */
 import { act } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { getByRole } from '@testing-library/dom';
 import { mountChat } from '../ChatMount';
 
 let mounted: ReturnType<typeof mountChat> | undefined;
@@ -44,7 +45,7 @@ describe('REQ-AGENT-224 manual Chat activity boundary', () => {
     expect(draft).toBe('Continue');
     expect(manual.length).toBeGreaterThan(0);
     const beforeSend = manual.length;
-    const send = Array.from(host.querySelectorAll('button')).find(button => button.textContent?.trim() === 'Send')!;
+    const send = getByRole(host, 'button', { name: 'Send' });
     await act(() => { send.click(); });
     expect(manual.length).toBeGreaterThan(beforeSend);
     expect(draft).toBe('');
