@@ -32,14 +32,13 @@
     "edgepush": "0.1.1",
     "fflate": "0.8.3",
     "hono": "^4.13.13",
-    "zod": "^4.6.5"
+    "zod": "^4.6.6"
   },
   "overrides": {
     "minimatch": ">=10.2.1",
     "glob": ">=11.0.0",
-    "undici": "7.30.0",
-    "sharp": "0.35.5",
-    "esbuild": "$esbuild"
+    "undici": "7.30.1",
+    "sharp": "0.35.5"
   },
   "devDependencies": {
     "@cloudflare/vitest-plugin": "1.4.4",
