@@ -11,8 +11,14 @@ import {
   mdiMicrosoftVisualStudioCode,
   mdiOpenInNew,
   mdiClockTimeEightOutline,
+  mdiFormTextbox,
+  mdiConsoleLine,
+  mdiGradientHorizontal,
+  mdiChevronDown,
 } from '@mdi/js';
 import Icon from './Icon';
+import Select from './ui/Select';
+import type { NormalView } from '../lib/normal-view';
 import SessionSwitcher from './SessionSwitcher';
 import VaultButton, { type VaultButtonStatus } from './VaultButton';
 import { sessionStore } from '../stores/session';
@@ -36,6 +42,8 @@ interface HeaderProps {
   vaultStatus?: VaultButtonStatus;
   onVscodeOpen?: () => void;
   surface?: 'chat' | 'terminal';
+  view?: NormalView;
+  chatAvailable?: boolean;
   onSurfaceChange?: (surface: 'chat' | 'terminal') => void;
   onLogout?: () => void;
   onLogoClick?: () => void;
@@ -128,16 +136,6 @@ const Header: Component<HeaderProps> = (props) => {
         onOpenMultiView={props.onOpenMultiView}
         onCloseMultiView={props.onCloseMultiView}
       />
-
-      {/* REQ-AGENT-224: native, session-scoped controls, not global defaults. */}
-      <Show when={props.onSurfaceChange}>
-        <div class="header-session-surfaces" role="group" aria-label="Session surface">
-          <button type="button" aria-pressed={props.surface === 'chat'}
-            onClick={() => props.onSurfaceChange?.('chat')}>Chat</button>
-          <button type="button" aria-pressed={props.surface === 'terminal'}
-            onClick={() => props.onSurfaceChange?.('terminal')}>Terminal</button>
-        </div>
-      </Show>
 
       {/* Spacer for flex layout */}
       <div class="header-spacer" />
@@ -284,24 +282,38 @@ const Header: Component<HeaderProps> = (props) => {
           )}
         </Show>
 
-        {/* Browser IDE button — opens the per-session OpenVSCode editor in a new
-            tab. Rendered only when the parent passes onVscodeOpen (terminal-view
-            + active advanced running session), mirroring the vault gating. Each
-            session's editor is isolated (REQ-IDE-001, REQ-IDE-002); no client-side
-            readiness gate is needed — the host lazily starts the server and
-            returns a warming state until it is up. */}
-        <Show when={props.onVscodeOpen}>
-          {(onOpen) => (
-            <button
-              class="header-vscode-button"
-              data-testid="header-vscode-button"
-              title="Open editor (VS Code)"
-              type="button"
-              onClick={onOpen()}
-            >
-              <Icon path={mdiMicrosoftVisualStudioCode} size={20} />
-            </button>
-          )}
+        {/* Normal View occupies the original editor-action slot. The native
+            select retains keyboard and platform mobile picker behavior. */}
+        <Show when={props.onSurfaceChange} fallback={
+          <Show when={props.onVscodeOpen}>
+            {(onOpen) => (
+              <button class="header-vscode-button" data-testid="header-vscode-button"
+                title="Open editor (VS Code)" type="button" onClick={onOpen()}>
+                <Icon path={mdiMicrosoftVisualStudioCode} size={20} />
+              </button>
+            )}
+          </Show>
+        }>
+          <div class="header-view-control">
+            <span class="header-view-desktop" aria-hidden="true">
+              <Icon path={(props.view ?? props.surface) === 'vscode' ? mdiMicrosoftVisualStudioCode
+                : (props.view ?? props.surface) === 'terminal' ? mdiConsoleLine : mdiFormTextbox} size={20} />
+              <span>{(props.view ?? props.surface) === 'vscode' ? 'VS Code'
+                : (props.view ?? props.surface) === 'terminal' ? 'Terminal' : 'Chat'}</span>
+              <Icon path={mdiChevronDown} size={16} />
+            </span>
+            <span class="header-view-mobile" aria-hidden="true"><Icon path={mdiGradientHorizontal} size={20} /></span>
+            <Select class="header-view-select" ariaLabel="View" value={props.view ?? props.surface ?? 'chat'}
+              options={[
+                ...(props.chatAvailable !== false ? [{ value: 'chat', label: 'Chat' }] : []),
+                { value: 'terminal', label: 'Terminal' },
+                ...(props.onVscodeOpen ? [{ value: 'vscode', label: 'VS Code' }] : []),
+              ]}
+              onChange={value => {
+                if (value === 'vscode') props.onVscodeOpen?.();
+                else if (value === 'chat' || value === 'terminal') props.onSurfaceChange?.(value);
+              }} />
+          </div>
         </Show>
 
         {/* Terminal: keep operator activity with the session tools, between VS Code and Storage. */}

@@ -1,9 +1,60 @@
-// Process/identity glue only. Loaded explicitly for Codeflare's configured primary;
-// never installed in user settings, managed extensions, IDEs or SDK resource lists.
+// Managed-primary configuration/identity glue; never installed in user settings,
+// managed extensions, IDEs or SDK resource lists.
 import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 const execute = promisify(execFile);
+
+/** Public Dashboard configuration only. The managed launcher calls this BEFORE
+ * starting Pi, so even module-load config readers see autoStart:false. The Host
+ * still starts the private transport; no HOME, Pi setting or lifecycle changes.
+ */
+export function preparePrimaryDashboard(home = os.homedir()) {
+  let temporary;
+  try {
+    const agentRoot = path.join(home, '.pi');
+    const directory = path.join(agentRoot, 'dashboard');
+    for (const dir of [agentRoot, directory]) {
+      try { fs.mkdirSync(dir, { mode: 0o700 }); }
+      catch (error) { if (error.code !== 'EEXIST') throw error; }
+      const stat = fs.lstatSync(dir);
+      if (!stat.isDirectory() || stat.uid !== process.getuid()) throw new Error('Unsafe configuration directory');
+    }
+    const file = path.join(directory, 'config.json');
+    let config = {};
+    let mode = 0o600;
+    let descriptor;
+    try {
+      descriptor = fs.openSync(file, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK);
+    } catch (error) { if (error.code !== 'ENOENT') throw error; }
+    if (descriptor !== undefined) {
+      try {
+        const stat = fs.fstatSync(descriptor);
+        if (!stat.isFile() || stat.uid !== process.getuid() || stat.nlink !== 1) throw new Error('Unsafe configuration file');
+        mode = stat.mode & 0o600;
+        config = JSON.parse(fs.readFileSync(descriptor, 'utf8'));
+        if (!config || typeof config !== 'object' || Array.isArray(config)) throw new Error('Invalid configuration object');
+        if (config.autoStart === false) {
+          if ((stat.mode & 0o777) !== mode) fs.fchmodSync(descriptor, mode);
+          return;
+        }
+      } finally { fs.closeSync(descriptor); }
+    }
+    // Atomic replacement retains restrictive owner permissions and never
+    // truncates an existing document if parsing or writing fails.
+    temporary = fs.mkdtempSync(path.join(directory, '.codeflare-'));
+    const pending = path.join(temporary, 'config.json');
+    fs.writeFileSync(pending, `${JSON.stringify({ ...config, autoStart: false }, null, 2)}\n`, { mode, flag: 'wx' });
+    fs.renameSync(pending, file);
+  } catch {
+    // JSON parser/I/O errors can contain document values or private paths.
+    throw new Error('Codeflare: private Chat startup configuration could not be prepared');
+  } finally {
+    if (temporary) fs.rmSync(temporary, { recursive: true, force: true });
+  }
+}
 
 const ownsProcess = env => /^\d+$/.test(env.CODEFLARE_CHAT_PRIMARY_PID ?? '')
   && Number(env.CODEFLARE_CHAT_PRIMARY_PID) === process.pid;

@@ -15,32 +15,35 @@
           z-index: 50;
         }
 
-        /* Session-local surface choice inherits the incumbent header tokens. */
-        .header-session-surfaces {
+        /* Native View picker uses the same compact action slot at every size. */
+        .header-view-control {
+          position: relative;
           display: inline-flex;
+          align-items: center;
           flex-shrink: 0;
-          gap: var(--space-1);
-          padding: var(--space-1);
-          border: 1px solid var(--color-border-default);
+          min-height: 36px;
+          padding: var(--space-2);
           border-radius: var(--radius-md);
-        }
-        .header-session-surfaces button {
-          min-height: 32px;
-          padding: var(--space-1) var(--space-2);
-          border-radius: var(--radius-sm);
+          border: 1px solid var(--color-border-default);
+          background: var(--color-bg-surface);
           color: var(--color-text-secondary);
+          font-family: var(--font-mono);
           font-size: var(--text-sm);
+        }
+        .header-view-desktop { display: inline-flex; align-items: center; gap: var(--space-2); }
+        .header-view-desktop > svg:first-child { color: var(--color-accent); }
+        .header-view-mobile { display: none; }
+        .header-view-select {
+          position: absolute;
+          inset: 0;
+          width: 100%;
+          height: 100%;
+          opacity: 0;
+          font: inherit;
           cursor: pointer;
         }
-        .header-session-surfaces button:hover,
-        .header-session-surfaces button[aria-pressed="true"] {
-          background: var(--color-bg-muted);
-          color: var(--color-accent);
-        }
-        .header-session-surfaces button:focus-visible {
-          outline: 2px solid var(--color-accent);
-          outline-offset: 2px;
-        }
+        .header-view-control:hover { background: var(--color-bg-muted); color: var(--color-text-primary); }
+        .header-view-control:focus-within { outline: 2px solid var(--color-accent); outline-offset: 2px; }
         .header--with-surfaces .session-switcher-wrapper { min-width: 0; }
         @media (min-width: 641px) and (max-width: 960px) {
           .header--with-surfaces { gap: var(--space-2); }
@@ -48,27 +51,12 @@
           .header--with-surfaces .header-user-name { display: none; }
         }
         @media (max-width: 640px) {
-          /* Keep both named surface buttons in the first row, never hidden in
-             overflow. Existing session tools retain their touch targets below. */
-          .header--with-surfaces {
-            display: grid;
-            grid-template-columns: auto minmax(0, 1fr) auto;
-            height: auto;
-            flex-shrink: 0;
-            gap: var(--space-1) var(--space-2);
-            padding: var(--space-1) var(--space-2);
-          }
-          .header--with-surfaces > .header-logo { grid-area: 1 / 1; }
-          .header--with-surfaces > .session-switcher-wrapper { grid-area: 1 / 2; }
-          .header--with-surfaces > .header-session-surfaces { grid-area: 1 / 3; }
-          .header--with-surfaces > .header-spacer { display: none; }
-          .header--with-surfaces > .header-actions {
-            grid-area: 2 / 1 / 3 / -1;
-            justify-content: flex-end;
-            gap: var(--space-1);
-            flex-wrap: wrap;
-          }
-          .header-session-surfaces button { min-height: 44px; }
+          .header--with-surfaces { gap: 0; padding-inline: var(--space-1); flex-wrap: nowrap; }
+          .header--with-surfaces .header-actions { gap: 0; flex-shrink: 0; flex-wrap: nowrap; }
+          .header--with-surfaces .header-spacer { display: none; }
+          .header-view-control { width: 44px; height: 44px; justify-content: center; padding: 0; border: 0; background: transparent; }
+          .header-view-desktop { display: none; }
+          .header-view-mobile { display: inline-flex; }
         }
 
         /* Logo */

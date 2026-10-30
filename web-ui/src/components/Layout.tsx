@@ -1,5 +1,6 @@
 import { Component, batch, createSignal, createMemo, createEffect, onMount, onCleanup, Show, untrack } from 'solid-js';
 import Header from './Header';
+import { readNormalView, rememberNormalView } from '../lib/normal-view';
 import TerminalArea from './TerminalArea';
 import { attachChatSession, ChatAttachError } from '../chat/api';
 import SettingsPanel from './SettingsPanel';
@@ -95,11 +96,14 @@ const Layout: Component<LayoutProps> = (props) => {
   const [isStoragePanelOpen, setIsStoragePanelOpen] = createSignal(false);
   const [showTilingOverlay, setShowTilingOverlay] = createSignal(false);
   const [viewState, setViewState] = createSignal<ViewState>('dashboard');
-  // REQ-AGENT-224: transient shell state only. No route, preference or storage contract.
+  // Runtime ownership and drafts stay session-local; only the next Normal view is browser-local.
   const [surfaces, setSurfaces] = createSignal<Record<string, SessionSurfaceState>>({});
+  const enteredNormalSessions = new Set<string>();
+  const [externalViews, setExternalViews] = createSignal<Record<string, number>>({});
   let pendingEntry: { sessionId: string; generation: number; originSessionId: string | null; controller: AbortController } | undefined;
-  const cancelPendingEntry = () => { pendingEntry?.controller.abort(); pendingEntry = undefined; };
-  const clearSurfaceState = () => { cancelPendingEntry(); setSurfaces({}); };
+  const [pendingView, setPendingView] = createSignal<{ sessionId: string; surface: SessionSurface }>();
+  const cancelPendingEntry = () => { pendingEntry?.controller.abort(); pendingEntry = undefined; setPendingView(undefined); };
+  const clearSurfaceState = () => { cancelPendingEntry(); setSurfaces({}); setExternalViews({}); enteredNormalSessions.clear(); };
   onCleanup(clearSurfaceState);
   const multiViewActive = createMemo(() => terminalWorkspaceStore.getActiveWorkspace().kind === 'multiview');
   const activeSurfaceState = createMemo(() => {
@@ -121,7 +125,8 @@ const Layout: Component<LayoutProps> = (props) => {
       && activeSurfaceState()?.generation === session.generation ? session.id : undefined;
   });
   const surfaceControlsAvailable = createMemo(() => !multiViewActive() && !sessionStore.authExpired
-    && isChatEligibleSession(sessionStore.getActiveSession()));
+    && sessionStore.getActiveSession()?.workspace !== 'vscode'
+    && sessionStore.getActiveSession()?.status === 'running');
 
   // Catalog removal is authoritative deletion/logout cleanup; a mere session
   // switch must retain the other session's draft and choice. Stale generations
@@ -132,6 +137,14 @@ const Layout: Component<LayoutProps> = (props) => {
     const multiView = multiViewActive();
     if (sessionStore.authExpired) { clearSurfaceState(); return; }
     const byId = new Map(sessions.map(session => [session.id, session]));
+    for (const id of enteredNormalSessions) if (!byId.has(id)) enteredNormalSessions.delete(id);
+    setExternalViews(previous => {
+      const removed = Object.keys(previous).filter(id => !byId.has(id));
+      if (!removed.length) return previous;
+      const next = { ...previous };
+      for (const id of removed) delete next[id];
+      return next;
+    });
     setSurfaces(previous => {
       let next = previous;
       for (const [id, entry] of Object.entries(previous)) {
@@ -355,8 +368,8 @@ const Layout: Component<LayoutProps> = (props) => {
     window.open(`/api/vault/${sid}/.codeflare-bootstrap`, '_blank', 'noopener');
   };
 
-  // Keep browser opening synchronous and isolated behind one explicit gesture
-  // seam. Startup, selection, readiness, and routing never call this.
+  // All editor choices reuse the authenticated, session-keyed external opener;
+  // blocked browser windows report an actionable error without changing ownership.
   const openVscodeSession = (sessionId: string) => {
     const result = openBrowserIdeWindow(sessionId);
     if (result === 'blocked') {
@@ -645,6 +658,7 @@ const Layout: Component<LayoutProps> = (props) => {
 
     if (session.workspace === 'vscode') {
       keepDashboardOwnership(updateHistory ? 'push' : undefined);
+      openVscodeSession(id);
       if (shouldStart) void sessionStore.startSession(id).catch(() => {});
       return;
     }
@@ -657,12 +671,12 @@ const Layout: Component<LayoutProps> = (props) => {
     if (shouldStart) void sessionStore.startSession(id).catch(() => {});
   };
 
-  // Confirm explicit primary entry before disposing the current surface. A
-  // failed Chat attachment must leave ordinary Terminal/dashboard ownership intact.
-  // Ordinary Terminal creation/card/deep-link routing never enters this handler.
+  // Confirm the primary before disposing the current surface. A failed Chat
+  // attachment (including the initial browser default) leaves the previous owner
+  // intact. Exclusive editor stamps never enter the shared surface path.
   const openSessionSurface = async (id: string, surface: SessionSurface) => {
     const session = sessionStore.sessions.find(candidate => candidate.id === id);
-    if (!isChatEligibleSession(session) || sessionStore.authExpired) return;
+    if (!isChatEligibleSession(session) || session.workspace === 'vscode' || sessionStore.authExpired) return;
     cancelPendingEntry();
     if (sessionStore.activeSessionId === id && !multiViewActive()
       && viewState() !== 'dashboard' && (chatSelected() ? 'chat' : 'terminal') === surface
@@ -679,6 +693,7 @@ const Layout: Component<LayoutProps> = (props) => {
     if (surface === 'chat' || surface === 'terminal' && !terminalEntered) {
       const entry = { sessionId: id, generation, originSessionId: sessionStore.activeSessionId, controller: new AbortController() };
       pendingEntry = entry;
+      setPendingView({ sessionId: id, surface });
       try {
         const attached = await attachChatSession(id, generation, entry.controller.signal);
         const current = sessionStore.sessions.find(candidate => candidate.id === id);
@@ -693,7 +708,7 @@ const Layout: Component<LayoutProps> = (props) => {
         }
         return;
       } finally {
-        if (pendingEntry === entry) pendingEntry = undefined;
+        if (pendingEntry === entry) { pendingEntry = undefined; setPendingView(undefined); }
       }
     }
     let handoffPending = surface === 'terminal';
@@ -722,7 +737,13 @@ const Layout: Component<LayoutProps> = (props) => {
 
   const handleSurfaceChange = (surface: SessionSurface) => {
     const id = sessionStore.activeSessionId;
-    if (id && !multiViewActive()) void openSessionSurface(id, surface);
+    const session = sessionStore.getActiveSession();
+    if (id && !multiViewActive() && session?.workspace !== 'vscode' && session?.status === 'running'
+      && (surface === 'terminal' || isChatEligibleSession(session))) {
+      setExternalViews(previous => { const next = { ...previous }; delete next[id]; return next; });
+      rememberNormalView(surface);
+      if (isChatEligibleSession(session)) void openSessionSurface(id, surface);
+    }
   };
   const handleChatDraftChange = (sessionId: string, generation: number, draft: string) => {
     setSurfaces(state => state[sessionId]?.generation === generation
@@ -731,9 +752,31 @@ const Layout: Component<LayoutProps> = (props) => {
 
   const handleVscodeOpen = () => {
     const session = sessionStore.getActiveSession();
-    if (!session) return;
+    if (!session || session.status !== 'running' || sessionStore.authExpired
+      || sessionStore.preferences.sessionMode !== 'advanced') return;
+    if (session.workspace !== 'vscode') {
+      rememberNormalView('vscode');
+      setExternalViews(previous => ({ ...previous, [session.id]: session.generation ?? -1 }));
+    }
     openSessionWorkspace(session.id, { explicitVscodeOpen: true, updateHistory: false });
   };
+
+  // Apply the browser default once per Normal session, only after its stamped
+  // lifecycle is usable. Failed/stale attachment is never retried by polling.
+  createEffect(() => {
+    const session = sessionStore.getActiveSession();
+    if (multiViewActive() || sessionStore.authExpired || !session || session.workspace === 'vscode'
+      || session.status !== 'running' || enteredNormalSessions.has(session.id)) return;
+    enteredNormalSessions.add(session.id);
+    const preference = readNormalView(sessionStore.preferences.sessionMode === 'advanced');
+    untrack(() => {
+      if (preference === 'chat' && isChatEligibleSession(session)) void openSessionSurface(session.id, 'chat');
+      else if (preference === 'vscode') {
+        setExternalViews(previous => ({ ...previous, [session.id]: session.generation ?? -1 }));
+        openVscodeSession(session.id);
+      }
+    });
+  });
 
   const handleSelectSession = (id: string) => {
     cancelPendingEntry();
@@ -996,6 +1039,11 @@ const Layout: Component<LayoutProps> = (props) => {
             ? handleVscodeOpen
             : undefined}
           surface={chatSelected() ? 'chat' : 'terminal'}
+          chatAvailable={isChatEligibleSession(sessionStore.getActiveSession())}
+          view={pendingView()?.sessionId === sessionStore.activeSessionId ? pendingView()!.surface
+            : sessionStore.activeSessionId && externalViews()[sessionStore.activeSessionId!] !== undefined
+            && externalViews()[sessionStore.activeSessionId!] === (sessionStore.getActiveSession()?.generation ?? -1)
+            ? 'vscode' : chatSelected() ? 'chat' : 'terminal'}
           onSurfaceChange={surfaceControlsAvailable() ? handleSurfaceChange : undefined}
           onLogout={() => { keepDashboardOwnership(); clearSurfaceState(); }}
           vaultReady={vaultReady()}

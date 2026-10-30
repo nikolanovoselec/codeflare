@@ -160,13 +160,15 @@ describe('REQ-AGENT-004 AC3: mode selection in Settings session-defaults', () =>
 describe('default workspace selection', () => {
   afterEach(() => cleanup());
 
-  it('renders Terminal and VS Code controls for Advanced mode with Terminal selected by default', () => {
+  it('renders Normal and VS Code controls for Advanced mode with the unchanged terminal value selected by default', () => {
     renderSection({ currentSessionMode: 'advanced' });
 
     const icon = screen.getByTestId('default-workspace-icon');
     expect(icon.querySelector('path')).toHaveAttribute('d', mdiFileTree);
     const control = screen.getByTestId('default-workspace-control');
     expect(control).toHaveAttribute('role', 'radiogroup');
+    expect(screen.getByRole('radio', { name: 'Normal', exact: true })).toBeChecked();
+    expect(screen.getByRole('radio', { name: 'Normal', exact: true })).toHaveAttribute('value', 'terminal');
     expect(screen.getByTestId('default-workspace-terminal')).toBeChecked();
     expect(screen.getByTestId('default-workspace-vscode')).not.toBeChecked();
   });

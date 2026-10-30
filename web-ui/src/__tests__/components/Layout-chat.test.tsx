@@ -67,6 +67,7 @@ class ChatWire extends EventTarget {
 
 const fireEvent = {
   click: async (...args: Parameters<typeof solidEvent.click>) => { await act(async () => { solidEvent.click(...args); }); },
+  change: async (...args: Parameters<typeof solidEvent.change>) => { await act(async () => { solidEvent.change(...args); }); },
   input: async (...args: Parameters<typeof solidEvent.input>) => { await act(async () => { solidEvent.input(...args); }); },
 };
 
@@ -102,6 +103,7 @@ describe('Codeflare session-local Chat composition', () => {
     sessionStore._resetAuthExpired();
     sessionStore.setActiveSession(null);
     terminalWorkspaceStore.setDashboardWorkspace();
+    localStorage.setItem('codeflare:normal-view', 'terminal');
     sessions = [];
     preferences = { sessionMode: 'advanced', defaultWorkspace: 'terminal' };
     requests = [];
@@ -172,12 +174,73 @@ describe('Codeflare session-local Chat composition', () => {
     await fireEvent.click(await screen.findByRole('button', { name: 'Select Primary Pi' }));
     await screen.findByRole('region', { name: `Terminal ${firstId} 1` });
   }
+  async function chooseView(value: string) {
+    await fireEvent.change(await screen.findByRole('combobox', { name: 'View' }), { target: { value } });
+  }
   async function enterChat() {
-    await fireEvent.click(await screen.findByRole('button', { name: /^Chat$/i }));
+    await chooseView('chat');
     return screen.findByRole('textbox');
   }
   const attachRequests = () => requests.filter(r => new URL(r.url).pathname.endsWith('/attach'));
   const openWires = () => ChatWire.wires.filter(w => w.readyState === ChatWire.OPEN);
+
+  it.each([null, 'invalid', 'vscode-unavailable'] as const)('REQ-AGENT-224: fresh or invalid Normal preference %s opens usable Chat', async value => {
+    if (value === null) localStorage.removeItem('codeflare:normal-view');
+    else localStorage.setItem('codeflare:normal-view', value);
+    await renderLayout();
+    await fireEvent.click(screen.getByRole('button', { name: 'Select Primary Pi' }));
+    expect(await screen.findByRole('textbox')).toBeEnabled();
+    expect(screen.queryByRole('region', { name: `Terminal ${firstId} 1` })).not.toBeInTheDocument();
+    expect(sessionStore.getActiveSession()).toMatchObject({ workspace: 'terminal', generation: 7 });
+    expect(requests.filter(r => new URL(r.url).pathname === '/api/preferences' && r.method !== 'GET')).toEqual([]);
+  });
+
+  it('REQ-AGENT-224: unavailable remembered VS Code falls back to Chat for Standard Pi', async () => {
+    localStorage.setItem('codeflare:normal-view', 'vscode');
+    preferences.sessionMode = 'default'; await sessionStore.loadPreferences();
+    await renderLayout();
+    await fireEvent.click(screen.getByRole('button', { name: 'Select Primary Pi' }));
+    expect(await screen.findByRole('textbox')).toBeEnabled();
+    expect(screen.queryByRole('option', { name: 'VS Code' })).not.toBeInTheDocument();
+  });
+
+  it('REQ-AGENT-224: denied browser storage still permits Chat-first entry and switching', async () => {
+    vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => { throw new DOMException('Denied', 'SecurityError'); });
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new DOMException('Denied', 'SecurityError'); });
+    await renderLayout();
+    await fireEvent.click(screen.getByRole('button', { name: 'Select Primary Pi' }));
+    expect(await screen.findByRole('textbox')).toBeEnabled();
+    await chooseView('terminal');
+    expect(await screen.findByRole('region', { name: `Terminal ${firstId} 1` })).toBeInTheDocument();
+  });
+
+  it('REQ-AGENT-224: remembered Terminal opens without Chat attachment on a fresh shell', async () => {
+    await openTerminalSession();
+    expect(screen.getByRole('combobox', { name: 'View' })).toHaveValue('terminal');
+    expect(attachRequests()).toEqual([]);
+  });
+
+  it('REQ-AGENT-224: remembered VS Code opens externally without restamping a Normal session', async () => {
+    localStorage.setItem('codeflare:normal-view', 'vscode');
+    const opened = { closed: false, opener: {}, focus() {} };
+    const open = vi.spyOn(window, 'open').mockReturnValue(opened as unknown as Window);
+    await renderLayout();
+    await fireEvent.click(screen.getByRole('button', { name: 'Select Primary Pi' }));
+    await waitFor(() => expect(open).toHaveBeenCalledWith(`/api/vscode/${firstId}/`, `codeflare-vscode-${firstId}`));
+    expect(sessionStore.getActiveSession()).toMatchObject({ workspace: 'terminal', generation: 7 });
+    expect(sessionStore.preferences.defaultWorkspace).toBe('terminal');
+    expect(opened.opener).toBeNull();
+  });
+
+  it('REQ-AGENT-224: blocked external View keeps the Chat draft and reports the popup failure', async () => {
+    vi.spyOn(window, 'open').mockReturnValue(null);
+    await openTerminalSession();
+    await fireEvent.input(await enterChat(), { target: { value: 'Keep this draft' } });
+    await chooseView('vscode');
+    expect(await screen.findByText(/pop.?up.*block|allow.*pop.?up/i)).toBeInTheDocument();
+    expect(screen.getByRole('textbox')).toHaveValue('Keep this draft');
+    expect(sessionStore.getActiveSession()?.workspace).toBe('terminal');
+  });
 
   it.each([undefined, 'claude-code', 'codex', 'bash'] as const)('REQ-AGENT-224: configured primary Pi exposes working Chat when the legacy creation agent is %s', async agentType => {
     sessions = [makeSession({ agentType })];
@@ -200,12 +263,12 @@ describe('Codeflare session-local Chat composition', () => {
     const path = window.location.pathname;
     attachStatus = 404;
     attachFailure = { error: 'Not found' };
-    await fireEvent.click(screen.getByRole('button', { name: /^Chat$/i }));
+    await chooseView('chat');
     expect(await screen.findByText('Not found')).toBeInTheDocument();
     expect(screen.getByRole('region', { name: `Terminal ${firstId} 1` })).toBe(terminal);
     expect(screen.queryByRole('region', { name: 'Pi Chat' })).not.toBeInTheDocument();
     expect(ChatWire.wires).toEqual([]);
-    await fireEvent.click(screen.getByRole('button', { name: /^Terminal$/i }));
+    await chooseView('terminal');
     expect(screen.getByRole('region', { name: `Terminal ${firstId} 1` })).toBe(terminal);
     expect(window.location.pathname).toBe(path);
     expect(sessionStore.getActiveSession()).toMatchObject({ workspace: 'terminal', terminalMode, generation: 7 });
@@ -220,7 +283,7 @@ describe('Codeflare session-local Chat composition', () => {
     { status: 404, body: { error: 'Session not found', code: 'SESSION_NOT_FOUND' } },
     { status: 503, body: { error: 'Chat Host unavailable' } },
   ])('REQ-AGENT-224: rejected Chat entry ($status) keeps the dashboard and does not select a fallback session', async ({ status, body }) => {
-    sessions = [makeSession({ workspace: 'vscode' })]; await act(async () => { await sessionStore.loadSessions(); });
+    sessions = [makeSession()]; await act(async () => { await sessionStore.loadSessions(); });
     await renderLayout();
     attachStatus = status;
     attachFailure = body;
@@ -238,7 +301,7 @@ describe('Codeflare session-local Chat composition', () => {
     await openTerminalSession();
     const terminal = screen.getByRole('region', { name: `Terminal ${firstId} 1` });
     deferAttach = true;
-    await fireEvent.click(screen.getByRole('button', { name: /^Chat$/i }));
+    await chooseView('chat');
     await waitFor(() => expect(releaseAttach).toBeTypeOf('function'));
     expect(screen.getByRole('region', { name: `Terminal ${firstId} 1` })).toBe(terminal);
     expect(screen.queryByRole('region', { name: 'Pi Chat' })).not.toBeInTheDocument();
@@ -252,14 +315,33 @@ describe('Codeflare session-local Chat composition', () => {
     expect(attachRequests().map(r => new URL(r.url).pathname)).toEqual([`/api/chat/${firstId}/attach`]);
   });
 
+  it('REQ-AGENT-224: Chat-first pending entry keeps Terminal selectable as a distinct native choice', async () => {
+    localStorage.removeItem('codeflare:normal-view');
+    deferAttach = true;
+    await renderLayout();
+    await fireEvent.click(screen.getByRole('button', { name: 'Select Primary Pi' }));
+    await waitFor(() => expect(releaseAttach).toBeTypeOf('function'));
+    const terminal = screen.getByRole('region', { name: `Terminal ${firstId} 1` });
+    // The native picker must actually differ from Terminal before selecting it:
+    // browsers do not emit change when users choose the already selected option.
+    expect(screen.getByRole('combobox', { name: 'View' })).toHaveValue('chat');
+    const finishChatEntry = releaseAttach!;
+    await chooseView('terminal');
+    await act(async () => { finishChatEntry(); });
+    expect(screen.getByRole('combobox', { name: 'View' })).toHaveValue('terminal');
+    expect(screen.getByRole('region', { name: `Terminal ${firstId} 1` })).toBe(terminal);
+    expect(screen.queryByRole('region', { name: 'Pi Chat' })).not.toBeInTheDocument();
+    expect(ChatWire.wires).toEqual([]);
+  });
+
   it('REQ-AGENT-224: choosing the visible Terminal cancels pending Chat entry even if its response arrives late', async () => {
     await openTerminalSession();
     const terminal = screen.getByRole('region', { name: `Terminal ${firstId} 1` });
     deferAttach = true;
-    await fireEvent.click(screen.getByRole('button', { name: /^Chat$/i }));
+    await chooseView('chat');
     await waitFor(() => expect(releaseAttach).toBeTypeOf('function'));
     const finishChatEntry = releaseAttach!;
-    await fireEvent.click(screen.getByRole('button', { name: /^Terminal$/i }));
+    await chooseView('terminal');
     await act(async () => { finishChatEntry(); });
     expect(await screen.findByRole('region', { name: `Terminal ${firstId} 1` })).toBe(terminal);
     expect(screen.queryByRole('region', { name: 'Pi Chat' })).not.toBeInTheDocument();
@@ -270,7 +352,7 @@ describe('Codeflare session-local Chat composition', () => {
   it('REQ-AGENT-224: a generation change during pending Chat entry cannot select or attach the replacement primary', async () => {
     await openTerminalSession();
     deferAttach = true;
-    await fireEvent.click(screen.getByRole('button', { name: /^Chat$/i }));
+    await chooseView('chat');
     await waitFor(() => expect(releaseAttach).toBeTypeOf('function'));
     sessions = [makeSession({ generation: 8, revision: 2 })];
     await act(async () => { await sessionStore.loadSessions(); });
@@ -291,7 +373,7 @@ describe('Codeflare session-local Chat composition', () => {
     await enterChat();
     expect(screen.queryByRole('region', { name: `Terminal ${firstId} 1` })).not.toBeInTheDocument();
     await waitFor(() => expect(openWires().some(w => String(w.url).includes(`/api/chat/${firstId}/ws`))).toBe(true));
-    await fireEvent.click(screen.getByRole('button', { name: /^Terminal$/i }));
+    await chooseView('terminal');
     await screen.findByRole('region', { name: `Terminal ${firstId} 1` });
     expect(openWires().filter(w => String(w.url).includes('/api/chat/'))).toEqual([]);
     expect(sessionStore.getActiveSession()).toMatchObject(stamp);
@@ -308,7 +390,7 @@ describe('Codeflare session-local Chat composition', () => {
     const order = sessionStore.getTabOrder(firstId);
     const tiling = sessionStore.getTilingForSession(firstId);
     await enterChat();
-    await fireEvent.click(screen.getByRole('button', { name: /^Terminal$/i }));
+    await chooseView('terminal');
     await screen.findByRole('region', { name: `Terminal ${firstId} 1` });
     expect(sessionStore.getTerminalsForSession(firstId)?.tabs).toEqual(tabs?.tabs);
     expect(sessionStore.getTabOrder(firstId)).toEqual(order);
@@ -323,7 +405,7 @@ describe('Codeflare session-local Chat composition', () => {
     await fireEvent.click(screen.getByRole('button', { name: /^Send$/i }));
     await waitFor(() => expect(ChatWire.wires.flatMap(w => w.frames).filter(f => f.type === 'send_prompt'))
       .toEqual([expect.objectContaining({ sessionId: 'bound-primary-pi', text: 'Continue the current primary task' })]));
-    await fireEvent.click(screen.getByRole('button', { name: /^Terminal$/i }));
+    await chooseView('terminal');
     await screen.findByRole('region', { name: `Terminal ${firstId} 1` });
     await enterChat();
     await waitFor(() => expect(openWires().filter(w => String(w.url).includes('/api/chat/'))).toHaveLength(1));
@@ -354,9 +436,10 @@ describe('Codeflare session-local Chat composition', () => {
     sessions.push(makeSession({ id: secondId, name: 'Other Pi' })); await act(async () => { await sessionStore.loadSessions(); });
     await openTerminalSession();
     await fireEvent.input(await enterChat(), { target: { value: 'Unsent draft from primary' } });
-    await fireEvent.click(screen.getByRole('button', { name: /^Terminal$/i }));
+    await chooseView('terminal');
     await screen.findByRole('region', { name: `Terminal ${firstId} 1` });
     expect(await enterChat()).toHaveValue('Unsent draft from primary');
+    localStorage.setItem('codeflare:normal-view', 'terminal');
     await act(async () => { sessionStore.setActiveSession(secondId); });
     await screen.findByRole('region', { name: `Terminal ${secondId} 1` });
     expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
@@ -379,7 +462,7 @@ describe('Codeflare session-local Chat composition', () => {
     await act(async () => { await sessionStore.deleteSession(firstId); });
     sessions = [makeSession({ generation: 8, revision: 2 })]; await act(async () => { await sessionStore.loadSessions(); });
     await act(async () => { sessionStore.setActiveSession(firstId); });
-    await fireEvent.click(await screen.findByRole('button', { name: /^Chat$/i }));
+    await chooseView('chat');
     expect(await screen.findByRole('textbox')).toHaveValue('');
   });
 
@@ -415,49 +498,39 @@ describe('Codeflare session-local Chat composition', () => {
     const open = vi.spyOn(window, 'open').mockReturnValue(opened as unknown as Window);
     await openTerminalSession();
     await fireEvent.input(await enterChat(), { target: { value: 'Independent in-app draft' } });
-    await fireEvent.click(screen.getByRole('button', { name: /Open editor \(VS Code\)/i }));
+    await chooseView('vscode');
+    expect(screen.getByRole('combobox', { name: 'View' })).toHaveValue('vscode');
+    expect(localStorage.getItem('codeflare:normal-view')).toBe('vscode');
     expect(open).toHaveBeenCalledWith(`/api/vscode/${firstId}/`, `codeflare-vscode-${firstId}`);
     expect(opened.opener).toBeNull();
     expect(screen.getByRole('textbox')).toHaveValue('Independent in-app draft');
     expect(attachRequests().map(r => new URL(r.url).pathname)).toEqual([`/api/chat/${firstId}/attach`]);
   });
 
-  it.each(['classic', 'herdr'] as const)('REQ-IDE-048 / REQ-IDE-049 / REQ-TERM-035: normal %s VS Code selection stays editor-first until explicit surface entry', async terminalMode => {
+  it.each(['classic', 'herdr'] as const)('REQ-IDE-048 / REQ-IDE-049 / REQ-TERM-035: exclusive %s VS Code selection opens the authenticated editor without in-app ownership', async terminalMode => {
+    const opened = { closed: false, opener: {}, focus() {} };
+    const open = vi.spyOn(window, 'open').mockReturnValue(opened as unknown as Window);
     sessions = [makeSession({ workspace: 'vscode', terminalMode })]; await act(async () => { await sessionStore.loadSessions(); });
     await renderLayout();
     await fireEvent.click(screen.getByRole('button', { name: 'Select Primary Pi' }));
+    expect(open).toHaveBeenCalledWith(`/api/vscode/${firstId}/`, `codeflare-vscode-${firstId}`);
+    expect(opened.opener).toBeNull();
     expect(screen.getByRole('region', { name: 'Session dashboard' })).toBeInTheDocument();
     expect(attachRequests()).toEqual([]);
     expect(ChatWire.wires).toEqual([]);
     expect(sessionStore.sessions[0].workspace).toBe('vscode');
   });
 
-  it.each(['classic', 'herdr'] as const)('REQ-AGENT-224: explicit %s VS Code Terminal entry waits for HTTP adoption and hands off only the primary', async terminalMode => {
+  it.each(['classic', 'herdr'] as const)('REQ-AGENT-224: exclusive %s VS Code rejects Chat and Terminal entry', async terminalMode => {
     sessions = [makeSession({ workspace: 'vscode', terminalMode })]; await act(async () => { await sessionStore.loadSessions(); });
-    deferAttach = true;
     await renderLayout();
+    await fireEvent.click(screen.getByRole('button', { name: 'Open Primary Pi in Chat' }));
     await fireEvent.click(screen.getByRole('button', { name: 'Open Primary Pi in Terminal' }));
-    await waitFor(() => expect(attachRequests().map(r => new URL(r.url).pathname)).toEqual([`/api/chat/${firstId}/attach`]));
+    expect(attachRequests()).toEqual([]);
+    expect(ChatWire.wires).toEqual([]);
+    expect(screen.queryByRole('combobox', { name: 'View' })).not.toBeInTheDocument();
     expect(screen.queryByRole('region', { name: `Terminal ${firstId} 1` })).not.toBeInTheDocument();
-    expect(openWires()).toEqual([]);
-    await act(async () => { releaseAttach!(); });
-    const terminal = await screen.findByRole('region', { name: `Terminal ${firstId} 1` });
-    const url = new URL(terminal.querySelector('a')!.href);
-    expect(url.pathname).toBe(`/api/terminal/${firstId}-1/ws`);
-    expect(url.searchParams.get('primary')).toBe('1');
-    expect(url.searchParams.has('manual')).toBe(false);
-    // Even stale/local classic tab state cannot widen this narrow primary-only
-    // render exception into secondary panes or a tiled VS Code workspace.
-    sessionStore.initializeTerminalsForSession(firstId);
-    sessionStore.addTerminalTab(firstId);
-    sessionStore.setTilingLayout(firstId, '2-split');
-    expect(screen.queryByRole('region', { name: `Terminal ${firstId} 2` })).not.toBeInTheDocument();
-    await act(async () => { await sessionStore.loadSessions(); });
-    expect(screen.getByRole('region', { name: `Terminal ${firstId} 1` })).toBeInTheDocument();
     expect(sessionStore.sessions[0]).toMatchObject({ workspace: 'vscode', terminalMode, generation: 7 });
-    expect(terminalWorkspaceStore.isTerminalSession(sessionStore.sessions[0])).toBe(false);
-    expect(terminalWorkspaceStore.validateMultiViewMemberIds([firstId], sessionStore.sessions, 'desktop')).toEqual([]);
-    expect(requests.filter(r => /\/container\/(start|stop|restart)/.test(new URL(r.url).pathname))).toEqual([]);
   });
 
   it.each(['classic', 'herdr'] as const)('REQ-AGENT-224: explicit %s Terminal-created entry confirms the primary over HTTP before mounting', async terminalMode => {
@@ -497,7 +570,7 @@ describe('Codeflare session-local Chat composition', () => {
     await waitFor(() => expect(screen.queryByRole('textbox')).not.toBeInTheDocument());
     expect(attachRequests()).toHaveLength(1); // Polling must not confirm a replacement.
     deferAttach = true;
-    await fireEvent.click(screen.getByRole('button', { name: /^Terminal$/i }));
+    await chooseView('terminal');
     await waitFor(() => expect(releaseAttach).toBeTypeOf('function'));
     expect(screen.queryByRole('region', { name: `Terminal ${firstId} 1` })).not.toBeInTheDocument();
     expect(await attachRequests()[1].json()).toEqual({ generation: 8 });
@@ -513,7 +586,7 @@ describe('Codeflare session-local Chat composition', () => {
     sessions = [makeSession({ terminalMode, generation: 8, revision: 2 })]; await act(async () => { await sessionStore.loadSessions(); });
     await waitFor(() => expect(screen.queryByRole('textbox')).not.toBeInTheDocument());
     attachStatus = 401;
-    await fireEvent.click(screen.getByRole('button', { name: /^Terminal$/i }));
+    await chooseView('terminal');
     expect(await screen.findByText('Session expired')).toBeInTheDocument();
     expect(screen.getByText(/Pi session changed/)).toBeInTheDocument();
     expect(screen.queryByRole('region', { name: `Terminal ${firstId} 1` })).not.toBeInTheDocument();
@@ -522,21 +595,8 @@ describe('Codeflare session-local Chat composition', () => {
     expect(attachRequests()).toHaveLength(2);
   });
 
-  it.each(['classic', 'herdr'] as const)('REQ-AGENT-224: explicit %s VS Code Chat entry owns no terminal and returns to the primary', async terminalMode => {
-    sessions = [makeSession({ workspace: 'vscode', terminalMode })]; await act(async () => { await sessionStore.loadSessions(); });
-    await renderLayout();
-    await fireEvent.click(screen.getByRole('button', { name: 'Open Primary Pi in Chat' }));
-    await screen.findByRole('textbox');
-    expect(screen.queryByRole('region', { name: `Terminal ${firstId} 1` })).not.toBeInTheDocument();
-    await fireEvent.click(screen.getByRole('button', { name: /^Terminal$/i }));
-    const terminal = await screen.findByRole('region', { name: `Terminal ${firstId} 1` });
-    expect(new URL(terminal.querySelector('a')!.href).searchParams.get('primary')).toBe('1');
-    expect(openWires().filter(w => String(w.url).includes('/api/chat/'))).toEqual([]);
-    expect(sessionStore.sessions[0].workspace).toBe('vscode');
-  });
-
   it.each(['stopped', 'stopping'] as const)('REQ-AGENT-224: explicit entries cannot wake or attach a %s Pi', async status => {
-    sessions = [makeSession({ workspace: 'vscode', status })]; await act(async () => { await sessionStore.loadSessions(); });
+    sessions = [makeSession({ status })]; await act(async () => { await sessionStore.loadSessions(); });
     await renderLayout();
     // The Dashboard fixture deliberately exposes callbacks even when the real
     // card hides them: the Layout boundary must independently refuse no-wake entry.
@@ -573,13 +633,13 @@ describe('Codeflare session-local Chat composition', () => {
     expect(await attachRequests()[1].json()).toEqual({ generation: change === 'generation' ? 8 : 7 });
   });
 
-  it('REQ-AGENT-224: stale pending VS Code entry cannot mount a replacement generation', async () => {
-    sessions = [makeSession({ workspace: 'vscode' })]; await act(async () => { await sessionStore.loadSessions(); });
+  it('REQ-AGENT-224: stale pending Normal entry cannot mount a replacement generation', async () => {
+    sessions = [makeSession()]; await act(async () => { await sessionStore.loadSessions(); });
     deferAttach = true;
     await renderLayout();
     await fireEvent.click(screen.getByRole('button', { name: 'Open Primary Pi in Terminal' }));
     await waitFor(() => expect(releaseAttach).toBeTypeOf('function'));
-    sessions = [makeSession({ workspace: 'vscode', generation: 8, revision: 2 })]; await act(async () => { await sessionStore.loadSessions(); });
+    sessions = [makeSession({ generation: 8, revision: 2 })]; await act(async () => { await sessionStore.loadSessions(); });
     await act(async () => { releaseAttach!(); });
     await waitFor(() => expect(screen.getByRole('region', { name: 'Session dashboard' })).toBeInTheDocument());
     expect(screen.queryByRole('region', { name: `Terminal ${firstId} 1` })).not.toBeInTheDocument();
@@ -587,7 +647,7 @@ describe('Codeflare session-local Chat composition', () => {
   });
 
   it('REQ-AGENT-224: a pending explicit entry cannot steal selection after another session is selected', async () => {
-    sessions = [makeSession({ workspace: 'vscode' }), makeSession({ id: secondId, name: 'Other Pi' })];
+    sessions = [makeSession(), makeSession({ id: secondId, name: 'Other Pi' })];
     await act(async () => { await sessionStore.loadSessions(); });
     deferAttach = true;
     await renderLayout();
@@ -603,8 +663,8 @@ describe('Codeflare session-local Chat composition', () => {
     expect(screen.queryByRole('region', { name: `Terminal ${firstId} 1` })).not.toBeInTheDocument();
   });
 
-  it('REQ-AGENT-224: a failed explicit VS Code Terminal attach keeps editor ownership and a useful error without retrying', async () => {
-    sessions = [makeSession({ workspace: 'vscode' })]; await act(async () => { await sessionStore.loadSessions(); });
+  it('REQ-AGENT-224: a failed explicit Normal Terminal attach keeps dashboard ownership and a useful error without retrying', async () => {
+    sessions = [makeSession()]; await act(async () => { await sessionStore.loadSessions(); });
     attachStatus = 401;
     await renderLayout();
     await fireEvent.click(screen.getByRole('button', { name: 'Open Primary Pi in Terminal' }));
@@ -661,21 +721,22 @@ describe('Codeflare session-local Chat composition', () => {
     expect(await enterChat()).toHaveValue('');
   });
 
-  it('REQ-AGENT-224: unmount clears remembered choice and composer draft before a fresh shell', async () => {
+  it('REQ-AGENT-224: unmount retains browser view preference but clears composer draft before a fresh shell', async () => {
     await openTerminalSession();
     await fireEvent.input(await enterChat(), { target: { value: 'Discard with shell' } });
     await act(async () => { cleanup(); sessionStore.setActiveSession(null); terminalWorkspaceStore.setDashboardWorkspace(); });
     window.history.replaceState(null, '', '/app/');
-    await openTerminalSession();
-    expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
-    expect(await enterChat()).toHaveValue('');
+    await renderLayout();
+    await fireEvent.click(screen.getByRole('button', { name: 'Select Primary Pi' }));
+    expect(await screen.findByRole('textbox')).toHaveValue('');
+    expect(localStorage.getItem('codeflare:normal-view')).toBe('chat');
   });
 
   it('REQ-AGENT-224: returning to Terminal makes an explicit primary handoff without manual autostart suppression', async () => {
     await openTerminalSession();
     expect(new URL(screen.getByRole('link', { name: 'Terminal attachment' }).getAttribute('href')!).searchParams.has('primary')).toBe(false);
     await enterChat();
-    await fireEvent.click(screen.getByRole('button', { name: /^Terminal$/i }));
+    await chooseView('terminal');
     const url = new URL((await screen.findByRole('link', { name: 'Terminal attachment' })).getAttribute('href')!);
     expect(url.searchParams.get('primary')).toBe('1');
     expect(url.searchParams.has('manual')).toBe(false);
@@ -684,7 +745,7 @@ describe('Codeflare session-local Chat composition', () => {
   it('REQ-AGENT-224: auth expiry during explicit entry is visible and does not leave a hidden terminal or retry loop', async () => {
     attachStatus = 401;
     await openTerminalSession();
-    await fireEvent.click(screen.getByRole('button', { name: /^Chat$/i }));
+    await chooseView('chat');
     expect(await screen.findByText(/session expired|sign in|log in/i)).toBeInTheDocument();
     expect(openWires()).toEqual([]);
     expect(attachRequests().map(r => new URL(r.url).pathname)).toEqual([`/api/chat/${firstId}/attach`]);
@@ -702,16 +763,15 @@ describe('Codeflare session-local Chat composition', () => {
     expect(attachRequests()).toHaveLength(1);
   });
 
-  it('REQ-AGENT-224: surface controls remain native keyboard-focusable buttons at phone width', async () => {
+  it('REQ-AGENT-224: View remains a native keyboard-focusable control at phone width', async () => {
     Object.defineProperty(window, 'innerWidth', { configurable: true, value: 390 });
     window.dispatchEvent(new Event('resize'));
     await openTerminalSession();
-    const chat = screen.getByRole('button', { name: /^Chat$/i });
-    chat.focus(); expect(document.activeElement).toBe(chat);
-    await fireEvent.click(chat);
-    const terminal = screen.getByRole('button', { name: /^Terminal$/i });
-    terminal.focus(); expect(document.activeElement).toBe(terminal);
-    expect(terminal).toBeEnabled();
-    // No imported composer keyboard/viewport regression is re-tested here.
+    const view = screen.getByRole('combobox', { name: 'View' });
+    view.focus(); expect(document.activeElement).toBe(view);
+    await chooseView('chat');
+    expect(await screen.findByRole('textbox')).toBeEnabled();
+    await chooseView('terminal');
+    expect(await screen.findByRole('region', { name: `Terminal ${firstId} 1` })).toBeInTheDocument();
   });
 });

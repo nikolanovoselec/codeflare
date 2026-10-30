@@ -1,11 +1,23 @@
 #!/usr/bin/env bash
 set -euo pipefail
 # Called ONLY by the configured primary launch sites, retaining Pi's native
-# --session-id/resume and Herdr --tui-mode arguments. Never changes HOME/settings.
+# --session-id/resume and Herdr --tui-mode arguments. Never changes HOME/Pi settings.
 PI=/opt/codeflare/npm-tools/node_modules/.bin/pi
 generation="${CODEFLARE_CHAT_GENERATION:-}"
 if [[ ! "$generation" =~ ^(0|[1-9][0-9]{0,15})$ ]] \
     || [[ ${#generation} -eq 16 && "$generation" > 9007199254740991 ]]; then
+    exec "$PI" "$@"
+fi
+# Prepare the PUBLIC Dashboard config before Pi imports the stock bridge or any
+# config-reading dependency. Only Codeflare's configured primary uses this path.
+if ! node --input-type=module -e '
+  import { preparePrimaryDashboard } from "/opt/codeflare/chat-primary/primary-identity.mjs";
+  try { preparePrimaryDashboard(); }
+  catch { process.exitCode = 1; }
+'; then
+    # Keep the native primary lifecycle available, but do not activate a bridge
+    # whose standalone auto-start policy could not safely be disabled.
+    printf '%s\n' 'Codeflare: private Chat startup configuration could not be prepared; Chat is unavailable, Terminal remains available.' >&2
     exec "$PI" "$@"
 fi
 runtime="${CODEFLARE_RUNTIME_ROOT:-/run/codeflare}/chat"

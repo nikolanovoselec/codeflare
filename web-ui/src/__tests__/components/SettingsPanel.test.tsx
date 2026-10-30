@@ -492,7 +492,7 @@ describe('SettingsPanel Component / REQ-AGENT-019 (branded settings UI)', () => 
   });
 
   describe('Default Workspace', () => {
-    it('falls back to Terminal and persists VS Code through preferences', () => {
+    it('labels the terminal stamp Normal and persists VS Code only for new sessions', () => {
       sessionStoreState.preferences = {
         workspaceSyncEnabled: false,
         fastStartEnabled: true,
@@ -501,7 +501,8 @@ describe('SettingsPanel Component / REQ-AGENT-019 (branded settings UI)', () => 
       render(() => <SettingsPanel isOpen={true} onClose={() => {}} />);
       fireEvent.click(screen.getByTestId('accordion-header-session'));
 
-      expect(screen.getByTestId('default-workspace-terminal')).toBeChecked();
+      expect(screen.getByRole('radio', { name: 'Normal', exact: true })).toBeChecked();
+      expect(screen.getByTestId('default-workspace-terminal')).toHaveAttribute('value', 'terminal');
       fireEvent.click(screen.getByTestId('default-workspace-vscode'));
 
       expect(sessionStoreState.updatePreferences).toHaveBeenCalledWith({ defaultWorkspace: 'vscode' });

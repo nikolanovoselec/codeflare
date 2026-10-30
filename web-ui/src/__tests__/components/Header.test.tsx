@@ -360,6 +360,29 @@ describe('Header Component / REQ-VAULT-012 (vault button render and readiness ga
   // REQ-IDE-001/003: the browser-IDE (OpenVSCode) header button. The Show gate
   // renders it only when the parent (Layout, for an advanced running session)
   // passes onVscodeOpen; clicking invokes that handler (which opens the IDE tab).
+  describe('REQ-AGENT-224: native Normal View selection', () => {
+    it('replaces only the IDE action and retains account, storage and settings', () => {
+      const [surface, setSurface] = createSignal<'chat' | 'terminal'>('chat');
+      render(() => <Header {...defaultSessionProps} surface={surface()} onSurfaceChange={setSurface} onVscodeOpen={() => {}} />);
+      const view = screen.getByRole('combobox', { name: 'View' });
+      expect(view).toHaveValue('chat');
+      fireEvent.change(view, { target: { value: 'terminal' } });
+      expect(view).toHaveValue('terminal');
+      expect(screen.getByRole('option', { name: 'VS Code' })).toBeInTheDocument();
+      expect(screen.queryByTestId('header-vscode-button')).not.toBeInTheDocument();
+      expect(screen.getByTestId('header-user-menu')).toBeInTheDocument();
+      expect(screen.getByTestId('header-storage-button')).toBeInTheDocument();
+      expect(screen.getByTestId('header-settings-button')).toBeInTheDocument();
+      expect(screen.getByTestId('session-switcher')).toBeInTheDocument();
+    });
+
+    it('does not offer unauthorized editor access', () => {
+      render(() => <Header {...defaultSessionProps} surface="chat" onSurfaceChange={() => {}} />);
+      expect(screen.getByRole('combobox', { name: 'View' })).toBeEnabled();
+      expect(screen.queryByRole('option', { name: 'VS Code' })).not.toBeInTheDocument();
+    });
+  });
+
   describe('Browser IDE button / REQ-IDE-001, REQ-IDE-003 (per-session VS Code)', () => {
     it('does not render the IDE button when no open handler is provided', () => {
       render(() => <Header {...defaultSessionProps} />);

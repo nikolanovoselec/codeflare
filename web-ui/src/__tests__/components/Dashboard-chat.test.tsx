@@ -26,7 +26,7 @@ vi.mock('../../stores/session', () => ({
 }));
 
 const session: SessionWithStatus = {
-  id: 'abcdef0123456789', name: 'Editor Pi', workspace: 'vscode',
+  id: 'abcdef0123456789', name: 'Normal Pi', workspace: 'terminal',
   agentType: 'pi', terminalMode: 'classic', status: 'running', generation: 7, editorReady: true,
   tabConfig: [{ id: '1', command: 'pi', label: 'Pi' }],
   createdAt: '2026-10-29T00:00:00Z', lastAccessedAt: '2026-10-29T00:00:00Z',
@@ -36,8 +36,8 @@ function mount(candidate = session) {
   const [catalog, setCatalog] = createSignal([candidate]);
   render(() => <>
     <Dashboard sessions={catalog()} viewState="dashboard"
-      onCreateSession={() => {}} onStartSession={id => setOpened(`${id}:start`)} onStopSession={() => {}}
-      onDeleteSession={() => {}} onOpenVscodeSession={id => setOpened(`${id}:editor`)} onOpenSessionById={id => setOpened(`${id}:selection`)}
+      onCreateSession={() => {}} onStartSession={id => setOpened(`${id}:start`)} onStopSession={id => setOpened(`${id}:stop`)}
+      onDeleteSession={id => setOpened(`${id}:delete`)} onOpenVscodeSession={id => setOpened(`${id}:editor`)} onOpenSessionById={id => setOpened(`${id}:selection`)}
       onOpenChatSession={id => setOpened(`${id}:chat`)}
       onOpenTerminalSession={id => setOpened(`${id}:terminal`)} />
     <output aria-label="Explicit entry">{opened()}</output>
@@ -47,14 +47,58 @@ function mount(candidate = session) {
 afterEach(cleanup);
 
 describe('Dashboard explicit primary surface entry', () => {
-  it.each(['Chat', 'Terminal'] as const)('REQ-AGENT-224: existing card menu explicitly opens eligible Pi in %s without changing normal selection', async surface => {
+  it.each(['Chat', 'Terminal'] as const)('REQ-AGENT-224 AC9: Normal Pi card menu opens %s without changing session selection', async surface => {
     mount();
     await fireEvent.click(screen.getByRole('button', { name: `Activate session ${session.name}` }));
-    expect(screen.getByLabelText('Explicit entry')).toHaveTextContent(`${session.id}:editor`);
+    expect(screen.getByLabelText('Explicit entry')).toHaveTextContent(`${session.id}:selection`);
     await fireEvent.click(screen.getByTestId(`session-stat-card-${session.id}-menu`));
     await fireEvent.click(screen.getByRole('button', { name: `Open in ${surface}` }));
     expect(screen.getByLabelText('Explicit entry')).toHaveTextContent(`${session.id}:${surface.toLowerCase()}`);
     expect(screen.queryByTestId('session-context-menu')).not.toBeInTheDocument();
+  });
+
+  it.each(['classic', 'herdr'] as const)('REQ-AGENT-224 AC9: exclusive %s VS Code hides Chat and Terminal while opening the ready editor', async terminalMode => {
+    mount({ ...session, workspace: 'vscode', terminalMode });
+    await fireEvent.click(screen.getByTestId(`session-stat-card-${session.id}-menu`));
+    expect(screen.queryByRole('button', { name: 'Open in Chat' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Open in Terminal' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Stop', exact: true })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Delete', exact: true })).toBeEnabled();
+    await fireEvent.click(screen.getByRole('button', { name: 'Stop', exact: true }));
+    expect(screen.getByLabelText('Explicit entry')).toHaveTextContent(`${session.id}:stop`);
+    await fireEvent.click(screen.getByRole('button', { name: `Activate session ${session.name}` }));
+    expect(screen.getByLabelText('Explicit entry')).toHaveTextContent(`${session.id}:editor`);
+  });
+
+  it.each([
+    { status: 'stopped' as const, editorReady: false, editorReadyError: false, expected: 'start' },
+    { status: 'error' as const, editorReady: false, editorReadyError: true, expected: 'start' },
+    { status: 'running' as const, editorReady: false, editorReadyError: true, expected: 'start' },
+    { status: 'unreachable' as const, editorReady: true, editorReadyError: false, expected: 'editor' },
+  ])('REQ-AGENT-224 AC9: exclusive VS Code retains $status editor activation and recovery without shared entry', async candidate => {
+    const { expected, ...state } = candidate;
+    mount({ ...session, ...state, workspace: 'vscode' });
+    await fireEvent.click(screen.getByTestId(`session-stat-card-${session.id}-menu`));
+    expect(screen.queryByRole('button', { name: 'Open in Chat' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Open in Terminal' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Delete', exact: true })).toBeEnabled();
+    if (candidate.status !== 'stopped') expect(screen.getByRole('button', { name: 'Stop', exact: true })).toBeEnabled();
+    await fireEvent.click(screen.getByRole('button', { name: 'Delete', exact: true }));
+    await fireEvent.click(screen.getByRole('button', { name: 'Are you sure?' }));
+    expect(screen.getByLabelText('Explicit entry')).toHaveTextContent(`${session.id}:delete`);
+    await fireEvent.click(screen.getByRole('button', { name: `Activate session ${session.name}` }));
+    expect(screen.getByLabelText('Explicit entry')).toHaveTextContent(`${session.id}:${expected}`);
+  });
+
+  it('REQ-AGENT-224 AC9: exclusive VS Code keeps preparing editor non-actionable and shared entries hidden', async () => {
+    mount({ ...session, workspace: 'vscode', editorReady: false });
+    expect(screen.queryByRole('button', { name: `Activate session ${session.name}` })).not.toBeInTheDocument();
+    await fireEvent.click(screen.getByTestId(`session-stat-card-${session.id}-menu`));
+    expect(screen.queryByRole('button', { name: 'Open in Chat' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Open in Terminal' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Stop', exact: true })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Delete', exact: true })).toBeEnabled();
+    expect(screen.getByLabelText('Explicit entry')).toBeEmptyDOMElement();
   });
 
   it.each([undefined, 'claude-code', 'bash'] as const)('REQ-AGENT-224: configured primary Pi opens both surfaces when the legacy creation agent is %s', async agentType => {

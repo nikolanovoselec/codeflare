@@ -137,7 +137,7 @@ const SessionSection: Component<SessionSectionProps> = (props) => {
                 aria-checked={props.defaultWorkspace() === 'terminal'}
                 data-testid="default-workspace-terminal"
               />
-              Terminal
+              Normal
             </label>
             <label class={`session-mode-option ${props.defaultWorkspace() === 'vscode' ? 'session-mode-option--selected' : ''}`}>
               <input

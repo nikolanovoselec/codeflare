@@ -212,6 +212,23 @@ describe('Codeflare primary-only Chat public adapter boundary', { timeout: 15000
       ['prompt_response', 'prompt_response', 'extension_ui_response', 'extension_ui_response']);
     ws.terminate();
   });
+  it('REQ-AGENT-224 AC5: genuine diagnostics and conversation text remain unchanged, including setup-command quotations', async () => {
+    const ws = await connect(port);
+    const quotation = 'The user mentioned pi-dashboard open and http://localhost:8000';
+    for (const notice of [
+      { type: 'notify', sessionId: identity.sessionId, message: 'Private Chat connection failed', level: 'error' },
+      { type: 'notify', sessionId: identity.sessionId, message: 'Tool warning', level: 'warning' },
+      { type: 'event', sessionId: identity.sessionId, seq: 1,
+        event: { type: 'message_end', message: { role: 'user', content: [{ type: 'text', text: quotation }] } } },
+      { type: 'event', sessionId: identity.sessionId, seq: 2,
+        event: { type: 'message_end', message: { role: 'assistant', content: [{ type: 'text', text: quotation }] } } },
+    ]) {
+      const received = next(ws);
+      for (const backend of upstreamWss.clients) backend.send(JSON.stringify(notice));
+      assert.deepEqual(await received, notice);
+    }
+    ws.terminate();
+  });
   it('REQ-AGENT-224: concurrent explicit attach returns actual primary identity, with no terminal client or manual input', async () => {
     live = null;
     const results = await Promise.all(Array.from({ length: 6 }, () => request(port, `${prefix}/attach`, {

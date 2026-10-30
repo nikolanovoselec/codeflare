@@ -19,11 +19,48 @@
   background: var(--bg-primary);
   font-family: var(--font-mono);
   font-size: var(--text-base);
+  line-height: 1.8;
   min-width: 0;
   min-height: 0;
 }
 .cf-chat-content { display: flex; flex: 1; flex-direction: column; min-height: 0; min-width: 0; height: 100%; }
 .cf-chat-transcript { display: flex; flex: 1; flex-direction: column; min-height: 0; overflow: hidden; }
-.cf-chat-status { padding: 0.75rem; flex-shrink: 0; }
+.cf-chat-status {
+  padding: var(--space-3) var(--space-6);
+  flex-shrink: 0;
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
+}
+/* Keep the native virtualized transcript and composer; change only their canvas. */
+.cf-chat-transcript [data-testid="chat-scroll-container"] {
+  padding-block: var(--space-8);
+  padding-inline: max(var(--space-4), calc((100% - 46rem) / 2));
+  overscroll-behavior: contain;
+}
+.cf-chat-content > [data-testid="composer-root"] {
+  align-self: center;
+  width: min(calc(100% - var(--space-8)), 46rem);
+  margin-block: var(--space-3) var(--space-6);
+  padding: 0;
+  border-top: 0;
+}
+.codeflare-chat [data-testid="composer-card"] {
+  border-radius: var(--radius-xl);
+  padding: var(--space-3) var(--space-4) var(--space-2);
+  background: var(--bg-secondary);
+}
+.codeflare-chat textarea {
+  font-family: var(--font-mono);
+  font-size: var(--text-base);
+  line-height: 1.6;
+}
+.codeflare-chat :is(pre, code) { font-family: var(--font-mono); }
+@media (max-width: 640px) {
+  .cf-chat-transcript [data-testid="chat-scroll-container"] { padding: var(--space-4); }
+  .cf-chat-content > [data-testid="composer-root"] {
+    width: calc(100% - var(--space-6));
+    margin-bottom: max(var(--space-3), env(safe-area-inset-bottom));
+  }
+}
 /* No layout box: fixed upstream overlays measure the real viewport. */
 .cf-chat-overlays { display: contents; }
