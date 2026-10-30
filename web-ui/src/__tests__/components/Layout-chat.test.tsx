@@ -170,6 +170,20 @@ describe('Codeflare session-local Chat composition', () => {
   const attachRequests = () => requests.filter(r => new URL(r.url).pathname.endsWith('/attach'));
   const openWires = () => ChatWire.wires.filter(w => w.readyState === ChatWire.OPEN);
 
+  it.each([undefined, 'claude-code'] as const)('REQ-AGENT-224: configured primary Pi exposes working Chat when the legacy creation agent is %s', async agentType => {
+    sessions = [makeSession({ agentType })];
+    await act(async () => { await sessionStore.loadSessions(); });
+    await openTerminalSession();
+    const input = await enterChat();
+    await fireEvent.input(input, { target: { value: 'Continue the configured primary' } });
+    await fireEvent.click(screen.getByRole('button', { name: /^Send$/i }));
+    await waitFor(() => expect(openWires().some(w => w.frames.some(frame =>
+      frame.type === 'send_prompt' && frame.sessionId === 'bound-primary-pi'
+      && frame.text === 'Continue the configured primary'))).toBe(true));
+    expect(sessionStore.getActiveSession()?.agentType).toBe(agentType);
+    expect(sessionStore.getActiveSession()?.tabConfig?.[0].command).toBe('pi');
+  });
+
   it.each(['classic', 'herdr'] as const)('REQ-AGENT-224: %s surface switches unmount hidden ownership without stopping or restamping the session', async terminalMode => {
     sessions = [makeSession({ terminalMode })]; await act(async () => { await sessionStore.loadSessions(); });
     await openTerminalSession();

@@ -36,7 +36,7 @@ interface SessionSurfaceState {
 }
 
 function isChatEligibleSession(session: SessionWithStatus | null | undefined): session is SessionWithStatus & { generation: number } {
-  return session?.status === 'running' && session.agentType === 'pi'
+  return session?.status === 'running'
     && (session.tabConfig?.find(tab => tab.id === '1')?.command ?? (session.tabConfig?.length ? '' : session.agentType)) === 'pi'
     && Number.isSafeInteger(session.generation) && session.generation! >= 0;
 }

@@ -143,7 +143,9 @@ export async function handleChatRequest(request: Request, env: Env): Promise<Res
     if (session.lifecycleState === 'stopped' || session.lifecycleState === 'stopping') {
       return reject(409, 'Container stopped', 'CONTAINER_STOPPED');
     }
-    if (session.agentType !== 'pi'
+    const primaryCommand = session.tabConfig?.find(tab => tab.id === '1')?.command
+      ?? (session.tabConfig?.length ? '' : session.agentType);
+    if (primaryCommand !== 'pi'
       || !['classic', 'herdr'].includes(session.terminalMode)
       || !['terminal', 'vscode'].includes(session.workspace)) {
       return reject(409, 'Session is not eligible for Pi Chat', 'CHAT_INELIGIBLE');

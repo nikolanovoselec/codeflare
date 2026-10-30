@@ -105,6 +105,27 @@ describe('Codeflare shared-primary Chat boundary', () => {
     expect(new URL(primary.url).pathname).toBe(`/api/chat/${sid}/attach`);
   });
 
+  it.each([undefined, 'claude-code'] as const)('REQ-AGENT-224: configured primary Pi attaches when the legacy creation agent is %s', async agentType => {
+    store({ agentType });
+    const result = await attach();
+    expect(result.status).toBe(200);
+    expect(await result.json()).toMatchObject({ sessionId: 'live-primary-pi', generation: 7 });
+  });
+
+  it.each(['bash', 'claude-code', 'pi --session foreign'])('REQ-AGENT-224: a Pi creation tag cannot authorize configured primary command %s', async command => {
+    store({ tabConfig: [{ id: '1', command, label: 'Configured primary' }] });
+    const result = await attach();
+    expect(result.status).toBe(409);
+    expect(await result.json()).toMatchObject({ code: 'CHAT_INELIGIBLE' });
+  });
+
+  it('REQ-AGENT-224: a legacy Pi session without tab configuration still attaches its primary', async () => {
+    store({ tabConfig: undefined });
+    const result = await attach();
+    expect(result.status).toBe(200);
+    expect(await result.json()).toMatchObject({ sessionId: 'live-primary-pi', generation: 7 });
+  });
+
   it('REQ-AGENT-224: expired browser authentication is 401 and never reaches the runtime', async () => {
     boundary.authenticated = false;
     const result = await attach();
