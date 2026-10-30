@@ -2,6 +2,10 @@
 
 Semantic changes to the specification. Git history captures diffs; this file captures intent.
 
+## 2026-10-30
+
+- Implement the approved explicit session KILL recovery path without joining graceful Stop: owner-authenticated mutation, caller-independent DO ownership, public SDK force-destroy, retained session/files, retryable uncertainty and generation fencing ([REQ-SESSION-038](session-lifecycle.md#req-session-038-user-can-force-kill-a-session-container), [039](session-lifecycle.md#req-session-039-authorized-do-owned-native-kill), [040](session-lifecycle.md#req-session-040-kill-confirmation-retry-and-generation-fencing)). Existing Stop/Rename/Delete and idle policy remain unchanged. Implementation is authored against the complete RED suite; final GREEN CI, review and hosted native qualification remain pending, so requirements remain Planned.
+
 ## 2026-10-27
 
 - Plan protected raw execution logging controlled by each run's original admitted logging setting, with credential-only redaction and complete available original errors, requests/responses, public SDK events and tool evidence ([REQ-OPERATOR-090](operators.md#req-operator-090-protected-raw-execution-logs), [091](operators.md#req-operator-091-protected-raw-logging-transport-and-delivery)). This remains separate from bounded private-safe diagnostics; trusted forwarding, passive original-policy proof and persisted unsampled delivery grant no additional tenant or execution access. Planned, not rolled out: exact-head CI, reviewed deployment and hosted persisted-log acceptance remain required.

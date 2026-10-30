@@ -72,6 +72,7 @@ import {
   collectMetrics as lifecycleCollectMetrics,
   destroy as lifecycleDestroy,
   stopSession as lifecycleStopSession,
+  killSession as lifecycleKillSession,
   type SessionStopRequest,
   onStop as lifecycleOnStop,
   onError as lifecycleOnError,
@@ -109,6 +110,7 @@ export class container extends Container<Env> implements ContainerEnvState {
   logger = createLogger('container');
   private renovateScheduling: Promise<void> = Promise.resolve();
   private sessionStopInFlight?: SessionStopRequest & { completion: Promise<void> };
+  private sessionKillInFlight?: SessionStopRequest & { completion: Promise<void> };
 
   private async ensureRenovateSchedule(pin: RenovateScanPin, activate = false, rearm = false): Promise<boolean> {
     const previous = this.renovateScheduling;
@@ -264,6 +266,7 @@ export class container extends Container<Env> implements ContainerEnvState {
    * Public so container-lifecycle.ts can read/write it via LifecycleHost.
    */
   _shutdownStartedAt = 0;
+  _teardownEpoch = 0;
   /** Monotonic usage counter (seconds) - sent to Timekeeper for delta computation */
   _usageSeconds = 0;
   containerStartedAt = 0;
@@ -883,6 +886,10 @@ export class container extends Container<Env> implements ContainerEnvState {
    * full rationale.
    */
   override async destroy(): Promise<void> {
+    if (this.sessionKillInFlight) {
+      await this.sessionKillInFlight.completion;
+      return;
+    }
     await lifecycleDestroy(this.lifecycleHost);
   }
 
@@ -907,6 +914,33 @@ export class container extends Container<Env> implements ContainerEnvState {
       if (this.sessionStopInFlight?.completion === completion) this.sessionStopInFlight = undefined;
     });
     this.sessionStopInFlight = { ...input, completion };
+    this.ctx.waitUntil(completion);
+    await completion;
+  }
+
+  /** A caller-independent force lane, separate from any blocked graceful Stop. */
+  async killSession(input: SessionStopRequest): Promise<void> {
+    if (this.env.CONTAINER.idFromName(`${input.bucket}-${input.sessionId}`).toString() !== this.ctx.id.toString()) {
+      throw new Error('Session KILL address mismatch');
+    }
+    const pending = this.sessionKillInFlight;
+    if (pending) {
+      if (pending.bucket !== input.bucket || pending.sessionId !== input.sessionId || pending.generation !== input.generation) {
+        throw new Error('Another session KILL generation is in progress');
+      }
+      await pending.completion;
+      return;
+    }
+    const completion: Promise<void> = Promise.resolve().then(() => lifecycleKillSession(this.lifecycleHost, input))
+      .then(() => {
+        const stop = this.sessionStopInFlight;
+        if (stop?.bucket === input.bucket && stop.sessionId === input.sessionId && stop.generation === input.generation) {
+          this.sessionStopInFlight = undefined;
+        }
+      }).finally(() => {
+        if (this.sessionKillInFlight?.completion === completion) this.sessionKillInFlight = undefined;
+      });
+    this.sessionKillInFlight = { ...input, completion };
     this.ctx.waitUntil(completion);
     await completion;
   }
