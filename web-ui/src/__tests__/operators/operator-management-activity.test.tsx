@@ -442,6 +442,7 @@ describe('REQ-OPERATOR-058: explicit ordinary source on the fresh standalone lau
       // remains the new generation only after a fresh intentional selection.
       sessionRead = () => json({ sessions: [{ ...ordinaryHost, generation: 4 }] });
       await refreshSources();
+      await waitFor(() => expect(screen.getByRole('button', { name: /refresh.*(?:source|hosts)/i })).not.toBeDisabled());
       const select = await screen.findByRole('combobox', { name: /source.*host/i });
       await within(select).findByRole('option', { name: new RegExp(ordinaryHost.name) });
       expect(select).toHaveValue('');

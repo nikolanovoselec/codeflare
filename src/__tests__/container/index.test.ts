@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { createMockKV } from '../helpers/mock-kv';
 import { createMockSessionD1 } from '../helpers/mock-session-d1';
+import { getBucketName } from '../../lib/access';
 import { env, runInDurableObject } from 'cloudflare:test';
 import type { DurableObject as NativeDurableObject } from 'cloudflare:workers';
 import { OperatorActivity } from '../../operators/activity';
@@ -301,14 +302,22 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
     mockStorage.get.mockImplementation(async (key: string) => stored.get(key));
     mockStorage.put.mockImplementation(async (key: string, value: unknown) => { stored.set(key, value); });
     mockEnv.ENCRYPTION_KEY = btoa('k'.repeat(32));
-    mockEnv.CONTAINER = { idFromName: () => ({ toString: () => 'test-do-id-hex' }) };
     const human = { subject: 'admin', email: 'admin@example.test', issuer: 'https://owner.cloudflareaccess.com',
       audiences: ['audience'], issuedAt: Math.floor(Date.now() / 1000) - 20,
       expiresAt: Math.floor(Date.now() / 1000) + 14_400 };
     const pin = { installationId: 'dispatcher-install', registrationId: 'original-admin',
-      bucket: 'owner-bucket', sessionId: 'session0001', sessionGeneration: 3 };
+      bucket: getBucketName(human.email, mockEnv.CLOUDFLARE_WORKER_NAME), sessionId: 'session0001', sessionGeneration: 3 };
     const actor = { registrationId: pin.registrationId, bucket: pin.bucket,
       sessionId: pin.sessionId, sessionGeneration: pin.sessionGeneration };
+    mockEnv.CONTAINER = {
+      idFromName: () => ({ toString: () => 'test-do-id-hex' }),
+      get: () => ({ claimBucketOwner: async (email: string) => email === human.email ? 'owned' : 'conflict' }),
+      getByName: (name: string) => ({ getPersonalPiSession: async (ref: { bucket: string; sessionId: string; email: string }) => {
+        if (name !== `${pin.bucket}-${pin.sessionId}` || ref.bucket !== actor.bucket
+          || ref.sessionId !== actor.sessionId || ref.email !== human.email) throw Error('Foreign source Host');
+        return { generation: actor.sessionGeneration };
+      } }),
+    };
     const current = { ...pin, repository: 'acme/updates', repositoryId: 424242, baseBranch: 'trunk',
       repetitionIntervalSeconds: 900, controlsRevision: 1, installationRevision: 1, operatorRevision: 1,
       releaseId: 'release', bundleDigest: 'c'.repeat(64), activatedAt: '2026-09-28T00:00:00.000Z', human, accessJwt: 'a-jwt' };
@@ -321,7 +330,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
         releaseId: 'release', policy: { capabilities: ['fetch'], resourceProfileId: null },
         configurationJson: JSON.stringify({ renovate: { repository: current.repository, automaticRuns: true, repetitionIntervalSeconds: 900 } }) },
       operator: { operatorId: 'dispatcher', profile: 'dispatcher', revision: 1,
-        invokers: { users: [human.email], groups: [] } },
+        policy: { capabilities: ['fetch'], resourceProfileId: null }, invokers: { users: [human.email], groups: [] } },
       release: { id: 'release', bundleDigest: current.bundleDigest },
       manifestJson: JSON.stringify({ id: 'renovate-dispatcher', profile: 'dispatcher', intentVersion: '4' }) };
     mockEnv.OPERATOR_REGISTRY = { getByName: () => ({
@@ -338,6 +347,8 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
     mockEnv.OPERATOR_ACTIVITY = { getByName: (id: string) => {
       if (id !== reservedId) throw Error('Replacement Activity');
       return { bindProspectiveRenovateAdmission: async () => true,
+        bindDispatcherOwnerSource: async (source: { bucket: string; sessionId: string; sessionGeneration: number }) => source.bucket === actor.bucket
+          && source.sessionId === actor.sessionId && source.sessionGeneration === actor.sessionGeneration,
         getRuntimePlan: async () => null,
         getBrowserDetail: async () => state === 'absent' ? null : ({ executionStatus: state }),
         prepareAuthorized: async (intent: { activityId: string }, _context: unknown, invocation: string) => {
@@ -571,11 +582,12 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       mockStorage.put.mockImplementation(async (key: string, value: unknown) => { stored.set(key, value); });
       mockEnv.ENCRYPTION_KEY = btoa('k'.repeat(32));
       mockEnv.LOADER = {};
+      const bucket = getBucketName('admin@example.test', mockEnv.CLOUDFLARE_WORKER_NAME);
       mockEnv.KV = { get: async (key: string) => key === 'user:admin@example.test'
         ? JSON.stringify({ role: 'admin' }) : null };
       mockEnv.USAGE_DB = { prepare: () => ({ bind: (...args: unknown[]) => ({ first: async () =>
-        args[0] === 'owner-bucket' && args[1] === 'session0001' ? {
-          owner_key: 'owner-bucket', session_id: 'session0001', lifecycle_state: 'running', lifecycle_generation: 3,
+        args[0] === bucket && args[1] === 'session0001' ? {
+          owner_key: bucket, session_id: 'session0001', lifecycle_state: 'running', lifecycle_generation: 3,
           created_at: new Date().toISOString(), last_accessed_at: new Date().toISOString(),
           workspace: 'default', terminal_mode: 'terminal', name: 'Admin session', response_revision: 0,
           observation_sequence: 0, editor_ready: 1, editor_ready_error: 0,
@@ -606,12 +618,12 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
           admittedAt: Date.now(), selection } }), upsertOwnedActivity: async () => {},
         retainedProspectiveRenovateRetryTargets: async () => [],
         currentProspectiveRenovateRegistration: async () => ({ repository: 'acme/updates', repositoryId: 424242, baseBranch: 'trunk', repetitionIntervalSeconds: 3600, controlsRevision: 1, installationRevision: 1, operatorRevision: 1, releaseId: 'release', bundleDigest, registrationId: 'registered-admin',
-          activatedAt: '2026-09-28T00:00:00.000Z', installationId: 'dispatcher-install', bucket: 'owner-bucket',
+          activatedAt: '2026-09-28T00:00:00.000Z', installationId: 'dispatcher-install', bucket,
           sessionId: 'session0001', sessionGeneration: 3, human, accessJwt: 'sealed-admin' }),
         reserveProspectiveRenovateActivity: async (input: { activityId: string }) => {
           reservedActivityId ??= input.activityId;
           return { ok: true, activityId: reservedActivityId,
-            actor: { registrationId: 'registered-admin', bucket: 'owner-bucket',
+            actor: { registrationId: 'registered-admin', bucket,
               sessionId: 'session0001', sessionGeneration: 3 } };
         },
         readProspectiveRenovateAdmission: async (id: string) => id !== reservedActivityId ? null : ({ activityId: id,
@@ -619,12 +631,19 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
           controlsRevision: 1, installationRevision: 1, operatorRevision: 1, releaseId: 'release', bundleDigest,
           head: 'c'.repeat(40), ownerKey: await (await import('../../operators/browser-activity')).operatorOwnerKey(human),
           activatedAt: '2026-09-28T00:00:00.000Z', createdAt: '2026-09-28T00:00:00.001Z',
-          actor: { registrationId: 'registered-admin', bucket: 'owner-bucket', sessionId: 'session0001',
+          actor: { registrationId: 'registered-admin', bucket, sessionId: 'session0001',
             sessionGeneration: 3, subject: human.subject, email: human.email, issuer: human.issuer,
             audiences: human.audiences } }),
       };
-      mockEnv.CONTAINER = { idFromName: (name: string) => ({ toString: () =>
-        name === 'owner-bucket-session0001' ? 'test-do-id-hex' : 'foreign-do' }) };
+      mockEnv.CONTAINER = {
+        idFromName: (name: string) => ({ toString: () => name === `${bucket}-session0001` ? 'test-do-id-hex' : 'foreign-do' }),
+        get: () => ({ claimBucketOwner: async (email: string) => email === human.email ? 'owned' : 'conflict' }),
+        getByName: (name: string) => ({ getPersonalPiSession: async (ref: { bucket: string; sessionId: string; email: string }) => {
+          if (name !== `${bucket}-session0001` || ref.bucket !== bucket
+            || ref.sessionId !== 'session0001' || ref.email !== human.email) throw Error('Foreign source Host');
+          return { generation: 3 };
+        } }),
+      };
       mockEnv.OPERATOR_REGISTRY = { getByName: () => registry };
       const writes: string[] = [];
       Object.defineProperty(native, 'exports', { configurable: true, value: { GitHubInterceptor: () => ({
@@ -707,7 +726,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       });
       const armed = await (session as unknown as { armRenovateScan: (input: unknown) => Promise<unknown> })
         .armRenovateScan({ registrationId: 'registered-admin', installationId: 'dispatcher-install',
-          bucket: 'owner-bucket', sessionId: 'session0001', sessionGeneration: 3 });
+          bucket, sessionId: 'session0001', sessionGeneration: 3 });
       expect(armed).toMatchObject({ ok: true });
       expect(deliver).toBeDefined();
       const activatedClock = Date.now();

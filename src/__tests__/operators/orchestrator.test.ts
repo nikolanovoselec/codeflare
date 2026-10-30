@@ -217,6 +217,7 @@ describe('REQ-OPERATOR-061: configured Renovate run settings', () => {
       enabled: true, releaseId: 'release', configurationJson: JSON.stringify(configuration),
       policy: { capabilities: ['fetch'], resourceProfileId: null } },
       operator: { operatorId: 'renovate-dispatcher', profile: 'dispatcher', revision: 1,
+        policy: { capabilities: ['fetch'], resourceProfileId: null },
         invokers: { users: [claims.email], groups: [] } }, release: { id: 'release', bundleDigest: 'a'.repeat(64) },
       manifestJson: JSON.stringify({ id: 'renovate-dispatcher', profile: 'dispatcher', intentVersion }) };
     const host = { ...encryption, OPERATOR_REGISTRY: { getByName: () => ({
