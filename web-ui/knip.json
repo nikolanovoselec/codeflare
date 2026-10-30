@@ -1,11 +1,13 @@
 {
-  "$schema": "https://unpkg.com/knip@5/schema.json",
+  "$schema": "https://unpkg.com/knip@6/schema.json",
   "project": ["src/**/*.{ts,tsx}"],
   "ignore": ["src/__tests__/helpers/**"],
-  "ignoreDependencies": ["@testing-library/dom", "@vitest/coverage-v8"],
+  "ignoreIssues": {
+    "src/chat/upstream/**": ["files", "exports", "types"]
+  },
+  "ignoreDependencies": ["@testing-library/dom", "@vitest/coverage-v8", "tailwindcss"],
   "rules": {
-    "enumMembers": "off",
-    "classMembers": "off"
+    "enumMembers": "off"
   },
   "ignoreExportsUsedInFile": true
 }

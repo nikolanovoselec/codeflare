@@ -110,6 +110,10 @@ describe('Codeflare session-local Chat composition', () => {
       const request = input instanceof Request ? input : new Request(new URL(String(input), window.location.origin), init);
       requests.push(request.clone());
       const path = new URL(request.url).pathname;
+      if (request.method === 'DELETE' && /^\/api\/sessions\/[a-f0-9]{16}$/.test(path)) {
+        sessions = sessions.filter(session => session.id !== path.split('/')[3]);
+        return Response.json({ success: true });
+      }
       if (path === '/api/sessions') return Response.json({ sessions });
       if (path === '/api/preferences') return Response.json(preferences);
       if (path === '/api/sessions/batch-status' && expiredPolling) return Response.json({ error: 'Session expired' }, { status: 401 });
@@ -128,9 +132,12 @@ describe('Codeflare session-local Chat composition', () => {
       if (path.includes('gravatar')) return new Response(null, { status: 404 });
       return new Response('{}', { status: 404 });
     });
-    // Drain prior list ownership through the existing public loader, not private
-    // reset hooks. Every test starts with an authoritative disposable catalog.
-    await act(async () => { await sessionStore.loadSessions(); });
+    // A missing KV-list row cannot revoke a locally owned lifecycle. Delete the
+    // prior disposable sessions through the public boundary before reusing IDs.
+    await act(async () => {
+      for (const session of [...sessionStore.sessions]) await sessionStore.deleteSession(session.id);
+    });
+    requests = [];
     sessions = [makeSession()];
     await act(async () => { await sessionStore.loadSessions(); });
     await sessionStore.loadPreferences();
@@ -177,7 +184,7 @@ describe('Codeflare session-local Chat composition', () => {
     expect(openWires().filter(w => String(w.url).includes('/api/chat/'))).toEqual([]);
     expect(sessionStore.getActiveSession()).toMatchObject(stamp);
     expect(window.location.pathname).toBe(path);
-    expect(requests.filter(r => r.method !== 'GET' && !new URL(r.url).pathname.endsWith('/attach'))).toEqual([]);
+    expect(requests.filter(r => !['GET', 'HEAD'].includes(r.method) && !new URL(r.url).pathname.endsWith('/attach'))).toEqual([]);
   });
 
   it('REQ-AGENT-224: Chat on a secondary classic tab returns to primary without resetting tab order or tiling', async () => {
@@ -256,8 +263,8 @@ describe('Codeflare session-local Chat composition', () => {
   it('REQ-AGENT-224: deleting a session clears its unsent draft before that identity is reused', async () => {
     await openTerminalSession();
     await fireEvent.input(await enterChat(), { target: { value: 'Discard on deletion' } });
-    // The authoritative catalog deletion path already owns terminal cleanup.
-    sessions = []; await act(async () => { await sessionStore.loadSessions(); });
+    // Explicit deletion, not a transient missing KV row, revokes local ownership.
+    await act(async () => { await sessionStore.deleteSession(firstId); });
     sessions = [makeSession({ generation: 8, revision: 2 })]; await act(async () => { await sessionStore.loadSessions(); });
     await act(async () => { sessionStore.setActiveSession(firstId); });
     await fireEvent.click(await screen.findByRole('button', { name: /^Chat$/i }));
@@ -353,7 +360,7 @@ describe('Codeflare session-local Chat composition', () => {
     const terminal = await screen.findByRole('region', { name: `Terminal ${firstId} 1` });
     expect(new URL(terminal.querySelector('a')!.href).searchParams.get('primary')).toBe('1');
     expect(sessionStore.getActiveSession()).toMatchObject({ workspace: 'terminal', terminalMode, generation: 7 });
-    expect(requests.filter(r => r.method !== 'GET' && !new URL(r.url).pathname.endsWith('/attach'))).toEqual([]);
+    expect(requests.filter(r => !['GET', 'HEAD'].includes(r.method) && !new URL(r.url).pathname.endsWith('/attach'))).toEqual([]);
   });
 
   it.each(['classic', 'herdr'] as const)('REQ-AGENT-224: failed explicit %s Terminal-created confirmation shows an error without mounting a fallback', async terminalMode => {
@@ -425,7 +432,7 @@ describe('Codeflare session-local Chat composition', () => {
     expect(attachRequests()).toEqual([]);
     expect(ChatWire.wires).toEqual([]);
     expect(screen.queryByRole('region', { name: `Terminal ${firstId} 1` })).not.toBeInTheDocument();
-    expect(requests.filter(r => r.method !== 'GET')).toEqual([]);
+    expect(requests.filter(r => !['GET', 'HEAD'].includes(r.method))).toEqual([]);
   });
 
   it('REQ-AGENT-224: a non-Pi configured tab one never exposes Chat even when the session agent label is Pi', async () => {

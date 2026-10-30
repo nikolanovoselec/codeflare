@@ -237,7 +237,7 @@ function BoundChat(props: ChatMountProps & { layerHost: HTMLElement }) {
               }}
                 disabled={status !== 'connected' || composerStatus === 'ended'} sessionStatus={composerStatus}
                 retrying={!!state.retryState} pendingPrompt={state.pendingPrompt?.status} onSend={sendPrompt} onAbort={abort}
-                currentTool={metadata.currentTool} streamingText={state.streamingText} sessionMessages={state.messages} />
+                currentTool={metadata.currentTool ?? undefined} streamingText={state.streamingText} sessionMessages={state.messages} />
             </div>
           </LayerHostProvider>
         </SessionAssetsProvider>

@@ -34,6 +34,7 @@
     "brace-expansion": "5.0.12",
     "hono": "^4.12.25",
     "html-to-text": "10.0.1",
+    "mailparser": "3.14.1",
     "protobufjs": "7.6.5",
     "undici": "8.12.3",
     "ip-address": "10.7.3",
