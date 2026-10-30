@@ -1,0 +1,680 @@
+/** @jsxImportSource react */
+import { mdiContentCopy, mdiTable } from "@mdi/js";
+import { Icon } from "@mdi/react";
+import React, { useCallback, useMemo, useRef, useState } from "react";
+import ReactMarkdown, { type Components, type Options } from "react-markdown";
+import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
+import rehypeRaw from "rehype-raw";
+import rehypeSanitize from "rehype-sanitize";
+import { tokenize } from "../../lib/chat/linkify-tool-output.js";
+import { t as i18nT } from "../../lib/i18n/i18n.js";
+import { MARKDOWN_REMARK_PLUGINS } from "../../lib/preview/markdown-remark-plugins.js";
+import { repairMarkdown } from "../../lib/preview/markup-repair-md.js";
+import { useMathEngine } from "../../lib/preview/math-engine.js";
+import { MermaidSourceContext, type MermaidSourceInfo } from "../../lib/preview/mermaid-source-context.js";
+import { parseOrdinalStamp, remarkMermaidOrdinal } from "../../lib/preview/remark-mermaid-ordinal.js";
+import { useSessionAssets } from "../../lib/session/SessionAssetsContext.js";
+import { getSyntaxTheme } from "../../lib/theme/syntax-theme.js";
+import { useLoopbackLinkOpen } from "../../lib/use-loopback-link-open.js";
+import { CopyButton } from "../primitives/CopyButton.js";
+import { ErrorBoundary } from "../primitives/ErrorBoundary.js";
+import { useThemeContext } from "../settings/ThemeProvider.js";
+import type { ToolContext } from "../tool-renderers/types.js";
+import { UrlLink } from "../tool-renderers/UrlLink.js";
+import { extractFrontmatter, FrontmatterProperties } from "./FrontmatterProperties.js";
+import { ImageLightbox } from "./ImageLightbox.js";
+import { isExternalHref } from "./is-external-href.js";
+import { MarkupRepairBanner } from "./MarkupRepairBanner.js";
+import { MermaidBlock } from "./MermaidBlock.js";
+import { MARKDOWN_SCHEMA, safeUrlTransform } from "./markdown-sanitize.js";
+import { type ImageBase, resolveLocalImageSrc } from "./resolve-local-image-src.js";
+
+interface Props {
+  content: string;
+  /**
+   * When provided, inline prose text and inline-`code` spans are run through
+   * the tool-output tokenizer so file references and URLs become clickable.
+   * Fenced/multi-line code blocks are never linkified. Omit to render plain
+   * markdown (the default for non-chat surfaces).
+   * See change: unify-file-link-openability.
+   */
+  context?: ToolContext;
+  /**
+   * Controls rendering of a leading YAML frontmatter block. `remark-frontmatter`
+   * always strips the block from the markdown body (so it never mangles into a
+   * heading), regardless of this prop. "hide" (default) renders nothing in its
+   * place — preserves chat behavior. "properties" renders an Obsidian-style
+   * Properties panel above the body. File/spec/skill surfaces opt in.
+   * See change: improve-frontmatter-rendering.
+   */
+  frontmatter?: "hide" | "properties";
+  /**
+   * When provided, LOCAL image `src`s in the markdown are rewritten to
+   * `/api/file/raw?cwd=&path=` (resolved against `dir`) so on-disk previews of
+   * a `.md` display sibling/relative images instead of 404ing against the
+   * dashboard origin. Delivered to `PiAssetImg` via a memoized `ImageBaseContext`
+   * (not a per-render `components.img` closure). Omit (chat/thinking, and
+   * surfaces without a session cwd) to keep the verbatim fall-through.
+   * See change: fix-markdown-preview-relative-images.
+   */
+  imageBase?: ImageBase;
+  /**
+   * On-disk identity of this markdown (file previews only; MUST be a stable,
+   * memoized object — see `useMermaidSource`). Lets a repaired mermaid fence
+   * offer "Apply fix to file". Omit for chat and other file-less surfaces.
+   * See change: add-preview-apply-fix-to-file.
+   */
+  mermaidSource?: MermaidSourceInfo | null;
+  /**
+   * The content is a complete on-disk file, not a stream. Every mermaid fence is then
+   * complete by definition (M1: an EOF-unclosed or `~~~` fence renders instead of
+   * showing "Loading diagram…" forever) and unterminated top-level fences are repaired
+   * for display behind a `MarkupRepairBanner` (M2/M3). Default `false` = chat/streaming,
+   * unchanged. See change: add-md-adoc-markup-repair.
+   */
+  staticSource?: boolean;
+}
+
+/**
+ * Ambient base for rewriting local markdown image srcs. `null` (default) →
+ * `PiAssetImg` leaves non-`pi-asset:` srcs verbatim, exactly today's chat path.
+ * See change: fix-markdown-preview-relative-images.
+ */
+const ImageBaseContext = React.createContext<ImageBase | null>(null);
+function useImageBase(): ImageBase | null {
+  return React.useContext(ImageBaseContext);
+}
+
+/**
+ * Tokenize a plain string and render file/URL tokens as clickable elements,
+ * leaving text verbatim. Used only for inline contexts (paragraph text, list
+ * items, inline code). Wrapped by `linkifyChildren` in an ErrorBoundary.
+ */
+function renderInlineString(text: string, context: ToolContext, keyPrefix: string): React.ReactNode {
+  return tokenize(text).map((tok, i) => {
+    const key = `${keyPrefix}-${i}`;
+    if (tok.kind === "text") return <React.Fragment key={key}>{tok.text}</React.Fragment>;
+    if (tok.kind === "url") return <UrlLink key={key} href={tok.text}>{tok.text}</UrlLink>;
+    // Injected rather than imported — see `FileLinkRenderer` (D4b). Callers only
+    // reach here when `context.fileLink` is present (the linkification gate).
+    const renderFileLink = context.fileLink;
+    if (!renderFileLink) return <React.Fragment key={key}>{tok.text}</React.Fragment>;
+    return (
+      <React.Fragment key={key}>
+        {renderFileLink({
+          path: tok.path,
+          line: tok.line,
+          col: tok.col,
+          absolute: tok.absolute,
+          context,
+          children: tok.text,
+        })}
+      </React.Fragment>
+    );
+  });
+}
+
+/**
+ * Map react-markdown inline children: linkify string nodes, pass every other
+ * node (existing markdown anchors, bold, nested elements) through untouched so
+ * real link anchors are never double-wrapped. Fault-isolated so a tokenizer
+ * throw degrades to the original children rather than crashing the render.
+ */
+function linkifyChildren(children: React.ReactNode, context: ToolContext): React.ReactNode {
+  return (
+    <ErrorBoundary fallback={<>{children}</>}>
+      {React.Children.map(children, (child, i) =>
+        typeof child === "string" ? renderInlineString(child, context, `lk-${i}`) : child,
+      )}
+    </ErrorBoundary>
+  );
+}
+
+type HastNode = {
+  properties?: Record<string, unknown>;
+  children?: HastNode[];
+};
+
+function stripReactRefAttributes() {
+  return function transformer(tree: HastNode) {
+    visitHast(tree, (node) => {
+      if (node.properties && Object.prototype.hasOwnProperty.call(node.properties, "ref")) {
+        delete node.properties.ref;
+      }
+    });
+  };
+}
+
+function visitHast(node: HastNode, visitor: (node: HastNode) => void) {
+  visitor(node);
+  for (const child of node.children ?? []) {
+    visitHast(child, visitor);
+  }
+}
+
+
+/** Convert a <table> DOM element to markdown */
+export function tableToMarkdown(table: HTMLTableElement): string {
+  const rows: string[][] = [];
+  for (const row of table.rows) {
+    const cells: string[] = [];
+    for (const cell of row.cells) {
+      cells.push(cell.textContent?.trim() ?? "");
+    }
+    rows.push(cells);
+  }
+  if (rows.length === 0) return "";
+
+  const header = `| ${rows[0].join(" | ")} |`;
+  const separator = `| ${rows[0].map(() => "---").join(" | ")} |`;
+  const body = rows.slice(1).map((r) => `| ${r.join(" | ")} |`).join("\n");
+  return [header, separator, body].join("\n");
+}
+
+/** Convert a <table> DOM element to TSV */
+export function tableToTsv(table: HTMLTableElement): string {
+  const lines: string[] = [];
+  for (const row of table.rows) {
+    const cells: string[] = [];
+    for (const cell of row.cells) {
+      cells.push(cell.textContent?.trim() ?? "");
+    }
+    lines.push(cells.join("\t"));
+  }
+  return lines.join("\n");
+}
+
+/**
+ * Returns true when the fenced block holding `code` has a closing fence in the
+ * raw markdown `content`. During streaming an unclosed mermaid block is the
+ * trailing fence: its content grows token-by-token with no closing ``` yet, so
+ * `after` carries no fence and we report incomplete. Once the fence arrives the
+ * block's source is final. Unmatched `code` (e.g. HTML-entity differences) falls
+ * back to `true` so rendering is never blocked — worst case is prior behaviour.
+ */
+export function isFencedBlockComplete(content: string, code: string): boolean {
+  const idx = content.indexOf(code);
+  if (idx === -1) return true;
+  return content.slice(idx + code.length).includes("```");
+}
+
+function CodeBlockWrapper({ codeString, children }: { codeString: string; children: React.ReactNode }) {
+  return (
+    <div>
+      {children}
+      <div className="flex justify-end gap-0.5 -mt-1 mb-1 opacity-50 hover:opacity-100 transition-opacity">
+        <CopyButton getText={() => codeString} icon={<Icon path={mdiContentCopy} size={0.6} />} title={i18nT("common.copyCode", undefined, "Copy code")} />
+      </div>
+    </div>
+  );
+}
+
+function TableWrapper({ children }: { children: React.ReactNode }) {
+  const ref = useRef<HTMLDivElement>(null);
+
+  const getTable = useCallback(() => {
+    return ref.current?.querySelector("table") as HTMLTableElement | null;
+  }, []);
+
+  const copyMarkdown = useCallback(() => {
+    const table = getTable();
+    return table ? tableToMarkdown(table) : "";
+  }, [getTable]);
+
+  const copyTsv = useCallback(() => {
+    const table = getTable();
+    return table ? tableToTsv(table) : "";
+  }, [getTable]);
+
+  return (
+    <div ref={ref}>
+      {children}
+      <div className="flex justify-end gap-0.5 -mt-1 mb-1 opacity-50 hover:opacity-100 transition-opacity">
+        <CopyButton getText={copyMarkdown} icon={<Icon path={mdiContentCopy} size={0.6} />} title={i18nT("common.copyAsMarkdown", undefined, "Copy as Markdown")} />
+        <CopyButton getText={copyTsv} icon={<Icon path={mdiTable} size={0.6} />} title={i18nT("common.copyAsTsv", undefined, "Copy as TSV")} />
+      </div>
+    </div>
+  );
+}
+
+type MarkdownNodeProps = { node?: unknown };
+
+/**
+ * Everything the module-scope markdown renderers need, delivered by a context
+ * instead of a per-render `components={{ … }}` object. React compares
+ * `components` by identity per key: a fresh function for `p`/`code`/`a`/`table`
+ * is a new component TYPE, so React unmounts and recreates the DOM and any
+ * browser Selection anchored in it collapses. Reading what each renderer needs
+ * from a context keeps those component types stable per module.
+ *
+ * See change: fix-long-session-ux-degradation (D6).
+ */
+type MarkdownRenderContextValue = {
+  /** Raw markdown source — drives the streaming `isFencedBlockComplete` gate. */
+  content: string;
+  /** On-disk file: every mermaid fence is complete (skips the streaming gate). */
+  staticSource: boolean;
+  toolContext?: ToolContext;
+  syntaxStyle: ReturnType<typeof getSyntaxTheme>;
+  onLoopbackClick: (event: React.MouseEvent, href: string) => void;
+};
+
+/**
+ * Inert default. `MarkdownContent`'s `context` prop is optional and embedders
+ * mount it outside any provider, so a module-scope renderer must never assume a
+ * provider is above it. No `fileLink` (linkification already degrades to plain
+ * text on its absence) and the default syntax theme.
+ */
+const DEFAULT_MARKDOWN_RENDER_CONTEXT: MarkdownRenderContextValue = {
+  content: "",
+  staticSource: false,
+  toolContext: undefined,
+  syntaxStyle: getSyntaxTheme("dark"),
+  onLoopbackClick: () => {},
+};
+
+const MarkdownRenderContext = React.createContext<MarkdownRenderContextValue>(
+  DEFAULT_MARKDOWN_RENDER_CONTEXT,
+);
+
+function useMarkdownRenderContext(): MarkdownRenderContextValue {
+  return React.useContext(MarkdownRenderContext);
+}
+
+// Renderer types must stay stable to preserve DOM-backed selections.
+function LinkifiedP({ node: _node, children, ...props }: React.ComponentPropsWithoutRef<"p"> & MarkdownNodeProps) {
+  const { toolContext } = useMarkdownRenderContext();
+  return <p {...props}>{toolContext?.fileLink ? linkifyChildren(children, toolContext) : children}</p>;
+}
+
+function LinkifiedLi({ node: _node, children, ...props }: React.ComponentPropsWithoutRef<"li"> & MarkdownNodeProps) {
+  const { toolContext } = useMarkdownRenderContext();
+  return <li {...props}>{toolContext?.fileLink ? linkifyChildren(children, toolContext) : children}</li>;
+}
+
+/**
+ * `img` component override for ReactMarkdown that resolves
+ * `pi-asset:<hash>` srcs against the active `SessionAssetsContext` map
+ * (populated from `asset_register` WS messages). All other src schemes
+ * (`data:`, `http(s):`, `blob:`, fragment, relative) fall through to a
+ * default `<img>` with the original `src` so existing web-image and
+ * tool-result-image behavior is preserved.
+ *
+ * When the hash is not yet in the map (e.g. `asset_register` arrives in
+ * a later chunk), the placeholder element renders. The component
+ * re-renders automatically when the context value changes, swapping the
+ * placeholder for the resolved image without remount.
+ *
+ * See change: chat-markdown-local-images-and-math.
+ */
+function PiAssetImg(props: React.ImgHTMLAttributes<HTMLImageElement>) {
+  const assets = useSessionAssets();
+  const imageBase = useImageBase();
+  const [lightboxSrc, setLightboxSrc] = React.useState<{ src: string; alt: string } | null>(null);
+  const [failed, setFailed] = React.useState(false);
+  // react-markdown reuses this component by position across content re-parses,
+  // so reset the load-failure state whenever the src changes — otherwise a prior
+  // failure would flash the placeholder before the new image tries to load.
+  React.useEffect(() => setFailed(false), [props.src]);
+  const { src, alt, className: incomingClass, onClick: _drop, ...rest } = props;
+  const altText = typeof alt === "string" ? alt : "";
+  const baseClass = `${incomingClass ?? ""} cursor-pointer`.trim();
+  // Reserve height before decode (CR-7) so an above-viewport async image load
+  // does not shift the windowed scroll offset; release to natural height on
+  // load (accepts one reflow per image). See change:
+  // virtualize-chat-transcript-tanstack (task 8.1).
+  const reserveStyle = { minHeight: "6rem" } as const;
+  const releaseReserved = (e: React.SyntheticEvent<HTMLImageElement>) => {
+    e.currentTarget.style.minHeight = "";
+  };
+
+  const openLightbox = (e: React.MouseEvent, lbSrc: string) => {
+    // Stop propagation so a wrapping markdown link `[![](...)](href)` does
+    // not navigate when the user clicks to enlarge the image. See change:
+    // add-lightbox-to-markdown-images.
+    e.stopPropagation();
+    e.preventDefault();
+    setLightboxSrc({ src: lbSrc, alt: altText });
+  };
+
+  // `safeUrlTransform` blanks a dropped scheme to "" — render the image with
+  // no `src` attribute (and no lightbox) instead of an `<img src="">`.
+  // See change: sanitize-untrusted-rendered-content.
+  if (src === "") {
+    return <img {...rest} alt={alt} />;
+  }
+
+  // pi-asset:<hash> path — resolve to data: URL or render placeholder.
+  if (typeof src === "string" && src.startsWith("pi-asset:")) {
+    const hash = src.slice("pi-asset:".length);
+    const asset = assets[hash];
+    // A non-image registered asset (e.g. `text/html`) must never become an
+    // `<img src="data:text/html…">`: it gets the placeholder.
+    if (asset?.mimeType.startsWith("image/")) {
+      const dataUrl = `data:${asset.mimeType};base64,${asset.data}`;
+      return (
+        <>
+          <img
+            {...rest}
+            src={dataUrl}
+            alt={alt}
+            className={baseClass}
+            style={reserveStyle}
+            onLoad={releaseReserved}
+            onClick={(e) => openLightbox(e, dataUrl)}
+          />
+          {lightboxSrc && (
+            <ImageLightbox
+              src={lightboxSrc.src}
+              alt={lightboxSrc.alt}
+              onClose={() => setLightboxSrc(null)}
+            />
+          )}
+        </>
+      );
+    }
+    // Unresolved hash — placeholder span is intentionally non-interactive.
+    return (
+      <span
+        className="inline-block px-2 py-1 my-1 text-xs italic text-[var(--text-muted)] bg-[var(--bg-surface)] rounded border border-dashed border-[var(--border-secondary)]"
+        title={`Asset ${hash} not yet loaded`}
+      >
+        ⦿ {alt || "image"} (loading…)
+      </span>
+    );
+  }
+
+  // Local-image rewrite path (on-disk markdown previews that supply an
+  // imageBase). Runs AFTER the pi-asset branch, BEFORE the verbatim
+  // fall-through, and ONLY when a base is set. A non-local src resolves to
+  // null → falls through unchanged. See change:
+  // fix-markdown-preview-relative-images.
+  if (typeof src === "string" && imageBase) {
+    const rewritten = resolveLocalImageSrc(src, imageBase);
+    if (rewritten) {
+      // Swap-on-error (D3/S2): render the placeholder INSTEAD of the <img>
+      // (unmounting it) so the reserveStyle minHeight reservation dies with
+      // the img rather than leaking a blank 6rem gap. Neutral text — onError
+      // exposes no HTTP status, so 403/404/network are indistinguishable.
+      if (failed) {
+        return (
+          <span className="inline-block px-2 py-1 my-1 text-xs italic text-[var(--text-muted)] bg-[var(--bg-surface)] rounded border border-dashed border-[var(--border-secondary)]">
+            ⚠ {i18nT("preview.imageLoadFailed", undefined, "couldn’t load image")}
+          </span>
+        );
+      }
+      return (
+        <>
+          <img
+            {...rest}
+            src={rewritten}
+            alt={alt}
+            className={baseClass}
+            style={reserveStyle}
+            onLoad={releaseReserved}
+            onError={() => setFailed(true)}
+            onClick={(e) => openLightbox(e, rewritten)}
+          />
+          {lightboxSrc && (
+            <ImageLightbox
+              src={lightboxSrc.src}
+              alt={lightboxSrc.alt}
+              onClose={() => setLightboxSrc(null)}
+            />
+          )}
+        </>
+      );
+    }
+  }
+
+  // Fall-through: external URL, blob, inline data:, fragment, etc. Render
+  // a default <img> with click-to-open lightbox affordance using the
+  // original src verbatim (the lightbox just renders <img src> — whatever
+  // the page-level <img> can load, the modal can load).
+  if (typeof src !== "string") {
+    return <img {...rest} src={src} alt={alt} />;
+  }
+  return (
+    <>
+      <img
+        {...rest}
+        src={src}
+        alt={alt}
+        className={baseClass}
+        style={reserveStyle}
+        onLoad={releaseReserved}
+        onClick={(e) => openLightbox(e, src)}
+      />
+      {lightboxSrc && (
+        <ImageLightbox
+          src={lightboxSrc.src}
+          alt={lightboxSrc.alt}
+          onClose={() => setLightboxSrc(null)}
+        />
+      )}
+    </>
+  );
+}
+
+function MarkdownCode({ node: _node, className, children, ...props }: React.ComponentPropsWithoutRef<"code"> & MarkdownNodeProps) {
+  const { content, staticSource, toolContext, syntaxStyle } = useMarkdownRenderContext();
+  const match = /language-(\w+)/.exec(className || "");
+  const codeString = String(children).replace(/\n$/, "");
+
+  if (match && match[1] === "mermaid") {
+    // Ordinal stamped by `remarkMermaidOrdinal` (absent for raw-HTML `<pre>` blocks → no apply-fix).
+    const stamp = (props as Record<string, unknown>)["data-mermaid-ordinal"] ?? (props as Record<string, unknown>).dataMermaidOrdinal;
+    const ordinal = parseOrdinalStamp(stamp);
+    return <MermaidBlock code={codeString} complete={staticSource || isFencedBlockComplete(content, codeString)} ordinal={ordinal} />;
+  }
+
+  if (match) {
+    return (
+      <CodeBlockWrapper codeString={codeString}>
+        <SyntaxHighlighter
+          style={syntaxStyle}
+          language={match[1]}
+          PreTag="div"
+          customStyle={{ background: 'var(--bg-code)' }}
+        >
+          {codeString}
+        </SyntaxHighlighter>
+      </CodeBlockWrapper>
+    );
+  }
+
+  const isInline = !className && codeString.indexOf("\n") === -1;
+  if (isInline) {
+    return (
+      <code className="bg-[var(--bg-surface)] px-1.5 py-0.5 rounded text-sm font-mono" {...props}>
+        {toolContext?.fileLink ? renderInlineString(codeString, toolContext, "code") : children}
+      </code>
+    );
+  }
+
+  return (
+    <CodeBlockWrapper codeString={codeString}>
+      <pre className="bg-[var(--bg-code)] rounded-md p-4 overflow-x-auto" style={{ whiteSpace: "pre", margin: 0 }}>
+        <code style={{ whiteSpace: "pre" }}>{codeString}</code>
+      </pre>
+    </CodeBlockWrapper>
+  );
+}
+
+function MarkdownTable({ children }: { children?: React.ReactNode }) {
+  return (
+    <TableWrapper>
+      <table>{children}</table>
+    </TableWrapper>
+  );
+}
+
+function MarkdownAnchor({ node: _node, href, children, ...props }: React.ComponentPropsWithoutRef<"a"> & MarkdownNodeProps) {
+  const { onLoopbackClick } = useMarkdownRenderContext();
+  // `safeUrlTransform` blanks a dropped scheme to "": an `<a href="">` would
+  // reload the dashboard, so render an inert, unstyled anchor instead.
+  // See change: sanitize-untrusted-rendered-content.
+  if (!href) {
+    return <a {...props}>{children}</a>;
+  }
+  const external = isExternalHref(href);
+  return (
+    <a
+      // client-sinks: allow — href already passed safeUrlTransform (markdown protocol set, spec client-untrusted-content-sanitization)
+      href={href}
+      className="text-blue-400 hover:underline"
+      {...(external ? { target: "_blank", rel: "noopener noreferrer" } : {})}
+      // Loopback links route into the internal live-server split
+      // viewer on a plain click; modifier/middle-click and the
+      // no-context fallback keep the native target="_blank" tab.
+      onClick={(event) => onLoopbackClick(event, href)}
+      {...props}
+    >
+      {children}
+    </a>
+  );
+}
+
+// A single module constant: stable per-key component identities are the whole
+// mechanism that keeps an anchored Selection alive across re-renders.
+// See change: fix-long-session-ux-degradation (D6).
+const MARKDOWN_COMPONENTS = {
+  code: MarkdownCode,
+  p: LinkifiedP,
+  li: LinkifiedLi,
+  table: MarkdownTable,
+  a: MarkdownAnchor,
+  img: PiAssetImg,
+} satisfies Components;
+
+// Shared grammar + the ordinal stamp; one module constant keeps the plugin list
+// referentially stable. See change: add-preview-apply-fix-to-file.
+const REMARK_PLUGINS = [...MARKDOWN_REMARK_PLUGINS, remarkMermaidOrdinal];
+
+// Cheap delimiter probe (`$…`, `\(`, `\[`) deciding whether to fetch the lazy
+// math engine. A false positive (a price like "$5") only costs one cached
+// chunk fetch; every expression remark-math parses contains a `$`.
+// See change: shrink-client-entry-lazy-islands.
+const MATH_DELIMITER_RE = /\$|\\\(|\\\[/;
+
+// Until the math engine loads, `remark-math` nodes render as literal source.
+const REHYPE_PLUGINS_NO_MATH: NonNullable<Options["rehypePlugins"]> = [
+  rehypeRaw,
+  [rehypeSanitize, MARKDOWN_SCHEMA],
+  stripReactRefAttributes,
+];
+
+export const MarkdownContent = React.memo(function MarkdownContent({ content, context, frontmatter = "hide", imageBase, mermaidSource = null, staticSource = false }: Props) {
+  // Markup repair (file previews only): memoized on content; "view original" shows the
+  // unrepaired text (the M1 completeness gate stays on — it is not a repair).
+  const markupRepair = useMemo(() => (staticSource ? repairMarkdown(content) : null), [staticSource, content]);
+  const repairActive = markupRepair !== null && markupRepair.repairs.length > 0;
+  const [viewOriginal, setViewOriginal] = useState(false);
+  const toggleOriginal = useCallback(() => setViewOriginal((v) => !v), []);
+  const repairApply = useMemo(() => ({ displayed: content, repair: repairMarkdown }), [content]);
+  // Per-diagram apply is disabled while a markup repair is displayed (ordinals on disk differ).
+  const effectiveMermaidSource = useMemo<MermaidSourceInfo | null>(
+    () => (mermaidSource && repairActive ? { ...mermaidSource, markupRepairActive: true } : mermaidSource),
+    [mermaidSource, repairActive],
+  );
+  // ASCII table monospace fixer — disabled pending further refinement
+  // const processedContent = useMemo(() => wrapAsciiTables(content), [content]);
+  const processedContent = repairActive && !viewOriginal ? markupRepair.source : content;
+  const mathEngine = useMathEngine(MATH_DELIMITER_RE.test(processedContent));
+  const rehypePlugins = useMemo<NonNullable<Options["rehypePlugins"]>>(
+    () =>
+      mathEngine
+        ? [
+            rehypeRaw,
+            [rehypeSanitize, MARKDOWN_SCHEMA],
+            [mathEngine.rehypeKatex, { throwOnError: false }],
+            stripReactRefAttributes,
+          ]
+        : REHYPE_PLUGINS_NO_MATH,
+    [mathEngine],
+  );
+  const containerRef = useRef<HTMLDivElement>(null);
+  const onLoopbackClick = useLoopbackLinkOpen();
+  const { resolved: theme, themeName } = useThemeContext();
+  const syntaxStyle = useMemo(() => getSyntaxTheme(theme, themeName), [theme, themeName]);
+
+  // Wide char width fixer — disabled pending further refinement
+  // useEffect(() => {
+  //   if (containerRef.current) {
+  //     fixWideCharsInCodeBlocks(containerRef.current);
+  //   }
+  // });
+
+  const fm = frontmatter === "properties" ? extractFrontmatter(processedContent) : null;
+
+  // Memoize the context value on [cwd, dir] (D5) so a parent re-render passing a
+  // fresh inline `imageBase` object does not re-allocate the provider value and
+  // re-render every image.
+  const imageBaseValue = useMemo<ImageBase | null>(
+    () => (imageBase ? { cwd: imageBase.cwd, dir: imageBase.dir } : null),
+    [imageBase?.cwd, imageBase?.dir],
+  );
+
+  // Field-wise memoized (D6): the module-scope renderers read this instead of
+  // being re-created per render, so an unchanged markdown tree keeps its DOM
+  // node identity — and any Selection anchored in it — across re-renders.
+  const markdownRenderContext = useMemo(
+    () => ({ content: processedContent, staticSource, toolContext: context, syntaxStyle, onLoopbackClick }),
+    [processedContent, staticSource, context, syntaxStyle, onLoopbackClick],
+  );
+
+  return (
+    <MarkdownRenderContext.Provider value={markdownRenderContext}>
+      <div ref={containerRef} className="markdown-content text-sm">
+        {fm && <FrontmatterProperties raw={fm.raw} />}
+        <ImageBaseContext.Provider value={imageBaseValue}>
+         <MermaidSourceContext.Provider value={effectiveMermaidSource}>
+          {repairActive && (
+            <MarkupRepairBanner
+              repairs={markupRepair.repairs}
+              viewOriginal={viewOriginal}
+              onToggleOriginal={toggleOriginal}
+              apply={repairApply}
+            />
+          )}
+          {/* A sanitizer/render throw shows the source as plain text — never the
+              raw tree — and the next content (streamed token) retries markdown.
+              See change: sanitize-untrusted-rendered-content. */}
+          <ErrorBoundary
+            resetKey={processedContent}
+            fallback={<div className="whitespace-pre-wrap break-words">{processedContent}</div>}
+          >
+            <ReactMarkdown
+              remarkPlugins={REMARK_PLUGINS}
+              // Plugin order matters:
+              //  - rehypeRaw FIRST so embedded HTML in markdown source is parsed
+              //    before rehype-katex emits its own KaTeX HTML (KaTeX HTML must
+              //    NOT be re-parsed by rehype-raw).
+              //  - rehypeSanitize right after rehypeRaw (the markdown is
+              //    untrusted) and BEFORE rehypeKatex, so KaTeX's generated
+              //    HTML never meets the schema.
+              //  - rehypeKatex (lazy, inserted once the math engine has loaded)
+              //    with throwOnError:false so half-formed mid-stream
+              //    expressions like `$x = 10 +` render as a fallback rather than
+              //    crashing the markdown render.
+              //  - stripReactRefAttributes LAST.
+              // See changes: chat-markdown-local-images-and-math,
+              // shrink-client-entry-lazy-islands.
+              rehypePlugins={rehypePlugins}
+              // ReactMarkdown's default urlTransform blanks `pi-asset:`/`data:`
+              // before our `img` override sees them. `safeUrlTransform` keeps
+              // those on `img src` only and drops every other unsafe scheme.
+              // See changes: chat-markdown-local-images-and-math,
+              // sanitize-untrusted-rendered-content.
+              urlTransform={safeUrlTransform}
+              components={MARKDOWN_COMPONENTS}
+            >
+              {processedContent}
+            </ReactMarkdown>
+          </ErrorBoundary>
+         </MermaidSourceContext.Provider>
+        </ImageBaseContext.Provider>
+      </div>
+    </MarkdownRenderContext.Provider>
+  );
+});

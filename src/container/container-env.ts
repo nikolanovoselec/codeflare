@@ -20,6 +20,11 @@ const logger = createLogger('container-env');
 // Types
 // ---------------------------------------------------------------------------
 
+/** Pre-start authority, resolved from owner-scoped D1 rather than preferences. */
+export interface ContainerRuntimeContext {
+  lifecycleGeneration: number;
+}
+
 /** Mutable state fields that updateEnvVars / setBucketName need to read/write. */
 export interface ContainerEnvState {
   _bucketName: string | null;
@@ -321,7 +326,11 @@ function setManagedResourceIdentity(
 export function buildEnvVars(
   state: Readonly<ContainerEnvState>,
   env: Env,
+  runtime?: Readonly<ContainerRuntimeContext>,
 ): Record<string, string> {
+  if (runtime && (!Number.isSafeInteger(runtime.lifecycleGeneration) || runtime.lifecycleGeneration <= 0)) {
+    throw new Error('Chat runtime generation must be a positive safe integer');
+  }
   const bucketName = state._bucketName || 'unknown-bucket';
   const operatorProfile = state._operatorContainerProfile;
   const restrictedOperator = operatorProfile !== undefined;
@@ -394,6 +403,10 @@ export function buildEnvVars(
     // Auth token for container HTTP requests
     CONTAINER_AUTH_TOKEN: state._containerAuthToken ?? '',
     SESSION_ID: state._sessionId || '',
+    // Immutable private Host binding. Never sourced from setBucketName input,
+    // browser attachment, preferences, or a cached DO generation. Without live
+    // D1 startup authority Chat remains disabled; there is no fallback value.
+    ...(runtime && !restrictedOperator && { CODEFLARE_CHAT_GENERATION: String(runtime.lifecycleGeneration) }),
     // Tab configuration (JSON string for the terminal server to parse)
     ...(state._tabConfig && { TAB_CONFIG: JSON.stringify(state._tabConfig) }),
     // LLM API keys for the consult-llm-mcp MCP server. Injected under a

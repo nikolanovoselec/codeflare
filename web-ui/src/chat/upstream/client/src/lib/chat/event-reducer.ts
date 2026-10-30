@@ -1,0 +1,3054 @@
+/**
+ * Event reducer: builds session UI state from a stream of events.
+ * (state, event) → new state
+ */
+
+import { findSessionEventReducer, findToolRowFinalizer } from "@blackbelt-technology/dashboard-plugin-runtime/host";
+import {
+  type EventTypeOwner,
+  matchEventTypeOwner,
+} from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/event-type-owners.js";
+import {
+  imageBlockData,
+  imageBlockMime,
+  isRenderableImageBlock,
+  isTruncatedImageBlock,
+} from "@blackbelt-technology/pi-dashboard-shared/image-block.js";
+// Flow + architect state derivation moved into flows-plugin per change
+// pluginize-flows-via-registry. The shell carries no flow knowledge.
+// Plugins consume `useSessionEvents(sessionId)` from
+// @blackbelt-technology/dashboard-plugin-runtime to derive their own
+// state; useMessageHandler.ts mirrors every msg.event into the
+// per-session-events store the plugin runtime owns.
+import { parseSkillBlock, type SkillBlock } from "@blackbelt-technology/pi-dashboard-shared/skill-block-parser.js";
+import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { ownerOfEventType } from "../plugins/event-type-owners.js";
+import {
+  applyNestedEnd,
+  applyNestedStart,
+  applyNestedUpdate,
+  closeRunningNested,
+  isNestedToolEvent,
+  mergeNestedRecord,
+  type NestedCallState,
+  readNestedCallsEnvelope,
+  rootIdOf,
+} from "./nested-tool-calls.js";
+
+export interface ChatImage {
+  data: string;
+  mimeType: string;
+  /**
+   * sha256 of the original base64 text, present when the server used the two-phase
+   * attachment path. Addresses this block for the later `attachment_fitted`
+   * resolution and for fetching the full-resolution original.
+   * See change: fit-attachments-for-display (D12).
+   */
+  attachmentId?: string;
+  /**
+   * `pending` until its fitted derivative arrives, then `ready`, or `failed`
+   * when fitting could not produce one. Absent for legacy inline blocks that
+   * already carry their bytes.
+   */
+  attachmentState?: "pending" | "ready" | "failed";
+}
+
+export interface ChatMessage {
+  id: string;
+  /**
+   * `historyGap` is a SYNTHETIC interstitial — never produced by `reduceEvent`.
+   * It is spliced into `messages[]` by the message handler to disclose a
+   * windowed replay's elided middle. See change: lazy-load-session-history.
+   */
+  role: "user" | "assistant" | "toolResult" | "thinking" | "bashOutput" | "commandFeedback" | "interactiveUi" | "turnSeparator" | "rawEvent" | "inlineTerminal" | "historyGap" | "custom";
+  content: string;
+  /**
+   * Extension-authored `customType` label — present ONLY on `role: "custom"`
+   * rows (pi.sendMessage's customType, or pi.appendEntry's customType).
+   * Rendered as the card label by `CustomEntryCard`; never interpreted.
+   * See change: render-inline-reasoning-and-custom-entries.
+   */
+  customType?: string;
+  /**
+   * Server-resolved custom event group id — present ONLY on `role: "custom"`
+   * rows (stamped by the server on the live and replay paths, design D1).
+   * Drives the per-group visibility gate; an absent value is treated as the
+   * catch-all `other` group. See change: add-custom-event-group-filters.
+   */
+  groupId?: string;
+  images?: ChatImage[];
+  toolName?: string;
+  toolCallId?: string;
+  isStreaming?: boolean;
+  timestamp: number;
+  args?: Record<string, unknown>;
+  result?: string;
+  /**
+   * `elided` is a TERMINAL status meaning "the result is not loadable", not
+   * "the tool failed": a backfill segment ends mid-turn, orphaning a
+   * `tool_execution_start` whose end lies in already-delivered content and can
+   * therefore never arrive. Renderers must show a neutral "result not loaded"
+   * affordance — no spinner, no error styling.
+   * See change: fix-lazy-history-backfill-ux (D5).
+   */
+  toolStatus?: "running" | "complete" | "error" | "elided";
+  /**
+   * Nested tool calls this (root) tool made — pi codemode / `ctx.executeTool`.
+   * Mirrors `ToolCallState.nested`; renderers read it from the row.
+   * See change: render-nested-tool-calls (D1).
+   */
+  nested?: NestedCallState[];
+  /** `false` when pi's nested-call record says it is incomplete. */
+  nestedComplete?: boolean;
+  /**
+   * Present ONLY on the `rawEvent` group row of a plugin-owned event type: one
+   * row per type per session, placed at the type's first event. `count` grows
+   * in place; `payloads` holds the last {@link OWNED_GROUP_PAYLOAD_CAP} event
+   * payloads. The row's `toolName` is the event type. The chat view decides at
+   * render time (from plugin availability) whether it shows.
+   * See change: decouple-plugins-from-core.
+   */
+  ownedGroup?: { ownerId: string; count: number; payloads: unknown[] };
+  /** Epoch ms when the block started (for live elapsed counter) */
+  startedAt?: number;
+  /** Duration in ms (set when complete) */
+  duration?: number;
+  /** Turn index for scroll-to-turn navigation */
+  turnIndex?: number;
+  /** Structured metadata from tool (e.g. AgentDetails from pi-subagents) */
+  toolDetails?: Record<string, unknown>;
+  /** Session entry ID (for fork-from-message) */
+  entryId?: string;
+  /**
+   * Bridge-stamped nonce that ties this ChatMessage to a later
+   * entry_persisted event. Set on user message_start (where entryId is
+   * not yet known) and on message_end. The reducer uses it to back-fill
+   * `entryId` once persistence completes. See change: fix-per-message-fork.
+   */
+  nonce?: string;
+  /**
+   * Parsed skill-invocation metadata for user messages whose persisted
+   * content matches the `<skill name=...>...</skill>\n\nargs` envelope (pi's
+   * `_expandSkillCommand` output, also produced by the dashboard bridge).
+   * `content` is preserved as the raw expanded string for copy semantics;
+   * the renderer uses `skill` to produce a collapsible card.
+   * See change: render-skill-invocations-collapsibly.
+   */
+  skill?: SkillBlock;
+  /**
+   * When set, this user message is a duplicate produced by the manual
+   * "Retry after error" button: its text matches the immediately-preceding
+   * user message in `state.messages` AND the turn between them ended in
+   * `lastError`. The chat view SHALL skip rendering this bubble; the entry
+   * remains in `state.messages` for `findLastUserPrompt` / fork-from-here
+   * / persistence compatibility. The pi session JSONL still records both
+   * user entries.
+   * See change: unify-status-banner-and-terminal-limit-stop.
+   */
+  retriedFrom?: string;
+  // The retired `view?: ViewTarget` field is gone (change:
+  // open-view-command-in-editor-pane, D8): `/view` opens the editor pane, no
+  // inline PreviewCard row. An old serialized message still carrying `view`
+  // deserializes inertly — the reducer never reads it, nothing throws.
+  /**
+   * How pi delivered this user message when it arrived mid-stream (pi 0.77+
+   * `InputEvent.streamingBehavior`). `"steer"` = interrupted + steered the
+   * current turn; `"followUp"` = queued for after the current turn. Absent
+   * for idle inputs and non-interactive sources. Stamped onto the user row
+   * via correlation: the preceding interactive `input` event sets
+   * `SessionState.pendingInputBehavior`, the next user `message_start`
+   * consumes it. Renders as an inline badge on the user bubble.
+   * See change: surface-input-streaming-behavior.
+   */
+  streamingBehavior?: "steer" | "followUp";
+  /**
+   * True when this `thinking` message was produced by the live event path
+   * (`case "event"`), not the batch replay path. Drives the per-block
+   * auto-collapse timer: only live-streamed reasoning mounts expanded and
+   * arms a timer. Replayed / rehydrated / cold-loaded blocks leave this
+   * falsy and render collapsed with no timer.
+   * See change: reasoning-auto-collapse-timer.
+   */
+  streamedLive?: boolean;
+}
+
+export interface ToolCallState {
+  toolCallId: string;
+  toolName: string;
+  args?: Record<string, unknown>;
+  /** See `ChatMessage.toolStatus` for the `elided` contract. */
+  status: "running" | "complete" | "error" | "elided";
+  result?: string;
+  /**
+   * Epoch ms when `tool_execution_start` fired. Used by the session
+   * activity bar to compute elapsed time for in-flight bash tools.
+   * See change: redesign-process-list-activity-bar.
+   */
+  startedAt?: number;
+  /**
+   * Value of `SessionState.assistantInferenceSeq` at this tool's
+   * `tool_execution_start` (i.e. its own emitting inference index). The
+   * supersede heal proof is `state.assistantInferenceSeq > emittedAtInferenceSeq`
+   * — a strictly-later assistant `message_start`. See change:
+   * fix-stuck-tool-card-superseded-heal.
+   */
+  emittedAtInferenceSeq?: number;
+  /** Root-owned nested calls (never in the top-level map). See change: render-nested-tool-calls (D1). */
+  nested?: NestedCallState[];
+  /** `false` when pi's nested-call record says it is incomplete. */
+  nestedComplete?: boolean;
+}
+
+export type CompactionReason = "manual" | "threshold" | "overflow";
+
+export interface CompactionState {
+  reason?: CompactionReason;
+  willRetry?: boolean;
+  estimatedPostCompactionTokens?: number;
+  /** Snapshot of contextUsage.tokens at compaction time (for the reduction). */
+  preCompactionTokens?: number;
+}
+
+/** Map a compaction `reason` to its human badge label. Pure. */
+export function compactionReasonLabel(reason: CompactionReason): string {
+  switch (reason) {
+    case "manual":
+      return "manual";
+    case "threshold":
+      return "auto-threshold";
+    case "overflow":
+      return "overflow-retry";
+  }
+}
+
+/** Abbreviate a token count: 12400 → "12.4k", 8000 → "8k", 800 → "800". Pure. */
+export function abbreviateTokens(n: number): string {
+  if (n < 1000) return String(n);
+  const k = n / 1000;
+  return `${k % 1 === 0 ? k.toFixed(0) : k.toFixed(1)}k`;
+}
+
+/** Derived compaction badge content, or null when there is nothing to show. */
+export interface CompactionBadge {
+  label: string;
+  /** e.g. "\u221212.4k"; empty string when the reduction is unknown. */
+  reductionText: string;
+}
+
+/**
+ * Derive the compaction badge from session compaction state. Returns null when
+ * there is no `reason` (nothing to annotate). The reduction is
+ * `preCompactionTokens - estimatedPostCompactionTokens`, abbreviated and
+ * prefixed with a U+2212 minus; when either token count is missing (or the
+ * reduction is non-positive) `reductionText` is empty and only the label
+ * renders. Pure — unit-testable independently of the DOM. See change:
+ * adopt-pi-074-080-features (C.1).
+ */
+export function deriveCompactionBadge(c: CompactionState | undefined): CompactionBadge | null {
+  if (!c || !c.reason) return null;
+  const label = compactionReasonLabel(c.reason);
+  let reductionText = "";
+  if (
+    typeof c.preCompactionTokens === "number" &&
+    typeof c.estimatedPostCompactionTokens === "number"
+  ) {
+    const reduction = c.preCompactionTokens - c.estimatedPostCompactionTokens;
+    if (reduction > 0) reductionText = `\u2212${abbreviateTokens(reduction)}`;
+  }
+  return { label, reductionText };
+}
+
+export interface TurnStat {
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheWrite: number;
+  /** Index into user messages for click-to-scroll (-1 if no user message for this turn) */
+  turnIndex: number;
+}
+
+const MAX_TURN_STATS = 50;
+
+export interface PendingPrompt {
+  text: string;
+  images?: ChatImage[];
+  /** Delivery mode set by the sender. "steer" = after current turn, "followUp" = after agent finishes. See change: add-steering-message. */
+  delivery?: "steer" | "followUp";
+  /**
+   * Progress state of the optimistic (idle-scoped) prompt bubble.
+   * "sending" on write; "sent" once the bridge acks a fresh-turn receipt;
+   * "failed" when the safety timeout expires with no ack (text preserved).
+   * Cleared entirely (→ confirmed) when the user `message_start` lands.
+   * See change: optimistic-prompt-progress, fix-optimistic-prompt-stuck-sending.
+   */
+  status: "sending" | "sent" | "failed";
+  /**
+   * Why a failed bubble failed, when the cause is known at send time.
+   * `connection` = the browser refused the message (socket not open);
+   * `no_session_file` = the ended session cannot be resumed. Absent = unknown
+   * (the legacy 30 s timeout path, whose wording stays reserved for that case).
+   * See change: stop-discarding-known-session-state.
+   */
+  failureCause?: "connection" | "no_session_file";
+  /**
+   * The outbox entry this bubble represents, when the send was QUEUED. A late
+   * drop report (expiry/eviction) is matched on THIS id, never on text: two
+   * identical prompts queued back-to-back must not have the first entry's
+   * expiry fail the second bubble while the second entry still flushes.
+   * See change: stop-discarding-known-session-state.
+   */
+  queueId?: number;
+}
+
+/**
+ * Apply a bridge `prompt_received` ack to a session's optimistic
+ * `pendingPrompt`. `fresh:true` (idle/fresh-turn send) promotes the bubble to
+ * `status:"sent"`; `fresh:false` (raced into a mid-turn queue entry) drops
+ * `pendingPrompt` so the authoritative `queue_update` chip takes over with no
+ * double render. No-op when no `pendingPrompt` exists.
+ * See change: optimistic-prompt-progress.
+ */
+export function applyPromptReceived(state: SessionState, fresh: boolean): SessionState {
+  if (!state.pendingPrompt) return state;
+  // Any settled status is terminal — a late ack must neither promote it
+  // (`fresh:true`) nor drop it (`fresh:false`). Checked BEFORE the race-drop
+  // branch, which only ever applies to a still-`sending` bubble.
+  // See change: fix-optimistic-prompt-stuck-sending.
+  if (state.pendingPrompt.status !== "sending") return state;
+  if (!fresh) return { ...state, pendingPrompt: undefined };
+  return { ...state, pendingPrompt: { ...state.pendingPrompt, status: "sent" } };
+}
+
+/**
+ * The `pendingPrompt` a reset/replay may carry across a state rebuild. Settled
+ * bubbles (`sent`/`failed`) carry as before (`preserve-pending-prompt-across-replay`);
+ * a `sending` bubble is NOT restored — nothing left in the rebuilt state can
+ * ever settle it, so it would be stuck forever.
+ * See change: fix-optimistic-prompt-stuck-sending.
+ */
+export function carryPendingPrompt(prompt: PendingPrompt | undefined): PendingPrompt | undefined {
+  return prompt && prompt.status !== "sending" ? prompt : undefined;
+}
+
+/**
+ * The `interactiveRequests` (and their paired `ui-<requestId>` message rows) a
+ * state reset may carry across a rebuild — the sibling of `carryPendingPrompt`
+ * for bridge asks. An interactive request is TWO pieces of state (design D8):
+ * the `interactiveRequests` entry AND the `role:"interactiveUi"` row pushed
+ * with it (`addInteractiveRequest`); carrying the entry alone renders
+ * nothing. Only UNANSWERED (`status === "pending"`) asks survive — answered /
+ * dismissed / cancelled ones are discarded, never resurrected. Carried rows
+ * keep their `toolCallId` and are appended at the TAIL of the rebuilt
+ * `messages` (AFTER any replay fold — the fold's `toolCallId` idempotency
+ * scans must never see them), where the assistant `message_end` reorder
+ * already places trailing `interactiveUi` rows; a later reorder re-claims a
+ * tool-paired row via its `toolCallId`.
+ * See change: fix-pending-prompt-lost-on-replay (design D8).
+ */
+export function carryInteractiveRequests(
+  state: SessionState | undefined,
+): Pick<SessionState, "interactiveRequests" | "messages"> {
+  const pending = state?.interactiveRequests.filter((r) => r.status === "pending") ?? [];
+  if (pending.length === 0) return { interactiveRequests: [], messages: [] };
+  const rowIds = new Set(pending.map((r) => `ui-${r.requestId}`));
+  const messages = (state?.messages ?? []).filter((m) => rowIds.has(m.id));
+  return { interactiveRequests: pending, messages };
+}
+
+/**
+ * Move the rows of the still-pending interactive requests back to the TAIL of
+ * `messages`.
+ *
+ * Why this is required, and not cosmetic: a full replay spans MULTIPLE
+ * `event_replay` batches. The carry lands the rows at the tail of the RESET
+ * batch, but every LATER batch folds transcript events AFTER them — burying the
+ * live dialog mid-transcript (and under virtualization, off-screen entirely)
+ * while its `interactiveRequests` entry survives and keeps the desync detector
+ * suppressed. The user then sees neither the dialog NOR the recovery pill. This
+ * is exactly the resync-reply-mid-replay shape the change targets, so the rows
+ * must be re-tailed for the whole sweep, not only at the reset batch.
+ *
+ * Idempotent and a no-op when nothing is pending or the rows are already last.
+ * See change: fix-pending-prompt-lost-on-replay (design D8).
+ */
+export function retailPendingInteractiveRows(state: SessionState): SessionState {
+  const rowIds = new Set(
+    state.interactiveRequests
+      .filter((r) => r.status === "pending")
+      .map((r) => `ui-${r.requestId}`),
+  );
+  if (rowIds.size === 0) return state;
+  const rows = state.messages.filter((m) => rowIds.has(m.id));
+  if (rows.length === 0) return state;
+  const tail = state.messages.slice(-rows.length);
+  if (tail.length === rows.length && tail.every((m) => rowIds.has(m.id))) return state;
+  const rest = state.messages.filter((m) => !rowIds.has(m.id));
+  return { ...state, messages: [...rest, ...rows] };
+}
+
+/**
+ * Settle a pending prompt whose safety timeout expired: the bubble stays, with
+ * the user's text, marked `failed`, and `lastError` is set (two deliberate
+ * surfaces). No-op unless the prompt is still `sending`, so a `failed` bubble
+ * is never re-settled or wiped.
+ * See change: fix-optimistic-prompt-stuck-sending.
+ */
+export function applyPromptTimeout(state: SessionState, message: string): SessionState {
+  if (state.pendingPrompt?.status !== "sending") return state;
+  return {
+    ...state,
+    pendingPrompt: { ...state.pendingPrompt, status: "failed" },
+    lastError: { message, timestamp: Date.now() },
+  };
+}
+
+export interface InteractiveUiRequest {
+  requestId: string;
+  method: string;
+  params: Record<string, unknown>;
+  status: "pending" | "resolved" | "cancelled" | "dismissed";
+  result?: unknown;
+}
+
+/**
+ * Per-step timeline entry for a subagent's run. Populated by the
+ * `pi-dashboard-subagents` extension via `details.entries[]` on every
+ * `subagents:*` event.
+ *
+ * Shape mirrors `FlowDetailEntry` (see flows-plugin) for visual consistency.
+ * See change: add-subagent-inspector.
+ */
+// Subagent timeline types + pure fold helpers live in shared (non-plugin) so the
+// reducer and the subagents plugin share one definition. Re-exported here for
+// shell-side consumers that still reference them via `../lib/event-reducer.js`.
+// See change: decouple-plugins-from-core (task 2.7); add-subagent-inspector.
+export type { SubagentState, SubagentTimelineEntry } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/subagent-types.js";
+export {
+  applyLiveBlockPiece,
+  countSteps,
+  LIVE_BLOCK_GAP_MARKER,
+  readLiveTail,
+} from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/subagent-types.js";
+
+import type { SubagentState } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/subagent-types.js";
+
+export interface SessionState {
+  messages: ChatMessage[];
+  toolCalls: Map<string, ToolCallState>;
+  streamingText: string;
+  streamingThinking: string;
+  /**
+   * True when the user manually collapsed the LIVE streaming reasoning block.
+   * Lifts the collapse intent across the streaming→committed block swap so the
+   * committed message is created with `streamedLive:false` (no hold-open timer).
+   * Reset to `false` on `thinking_start` and after each `thinking_end` flush.
+   * See change: reasoning-auto-collapse-timer.
+   */
+  streamingThinkingCollapsed: boolean;
+  /** Epoch ms when current thinking block started (for live counter) */
+  thinkingStartedAt?: number;
+  isStreaming: boolean;
+  model?: string;
+  thinkingLevel?: string;
+  tokensIn: number;
+  tokensOut: number;
+  cacheRead: number;
+  cacheWrite: number;
+  cost: number;
+  currentTool?: string;
+  status: "idle" | "streaming" | "ended";
+  turnStats: TurnStat[];
+  contextUsage?: { tokens: number | null; contextWindow: number };
+  /**
+   * Compaction metadata captured from the most recent `session_compact` (pi
+   * 0.79.8/0.79.10+). Absent when pi carried none of the fields (legacy
+   * event). `preCompactionTokens` snapshots `contextUsage.tokens` at compact
+   * time so the badge can show the approximate reduction. Drives the
+   * ContextUsageBar compaction badge. See change: adopt-pi-074-080-features (C.1).
+   */
+  compaction?: CompactionState;
+  pendingPrompt?: PendingPrompt;
+  interactiveRequests: InteractiveUiRequest[];
+  /** Whether any Write/Edit tool calls have been seen (for Changed Files button) */
+  hasFileChanges: boolean;
+  /** Active subagents from pi-dashboard-subagents (foreground, in-memory). */
+  subagents: Map<string, SubagentState>;
+  /** Total turn count (for turnIndex assignment and sliding window offset) */
+  turnCount: number;
+  /**
+   * Monotonic count of assistant inferences (incremented on each assistant
+   * `message_start`). NOT `message_end` (which fires after its own inference's
+   * tool) and NOT the coarse per-user-cycle `turnCount`. Sole proof primitive
+   * for the supersede heal: a stuck tool is finalized only once this advances
+   * past the tool's `emittedAtInferenceSeq`. See change:
+   * fix-stuck-tool-card-superseded-heal.
+   */
+  assistantInferenceSeq: number;
+  /**
+   * Correlation slot for `InputEvent.streamingBehavior`. Set by an
+   * interactive `input` event that arrived mid-stream (steer/followUp),
+   * consumed by the next user `message_start` which stamps it onto the
+   * created ChatMessage, then cleared. Undefined for idle / non-interactive
+   * inputs. See change: surface-input-streaming-behavior.
+   */
+  pendingInputBehavior?: "steer" | "followUp";
+  /** Last LLM provider error. Persists through retry; clears on recovery, abort, dismissal, or removal. */
+  lastError?: { message: string; timestamp: number };
+  /** Cancellation tombstone for an aborted retry chain. Suppresses delayed
+   * provider/retry events until settle or a deliberate user run. */
+  retryCancelled?: boolean;
+  /**
+   * Non-error notice: the model returned only reasoning, no answer
+   * (empty-actionable turn surfaced by the bridge guard). Set from the
+   * `empty_actionable_surface` event, cleared on the next `agent_start`.
+   * Distinct from `lastError` — rendered as info, never as an error.
+   * See change: fix-gemini-subagent-silent-tool-schema-failure.
+   */
+  notice?: { message: string; timestamp: number };
+  /**
+   * LLM-provider auto-retry state, covering BOTH the wait between attempts
+   * (`waiting: true`, set on `auto_retry_waiting`) and an in-flight attempt
+   * (`waiting: false`, set on `auto_retry_start`). Cleared on `auto_retry_end`,
+   * `agent_start`, and `agent_settled` — but NOT on `agent_end`, because pi
+   * fires one `agent_end` per attempt and only `agent_settled` is terminal.
+   * Drives the `SessionBanner` UI and the session-card amber dot.
+   * See change: retry-forever-with-stop-control.
+   */
+  retryState?: {
+    attempt: number;
+    maxAttempts: number;
+    delayMs: number;
+    /** Absolute epoch ms of the next attempt, when known (waiting phase). */
+    nextAttemptAt?: number;
+    /** true between attempts, false while an attempt is in flight. */
+    waiting: boolean;
+    reason: string;
+    startedAt: number;
+  };
+  /**
+   * True iff the current assistant message has already had its streaming
+   * text flushed into messages[] via flushStreamingTextAsAssistantRow.
+   * Reset to false on every assistant message_start AND on every assistant
+   * message_end (R7 defense-in-depth: keeps the flag's lifecycle equal to
+   * "between message_start and message_end" so a stray tool_execution_start
+   * arriving outside that window cannot silently no-op the flush).
+   * See change: fix-streaming-text-vs-interactive-ui-order.
+   */
+  streamingTextFlushed?: boolean;
+}
+
+export function createInitialState(): SessionState {
+  return {
+    messages: [],
+    toolCalls: new Map(),
+    streamingText: "",
+    streamingThinking: "",
+    streamingThinkingCollapsed: false,
+    isStreaming: false,
+    tokensIn: 0,
+    tokensOut: 0,
+    cacheRead: 0,
+    cacheWrite: 0,
+    cost: 0,
+    status: "idle",
+    turnStats: [],
+    interactiveRequests: [],
+    hasFileChanges: false,
+    subagents: new Map(),
+    turnCount: 0,
+    assistantInferenceSeq: 0,
+  };
+}
+
+/**
+ * Sentinel body written into a supersede-healed tool row. Deliberately loud so
+ * a real result loss reads as a visible "recovered" state, never a silent
+ * bodyless success. See change: fix-stuck-tool-card-superseded-heal.
+ */
+export const SUPERSEDE_SENTINEL_BODY = "result unavailable — recovered by supersede heal";
+
+/**
+ * Proof-of-completion selector for the supersede heal. True iff `toolCallId` is
+ * a still-`running` row AND a strictly-later assistant inference (a later
+ * assistant `message_start`, tracked by `assistantInferenceSeq`) has been
+ * applied than the one that emitted it. `message_end` and `turnCount` are NOT
+ * used — see design D1. False for terminal or unknown rows.
+ */
+export function hasLaterAssistantInference(state: SessionState, toolCallId: string): boolean {
+  const tc = state.toolCalls.get(toolCallId);
+  if (!tc || tc.status !== "running" || tc.emittedAtInferenceSeq === undefined) return false;
+  return state.assistantInferenceSeq > tc.emittedAtInferenceSeq;
+}
+
+/**
+ * Build the synthetic `tool_execution_end` that finalizes a stuck card via the
+ * existing toolCallId-keyed reducer path. Carries `isError:false`, the loud
+ * sentinel body, and `healedBy:"superseded"`. A later REAL end overwrites it
+ * (D4). See change: fix-stuck-tool-card-superseded-heal.
+ */
+export function synthesizeSupersededEnd(toolCallId: string, now: number): DashboardEvent {
+  return {
+    eventType: "tool_execution_end",
+    timestamp: now,
+    data: {
+      toolCallId,
+      result: SUPERSEDE_SENTINEL_BODY,
+      isError: false,
+      healedBy: "superseded",
+    },
+  };
+}
+
+
+/** Body of the neutral settle heal: the turn ended, the subagent's outcome never arrived. */
+export const SUBAGENT_STOPPED_SENTINEL_BODY = "subagent stopped — result not received";
+
+/** Detail keys that exist only because a heal set them; a real end clears them. */
+const HEAL_ONLY_DETAIL_KEYS = ["healedBy", "resultMissing"] as const;
+
+/**
+ * Index of the newest eligible Agent row for a finalize heal (design D2):
+ * top-level `toolResult` row, `toolName:"Agent"`, row running, `toolCalls`
+ * entry running. `agentId` narrows to the row linked to that subagent.
+ */
+function findEligibleAgentRows(state: SessionState, agentId?: string): number[] {
+  const out: number[] = [];
+  for (let i = state.messages.length - 1; i >= 0; i--) {
+    const m = state.messages[i];
+    if (m.role !== "toolResult" || m.toolName !== "Agent" || m.toolStatus !== "running" || !m.toolCallId) continue;
+    if (state.toolCalls.get(m.toolCallId)?.status !== "running") continue;
+    if (agentId !== undefined && m.toolDetails?.agentId !== agentId) continue;
+    out.push(i);
+    if (agentId !== undefined) break;
+  }
+  return out;
+}
+
+/**
+ * A live `tool_execution_update` for a row finalized by a `session_ended` heal
+ * proves the producing process is alive (a live bridge replay fabricated that
+ * end). Restore the row and its `toolCalls` entry to `running`. Real terminals
+ * and every other heal are left alone. This is the ROW half: the subagents
+ * plugin's Agent finalizer reopens a subagent the same heal failed (it is asked
+ * right after, with the pre-event state). Mutates `next` (messages array and
+ * toolCalls map are already copies).
+ * See change: fix-replay-fabricates-orphan-end-for-live-calls (D6), decouple-plugins-from-core (4.6).
+ */
+function reopenSessionEndedRow(next: SessionState, idx: number, toolCallId: string): void {
+  const row = next.messages[idx];
+  if (row.toolStatus === "running" || row.toolDetails?.healedBy !== "session_ended") return;
+  const { healedBy: _h, resultMissing: _m, error: _e, ...restDetails } = row.toolDetails;
+  next.messages[idx] = { ...row, toolStatus: "running", duration: undefined, toolDetails: { ...restDetails, status: "running" } };
+  const tc = next.toolCalls.get(toolCallId);
+  if (tc) next.toolCalls.set(toolCallId, { ...tc, status: "running" });
+}
+
+/** Options core hands a tool-row finalizer: re-entry into this reducer for synthesized events. */
+function finalizerOpts(isLive: boolean | undefined) {
+  return { isLive, reduce: (s: SessionState, e: DashboardEvent) => reduceEvent(s, e) };
+}
+
+/**
+ * Neutral settle heal (design D4): the turn ended but neither the end nor the
+ * subagent's outcome reached this client. The row stops spinning with the
+ * sentinel body and `resultMissing`; the `toolCalls` entry stays `running` so
+ * the stale reconcile can still fetch the authoritative result. No subagent
+ * backfill: an unknown subagent is not recorded as completed. Runs when no Agent
+ * finalizer is registered or it declines (the subagents plugin finalizes a row
+ * whose subagent already reported a terminal state).
+ */
+function neutralSettleAgentRow(state: SessionState, idx: number, timestamp: number): SessionState {
+  const m = state.messages[idx];
+  const messages = [...state.messages];
+  messages[idx] = {
+    ...m,
+    toolStatus: "complete",
+    result: SUBAGENT_STOPPED_SENTINEL_BODY,
+    duration: m.startedAt ? timestamp - m.startedAt : undefined,
+    toolDetails: { ...m.toolDetails, status: "completed", healedBy: "turn_settled", resultMissing: true },
+  };
+  return { ...state, messages };
+}
+
+/** Body of the placeholder end synthesized for a server-vouched eviction. */
+export const EVICTED_SENTINEL_BODY = "result no longer available";
+
+/**
+ * Build the synthetic `tool_execution_end` that finalizes a card whose real end
+ * the SERVER says was trimmed from its store (`410`). Same reducer guard as the
+ * superseded heal: it finalizes only a `running` row, and a later real end
+ * overwrites it. `isError:false` because the original outcome is unknown (the
+ * badge says so). See change: distinguish-tool-result-pending-vs-gone (D4).
+ */
+export function synthesizeEvictedEnd(toolCallId: string, now: number): DashboardEvent {
+  return {
+    eventType: "tool_execution_end",
+    timestamp: now,
+    data: {
+      toolCallId,
+      result: EVICTED_SENTINEL_BODY,
+      isError: false,
+      healedBy: "result_evicted",
+    },
+  };
+}
+
+
+/**
+ * Hard turn boundaries in `messages[]`. Any row with one of these roles
+ * terminates the backwards walk that builds the reorder window. Roles
+ * not in this set (`assistant`, `toolResult`, `thinking`, `interactiveUi`,
+ * `bashOutput`) belong to the current assistant turn and are reorderable.
+ *
+ * If a future row role is added, it MUST be classified — add it here if
+ * it terminates a turn, otherwise leave it out and it will be reorderable.
+ *
+ * Classification record (change: render-inline-reasoning-and-custom-entries,
+ * D9): `custom` is deliberately NOT a boundary. A custom row is side-channel
+ * content INSIDE a turn, not a hard delimiter — adding it would break
+ * thinking-reconstruction turn scans and the flushed-assistant-row stamp
+ * (both walk back to the first boundary). Reorderability is the correct
+ * classification for it.
+ *
+ * See change: fix-interactive-ui-reorder.
+ */
+const TURN_BOUNDARY_ROLES: ReadonlySet<ChatMessage["role"]> = new Set([
+  "user",
+  "turnSeparator",
+  "commandFeedback",
+  "rawEvent",
+]);
+
+/**
+ * Flush the current `streamingText` into a permanent assistant ChatMessage
+ * row. Called from `tool_execution_start` when streamingText is non-empty so
+ * that any subsequent toolResult / interactiveUi rows pushed during the same
+ * message land BELOW the assistant text in messages[], not above it.
+ *
+ * The pushed row's `id` is `flush-${toolCallId}` — content-stable across
+ * replay so re-running the same `tool_execution_start` event does NOT push
+ * a duplicate row. The third parameter `toolCallId` is the id of the tool
+ * whose start triggered the flush (already in scope at the single caller
+ * inside the `tool_execution_start` reducer arm).
+ *
+ * Idempotent guards:
+ *   - `state.streamingTextFlushed === true`           → return state unchanged
+ *   - `state.streamingText` empty                      → return state unchanged
+ *   - a row with id `flush-${toolCallId}` already exists → return state unchanged
+ *
+ * Returns a new state with:
+ *   - messages: [...state.messages, new assistant row (id = flush-${toolCallId},
+ *     entryId/nonce both undefined; will be stamped at message_end via
+ *     findFlushedAssistantRowIndex)]
+ *   - streamingText: ""
+ *   - streamingTextFlushed: true
+ *
+ * Pure: input is not mutated.
+ *
+ * See changes: fix-streaming-text-vs-interactive-ui-order,
+ * fix-replay-duplicates-tool-and-flushed-rows.
+ *
+ * @param state Current session state
+ * @param timestamp Event timestamp (used as the row's `timestamp`)
+ * @param toolCallId Id of the upcoming tool — used as the row's stable id anchor
+ */
+export function flushStreamingTextAsAssistantRow(
+  state: SessionState,
+  timestamp: number,
+  toolCallId: string,
+): SessionState {
+  if (state.streamingTextFlushed) return state;
+  if (!state.streamingText) return state;
+  // Replay safety: if a flush row already exists for this toolCallId, do not
+  // push again. The reducer arm calling us is unconditional on every
+  // tool_execution_start; this guard makes it idempotent.
+  // See change: fix-replay-duplicates-tool-and-flushed-rows.
+  const flushId = `flush-${toolCallId}`;
+  const existingIdx = state.messages.findLastIndex(
+    (m) => m.role === "assistant" && m.id === flushId,
+  );
+  if (existingIdx !== -1) {
+    // Mark the flag so message_update stops re-populating streamingText
+    // for this message; the row already exists.
+    return { ...state, streamingText: "", streamingTextFlushed: true };
+  }
+  return {
+    ...state,
+    messages: [
+      ...state.messages,
+      {
+        id: flushId,
+        role: "assistant",
+        content: state.streamingText,
+        timestamp,
+        // entryId/nonce intentionally undefined — message_end stamps both
+        // via findFlushedAssistantRowIndex below.
+      },
+    ],
+    streamingText: "",
+    streamingTextFlushed: true,
+  };
+}
+
+/**
+ * Find the most recent assistant row in `messages[]` whose `entryId` AND
+ * `nonce` are both undefined — i.e. a row pushed by
+ * `flushStreamingTextAsAssistantRow` that has not yet been stamped by its
+ * `message_end`.
+ *
+ * Hard upper bound on the scan: stop at the first row whose role is in
+ * `TURN_BOUNDARY_ROLES`. This clamp prevents R3 cross-message pollution
+ * — a prior message's orphan flushed row (e.g. R2 disconnect dropped its
+ * `message_end`) cannot be matched by a later message's stamp because the
+ * `turnSeparator` / `user` row between them terminates the scan.
+ *
+ * Returns -1 if no unstamped flushed row is found in the current message's
+ * window.
+ *
+ * See change: fix-streaming-text-vs-interactive-ui-order.
+ */
+export function findFlushedAssistantRowIndex(messages: ChatMessage[]): number {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i];
+    if (TURN_BOUNDARY_ROLES.has(m.role)) return -1;
+    if (m.role !== "assistant") continue;
+    if (m.entryId === undefined && m.nonce === undefined) return i;
+  }
+  return -1;
+}
+
+/**
+ * Derive the assistant text the UI should display for a finalized
+ * `message_end`. Pi 0.71+ lets extensions REPLACE the finalized message
+ * content (cost footers, redactions); the replacement lives on
+ * `msg.content`. Array content concatenates `type: "text"` parts; string
+ * content is used directly; missing content falls through to `fallback`
+ * (the delta-derived `streamingText`), preserving pre-0.71 behavior.
+ * See change: adopt-pi-071-072-073-features.
+ */
+export function deriveEffectiveAssistantText(msg: any, fallback: string): string {
+  // Check shape, not truthiness: an extension may finalize the message to an
+  // empty string (`""`) for redaction. Treating `""` as "missing" would
+  // re-surface the streamed (un-redacted) text — a content leak. Only an
+  // absent/non-string/non-array content falls through to `fallback`.
+  const content = msg?.content;
+  if (Array.isArray(content)) {
+    return content
+      .filter((c: any) => c?.type === "text")
+      .map((c: any) => c.text)
+      .join("");
+  }
+  if (typeof content === "string") return content;
+  return fallback;
+}
+
+/**
+ * Reorder the suffix of `messages` so that rows belonging to a single
+ * assistant message_end land in the same order as the model's content
+ * array. Without this, an assistant message of shape `[text, toolCall]`
+ * renders the running tool card BEFORE its own text bubble — because
+ * `tool_execution_start` pushes immediately while the assistant text
+ * only lands at `message_end`.
+ *
+ * The reorder operates on a **turn-boundary anchored window**: walk
+ * `messages[]` backwards from the tail collecting every row whose role
+ * is not in `TURN_BOUNDARY_ROLES`, stopping at the first hard-boundary
+ * row. The window is exactly "every row pushed during this assistant
+ * turn" — prior turns cannot leak in.
+ *
+ * Matching rules (per content-array order):
+ * - `text` block        → unclaimed `role:"assistant"` row in the window
+ * - `toolCall` block    → `role:"toolResult"` row whose `toolCallId` matches,
+ *                          PLUS any `role:"interactiveUi"` row whose `toolCallId`
+ *                          matches (paired together as `[toolResult, interactiveUi]`)
+ * - `thinking` block    → unclaimed `role:"thinking"` row in the window
+ *
+ * Window rows not matched by any content block ("unclaimed") are emitted
+ * AFTER all claimed rows in their original relative order. This is safe
+ * because the window is bounded by a hard turn boundary — prior-turn rows
+ * cannot leak in. Free-floating `interactiveUi` rows (no `toolCallId`),
+ * `bashOutput`, etc. follow this trailing path.
+ *
+ * Pure: returns a new array; the input is not mutated.
+ * Preserves React keyed reconciliation: row `id` fields are unchanged
+ * (`tool-${toolCallId}`, `ui-${requestId}`).
+ *
+ * See changes: fix-text-tool-render-order, fix-interactive-ui-reorder.
+ */
+function reorderToolCardsForAssistantMessage(
+  messages: ChatMessage[],
+  assistantContent: unknown[],
+): ChatMessage[] {
+  if (!Array.isArray(assistantContent)) return messages;
+  // Fast path: nothing to reorder if there are no tool calls in this message.
+  const hasToolCall = assistantContent.some(
+    (b: any) => b && typeof b === "object" && b.type === "toolCall",
+  );
+  if (!hasToolCall) return messages;
+
+  const relevant = assistantContent.filter(
+    (b: any) =>
+      b &&
+      typeof b === "object" &&
+      (b.type === "text" || b.type === "toolCall" || b.type === "thinking"),
+  ) as Array<{ type: string; id?: string }>;
+  if (relevant.length === 0) return messages;
+
+  // Build the turn-boundary anchored window: walk backwards from the tail
+  // including every row whose role is NOT a hard boundary; stop at the
+  // first hard boundary row. Hard boundaries are `user`, `turnSeparator`,
+  // `commandFeedback`, `rawEvent`. Roles included in the window are
+  // `assistant`, `toolResult`, `thinking`, `interactiveUi`, `bashOutput`.
+  //
+  // The window is exactly "every row pushed during the current assistant
+  // turn (and any preceding consecutive assistant turns without a user
+  // response in between)". Unclaimed rows from prior consecutive
+  // assistant turns are protected by the `original-index` guard below —
+  // they stay in place and never migrate past the just-ended message.
+  //
+  // See change: fix-interactive-ui-reorder.
+  let start = 0;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (TURN_BOUNDARY_ROLES.has(messages[i].role)) {
+      start = i + 1;
+      break;
+    }
+  }
+  const suffix = messages.slice(start);
+  if (suffix.length === 0) return messages;
+
+  // Helper: scan the suffix from the tail backwards for the most-recent
+  // unclaimed row matching `pred`. We prefer the most-recent match
+  // because back-to-back assistant messages without a user response in
+  // between produce a window that includes both messages' rows; the
+  // current-message row is always the more recent one of any matching pair.
+  const claimedSuffixIdxs = new Set<number>();
+  const findLastUnclaimed = (
+    pred: (m: ChatMessage) => boolean,
+  ): number => {
+    for (let i = suffix.length - 1; i >= 0; i--) {
+      if (!claimedSuffixIdxs.has(i) && pred(suffix[i])) return i;
+    }
+    return -1;
+  };
+
+  // Pass 1: walk content blocks in order, claim suffix indices.
+  // For toolCall blocks, claim BOTH the toolResult and (if present) the
+  // matching interactiveUi row, emitting them as `[toolResult, ui]`.
+  const claimedInContentOrder: ChatMessage[] = [];
+  for (const block of relevant) {
+    if (block.type === "text") {
+      const si = findLastUnclaimed((m) => m.role === "assistant");
+      if (si >= 0) {
+        claimedSuffixIdxs.add(si);
+        claimedInContentOrder.push(suffix[si]);
+      }
+    } else if (block.type === "toolCall") {
+      const id = block.id;
+      const toolIdx = findLastUnclaimed(
+        (m) => m.role === "toolResult" && m.toolCallId === id,
+      );
+      if (toolIdx >= 0) {
+        claimedSuffixIdxs.add(toolIdx);
+        claimedInContentOrder.push(suffix[toolIdx]);
+        // Pair with an interactiveUi row carrying the same toolCallId.
+        const uiIdx = findLastUnclaimed(
+          (m) => m.role === "interactiveUi" && m.toolCallId === id,
+        );
+        if (uiIdx >= 0) {
+          claimedSuffixIdxs.add(uiIdx);
+          claimedInContentOrder.push(suffix[uiIdx]);
+        }
+      }
+    } else if (block.type === "thinking") {
+      const si = findLastUnclaimed((m) => m.role === "thinking");
+      if (si >= 0) {
+        claimedSuffixIdxs.add(si);
+        claimedInContentOrder.push(suffix[si]);
+      }
+    }
+    // else: block has no corresponding row in the window — skip silently.
+  }
+
+  // Pass 2: build the new suffix.
+  //
+  // Two kinds of unclaimed rows need different handling:
+  //   (A) "Reorderable" roles (`assistant`, `toolResult`, `thinking`) that
+  //       could in principle map to a content block. If they didn't get
+  //       claimed, they likely belong to a PRIOR message that bled into
+  //       the boundary-walked window (no `user` row between two assistant
+  //       turns). Keep them at their **original suffix index** so they
+  //       don't migrate past the just-ended message.
+  //   (B) "Trailing" roles (`interactiveUi`, `bashOutput`) that NEVER map
+  //       to a content block. The design says these trail AFTER claimed
+  //       rows in their original relative order. This puts a free-floating
+  //       `interactiveUi` (no `toolCallId`) after the just-rendered tool
+  //       card instead of stranding it ahead of the assistant text.
+  //
+  // Construction strategy: walk the original suffix; emit each row in
+  // place, replacing claimed rows with the next claimedInContentOrder
+  // entry, dropping trailing-role unclaimed rows here so we can append
+  // them after the loop. This keeps slot positions stable for unclaimed
+  // "reorderable" rows.
+  //
+  // See change: fix-interactive-ui-reorder.
+  const TRAILING_ROLES: ReadonlySet<ChatMessage["role"]> = new Set([
+    "interactiveUi",
+    "bashOutput",
+  ]);
+  const newSuffix: ChatMessage[] = [];
+  const trailingUnclaimed: ChatMessage[] = [];
+  let claimedCursor = 0;
+  for (let i = 0; i < suffix.length; i++) {
+    if (claimedSuffixIdxs.has(i)) {
+      // This index belongs to a claimed row — fill from the
+      // content-ordered queue (in order).
+      if (claimedCursor < claimedInContentOrder.length) {
+        newSuffix.push(claimedInContentOrder[claimedCursor++]);
+      }
+    } else if (TRAILING_ROLES.has(suffix[i].role)) {
+      // Trailing-role unclaimed: drop here, append later.
+      trailingUnclaimed.push(suffix[i]);
+    } else {
+      // Reorderable-role unclaimed: keep in place.
+      newSuffix.push(suffix[i]);
+    }
+  }
+  // Any leftover claimed rows (e.g. when toolCall + interactiveUi pair
+  // has no matching ui slot in the original suffix because the ui row
+  // came in after — shouldn't happen with current arrival order, but
+  // defensively): append before trailing.
+  while (claimedCursor < claimedInContentOrder.length) {
+    newSuffix.push(claimedInContentOrder[claimedCursor++]);
+  }
+  // Trailing-role unclaimed go AFTER all claimed rows (rule B).
+  for (const m of trailingUnclaimed) {
+    newSuffix.push(m);
+  }
+
+  // Optimisation: if the new suffix is identical to the old suffix
+  // (already in correct order) skip the array rebuild.
+  if (newSuffix.length === suffix.length) {
+    let changed = false;
+    for (let i = 0; i < suffix.length; i++) {
+      if (suffix[i] !== newSuffix[i]) {
+        changed = true;
+        break;
+      }
+    }
+    if (!changed) return messages;
+  }
+
+  return [...messages.slice(0, start), ...(newSuffix as ChatMessage[])];
+}
+
+/** Extract text from content blocks: [{ type: "text", text: "..." }, ...] */
+function extractContentBlockText(blocks: unknown[]): string | null {
+  const texts = blocks
+    .filter((b: any) => b?.type === "text" && typeof b.text === "string")
+    .map((b: any) => b.text);
+  return texts.length > 0 ? texts.join("\n") : null;
+}
+
+/**
+ * Extract image attachments from tool_execution_end event data.
+ * Handles two sources:
+ * - Live events: data.result is {content: [{type:"image", data, mimeType}, ...]}
+ * - Replayed events: data.images is already extracted by state-replay
+ */
+function extractToolResultImages(data: Record<string, unknown>): ChatImage[] | undefined {
+  // Check pre-extracted images (from state-replay)
+  if (Array.isArray(data.images) && data.images.length > 0) {
+    return data.images
+      .filter((img: any) => img?.data && img?.mimeType)
+      .map((img: any) => ({ data: img.data as string, mimeType: img.mimeType as string }));
+  }
+  // Check live event: result.content array with image blocks
+  const result = data.result;
+  if (result && typeof result === "object" && !Array.isArray(result)) {
+    const content = (result as Record<string, unknown>).content;
+    if (Array.isArray(content)) {
+      const imageBlocks = content.filter(
+        (c: any) => c?.type === "image" && c?.data && c?.mimeType,
+      );
+      if (imageBlocks.length > 0) {
+        return imageBlocks.map((c: any) => ({ data: c.data as string, mimeType: c.mimeType as string }));
+      }
+    }
+  }
+  return undefined;
+}
+
+/** Convert an unknown value to a display string (handles objects/arrays). */
+export function toDisplayString(value: unknown): string {
+  if (value === null || value === undefined) return "";
+  if (typeof value === "string") return value;
+  if (typeof value === "object") {
+    // Handle content-block arrays: [{ type: "text", text: "..." }, ...]
+    if (Array.isArray(value)) {
+      return extractContentBlockText(value) ?? JSON.stringify(value, null, 2);
+    }
+    // Handle wrapper object: { content: [{ type: "text", text: "..." }] }
+    const obj = value as Record<string, unknown>;
+    if (Array.isArray(obj.content)) {
+      return extractContentBlockText(obj.content) ?? JSON.stringify(value, null, 2);
+    }
+    return JSON.stringify(value, null, 2);
+  }
+  return String(value);
+}
+
+export function truncateLines(text: string | unknown, maxLines: number): string {
+  const str = toDisplayString(text);
+  const lines = str.split("\n");
+  if (lines.length <= maxLines) return str;
+  return lines.slice(0, maxLines).join("\n");
+}
+
+/**
+ * Extract the display body for a custom row from unknown payload content
+ * (design D4 of render-inline-reasoning-and-custom-entries).
+ *
+ * - string → as-is
+ * - content array → text parts joined with newlines, image parts noted as
+ *   `[image]` (a convention LOCAL to this card — the existing text-join
+ *   helpers produce text-only joins)
+ * - object → `JSON.stringify(·, null, 2)`, with a `String()` fallback when
+ *   stringification throws (circular refs — X1)
+ * - null/undefined → ""
+ * - anything else → `String(·)`
+ *
+ * Extraction FIRST, truncation SECOND — the caller truncates via
+ * `truncateOutputForDisplay` at row creation so live and replay render
+ * identically. Plain text throughout: the payload is untrusted
+ * extension-authored input and is never markdown-interpreted.
+ */
+/**
+ * Byte ceiling for a single custom row body, applied before the line
+ * truncation. The line ceiling (200 lines) cannot bound a payload of a few
+ * VERY LONG lines (minified JSON, base64 blobs), which would reach the DOM as
+ * one giant text node. Keeping the TAIL preserves the payload's end, where
+ * state summaries live. Extraction runs identically on live and replay, so
+ * parity holds. See change: render-inline-reasoning-and-custom-entries
+ * (security-hardening pass, advisory #2).
+ */
+export const CUSTOM_BODY_MAX_CHARS = 64_000;
+
+function extractCustomEntryBody(content: unknown): string {
+  const body = extractCustomEntryBodyUncapped(content);
+  return body.length > CUSTOM_BODY_MAX_CHARS
+    ? body.slice(-CUSTOM_BODY_MAX_CHARS)
+    : body;
+}
+
+function extractCustomEntryBodyUncapped(content: unknown): string {
+  if (content == null) return "";
+  if (typeof content === "string") return content;
+  if (Array.isArray(content)) {
+    const parts: string[] = [];
+    for (const part of content) {
+      if (part && typeof part === "object" && (part as any).type === "image") {
+        parts.push("[image]");
+        continue;
+      }
+      const text =
+        typeof part === "string" ? part
+        : part && typeof part === "object" && typeof (part as any).text === "string" ? (part as any).text
+        : "";
+      if (text) parts.push(text);
+    }
+    return parts.join("\n");
+  }
+  if (typeof content === "object") {
+    try {
+      return JSON.stringify(content, null, 2);
+    } catch {
+      return String(content);
+    }
+  }
+  return String(content);
+}
+/** Marker prefix prepended to truncated tool output. U+00AB is visually
+ * distinct from literal tool text, so the UI can detect truncation by
+ * checking `result.startsWith("«")`. See change:
+ * adopt-pi-071-072-073-features. */
+export const TRUNCATION_MARKER_PREFIX = "«";
+
+/**
+ * Truncate tool output for display keeping the LAST N lines (default 200).
+ * Bash/test/install output puts the summary, error, and totals at the BOTTOM,
+ * so trailing lines carry the signal. Prepends a `«N earlier lines hidden»`
+ * marker when truncating; returns text unchanged when within the cap.
+ * See change: adopt-pi-071-072-073-features.
+ */
+export function truncateOutputForDisplay(
+  text: string | unknown,
+  opts?: { maxLines?: number },
+): string {
+  const maxLines = opts?.maxLines ?? 200;
+  const str = toDisplayString(text);
+  // Idempotency: a result already in the display form (server pre-truncated it
+  // on replay to trim bytes — see change: reduce-session-replay-traffic) starts
+  // with the FULL marker header. Match the exact header (not just a leading «,
+  // which a raw tool result could legitimately start with) so we never skip
+  // truncating genuine output. Re-truncating the display form would corrupt the
+  // "N earlier lines hidden" count, so pass it through unchanged.
+  if (/^«\d+ earlier lines hidden»\n/.test(str)) return str;
+  const lines = str.split("\n");
+  if (lines.length <= maxLines) return str;
+  const dropped = lines.length - maxLines;
+  return `${TRUNCATION_MARKER_PREFIX}${dropped} earlier lines hidden»\n${lines.slice(-maxLines).join("\n")}`;
+}
+
+/**
+ * Add a new interactive UI request to session state.
+ *
+ * `toolCallId` (optional): when this prompt was emitted from inside a tool
+ * execution (e.g. `ask_user`), the originating tool call's id flows through
+ * `prompt_request.metadata.toolCallId` and is stamped onto the pushed
+ * `role:"interactiveUi"` ChatMessage so the assistant `message_end` reorder
+ * helper can pair it with its parent `toolResult` row. Free-floating prompts
+ * (architect mode, slash commands) leave it undefined.
+ *
+ * See change: fix-interactive-ui-reorder.
+ */
+/**
+ * Insert `row` chronologically: scan `messages` from the end in ARRAY order,
+ * skipping `historyGap` dividers (client-clock, never an anchor), and insert
+ * right after the first row with `timestamp <= ts` (equal → existing row
+ * first). None found → before the first non-gap row (after a leading divider,
+ * or index 0); no non-gap row at all → append. Pure.
+ * See change: collapse-and-order-notify-rows (D2).
+ */
+function insertByTs(messages: ChatMessage[], row: ChatMessage, ts: number): ChatMessage[] {
+  let firstNonGap = -1;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i];
+    if (m.role === "historyGap") continue;
+    if (m.timestamp <= ts) return [...messages.slice(0, i + 1), row, ...messages.slice(i + 1)];
+    firstNonGap = i;
+  }
+  if (firstNonGap === -1) return [...messages, row];
+  return [...messages.slice(0, firstNonGap), row, ...messages.slice(firstNonGap)];
+}
+
+/**
+ * Re-place every ts-placed notify row (`args.params.ts` is a number) by
+ * `insertByTs`, ascending `ts`. Run after a history-backfill splice so a
+ * backfilled row older than the notify ends above it. Returns the input
+ * reference when nothing is ts-placed. See change: collapse-and-order-notify-rows (D5).
+ */
+export function reseatTimedNotifies(messages: ChatMessage[]): ChatMessage[] {
+  const timed: Array<{ row: ChatMessage; ts: number }> = [];
+  const rest: ChatMessage[] = [];
+  for (const m of messages) {
+    const ts = isNotifyRow(m) ? (m.args as any)?.params?.ts : undefined;
+    if (typeof ts === "number" && Number.isFinite(ts)) timed.push({ row: m, ts });
+    else rest.push(m);
+  }
+  if (timed.length === 0) return messages;
+  timed.sort((a, b) => a.ts - b.ts);
+  let out = rest;
+  for (const { row, ts } of timed) out = insertByTs(out, row, ts);
+  return out;
+}
+
+function isNotifyRow(m: ChatMessage): boolean {
+  return m.role === "interactiveUi" && m.content === "notify" && (m.args as any)?.method === "notify";
+}
+
+/**
+ * Append a notification as a chat row — and ONLY a chat row.
+ *
+ * A notify is not an unanswered ask, so it deliberately does NOT go through
+ * `addInteractiveRequest`: that helper also pushes an `interactiveRequests`
+ * entry, which is where the "user is blocked" semantics live. Chat position is
+ * preserved because it IS insertion order in `messages`.
+ *
+ * Dedup is by `notifyId`, never by message text: `replayNotifyLog` fires at
+ * both delta-subscribe sites, so a warm reconnect must not duplicate a row,
+ * while two distinct notifications with identical text must both render.
+ * See change: split-notify-from-prompt-request.
+ */
+export function addNotify(
+  state: SessionState,
+  notifyId: string,
+  message: string,
+  level?: string,
+  ts?: number,
+): SessionState {
+  const id = `ui-${notifyId}`;
+  if (state.messages.some((m) => m.id === id)) return state;
+  // Non-finite ts (NaN/±Infinity) cannot be ordered — treat as absent.
+  const timed = typeof ts === "number" && Number.isFinite(ts);
+  const row: ChatMessage = {
+    id,
+    role: "interactiveUi",
+    content: "notify",
+    timestamp: timed ? ts : Date.now(),
+    args: {
+      requestId: notifyId,
+      method: "notify",
+      params: {
+        message,
+        ...(level === undefined ? {} : { level }),
+        ...(timed ? { ts } : {}),
+      },
+      status: "pending",
+    } as any,
+  };
+  // ts present → chronological placement (replay keeps its original spot);
+  // absent (pre-change log entry / older server) → today's tail append.
+  // See change: collapse-and-order-notify-rows.
+  return {
+    ...state,
+    messages: timed ? insertByTs(state.messages, row, ts) : [...state.messages, row],
+  };
+}
+
+export function addInteractiveRequest(
+  state: SessionState,
+  requestId: string,
+  method: string,
+  params: Record<string, unknown>,
+  toolCallId?: string,
+): SessionState {
+  // Architect suppression logic REMOVED — the PromptBus now ensures each prompt
+  // is sent to the dashboard exactly once, with the correct component.
+  // No more client-side guessing about which prompts to suppress.
+
+  // Deduplicate by requestId only. Under the PromptBus each prompt mints a
+  // unique id and is sent to the dashboard exactly once; a new requestId always
+  // denotes a new prompt. The only legitimate duplicate is a re-send of the
+  // SAME id (reconnect replay). The former content fallback (method +
+  // params.title) dropped two genuinely-distinct concurrent prompts that merely
+  // shared a title (e.g. two parallel `update_roles` confirms).
+  // See change: surface-concurrent-ask-user-prompts.
+  if (state.interactiveRequests.some((r) => r.requestId === requestId)) {
+    return state;
+  }
+  const request: InteractiveUiRequest = { requestId, method, params, status: "pending" };
+  return {
+    ...state,
+    interactiveRequests: [...state.interactiveRequests, request],
+    messages: [
+      ...state.messages,
+      {
+        id: `ui-${requestId}`,
+        role: "interactiveUi",
+        content: method,
+        timestamp: Date.now(),
+        toolCallId,
+        args: { requestId, method, params, status: "pending" } as any,
+      },
+    ],
+  };
+}
+
+/** Resolve an interactive UI request in session state */
+export function resolveInteractiveRequest(
+  state: SessionState,
+  requestId: string,
+  result?: unknown,
+  cancelled?: boolean,
+): SessionState {
+  const newStatus = cancelled ? "cancelled" as const : "resolved" as const;
+  return {
+    ...state,
+    interactiveRequests: state.interactiveRequests.map((req) =>
+      req.requestId === requestId
+        ? { ...req, status: newStatus, result }
+        : req,
+    ),
+    messages: state.messages.map((msg) =>
+      msg.id === `ui-${requestId}`
+        ? { ...msg, args: { ...msg.args as any, status: newStatus, result } }
+        : msg,
+    ),
+  };
+}
+
+/** Dismiss an interactive UI request (answered in TUI, not via dashboard) */
+export function dismissInteractiveRequest(
+  state: SessionState,
+  requestId: string,
+): SessionState {
+  // Only dismiss pending requests
+  const existing = state.interactiveRequests.find((r) => r.requestId === requestId);
+  if (!existing || existing.status !== "pending") return state;
+
+  return {
+    ...state,
+    interactiveRequests: state.interactiveRequests.map((req) =>
+      req.requestId === requestId
+        ? { ...req, status: "dismissed" as const }
+        : req,
+    ),
+    messages: state.messages.map((msg) =>
+      msg.id === `ui-${requestId}`
+        ? { ...msg, args: { ...msg.args as any, status: "dismissed" } }
+        : msg,
+    ),
+  };
+}
+
+/**
+ * Find the most recent `user`-role ChatMessage and return its content + images
+ * mapped to the wire-format `ImageContent[]` shape (adds `type: "image"`).
+ *
+ * Used by the Retry-after-error button to re-send the failed turn via
+ * `send_prompt` (which routes to `pi.sendUserMessage` in the bridge). Skips
+ * non-user roles like `interactiveUi`, so an `ask_user` response cannot be
+ * mistaken for a prompt.
+ *
+ * Returns `null` when no user message exists in history.
+ *
+ * See change: fix-retry-resends-last-user-message.
+ */
+export function findLastUserPrompt(
+  messages: readonly ChatMessage[],
+): { text: string; images?: { type: "image"; data: string; mimeType: string }[] } | null {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i]!;
+    if (m.role !== "user") continue;
+    const images = m.images?.map((img) => ({
+      type: "image" as const,
+      data: img.data,
+      mimeType: img.mimeType,
+    }));
+    return { text: m.content, ...(images && images.length > 0 ? { images } : {}) };
+  }
+  return null;
+}
+
+/**
+ * The last ASSISTANT message in an `agent_end` payload, located by its
+ * structured `role` — never merely the final array element. A turn can end with
+ * a trailing non-assistant entry (e.g. a `toolResult`), so keying off
+ * `messages[length-1]` misreads the turn's disposition: an error goes unnoticed
+ * (no error anchor) and — the visible bug — a SUCCESSFUL retry is not recognized
+ * as confirmed-good, so the error card never clears. Mirrors pi's own
+ * `_willRetryAfterAgentEnd`, which scans backward for `role === "assistant"`.
+ *
+ * Returns `undefined` when NO entry carries an assistant role — deliberately no
+ * fallback to the final element. Falling back would let a `toolResult` decide
+ * the turn's disposition, synthesizing an error (or clearing a live one) off a
+ * message pi never used to make that decision, and would put this helper back
+ * out of step with `retry-tracker.ts`, which also arms nothing in that case.
+ * See change: unify-retry-visibility.
+ */
+function lastAssistantMessage(data: Record<string, unknown>): Record<string, unknown> | undefined {
+  const messages = data.messages;
+  if (!Array.isArray(messages)) return undefined;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i] as Record<string, unknown> | undefined;
+    if (m && m.role === "assistant") return m;
+  }
+  return undefined;
+}
+
+/** Extract error info from agent_end event's messages array. */
+export function extractAgentEndError(data: Record<string, unknown>): string | undefined {
+  const last = lastAssistantMessage(data);
+  if (!last || last.stopReason !== "error") return undefined;
+  // The raw provider string, verbatim. pi types `errorMessage` as a bare string
+  // and populates it from `String(error)`, so there is no envelope shape to rely
+  // on — `529 {…}`, `529 overloaded_error: Overloaded` and `terminated` are all
+  // real documented values. The surface prints it and offers Show more + Copy.
+  //
+  // Guarded on `typeof`, not asserted: a malformed `agent_end` can carry a
+  // non-string (e.g. `errorMessage: {}`), which would otherwise flow into
+  // `lastError.message` and crash the render with "Objects are not valid as a
+  // React child". See change: raw-error-render-and-retry-authority.
+  const raw = last.errorMessage;
+  return typeof raw === "string" && raw.length > 0 ? raw : "An unknown error occurred";
+}
+
+/**
+ * Terminal-success stop reasons. pi-ai emits `"stop"` for a normal completion
+ * (verified against the published union — see
+ * `packages/server/src/model-proxy/convert/anthropic-out.ts`, which maps pi-ai
+ * `"toolUse"`/`"length"` and otherwise to the Anthropic wire value). `"end_turn"`
+ * is accepted too because the repo's own fixtures / any Anthropic-normalized
+ * path use it. Mid-turn / non-success reasons (`"toolUse"`, `"error"`,
+ * `"aborted"`, `"length"`) are deliberately EXCLUDED so a tool-use pause, an
+ * error, or a user abort never clears the persistent error anchor.
+ * See change: unify-error-retry-lifecycle.
+ */
+const CONFIRMED_GOOD_STOP_REASONS: ReadonlySet<string> = new Set(["stop", "end_turn"]);
+
+/**
+ * True iff an `agent_end` event is a confirmed-good terminal: it has a last
+ * message AND that message completed with a terminal SUCCESS stop
+ * (`CONFIRMED_GOOD_STOP_REASONS`). Deliberately NOT "any non-error stop": pi
+ * fires an `agent_end` whose last message is a `toolUse` stop when a turn yields
+ * at an interactive tool (e.g. `ask_user`) — a mid-turn pause, not a successful
+ * response, and must NOT clear the persistent error anchor. An agent_end with
+ * NO messages (e.g. a bare abort) is likewise not clean.
+ * See change: unify-error-retry-lifecycle.
+ */
+export function isCleanAgentEnd(data: Record<string, unknown>): boolean {
+  const last = lastAssistantMessage(data);
+  return !!last && CONFIRMED_GOOD_STOP_REASONS.has(last.stopReason as string);
+}
+
+/**
+ * Derived banner state for the unified `SessionBanner` component. ONE
+ * composed error-lifecycle surface per session: an optional persistent
+ * error anchor (from `lastError`) AND an optional live retry sub-status
+ * (from `retryState`) composed on the same surface. Returns
+ * `{ variant: "hidden" }` only when BOTH are undefined.
+ *
+ * `error.kind` is always `"error"` — billing/quota failures render as ordinary
+ * errors that settle when pi stops. The `limit-exceeded` variant and the
+ * `USAGE_LIMIT_PATTERN` classification were removed.
+ *
+ * See change: simplify-error-retry-single-card.
+ */
+export interface BannerRetry {
+  attempt: number;
+  maxAttempts: number;
+  delayMs: number;
+  /** Absolute epoch ms of the next attempt, when known (waiting phase). */
+  nextAttemptAt?: number;
+  /** true between attempts, false while an attempt is in flight. */
+  waiting: boolean;
+  startedAt: number;
+  reason: string;
+}
+export type BannerState =
+  | { variant: "hidden" }
+  | {
+      error?: { kind: "error"; message: string };
+      retry?: BannerRetry;
+    };
+
+export function deriveBannerState(state: SessionState): BannerState {
+  if (!state.lastError && !state.retryState) return { variant: "hidden" };
+  const out: { error?: { kind: "error"; message: string }; retry?: BannerRetry } = {};
+  if (state.lastError) {
+    out.error = { kind: "error", message: state.lastError.message };
+  }
+  if (state.retryState) {
+    out.retry = {
+      attempt: state.retryState.attempt,
+      maxAttempts: state.retryState.maxAttempts,
+      delayMs: state.retryState.delayMs,
+      nextAttemptAt: state.retryState.nextAttemptAt,
+      waiting: state.retryState.waiting,
+      startedAt: state.retryState.startedAt,
+      reason: state.retryState.reason,
+    };
+  }
+  return out;
+}
+
+/**
+ * Correctness floor for a fully-reduced BACKFILL segment: stamp every row still
+ * `running` as `elided`, and finalize every row the segment left mid-stream.
+ *
+ * Stamp ALL of them, not "the ones at a seam". Within a slice a dangling
+ * `tool_execution_start`'s end is always ABOVE the slice — i.e. in content the
+ * client already holds — and later slices are strictly lower, so every
+ * still-running row in a COMPLETED backfill segment is provably unjoinable. A
+ * seam-scoped rule would fire nowhere and ship the bug intact.
+ *
+ * Scoped to backfill segments, never the initial windowed replay: a live
+ * session reopened mid-tool-run has a dangling start whose end simply has not
+ * happened yet. Stamping that would label a genuinely running tool "not
+ * loaded" AND remove it from supersede-heal eligibility (the heal selects
+ * `status === "running"`).
+ *
+ * Row-level, because the splice merges `messages` only and discards
+ * `seg.toolCalls` — renderers read `msg.toolStatus`, so a status written into
+ * the tool-call map would be unobservable.
+ *
+ * `isStreaming` is the identical defect one type over: a slice whose top edge
+ * lands mid-message produces an assistant row nothing ever clears, i.e. a
+ * permanently "streaming" bubble.
+ * See change: fix-lazy-history-backfill-ux (D5).
+ */
+export function finalizeBackfillSegment(messages: ChatMessage[]): ChatMessage[] {
+  return messages.map((m) => {
+    const elide = m.toolStatus === "running";
+    const finalize = m.isStreaming === true;
+    if (!elide && !finalize) return m;
+    const out = { ...m };
+    if (elide) {
+      out.toolStatus = "elided";
+      // No nested entry stays running under an elided root.
+      // See change: render-nested-tool-calls (D1).
+      if (out.nested) out.nested = closeRunningNested(out.nested);
+    }
+    if (finalize) out.isStreaming = false;
+    return out;
+  });
+}
+
+// ── Nested tool calls (see change: render-nested-tool-calls, D1) ──────────────
+
+/** Index of the top-level toolResult row for `toolCallId`, or -1. */
+function findToolRowIndex(messages: ChatMessage[], toolCallId: string): number {
+  return messages.findLastIndex((m) => m.role === "toolResult" && m.toolCallId === toolCallId);
+}
+
+/** A root is a top-level call the client knows: a map entry or a toolResult row. */
+function isKnownRoot(next: SessionState, id: string): boolean {
+  return next.toolCalls.has(id) || findToolRowIndex(next.messages, id) !== -1;
+}
+
+function nestedListOf(next: SessionState, rootId: string): NestedCallState[] {
+  const idx = findToolRowIndex(next.messages, rootId);
+  return (idx !== -1 ? next.messages[idx].nested : undefined) ?? next.toolCalls.get(rootId)?.nested ?? [];
+}
+
+/** Root terminal = complete / error / elided. The row (elided lives only there) wins over the map. */
+function isRootTerminal(next: SessionState, rootId: string): boolean {
+  const idx = findToolRowIndex(next.messages, rootId);
+  if (idx !== -1) return next.messages[idx].toolStatus !== "running";
+  const tc = next.toolCalls.get(rootId);
+  return tc !== undefined && tc.status !== "running";
+}
+
+/**
+ * Resolve the root for a live nested event: the id's first segment when it is
+ * a known root; else via `parentToolCallId` (a known root, or a nested entry
+ * whose root owns it). Unresolved → undefined (orphan, dropped).
+ */
+function resolveNestedRoot(next: SessionState, id: string, parentId: string): string | undefined {
+  const first = rootIdOf(id);
+  if (isKnownRoot(next, first)) return first;
+  if (isKnownRoot(next, parentId)) return parentId;
+  const parentRoot = rootIdOf(parentId);
+  if (isKnownRoot(next, parentRoot) && nestedListOf(next, parentRoot).some((e) => e.id === parentId)) {
+    return parentRoot;
+  }
+  for (const m of next.messages) {
+    if (m.role === "toolResult" && m.toolCallId && m.nested?.some((e) => e.id === parentId)) return m.toolCallId;
+  }
+  for (const tc of next.toolCalls.values()) {
+    if (tc.nested?.some((e) => e.id === parentId)) return tc.toolCallId;
+  }
+  return undefined;
+}
+
+/** Write a root's nested list (and optional completeness) to its row AND map entry. */
+function writeNested(
+  next: SessionState,
+  rootId: string,
+  list: NestedCallState[],
+  complete?: boolean,
+): void {
+  const patch = { nested: list, ...(complete !== undefined ? { nestedComplete: complete } : {}) };
+  const tc = next.toolCalls.get(rootId);
+  if (tc) next.toolCalls.set(rootId, { ...tc, ...patch });
+  const idx = findToolRowIndex(next.messages, rootId);
+  if (idx !== -1) {
+    next.messages = [...next.messages];
+    next.messages[idx] = { ...next.messages[idx], ...patch };
+  }
+}
+
+/** Merge a `nestedCalls` record into its root, then enforce the terminal-root invariant. */
+function mergeRecordIntoRoot(next: SessionState, rootId: string, record: unknown): void {
+  const env = readNestedCallsEnvelope(record);
+  if (!env || !isKnownRoot(next, rootId)) return;
+  let list = mergeNestedRecord(nestedListOf(next, rootId), env.calls);
+  if (isRootTerminal(next, rootId)) list = closeRunningNested(list);
+  writeNested(next, rootId, list, env.complete);
+}
+
+/** Reduce a nested `tool_execution_*` event into its root's list. Never touches top-level state. */
+function reduceNestedToolEvent(next: SessionState, event: DashboardEvent): void {
+  const data = event.data;
+  const id = data.toolCallId;
+  const parentId = data.parentToolCallId as string;
+  if (typeof id !== "string" || id === "") return;
+  const rootId = resolveNestedRoot(next, id, parentId);
+  if (rootId === undefined) return; // orphan: dropped
+  const list = nestedListOf(next, rootId);
+  const name = typeof data.toolName === "string" ? data.toolName : "unknown";
+  switch (event.eventType) {
+    case "tool_execution_start": {
+      const args = data.args && typeof data.args === "object" ? (data.args as Record<string, unknown>) : undefined;
+      writeNested(
+        next,
+        rootId,
+        applyNestedStart(list, { id, parentId, name, args, startedAt: event.timestamp }, isRootTerminal(next, rootId)),
+      );
+      return;
+    }
+    case "tool_execution_update": {
+      const partial = data.partialResult;
+      const text = partial == null ? undefined : truncateOutputForDisplay(partial);
+      writeNested(next, rootId, applyNestedUpdate(list, id, text));
+      return;
+    }
+    case "tool_execution_end": {
+      const result = data.result == null ? undefined : truncateOutputForDisplay(data.result);
+      writeNested(
+        next,
+        rootId,
+        applyNestedEnd(list, { id, parentId, name, isError: data.isError === true, result, endedAt: event.timestamp }),
+      );
+      return;
+    }
+  }
+}
+
+/** Most recent payloads kept per owned-event group row; the count keeps growing. */
+export const OWNED_GROUP_PAYLOAD_CAP = 50;
+
+function ownedGroupRow(
+  ownerId: string,
+  eventType: string,
+  timestamp: number,
+  count: number,
+  payloads: unknown[],
+): ChatMessage {
+  return {
+    id: `owned-${eventType}`,
+    role: "rawEvent",
+    content: "",
+    timestamp,
+    toolName: eventType,
+    ownedGroup: { ownerId, count, payloads: payloads.slice(-OWNED_GROUP_PAYLOAD_CAP) },
+  };
+}
+
+/**
+ * Add one event to its type's group row (creating it at the tail on the type's
+ * first event). Returns a new array; the previous row object is never mutated.
+ */
+function foldIntoOwnedGroup(
+  messages: ChatMessage[],
+  ownerId: string,
+  eventType: string,
+  timestamp: number,
+  payload: unknown,
+): ChatMessage[] {
+  const idx = messages.findLastIndex((m) => m.role === "rawEvent" && m.ownedGroup && m.toolName === eventType);
+  if (idx < 0) return [...messages, ownedGroupRow(ownerId, eventType, timestamp, 1, [payload])];
+  const prev = messages[idx];
+  const group = prev.ownedGroup as NonNullable<ChatMessage["ownedGroup"]>;
+  const out = messages.slice();
+  out[idx] = {
+    ...ownedGroupRow(ownerId, eventType, prev.timestamp, group.count + 1, [...group.payloads, payload]),
+    id: prev.id,
+  };
+  return out;
+}
+
+/**
+ * Late owner: replace the raw rows of every type `owners` now claim with one
+ * group row per type at the position of the type's first row. Pure; returns
+ * the SAME state when nothing matches. Used when a runtime plugin registers
+ * `eventTypes` after events of those types were reduced as unowned.
+ * See change: decouple-plugins-from-core (design D5 item 4, "Late owner").
+ */
+export function regroupOwnedEvents(state: SessionState, owners: readonly EventTypeOwner[]): SessionState {
+  const groups = new Map<string, { ownerId: string; first: number; count: number; payloads: unknown[] }>();
+  state.messages.forEach((m, i) => {
+    if (m.role !== "rawEvent" || m.ownedGroup || m.toolName === undefined) return;
+    const owner = matchEventTypeOwner(owners, m.toolName);
+    if (!owner) return;
+    let payload: unknown = m.content;
+    try {
+      payload = JSON.parse(m.content);
+    } catch {
+      /* keep the raw text */
+    }
+    const g = groups.get(m.toolName);
+    if (g) {
+      g.count += 1;
+      g.payloads.push(payload);
+    } else {
+      groups.set(m.toolName, { ownerId: owner.ownerId, first: i, count: 1, payloads: [payload] });
+    }
+  });
+  if (groups.size === 0) return state;
+  const messages: ChatMessage[] = [];
+  state.messages.forEach((m, i) => {
+    const g = m.role === "rawEvent" && !m.ownedGroup && m.toolName !== undefined ? groups.get(m.toolName) : undefined;
+    if (!g) {
+      messages.push(m);
+    } else if (g.first === i) {
+      messages.push(ownedGroupRow(g.ownerId, m.toolName as string, m.timestamp, g.count, g.payloads));
+    }
+  });
+  return { ...state, messages };
+}
+
+export function reduceEvent(
+  state: SessionState,
+  event: DashboardEvent,
+  opts?: { isLive?: boolean },
+): SessionState {
+  const isLive = opts?.isLive === true;
+  const next = { ...state, toolCalls: new Map(state.toolCalls) };
+  const data = event.data;
+
+  switch (event.eventType) {
+    case "agent_start":
+      next.isStreaming = true;
+      next.status = "streaming";
+      next.streamingText = "";
+      next.pendingPrompt = undefined;
+      // lastError and retryState persist across pi-owned continuation. The
+      // typed auto_retry_start updates waiting → in-flight; the first non-error
+      // assistant completion clears both. See change: fix-retry-error-lifecycle.
+      // A fresh turn clears any stale empty-actionable notice.
+      // See change: fix-gemini-subagent-silent-tool-schema-failure.
+      next.notice = undefined;
+      break;
+
+    case "empty_actionable_surface": {
+      // Non-error status: the model returned only reasoning, no answer. Set a
+      // notice distinct from lastError so the card renders info, not an error.
+      // See change: fix-gemini-subagent-silent-tool-schema-failure.
+      const message =
+        typeof data.message === "string" && data.message.length > 0
+          ? data.message
+          : "model returned only reasoning, no answer";
+      next.notice = { message, timestamp: event.timestamp };
+      break;
+    }
+
+    case "agent_end": {
+      // agent_end fires per agent-run iteration (retries / queued follow-ups
+      // still pending). It sets the INTERMEDIATE `"ended"` state and clears
+      // streaming; only `agent_settled` (real ≥ 0.80.4, guaranteed at the
+      // 0.85.1 floor) resolves `"idle"`. All the
+      // existing side-effects (last-error extraction, retry/pendingPrompt
+      // clearing) stay here; only the `status:"idle"` line moved to the settle
+      // arm. See change: adopt-pi-074-080-features (A.1).
+      next.isStreaming = false;
+      next.status = "ended";
+      next.streamingText = "";
+      next.currentTool = undefined;
+      next.pendingPrompt = undefined;
+      if (!state.retryCancelled) {
+        const errorMsg = extractAgentEndError(data);
+        if (errorMsg) {
+          next.lastError = { message: errorMsg, timestamp: event.timestamp };
+        } else if (isCleanAgentEnd(data)) {
+          // Fallback recovery for sources that omit message_end.
+          next.lastError = undefined;
+          next.retryState = undefined;
+        }
+      }
+      // retryState is NOT cleared here: pi fires one agent_end PER attempt, so
+      // clearing would wipe the waiting/in-flight state between every attempt.
+      // Only agent_settled (the sole terminal signal) clears it.
+      // See change: retry-forever-with-stop-control.
+      break;
+    }
+
+    case "agent_settled": {
+      // The single terminal signal that resolves `"idle"`. pi emits it
+      // exactly once per run (≥ 0.80.4, guaranteed at the 0.85.1 floor), so
+      // this arm needs no version / capability branch and no timer, and no
+      // per-attempt compatibility branch — the bridge no longer synthesizes a
+      // floor-pi settle. Defensive on an illegal settle with no
+      // preceding `agent_end` (X2): still resolves idle and clears streaming
+      // without crashing. See change: update-pi-core-0-85-adopt-apis.
+      next.isStreaming = false;
+      next.status = "idle";
+      // Sole terminal signal for a retry chain — clear the retry state. The
+      // matching auto_retry_end (bridge-synthesized before this settle) already
+      // set lastError on failure. See change: retry-forever-with-stop-control.
+      next.retryState = undefined;
+      next.retryCancelled = undefined;
+      // A foreground Agent call cannot outlive its parent's settle: finalize any
+      // card still spinning (its end was lost). The registered Agent finalizer is
+      // asked first (known terminal subagent → its outcome); a missing or declining
+      // finalizer leaves the neutral heal to run. See change:
+      // finalize-agent-card-on-subagent-stop (D4), decouple-plugins-from-core (D5 item 9).
+      {
+        let healed: SessionState =
+          findToolRowFinalizer<SessionState>("Agent")?.onSessionEvent?.(next, event, finalizerOpts(isLive)) ?? next;
+        for (const idx of findEligibleAgentRows(healed)) {
+          healed = neutralSettleAgentRow(healed, idx, event.timestamp);
+        }
+        if (healed !== next) return healed;
+      }
+      break;
+    }
+
+    case "auto_retry_waiting": {
+      // The wait between attempts: pi is sleeping before the next try. Carries a
+      // real delay + absolute next-attempt time so the surface renders an exact
+      // countdown. No fresh-error guard here — this signal is EXPECTED to arrive
+      // right after an error agent_end (which sets lastError).
+      // See change: retry-forever-with-stop-control.
+      if (state.retryCancelled) break;
+      const attempt = typeof data.attempt === "number" ? data.attempt : 1;
+      const maxAttempts = typeof data.maxAttempts === "number" ? data.maxAttempts : 0;
+      const delayMs = typeof data.delayMs === "number" ? data.delayMs : 0;
+      const nextAttemptAt = typeof data.nextAttemptAt === "number" ? data.nextAttemptAt : undefined;
+      const reason = typeof data.errorMessage === "string" ? data.errorMessage : "Provider error";
+      next.retryState = {
+        attempt,
+        maxAttempts,
+        delayMs,
+        nextAttemptAt,
+        waiting: true,
+        reason,
+        startedAt: event.timestamp,
+      };
+      break;
+    }
+
+    case "auto_retry_start": {
+      if (state.retryCancelled) break;
+      const attempt = typeof data.attempt === "number" ? data.attempt : 1;
+      const maxAttempts = typeof data.maxAttempts === "number" ? data.maxAttempts : 0;
+      const delayMs = typeof data.delayMs === "number" ? data.delayMs : 0;
+      const nextAttemptAt = typeof data.nextAttemptAt === "number" ? data.nextAttemptAt : undefined;
+      const reason = typeof data.errorMessage === "string" ? data.errorMessage : "Provider error";
+      next.retryState = {
+        attempt,
+        maxAttempts,
+        delayMs,
+        nextAttemptAt,
+        waiting: false,
+        reason,
+        startedAt: event.timestamp,
+      };
+      break;
+    }
+
+    case "auto_retry_end": {
+      const attempt = typeof data.attempt === "number" ? data.attempt : undefined;
+      if (attempt === -1) {
+        next.retryState = undefined;
+        next.lastError = undefined;
+        next.retryCancelled = true;
+        break;
+      }
+      if (state.retryCancelled) break;
+
+      next.retryState = undefined;
+      if (data.success === true) {
+        next.lastError = undefined;
+        break;
+      }
+      if (data.success === false && typeof data.finalError === "string" && data.finalError.length > 0) {
+        const previousRevision = state.lastError?.timestamp;
+        const observedRevision = Number.isFinite(event.timestamp) ? event.timestamp : 0;
+        const nextRevision = typeof previousRevision === "number" && Number.isFinite(previousRevision)
+          ? Math.max(observedRevision, previousRevision + 1)
+          : observedRevision;
+        next.lastError = state.lastError
+          ? { ...state.lastError, timestamp: nextRevision }
+          : { message: data.finalError, timestamp: nextRevision };
+      }
+      break;
+    }
+
+    // Phase 2 of the two-phase attachment render: swap a pending placeholder
+    // for its fitted derivative (or an explicit failed state). Addressed by
+    // `attachmentId` rather than seq because this fold never sees a seq and
+    // replay may deliver the resolution well after its row.
+    // See change: fit-attachments-for-display (D12, test-plan #F2 #F3 #F7).
+    case "attachment_fitted": {
+      const attachmentId = typeof data.attachmentId === "string" ? data.attachmentId : "";
+      if (!attachmentId) break;
+      // A `ready` claim is only honoured with bytes to back it. Trusting the
+      // flag alone turned a payload-less resolution into
+      // `data:image/png;base64,` — a broken-image glyph, which is strictly worse
+      // than the explicit failed state this flow guarantees.
+      const fittedData = typeof data.data === "string" ? data.data : "";
+      const state_ = data.state === "failed" || fittedData === "" ? "failed" : "ready";
+      let patched = false;
+      // Patch EVERY occurrence, not just the first. `attachmentId` is the sha256
+      // of the bytes, so the same screenshot pasted twice legitimately appears
+      // under one id in several rows (and can repeat within a single row).
+      // Stopping at the first match left every later copy stuck on "loading"
+      // forever. One resolution is authoritative for all of them, and applying
+      // it repeatedly is idempotent.
+      // See change: fit-attachments-for-display (task 9.4).
+      const messages = next.messages.map((m) => {
+        if (!m.images) return m;
+        if (!m.images.some((img) => img.attachmentId === attachmentId)) return m;
+        patched = true;
+        return {
+          ...m,
+          images: m.images.map((img) =>
+            img.attachmentId === attachmentId
+              ? {
+                  ...img,
+                  data: state_ === "failed" ? "" : fittedData,
+                  mimeType: typeof data.mimeType === "string" ? data.mimeType : img.mimeType,
+                  attachmentState: state_ as "ready" | "failed",
+                }
+              : img,
+          ),
+        };
+      });
+      // Unknown id (evicted row, foreign session): ignore rather than disturb state.
+      if (patched) next.messages = messages;
+      break;
+    }
+
+    case "message_start": {
+      const msg = data.message as any;
+      // Live nested-call record rides the root's toolResult message.
+      // See change: render-nested-tool-calls (D1).
+      if (msg?.role === "toolResult" && typeof msg.toolCallId === "string" && msg.nestedCalls !== undefined) {
+        mergeRecordIntoRoot(next, msg.toolCallId, msg.nestedCalls);
+      }
+      if (msg?.role === "assistant") {
+        // Reset the per-message flush flag at the start of every assistant
+        // message. See change: fix-streaming-text-vs-interactive-ui-order.
+        next.streamingTextFlushed = false;
+        // Advance the inference counter. A new assistant message can only begin
+        // after every prior tool result is in hand, so this is the supersede
+        // heal's proof-of-completion boundary. See change:
+        // fix-stuck-tool-card-superseded-heal.
+        next.assistantInferenceSeq = next.assistantInferenceSeq + 1;
+      }
+      if (msg?.role === "user") {
+        next.pendingPrompt = undefined;
+        next.retryCancelled = undefined;
+        let text = "";
+        let images: ChatImage[] | undefined;
+        if (Array.isArray(msg.content)) {
+          text = msg.content
+            .filter((c: any) => c.type === "text")
+            .map((c: any) => c.text)
+            .join("");
+          // A two-phase placeholder has NO bytes yet but must still occupy its
+          // slot, otherwise the attachment position is lost and the later
+          // `attachment_fitted` event has nothing to fill. Legacy inline blocks
+          // (bytes present, no attachmentId) keep the original predicate.
+          // Tolerate BOTH image block shapes via the shared detector: the flat
+          // pi shape `{data,mimeType}` and the nested Anthropic shape
+          // `{source:{media_type,data}}` (some provider/import/replay paths).
+          // See change: fit-attachments-for-display (D12); nested-shape
+          // tolerance: fix-pasted-image-message-vanishes.
+          const imgBlocks = msg.content.filter((c: any) => isRenderableImageBlock(c));
+          if (imgBlocks.length > 0) {
+            // `isRenderableImageBlock` already guaranteed a non-empty mime, so
+            // the `?? ""` fallback is unreachable — it only narrows the type
+            // from `string | undefined` to `string` for ChatImage.mimeType.
+            images = imgBlocks.map((c: any) => {
+              // A RESCUED block (server stripped over-ceiling image bytes) has
+              // no bytes and no attachmentId — nothing will ever fill it, so it
+              // resolves straight to the explicit unavailable slot rather than
+              // pending forever. An existing attachmentState always wins.
+              // See change: fix-pasted-image-message-vanishes.
+              const attachmentState =
+                c.attachmentState ?? (isTruncatedImageBlock(c) ? "failed" : undefined);
+              return {
+                data: imageBlockData(c) ?? "",
+                mimeType: imageBlockMime(c) ?? "",
+                ...(c.attachmentId ? { attachmentId: c.attachmentId } : {}),
+                ...(attachmentState ? { attachmentState } : {}),
+              };
+            });
+          }
+        } else {
+          text = String(msg.content ?? "");
+        }
+        // Detect a wrapped <skill>...</skill> envelope so the renderer can show
+        // a collapsible card and ArrowUp recall can return the slash form.
+        // See change: render-skill-invocations-collapsibly.
+        const skill = parseSkillBlock(text) ?? undefined;
+
+        // Visual-dedup for manual retry: if the new user text matches the
+        // immediately-preceding user message AND the assistant turn between
+        // them ended in an error, flag `retriedFrom`. The chat view skips
+        // rendering flagged duplicates. The entry stays in `state.messages`
+        // for findLastUserPrompt / fork-from-here / persistence parity.
+        // See change: unify-status-banner-and-terminal-limit-stop.
+        let retriedFrom: string | undefined;
+        const trimmedText = text.trim();
+        if (trimmedText.length > 0) {
+          // Walk back to the most recent user message.
+          let lastErrorBetween = false;
+          let prevUserIdx = -1;
+          for (let i = state.messages.length - 1; i >= 0; i--) {
+            const m = state.messages[i]!;
+            if (m.role === "assistant" && m.toolStatus === "error") {
+              lastErrorBetween = true;
+            }
+            if (m.role === "user") {
+              prevUserIdx = i;
+              break;
+            }
+          }
+          // Also accept `state.lastError` (set by agent_end / auto_retry_end
+          // arms) as evidence of an error between the two user messages.
+          // This covers the common case where the error sits on lastError
+          // rather than on an assistant ChatMessage with toolStatus.
+          if (state.lastError) lastErrorBetween = true;
+          if (prevUserIdx >= 0 && lastErrorBetween) {
+            const prev = state.messages[prevUserIdx]!;
+            if (prev.content.trim() === trimmedText) {
+              retriedFrom = prev.entryId ?? prev.id;
+            }
+          }
+        }
+
+        next.messages = [
+          ...next.messages,
+          {
+            id: `msg-${next.messages.length}`,
+            role: "user",
+            content: text,
+            ...(skill ? { skill } : {}),
+            ...(retriedFrom ? { retriedFrom } : {}),
+            images,
+            timestamp: event.timestamp,
+            // entryId from data.entryId is correct ONLY for replayed events
+            // (state-replay attaches the persisted id). For LIVE user
+            // message_start the bridge no longer stamps entryId because
+            // the user entry has not been persisted yet — it will arrive
+            // via a later entry_persisted event keyed on `nonce`.
+            // See change: fix-per-message-fork.
+            entryId: data.entryId as string | undefined,
+            nonce: data.nonce as string | undefined,
+            // Stamp the mid-stream delivery mode captured from the preceding
+            // interactive `input` event, then clear the correlation slot.
+            // See change: surface-input-streaming-behavior.
+            ...(state.pendingInputBehavior
+              ? { streamingBehavior: state.pendingInputBehavior }
+              : {}),
+          },
+        ];
+        next.pendingInputBehavior = undefined;
+      }
+      break;
+    }
+
+    case "input": {
+      // pi 0.77+ InputEvent. When an interactive user message arrives
+      // mid-stream, pi sets `streamingBehavior` ("steer" | "followUp"); idle
+      // inputs leave it undefined. We remember the behavior so the next user
+      // `message_start` can stamp it onto the rendered bubble as a badge.
+      // Non-interactive sources (rpc / extension) already surface via
+      // command_feedback / extension messages, so we skip them to avoid
+      // duplicate signal. See change: surface-input-streaming-behavior.
+      const source = data.source as string | undefined;
+      const behavior = data.streamingBehavior as "steer" | "followUp" | undefined;
+      if (source === "interactive" && (behavior === "steer" || behavior === "followUp")) {
+        next.pendingInputBehavior = behavior;
+      }
+      break;
+    }
+
+    case "message_update": {
+      const assistantEvent = data.assistantMessageEvent as any;
+
+      // Handle thinking events from assistantMessageEvent
+      if (assistantEvent) {
+        if (assistantEvent.type === "thinking_start") {
+          next.streamingThinking = "";
+          next.streamingThinkingCollapsed = false;
+          next.thinkingStartedAt = event.timestamp;
+          break;
+        }
+        if (assistantEvent.type === "thinking_delta") {
+          next.streamingThinking = next.streamingThinking + (assistantEvent.delta ?? "");
+          break;
+        }
+        if (assistantEvent.type === "thinking_end") {
+          if (next.streamingThinking) {
+            const startedAt = next.thinkingStartedAt;
+            next.messages = [
+              ...next.messages,
+              {
+                id: `thinking-${next.messages.length}`,
+                role: "thinking",
+                content: next.streamingThinking,
+                timestamp: event.timestamp,
+                startedAt,
+                duration: startedAt ? event.timestamp - startedAt : undefined,
+                streamedLive: next.streamingThinkingCollapsed ? false : isLive,
+              },
+            ];
+          }
+          next.streamingThinking = "";
+          next.streamingThinkingCollapsed = false;
+          next.thinkingStartedAt = undefined;
+          break;
+        }
+      }
+
+      // Handle text streaming
+      const msg = data.message as any;
+      if (msg?.role === "assistant") {
+        // If streamingText was already flushed for this message,
+        // re-populating it here would re-show the flushed prefix below the
+        // messages list (or, for [text, toolCall, text]-shaped messages,
+        // would resurrect text1 alongside text2). Skip the assignment;
+        // any post-flush text content is committed at message_end via the
+        // existing reorder pass. See change:
+        // fix-streaming-text-vs-interactive-ui-order.
+        if (!next.streamingTextFlushed) {
+          const text = Array.isArray(msg.content)
+            ? msg.content
+                .filter((c: any) => c.type === "text")
+                .map((c: any) => c.text)
+                .join("")
+            : String(msg.content ?? "");
+          next.streamingText = text;
+        }
+      }
+      break;
+    }
+
+    case "message_end": {
+      const msg = data.message as any;
+      // Live nested-call record rides the root's toolResult message.
+      // See change: render-nested-tool-calls (D1).
+      if (msg?.role === "toolResult" && typeof msg.toolCallId === "string" && msg.nestedCalls !== undefined) {
+        mergeRecordIntoRoot(next, msg.toolCallId, msg.nestedCalls);
+      }
+      if (msg?.role === "custom") {
+        // Custom MESSAGE row (pi.sendMessage) — change:
+        // render-inline-reasoning-and-custom-entries. EXACT `display ===
+        // false` exclusion (D5): pi normalizes content but NOT display, so
+        // an untyped extension omitting the flag yields undefined — which
+        // RENDERS (absent flag = meant to be seen; a truthiness check would
+        // silently drop it). `display: false` is LLM-context-only. flow-event
+        // is refused for parity with the custom_entry arm (E8; label-
+        // spoofing guard).
+        if (msg.display === false) break;
+        if (msg.customType === "flow-event") break;
+        next.messages = [
+          ...next.messages,
+          {
+            id: `custom-${next.messages.length}`,
+            role: "custom",
+            customType: typeof msg.customType === "string" && msg.customType !== ""
+              ? msg.customType
+              : "custom",
+            // Server-stamped group id (D1); absent → the gate treats the row
+            // as the catch-all `other` group.
+            ...(typeof msg.groupId === "string" && msg.groupId !== "" ? { groupId: msg.groupId } : {}),
+            // Extraction first, truncation second, AT ROW CREATION — live and
+            // replay render identically (D4).
+            content: truncateOutputForDisplay(extractCustomEntryBody(msg.content)),
+            timestamp: event.timestamp,
+            // entryId/nonce deliberately NOT stamped: bridge id resolution is
+            // unreliable for custom messages (no entry_persisted correlation
+            // guarantee on this path).
+          },
+        ];
+        break;
+      }
+      if (msg?.role === "assistant") {
+        // A confirmed-good TERMINAL stop (`stop`/`end_turn`) always confirms
+        // provider recovery, including pi-owned continuation without a user
+        // message. A mid-turn stop (e.g. `toolUse` at an interactive
+        // `ask_user`) clears ONLY while a retry chain is active — there it
+        // closes the chain successfully (fix-retry-error-lifecycle), but
+        // OUTSIDE a chain it is a pause, not recovery, and must NOT clear the
+        // settled error anchor. Missing/non-string runtime data proves no
+        // disposition and preserves the unresolved lifecycle.
+        // See change: unify-error-retry-lifecycle (CONFIRMED_GOOD_STOP_REASONS),
+        // stabilize-browser-e2e (baseline triage: the `message_end` path used
+        // "any non-error stop", so an ask_user pause silently cleared the
+        // banner — contradicting the CONFIRMED_GOOD_STOP_REASONS intent the
+        // `agent_end` path already honours).
+        const stopReason = typeof msg.stopReason === "string" ? msg.stopReason : undefined;
+        if (
+          !state.retryCancelled &&
+          stopReason &&
+          stopReason !== "error" &&
+          stopReason !== "aborted" &&
+          (CONFIRMED_GOOD_STOP_REASONS.has(stopReason) || state.retryState !== undefined)
+        ) {
+          next.lastError = undefined;
+          next.retryState = undefined;
+        }
+        // Reasoning reconstruction on REPLAY. Live turns build `thinking` rows
+        // from thinking_start/delta/end events (see message_update), but the
+        // cold-load path (state-replay.ts) emits NO thinking_* events — the
+        // reasoning lives inline in the finalized message's content as
+        // `{ type: "thinking", thinking: "…" }` blocks. Rebuild the rows here so
+        // reopened sessions show reasoning. Appended before the assistant text
+        // row below → correct [thinking, text] order; for tool-bearing messages
+        // the reorder pass repositions by content order.
+        // See change: reconstruct-reasoning-on-replay.
+        //
+        // Dedupe guard: `!isLive` is the WRONG signal — a streamed turn can
+        // reach a message_end whose opts.isLive is not true (the default), so
+        // `!isLive` alone double-creates the row. The real condition is "does a
+        // thinking row for the current assistant turn already exist?". Walk
+        // back to the turn boundary and skip reconstruction when one does.
+        // Real cold replay has no streamed thinking_* rows → none exists →
+        // reconstruction still fires.
+        // See change: fix-double-thinking-row-on-replay-reconstruction.
+        let turnStart = 0;
+        for (let i = next.messages.length - 1; i >= 0; i--) {
+          if (TURN_BOUNDARY_ROLES.has(next.messages[i].role)) {
+            turnStart = i + 1;
+            break;
+          }
+        }
+        const turnHasThinkingRow = next.messages
+          .slice(turnStart)
+          .some((m) => m.role === "thinking");
+        if (!turnHasThinkingRow && Array.isArray(msg.content)) {
+          const thinkingRows: ChatMessage[] = [];
+          for (const block of msg.content as any[]) {
+            if (block?.type !== "thinking") continue;
+            const text = typeof block.thinking === "string" ? block.thinking
+              : typeof block.text === "string" ? block.text : "";
+            if (!text) continue;
+            thinkingRows.push({
+              id: `thinking-${next.messages.length + thinkingRows.length}`,
+              role: "thinking",
+              content: text,
+              timestamp: event.timestamp,
+              streamedLive: false,
+            });
+          }
+          if (thinkingRows.length > 0) {
+            next.messages = [...next.messages, ...thinkingRows];
+          }
+        }
+        // Pi 0.71+ message_end may REPLACE the finalized content. Compute the
+        // effective text once and apply uniformly across branches.
+        // See change: adopt-pi-071-072-073-features.
+        const effectiveContent = deriveEffectiveAssistantText(msg, next.streamingText);
+        if (next.streamingTextFlushed) {
+          // Streaming text was already flushed at tool_execution_start.
+          // Locate the unstamped flushed row and stamp entryId / nonce in
+          // place — do NOT push a duplicate. The reorder pass below still
+          // runs against the existing row. See change:
+          // fix-streaming-text-vs-interactive-ui-order.
+          const flushedIdx = findFlushedAssistantRowIndex(next.messages);
+          if (flushedIdx >= 0) {
+            const stamped: ChatMessage = {
+              ...next.messages[flushedIdx],
+              entryId: data.entryId as string | undefined,
+              nonce: data.nonce as string | undefined,
+            };
+            // Honor message_end content replacement: swap the flushed row's
+            // content only when it differs (avoid object-identity churn).
+            if (effectiveContent !== next.messages[flushedIdx].content) {
+              stamped.content = effectiveContent;
+            }
+            next.messages = [
+              ...next.messages.slice(0, flushedIdx),
+              stamped,
+              ...next.messages.slice(flushedIdx + 1),
+            ];
+          }
+          // Note: streamingText is already "" because the flush cleared it.
+          // We deliberately leave next.streamingText untouched here.
+        } else if (next.streamingText) {
+          next.messages = [
+            ...next.messages,
+            {
+              id: `msg-${next.messages.length}`,
+              role: "assistant",
+              content: effectiveContent,
+              timestamp: event.timestamp,
+              entryId: data.entryId as string | undefined,
+              nonce: data.nonce as string | undefined,
+            },
+          ];
+          next.streamingText = "";
+        } else {
+          // Replay/fork scenario: streamingText is empty but message may have content
+          const replayText = msg.content
+            ? (Array.isArray(msg.content)
+                ? msg.content.filter((c: any) => c.type === "text").map((c: any) => c.text).join("")
+                : String(msg.content))
+            : "";
+          if (replayText) {
+            next.messages = [
+              ...next.messages,
+              {
+                id: `msg-${next.messages.length}`,
+                role: "assistant",
+                content: replayText,
+                timestamp: event.timestamp,
+                entryId: data.entryId as string | undefined,
+                nonce: data.nonce as string | undefined,
+              },
+            ];
+          } else {
+            // Tool-only assistant turn (no prose) — add a thin separator
+            // so consecutive tool call groups don't blend together
+            const lastMsg = next.messages[next.messages.length - 1];
+            if (lastMsg?.role === "toolResult") {
+              next.messages = [
+                ...next.messages,
+                {
+                  id: `sep-${next.messages.length}`,
+                  role: "turnSeparator",
+                  content: "",
+                  timestamp: event.timestamp,
+                },
+              ];
+            }
+          }
+        }
+
+        // Reorder suffix so the assistant text bubble and its child tool
+        // cards land in the order dictated by the model's content array.
+        // Fast-path skipped inside the helper when no toolCall blocks.
+        // See change: fix-text-tool-render-order.
+        if (Array.isArray(msg?.content)) {
+          next.messages = reorderToolCardsForAssistantMessage(next.messages, msg.content);
+        }
+
+        // R7 defense-in-depth: reset the flag at message_end so the flag's
+        // lifecycle equals "between message_start and message_end". A stray
+        // tool_execution_start arriving before the next message_start would
+        // otherwise silently no-op the flush. See change:
+        // fix-streaming-text-vs-interactive-ui-order.
+        next.streamingTextFlushed = false;
+      }
+      break;
+    }
+
+    case "custom_entry": {
+      // Generic custom ENTRY row (pi.appendEntry) — change:
+      // render-inline-reasoning-and-custom-entries. Same row shape as the
+      // message_end role=custom arm, so rendering is single-sourced (D1).
+      // Defense-in-depth (E8): the bridge AND state-replay already exclude
+      // `flow-event` (pi-flows owns its card); the reducer refuses it too, so
+      // a future forward path cannot double-render flow runs.
+      const customType = typeof data.customType === "string" && data.customType !== ""
+        ? data.customType
+        : "custom";
+      if (customType === "flow-event") break;
+      const entryId = typeof data.entryId === "string" ? data.entryId : undefined;
+      const groupId = typeof data.groupId === "string" && data.groupId !== "" ? data.groupId : undefined;
+      next.messages = [
+        ...next.messages,
+        {
+          id: entryId ? `custom-entry-${entryId}` : `custom-${next.messages.length}`,
+          role: "custom",
+          customType,
+          // Server-stamped group id (D1); absent → the gate treats the row as
+          // the catch-all `other` group.
+          ...(groupId ? { groupId } : {}),
+          // Extraction first, truncation second, AT ROW CREATION (D4).
+          content: truncateOutputForDisplay(extractCustomEntryBody(data.data)),
+          timestamp: event.timestamp,
+          // The entryId arrives IN the event payload (bridge/replay both know
+          // it exactly), so it is reliable here — unlike the live message_end
+          // custom path above.
+          ...(entryId ? { entryId } : {}),
+        },
+      ];
+      break;
+    }
+
+    case "tool_execution_start": {
+      // Nested call: attach to its root; no row, no flush, no currentTool.
+      // See change: render-nested-tool-calls (D1).
+      if (isNestedToolEvent(data)) {
+        reduceNestedToolEvent(next, event);
+        break;
+      }
+      const toolCallId = data.toolCallId as string;
+      // A live tool_execution_start can arrive with an absent/non-string
+      // toolName (pi core emits it that way for some tools; the bridge
+      // forwards it verbatim). Coalesce to a stable fallback so the card
+      // renders instead of throwing on `.toLowerCase()` below — the reducer
+      // also runs at App level (rehydrate re-reduce) above every error
+      // boundary, where a throw black-screens the whole app. Mirrors the
+      // tool_execution_end `toolName ?? "unknown"` default in state-replay.
+      // See change: fix-reducer-crash-undefined-toolname.
+      const toolName = typeof data.toolName === "string" ? data.toolName : "unknown";
+
+      // Flush any pending streamingText into a permanent assistant row
+      // BEFORE pushing the new toolResult, so the message's content-array
+      // order is preserved in messages[] for the entire tool runtime —
+      // not just at message_end. The flush row's id is keyed on toolCallId
+      // so replay is idempotent. See changes:
+      // fix-streaming-text-vs-interactive-ui-order,
+      // fix-replay-duplicates-tool-and-flushed-rows.
+      if (next.streamingText && !next.streamingTextFlushed) {
+        Object.assign(
+          next,
+          flushStreamingTextAsAssistantRow(next, event.timestamp, toolCallId),
+        );
+      }
+      const args = data.args as Record<string, unknown> | undefined;
+      next.toolCalls.set(toolCallId, {
+        toolCallId,
+        toolName,
+        args,
+        status: "running",
+        startedAt: event.timestamp,
+        // Stamp the emitting inference index; its own `message_start` has
+        // already advanced the counter, so only a LATER inference satisfies the
+        // supersede proof. See change: fix-stuck-tool-card-superseded-heal.
+        emittedAtInferenceSeq: next.assistantInferenceSeq,
+      });
+      next.currentTool = toolName;
+
+      // Track file-modifying tools
+      const toolLower = toolName.toLowerCase();
+      if (toolLower === "write" || toolLower === "edit") {
+        next.hasFileChanges = true;
+      }
+
+      // Idempotency on toolCallId: if any row already exists for this
+      // toolCallId (re-replay, reconnect re-replay), update it in place
+      // instead of pushing a duplicate React key. The id `tool-${toolCallId}`
+      // is the React key, so a fresh push would always collide — there's no
+      // safe "fall-through to push" branch. We refresh args/toolName/timestamps
+      // only; result/duration/toolDetails/images/toolStatus remain so terminal
+      // rows keep their finalised data on re-replay of the start event.
+      // See change: fix-replay-duplicates-tool-and-flushed-rows.
+      const existingToolIdx = next.messages.findLastIndex(
+        (m) => m.role === "toolResult" && m.toolCallId === toolCallId,
+      );
+      if (existingToolIdx !== -1) {
+        next.messages = [...next.messages];
+        next.messages[existingToolIdx] = {
+          ...next.messages[existingToolIdx],
+          toolName,
+          args,
+          // Keep startedAt/timestamp from the original row — the existing
+          // values are already correct for terminal rows, and refreshing them
+          // would invalidate `duration` derived from startedAt at end-time.
+        };
+        break;
+      }
+
+      // Add tool message immediately (visible while running)
+      next.messages = [
+        ...next.messages,
+        {
+          id: `tool-${toolCallId}`,
+          role: "toolResult",
+          content: toolName,
+          toolName,
+          toolCallId,
+          args,
+          toolStatus: "running",
+          timestamp: event.timestamp,
+          startedAt: event.timestamp,
+        },
+      ];
+      break;
+    }
+
+    case "tool_execution_update": {
+      if (isNestedToolEvent(data)) {
+        reduceNestedToolEvent(next, event);
+        break;
+      }
+      const toolCallId = data.toolCallId as string;
+      const partialResult = data.partialResult;
+      if (partialResult) {
+        const idx = next.messages.findLastIndex((m) => m.toolCallId === toolCallId);
+        if (idx !== -1) {
+          // Agent rows: the registered finalizer owns the subagent half of this tick. It
+          // gets the pre-event state (`prior`) so it can tell a row the reopen below
+          // restored from one that was already running.
+          const finalizer = next.messages[idx].toolName === "Agent" ? findToolRowFinalizer<SessionState>("Agent") : undefined;
+          const prior: SessionState | undefined = finalizer ? { ...next } : undefined;
+          next.messages = [...next.messages];
+          reopenSessionEndedRow(next, idx, toolCallId);
+          // Structured partialResult (e.g. Agent tool sends { content, details })
+          if (typeof partialResult === "object" && partialResult !== null) {
+            const structured = partialResult as Record<string, unknown>;
+            const details = structured.details as Record<string, unknown> | undefined;
+            // Extract text from content array or stringify
+            const priorRow = next.messages[idx];
+            let text: string | undefined;
+            const content = structured.content;
+            if (Array.isArray(content) && content.length > 0 && content[0]?.text) {
+              text = content[0].text as string;
+            } else if (content != null) {
+              text = String(content);
+            }
+            next.messages[idx] = {
+              ...next.messages[idx],
+              ...(text != null ? { result: truncateOutputForDisplay(text) } : {}),
+              ...(details ? { toolDetails: details } : {}),
+            };
+
+            // A heal-settled card (`turn_settled`) is not reopened by a late tick: keep the
+            // prior terminal fields, let the rest (stats) merge. (Row-only; the subagents
+            // plugin keeps a card of a finished subagent terminal the same way.)
+            // See change: finalize-agent-card-on-subagent-stop (D5).
+            if (priorRow.toolName === "Agent" && priorRow.toolStatus !== "running" && priorRow.toolDetails?.healedBy === "turn_settled") {
+              const kept: Record<string, unknown> = { ...next.messages[idx].toolDetails };
+              for (const key of ["status", "error", ...HEAL_ONLY_DETAIL_KEYS]) {
+                if (priorRow.toolDetails && key in priorRow.toolDetails) kept[key] = priorRow.toolDetails[key];
+                else delete kept[key];
+              }
+              next.messages[idx] = { ...next.messages[idx], result: priorRow.result, toolDetails: kept };
+            }
+
+            // Durable live hydration of the subagent inspector map + the late-tick block
+            // (a finished subagent keeps its card terminal; finalize on a newly learned
+            // stopped subagent) are the Agent finalizer's. None registered, or it declines
+            // → `SessionState.subagents` is untouched.
+            // See change: fix-subagent-live-detail-durable-hydration, decouple-plugins-from-core (4.6).
+            const finalized = finalizer?.onToolExecution?.(next, event, { ...finalizerOpts(isLive), prior });
+            if (finalized) return finalized;
+          } else {
+            // Plain string partialResult (standard tools)
+            next.messages[idx] = {
+              ...next.messages[idx],
+              result: truncateOutputForDisplay(partialResult as string),
+            };
+          }
+        }
+      }
+      break;
+    }
+
+    case "tool_execution_end": {
+      if (isNestedToolEvent(data)) {
+        reduceNestedToolEvent(next, event);
+        break;
+      }
+      const toolCallId = data.toolCallId as string;
+      // A SYNTHESIZED heal (`healedBy` set — `"superseded"` from the client,
+      // `"session_ended"` from the server) MUST NOT clobber a real terminal row
+      // nor another healed row: only a `running` row is eligible. A real end (no
+      // `healedBy`) always proceeds and overwrites a placeholder.
+      // See change: fix-stuck-tool-card-superseded-heal,
+      // heal-orphaned-tool-cards-on-session-end (design D4).
+      const healedBy = data.healedBy as string | undefined;
+      const existing = next.toolCalls.get(toolCallId);
+      // A superseded synth may only finalize a live `running` map entry. An
+      // absent entry (`existing === undefined`) is also rejected so a stray
+      // synth can never mutate a message row while leaving `toolCalls`
+      // inconsistent. Real ends (no `healedBy`) are unaffected.
+      if (healedBy !== undefined && existing?.status !== "running") {
+        break;
+      }
+      if (existing) {
+        next.toolCalls.set(toolCallId, {
+          ...existing,
+          status: (data.isError as boolean) ? "error" : "complete",
+        });
+      }
+      next.currentTool = undefined;
+
+      // Extract images from tool result (live events have result.content, replayed have data.images)
+      const images = extractToolResultImages(data);
+
+      // Update existing tool message in-place
+      const idx = next.messages.findLastIndex((m) => m.toolCallId === toolCallId);
+      if (idx !== -1) {
+        const result = data.result as string | undefined;
+        const msgStartedAt = next.messages[idx].startedAt;
+        next.messages = [...next.messages];
+        // Extract tool details (e.g. AgentDetails from replayed sessions)
+        const endDetails = data.details as Record<string, unknown> | undefined;
+        // For live events (no endDetails), update existing toolDetails.status
+        // so renderers (e.g. AgentToolRenderer) see the final status
+        const isError = data.isError as boolean;
+        let mergedDetails: Record<string, unknown> | undefined;
+        if (endDetails && healedBy !== undefined) {
+          // A synthesized heal carries only `{agentId}`; replacing wholesale
+          // would drop the live Agent snapshot (status, tokens, description)
+          // the row already rendered from.
+          // See change: heal-orphaned-tool-cards-on-session-end.
+          // …but the STATUS must still go terminal: a live Agent snapshot can
+          // carry `status:"running"`, and preserving it would leave the card's
+          // details contradicting its `toolStatus`.
+          mergedDetails = {
+            ...next.messages[idx].toolDetails,
+            ...endDetails,
+            status: isError ? "error" : "completed",
+          };
+        } else if (endDetails) {
+          mergedDetails = endDetails;
+        } else if (next.messages[idx].toolDetails) {
+          mergedDetails = {
+            ...next.messages[idx].toolDetails,
+            status: isError ? "error" : "completed",
+          };
+        }
+        // Thread the supersede marker: set it on a synthesized heal; CLEAR it
+        // when a real end (no `healedBy`) overwrites a prior superseded
+        // placeholder, so the recovered badge disappears with the real body.
+        // See change: fix-stuck-tool-card-superseded-heal.
+        let finalDetails = mergedDetails;
+        // Any synthesized heal (`superseded`, `session_ended`) is stamped so the
+        // card can prefer the subagent's real result. See change:
+        // add-plugin-bridge-contributions (D10).
+        if (typeof healedBy === "string" && healedBy) {
+          // A newer heal (e.g. superseded) replaces a neutral settle heal, so the
+          // missing-result flag it stamped no longer applies.
+          // See change: finalize-agent-card-on-subagent-stop (D5b).
+          const { resultMissing: _missing, ...rest } = finalDetails ?? {};
+          finalDetails = { ...rest, healedBy };
+        } else if (finalDetails && "healedBy" in finalDetails) {
+          // A real end clears every heal-only field, plus an `error` that only
+          // the heal set (a real end carrying its own details replaced them).
+          // See change: finalize-agent-card-on-subagent-stop (D5b).
+          const rest: Record<string, unknown> = { ...finalDetails };
+          for (const key of HEAL_ONLY_DETAIL_KEYS) delete rest[key];
+          // Keep it on an error end: the error card shows only `details.error`.
+          if (!endDetails && !isError) delete rest.error;
+          finalDetails = rest;
+        }
+        next.messages[idx] = {
+          ...next.messages[idx],
+          toolStatus: isError ? "error" : "complete",
+          result: result ? truncateOutputForDisplay(result) : next.messages[idx].result,
+          // pi >= 1.1.0 records the monotonic `execute()` time on the end event;
+          // prefer it over the timestamp difference (which includes queueing and
+          // transport lag). Absent/invalid → the timestamp fallback.
+          // See change: update-pi-core-1-1-adopt-apis.
+          duration:
+            typeof data.durationMs === "number" && Number.isFinite(data.durationMs) && data.durationMs >= 0
+              ? data.durationMs
+              : msgStartedAt
+                ? event.timestamp - msgStartedAt
+                : undefined,
+          ...(images ? { images } : {}),
+          ...(finalDetails ? { toolDetails: finalDetails } : {}),
+        };
+      }
+
+      // The root is terminal now (real end or heal): merge a replay-synthesized
+      // nested record, then close any still-running nested entry. An orphan end
+      // (no row, no map entry) creates nothing.
+      // See change: render-nested-tool-calls (D1, D3).
+      if (data.nestedCalls !== undefined) mergeRecordIntoRoot(next, toolCallId, data.nestedCalls);
+      {
+        const nestedList = nestedListOf(next, toolCallId);
+        const closed = closeRunningNested(nestedList);
+        if (closed !== nestedList) writeNested(next, toolCallId, closed);
+      }
+
+      // Subagent backfill: a `tool_execution_end` of a completed Agent run
+      // (details.agentId) also feeds `SessionState.subagents` so `/resume` and
+      // page-refresh re-hydrate the inspector map (state-replay re-emits only
+      // the end, never `subagent_*`). That write belongs to the subagents
+      // plugin's registered Agent finalizer (merge keeps prior non-undefined
+      // fields so live and replay commute; a `healedBy` end never changes a
+      // terminal subagent; heal provenance recorded/cleared). None registered,
+      // or it declines → the row is finalized above and `subagents` is untouched.
+      // See change: add-subagent-inspector §12 and design.md Decision 7,
+      // decouple-plugins-from-core (4.6).
+      {
+        const toolName = data.toolName as string | undefined;
+        const finalized = toolName
+          ? findToolRowFinalizer<SessionState>(toolName)?.onToolExecution?.(next, event, finalizerOpts(isLive))
+          : undefined;
+        if (finalized) return finalized;
+      }
+      break;
+    }
+
+    case "turn_end":
+      break;
+
+    case "stats_update": {
+      // Accumulate stats from stats_update events
+      if (data.tokensIn) next.tokensIn += data.tokensIn as number;
+      if (data.tokensOut) next.tokensOut += data.tokensOut as number;
+      if (data.cost) next.cost += data.cost as number;
+
+      // Extract per-turn usage and accumulate cache stats
+      const turnUsage = data.turnUsage as Record<string, number> | undefined;
+      // Non-turn usage (tool result, compaction, branch summary, `usage:*`
+      // entries) adds to totals only: no TurnStat, turnIndex or turnCount, so
+      // it never becomes a chart bar, evicts real turns or shifts numbering.
+      // See change: count-non-message-usage.
+      const usageKind = data.usageKind as string | undefined;
+      if (turnUsage && usageKind !== undefined && usageKind !== "turn") {
+        next.cacheRead += turnUsage.cacheRead ?? 0;
+        next.cacheWrite += turnUsage.cacheWrite ?? 0;
+      } else if (turnUsage) {
+        // Assign turnIndex to the last user message for scroll-to-turn navigation
+        const lastUserIdx = next.messages.findLastIndex((m) => m.role === "user");
+        let assignedTurnIndex = -1;
+        if (lastUserIdx !== -1 && next.messages[lastUserIdx].turnIndex === undefined) {
+          assignedTurnIndex = next.turnCount;
+          next.messages = [...next.messages];
+          next.messages[lastUserIdx] = { ...next.messages[lastUserIdx], turnIndex: next.turnCount };
+          next.turnCount += 1;
+        }
+
+        const turnStat: TurnStat = {
+          input: turnUsage.input ?? 0,
+          output: turnUsage.output ?? 0,
+          cacheRead: turnUsage.cacheRead ?? 0,
+          cacheWrite: turnUsage.cacheWrite ?? 0,
+          turnIndex: assignedTurnIndex,
+        };
+        next.turnStats = [...next.turnStats, turnStat].slice(-MAX_TURN_STATS);
+        next.cacheRead += turnStat.cacheRead;
+        next.cacheWrite += turnStat.cacheWrite;
+      }
+
+      // Extract context usage
+      const ctxUsage = data.contextUsage as { tokens: number | null; contextWindow: number } | undefined;
+      if (ctxUsage) {
+        next.contextUsage = ctxUsage;
+      }
+      break;
+    }
+
+    case "model_select": {
+      const model = data.model as any;
+      if (model) {
+        next.model = `${model.provider}/${model.id}`;
+      }
+      const thinkingLevel = data.thinkingLevel as string | undefined;
+      if (thinkingLevel !== undefined) {
+        next.thinkingLevel = thinkingLevel;
+      }
+      break;
+    }
+
+    case "session_compact": {
+      next.messages = [
+        ...next.messages,
+        {
+          id: `compact-${next.messages.length}`,
+          role: "assistant",
+          content: "── Session compacted ──",
+          timestamp: event.timestamp,
+        },
+      ];
+      // Capture compaction metadata (pi 0.79.8/0.79.10+) when present. Absent
+      // fields leave state unchanged from today (legacy event = no badge).
+      // preCompactionTokens snapshots the current usage so the badge can show
+      // the approximate reduction. See change: adopt-pi-074-080-features (C.1).
+      const rawReason = data.reason;
+      const reason =
+        rawReason === "manual" || rawReason === "threshold" || rawReason === "overflow"
+          ? (rawReason as CompactionReason)
+          : undefined;
+      const willRetry = typeof data.willRetry === "boolean" ? data.willRetry : undefined;
+      const estimatedPostCompactionTokens =
+        typeof data.estimatedPostCompactionTokens === "number"
+          ? data.estimatedPostCompactionTokens
+          : undefined;
+      if (reason !== undefined || willRetry !== undefined || estimatedPostCompactionTokens !== undefined) {
+        next.compaction = {
+          ...(reason !== undefined ? { reason } : {}),
+          ...(willRetry !== undefined ? { willRetry } : {}),
+          ...(estimatedPostCompactionTokens !== undefined ? { estimatedPostCompactionTokens } : {}),
+          ...(state.contextUsage?.tokens != null
+            ? { preCompactionTokens: state.contextUsage.tokens }
+            : {}),
+        };
+      }
+      break;
+    }
+
+    case "bash_output": {
+      const command = data.command as string;
+      const output = data.output as string;
+      const exitCode = data.exitCode as number;
+      const excludeFromContext = data.excludeFromContext as boolean;
+      // Structured missing-tool marker (bash unresolved). Carried into the
+      // message so ChatView renders MissingToolInlineError instead of the
+      // plain output card. See change: register-bash-and-tool-install-help.
+      const missingTool = (data as any).missingTool;
+      // "slash-exec" marks output from an executable-mode slash template so
+      // ChatView renders the "ran locally" footer. See change:
+      // add-dashboard-slash-commands.
+      const source = (data as any).source as "slash-exec" | undefined;
+      next.pendingPrompt = undefined;
+      next.messages = [
+        ...next.messages,
+        {
+          id: `bash-${next.messages.length}`,
+          role: "bashOutput" as any,
+          content: output,
+          timestamp: event.timestamp,
+          args: { command, exitCode, excludeFromContext, missingTool, source } as any,
+        },
+      ];
+      break;
+    }
+
+    // Inline interactive terminal card lifecycle. `open` appends a live card
+    // keyed by terminalId (reattaches to /ws/terminal/:id on render). `close`
+    // transitions that row in place to a frozen read-only transcript.
+    // See change: add-inline-terminal-card.
+    case "inline_terminal_open": {
+      const terminalId = data.terminalId as string;
+      next.pendingPrompt = undefined;
+      next.messages = [
+        ...next.messages,
+        {
+          id: `inlineterm-${terminalId}`,
+          role: "inlineTerminal" as any,
+          content: "",
+          timestamp: event.timestamp,
+          args: { terminalId, closed: false } as any,
+        },
+      ];
+      break;
+    }
+
+    case "inline_terminal_close": {
+      const terminalId = data.terminalId as string;
+      const transcript = (data.transcript as string) ?? "";
+      // Empty transcript = the user never interacted (server-side `sawInput`)
+      // or the tombstone was evicted: remove the row entirely, leaving no
+      // trace. No text inspection — the ONLY predicate is `transcript === ""`.
+      // See change: preserve-inline-terminal-transcript (D3).
+      const isEmpty = transcript === "";
+      const updated = next.messages.slice();
+      let matchedIdx = -1;
+      for (let i = updated.length - 1; i >= 0; i--) {
+        const m = updated[i] as any;
+        if (m?.role === "inlineTerminal" && m?.args?.terminalId === terminalId) {
+          matchedIdx = i;
+          break;
+        }
+      }
+      if (matchedIdx >= 0) {
+        const m = updated[matchedIdx] as any;
+        if (isEmpty) {
+          // Guard: never destroy a row already frozen with non-empty content
+          // (defensive against a stray/duplicate empty close). See X12. When the
+          // guard holds, leave `next.messages` untouched.
+          const alreadyFrozenNonEmpty = m?.args?.closed && typeof m.content === "string" && m.content !== "";
+          if (!alreadyFrozenNonEmpty) {
+            updated.splice(matchedIdx, 1);
+            next.messages = updated;
+          }
+        } else {
+          updated[matchedIdx] = {
+            ...m,
+            content: transcript,
+            timestamp: event.timestamp,
+            args: { terminalId, closed: true },
+          };
+          next.messages = updated;
+        }
+      } else if (!isEmpty) {
+        // Defensive: non-empty close without a matching open (partial replay).
+        // An empty close with no matching open appends nothing.
+        next.messages = [
+          ...next.messages,
+          {
+            id: `inlineterm-${terminalId}`,
+            role: "inlineTerminal" as any,
+            content: transcript,
+            timestamp: event.timestamp,
+            args: { terminalId, closed: true } as any,
+          },
+        ];
+      }
+      break;
+    }
+
+    case "command_feedback": {
+      const command = data.command as string;
+      const status = data.status as string;
+      const message = data.message as string | undefined;
+      next.pendingPrompt = undefined;
+      // Upsert: a terminal status (completed/error) for the same command
+      // transitions the most recent matching started row in place, instead of
+      // appending a duplicate. Keeps chat clean for started → terminal pairs.
+      // See change: fix-extension-slash-commands-in-dashboard.
+      if (status === "completed" || status === "error") {
+        let replaced = false;
+        const updated = next.messages.slice();
+        for (let i = updated.length - 1; i >= 0; i--) {
+          const m = updated[i] as any;
+          if (
+            m?.role === "commandFeedback" &&
+            m?.args?.command === command &&
+            m?.args?.status === "started"
+          ) {
+            updated[i] = {
+              ...m,
+              content: message ?? "",
+              timestamp: event.timestamp,
+              args: { command, status },
+            };
+            replaced = true;
+            break;
+          }
+        }
+        if (replaced) {
+          next.messages = updated;
+          break;
+        }
+      }
+      next.messages = [
+        ...next.messages,
+        {
+          id: `cmdfb-${next.messages.length}`,
+          role: "commandFeedback" as any,
+          content: message ?? "",
+          timestamp: event.timestamp,
+          args: { command, status } as any,
+        },
+      ];
+      break;
+    }
+
+    case "entry_persisted": {
+      // Bridge-emitted back-fill: when pi persists a user/assistant entry
+      // and assigns its id, the bridge sends entry_persisted { entryId, nonce }.
+      // We find the ChatMessage created from the matching message_start /
+      // message_end (by nonce) and stamp its entryId. This unlocks the
+      // per-message Fork button. See change: fix-per-message-fork.
+      const targetNonce = data.nonce as string | undefined;
+      const persistedEntryId = data.entryId as string | undefined;
+      if (targetNonce && persistedEntryId) {
+        let mutated = false;
+        const updated = next.messages.map((m) => {
+          if (!m.entryId && m.nonce === targetNonce) {
+            mutated = true;
+            return { ...m, entryId: persistedEntryId };
+          }
+          return m;
+        });
+        if (mutated) next.messages = updated;
+      }
+      break;
+    }
+
+    default: {
+      // Anything no arm and no slice consumed. An event type a plugin manifest
+      // declares in `eventTypes` folds into ONE group row per type (placed at
+      // the type's first event, count updated in place, payloads capped); any
+      // other type keeps the expandable raw-event row. Ownership is a reducer
+      // input; availability is NOT — the chat view decides at render time
+      // whether a group row shows (design D5 item 4, R8).
+      // See change: decouple-plugins-from-core.
+      //
+      // A slice an ENABLED plugin registered for this type runs first (the
+      // subagents plugin owns `subagent_created|started|entry|delta`); its
+      // reduce is pure and returns the state it was given when nothing changed.
+      // A disabled plugin has no slice, so its events fold into the group row.
+      //
+      // The registered Agent finalizer settles a slice-owned event that stops a
+      // subagent (`subagent_completed|failed`: it writes the terminal state and stops
+      // the Agent row) and declines the rest; a decline leaves the slice to reduce.
+      const slice = findSessionEventReducer<SessionState>(event.eventType);
+      if (slice) {
+        const settled = findToolRowFinalizer<SessionState>("Agent")?.onSessionEvent?.(next, event, finalizerOpts(isLive));
+        return settled ?? slice.reduce(next, event, { isLive });
+      }
+      const owner = ownerOfEventType(event.eventType);
+      if (owner) {
+        next.messages = foldIntoOwnedGroup(next.messages, owner.ownerId, event.eventType, event.timestamp, event.data);
+      } else {
+        next.messages = [...next.messages, {
+          id: `raw-${event.eventType}-${event.timestamp}-${next.messages.length}`,
+          role: "rawEvent" as const,
+          content: JSON.stringify(event.data, null, 2),
+          timestamp: event.timestamp,
+          toolName: event.eventType,
+        }];
+      }
+      break;
+    }
+  }
+
+  return next;
+}

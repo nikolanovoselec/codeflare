@@ -118,6 +118,28 @@ export class SessionManager {
     return session;
   }
 
+  /** Explicit entry into the configured tab-1 runtime, without manufacturing a WS client.
+   * The composition supplies the immutable container-owned id, never a browser target.
+   * getOrCreate's synchronous prewarm adoption is the same path Terminal uses.
+   */
+  ensurePrimary(id: string): Session {
+    if (!/^[a-z0-9]{8,24}-1$/.test(id)) throw new Error('Invalid configured primary terminal');
+    const session = this.getOrCreate(id, 'Terminal', false);
+    if (!session || session.manual) throw new Error('Configured primary terminal unavailable');
+    this.retainPrimary(id);
+    session.start();
+    return session;
+  }
+
+  /** Chat/manual input retains an already-owned primary without a fake client.
+   * Cancel and prevent Terminal's disconnect safety-net timer regardless of
+   * close/adoption order. This cannot start a process or count as human input;
+   * the existing container input policy owns idle.
+   */
+  retainPrimary(id: string): void {
+    this.sessions.get(id)?.retainPrimary();
+  }
+
   /**
    * Get a session by ID
    */

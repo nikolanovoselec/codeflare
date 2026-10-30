@@ -35,6 +35,9 @@ interface HeaderProps {
   vaultReady?: boolean;
   vaultStatus?: VaultButtonStatus;
   onVscodeOpen?: () => void;
+  surface?: 'chat' | 'terminal';
+  onSurfaceChange?: (surface: 'chat' | 'terminal') => void;
+  onLogout?: () => void;
   onLogoClick?: () => void;
   sessions: SessionWithStatus[];
   activeSessionId: string | null;
@@ -103,7 +106,7 @@ const Header: Component<HeaderProps> = (props) => {
   });
 
   return (
-    <header class="header animate-fadeInUp">
+    <header class={`header animate-fadeInUp ${props.onSurfaceChange ? 'header--with-surfaces' : ''}`}>
       {/* Logo */}
       <div
         class={`header-logo ${props.onLogoClick ? 'header-logo--clickable' : ''}`}
@@ -125,6 +128,16 @@ const Header: Component<HeaderProps> = (props) => {
         onOpenMultiView={props.onOpenMultiView}
         onCloseMultiView={props.onCloseMultiView}
       />
+
+      {/* REQ-AGENT-224: native, session-scoped controls, not global defaults. */}
+      <Show when={props.onSurfaceChange}>
+        <div class="header-session-surfaces" role="group" aria-label="Session surface">
+          <button type="button" aria-pressed={props.surface === 'chat'}
+            onClick={() => props.onSurfaceChange?.('chat')}>Chat</button>
+          <button type="button" aria-pressed={props.surface === 'terminal'}
+            onClick={() => props.onSurfaceChange?.('terminal')}>Terminal</button>
+        </div>
+      </Show>
 
       {/* Spacer for flex layout */}
       <div class="header-spacer" />
@@ -217,7 +230,7 @@ const Header: Component<HeaderProps> = (props) => {
                   type="button"
                   class="header-user-dropdown-item header-user-dropdown-item--danger"
                   data-testid="header-user-dropdown-logout"
-                  onClick={() => { window.location.href = '/auth/logout'; }}
+                  onClick={() => { props.onLogout?.(); window.location.href = '/auth/logout'; }}
                 >
                   <Icon path={mdiLogout} size={16} />
                   <span>Logout</span>

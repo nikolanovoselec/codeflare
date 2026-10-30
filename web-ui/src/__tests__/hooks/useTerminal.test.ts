@@ -178,7 +178,8 @@ vi.mock('../../lib/settings', () => ({
   loadSettings: vi.fn(() => ({ clipboardAccess: true })),
 }));
 
-vi.mock('../../lib/agent-notifications', () => ({
+vi.mock('../../lib/agent-notifications', async (importOriginal) => ({
+  ...await importOriginal<typeof import('../../lib/agent-notifications')>(),
   showAgentNotification: vi.fn(async () => undefined),
   agentEventDisposition: mockAgentEventDisposition,
   showGrantedAgentEvent: mockShowGrantedAgentEvent,
@@ -466,7 +467,7 @@ describe('useTerminal hook', () => {
         agent: 'Pi',
         sessionName: 'Renamed session',
         sessionPath: '/app/session/abcdef0123456789',
-      });
+      }, undefined, expect.any(Function));
       expect(terminalStore.confirmAgentEventDisplay).toHaveBeenCalledWith(
         'abcdef0123456789', '1', 'event-a',
       );
@@ -657,6 +658,7 @@ describe('useTerminal hook', () => {
         false,
         true,
         false,
+        false, // Ordinary readiness attachment is not an explicit primary handoff.
       );
 
       dispose();

@@ -1,0 +1,155 @@
+/** @jsxImportSource react */
+import { isOtherAllowed } from "@blackbelt-technology/pi-dashboard-shared/prompt-answer.js";
+import { mdiFormatListBulleted } from "@mdi/js";
+import { Icon } from "@mdi/react";
+import React, { useState } from "react";
+import { t as i18nT } from "../../lib/i18n/i18n.js";
+import { MarkdownContent } from "../preview/MarkdownContent.js";
+import { AnsweredOption } from "./AnsweredOption.js";
+import { InlineMarkdown } from "./InlineMarkdown.js";
+import { OtherOption } from "./OtherOption.js";
+import { isCancelOption, parseOption } from "./parseOption.js";
+import type { InteractiveRendererProps } from "./types.js";
+
+export function SelectRenderer({ params, status, result, onRespond, onCancel }: InteractiveRendererProps) {
+  const title = params.title as string;
+  const message = params.message as string | undefined;
+  // Non-string options are dropped (parseOption would throw on them). See change: add-ask-user-inline-other (X2).
+  const options = Array.isArray(params.options) ? params.options.filter((o): o is string => typeof o === "string") : [];
+  const selectedValue = (result as any)?.value as string | undefined;
+  const otherAllowed = isOtherAllowed({ allowOther: params.allowOther as boolean | undefined, options });
+  const [otherActive, setOtherActive] = useState(false);
+  const [otherText, setOtherText] = useState("");
+  const otherTrimmed = otherText.trim();
+
+  if (status === "cancelled" || status === "dismissed") {
+    return (
+      <div className="mx-4 my-1 p-2 bg-[var(--bg-hover)] rounded text-xs flex items-center gap-2">
+        <Icon path={mdiFormatListBulleted} size={0.55} className="text-[var(--text-secondary)] shrink-0" />
+        <span className="text-[var(--text-secondary)]"><InlineMarkdown content={title} /></span>
+        <span className="ml-1 text-[var(--text-tertiary)]">
+          {status === "cancelled" ? "Cancelled" : "Answered in terminal"}
+        </span>
+      </div>
+    );
+  }
+
+  if (status === "resolved") {
+    return (
+      <div className="mx-4 my-1 p-3 bg-[var(--bg-hover)] rounded-lg text-xs">
+        <div className="flex items-center gap-2 mb-2">
+          <Icon path={mdiFormatListBulleted} size={0.55} className="text-[var(--text-secondary)] shrink-0" />
+          <span className="text-[var(--text-primary)] font-medium"><InlineMarkdown content={title} /></span>
+        </div>
+        {message && (
+          <div className="text-xs text-[var(--text-secondary)] mb-2 ml-6"><MarkdownContent content={message} /></div>
+        )}
+        <div className="flex flex-col gap-1 ml-6">
+          {options.map((option) => {
+            const { title: oTitle, description } = parseOption(option);
+            return (
+              <AnsweredOption
+                key={option}
+                title={oTitle}
+                description={description}
+                picked={option === selectedValue}
+              />
+            );
+          })}
+          {typeof selectedValue === "string" && selectedValue !== "" && !options.includes(selectedValue) && (
+            <AnsweredOption
+              title={selectedValue}
+              label={i18nT("common.other", undefined, "Other")}
+              picked
+            />
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  const hasCancelOption = options.some(isCancelOption);
+
+  return (
+    <div className="mx-4 my-2 p-3 bg-[var(--bg-hover)] border border-[var(--border-secondary)] rounded-lg">
+      <div className="flex items-center gap-2 mb-2">
+        <Icon path={mdiFormatListBulleted} size={0.6} className="text-[var(--severity-info-fg)] shrink-0" />
+        <span className="text-sm font-medium text-[var(--text-primary)]"><InlineMarkdown content={title} /></span>
+      </div>
+      {message && (
+        <div className="text-xs text-[var(--text-secondary)] mb-3 ml-6"><MarkdownContent content={message} /></div>
+      )}
+      <div className="flex flex-col gap-1.5 ml-6">
+        {options.map((option) => {
+          const cancel = isCancelOption(option);
+          const { title: oTitle, description } = parseOption(option);
+          return (
+            <OptionRow
+              key={option}
+              title={oTitle}
+              description={cancel ? undefined : description}
+              cancel={cancel}
+              onClick={() => (cancel ? onCancel() : onRespond({ value: option }))}
+            />
+          );
+        })}
+        {otherAllowed && (
+          <>
+            <OtherOption
+              variant="radio"
+              active={otherActive}
+              text={otherText}
+              onActiveChange={setOtherActive}
+              onTextChange={setOtherText}
+              onSubmit={() => onRespond({ value: otherTrimmed })}
+            />
+            {otherActive && (
+              <button
+                type="button"
+                disabled={!otherTrimmed}
+                onClick={() => onRespond({ value: otherTrimmed })}
+                className="focus-ring self-start px-3 min-h-[44px] sm:min-h-[32px] text-xs font-semibold rounded-md transition-colors bg-[var(--accent-solid)] text-white hover:brightness-110 disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                {i18nT("common.submit", undefined, "Submit")}
+              </button>
+            )}
+          </>
+        )}
+        {!hasCancelOption && (
+          <OptionRow title={i18nT("common.cancel", undefined, "Cancel")} cancel onClick={onCancel} />
+        )}
+      </div>
+    </div>
+  );
+}
+
+function OptionRow({
+  title,
+  description,
+  cancel,
+  onClick,
+}: {
+  title: string;
+  description?: string;
+  cancel?: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={
+        cancel
+          ? "w-full text-left flex items-start gap-2.5 px-3 py-2 min-h-[44px] sm:min-h-[36px] rounded-lg border transition-colors focus-ring border-dashed border-[var(--border-secondary)] bg-transparent text-[var(--text-secondary)] hover:border-[var(--tint-red-border)] hover:bg-[var(--tint-red-bg)] hover:text-[var(--tint-red-fg)]"
+          : "w-full text-left flex items-start gap-2.5 px-3 py-2 min-h-[44px] sm:min-h-[36px] rounded-lg border transition-colors focus-ring border-[var(--border-secondary)] bg-[var(--bg-surface)] text-[var(--text-primary)] hover:border-[var(--tint-blue-border)] hover:bg-[var(--tint-blue-bg)]"
+      }
+    >
+      <span className="min-w-0">
+        <span className="block text-[13px] font-medium">{title}</span>
+        {description && (
+          <span className="block text-[12px] text-[var(--text-secondary)] mt-0.5">{description}</span>
+        )}
+      </span>
+    </button>
+  );
+}

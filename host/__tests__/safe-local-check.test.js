@@ -254,3 +254,61 @@ describe('REQ-AGENT-052 AC6: managed safe local checks', () => {
     assert.notEqual(run(root, ['lock-consistency']).status, 0);
   });
 });
+
+// Intentional activation contract: primary transport is integrity-locked image
+// input, not part of Pi's global managed package discovery.
+describe('REQ-AGENT-224 / REQ-AGENT-052: primary-only Pi transport consistency', () => {
+  function piFixture(extra = {}) {
+    const root = mkdtempSync(join(tmpdir(), 'safe-pi-transport-'));
+    const dependencies = {
+      '@earendil-works/pi-coding-agent': '1.3.0',
+      'managed-extension': '1.0.0',
+      '@blackbelt-technology/pi-dashboard-extension': '0.11.0',
+      '@blackbelt-technology/pi-dashboard-server': '0.11.0',
+      ...extra,
+    };
+    const manifest = { dependencies };
+    const dir = join(root, 'preseed/agents/pi');
+    mkdirSync(dir, { recursive: true });
+    mkdirSync(join(root, 'src/lib'), { recursive: true });
+    const packages = { '': { dependencies } };
+    for (const [name, version] of Object.entries(dependencies)) {
+      packages[`node_modules/${name}`] = { version, integrity: `sha512-${Buffer.alloc(64).toString('base64')}` };
+    }
+    writeFileSync(join(dir, 'package.json'), JSON.stringify(manifest));
+    writeFileSync(join(dir, 'package-lock.json'), JSON.stringify({ lockfileVersion: 3, packages }));
+    writeFileSync(join(root, 'entrypoint.sh'), "required=('npm:managed-extension@1.0.0')\n");
+    writeFileSync(join(root, 'src/lib/agent-seed.generated.ts'), JSON.stringify(`${JSON.stringify(manifest, null, 2)}\n`));
+    return root;
+  }
+
+  it('accepts locked primary transport without requiring global activation', () => {
+    const result = run(piFixture(), ['pi-preseed']);
+    assert.equal(result.status, 0, result.stderr);
+  });
+
+  it('still rejects a missing ordinary managed package', () => {
+    const root = piFixture();
+    writeFileSync(join(root, 'entrypoint.sh'), 'required=()\n');
+    const result = run(root, ['pi-preseed']);
+    assert.equal(result.status, 2);
+    assert.match(result.stderr, /missing npm:managed-extension@1\.0\.0/);
+  });
+
+  it('does not exempt similarly named packages', () => {
+    const result = run(piFixture({ '@blackbelt-technology/pi-dashboard-extension-extra': '0.11.0' }), ['pi-preseed']);
+    assert.equal(result.status, 2);
+    assert.match(result.stderr, /missing npm:@blackbelt-technology\/pi-dashboard-extension-extra/);
+  });
+
+  it('still validates the primary-only runtime lock instead of bypassing integrity', () => {
+    const root = piFixture();
+    const file = join(root, 'preseed/agents/pi/package-lock.json');
+    const lock = JSON.parse(readFileSync(file, 'utf8'));
+    delete lock.packages['node_modules/@blackbelt-technology/pi-dashboard-server'].integrity;
+    writeFileSync(file, JSON.stringify(lock));
+    const result = run(root, ['pi-preseed']);
+    assert.equal(result.status, 2);
+    assert.match(result.stderr, /pi-dashboard-server missing sha512 integrity/);
+  });
+});

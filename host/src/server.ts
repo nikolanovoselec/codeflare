@@ -26,7 +26,8 @@
 import http from 'node:http';
 import { WebSocketServer } from 'ws';
 import fs from 'node:fs';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
+import { createChatProxy, type ChatPrimary } from './chat-proxy.js';
 import { createActivityTracker } from './activity-tracker.js';
 import { isPrewarmTimeoutReady, resolveHostTerminalConfig } from './terminal-mode.js';
 import { getPrewarmConfig } from './prewarm-config.js';
@@ -43,6 +44,7 @@ import { Session } from './session.js';
 import {
   HerdrAgentStatusMonitor,
   createHerdrAgentStatusCallbacks,
+  focusHerdrPane,
 } from './herdr-agent-status.js';
 import {
   EDITOR_WARMING_BUDGET_MS,
@@ -293,8 +295,120 @@ const operatorInference = !process.env.CODEFLARE_OPERATOR_SESSION
     agentDir: process.env.PI_CODING_AGENT_DIR ?? '/home/user/.pi/agent' })
   : null;
 
+// Chat is configured solely by immutable startup authority, not by browser targets.
+const CHAT_ROOT = `${process.env.CODEFLARE_RUNTIME_ROOT ?? '/run/codeflare'}/chat`;
+const CHAT_PORT = 8001;
+const generationText = process.env.CODEFLARE_CHAT_GENERATION ?? '';
+const CHAT_GENERATION = /^(0|[1-9][0-9]{0,15})$/.test(generationText) && Number.isSafeInteger(Number(generationText))
+  ? Number(generationText) : null;
+const chatEligible = !process.env.CODEFLARE_OPERATOR_SESSION
+  && state.tabConfigMap['1'] === 'pi' && /^[a-z0-9]{8,24}$/.test(process.env.SESSION_ID ?? '');
+let chatTransport: ChildProcess | undefined;
+let chatTransportAttempted = false;
+let confirmedPrimary: string | undefined;
+const primaryTerminalId = `${process.env.SESSION_ID}-1`;
+function privateChatToken(): string {
+  return fs.readFileSync(`${CHAT_ROOT}/.pi/dashboard/local/token`, 'utf8').trim();
+}
+function readPrimaryIdentity(): (ChatPrimary & { pid: number; paneId?: string }) | null {
+  if (!chatEligible || CHAT_GENERATION === null) return null;
+  const terminal = sessionManager.get(primaryTerminalId) ?? sessionManager.get(PREWARM_SESSION_ID);
+  if (!terminal?.isPtyAlive()) return null;
+  try {
+    const value: unknown = JSON.parse(fs.readFileSync(`${CHAT_ROOT}/primary.json`, 'utf8'));
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+    const record = value as Record<string, unknown>;
+    const launchedPid = Number(fs.readFileSync(`${CHAT_ROOT}/primary.pid`, 'utf8').trim());
+    if (typeof record.sessionId !== 'string' || !/^[A-Za-z0-9._:-]{1,128}$/.test(record.sessionId)
+      || record.generation !== CHAT_GENERATION || !Number.isSafeInteger(record.pid)
+      || (record.pid as number) <= 1 || record.pid !== launchedPid
+      || record.paneId !== undefined && (typeof record.paneId !== 'string' || !/^[A-Za-z0-9._:-]{1,128}$/.test(record.paneId))) return null;
+    process.kill(launchedPid, 0);
+    const stat = fs.readFileSync(`/proc/${launchedPid}/stat`, 'utf8');
+    const startTime = stat.slice(stat.lastIndexOf(')') + 2).split(' ')[19];
+    if (typeof record.startTime !== 'string' || record.startTime !== startTime) return null;
+    return { sessionId: record.sessionId, generation: CHAT_GENERATION, pid: launchedPid,
+      ...(typeof record.paneId === 'string' ? { paneId: record.paneId } : {}) };
+  } catch { return null; }
+}
+function primary(): ChatPrimary | null {
+  const record = readPrimaryIdentity();
+  if (!record || !chatTransport?.pid || chatTransport.exitCode !== null
+    || confirmedPrimary !== `${record.pid}:${record.sessionId}`) return null;
+  return { sessionId: record.sessionId, generation: record.generation };
+}
+function startChatTransport(): void {
+  if (!chatEligible || CHAT_GENERATION === null || chatTransportAttempted) return;
+  chatTransportAttempted = true;
+  const configDir = `${CHAT_ROOT}/.pi/dashboard`;
+  fs.mkdirSync(configDir, { recursive: true, mode: 0o700 });
+  fs.chmodSync(CHAT_ROOT, 0o700);
+  // Separate server HOME only. The actual primary's HOME/agent settings/resume
+  // remain untouched. No user registry scan, auto-recovery, model proxy, tunnels,
+  // vault delivery, provisioning dialogs or external login/provider plane.
+  fs.writeFileSync(`${configDir}/config.json`, JSON.stringify({
+    port: CHAT_PORT, piPort: 9998, bindHost: '127.0.0.1', autoStart: false,
+    autoShutdown: false, tunnel: { enabled: false }, requireLocalProof: true,
+    reopenSessionsAfterShutdown: 'off', openspec: { enabled: false },
+    piSessionsDir: `${CHAT_ROOT}/.pi/agent/sessions`,
+    modelProxy: { enabled: false }, vault: { deliveryEnabled: false },
+    push: { enabled: false }, accessGrants: { promptEnabled: false },
+    piTrustMirror: { enabled: false }, embedLifecycle: { enabled: false },
+    auth: { providers: {} },
+  }), { mode: 0o600 });
+  chatTransport = spawn('/opt/codeflare/pi-agent/npm/node_modules/.bin/pi-dashboard',
+    ['--host', '127.0.0.1', '--port', String(CHAT_PORT), '--pi-port', '9998', '--no-tunnel'], {
+      cwd: '/opt/codeflare/pi-agent/npm', stdio: 'ignore',
+      env: { ...process.env, HOME: CHAT_ROOT, PI_CODING_AGENT_DIR: `${CHAT_ROOT}/.pi/agent`,
+        PI_DASHBOARD_DISABLE_GRANT_PROMPT: '1', PI_DASHBOARD_NO_MDNS: '1' },
+    });
+  chatTransport.on('error', () => log('warn', 'Private Chat transport failed to start'));
+  chatTransport.on('exit', () => { confirmedPrimary = undefined; log('warn', 'Private Chat transport exited'); });
+}
+let primaryEntry: Promise<ChatPrimary> | undefined;
+async function ensurePrimary(): Promise<ChatPrimary> {
+  if (!chatEligible || CHAT_GENERATION === null) throw new Error('Configured Chat primary/generation unavailable');
+  primaryEntry ??= (async () => {
+    await initReady;
+    startChatTransport();
+    await ensureTerminalStarted();
+    sessionManager.ensurePrimary(primaryTerminalId);
+    const deadline = Date.now() + EDITOR_WARMING_BUDGET_MS;
+    while (Date.now() < deadline) {
+      const record = readPrimaryIdentity();
+      if (record) {
+        try {
+          const path = `/api/sessions?id=${encodeURIComponent(record.sessionId)}`;
+          const response = await fetch(`http://127.0.0.1:${CHAT_PORT}${path}`, {
+            headers: { 'x-pi-local-token': privateChatToken() }, signal: AbortSignal.timeout(5000),
+          });
+          const envelope: unknown = await response.json();
+          if (response.ok && envelope && typeof envelope === 'object' && 'data' in envelope
+            && Array.isArray(envelope.data) && envelope.data.some((row: Record<string, unknown>) =>
+              row.id === record.sessionId && row.pid === record.pid && row.status !== 'ended')) {
+            confirmedPrimary = `${record.pid}:${record.sessionId}`;
+            return { sessionId: record.sessionId, generation: record.generation };
+          }
+        } catch { /* bounded registration wait; never provision a replacement */ }
+      }
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+    throw new Error('Configured primary has not registered with the private Chat transport');
+  })().finally(() => { primaryEntry = undefined; });
+  return primaryEntry;
+}
+const chat = chatEligible ? createChatProxy({ cfid: process.env.SESSION_ID!, generation: CHAT_GENERATION,
+  primary, ensurePrimary, upstream: { port: CHAT_PORT, token: privateChatToken },
+  notificationSession: () => sessionManager.get(primaryTerminalId),
+  recordInput: () => {
+    sessionManager.retainPrimary(primaryTerminalId);
+    sessionManager.get(primaryTerminalId)?.recordHumanActivity();
+  },
+}) : undefined;
+
 // Create HTTP server; all plain-HTTP branches live in request-router.ts.
 const server = http.createServer(createRequestHandler({
+  ...(chat ? { chat } : {}),
   ...(operatorInference ? { operatorInference } : {}),
   ...(operatorPacket ? { operatorPacket } : {}),
   ...(operatorPi ? { operatorPi } : {}),
@@ -340,9 +454,16 @@ attachTerminalConnectionHandler(wss, {
   readiness: () => ({ initFlagObserved, terminalServiceReady }),
   keepalivePingMs: WS_KEEPALIVE_PING_MS,
   maxControlMsgLength: MAX_CONTROL_MSG_LENGTH,
+  ...(chatEligible ? { focusPrimary: async () => {
+    if (TERMINAL_MODE !== 'herdr') return;
+    const record = readPrimaryIdentity();
+    if (!HERDR_SOCKET_PATH || !record?.paneId || !primary()) throw new Error('Bound primary pane unavailable');
+    await focusHerdrPane(HERDR_SOCKET_PATH, record.paneId);
+  } } : {}),
 });
 
 const upgradeDispatcher = createUpgradeDispatcher({
+  ...(chat ? { chat } : {}),
   terminalWss: wss,
   activityTracker: state.activityTracker,
   log,
@@ -397,49 +518,32 @@ function waitForInitFlag(): Promise<void> {
   });
 }
 
-// Start server
-server.listen(PORT, '0.0.0.0', async () => {
-  log('info', 'Terminal server listening', { port: PORT });
-  log('info', 'Workspace config', { workspace: WORKSPACE_DEFAULT, workingDir: getWorkingDirectory(), keepAliveSec: PTY_KEEPALIVE_MS / 1000 });
+const initReady = waitForInitFlag();
+let terminalStartup: Promise<void> | undefined;
+function ensureTerminalStarted(): Promise<void> {
+  return terminalStartup ??= startPrimaryTerminal();
+}
 
-  // Start periodic cleanup of dead sessions
-  sessionManager.startCleanup();
-
-  await waitForInitFlag();
-
-  let prewarmSession: Session | undefined;
-  while (!prewarmSession) {
-    const startup = await startWorkspaceServices(SESSION_WORKSPACE, {
-      createTerminalSession: () => new Session(state.prewarmSessionId, 'Terminal', false, state.sessionOptions),
-      insertTerminalSession: (session) => sessionManager.sessions.set(state.prewarmSessionId, session),
-      startTerminalSession: (session) => session.start(),
-      beginEditorProbe: () => {
-        editorReady = false;
-        prewarmReady = false;
-        editorReadyTimedOut = false;
-      },
-      waitForEditor: () => waitForEditorReady({ host: '127.0.0.1', port: OPENVSCODE.port }),
-    });
-    if (startup.kind === 'terminal') {
-      prewarmSession = startup.session;
-      break;
-    }
-
-    editorReady = startup.ready;
-    prewarmReady = editorReady;
-    editorReadyTimedOut = !editorReady;
-    log(editorReady ? 'info' : 'warn', editorReady
-      ? 'Browser IDE ready'
-      : 'Browser IDE did not become ready within warming budget');
-    if (editorReady) return;
-    await new Promise((resolve) => setTimeout(resolve, 5000));
-  }
-  // Open the /terminal WS gate AFTER prewarm.start() returns so any client
-  // that gets through finds a Session with ptyProcess already spawned (no
-  // TOCTOU window where adoption races against the PTY fork). Fresh
-  // (non-tab-1) sessions created from here on also read the final .bashrc
-  // because waitForInitFlag has already resolved.
-  terminalServiceReady = true;
+// One startup/adoption path for initial Terminal and explicit late entry. The
+// immutable SESSION_WORKSPACE is never rewritten, nor is an editor restarted.
+async function startPrimaryTerminal(): Promise<void> {
+  await initReady;
+  prewarmReady = false;
+  const startup = await startWorkspaceServices('terminal', {
+    createTerminalSession: () => new Session(state.prewarmSessionId, 'Terminal', false, state.sessionOptions),
+    insertTerminalSession: session => sessionManager.sessions.set(state.prewarmSessionId, session),
+    startTerminalSession: session => session.start(),
+    beginEditorProbe() {}, waitForEditor: async () => false,
+  });
+  if (startup.kind !== 'terminal') throw new Error('Primary terminal startup unavailable');
+  const prewarmSession = startup.session;
+  let settle!: () => void;
+  let refuse!: (error: Error) => void;
+  const settled = new Promise<void>((resolve, reject) => { settle = resolve; refuse = reject; });
+  const startupBudget = setTimeout(() => refuse(new Error('Primary readiness timed out')), EDITOR_WARMING_BUDGET_MS);
+  // Preserve ordinary terminal behavior; eligible Chat entry must wait for the
+  // existing output/bootstrap settlement before the Worker terminal gate opens.
+  terminalServiceReady = !chatEligible;
   if (HERDR_SOCKET_PATH) {
     herdrAgentStatusMonitor = new HerdrAgentStatusMonitor({
       socketPath: HERDR_SOCKET_PATH,
@@ -479,6 +583,8 @@ server.listen(PORT, '0.0.0.0', async () => {
     setTimeout(() => {
       if (!prewarmReady) {
         prewarmReady = true;
+        terminalServiceReady = true;
+        settle();
         log('info', 'Pre-warm ready (settled)', { elapsedSec: ((Date.now() - prewarmStartTime) / 1000).toFixed(1) });
       }
     }, PREWARM_SETTLE_MS);
@@ -508,6 +614,8 @@ server.listen(PORT, '0.0.0.0', async () => {
         return;
       }
       prewarmReady = true;
+      terminalServiceReady = true;
+      settle();
       log('info', 'Pre-warm ready (timeout)', { elapsedSec: (PREWARM_TIMEOUT_MS / 1000).toFixed(1), command: prewarmConfig.command });
       if (prewarmDataListener) {
         prewarmDataListener.dispose();
@@ -547,6 +655,36 @@ server.listen(PORT, '0.0.0.0', async () => {
       prewarmReady = true;
     }
   }, PREWARM_ORPHAN_MS);
+  try { await settled; } finally { clearTimeout(startupBudget); }
+}
+
+// Start server. Editor-first startup does not call ensureTerminalStarted().
+server.listen(PORT, '0.0.0.0', async () => {
+  log('info', 'Terminal server listening', { port: PORT });
+  log('info', 'Workspace config', { workspace: WORKSPACE_DEFAULT, workingDir: getWorkingDirectory(), keepAliveSec: PTY_KEEPALIVE_MS / 1000 });
+  sessionManager.startCleanup();
+  await initReady;
+  startChatTransport();
+  if (SESSION_WORKSPACE === 'terminal') {
+    try { await ensureTerminalStarted(); } catch { log('warn', 'Primary terminal readiness failed'); }
+    return;
+  }
+  while (!editorReady) {
+    const startup = await startWorkspaceServices(SESSION_WORKSPACE, {
+      createTerminalSession: () => new Session(state.prewarmSessionId, 'Terminal', false, state.sessionOptions),
+      insertTerminalSession: session => sessionManager.sessions.set(state.prewarmSessionId, session),
+      startTerminalSession: session => session.start(),
+      beginEditorProbe: () => { editorReady = false; editorReadyTimedOut = false; },
+      waitForEditor: () => waitForEditorReady({ host: '127.0.0.1', port: OPENVSCODE.port }),
+    });
+    if (startup.kind !== 'vscode') return;
+    editorReady = startup.ready;
+    // Late explicit entry owns terminal readiness; editor probing cannot clobber it.
+    if (!terminalStartup) prewarmReady = editorReady;
+    editorReadyTimedOut = !editorReady;
+    log(editorReady ? 'info' : 'warn', editorReady ? 'Browser IDE ready' : 'Browser IDE did not become ready within warming budget');
+    if (!editorReady) await new Promise(resolve => setTimeout(resolve, 5000));
+  }
 });
 
 // Graceful shutdown helper
@@ -555,6 +693,8 @@ async function shutdown(signal: string): Promise<void> {
   // Fence private Pi authentication before awaiting owned SDK cancellation.
   try { await operatorPi?.stop(); }
   catch { log('warn', 'Owned Pi shutdown cancellation uncertain'); }
+  chat?.close();
+  chatTransport?.kill('SIGTERM');
   herdrAgentStatusMonitor?.stop();
   herdrAgentStatusMonitor = null;
   // M2: Kill all active sessions before exit to avoid orphaned PTY processes

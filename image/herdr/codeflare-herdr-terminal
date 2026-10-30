@@ -212,7 +212,13 @@ bootstrap() {
             run_agent "$pane" "$command" codex codex ;;
         'opencode') run_agent "$pane" "$command" opencode opencode ;;
         'copilot'|'copilot --yolo') run_agent "$pane" "$command" copilot copilot ;;
-        'pi') run_agent "$pane" 'pi --tui-mode fullscreen' pi pi ;;
+        'pi')
+            if [[ "${CODEFLARE_CHAT_GENERATION:-}" =~ ^(0|[1-9][0-9]{0,15})$ ]]; then
+                run_agent "$pane" 'codeflare-primary-pi --tui-mode fullscreen' pi pi
+            else
+                run_agent "$pane" 'pi --tui-mode fullscreen' pi pi
+            fi
+            ;;
         'agy'|'agy --dangerously-skip-permissions') run_agent "$pane" "$command" antigravity-cli agy ;;
         'htop'|'yazi'|'lazygit') run_process "$pane" "$command" ;;
         *) fail "unsupported terminal command" ;;

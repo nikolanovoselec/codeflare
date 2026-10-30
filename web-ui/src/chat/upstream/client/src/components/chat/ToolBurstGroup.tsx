@@ -1,0 +1,502 @@
+/** @jsxImportSource react */
+/**
+ * Renders a temporal BURST group: a run of consecutive tool calls collapsed
+ * into one unified, progress-aware block. Grouping is universal (threshold 1),
+ * so a single tool call renders in the SAME frame as a multi-member run.
+ *
+ * ONE frame, four data-driven states (change: enhance-tool-call-grouping):
+ *   running        ⟳ Working · N done · $ <live command>   shimmer + spin-pulse
+ *   done · 1 call  ✓ <tool icon> <summary> · <duration>     completion flash
+ *   done · N calls ✓ N tool calls · <icon breakdown> · <dur> [· N failed]
+ * The running/done/single/multi paths flow through one `<GroupFrame>` with
+ * slots {leftGlyph, title, meta, motionClass, chevron, body} — no four-way
+ * branch. Honest counts only: NO fabricated total / progress bar; the running
+ * animation is indeterminate.
+ *
+ * Body grows in DOCUMENT FLOW — no fixed max-height, no inner overflow-y
+ * scrollbox (finding: full-height expansion). Absorbed `thinking` renders
+ * through the real `<ThinkingBlock>` (labeled, collapsible), identical to a
+ * top-level reasoning block; only non-empty `assistant` prose renders as flat
+ * narration.
+ *
+ * Default open state: `expanded = override ?? ((toolGroupDefaultCollapsed ||
+ * isMobile) ? false : isRunning)`. The pref only changes the body's default
+ * open state; the live header + animation key off `isRunning`, not `expanded`.
+ * On mobile viewports a running group never auto-expands (caps DOM growth in
+ * the non-virtualized streaming tail); a tap still opens it.
+ * See change: harden-ios-safari-memory-and-ws-diagnostics.
+ *
+ * See change: enhance-tool-call-grouping (was: group-tool-call-bursts).
+ */
+
+import { toolCallPrefKey } from "@blackbelt-technology/pi-dashboard-shared/display-prefs.js";
+import { mdiCheck, mdiChevronDown, mdiChevronRight, mdiConsoleLine, mdiLoading, mdiMinusCircleOutline } from "@mdi/js";
+import { Icon } from "@mdi/react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
+import { useDisplayPrefs } from "../../hooks/useDisplayPrefs.js";
+import { useFxVisibility } from "../../hooks/useFxVisibility.js";
+import { useMobile } from "../../hooks/useMobile.js";
+import { CHAT_CUE_CLASS, CHAT_ENTER_CLASS, useCompletionCue, useGroupEntering } from "../../lib/chat/chat-motion-context.js";
+import type { ChatMessage } from "../../lib/chat/event-reducer.js";
+import type { ToolBurstGroup as ToolBurstGroupData } from "../../lib/chat/group-tool-bursts.js";
+import type { ChatItem, ToolCallGroup } from "../../lib/chat/group-tool-calls.js";
+import { getSummary, getToolIcon } from "../../lib/chat/tool-summary.js";
+import { t as i18nT } from "../../lib/i18n/i18n.js";
+import { MarkdownContent } from "../preview/MarkdownContent.js";
+import type { ToolContext } from "../tool-renderers/index.js";
+import { CollapsedToolGroup } from "./CollapsedToolGroup.js";
+import { CustomEntryRow } from "./CustomEntryRow.js";
+import { ThinkingBlock } from "./ThinkingBlock.js";
+import { ToolCallStep } from "./ToolCallStep.js";
+import { type StopController, ToolStopControl, useToolStopState } from "./ToolStopControl.js";
+
+interface Props {
+  burst: ToolBurstGroupData;
+  toolContext: ToolContext;
+  /** Session-scoped abort; enables the shared burst stop control. See change: fix-chat-burst-tool-stop. */
+  onAbort?: () => void;
+  onForceKill?: () => void;
+}
+
+function isGroup(item: ChatItem): item is ToolCallGroup {
+  return (item as ToolCallGroup).type === "group";
+}
+
+/** Flatten burst items to their underlying `toolResult` messages (a ×N group → its members). */
+function underlyingCalls(items: ChatItem[]): ChatMessage[] {
+  const out: ChatMessage[] = [];
+  for (const it of items) {
+    if (isGroup(it)) out.push(...it.messages);
+    else if ((it as ChatMessage).role === "toolResult") out.push(it as ChatMessage);
+  }
+  return out;
+}
+
+function formatDuration(ms: number): string {
+  if (ms < 1000) return `${Math.round(ms)}ms`;
+  const s = ms / 1000;
+  return `${s.toFixed(s < 10 ? 1 : 0)}s`;
+}
+
+/** Per-tool-kind icon + count breakdown, insertion-ordered by first appearance. */
+function breakdown(members: ChatMessage[]): { name: string; icon: string; count: number }[] {
+  const counts = new Map<string, number>();
+  for (const m of members) {
+    const name = m.toolName ?? "unknown";
+    counts.set(name, (counts.get(name) ?? 0) + 1);
+  }
+  return [...counts.entries()].map(([name, count]) => ({ name, icon: getToolIcon(name), count }));
+}
+
+/** Wall-clock span when timestamps exist, else sum of member durations. */
+function totalDuration(members: ChatMessage[]): number {
+  const starts = members.map((m) => m.startedAt).filter((v): v is number => v != null);
+  const ends = members
+    .map((m) => (m.startedAt != null && m.duration != null ? m.startedAt + m.duration : undefined))
+    .filter((v): v is number => v != null);
+  if (starts.length && ends.length) return Math.max(...ends) - Math.min(...starts);
+  return members.reduce((sum, m) => sum + (m.duration ?? 0), 0);
+}
+
+/**
+ * The single unified frame. Running/done/single/multi differ only in the slots
+ * passed in — one visual chrome, no per-state branch.
+ */
+function GroupFrame({
+  leftGlyph,
+  title,
+  meta,
+  motionClass,
+  expanded,
+  onToggle,
+  isRunning,
+  stopSlot,
+  entering,
+  children,
+}: {
+  leftGlyph: ReactNode;
+  title: ReactNode;
+  meta: ReactNode;
+  motionClass: string;
+  expanded: boolean;
+  onToggle: () => void;
+  isRunning: boolean;
+  stopSlot?: ReactNode;
+  entering?: boolean;
+  children: ReactNode;
+}) {
+  const isMobile = useMobile();
+  // Pause the header shimmer + spinner pulse while this running group is
+  // off-screen. Only running groups are observed (completed groups carry no
+  // animation, and a long transcript has thousands of them). See change:
+  // reduce-chat-render-cpu-umbrella (Phase 1, task 2.5).
+  const fxRef = useFxVisibility<HTMLDivElement>();
+  return (
+    <div
+      ref={isRunning ? fxRef : undefined}
+      className={`${isMobile ? "mx-2" : "mx-4"} border-l-2 border-[var(--border-secondary)] pl-3${entering ? ` ${CHAT_ENTER_CLASS}` : ""}`}
+      data-testid="tool-burst-group"
+      data-running={isRunning ? "true" : "false"}
+    >
+      <div className="flex items-center">
+      <button
+        type="button"
+        onClick={onToggle}
+        className={`flex-1 min-w-0 flex items-center gap-1.5 text-xs text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] text-left rounded ${motionClass} ${isMobile ? "min-h-[44px] py-2" : ""}`}
+        data-testid="tool-burst-header"
+      >
+        {leftGlyph}
+        {title}
+        {meta}
+        <span className="ml-auto text-[var(--text-muted)] inline-flex shrink-0">
+          <Icon path={expanded ? mdiChevronDown : mdiChevronRight} size={0.6} />
+        </span>
+      </button>
+      {stopSlot}
+      </div>
+      {expanded && (
+        <div className="mt-1 space-y-0.5" data-testid="tool-burst-body">
+          {children}
+        </div>
+      )}
+    </div>
+  );
+}
+
+export function ToolBurstGroup({ burst, toolContext, onAbort, onForceKill }: Props) {
+  const prefs = useDisplayPrefs();
+  const isMobile = useMobile();
+
+  // Gate members by tool-kind toggle (mirrors CollapsedToolGroup). `ask_user`
+  // is never gated (toolCallPrefKey → null). Count/render reflect VISIBLE only.
+  const isVisible = (name: string | undefined) => {
+    const key = toolCallPrefKey(name ?? "");
+    return key === null || prefs.toolCalls[key];
+  };
+  const visibleMembers = underlyingCalls(burst.items).filter((m) => isVisible(m.toolName));
+
+  // Live-arrival entry (latched per instance): the group enters only when ALL its
+  // visible members are new. Lines present in that first commit ride the group's
+  // entry; a member joining later animates its own line. See change: add-fluid-chat-motion.
+  const memberIds = visibleMembers.map((m) => m.toolCallId ?? m.id);
+  const entering = useGroupEntering(memberIds);
+  const [initialMemberIds] = useState<ReadonlySet<string> | null>(() => (entering ? new Set(memberIds) : null));
+
+  const [override, setOverride] = useState<boolean | null>(null); // null = follow auto
+  const isRunning = visibleMembers.some((m) => m.toolStatus === "running");
+  // Pref only changes the body's default open state; the live header keys off
+  // isRunning, not expanded. Manual override always wins. Mobile never
+  // auto-expands a running group.
+  const autoOpen = prefs.toolGroupDefaultCollapsed || isMobile ? false : isRunning;
+  const expanded = override ?? autoOpen;
+  // One stop state per burst, shared by header + running rows. Called before
+  // the vanish early-return (rules of hooks). See change: fix-chat-burst-tool-stop.
+  const runningId = visibleMembers.find((m) => m.toolStatus === "running")?.id;
+  const stopController = useToolStopState({ active: isRunning, runKey: runningId, onAbort, onForceKill });
+
+  // Completion cue (live-follow only): replaces the flash below in that case.
+  const completionCue = useCompletionCue(isRunning ? "running" : "complete");
+  const completionCueRef = useRef(false);
+  completionCueRef.current = completionCue;
+  // One-shot completion flash on the running→done flip.
+  const prevRunning = useRef(isRunning);
+  const [flash, setFlash] = useState(false);
+  useEffect(() => {
+    if (prevRunning.current && !isRunning) {
+      if (!completionCueRef.current) setFlash(true);
+      const t = setTimeout(() => setFlash(false), 200);
+      prevRunning.current = isRunning;
+      return () => clearTimeout(t);
+    }
+    // Re-running before the 200ms flash window elapsed: clear any lingering
+    // flash so a done→running→done cycle can't bleed the cue into the next flip.
+    if (isRunning) setFlash(false);
+    prevRunning.current = isRunning;
+  }, [isRunning]);
+
+  // Third vanish path (design D8): the per-tool gate emptied the container, but
+  // a VISIBLE absorbed custom row is content worth rendering on its own. Render
+  // those rows directly (a header counting zero tool calls would mislead);
+  // CustomEntryRow applies its own group gate, so hidden rows render nothing.
+  if (visibleMembers.length === 0) {
+    // Keep DIRECT custom rows AND nested ×N groups: a group whose tool members
+    // are all hidden can still hold an absorbed custom row, which
+    // CollapsedToolGroup renders. BurstBodyItem handles both item kinds.
+    const customItems = burst.items.filter(
+      (it) => isGroup(it) || (it as ChatMessage).role === "custom",
+    );
+    if (customItems.length === 0) return null;
+    return (
+      <>
+        {customItems.map((it) => (
+          <BurstBodyItem
+            key={isGroup(it) ? it.messages[0]?.id ?? it.toolName : (it as ChatMessage).id}
+            item={it}
+            toolContext={toolContext}
+            turnActive={false}
+            isVisible={isVisible}
+          />
+        ))}
+      </>
+    );
+  }
+
+  const total = visibleMembers.length;
+  // `elided` is terminal but NOT done: its result was never loaded, so counting
+  // it in the burst header would report work that did not demonstrably finish.
+  // See change: fix-lazy-history-backfill-ux (D5).
+  const doneCount = visibleMembers.filter(
+    (m) => m.toolStatus !== "running" && m.toolStatus !== "elided",
+  ).length;
+  const failedCount = visibleMembers.filter((m) => m.toolStatus === "error").length;
+  const runningMember = visibleMembers.find((m) => m.toolStatus === "running");
+  const liveCommand = runningMember ? getSummary(runningMember.toolName ?? "unknown", runningMember.args) : "";
+  const durationMs = totalDuration(visibleMembers);
+  const single = total === 1;
+  const soleMember = visibleMembers[0];
+
+  // ── Slots ────────────────────────────────────────────────────────────────
+  /**
+   * A settled burst carrying an `elided` member is NOT a success.
+   *
+   * Excluding elided from `doneCount` is necessary but not sufficient: with no
+   * member running, the glyph below would still take the green completion
+   * accent, so a burst holding an unloadable result reads as fully succeeded
+   * before the user expands it. Neutral glyph + muted colour instead.
+   * See change: fix-lazy-history-backfill-ux (D5).
+   */
+  const hasElided = visibleMembers.some((m) => m.toolStatus === "elided");
+  const settledAccent = hasElided ? "text-[var(--text-muted)]" : "text-green-400";
+  const glyphIcon = (
+      <Icon
+        path={
+          isRunning
+            ? mdiLoading
+            : hasElided
+              ? mdiMinusCircleOutline
+              : single
+                ? getToolIcon(soleMember.toolName ?? "unknown")
+                : mdiCheck
+        }
+        size={0.55}
+        spin={isRunning}
+        className="fx-progress"
+      />
+  );
+  const leftGlyph = (
+    <span
+      className={`inline-flex ${isRunning ? "text-yellow-400 tool-group-spin-pulse" : settledAccent} ${flash ? "tool-group-flash" : ""}`}
+      data-testid={!isRunning && hasElided ? "tool-burst-elided-glyph" : undefined}
+    >
+      {completionCue && !isRunning && !hasElided ? (
+        <span key="cue" data-testid="tool-completion-cue" className={`inline-flex ${CHAT_CUE_CLASS}`}>
+          {glyphIcon}
+        </span>
+      ) : (
+        glyphIcon
+      )}
+    </span>
+  );
+
+  const { title, meta } = headerSlots({
+    isRunning,
+    single,
+    total,
+    doneCount,
+    failedCount,
+    liveCommand,
+    durationMs,
+    soleMember,
+    members: visibleMembers,
+  });
+  const motionClass = isRunning ? "tool-group-shimmer" : "";
+
+  return (
+    <GroupFrame
+      leftGlyph={leftGlyph}
+      title={title}
+      meta={meta}
+      motionClass={motionClass}
+      expanded={expanded}
+      onToggle={() => setOverride(!expanded)}
+      isRunning={isRunning}
+      entering={entering}
+      stopSlot={<ToolStopControl controller={stopController} testIdPrefix="tool-burst" labeled />}
+    >
+      {burst.items.map((it) => (
+        <BurstBodyItem
+          key={isGroup(it) ? it.messages[0]?.id : (it as ChatMessage).id}
+          item={it}
+          toolContext={toolContext}
+          // Burst-SCOPED, not session-scoped: absorbed reasoning is "live for the
+          // turn" only while THIS group runs. Passing the session-wide streaming
+          // status would let an older completed burst's ThinkingBlocks re-open
+          // during a later turn.
+          turnActive={isRunning}
+          isVisible={isVisible}
+          stopController={stopController}
+          initialMemberIds={initialMemberIds}
+        />
+      ))}
+    </GroupFrame>
+  );
+}
+
+/** Render one body item: a nested ×N group, absorbed reasoning/narration, or a tool step. */
+function BurstBodyItem({
+  item,
+  toolContext,
+  turnActive,
+  isVisible,
+  stopController,
+  initialMemberIds,
+}: {
+  item: ChatItem;
+  toolContext: ToolContext;
+  turnActive?: boolean;
+  isVisible: (name: string | undefined) => boolean;
+  stopController?: StopController | null;
+  /** Members present when the enclosing group entered; their lines ride the group's entry. */
+  initialMemberIds?: ReadonlySet<string> | null;
+}) {
+  const prefs = useDisplayPrefs();
+  if (isGroup(item)) {
+    return <CollapsedToolGroup group={item} toolContext={toolContext} />;
+  }
+  const msg = item as ChatMessage;
+  // Absorbed reasoning renders through the real ThinkingBlock (labeled,
+  // collapsible) — identical to a top-level reasoning row. Honours the
+  // reasoning display preference.
+  if (msg.role === "thinking" && msg.content.trim() !== "") {
+    if (!prefs.reasoning) return null;
+    return (
+      <ThinkingBlock
+        content={msg.content}
+        startedAt={msg.startedAt}
+        duration={msg.duration}
+        streamedLive={msg.streamedLive}
+        autoCollapseMs={prefs.reasoningAutoCollapseMs}
+        keepOpenUntilTurnEnds={prefs.keepReasoningOpenUntilTurnEnds}
+        turnActive={turnActive}
+        inlineFlow={prefs.reasoningInlineFlow}
+      />
+    );
+  }
+  // Non-empty assistant prose is NOT reasoning — flat narration.
+  if (msg.role === "assistant" && msg.content.trim() !== "") {
+    return (
+      <div className="px-2 py-1 text-xs text-[var(--text-tertiary)]" data-testid="tool-burst-narration">
+        <MarkdownContent content={msg.content} context={toolContext} />
+      </div>
+    );
+  }
+  // An absorbed custom row renders through the SAME container as the top-level
+  // site, so absorption changes position, never content (D8).
+  if (msg.role === "custom") {
+    return <CustomEntryRow key={msg.id} msg={msg} sessionId={toolContext.sessionId} />;
+  }
+  if (msg.role !== "toolResult") return null; // skip empty/separator rows
+  if (!isVisible(msg.toolName)) return null;
+  return (
+    <ToolCallStep
+      toolName={msg.toolName ?? "unknown"}
+      toolCallId={msg.toolCallId ?? msg.id}
+      nested={msg.nested}
+      nestedComplete={msg.nestedComplete}
+      args={msg.args}
+      status={msg.toolStatus ?? "complete"}
+      result={msg.result}
+      images={msg.images}
+      context={toolContext}
+      startedAt={msg.startedAt}
+      duration={msg.duration}
+      toolDetails={msg.toolDetails}
+      showResultBody={prefs.toolResults || msg.toolName === "ask_user"}
+      stopController={msg.toolStatus === "running" ? stopController : undefined}
+      enterSuppressed={initialMemberIds?.has(msg.toolCallId ?? msg.id) ?? false}
+    />
+  );
+}
+
+/**
+ * Compute the {title, meta} header slots for the three states. Standalone so the
+ * component body stays flat (one frame, data-driven slots).
+ */
+function headerSlots(p: {
+  isRunning: boolean;
+  single: boolean;
+  total: number;
+  doneCount: number;
+  failedCount: number;
+  liveCommand: string;
+  durationMs: number;
+  soleMember: ChatMessage;
+  members: ChatMessage[];
+}): { title: ReactNode; meta: ReactNode } {
+  if (p.isRunning) {
+    return {
+      title: <span className="font-medium text-[var(--text-secondary)]">{i18nT("status.working", undefined, "Working")}</span>,
+      meta: (
+        <>
+          <span className="ml-1 px-1.5 py-0.5 rounded-full bg-[var(--bg-tertiary)] text-[var(--text-muted)] text-[10px] font-medium">
+            {p.doneCount} done
+          </span>
+          {p.liveCommand && (
+            <span className="ml-1.5 flex items-center gap-1 min-w-0 text-[var(--text-muted)]">
+              <Icon path={mdiConsoleLine} size={0.5} />
+              <span className="truncate max-w-[240px]" data-testid="tool-burst-live-command">
+                {p.liveCommand}
+              </span>
+            </span>
+          )}
+        </>
+      ),
+    };
+  }
+  if (p.single) {
+    // Single completed call: tool icon (in leftGlyph) + its own summary + duration.
+    return {
+      title: (
+        <span className="truncate text-[var(--text-secondary)]" data-testid="tool-burst-summary">
+          {getSummary(p.soleMember.toolName ?? "unknown", p.soleMember.args)}
+        </span>
+      ),
+      meta: (
+        <>
+          {p.durationMs > 0 && <span className="ml-1.5 text-[var(--text-muted)]">{formatDuration(p.durationMs)}</span>}
+          {p.failedCount > 0 && <FailedBadge n={p.failedCount} />}
+        </>
+      ),
+    };
+  }
+  return {
+    title: <span className="font-medium text-[var(--text-secondary)] shrink-0">{p.total} tool calls</span>,
+    meta: (
+      <span
+        className="ml-1.5 flex items-center gap-2 flex-wrap min-w-0 text-[var(--text-muted)]"
+        data-testid="tool-burst-breakdown"
+      >
+        {breakdown(p.members).map((b) => (
+          <span key={b.name} className="inline-flex items-center gap-0.5" title={b.name}>
+            <Icon path={b.icon} size={0.5} />
+            <span className="tabular-nums text-[var(--text-tertiary)]">{b.count}</span>
+          </span>
+        ))}
+        {p.durationMs > 0 && <span className="tabular-nums">· {formatDuration(p.durationMs)}</span>}
+        {p.failedCount > 0 && <FailedBadge n={p.failedCount} />}
+      </span>
+    ),
+  };
+}
+
+/** `N failed` badge in the error color, shown when any member errored. */
+function FailedBadge({ n }: { n: number }) {
+  return (
+    <span
+      className="ml-1 px-1.5 py-0.5 rounded-full bg-[var(--severity-error-bg)] text-[var(--severity-error-fg)] border border-[var(--severity-error-border)] text-[10px] font-semibold"
+      data-testid="tool-burst-failed-badge"
+    >
+      {n} failed
+    </span>
+  );
+}

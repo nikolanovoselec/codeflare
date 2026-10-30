@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { chmodSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { describe, it } from 'node:test';
@@ -128,6 +128,18 @@ describe('PR lane selection', () => {
     const merge = prChecks.jobs['coverage-frontend'].steps.find((candidate) => candidate.uses === './.github/actions/merge-coverage');
     assert.equal(merge.with['expected-shards'], '4');
   });
+});
+
+it('REQ-OPS-023 AC3: assigns every owned Chat test to exactly one frontend group', () => {
+  // CI discovery contract: these existing test files must actually be scheduled.
+  const expected = readdirSync(join(ROOT, 'web-ui/src/chat/__tests__'), { recursive: true })
+    .filter((name) => /\.test\.tsx?$/.test(name))
+    .map((name) => `src/chat/__tests__/${name.replaceAll('\\', '/')}`);
+  assert.ok(expected.length > 0, 'the owned Chat test tree must not be empty');
+  const assigned = Array.from({ length: 4 }, (_, index) => selectFrontendGroup(`${index + 1}/4`)).flat();
+  for (const file of expected) {
+    assert.equal(assigned.filter((candidate) => candidate === file).length, 1, `${file} must run exactly once`);
+  }
 });
 
 describe('REQ-OPS-045 AC5 + AC6: immutable PR Checks tool cache', () => {
@@ -641,7 +653,7 @@ describe('REQ-OPS-022 AC6: bounded changed-production-line LCOV gate', () => {
     const backendCoverageShards = prChecks.jobs['backend-tests'].strategy.matrix.include
       .filter((leg) => leg.coverage === 'true').length;
     for (const [jobName, matrixJob, inputs] of [
-      ['coverage-backend', 'backend-tests', {
+      ['summary', 'backend-tests', {
         'artifact-pattern': 'backend-shard-*',
         'artifact-prefix': 'backend-shard',
         'expected-shards': String(backendCoverageShards),
@@ -670,13 +682,35 @@ describe('REQ-OPS-022 AC6: bounded changed-production-line LCOV gate', () => {
       }],
     ]) {
       const job = prChecks.jobs[jobName];
-      assert.deepEqual(job.needs, ['changes', matrixJob]);
-      assert.deepEqual(
-        job.steps.filter((candidate) => candidate.uses === './.github/actions/merge-coverage'),
-        [{ uses: './.github/actions/merge-coverage', with: inputs }],
-      );
+      assert.ok(job.needs.includes('changes') && job.needs.includes(matrixJob));
+      const merge = job.steps.find((candidate) => candidate.uses === './.github/actions/merge-coverage');
+      assert.deepEqual(merge.with, inputs);
     }
   });
+
+  for (const [name, backend, coverage, full, expectedStatus] of [
+    ['rejects failed backend coverage', 'success', 'failure', 'false', 1],
+    ['rejects unexpectedly skipped backend coverage', 'success', 'skipped', 'false', 1],
+    ['rejects cancelled backend coverage', 'success', 'cancelled', 'false', 1],
+    ['accepts successful backend coverage', 'success', 'success', 'true', 0],
+    ['accepts path-filtered backend skips', 'skipped', 'skipped', 'false', 0],
+    ['rejects backend skips on full runs', 'skipped', 'skipped', 'true', 1],
+    ['rejects failed backend tests', 'failure', 'skipped', 'false', 1],
+  ]) {
+    it(`REQ-OPS-022 AC5/AC6: required test aggregate ${name}`, () => {
+      const aggregate = step(prChecks.jobs.summary, 'Aggregate lane results');
+      const result = spawnSync('bash', ['-e', '-o', 'pipefail', '-c', aggregate.run], {
+        encoding: 'utf8',
+        env: {
+          ...process.env,
+          RESULTS: JSON.stringify({ changes: { result: 'success' }, 'backend-tests': { result: backend } }),
+          COVERAGE_RESULT: coverage,
+          FULL: full,
+        },
+      });
+      assert.equal(result.status, expectedStatus, result.stdout + result.stderr);
+    });
+  }
 });
 
 describe('shared CI components', () => {

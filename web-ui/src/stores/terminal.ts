@@ -203,6 +203,7 @@ function connect(
   manual?: boolean,
   processLabels = true,
   herdr = false,
+  primaryHandoff = false,
 ): () => void {
   const key = makeKey(sessionId, terminalId);
 
@@ -265,8 +266,12 @@ function connect(
       setRetryMessage(sessionId, terminalId, 'Connecting...');
     }
 
-    const url = getTerminalWebSocketUrl(sessionId, terminalId, manual);
-    const ws = new WebSocket(url);
+    const url = new URL(getTerminalWebSocketUrl(sessionId, terminalId, manual));
+    // REQ-AGENT-224: only an explicit surface return focuses the real primary.
+    // Consume on the first attachment; retries/reconnects are not handoffs.
+    if (primaryHandoff && terminalId === '1' && !manual) url.searchParams.set('primary', '1');
+    primaryHandoff = false;
+    const ws = new WebSocket(url.toString());
 
     ws.binaryType = 'arraybuffer';
 

@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+set -euo pipefail
+# Called ONLY by the configured primary launch sites, retaining Pi's native
+# --session-id/resume and Herdr --tui-mode arguments. Never changes HOME/settings.
+PI=/opt/codeflare/npm-tools/node_modules/.bin/pi
+generation="${CODEFLARE_CHAT_GENERATION:-}"
+if [[ ! "$generation" =~ ^(0|[1-9][0-9]{0,15})$ ]] \
+    || [[ ${#generation} -eq 16 && "$generation" > 9007199254740991 ]]; then
+    exec "$PI" "$@"
+fi
+runtime="${CODEFLARE_RUNTIME_ROOT:-/run/codeflare}/chat"
+export CODEFLARE_CHAT_PRIMARY_PID="$$"
+export CODEFLARE_CHAT_SOCKET="$runtime/.pi/dashboard/gateway-9998.sock"
+export CODEFLARE_CHAT_IDENTITY_FILE="$runtime/primary.json"
+# Record the actual exec PID separately from the extension's session identity.
+# Descendants inherit a different PID and cannot acquire primary authority.
+printf '%s\n' "$$" > "$runtime/primary.pid"
+exec "$PI" --extension /opt/codeflare/chat-primary/primary-bridge.ts "$@"

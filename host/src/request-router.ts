@@ -34,6 +34,7 @@ import {
   vscodeDisabledResponse,
 } from './vscode-proxy.js';
 import type { SessionManager } from './session-manager.js';
+import type { ChatPort } from './chat-proxy.js';
 import type { OperatorPiHttpController } from './operator-pi-http.js';
 import type { OperatorSyncHttpController } from './operator-sync-http.js';
 import type { ApprovedPacketInput } from './operator-approved-packet.js';
@@ -80,6 +81,8 @@ export interface ReadinessFlags {
 }
 
 export interface RequestRouterDeps {
+  /** One primary-bound adapter shared with the WS dispatcher. Auth stays outermost. */
+  chat?: ChatPort;
   sessionManager: SessionManager;
   wsEventLog: WsEvent[];
   activityTracker: ActivityTracker;
@@ -288,6 +291,11 @@ export function createRequestHandler(deps: RequestRouterDeps): (req: http.Incomi
     if (!authOutcome.allowed) {
       res.writeHead(authOutcome.status, { 'Content-Type': 'application/json' });
       res.end(authOutcome.body);
+      return;
+    }
+
+    if (deps.chat && pathname?.startsWith('/api/chat/')) {
+      await deps.chat.handleHttp(req, res);
       return;
     }
 

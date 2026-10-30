@@ -130,8 +130,11 @@ function setSingleSessionWorkspace(
   sessionId: string,
   terminalId: string,
   session: Pick<SessionWithStatus, 'workspace'>,
+  options: { explicitPrimary?: boolean } = {},
 ): void {
-  if (!isTerminalSession(session)) {
+  // REQ-AGENT-224: a gesture-authorized primary may own one in-app pane.
+  // This is deliberately NOT part of isTerminalSession or MultiView eligibility.
+  if (!isTerminalSession(session) && !(options.explicitPrimary && terminalId === '1')) {
     setDashboardWorkspace();
     return;
   }

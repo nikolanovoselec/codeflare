@@ -71,11 +71,26 @@ const piPackage = JSON.parse(readFileSync(resolve(__dirname, '../../preseed/agen
 // misses entrypoint.sh leaves the container asking npm for a version the image never baked,
 // and a hand-maintained literal in this file would agree with itself and pass anyway. Pi
 // itself is the runtime the packages load into, not one of the managed packages.
+// Intentional primary-only activation contract: these transport dependencies are
+// installed for the scoped launch wrapper, never global/SDK package discovery.
+const PRIMARY_TRANSPORT_PACKAGES = [
+  '@blackbelt-technology/pi-dashboard-extension',
+  '@blackbelt-technology/pi-dashboard-server',
+];
 const REQUIRED = Object.entries(piPackage.dependencies)
-  .filter(([name]) => name !== '@earendil-works/pi-coding-agent')
+  .filter(([name]) => name !== '@earendil-works/pi-coding-agent' && !PRIMARY_TRANSPORT_PACKAGES.includes(name))
   .map(([name, version]) => `npm:${name}@${version}`);
 
 describe('Pi settings.json packages assembly (entrypoint.sh)', () => {
+  it('REQ-AGENT-224: primary transport dependencies never enter fresh global or SDK package discovery', () => {
+    const sources = runAssembly('{}').packages.map(sourceOf);
+    for (const name of PRIMARY_TRANSPORT_PACKAGES) {
+      assert.ok(piPackage.dependencies[name], 'primary transport remains an image-installed dependency');
+      assert.ok(!sources.some(source => source === `npm:${name}` || source.startsWith(`npm:${name}@`)),
+        `${name} must be activated only by the primary launch wrapper`);
+    }
+  });
+
   it('REQ-AGENT-076 AC1 / REQ-AGENT-133 AC1: fresh container assembles required packages with context-mode enabled', () => {
     const settings = runAssembly('{}');
     const sources = settings.packages.map(sourceOf);

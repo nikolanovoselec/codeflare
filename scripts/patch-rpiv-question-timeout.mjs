@@ -59,8 +59,47 @@ const candidateDigests = {
   'ask-user-question.ts': 'd565f9fde43a04e6fe071ea6e0c31f16ca740bffd60b3895e9e03f785b6dd559',
   'state/questionnaire-session.ts': 'b64f47c1416aaa9d55fa5af322e2c1f2968f6e6ebe042ea91e7f2e0880f03c3c',
 };
+// 2.15.0 moved TUI execution into runTuiPath and shares native completion with
+// public external answers. Keep session.done intact: expiry/cancel must settle
+// through that same upstream first-answer gate, never through the mount callback.
+const externalAnswerLayouts = [
+  {
+    path: 'ask-user-question.ts',
+    sha256: 'f9c13238db876203522b28a4a392976b7775e326424f93f6fd62ec7fdf13deb9',
+    replacements: [
+      ['import type { ExtensionAPI, ExtensionContext, Theme }',
+        'import { withQuestionnaireDeadline } from "./codeflare-question-timeout.mjs";\nimport type { ExtensionAPI, ExtensionContext, Theme }'],
+      ['\tsessionRef: SessionRef;\n\topen: OpenQuestionnaire;\n\tSession: SessionModule["QuestionnaireSession"];',
+        '\tsessionRef: SessionRef;\n\topen: OpenQuestionnaire;\n\tSession: SessionModule["QuestionnaireSession"];\n\tdeadline: { start(expire: () => void, cancel: () => void): void };'],
+      ['\t\topen,\n\t\tSession,\n', '\t\topen,\n\t\tSession,\n\t\tdeadline,\n'],
+      ['\t\tsessionRef.current = session;\n\t\treturn session.component;',
+        '\t\tsessionRef.current = session;\n\t\tdeadline.start(() => session.submitDefaults(), () => session.cancel());\n\t\treturn session.component;'],
+      ['\tpresentation: Presentation;\n\topen: OpenQuestionnaire;\n\tSession: SessionModule["QuestionnaireSession"];',
+        '\tpresentation: Presentation;\n\topen: OpenQuestionnaire;\n\tSession: SessionModule["QuestionnaireSession"];\n\tdeadline: { start(expire: () => void, cancel: () => void): void };'],
+      ['async function resolveUndefinedResult(ctx: ExtensionContext, typed: QuestionParams)',
+        'async function resolveUndefinedResult(ctx: ExtensionContext, typed: QuestionParams, deadline: { dialogs(ui: unknown): DialogUI })'],
+      ['return buildQuestionnaireResponse(await runRpcQuestionnaire(ctx.ui, typed), typed);',
+        'return buildQuestionnaireResponse(await runRpcQuestionnaire(deadline.dialogs(ctx.ui), typed), typed);'],
+      ['async function runTuiPath(pi: ExtensionAPI, ctx: ExtensionContext, typed: QuestionParams, open: OpenQuestionnaire)',
+        'async function runTuiPath(pi: ExtensionAPI, ctx: ExtensionContext, typed: QuestionParams, open: OpenQuestionnaire, deadline: { start(expire: () => void, cancel: () => void): void; dialogs(ui: unknown): DialogUI })'],
+      ['\t\t\t\t\tSession: QuestionnaireSession,', '\t\t\t\t\tSession: QuestionnaireSession,\n\t\t\t\t\tdeadline,'],
+      ['return await resolveUndefinedResult(ctx, typed);', 'return await resolveUndefinedResult(ctx, typed, deadline);'],
+      ['\t\t\t// RPC hosts (VSCode pendant, ACP clients like Zed/Paseo — issue #78):',
+        '\t\t\treturn withQuestionnaireDeadline(typed, _signal, async (deadline) => {\n\t\t\t// RPC hosts (VSCode pendant, ACP clients like Zed/Paseo — issue #78):'],
+      ['return await runRpcPath(pi, ctx.ui, typed, toolCallId);',
+        'return await runRpcPath(pi, deadline.dialogs(ctx.ui), typed, toolCallId);'],
+      ['return await runTuiPath(pi, ctx, typed, open);', 'return await runTuiPath(pi, ctx, typed, open, deadline);'],
+      ['\t\t\t\tanswers.close(open);\n\t\t\t}\n\t\t},',
+        '\t\t\t\tanswers.close(open);\n\t\t\t}\n\t\t\t});\n\t\t},'],
+    ],
+  },
+  // The existing native state/notes policy is unchanged; its done callback now
+  // reaches OpenQuestionnaire.settle by upstream construction.
+  { ...layouts[1], sha256: '0b452327088858ac04cd1c7000f45a9301ae48a6b4a3b18d147d8068804bcccd' },
+];
 const reviewedLayouts = new Map([
   ['2.12.0', layouts],
+  ['2.15.0', externalAnswerLayouts],
   ['2.13.8', layouts.map(layout => ({
     ...layout,
     sha256: candidateDigests[layout.path],
@@ -109,7 +148,7 @@ export function patchQuestionnaireTimeout(root) {
   const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
   const selectedLayouts = reviewedLayouts.get(manifest.version);
   if (manifest.name !== '@juicesharp/rpiv-ask-user-question' || !selectedLayouts) {
-    throw new Error('Unsupported questionnaire package identity/version; expected @juicesharp/rpiv-ask-user-question 2.12.0 or 2.13.8');
+    throw new Error('Unsupported questionnaire package identity/version; expected @juicesharp/rpiv-ask-user-question 2.12.0, 2.13.8 or 2.15.0');
   }
   for (const path of [...selectedLayouts.map(layout => join(root, layout.path)), destination]) {
     const info = lstatSync(path, { throwIfNoEntry: false });

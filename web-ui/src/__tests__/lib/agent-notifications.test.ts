@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   agentEventDisposition,
+  createAgentEventConsumer,
+  type AgentNotificationWorker,
   agentNotificationsAvailable,
   agentNotificationsEnabled,
   setAgentNotificationsEnabled,
@@ -261,5 +263,79 @@ describe('REQ-TERM-025 AC1-AC6: one per-device enrollment switch', () => {
     });
     await expect(setAgentNotificationsEnabled(true, env)).resolves.toBe('unavailable');
     expect(env.saveSubscription).not.toHaveBeenCalled();
+  });
+});
+
+// @test REQ-AGENT-224 / REQ-TERM-023/028/031 — shared consumer policy, not donor internals.
+describe('Chat and Terminal share cancellation-safe granted display', () => {
+  it('explicit Chat attendance suppresses without terminal pane/resize ownership', () => {
+    const chat = { ...PRESENCE, terminalView: false, terminalOnePaneFocused: false, chatView: true };
+    expect(agentEventDisposition(chat)).toBe('suppress');
+    expect(agentEventDisposition({ ...chat, windowFocused: false })).toBe('display-request');
+    expect(agentEventDisposition({ ...chat, documentVisible: false })).toBe('display-request');
+    expect(agentEventDisposition({ ...chat, activeSessionMatches: false })).toBe('display-request');
+    expect(agentEventDisposition({ ...chat, chatView: false })).toBe('display-request');
+  });
+
+  it.each(['focus', 'cancel', 'dispose'] as const)('does not display or acknowledge when %s changes during worker lookup', async change => {
+    let release!: (worker: AgentNotificationWorker) => void;
+    const displays: string[] = []; const replies: unknown[] = [];
+    const env = browser({ showNotification: undefined, getWorker: () => new Promise(resolve => { release = resolve; }) });
+    let disposition: 'display-request' | 'suppress' = 'display-request';
+    const consumer = createAgentEventConsumer({
+      disposition: () => disposition,
+      context: () => ({ agent: 'Pi', sessionName: 'Primary', sessionPath: '/app/session/abcdef0123456789' }),
+      submitDisposition: (eventId, value) => replies.push({ eventId, value }),
+      confirmDisplay: eventId => replies.push({ eventId, displayed: true }),
+      show: (event, mayDisplay) => showGrantedAgentEvent(event, env, mayDisplay),
+    });
+    const pending = consumer.onMessage({ type: 'agent-event-display-granted', eventId: 'event-a', kind: 'task-completed' });
+    if (change === 'focus') disposition = 'suppress';
+    if (change === 'cancel') await consumer.onMessage({ type: 'agent-event-cancelled', eventId: 'event-a' });
+    if (change === 'dispose') consumer.dispose();
+    release({ showNotification: async title => { displays.push(title); } });
+    await pending;
+    expect(displays).toEqual([]);
+    expect(replies.filter((reply: any) => reply.displayed)).toEqual([]);
+  });
+
+  it('requests before grant, displays once, and ignores duplicate grants while display is pending or complete', async () => {
+    const displayed: string[] = []; const replies: string[] = [];
+    let finish!: () => void;
+    const consumer = createAgentEventConsumer({
+      disposition: () => 'display-request',
+      context: () => ({ agent: 'Pi', sessionName: 'Primary', sessionPath: '/app/session/abcdef0123456789' }),
+      submitDisposition: (id, value) => replies.push(`${id}:${value}`),
+      confirmDisplay: id => replies.push(`${id}:displayed`),
+      show: async event => { displayed.push(event.eventId); await new Promise<void>(resolve => { finish = resolve; }); return true; },
+    });
+    const event = { type: 'agent-event' as const, eventId: 'event-a', kind: 'task-failed' as const };
+    await consumer.onMessage(event);
+    expect(displayed).toEqual([]);
+    const grant = { ...event, type: 'agent-event-display-granted' as const };
+    const first = consumer.onMessage(grant);
+    await consumer.onMessage(grant); finish(); await first; await consumer.onMessage(grant);
+    expect(displayed).toEqual(['event-a']);
+    expect(replies).toEqual(['event-a:display-request', 'event-a:displayed']);
+    consumer.dispose();
+  });
+
+  it.each(['focus', 'cancel', 'dispose'] as const)('does not acknowledge after %s changes during browser display', async change => {
+    let finish!: () => void; let focused = false;
+    const replies: string[] = [];
+    const consumer = createAgentEventConsumer({
+      disposition: () => focused ? 'suppress' : 'display-request',
+      context: () => ({ agent: 'Pi', sessionName: 'Primary', sessionPath: '/app/session/abcdef0123456789' }),
+      submitDisposition: (_id, value) => replies.push(value),
+      confirmDisplay: () => replies.push('displayed'),
+      show: () => new Promise<boolean>(resolve => { finish = () => resolve(true); }),
+    });
+    const pending = consumer.onMessage({ type: 'agent-event-display-granted', eventId: 'a', kind: 'input-required' });
+    if (change === 'focus') focused = true;
+    if (change === 'cancel') await consumer.onMessage({ type: 'agent-event-cancelled', eventId: 'a' });
+    if (change === 'dispose') consumer.dispose();
+    finish(); await pending;
+    expect(replies).not.toContain('displayed');
+    if (change === 'focus') expect(replies).toEqual(['suppress']);
   });
 });

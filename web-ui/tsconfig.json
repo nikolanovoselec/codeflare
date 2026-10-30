@@ -12,8 +12,82 @@
     "resolveJsonModule": true,
     "esModuleInterop": true,
     "allowSyntheticDefaultImports": true,
-    "types": ["vite/client", "vitest/globals"],
-    "lib": ["ES2020", "DOM", "DOM.Iterable"]
+    "types": [
+      "vite/client",
+      "vitest/globals"
+    ],
+    "lib": [
+      "ES2023",
+      "DOM",
+      "DOM.Iterable"
+    ],
+    "paths": {
+      "@blackbelt-technology/dashboard-plugin-runtime": [
+        "./src/chat/upstream/dashboard-plugin-runtime/src/index.ts"
+      ],
+      "@blackbelt-technology/dashboard-plugin-runtime/host": [
+        "./src/chat/upstream/dashboard-plugin-runtime/src/host.ts"
+      ],
+      "@blackbelt-technology/pi-dashboard-client-utils/ActionList": [
+        "./src/chat/upstream/client-utils/src/ActionList.tsx"
+      ],
+      "@blackbelt-technology/pi-dashboard-client-utils/AgentCardShell": [
+        "./src/chat/upstream/client-utils/src/AgentCardShell.tsx"
+      ],
+      "@blackbelt-technology/pi-dashboard-client-utils/Confirm": [
+        "./src/chat/upstream/client-utils/src/Confirm.tsx"
+      ],
+      "@blackbelt-technology/pi-dashboard-client-utils/Dialog": [
+        "./src/chat/upstream/client-utils/src/Dialog.tsx"
+      ],
+      "@blackbelt-technology/pi-dashboard-client-utils/DialogPortal": [
+        "./src/chat/upstream/client-utils/src/DialogPortal.tsx"
+      ],
+      "@blackbelt-technology/pi-dashboard-client-utils/EmptyState": [
+        "./src/chat/upstream/client-utils/src/EmptyState.tsx"
+      ],
+      "@blackbelt-technology/pi-dashboard-client-utils/LayerPortal": [
+        "./src/chat/upstream/client-utils/src/LayerPortal.tsx"
+      ],
+      "@blackbelt-technology/pi-dashboard-client-utils/Popover": [
+        "./src/chat/upstream/client-utils/src/Popover.tsx"
+      ],
+      "@blackbelt-technology/pi-dashboard-client-utils/SearchableSelectDialog": [
+        "./src/chat/upstream/client-utils/src/SearchableSelectDialog.tsx"
+      ],
+      "@blackbelt-technology/pi-dashboard-client-utils/Skeleton": [
+        "./src/chat/upstream/client-utils/src/Skeleton.tsx"
+      ],
+      "@blackbelt-technology/pi-dashboard-client-utils/StatusPill": [
+        "./src/chat/upstream/client-utils/src/StatusPill.tsx"
+      ],
+      "@blackbelt-technology/pi-dashboard-client-utils/ZoomControls": [
+        "./src/chat/upstream/client-utils/src/ZoomControls.tsx"
+      ],
+      "@blackbelt-technology/pi-dashboard-client-utils/agent-card-utils": [
+        "./src/chat/upstream/client-utils/src/agent-card-utils.ts"
+      ],
+      "@blackbelt-technology/pi-dashboard-client-utils/escape-stack": [
+        "./src/chat/upstream/client-utils/src/escape-stack.ts"
+      ],
+      "@blackbelt-technology/pi-dashboard-client-utils/identity/token-store": [
+        "./src/chat/upstream/client-utils/src/identity/token-store.ts"
+      ],
+      "@blackbelt-technology/pi-dashboard-client-utils/useFocusTrap": [
+        "./src/chat/upstream/client-utils/src/useFocusTrap.ts"
+      ],
+      "@blackbelt-technology/pi-dashboard-client-utils/useMediaQuery": [
+        "./src/chat/upstream/client-utils/src/useMediaQuery.ts"
+      ],
+      "@blackbelt-technology/pi-dashboard-client-utils/useMobile": [
+        "./src/chat/upstream/client-utils/src/useMobile.tsx"
+      ],
+      "@blackbelt-technology/pi-dashboard-client-utils/useZoomPan": [
+        "./src/chat/upstream/client-utils/src/useZoomPan.ts"
+      ]
+    }
   },
-  "include": ["src"]
+  "include": [
+    "src"
+  ]
 }

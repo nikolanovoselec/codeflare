@@ -1,5 +1,6 @@
 import { Component, For, Show, createEffect, createMemo, Setter } from 'solid-js';
 import Terminal from './Terminal';
+import ChatArea from './ChatArea';
 import TerminalTabs from './TerminalTabs';
 import TilingButton from './TilingButton';
 import TilingOverlay from './TilingOverlay';
@@ -15,6 +16,15 @@ import { generateSessionName } from '../lib/session-utils';
 
 interface TerminalAreaProps {
   showTerminal: boolean;
+  chatSelected?: boolean;
+  chatSession?: { sessionId: string; generation: number };
+  chatDraft?: string;
+  onChatDraftChange?: (sessionId: string, generation: number, draft: string) => void;
+  explicitPrimarySessionId?: string;
+  takePrimaryHandoff?: () => boolean;
+  onOpenChatSession?: (id: string) => void;
+  onOpenTerminalSession?: (id: string) => void;
+  onLogout?: () => void;
   showTilingOverlay: boolean;
   onTilingButtonClick: () => void;
   onSelectTilingLayout: (layout: TileLayout) => void;
@@ -42,13 +52,18 @@ const TerminalArea: Component<TerminalAreaProps> = (props) => {
   const activeSession = createMemo(() => sessionStore.getActiveSession() ?? null);
   const activeSessionId = () => sessionStore.activeSessionId;
   const isHerdrSession = () => resolveTerminalMode(activeSession()?.terminalMode) === 'herdr';
+  const isExplicitPrimary = (id: string) => {
+    if (props.explicitPrimarySessionId !== id) return false;
+    const workspace = terminalWorkspaceStore.getActiveWorkspace();
+    return workspace.kind === 'session' && workspace.sessionId === id;
+  };
   const activeTerminalSession = createMemo(() => {
     const session = activeSession();
-    return terminalWorkspaceStore.isTerminalSession(session) ? session : null;
+    return session && (terminalWorkspaceStore.isTerminalSession(session) || isExplicitPrimary(session.id)) ? session : null;
   });
   const terminalSessionsById = createMemo(() => new Map(
     sessionStore.sessions
-      .filter((session) => terminalWorkspaceStore.isTerminalSession(session))
+      .filter((session) => terminalWorkspaceStore.isTerminalSession(session) || isExplicitPrimary(session.id))
       .map((session) => [session.id, session] as const),
   ));
 
@@ -71,7 +86,7 @@ const TerminalArea: Component<TerminalAreaProps> = (props) => {
 
   const activeTiling = createMemo(() => {
     const session = activeTerminalSession();
-    if (!session) return null;
+    if (!session || isExplicitPrimary(session.id)) return null;
     return sessionStore.getTilingForSession(session.id);
   });
 
@@ -83,13 +98,13 @@ const TerminalArea: Component<TerminalAreaProps> = (props) => {
 
   const activeTerminals = createMemo(() => {
     const session = activeTerminalSession();
-    if (!session) return null;
+    if (!session || isExplicitPrimary(session.id)) return null;
     return sessionStore.getTerminalsForSession(session.id);
   });
 
   const resolveTerminalIdForSession = (sessionId: string) => {
     const session = sessionStore.sessions.find((candidate) => candidate.id === sessionId);
-    return resolveTerminalMode(session?.terminalMode) === 'herdr'
+    return isExplicitPrimary(sessionId) || resolveTerminalMode(session?.terminalMode) === 'herdr'
       ? '1'
       : sessionStore.getTerminalsForSession(sessionId)?.activeTabId || '1';
   };
@@ -111,6 +126,7 @@ const TerminalArea: Component<TerminalAreaProps> = (props) => {
       session.id,
       resolveTerminalIdForSession(session.id),
       session,
+      { explicitPrimary: isExplicitPrimary(session.id) },
     );
   });
 
@@ -139,8 +155,23 @@ const TerminalArea: Component<TerminalAreaProps> = (props) => {
         </div>
       </Show>
 
-      {/* Terminal tabs - show when active session is running/initializing */}
-      <Show when={props.showTerminal && activeTerminalSession() && !isMultiViewWorkspace() && !isHerdrSession()}>
+      {/* A Chat mount owns only its own browser root/socket. A retained choice
+          with a changed generation is fenced, not automatically reattached. */}
+      <Show when={props.chatSelected}>
+        <Show when={props.chatSession} fallback={<div role="status">Pi session changed. Re-enter Chat to connect to the current primary.</div>}>
+          <For each={props.chatSession ? [`${props.chatSession.sessionId}:${props.chatSession.generation}`] : []}>
+            {() => {
+              const binding = props.chatSession!;
+              return <ChatArea sessionId={binding.sessionId} generation={binding.generation}
+                draft={props.chatDraft}
+                onDraftChange={draft => props.onChatDraftChange?.(binding.sessionId, binding.generation, draft)} />;
+            }}
+          </For>
+        </Show>
+      </Show>
+
+      {/* Terminal tabs - explicit VS Code entry owns only primary id 1. */}
+      <Show when={props.showTerminal && activeTerminalSession() && activeTerminalSession()?.workspace !== 'vscode' && !isMultiViewWorkspace() && !isHerdrSession()}>
         <TerminalTabs sessionId={activeTerminalSession()!.id} />
       </Show>
 
@@ -198,6 +229,7 @@ const TerminalArea: Component<TerminalAreaProps> = (props) => {
                 <Terminal
                   sessionId={session.id}
                   terminalId={tabId}
+                  takePrimaryHandoff={tabId === '1' ? props.takePrimaryHandoff : undefined}
                   sessionName={session.name}
                   terminalMode={resolveTerminalMode(session.terminalMode)}
                   active={true}
@@ -252,6 +284,7 @@ const TerminalArea: Component<TerminalAreaProps> = (props) => {
                 <Terminal
                   sessionId={pane.sessionId}
                   terminalId={pane.terminalId}
+                  takePrimaryHandoff={pane.terminalId === '1' ? props.takePrimaryHandoff : undefined}
                   sessionName={session()?.name || 'Terminal'}
                   terminalMode={resolveTerminalMode(session()?.terminalMode)}
                   active={true}
@@ -268,12 +301,15 @@ const TerminalArea: Component<TerminalAreaProps> = (props) => {
       </div>
 
       {/* Dashboard: shown when no active terminal */}
-      <Show when={!props.showTerminal}>
+      <Show when={!props.showTerminal && !props.chatSelected}>
         <Dashboard
           sessions={sessionStore.sessions}
           onCreateSession={(agentType, tabConfig) => props.onCreateSession(generateSessionName(agentType, sessionStore.sessions), agentType, tabConfig)}
           onStartSession={props.onStartSession}
           onOpenVscodeSession={props.onOpenVscodeSession}
+          onOpenChatSession={props.onOpenChatSession}
+          onOpenTerminalSession={props.onOpenTerminalSession}
+          onLogout={props.onLogout}
           onStopSession={props.onStopSession}
           onDeleteSession={props.onDeleteSession}
           onOpenSessionById={props.onDashboardSessionSelect || props.onOpenSessionById}

@@ -1,0 +1,69 @@
+/** @jsxImportSource react */
+/**
+ * Fallback mounted instead of a rich viewer when the opened file exceeds
+ * the configured editor large-file limit (D7). Shows a short notice + an **Open raw** affordance
+ * that streams the untransformed bytes from `/api/file/raw`, so a huge file is
+ * never rendered uncapped in the pane.
+ *
+ * See change: open-view-command-in-editor-pane (D7),
+ *             gate-changed-on-disk-by-content (D6).
+ */
+
+import { mdiFileAlertOutline, mdiOpenInNew } from "@mdi/js";
+import { Icon } from "@mdi/react";
+import { getApiBase } from "../../lib/api/api-context.js";
+import { useI18n } from "../../lib/i18n/i18n.js";
+import { SafeLink } from "../../lib/nav/safe-navigation.js";
+import { useEditorLimits } from "../../lib/preview/editor-limits-config.js";
+
+interface Props {
+  cwd: string;
+  path: string;
+  /** Actual file size in bytes, for the human-readable notice. */
+  size?: number;
+  /**
+   * Limit to name in the notice, in bytes. Defaults to the configured editor
+   * large-file limit (`resolveEditorLimitBytes()`); the
+   * office previews pass their per-kind `OFFICE_SIZE_CAPS` entry on a 413.
+   * See change: harden-untrusted-content-ingestion (D6).
+   */
+  cap?: number;
+}
+
+const MB = 1024 * 1024;
+
+export function TooLargePreview({ cwd, path, size, cap }: Props) {
+  const { t } = useI18n();
+  const limits = useEditorLimits();
+  const effectiveCap = cap ?? limits.bytes;
+  const rawHref = `${getApiBase()}/api/file/raw?cwd=${encodeURIComponent(cwd)}&path=${encodeURIComponent(path)}`;
+  const capMb = Math.round(effectiveCap / MB);
+  const sizeMb = typeof size === "number" ? (size / MB).toFixed(1) : null;
+  return (
+    <div
+      data-testid="too-large-preview"
+      className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center text-sm text-[var(--text-tertiary)]"
+    >
+      <Icon path={mdiFileAlertOutline} size={1.4} className="text-[var(--accent-yellow)]" />
+      <div>
+        {sizeMb
+          ? t(
+              "editor.tooLargeToPreviewSized",
+              { size: sizeMb, cap: capMb },
+              `This file is ${sizeMb} MB — too large to preview (limit ${capMb} MB).`,
+            )
+          : t("editor.tooLargeToPreview", { cap: capMb }, `File too large to preview (limit ${capMb} MB).`)}
+      </div>
+      <SafeLink
+        href={rawHref}
+        target="_blank"
+        rel="noopener noreferrer"
+        data-testid="too-large-open-raw"
+        className="flex items-center gap-1 rounded bg-[var(--accent-blue)] px-3 py-1 text-white"
+      >
+        <Icon path={mdiOpenInNew} size={0.6} />
+        <span>{t("editor.openRaw", undefined, "Open raw")}</span>
+      </SafeLink>
+    </div>
+  );
+}

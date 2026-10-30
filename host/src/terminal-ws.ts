@@ -22,12 +22,14 @@ export interface TerminalWsDeps {
   readiness(): { initFlagObserved: boolean; terminalServiceReady: boolean };
   keepalivePingMs: number;
   maxControlMsgLength: number;
+  /** Explicit Chat→Terminal handoff only; supported Herdr pane focus, no input. */
+  focusPrimary?: () => Promise<void>;
 }
 
 export function attachTerminalConnectionHandler(wss: WebSocketServer, deps: TerminalWsDeps): void {
   const { sessionManager, log, logWsEvent } = deps;
 
-  wss.on('connection', (ws: WebSocket, req: http.IncomingMessage) => {
+  wss.on('connection', async (ws: WebSocket, req: http.IncomingMessage) => {
     const { query } = parseUrl(req.url ?? '', true);
     const sessionId = query.session as string | undefined;
     const isManualTab = query.manual === '1';
@@ -51,7 +53,49 @@ export function attachTerminalConnectionHandler(wss: WebSocketServer, deps: Term
       return;
     }
 
+    let finishPrimaryFocus: (() => void) | undefined;
+    if (query.primary === '1' && deps.focusPrimary) {
+      // This flag cannot select a foreign terminal/pane or turn a manual tab
+      // into the configured primary. Ordinary reconnects do not change focus.
+      if (isManualTab || sessionId !== `${process.env.SESSION_ID}-1`) {
+        ws.close(1008, 'Configured primary terminal required'); return;
+      }
+      // OPEN is already visible to the browser. Use ws's public backpressure
+      // API before yielding so its initial resize/input cannot outrun listeners.
+      // Keep an error handler until close on every rejected/aborted focus path.
+      const onFocusError = (err: Error) => {
+        log('error', 'WS error during primary focus', { session: sessionId.substring(0, 8), message: err.message });
+        ws.terminate();
+      };
+      const onFocusClose = () => { ws.off('error', onFocusError); };
+      ws.on('error', onFocusError);
+      ws.once('close', onFocusClose);
+      ws.pause();
+      try { await deps.focusPrimary(); }
+      catch {
+        if (ws.readyState === WebSocket.OPEN) ws.close(1013, 'Primary pane unavailable');
+        ws.resume(); // Allow a closing socket to consume the peer's close frame.
+        return;
+      }
+      if (ws.readyState !== WebSocket.OPEN) { ws.resume(); return; }
+      finishPrimaryFocus = () => {
+        ws.off('error', onFocusError);
+        ws.off('close', onFocusClose);
+        ws.resume();
+      };
+    }
+
     const shortId = sessionId.substring(0, 8);
+
+    // Resolve the session before allocating keepalive resources. A rejected
+    // paused connection must resume to finish its close handshake, not attach.
+    const name = ((query.name as string) ?? '').replace(/[^a-zA-Z0-9 _-]/g, '').slice(0, 100) || 'Terminal';
+    const session = sessionManager.getOrCreate(sessionId, name, isManualTab);
+    if (!session) {
+      ws.close(1013, 'Session limit reached');
+      ws.resume();
+      return;
+    }
 
     // WebSocket keepalive: send protocol-level ping every 30s to prevent
     // NAT/load-balancer idle timeouts from silently dropping connections
@@ -65,16 +109,6 @@ export function attachTerminalConnectionHandler(wss: WebSocketServer, deps: Term
     ws.on('pong', () => {
       lastPongAt = Date.now();
     });
-
-    // Sanitize session name
-    const name = ((query.name as string) ?? '').replace(/[^a-zA-Z0-9 _-]/g, '').slice(0, 100) || 'Terminal';
-
-    // Get or create session (pass manual flag for user-created tabs)
-    const session = sessionManager.getOrCreate(sessionId, name, isManualTab);
-    if (!session) {
-      ws.close(1013, 'Session limit reached');
-      return;
-    }
 
     // Attach client to session
     session.attach(ws);
@@ -181,6 +215,9 @@ export function attachTerminalConnectionHandler(wss: WebSocketServer, deps: Term
       logWsEvent(sessionId, 'error', { message: err.message, errCode: err.code ?? null, durationSec: duration, ptyAlive: session.isPtyAlive() });
       session.detach(ws, sessionManager);
     });
+
+    // Only release buffered input after focus, attach and all normal listeners.
+    finishPrimaryFocus?.();
 
     // Connection ready - no JSON message, just start sending PTY data
   });

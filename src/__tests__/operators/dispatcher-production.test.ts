@@ -7883,17 +7883,38 @@ describe('REQ-OPERATOR-048: original-lease serial SDK phase ownership', () => {
       }, { repositoryOnly: true, loggingEnabled: false }));
 
       it('REQ-OPERATOR-081: AC5 a stalled metadata read shares one ten-second observation bound', () => fixture(async f => {
-        await populateReads(f); let release!: () => void;
+        await populateReads(f);
+        let release!: () => void;
+        let markEntered!: () => void;
         const held = new Promise<void>(resolve => { release = resolve; });
+        const entered = new Promise<void>(resolve => { markEntered = resolve; });
         await f.mutateEvidence(async storage => {
           const list = storage.list.bind(storage);
-          vi.spyOn(storage, 'list').mockImplementation(async input => { await held; return list(input); });
+          vi.spyOn(storage, 'list').mockImplementation(async input => {
+            markEntered();
+            await held;
+            return list(input);
+          });
         });
         const started = Date.now();
         try {
-          await errorStatus(await diagnosticsBrowser(f)(`${v2}/history`), 503);
+          vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'] });
+          let settled = false;
+          const observing = Promise.resolve(diagnosticsBrowser(f)(`${v2}/history`)).then(response => {
+            settled = true;
+            return response;
+          });
+          await entered;
+          await vi.advanceTimersByTimeAsync(9_999);
+          expect(settled).toBe(false);
+          await vi.advanceTimersByTimeAsync(1);
+          await errorStatus(await observing, 503);
           expect(Date.now() - started).toBeLessThanOrEqual(10_500);
-        } finally { release(); vi.restoreAllMocks(); }
+        } finally {
+          release();
+          vi.useRealTimers();
+          vi.restoreAllMocks();
+        }
       }, options), 15_000);
 
       it('REQ-OPERATOR-081: AC4/7 uncaptured historical unknown state stays incomplete with platform-required capability', () => fixture(async f => {

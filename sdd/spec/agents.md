@@ -85,28 +85,30 @@ These compatibility anchors resolve dated changelog references to retired review
 
 1. One five-minute deadline, starting at the first rendered questionnaire or native dialog, completes the invocation with only the first authored option for each unanswered single- or multi-select question and releases its TUI/native-dialog wait. <!-- @impl: scripts/rpiv-question-timeout.mjs::withQuestionnaireDeadline --> <!-- @impl: scripts/rpiv-question-timeout.mjs::defaultQuestionnaireAnswers --> <!-- @test: preseed/agents/pi/test/questionnaire-timeout.test.mjs (selects option one only after five unanswered minutes) --> <!-- @test: preseed/agents/pi/test/questionnaire-timeout.test.mjs (retains completed answers and defaults only unanswered questions on one deadline) -->
 2. An option or custom answer submitted before expiry completes normally without waiting for the deadline. <!-- @impl: scripts/rpiv-question-timeout.mjs::withQuestionnaireDeadline --> <!-- @test: preseed/agents/pi/test/questionnaire-timeout.test.mjs (preserves) -->
-3. Timeout preserves completed answers, manual multiple selections, and saved or currently edited notes. <!-- @impl: scripts/rpiv-question-timeout.mjs::defaultQuestionnaireAnswers --> <!-- @impl: scripts/patch-rpiv-question-timeout.mjs::patchQuestionnaireTimeout --> <!-- @test: preseed/agents/pi/test/questionnaire-timeout.test.mjs (retains completed answers and defaults only unanswered questions on one deadline) --> <!-- @test: preseed/agents/pi/test/questionnaire-timeout.test.mjs (TUI timeout preserves completed and currently edited notes) --> <!-- @test: preseed/agents/pi/test/questionnaire-timeout.test.mjs (preserves manual multiple selections while defaulting another question) -->
+3. Timeout preserves native completed answers, manual multiple selections and saved or edited notes, including global notes. <!-- @impl: scripts/rpiv-question-timeout.mjs::defaultQuestionnaireAnswers --> <!-- @impl: scripts/patch-rpiv-question-timeout.mjs::patchQuestionnaireTimeout --> <!-- @test: preseed/agents/pi/test/questionnaire-timeout.test.mjs (retains completed answers and defaults only unanswered questions on one deadline) --> <!-- @test: preseed/agents/pi/test/questionnaire-timeout.test.mjs (TUI timeout preserves completed and currently edited notes) --> <!-- @test: preseed/agents/pi/test/questionnaire-timeout.test.mjs (preserves manual multiple selections while defaulting another question) -->
 4. Automatic answers remain identified individually and at result level and are never represented as manual responses. <!-- @impl: preseed/agents/pi/extensions/questionnaire-timeout-authorization.ts::questionnaireTimeoutAuthorization -->
 5. The managed public `tool_result` policy treats successful, non-cancelled `ask_user_question` timeout selections as standing user-delegated authorization without routine re-confirmation only when the actual automatic recommended selection matches the original question and options. <!-- @impl: preseed/agents/pi/extensions/questionnaire-timeout-authorization.ts::questionnaireTimeoutAuthorization -->
 6. Non-recommended defaults, cancellation, errors and invalid or unrecognized results gain no authorization. <!-- @impl: preseed/agents/pi/extensions/questionnaire-timeout-authorization.ts::questionnaireTimeoutAuthorization -->
+7. Complete browser submissions preserve all answers and per-question/global notes atomically before expiry. <!-- @test: web-ui/src/chat/__tests__/responses.test.tsx (REQ-AGENT-224: live inline response protocol boundary) --> <!-- @test: host/__tests__/chat-proxy.test.js (REQ-AGENT-224: each inline response/cancellation reaches the primary once and leaves Chat usable) --> <!-- @test: src/__tests__/routes/chat-integration.test.ts (REQ-AGENT-224: stale question answers cannot affect a replacement generation) --> <!-- @test: src/__tests__/routes/chat-integration.test.ts (REQ-AGENT-224: browser answer envelopes cannot claim automatic provenance or another primary) --> <!-- @impl: web-ui/src/chat/upstream/client/src/components/interactive-renderers/BatchRenderer.tsx::BatchRenderer --> <!-- @test: host/__tests__/chat-questions.test.js (transmits complete manual choices, distinct freeform, notes/global note through only the native public API) --> <!-- @test: host/__tests__/chat-questions.test.js (matches verdicts to both native tool call and attempt; a late unrelated refusal cannot reopen a settled question) --> <!-- @test: host/__tests__/chat-questions.test.js (uses the actual native result to distinguish successful dismissal from cancellation) --> <!-- @test: web-ui/src/chat/__tests__/questionnaire.test.tsx (preserves exact per-question notes and global note through steps and review edits, attaching global note only to the final entry) --> <!-- @manual: Verify composed cross-surface policy and first-render deadline in Integration; authored adapter/renderer cases are not runtime acceptance. --> <!-- @impl: image/chat/primary-questions.mjs::primaryQuestions -->
 
 **Constraints:**
 
 - Keep the first authored option as the timeout default; never reorder options to find a recommendation.
 - Timeout delegation applies only to verified automatic recommended selections; preserve all manual answers, previews, notes, global notes and tool details.
 - Delegation does not bypass protected server grants, security boundaries or platform constraints.
-- Deliver this policy as manifest-listed managed TypeScript content in both Pi modes using the installed public `tool_result` hook; keep image-owned deadlines/helpers, upstream bytes, SDK, dependencies, pins and user configuration unchanged.
+- Deliver the delegated-authorization policy as manifest-listed managed TypeScript through the public tool-result hook in both Pi modes.
 - Scope is the managed Pi questionnaire only, not Claude native questions, Plan questions, Impeccable, or unrelated UI dialogs.
-- Keep dependency pins and archive integrity unchanged; do not modify restored user configuration.
+- Preserve exact package/source integrity guards and restored user configuration; the authorized 2.15.0 questionnaire profile is not permission to update the SDK or unrelated dependencies.
 - RPC wait release does not prove visual dialog dismissal in every external client.
+- Only unsubmitted browser questionnaire drafts may be discarded at expiry; cross-surface drafts are not synchronized.
 
 **Priority:** P1
 
 **Dependencies:** [REQ-AGENT-210](#req-agent-210-managed-extension-startup-preparation)
 
-**Verification:** Existing actual-package tests cover questionnaire deadlines and automatic-answer provenance, not the managed authorization handler. Handler behavioral coverage is absent under the user-authorized no-new-questionnaire-tests exception; source/seed consistency is not behavioral proof. Signed publication and runtime adoption remain separate gates.
+**Verification:** Existing actual-package tests cover questionnaire deadlines and automatic-answer provenance, not the managed authorization handler. The new 2.15.0 native/public-answer cases in `preseed/agents/pi/test/questionnaire-timeout.test.mjs` and Chat adapter/opt-in renderer cases under REQ-AGENT-224 are authored only, not executed. Handler behavioral coverage remains absent; source/seed consistency is not behavioral proof. Signed publication and runtime adoption remain separate gates.
 
-**Status:** Implemented
+**Status:** Planned
 
 ---
 
@@ -123,18 +125,21 @@ These compatibility anchors resolve dated changelog references to retired review
 3. Missing UI and invalid-question outcomes remain errors, never automatic answers. <!-- @impl: scripts/patch-rpiv-question-timeout.mjs::patchQuestionnaireTimeout --> <!-- @test: preseed/agents/pi/test/questionnaire-timeout.test.mjs (absent UI remains an error, not automatic approval) --> <!-- @test: preseed/agents/pi/test/questionnaire-timeout.test.mjs (never manufactures answers for aborted or invalid questions) -->
 4. One invocation's completion or expiry cannot finish or cancel a questionnaire in another invocation or SDK session. <!-- @impl: scripts/rpiv-question-timeout.mjs::withQuestionnaireDeadline --> <!-- @test: preseed/agents/pi/test/questionnaire-timeout.test.mjs (preserves) --> <!-- @test: preseed/agents/pi/test/questionnaire-timeout.test.mjs (independent SDK sessions retain independent deadlines) -->
 5. Cancellation retains answers completed before the execution abort. <!-- @impl: scripts/patch-rpiv-question-timeout.mjs::patchQuestionnaireTimeout --> <!-- @test: preseed/agents/pi/test/questionnaire-timeout.test.mjs (abort preserves completed answers without defaulting unanswered questions) -->
+6. The first accepted response settles its invocation across Chat and Terminal, dismissing the other surface. <!-- @test: src/__tests__/routes/chat-integration.test.ts (REQ-AGENT-224: stale question answers cannot affect a replacement generation) --> <!-- @test: src/__tests__/routes/chat-integration.test.ts (REQ-AGENT-224: browser answer envelopes cannot claim automatic provenance or another primary) --> <!-- @impl: web-ui/src/chat/upstream/client/src/components/interactive-renderers/BatchRenderer.tsx::BatchRenderer --> <!-- @test: host/__tests__/chat-questions.test.js (transmits complete manual choices, distinct freeform, notes/global note through only the native public API) --> <!-- @test: host/__tests__/chat-questions.test.js (matches verdicts to both native tool call and attempt; a late unrelated refusal cannot reopen a settled question) --> <!-- @test: host/__tests__/chat-questions.test.js (uses the actual native result to distinguish successful dismissal from cancellation) --> <!-- @test: web-ui/src/chat/__tests__/questionnaire.test.tsx (preserves exact per-question notes and global note through steps and review edits, attaching global note only to the final entry) --> <!-- @manual: Verify composed cross-surface policy and first-render deadline in Integration; authored adapter/renderer cases are not runtime acceptance. --> <!-- @impl: image/chat/primary-questions.mjs::primaryQuestions -->
+7. Switching surfaces or reconnecting recovers the same still-pending questionnaire. <!-- @test: src/__tests__/routes/chat-integration.test.ts (REQ-AGENT-224: stale question answers cannot affect a replacement generation) --> <!-- @test: src/__tests__/routes/chat-integration.test.ts (REQ-AGENT-224: browser answer envelopes cannot claim automatic provenance or another primary) --> <!-- @impl: web-ui/src/chat/upstream/client/src/components/interactive-renderers/BatchRenderer.tsx::BatchRenderer --> <!-- @test: host/__tests__/chat-questions.test.js (transmits complete manual choices, distinct freeform, notes/global note through only the native public API) --> <!-- @test: host/__tests__/chat-questions.test.js (matches verdicts to both native tool call and attempt; a late unrelated refusal cannot reopen a settled question) --> <!-- @test: host/__tests__/chat-questions.test.js (uses the actual native result to distinguish successful dismissal from cancellation) --> <!-- @test: web-ui/src/chat/__tests__/questionnaire.test.tsx (preserves exact per-question notes and global note through steps and review edits, attaching global note only to the final entry) --> <!-- @manual: Verify composed cross-surface policy and first-render deadline in Integration; authored adapter/renderer cases are not runtime acceptance. --> <!-- @impl: image/chat/primary-questions.mjs::primaryQuestions -->
 
 **Constraints:**
 
-- Scope remains the managed Pi questionnaire under [REQ-AGENT-218](#req-agent-218-bounded-pi-questionnaire-wait).
+- Native correlated verdicts determine acceptance and manual/automatic/cancelled completion outcomes. <!-- @impl: image/chat/primary-questions.mjs::primaryQuestions --> <!-- @test: host/__tests__/chat-questions.test.js (does not treat bus completion as provider acceptance; a rejected native verdict restores the mirror) --> <!-- @test: host/__tests__/chat-questions.test.js (browser cancellation uses native cancellation; abort/error cleanup does not pretend the user cancelled) -->
+- Questionnaire scope remains governed by [REQ-AGENT-218](#req-agent-218-bounded-pi-questionnaire-wait).
 
 **Priority:** P1
 
 **Dependencies:** [REQ-AGENT-218](#req-agent-218-bounded-pi-questionnaire-wait)
 
-**Verification:** SDK-wrapped questionnaire tests with actual TUI input, native-dialog responses and a platform clock.
+**Verification:** Existing SDK-wrapped native questionnaire coverage retains its scope. Added 2.15.0 public settlement/native expiry cases and primary Chat mirror tests are authored only; no execution or runtime claim is made for the new integration.
 
-**Status:** Implemented
+**Status:** Planned
 
 ---
 
@@ -154,16 +159,16 @@ These compatibility anchors resolve dated changelog references to retired review
 
 **Constraints:**
 
-- Reviewed upstream pins and archive integrity remain unchanged.
+- Retain exact version/source-integrity guards for reviewed 2.12.0/2.13.8 layouts and the authorized 2.15.0 profile, without SDK or deadline-helper changes. <!-- @impl: scripts/patch-rpiv-question-timeout.mjs::patchQuestionnaireTimeout --> <!-- @test: preseed/agents/pi/test/questionnaire-timeout.test.mjs (source allowlist rejects) -->
 - Preparation failure cannot be treated as successful policy installation.
 
 **Priority:** P1
 
 **Dependencies:** [REQ-AGENT-210](#req-agent-210-managed-extension-startup-preparation), [REQ-AGENT-218](#req-agent-218-bounded-pi-questionnaire-wait)
 
-**Verification:** Actual pinned package, executable startup/shadow-pin fixtures and existing packaged-image gates; final image/deployed acceptance remains separate.
+**Verification:** Actual-package/startup/shadow-pin coverage is retained. The added 2.15.0 profile, complete public answers/cancellation versus native expiry, native notes/global notes and drift rejection are authored in `preseed/agents/pi/test/questionnaire-timeout.test.mjs`; updated startup publication coverage is authored in `host/__tests__/rpiv-bump-gate.test.js`. Neither is executed evidence for this update. Dependency locks are regenerated; packaged-image CI and deployed acceptance remain pending.
 
-**Status:** Implemented
+**Status:** Planned
 
 ---
 
@@ -4111,6 +4116,45 @@ None.
 **Verification:** Automated settings and R2 round-trip tests
 
 **Status:** Implemented
+
+---
+
+### REQ-AGENT-224: Shared live Pi Chat and session-local surfaces
+
+**Intent:** Users can choose a beginner Chat surface for the configured live primary Pi without creating a second conversation or replacing Codeflare's session, Terminal, or Browser IDE ownership.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Eligible Pi sessions in both modes expose session-local Chat/Terminal controls alongside the existing VS Code action. <!-- @test: web-ui/src/__tests__/components/Layout-chat.test.tsx (REQ-AGENT-224: Standard Pi may use Chat but cannot acquire the advanced VS Code entitlement) --> <!-- @test: web-ui/src/__tests__/components/Layout-chat.test.tsx (REQ-AGENT-224: VS Code opens its existing authenticated named window without replacing Chat or its conversation) --> <!-- @test: src/__tests__/routes/chat-integration.test.ts (REQ-AGENT-224: %s primary is not silently replaced by Pi) --> <!-- @impl: web-ui/src/components/Layout.tsx::openSessionSurface -->
+2. Chat and Terminal control the same configured live primary and ongoing conversation across either creation workspace. <!-- @test: src/__tests__/routes/chat-integration.test.ts (REQ-AGENT-224: explicit %s/%s attachment preserves owner and generation without a wake) --> <!-- @manual: In disposable Integration sessions, establish actual primary process/run identity and a running deterministic tool in all four mode/workspace combinations; switch surfaces and verify continuation and secondary/IDE/child/operator isolation. The HTTP fixture is not proof of process identity. --> <!-- @impl: host/src/server.ts::readPrimaryIdentity -->
+3. Explicit Chat/Terminal entry adopts or starts the configured primary idempotently, including prewarm reuse without duplicate runtimes. <!-- @test: web-ui/src/__tests__/components/Layout-chat.test.tsx (REQ-IDE-048 / REQ-IDE-049 / REQ-TERM-035: normal %s VS Code selection stays editor-first until explicit surface entry) --> <!-- @test: src/__tests__/routes/chat-integration.test.ts (REQ-SESSION-002 / REQ-AGENT-224: %s attach and reconnect never wake compute) --> <!-- @test: host/__tests__/chat-boundary.test.js (REQ-AGENT-224: routes explicit HTTP attachment through the authenticated optional adapter) --> <!-- @impl: host/src/session-manager.ts::ensurePrimary --> <!-- @test: host/__tests__/chat-primary.test.js (REQ-AGENT-224: Chat-only entry adopts the exact prewarm without a hidden terminal client) --> <!-- @test: host/__tests__/chat-proxy.test.js (REQ-AGENT-224: concurrent explicit attach returns actual primary identity, with no terminal client or manual input) --> <!-- @manual: Verify composed Host late entry/concurrent adoption in Integration; authored fixtures do not establish deployed process identity. --> <!-- @impl: host/src/server.ts::ensurePrimary -->
+4. A surface switch disposes hidden browser ownership without stopping the primary or ongoing tools. <!-- @test: web-ui/src/__tests__/components/Layout-chat.test.tsx (REQ-AGENT-224: %s surface switches unmount hidden ownership without stopping or restamping the session) --> <!-- @test: web-ui/src/__tests__/components/Layout-chat.test.tsx (REQ-AGENT-224: Chat on a secondary classic tab returns to primary without resetting tab order or tiling) --> <!-- @manual: Verify real PTY/tool survival, Herdr pane return and hidden-terminal socket absence; the shell renderer fixture proves unmounting, not native socket disposal. --> <!-- @impl: web-ui/src/components/TerminalArea.tsx::TerminalArea -->
+5. Chat presents the primary conversation, attachments, progress, questions and errors using the pinned Simple presentation. <!-- @test: web-ui/src/__tests__/components/Layout-chat.test.tsx (REQ-AGENT-224: the mount keeps Send and omits management and advanced stop affordances) --> <!-- @manual: Inspect the integrated Simple surface and its bounded transcript on desktop and mobile; unchanged imported renderers are not separately re-tested. --> <!-- @impl: web-ui/src/chat/ChatMount.tsx::mountChat -->
+6. Returning to Chat restores only that session’s in-memory composer draft. <!-- @test: web-ui/src/__tests__/components/Layout-chat.test.tsx (REQ-AGENT-224: drafts survive surface unmount but are session-local and not persisted) --> <!-- @test: web-ui/src/__tests__/components/Layout-chat.test.tsx (REQ-AGENT-224: deleting a session clears its unsent draft before that identity is reused) --> <!-- @manual: Verify logout clears retained session drafts before another account uses the shell. --> <!-- @impl: web-ui/src/components/Layout.tsx::Layout -->
+7. Chat preserves accessible keyboard/mobile operation alongside existing Terminal/IDE behavior. <!-- @test: web-ui/src/__tests__/components/Layout-chat.test.tsx (REQ-AGENT-224: surface controls remain native keyboard-focusable buttons at phone width) --> <!-- @test: web-ui/src/__tests__/components/Layout-chat.test.tsx (REQ-AGENT-224: auth expiry during explicit entry is visible and does not leave a hidden terminal or retry loop) --> <!-- @manual: Verify actual mobile/keyboard/scrolling and existing Terminal/IDE/MultiView regressions in the delivered application. --> <!-- @impl: web-ui/src/components/Layout.tsx::Layout -->
+
+**Constraints:**
+
+- Reuse pinned public Dashboard embed/transport within Codeflare’s shell, without SDK patches, private hooks or competing ownership.
+- Enforce the [bounded Chat API](../../documentation/lanes/api-reference.md#shared-primary-pi-chat) before forwarding; missing adapters and stale/stopped bindings fail closed.
+- Keep native pending-input handling and honest buffer labels, without additional send/receipt queues or cancellation guarantees.
+- Stop targets only the bound primary; reconnect never resends handed prompts. <!-- @test: web-ui/src/__tests__/components/Layout-chat.test.tsx (REQ-AGENT-224: Pi Stop emits only the bound-primary abort, never container Stop or IDE termination) --> <!-- @test: web-ui/src/__tests__/components/Layout-chat.test.tsx (REQ-AGENT-224: the mount sends to the attached primary and does not resend a handed prompt when the surface reconnects) --> <!-- @test: src/__tests__/routes/chat-integration.test.ts (REQ-AGENT-224: a stale generation cannot attach or reconnect to a replacement Pi) --> <!-- @manual: Verify in-flight tool and pending-input continuity with the composed primary adapter; do not re-test unchanged upstream queue/reducer internals. --> <!-- @impl: host/src/chat-proxy.ts::createChatProxy -->
+- Terminal return selects the classic primary tab or Herdr primary pane without resetting topology; stamps, defaults and authenticated VS Code behavior stay unchanged under [REQ-TERM-035](terminal.md#req-term-035-terminal-readiness-follows-mode-and-workspace).
+- Hidden surfaces own no terminal socket; MultiView remains terminal-only.
+- Drafts remain memory-only, clear on logout/deletion, and introduce no preference or deep-link format.
+- Questions follow [REQ-AGENT-218](#req-agent-218-bounded-pi-questionnaire-wait), [REQ-AGENT-219](#req-agent-219-pi-questionnaire-cancellation-and-isolation), [REQ-AGENT-220](#req-agent-220-managed-questionnaire-preparation), never browser provenance or another timer/authority.
+- Attendance/idle follow [REQ-TERM-023](terminal.md#req-term-023-away-only-agent-notification-delivery)/[REQ-SESSION-005](session-lifecycle.md#req-session-005-input-based-idle-detection); integrity/delivery follow [REQ-AGENT-147](#req-agent-147-signed-managed-agent-configuration-releases)/[REQ-OPS-001](operations.md#req-ops-001-deploy-workflow-trigger-and-pre-deploy-pipeline). <!-- @impl: host/src/session.ts::registerAgentEventClient --> <!-- @test: host/__tests__/session-chat-notifications.test.js (shares terminal/Chat cancellation while keeping PTY bytes and resize ownership terminal-only) -->
+- Omit advanced/management controls while preserving the theme and bounded scrolling.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-003](#req-agent-003-agent-cli-auto-started-in-tab-1), [REQ-AGENT-211](#req-agent-211-classic-agent-transcript-resume), [REQ-AGENT-218](#req-agent-218-bounded-pi-questionnaire-wait), [REQ-AGENT-219](#req-agent-219-pi-questionnaire-cancellation-and-isolation), [REQ-AGENT-220](#req-agent-220-managed-questionnaire-preparation), [REQ-IDE-048](browser-ide.md#req-ide-048-default-workspace-and-dashboard-owned-vs-code-sessions), [REQ-TERM-035](terminal.md#req-term-035-terminal-readiness-follows-mode-and-workspace), [REQ-TERM-023](terminal.md#req-term-023-away-only-agent-notification-delivery), [REQ-AGENT-150](#req-agent-150-independent-managed-release-activation-validation), [REQ-AGENT-154](#req-agent-154-build-compatible-managed-release-discovery), [REQ-AGENT-162](#req-agent-162-session-start-managed-release-snapshot), [REQ-OPS-028](operations.md#req-ops-028-deploy-verification-and-outcome-gate), [REQ-OPS-029](operations.md#req-ops-029-automatic-manual-deploy-verification-reuse), [REQ-SESSION-002](session-lifecycle.md#req-session-002-one-container-per-session-isolation), [REQ-SESSION-004](session-lifecycle.md#req-session-004-idle-containers-sleep-after-configurable-timeout), [REQ-SESSION-005](session-lifecycle.md#req-session-005-input-based-idle-detection), [REQ-TERM-001](terminal.md#req-term-001-terminal-surface-count-follows-session-mode), [REQ-TERM-011](terminal.md#req-term-011-visible-terminal-panes-own-websocket-connections), [REQ-TERM-012](terminal.md#req-term-012-multiview-virtual-session-workspace), [REQ-TERM-024](terminal.md#req-term-024-pi-native-terminal-notification-producer), [REQ-TERM-028](terminal.md#req-term-028-notification-reconnect-reconciliation-and-cancellation), [REQ-TERM-031](terminal.md#req-term-031-herdr-notification-compatibility-boundary), [REQ-TERM-034](terminal.md#req-term-034-terminal-mode-assignment-is-immutable)
+
+**Verification:** Worker/Host adapters, primary adoption, Solid shell/React Simple mount, questionnaire glue/opt-in BatchRenderer and input/notification integration source and first-party tests are authored only. The initial exact-head CI failed; corrected source/tests await a new exact-head run, with no local behavioral execution or deployed acceptance claimed. The initial compatibility waiver is user direction, not executed qualification. Untouched imported/SDK suites are not duplicated. Exact-head CI and disposable Integration acceptance must establish actual same-run process/tool continuation, all classic/Herdr × Terminal/VS Code combinations, adoption/isolation, question/deadline behavior, notification/idle and browser outcomes. Changed dependency locks are regenerated with scripts disabled; matching signed runtime-hash publication/adoption remains pending. Automatic compiler sync remains main/develop-only. The owner approved a one-off pin to the exact reviewed, CI-green feature SHA through the existing signed publisher; no new release mechanism or signature/hash bypass is authorized.
+
+**Status:** Planned
 
 ---
 

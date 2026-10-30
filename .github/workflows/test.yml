@@ -21,7 +21,8 @@ name: PR Checks
 # Topology: the `changes` job path-filters the diff; the lanes run in
 # PARALLEL, each gated on its filter (all lanes run on workflow_dispatch).
 # The `summary` job — check name "test", the required branch-protection
-# context — aggregates: failure/cancelled in any needed lane fails it,
+# context — merges backend coverage and aggregates: a coverage failure or
+# failure/cancelled in any needed lane fails it,
 # skipped lanes (nothing relevant changed) pass it, and it reconciles the
 # shard reports against the tree so no suite can go missing quietly.
 #
@@ -732,36 +733,6 @@ jobs:
       - name: Check against the budget
         run: node scripts/ci/check-bundle-size.mjs /tmp/wrangler-dry-run.log
 
-  coverage-backend:
-    name: Coverage merge (backend)
-    needs: [changes, backend-tests]
-    if: >-
-      needs.changes.outputs.full == 'true' ||
-      needs.changes.outputs.backend == 'true'
-    runs-on: ${{ vars.RUNNER || 'ubuntu-24.04' }}
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
-      - uses: ./.github/actions/merge-coverage
-        with:
-          artifact-pattern: 'backend-shard-*'
-          artifact-prefix: 'backend-shard'
-          expected-shards: '12'
-          slug: backend
-          package-root: .
-          changed-base: ${{ github.event.pull_request.base.sha }}
-          changed-line-threshold: '80'
-          # Statement percentage is a volatile whole-tree aggregate and is not a
-          # product contract. Changed-line coverage and the branch/function/line
-          # floors remain; do not fail an otherwise covered change on rounding.
-          statements-threshold: '0'
-          branches-threshold: '80'
-          functions-threshold: '89'
-          lines-threshold: '89'
-
   coverage-frontend:
     name: Coverage merge (frontend)
     needs: [changes, frontend-tests]
@@ -958,7 +929,7 @@ jobs:
           rm -rf "$RUNNER_TEMP/pi-runtime"
           mkdir -p "$RUNNER_TEMP/pi-runtime/npm"
           ln -s "$GITHUB_WORKSPACE/preseed/agents/pi/node_modules" "$RUNNER_TEMP/pi-runtime/npm/node_modules"
-          node -e 'const fs=require("fs");const p=require("./preseed/agents/pi/package.json");const packages=Object.entries(p.dependencies).map(([name,version])=>name==="context-mode"?{source:`npm:${name}@${version}`,extensions:[],skills:[]}:name==="pi-open-tui"?{source:`npm:${name}@${version}`,extensions:[]}:`npm:${name}@${version}`);fs.writeFileSync(process.argv[1],JSON.stringify({packages}));' "$RUNNER_TEMP/pi-runtime/settings.json"
+          node -e 'const fs=require("fs");const p=require("./preseed/agents/pi/package.json");const packages=Object.entries(p.dependencies).filter(([name])=>name!=="@blackbelt-technology/pi-dashboard-extension"&&name!=="@blackbelt-technology/pi-dashboard-server").map(([name,version])=>name==="context-mode"?{source:`npm:${name}@${version}`,extensions:[],skills:[]}:name==="pi-open-tui"?{source:`npm:${name}@${version}`,extensions:[]}:`npm:${name}@${version}`);fs.writeFileSync(process.argv[1],JSON.stringify({packages}));' "$RUNNER_TEMP/pi-runtime/settings.json"
           node scripts/verify-pi-prompt.mjs \
             --generated src/lib/agent-seed.generated.ts \
             --runtime-agent-dir "$RUNNER_TEMP/pi-runtime" \
@@ -1381,7 +1352,6 @@ jobs:
       - typecheck
       - workflow-audit
       - bundle-size
-      - coverage-backend
       - coverage-frontend
       - backend-tests
       - backend-node-tests
@@ -1404,12 +1374,55 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Merge backend coverage
+        id: backend-coverage
+        if: >-
+          always() && needs.backend-tests.result == 'success' &&
+          (needs.changes.outputs.full == 'true' || needs.changes.outputs.backend == 'true')
+        uses: ./.github/actions/merge-coverage
+        with:
+          artifact-pattern: 'backend-shard-*'
+          artifact-prefix: 'backend-shard'
+          expected-shards: '12'
+          slug: backend
+          package-root: .
+          changed-base: ${{ github.event.pull_request.base.sha }}
+          changed-line-threshold: '80'
+          # Statement percentage is a volatile whole-tree aggregate and is not a
+          # product contract. Changed-line coverage and the branch/function/line
+          # floors remain; do not fail an otherwise covered change on rounding.
+          statements-threshold: '0'
+          branches-threshold: '80'
+          functions-threshold: '89'
+          lines-threshold: '89'
+
+      - name: Download suite reports
+        if: always()
+        continue-on-error: true
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: '{backend-node-*,frontend-*,landing,browser-ide}'
+          path: /tmp/test-artifacts
+
+      - name: Reuse backend shard reports
+        if: always() && needs.backend-tests.result == 'success'
+        run: |
+          mkdir -p /tmp/test-artifacts
+          cp -R "$RUNNER_TEMP/backend-coverage-shards/." /tmp/test-artifacts/
+
       - name: Aggregate lane results
+        if: always()
         env:
           RESULTS: ${{ toJSON(needs) }}
           FULL: ${{ needs.changes.outputs.full }}
+          COVERAGE_RESULT: ${{ steps.backend-coverage.outcome }}
         run: |
           echo "$RESULTS" | jq -r 'to_entries[] | "\(.key): \(.value.result)"'
+          BACKEND=$(echo "$RESULTS" | jq -r '.["backend-tests"].result')
+          if [ "$BACKEND" = "success" ] && [ "$COVERAGE_RESULT" != "success" ]; then
+            echo "::error::Backend coverage did not succeed: $COVERAGE_RESULT"
+            exit 1
+          fi
           BAD=$(echo "$RESULTS" | jq -r 'to_entries[] | select(.value.result == "failure" or .value.result == "cancelled") | .key')
           if [ -n "$BAD" ]; then
             echo "::error::Failed lanes: $(echo "$BAD" | tr '\n' ' ')"
@@ -1436,14 +1449,6 @@ jobs:
             done
           fi
           echo "All lanes green (skipped = not affected)"
-
-      - name: Download suite reports
-        if: always()
-        continue-on-error: true
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          pattern: '{backend-*,frontend-*,landing,browser-ide}'
-          path: /tmp/test-artifacts
 
       - name: Reconcile suite coverage against the tree
         # Fail-closed: every test file in every suite's tree must appear in some

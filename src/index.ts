@@ -9,6 +9,7 @@ import sessionRoutes from './routes/session/index';
 import terminalRoutes, { validateWebSocketRoute, handleWebSocketUpgrade } from './routes/terminal';
 import vaultRoutes, { validateVaultRoute, handleVaultRequest } from './routes/vault';
 import { validateVscodeRoute, handleVscodeRequest } from './routes/vscode';
+import { handleChatRequest } from './routes/chat';
 import usersRoutes from './routes/users';
 import setupRoutes from './routes/setup/index';
 import storageRoutes from './routes/storage';
@@ -359,6 +360,13 @@ export default {
 
     const url = new URL(request.url);
     const onboardingLandingActive = isOnboardingLandingPageActive(env.ONBOARDING_LANDING_PAGE);
+
+    // Chat has one strict HTTP/WS boundary; unknown roads must not fall through
+    // to the SPA or a general Dashboard proxy. Like IDE, authenticate before
+    // forwarding upgrades outside Hono.
+    if (url.pathname === '/api/chat' || url.pathname.startsWith('/api/chat/')) {
+      return withSecurityHeaders(await handleChatRequest(request, env));
+    }
 
     // AUTH: WebSocket upgrade handled here before Hono middleware.
     // See also: src/routes/terminal.ts (WebSocket auth), src/middleware/auth.ts (HTTP auth)

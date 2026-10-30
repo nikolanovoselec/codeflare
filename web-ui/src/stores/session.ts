@@ -5,6 +5,7 @@ import * as api from '../api/client';
 import { upgradeAgentConfigs } from '../api/storage';
 import type { ManagedReleaseProgress } from '../api/client';
 import { terminalStore } from './terminal';
+import { terminalWorkspaceStore } from './terminal-workspace';
 import { logger } from '../lib/logger';
 import { applyOrderedProjection, type BackendLifecycle } from '../lib/session-presentation';
 import { cleanupSessionVaultCache, sweepOrphanVaultCaches } from '../lib/vault-cache';
@@ -402,7 +403,12 @@ async function loadSessions(): Promise<void> {
     for (const session of sessionsWithStatus) {
       if (thisGen !== loadSessionsGeneration) return;
 
-      if (session.workspace === 'vscode') {
+      const workspace = terminalWorkspaceStore.getActiveWorkspace();
+      // REQ-AGENT-224: catalog refresh must not dispose the explicitly entered
+      // single primary. Ordinary editor-first selection still owns no terminal.
+      const explicitPrimaryOpen = session.status === 'running' && workspace.kind === 'session'
+        && workspace.sessionId === session.id;
+      if (session.workspace === 'vscode' && !explicitPrimaryOpen) {
         cleanupTerminalsForSession(session.id);
       }
 

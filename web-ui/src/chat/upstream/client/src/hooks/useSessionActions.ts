@@ -1,0 +1,602 @@
+/**
+ * Session action callbacks extracted from App.tsx.
+ * Handles send, abort, resume, spawn, archive, rename, shutdown, terminal, and selection actions.
+ */
+
+import type { TerminalSession } from "@blackbelt-technology/pi-dashboard-shared/terminal-types.js";
+import type { DashboardSession, ImageContent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { useCallback } from "react";
+import { createInitialState, resolveInteractiveRequest, type SessionState } from "../lib/chat/event-reducer.js";
+import { encodePromptAnswer } from "@blackbelt-technology/pi-dashboard-shared/prompt-answer.js";
+import { randomUuid } from "../lib/util/random-uuid.js";
+import type { ResumePick } from "./useEndedSessionComposer.js";
+import type { SendVerdict } from "./useWebSocket.js";
+
+/**
+ * One in-flight spawn/resume awaiting its `session_added`. `focus: false`
+ * (set only when a caller opts out, e.g. the OpenSpec board) makes the
+ * correlation cleanup run WITHOUT navigating. Absent = default auto-focus.
+ * See change: openspec-board-spawn-no-focus.
+ */
+export interface PendingSpawnEntry {
+  cwd: string;
+  kind: "spawn" | "resume";
+  placeholderCwd?: string;
+  focus?: boolean;
+}
+
+export interface SessionActionDeps {
+  selectedId: string | undefined;
+  send: (msg: any) => SendVerdict | void;
+  navigate: (to: string) => void;
+  setMobileOpen: React.Dispatch<React.SetStateAction<boolean>>;
+  /**
+   * Read-only handle on the sessions map. Used by queue-management
+   * actions to look up an entry's text by id before clearing the
+   * optimistic `pendingPrompt` state. Pass the latest map from the
+   * component scope; useCallback captures by ref via this object.
+   */
+  sessions: Map<string, DashboardSession>;
+  setSessions: React.Dispatch<React.SetStateAction<Map<string, DashboardSession>>>;
+  setSessionStates: React.Dispatch<React.SetStateAction<Map<string, SessionState>>>;
+  /** Latest reducer state; stale UI callbacks must re-check retry eligibility. */
+  sessionStatesRef: React.MutableRefObject<Map<string, SessionState>>;
+  setSpawningCwds: React.Dispatch<React.SetStateAction<Set<string>>>;
+  setTerminals: React.Dispatch<React.SetStateAction<Map<string, TerminalSession>>>;
+  clearSpawningCwd: (cwd: string) => void;
+  spawnTimeoutsRef: React.MutableRefObject<Map<string, ReturnType<typeof setTimeout>>>;
+  pendingTerminalCwdRef: React.MutableRefObject<string | null>;
+  terminals: Map<string, TerminalSession>;
+  /**
+   * Maps client-minted `requestId` → originating click metadata. Populated
+   * by `handleSpawnSession` / `handleResumeSession`; consumed by
+   * `useMessageHandler.session_added` for exact auto-select correlation.
+   * See change: spawn-correlation-token.
+   */
+  pendingSpawnsRef: React.MutableRefObject<Map<string, PendingSpawnEntry>>;
+  /**
+   * The model / thinking-level the user picked in an ENDED session's composer,
+   * if any. Sent on the resuming `send_prompt` / `resume_session` (continue) so
+   * the server applies it to the resumed pi. See change: redesign-directory-home-split.
+   */
+  getResumePick?: (sessionId: string) => ResumePick | undefined;
+}
+
+
+export function useSessionActions(deps: SessionActionDeps) {
+  const {
+    selectedId, send, navigate, setMobileOpen,
+    sessions, setSessions, setSessionStates, sessionStatesRef, setSpawningCwds, setTerminals,
+    clearSpawningCwd, spawnTimeoutsRef, pendingTerminalCwdRef, terminals,
+    pendingSpawnsRef, getResumePick,
+  } = deps;
+
+  // UUIDv4 even in a non-secure context (plain-http LAN origin) — see randomUuid().
+  const mintRequestId = randomUuid;
+
+  const handleAbort = useCallback(() => {
+    if (!selectedId) return;
+    // Drop any optimistic `pendingPrompt` for this session. Abort tells
+    // the bridge to drop its queue (`clearQueueOnAbort`), so any text
+    // that was being represented as a queue chip will no longer appear
+    // in the next `queue_state` snapshot. Without this client-side
+    // clear, the chip-vs-card swap rule un-fires and the optimistic
+    // card pops back into view until pi finally emits `agent_end`.
+    // See change: surface-mid-turn-prompt-queue.
+    setSessionStates((prev) => {
+      const next = new Map(prev);
+      const current = next.get(selectedId);
+      if (current?.pendingPrompt) {
+        next.set(selectedId, { ...current, pendingPrompt: undefined });
+      }
+      return next;
+    });
+    send({ type: "abort", sessionId: selectedId });
+  }, [selectedId, send, setSessionStates]);
+
+  const handleForceKill = useCallback(() => {
+    if (!selectedId) return;
+    // Same rationale as handleAbort: force_kill nukes the pi process, so
+    // any optimistic pendingPrompt is doubly defunct. Clear it client-
+    // side so the optimistic card doesn't linger past the kill.
+    setSessionStates((prev) => {
+      const next = new Map(prev);
+      const current = next.get(selectedId);
+      if (current?.pendingPrompt) {
+        next.set(selectedId, { ...current, pendingPrompt: undefined });
+      }
+      return next;
+    });
+    send({ type: "force_kill", sessionId: selectedId });
+  }, [selectedId, send, setSessionStates]);
+
+  // Graceful stop-after-turn: let the agent finish the current turn, then
+  // shut the session down cleanly. Distinct from abort (mid-stream) and
+  // force_kill (SIGKILL). See change: adopt-pi-071-072-073-features.
+  const handleStopAfterTurn = useCallback(() => {
+    if (!selectedId) return;
+    send({ type: "stop_after_turn", sessionId: selectedId });
+  }, [selectedId, send]);
+
+  // ── Follow-up queue mutation (bridge-owned buffer) ──────────────────
+  //
+  // These four senders dispatch the wire messages defined in
+  // browser-protocol.ts. The bridge mutates `bridgeFollowUp` locally; pi
+  // is not involved. Steer mutation is intentionally NOT exposed (steer
+  // drains too fast for it to matter; user direction).
+  //
+  // See change: rework-mid-turn-prompt-queue.
+
+  const removeFollowUpEntry = useCallback((index: number) => {
+    if (!selectedId) return;
+    send({ type: "remove_followup_entry", sessionId: selectedId, index });
+  }, [selectedId, send]);
+
+  // Text only: the entry's images live in the bridge buffer and are preserved
+  // across the edit. The browser never holds the bytes after the initial
+  // `send_prompt`, so it has nothing to re-send.
+  // See change: fix-bridge-followup-image-drop (D5).
+  const editFollowUpEntry = useCallback((index: number, text: string) => {
+    if (!selectedId) return;
+    send({ type: "edit_followup_entry", sessionId: selectedId, index, text });
+  }, [selectedId, send]);
+
+  const promoteFollowUpEntry = useCallback((index: number) => {
+    if (!selectedId) return;
+    send({ type: "promote_followup_entry", sessionId: selectedId, index });
+  }, [selectedId, send]);
+
+  const clearFollowUpEntries = useCallback((indices: number[] | "all") => {
+    if (!selectedId) return;
+    send({ type: "clear_followup_entries", sessionId: selectedId, indices });
+  }, [selectedId, send]);
+
+  const handleCancelPending = useCallback(() => {
+    if (selectedId) {
+      setSessionStates((prev) => {
+        const next = new Map(prev);
+        const current = next.get(selectedId);
+        if (current?.pendingPrompt) {
+          next.set(selectedId, { ...current, pendingPrompt: undefined });
+        }
+        return next;
+      });
+      send({ type: "abort", sessionId: selectedId });
+    }
+  }, [selectedId, send, setSessionStates]);
+
+  const handleRespondToUi = useCallback((requestId: string, result?: unknown, cancelled?: boolean) => {
+    if (selectedId) {
+      send({ type: "extension_ui_response", sessionId: selectedId, requestId, result, cancelled });
+      // Also send via PromptBus protocol for new-style prompts.
+      // Encoding precedence (multiselect-aware): see shared/prompt-answer.ts.
+      // Fix: change fix-multiselect-auto-cancel-on-dashboard.
+      const answer = encodePromptAnswer(result, cancelled);
+      // Standalone method:"input" carries pasted images that cannot fit in
+      // the string `answer`; lift them onto the message. Batch images ride
+      // inside `answer` (JSON answers) and are not duplicated here.
+      // See change: add-ask-user-input-multiline-paste.
+      const images =
+        result && typeof result === "object" && Array.isArray((result as any).images)
+          ? (result as any).images
+          : undefined;
+      send({ type: "prompt_response", sessionId: selectedId, promptId: requestId, answer, cancelled, source: "dashboard-default", images } as any);
+      setSessionStates((prev) => {
+        const next = new Map(prev);
+        const current = next.get(selectedId);
+        if (current) {
+          next.set(selectedId, resolveInteractiveRequest(current, requestId, result, cancelled));
+        }
+        return next;
+      });
+      setSessions((prev) => {
+        const next = new Map(prev);
+        const session = next.get(selectedId);
+        if (session?.currentTool === "ask_user") {
+          next.set(selectedId, { ...session, currentTool: undefined });
+        }
+        return next;
+      });
+    }
+  }, [selectedId, send, setSessionStates, setSessions]);
+
+  const handleFlowAction = useCallback((sessionId: string, action: string, opts?: { flowName?: string; task?: string; description?: string }) => {
+    send({
+      type: "flow_management",
+      sessionId,
+      action,
+      flowName: opts?.flowName,
+      task: opts?.task,
+      description: opts?.description,
+    });
+  }, [send]);
+
+  const handleSend = useCallback((text: string, images?: ImageContent[], delivery?: "steer" | "followUp") => {
+    if (selectedId) {
+      // An ended session with no saved transcript can NEVER be resumed OR
+      // forked — the server's `sessionFile` guard runs before any mode
+      // branching. Detect it here so the bubble offers a fresh session in the
+      // same folder ("Fork instead") rather than a doomed Retry.
+      // See change: stop-discarding-known-session-state (task 2.3a).
+      const target = sessions.get(selectedId);
+      const cannotResume = target?.status === "ended" && !target.sessionFile;
+      // An ended session carries the composer's model/thinking pick so the
+      // server applies it to the resume (ignored for a live session).
+      const pick = target?.status === "ended" ? getResumePick?.(selectedId) : undefined;
+      const verdict = cannotResume
+        ? undefined
+        : send({
+            type: "send_prompt",
+            sessionId: selectedId,
+            text,
+            images,
+            delivery,
+            ...(pick?.model ? { model: pick.model } : {}),
+            ...(pick?.thinkingLevel ? { thinkingLevel: pick.thinkingLevel } : {}),
+          });
+      // A verdict that says the message never left the browser is a KNOWN
+      // failure: mark the bubble failed immediately and skip the 30 s safety
+      // path entirely (a `failed` bubble never arms it).
+      // See change: stop-discarding-known-session-state.
+      const rejected = verdict?.status === "rejected";
+      const failureCause = cannotResume ? ("no_session_file" as const) : rejected ? ("connection" as const) : undefined;
+      // Correlate a queued send with its outbox entry so a late drop report
+      // matches THIS bubble, not one carrying the same text.
+      const queueId = verdict?.status === "queued" ? verdict.entryId : undefined;
+      // Optimistic feedback, scoped to idle / fresh-turn sends only. Mid-turn
+      // sends are governed by `mid-turn-prompt-queue` (authoritative
+      // `pendingQueues` chips) and SHALL NOT write `pendingPrompt`. The bridge
+      // `prompt_received` ack later confirms (status:"sent") or drops this on a
+      // same-tick race. See change: optimistic-prompt-progress.
+      setSessionStates((prev) => {
+        const current = prev.get(selectedId);
+        // Skip only when we KNOW the session is mid-turn. A freshly-selected
+        // idle session may have no state entry yet — treat absent as idle and
+        // seed from createInitialState() so the bubble still shows.
+        if (current && (current.isStreaming || current.status === "streaming")) return prev;
+        const base = current ?? createInitialState();
+        const next = new Map(prev);
+        next.set(selectedId, {
+          ...base,
+          pendingPrompt: {
+            text,
+            images,
+            delivery,
+            status: failureCause ? "failed" : "sending",
+            ...(failureCause ? { failureCause } : {}),
+            ...(queueId !== undefined ? { queueId } : {}),
+          },
+        });
+        return next;
+      });
+    }
+  }, [selectedId, send, setSessionStates, sessions, getResumePick]);
+
+  const handleSelect = useCallback((id: string) => {
+    navigate(`/session/${id}`);
+    setMobileOpen(false);
+  }, [navigate, setMobileOpen]);
+
+  const handleRenameSession = useCallback((sessionId: string, name: string) => {
+    send({ type: "rename_session", sessionId, name });
+  }, [send]);
+
+  const handleShutdownSession = useCallback((sessionId: string) => {
+    // Optimistically flip the transient `closing` flag so the card can render
+    // a closing state (dim + spinner + disabled ✕) immediately, instead of
+    // sitting visually identical until `session_removed` lands 2-4s later.
+    // Mirrors handleResumeSession's optimistic `resuming` flip.
+    setSessions((prev) => {
+      const next = new Map(prev);
+      const existing = next.get(sessionId);
+      if (existing) next.set(sessionId, { ...existing, closing: true });
+      return next;
+    });
+    send({ type: "shutdown", sessionId });
+    // Safety revert: the normal path never reaches this — `session_removed`
+    // removes the card first. But if that broadcast never arrives, clear
+    // `closing` after a bounded timeout so the card can't spin forever and
+    // the user can retry.
+    setTimeout(() => {
+      setSessions((prev) => {
+        const existing = prev.get(sessionId);
+        if (!existing || !existing.closing) return prev;
+        const next = new Map(prev);
+        next.set(sessionId, { ...existing, closing: false });
+        return next;
+      });
+    }, 10_000);
+  }, [send, setSessions]);
+
+  const handleKillProcess = useCallback((sessionId: string, pgid: number) => {
+    send({ type: "kill_process", sessionId, pgid });
+  }, [send]);
+
+  const handleSendPromptToSession = useCallback(
+    (sessionId: string, text: string, images?: ImageContent[]) => {
+      const verdict = send({ type: "send_prompt", sessionId, text, images });
+      const rejected = verdict?.status === "rejected";
+      const queueId = verdict?.status === "queued" ? verdict.entryId : undefined;
+      // Same idle-scoped optimistic write as handleSend, for the card/board
+      // quick-send path. The session may not be selected, so we read its state
+      // from the map; if absent or streaming, skip the optimistic write and let
+      // the bridge ack / queue_update drive rendering.
+      // See change: optimistic-prompt-progress.
+      setSessionStates((prev) => {
+        const current = prev.get(sessionId);
+        if (current && (current.isStreaming || current.status === "streaming")) return prev;
+        const base = current ?? createInitialState();
+        const next = new Map(prev);
+        next.set(sessionId, {
+          ...base,
+          pendingPrompt: {
+            text,
+            images,
+            status: rejected ? "failed" : "sending",
+            ...(rejected ? { failureCause: "connection" as const } : {}),
+            ...(queueId !== undefined ? { queueId } : {}),
+          },
+        });
+        return next;
+      });
+    },
+    [send, setSessionStates],
+  );
+
+  /**
+   * A queued prompt that was dropped undelivered (outbox expiry/eviction). The
+   * `send` verdict said `queued`, so nothing failed at call time; this is the
+   * late, honest correction. Matches the send-time `rejected` arm: cause is the
+   * dashboard connection, never the session. Only flips a prompt still in
+   * `sending` with the SAME text, so a later retype is not clobbered.
+   * See change: stop-discarding-known-session-state (test-plan Q1).
+   */
+  const markPromptUndelivered = useCallback((sessionId: string, queueId: number) => {
+    setSessionStates((prev) => {
+      const current = prev.get(sessionId);
+      const pending = current?.pendingPrompt;
+      if (!current || !pending || pending.status !== "sending" || pending.queueId !== queueId) return prev;
+      const next = new Map(prev);
+      next.set(sessionId, {
+        ...current,
+        pendingPrompt: { ...pending, status: "failed", failureCause: "connection" },
+      });
+      return next;
+    });
+  }, [setSessionStates]);
+
+  const handleRetrySession = useCallback((sessionId: string) => {
+    // A click can race with recovery after the button rendered. Re-read the
+    // latest lifecycle through a stable ref before routing the hidden command.
+    const current = sessionStatesRef.current.get(sessionId);
+    if (!current?.lastError || current.retryState || current.retryCancelled || current.isStreaming) return;
+    // Active settled sessions cannot use resume_session (that path safely
+    // rejects live carriers). The typed retry_session message is forwarded by
+    // the server to the owning bridge, which starts a non-user custom turn via
+    // pi.sendMessage(triggerTurn:true). Replaces the legacy send_prompt sentinel
+    // `/__dashboard_retry`. See change:
+    // replace-dashboard-retry-command-with-protocol-message.
+    send({ type: "retry_session", sessionId });
+  }, [send, sessionStatesRef]);
+
+  const handleResumeSession = useCallback((sessionId: string, mode: "continue" | "fork", entryId?: string) => {
+    setSessions((prev) => {
+      const next = new Map(prev);
+      const existing = next.get(sessionId);
+      if (existing) next.set(sessionId, { ...existing, resuming: true });
+      return next;
+    });
+    // Mint requestId so session_added (for fork mode) carries spawnRequestId
+    // and the client can auto-select the new fork. cwd is left empty here
+    // because resume's parent-session lookup happens server-side; we only
+    // need requestId for the eventual session_added match.
+    // See change: spawn-correlation-token.
+    const requestId = mintRequestId();
+    pendingSpawnsRef.current.set(requestId, { cwd: "", kind: "resume" });
+    // Explicit "front" placement: matches today's default but makes the
+    // intent visible at the wire level. See change:
+    // differentiate-resume-intent-by-trigger.
+    // The composer's model/thinking pick rides a `continue` only (a fork keeps
+    // the parent model; the server drops it anyway).
+    const pick = mode === "continue" ? getResumePick?.(sessionId) : undefined;
+    send({
+      type: "resume_session",
+      sessionId,
+      mode,
+      placement: "front",
+      requestId,
+      ...(entryId ? { entryId } : {}),
+      ...(pick?.model ? { model: pick.model } : {}),
+      ...(pick?.thinkingLevel ? { thinkingLevel: pick.thinkingLevel } : {}),
+    });
+  }, [send, setSessions, pendingSpawnsRef, getResumePick]);
+
+  /**
+   * Drag-to-resume entry point. The drop position was just persisted via
+   * `reorder_sessions`, so the resume MUST NOT clobber it — send placement
+   * "keep" so the server's ended→alive branch leaves sessionOrder alone.
+   * See change: differentiate-resume-intent-by-trigger.
+   */
+  const handleResumeSessionKeepPosition = useCallback((sessionId: string) => {
+    setSessions((prev) => {
+      const next = new Map(prev);
+      const existing = next.get(sessionId);
+      if (existing) next.set(sessionId, { ...existing, resuming: true });
+      return next;
+    });
+    const requestId = mintRequestId();
+    pendingSpawnsRef.current.set(requestId, { cwd: "", kind: "resume" });
+    send({ type: "resume_session", sessionId, mode: "continue", placement: "keep", requestId });
+  }, [send, setSessions, pendingSpawnsRef]);
+
+  const handleSpawnSession = useCallback((
+    cwd: string,
+    attachProposal?: string,
+    opts?: {
+      gitWorktreeBase?: string;
+      placeholderCwd?: string;
+      initialPrompt?: string;
+      focus?: boolean;
+      agent?: string;
+      /** Spawn-time model (`provider/id`) and thinking level; server validates. */
+      model?: string;
+      thinkingLevel?: string;
+    },
+  ): string => {
+    // The placeholder/disabled-button group cwd. For a normal spawn this is
+    // the spawn cwd; for a worktree spawn the host passes the PARENT repo
+    // cwd (the group that will host the new session per the grouping
+    // precedence). See change: add-worktree-spawn-placeholder-card.
+    const placeholderCwd = opts?.placeholderCwd ?? cwd;
+    setSpawningCwds((prev) => {
+      if (prev.has(placeholderCwd)) return prev;
+      const next = new Set(prev);
+      next.add(placeholderCwd);
+      return next;
+    });
+    // Guard against a double timeout: for worktree spawns `onSpawnStart`
+    // already armed one for this group cwd. Only arm when none exists so a
+    // single timer governs the whole in-flight window.
+    if (!spawnTimeoutsRef.current.has(placeholderCwd)) {
+      const timer = setTimeout(() => {
+        spawnTimeoutsRef.current.delete(placeholderCwd);
+        clearSpawningCwd(placeholderCwd);
+      }, 30_000);
+      spawnTimeoutsRef.current.set(placeholderCwd, timer);
+    }
+    // Mint requestId for exact auto-select correlation when session_added
+    // arrives. See change: spawn-correlation-token. The entry carries
+    // `placeholderCwd` so the clear keys on the group cwd, not the worktree
+    // path. See change: add-worktree-spawn-placeholder-card.
+    const requestId = mintRequestId();
+    pendingSpawnsRef.current.set(requestId, {
+      cwd,
+      kind: "spawn",
+      placeholderCwd,
+      // Only record the opt-out; default entries stay byte-identical.
+      // See change: openspec-board-spawn-no-focus.
+      ...(opts?.focus === false ? { focus: false } : {}),
+    });
+    // The optional `attachProposal` field is consumed server-side and applied
+    // when the bridge issues `session_register`. See change:
+    // add-folder-task-checker-and-spawn-attach.
+    // The optional `gitWorktreeBase` is similarly server-consumed and
+    // written to `.meta.json` on register so the WORKSPACE-subcard pill
+    // can render `created from <base>` later. See change:
+    // add-worktree-spawn-dialog.
+    send({
+      type: "spawn_session",
+      cwd,
+      requestId,
+      ...(attachProposal ? { attachProposal } : {}),
+      ...(opts?.gitWorktreeBase ? { gitWorktreeBase: opts.gitWorktreeBase } : {}),
+      // Pre-injected first prompt (e.g. `/skill:project-init` from the no-hook
+      // Initialize button). See change: project-init-skill-and-profiles.
+      ...(opts?.initialPrompt ? { initialPrompt: opts.initialPrompt } : {}),
+      // Spawn-time choices from the folder home. Old servers ignore them.
+      // See change: redesign-directory-home-split.
+      ...(opts?.model ? { model: opts.model } : {}),
+      ...(opts?.thinkingLevel ? { thinkingLevel: opts.thinkingLevel } : {}),
+      // Configured ACP agent (picker / sibling inheritance); absent → pi, so the
+      // frame is byte-identical to before. See change: add-acp-session-driver (D16).
+      ...(opts?.agent ? { agent: opts.agent } : {}),
+    });
+    // Returned so a caller (the folder home) can recognise ITS spawn's failure.
+    return requestId;
+  }, [send, clearSpawningCwd, setSpawningCwds, spawnTimeoutsRef, pendingSpawnsRef]);
+
+  // archive-sessions-lazy-load: manual archive replaces manual hide. The
+  // server owns eligibility (ended → immediate; idle-alive → pending intent
+  // + end; running → error), so the client just sends — the `session_archived`
+  // broadcast deletes the card and sets the folder count. No optimistic
+  // write: unlike hide, archiving removes the row entirely.
+  const handleArchiveSession = useCallback((sessionId: string) => {
+    send({ type: "archive_session", sessionId });
+  }, [send]);
+
+  const handleUnarchiveSession = useCallback((sessionId: string) => {
+    send({ type: "unarchive_session", sessionId });
+  }, [send]);
+
+  // Optimistic tag write: mirror the new array locally, then send
+  // set_session_tags (server normalizes + rebroadcasts). See change: add-session-tags.
+  const handleSetSessionTags = useCallback((sessionId: string, tags: string[]) => {
+    setSessions((prev) => {
+      const next = new Map(prev);
+      const existing = next.get(sessionId);
+      if (existing) next.set(sessionId, { ...existing, tags });
+      return next;
+    });
+    send({ type: "set_session_tags", sessionId, tags });
+  }, [send, setSessions]);
+
+  // Global tag delete: strip a tag from every carrying session server-side.
+  // No optimistic write — the server fans out one `session_updated` per changed
+  // session (derived-union tags rebroadcast). See change:
+  // sidebar-tag-collapse-and-delete.
+  const removeTagGlobally = useCallback((tag: string) => {
+    send({ type: "remove_tag_globally", tag });
+  }, [send]);
+
+  const handleCreateTerminal = useCallback((cwd: string) => {
+    pendingTerminalCwdRef.current = cwd;
+    send({ type: "create_terminal", cwd });
+  }, [send, pendingTerminalCwdRef]);
+
+  const handleKillTerminal = useCallback((terminalId: string) => {
+    send({ type: "kill_terminal", terminalId });
+  }, [send]);
+
+  // Inline interactive terminal card lifecycle. Open spawns an ephemeral PTY
+  // and writes inline_terminal_open into the session chat stream; close
+  // captures the transcript and writes inline_terminal_close.
+  // See change: add-inline-terminal-card.
+  const handleOpenInlineTerminal = useCallback((sessionId: string, cwd: string) => {
+    send({ type: "open_inline_terminal", sessionId, cwd });
+  }, [send]);
+
+  const handleCloseInlineTerminal = useCallback((sessionId: string, terminalId: string) => {
+    send({ type: "close_inline_terminal", sessionId, terminalId });
+  }, [send]);
+
+  const handleRenameTerminal = useCallback((terminalId: string, title: string) => {
+    setTerminals((prev) => {
+      const next = new Map(prev);
+      const existing = next.get(terminalId);
+      if (existing) next.set(terminalId, { ...existing, title, manuallyRenamed: true });
+      return next;
+    });
+    send({ type: "rename_terminal", terminalId, title });
+  }, [send, setTerminals]);
+
+  const handleTerminalTitle = useCallback((terminalId: string, title: string) => {
+    setTerminals((prev) => {
+      const existing = prev.get(terminalId);
+      if (!existing || existing.manuallyRenamed) return prev;
+      const next = new Map(prev);
+      next.set(terminalId, { ...existing, title });
+      return next;
+    });
+    const t = terminals.get(terminalId);
+    if (!t?.manuallyRenamed) {
+      send({ type: "rename_terminal", terminalId, title });
+    }
+  }, [send, terminals, setTerminals]);
+
+  const handleListFiles = useCallback((query: string, regex?: boolean) => {
+    if (selectedId) send({ type: "list_files", sessionId: selectedId, query, ...(regex ? { regex: true } : {}) });
+  }, [selectedId, send]);
+
+  return {
+    handleAbort, handleForceKill, handleStopAfterTurn, handleCancelPending, handleRespondToUi, handleFlowAction, handleSend,
+    handleSelect, handleRenameSession, handleShutdownSession, handleKillProcess,
+    handleSendPromptToSession, handleRetrySession, handleResumeSession, handleResumeSessionKeepPosition, handleSpawnSession,
+    markPromptUndelivered,
+    handleArchiveSession, handleUnarchiveSession, handleSetSessionTags, removeTagGlobally,
+    handleCreateTerminal, handleKillTerminal, handleRenameTerminal, handleTerminalTitle,
+    handleOpenInlineTerminal, handleCloseInlineTerminal,
+    handleListFiles,
+    // Bridge-owned follow-up buffer mutation senders. See change: rework-mid-turn-prompt-queue.
+    removeFollowUpEntry, editFollowUpEntry, promoteFollowUpEntry, clearFollowUpEntries,
+  };
+}

@@ -36,6 +36,8 @@ interface DashboardProps {
   onCreateSession: (agentType?: AgentType, tabConfig?: TabConfig[]) => void;
   onStartSession: (id: string) => void;
   onOpenVscodeSession: (id: string) => void;
+  onOpenChatSession?: (id: string) => void;
+  onOpenTerminalSession?: (id: string) => void;
   onOpenSessionById: (id: string) => void;
   onOpenMultiView?: () => void;
   onStopSession: (id: string) => void;
@@ -43,6 +45,7 @@ interface DashboardProps {
   viewState: 'dashboard' | 'expanding' | 'collapsing';
   userName?: string;
   onSettingsClick?: () => void;
+  onLogout?: () => void;
   enterpriseMode?: boolean;
 }
 
@@ -312,6 +315,13 @@ const Dashboard: Component<DashboardProps> = (props) => {
     setMenuState({ isOpen: true, position: { x: e.clientX, y: e.clientY }, session });
   };
 
+  const canOpenPrimarySurface = () => {
+    const session = props.sessions.find(candidate => candidate.id === menuState().session?.id);
+    return session?.status === 'running' && session.agentType === 'pi'
+      && (session.tabConfig?.find(tab => tab.id === '1')?.command ?? (session.tabConfig?.length ? '' : session.agentType)) === 'pi'
+      && Number.isSafeInteger(session.generation) && session.generation! >= 0;
+  };
+
   const handleMenuClose = () => {
     setMenuState({ isOpen: false, position: { x: 0, y: 0 }, session: null });
   };
@@ -402,7 +412,7 @@ const Dashboard: Component<DashboardProps> = (props) => {
                         type="button"
                         class="header-user-dropdown-item header-user-dropdown-item--danger"
                         data-testid="header-user-dropdown-logout"
-                        onClick={() => { window.location.href = '/auth/logout'; }}
+                        onClick={() => { props.onLogout?.(); window.location.href = '/auth/logout'; }}
                       >
                         <Icon path={mdiLogout} size={16} />
                         <span>Logout</span>
@@ -541,6 +551,10 @@ const Dashboard: Component<DashboardProps> = (props) => {
                       || (menuState().session?.workspace === 'vscode' && menuState().session?.status === 'error')}
                     stopLabel={menuState().session?.status === 'stopping' ? 'Retry Stop' : 'Stop'}
                     sessionName={menuState().session?.name || ''}
+                    onOpenChat={canOpenPrimarySurface() && props.onOpenChatSession
+                      ? () => props.onOpenChatSession?.(menuState().session!.id) : undefined}
+                    onOpenTerminal={canOpenPrimarySurface() && props.onOpenTerminalSession
+                      ? () => props.onOpenTerminalSession?.(menuState().session!.id) : undefined}
                     onStop={() => { if (menuState().session) props.onStopSession(menuState().session!.id); }}
                     onDelete={() => { if (menuState().session) props.onDeleteSession(menuState().session!.id); }}
                     onRename={(name) => { if (menuState().session) void sessionStore.renameSession(menuState().session!.id, name); }}

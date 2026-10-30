@@ -15,10 +15,10 @@ const body = apply.slice(apply.indexOf('        run: |\n') + '        run: |\n'.
   .split('\n').map(line => line.startsWith('          ') ? line.slice(10) : line).join('\n');
 const names = ['rpiv-advisor', 'rpiv-ask-user-question', 'rpiv-todo'];
 
-function runBump(failure, packageName = '@juicesharp/rpiv-advisor') {
+function runBump(failure, packageName = '@juicesharp/rpiv-advisor', questionnaireCandidate = '2.13.8') {
   const questionnaireLane = packageName === '@juicesharp/rpiv-ask-user-question';
   const current = questionnaireLane ? '2.12.0' : '1.0.0';
-  const candidate = questionnaireLane ? '2.13.8' : '1.0.1';
+  const candidate = questionnaireLane ? questionnaireCandidate : '1.0.1';
   const questionnaireVersion = questionnaireLane ? candidate : '2.12.0';
   const home = mkdtempSync(join(tmpdir(), 'rpiv-bump-gate-'));
   const repo = join(home, 'repo'); const remote = join(home, 'remote.git');
@@ -56,9 +56,11 @@ function runBump(failure, packageName = '@juicesharp/rpiv-advisor') {
     }
     // Authentic transforms plus a mocked SDK prove publication gating, not real-SDK compatibility.
     const archive = join(ROOT, `host/__fixtures__/rpiv-ask-user-question-${questionnaireVersion}.tgz`);
-    const archiveSha256 = questionnaireLane
-      ? '1c27ed656cf56b0af7eb45d1e4240fc3c9e3e064a05880f15acc380893159cd5'
-      : 'f407893638f1893a3730444f467b4edc1924cf2d206ae584f7525e1e8ae860f6';
+    const archiveSha256 = {
+      '2.12.0': 'f407893638f1893a3730444f467b4edc1924cf2d206ae584f7525e1e8ae860f6',
+      '2.13.8': '1c27ed656cf56b0af7eb45d1e4240fc3c9e3e064a05880f15acc380893159cd5',
+      '2.15.0': '3b3dfb5f2836e897c2884a70a80afcde2a5370af4ced8a2c927e0ed7bf8fb81f',
+    }[questionnaireVersion];
     assert.equal(createHash('sha256').update(readFileSync(archive)).digest('hex'),
       archiveSha256, 'reviewed npm archive integrity contract');
     const questionnaire = join(repo, 'preseed/agents/pi/node_modules/@juicesharp/rpiv-ask-user-question');
@@ -84,20 +86,23 @@ function runBump(failure, packageName = '@juicesharp/rpiv-advisor') {
   } finally { rmSync(home, { recursive: true, force: true }); }
 }
 
-for (const packageName of names.map(name => `@juicesharp/${name}`)) {
-  it(`RPIV bump publishes only after both installation trees pass patched startup (${packageName})`, () => {
-    const { result, published, manifests } = runBump(null, packageName);
+for (const [packageName, questionnaireCandidate] of names.flatMap(name =>
+  (name === 'rpiv-ask-user-question' ? ['2.13.8', '2.15.0'] : ['2.13.8'])
+    .map(version => [`@juicesharp/${name}`, version]))) {
+  const lane = packageName === '@juicesharp/rpiv-ask-user-question' ? `${packageName}@${questionnaireCandidate}` : packageName;
+  it(`RPIV bump publishes only after both installation trees pass patched startup (${lane})`, () => {
+    const { result, published, manifests } = runBump(null, packageName, questionnaireCandidate);
     assert.equal(result.status, 0, result.stderr);
     assert.notEqual(published, '');
     assert.deepEqual(manifests.map(manifest => manifest.dependencies), [
-      { [packageName]: packageName === '@juicesharp/rpiv-ask-user-question' ? '2.13.8' : '1.0.1', 'unrelated-agent': '3.0.0' },
+      { [packageName]: packageName === '@juicesharp/rpiv-ask-user-question' ? questionnaireCandidate : '1.0.1', 'unrelated-agent': '3.0.0' },
       { 'unrelated-agent': '3.0.0' },
     ], 'the published candidate belongs to the extension tree; shared SDK startup must not require a duplicate installation');
   });
 
   for (const failure of ['api', 'warning', 'tool', 'questionnaire', 'questionnaire-source']) {
-    it(`RPIV bump leaves the remote branch absent when shared startup fails: ${failure} (${packageName})`, () => {
-      const { result, published } = runBump(failure, packageName);
+    it(`RPIV bump leaves the remote branch absent when shared startup fails: ${failure} (${lane})`, () => {
+      const { result, published } = runBump(failure, packageName, questionnaireCandidate);
       assert.notEqual(result.status, 0);
       assert.equal(published, '', 'an incompatible candidate must never reach the remote');
     });

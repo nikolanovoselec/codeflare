@@ -271,6 +271,9 @@ COPY image/herdr/config.toml /etc/codeflare/herdr/config.toml
 COPY image/herdr/LICENSE image/herdr/provenance.json /usr/share/licenses/herdr/
 COPY --chmod=0755 image/herdr/codeflare-herdr-terminal /usr/local/bin/codeflare-herdr-terminal
 COPY --chmod=0755 image/herdr/codeflare-agent-event /usr/local/bin/codeflare-agent-event
+# Process-scoped primary bridge activation; never copied to user extension/settings lists.
+COPY --chmod=0755 image/chat/codeflare-primary-pi /usr/local/bin/codeflare-primary-pi
+COPY image/chat/primary-bridge.ts image/chat/primary-identity.mjs image/chat/primary-questions.mjs /opt/codeflare/chat-primary/
 
 # Install zoxide from GitHub releases (pinned version, not in Debian bookworm repos)
 RUN ZOXIDE_VERSION="0.10.0" && \
@@ -834,7 +837,7 @@ COPY preseed/agents/pi/extensions/ /opt/codeflare/pi-agent/extensions/
 RUN mkdir -p /opt/codeflare/jiti-warm-tmp /home/user/.pi/agent && \
     ln -s /opt/codeflare/pi-agent/npm /home/user/.pi/agent/npm && \
     cp -r /opt/codeflare/pi-agent/extensions /home/user/.pi/agent/extensions && \
-    PI_WARM_PACKAGES="$(node -e 'const d=require("/opt/codeflare/pi-agent/npm/package.json").dependencies;process.stdout.write(JSON.stringify({packages:Object.entries(d).map(([n,v])=>n==="pi-open-tui"?{source:`npm:${n}@${v}`,extensions:[]}:`npm:${n}@${v}`)}))')" && \
+    PI_WARM_PACKAGES="$(node -e 'const d=require("/opt/codeflare/pi-agent/npm/package.json").dependencies;process.stdout.write(JSON.stringify({packages:Object.entries(d).filter(([n])=>!n.startsWith("@blackbelt-technology/pi-dashboard-")).map(([n,v])=>n==="pi-open-tui"?{source:`npm:${n}@${v}`,extensions:[]}:`npm:${n}@${v}`)}))')" && \
     printf '%s' "$PI_WARM_PACKAGES" > /home/user/.pi/agent/settings.json && \
     goal_source="/opt/codeflare/pi-agent/npm/node_modules/@narumitw/pi-goal/src/index.ts" && \
     plan_source="/opt/codeflare/pi-agent/npm/node_modules/@narumitw/pi-plan-mode/dist/index.ts" && \

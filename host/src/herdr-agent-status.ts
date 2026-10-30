@@ -1,5 +1,38 @@
 import net from 'node:net';
 
+// Supported Herdr 0.9.5 socket API (schema Method::PaneFocus/PaneTarget).
+// Focus the pane stamped by the configured primary itself, never the currently
+// focused/newest/detected agent. This cannot create a pane or send terminal input.
+export function focusHerdrPane(socketPath: string, paneId: string): Promise<void> {
+  if (!socketPath.startsWith('/') || Buffer.byteLength(socketPath) > 107
+    || !/^[A-Za-z0-9._:-]{1,128}$/.test(paneId)) return Promise.reject(new Error('Primary pane unavailable'));
+  return new Promise((resolve, reject) => {
+    const socket = net.createConnection(socketPath);
+    let buffer = '';
+    const finish = (error?: Error): void => {
+      socket.destroy();
+      if (error) reject(error); else resolve();
+    };
+    socket.setTimeout(5000, () => finish(new Error('Primary focus timed out')));
+    socket.once('error', () => finish(new Error('Primary pane unavailable')));
+    socket.once('connect', () => socket.write(`${JSON.stringify({
+      id: 'codeflare-primary-focus', method: 'pane.focus', params: { pane_id: paneId },
+    })}\n`));
+    socket.on('data', chunk => {
+      buffer += chunk.toString('utf8');
+      if (Buffer.byteLength(buffer) > 64 * 1024) { finish(new Error('Invalid primary focus response')); return; }
+      const newline = buffer.indexOf('\n');
+      if (newline < 0) return;
+      try {
+        const response = JSON.parse(buffer.slice(0, newline));
+        if (response.id !== 'codeflare-primary-focus' || response.error || !response.result) throw new Error('focus failed');
+        finish();
+      } catch { finish(new Error('Primary pane focus refused')); }
+    });
+    socket.once('end', () => finish(new Error('Primary pane disconnected')));
+  });
+}
+
 export const HERDR_COMPLETION_DELAY_MS = 10 * 60_000;
 const RECONNECT_DELAY_MS = 1_000;
 const SNAPSHOT_TIMEOUT_MS = 5_000;
