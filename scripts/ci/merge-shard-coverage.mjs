@@ -92,9 +92,20 @@ function addCounts(target, source, label) {
   }
 }
 
+function functionMapIdentity(map) {
+  // V8 may suffix display names per shard; retain every other metadata field.
+  return Object.fromEntries(Object.entries(map).map(([id, entry]) => {
+    const metadata = { ...entry };
+    delete metadata.name;
+    return [id, metadata];
+  }));
+}
+
 function mergeFileCoverage(target, source) {
   for (const map of ['statementMap', 'fnMap', 'branchMap']) {
-    if (JSON.stringify(target[map]) !== JSON.stringify(source[map])) {
+    const targetMap = map === 'fnMap' ? functionMapIdentity(target[map]) : target[map];
+    const sourceMap = map === 'fnMap' ? functionMapIdentity(source[map]) : source[map];
+    if (JSON.stringify(targetMap) !== JSON.stringify(sourceMap)) {
       throw new Error(`${map} differs between shards for ${target.path}`);
     }
   }

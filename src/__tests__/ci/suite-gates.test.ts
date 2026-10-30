@@ -752,6 +752,66 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
     expect(belowFloor.stderr).toContain('does not meet global threshold');
   });
 
+  it('REQ-OPS-022: function aliases preserve merged coverage and structural gates', () => {
+    const artifacts = join(work, 'alias-artifacts');
+    const source = join(work, 'src', 'aliased.ts');
+    const record = (name: string, hits: number) => ({
+      path: source,
+      statementMap: { 0: { start: { line: 1, column: 0 }, end: { line: 1, column: 1 } } },
+      fnMap: { [String(0)]: {
+        name,
+        decl: { start: { line: 2, column: 0 }, end: { line: 2, column: 4 } },
+        loc: { start: { line: 2, column: 6 }, end: { line: 3, column: 1 } },
+        line: 2,
+      } },
+      branchMap: {},
+      s: { 0: 1 },
+      f: { [String(0)]: hits },
+      b: {},
+    });
+    type FunctionCoverage = ReturnType<typeof record>;
+    const run = (second: FunctionCoverage, label: string) => {
+      for (const [index, payload] of [record('json', 0), second].entries()) {
+        const dir = join(artifacts, `shard-${index + 1}`);
+        mkdirSync(dir, { recursive: true });
+        writeFileSync(join(dir, 'coverage-final.json'), JSON.stringify({ [source]: payload }));
+      }
+      return spawnSync(process.execPath, [
+        COVERAGE_MERGER, artifacts, join(work, label), '2', 'shard', '100', '100', '100', '100',
+      ], { encoding: 'utf8' });
+    };
+
+    // CLI success at a 100% function floor requires the second shard's hit.
+    const aliased = record('json_2', 1);
+    const merged = run(aliased, 'alias-output');
+    expect(merged.status, merged.stderr).toBe(0);
+    expect(merged.stdout).toContain('All files | 100 | 100 | 100 | 100 |');
+    expect(readFileSync(join(work, 'alias-output', 'lcov.info'), 'utf8')).toContain('DA:1,2');
+
+    const mismatches: Array<[string, (coverage: FunctionCoverage) => void]> = [
+      ['declaration', coverage => { coverage.fnMap['0'].decl.start.column = 1; }],
+      ['body', coverage => { coverage.fnMap['0'].loc.end.line = 4; }],
+      ['other-metadata', coverage => { coverage.fnMap['0'].line = 3; }],
+      ['counter-id', coverage => {
+        coverage.fnMap['1'] = coverage.fnMap['0'];
+        delete coverage.fnMap['0'];
+        coverage.f['1'] = coverage.f['0'];
+        delete coverage.f['0'];
+      }],
+    ];
+    for (const [label, mutate] of mismatches) {
+      const incompatible = structuredClone(aliased);
+      mutate(incompatible);
+      const rejected = run(incompatible, `alias-${label}`);
+      expect(rejected.status, label).toBe(1);
+      expect(rejected.stderr, label).toContain('fnMap differs between shards');
+    }
+
+    const belowFloor = run(record('json_2', 0), 'alias-below-floor');
+    expect(belowFloor.status).toBe(1);
+    expect(belowFloor.stderr).toContain('Coverage for functions (0%) does not meet global threshold (100%)');
+  });
+
   it('path-gates backend and frontend coverage through one reusable action', () => {
     const workflow = parseYaml(readFileSync(join(REPO, '.github/workflows/test.yml'), 'utf8')) as {
       jobs: Record<string, {
