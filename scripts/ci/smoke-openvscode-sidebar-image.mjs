@@ -17,7 +17,7 @@ import {
   writeFile,
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 const ROOT = '/opt/codeflare/openvscode';
@@ -331,7 +331,9 @@ export async function verifyBundledSecurityRuntimes({ bracePaths, runtimeRoot = 
         if (error.code === 'ENOENT') continue;
         throw error;
       }
-      bracePaths.push(join(agent, 'node_modules/brace-expansion'));
+      bracePaths.push(dirname(
+        createRequire(join(agent, 'package.json')).resolve('brace-expansion/package.json'),
+      ));
     }
   }
   const require = createRequire(import.meta.url);
