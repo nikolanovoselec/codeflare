@@ -217,14 +217,16 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 1. The existing session dropdown context menu offers `KILL` for `starting`, `running`, `unreachable` and persisted `stopping`, but not for a confirmed-stopped session. <!-- @impl: web-ui/src/components/SessionDropdown.tsx::SessionDropdown --> <!-- @impl: web-ui/src/components/SessionContextMenu.tsx::SessionContextMenu --> <!-- @test: web-ui/src/__tests__/components/SessionDropdown.test.tsx (REQ-SESSION-038: KILL in the existing session menu) --> <!-- @test: web-ui/src/__tests__/components/SessionContextMenu.test.tsx (REQ-SESSION-038: optional KILL action) -->
 2. KILL remains usable while a local Stop attempt is pending. <!-- @impl: web-ui/src/stores/session.ts::killSession --> <!-- @impl: web-ui/src/components/SessionDropdown.tsx::SessionDropdown --> <!-- @test: web-ui/src/__tests__/stores/session-kill.test.ts (REQ-SESSION-038: session KILL through the public store and HTTP boundary) --> <!-- @test: web-ui/src/__tests__/components/SessionDropdown.test.tsx (REQ-SESSION-038: KILL in the existing session menu) -->
-3. Clicking KILL targets only the selected session and closes its context menu. <!-- @impl: web-ui/src/components/SessionDropdown.tsx::SessionDropdown --> <!-- @impl: web-ui/src/components/SessionContextMenu.tsx::SessionContextMenu --> <!-- @impl: web-ui/src/api/client.ts::killSession --> <!-- @test: web-ui/src/__tests__/components/SessionDropdown.test.tsx (REQ-SESSION-038: KILL in the existing session menu) --> <!-- @test: web-ui/src/__tests__/components/SessionContextMenu.test.tsx (REQ-SESSION-038: optional KILL action) -->
-4. The frontend retains the session row, workspace identity and tabs; its mounted runtime is disposed only after newer authoritative stopped evidence. <!-- @impl: web-ui/src/stores/session.ts::killSession --> <!-- @impl: web-ui/src/stores/session.ts::loadSessions --> <!-- @test: web-ui/src/__tests__/stores/session-kill.test.ts (REQ-SESSION-038: session KILL through the public store and HTTP boundary) -->
+3. Clicking KILL targets only the selected session. <!-- @impl: web-ui/src/components/SessionDropdown.tsx::SessionDropdown --> <!-- @impl: web-ui/src/components/SessionContextMenu.tsx::SessionContextMenu --> <!-- @impl: web-ui/src/api/client.ts::killSession --> <!-- @test: web-ui/src/__tests__/components/SessionDropdown.test.tsx (REQ-SESSION-038: KILL in the existing session menu) --> <!-- @test: web-ui/src/__tests__/components/SessionContextMenu.test.tsx (REQ-SESSION-038: optional KILL action) -->
+4. The frontend retains the session row, workspace identity and tabs after KILL. <!-- @impl: web-ui/src/stores/session.ts::killSession --> <!-- @test: web-ui/src/__tests__/stores/session-kill.test.ts (REQ-SESSION-038: session KILL through the public store and HTTP boundary) -->
 5. Failed or uncertain KILL presents a retryable error without inventing stopped or deleted state. <!-- @impl: web-ui/src/stores/session.ts::killSession --> <!-- @impl: web-ui/src/api/client.ts::killSession --> <!-- @test: web-ui/src/__tests__/stores/session-kill.test.ts (REQ-SESSION-038: session KILL through the public store and HTTP boundary) --> <!-- @test: web-ui/src/__tests__/api/session-kill.test.ts (REQ-SESSION-039 AC1: KILL HTTP contract) -->
 6. An active local KILL attempt suppresses duplicate submissions. <!-- @impl: web-ui/src/stores/session.ts::killSession --> <!-- @test: web-ui/src/__tests__/stores/session-kill.test.ts (REQ-SESSION-038: session KILL through the public store and HTTP boundary) -->
-7. Existing Stop, Rename, Delete and idle-timeout behavior remains unchanged. <!-- @impl: web-ui/src/components/SessionContextMenu.tsx::SessionContextMenu --> <!-- @impl: src/container/container-lifecycle.ts::destroy --> <!-- @test: web-ui/src/__tests__/components/SessionContextMenu.test.tsx (REQ-SESSION-038: optional KILL action) --> <!-- @test: src/__tests__/container/session-kill.test.ts (REQ-SESSION-039 / REQ-SESSION-040: DO-owned native force termination) -->
+7. The selected session's mounted runtime is disposed only after newer authoritative stopped evidence. <!-- @impl: web-ui/src/stores/session.ts::loadSessions --> <!-- @test: web-ui/src/__tests__/stores/session-kill.test.ts (REQ-SESSION-038: session KILL through the public store and HTTP boundary) -->
 
 **Constraints:**
 
+- Existing context-menu dismissal on action invocation remains unchanged. <!-- @impl: web-ui/src/components/SessionContextMenu.tsx::SessionContextMenu --> <!-- @test: web-ui/src/__tests__/components/SessionContextMenu.test.tsx (REQ-SESSION-038: optional KILL action) --> <!-- @test: web-ui/src/__tests__/components/SessionDropdown.test.tsx (REQ-SESSION-038: KILL in the existing session menu) -->
+- Existing Stop, Rename, Delete and idle-timeout behavior remains unchanged. <!-- @impl: web-ui/src/components/SessionContextMenu.tsx::SessionContextMenu --> <!-- @impl: src/container/container-lifecycle.ts::destroy --> <!-- @test: web-ui/src/__tests__/components/SessionContextMenu.test.tsx (REQ-SESSION-038: optional KILL action) --> <!-- @test: src/__tests__/container/session-kill.test.ts (REQ-SESSION-039 / REQ-SESSION-040: DO-owned native force termination) -->
 - No automatic recovery scheduler, idle-policy change or new user setting.
 - KILL does not promise to save unsynced container-local edits.
 
@@ -232,7 +234,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 **Dependencies:** [REQ-SESSION-006](#req-session-006-user-can-stop-restart-and-delete-sessions), [REQ-SESSION-039](#req-session-039-authorized-do-owned-native-kill), [REQ-SESSION-040](#req-session-040-kill-confirmation-retry-and-generation-fencing)
 
-**Verification:** Behavioral dropdown, context-menu, HTTP/client and store suites are authored; implementation awaits GREEN CI and hosted native qualification. These tests are not hosted proof.
+**Verification:** Behavioral dropdown, context-menu, HTTP/client and store suites have passing exact-tree CI evidence; hosted native qualification and owner acceptance remain pending. These tests are not hosted proof.
 
 **Status:** Planned
 
@@ -265,7 +267,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 **Dependencies:** [REQ-SESSION-006](#req-session-006-user-can-stop-restart-and-delete-sessions), [REQ-SESSION-009](#req-session-009-container-destroy-wipes-session-state), [REQ-SESSION-040](#req-session-040-kill-confirmation-retry-and-generation-fencing)
 
-**Verification:** Route and modeled DO/native-process behavioral suites are authored; implementation awaits GREEN CI and hosted native termination/disconnection qualification. Models are not hosted proof.
+**Verification:** Route and modeled DO/native-process behavioral suites have passing exact-tree CI evidence; hosted native termination/disconnection qualification remains pending. Models are not hosted proof.
 
 **Status:** Planned
 
@@ -296,7 +298,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 **Dependencies:** [REQ-SESSION-018](#req-session-018-d1-lifecycle-evidence-is-generation-fenced), [REQ-SESSION-035](#req-session-035-stale-stopping-retains-ownership-until-confirmed-exit)
 
-**Verification:** Route and modeled DO/native-process confirmation, retry and fencing suites are authored; implementation awaits GREEN CI and hosted qualification. Models are not hosted native termination proof.
+**Verification:** Route and modeled DO/native-process confirmation, retry and fencing suites have passing exact-tree CI evidence; hosted qualification remains pending. Models are not hosted native termination proof.
 
 **Status:** Planned
 

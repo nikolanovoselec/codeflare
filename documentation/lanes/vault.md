@@ -391,7 +391,9 @@ All operations are fail-safe: a missing global (SSR, fresh tab) or malformed `-i
 <a id="shutdown-bisync-reliability-req-vault-006"></a>
 ## Persistence and Finalization (REQ-VAULT-006)
 
-Vault durability depends on the lifecycle-owned final persistence drain documented in [Storage & Sync](storage-and-sync.md#manual-sync-triggers-req-stor-015). `Container.destroy()` is the authority: it requests the audited host drain with a 120-second sync budget, permits the host a 125-second internal boundary, and keeps teardown within the 135-second ceiling from [AD57](../decisions/README.md#ad57-135-second-shutdown-budget-for-final-bisync). The `entrypoint.sh` signal trap is only a best-effort backstop, not the primary shutdown path. <!-- @impl: src/container/container-lifecycle.ts::destroy --> <!-- @impl: src/container/container-metrics.ts::FINAL_SYNC_BUDGET_MS -->
+For graceful Stop/Delete, Vault durability depends on the lifecycle-owned final persistence drain documented in [Storage & Sync](storage-and-sync.md#manual-sync-triggers-req-stor-015). `Container.destroy()` is the authority: it requests the audited host drain with a 120-second sync budget, permits the host a 125-second internal boundary, and keeps teardown within the 135-second ceiling from [AD57](../decisions/README.md#ad57-135-second-shutdown-budget-for-final-bisync). The `entrypoint.sh` signal trap is only a best-effort backstop, not the primary shutdown path. <!-- @impl: src/container/container-lifecycle.ts::destroy --> <!-- @impl: src/container/container-metrics.ts::FINAL_SYNC_BUDGET_MS -->
+
+Explicit [KILL](api-reference.md) bypasses this final drain: persisted R2 files remain, but unsynced container-local Vault edits can be lost. Normal Stop/Delete still use the graceful drain.
 
 A failed or timed-out drain leaves recent Vault edits at risk because local disk is ephemeral. Operators should correlate the final-sync audit result and `shutdownElapsedMs`, then use [Storage & Sync failure recovery](storage-and-sync.md#troubleshooting) rather than treating SilverBullet readiness as persistence evidence.
 

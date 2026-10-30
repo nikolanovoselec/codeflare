@@ -146,7 +146,7 @@ describe('SessionContextMenu', () => {
   });
 
   describe('REQ-SESSION-038: optional KILL action', () => {
-    it('AC3: offers one KILL, invokes only that action and closes immediately', () => {
+    it('AC3 and inherited menu-dismissal constraint: offers one KILL, invokes only that action and closes immediately', () => {
       const actions: string[] = [];
       const [open, setOpen] = createSignal(true);
       const killProps = { canKill: true, onKill: () => { actions.push('kill'); } };
@@ -162,7 +162,7 @@ describe('SessionContextMenu', () => {
       expect(screen.queryByTestId('session-context-menu')).not.toBeInTheDocument();
     });
 
-    it('AC1/AC7: does not offer KILL when canKill is false', () => {
+    it('AC1 and inherited-behavior constraint: does not offer KILL when canKill is false', () => {
       const killProps = { canKill: false, onKill: () => { throw Error('Stopped sessions cannot be killed'); } };
       render(() => <SessionContextMenu {...defaultProps} {...killProps} />);
       expect(screen.queryByRole('button', { name: 'KILL' })).not.toBeInTheDocument();
@@ -171,7 +171,7 @@ describe('SessionContextMenu', () => {
       expect(screen.getByRole('button', { name: 'Delete' })).toBeEnabled();
     });
 
-    it('AC7: leaves existing callers without KILL callbacks unchanged', () => {
+    it('Inherited-behavior constraint: leaves existing callers without KILL callbacks unchanged', () => {
       render(() => <SessionContextMenu {...defaultProps} />);
       expect(screen.queryByRole('button', { name: 'KILL' })).not.toBeInTheDocument();
       expect(screen.getByRole('button', { name: 'Stop' })).toBeEnabled();
@@ -181,7 +181,7 @@ describe('SessionContextMenu', () => {
     });
 
     it.each(['Stop', 'Rename', 'Delete'] as const)(
-      'AC7: preserves the ordinary %s flow when KILL is available', action => {
+      'Inherited-behavior constraint: preserves the ordinary %s flow when KILL is available', action => {
         const actions: string[] = [];
         const [open, setOpen] = createSignal(true);
         const killProps = { canKill: true, onKill: () => { actions.push('kill'); } };

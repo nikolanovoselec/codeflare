@@ -127,7 +127,7 @@ describe('REQ-SESSION-038: session KILL through the public store and HTTP bounda
   });
 
   it.each(['starting', 'running', 'unreachable', 'stopping'] as const)(
-    'AC4: retains the %s row and runtime until newer authoritative stopped evidence', async status => {
+    'AC4/AC7: retains the %s row and runtime until newer authoritative stopped evidence', async status => {
       project(target, status, 11);
       await sessionStore.loadSessions();
       const originalTabs = tabs(target);
@@ -170,7 +170,7 @@ describe('REQ-SESSION-038: session KILL through the public store and HTTP bounda
   );
 
   it.each(['HTTP caller', 'confirmation poll'] as const)(
-    'AC2/AC4/AC6: suppresses duplicate KILL submissions without waiting for the Stop %s', async phase => {
+    'AC2/AC4/AC6/AC7: suppresses duplicate KILL submissions without waiting for the Stop %s', async phase => {
       const stopReply = deferred<Response>();
       const killReply = deferred<Response>();
       replyToStop = () => stopReply.promise;
@@ -223,7 +223,7 @@ describe('REQ-SESSION-038: session KILL through the public store and HTTP bounda
   );
 
   it.each(['failed', 'ambiguous'] as const)(
-    'AC4/AC5: a %s KILL shows failure, preserves the session/runtime and permits same-session retry', async outcome => {
+    'AC4/AC5/AC7: a %s KILL shows failure, preserves the session/runtime and permits same-session retry', async outcome => {
       const originalTabs = tabs(target);
       replyToKill = outcome === 'failed'
         ? async () => Response.json({ error: 'Force exit could not be confirmed' }, { status: 503 })
@@ -259,7 +259,7 @@ describe('REQ-SESSION-038: session KILL through the public store and HTTP bounda
     },
   );
 
-  it('AC4: accepted KILL with missing or unavailable status does not invent stopped or delete the mounted session', async () => {
+  it('AC4/AC7: accepted KILL with missing or unavailable status does not invent stopped or delete the mounted session', async () => {
     const originalTabs = tabs(target);
     const killing = killSession(target);
     await vi.advanceTimersByTimeAsync(0);

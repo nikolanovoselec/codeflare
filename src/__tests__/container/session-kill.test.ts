@@ -614,7 +614,7 @@ describe('REQ-SESSION-039 / REQ-SESSION-040: DO-owned native force termination',
     } finally { sync.resolve(); }
   });
 
-  it('ordinary Stop still drains and syncs before native exit when no KILL supersedes it (REQ-SESSION-038 AC7)', async () => {
+  it('ordinary Stop still drains and syncs before native exit when no KILL supersedes it (REQ-SESSION-038 inherited-behavior constraint)', async () => {
     const f = await fixture(); f.allowGraceful();
     const instance = await f.coordinator(), sync = f.hold('sync');
     const stop = observe(() => instance.stopSession(ref));
