@@ -10,7 +10,6 @@ import { driveDispatcherRuntime } from '../../../operators/runtime';
 import { createOperatorExecutionContext } from '../../../operators/execution-context';
 import { parseDispatcherOperation } from '../../../operators/operator-runtime-capability';
 import type { DispatcherCapacityPolicy } from '../../../operators/dispatcher-capacity-limits';
-import { setLogLevel } from '../../../lib/logger';
 import type { DispatcherBundle } from '../../../operators/distribution';
 import type { Env } from '../../../types';
 import { operatorOwnerKey } from '../../../operators/browser-activity';

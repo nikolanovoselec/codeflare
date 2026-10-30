@@ -1,5 +1,5 @@
 /// <reference types="@cloudflare/vitest-plugin/types" />
-import { type DiagnosticPage, type DiagnosticRecord, type DispatcherFixture, bytes, denyDiagnosticWrites, diagnosticJson, diagnosticSummary, diagnosticTraversal, diagnosticsBrowser, digest, encodeSdkHeader, fixture, genericWire, invalidPreparationRefusal, nativeProfileFiles, preparationFailures, prospectiveBase, read, remoteMutations, retainedFence, runtimeEnvelope, seedDiagnosticSnapshot, start } from './fixtures/dispatcher-production';
+import { type DiagnosticPage, type DiagnosticRecord, type DispatcherFixture, denyDiagnosticWrites, diagnosticJson, diagnosticSummary, diagnosticTraversal, diagnosticsBrowser, digest, encodeSdkHeader, fixture, genericWire, invalidPreparationRefusal, nativeProfileFiles, preparationFailures, prospectiveBase, remoteMutations, retainedFence, runtimeEnvelope, seedDiagnosticSnapshot, start } from './fixtures/dispatcher-production';
 import { describe, expect, it, vi } from 'vitest';
 import { Agent } from 'agents';
 import { Hono } from 'hono';
