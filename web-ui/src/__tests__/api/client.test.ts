@@ -539,6 +539,47 @@ describe('API Client', () => {
       vi.useRealTimers();
     });
 
+    it('REQ-SESSION-010 / REQ-SESSION-017: declined readiness stays retryable until its canonical receipt is accepted', async () => {
+      const details = { bucketName: 'my-bucket', container: 'container-abc', path: '/workspace' };
+      const ready = (revision: number) => Response.json({
+        stage: 'ready', progress: 100, message: 'Container ready',
+        generation: 8, revision, details,
+      });
+      const accepted: Array<{ generation?: number; revision?: number } | undefined> = [];
+      const errors: string[] = [];
+      mockFetch
+        .mockImplementation(async () => ready(43))
+        .mockResolvedValueOnce({ ok: true, status: 200, text: () => Promise.resolve('') })
+        .mockResolvedValueOnce(Response.json({
+          stage: 'mounting', progress: 90, message: 'Preparing terminal...',
+          generation: 8, revision: 41, details,
+        }))
+        .mockResolvedValueOnce(ready(42))
+        .mockResolvedValueOnce(ready(43));
+
+      const cleanup = startSession(
+        'session00123', () => {},
+        (projection?: { generation?: number; revision?: number }) => {
+          if (projection?.revision === 42) return false;
+          accepted.push(projection);
+          return true;
+        },
+        (error) => { errors.push(error); },
+      );
+      try {
+        await vi.advanceTimersByTimeAsync(0);
+        await vi.advanceTimersByTimeAsync(1500);
+        expect(accepted).toEqual([]);
+        await vi.advanceTimersByTimeAsync(1500);
+        expect(accepted).toEqual([{ generation: 8, revision: 43 }]);
+        await vi.advanceTimersByTimeAsync(3000);
+        expect(accepted).toEqual([{ generation: 8, revision: 43 }]);
+        expect(errors).toEqual([]);
+      } finally {
+        cleanup();
+      }
+    });
+
     it('REQ-SESSION-010 / REQ-SESSION-017: ready polling completes with only the validated canonical pair', async () => {
       const details = { bucketName: 'my-bucket', container: 'container-abc', path: '/workspace' };
       const completed: Array<{ generation?: number; revision?: number } | undefined> = [];

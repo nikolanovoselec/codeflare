@@ -1174,6 +1174,14 @@ describe('Session Store', () => {
   });
 
   describe('startup completion projection', () => {
+    const fixtureIds = new Set<string>();
+
+    afterEach(() => {
+      for (const id of fixtureIds) sessionStore.dismissInitProgressForSession(id);
+      fixtureIds.clear();
+      vi.mocked(api.startSession).mockReset();
+    });
+
     it.each([
       { run: 'fresh', generation: 0, revision: 0, acceptedGeneration: 1, acceptedRevision: 3 },
       { run: 'restart', generation: 7, revision: 40, acceptedGeneration: 8, acceptedRevision: 42 },
@@ -1181,6 +1189,7 @@ describe('Session Store', () => {
       'REQ-SESSION-010 / REQ-SESSION-017 / REQ-AGENT-224: $run startup publishes its canonical pair before running or promise completion',
       async ({ run, generation, revision, acceptedGeneration, acceptedRevision }) => {
         const id = `startup-${run}`;
+        fixtureIds.add(id);
         mockGetSessions.mockResolvedValue([{
           id, name: 'Terminal', workspace: 'terminal', terminalMode: 'classic',
           status: 'stopped', lifecycle: 'stopped', generation, revision,
@@ -1230,6 +1239,7 @@ describe('Session Store', () => {
       'REQ-SESSION-010 / REQ-AGENT-224: a delayed completion cannot overwrite a newer $newer or finish its startup',
       async ({ newer, generation, revision }) => {
         const id = `delayed-startup-${newer}`;
+        fixtureIds.add(id);
         const base = {
           id, name: 'Terminal', workspace: 'terminal' as const,
           createdAt: new Date().toISOString(), lastAccessedAt: new Date().toISOString(),
@@ -1268,6 +1278,119 @@ describe('Session Store', () => {
         });
       },
     );
+
+    it.each(['terminal', 'vscode'] as const)(
+      'REQ-SESSION-010 / REQ-SESSION-017: one %s startup recovers from an overtaken receipt without another Start',
+      async (workspace) => {
+        const id = `single-startup-${workspace}`;
+        fixtureIds.add(id);
+        const base = {
+          id, name: 'Single startup', workspace, terminalMode: 'classic' as const,
+          createdAt: new Date().toISOString(), lastAccessedAt: new Date().toISOString(),
+        };
+        mockGetSessions.mockResolvedValue([{
+          ...base, status: 'stopped', lifecycle: 'stopped', generation: 7, revision: 40,
+        }]);
+        await sessionStore.loadSessions();
+        let completeStart: ((projection?: { generation?: number; revision?: number }) => boolean | void) | undefined;
+        vi.mocked(api.startSession).mockImplementation((_id, _progress, onComplete) => {
+          completeStart = onComplete;
+          return () => {};
+        });
+        let completed = false;
+        const starting = sessionStore.startSession(id).then(() => { completed = true; });
+        mockGetSessions.mockResolvedValue([{
+          ...base, status: 'starting', lifecycle: 'starting', generation: 8, revision: 43,
+        }]);
+        await sessionStore.loadSessions();
+
+        completeStart!({ generation: 8, revision: 42 });
+        await Promise.resolve();
+        expect(completed).toBe(false);
+        expect(sessionStore.sessions.find((session) => session.id === id)).toMatchObject({
+          status: 'initializing', generation: 8, revision: 43,
+        });
+        expect(sessionStore.isSessionInitializing(id)).toBe(true);
+        expect(sessionStore.getTerminalsForSession(id)).toBeNull();
+
+        completeStart!({ generation: 8, revision: 44 });
+        await starting;
+        expect(completed).toBe(true);
+        expect(sessionStore.sessions.find((session) => session.id === id)).toMatchObject({
+          status: 'running', generation: 8, revision: 44, workspace,
+        });
+        if (workspace === 'vscode') {
+          expect(sessionStore.isSessionInitializing(id)).toBe(false);
+          expect(sessionStore.sessions.find((session) => session.id === id)?.editorReady).toBe(true);
+        } else {
+          expect(sessionStore.getTerminalsForSession(id)).not.toBeNull();
+        }
+      },
+    );
+
+    it('REQ-SESSION-010 / REQ-AGENT-224: a superseded start cannot finish the current attempt with the same ready pair', async () => {
+      const id = 'superseded-startup';
+      fixtureIds.add(id);
+      mockGetSessions.mockResolvedValue([{
+        id, name: 'Terminal', workspace: 'terminal', status: 'stopped', lifecycle: 'stopped',
+        generation: 7, revision: 40,
+        createdAt: new Date().toISOString(), lastAccessedAt: new Date().toISOString(),
+      }]);
+      await sessionStore.loadSessions();
+      const completions: Array<(projection?: { generation?: number; revision?: number }) => void> = [];
+      vi.mocked(api.startSession).mockImplementation((_id, _progress, onComplete) => {
+        completions.push(onComplete);
+        return () => {};
+      });
+      void sessionStore.startSession(id);
+      const currentStart = sessionStore.startSession(id);
+
+      completions[0]({ generation: 8, revision: 42 });
+      expect(sessionStore.sessions.find((session) => session.id === id)).toMatchObject({
+        status: 'initializing', generation: 7, revision: 40,
+      });
+      expect(sessionStore.getTerminalsForSession(id)).toBeNull();
+      expect(sessionStore.isSessionInitializing(id)).toBe(true);
+
+      completions[1]({ generation: 8, revision: 42 });
+      await currentStart;
+      expect(sessionStore.sessions.find((session) => session.id === id)).toMatchObject({
+        status: 'running', generation: 8, revision: 42,
+      });
+    });
+
+    it('REQ-SESSION-010 / REQ-AGENT-224: superseded progress and failure cannot replace the current startup', async () => {
+      const id = 'superseded-startup-errors';
+      fixtureIds.add(id);
+      mockGetSessions.mockResolvedValue([{
+        id, name: 'Terminal', workspace: 'terminal', status: 'stopped', lifecycle: 'stopped',
+        generation: 7, revision: 40,
+        createdAt: new Date().toISOString(), lastAccessedAt: new Date().toISOString(),
+      }]);
+      await sessionStore.loadSessions();
+      const callbacks: Array<{
+        progress: Parameters<typeof api.startSession>[1];
+        complete: Parameters<typeof api.startSession>[2];
+        error: Parameters<typeof api.startSession>[3];
+      }> = [];
+      vi.mocked(api.startSession).mockImplementation((_id, progress, complete, error) => {
+        callbacks.push({ progress, complete, error });
+        return () => {};
+      });
+      void sessionStore.startSession(id).catch(() => {});
+      const currentStart = sessionStore.startSession(id);
+
+      callbacks[0].progress({ stage: 'starting', progress: 10, message: 'Obsolete startup' });
+      callbacks[0].error('Obsolete startup failed');
+      expect(sessionStore.sessions.find((session) => session.id === id)?.status).toBe('initializing');
+      expect(sessionStore.isSessionInitializing(id)).toBe(true);
+      expect(sessionStore.getInitProgressForSession(id)).toBeNull();
+      expect(sessionStore.error).toBeNull();
+
+      callbacks[1].complete({ generation: 8, revision: 42 });
+      await currentStart;
+      expect(sessionStore.sessions.find((session) => session.id === id)?.status).toBe('running');
+    });
   });
 
   describe('dismissInitProgressForSession', () => {

@@ -584,6 +584,13 @@ function startSession(id: string): Promise<void> {
   const retryEditorTimeout = session?.workspace === 'vscode' && session.editorReadyError === true;
 
   return new Promise((resolve, reject) => {
+    startupCleanups.get(id)?.();
+    let active = true;
+    let cancelPolling: (() => void) | undefined;
+    startupCleanups.set(id, () => {
+      active = false;
+      cancelPolling?.();
+    });
     setState(
       produce((s) => {
         s.initializingSessionIds[id] = true;
@@ -592,9 +599,10 @@ function startSession(id: string): Promise<void> {
     );
     updateSessionStatus(id, 'initializing');
 
-    const cleanup = api.startSession(
+    cancelPolling = api.startSession(
       id,
       (progress) => {
+        if (!active) return;
         setState(
           produce((s) => {
             s.initProgressBySession[id] = progress;
@@ -602,6 +610,7 @@ function startSession(id: string): Promise<void> {
         );
       },
       (projection) => {
+        if (!active) return;
         const current = state.sessions.find((candidate) => candidate.id === id);
         if (current && projection) {
           const currentProjection = {
@@ -611,10 +620,13 @@ function startSession(id: string): Promise<void> {
           };
           const incomingProjection = { ...currentProjection, ...projection };
           if (applyOrderedProjection(currentProjection, incomingProjection) !== incomingProjection) {
-            resolve();
-            return;
+            return false;
           }
-          // Publish the accepted epoch before a running surface can attach.
+        }
+        active = false;
+        startupCleanups.delete(id);
+        // Publish the accepted epoch before a running surface can attach.
+        if (projection) {
           setState(produce((s) => {
             const session = s.sessions.find((candidate) => candidate.id === id);
             if (!session) return;
@@ -622,7 +634,6 @@ function startSession(id: string): Promise<void> {
             if (projection.revision !== undefined) session.revision = projection.revision;
           }));
         }
-        startupCleanups.delete(id);
         updateSessionStatus(id, 'running');
         const index = state.sessions.findIndex((session) => session.id === id);
         if (index !== -1 && state.sessions[index].workspace === 'vscode') {
@@ -638,6 +649,8 @@ function startSession(id: string): Promise<void> {
         resolve();
       },
       (error, code) => {
+        if (!active) return;
+        active = false;
         startupCleanups.delete(id);
         setState(
           produce((s) => {
@@ -655,8 +668,7 @@ function startSession(id: string): Promise<void> {
       { retryEditorTimeout },
     );
 
-    startupCleanups.get(id)?.();
-    startupCleanups.set(id, cleanup);
+    if (!active) cancelPolling?.();
   });
 }
 

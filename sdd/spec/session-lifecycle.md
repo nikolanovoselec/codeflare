@@ -333,13 +333,13 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 1. Frequent batch status uses one owner-indexed primary-consistent D1 query, no session KV operation, no per-session query or container/SDK probe, and sends `no-store` semantics.
 2. Responses return complete session projections with lifecycle, generation, revision, readiness, incident/deadline, metrics and observation timestamps.
-3. Clients apply responses monotonically by generation and revision so delayed success or failure cannot undo newer state.
+3. Clients apply responses monotonically by generation and revision, publishing accepted startup ordering before exposing running; delayed success or failure cannot undo newer state. <!-- @impl: web-ui/src/stores/session.ts::startSession --> <!-- @impl: web-ui/src/api/client.ts::startSession --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (startup completion projection) --> <!-- @test: web-ui/src/__tests__/api/client.test.ts (startSession polling) -->
 4. For Terminal workspaces, backend `running` plus this device's connected terminal WebSocket renders green ACTIVE; without it, blue IDLE; neither label is persisted.
 5. `starting` and `unreachable` use yellow recovery presentation and `stopped` is gray, while D1 read failure retains the last ordered state and shows a separate status-unavailable warning.
 6. Polling is serialized, pauses while hidden, refreshes on visibility, and uses transition and stable cadences without overlapping requests.
 7. Usage, storage, entitlement, managed-release, preseed and governed-migration work has a separate initial/slower/event-driven owner and retains last good values on failure.
 
-**Constraints:** Dashboard polling never wakes a container. Authentication and revocation middleware may retain unrelated KV use.
+**Constraints:** Dashboard polling never wakes a container. Authentication and revocation middleware may retain unrelated KV use. Superseded startup callbacks cannot complete a newer attempt; stale readiness for the current attempt remains retryable without another Start. <!-- @impl: web-ui/src/stores/session.ts::startSession --> <!-- @impl: web-ui/src/api/client.ts::startSession --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (startup completion projection) --> <!-- @test: web-ui/src/__tests__/api/client.test.ts (startSession polling) -->
 
 **Priority:** P0
 
@@ -683,15 +683,16 @@ None.
 **Acceptance Criteria:**
 
 1. `GET /api/container/health` reports whether the user's container is running and healthy, returning its metrics on success and an error with 500 when the health check fails. <!-- @impl: src/routes/container/status.ts::app --> <!-- @test: src/__tests__/routes/container-status.test.ts (Container Status Routes) -->
-2. `GET /api/container/startup-status` returns the current initialization stage without blocking, carrying a stage label, a 0-to-100 progress value, and a human-readable message. When the owner's D1 session exists, it also carries that snapshot's lifecycle generation and revision. Startup completion applies this ordered receipt before exposing the session as running, so explicit Chat/Terminal entry does not reuse the creation generation; delayed completion cannot overwrite a newer projection. Legacy readiness responses without the receipt remain compatible with ordinary Terminal startup. <!-- @impl: src/routes/container/status.ts::app --> <!-- @impl: web-ui/src/api/client.ts::startSession --> <!-- @impl: web-ui/src/stores/session.ts::startSession --> <!-- @test: src/__tests__/routes/container-status.test.ts (GET /container/startup-status) --> <!-- @test: web-ui/src/__tests__/api/client.test.ts (startSession polling) --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (Session Store) -->
+2. `GET /api/container/startup-status` returns the current initialization stage without blocking, carrying a stage label, a 0-to-100 progress value, and a human-readable message. <!-- @impl: src/routes/container/status.ts::app --> <!-- @test: src/__tests__/routes/container-status.test.ts (GET /container/startup-status) -->
 3. The reported stage reflects real container state: `stopped` when state is indeterminate, `starting` before services respond, `syncing` during the initial R2 sync, `verifying` after sync while terminals are not yet up, `mounting` during terminal pre-warm, and `ready` when all services are up. <!-- @impl: src/routes/container/status.ts::app --> <!-- @test: src/__tests__/routes/container-status.test.ts (GET /container/startup-status) -->
 4. A failed initial R2 sync surfaces as an error stage carrying the sync error, while a skipped sync (no R2 credentials) still reaches the ready stage with the skip reason reported. <!-- @impl: src/routes/container/status.ts::buildSyncFailedResponse --> <!-- @test: src/__tests__/routes/container-status.test.ts (GET /container/startup-status) -->
 5. A transient private health or sessions probe failure remains retryable as `starting` or `verifying`. <!-- @impl: src/routes/container/status.ts::app --> <!-- @test: src/__tests__/routes/container-status.test.ts (keeps startup retryable when the health fetch rejects during boot) --> <!-- @test: src/__tests__/routes/container-status.test.ts (keeps terminal verification retryable when the sessions fetch rejects) -->
 6. Another unexpected startup-status computation failure is caught and returned as an error stage rather than propagating an unhandled 500. <!-- @impl: src/routes/container/status.ts::app --> <!-- @test: src/__tests__/routes/container-status.test.ts (returns error stage on unexpected exception) --> <!-- @manual -->
+7. When the owner's D1 session exists, startup readiness carries that snapshot's lifecycle generation and revision. <!-- @impl: src/routes/container/status.ts::app --> <!-- @test: src/__tests__/routes/container-status.test.ts (REQ-SESSION-010 / REQ-SESSION-017: ready %s startup carries the canonical D1 generation and revision) -->
 
 **Constraints:**
 
-None.
+Legacy readiness responses without a generation/revision receipt remain compatible with ordinary Terminal startup. <!-- @impl: web-ui/src/lib/schemas.ts::StartupStatusResponseSchema --> <!-- @impl: web-ui/src/api/client.ts::startSession --> <!-- @test: web-ui/src/__tests__/api/client.test.ts (startSession polling) -->
 
 **Priority:** P1
 

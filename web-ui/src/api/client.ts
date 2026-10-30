@@ -425,7 +425,7 @@ export async function getStartupStatus(sessionId: string): Promise<StartupStatus
 export function startSession(
   id: string,
   onProgress: (progress: InitProgress) => void,
-  onComplete: (projection?: Pick<StartupStatusResponse, 'generation' | 'revision'>) => void,
+  onComplete: (projection?: Pick<StartupStatusResponse, 'generation' | 'revision'>) => boolean | void,
   onError: (error: string, code?: string) => void,
   options: { retryEditorTimeout?: boolean } = {},
 ): () => void {
@@ -478,6 +478,7 @@ export function startSession(
 
       try {
         const status = await getStartupStatus(id);
+        if (cancelled) return;
         consecutiveErrors = 0;
 
         const progress = mapStartupDetailsToProgress(status);
@@ -485,12 +486,15 @@ export function startSession(
         onProgress(progress);
 
         if (status.stage === 'ready') {
-          if (pollInterval) clearInterval(pollInterval);
-          onComplete({ generation: status.generation, revision: status.revision });
+          if (onComplete({ generation: status.generation, revision: status.revision }) !== false) {
+            cancelled = true;
+            if (pollInterval) clearInterval(pollInterval);
+          }
         } else if (status.stage === 'error') {
           const isPriorEditorTimeout = ignorePriorEditorTimeout
             && status.error === 'VS Code did not become ready. Retry starting the session.';
           if (!isPriorEditorTimeout) {
+            cancelled = true;
             if (pollInterval) clearInterval(pollInterval);
             onError(status.error || 'Container startup failed');
           }
@@ -501,6 +505,7 @@ export function startSession(
         consecutiveErrors++;
         logger.error('Polling error:', err);
         if (consecutiveErrors >= MAX_STARTUP_POLL_ERRORS) {
+          cancelled = true;
           if (pollInterval) clearInterval(pollInterval);
           onError('Polling failed after too many consecutive errors');
           return;
@@ -511,8 +516,8 @@ export function startSession(
     // Initial poll
     await poll();
 
-    // Continue polling at regular intervals
-    pollInterval = setInterval(poll, STARTUP_POLL_INTERVAL_MS);
+    // A declined receipt keeps this same readiness poll alive, without another Start.
+    if (!cancelled) pollInterval = setInterval(poll, STARTUP_POLL_INTERVAL_MS);
   };
 
   startPolling().catch((err) => onError(err instanceof Error ? err.message : String(err)));
