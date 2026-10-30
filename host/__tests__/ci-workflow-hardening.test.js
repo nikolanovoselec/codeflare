@@ -641,7 +641,7 @@ describe('REQ-OPS-022 AC6: bounded changed-production-line LCOV gate', () => {
     const backendCoverageShards = prChecks.jobs['backend-tests'].strategy.matrix.include
       .filter((leg) => leg.coverage === 'true').length;
     for (const [jobName, matrixJob, inputs] of [
-      ['coverage-backend', 'backend-tests', {
+      ['summary', 'backend-tests', {
         'artifact-pattern': 'backend-shard-*',
         'artifact-prefix': 'backend-shard',
         'expected-shards': String(backendCoverageShards),
@@ -670,13 +670,35 @@ describe('REQ-OPS-022 AC6: bounded changed-production-line LCOV gate', () => {
       }],
     ]) {
       const job = prChecks.jobs[jobName];
-      assert.deepEqual(job.needs, ['changes', matrixJob]);
-      assert.deepEqual(
-        job.steps.filter((candidate) => candidate.uses === './.github/actions/merge-coverage'),
-        [{ uses: './.github/actions/merge-coverage', with: inputs }],
-      );
+      assert.ok(job.needs.includes('changes') && job.needs.includes(matrixJob));
+      const merge = job.steps.find((candidate) => candidate.uses === './.github/actions/merge-coverage');
+      assert.deepEqual(merge.with, inputs);
     }
   });
+
+  for (const [name, backend, coverage, full, expectedStatus] of [
+    ['rejects failed backend coverage', 'success', 'failure', 'false', 1],
+    ['rejects unexpectedly skipped backend coverage', 'success', 'skipped', 'false', 1],
+    ['rejects cancelled backend coverage', 'success', 'cancelled', 'false', 1],
+    ['accepts successful backend coverage', 'success', 'success', 'true', 0],
+    ['accepts path-filtered backend skips', 'skipped', 'skipped', 'false', 0],
+    ['rejects backend skips on full runs', 'skipped', 'skipped', 'true', 1],
+    ['rejects failed backend tests', 'failure', 'skipped', 'false', 1],
+  ]) {
+    it(`REQ-OPS-022 AC5/AC6: required test aggregate ${name}`, () => {
+      const aggregate = step(prChecks.jobs.summary, 'Aggregate lane results');
+      const result = spawnSync('bash', ['-e', '-o', 'pipefail', '-c', aggregate.run], {
+        encoding: 'utf8',
+        env: {
+          ...process.env,
+          RESULTS: JSON.stringify({ changes: { result: 'success' }, 'backend-tests': { result: backend } }),
+          COVERAGE_RESULT: coverage,
+          FULL: full,
+        },
+      });
+      assert.equal(result.status, expectedStatus, result.stdout + result.stderr);
+    });
+  }
 });
 
 describe('shared CI components', () => {

@@ -1,7 +1,6 @@
 import { createEffect, createSignal, on, onCleanup, Show } from 'solid-js';
 import type { ChatMountProps, mountChat } from '../chat/ChatMount';
 import { attachChatSession, ChatAttachError } from '../chat/api';
-export { attachChatSession, ChatAttachError } from '../chat/api';
 
 /** Root owns session-local draft lifetime; unmounting only disposes browser UI/WS. */
 export interface ChatAreaProps {

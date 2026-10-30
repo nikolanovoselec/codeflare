@@ -396,13 +396,17 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
     const summary = testWorkflow.jobs.summary as { needs?: string[]; steps?: Array<{ name?: string; run?: string; uses?: string }> };
     expect(summary.needs).toEqual(expect.arrayContaining([
       'backend-tests', 'backend-node-tests', 'frontend-tests', 'host-tests', 'pi-prompt',
-      'coverage-backend', 'coverage-frontend',
+      'coverage-frontend',
     ]));
     const names = summary.steps?.map((step) => step.name) ?? [];
+    const merge = names.indexOf('Merge backend coverage');
+    const aggregate = names.indexOf('Aggregate lane results');
     const reconcile = names.indexOf('Reconcile suite coverage against the tree');
     const write = names.indexOf('Write exact tested-tree receipt');
     const upload = names.indexOf('Upload exact tested-tree receipt');
-    expect(reconcile).toBeGreaterThan(-1);
+    expect(merge).toBeGreaterThan(-1);
+    expect(aggregate).toBeGreaterThan(merge);
+    expect(reconcile).toBeGreaterThan(aggregate);
     expect(write).toBeGreaterThan(reconcile);
     expect(upload).toBeGreaterThan(write);
     expect(summary.steps?.[write]?.run).toContain('codeflare.pr-checks-receipt.v3');
@@ -517,10 +521,10 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
     expect(new Set(nodeGroups.flat()).size).toBe(NODE_SUITE_FILES.length);
     expect(() => nodeSuiteFiles('unknown')).toThrow('Unsupported Node test group');
     const backendCoverageLegs = backend.strategy.matrix.include.filter((leg) => leg.coverage === 'true').length;
-    const coverageBackend = testWorkflow.jobs['coverage-backend'] as {
+    const coverageSummary = testWorkflow.jobs.summary as {
       steps: Array<{ uses?: string; with?: Record<string, string> }>;
     };
-    const coverageMerge = coverageBackend.steps.find((step) => step.uses === './.github/actions/merge-coverage');
+    const coverageMerge = coverageSummary.steps.find((step) => step.uses === './.github/actions/merge-coverage');
     expect(coverageMerge?.with?.['expected-shards']).toBe(String(backendCoverageLegs));
 
     const host = testWorkflow.jobs['host-tests'] as {
@@ -562,9 +566,9 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
 
   it('REQ-OPS-022 AC5: merges affected package coverage only after matrix tests', () => {
     const { testWorkflow } = readCacheWorkflowContract();
-    for (const [name, matrix] of [['coverage-backend', 'backend-tests'], ['coverage-frontend', 'frontend-tests']] as const) {
+    for (const [name, matrix] of [['summary', 'backend-tests'], ['coverage-frontend', 'frontend-tests']] as const) {
       const job = testWorkflow.jobs[name] as { needs?: string[]; steps?: Array<{ uses?: string }> };
-      expect(job.needs).toEqual(['changes', matrix]);
+      expect(job.needs).toEqual(expect.arrayContaining(['changes', matrix]));
       expect(job.steps?.some((step) => step.uses === './.github/actions/merge-coverage')).toBe(true);
     }
   });
@@ -752,16 +756,17 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
     const workflow = parseYaml(readFileSync(join(REPO, '.github/workflows/test.yml'), 'utf8')) as {
       jobs: Record<string, {
         if?: string;
-        steps?: Array<{ uses?: string }>;
+        steps?: Array<{ uses?: string; if?: string }>;
       }>;
     };
-    const backend = workflow.jobs['coverage-backend'];
+    const backend = workflow.jobs.summary.steps?.find((step) => step.uses === './.github/actions/merge-coverage');
     const frontend = workflow.jobs['coverage-frontend'];
 
     expect(workflow.jobs.coverage).toBeUndefined();
-    expect(backend.if).toContain("needs.changes.outputs.backend == 'true'");
+    expect(backend?.if).toContain("needs.changes.outputs.backend == 'true'");
+    expect(backend?.if).toContain("needs.backend-tests.result == 'success'");
     expect(frontend.if).toContain("needs.changes.outputs.webui == 'true'");
-    expect(backend.steps?.some((step) => step.uses === './.github/actions/merge-coverage')).toBe(true);
+    expect(backend?.uses).toBe('./.github/actions/merge-coverage');
     expect(frontend.steps?.some((step) => step.uses === './.github/actions/merge-coverage')).toBe(true);
   });
 

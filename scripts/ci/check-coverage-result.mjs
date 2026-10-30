@@ -12,6 +12,13 @@ const PASSED_TESTS = /^ *Tests +(?=[^\n]*\bpassed\b)(?![^\n]*\bfailed\b)[^\n]*\(
 const MULTIPLE_ERRORS = /^ *Errors +(?:[2-9]|\d{2,}) errors?\b/m;
 const POOL_CRASH = '[vitest-pool]: Worker cloudflare-pool emitted error.';
 
+// Match Vitest's boundary: inventory minus explicit semantic adaptations.
+// Unknown/new upstream paths are production input, not implicit donor exclusions.
+const upstreamProvenance = JSON.parse(readFileSync(new URL('../../web-ui/src/chat/upstream/provenance.json', import.meta.url), 'utf8'));
+const knownDonorFiles = new Set(Object.keys(upstreamProvenance.originalSourceSha256)
+  .filter((file) => !upstreamProvenance.adaptedFiles.includes(file))
+  .map((file) => `web-ui/src/chat/upstream/${file}`));
+
 export const CHANGED_COVERAGE_LIMITS = Object.freeze({
   maxDiffBytes: 10 * 1024 * 1024,
   maxLcovBytes: 25 * 1024 * 1024,
@@ -58,6 +65,7 @@ function isProductionPath(path, packageRoot) {
   if (normalized.includes('/__tests__/') || normalized.endsWith('.test.ts') || normalized.endsWith('.test.tsx')) return false;
   if (normalized.endsWith('.generated.ts') || normalized.endsWith('.d.ts')) return false;
   if (root === 'web-ui' && normalized === 'web-ui/src/index.tsx') return false;
+  if (knownDonorFiles.has(normalized)) return false;
   return true;
 }
 
@@ -273,9 +281,14 @@ function changedCoverageFromGit(lcovPath, changedBase, packageRoot, threshold, r
   // buffering: compiled child JSON can exceed the budget without changing any
   // production lines. The production diff and coverage bounds remain unchanged.
   const testFixturesPathspec = `:(top,exclude,glob)${sourceRoot}/**/__tests__/**`;
+  // Exclude only known donor paths before buffering; adapted and unlisted paths
+  // still reach production classification and every existing coverage bound.
+  const donorPathspecs = packageRoot === 'web-ui'
+    ? [...knownDonorFiles].map((file) => `:(top,exclude,literal)${file}`)
+    : [];
   const diffResult = spawnSync(
     'git',
-    ['diff', '--unified=0', '--find-renames', '--diff-filter=ACMRT', `${changedBase}^{tree}`, 'HEAD^{tree}', '--', sourcePathspec, generatedTypeScriptPathspec, testFixturesPathspec],
+    ['diff', '--unified=0', '--find-renames', '--diff-filter=ACMRT', `${changedBase}^{tree}`, 'HEAD^{tree}', '--', sourcePathspec, generatedTypeScriptPathspec, testFixturesPathspec, ...donorPathspecs],
     { encoding: 'utf8', maxBuffer: CHANGED_COVERAGE_LIMITS.maxDiffBytes + 1 },
   );
   if (diffResult.status !== 0 || diffResult.error) {

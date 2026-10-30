@@ -21,6 +21,17 @@
     "CI lint-only adaptation: MarkdownContent.tsx removes unused imports and the unreachable wide-character DOM helper (including its private constants/helper); rendered Markdown behavior is unchanged.",
     "CI lint-only adaptation: embedded-app-shell.tsx uses explicit UTF-16 character-code checks for the same ASCII C0/DEL rejection plus the unchanged backslash/whitespace predicate, still checked raw and decoded. Focused character-allowlist compatibility tests cover this modified owned primitive. Original source inventory/hashes remain the pinned upstream baseline."
   ],
+  "adaptedFiles": [
+    "client/src/hooks/useWebSocket.ts",
+    "client/src/hooks/useSessionState.ts",
+    "client/src/components/settings/ThemeProvider.tsx",
+    "client/src/chat-embed/EmbedProviders.tsx",
+    "client/src/lib/questions/questions-api.ts",
+    "client-utils/src/DialogPortal.tsx",
+    "client/src/components/questions/QuestionStack.tsx",
+    "client/src/components/interactive-renderers/BatchRenderer.tsx",
+    "dashboard-plugin-runtime/src/embedded-app-shell.tsx"
+  ],
   "originalSourceSha256": {
     "client-utils/src/ActionList.tsx": "6ddc8907d2ea23eb45e6d42afa60b4aec991a295e7f788d8e0b9ed10f66a89dd",
     "client-utils/src/ActionListMenuContext.ts": "1b88954b86e6522ea03602672462f26bf26f1a81cc1a3e47985cba80ecfb87c5",

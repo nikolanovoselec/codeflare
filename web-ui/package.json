@@ -30,7 +30,7 @@
     "@xterm/addon-attach": "0.12.0",
     "diff": "8.0.4",
     "dompurify": "3.4.17",
-    "katex": "0.16.47",
+    "katex": "0.19.1",
     "mermaid": "11.17.2",
     "pdfjs-dist": "4.10.38",
     "react-markdown": "10.1.0",
@@ -71,6 +71,7 @@
     "@types/react-syntax-highlighter": "15.5.13"
   },
   "overrides": {
+    "katex": "$katex",
     "yaml": "$yaml",
     "seroval": "1.6.8",
     "@blackbelt-technology/pi-dashboard-shared": "0.11.0"

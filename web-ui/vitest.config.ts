@@ -1,6 +1,13 @@
 import { defineConfig } from 'vitest/config';
 import solidPlugin from 'vite-plugin-solid';
 import { reactChat, chatTailwind, solidExcludes, chatDedupe, chatPostcss, chatAliases } from './src/chat/vite';
+import upstreamProvenance from './src/chat/upstream/provenance.json';
+
+// Only inventoried, unadapted donor files are outside owned coverage.
+// Adapted files and unknown/new upstream paths remain instrumented by default.
+const knownDonorFiles = Object.keys(upstreamProvenance.originalSourceSha256)
+  .filter((file) => !upstreamProvenance.adaptedFiles.includes(file))
+  .map((file) => `src/chat/upstream/${file}`);
 
 export default defineConfig({
   plugins: [solidPlugin({ exclude: solidExcludes }), reactChat(), chatTailwind()],
@@ -26,7 +33,7 @@ export default defineConfig({
       // test - and its explicit test-failure branch never ran.
       reportOnFailure: true,
       include: ['src/**/*.{ts,tsx}'],
-      exclude: ['src/__tests__/**', 'src/chat/__tests__/**', 'src/chat/upstream/**', 'src/chat/vite.ts', 'src/index.tsx'],
+      exclude: ['src/__tests__/**', 'src/chat/__tests__/**', ...knownDonorFiles, 'src/index.tsx'],
       // Measured 2026-07-20 (run 29725141008), the first run that ever executed
       // them: 77.44 statements / 65.99 branches / 77.09 functions / 79.66 lines.
       // The old 32/27 were never run and sat ~45 points below actual, so they
