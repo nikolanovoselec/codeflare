@@ -733,23 +733,23 @@ R2 persistence, rclone bisync, quotas, and file browser.
 **Acceptance Criteria:**
 
 1. After the five-minute freshness window, the resolver rechecks the latest release. <!-- @impl: src/lib/remote-curation.ts::resolveManagedEnvironmentRelease --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (uses the stored ETag after five minutes and treats 304 as a fresh no-op) --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-STOR-040 AC1: checks for a later managed release while status is current) --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-STOR-040 AC1: an overlapping poll does not duplicate the managed-release check) -->
-2. A compatible latest release becomes active only after its immutable assets and signature verify. <!-- @impl: src/lib/remote-curation.ts::resolveManagedEnvironmentRelease --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-STOR-040 AC2: activates only a GitHub immutable release whose two immutable asset digests and signature verify) -->
+2. The newest runtime-compatible release becomes active only after its immutable assets and signature verify; a newer incompatible release from another runtime does not prevent bounded compatible-history discovery. <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-AGENT-154 AC2+AC3+AC4 + REQ-STOR-040 AC2: skips mismatches and unrelated releases then activates the newest compatible seed (fresh-required=%s)) --> <!-- @impl: src/lib/remote-curation.ts::resolveManagedEnvironmentRelease --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-STOR-040 AC2: activates only a GitHub immutable release whose two immutable asset digests and signature verify) -->
 3. A failed initial managed-release check remains retryable. <!-- @impl: web-ui/src/stores/session.ts::loadSessions --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-STOR-040 AC3: retries the managed-release check after the initial batch request fails) -->
 4. A failed background managed-release check remains retryable. <!-- @impl: web-ui/src/stores/session-polling.ts::refreshSessionStatuses --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-STOR-040 AC4: a failed batch-status call does not consume the managed-release check window) -->
-5. A degraded background attempt is cached for the five-minute freshness window. <!-- @impl: src/lib/remote-curation.ts::resolveManagedEnvironmentRelease --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-STOR-040 AC5: status refresh bounds incompatible discovery to latest and caches the failed attempt) -->
+5. A degraded background attempt is cached for the five-minute freshness window. <!-- @impl: src/lib/remote-curation.ts::resolveManagedEnvironmentRelease --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-STOR-040 AC5: status refresh caches failed compatible discovery for five minutes) -->
 
 **Constraints:**
 
-- Background refresh validates only the latest release after a runtime mismatch.
-- Explicit fresh-required validation owns bounded release-history traversal.
+- Background refresh and explicit fresh-required validation share the existing bounded compatible-release traversal; neither weakens signature, immutable-asset, runtime-hash or activation monotonicity checks.
+- A degraded attempt remains cached for five minutes; session startup remains snapshot-only.
 
 **Priority:** P1
 
 **Dependencies:** [REQ-STOR-020](#req-stor-020-managed-environment-reconciliation), [REQ-AGENT-147](agents.md#req-agent-147-signed-managed-agent-configuration-releases)
 
-**Verification:** Automated resolver and session-polling tests
+**Verification:** Automated resolver and session-polling tests; the compatible-background-discovery correction is pending behavioral RED/GREEN verification.
 
-**Status:** Implemented
+**Status:** Planned
 
 ---
 

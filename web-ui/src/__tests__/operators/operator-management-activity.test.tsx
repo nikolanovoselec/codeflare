@@ -10,24 +10,17 @@ const ordinaryHost: Session = { id: 'ownersession1', name: 'Existing owner Host'
   createdAt: '2026-01-01T00:00:00.000Z', lastAccessedAt: '2026-01-02T00:00:00.000Z',
   status: 'running', lifecycle: 'running', generation: 3, revision: 7,
   workspace: 'terminal', terminalMode: 'classic', agentType: 'bash', editorReady: false };
-const parentSource = { sessionId: ordinaryHost.id, sessionGeneration: ordinaryHost.generation };
 let sessionRead: () => Response | Promise<Response>;
-async function chooseSource(name = ordinaryHost.name) {
-  const select = await screen.findByRole('combobox', { name: /source.*host/i });
-  const option = await within(select).findByRole('option', { name: new RegExp(name) });
-  fireEvent.change(select, { target: { value: (option as HTMLOptionElement).value } });
-  return select;
-}
 let preview: { name: string; version: string; guidedAssessment: boolean; guidedMode: 'repository' | 'legacy-pull-request' | null; requiresSourceHost: boolean; configuredRepository?: string };
 beforeEach(() => {
   window.history.replaceState({}, '', '/operators?view=activity');
   serve = () => json({ items: [summary] });
-  sessionRead = () => json({ sessions: [ordinaryHost] });
+  sessionRead = () => json({ sessions: [] });
   preview = { name: 'Renovate Dispatcher', version: 'v0.1.2', guidedAssessment: true, guidedMode: 'legacy-pull-request', requiresSourceHost: false };
   vi.stubGlobal('fetch', (url: string, init?: RequestInit) => {
     const target = new URL(url, window.location.origin);
     if (target.pathname === '/api/sessions' && (init?.method ?? 'GET') === 'GET') {
-      // Existing authenticated D1 catalog wire: selection must not wake a Host or hydrate workspace.
+      // Existing authenticated D1 catalog wire: reading it grants no launch authority.
       // POST /api/sessions falls through to the mutation ledger, never a hidden creation stub.
       if (init?.credentials !== 'same-origin' || init?.redirect !== 'manual' || init?.body !== undefined)
         return Promise.resolve(json({ error: 'Authenticated catalog read required' }, 403));
@@ -132,7 +125,7 @@ describe('REQ-OPERATOR-049: human-owned invocation and activity', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent(/repository.*owner\/repository/i);
     expect(preparations).toEqual([]);
   });
-  it('does not offer a Renovate form for an unsupported installed package', async () => {
+  it('REQ-OPERATOR-058: AC7 does not offer a Renovate form for an unsupported installed package', async () => {
     window.history.replaceState({}, '', '/operators?invoke=installation-1');
     preview = { name: 'Another Dispatcher', version: 'v2', guidedAssessment: false, guidedMode: null, requiresSourceHost: false };
     render(() => <OperatorManagement />);
@@ -173,9 +166,8 @@ describe('REQ-OPERATOR-049: human-owned invocation and activity', () => {
     expect(await screen.findByText(/Activity start accepted/)).toBeInTheDocument();
     expect(screen.queryByText('s'.repeat(43))).not.toBeInTheDocument();
   });
-  it('does not allow another start after an uncertain response until the prepared activity is reconciled', async () => {
+  it('REQ-OPERATOR-058: AC4 does not allow another start after an uncertain response until the prepared activity is reconciled', async () => {
     window.history.replaceState({}, '', '/operators?invoke=installation-1');
-    preview.requiresSourceHost = true;
     let indexed = false;
     const writes: Array<{ path: string; body: unknown }> = [];
     serve = (url, init) => {
@@ -191,13 +183,12 @@ describe('REQ-OPERATOR-049: human-owned invocation and activity', () => {
     };
     render(() => <OperatorManagement />);
     await screen.findByRole('button', { name: 'Start assessment' });
-    await chooseSource();
     fireEvent.input(screen.getByRole('textbox', { name: 'Repository' }), { target: { value: 'nikolanovoselec/komodo' } });
     fireEvent.input(screen.getByRole('spinbutton', { name: 'Pull request number' }), { target: { value: '1253' } });
     fireEvent.click(screen.getByRole('button', { name: 'Start assessment' }));
     expect(await screen.findByRole('alert')).toHaveTextContent(/state could not be confirmed/i);
     expect(writes).toEqual([
-      { path: '/api/operator-activities', body: { installationId: 'installation-1', invocation: { repository: 'nikolanovoselec/komodo', pullRequest: 1253 }, sourceSession: parentSource } },
+      { path: '/api/operator-activities', body: { installationId: 'installation-1', invocation: { repository: 'nikolanovoselec/komodo', pullRequest: 1253 } } },
       { path: '/api/operator-activities/activity-2/start', body: { capability: 's'.repeat(43) } },
     ]);
     submitAssessment();
@@ -216,9 +207,8 @@ describe('REQ-OPERATOR-049: human-owned invocation and activity', () => {
     expect(screen.getByRole('button', { name: 'Start assessment' })).not.toBeDisabled();
   });
 
-  it('does not reconcile failed preparation against an earlier accepted activity', async () => {
+  it('REQ-OPERATOR-058: AC5 does not reconcile failed preparation against an earlier accepted activity', async () => {
     window.history.replaceState({}, '', '/operators?invoke=installation-1');
-    preview.requiresSourceHost = true;
     let preparationAvailable = true;
     serve = (url, init) => {
       if (url.pathname === '/api/operator-activities' && init?.method === 'POST') return preparationAvailable
@@ -230,7 +220,6 @@ describe('REQ-OPERATOR-049: human-owned invocation and activity', () => {
     };
     render(() => <OperatorManagement />);
     await screen.findByRole('button', { name: 'Start assessment' });
-    await chooseSource();
     fireEvent.input(screen.getByRole('textbox', { name: 'Repository' }), { target: { value: 'nikolanovoselec/komodo' } });
     fireEvent.input(screen.getByRole('spinbutton', { name: 'Pull request number' }), { target: { value: '1253' } });
     fireEvent.click(screen.getByRole('button', { name: 'Start assessment' }));
@@ -257,10 +246,12 @@ describe('REQ-OPERATOR-049: human-owned invocation and activity', () => {
 
 // Intentional browser preparation/start API contracts. All other writes are retained
 // as forbidden effects, including session lifecycle and saved model/auth/settings writes.
-function sourceLaunchFixture() {
-  window.history.replaceState({}, '', '/operators?invoke=installation-1&repository=attacker%2Foverride&pullRequest=42&sourceSession=ownersession1');
+// Exact preparation bodies prove URL-supplied source/principal hints cannot become
+// launch authority; exact start bodies bind the explicit action to its one prepared Activity.
+function sessionIndependentLaunchFixture() {
+  window.history.replaceState({}, '', '/operators?invoke=installation-1&repository=attacker%2Foverride&pullRequest=42&sourceSession=ownersession1&sessionId=ownersession1&sessionGeneration=3&principal=attacker');
   preview.guidedMode = 'repository';
-  preview.requiresSourceHost = true;
+  preview.requiresSourceHost = false;
   preview.configuredRepository = 'acme/configured';
   const writes: Array<{ path: string; body: unknown }> = [];
   serve = (url, init) => {
@@ -269,7 +260,7 @@ function sourceLaunchFixture() {
       if (url.pathname === '/api/operator-activities')
         return json({ activityId: 'prepared-source-activity', startCapability: 'k'.repeat(43), startExpiresAt: Date.now() + 30000 });
       if (url.pathname === '/api/operator-activities/prepared-source-activity/start') return json({ ok: true });
-      return json({ error: 'No other mutation is authorized by source selection.' }, 403);
+      return json({ error: 'No other mutation is authorized by assessment launch.' }, 403);
     }
     if (url.pathname === '/api/operator-activities/prepared-source-activity')
       return json({ ...summary, activityId: 'prepared-source-activity', checkpoint: null, result: { original: 'source assessment' } });
@@ -280,178 +271,89 @@ function sourceLaunchFixture() {
 function submitAssessment() {
   fireEvent.submit(screen.getByRole('button', { name: 'Start assessment' }).closest('form')!);
 }
-async function refreshSources() {
-  const button = await screen.findByRole('button', { name: /refresh.*(?:source|hosts)/i });
-  fireEvent.click(button);
-}
+describe('REQ-OPERATOR-058: session-independent standalone guided preparation', () => {
+  // Both inference branches share this browser contract. Native ON uses owner R2;
+  // native OFF uses the account default Gateway. Neither is selected by child input
+  // or by a browser Host picker; server inference qualification lives in its own suite.
+  it.each(['repository', 'legacy-pull-request'] as const)(
+    'REQ-OPERATOR-058: AC1/3/6 empty catalog permits explicit %s launch with no source or principal in preparation', async mode => {
+      const writes = sessionIndependentLaunchFixture();
+      preview.guidedMode = mode;
+      sessionRead = () => json({ sessions: [] });
+      render(() => <OperatorManagement />);
+      const start = await screen.findByRole('button', { name: 'Start assessment' });
+      expect(start).toBeEnabled();
+      expect(screen.queryByRole('combobox', { name: /source.*host/i })).not.toBeInTheDocument();
+      expect(screen.queryByLabelText(/source.*host|source.*session|principal/i)).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /refresh.*(?:source|hosts)/i })).not.toBeInTheDocument();
+      if (mode === 'legacy-pull-request') {
+        fireEvent.input(screen.getByRole('textbox', { name: 'Repository' }), { target: { value: 'owner/legacy' } });
+        fireEvent.input(screen.getByRole('spinbutton', { name: 'Pull request number' }), { target: { value: '1253' } });
+        expect(screen.getByText(/real read-only assessment/)).toHaveTextContent(/will not merge or change/);
+      }
+      expect(writes).toEqual([]);
+      submitAssessment();
+      submitAssessment();
+      expect(await screen.findByText(/Activity start accepted/)).toBeInTheDocument();
+      expect(writes).toEqual([
+        { path: '/api/operator-activities', body: { installationId: 'installation-1', invocation: mode === 'repository'
+          ? { repository: 'acme/configured' } : { repository: 'owner/legacy', pullRequest: 1253 } } },
+        { path: '/api/operator-activities/prepared-source-activity/start', body: { capability: 'k'.repeat(43) } },
+      ]);
+      fireEvent.click(await screen.findByRole('button', { name: 'prepared-source-activity' }));
+      expect(await screen.findByRole('heading', { name: 'Activity detail' })).toBeInTheDocument();
+      expect(screen.getByText('Activity ID: prepared-source-activity')).toBeInTheDocument();
+      expect(screen.getByText(/source assessment/)).toBeInTheDocument();
+      expect(screen.queryByText('k'.repeat(43))).not.toBeInTheDocument();
+    });
 
-describe('REQ-OPERATOR-058: explicit ordinary source on the fresh standalone launcher', () => {
-  it('REQ-OPERATOR-058: AC1 fetch-only preview keeps the existing source-free wire and never reads the Host catalog', async () => {
-    const writes = sourceLaunchFixture();
-    preview.requiresSourceHost = false;
-    const reads: string[] = [];
-    sessionRead = () => { reads.push('GET /api/sessions'); return json({ error: 'No source is needed' }, 503); };
+  it.each(['pending', 'unavailable', 'malformed', 'stopped', 'running'] as const)(
+    'REQ-OPERATOR-058: AC1 unrelated %s session catalog cannot gate launch or supply implicit source authority', async catalog => {
+      const writes = sessionIndependentLaunchFixture();
+      const pending = deferredDiagnosticResponse();
+      sessionRead = () => catalog === 'pending' ? pending.promise
+        : catalog === 'unavailable' ? json({ error: 'Catalog unavailable' }, 503)
+        : catalog === 'malformed' ? json({ sessions: [{ id: ordinaryHost.id }] })
+        : json({ sessions: [{ ...ordinaryHost, status: catalog, lifecycle: catalog }] });
+      render(() => <OperatorManagement />);
+      expect(await screen.findByRole('button', { name: 'Start assessment' })).toBeEnabled();
+      expect(screen.queryByRole('combobox', { name: /source.*host/i })).not.toBeInTheDocument();
+      expect(writes).toEqual([]);
+      submitAssessment();
+      expect(await screen.findByText(/Activity start accepted/)).toBeInTheDocument();
+      expect(writes).toEqual([
+        { path: '/api/operator-activities', body: { installationId: 'installation-1', invocation: { repository: 'acme/configured' } } },
+        { path: '/api/operator-activities/prepared-source-activity/start', body: { capability: 'k'.repeat(43) } },
+      ]);
+      pending.resolve(json({ sessions: [] }));
+    });
+
+  it.each([
+    { reason: 'expired', status: 403 },
+    { reason: 'revoked', status: 404 },
+    { reason: 'wrong installation', status: 404 },
+    { reason: 'unsupported input schema', status: 400 },
+  ])('REQ-OPERATOR-058/047: $reason preparation refusal cannot trigger start or session warmup', async ({ status }) => {
+    const writes = sessionIndependentLaunchFixture();
+    serve = (url, init) => {
+      if (init?.method === 'POST') {
+        writes.push({ path: url.pathname, body: JSON.parse(String(init.body)) });
+        return json({ error: 'Preparation denied' }, status);
+      }
+      return json({ items: [] });
+    };
     render(() => <OperatorManagement />);
-    const start = await screen.findByRole('button', { name: 'Start assessment' });
-    expect(start).not.toBeDisabled();
-    expect(screen.queryByRole('combobox', { name: /source.*host/i })).not.toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'Start assessment' })).toBeEnabled();
+    expect(writes).toEqual([]);
     submitAssessment();
-    expect(await screen.findByText(/Activity start accepted/)).toBeInTheDocument();
+    expect(await screen.findByRole('alert')).toHaveTextContent(status === 400 ? /invalid invocation/i : /access denied/i);
+    expect(screen.queryByText(/Activity start accepted/)).not.toBeInTheDocument();
+    // This is the browser's public mutation ledger, not an internal helper count:
+    // a denied admission may submit preparation only, never start or warm a Host.
     expect(writes).toEqual([
       { path: '/api/operator-activities', body: { installationId: 'installation-1', invocation: { repository: 'acme/configured' } } },
-      { path: '/api/operator-activities/prepared-source-activity/start', body: { capability: 'k'.repeat(43) } },
-    ]);
-    expect(reads).toEqual([]);
-  });
-
-  it('REQ-OPERATOR-058: AC6 inference-admitting legacy assessment retains selected repository and positive PR only in child input', async () => {
-    const writes = sourceLaunchFixture();
-    preview.guidedMode = 'legacy-pull-request';
-    render(() => <OperatorManagement />);
-    await screen.findByRole('textbox', { name: 'Repository' });
-    fireEvent.input(screen.getByRole('textbox', { name: 'Repository' }), { target: { value: 'owner/legacy' } });
-    fireEvent.input(screen.getByRole('spinbutton', { name: 'Pull request number' }), { target: { value: '1253' } });
-    expect(screen.getByText(/real read-only assessment/)).toHaveTextContent(/will not merge or change/);
-    await chooseSource();
-    submitAssessment();
-    expect(await screen.findByText(/Activity start accepted/)).toBeInTheDocument();
-    expect(writes).toEqual([
-      { path: '/api/operator-activities', body: { installationId: 'installation-1', invocation: { repository: 'owner/legacy', pullRequest: 1253 }, sourceSession: parentSource } },
-      { path: '/api/operator-activities/prepared-source-activity/start', body: { capability: 'k'.repeat(43) } },
     ]);
   });
-
-  it('REQ-OPERATOR-058: AC1 clearing a chosen source blocks both button and synthetic form preparation until a new explicit choice', async () => {
-    const writes = sourceLaunchFixture();
-    render(() => <OperatorManagement />);
-    const select = await chooseSource();
-    fireEvent.change(select, { target: { value: '' } });
-    expect(screen.getByRole('button', { name: 'Start assessment' })).toBeDisabled();
-    submitAssessment();
-    expect(writes).toEqual([]);
-    await chooseSource();
-    submitAssessment();
-    expect(await screen.findByText(/Activity start accepted/)).toBeInTheDocument();
-    expect(writes[0]).toMatchObject({ body: { sourceSession: parentSource } });
-  });
-
-  it.each(['running', 'starting'] as const)('REQ-OPERATOR-058: AC1/3 selecting an existing %s Host with no ready editor prepares repository-only child input and starts exactly the displayed Activity', async lifecycle => {
-    const writes = sourceLaunchFixture();
-    sessionRead = () => json({ sessions: [{ ...ordinaryHost, status: lifecycle, lifecycle, editorReady: false }] });
-    render(() => <OperatorManagement />);
-    const select = await chooseSource();
-    expect(within(select).getByRole('option', { name: new RegExp(ordinaryHost.name), selected: true })).toBeInTheDocument();
-    expect(writes).toEqual([]);
-    // Duplicate human events while preparation is pending must not produce two starts.
-    submitAssessment();
-    submitAssessment();
-    expect(await screen.findByText(/Activity start accepted/)).toBeInTheDocument();
-    expect(writes).toEqual([
-      { path: '/api/operator-activities', body: { installationId: 'installation-1', invocation: { repository: 'acme/configured' }, sourceSession: parentSource } },
-      { path: '/api/operator-activities/prepared-source-activity/start', body: { capability: 'k'.repeat(43) } },
-    ]);
-    fireEvent.click(await screen.findByRole('button', { name: 'prepared-source-activity' }));
-    expect(await screen.findByRole('heading', { name: 'Activity detail' })).toBeInTheDocument();
-    expect(screen.getByText('Activity ID: prepared-source-activity')).toBeInTheDocument();
-    expect(screen.getByText(/source assessment/)).toBeInTheDocument();
-    expect(screen.queryByText('k'.repeat(43))).not.toBeInTheDocument();
-    expect(screen.queryByText(/ready to run/i)).not.toBeInTheDocument();
-  });
-
-  it.each([1, 2])('REQ-OPERATOR-058: AC1 never auto-selects from %i catalog candidates, URL source hints or newest ordering', async candidates => {
-    const writes = sourceLaunchFixture();
-    const newer = { ...ordinaryHost, id: 'newestsession2', name: 'Newest owner Host', lastAccessedAt: '2026-09-01T00:00:00.000Z', generation: 11 };
-    sessionRead = () => json({ sessions: candidates === 1 ? [ordinaryHost] : [newer, ordinaryHost] });
-    render(() => <OperatorManagement />);
-    const select = await screen.findByRole('combobox', { name: /source.*host/i });
-    await within(select).findByRole('option', { name: new RegExp(ordinaryHost.name) });
-    expect(select).toHaveValue('');
-    expect(screen.getByRole('button', { name: 'Start assessment' })).toBeDisabled();
-    submitAssessment();
-    expect(writes).toEqual([]);
-    await chooseSource();
-    submitAssessment();
-    expect(await screen.findByText(/Activity start accepted/)).toBeInTheDocument();
-    expect(writes[0]).toEqual({ path: '/api/operator-activities', body: { installationId: 'installation-1', invocation: { repository: 'acme/configured' }, sourceSession: parentSource } });
-  });
-
-  it('REQ-OPERATOR-058: AC1 blocks preparation during the authenticated catalog read and still requires an explicit selection after it resolves', async () => {
-    const writes = sourceLaunchFixture();
-    const pending = deferredDiagnosticResponse();
-    sessionRead = () => pending.promise;
-    render(() => <OperatorManagement />);
-    await screen.findByRole('textbox', { name: 'Repository' });
-    expect(screen.getByRole('button', { name: 'Start assessment' })).toBeDisabled();
-    submitAssessment();
-    expect(writes).toEqual([]);
-    pending.resolve(json({ sessions: [ordinaryHost] }));
-    const select = await screen.findByRole('combobox', { name: /source.*host/i });
-    await within(select).findByRole('option', { name: new RegExp(ordinaryHost.name) });
-    expect(select).toHaveValue('');
-    expect(screen.getByRole('button', { name: 'Start assessment' })).toBeDisabled();
-    await chooseSource();
-    submitAssessment();
-    expect(await screen.findByText(/Activity start accepted/)).toBeInTheDocument();
-    expect(writes[0]).toMatchObject({ body: { sourceSession: parentSource } });
-  });
-
-  it.each(['empty', 'read-failure', 'malformed', 'stopped', 'stopping', 'unreachable', 'zero-generation', 'missing-generation', 'unsafe-generation'] as const)(
-    'REQ-OPERATOR-058: AC1 %s catalog authority blocks preparation and permits explicit refresh and selection recovery', async fault => {
-      const writes = sourceLaunchFixture();
-      const row = { ...ordinaryHost };
-      if (['stopped', 'stopping', 'unreachable'].includes(fault)) row.status = row.lifecycle = fault as Session['lifecycle'];
-      if (fault === 'zero-generation') row.generation = 0;
-      if (fault === 'missing-generation') delete row.generation;
-      if (fault === 'unsafe-generation') row.generation = Number.MAX_SAFE_INTEGER + 1;
-      sessionRead = () => fault === 'read-failure' ? json({ error: 'D1 catalog unavailable' }, 503)
-        : fault === 'malformed' ? json({ sessions: [{ id: ordinaryHost.id }] })
-        : json({ sessions: fault === 'empty' ? [] : [row] });
-      render(() => <OperatorManagement />);
-      await screen.findByRole('textbox', { name: 'Repository' });
-      const refresh = await screen.findByRole('button', { name: /refresh.*(?:source|hosts)/i });
-      await waitFor(() => expect(refresh).not.toBeDisabled());
-      expect(screen.getByRole('button', { name: 'Start assessment' })).toBeDisabled();
-      submitAssessment();
-      expect(writes).toEqual([]);
-      sessionRead = () => json({ sessions: [ordinaryHost] });
-      await refreshSources();
-      const select = await screen.findByRole('combobox', { name: /source.*host/i });
-      await within(select).findByRole('option', { name: new RegExp(ordinaryHost.name) });
-      expect(select).toHaveValue('');
-      await chooseSource();
-      submitAssessment();
-      expect(await screen.findByText(/Activity start accepted/)).toBeInTheDocument();
-      expect(writes[0]).toMatchObject({ body: { sourceSession: parentSource } });
-    });
-
-  it.each(['generation', 'removed', 'stopped', 'stopping', 'unreachable', 'read-failure'] as const)(
-    'REQ-OPERATOR-058: AC1 refreshed %s invalidates the selected source and never silently adopts another authority', async change => {
-      const writes = sourceLaunchFixture();
-      render(() => <OperatorManagement />);
-      await chooseSource();
-      const next = { ...ordinaryHost, generation: change === 'generation' ? 4 : ordinaryHost.generation };
-      if (['stopped', 'stopping', 'unreachable'].includes(change)) next.status = next.lifecycle = change as Session['lifecycle'];
-      sessionRead = () => change === 'read-failure' ? json({ error: 'Catalog unavailable' }, 503)
-        : json({ sessions: change === 'removed' ? [] : [next] });
-      await refreshSources();
-      await waitFor(() => expect(screen.getByRole('button', { name: /refresh.*(?:source|hosts)/i })).not.toBeDisabled());
-      expect(screen.getByRole('button', { name: 'Start assessment' })).toBeDisabled();
-      submitAssessment();
-      expect(writes).toEqual([]);
-      // Recovery restores availability, never the old choice. A changed generation
-      // remains the new generation only after a fresh intentional selection.
-      sessionRead = () => json({ sessions: [{ ...ordinaryHost, generation: 4 }] });
-      await refreshSources();
-      await waitFor(() => expect(screen.getByRole('button', { name: /refresh.*(?:source|hosts)/i })).not.toBeDisabled());
-      const select = await screen.findByRole('combobox', { name: /source.*host/i });
-      await within(select).findByRole('option', { name: new RegExp(ordinaryHost.name) });
-      expect(select).toHaveValue('');
-      await chooseSource();
-      submitAssessment();
-      expect(await screen.findByText(/Activity start accepted/)).toBeInTheDocument();
-      expect(writes[0]).toEqual({ path: '/api/operator-activities', body: { installationId: 'installation-1', invocation: { repository: 'acme/configured' },
-        sourceSession: { sessionId: ordinaryHost.id, sessionGeneration: 4 } } });
-    });
 });
 
 // REQ-OPERATOR-084 AC1: public v2 metadata fixtures qualify presentation, not actual SDK capture.

@@ -141,24 +141,50 @@ describe('REQ-OPERATOR-049: management decisions and recovery', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Disable' }));
     await waitFor(() => expect(screen.queryByRole('link', { name: 'Run as yourself' })).not.toBeInTheDocument());
   });
-  it('explains why Dispatcher has no resource profile and opens its invocation without a reload or start', async () => {
+  it.each([true, false])('REQ-OPERATOR-058: AC1/2 management opens a Dispatcher with native approval=%s and an empty session catalog without starting until explicit submission', async nativeApproved => {
+    const dispatcherPolicy = { capabilities: ['inference'], resourceProfileId: null,
+      inference: { allowedSources: nativeApproved ? ['managed', 'pi-native'] : ['managed'], routeIds: ['account-default'],
+        defaultRouteId: 'account-default', reasoningLevels: ['low'], defaultReasoningLevel: 'low', inheritUserDefaults: false } };
     const dispatcher = { ...operator, profile: 'dispatcher', repositoryUrl: 'https://github.com/nikolanovoselec/codeflare-operator-dispatcher',
-      policy: { capabilities: ['inference'], resourceProfileId: null } };
-    serve = url => url.pathname.endsWith('/operator-1') ? json({ ...detail(), operator: dispatcher,
-      releases: [{ ...release, name: 'Renovate Dispatcher' }],
-      installations: [{ ...installation, enabled: true, releaseId: release.id }] })
-      : url.pathname.endsWith('/preview') ? json({ name: 'Renovate Dispatcher', version: 'v0.1.2', guidedAssessment: true, guidedMode: 'legacy-pull-request', requiresSourceHost: false })
-      : url.pathname === '/api/operator-activities' ? json({ items: [] }) : json({ items: [dispatcher], cursor: null });
+      policy: dispatcherPolicy };
+    const writes: Array<{ path: string; body: unknown }> = [];
+    serve = (url, init) => {
+      if (init?.method === 'POST') {
+        writes.push({ path: url.pathname, body: JSON.parse(String(init.body)) });
+        if (url.pathname === '/api/operator-activities') return json({ activityId: 'management-assessment', startCapability: 'm'.repeat(43), startExpiresAt: Date.now() + 30000 });
+        if (url.pathname === '/api/operator-activities/management-assessment/start') return json({ ok: true });
+        return json({ error: 'No session or configuration mutation authorized' }, 403);
+      }
+      if (url.pathname === '/api/sessions') return json({ sessions: [] });
+      if (url.pathname.endsWith('/operator-1')) return json({ ...detail(), operator: dispatcher,
+        releases: [{ ...release, name: 'Renovate Dispatcher' }],
+        installations: [{ ...installation, enabled: true, releaseId: release.id, policy: dispatcherPolicy }] });
+      if (url.pathname.endsWith('/preview')) return json({ name: 'Renovate Dispatcher', version: 'v0.1.2', guidedAssessment: true, guidedMode: 'legacy-pull-request', requiresSourceHost: false });
+      return url.pathname === '/api/operator-activities' ? json({ items: [] }) : json({ items: [dispatcher], cursor: null });
+    };
     render(() => <OperatorManagement />);
     fireEvent.click(await screen.findByRole('button', { name: `Manage ${dispatcher.repositoryUrl}` }));
     expect(screen.queryByRole('combobox', { name: 'test resource profile' })).not.toBeInTheDocument();
     expect(await screen.findByRole('heading', { name: 'Runtime permissions' })).toBeInTheDocument();
-    const link = screen.getByRole('link', { name: /assess a pull request/i });
-    fireEvent.click(link);
+    fireEvent.click(screen.getByRole('link', { name: /assess a pull request/i }));
     expect(await screen.findByRole('heading', { name: 'Assess a Renovate pull request' })).toBeInTheDocument();
     expect(window.location.search).toContain('invoke=installation-1');
     expect(screen.queryByRole('region', { name: 'Installed version' })).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Start assessment' })).toBeInTheDocument();
+    const start = screen.getByRole('button', { name: 'Start assessment' });
+    expect(start).toBeEnabled();
+    expect(screen.queryByRole('combobox', { name: /source.*host/i })).not.toBeInTheDocument();
+    expect(writes).toEqual([]);
+    fireEvent.input(screen.getByRole('textbox', { name: 'Repository' }), { target: { value: 'selected/repository' } });
+    fireEvent.input(screen.getByRole('spinbutton', { name: 'Pull request number' }), { target: { value: '17' } });
+    expect(writes).toEqual([]);
+    fireEvent.click(start);
+    expect(await screen.findByText(/Activity start accepted/)).toBeInTheDocument();
+    // Exact public wire demonstrates no implicit session lifecycle/settings write,
+    // no source identity in child input, and start bound to the returned Activity.
+    expect(writes).toEqual([
+      { path: '/api/operator-activities', body: { installationId: 'installation-1', invocation: { repository: 'selected/repository', pullRequest: 17 } } },
+      { path: '/api/operator-activities/management-assessment/start', body: { capability: 'm'.repeat(43) } },
+    ]);
   });
 
   it('shows save success and failure next to Permissions rather than only at the page header', async () => {

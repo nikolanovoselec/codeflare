@@ -233,6 +233,7 @@ export async function fixture(test: (f: {
   inferenceAttemptLimit?: number; inferenceTransport?: (request: Request, attempt: number) => Promise<Response>;
   nativeInference?: boolean; managedProviderDefault?: boolean;
   ownerTransport?: (request: Request) => Promise<Response | undefined>;
+  normalProfileTransport?: (request: Request) => Promise<Response | undefined>;
   realInterceptors?: boolean; sourceTransport?: (request: Request) => Promise<Response>; normalHosting?: boolean } = {}) {
   callerSessionCurrent = true;
   callerRoute = 'approved';
@@ -590,7 +591,13 @@ export async function fixture(test: (f: {
     });
     const context = native;
     const encryption = { ENCRYPTION_KEY: btoa('a'.repeat(32)) };
-    const normalTransport = options.normalHosting ? createNormalDispatcherTransport() : undefined;
+    const normalIdentity = options.nativeInference
+      ? { provider: 'configured-provider', model: 'saved-model', api: 'configured-api', reasoningLevel: 'low' }
+      : { provider: 'codeflare-gateway', model: 'approved', api: 'openai-completions', reasoningLevel: options.managedProviderDefault ? null : 'off' };
+    const normalTransport = options.normalHosting ? createNormalDispatcherTransport({
+      profile: { source: options.nativeInference ? 'pi-native' : 'managed', ...normalIdentity },
+      profileTransport: options.normalProfileTransport,
+    }) : undefined;
     let connectionRecord: Record<string, unknown> = { installationId: 'installation', releaseId: 'release', connectionRevision: 1,
       ...normalDeployment, manifestDigest: 'd'.repeat(64), bundleDigest: artifactDigest,
       connectionSecretCiphertext: await sealOperatorSecret(connectionSecret, encryption, { purpose: 'connection', recordId: 'installation' }) };
@@ -618,10 +625,11 @@ export async function fixture(test: (f: {
       readProspectiveRenovateAdmission: async () => structuredClone(currentProof),
       currentProspectiveRenovateRegistration: async () => structuredClone(currentRegistration),
     };
-    const normalIdentity = options.nativeInference
-      ? { provider: 'configured-provider', model: 'saved-model', api: 'configured-api', reasoningLevel: 'low' }
-      : { provider: 'codeflare-gateway', model: 'approved', api: 'openai-completions', reasoningLevel: options.managedProviderDefault ? null : 'off' };
+    // Historical Host completion stand-in retains its original profile/digest wire.
+    // Current normal discovery uses the separate installed-Worker profile wrapper above.
     const normalProfile = { ...normalIdentity, profileDigest: await digest(JSON.stringify(normalIdentity)) };
+    const normalWorkerProfileDigest = await digest(JSON.stringify({
+      source: options.nativeInference ? 'pi-native' : 'managed', ...normalIdentity }));
     let normalModelOrdinal = 0;
     let normalHostAuthMissing = false;
     const ownerPortRequests: Array<{ url: string; loggingContext: unknown; body: unknown }> = [];
@@ -639,7 +647,9 @@ export async function fixture(test: (f: {
           const input = await request.json() as { sessionGeneration: number; profileDigest?: string; context?: unknown; options?: unknown };
           if (input.sessionGeneration !== 3) return Response.json({}, { status: 403 });
           if (new URL(request.url).pathname === '/operator-inference/profile') return Response.json(normalProfile);
-          if (input.profileDigest !== normalProfile.profileDigest) return Response.json({}, { status: 409 });
+          // Legacy completion tests can receive selection from either discovery wire.
+          if (input.profileDigest !== normalProfile.profileDigest && input.profileDigest !== normalWorkerProfileDigest)
+            return Response.json({}, { status: 409 });
           if (normalHostAuthMissing) return Response.json({ error: 'Configured inference unavailable',
             authFailure: { code: 'PI_LOGIN_REQUIRED', reason: 'missing', provider: normalProfile.provider } }, { status: 401 });
           const result = { role: 'assistant', provider: normalProfile.provider, model: normalProfile.model,
@@ -692,7 +702,7 @@ export async function fixture(test: (f: {
     try {
       await test({ activity, capability, staleCapability, environment, bundle: fixtureBundle, artifactDigest, activityId, deliveredTail,
         normalTransport, changeConnection: patch => { connectionRecord = { ...connectionRecord, ...patch }; },
-        refuseNormalHostAuth: () => { normalHostAuthMissing = true; },
+        refuseNormalHostAuth: () => { normalHostAuthMissing = true; normalTransport?.refuseProfileAuth(); },
         ownerPortRequests, setCurrentLogging: enabled => { selection.operator.policy.loggingEnabled = enabled; },
         waitUntil: native.waitUntil.bind(native),
         installationCapability: new OperatorInstalledDispatcherCapability({ props: {} } as unknown as ExecutionContext,

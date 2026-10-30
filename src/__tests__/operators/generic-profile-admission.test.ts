@@ -7,6 +7,7 @@ import type { ManagementExecutionSelection } from '../../operators/registry';
 import type { NativeOperatorInference } from '../../operators/inference-selection';
 
 const piStorage = vi.hoisted(() => ({ objects: new Map<string, unknown>(), nativeSource: false }));
+const humanAuthority = vi.hoisted(() => ({ active: true }));
 
 const claims = {
   subject: 'human-subject', email: 'human@example.test', issuer: 'https://access.example.test',
@@ -15,7 +16,10 @@ const claims = {
 };
 vi.mock('../../lib/access', async importOriginal => ({
   ...await importOriginal<typeof import('../../lib/access')>(),
-  requireOperatorHumanContext: async () => ({ human: claims, accessJwt: 'private.access.jwt' }),
+  requireOperatorHumanContext: async () => {
+    if (!humanAuthority.active) throw new AppError('FORBIDDEN', 403, 'Human Access authentication required');
+    return { human: claims, accessJwt: 'private.access.jwt' };
+  },
   resolveOperatorGroupIdentity: async () => claims,
   operatorAccessSessionCurrent: async () => true,
   resolveBucketName: async () => 'owner-bucket',
@@ -57,7 +61,7 @@ function fixture(selection?: ManagementExecutionSelection) {
     },
   };
   const registry = {
-    resolveManagementExecution: async () => selection
+    resolveManagementExecution: async (installationId: string) => selection && installationId === selection.installation.id
       ? { ok: true as const, value: structuredClone(selection) }
       : { ok: false as const, reason: 'not-found' as const },
     resolveForExecution: async () => ({ ok: true as const, value: {
@@ -85,7 +89,7 @@ function fixture(selection?: ManagementExecutionSelection) {
   return { post, prepared: () => prepared };
 }
 
-function installedConductor(nativeSource = true) {
+function installedConductorSelection(nativeSource = true) {
   piStorage.nativeSource = nativeSource;
   piStorage.objects.set('/owner-bucket/.pi/agent/settings.json', {
     defaultProvider: 'openai', defaultModel: 'gpt-6.1-sol', defaultThinkingLevel: 'high',
@@ -121,6 +125,29 @@ function installedConductor(nativeSource = true) {
       requiredCapabilities: policy.capabilities,
       artifact: { path: '/operator-bundle.json', sha256: 'd'.repeat(64) } }),
   };
+  return selection;
+}
+
+function installedConductor(nativeSource = true) {
+  return fixture(installedConductorSelection(nativeSource));
+}
+
+function installedDispatcher(nativeSource: boolean, invoker = claims.email) {
+  const selection = installedConductorSelection(nativeSource);
+  selection.operator.profile = 'dispatcher';
+  selection.operator.repositoryUrl = 'https://github.com/nikolanovoselec/codeflare-operator-dispatcher';
+  selection.operator.invokers = { users: [invoker], groups: [] };
+  selection.operator.managers = { users: [claims.email], groups: [] };
+  for (const policy of [selection.operator.policy, selection.installation.policy]) {
+    policy.capabilities = ['fetch', 'inference'];
+    policy.resourceProfileId = null;
+  }
+  selection.manifestJson = JSON.stringify({ name: 'Renovate Dispatcher', inputSchema: {
+    type: 'object', additionalProperties: false, required: ['repository', 'pullRequest'],
+    properties: { repository: { type: 'string' }, pullRequest: { type: 'integer', minimum: 1 } },
+  } });
+  // No session repository or CONTAINER binding: admission has only the verified
+  // owner/installation. Actual R2/SDK inference resolution belongs to the root lane.
   return fixture(selection);
 }
 
@@ -147,6 +174,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   piStorage.objects.clear();
   piStorage.nativeSource = false;
+  humanAuthority.active = true;
 });
 
 describe('REQ-OPERATOR-047: generic directed profile admission', () => {
@@ -240,4 +268,66 @@ describe('REQ-OPERATOR-007/047: ordinary installed Conductor owner-profile admis
     expect(JSON.parse(prepared()!.invocationJson)).toEqual({ ...invocation, activityId: body.activityId });
     expect(piStorage.objects).toEqual(saved);
   });
+});
+
+
+// #119 preparation boundary only. These exercise the real route + orchestrator
+// against the existing external-service fixtures, with no Dispatcher inference
+// result stub and no user-session/container service. They do not qualify R2/SDK execution.
+describe('REQ-OPERATOR-058/007/048: session-independent installed Dispatcher preparation', () => {
+  it.each([true, false])(
+    'REQ-OPERATOR-058: AC1 native-enabled=%s preparation returns a bounded explicit-start capability without any source session', async nativeSource => {
+      const { post } = installedDispatcher(nativeSource);
+      const response = await post({ installationId: 'review-install', invocation: { repository: 'owner/repository', pullRequest: 17 } });
+      expect(response.status).toBe(201);
+      // Public preparation response contract: permission to start the exact prepared
+      // Activity, not an execution result or a browser-selected owner principal.
+      const prepared = await response.json() as { activityId: string; startCapability: string; startExpiresAt: number };
+      expect(prepared).toEqual({
+        activityId: expect.stringMatching(/^[0-9a-f-]{36}$/),
+        startCapability: expect.stringMatching(/^[A-Za-z0-9_-]{43}$/),
+        startExpiresAt: expect.any(Number),
+      });
+      expect(prepared.startExpiresAt).toBeGreaterThan(Date.now());
+      expect(prepared.startExpiresAt).toBeLessThanOrEqual(claims.expiresAt * 1000);
+      expect(prepared.startExpiresAt).toBeLessThanOrEqual(Date.now() + 5 * 60_000);
+    });
+
+  it.each([true, false])(
+    'REQ-OPERATOR-047: AC2 expired human denies session-free preparation with native-enabled=%s', async nativeSource => {
+      const { post } = installedDispatcher(nativeSource);
+      const expiresAt = claims.expiresAt;
+      try {
+        claims.expiresAt = Math.floor(Date.now() / 1000) - 1;
+        const response = await post({ installationId: 'review-install', invocation: { repository: 'owner/repository', pullRequest: 17 } });
+        expect([400, 403]).toContain(response.status);
+        expect(await response.json()).toMatchObject({ code: expect.stringMatching(/^(?:VALIDATION_ERROR|FORBIDDEN)$/),
+          error: expect.stringMatching(/authority|expired/i) });
+      } finally { claims.expiresAt = expiresAt; }
+    });
+
+  it.each([true, false])(
+    'REQ-OPERATOR-047: AC3 revoked human denies session-free preparation with native-enabled=%s', async nativeSource => {
+      const { post } = installedDispatcher(nativeSource);
+      humanAuthority.active = false;
+      const response = await post({ installationId: 'review-install', invocation: { repository: 'owner/repository', pullRequest: 17 } });
+      expect(response.status).toBe(403);
+      expect(await response.json()).toMatchObject({ code: 'FORBIDDEN' });
+    });
+
+  it.each([true, false])(
+    'REQ-OPERATOR-047: AC1 wrong installation cannot borrow session-free native-enabled=%s authority', async nativeSource => {
+      const { post } = installedDispatcher(nativeSource);
+      const response = await post({ installationId: 'foreign-install', invocation: { repository: 'owner/repository', pullRequest: 17 } });
+      expect(response.status).toBe(404);
+      expect(await response.json()).toMatchObject({ code: 'NOT_FOUND' });
+    });
+
+  it.each([true, false])(
+    'REQ-OPERATOR-047: AC3 management without an invocation grant denies session-free native-enabled=%s preparation', async nativeSource => {
+      const { post } = installedDispatcher(nativeSource, 'another-owner@example.test');
+      const response = await post({ installationId: 'review-install', invocation: { repository: 'owner/repository', pullRequest: 17 } });
+      expect(response.status).toBe(404);
+      expect(await response.json()).toMatchObject({ code: 'NOT_FOUND' });
+    });
 });

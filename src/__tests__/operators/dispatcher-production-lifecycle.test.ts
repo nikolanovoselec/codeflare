@@ -3640,8 +3640,8 @@ describe('configured-owner pre-lease failure evidence', () => {
         expect(JSON.stringify(history)).not.toMatch(/PRIVATE_PROFILE_|PROFILE_UPSTREAM_/);
       } else { expect(records).toEqual([]); expect(summary.capture).toBe('disabled'); }
       expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
-    }, { normalHosting: true, repositoryOnly: true, loggingEnabled, ownerTransport: async request => {
-      if (new URL(request.url).pathname !== '/operator-inference/profile') return undefined;
+    }, { normalHosting: true, repositoryOnly: true, loggingEnabled, normalProfileTransport: async request => {
+      if (new URL(request.url).pathname !== '/control/profile') return undefined;
       if (failure === 'status') return new Response(body, { status: 502 });
       if (failure === 'forward') throw original;
       return new Response(new ReadableStream<Uint8Array>({ start(controller) { controller.error(original); } }));

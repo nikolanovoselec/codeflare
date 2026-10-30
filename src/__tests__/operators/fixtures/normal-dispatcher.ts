@@ -39,8 +39,17 @@ export function normalCallback(activityId: string, path: string, body: unknown, 
   });
 }
 
-/** Durable remote acceptance exists independently of the Activity's receipt storage. */
-export function createNormalDispatcherTransport() {
+type NormalProfileIdentity = {
+  source: 'pi-native' | 'managed'; provider: string; model: string; api: string; reasoningLevel: string | null;
+};
+
+/** Durable remote acceptance exists independently of the Activity's receipt storage.
+ * Profile metadata simulates the external Worker wire, not SDK resolution/auth/parser execution.
+ */
+export function createNormalDispatcherTransport(options: {
+  profile?: NormalProfileIdentity;
+  profileTransport?: (request: Request) => Promise<Response | undefined>;
+} = {}) {
   const requests: Array<{ path: string; authorization: string | null; body: Record<string, unknown> }> = [];
   const networkRequests: Array<{ url: string; method: string }> = [];
   const admissions = new Map<string, { wire: string; receipt: NormalReceipt }>();
@@ -50,14 +59,29 @@ export function createNormalDispatcherTransport() {
   let data: Record<string, unknown[]> = {};
   let replyPatch: Record<string, unknown> = {};
   let receiptPatch: Record<string, unknown> = {};
+  let profileAuthMissing = false;
   const fetcher = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     const request = new Request(input, init);
     networkRequests.push({ url: request.url, method: request.method });
     const path = new URL(request.url).pathname;
     if (!path.startsWith('/control/')) throw new Error(`Unexpected external network path: ${path}`);
-    const body = await request.json() as Record<string, unknown>;
+    const body = await request.clone().json() as Record<string, unknown>;
     requests.push({ path, authorization: request.headers.get('authorization'), body: structuredClone(body) });
     if (request.headers.get('authorization') !== `Bearer ${connectionSecret}`) return new Response(null, { status: 403 });
+    if (path === '/control/profile') {
+      const controlled = await options.profileTransport?.(request);
+      if (controlled) return controlled;
+      const identity = options.profile ?? { source: 'managed', provider: 'codeflare-gateway', model: 'approved',
+        api: 'openai-completions', reasoningLevel: 'off' };
+      // Optional fault evidence only; SDK auth is not required to run during profile discovery.
+      if (profileAuthMissing) return Response.json({ authFailure: {
+        code: 'PI_LOGIN_REQUIRED', reason: 'missing', provider: identity.provider } }, { status: 401 });
+      const { source, provider, model, api, reasoningLevel } = identity;
+      const profileDigest = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',
+        new TextEncoder().encode(JSON.stringify({ source, provider, model, api, reasoningLevel })))), byte => byte.toString(16).padStart(2, '0')).join('');
+      return Response.json({ selection: { ...identity, profileDigest,
+        ...(identity.source === 'managed' ? { routeId: identity.model } : {}) } });
+    }
     if (path === '/control/dispatch') {
       const wire = body as NormalDispatch;
       if (!wire.id || !wire.idempotencyKey || wire.uid === null || wire.uid && wire.initialData !== undefined)
@@ -86,6 +110,7 @@ export function createNormalDispatcherTransport() {
     return new Response(null, { status: 404 });
   };
   return { fetcher, requests, networkRequests, admissions,
+    refuseProfileAuth: () => { profileAuthMissing = true; },
     loseAcknowledgement: () => { loseNextAcknowledgement = true; },
     failNextRead: (status: number) => { nextReadFailure = status; },
     settle: (status: typeof outcome, assessmentData: Array<{ name: string; data: unknown }> = []) => {

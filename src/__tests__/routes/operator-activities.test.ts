@@ -160,11 +160,11 @@ describe('REQ-OPERATOR-027: authenticated owned activity browser surfaces', () =
     expect(await (await request('/installations/installation-1/preview')).json()).toMatchObject({ guidedAssessment: false });
   });
   it.each([
-    { operatorInference: true, installationInference: true, requiresSourceHost: true },
+    { operatorInference: true, installationInference: true, requiresSourceHost: false },
     { operatorInference: true, installationInference: false, requiresSourceHost: false },
     { operatorInference: false, installationInference: true, requiresSourceHost: false },
     { operatorInference: false, installationInference: false, requiresSourceHost: false },
-  ])('REQ-OPERATOR-058: AC1 preview requires an ordinary Host only at the admitted inference intersection (operator=$operatorInference installation=$installationInference)', async policy => {
+  ])('REQ-OPERATOR-058: AC1 preview never requires a source Host even at the admitted inference intersection (operator=$operatorInference installation=$installationInference)', async policy => {
     const f = fixture();
     f.registry.resolveManagementExecution.mockResolvedValue({ ok: true, value: {
       operator: { id: 'operator-1', profile: 'dispatcher', repositoryUrl: 'https://github.com/nikolanovoselec/codeflare-operator-dispatcher',
@@ -177,7 +177,8 @@ describe('REQ-OPERATOR-027: authenticated owned activity browser surfaces', () =
     } });
     const response = await f.request('/installations/installation-1/preview?requiresSourceHost=false&sourceSession=caller-source');
     expect(response.status).toBe(200);
-    // Intentional existing-preview wire contract, not a setting or caller override.
+    // Public preview contract: inference eligibility does not require a Host picker,
+    // and URL-supplied source hints never choose the execution principal.
     expect(await response.json()).toEqual({ name: 'Renovate Dispatcher', version: 'v0.1.2', guidedAssessment: true,
       guidedMode: 'legacy-pull-request', requiresSourceHost: policy.requiresSourceHost });
   });
