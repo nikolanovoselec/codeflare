@@ -7,6 +7,9 @@ const source = 'https://github.com/nikolanovoselec/codeflare-operator-dispatcher
 const grants = { users: ['manager@example.test'], groups: [] };
 const policy = { capabilities: ['inference', 'fetch'], resourceProfileId: null, sourceResponseBytes: 524288 };
 const retained = { unrelated: { labels: ['keep', 'these'] }, schedules: { external: 'retained' } };
+const sourceHost = { id: 'ownersession1', name: 'Existing owner Host', createdAt: '2026-01-01T00:00:00.000Z',
+  lastAccessedAt: '2026-01-02T00:00:00.000Z', status: 'running', lifecycle: 'running', generation: 3,
+  revision: 1, workspace: 'terminal', terminalMode: 'classic', agentType: 'bash' };
 const json = (value: unknown, status = 200) => new Response(JSON.stringify(value), { status });
 function fixture(): ManagementDetail {
   return {
@@ -58,8 +61,10 @@ beforeEach(() => {
     }
     if (path.endsWith('/operator-1')) return json(state);
     if (path.endsWith('/operators')) return json({ items: [state.operator], cursor: null });
+    if (path === '/api/sessions') return json({ sessions: [sourceHost] });
     if (path.endsWith('/preview')) return json({ name: 'Renovate Dispatcher', version: 'v0.1.3', guidedAssessment: true,
-      guidedMode: 'repository', configuredRepository: state.installations[0].configuration?.renovate
+      guidedMode: 'repository', requiresSourceHost: state.operator.policy.capabilities.includes('inference')
+        && state.installations[0].policy.capabilities.includes('inference'), configuredRepository: state.installations[0].configuration?.renovate
         && (state.installations[0].configuration.renovate as { repository: string }).repository });
     if (path === '/api/operator-activities') return json({ items: [] });
     return json({ error: 'Not found' }, 404);
@@ -204,6 +209,10 @@ describe('configured Renovate run settings', () => {
     expect(new URL(run.getAttribute('href')!, window.location.origin).searchParams.get('repository')).toBeNull();
     fireEvent.click(run);
     expect(await screen.findByRole('textbox', { name: 'Repository' })).toHaveValue('acme/manual');
+    expect(screen.getByRole('button', { name: 'Start assessment' })).toBeDisabled();
+    const source = await screen.findByRole('combobox', { name: /source.*host/i });
+    const option = await within(source).findByRole('option', { name: /Existing owner Host/ });
+    fireEvent.change(source, { target: { value: (option as HTMLOptionElement).value } });
     expect(screen.getByRole('button', { name: 'Start assessment' })).toBeEnabled();
   });
 

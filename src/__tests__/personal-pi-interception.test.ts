@@ -8,6 +8,7 @@ import type { Env } from '../types';
 import * as access from '../lib/access';
 import * as execution from '../operators/execution-context';
 import { operatorOwnerKey } from '../operators/browser-activity';
+import { prepareOperatorActivity } from '../operators/orchestrator';
 
 const owner = { bucket: 'owner-bucket', sessionId: 'ownersession1', user: 'owner@example.test', generation: 1 };
 const issuer = 'https://personal-pi.cloudflareaccess.com';
@@ -298,8 +299,8 @@ it('REQ-ENTERPRISE-088 AC5: an unbound native request cannot borrow the legacy g
 });
 
 
-it.each(['already-stopped', 'during-authorization'] as const)(
-  'REQ-OPERATOR-047: actual Conductor parent grant denies durable login-stop %s without retiring cleanup authority', async when => {
+it.each(['already-stopped', 'during-authorization', 'dispatcher-source'] as const)(
+  'REQ-OPERATOR-058/047: actual Conductor parent grant refuses %s without broadening or retiring original authority', async when => {
     const f = fixture();
     const deadline = Date.now() + 60_000;
     const selection = { source: 'pi-native' as const, provider: 'openai-codex', model: 'gpt-6.1-sol',
@@ -342,6 +343,16 @@ it.each(['already-stopped', 'during-authorization'] as const)(
           thinkingLevel: 'low', systemPrompt: 'Bound native work', tools: ['read', 'write'], authBinding: binding } } } as unknown as InterceptionHost;
     const ref = { bucket: owner.bucket, sessionId: owner.sessionId, email: owner.user };
     expect(await getPersonalPiSession(host, ref)).toEqual({ generation: 1, groups: ['Engineering'] });
+    if (when === 'dispatcher-source') {
+      const source = dispatcherSourcePreparation(f, host);
+      await expect(source.prepare()).rejects.toMatchObject({ statusCode: 403 });
+      expect(source.prepared).toEqual([]);
+      // This is a valid restricted native Host, not a broken/missing auth binding.
+      // Refusing its use as an ordinary Dispatcher source cannot revoke Conductor.
+      expect(await getPersonalPiSession(host, ref)).toEqual({ generation: 1, groups: ['Engineering'] });
+      expect(plan.authFailure).toBeUndefined();
+      return;
+    }
     if (when === 'already-stopped') plan.authFailure = failure;
     else stopDuringAuthorization = true;
     await expect(getPersonalPiSession(host, ref)).rejects.toThrow();
@@ -594,4 +605,103 @@ it('REQ-ENTERPRISE-090 AC2: credential-free parent RPC wire contract contains on
   const f = fixture();
   expect(await getPersonalPiSession(f.host, { bucket: owner.bucket, sessionId: owner.sessionId, email: owner.user }))
     .toEqual({ generation: 1, groups: ['Engineering'] });
+});
+
+
+// Public preparation + actual D1-backed Host guard. The Activity/Registry are
+// stateful boundary collaborators; no admission behavior is mocked as the SUT.
+function dispatcherSourcePreparation(f: ReturnType<typeof fixture>, host = f.host) {
+  const previousRegistry = f.env.OPERATOR_REGISTRY;
+  const previousActivities = f.env.OPERATOR_ACTIVITY;
+  const prepared: Array<{ activityId: string; invocation: unknown; ownerSource?: {
+    bucket: string; sessionId: string; sessionGeneration: number } }> = [];
+  const selection = { controlsRevision: 1,
+    operator: { operatorId: 'renovate-dispatcher', revision: 1, profile: 'dispatcher',
+      invokers: { users: [owner.user], groups: [] }, policy: { capabilities: ['fetch', 'inference'] } },
+    installation: { id: 'source-install', revision: 1, enabled: true, releaseId: 'source-release',
+      configurationJson: '{}', policy: { capabilities: ['fetch', 'inference'], resourceProfileId: null } },
+    release: { id: 'source-release', bundleDigest: 'a'.repeat(64) },
+    manifestJson: JSON.stringify({ id: 'renovate-dispatcher', profile: 'dispatcher', intentVersion: '2' }) };
+  f.env.ENCRYPTION_KEY = btoa('s'.repeat(32));
+  vi.spyOn(access, 'resolveBucketName').mockResolvedValue(owner.bucket);
+  f.env.CONTAINER = { getByName: () => ({
+    // Bind forwards the actual public RPC arguments, including any additive
+    // trusted purpose, without prescribing its shape or dropping it in RED.
+    getPersonalPiSession: getPersonalPiSession.bind(null, host),
+  }) } as unknown as Env['CONTAINER'];
+  f.env.OPERATOR_REGISTRY = { getByName: () => ({ resolveManagementExecution: async (id: string) => id === 'source-install'
+    ? { ok: true, value: selection } : previousRegistry!.getByName('registry').resolveManagementExecution(id) }) } as never;
+  f.env.OPERATOR_ACTIVITY = { getByName: (id: string) => id === 'operator-activity' && previousActivities
+    ? previousActivities.getByName(id) : {
+      prepareAuthorized: async (intent: { activityId: string }, _context: unknown, invocation: string) => {
+        prepared.push({ activityId: intent.activityId, invocation: JSON.parse(invocation) }); return { ok: true };
+      },
+      bindDispatcherOwnerSource: async (source: NonNullable<typeof prepared[number]['ownerSource']>) => {
+        prepared[prepared.length - 1].ownerSource = structuredClone(source); return true;
+      },
+    } } as unknown as NonNullable<Env['OPERATOR_ACTIVITY']>;
+  const sourceSession = { sessionId: owner.sessionId, sessionGeneration: 1 };
+  const prepare = () => prepareOperatorActivity({ installationId: 'source-install',
+    invocation: { repository: 'owner/repo', pullRequest: 17 }, sourceSession },
+  { human: f.human, accessJwt: 'synthetic-sealed-assertion' }, f.env);
+  return { prepare, prepared, sourceSession };
+}
+
+it.each(['running', 'starting'] as const)(
+  'REQ-OPERATOR-058/047: AC1 explicit %s ordinary Host prepares a parent-owned source and unchanged child input without an interactive Pi process', async status => {
+    const f = fixture();
+    f.setSession({ status });
+    const source = dispatcherSourcePreparation(f);
+    const result = await source.prepare();
+    source.sourceSession.sessionGeneration = 99;
+    expect(source.prepared).toEqual([{ activityId: result.activityId,
+      invocation: { repository: 'owner/repo', pullRequest: 17 },
+      ownerSource: { bucket: owner.bucket, sessionId: owner.sessionId, sessionGeneration: 1 } }]);
+    expect(f.requests).toEqual([]);
+    expect(f.egressRequests).toEqual([]);
+  });
+
+it.each(['foreign-owner', 'foreign-session', 'foreign-bucket', 'missing', 'stopped', 'stopping', 'unreachable',
+  'termination', 'generation', 'memory-shutdown', 'durable-shutdown', 'restricted', 'unavailable'] as const)(
+  'REQ-OPERATOR-058/047: AC1 %s ordinary source refuses before Activity preparation', async fault => {
+    const f = fixture();
+    const source = dispatcherSourcePreparation(f);
+    if (fault === 'foreign-owner') f.host._userEmail = 'another@example.test';
+    if (fault === 'foreign-session') source.sourceSession.sessionId = 'foreignsession1';
+    if (fault === 'foreign-bucket') f.host._bucketName = 'another-tenant';
+    if (fault === 'missing') f.setSession(null);
+    if (fault === 'stopped' || fault === 'stopping' || fault === 'unreachable') f.setSession({ status: fault });
+    if (fault === 'termination') f.setSession({ terminationIntentId: 'stop-intent' });
+    if (fault === 'generation') f.setSession({ lifecycleGeneration: 2 });
+    if (fault === 'memory-shutdown') f.host._shutdownStartedAt = Date.now();
+    if (fault === 'durable-shutdown') f.records.set('shutdownRequested', Date.now());
+    if (fault === 'restricted') f.host._operatorPolicy = { schemaVersion: 1, networkHosts: [],
+      github: { repositories: [], methods: [] }, storage: { readPrefixes: [], writePrefixes: [] },
+      inference: { routeIds: [], defaultRouteId: null, reasoningLevels: [], defaultReasoningLevel: null, inheritUserDefaults: false } };
+    if (fault === 'unavailable') f.env.USAGE_DB = { prepare: () => { throw Error('Session catalog unavailable'); } } as unknown as D1Database;
+    await expect(source.prepare()).rejects.toThrow();
+    expect(source.prepared).toEqual([]);
+    expect(f.requests).toEqual([]);
+  });
+
+it.each([0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1])(
+  'REQ-OPERATOR-058/047: AC1 invalid source generation %s refuses before Activity preparation', async generation => {
+    const f = fixture();
+    const source = dispatcherSourcePreparation(f);
+    source.sourceSession.sessionGeneration = generation;
+    await expect(source.prepare()).rejects.toMatchObject({ statusCode: 400 });
+    expect(source.prepared).toEqual([]);
+  });
+
+it('REQ-OPERATOR-058/047: AC1 stale caller generation requires reselection before any preparation', async () => {
+  const f = fixture();
+  const source = dispatcherSourcePreparation(f);
+  source.sourceSession.sessionGeneration = 2;
+  await expect(source.prepare()).rejects.toMatchObject({ statusCode: 409 });
+  expect(source.prepared).toEqual([]);
+  source.sourceSession.sessionGeneration = 1;
+  const result = await source.prepare();
+  expect(source.prepared).toEqual([{ activityId: result.activityId,
+    invocation: { repository: 'owner/repo', pullRequest: 17 },
+    ownerSource: { bucket: owner.bucket, sessionId: owner.sessionId, sessionGeneration: 1 } }]);
 });

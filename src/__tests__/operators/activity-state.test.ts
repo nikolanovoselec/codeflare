@@ -45,6 +45,31 @@ async function withActivity(
     await test({ activity, registry, token, ctx, activityEnv, deadline });
   });
 }
+it('REQ-OPERATOR-058/047/048: AC1 parent-prepared ordinary source is immutable across cold Activity reconstruction', async () => {
+  await withActivity(async ({ ctx, activityEnv, deadline }) => {
+    const securedEnv = { ...activityEnv, ENCRYPTION_KEY: btoa('s'.repeat(32)) };
+    const activity = new OperatorActivity(ctx, securedEnv);
+    const human = { subject: 'source-owner', email: 'owner@example.test', issuer: 'https://access.example.test',
+      audiences: ['aud'], issuedAt: Math.floor(Date.now() / 1000) - 1, expiresAt: Math.ceil(deadline / 1000) + 1 };
+    const context = await createOperatorExecutionContext({ activityId: 'activity', operatorId: 'dispatcher',
+      artifactDigest: 'a'.repeat(64), policyDigest: 'b'.repeat(64), human, accessJwt: 'synthetic.source.assertion' }, securedEnv);
+    const invocationJson = '{"repository":"owner/repo"}';
+    expect(await activity.prepareAuthorized({ activityId: 'activity', operatorId: 'dispatcher', installationId: 'installation',
+      expectedRevision: 1, expectedInstallationRevision: 1, expectedControlsRevision: 1, deadline,
+      startExpiresAt: deadline, startVerifier: 'c'.repeat(64),
+      intentDigest: await createOperatorIntentDigest('dispatcher', 'activity', invocationJson) }, context, invocationJson))
+      .toEqual({ ok: true, phase: 'prepared' });
+    const source = { bucket: 'owner-bucket', sessionId: 'ownersession1', sessionGeneration: 3 };
+    expect(await activity.bindDispatcherOwnerSource(source)).toBe(true);
+    for (const changed of [{ ...source, bucket: 'foreign-bucket' }, { ...source, sessionId: 'othersession1' },
+      { ...source, sessionGeneration: 4 }]) expect(await activity.bindDispatcherOwnerSource(changed)).toBe(false);
+    const cold = new OperatorActivity(ctx, securedEnv);
+    expect(await cold.bindDispatcherOwnerSource({ ...source, sessionGeneration: 4 })).toBe(false);
+    expect(await cold.bindDispatcherOwnerSource(source)).toBe(true);
+    expect(await cold.getAdmission()).toMatchObject({ activityId: 'activity', phase: 'prepared', receipt: null });
+  }, false, false);
+});
+
 const update = { schemaVersion: 1, status: 'waiting', checkpoint: { step: 1 } };
 function ownedSessionFixture() {
   return {

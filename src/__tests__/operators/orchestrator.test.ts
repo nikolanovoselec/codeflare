@@ -273,3 +273,51 @@ describe('REQ-OPERATOR-061: configured Renovate run settings', () => {
   });
 
 });
+
+
+describe('REQ-OPERATOR-058: source authority before managed inference preparation', () => {
+  function managed(operatorCapabilities = ['fetch', 'inference'], installationCapabilities = ['fetch', 'inference']) {
+    const prepared: Array<{ activityId: string; invocation: unknown }> = [];
+    const selection = { controlsRevision: 1,
+      operator: { operatorId: 'renovate-dispatcher', profile: 'dispatcher', revision: 1,
+        invokers: { users: [claims.email], groups: [] }, policy: { capabilities: operatorCapabilities } },
+      installation: { id: 'source-install', revision: 1, releaseId: 'release', enabled: true,
+        configurationJson: '{}', policy: { capabilities: installationCapabilities, resourceProfileId: null } },
+      release: { id: 'release', bundleDigest: 'a'.repeat(64) },
+      manifestJson: JSON.stringify({ id: 'renovate-dispatcher', profile: 'dispatcher', intentVersion: '2' }) };
+    const host = { ...encryption,
+      OPERATOR_REGISTRY: { getByName: () => ({ resolveManagementExecution: async () => ({ ok: true, value: selection }) }) },
+      OPERATOR_ACTIVITY: { getByName: () => ({ prepareAuthorized: async (intent: { activityId: string }, _context: unknown, invocation: string) => {
+        prepared.push({ activityId: intent.activityId, invocation: JSON.parse(invocation) }); return { ok: true };
+      } }) },
+    } as unknown as Env;
+    return { host, prepared };
+  }
+
+  it.each([{}, { sourceSession: undefined }])('REQ-OPERATOR-058: AC1 missing ordinary source %j refuses before preparing a managed inference Activity', async source => {
+    const f = managed();
+    await expect(prepareOperatorActivity({ installationId: 'source-install', invocation: { repository: 'owner/repo', pullRequest: 17 }, ...source },
+      { human: claims, accessJwt: 'private.jwt' }, f.host)).rejects.toMatchObject({ statusCode: 400 });
+    expect(f.prepared).toEqual([]);
+  });
+
+  it('REQ-OPERATOR-058: AC1 child input cannot substitute an ordinary parent source proof', async () => {
+    const f = managed();
+    await expect(prepareOperatorActivity({ installationId: 'source-install', invocation: {
+      repository: 'owner/repo', pullRequest: 17, sourceSession: { sessionId: 'ownersession1', sessionGeneration: 3 },
+    } }, { human: claims, accessJwt: 'private.jwt' }, f.host)).rejects.toMatchObject({ statusCode: 400 });
+    expect(f.prepared).toEqual([]);
+  });
+
+  it.each([
+    { operator: ['fetch', 'inference'], installation: ['fetch'] },
+    { operator: ['fetch'], installation: ['fetch', 'inference'] },
+    { operator: ['fetch'], installation: ['fetch'] },
+  ])('REQ-OPERATOR-058: AC1 non-inference intersection %j retains source-free Dispatcher preparation', async policy => {
+    const f = managed(policy.operator, policy.installation);
+    const result = await prepareOperatorActivity({ installationId: 'source-install', invocation: { repository: 'owner/repo', pullRequest: 17 } },
+      { human: claims, accessJwt: 'private.jwt' }, f.host);
+    expect(f.prepared).toEqual([{ activityId: result.activityId, invocation: { repository: 'owner/repo', pullRequest: 17 } }]);
+    expect(result.startCapability).toMatch(/^[A-Za-z0-9_-]{43}$/);
+  });
+});

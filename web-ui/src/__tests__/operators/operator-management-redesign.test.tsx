@@ -112,7 +112,7 @@ describe('REQ-OPERATOR-049: operator task hierarchy', () => {
     let preparations = 0;
     serve = (url, init) => {
       if (url.pathname === '/api/operator-activities' && init?.method === 'POST') preparations++;
-      if (url.pathname.endsWith('/preview')) return json({ name: 'Renovate Dispatcher', version: 'v0.1.2', guidedAssessment: true, guidedMode: 'legacy-pull-request' });
+      if (url.pathname.endsWith('/preview')) return json({ name: 'Renovate Dispatcher', version: 'v0.1.2', guidedAssessment: true, guidedMode: 'legacy-pull-request', requiresSourceHost: false });
       if (url.pathname.endsWith('/operator-1')) return json({ operator: dispatcher, releases: [{ ...release, name: 'Renovate Dispatcher' }], installations: [installed], grants: { managers: grant, invokers: { users: [], groups: [] } } });
       return json({ items: [dispatcher], cursor: null });
     };

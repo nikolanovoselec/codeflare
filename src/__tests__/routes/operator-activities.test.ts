@@ -123,7 +123,7 @@ describe('REQ-OPERATOR-027: authenticated owned activity browser surfaces', () =
     registry.resolveManagementExecution.mockResolvedValue({ ok: true, value: selection });
     const preview = await request('/installations/installation-1/preview');
     expect(preview.status).toBe(200);
-    expect(await preview.json()).toEqual({ name: 'Renovate Dispatcher', version: 'v0.1.2', guidedAssessment: true, guidedMode: 'legacy-pull-request' });
+    expect(await preview.json()).toEqual({ name: 'Renovate Dispatcher', version: 'v0.1.2', guidedAssessment: true, guidedMode: 'legacy-pull-request', requiresSourceHost: false });
     const schema = { type: 'object', additionalProperties: false, required: ['repository'],
       properties: { repository: { type: 'string', maxLength: 201, pattern: '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$' } } };
     const installed = (inputSchema: unknown) => ({ ...selection,
@@ -158,6 +158,29 @@ describe('REQ-OPERATOR-027: authenticated owned activity browser surfaces', () =
       operator: { ...selection.operator, repositoryUrl: 'https://github.com/elsewhere/dispatcher' } } });
     expect(await (await request('/installations/installation-1/preview')).json()).toMatchObject({ guidedAssessment: false });
   });
+  it.each([
+    { operatorInference: true, installationInference: true, requiresSourceHost: true },
+    { operatorInference: true, installationInference: false, requiresSourceHost: false },
+    { operatorInference: false, installationInference: true, requiresSourceHost: false },
+    { operatorInference: false, installationInference: false, requiresSourceHost: false },
+  ])('REQ-OPERATOR-058: AC1 preview requires an ordinary Host only at the admitted inference intersection (operator=$operatorInference installation=$installationInference)', async policy => {
+    const f = fixture();
+    f.registry.resolveManagementExecution.mockResolvedValue({ ok: true, value: {
+      operator: { id: 'operator-1', profile: 'dispatcher', repositoryUrl: 'https://github.com/nikolanovoselec/codeflare-operator-dispatcher',
+        invokers: { users: [claims.email], groups: [] }, policy: { capabilities: policy.operatorInference ? ['fetch', 'inference'] : ['fetch'] } },
+      installation: { id: 'installation-1', releaseId: 'release-1', configurationJson: '{}',
+        policy: { capabilities: policy.installationInference ? ['fetch', 'inference'] : ['fetch'], resourceProfileId: null } },
+      release: { tagName: 'v0.1.2' }, manifestJson: JSON.stringify({ name: 'Renovate Dispatcher', inputSchema: {
+        type: 'object', additionalProperties: false, required: ['repository', 'pullRequest'],
+        properties: { repository: { type: 'string' }, pullRequest: { type: 'integer', minimum: 1 } } } }),
+    } });
+    const response = await f.request('/installations/installation-1/preview?requiresSourceHost=false&sourceSession=caller-source');
+    expect(response.status).toBe(200);
+    // Intentional existing-preview wire contract, not a setting or caller override.
+    expect(await response.json()).toEqual({ name: 'Renovate Dispatcher', version: 'v0.1.2', guidedAssessment: true,
+      guidedMode: 'legacy-pull-request', requiresSourceHost: policy.requiresSourceHost });
+  });
+
   it('returns a side-effect-free safe summary collection for the exact human account', async () => {
     const { request, registry, activity } = fixture();
     const response = await request();
@@ -482,11 +505,11 @@ describe('REQ-OPERATOR-061: configured Renovate run settings', () => {
     const preview = await f.request('/installations/install/preview?repository=other/repo');
     expect(preview.status).toBe(200);
     expect(await preview.json()).toEqual({ name: 'Renovate Dispatcher', version: 'v1', guidedAssessment: true,
-      guidedMode: 'repository', configuredRepository: 'acme/updates' });
+      guidedMode: 'repository', configuredRepository: 'acme/updates', requiresSourceHost: false });
     f.registry.resolveManagementExecution.mockResolvedValue({ ok: true, value: { ...selected,
       installation: { ...selected.installation, configurationJson: '{}' } } });
     expect(await (await f.request('/installations/install/preview')).json()).toEqual({
-      name: 'Renovate Dispatcher', version: 'v1', guidedAssessment: true, guidedMode: 'repository' });
+      name: 'Renovate Dispatcher', version: 'v1', guidedAssessment: true, guidedMode: 'repository', requiresSourceHost: false });
     f.registry.resolveManagementExecution.mockResolvedValue({ ok: true, value: { ...selected,
       operator: { ...selected.operator, invokers: { users: [], groups: [] } } } });
     expect((await f.request('/installations/install/preview')).status).toBe(404);

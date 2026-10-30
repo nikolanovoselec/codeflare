@@ -17,10 +17,12 @@ import { SETUP_KEYS } from '../../../lib/kv-keys';
 import { getBuiltInProfileRef } from '../../../lib/reasoning-profiles';
 import { verifiedRoutingConfiguration, routingGatewayUrl } from '../../helpers/verified-routing';
 import { browserAccess } from './dispatcher-owner-diagnostics';
+import { prepareOperatorActivity } from '../../../operators/orchestrator';
 
 const configSchema = z.strictObject({
   operation: z.enum(['discovery', 'inference']), source: z.enum(['native', 'managed-default', 'managed-off']).default('native'),
   loggingEnabled: z.boolean().default(true),
+  prepareSource: z.boolean().default(false),
   barrier: z.enum(['none', 'headers', 'body']).default('none'),
   size: z.enum(['ordinary', 'exact', 'actual-over', 'declared-over']).default('ordinary'),
   lifetimeMs: z.number().int().min(1000).max(30_000).default(30_000),
@@ -59,7 +61,10 @@ type Wire = { url: string; method: string; contentType: string | null; activityH
   requestDigest?: string; profileDigest?: string };
 type Outcome = { status: 'pending' } | { status: 'refused'; failure: 'rpc-data-clone' | 'owner-refused' }
   | { status: 'accepted'; profile?: ConfiguredDispatcherInference; response?: { events: unknown[]; result: typeof ownerRpcResult }; responseBytes?: number };
+type SourcePreparation = { activityId: string; invocationJson: string; deadline: number;
+  ownerSource: { bucket: string; sessionId: string; sessionGeneration: number } };
 export type OwnerRpcSnapshot = { outcome: Outcome; deadline: number; activityId: string; sessionGeneration: number;
+  preparation?: SourcePreparation;
   recipient: { entered: boolean; bodyOffered: boolean; bodyAdvanced: boolean; headersReleased: boolean; bodyReleased: boolean;
     cancelled: boolean; responseBytes: number; wire: Wire | null; loggingContext: unknown } };
 interface FixtureEnv { OWNER_RPC: DurableObjectNamespace<FixtureOwnerRpc> }
@@ -71,6 +76,7 @@ export class FixtureOwnerRpc extends DurableObject<FixtureEnv> {
   private recipient?: DurableObjectStub<FixtureOwnerRpc>;
   private config?: Config;
   private outcome: Outcome = { status: 'pending' };
+  private preparation?: SourcePreparation;
   private controller = new AbortController();
   private current = true;
   private selection?: ManagementExecutionSelection;
@@ -214,10 +220,33 @@ export class FixtureOwnerRpc extends DurableObject<FixtureEnv> {
       OPERATOR_REGISTRY: { getByName: () => ({ resolveManagementExecution: async () => ({ ok: true, value: structuredClone(this.selection!) }) }) },
     } as unknown as Parameters<typeof discoverDispatcherOwnerProfile>[0]['env'];
     this.deadline = config.fault === 'expired' ? Date.now() - 1 : Date.now() + config.lifetimeMs;
-    const executionContext = await createOperatorExecutionContext({ activityId: this.activityId, operatorId: 'rpc-dispatcher',
+    let executionContext = await createOperatorExecutionContext({ activityId: this.activityId, operatorId: 'rpc-dispatcher',
       artifactDigest: pinned.release.bundleDigest, policyDigest: 'f'.repeat(64), human, accessJwt: credential.jwt }, encryption);
-    const plan: OperatorRuntimePlan = { activityId: this.activityId, ownerSource: { bucket, sessionId, sessionGeneration: 3 },
-      deadline: this.deadline, invocationJson: '{"repository":"example/fixture"}', executionContext,
+    if (config.prepareSource) {
+      // Reuse the existing no-application RPC fixture. Only Activity persistence is
+      // a stateful collaborator; preparation and both owner transports stay real.
+      let prepared: { activityId: string; deadline: number; invocationJson: string } | undefined;
+      environment.OPERATOR_ACTIVITY = { getByName: () => ({
+        prepareAuthorized: async (intent: { activityId: string; deadline: number }, context: typeof executionContext, invocationJson: string) => {
+          prepared = { activityId: intent.activityId, deadline: intent.deadline, invocationJson };
+          executionContext = context;
+          return { ok: true, phase: 'prepared' };
+        },
+        bindDispatcherOwnerSource: async (ownerSource: SourcePreparation['ownerSource']) => {
+          if (!prepared) return false;
+          this.preparation = { ...prepared, ownerSource: structuredClone(ownerSource) };
+          return true;
+        },
+      }) } as unknown as NonNullable<typeof environment.OPERATOR_ACTIVITY>;
+      await prepareOperatorActivity({ installationId: pinned.installation.id, invocation: { repository: 'example/fixture' },
+        sourceSession: { sessionId, sessionGeneration: 3 } },
+      { human: { ...human, expiresAt: Math.floor(this.deadline / 1000) }, accessJwt: credential.jwt }, environment,
+      { activityId: this.activityId });
+      if (!this.preparation) throw new Error('Explicit source was not retained by preparation');
+      this.deadline = this.preparation.deadline;
+    }
+    const plan: OperatorRuntimePlan = { activityId: this.activityId, ownerSource: this.preparation?.ownerSource ?? { bucket, sessionId, sessionGeneration: 3 },
+      deadline: this.deadline, invocationJson: this.preparation?.invocationJson ?? '{"repository":"example/fixture"}', executionContext,
       receipt: { installationId: pinned.installation.id, activityId: this.activityId, intentDigest: 'a'.repeat(64), expectedInstallationRevision: 1,
         expectedOperatorRevision: 1, expectedControlsRevision: 1, deadline: this.deadline, admittedAt: Date.now(), selection: pinned } };
     if (config.fault === 'aborted') this.controller.abort();
@@ -248,6 +277,7 @@ export class FixtureOwnerRpc extends DurableObject<FixtureEnv> {
     if (command.action === 'advance-body') await this.recipient.advanceBody();
     if (command.action === 'release-body' || command.action === 'cleanup') await this.recipient.releaseBody();
     return { outcome: this.outcome, deadline: this.deadline, activityId: this.activityId, sessionGeneration: 3,
+      ...(this.preparation ? { preparation: structuredClone(this.preparation) } : {}),
       recipient: await this.recipient.recipientSnapshot() };
   }
 }

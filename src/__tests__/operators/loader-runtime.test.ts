@@ -12,6 +12,7 @@ import type { RegistryFixtureCommand, ActivityFixtureCommand } from './fixtures/
 import type { OperatorActivityPreparation } from '../../operators/activity';
 import type { OperatorAdmissionRequest, OperatorRegistryResult } from '../../operators/registry';
 import type { OwnerRpcCommand, OwnerRpcConfig, OwnerRpcSnapshot } from './fixtures/dispatcher-owner-rpc';
+import { getBucketName } from '../../lib/access';
 
 // Real pinned Wrangler/workerd, executed only in the Node CI suite. No deploy,
 // provider requests, secrets, production config or production fixture exports.
@@ -131,6 +132,24 @@ function expectOwnerRpcWire(value: OwnerRpcSnapshot, operation: 'discovery' | 'i
 }
 
 describe('REQ-OPERATOR-007/047/048: configured owner profile and inference over native RPC', () => {
+  it.each(['discovery', 'inference'] as const)('REQ-OPERATOR-058/007/047/048: explicit ordinary source preparation reaches configured %s over existing native RPC without a Pi process', operation =>
+    withOwnerRpc({ operation, prepareSource: true }, async id => {
+      const value = await ownerRpcUntil(id, value => value.outcome.status !== 'pending', 'explicit prepared source transport');
+      expect(value.preparation).toEqual({ activityId: value.activityId, deadline: value.deadline,
+        invocationJson: '{"repository":"example/fixture"}', ownerSource: {
+          bucket: getBucketName('owner@example.test'), sessionId: expect.stringMatching(/^[a-f0-9]{24}$/), sessionGeneration: 3,
+        } });
+      expectOwnerRpcWire(value, operation);
+      if (operation === 'discovery') expect(value.outcome).toEqual({ status: 'accepted', profile: rpcLogicalProfile });
+      else {
+        expect(value.outcome).toMatchObject({ status: 'accepted', response: {
+          events: [{ type: 'done', reason: 'stop', message: rpcResult }], result: rpcResult,
+        } });
+        expect(value.recipient.wire).toMatchObject({ context: rpcContext, options: rpcAdmittedOptions,
+          profileDigest: rpcLogicalProfile.profileDigest });
+      }
+    }));
+
   it.each([
     { operation: 'discovery', loggingEnabled: true }, { operation: 'discovery', loggingEnabled: false },
     { operation: 'inference', loggingEnabled: true }, { operation: 'inference', loggingEnabled: false },
