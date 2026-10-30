@@ -26,7 +26,7 @@ export const SUITES = [
   {
     name: 'frontend',
     lane: 'frontend',
-    dir: 'web-ui/src/__tests__',
+    dir: 'web-ui/src',
     extensions: ['.test.ts', '.test.tsx'],
     exclude: [],
     artifacts: ['frontend-shard-'],

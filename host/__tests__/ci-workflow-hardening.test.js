@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { chmodSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { describe, it } from 'node:test';
@@ -128,6 +128,18 @@ describe('PR lane selection', () => {
     const merge = prChecks.jobs['coverage-frontend'].steps.find((candidate) => candidate.uses === './.github/actions/merge-coverage');
     assert.equal(merge.with['expected-shards'], '4');
   });
+});
+
+it('REQ-OPS-023 AC3: assigns every owned Chat test to exactly one frontend group', () => {
+  // CI discovery contract: these existing test files must actually be scheduled.
+  const expected = readdirSync(join(ROOT, 'web-ui/src/chat/__tests__'), { recursive: true })
+    .filter((name) => /\.test\.tsx?$/.test(name))
+    .map((name) => `src/chat/__tests__/${name.replaceAll('\\', '/')}`);
+  assert.ok(expected.length > 0, 'the owned Chat test tree must not be empty');
+  const assigned = Array.from({ length: 4 }, (_, index) => selectFrontendGroup(`${index + 1}/4`)).flat();
+  for (const file of expected) {
+    assert.equal(assigned.filter((candidate) => candidate === file).length, 1, `${file} must run exactly once`);
+  }
 });
 
 describe('REQ-OPS-045 AC5 + AC6: immutable PR Checks tool cache', () => {

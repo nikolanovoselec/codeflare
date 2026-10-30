@@ -1366,6 +1366,32 @@ describe('REQ-OPS-023 AC3: cross-suite completeness gate', () => {
     expect(r.stderr).toContain('web-ui/src/__tests__/two.test.tsx');
   });
 
+  it('fails when legacy frontend reports omit an owned Chat test', () => {
+    const cwd = tree([]);
+    const legacy = 'web-ui/src/__tests__/legacy.test.tsx';
+    const chat = 'web-ui/src/chat/__tests__/questionnaire.test.tsx';
+    touch(cwd, legacy);
+    touch(cwd, chat);
+    report('frontend-shard-1', 'frontend-shard-1.json', [legacy]);
+
+    const result = runCompleteness({ frontend: 'success' }, cwd);
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain(chat);
+  });
+
+  it('passes when legacy and owned Chat tests each appear in one frontend report', () => {
+    const cwd = tree([]);
+    const legacy = 'web-ui/src/__tests__/legacy.test.tsx';
+    const chat = 'web-ui/src/chat/__tests__/questionnaire.test.tsx';
+    touch(cwd, legacy);
+    touch(cwd, chat);
+    report('frontend-shard-1', 'frontend-shard-1.json', [legacy]);
+    report('frontend-shard-2', 'frontend-shard-2.json', [chat]);
+
+    const result = runCompleteness({ frontend: 'success' }, cwd);
+    expect(result.status, result.stderr).toBe(0);
+  });
+
   it('does not let one suite pass vacuously when another has no reports', () => {
     const cwd = tree(['src/a.test.ts']);
     report('backend-shard-1', 'backend-shard-1.json', ['src/a.test.ts']);

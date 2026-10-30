@@ -6,7 +6,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { assignWeightedFiles } from './select-weighted-backend-tests.mjs';
 
 const WEB_ROOT = fileURLToPath(new URL('../../web-ui', import.meta.url));
-const TEST_ROOT = join(WEB_ROOT, 'src', '__tests__');
+const TEST_ROOT = join(WEB_ROOT, 'src');
 const WEIGHTS_PATH = fileURLToPath(new URL('./frontend-test-weights.json', import.meta.url));
 
 function collectTests(dir, output = []) {
