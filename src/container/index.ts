@@ -906,10 +906,15 @@ export class container extends Container<Env> implements ContainerEnvState {
       await pending.completion;
       return;
     }
-    // Defer I/O until the whole operation has been registered, not only its
-    // teardown. Cleanup belongs to that protected promise too, so failure can retry.
+    // Capture authority before ownership I/O: even a delayed old D1 reply
+    // cannot authorize teardown after KILL or a replacement start supersedes it.
+    const epoch = this._teardownEpoch;
+    // Register the entire operation before any I/O, including its claim.
     const completion: Promise<void> = Promise.resolve().then(() =>
-      lifecycleStopSession(this.env, input, () => this.destroy())
+      lifecycleStopSession(this.env, input, () => {
+        if (this._teardownEpoch !== epoch) throw new Error('Session stop superseded');
+        return this.destroy();
+      })
     ).finally(() => {
       if (this.sessionStopInFlight?.completion === completion) this.sessionStopInFlight = undefined;
     });

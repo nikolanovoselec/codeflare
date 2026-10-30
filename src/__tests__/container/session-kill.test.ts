@@ -39,10 +39,11 @@ function deferred() {
 }
 function observe<T>(operation: () => Promise<T>) {
   const state: { done: boolean; error?: unknown } = { done: false };
-  const settled = Promise.resolve().then(operation).then(
-    () => { state.done = true; },
-    error => { state.done = true; state.error = error; },
-  );
+  const settled = (async () => {
+    try { await operation(); }
+    catch (error) { state.error = error; }
+    finally { state.done = true; }
+  })();
   return { state, settled };
 }
 async function rejected(work: ReturnType<typeof observe>) {
@@ -102,6 +103,7 @@ async function fixture(options: { status?: string; operational?: boolean; intent
     live();
   };
   let databaseUnavailable = false, confirmationUnavailable = false;
+  let delaySessionRead = false;
   const db = createMockSessionD1(kv);
   const prepare = db.prepare.bind(db);
   db.prepare = sql => {
@@ -110,6 +112,18 @@ async function fixture(options: { status?: string; operational?: boolean; intent
     const bind = statement.bind.bind(statement);
     statement.bind = (...args: unknown[]) => {
       const bound = bind(...args);
+      const first = bound.first.bind(bound);
+      bound.first = (async (column?: string) => {
+        const value = column === undefined ? await first() : await first(column);
+        if (delaySessionRead && /SELECT\s+\*\s+FROM\s+runtime_sessions/i.test(sql)) {
+          delaySessionRead = false;
+          // D1 has read the row; only delivery of that captured reply is held.
+          const snapshot = structuredClone(value);
+          await pause('session-read-response');
+          return snapshot;
+        }
+        return value;
+      }) as typeof bound.first;
       const run = bound.run.bind(bound);
       bound.run = (async () => {
         if (/SET\s+lifecycle_state='stopping'/.test(sql)) await pause('claim');
@@ -239,6 +253,7 @@ async function fixture(options: { status?: string; operational?: boolean; intent
     failDatabase: (fail: boolean) => { databaseUnavailable = fail; },
     failConfirmation: (fail: boolean) => { confirmationUnavailable = fail; },
     allowGraceful: () => { gracefulTrafficForbidden = false; },
+    delayNextSessionRead: () => { delaySessionRead = true; },
     exit: (generation = program.generation) => {
       if (generation === program.generation) { program.running = false; runningHint = false; }
       monitors.get(generation)!.resolve();
@@ -516,6 +531,42 @@ describe('REQ-SESSION-039 / REQ-SESSION-040: DO-owned native force termination',
     expect(await f.read()).toMatchObject({ lifecycleState: 'stopping', terminationIntentId: 'different-intent' });
     expect(f.program().running).toBe(true);
     expect(f.storage.get('_sessionId')).toBe(ref.sessionId);
+  });
+
+  it('fences Stop whose old D1 ownership reply arrives after KILL and replacement startup (REQ-SESSION-040 AC7)', async () => {
+    const f = await fixture(); f.allowGraceful();
+    f.kv._set(f.key, { id: ref.sessionId, name: 'Retained workspace', workspace: 'terminal',
+      status: 'running', lifecycleGeneration: 7, boundaryActivityId: 'pending-activity' });
+    f.env.OPERATOR_ACTIVITY = { getByName: () => ({
+      getBoundaryStartBinding: async () => ({ session: ref }),
+      cancelBoundaryStart: async () => { f.delayNextSessionRead(); return { ok: true }; },
+    }) } as unknown as Env['OPERATOR_ACTIVITY'];
+    const instance = await f.coordinator(), reply = f.hold('session-read-response');
+    const stop = observe(() => instance.stopSession(ref));
+    try {
+      await vi.waitFor(() => expect(reply.reached()).toBe(true));
+      await completed(observe(() => (instance as unknown as KillContainer).killSession(ref)));
+      expect(stop.state.done).toBe(false);
+      expect(f.program()).toMatchObject({ generation: 7, running: false });
+      expect(await f.repository.start(ref.bucket, ref.sessionId, new Date().toISOString()))
+        .toMatchObject({ lifecycleState: 'starting', lifecycleGeneration: 8 });
+      f.replacement();
+      await instance.setBucketName(ref.bucket, { sessionId: ref.sessionId, workspaceSyncEnabled: true });
+      await instance.onStart();
+      const replacementKeys = new Map(['bucketName', '_sessionId', 'containerAuthToken',
+        'workspaceSyncEnabled', 'lifecycleGeneration', 'containerStartedAt'].map(key => [key, f.storage.get(key)]));
+      expect(replacementKeys.get('lifecycleGeneration')).toBe(8);
+      expect(replacementKeys.get('containerAuthToken')).toBeTruthy();
+      reply.resolve();
+      await vi.advanceTimersByTimeAsync(150_000);
+      expect(stop.state.done).toBe(true);
+      expect(f.program()).toEqual({ generation: 8, running: true, gracefulShutdownRequested: false });
+      expect(await f.read()).toMatchObject({ lifecycleState: 'running', lifecycleGeneration: 8,
+        terminationIntentId: undefined });
+      for (const [key, value] of replacementKeys) expect(f.storage.get(key), key).toEqual(value);
+      expect(f.storage.get('shutdownRequested')).toBeUndefined();
+      expect(f.files()).toEqual(f.originalFiles);
+    } finally { reply.resolve(); }
   });
 
   it.each(['agent-drain', 'sync'])('preempts real Stop blocked on %s, then fences its late continuation from replacement generation 8 (REQ-SESSION-039 AC6-AC7 / REQ-SESSION-040 AC1/AC3/AC7)', async stage => {
