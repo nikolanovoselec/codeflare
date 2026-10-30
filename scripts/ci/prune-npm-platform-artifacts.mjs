@@ -12,6 +12,8 @@ const FAMILIES = Object.freeze([
   Object.freeze({ directory: '@oxlint', prefix: 'binding-', keep: Object.freeze(['binding-linux-x64-gnu']) }),
   Object.freeze({ directory: '@esbuild', prefix: '', keep: Object.freeze(['linux-x64']) }),
   Object.freeze({ directory: '@earendil-works/pi-coding-agent/node_modules/@esbuild', prefix: '', keep: Object.freeze(['linux-x64']) }),
+  Object.freeze({ directory: 'node-pty/prebuilds', prefix: 'win32-', keep: Object.freeze([]) }),
+  Object.freeze({ directory: 'node-pty/prebuilds', prefix: 'darwin-', keep: Object.freeze([]) }),
 ]);
 
 function fileBytes(path) {

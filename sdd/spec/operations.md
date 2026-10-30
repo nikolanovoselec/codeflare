@@ -1162,7 +1162,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 ### REQ-OPS-040: Selected coding-agent packaging
 
-**Intent:** The image packages exactly the shared coding-agent launchers selected by the operator.
+**Intent:** The image packages exactly the shared coding-agent launchers selected by the operator and excludes foreign native PTY prebuilds from its Linux runtime.
 
 **Applies To:** Operator
 
@@ -1172,6 +1172,8 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 2. Every omitted npm agent launcher is absent. <!-- @impl: Dockerfile::CODEFLARE_CODING_AGENTS --> <!-- @impl: scripts/ci/coding-agent-selection.mjs::selectedNpmManifest --> <!-- @test: host/__tests__/coding-agent-selection.test.js (derives an npm manifest containing only selected coding agents plus shared tools) --> <!-- @manual: Inspect omitted packaged-image agentVersions evidence. -->
 3. The Antigravity launcher is installed only when selected. <!-- @impl: Dockerfile::CODEFLARE_CODING_AGENTS --> <!-- @manual: Inspect packaged-image agentVersions evidence for selections with and without Antigravity. -->
 4. Installed npm agents retain only their canonical Linux x64 runtime payloads; alternate operating-system, architecture, baseline, musl, and nested esbuild payloads are removed from both shared tools and Pi's prewarm installation before image commit. <!-- @impl: scripts/ci/prune-npm-platform-artifacts.mjs::pruneNpmPlatformArtifacts --> <!-- @impl: Dockerfile::CODEFLARE_CODING_AGENTS --> <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::verifySelectedAgentPackages --> <!-- @test: host/__tests__/npm-platform-pruning.test.js (REQ-OPS-040: Linux coding-agent package pruning) --> <!-- @test: host/__tests__/coding-agent-selection.test.js (the complete-image smoke rejects alternate platform packages after pruning) --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-002 AC7 + REQ-OPS-003 AC7: PR Checks never build images and deployment runs every packaged smoke gate) -->
+
+5. Native PTY dependencies omit Windows and macOS prebuilds from the Host and Pi runtime installations while retaining Linux payloads and source-built addons. <!-- @impl: scripts/ci/prune-npm-platform-artifacts.mjs::pruneNpmPlatformArtifacts --> <!-- @impl: Dockerfile::builder --> <!-- @test: host/__tests__/npm-platform-pruning.test.js (assembles a PTY runtime artifact without Windows or macOS prebuilds and preserves Linux addons) -->
 
 **Constraints:** Every packaged launcher remains exact-version lock-backed or checksum-pinned.
 
