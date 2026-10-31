@@ -27,6 +27,7 @@
  * pre-start).
  */
 import { Container } from '@cloudflare/containers';
+import { captureRawValue } from '../../host/src/operator-raw-logging';
 import { DispatcherSdkStorageError, handleDispatcherSdkCredentials, type DispatcherSdkCredentialResult, type SdkStorageScope } from '../operators/dispatcher-sdk-storage';
 import type { Env, ManagedResourcePolicy, SessionWorkspace, TabConfig, TerminalMode } from '../types';
 import type { PiDefaultSource } from '../lib/personal-pi-policy';
@@ -705,7 +706,10 @@ export class container extends Container<Env> implements ContainerEnvState {
       // Custom exception properties do not survive RPC propagation. Keep the
       // intentional status and existing private error detail in plain data.
       const status = error.status === 409 || error.status === 413 ? error.status : 403;
-      return { ok: false, status, message: error.message, stack: error.stack };
+      const captured = captureRawValue(error);
+      const cause = captured && typeof captured === 'object' && Object.hasOwn(captured, 'cause')
+        ? { cause: (captured as Record<string, unknown>).cause } : {};
+      return { ok: false, status, message: error.message, stack: error.stack, ...cause };
     }
   }
 

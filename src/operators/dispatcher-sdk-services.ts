@@ -94,7 +94,8 @@ export async function dispatcherSdkCredentials(input: SdkInput, body: unknown): 
     const scope = storageScope(input, owner);
     const result = await metadata(input, scope).dispatcherSdkCredentials(scope, body);
     if (!result.ok) {
-      const error = new DispatcherSdkStorageError(result.status, result.message);
+      const error = new DispatcherSdkStorageError(result.status, result.message,
+        Object.hasOwn(result, 'cause') ? { cause: result.cause } : undefined);
       if (result.stack) error.stack = result.stack;
       throw error;
     }
