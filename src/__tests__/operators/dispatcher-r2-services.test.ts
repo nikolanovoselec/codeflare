@@ -241,13 +241,16 @@ async function lane(run: (f: DispatcherFixture, store: Store, metadataEnvironmen
     await runInDurableObject(metadataNamespace.get(metadataId), instance => {
       metadataEnvironment = (instance as unknown as { env: Env }).env;
     });
-    const hadKey = Object.hasOwn(metadataEnvironment, 'ENCRYPTION_KEY');
-    const originalKey = metadataEnvironment.ENCRYPTION_KEY;
-    metadataEnvironment.ENCRYPTION_KEY = f.environment.ENCRYPTION_KEY;
+    const environmentKeys = ['ENCRYPTION_KEY', 'R2_ACCOUNT_ID', 'R2_ENDPOINT'] as const;
+    const originalEnvironment = environmentKeys.map(key => ({ key,
+      present: Object.hasOwn(metadataEnvironment, key), value: metadataEnvironment[key] }));
+    for (const key of environmentKeys) metadataEnvironment[key] = f.environment[key];
     try { await run(f, store, metadataEnvironment); }
     finally {
-      if (hadKey) metadataEnvironment.ENCRYPTION_KEY = originalKey;
-      else delete metadataEnvironment.ENCRYPTION_KEY;
+      for (const { key, present, value } of originalEnvironment) {
+        if (present) metadataEnvironment[key] = value;
+        else delete metadataEnvironment[key];
+      }
       cleanups.reverse().forEach(cleanup => cleanup());
     }
   }, { normalHosting: true, repositoryOnly: true, recovery: true, nativeInference: native, realInterceptors, ...limits });
@@ -415,7 +418,7 @@ describe('REQ-OPERATOR-007/047/048: protected SDK-prepared HTTP, not Parent mode
     const original = globalThis.fetch;
     vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
       const request = new Request(input, init);
-      if (request.url !== 'https://custom.example.test/native/stream') return original(input, init);
+      if (request.url !== 'https://custom.example.test/native/stream') return original(request);
       outgoing.push(request.clone());
       return new Response('original SDK provider quota failure 😀', { status: 429,
         headers: { 'content-type': 'text/plain; charset=utf-8', 'x-provider-trace': 'original-trace' } });
@@ -441,7 +444,7 @@ describe('REQ-OPERATOR-007/047/048: protected SDK-prepared HTTP, not Parent mode
     const original = globalThis.fetch;
     vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
       const request = new Request(input, init);
-      if (new URL(request.url).origin !== 'https://gateway.ai.cloudflare.com') return original(input, init);
+      if (new URL(request.url).origin !== 'https://gateway.ai.cloudflare.com') return original(request);
       outgoing.push(request.clone());
       return new Response('data: [DONE]\n\n', { headers: { 'content-type': 'text/event-stream' } });
     });
@@ -467,7 +470,7 @@ describe('REQ-OPERATOR-007/047/048: protected SDK-prepared HTTP, not Parent mode
     const original = globalThis.fetch;
     vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
       const request = new Request(input, init);
-      if (new URL(request.url).origin !== 'https://gateway.ai.cloudflare.com') return original(input, init);
+      if (new URL(request.url).origin !== 'https://gateway.ai.cloudflare.com') return original(request);
       paid.push(await request.text());
       gatewayCredential = request.headers.get('cf-aig-authorization')!.replace(/^Bearer\s+/i, '');
       return new Response(echo === 'body' ? `upstream echoed ${gatewayCredential}` : 'data: [DONE]\n\n', {
@@ -519,7 +522,7 @@ describe('REQ-OPERATOR-007/047/048: protected SDK-prepared HTTP, not Parent mode
     const original = globalThis.fetch;
     vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
       const request = new Request(input, init);
-      if (new URL(request.url).origin !== 'https://custom.example.test') return original(input, init);
+      if (new URL(request.url).origin !== 'https://custom.example.test') return original(request);
       paid.push(await request.text());
       return new Response(new ReadableStream<Uint8Array>({ start: controller => opened(controller) }),
         { headers: { 'content-type': 'text/event-stream', 'x-provider-trace': 'durable-sdk' } });
@@ -551,7 +554,7 @@ describe('REQ-OPERATOR-007/047/048: protected SDK-prepared HTTP, not Parent mode
     const original = globalThis.fetch;
     vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
       const request = new Request(input, init);
-      if (new URL(request.url).origin !== 'https://custom.example.test') return original(input, init);
+      if (new URL(request.url).origin !== 'https://custom.example.test') return original(request);
       return new Response(`provider echoed ${oldOAuth.access}`, { status: 401 });
     });
     const permit = await json(await modelAdmission(f, 'credential-echo'));
@@ -574,7 +577,7 @@ describe('REQ-OPERATOR-007/047/048: protected SDK-prepared HTTP, not Parent mode
     const original = globalThis.fetch;
     vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
       const request = new Request(input, init);
-      if (new URL(request.url).origin !== 'https://custom.example.test') return original(input, init);
+      if (new URL(request.url).origin !== 'https://custom.example.test') return original(request);
       paid.push(await request.text());
       let sent = false;
       return new Response(new ReadableStream<Uint8Array>({ pull(controller) {
@@ -606,7 +609,7 @@ describe('REQ-OPERATOR-007/047/048: protected SDK-prepared HTTP, not Parent mode
     const original = globalThis.fetch;
     vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
       const request = new Request(input, init);
-      if (new URL(request.url).origin !== 'https://custom.example.test') return original(input, init);
+      if (new URL(request.url).origin !== 'https://custom.example.test') return original(request);
       paid.push(request.url); return new Response('forbidden direct send');
     });
     try {
@@ -625,7 +628,7 @@ describe('REQ-OPERATOR-007/047/048: protected SDK-prepared HTTP, not Parent mode
     const original = globalThis.fetch;
     vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
       const request = new Request(input, init);
-      if (new URL(request.url).origin !== 'https://custom.example.test') return original(input, init);
+      if (new URL(request.url).origin !== 'https://custom.example.test') return original(request);
       paid.push({ url: request.url, body: await request.text() });
       return new Response('first paid response', { headers: { 'x-provider-trace': 'capacity-first' } });
     });
@@ -654,7 +657,7 @@ describe('REQ-OPERATOR-007/047/048: protected SDK-prepared HTTP, not Parent mode
     const original = globalThis.fetch;
     vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
       const request = new Request(input, init);
-      if (new URL(request.url).origin !== 'https://custom.example.test') return original(input, init);
+      if (new URL(request.url).origin !== 'https://custom.example.test') return original(request);
       paid.push({ url: request.url, body: await request.text() });
       return new Response('provider retryable quota failure', { status: 429, headers: { 'x-provider-trace': 'attempt-first' } });
     });
@@ -689,7 +692,7 @@ describe('REQ-OPERATOR-007/047/048: protected SDK-prepared HTTP, not Parent mode
     const original = globalThis.fetch;
     vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
       const request = new Request(input, init);
-      if (new URL(request.url).origin !== 'https://custom.example.test') return original(input, init);
+      if (new URL(request.url).origin !== 'https://custom.example.test') return original(request);
       outgoing.push(request); return new Response('unauthorized spend', { status: 200 });
     });
     await denied(await modelFetch(f, failure === 'permit' ? 'foreign-permit' : permit.permitId,
@@ -849,8 +852,11 @@ describe('REQ-OPERATOR-007/047/048: serialized bounded SDK credential persistenc
       await json(await config(f)); await json(await read(f));
       const lease = await json(await begin(f)); await json(await commit(f, lease.leaseId));
       const originalFetch = globalThis.fetch;
-      vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => new URL(new Request(input, init).url).origin
-        === 'https://custom.example.test' ? new Response('original private SDK HTTP bytes') : originalFetch(input, init));
+      vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
+        const request = new Request(input, init);
+        return new URL(request.url).origin === 'https://custom.example.test'
+          ? new Response('original private SDK HTTP bytes') : originalFetch(request);
+      });
       const permit = await json(await modelAdmission(f));
       const transported = await modelFetch(f, permit.permitId, { url: 'https://custom.example.test/native/stream', method: 'POST',
         headers: [['authorization', `Bearer ${rotated.access}`], ['content-type', 'application/json']], bodyBase64: encodeBody(sdkBody) });
