@@ -3,6 +3,33 @@ import { LOCAL_BUILD_BYPASS, localBuildBlockReason } from '../../../preseed/agen
 
 const noBypass = { existsSync: () => false, unlinkSync: () => {} };
 
+const guardedExecutionRegressions = [
+  ...['npm', 'pnpm', 'yarn', 'bun'].flatMap((manager) =>
+    ['build', 'test', 'lint', 'typecheck', 'dev'].flatMap((script) => [
+      `${manager} run ${script}:ci`,
+      `${manager} ${script}:ci`,
+    ])),
+  'yarn vitest --run',
+  'pnpm dlx vitest --run',
+  'bun x vitest --run',
+  'npm run test-node',
+  'pnpm run build.production',
+  'node node_modules/vitest/vitest.mjs --run',
+  '/usr/bin/node /repo/node_modules/vitest/vitest.mjs --run',
+  'node --no-warnings node_modules/vitest/vitest.mjs --run',
+  'node --import bootstrap.mjs node_modules/vitest/vitest.mjs --run',
+  'node --require bootstrap.cjs node_modules/vitest/vitest.mjs --run',
+  'node node_modules/typescript/bin/tsc --noEmit',
+  'node node_modules/eslint/bin/eslint.js src',
+  'node node_modules/prettier/bin/prettier.cjs --check .',
+  'python /repo/bin/pytest.py tests',
+  'python3 -m pytest tests',
+  'python3 -W ignore /repo/bin/pytest.py tests',
+  "bash -lc 'yarn test:unit'",
+  "git -c 'alias.check=!node node_modules/vitest/vitest.mjs --run' check",
+  "git -C /repo -calias.check='!yarn lint:ci' check",
+];
+
 // In-memory filesystem only: these tests never touch the user's real sentinel.
 function bypassFs(consumable = true) {
   const files = new Set([LOCAL_BUILD_BYPASS]);
@@ -28,6 +55,11 @@ describe('REQ-AGENT-052 AC4: Pi local-build guard classifies execution, not stag
     "const packages = [ 'oxlint', 'vitest', 'tsc' ]; console.log(packages);",
     "const packages = ['@biomejs/biome', 'eslint', 'prettier']; console.log(packages);",
     "cat <<'EOF'\nnpx vitest --run\nEOF",
+    'git add -- test:ci node_modules/vitest/vitest.mjs bin/pytest.py',
+    'cd /repo/node_modules/vitest && git status --short',
+    "const packages = ['vitest.mjs', 'pytest.py', 'test:ci']; console.log(packages);",
+    'node metadata.js vitest.mjs test:ci',
+    'python3 metadata.py pytest.py',
   ])('allows inert runner names without consuming an override: %s', (command) => {
     const fs = bypassFs();
     expect(localBuildBlockReason(command, noBypass)).toBeUndefined();
@@ -36,6 +68,7 @@ describe('REQ-AGENT-052 AC4: Pi local-build guard classifies execution, not stag
   });
 
   it.each([
+    ...guardedExecutionRegressions,
     'npx vitest --run', 'npm test', 'npm run build', 'pnpm run lint', 'yarn typecheck', 'bun test',
     "git -c 'alias.check=!npm test' check",
     "git -C /repo -calias.check='!npm test' check",
@@ -84,17 +117,17 @@ describe('REQ-AGENT-052 AC4: Pi local-build guard classifies execution, not stag
 });
 
 describe('REQ-AGENT-052 AC5: user-only consume-on-use build override', () => {
-  it('allows exactly one guarded command after successful consumption', () => {
+  it.each(['npm test', ...guardedExecutionRegressions])('allows exactly one guarded command after successful consumption: %s', (command) => {
     const fs = bypassFs();
-    expect(localBuildBlockReason('npm test', fs)).toBeUndefined();
+    expect(localBuildBlockReason(command, fs)).toBeUndefined();
     expect(fs.files.has(LOCAL_BUILD_BYPASS)).toBe(false);
-    expect(localBuildBlockReason('npm test', fs)).toMatch(/Direct local builds\/tests/);
+    expect(localBuildBlockReason(command, fs)).toMatch(/Direct local builds\/tests/);
   });
 
-  it('keeps blocking when the sentinel cannot be consumed', () => {
+  it.each(['npm test', ...guardedExecutionRegressions])('keeps blocking when the sentinel cannot be consumed: %s', (command) => {
     const fs = bypassFs(false);
-    expect(localBuildBlockReason('npm test', fs)).toContain(LOCAL_BUILD_BYPASS);
+    expect(localBuildBlockReason(command, fs)).toContain(LOCAL_BUILD_BYPASS);
     expect(fs.files.has(LOCAL_BUILD_BYPASS)).toBe(true);
-    expect(localBuildBlockReason('npm test', fs)).toMatch(/Direct local builds\/tests/);
+    expect(localBuildBlockReason(command, fs)).toMatch(/Direct local builds\/tests/);
   });
 });

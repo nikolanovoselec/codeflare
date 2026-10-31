@@ -46,10 +46,10 @@ it('uses image-baked Oxlint without dependencies, ignores ancestor/PATH tools, a
   assert.deepEqual(readdirSync(root).sort(), [...before, 'invalid.js'].sort());
   assert.equal(readFileSync(join(root, 'invalid.js'), 'utf8'), 'debugger;\n');
 });
-for (const name of ['oxlint', 'eslint', 'biome', 'prettier']) {
-  it(`${name} uses only its approved image binary when no local copy exists`, {
-    skip: process.env.CODEFLARE_IMAGE_TEST !== '1',
-  }, () => {
+it('REQ-AGENT-192 AC4: supported image analyzers work without project dependencies', {
+  skip: process.env.CODEFLARE_IMAGE_TEST !== '1',
+}, () => {
+  for (const name of ['oxlint', 'eslint', 'biome', 'prettier']) {
     const parent = mkdtempSync(join(tmpdir(), 'safe-local-check-image-bin-'));
     const root = join(parent, 'repository');
     const bin = join(parent, 'node_modules', '.bin');
@@ -67,8 +67,8 @@ for (const name of ['oxlint', 'eslint', 'biome', 'prettier']) {
     assert.equal(result.status, 0, result.stderr);
     assert.deepEqual(readdirSync(root).sort(), before, 'no repository dependencies or outputs created');
     assert.equal(readFileSync(join(root, 'valid.js'), 'utf8'), 'export const value = 1;\n');
-  });
-}
+  }
+});
 
 it('runs image-provided Node and Bash syntax checks without repository dependencies', {
   skip: process.env.CODEFLARE_IMAGE_TEST !== '1',

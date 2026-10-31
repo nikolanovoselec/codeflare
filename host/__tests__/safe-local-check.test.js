@@ -84,7 +84,7 @@ describe('REQ-AGENT-052 AC6: managed safe local checks', () => {
       PATH: `${join(parent, 'node_modules', '.bin')}:${process.env.PATH}`,
     });
 
-    assert.equal(result.status, existsSync('/opt/codeflare/npm-tools/node_modules/.bin/eslint') ? 0 : 2, result.stderr);
+    assert.equal(result.status, existsSync('/opt/codeflare/oxlint/node_modules/.bin/eslint') ? 0 : 2, result.stderr);
     assert.equal(existsSync(join(root, 'capture.txt')), false, 'PATH analyzer must not start');
   });
 
@@ -125,13 +125,13 @@ describe('REQ-AGENT-052 AC6: managed safe local checks', () => {
     mkdirSync(join(root, '.git'), { recursive: true });
     const result = run(root, ['eslint', '--help']);
 
-    assert.equal(result.status, existsSync('/opt/codeflare/npm-tools/node_modules/.bin/eslint') ? 0 : 2, result.stderr);
+    assert.equal(result.status, existsSync('/opt/codeflare/oxlint/node_modules/.bin/eslint') ? 0 : 2, result.stderr);
     assert.equal(existsSync(join(root, 'capture.txt')), false, 'ancestor analyzer must not start');
   });
 
   it('fails closed for analyzers absent from both approved locations', (t) => {
     const name = ['eslint', 'biome', 'prettier'].find((tool) =>
-      !existsSync(`/opt/codeflare/npm-tools/node_modules/.bin/${tool}`));
+      !existsSync(`/opt/codeflare/oxlint/node_modules/.bin/${tool}`));
     if (!name) return t.skip('all supported shared analyzers are installed in this image');
     const root = mkdtempSync(join(tmpdir(), 'safe-local-check-missing-'));
     const args = name === 'biome' ? ['check', '--help'] : name === 'prettier' ? ['--check', '--help'] : ['--help'];

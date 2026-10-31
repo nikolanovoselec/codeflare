@@ -340,6 +340,8 @@ function isDirectManagedCheck(words: string[]): boolean {
   return /^(?:biome|@biomejs\/biome)(?:@|$)/u.test(args[packageIndex] ?? "");
 }
 
+const LOCAL_CHECK_RUNNER = /^(?:pytest|vitest|tsc|eslint|oxlint|prettier)(?:\.(?:[cm]?js|py))?$/u;
+
 export function isLocalBuildCommand(command: string): boolean {
   // Non-shell ctx_* programs can launch subprocesses too. Preserve conservative
   // runner detection for process-launch source, without treating package-name
@@ -357,8 +359,9 @@ export function isLocalBuildCommand(command: string): boolean {
     if (["pytest", "vitest", "tsc", "eslint", "oxlint", "prettier"].includes(binary)) return true;
     if (["npm", "pnpm", "yarn", "bun"].includes(binary)) {
       const operation = args[0] === "run" ? args[1] : args[0];
-      return ["build", "test", "lint", "typecheck", "dev"].includes(operation ?? "")
-        || (args[0] === "exec" && isLocalBuildCommand(args.slice(1).join(" ")));
+      return /^(?:build|test|lint|typecheck|dev)\b/u.test(operation ?? "")
+        || LOCAL_CHECK_RUNNER.test(operation ?? "")
+        || (["exec", "dlx", "x"].includes(args[0] ?? "") && isLocalBuildCommand(args.slice(1).join(" ")));
     }
     if (["go", "swift", "cargo"].includes(binary)) return args[0] === "test";
     if (binary === "wrangler") return args[0] === "dev";
@@ -380,7 +383,19 @@ export function isLocalBuildCommand(command: string): boolean {
     }
     if (["node", "python", "python3"].includes(binary)) {
       const script = args.findIndex((arg) => ["-e", "--eval", "-c"].includes(arg));
-      return script >= 0 && isLocalBuildCommand(args[script + 1] ?? "");
+      if (script >= 0) return isLocalBuildCommand(args[script + 1] ?? "");
+      // Known runner entrypoints remain execution when launched by an interpreter;
+      // do not scan ordinary script arguments as if they were shell commands.
+      if (binary !== "node" && args[0] === "-m") return args[1] === "pytest";
+      let entrypointIndex = 0;
+      const valueOptions = binary === "node"
+        ? ["-r", "--require", "--import", "--loader", "--experimental-loader", "--env-file", "--env-file-if-exists"]
+        : ["-W", "-X"];
+      while ((args[entrypointIndex] ?? "").startsWith("-")) {
+        const option = args[entrypointIndex++];
+        if (valueOptions.includes(option ?? "")) entrypointIndex += 1;
+      }
+      return LOCAL_CHECK_RUNNER.test(args[entrypointIndex]?.split("/").at(-1) ?? "");
     }
     // Metadata/data arguments are inert; substitutions were already parsed as
     // their own commands. Do not grant the same exemption to unknown wrappers.

@@ -2546,7 +2546,7 @@ None.
 3. The attribution guard does not match a bare `Claude`, so `git`/`gh` commands that name `preseed/agents/claude/` paths are not false-positives. <!-- @impl: preseed/agents/pi/extensions/guard-helpers.ts::attributionBlockReason --> <!-- @manual -->
 4. The guard rejects local build, test, lint, typecheck and development execution, including chained or nested runners; runner names in metadata-only Git pathspecs, directory paths and package-name arrays do not count as execution or consume the user override. <!-- @impl: preseed/agents/pi/extensions/guard-helpers.ts::isLocalBuildCommand --> <!-- @test: src/__tests__/lib/pi-local-build-guard.test.ts (REQ-AGENT-052 AC4: Pi local-build guard classifies execution, not staged filenames) -->
 5. The local-build guard honors a user-only consume-on-use sentinel at `/tmp/local-build-bypass`: when present, the guard deletes it and allows the one guarded command through; failed consumption keeps blocking, and the block message names the override path. <!-- @impl: preseed/agents/pi/extensions/guard-helpers.ts::localBuildBlockReason --> <!-- @test: src/__tests__/lib/pi-local-build-guard.test.ts (REQ-AGENT-052 AC5: user-only consume-on-use build override) -->
-6. Approved analyzer/parser dependencies are image-installed, with repository versions preferred; the seeded wrapper retains read-only execution, syntax checks, explicit Node tests, low priority, one bounded deadline and no file-count limit. <!-- @impl: Dockerfile --> <!-- @impl: preseed/agents/claude/skills/safe-local-checks/scripts/safe-local-check.mjs::FORBIDDEN_ARGUMENTS --> <!-- @impl: preseed/agents/claude/skills/safe-local-checks/scripts/safe-local-check.mjs::repositoryBinary --> <!-- @impl: preseed/agents/claude/skills/safe-local-checks/scripts/safe-local-check.mjs::managedTimeout --> <!-- @impl: preseed/agents/claude/skills/safe-local-checks/scripts/safe-local-check.mjs::runBounded --> <!-- @impl: preseed/agents/claude/skills/safe-local-checks/scripts/safe-local-check.mjs::main --> <!-- @test: host/__tests__/safe-local-check.test.js (REQ-AGENT-052 AC6: managed safe local checks) -->
+6. The seeded safe-local-check wrapper runs approved read-only analyzers, Node syntax checks, or explicitly named Node test files from any repository through existing binaries at low priority with one bounded deadline and no file-count limit. <!-- @impl: preseed/agents/claude/skills/safe-local-checks/scripts/safe-local-check.mjs::FORBIDDEN_ARGUMENTS --> <!-- @impl: preseed/agents/claude/skills/safe-local-checks/scripts/safe-local-check.mjs::repositoryBinary --> <!-- @impl: preseed/agents/claude/skills/safe-local-checks/scripts/safe-local-check.mjs::managedTimeout --> <!-- @impl: preseed/agents/claude/skills/safe-local-checks/scripts/safe-local-check.mjs::runBounded --> <!-- @impl: preseed/agents/claude/skills/safe-local-checks/scripts/safe-local-check.mjs::main --> <!-- @test: host/__tests__/safe-local-check.test.js (REQ-AGENT-052 AC6: managed safe local checks) -->
 7. Checked paths whose canonical targets leave the current repository directly or through symlinks are rejected. <!-- @impl: preseed/agents/claude/skills/safe-local-checks/scripts/safe-local-check.mjs::repositoryFiles --> <!-- @test: host/__tests__/safe-local-check.test.js (REQ-AGENT-052 AC6: managed safe local checks) -->
 
 **Constraints:**
@@ -2565,9 +2565,11 @@ None.
 
 ---
 
-### REQ-AGENT-192: Image-baked TypeScript syntax parser
+<a id="req-agent-192-image-baked-typescript-syntax-parser"></a>
 
-**Intent:** Managed sessions can run bounded TypeScript syntax checks without installing project dependencies.
+### REQ-AGENT-192: Image-baked managed-check dependencies
+
+**Intent:** Managed sessions can run supported analyzer and syntax checks without installing project dependencies.
 
 **Applies To:** Agent
 
@@ -2577,15 +2579,19 @@ None.
 2. Managed sessions can parse valid TypeScript when the project provides no parser, without installing dependencies. <!-- @impl: preseed/agents/claude/skills/safe-local-checks/scripts/safe-local-check.mjs::syntaxParserRequire --> <!-- @test: host/__tests__/safe-local-check-image.test.js (REQ-AGENT-192 AC2-AC3: parses TypeScript without project dependencies or repository writes) -->
 3. A TypeScript syntax check leaves the checked repository unchanged. <!-- @impl: preseed/agents/claude/skills/safe-local-checks/scripts/safe-local-check.mjs::checkTsSyntax --> <!-- @test: host/__tests__/safe-local-check-image.test.js (REQ-AGENT-192 AC2-AC3: parses TypeScript without project dependencies or repository writes) -->
 
-**Constraints:** The fallback is fixed to `/opt/codeflare/npm-tools` with exact `esbuild` and lockfile pins; checked paths remain inside the current repository, and the parser never runs a build, typecheck, install, or output write.
+4. Supported analyzers are preinstalled and usable without project dependencies. <!-- @impl: image/oxlint/package.json::dependencies --> <!-- @impl: Dockerfile::oxlint --> <!-- @test: host/__tests__/safe-local-check-image.test.js (REQ-AGENT-192 AC4: supported image analyzers work without project dependencies) -->
+5. Repository-installed analyzers take precedence over their image copies. <!-- @impl: preseed/agents/claude/skills/safe-local-checks/scripts/safe-local-check.mjs::repositoryBinary --> <!-- @impl: preseed/agents/claude/skills/safe-local-checks/scripts/safe-local-check.mjs::main --> <!-- @test: host/__tests__/safe-local-check.test.js (prefers the nearest repository-local copy for every supported analyzer) -->
+6. Managed sessions can parse YAML without installing project dependencies. <!-- @impl: preseed/agents/claude/skills/safe-local-checks/scripts/safe-local-check.mjs::checkYaml --> <!-- @impl: preseed/agents/claude/skills/safe-local-checks/scripts/safe-local-check.mjs::syntaxParserRequire --> <!-- @test: host/__tests__/safe-local-check-image.test.js (parses YAML using the image library without dependencies or repository mutation) -->
+
+**Constraints:** Image fallbacks use exact manifests/locks: `/opt/codeflare/npm-tools` for esbuild and `/opt/codeflare/oxlint` for analyzers/YAML. Installed project versions take precedence. Checked paths remain repository-contained; syntax parsing never builds, typechecks, installs, or writes output.
 
 **Priority:** P1
 
 **Dependencies:** [REQ-AGENT-052](#req-agent-052-pi-commit-attribution-and-local-build-hook-hardening), [REQ-OPS-033](operations.md#req-ops-033-build-dependencies-have-committed-integrity)
 
-**Verification:** Dependency-integrity contract and built-image syntax-parser smoke check
+**Verification:** Dependency-integrity, repository-precedence and built-image analyzer/parser coverage is authored; exact-head CI, consuming-image execution and managed delivery remain required.
 
-**Status:** Implemented
+**Status:** Planned
 
 ---
 

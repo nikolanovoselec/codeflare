@@ -12,9 +12,9 @@ log=$2
 console_output=$3
 shift 3
 
-# Zero disables GNU timeout; longer budgets violate this CI boundary.
-if [[ ! "$duration" =~ ^[1-9][0-9]{0,2}s$ ]] || (( ${duration%s} > 150 )); then
-  echo 'Suite duration must be an integer from 1s through 150s' >&2
+# Zero disables GNU timeout; the largest supported caller budget is 240s.
+if [[ ! "$duration" =~ ^[1-9][0-9]{0,2}s$ ]] || (( ${duration%s} > 240 )); then
+  echo 'Suite duration must be an integer from 1s through 240s' >&2
   exit 2
 fi
 

@@ -96,9 +96,9 @@ describe('CI suite deadline and report-gate behavior', () => {
     const work = mkdtempSync(join(tmpdir(), 'ci-suite-duration-'));
     try {
       const marker = join(work, 'command-ran');
-      for (const duration of ['1s', '150s', '0s', '151s', '1.5s', '1m', '-1s', '']) {
+      for (const duration of ['1s', '150s', '240s', '0s', '241s', '1.5s', '1m', '-1s', '']) {
         rmSync(marker, { force: true });
-        const valid = duration === '1s' || duration === '150s';
+        const valid = ['1s', '150s', '240s'].includes(duration);
         const result = spawnSync('bash', [
           BOUNDED_SUITE, duration, join(work, 'run.log'), '/dev/null',
           'bash', '-c', 'printf ran > "$1"', 'fixture', marker,
