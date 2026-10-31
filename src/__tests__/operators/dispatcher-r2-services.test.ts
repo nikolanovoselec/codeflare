@@ -24,6 +24,39 @@ vi.mock('@cloudflare/containers', async importOriginal => {
   return { ...sdk, Container: DurableObject };
 });
 
+// Temporary, single-CI binding probe authorized by the recorded questionnaire.
+// It emits only reference equality/change flags; no function source or values.
+let fixtureAccessBindings: typeof access | undefined;
+const bindingBaseline = new Map<string, readonly [unknown, unknown]>();
+async function inspectModuleBindings(stage: string): Promise<void> {
+  const [actualAccess, actualR2, actualRegime] = await Promise.all([
+    vi.importActual<typeof import('../../lib/access')>('../../lib/access'),
+    vi.importActual<typeof import('../../lib/r2-client')>('../../lib/r2-client'),
+    vi.importActual<typeof import('../../lib/r2-regime-state')>('../../lib/r2-regime-state'),
+  ]);
+  const rows: Array<readonly [string, unknown, unknown, unknown?]> = [
+    ['group-identity', access.resolveOperatorGroupIdentity, actualAccess.resolveOperatorGroupIdentity, fixtureAccessBindings?.resolveOperatorGroupIdentity],
+    ['current-session', access.operatorAccessSessionCurrent, actualAccess.operatorAccessSessionCurrent, fixtureAccessBindings?.operatorAccessSessionCurrent],
+    ['owner-bucket', access.resolveBucketName, actualAccess.resolveBucketName, fixtureAccessBindings?.resolveBucketName],
+    ['session-groups', access.resolveSessionAccessGroup, actualAccess.resolveSessionAccessGroup, fixtureAccessBindings?.resolveSessionAccessGroup],
+    ['route-config', access.loadEnterpriseRouteConfig, actualAccess.loadEnterpriseRouteConfig, fixtureAccessBindings?.loadEnterpriseRouteConfig],
+    ['r2-client', r2.createR2Client, actualR2.createR2Client],
+    ['migration', regime.isBucketMigrating, actualRegime.isBucketMigrating],
+    ['sse-disabled', regime.isR2SseDisabledForBucket, actualRegime.isR2SseDisabledForBucket],
+    ['regime-state', regime.getRegimeState, actualRegime.getRegimeState],
+  ];
+  const bindings = rows.map(([name, imported, original, fixtureImported]) => {
+    const baseline: readonly [unknown, unknown] = bindingBaseline.get(name) ?? [imported, original];
+    if (!bindingBaseline.has(name)) bindingBaseline.set(name, baseline);
+    return { name, importedEqualsOriginal: imported === original,
+      importedChanged: imported !== baseline[0], originalChanged: original !== baseline[1],
+      fixtureEqualsImported: fixtureImported === undefined ? null : fixtureImported === imported,
+      fixtureEqualsOriginal: fixtureImported === undefined ? null : fixtureImported === original };
+  });
+  console.info('R2_BINDING_DIAGNOSTIC', JSON.stringify({ stage, bindings }));
+}
+await inspectModuleBindings('module-initialization');
+
 /**
  * Root #119 RED: public Activity/installed HTTP + R2 boundary contracts, NOT SDK/Flue execution proof.
  * Frozen private protocol (all POST, installation headers from normalCallback, no-store):
@@ -183,6 +216,7 @@ async function lane(run: (f: DispatcherFixture, store: Store, metadataEnvironmen
     if (await metadata.claimBucketOwner(parent.executionContext.owner.email, true) !== 'owned') {
       throw new Error('Owner metadata fixture claim failed');
     }
+    await inspectModuleBindings('after-metadata-initialization');
     const onlyMetadataName = (name: string) => {
       if (name !== metadataName) throw new Error('User-session Host access is unavailable');
       return metadataId;
@@ -234,9 +268,14 @@ async function lane(run: (f: DispatcherFixture, store: Store, metadataEnvironmen
       else delete metadataEnvironment.ENCRYPTION_KEY;
       cleanups.reverse().forEach(cleanup => cleanup());
     }
-  }, { normalHosting: true, repositoryOnly: true, recovery: true, nativeInference: native, realInterceptors, ...limits });
+  }, { normalHosting: true, repositoryOnly: true, recovery: true, nativeInference: native, realInterceptors, ...limits,
+    inspectEntryBindings: async namespace => {
+      fixtureAccessBindings = namespace;
+      await inspectModuleBindings('fixture-entry');
+    } });
 }
 async function admitted(f: DispatcherFixture) {
+  await inspectModuleBindings('before-admission');
   expect(await start(f)).toMatchObject({ ok: true, state: { status: 'running', generation: 1 } });
 }
 
