@@ -249,7 +249,9 @@ describe('REQ-AGENT-224 AC17–19: first-party command, file and context ports',
     expect(input.disabled).toBe(false);
     await act(() => { fireEvent.input(input, { target: { value: '/' } }); });
     expect(output('Draft')).toBe('/');
-    const flow = await waitFor(() => getByRole(document.body, 'button', { name: /\/review-task Review current work flow/i }));
+    // Adjacent inline labels need not contribute whitespace to the accessible
+    // name. Require the exact command, description and kind, not CSS spacing.
+    const flow = await waitFor(() => getByRole(document.body, 'button', { name: /^\/review-task\s*Review current work\s*flow$/i }));
     expect(flow.textContent).toContain('Review current work');
     expect(flow.textContent).not.toMatch(/builtin|extension/i);
     expect(document.body.textContent).toContain('Flows');
