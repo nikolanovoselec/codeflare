@@ -2313,42 +2313,28 @@ export class OperatorActivity extends Agent {
       if (request.headers.get('content-type')?.split(';')[0].trim().toLowerCase() !== 'application/json') {
         return dispatcherRefusal('request-invalid');
       }
-      // Persist-only credential completion is validated by the owner's bounded lease,
-      // not by renewed run authority. All other operations retain original live authority.
+      // Every read and model operation requires the original live run authority.
       const state = await this.ctx.storage.get<AdmissionState>('admission');
       if (!state?.executionContext || !state.receipt || state.intent.activityId !== request.headers.get('x-codeflare-operator-activity')
         || lease.inputDigest !== state.receipt.intentDigest || lease.artifactDigest !== state.executionContext.artifactDigest) {
         return dispatcherRefusal('execution-inactive');
       }
-      const prospectiveAdmissionId = await this.ctx.storage.get<string>('prospective-admission');
-      const retainedPlan: OperatorRuntimePlan = { activityId: state.intent.activityId, deadline: state.intent.deadline,
-        invocationJson: state.invocationJson ?? 'null', receipt: structuredClone(state.receipt),
-        executionContext: structuredClone(state.executionContext),
-        ...(state.configuredSelection ? { configuredSelection: state.configuredSelection } : {}),
-        ...(state.ownerSource ? { ownerSource: structuredClone(state.ownerSource) } : {}),
-        ...(prospectiveAdmissionId ? { prospectiveAdmissionId } : {}) };
       const policy = isManagementReceipt(state.receipt) ? state.receipt.selection.operator.policy : undefined;
       const limits = dispatcherCapacities(policy);
-      // An already-begun credential lease may finish after caller cancellation.
-      // Bound envelope parsing independently; non-finishing operations still
-      // check the original signal below, and metadata validates every lease.
-      const bodySignal = credentials ? AbortSignal.timeout(30_000) : request.signal;
-      const body: unknown = JSON.parse(await readDispatcherBody(request, bodySignal,
-        modelScope ? Math.ceil(inferenceRequestBytes(policy) * 4 / 3) + 64 * 1024 : credentials ? 1024 * 1024 : 4096));
-      const persistOnly = credentials && !!body && typeof body === 'object'
-        && ['commit', 'abort'].includes(String((body as { operation?: unknown }).operation));
       const current = () => this.#dispatcherSdkCurrent(generation, lease, modelScope);
-      if (!persistOnly && (request.signal.aborted || !await current())) return dispatcherRefusal('execution-inactive');
-      const plan = persistOnly ? retainedPlan : await this.getRuntimePlan();
+      if (request.signal.aborted || !await current()) return dispatcherRefusal('execution-inactive');
+      const body: unknown = JSON.parse(await readDispatcherBody(request, request.signal,
+        modelScope ? Math.ceil(inferenceRequestBytes(policy) * 4 / 3) + 64 * 1024 : credentials ? 1024 * 1024 : 4096));
+      if (request.signal.aborted || !await current()) return dispatcherRefusal('execution-inactive');
+      const plan = await this.getRuntimePlan();
       if (!plan) return dispatcherRefusal('execution-inactive');
       const input = { generation, plan, env: this.#appEnv, current, signal: request.signal,
         exports: (this.ctx as unknown as { exports: import('./dispatcher-sdk-services').SdkInput['exports'] }).exports };
       if (credentials) {
         const result = await dispatcherSdkCredentials(input, body);
-        if (!persistOnly && (request.signal.aborted || !await current())) return dispatcherRefusal('execution-inactive');
+        if (request.signal.aborted || !await current()) return dispatcherRefusal('execution-inactive');
         if (new TextEncoder().encode(JSON.stringify(result) ?? 'null').byteLength > 1024 * 1024) throw new Error('SDK credential envelope too large');
-        return (body as { operation?: string }).operation === 'abort'
-          ? new Response(null, { status: 204, headers: noStore }) : Response.json(result, { headers: noStore });
+        return Response.json(result, { headers: noStore });
       }
       if (!modelScope) {
         z.strictObject({ operation: z.literal('read') }).parse(body);
@@ -2375,6 +2361,9 @@ export class OperatorActivity extends Agent {
             cacheRetention: z.enum(['none', 'short', 'long']).optional(), sessionId: z.string().min(1).max(512).optional() }),
         }).parse(body);
         if (new TextEncoder().encode(JSON.stringify(body)).byteLength > inferenceRequestBytes(policy)) return dispatcherRefusal('request-invalid');
+        if (parsed.options.reasoning !== undefined && parsed.options.reasoning !== selection.reasoningLevel) {
+          return dispatcherRefusal('policy-denied');
+        }
         const requestDigest = await sha256(JSON.stringify({ context: parsed.context, options: parsed.options, selection, ownerScope }));
         if (!await current()) return dispatcherRefusal('execution-inactive');
         return await this.ctx.storage.transaction(async tx => {
@@ -4665,7 +4654,7 @@ export class OperatorActivity extends Agent {
           state.receipt.selection.installation.piReasoningOverride === undefined ? 'inherited' as const : 'installation' as const } : {}) } } : {}),
       ...(state.configuredSelection ? { inferenceSelection: state.configuredSelection.source === 'managed'
         ? { source: 'managed' as const, routeId: state.configuredSelection.routeId, reasoningLevel: state.configuredSelection.reasoningLevel }
-        : { ...state.configuredSelection, reasoningLevel: state.configuredSelection.reasoningLevel!, reasoningSource:
+        : { ...state.configuredSelection, reasoningSource:
           state.receipt && isManagementReceipt(state.receipt) && state.receipt.selection.installation.piReasoningOverride !== undefined
             ? 'installation' as const : 'inherited' as const } } : {}),
       ...(state.authFailure ? { authFailure: state.authFailure } : {}),

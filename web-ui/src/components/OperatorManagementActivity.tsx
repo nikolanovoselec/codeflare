@@ -9,6 +9,14 @@ import OperatorActivityDiagnostics from './OperatorActivityDiagnostics';
 
 const working = new Set(['queued', 'running', 'waiting', 'cancel-requested', 'unknown']);
 const nativeSelection = (selection: OperatorActivityDetail['inferenceSelection']) => selection?.source === 'pi-native' ? selection : undefined;
+function nativeReasoningLabel(selection: NonNullable<ReturnType<typeof nativeSelection>>): string {
+  const level = selection.reasoningLevel;
+  if (level === null) return 'Provider default';
+  const origin = selection.reasoningSource === 'installation' ? 'installation override'
+    : selection.reasoningSource === 'default' ? 'Medium default'
+      : selection.reasoningSource ? 'inherited Pi default' : 'reasoning origin unavailable';
+  return `${level.charAt(0).toUpperCase() + level.slice(1)} (${origin})`;
+}
 type SourceHost = Session & { generation: number };
 function isSourceHost(session: Session): session is SourceHost {
   const lifecycle = session.lifecycle ?? session.status;
@@ -199,7 +207,7 @@ const OperatorManagementActivity: Component<{ installationId?: string; onBackToC
     <Show when={detailLoading()}><p role="status">Loading activity detail…</p></Show>
     <Show when={detail()}>{value => <section class="admin-panel operator-panel"><h2>Activity detail</h2><p>Activity ID: {value().activityId}</p>
       <p>Execution: {value().executionStatus} · Cleanup: {value().cleanupStatus}</p>
-      <Show when={nativeSelection(value().inferenceSelection)}>{selection => <p>Inference: Pi built-in providers · {selection().provider} / {selection().model} · {selection().reasoningLevel.charAt(0).toUpperCase() + selection().reasoningLevel.slice(1)} ({selection().reasoningSource === 'installation' ? 'installation override' : selection().reasoningSource === 'default' ? 'Medium default' : selection().reasoningSource ? 'inherited Pi default' : 'reasoning origin unavailable'})</p>}</Show>
+      <Show when={nativeSelection(value().inferenceSelection)}>{selection => <p>Inference: Pi built-in providers · {selection().provider} / {selection().model} · {nativeReasoningLabel(selection())}</p>}</Show>
       <Show when={value().authFailure}>{failure => <div role="alert"><p>Pi login required · {failure().provider}</p><p>{piLoginRecoveryCopy}</p></div>}</Show>
       <Show when={value().checkpoint != null}><h3>Progress</h3><pre class="operator-result">{JSON.stringify(value().checkpoint, null, 2)}</pre></Show>
       <Show when={value().result != null} fallback={<p>No result available.</p>}><h3>Result</h3><pre class="operator-result">{JSON.stringify(value().result, null, 2)}</pre></Show>

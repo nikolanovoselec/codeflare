@@ -237,6 +237,8 @@ describe('REQ-OPERATOR-007/047/048/058: owner R2 configured-service HTTP contrac
     await admitted(f);
     const selected = (await f.activity.getRuntimePlan())!.configuredSelection;
     expect(selected).toMatchObject({ source: 'pi-native', provider: providerId, model: logical.model, reasoningLevel: null });
+    expect((await f.activity.getBrowserDetail())?.inferenceSelection).toMatchObject({
+      source: 'pi-native', provider: providerId, model: logical.model, reasoningLevel: null });
     expect((await modelAdmission(f)).status).toBe(200);
   }, true, false, { nativeProviderDefault: true }));
 
@@ -245,6 +247,13 @@ describe('REQ-OPERATOR-007/047/048/058: owner R2 configured-service HTTP contrac
     expect(result.ok).toBe(false);
     expect((await f.activity.getRuntimePlan())?.configuredSelection).toBeUndefined();
   }, true, false, { nativeNullProfile: true }));
+
+  it.each([false, true])('caller High cannot replace admitted native reasoning (provider-default: %s)', providerDefault => lane(async f => {
+    await admitted(f);
+    await denied(await callback(f, 'model-admission', { operationId: 'caller-reasoning', context: modelContext,
+      options: { maxTokens: 16, reasoning: 'high' } }), [403]);
+    expect((await modelAdmission(f)).status).toBe(200);
+  }, true, false, { nativeProviderDefault: providerDefault }));
 
   it('returns only saved provider/model and selected OAuth access token through fixed read-only DTOs', () => lane(async (f, store) => {
     await admitted(f);

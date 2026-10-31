@@ -9,7 +9,8 @@ export interface OperatorBrowserSummary {
   operatorName?: string;
   version?: string;
   resultSummary?: { assessed: number; merged: number; notMerged: number; deferred: number; unknown: number };
-  inferenceSelection?: (NativeOperatorInference & { reasoningSource?: 'installation' | 'inherited' })
+  inferenceSelection?: (Omit<NativeOperatorInference, 'reasoningLevel'> & {
+    reasoningLevel: NativeOperatorInference['reasoningLevel'] | null; reasoningSource?: 'installation' | 'inherited' })
     | { source: 'managed'; routeId: string; reasoningLevel: NativeOperatorInference['reasoningLevel'] | null };
   authFailure?: SafePiAuthFailure;
   context?: string | null;

@@ -1,11 +1,10 @@
-/** Protected data/HTTP capabilities for the installed application's unchanged Pi SDK.
+/** Protected saved configuration and HTTP capabilities for normal Flue inference.
  * This module never resolves a model, refreshes OAuth, or parses vendor completions.
  */
 import type { Env } from '../types';
 import type { OperatorRuntimePlan } from './activity';
 import { dispatcherSdkOwnerContext, type ConfiguredDispatcherInference } from './dispatcher-owner-inference';
 import { DispatcherSdkStorageError, readDispatcherSdkFiles, type DispatcherSdkCredentialResult, type SdkStorageScope } from './dispatcher-sdk-storage';
-import { resolveBucketName } from '../lib/access';
 import { getAigConfig } from '../lib/aig-config';
 import { isDisallowedEgressHost } from '../lib/controller-egress';
 import { isEnterpriseMode } from '../lib/subscription';
@@ -76,21 +75,20 @@ export async function readDispatcherSdkConfiguration(input: SdkInput): Promise<R
       current: async () => { await sameOwner(input, owner); return true; } });
     await sameOwner(input, owner);
     return { source: 'pi-native', ...files,
-      ...(owner.reasoningOverride === undefined ? {} : { reasoningOverride: owner.reasoningOverride }),
+      ...(!input.plan.configuredSelection && owner.reasoningOverride !== undefined ? { reasoningOverride: owner.reasoningOverride } : {}),
       ...(input.plan.configuredSelection ? { selection: input.plan.configuredSelection } : {}) };
   } catch (error) { return failure(input, error); }
 }
 
 export async function dispatcherSdkCredentials(input: SdkInput, body: unknown): Promise<unknown | null> {
   try {
-    if (!record(body)) throw new Error('SDK credential request invalid');
-    const finishing = body.operation === 'commit' || body.operation === 'abort';
-    // Only an already-begun metadata lease can finish after execution ends. The DO
-    // checks original owner/run, provider CAS, and its own immutable 30-second expiry.
-    const owner = finishing ? { email: input.plan.executionContext.owner.email.trim().toLowerCase(),
-      bucket: await resolveBucketName(input.env, input.plan.executionContext.owner.email) }
-      : await dispatcherSdkOwnerContext(input, input.plan.configuredSelection);
-    if (!finishing && (!('source' in owner) || owner.source !== 'pi-native')) throw new Error('Native SDK credentials denied');
+    if (!record(body) || body.operation !== 'read' || Object.keys(body).length !== 2
+      || typeof body.providerId !== 'string' || !Object.hasOwn(body, 'providerId')) {
+      throw new Error('Native credential read invalid');
+    }
+    const owner = await dispatcherSdkOwnerContext(input, input.plan.configuredSelection);
+    if (owner.source !== 'pi-native' || input.plan.configuredSelection
+      && body.providerId !== input.plan.configuredSelection.provider) throw new Error('Native credentials denied');
     const scope = storageScope(input, owner);
     const result = await metadata(input, scope).dispatcherSdkCredentials(scope, body);
     if (!result.ok) {
@@ -99,7 +97,7 @@ export async function dispatcherSdkCredentials(input: SdkInput, body: unknown): 
       if (result.stack) error.stack = result.stack;
       throw error;
     }
-    if (!finishing) await sameOwner(input, owner as Owner);
+    await sameOwner(input, owner);
     return result.value;
   } catch (error) { return failure(input, error); }
 }

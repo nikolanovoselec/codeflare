@@ -1,4 +1,4 @@
-/** Normal Dispatcher uses public configured Pi services; source policy remains parent-owned. */
+/** Normal Dispatcher uses saved owner configuration with Flue; source policy remains parent-owned. */
 import { WorkerEntrypoint } from 'cloudflare:workers';
 import { z } from 'zod';
 import type { Env } from '../types';
@@ -25,7 +25,7 @@ type Input = { generation: number; plan: OperatorRuntimePlan; env: Env; current(
   connection?: Awaited<ReturnType<typeof installedDispatcherConnection>> };
 type SendInput = Input & Pick<ExecutionContext, 'waitUntil'>;
 
-/** Current grants select the source. The SDK resolves models/authentication; no vendor lookup or fallback. */
+/** Current grants select the source. Normal Flue providers resolve models; no Root vendor lookup or fallback. */
 /** Root authority/configuration scope only: never resolves models or opens a user Host. */
 export async function dispatcherSdkOwnerContext(input: Input, selection?: ConfiguredDispatcherInference) {
   const { plan, env } = input;
@@ -36,21 +36,25 @@ export async function dispatcherSdkOwnerContext(input: Input, selection?: Config
   const groups = await resolveSessionAccessGroup(new Request('https://operator.internal/', {
     headers: { 'cf-access-jwt-assertion': authority.accessJwt } }), env);
   const routes = await loadEnterpriseRouteConfig(env, groups);
-  const source = routes.piDefaultSource === 'pi-native' ? 'pi-native' : 'managed';
+  const source = routes.piDefaultSource === 'pi-native' && routes.allowPersonalPiProviders === true ? 'pi-native' : 'managed';
   if (selection && selection.source !== source) throw new Error('Owner inference source changed');
   const eligible = { routeIds: routes.routeCatalog, defaultRouteId: routes.defaultRoute, defaultReasoningLevel: routes.defaultReasoning };
   const declared = inferencePolicies.find(policy => policy.inference !== undefined)?.inference;
   const managed = source !== 'managed' ? undefined : declared
-    ? resolveOperatorInference({ policy: { inference: declared }, eligible })
+    ? resolveOperatorInference({ policy: { inference: declared }, trusted: { routeId: routes.defaultRoute }, eligible })
     : { routeId: routes.defaultRoute, reasoningLevel: routes.defaultReasoning || null };
-  if (source === 'pi-native' && routes.allowPersonalPiProviders !== true) throw new Error('Owner inference source denied');
+  const reasoningOverride = source === 'pi-native' ? plan.receipt.selection.installation.piReasoningOverride : undefined;
+  if (selection && reasoningOverride !== undefined && selection.reasoningLevel !== reasoningOverride) {
+    throw new Error('Owner reasoning override changed');
+  }
   if (managed && selection && (selection.source !== 'managed' || selection.routeId !== managed.routeId
     || selection.reasoningLevel !== managed.reasoningLevel)) throw new Error('Owner managed selection changed');
   for (const policy of inferencePolicies) {
     if (!policy.capabilities.includes('inference')) throw new Error('Owner inference policy denied');
     if (source === 'pi-native') {
       if (!policy.inference?.allowedSources?.includes('pi-native')
-        || selection && (selection.reasoningLevel === null || !policy.inference.reasoningLevels.includes(selection.reasoningLevel))) {
+        || selection && selection.reasoningLevel !== null
+          && !policy.inference.reasoningLevels.includes(selection.reasoningLevel)) {
         throw new Error('Owner native policy denied');
       }
     } else if (policy.inference) {
@@ -62,7 +66,7 @@ export async function dispatcherSdkOwnerContext(input: Input, selection?: Config
   if (Date.now() >= plan.deadline || input.signal?.aborted || !await input.current()) throw new Error('Owner inference expired');
   return { bucket, email: authority.human.email.trim().toLowerCase(), authority, groups, source,
     ownerKey: await operatorOwnerKey(authority.human), managed, deadline: plan.deadline,
-    reasoningOverride: source === 'pi-native' ? plan.receipt.selection.installation.piReasoningOverride : undefined };
+    reasoningOverride };
 }
 
 async function ownerContext(input: Input, selection?: ConfiguredDispatcherInference) {
@@ -211,8 +215,7 @@ export async function discoverDispatcherOwnerProfile(input: SendInput): Promise<
       profile.extend({ source: z.literal('pi-native') }),
       profile.extend({ source: z.literal('managed'), routeId: identity }),
     ]) }).parse(value).selection;
-    if (parsed.source !== context.source || parsed.source === 'pi-native' && parsed.reasoningLevel === null
-      || parsed.source === 'managed' && (!context.managed || parsed.provider !== 'codeflare-gateway'
+    if (parsed.source !== context.source || parsed.source === 'managed' && (!context.managed || parsed.provider !== 'codeflare-gateway'
         || parsed.model !== context.managed.routeId || parsed.routeId !== context.managed.routeId
         || parsed.reasoningLevel !== context.managed.reasoningLevel)) throw new Error('SDK profile selection changed');
     const canonical = { source: parsed.source, provider: parsed.provider, model: parsed.model,

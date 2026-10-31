@@ -13,6 +13,12 @@ describe('REQ-OPERATOR-007/047: native Activity functional browser wire', () => 
       authFailure: { code: 'PI_LOGIN_REQUIRED', reason: 'rejected', provider: 'openai-codex' } };
     expect(operatorActivitySummarySchema.parse(wire)).toEqual(wire);
   });
+  it('preserves admitted normal Dispatcher provider-default without converting it to Off or Medium', () => {
+    const wire = { ...summary, inferenceSelection: { ...nativeSelection,
+      provider: 'groq', model: 'openai/gpt-oss-20b', api: 'openai-completions', reasoningLevel: null,
+      reasoningSource: 'inherited' } };
+    expect(operatorActivitySummarySchema.parse(wire)).toEqual(wire);
+  });
   it('preserves configured custom SDK identity and closed login recovery without a built-in provider catalogue', () => {
     const provider = 'Owner.Custom/router';
     const wire = { ...summary, inferenceSelection: { ...nativeSelection, provider, api: 'owner.dynamic/api', model: 'team/custom/model' },

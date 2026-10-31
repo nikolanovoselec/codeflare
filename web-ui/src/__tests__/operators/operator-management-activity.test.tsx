@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@solidjs/testing-library';
 import OperatorManagement from '../../components/OperatorManagement';
+import OperatorManagementActivity from '../../components/OperatorManagementActivity';
 import type { Session } from '../../types';
 const summary = { activityId: 'activity-1', operatorId: 'operator-1', executionStatus: 'running', cleanupStatus: 'pending', collectionStatus: 'unavailable',
   attention: false, sessionId: null, source: null, updatedAt: Date.now() };
@@ -32,6 +33,17 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
 describe('REQ-OPERATOR-049: human-owned invocation and activity', () => {
+  it('shows normal Dispatcher provider-default without crashing or advertising Off or Medium', async () => {
+    serve = url => url.pathname.endsWith('/activity-1') ? json({ ...summary, checkpoint: null, result: null,
+      inferenceSelection: { source: 'pi-native', provider: 'groq', model: 'openai/gpt-oss-20b',
+        api: 'openai-completions', reasoningLevel: null, reasoningSource: 'inherited' } }) : json({ items: [summary] });
+    render(() => <OperatorManagementActivity onBackToCatalog={() => {}} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'View activity-1' }));
+    const label = await screen.findByText(/Inference:.*groq.*openai\/gpt-oss-20b/);
+    expect(label).toHaveTextContent('Provider default');
+    expect(label).not.toHaveTextContent(/Off|Medium|installation override/);
+  });
+
   it('REQ-OPERATOR-061: configured Renovate run settings make the modern target read-only and ignore malicious repository and PR URL overrides until explicit start', async () => {
     window.history.replaceState({}, '', '/operators?invoke=installation-1&repository=attacker%2Fforeign&pullRequest=42&automaticRuns=true&repetitionIntervalSeconds=1');
     preview.guidedMode = 'repository';
