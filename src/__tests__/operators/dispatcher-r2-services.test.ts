@@ -5,7 +5,7 @@ import { inspect } from 'node:util';
 import type { Env } from '../../types';
 // Register the fixture's existing Access boundary before any production importer.
 import {
-  type DispatcherFixture, diagnosticTraversal, diagnosticsBrowser, digest, fixture, start,
+  type DispatcherFixture, diagnosticSummary, diagnosticTraversal, diagnosticsBrowser, digest, fixture, start,
 } from './fixtures/dispatcher-production';
 import * as fixtureAccess from '../../lib/access';
 import * as fixtureAig from '../../lib/aig-config';
@@ -540,7 +540,8 @@ describe('REQ-OPERATOR-007/047/048: protected SDK-prepared HTTP, not Parent mode
       await assertOriginal(await modelFetch(f, permit.permitId, request, operationId));
     }
     const authFailure = { code: 'PI_LOGIN_REQUIRED', reason: 'rejected', provider: providerId };
-    expect(await f.activity.getBrowserSummary(f.proof.ownerKey)).toMatchObject({ authFailure, loggingEnabled: false, executionStatus: 'running' });
+    expect(await diagnosticSummary(f)).toMatchObject({ capture: 'disabled' });
+    expect(await f.activity.getBrowserSummary(f.proof.ownerKey)).toMatchObject({ authFailure, executionStatus: 'running' });
     expect(await f.activity.getBrowserDetail()).toMatchObject({ authFailure,
       executionStatus: 'running', collectionStatus: 'unavailable', result: null });
     // Refusal of subsequent work is functional, not an optional diagnostic side effect.
