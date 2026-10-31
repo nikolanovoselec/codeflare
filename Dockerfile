@@ -334,7 +334,7 @@ RUN SILVERBULLET_VERSION="2.12.1" && \
 # 21.5.0 affected by CVE-2026-9496; an integrity-pinned 21.5.1 artifact replaces
 # that runtime copy. code-server's basic-ftp 5.3.1 is replaced with 6.2.3 for
 # CVE-2026-102990, preserving its CommonJS API for the get-uri consumer.
-# follow-redirects 1.16.1 fixes CVE-2026-111755/111756 in its upstream 1.x API.
+# follow-redirects 1.16.2 fixes CVE-2026-111755/111756/116689 in its upstream 1.x API.
 # Drop each overlay after its upstream artifact contains at least the pinned
 # fixed version.
 RUN CODE_SERVER_VERSION="4.141.0" && \
@@ -354,8 +354,8 @@ RUN CODE_SERVER_VERSION="4.141.0" && \
     PACOTE_SHA512="2af709f62cb772bcac0ac82a738f8f9271ffc3a8e4ae9f09377ea6a5904fc0d6834704df3190f7ed8cd16b336cb626543a1b85e699e8f5fefc9fd9842416afc2" && \
     BASIC_FTP_VERSION="6.2.3" && \
     BASIC_FTP_SHA512="4fb198b50d9e28950de583911bb03cbb659f07d24c3746b8ff0977308eb8aaadaa4d17dadc55f3a0dab40c3a23643903c92b5c2fe4e47cab33e091c4671e6419" && \
-    FOLLOW_REDIRECTS_VERSION="1.16.1" && \
-    FOLLOW_REDIRECTS_SHA512="14dbc51b3a0c2d6984e988fdb296ffce377bca23421e2016f7f4e0f425eb43cc2ebb7d87b6524ec163b5d4e25a7e5e457d8dc3c53750d2f8f8db353592fbf98e" && \
+    FOLLOW_REDIRECTS_VERSION="1.16.2" && \
+    FOLLOW_REDIRECTS_SHA512="fe454fd94f33e7de886b483016bc3221ea3be2d6b9695992794d457c050c0267043f910fef3c9d99a83748b88deb835a44a79fde5c6cabb8bf83b96d2500c6a3" && \
     SHELL_QUOTE_VERSION="1.12.0" && \
     SHELL_QUOTE_SHA512="3dc072a8dc93ff7f05da40cd8b4d3a1c031125a50bb81ceafc53acc37a9d66f5ff180f56fe36a60da46c9201e3b9b1e27ed5cae6c205c4b364beb5d4c1ca1fe9" && \
     curl -fsSL --retry 3 --retry-delay 5 --connect-timeout 30 --max-time 600 \
