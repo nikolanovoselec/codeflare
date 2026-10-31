@@ -1,5 +1,5 @@
 import { Component, Show, createSignal, createEffect } from 'solid-js';
-import { mdiPencilOutline, mdiStop, mdiTrashCanOutline } from '@mdi/js';
+import { mdiPencilOutline, mdiStop, mdiTrashCanOutline, mdiFileExcelBox } from '@mdi/js';
 import Icon from './Icon';
 import '../styles/session-context-menu.css';
 
@@ -154,7 +154,7 @@ const SessionContextMenu: Component<SessionContextMenuProps> = (props) => {
             class="session-context-menu__item session-context-menu__item--danger"
             onClick={handleKill}
           >
-            <Icon path={mdiStop} size={16} />
+            <Icon path={mdiFileExcelBox} size={16} />
             Kill
           </button>
         </Show>

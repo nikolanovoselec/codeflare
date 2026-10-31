@@ -503,10 +503,17 @@ describe('REQ-OPERATOR-081: AC6 retained Dispatcher diagnostics in Activity deta
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     manual = true;
     const panel = await openDiagnostics();
-    expect(await panel.findByText(/canonical.*(?:append|persist|commit).*(?:fail|could not)|(?:fail|could not).*canonical/i)).toBeInTheDocument();
+    expect(await panel.findByText('The response could not be saved to the execution journal; a durable save was not confirmed.')).toBeVisible();
+    const summaryDetails = panel.getByText('Summary technical details', { selector: 'summary' });
+    expect(panel.getByText(/last confirmed.*e-1/i)).not.toBeVisible();
+    fireEvent.click(summaryDetails);
+    expect(panel.getByText(/last confirmed.*e-1/i)).toBeVisible();
     expect(panel.getByText(/last confirmed.*e-1/i)).toBeInTheDocument();
     expect(panel.getByText(/(?:(?:failed|unfulfilled).*(?:handoff|transition)|first failure).*e-2/i)).toBeInTheDocument();
-    expect(panel.getByText(/summary reference does not establish the earliest or originating failure/i)).toBeInTheDocument();
+    expect(panel.getByText(/A failed or unfulfilled handoff was retained\. It is not necessarily the first failure\./)).toBeVisible();
+    fireEvent.click(summaryDetails);
+    expect(panel.getByText(/last confirmed.*e-1/i)).not.toBeVisible();
+    expect(panel.getByRole('button', { name: 'View record e-2' })).toBeVisible();
     expect(panel.getByText(/(?:inspect|view|check).*failure/i)).toBeInTheDocument();
     expect(screen.getByText(/Original result for activity-1/)).toBeInTheDocument();
     expect(screen.getAllByText(/Execution: failed · Cleanup: stopped/).length).toBeGreaterThan(0);
@@ -527,7 +534,7 @@ describe('REQ-OPERATOR-081: AC6 retained Dispatcher diagnostics in Activity deta
     expect(screen.getByText(/Original result for activity-1/)).toBeInTheDocument();
     pending.resolve(diagnosticJson(state.summary));
     const panel = within(await screen.findByRole('region', { name: /^(?:Activity )?Diagnostics$/i }));
-    expect(await panel.findByText(/canonical.*(?:fail|could not)|(?:fail|could not).*canonical/i)).toBeInTheDocument();
+    expect(await panel.findByText('The response could not be saved to the execution journal; a durable save was not confirmed.')).toBeVisible();
     await waitFor(() => expect(screen.queryByText(/loading.*diagnostic/i)).not.toBeInTheDocument());
     expect(button).not.toBeDisabled();
     expect(state.mutations).toEqual([]);
@@ -547,6 +554,7 @@ describe('REQ-OPERATOR-081: AC6 retained Dispatcher diagnostics in Activity deta
     const panel = await openDiagnostics();
     const timeline = await panel.findByRole('list', { name: /(?:diagnostic )?timeline/i });
     const rows = within(timeline).getAllByRole('listitem');
+    for (const row of rows) fireEvent.click(within(row).getByText('Record technical details', { selector: 'summary' }));
     expect(rows[0]).toHaveTextContent(/(?:host|inference).*response/i);
     expect(rows[0]).toHaveTextContent(/logical.*7/i);
     expect(rows[0]).toHaveTextContent(/host.*attempt.*2/i);
@@ -557,12 +565,13 @@ describe('REQ-OPERATOR-081: AC6 retained Dispatcher diagnostics in Activity deta
     expect(rows[1]).toHaveTextContent(/host.*attempt.*3/i);
     expect(rows[1]).toHaveTextContent(/charged.*23/i);
     expect(rows[1]).toHaveTextContent('b'.repeat(64));
-    expect(await panel.findByText(/(?:host response|inference).*(?:not|does not).*(?:receipt|commit|settlement)/i)).toBeInTheDocument();
+    expect(panel.getByText('A host response does not prove that the runtime received or saved it, or that the work finished.')).toBeVisible();
     expect(state.mutations).toEqual([]);
   });
 
   it('reads a record detail with verified source links, bounded error lineage and uncertain affected effects without offering replay', async () => {
     const { state } = ownedDiagnosticFixture();
+    Object.assign(state.detail.record.error!, { transportStatus: 403, transportReason: 'execution-inactive', transportDisposition: 'authority-denied' });
     state.detail.record.source.frames.push({ ...state.detail.record.source.frames[0],
       path: 'packages/runtime/src/cloudflare/agent-coordinator.ts', line: 202, kind: 'catching' },
     { ...state.detail.record.source.frames[0], line: 103, kind: 'patch-boundary' });
@@ -573,10 +582,13 @@ describe('REQ-OPERATOR-081: AC6 retained Dispatcher diagnostics in Activity deta
     fireEvent.click(within(event).getByRole('button', { name: 'View record e-2' }));
     // The requested evidence must appear beside its record, not below the full history.
     const detail = within(await within(event).findByRole('region', { name: /record.*e-2|e-2.*record/i }));
-    expect(await detail.findByText(/TypeError/)).toBeInTheDocument();
+    expect(detail.getByText('Request failure (HTTP 403): The platform could not confirm this request belonged to an active run.')).toBeVisible();
+    fireEvent.click(detail.getByText('Record technical details', { selector: 'summary' }));
+    expect(await detail.findByText(/TypeError/)).toBeVisible();
     expect(detail.getByText(/cause.*(?:depth|truncat|bounded)/i)).toBeInTheDocument();
     expect(detail.getByText(/(?:prior|affected).*effect.*(?:uncertain|unknown)|(?:uncertain|unknown).*effect/i)).toBeInTheDocument();
-    expect(detail.getByText('9'.repeat(64))).toBeInTheDocument();
+    fireEvent.click(detail.getByText('Retained failure and completion technical details', { selector: 'summary' }));
+    expect(detail.getByText('9'.repeat(64))).toBeVisible();
     expect(detail.getByText(/(?:last|latest).*host.persisted.*e-1/i)).toBeInTheDocument();
     const links = detail.getAllByRole('link');
     expect(links.some(link => link.getAttribute('href') ===
@@ -601,7 +613,8 @@ describe('REQ-OPERATOR-081: AC6 retained Dispatcher diagnostics in Activity deta
     const row = within(await panel.findByRole('list', { name: 'Retained operations' })).getAllByRole('listitem')[0];
     fireEvent.click(within(row).getByRole('button', { name: `View record ${operation.id}` }));
     const detail = within(await within(row).findByRole('region', { name: `Record ${operation.id}` }));
-    expect(detail.getByText(operation.operationDigest)).toBeInTheDocument();
+    fireEvent.click(detail.getByText('Operation technical details', { selector: 'summary' }));
+    expect(detail.getByText(operation.operationDigest)).toBeVisible();
     expect(detail.getByText(/legacy operation.*(?:not|cannot)/i)).toBeInTheDocument();
     expect(detail.queryByRole('button', { name: /replay|repair|retry|continue|collect/i })).not.toBeInTheDocument();
     expect(state.mutations).toEqual([]);
@@ -612,6 +625,7 @@ describe('REQ-OPERATOR-081: AC6 retained Dispatcher diagnostics in Activity deta
     render(() => <OperatorManagement />);
     await selectDiagnosticActivity();
     const panel = await openDiagnostics();
+    fireEvent.click(panel.getByText('Capture and source technical details', { selector: 'summary' }));
     const coverage = within(await panel.findByRole('region', { name: /(?:capture )?(?:capabilities|coverage)/i }));
     for (const family of diagnosticFamilies) {
       const words = family.replace(/-/g, '[ -]');
@@ -731,8 +745,7 @@ describe('REQ-OPERATOR-081: AC6 retained Dispatcher diagnostics in Activity deta
     render(() => <OperatorManagement />);
     await selectDiagnosticActivity();
     const panel = await openDiagnostics();
-    expect(await panel.findByText(/legacy.*(?:uncaptured|not captured|unavailable)|(?:uncaptured|not captured).*legacy/i,
-      { selector: 'p' })).toBeInTheDocument();
+    expect(await panel.findByText('This older run did not capture diagnostic evidence.')).toBeVisible();
     expect(panel.getByText(/(?:inspect|check).*original.*binding/i)).toBeInTheDocument();
     expect(panel.queryByText(/no failure (?:occurred|observed)|no evidence loss/i)).not.toBeInTheDocument();
     expect(screen.getByText(/Original result for activity-1/)).toBeInTheDocument();
@@ -756,7 +769,8 @@ describe('REQ-OPERATOR-081: AC6 retained Dispatcher diagnostics in Activity deta
     const panel = await openDiagnostics();
     expect(await panel.findByText(/logging.*(?:off|disabled)|capture.*disabled/i)).toBeInTheDocument();
     expect(panel.getByText(/deadline.*expir/i)).toBeInTheDocument();
-    expect(panel.getByText(/(?:original|binding).*generation.*3|generation.*3.*(?:original|binding)/i)).toBeInTheDocument();
+    fireEvent.click(panel.getByText('Summary technical details', { selector: 'summary' }));
+    expect(panel.getByText(/(?:original|binding).*generation.*3|generation.*3.*(?:original|binding)/i)).toBeVisible();
     expect(panel.queryByText(/TypeError|canonical.*append.*failed/i)).not.toBeInTheDocument();
     expect(panel.queryByText(/no failure observed/i)).not.toBeInTheDocument();
     expect(state.mutations).toEqual([]);
@@ -776,7 +790,9 @@ describe('REQ-OPERATOR-081: AC6 retained Dispatcher diagnostics in Activity deta
     await selectDiagnosticActivity();
     const panel = await openDiagnostics();
     expect(await panel.findByText(/(?:retention|evidence).*loss|loss.*(?:retention|evidence)/i)).toBeInTheDocument();
-    expect(panel.getByText(/(?:evicted|routine).*12|12.*(?:evicted|routine)/i)).toBeInTheDocument();
+    expect(panel.getByText('Some diagnostic metadata is missing. The retained records may not explain everything that happened. Protected runtime logs are stored separately; gaps here do not prove those logs were lost.')).toBeVisible();
+    fireEvent.click(panel.getByText('Retention technical details', { selector: 'summary' }));
+    expect(panel.getByText(/(?:evicted|routine).*12|12.*(?:evicted|routine)/i)).toBeVisible();
     expect(panel.getByText(/(?:failure|capsule).*2.*(?:drop|lost)|(?:drop|lost).*2.*failure/i)).toBeInTheDocument();
     expect(panel.getByText(/terminal.*(?:unknown|unavailable)|(?:unknown|unavailable).*terminal/i)).toBeInTheDocument();
     expect(panel.getByText(/oversized.*1|1.*oversized/i)).toBeInTheDocument();
@@ -821,10 +837,12 @@ describe('REQ-OPERATOR-081: AC6 retained Dispatcher diagnostics in Activity deta
     render(() => <OperatorManagement />);
     await selectDiagnosticActivity();
     const panel = await openDiagnostics();
-    expect(await panel.findByText(/SDK.*import.*(?:pending|incomplete)|(?:pending|incomplete).*SDK.*import/i)).toBeInTheDocument();
+    expect(panel.getByText('Some runtime records have not been imported into this metadata view. This does not establish whether their original runtime logs are available.')).toBeVisible();
+    fireEvent.click(panel.getByText('Summary technical details', { selector: 'summary' }));
+    expect(await panel.findByText(/SDK.*import.*(?:pending|incomplete)|(?:pending|incomplete).*SDK.*import/i)).toBeVisible();
     expect(panel.getByText(/(?:local|child).*captur.*(?:not|does not|unavailable).*host.persisted.*cause|host.persist.*(?:not|unconfirmed|unavailable).*cause/i)).toBeInTheDocument();
     expect(panel.getByText(/last confirmed.*e-1/i)).toBeInTheDocument();
-    expect(panel.getByText(/(?:inspect|check|view).*SDK.*import/i)).toBeInTheDocument();
+    expect(panel.getByText('Next: Check the technical details for records that have not been confirmed as saved by the host.')).toBeVisible();
     expect(panel.queryByText(/canonical.*append.*failed|TypeError/i)).not.toBeInTheDocument();
     expect(panel.queryByRole('button', { name: /retry|renew|continue|replay|collect/i })).not.toBeInTheDocument();
     expect(screen.getByText(/Original result for activity-1/)).toBeInTheDocument();
@@ -882,12 +900,12 @@ describe('REQ-OPERATOR-081: AC6 retained Dispatcher diagnostics in Activity deta
     render(() => <OperatorManagement />);
     await selectDiagnosticActivity();
     const panel = await openDiagnostics();
-    expect(await panel.findByText(/no failure observed.*(?:retained|captured).*evidence|(?:retained|captured).*evidence.*no failure observed/i)).toBeInTheDocument();
+    expect(await panel.findByText('The retained records do not show a failure, but they do not establish that execution succeeded.')).toBeVisible();
     const timeline = await panel.findByRole('list', { name: /timeline/i });
     const commit = within(timeline).getAllByRole('listitem')[1];
     expect(commit).toHaveTextContent(/batch.*11/i);
     expect(commit).toHaveTextContent(/record.*(?:index.*)?4/i);
-    expect(panel.queryByText(/SDK settlement completed|execution succeeded|no failure occurred/i)).not.toBeInTheDocument();
+    expect(panel.queryByText(/^(?:SDK settlement completed|execution succeeded|no failure occurred)$/i)).not.toBeInTheDocument();
     expect(screen.getAllByText(/Execution: unknown/)[0]).toBeInTheDocument();
     expect(state.mutations).toEqual([]);
   });
@@ -908,7 +926,8 @@ describe('REQ-OPERATOR-081: AC6 retained Dispatcher diagnostics in Activity deta
     expect(screen.getByText(/Original result for activity-1/)).toBeInTheDocument();
     pending.resolve(diagnosticJson(state.detail));
     const detail = within(await panel.findByRole('region', { name: /record.*e-2|e-2.*record/i }));
-    expect(await detail.findByText(/TypeError/)).toBeInTheDocument();
+    fireEvent.click(detail.getByText('Record technical details', { selector: 'summary' }));
+    expect(await detail.findByText(/TypeError/)).toBeVisible();
     expect(panel.queryByText(/loading.*(?:record|detail)/i)).not.toBeInTheDocument();
     expect(state.mutations).toEqual([]);
   });
@@ -1007,7 +1026,7 @@ describe('REQ-OPERATOR-081: AC6 retained Dispatcher diagnostics in Activity deta
     // Install the clock before opening, so any diagnostic poll registered at opening is observable.
     vi.useFakeTimers({ shouldAdvanceTime: true });
     const panel = await openDiagnostics();
-    expect(await panel.findByText(/canonical.*(?:fail|could not)|(?:fail|could not).*canonical/i)).toBeInTheDocument();
+    expect(await panel.findByText('The response could not be saved to the execution journal; a durable save was not confirmed.')).toBeVisible();
     await panel.findByRole('list', { name: /timeline/i });
     // A later server snapshot has a different user-visible diagnosis. No explicit refresh is made.
     const later = diagnosticSummary();

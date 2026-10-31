@@ -156,6 +156,10 @@ describe('SessionContextMenu', () => {
         onRename={() => { actions.push('rename'); }}
         onClose={() => setOpen(false)} />);
 
+      // The established action labels and order remain the navigation contract.
+      expect(screen.getAllByRole('button').map(button => button.textContent?.trim())).toEqual([
+        'Rename', 'Stop', 'Kill', 'Delete',
+      ]);
       // Exact Kill user copy distinguishes force termination from ordinary Stop.
       fireEvent.click(screen.getByRole('button', { name: 'Kill' }));
       expect(actions).toEqual(['kill']);

@@ -2257,18 +2257,29 @@ export class OperatorActivity extends Agent {
 
   /** Installation authentication is independent of server-derived original owner/run authority. */
   async dispatcherInstalledCallback(generation: number, request: Request): Promise<Response> {
+    let trace: InferenceDiagnosticContext | undefined;
+    let deliveryToken: string | undefined;
+    let submissionId: string | undefined;
     try {
       const binding = await authenticateInstalledDispatcher(this.#appEnv, request);
       const state = await this.ctx.storage.get<AdmissionState>('admission');
       const active = await this.ctx.storage.get<DispatcherLease>(DISPATCHER_LEASE);
       const profile = await this.ctx.storage.get<DispatcherLease>(DISPATCHER_PROFILE_LEASE);
       const lease = active?.generation === generation ? active : profile;
-      if (binding.generation !== generation || state?.intent.activityId !== binding.activityId || lease?.hosting !== 'normal'
+      if (!state || binding.generation !== generation || state.intent.activityId !== binding.activityId || lease?.hosting !== 'normal'
         || lease.generation !== generation || lease.deployment?.installationId !== binding.connection.installationId
         || lease.connectionSecretCiphertext !== binding.connection.connectionSecretCiphertext
         || !sameDispatcherPhaseValue(lease.deployment,
           (({ connectionSecretCiphertext: _secret, ...deployment }) => deployment)(binding.connection))) {
         return dispatcherRefusal('execution-inactive');
+      }
+      const authorization = request.headers.get('authorization')!;
+      const requestedDelivery = request.headers.get('x-codeflare-dispatcher-delivery');
+      trace = { activityId: binding.activityId, generation, loggingEnabled: executionLoggingEnabled(state.receipt),
+        credentials: [authorization, authorization.slice('Bearer '.length), ...(requestedDelivery ? [requestedDelivery] : [])] };
+      if (requestedDelivery && lease.serial?.current.deliveryToken === requestedDelivery) {
+        deliveryToken = requestedDelivery;
+        submissionId = lease.serial.current.receipt?.submissionId;
       }
       const path = new URL(request.url).pathname;
       if (['/v1/dispatcher/pi/config', '/v1/dispatcher/gateway',
@@ -2276,16 +2287,27 @@ export class OperatorActivity extends Agent {
         return await this.#dispatcherSdkCallback(generation, request, lease);
       }
       if (lease !== active) return dispatcherRefusal('execution-inactive');
+      // SDK startup can enter before the original 202 receipt is bound. The
+      // context handler waits for that admission and then rechecks live authority;
+      // comparing this pre-acknowledgement snapshot would reject a valid handoff.
+      if (path === '/v1/dispatcher/phase-context') return this.dispatcherPhaseContext(generation, request);
+      // Other callbacks retain the existing immutable-snapshot check.
       // getRuntimePlan reopens only recorded owner context, never an owner/bucket from headers/body.
-      const plan = await this.#normalDispatcherCurrent(lease);
-      await this.#normalDispatcherConnection(lease, plan);
-      const url = new URL(request.url);
-      if (url.pathname === '/v1/dispatcher/phase-context') return this.dispatcherPhaseContext(generation, request);
-      if (url.pathname === '/v1/dispatcher/diagnostic/runtime') return this.dispatcherRuntimeDiagnostic(generation, request);
-      if (url.pathname === '/v1/dispatcher/diagnostic') return this.dispatcherDiagnosticReport(generation, request);
+      await this.#normalDispatcherCurrent(lease);
+      if (path === '/v1/dispatcher/diagnostic/runtime') return this.dispatcherRuntimeDiagnostic(generation, request);
+      if (path === '/v1/dispatcher/diagnostic') return this.dispatcherDiagnosticReport(generation, request);
       // Deliberately no native-binding/result, arbitrary outbound or private SDK-method route.
       return await this.dispatcherOperation(generation, request);
-    } catch { return dispatcherRefusal('execution-inactive'); }
+    } catch (error) {
+      if (trace) try {
+        emitRaw(trace, 'dispatcher-callback-failure', () => error);
+        this.#recordDiagnostic(generation, 'delivery', 'failed', 'authority-denied', undefined,
+          { ...(deliveryToken ? { deliveryDigest: hashDiagnostic(deliveryToken) } : {}),
+            ...(submissionId ? { submissionDigest: hashDiagnostic(submissionId) } : {}) }, 'host', undefined,
+          { ...captureError(error), transportStatus: 403, transportReason: 'execution-inactive', transportDisposition: 'authority-denied' });
+      } catch { /* Optional capture cannot replace the original refusal. */ }
+      return dispatcherRefusal('execution-inactive');
+    }
   }
 
   /** Read-only profile bootstrap retains original queued-owner authority, never model authority. */

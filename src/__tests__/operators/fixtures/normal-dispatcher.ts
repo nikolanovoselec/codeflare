@@ -54,6 +54,7 @@ export function createNormalDispatcherTransport(options: {
   const networkRequests: Array<{ url: string; method: string }> = [];
   const admissions = new Map<string, { wire: string; receipt: NormalReceipt }>();
   let loseNextAcknowledgement = false;
+  let pendingAcknowledgement: { accepted: () => void; released: Promise<void> } | undefined;
   let nextReadFailure: number | undefined;
   let outcome: 'pending' | 'completed' | 'failed' | 'aborted' = 'pending';
   let data: Record<string, unknown[]> = {};
@@ -92,6 +93,8 @@ export function createNormalDispatcherTransport(options: {
         acceptedAt: new Date().toISOString(), uid: 'normal-sdk-instance' };
       admissions.set(wire.idempotencyKey, { wire: JSON.stringify(wire), receipt });
       if (loseNextAcknowledgement) { loseNextAcknowledgement = false; throw new Error('External acknowledgement lost after durable acceptance'); }
+      const pending = pendingAcknowledgement; pendingAcknowledgement = undefined;
+      if (pending) { pending.accepted(); await pending.released; }
       return Response.json({ ...receipt, ...(retained ? { deduplicated: true } : {}) }, { status: 202 });
     }
     if (path === '/control/abort') return Response.json({ status: 'intent-recorded' }, { status: 202 });
@@ -112,6 +115,15 @@ export function createNormalDispatcherTransport(options: {
   return { fetcher, requests, networkRequests, admissions,
     refuseProfileAuth: () => { profileAuthMissing = true; },
     loseAcknowledgement: () => { loseNextAcknowledgement = true; },
+    // Hold only the next external HTTP202, after durable remote acceptance.
+    delayAcknowledgement: () => {
+      let accepted!: () => void;
+      let release!: () => void;
+      const entered = new Promise<void>(resolve => { accepted = resolve; });
+      const released = new Promise<void>(resolve => { release = resolve; });
+      pendingAcknowledgement = { accepted, released };
+      return { entered, release };
+    },
     failNextRead: (status: number) => { nextReadFailure = status; },
     settle: (status: typeof outcome, assessmentData: Array<{ name: string; data: unknown }> = []) => {
       outcome = status;

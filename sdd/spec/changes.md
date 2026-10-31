@@ -2,6 +2,11 @@
 
 Semantic changes to the specification. Git history captures diffs; this file captures intent.
 
+## 2026-10-31
+
+- Correct installed Dispatcher phase-context ordering: join the original admission before validating its newly bound receipt, retaining post-admission token, deployment, owner and deadline checks ([REQ-OPERATOR-048 AC2](operators.md#req-operator-048-dispatcher-execution)). Preserve caught callback errors through existing raw capture and closed retained refusal metadata, without a new logging system or SDK change ([REQ-OPERATOR-090 AC4](operators.md#req-operator-090-protected-raw-execution-logs), [083 AC7](operators.md#req-operator-083-retained-diagnostic-readback)). Behavioral coverage is authored; exact-head CI, review, rollout and fresh terminal/collection acceptance remain required.
+- Clarify Activity failure wording and distinguish bounded metadata gaps from separate protected runtime logs; keep technical identifiers expandable and reads passive ([REQ-OPERATOR-084](operators.md#req-operator-084-activity-causal-diagnosis)). Use the requested existing `file-excel-box` Kill glyph without changing action order or behavior ([REQ-SESSION-038](session-lifecycle.md#req-session-038-user-can-force-kill-a-session-container)).
+
 ## 2026-10-30
 
 - Reuse the same bounded signed compatible-release history for explicit validation and background refresh ([REQ-AGENT-154](agents.md#req-agent-154-build-compatible-managed-release-discovery), [REQ-STOR-040](storage.md#req-stor-040-managed-release-discovery-freshness)). Different runtime lock sets may publish to one curation repository; a newer incompatible release must not hide the newest compatible release. Preserve the 1,000-record bound, validation-stop behavior, activation monotonicity, five-minute attempt cache and snapshot-only startup. Expanded regression coverage is authored, not measured RED/GREEN or live activation.

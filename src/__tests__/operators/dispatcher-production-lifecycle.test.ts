@@ -3068,6 +3068,136 @@ describe('normal installed Dispatcher control', () => {
     expect((await callback(f, 'source', source)).status).toBe(403);
   }, { ...options, nativeInference: true, intent4: true }));
 
+  // Installed HTTP / real parent Activity only, not generated SDK startup execution.
+  type InstalledPhaseContext = { scope: string; generation: number; deadline: string; submissionId: string;
+    deliveryToken: string; phase: { kind: string }; previous?: Array<{ submissionId: string; phase: unknown; outcome: string }> };
+  const phaseToken = (f: DispatcherFixture) => (control(f, 'dispatch').at(-1)!.body.message as {
+    attributes: { deliveryToken: string } }).attributes.deliveryToken;
+  const installedContext = (f: DispatcherFixture, token: string, headers: Record<string, string> = {}) =>
+    f.installationCapability.fetch(normalCallback(f.activityId, 'phase-context', { deliveryToken: token },
+      { 'x-codeflare-dispatcher-delivery': token, ...headers }));
+
+  it('REQ-OPERATOR-048/062: AC2 installed phase context joins original pending HTTP202 and advances only its serial receipt', () => fixture(async f => {
+    const acknowledgement = f.normalTransport!.delayAcknowledgement();
+    const starting = start(f);
+    let pending: Promise<Response> | undefined;
+    try {
+      await within(acknowledgement.entered, 'original external admission accepted before HTTP202');
+      const token = phaseToken(f);
+      const original = [...f.normalTransport!.admissions.values()][0];
+      expect(f.normalTransport!.admissions.size).toBe(1);
+      expect(f.sent).toEqual([]);
+      expect(f.ownerPortRequests).toEqual([]);
+      // A foreign delivery cannot use an in-flight acknowledgement as authority.
+      expect((await within(installedContext(f, 'foreign-delivery'), 'pre-ack foreign context denial')).status).toBe(403);
+      pending = installedContext(f, token);
+      acknowledgement.release();
+      expect(await within(starting, 'original HTTP202 binding')).toMatchObject({ ok: true, state: { generation: 1, status: 'running' } });
+      const response = await within(pending, 'installed original phase context');
+      expect(response.status).toBe(200);
+      expect(response.headers.get('cache-control')).toBe('no-store');
+      const stamp = await response.json() as InstalledPhaseContext;
+      expect(stamp).toMatchObject({ scope: 'submission', generation: 1, submissionId: original.receipt.submissionId,
+        deliveryToken: token, phase: { kind: 'discovery' } });
+      expect(stamp.previous).toBeUndefined();
+      expect(f.normalTransport!.admissions.size).toBe(1);
+      expect([...f.normalTransport!.admissions.values()][0]).toEqual(original);
+      expect(f.sent).toEqual([]);
+      expect(f.ownerPortRequests).toEqual([]);
+
+      const target = { pullRequest: 17, headSha: '1'.repeat(40) };
+      const next = { kind: 'target', index: 0, target };
+      f.normalTransport!.settle('completed', [{ name: 'dispatcher-progress', data: {
+        version: 1, scope: stamp.scope, generation: stamp.generation, submissionId: stamp.submissionId,
+        phase: stamp.phase, next, targets: [target],
+      } }]);
+      await f.activity.reconcileDispatcherLease();
+      const nextToken = phaseToken(f);
+      expect(nextToken).not.toBe(token);
+      expect(f.normalTransport!.admissions.size).toBe(2);
+      const nextResponse = await within(installedContext(f, nextToken), 'next installed serial phase context');
+      expect(nextResponse.status).toBe(200);
+      const nextStamp = await nextResponse.json() as InstalledPhaseContext;
+      const nextReceipt = [...f.normalTransport!.admissions.values()][1].receipt;
+      expect(nextStamp).toMatchObject({ scope: stamp.scope, generation: stamp.generation, deadline: stamp.deadline,
+        submissionId: nextReceipt.submissionId, deliveryToken: nextToken, phase: next,
+        previous: [{ submissionId: stamp.submissionId, phase: stamp.phase, outcome: 'completed' }] });
+      expect(nextStamp.submissionId).not.toBe(stamp.submissionId);
+      expect((await installedContext(f, token)).status).toBe(403);
+      expect((await callback(f, 'source', source, { 'x-codeflare-dispatcher-delivery': token })).status).toBe(403);
+      expect(f.sent).toEqual([]);
+      expect(f.ownerPortRequests).toEqual([]);
+    } finally {
+      acknowledgement.release();
+      await within(starting, 'pending admission cleanup').catch(() => undefined);
+      if (pending) await within(pending, 'pending context cleanup').catch(() => undefined);
+    }
+  }, { ...options, intent4: true }));
+
+  it('REQ-OPERATOR-048: AC2 installed context accepts original receipt bound during asynchronous gateway authorization', () => fixture(async f => {
+    const acknowledgement = f.normalTransport!.delayAcknowledgement();
+    const starting = start(f);
+    let pending: Promise<Response> | undefined;
+    try {
+      await within(acknowledgement.entered, 'external acceptance before authorization handoff');
+      const token = phaseToken(f);
+      const receipt = [...f.normalTransport!.admissions.values()][0].receipt;
+      const bindOriginal = async () => {
+        // Disarm before releasing: admission's own post-202 authorization must
+        // never consume this seam and await its own still-pending start promise.
+        f.afterRegistryResolve(async () => {});
+        acknowledgement.release();
+        await within(starting, 'original receipt bound during callback handoff');
+      };
+      // The one-shot external authorization seam releases the original202 before
+      // returning. A pre-admission snapshot validator therefore sees receipt change.
+      // The admission-aware route instead consumes the body before authorization;
+      // body demand releases that same202, so neither ordering waits reentrantly.
+      f.afterRegistryResolve(bindOriginal);
+      const bytes = new TextEncoder().encode(JSON.stringify({ deliveryToken: token }));
+      const body = new ReadableStream<Uint8Array>({ async pull(controller) {
+        try { await bindOriginal(); controller.enqueue(bytes); controller.close(); }
+        catch (error) { controller.error(error); }
+      } }, { highWaterMark: 0 });
+      pending = f.installationCapability.fetch(new Request(normalCallback(f.activityId, 'phase-context', { deliveryToken: token },
+        { 'x-codeflare-dispatcher-delivery': token }), { body }));
+      const response = await within(pending, 'context across authenticated pre-ack handoff');
+      expect(response.status).toBe(200);
+      expect(await response.json()).toMatchObject({ generation: 1, deliveryToken: token,
+        submissionId: receipt.submissionId, phase: { kind: 'discovery' } });
+      expect(f.normalTransport!.admissions.size).toBe(1);
+      expect([...f.normalTransport!.admissions.values()][0].receipt).toEqual(receipt);
+      expect(f.sent).toEqual([]);
+      expect(f.ownerPortRequests).toEqual([]);
+    } finally {
+      acknowledgement.release();
+      await within(starting, 'authorization handoff admission cleanup').catch(() => undefined);
+      if (pending) await within(pending, 'authorization handoff context cleanup').catch(() => undefined);
+    }
+  }, { ...options, intent4: true }));
+
+  it.each(['cancel', 'expiry', 'revocation', 'foreign-deployment', 'rotated-deployment', 'foreign-token', 'mismatched-token'] as const)(
+    'REQ-OPERATOR-003/047/048: direct installed phase context retains %s denial without protected effects', fault => fixture(async f => {
+      await start(f);
+      const token = phaseToken(f);
+      const admissions = [...f.normalTransport!.admissions.values()];
+      if (fault === 'cancel') await f.activity.cancelDrive();
+      else if (fault === 'expiry') f.expire();
+      else if (fault === 'revocation') f.revoke();
+      else if (fault === 'rotated-deployment') f.changeConnection({ workerVersionId: 'replacement-worker' });
+      const headers: Record<string, string> = fault === 'foreign-deployment' ? { 'x-codeflare-operator-worker-version': 'foreign-worker' }
+        : fault === 'rotated-deployment' ? { 'x-codeflare-operator-worker-version': 'replacement-worker' }
+        : fault === 'mismatched-token' ? { 'x-codeflare-dispatcher-delivery': 'foreign-delivery' } : {};
+      const denied = await within(installedContext(f, fault === 'foreign-token' ? 'foreign-delivery' : token, headers), 'installed phase authority denial');
+      expect(denied.status).toBe(403);
+      expect(await denied.json()).toMatchObject({ code: 'OPERATOR_CAPABILITY_DENIED' });
+      expect((await callback(f, 'source', source, { 'x-codeflare-dispatcher-delivery': 'foreign-delivery' })).status).toBe(403);
+      expect(f.sent).toEqual([]);
+      expect(f.ownerPortRequests).toEqual([]);
+      expect([...f.normalTransport!.admissions.values()]).toEqual(admissions);
+      expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
+    }, { ...options, intent4: true }));
+
   it('REQ-OPERATOR-048: AC2 lost admission acknowledgement cold-reconciles the exact original wire and full SDK receipt', () => fixture(async f => {
     f.normalTransport!.loseAcknowledgement();
     await start(f);
@@ -3398,6 +3528,80 @@ describe('protected raw parent execution evidence', () => {
       return new Response(new ReadableStream<Uint8Array>({ start(controller) { controller.error(original); } }));
     } });
   });
+
+  it.each([true, false])('REQ-OPERATOR-090/081: authenticated installed callback failure logging=%s preserves cause and closed refusal evidence across reconstruction', loggingEnabled => fixture(async f => {
+    expect(await start(f)).toMatchObject({ ok: true });
+    const deliveryToken = 'PRIVATE_CALLBACK_DELIVERY_TOKEN';
+    const cause = new TypeError(`PRIVATE_CALLBACK_CAUSE Bearer ${connectionSecret} ${deliveryToken}`);
+    cause.stack = `TypeError: ${cause.message}\n at originalCallbackCause (registry.ts:31:7)`;
+    const original = new Error('PRIVATE_CALLBACK_ORIGINAL', { cause });
+    original.stack = 'Error: PRIVATE_CALLBACK_ORIGINAL\n at originalCallbackAuthority (registry.ts:92:4)';
+    const fingerprint = { ...captureError(original), transportStatus: 403, transportReason: 'execution-inactive',
+      transportDisposition: 'authority-denied' };
+    const records = captureRaw();
+    const admissions = [...f.normalTransport!.admissions.values()];
+    f.afterRegistryResolve(async () => { throw original; });
+    const response = await f.installationCapability.fetch(normalCallback(f.activityId, 'source', {
+      operationId: 'installed-callback-authorization-failure', url: 'https://api.github.com/repos/another/service',
+    }, { 'x-codeflare-dispatcher-delivery': deliveryToken }));
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({ code: 'OPERATOR_CAPABILITY_DENIED', reason: 'execution-inactive', disposition: 'authority-denied' });
+    expect(f.sent).toEqual([]);
+    expect(f.ownerPortRequests).toEqual([]);
+    await f.drainBackground();
+    const failures = records.filter(record => record.message === 'dispatcher-callback-failure');
+    if (loggingEnabled) {
+      expect(failures).not.toEqual([]);
+      const raw = rawText(failures);
+      for (const value of [original.message, 'PRIVATE_CALLBACK_CAUSE', 'originalCallbackAuthority (registry.ts:92:4)', 'originalCallbackCause (registry.ts:31:7)'])
+        expect(raw).toContain(value);
+      expect(raw).not.toContain(connectionSecret);
+      expect(raw).not.toContain(deliveryToken);
+    } else expect(records).toEqual([]);
+
+    const reconstructed = f.restart(); await f.drainBackground();
+    const get = diagnosticsBrowser(f);
+    const history = await diagnosticTraversal(get);
+    const retained = history.records.filter(record => record.boundary === 'delivery' && record.outcome === 'failed' && record.code === 'authority-denied');
+    const exported = await diagnosticTraversal(get, '/diagnostics/v2/export');
+    if (loggingEnabled) {
+      expect(retained).toHaveLength(1);
+      expect(retained[0]).toMatchObject({ generation: 1, owner: 'host', error: fingerprint });
+      const detail = await diagnosticJson<{ record: DiagnosticRecord; capsule: Record<string, unknown> }>(await get(`/diagnostics/v2/records/${retained[0].id}`));
+      expect(detail.record).toEqual(retained[0]);
+      expect(detail.capsule).toMatchObject({ error: fingerprint });
+      expect(exported.records.find(record => record.id === retained[0].id)).toEqual(retained[0]);
+      expect(JSON.stringify({ history, detail, exported })).not.toMatch(/PRIVATE_CALLBACK_|fixture-installation-secret/);
+    } else {
+      expect((await diagnosticSummary(f)).capture).toBe('disabled');
+      expect(retained).toEqual([]);
+      expect(exported.records.filter(record => record.outcome === 'failed')).toEqual([]);
+    }
+    expect(await reconstructed.getBrowserDetail()).toMatchObject({ executionStatus: 'running', result: null });
+    expect(await reconstructed.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
+    expect([...f.normalTransport!.admissions.values()]).toEqual(admissions);
+    expect(f.sent).toEqual([]);
+    expect(f.ownerPortRequests).toEqual([]);
+  }, { ...options, loggingEnabled }));
+
+  it('REQ-OPERATOR-090/081: unavailable callback evidence sinks cannot replace the authenticated refusal or authorize effects', () => fixture(async f => {
+    expect(await start(f)).toMatchObject({ ok: true });
+    const admissions = [...f.normalTransport!.admissions.values()];
+    await denyDiagnosticWrites(f);
+    vi.spyOn(console, 'log').mockImplementation(() => { throw new Error('PRIVATE_CALLBACK_LOG_SINK_UNAVAILABLE'); });
+    f.afterRegistryResolve(async () => { throw new Error('PRIVATE_CALLBACK_AUTHORITY_FAILURE', { cause: new TypeError('PRIVATE_CALLBACK_CAUSE') }); });
+    const response = await within(f.installationCapability.fetch(normalCallback(f.activityId, 'source', {
+      operationId: 'unavailable-callback-evidence', url: 'https://api.github.com/repos/another/service',
+    })), 'refusal despite unavailable optional capture');
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({ code: 'OPERATOR_CAPABILITY_DENIED', reason: 'execution-inactive', disposition: 'authority-denied' });
+    await f.drainBackground();
+    expect(f.sent).toEqual([]);
+    expect(f.ownerPortRequests).toEqual([]);
+    expect([...f.normalTransport!.admissions.values()]).toEqual(admissions);
+    expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'running', result: null });
+    expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
+  }, options));
 
   it.each([true, false])('REQ-OPERATOR-090/081/083: pre-lease original failure logging=%s retains readable ordered history/detail/export without invented submission', loggingEnabled => fixture(async f => {
     const cause = new TypeError('PRIVATE_PRELEASE_CAUSE');
