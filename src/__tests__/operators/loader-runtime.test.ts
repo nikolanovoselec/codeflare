@@ -12,7 +12,6 @@ import type { RegistryFixtureCommand, ActivityFixtureCommand } from './fixtures/
 import type { OperatorActivityPreparation } from '../../operators/activity';
 import type { OperatorAdmissionRequest, OperatorRegistryResult } from '../../operators/registry';
 import type { OwnerRpcCommand, OwnerRpcConfig, OwnerRpcSnapshot } from './fixtures/dispatcher-owner-rpc';
-import { getBucketName } from '../../lib/access';
 
 // Real pinned Wrangler/workerd, executed only in the Node CI suite. No deploy,
 // provider requests, secrets, production config or production fixture exports.
@@ -123,54 +122,39 @@ const rpcContext = { systemPrompt: 'Fixture system', messages: [
 const rpcAdmittedOptions = { temperature: 0.25, maxTokens: 23, reasoning: 'low' };
 const rpcResult = { role: 'assistant', provider: 'configured-provider', model: 'logical/é-model', api: 'configured-api',
   content: [{ type: 'text', text: 'Réponse ✓' }], stopReason: 'stop' };
-function expectOwnerRpcWire(value: OwnerRpcSnapshot, operation: 'discovery' | 'inference') {
+function expectOwnerRpcWire(value: OwnerRpcSnapshot) {
   expect(value.recipient.wire).toMatchObject({
-    url: `http://container/operator-inference${operation === 'discovery' ? '/profile' : ''}`,
+    url: 'http://container/operator-inference',
     method: 'POST', contentType: 'application/json', activityHeader: value.activityId, generationHeader: '7',
     schemaVersion: 1, activityId: value.activityId, generation: 7, sessionGeneration: 3,
   });
 }
 
-describe('REQ-OPERATOR-007/047/048: configured owner profile and inference over native RPC', () => {
-  it.each(['discovery', 'inference'] as const)('REQ-OPERATOR-058/007/047/048: explicit ordinary source preparation reaches configured %s over existing native RPC without a Pi process', operation =>
-    withOwnerRpc({ operation, prepareSource: true }, async id => {
-      const value = await ownerRpcUntil(id, value => value.outcome.status !== 'pending', 'explicit prepared source transport');
+// Historical Host API coverage only: normal Dispatcher profile discovery now uses
+// public SDK control HTTP, not the retired Host profile RPC. No SDK/Flue execution.
+describe('REQ-OPERATOR-047/048: legacy owner inference over native RPC', () => {
+  it('REQ-OPERATOR-058/047/048: independent metadata preparation preserves invocation without a source binding before explicit legacy RPC', () =>
+    withOwnerRpc({ operation: 'inference', prepareMetadata: true }, async id => {
+      const value = await ownerRpcUntil(id, value => value.outcome.status !== 'pending', 'metadata and legacy inference transport');
       expect(value.preparation).toEqual({ activityId: value.activityId, deadline: value.deadline,
-        invocationJson: '{"repository":"example/fixture"}', ownerSource: {
-          bucket: getBucketName('owner@example.test'), sessionId: expect.stringMatching(/^[a-f0-9]{24}$/), sessionGeneration: 3,
-        } });
-      expectOwnerRpcWire(value, operation);
-      if (operation === 'discovery') expect(value.outcome).toEqual({ status: 'accepted', profile: rpcLogicalProfile });
-      else {
-        expect(value.outcome).toMatchObject({ status: 'accepted', response: {
-          events: [{ type: 'done', reason: 'stop', message: rpcResult }], result: rpcResult,
-        } });
-        expect(value.recipient.wire).toMatchObject({ context: rpcContext, options: rpcAdmittedOptions,
-          profileDigest: rpcLogicalProfile.profileDigest });
-      }
-    }));
-
-  it.each([
-    { operation: 'discovery', loggingEnabled: true }, { operation: 'discovery', loggingEnabled: false },
-    { operation: 'inference', loggingEnabled: true }, { operation: 'inference', loggingEnabled: false },
-  ] as const)('REQ-OPERATOR-003/007/047/091: $operation delivers original logging=$loggingEnabled as a distinct native RPC argument without changing result authority', ({ operation, loggingEnabled }) =>
-    withOwnerRpc({ operation, loggingEnabled }, async id => {
-      const value = await ownerRpcUntil(id, value => value.outcome.status !== 'pending', 'trusted logging context native RPC');
-      if (operation === 'discovery') expect(value.outcome).toEqual({ status: 'accepted', profile: rpcLogicalProfile });
-      else expect(value.outcome).toMatchObject({ status: 'accepted', response: {
+        invocationJson: '{"repository":"example/fixture"}' });
+      expectOwnerRpcWire(value);
+      expect(value.outcome).toMatchObject({ status: 'accepted', response: {
         events: [{ type: 'done', reason: 'stop', message: rpcResult }], result: rpcResult,
       } });
-      expectOwnerRpcWire(value, operation);
-      expect(value.recipient.loggingContext).toEqual({ activityId: value.activityId, generation: 7, loggingEnabled });
-    }));
-  // REQ-007 AC4/5: a saved logical custom identity, not a physical/vendor substitute.
-  it('delivers the configured custom logical profile across real owner RPC with original Activity/generation/session wire', () =>
-    withOwnerRpc({ operation: 'discovery' }, async id => {
-      const value = await ownerRpcUntil(id, value => value.outcome.status !== 'pending', 'configured profile');
-      expect(value.outcome).toEqual({ status: 'accepted', profile: rpcLogicalProfile });
-      expectOwnerRpcWire(value, 'discovery');
+      expect(value.recipient.wire).toMatchObject({ context: rpcContext, options: rpcAdmittedOptions,
+        profileDigest: rpcLogicalProfile.profileDigest });
     }));
 
+  it.each([true, false])('REQ-OPERATOR-003/047/091: legacy inference delivers original logging=%s as a distinct native RPC argument without changing result authority', loggingEnabled =>
+    withOwnerRpc({ operation: 'inference', loggingEnabled }, async id => {
+      const value = await ownerRpcUntil(id, value => value.outcome.status !== 'pending', 'trusted logging context native RPC');
+      expect(value.outcome).toMatchObject({ status: 'accepted', response: {
+        events: [{ type: 'done', reason: 'stop', message: rpcResult }], result: rpcResult,
+      } });
+      expectOwnerRpcWire(value);
+      expect(value.recipient.loggingContext).toEqual({ activityId: value.activityId, generation: 7, loggingEnabled });
+    }));
   // REQ-007 AC5; REQ-048 AC6: public forwarding, admitted reasoning, exact result.
   it('forwards configured context/options with admitted Low instead of caller High and delivers the real RPC result', () =>
     withOwnerRpc({ operation: 'inference' }, async id => {
@@ -178,22 +162,16 @@ describe('REQ-OPERATOR-007/047/048: configured owner profile and inference over 
       expect(value.outcome).toMatchObject({ status: 'accepted', response: {
         events: [{ type: 'done', reason: 'stop', message: rpcResult }], result: rpcResult,
       } });
-      expectOwnerRpcWire(value, 'inference');
+      expectOwnerRpcWire(value);
       expect(value.recipient.wire).toMatchObject({ operationId: 'fixture-inference', context: rpcContext,
         options: rpcAdmittedOptions, profileDigest: rpcLogicalProfile.profileDigest,
         requestDigest: createHash('sha256').update(JSON.stringify({ context: rpcContext, options: rpcAdmittedOptions })).digest('hex') });
     }));
 
   it.each([
-    { source: 'managed-default', reasoningLevel: null, options: { temperature: 0.25, maxTokens: 23 } },
-    { source: 'managed-off', reasoningLevel: 'off', options: { temperature: 0.25, maxTokens: 23, reasoning: 'off' } },
-  ] as const)('preserves $source profile and forwarded reasoning without substituting Off for provider-default', async ({ source, reasoningLevel, options }) => {
-    await withOwnerRpc({ operation: 'discovery', source }, async id => {
-      const value = await ownerRpcUntil(id, value => value.outcome.status !== 'pending', 'managed profile');
-      expect(value.outcome).toEqual({ status: 'accepted', profile: { source: 'managed', routeId: 'approved',
-        provider: 'codeflare-gateway', model: 'approved', api: 'openai-completions', reasoningLevel, profileDigest: 'e'.repeat(64) } });
-      expectOwnerRpcWire(value, 'discovery');
-    });
+    { source: 'managed-default', options: { temperature: 0.25, maxTokens: 23 } },
+    { source: 'managed-off', options: { temperature: 0.25, maxTokens: 23, reasoning: 'off' } },
+  ] as const)('preserves $source legacy inference reasoning without substituting Off for provider-default', async ({ source, options }) => {
     await withOwnerRpc({ operation: 'inference', source }, async id => {
       const value = await ownerRpcUntil(id, value => value.outcome.status !== 'pending', 'managed inference');
       expect(value.outcome).toMatchObject({ status: 'accepted', response: { result: { provider: 'codeflare-gateway', model: 'approved' } } });
@@ -203,8 +181,8 @@ describe('REQ-OPERATOR-007/047/048: configured owner profile and inference over 
     });
   });
 
-  describe.each(['discovery', 'inference'] as const)('%s cancellation, authority and finite body contracts', operation => {
-    // REQ-047 AC2/3 and cancellable profile read; REQ-048 AC5/6.
+  describe.each(['inference'] as const)('%s cancellation, authority and finite body contracts', operation => {
+    // Legacy inference: REQ-047 AC2/3; REQ-048 AC5/6.
     // Abort/deadline is local: headers MUST refuse while the remote call is held.
     // Deleting Request.signal alone cannot satisfy these header-wait cases.
     it.each([
@@ -246,7 +224,7 @@ describe('REQ-OPERATOR-007/047/048: configured owner profile and inference over 
       }));
 
     describe.each(['headers', 'body'] as const)('post-%s authority recheck', barrier => {
-      it.each(['generation', 'installation', 'grant', 'session'] as const)('refuses changed %s after a valid remote response without accepting its profile/result', fault =>
+      it.each(['generation', 'installation', 'grant', 'session'] as const)('refuses changed %s after a valid remote response without accepting its result', fault =>
         withOwnerRpc({ operation, barrier }, async id => {
           await ownerRpcBarrier(id, barrier);
           await ownerRpc(id, { action: 'change', fault });
@@ -263,14 +241,12 @@ describe('REQ-OPERATOR-007/047/048: configured owner profile and inference over 
     it('accepts a complete valid response at the exact 1024-byte UTF-8 limit', () =>
       withOwnerRpc({ operation, size: 'exact' }, async id => {
         const value = await ownerRpcUntil(id, value => value.outcome.status !== 'pending', 'exact byte boundary');
-        expect(value.outcome).toMatchObject(operation === 'discovery'
-          ? { status: 'accepted', profile: rpcLogicalProfile }
-          : { status: 'accepted', response: { result: rpcResult }, responseBytes: 1024 });
+        expect(value.outcome).toMatchObject({ status: 'accepted', response: { result: rpcResult }, responseBytes: 1024 });
         expect(value.recipient.responseBytes).toBe(1024);
-        expectOwnerRpcWire(value, operation);
+        expectOwnerRpcWire(value);
       }));
 
-    it.each(['actual-over', 'declared-over'] as const)('refuses %s response overflow without accepting a profile/result', size =>
+    it.each(['actual-over', 'declared-over'] as const)('refuses %s response overflow without accepting a result', size =>
       withOwnerRpc({ operation, size, barrier: size === 'declared-over' ? 'body' : 'none' }, async id => {
         if (size === 'declared-over') {
           // Deliberately withhold all actual bytes: the declared bound alone must refuse.

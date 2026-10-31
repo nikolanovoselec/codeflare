@@ -276,7 +276,7 @@ describe('REQ-OPERATOR-061: configured Renovate run settings', () => {
 });
 
 
-describe('REQ-OPERATOR-058: source authority before managed inference preparation', () => {
+describe('REQ-OPERATOR-058: session-independent managed Dispatcher preparation', () => {
   function managed(operatorCapabilities = ['fetch', 'inference'], installationCapabilities = ['fetch', 'inference']) {
     const prepared: Array<{ activityId: string; invocation: unknown }> = [];
     const selection = { controlsRevision: 1,
@@ -292,22 +292,31 @@ describe('REQ-OPERATOR-058: source authority before managed inference preparatio
         prepared.push({ activityId: intent.activityId, invocation: JSON.parse(invocation) }); return { ok: true };
       } }) },
     } as unknown as Env;
-    return { host, prepared };
+    return { host, prepared, selection };
   }
 
-  it.each([{}, { sourceSession: undefined }])('REQ-OPERATOR-058: AC1 missing ordinary source %j refuses before preparing a managed inference Activity', async source => {
+  it.each([{}, { sourceSession: undefined }])('REQ-OPERATOR-058: AC1 absent source %j permits independent managed inference preparation', async source => {
     const f = managed();
-    await expect(prepareOperatorActivity({ installationId: 'source-install', invocation: { repository: 'owner/repo', pullRequest: 17 }, ...source },
-      { human: claims, accessJwt: 'private.jwt' }, f.host)).rejects.toMatchObject({ statusCode: 400 });
-    expect(f.prepared).toEqual([]);
+    const result = await prepareOperatorActivity({ installationId: 'source-install', invocation: { repository: 'owner/repo', pullRequest: 17 }, ...source },
+      { human: claims, accessJwt: 'private.jwt' }, f.host);
+    expect(f.prepared).toEqual([{ activityId: result.activityId, invocation: { repository: 'owner/repo', pullRequest: 17 } }]);
+    expect(result.startCapability).toMatch(/^[A-Za-z0-9_-]{43}$/);
   });
 
-  it('REQ-OPERATOR-058: AC1 child input cannot substitute an ordinary parent source proof', async () => {
+  it('REQ-OPERATOR-058: AC1 child sourceSession stays inert invocation data rather than Root authority', async () => {
     const f = managed();
-    await expect(prepareOperatorActivity({ installationId: 'source-install', invocation: {
-      repository: 'owner/repo', pullRequest: 17, sourceSession: { sessionId: 'ownersession1', sessionGeneration: 3 },
-    } }, { human: claims, accessJwt: 'private.jwt' }, f.host)).rejects.toMatchObject({ statusCode: 400 });
-    expect(f.prepared).toEqual([]);
+    const invocation = { repository: 'owner/repo', pullRequest: 17,
+      sourceSession: { sessionId: 'ownersession1', sessionGeneration: 3 } };
+    const result = await prepareOperatorActivity({ installationId: 'source-install', invocation },
+      { human: claims, accessJwt: 'private.jwt' }, f.host);
+    expect(f.prepared).toEqual([{ activityId: result.activityId, invocation }]);
+    expect(result.startCapability).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    const original = structuredClone(f.prepared);
+    f.selection.operator.invokers.users = [];
+    await expect(prepareOperatorActivity({ installationId: 'source-install', invocation,
+      sourceSession: invocation.sourceSession }, { human: claims, accessJwt: 'private.jwt' }, f.host))
+      .rejects.toMatchObject({ statusCode: 404 });
+    expect(f.prepared).toEqual(original);
   });
 
   it.each([

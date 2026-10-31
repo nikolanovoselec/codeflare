@@ -6,6 +6,7 @@
  * See sdd/spec/operators.md and documentation/lanes/operators.md for acceptance boundaries.
  */
 import { WorkerEntrypoint } from 'cloudflare:workers';
+import { readBoundedResponse } from '../lib/bounded-stream';
 import { readDispatcherSdkConfiguration, dispatcherSdkCredentials, forwardDispatcherSdkHttp } from './dispatcher-sdk-services';
 import { dispatcherSdkOwnerContext } from './dispatcher-owner-inference';
 import { openOperatorSecret } from './protected-secrets';
@@ -226,7 +227,7 @@ interface DispatcherOperationRecord {
   inference?: DispatcherInferenceChain;
   native?: DispatcherNativeOperation;
   sdkHttp?: { permitId: string; expiresAt: number; selection: ConfiguredDispatcherInference;
-    phase: 'ready' | 'sending' | 'completed' | 'unknown'; requestDigest?: string; attempts: number };
+    phase: 'ready' | 'sending' | 'completed' | 'unknown'; requestDigest?: string; responseKey?: string; attempts: number };
 }
 const DISPATCHER_PROFILE_LEASE = 'dispatcher:profile-lease';
 const DISPATCHER_LEASE = 'dispatcher:lease';
@@ -2396,131 +2397,80 @@ export class OperatorActivity extends Agent {
         AbortSignal.timeout(Math.max(1, Math.min(plan.deadline, lease.expiresAt) - Date.now()))]);
       this.#sdkHttpControllers.add(controller);
       let reserved = false;
-      let streaming = false;
+      type SdkResponse = { status: number; headers: Record<string, string>; bytes: Uint8Array };
+      const responseKey = `dispatcher:response:${generation}:${parsed.operationId}`;
+      const reply = (value: SdkResponse) => new Response([204, 205, 304].includes(value.status) ? null : value.bytes.slice(),
+        { status: value.status, headers: value.headers });
       try {
         if (signal.aborted || !await current()) return dispatcherRefusal('execution-inactive');
-        reserved = await this.ctx.storage.transaction(async tx => {
+        const claim = await this.ctx.storage.transaction(async tx => {
           const live = await tx.get<DispatcherLease>(DISPATCHER_LEASE);
           if (!this.#leaseMatches(await tx.get<AdmissionState>('admission'), live, generation)
-            || !this.#phaseTokenMatches(live, undefined, true, true)) return false;
+            || !this.#phaseTokenMatches(live, undefined, true, true)) return 'denied' as const;
           const journal = await loadDispatcherJournal(tx, generation);
           const record = await tx.get<DispatcherOperationRecord>(dispatcherEntryKey(journal, parsed.operationId));
           const permit = record?.sdkHttp;
           if (!record || !permit || permit.permitId !== parsed.permitId || permit.expiresAt <= Date.now()
-            || permit.phase !== 'ready' || permit.attempts !== 0 || record.phase !== 'reserved'
-            || !sameDispatcherPhaseValue(permit.selection, selection)) return false;
-          // Charge the initial paid attempt durably BEFORE I/O. Reconstruction and
-          // uncertainty never reset this permit or buy a second physical request.
+            || !sameDispatcherPhaseValue(permit.selection, selection)) return 'denied' as const;
+          if (permit.phase === 'completed' && record.phase === 'completed' && permit.requestDigest === requestDigest
+            && permit.responseKey === responseKey) return 'replay' as const;
+          if (permit.phase !== 'ready' || permit.attempts !== 0 || record.phase !== 'reserved') return 'denied' as const;
+          // Reserve the single paid send before I/O; only a complete durable receipt can replay.
           await tx.put(dispatcherEntryKey(journal, parsed.operationId), { ...record,
             sdkHttp: { ...permit, phase: 'sending', attempts: 1, requestDigest } });
-          return true;
+          return 'send' as const;
         });
-        if (!reserved) return conflict();
-        await dispatcherSdkOwnerContext({ ...input, signal }, selection);
-        if (signal.aborted || !await current()) throw new Error('SDK HTTP fenced');
-        const response = await forwardDispatcherSdkHttp({ ...input, signal, selection, request: parsed.request });
-        const limit = inferenceRequestBytes(policy);
+        if (claim === 'denied') return conflict();
         const checkScope = async () => {
           if (signal.aborted || Date.now() >= Math.min(plan.deadline, lease.expiresAt)) throw new Error('SDK HTTP aborted');
           await dispatcherSdkOwnerContext({ ...input, signal }, selection);
-          if (signal.aborted || !await current() || signal.aborted
-            || Date.now() >= Math.min(plan.deadline, lease.expiresAt)) throw new Error('SDK HTTP result fenced');
+          if (signal.aborted || !await current()) throw new Error('SDK HTTP result fenced');
         };
-        const complete = async () => {
+        if (claim === 'replay') {
+          const cached = await this.ctx.storage.get<SdkResponse>(responseKey);
+          if (!cached || cached.bytes.byteLength > inferenceRequestBytes(policy)) return conflict();
           await checkScope();
-          await this.ctx.storage.transaction(async tx => {
-            const live = await tx.get<DispatcherLease>(DISPATCHER_LEASE);
-            if (!this.#leaseMatches(await tx.get<AdmissionState>('admission'), live, generation)
-              || !this.#phaseTokenMatches(live, undefined, true, true)) throw new Error('SDK HTTP result stale');
-            const journal = await loadDispatcherJournal(tx, generation);
-            const record = await tx.get<DispatcherOperationRecord>(dispatcherEntryKey(journal, parsed.operationId));
-            if (signal.aborted || record?.sdkHttp?.phase !== 'sending'
-              || record.sdkHttp.requestDigest !== requestDigest) throw new Error('SDK HTTP permit changed');
-            await putDispatcherEntry(tx, journal, parsed.operationId, record,
-              { ...record, phase: 'completed', sdkHttp: { ...record.sdkHttp, phase: 'completed' } });
-            if (signal.aborted || Date.now() >= Math.min(plan.deadline, lease.expiresAt)) throw new Error('SDK HTTP result fenced');
-          });
-        };
-        const declaredLength = Number(response.headers.get('content-length'));
-        if (Number.isFinite(declaredLength) && declaredLength > limit) {
-          void response.body?.cancel('SDK HTTP response too large').catch(() => undefined);
-          throw new Error('SDK HTTP response too large');
+          return reply(cached);
         }
+        reserved = true;
         await checkScope();
-        if (!response.body) {
-          await complete();
-          return new Response(null, { status: response.status, statusText: response.statusText, headers: response.headers });
+        const response = await forwardDispatcherSdkHttp({ ...input, signal, selection, request: parsed.request });
+        const bytes = await readBoundedResponse(response, inferenceRequestBytes(policy), 'SDK HTTP response', signal);
+        await checkScope();
+        const secrets = selection.source === 'managed' ? [] : parsed.request.headers
+          .filter(([name]) => /authorization|api[-_]?key|token|secret|cookie/i.test(name))
+          .flatMap(([, value]) => [value, value.replace(/^Bearer\s+/i, '')]).filter(Boolean);
+        const url = new URL(parsed.request.url);
+        if (selection.source !== 'managed') for (const [name, value] of url.searchParams) {
+          if (/key|token|secret|signature/i.test(name) && value) secrets.push(value);
         }
-        const reader = response.body.getReader();
-        let total = 0;
-        let ended = false;
-        let failure: Promise<void> | undefined;
-        let abort: () => void;
-        const cleanup = () => {
-          signal.removeEventListener('abort', abort);
-          this.#sdkHttpControllers.delete(controller);
-          controller.abort();
-        };
-        const fail = (reason: unknown): Promise<void> => {
-          if (failure) return failure;
-          if (ended) return Promise.resolve();
-          ended = true;
-          cleanup();
-          // Cancellation must interrupt a pending vendor read, not wait for it.
-          void reader.cancel(reason).catch(() => undefined).finally(() => reader.releaseLock());
-          failure = this.ctx.storage.transaction(async tx => {
-            const journal = await loadDispatcherJournal(tx, generation);
-            const record = await tx.get<DispatcherOperationRecord>(dispatcherEntryKey(journal, parsed.operationId));
-            if (record?.sdkHttp?.phase === 'sending' && record.sdkHttp.requestDigest === requestDigest) {
-              await putDispatcherEntry(tx, journal, parsed.operationId, record,
-                { ...record, phase: 'unknown', sdkHttp: { ...record.sdkHttp, phase: 'unknown' } });
-            }
-          });
-          return failure;
-        };
-        const body = new ReadableStream<Uint8Array>({
-          start: stream => {
-            abort = () => {
-              if (ended) return;
-              const error = new Error('SDK HTTP aborted');
-              stream.error(error);
-              void fail(error).catch(() => undefined);
-            };
-            signal.addEventListener('abort', abort, { once: true });
-            if (signal.aborted) abort();
-          },
-          pull: async stream => {
-            try {
-              await checkScope();
-              if (ended) return;
-              const { done, value } = await reader.read();
-              await checkScope();
-              if (ended) return;
-              if (done) {
-                await complete();
-                if (ended) return;
-                ended = true;
-                cleanup();
-                reader.releaseLock();
-                stream.close();
-                return;
-              }
-              total += value.byteLength;
-              if (total > limit) throw new Error('SDK HTTP response too large');
-              stream.enqueue(value);
-            } catch (error) {
-              if (!ended) stream.error(error);
-              await fail(error);
-            }
-          },
-          cancel: reason => fail(reason),
-        }, { highWaterMark: 0 });
-        // The SDK receives original HTTP headers immediately and unchanged byte
-        // chunks on demand; only guarded EOF completes the durable paid permit.
-        const forwarded = new Response(body,
-          { status: response.status, statusText: response.statusText, headers: response.headers });
-        streaming = true;
-        return forwarded;
+        // Reject credential echoes rather than persist them or change exact vendor bytes.
+        const text = new TextDecoder().decode(bytes);
+        if (secrets.some(secret => text.includes(secret))) throw new Error('SDK HTTP credential echo denied');
+        const headers: Record<string, string> = {};
+        response.headers.forEach((value, name) => {
+          if (!/^(?:connection|keep-alive|transfer-encoding|upgrade|proxy-.*|authorization|authentication-info|set-cookie|cookie|cf-access-.*|cf-aig-.*)$/i.test(name)
+            && !/api[-_]?key|token|secret/i.test(name) && !secrets.some(secret => value.includes(secret))) headers[name] = value;
+        });
+        const receipt: SdkResponse = { status: response.status, headers, bytes };
+        const responseDigest = await nativeDigest(bytes);
+        await this.ctx.storage.transaction(async tx => {
+          const live = await tx.get<DispatcherLease>(DISPATCHER_LEASE);
+          if (signal.aborted || !this.#leaseMatches(await tx.get<AdmissionState>('admission'), live, generation)
+            || !this.#phaseTokenMatches(live, undefined, true, true)) throw new Error('SDK HTTP result stale');
+          const journal = await loadDispatcherJournal(tx, generation);
+          const record = await tx.get<DispatcherOperationRecord>(dispatcherEntryKey(journal, parsed.operationId));
+          if (record?.sdkHttp?.phase !== 'sending' || record.sdkHttp.requestDigest !== requestDigest) throw new Error('SDK HTTP permit changed');
+          await tx.put(responseKey, receipt);
+          if (signal.aborted || Date.now() >= Math.min(plan.deadline, lease.expiresAt)) throw new Error('SDK HTTP result fenced');
+          await putDispatcherEntry(tx, journal, parsed.operationId, record,
+            { ...record, phase: 'completed', responseDigest,
+              sdkHttp: { ...record.sdkHttp, phase: 'completed', responseKey } });
+          if (signal.aborted || Date.now() >= Math.min(plan.deadline, lease.expiresAt)) throw new Error('SDK HTTP result fenced');
+        });
+        await checkScope();
+        // SDK-owned SSE parsing is unchanged; complete bytes are durable before delivery.
+        return reply(receipt);
       } catch (error) {
         if (reserved) await this.ctx.storage.transaction(async tx => {
           const journal = await loadDispatcherJournal(tx, generation);
@@ -2530,7 +2480,7 @@ export class OperatorActivity extends Agent {
         });
         throw error;
       } finally {
-        if (!streaming) { this.#sdkHttpControllers.delete(controller); controller.abort(); }
+        this.#sdkHttpControllers.delete(controller); controller.abort();
       }
     } catch (error) {
       if (error instanceof DispatcherRefusal) return dispatcherRefusal(error.reason, error.reason === 'operation-conflict' ? 409 : 403);

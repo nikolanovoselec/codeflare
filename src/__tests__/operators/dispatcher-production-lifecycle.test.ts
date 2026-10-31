@@ -3325,18 +3325,28 @@ describe('protected raw parent execution evidence', () => {
     expect(f.normalTransport!.networkRequests.filter(request => new URL(request.url).hostname === 'api.cloudflare.com')).toEqual([]);
   }, { ...options, loggingEnabled, sourceResponseBytes: 65536, installationSourceResponseBytes: 65536 }));
 
-  it.each(['profile', 'inference'] as const)('REQ-OPERATOR-003/007/047: trusted %s forwarding passes admitted logging as a separate exact RPC context', operation => fixture(async f => {
+  it.each(['profile', 'inference'] as const)('REQ-OPERATOR-003/007/047: trusted %s uses public profile HTTP or legacy inference RPC with parent-owned correlation', operation => fixture(async f => {
     expect(await start(f)).toMatchObject({ ok: true });
     const input = await inputFor(f);
-    if (operation === 'profile') expect(await discoverDispatcherOwnerProfile(input)).toMatchObject({ source: 'managed', model: 'approved' });
-    else {
+    if (operation === 'profile') {
+      expect(await discoverDispatcherOwnerProfile(input)).toMatchObject({ source: 'managed', model: 'approved' });
+      expect(f.normalTransport!.requests).toEqual(expect.arrayContaining([expect.objectContaining({
+        path: '/control/profile', authorization: `Bearer ${connectionSecret}`, body: {
+          id: `${f.activityId}-g1`, installationId: 'installation',
+          activityId: f.activityId, generation: 1, releaseId: 'release',
+          connectionRevision: 1, workerVersionId: normalDeployment.workerVersionId,
+        },
+      })]));
+      expect(f.ownerPortRequests.filter(request => new URL(request.url).pathname === '/operator-inference/profile')).toEqual([]);
+      return;
+    } else {
       const selected = await discoverDispatcherOwnerProfile(input);
       const response = await forwardDispatcherOwnerInference({ ...input, selection: selected, operation: { operationId: 'trusted-rpc-context',
         context: { messages: [{ role: 'user', content: 'ORIGINAL_RPC_PAYLOAD' }] }, options: {}, requestDigest: 'a'.repeat(64) } });
       expect(response.status).toBe(200);
       expect(await response.json()).toMatchObject({ result: { role: 'assistant', model: 'approved' } });
     }
-    const sent = f.ownerPortRequests.filter(request => new URL(request.url).pathname === `/operator-inference${operation === 'profile' ? '/profile' : ''}`);
+    const sent = f.ownerPortRequests.filter(request => new URL(request.url).pathname === '/operator-inference');
     expect(sent.length).toBeGreaterThan(0);
     for (const request of sent) {
       expect(request.loggingContext).toEqual({ activityId: f.activityId, generation: 1, loggingEnabled: true });

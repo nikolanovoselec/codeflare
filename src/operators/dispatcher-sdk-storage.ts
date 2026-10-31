@@ -57,7 +57,7 @@ async function bounded(response: Response, signal: AbortSignal): Promise<Uint8Ar
   return result;
 }
 function text(bytes: Uint8Array): string {
-  try { return new TextDecoder('utf-8', { fatal: true }).decode(bytes); } catch { return deny(); }
+  try { return new TextDecoder('utf-8', { fatal: true, ignoreBOM: false }).decode(bytes); } catch { return deny(); }
 }
 function json(bytes: Uint8Array): JsonObject {
   try { const value: unknown = JSON.parse(text(bytes)); if (object(value)) return value; } catch { /* private failure */ }
@@ -70,9 +70,11 @@ async function privateOperation<T>(operation: () => Promise<T>): Promise<T> {
     throw new DispatcherSdkStorageError(403, 'Private SDK storage unavailable', { cause: error });
   }
 }
+// Retained only inside private owner metadata; never returned in capability DTOs.
+type EncryptionFence = { state: string; keyIdentity: string | null };
 /** Snapshot the actual bucket regime and key; no setup discovery or repair. */
 async function transport(env: Env, scope: SdkStorageScope, authorize: () => Promise<void>, until: number,
-  externalSignal?: AbortSignal) {
+  externalSignal?: AbortSignal, expectedFence?: EncryptionFence) {
   const signal = AbortSignal.any([...(externalSignal ? [externalSignal] : []),
     AbortSignal.timeout(Math.max(1, Math.min(30_000, until - Date.now())))]);
   const live = async () => {
@@ -86,6 +88,8 @@ async function transport(env: Env, scope: SdkStorageScope, authorize: () => Prom
   if (state.status !== 'ready' || !['plain', 'sse-c'].includes(state.regime)) deny(409);
   if (state.regime === 'sse-c' && (!key || state.keyMd5 && computeKeyMd5(key) !== state.keyMd5)) deny();
   const snapshot = JSON.stringify(state);
+  const fence: EncryptionFence = { state: snapshot, keyIdentity: key ? await digest(key) : null };
+  if (expectedFence && (expectedFence.state !== fence.state || expectedFence.keyIdentity !== fence.keyIdentity)) deny(409);
   const headers = getSseHeaders({ ENCRYPTION_KEY: key }, state.regime === 'plain');
   const guard = async () => {
     await live();
@@ -126,7 +130,7 @@ async function transport(env: Env, scope: SdkStorageScope, authorize: () => Prom
     await guard();
     return { bytes, etag: response.headers.get('etag') };
   };
-  return { endpoint, signal, guard, request, read };
+  return { endpoint, signal, guard, request, read, fence };
 }
 
 export async function readDispatcherSdkFiles(input: SdkStorageScope & {
@@ -188,7 +192,7 @@ export async function readDispatcherSdkFiles(input: SdkStorageScope & {
 }
 
 type Lease = { leaseId: string; scope: SdkStorageScope; providerId: string; expiresAt: number;
-  digest?: string; committing?: boolean };
+  digest?: string; fence?: EncryptionFence; committing?: boolean };
 function sameScope(a: SdkStorageScope, b: SdkStorageScope): boolean {
   return a.bucket === b.bucket && a.email === b.email && a.activityId === b.activityId
     && a.generation === b.generation && a.deadline === b.deadline;
@@ -198,7 +202,15 @@ async function digest(value: unknown): Promise<string> {
   return Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', bytes)), b => b.toString(16).padStart(2, '0')).join('');
 }
 function credential(value: unknown): value is JsonObject & { type: string } {
-  if (!object(value) || typeof value.type !== 'string' || !value.type) return false;
+  if (!object(value)) return false;
+  // Public pi-ai Credential union; provider IDs and opaque metadata are not interpreted.
+  if (value.type === 'api_key') {
+    if (value.key !== undefined && typeof value.key !== 'string') return false;
+    if (value.env !== undefined && (!object(value.env) || !Object.values(value.env).every(item => typeof item === 'string'))) return false;
+  } else if (value.type === 'oauth') {
+    if (typeof value.refresh !== 'string' || typeof value.access !== 'string'
+      || typeof value.expires !== 'number' || !Number.isFinite(value.expires)) return false;
+  } else return false;
   try { return new TextEncoder().encode(JSON.stringify(value)).byteLength <= LIMIT; } catch { return false; }
 }
 function authFile(bytes: Uint8Array | null): JsonObject {
@@ -245,7 +257,8 @@ export async function handleDispatcherSdkCredentials(storage: DurableObjectStora
           const saved = await storage.get<Lease>(LEASE_KEY);
           if (!saved || saved.leaseId !== lease.leaseId || Date.now() >= lease.expiresAt) deny(409);
         };
-        const io = await transport(env, scope, authorize, lease.expiresAt);
+        if (!lease.fence) deny(409);
+        const io = await transport(env, scope, authorize, lease.expiresAt, undefined, lease.fence);
         const saved = await io.read(AUTH);
         const auth = authFile(saved.bytes);
         if (await digest(Object.hasOwn(auth, lease.providerId) ? auth[lease.providerId] : null) !== lease.digest) deny(409);
@@ -290,7 +303,7 @@ export async function handleDispatcherSdkCredentials(storage: DurableObjectStora
       await storage.transaction(async txn => {
         const savedLease = await txn.get<Lease>(LEASE_KEY);
         if (!savedLease || savedLease.leaseId !== acquired.leaseId || savedLease.expiresAt <= Date.now()) deny(409);
-        await txn.put(LEASE_KEY, { ...savedLease, digest: selectedDigest });
+        await txn.put(LEASE_KEY, { ...savedLease, digest: selectedDigest, fence: io.fence });
       });
       await io.guard();
       return { leaseId: lease.leaseId, credential: selected, expiresAt: lease.expiresAt };

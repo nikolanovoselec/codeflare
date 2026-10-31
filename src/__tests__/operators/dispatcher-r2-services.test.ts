@@ -1,16 +1,18 @@
 /// <reference types="@cloudflare/vitest-plugin/types" />
 import { describe, expect, it, vi } from 'vitest';
-import { env } from 'cloudflare:test';
+import { env, runInDurableObject } from 'cloudflare:test';
 import { inspect } from 'node:util';
 import type { Env } from '../../types';
-import * as access from '../../lib/access';
-import * as r2 from '../../lib/r2-client';
-import * as regime from '../../lib/r2-regime-state';
-import { discoverDispatcherOwnerProfile } from '../../operators/dispatcher-owner-inference';
-import { setLogLevel } from '../../lib/logger';
+// Register the fixture's existing Access boundary before any production importer.
 import {
   type DispatcherFixture, diagnosticTraversal, diagnosticsBrowser, digest, fixture, start,
 } from './fixtures/dispatcher-production';
+import * as access from '../../lib/access';
+import * as r2 from '../../lib/r2-client';
+import * as regime from '../../lib/r2-regime-state';
+import { SETUP_KEYS } from '../../lib/kv-keys';
+import { discoverDispatcherOwnerProfile } from '../../operators/dispatcher-owner-inference';
+import { setLogLevel } from '../../lib/logger';
 import { connectionSecret, normalCallback } from './fixtures/normal-dispatcher';
 
 // Metadata-only Root: replace the external container lifecycle base, not Root's
@@ -152,7 +154,7 @@ function storageBoundary() {
   };
 }
 type Store = ReturnType<typeof storageBoundary>;
-async function lane(run: (f: DispatcherFixture, store: Store) => Promise<void>, native = true, sharedStore?: Store,
+async function lane(run: (f: DispatcherFixture, store: Store, metadataEnvironment: Env) => Promise<void>, native = true, sharedStore?: Store,
   realInterceptors = false, limits: { operationLimit?: number; inferenceAttemptLimit?: number } = {}) {
   return fixture(async f => {
     const store = sharedStore ?? storageBoundary();
@@ -207,8 +209,21 @@ async function lane(run: (f: DispatcherFixture, store: Store) => Promise<void>, 
       return Response.json({ selection: { ...identity, ...(!native ? { routeId: 'approved' } : {}),
         profileDigest: await digest(JSON.stringify(identity)) } });
     });
-    try { await run(f, store); }
-    finally { cleanups.reverse().forEach(cleanup => cleanup()); }
+    // Public test API, real Root metadata instance: credential storage executes
+    // with this environment, not the Activity fixture's separate configuration.
+    let metadataEnvironment!: Env;
+    await runInDurableObject(metadataNamespace.get(metadataId), instance => {
+      metadataEnvironment = (instance as unknown as { env: Env }).env;
+    });
+    const hadKey = Object.hasOwn(metadataEnvironment, 'ENCRYPTION_KEY');
+    const originalKey = metadataEnvironment.ENCRYPTION_KEY;
+    metadataEnvironment.ENCRYPTION_KEY = f.environment.ENCRYPTION_KEY;
+    try { await run(f, store, metadataEnvironment); }
+    finally {
+      if (hadKey) metadataEnvironment.ENCRYPTION_KEY = originalKey;
+      else delete metadataEnvironment.ENCRYPTION_KEY;
+      cleanups.reverse().forEach(cleanup => cleanup());
+    }
   }, { normalHosting: true, repositoryOnly: true, recovery: true, nativeInference: native, realInterceptors, ...limits });
 }
 async function admitted(f: DispatcherFixture) {
@@ -337,12 +352,12 @@ describe('REQ-OPERATOR-007/047/048/058: owner R2 configured-service HTTP contrac
     await denied(await credentials(f, { operation: 'read', providerId, credentials: rotated }), [400, 403]);
   }));
 
-  it.each(['missing-key', 'migration', 'regime-change', 'key-change'] as const)('SSE %s fails closed around owner reads', failure => lane(async (f, store) => {
+  it.each(['missing-key', 'migration', 'regime-change', 'key-change'] as const)('SSE %s fails closed around owner reads', failure => lane(async (f, store, metadataEnvironment) => {
     await admitted(f);
     vi.spyOn(regime, 'isR2SseDisabledForBucket').mockResolvedValue(false);
     store.requireSse();
     vi.spyOn(regime, 'getRegimeState').mockResolvedValue({ status: 'ready', regime: 'sse-c', generation: 1 });
-    if (failure === 'missing-key') delete (f.environment as unknown as Record<string, unknown>).ENCRYPTION_KEY;
+    if (failure === 'missing-key') delete metadataEnvironment.ENCRYPTION_KEY;
     if (failure === 'migration') {
       vi.spyOn(regime, 'isBucketMigrating').mockResolvedValue(true);
       vi.spyOn(regime, 'getRegimeState').mockResolvedValue({ status: 'migrating', regime: 'sse-c', generation: 1 });
@@ -351,19 +366,19 @@ describe('REQ-OPERATOR-007/047/048/058: owner R2 configured-service HTTP contrac
       vi.spyOn(regime, 'getRegimeState').mockResolvedValue({ status: 'ready', regime: 'sse-c', generation: 2 });
     });
     if (failure === 'key-change') store.afterRead(() => {
-      (f.environment as unknown as Record<string, unknown>).ENCRYPTION_KEY = btoa('b'.repeat(32));
+      metadataEnvironment.ENCRYPTION_KEY = btoa('b'.repeat(32));
     });
     await denied(await read(f));
     expect(store.value(authKey)).toEqual({ [providerId]: oldOAuth, other });
   }));
 
-  it('ready SSE-C reads owner credentials without returning encryption key material', () => lane(async (f, store) => {
+  it('ready SSE-C reads owner credentials without returning encryption key material', () => lane(async (f, store, metadataEnvironment) => {
     await admitted(f);
     vi.spyOn(regime, 'isR2SseDisabledForBucket').mockResolvedValue(false); store.requireSse();
     vi.spyOn(regime, 'getRegimeState').mockResolvedValue({ status: 'ready', regime: 'sse-c', generation: 1 });
     const response = await json(await read(f));
     expect(response).toEqual({ credential: oldOAuth });
-    expect(JSON.stringify(response)).not.toContain(f.environment.ENCRYPTION_KEY);
+    expect(JSON.stringify(response)).not.toContain(metadataEnvironment.ENCRYPTION_KEY);
   }));
 });
 
@@ -419,6 +434,119 @@ describe('REQ-OPERATOR-007/047/048: protected SDK-prepared HTTP, not Parent mode
     expect(JSON.stringify(await f.activity.getBrowserDetail())).not.toContain('parent-only');
   }, false, undefined, true));
 
+  it('complete SDK HTTP response is durable before delivery and reconciles exact SSE after reconstruction', () => lane(async f => {
+    await admitted(f);
+    const payload = new TextEncoder().encode('data: {"text":"原始 😀"}\n\ndata: [DONE]\n\n');
+    const paid: string[] = [];
+    let opened!: (controller: ReadableStreamDefaultController<Uint8Array>) => void;
+    const upstream = new Promise<ReadableStreamDefaultController<Uint8Array>>(resolve => { opened = resolve; });
+    const original = globalThis.fetch;
+    vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
+      const request = new Request(input, init);
+      if (new URL(request.url).origin !== 'https://custom.example.test') return original(input, init);
+      paid.push(await request.text());
+      return new Response(new ReadableStream<Uint8Array>({ start: controller => opened(controller) }),
+        { headers: { 'content-type': 'text/event-stream', 'x-provider-trace': 'durable-sdk' } });
+    });
+    const permit = await json(await modelAdmission(f, 'durable-sdk'));
+    const request = { url: 'https://custom.example.test/native/stream', method: 'POST',
+      headers: [['content-type', 'application/json']], bodyBase64: encodeBody(sdkBody) };
+    let delivered = false;
+    const pending = modelFetch(f, permit.permitId, request, 'durable-sdk').then(response => { delivered = true; return response; });
+    const controller = await upstream;
+    controller.enqueue(payload.slice(0, 19));
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(delivered).toBe(false);
+    controller.enqueue(payload.slice(19)); controller.close();
+    const first = await pending;
+    expect(first.status).toBe(200);
+    expect(new Uint8Array(await first.arrayBuffer())).toEqual(payload);
+    f.restart(); await f.drainBackground();
+    const replay = await modelFetch(f, permit.permitId, request, 'durable-sdk');
+    expect(replay.status).toBe(200);
+    expect(replay.headers.get('content-type')).toBe('text/event-stream');
+    expect(replay.headers.get('x-provider-trace')).toBe('durable-sdk');
+    expect(new Uint8Array(await replay.arrayBuffer())).toEqual(payload);
+    expect(paid).toEqual([sdkBody]);
+  }));
+
+  it('vendor credential echoes cannot enter the durable SDK response journal or exported evidence', () => lane(async f => {
+    await admitted(f);
+    const original = globalThis.fetch;
+    vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
+      const request = new Request(input, init);
+      if (new URL(request.url).origin !== 'https://custom.example.test') return original(input, init);
+      return new Response(`provider echoed ${oldOAuth.access}`, { status: 401 });
+    });
+    const permit = await json(await modelAdmission(f, 'credential-echo'));
+    const response = await modelFetch(f, permit.permitId, { url: 'https://custom.example.test/native/stream', method: 'POST',
+      headers: [['authorization', `Bearer ${oldOAuth.access}`]], bodyBase64: encodeBody(sdkBody) }, 'credential-echo');
+    expect(response.ok).toBe(false);
+    expect(await response.text()).not.toContain(oldOAuth.access);
+    await f.mutateEvidence(async storage => {
+      const decodeBytes = (value: unknown): unknown => {
+        if (ArrayBuffer.isView(value)) return new TextDecoder().decode(new Uint8Array(value.buffer, value.byteOffset, value.byteLength));
+        if (value instanceof ArrayBuffer) return new TextDecoder().decode(value);
+        if (Array.isArray(value)) return value.map(decodeBytes);
+        if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, decodeBytes(entry)]));
+        return value;
+      };
+      // Stored binary responses must be decoded, not merely inspected as numbers.
+      const retained = inspect(decodeBytes([...await storage.list()]), { depth: null, maxArrayLength: null,
+        maxStringLength: null, customInspect: false });
+      expect(retained).not.toContain(oldOAuth.access);
+    });
+    expect(inspect(await f.activity.getBrowserDetail(), { depth: null, maxStringLength: null })).not.toContain(oldOAuth.access);
+  }));
+
+  it('partial SDK HTTP failure delivers no incomplete response and cannot buy a replay after reconstruction', () => lane(async f => {
+    await admitted(f);
+    const paid: string[] = [];
+    const original = globalThis.fetch;
+    vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
+      const request = new Request(input, init);
+      if (new URL(request.url).origin !== 'https://custom.example.test') return original(input, init);
+      paid.push(await request.text());
+      let sent = false;
+      return new Response(new ReadableStream<Uint8Array>({ pull(controller) {
+        if (!sent) { sent = true; controller.enqueue(new TextEncoder().encode('incomplete-sdk-response')); }
+        else controller.error(new Error('SDK_HTTP_BODY_INTERRUPTED'));
+      } }));
+    });
+    const permit = await json(await modelAdmission(f, 'partial-sdk'));
+    const request = { url: 'https://custom.example.test/native/stream', method: 'POST',
+      headers: [['content-type', 'application/json']], bodyBase64: encodeBody(sdkBody) };
+    const first = await modelFetch(f, permit.permitId, request, 'partial-sdk');
+    expect(first.ok).toBe(false);
+    expect(await first.text()).not.toContain('incomplete-sdk-response');
+    f.restart(); await f.drainBackground();
+    await denied(await modelFetch(f, permit.permitId, request, 'partial-sdk'), [403, 404, 409]);
+    expect(paid).toEqual([sdkBody]);
+  }));
+
+  it('unavailable strict-egress policy refuses native SDK HTTP without a direct paid request', () => lane(async f => {
+    await admitted(f);
+    const permit = await json(await modelAdmission(f, 'strict-unavailable'));
+    f.environment.ENTERPRISE_MODE = 'active';
+    const originalGet = f.environment.KV.get.bind(f.environment.KV);
+    const policy = vi.spyOn(f.environment.KV, 'get').mockImplementation((async (key: string, ...args: unknown[]) => {
+      if (key === SETUP_KEYS.STRICT_EGRESS) throw new Error('STRICT_POLICY_UNAVAILABLE');
+      return Reflect.apply(originalGet, f.environment.KV, [key, ...args]);
+    }) as typeof f.environment.KV.get);
+    const paid: string[] = [];
+    const original = globalThis.fetch;
+    vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
+      const request = new Request(input, init);
+      if (new URL(request.url).origin !== 'https://custom.example.test') return original(input, init);
+      paid.push(request.url); return new Response('forbidden direct send');
+    });
+    try {
+      await denied(await modelFetch(f, permit.permitId, { url: 'https://custom.example.test/native/stream', method: 'POST',
+        headers: [['authorization', `Bearer ${oldOAuth.access}`]], bodyBase64: encodeBody(sdkBody) }, 'strict-unavailable'));
+      expect(paid).toEqual([]);
+    } finally { policy.mockRestore(); }
+  }));
+
   it.each([false, true])('one-operation policy refuses fresh paid work after exhaustion (Actor reconstruction: %s)', reconstructed => lane(async f => {
     await admitted(f);
     // External provider ledger: these are actual HTTP requests, not internal
@@ -444,13 +572,10 @@ describe('REQ-OPERATOR-007/047/048: protected SDK-prepared HTTP, not Parent mode
       await denied(await modelFetch(f, second.permitId, { ...request,
         bodyBase64: encodeBody(sdkBody.replace('原始 😀', 'Second distinct SDK request.')) }, 'capacity-second'), [403, 404, 409]);
     } else await denied(next, [403, 404, 409]);
-    // A committed permit is either replayed from its receipt or refused. Neither
-    // outcome authorizes a second paid request, even after memory is discarded.
+    // A complete committed response reconciles exactly without another paid send.
     const replay = await modelFetch(f, permit.permitId, request, 'capacity-first');
-    if (replay.ok) {
-      expect(replay.status).toBe(200); expect(await replay.text()).toBe('first paid response');
-      expect(replay.headers.get('x-provider-trace')).toBe('capacity-first');
-    } else await denied(replay, [403, 404, 409]);
+    expect(replay.status).toBe(200); expect(await replay.text()).toBe('first paid response');
+    expect(replay.headers.get('x-provider-trace')).toBe('capacity-first');
     expect(paid).toEqual([{ url: request.url, body: sdkBody }]);
   }, true, undefined, false, { operationLimit: 1, inferenceAttemptLimit: 1 }));
 
@@ -472,10 +597,9 @@ describe('REQ-OPERATOR-007/047/048: protected SDK-prepared HTTP, not Parent mode
     if (reconstructed) { f.restart(); await f.drainBackground(); }
     const checkReplay = async (permitId: string) => {
       const replay = await modelFetch(f, permitId, request, 'attempt-only');
-      if (replay.status === 429) {
-        expect(await replay.text()).toBe('provider retryable quota failure');
-        expect(replay.headers.get('x-provider-trace')).toBe('attempt-first');
-      } else await denied(replay, [403, 404, 409]);
+      expect(replay.status).toBe(429);
+      expect(await replay.text()).toBe('provider retryable quota failure');
+      expect(replay.headers.get('x-provider-trace')).toBe('attempt-first');
     };
     await checkReplay(permit.permitId);
     const readmission = await modelAdmission(f, 'attempt-only');
@@ -619,7 +743,7 @@ describe('REQ-OPERATOR-007/047/048: serialized bounded SDK credential persistenc
     }
   }));
 
-  it.each(['migration', 'regime-change', 'key-change'] as const)('an OAuth lease cannot write through an owner SSE %s', failure => lane(async (f, store) => {
+  it.each(['migration', 'regime-change', 'key-change'] as const)('an OAuth lease cannot write through an owner SSE %s', failure => lane(async (f, store, metadataEnvironment) => {
     await admitted(f);
     vi.spyOn(regime, 'isR2SseDisabledForBucket').mockResolvedValue(false);
     vi.spyOn(regime, 'getRegimeState').mockResolvedValue({ status: 'ready', regime: 'sse-c', generation: 1 });
@@ -631,7 +755,7 @@ describe('REQ-OPERATOR-007/047/048: serialized bounded SDK credential persistenc
     } else if (failure === 'regime-change') {
       vi.spyOn(regime, 'getRegimeState').mockResolvedValue({ status: 'ready', regime: 'sse-c', generation: 2 });
     } else {
-      (f.environment as unknown as Record<string, unknown>).ENCRYPTION_KEY = btoa('b'.repeat(32));
+      metadataEnvironment.ENCRYPTION_KEY = btoa('b'.repeat(32));
     }
     await denied(await commit(f, lease.leaseId), [403, 409, 503]);
     expect(store.value(authKey)).toEqual({ [providerId]: oldOAuth, other });

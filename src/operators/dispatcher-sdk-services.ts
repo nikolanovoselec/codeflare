@@ -7,7 +7,9 @@ import { dispatcherSdkOwnerContext, type ConfiguredDispatcherInference } from '.
 import { readDispatcherSdkFiles, type SdkStorageScope } from './dispatcher-sdk-storage';
 import { resolveBucketName } from '../lib/access';
 import { getAigConfig } from '../lib/aig-config';
-import { hasStrictGatewayEgress, isDisallowedEgressHost } from '../lib/controller-egress';
+import { isDisallowedEgressHost } from '../lib/controller-egress';
+import { isEnterpriseMode } from '../lib/subscription';
+import { SETUP_KEYS } from '../lib/kv-keys';
 import { authorizeDispatcherPlan, type createDispatcherOperation } from './operator-runtime-capability';
 import { DispatcherRefusal } from './dispatcher-refusal';
 import { emitRaw } from '../../host/src/operator-raw-logging';
@@ -133,12 +135,21 @@ export async function forwardDispatcherSdkHttp(input: SdkInput & {
       sessionId: input.plan.activityId, gatewayUrl: aig.gatewayUrl, gatewayId: aig.gatewayId, token: aig.token,
       operatorInference: { activityId: input.plan.activityId, operatorId: input.plan.executionContext.operatorId, policy, trusted } } });
     response = await transport.fetch(request);
-  } else if (await hasStrictGatewayEgress(input.env)) {
-    // Existing public application transport retains mandatory strict Gateway routing.
-    if (!input.exports?.EgressController) throw new Error('SDK strict transport unavailable');
-    const transport = input.exports.EgressController({ props: { strict: true } });
-    response = await transport.fetch(request);
-  } else response = await fetch(request);
+  } else {
+    // Unlike container-start discovery, execution cannot interpret an unavailable
+    // policy as permission for direct credential-bearing I/O. Failed reads throw.
+    let strict = false;
+    if (isEnterpriseMode(input.env)) {
+      const setting = await input.env.KV.get(SETUP_KEYS.STRICT_EGRESS);
+      if (setting !== null && setting !== 'active' && setting !== 'inactive') throw new Error('SDK transport policy unavailable');
+      strict = setting === 'active';
+    }
+    if (strict) {
+      if (!input.exports?.EgressController) throw new Error('SDK strict transport unavailable');
+      const transport = input.exports.EgressController({ props: { strict: true } });
+      response = await transport.fetch(request);
+    } else response = await fetch(request);
+  }
   try { await sameOwner(input, owner); signal.throwIfAborted(); }
   catch (error) { await response.body?.cancel().catch(() => {}); throw error; }
   return response;

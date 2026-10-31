@@ -345,12 +345,17 @@ it.each(['already-stopped', 'during-authorization', 'dispatcher-source'] as cons
     expect(await getPersonalPiSession(host, ref)).toEqual({ generation: 1, groups: ['Engineering'] });
     if (when === 'dispatcher-source') {
       const source = dispatcherSourcePreparation(f, host);
-      await expect(source.prepare()).rejects.toMatchObject({ statusCode: 403 });
-      expect(source.prepared).toEqual([]);
+      await expect(getPersonalPiSession(host, ref, true)).rejects.toMatchObject({ statusCode: 403 });
+      const result = await source.prepare();
+      expect(source.prepared).toEqual([{ activityId: result.activityId,
+        invocation: { repository: 'owner/repo', pullRequest: 17 } }]);
       // This is a valid restricted native Host, not a broken/missing auth binding.
-      // Refusing its use as an ordinary Dispatcher source cannot revoke Conductor.
+      // Its legacy ordinary-Host guard still refuses; independent preparation neither
+      // imports that authority nor revokes the original Conductor grant.
       expect(await getPersonalPiSession(host, ref)).toEqual({ generation: 1, groups: ['Engineering'] });
       expect(plan.authFailure).toBeUndefined();
+      expect(f.requests).toEqual([]);
+      expect(f.egressRequests).toEqual([]);
       return;
     }
     if (when === 'already-stopped') plan.authFailure = failure;
@@ -608,13 +613,12 @@ it('REQ-ENTERPRISE-090 AC2: credential-free parent RPC wire contract contains on
 });
 
 
-// Public preparation + actual D1-backed Host guard. The Activity/Registry are
-// stateful boundary collaborators; no admission behavior is mocked as the SUT.
+// Public session-independent preparation plus historical D1-backed Host guards.
+// Legacy Host RPC coverage below is not evidence of the new SDK profile transport.
 function dispatcherSourcePreparation(f: ReturnType<typeof fixture>, host = f.host) {
   const previousRegistry = f.env.OPERATOR_REGISTRY;
   const previousActivities = f.env.OPERATOR_ACTIVITY;
-  const prepared: Array<{ activityId: string; invocation: unknown; ownerSource?: {
-    bucket: string; sessionId: string; sessionGeneration: number } }> = [];
+  const prepared: Array<{ activityId: string; invocation: unknown }> = [];
   const selection = { controlsRevision: 1,
     operator: { operatorId: 'renovate-dispatcher', revision: 1, profile: 'dispatcher',
       invokers: { users: [owner.user], groups: [] }, policy: { capabilities: ['fetch', 'inference'] } },
@@ -625,8 +629,7 @@ function dispatcherSourcePreparation(f: ReturnType<typeof fixture>, host = f.hos
   f.env.ENCRYPTION_KEY = btoa('s'.repeat(32));
   vi.spyOn(access, 'resolveBucketName').mockResolvedValue(owner.bucket);
   f.env.CONTAINER = { getByName: () => ({
-    // Bind forwards the actual public RPC arguments, including any additive
-    // trusted purpose, without prescribing its shape or dropping it in RED.
+    // Existing Host API remains available, but preparation must not need it.
     getPersonalPiSession: getPersonalPiSession.bind(null, host),
   }) } as unknown as Env['CONTAINER'];
   f.env.OPERATOR_REGISTRY = { getByName: () => ({ resolveManagementExecution: async (id: string) => id === 'source-install'
@@ -635,9 +638,6 @@ function dispatcherSourcePreparation(f: ReturnType<typeof fixture>, host = f.hos
     ? previousActivities.getByName(id) : {
       prepareAuthorized: async (intent: { activityId: string }, _context: unknown, invocation: string) => {
         prepared.push({ activityId: intent.activityId, invocation: JSON.parse(invocation) }); return { ok: true };
-      },
-      bindDispatcherOwnerSource: async (source: NonNullable<typeof prepared[number]['ownerSource']>) => {
-        prepared[prepared.length - 1].ownerSource = structuredClone(source); return true;
       },
     } } as unknown as NonNullable<Env['OPERATOR_ACTIVITY']>;
   const sourceSession = { sessionId: owner.sessionId, sessionGeneration: 1 };
@@ -648,22 +648,23 @@ function dispatcherSourcePreparation(f: ReturnType<typeof fixture>, host = f.hos
 }
 
 it.each(['running', 'starting'] as const)(
-  'REQ-OPERATOR-058/047: AC1 explicit %s ordinary Host prepares a parent-owned source and unchanged child input without an interactive Pi process', async status => {
+  'REQ-OPERATOR-058/047: AC1 %s legacy Host remains readable while independent Dispatcher preparation preserves child input without a Pi process', async status => {
     const f = fixture();
     f.setSession({ status });
     const source = dispatcherSourcePreparation(f);
+    expect(await getPersonalPiSession(f.host, { bucket: owner.bucket, sessionId: owner.sessionId, email: owner.user }, true))
+      .toEqual({ generation: 1, groups: ['Engineering'] });
     const result = await source.prepare();
     source.sourceSession.sessionGeneration = 99;
     expect(source.prepared).toEqual([{ activityId: result.activityId,
-      invocation: { repository: 'owner/repo', pullRequest: 17 },
-      ownerSource: { bucket: owner.bucket, sessionId: owner.sessionId, sessionGeneration: 1 } }]);
+      invocation: { repository: 'owner/repo', pullRequest: 17 } }]);
     expect(f.requests).toEqual([]);
     expect(f.egressRequests).toEqual([]);
   });
 
 it.each(['foreign-owner', 'foreign-session', 'foreign-bucket', 'missing', 'stopped', 'stopping', 'unreachable',
   'termination', 'generation', 'memory-shutdown', 'durable-shutdown', 'restricted', 'unavailable'] as const)(
-  'REQ-OPERATOR-058/047: AC1 %s ordinary source refuses before Activity preparation', async fault => {
+  'REQ-OPERATOR-058/047: AC1 legacy ordinary Host refuses %s without gating session-independent Dispatcher preparation', async fault => {
     const f = fixture();
     const source = dispatcherSourcePreparation(f);
     if (fault === 'foreign-owner') f.host._userEmail = 'another@example.test';
@@ -679,9 +680,13 @@ it.each(['foreign-owner', 'foreign-session', 'foreign-bucket', 'missing', 'stopp
       github: { repositories: [], methods: [] }, storage: { readPrefixes: [], writePrefixes: [] },
       inference: { routeIds: [], defaultRouteId: null, reasoningLevels: [], defaultReasoningLevel: null, inheritUserDefaults: false } };
     if (fault === 'unavailable') f.env.USAGE_DB = { prepare: () => { throw Error('Session catalog unavailable'); } } as unknown as D1Database;
-    await expect(source.prepare()).rejects.toThrow();
-    expect(source.prepared).toEqual([]);
+    await expect(getPersonalPiSession(f.host, { bucket: owner.bucket, sessionId: source.sourceSession.sessionId, email: owner.user }, true))
+      .rejects.toThrow();
+    const result = await source.prepare();
+    expect(source.prepared).toEqual([{ activityId: result.activityId,
+      invocation: { repository: 'owner/repo', pullRequest: 17 } }]);
     expect(f.requests).toEqual([]);
+    expect(f.egressRequests).toEqual([]);
   });
 
 it.each([0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1])(
@@ -693,15 +698,15 @@ it.each([0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1])(
     expect(source.prepared).toEqual([]);
   });
 
-it('REQ-OPERATOR-058/047: AC1 stale caller generation requires reselection before any preparation', async () => {
+it('REQ-OPERATOR-058/047: AC1 caller source generation cannot bind or broaden independent Dispatcher preparation', async () => {
   const f = fixture();
   const source = dispatcherSourcePreparation(f);
   source.sourceSession.sessionGeneration = 2;
-  await expect(source.prepare()).rejects.toMatchObject({ statusCode: 409 });
-  expect(source.prepared).toEqual([]);
-  source.sourceSession.sessionGeneration = 1;
+  expect(await getPersonalPiSession(f.host, { bucket: owner.bucket, sessionId: owner.sessionId, email: owner.user }, true))
+    .toEqual({ generation: 1, groups: ['Engineering'] });
   const result = await source.prepare();
   expect(source.prepared).toEqual([{ activityId: result.activityId,
-    invocation: { repository: 'owner/repo', pullRequest: 17 },
-    ownerSource: { bucket: owner.bucket, sessionId: owner.sessionId, sessionGeneration: 1 } }]);
+    invocation: { repository: 'owner/repo', pullRequest: 17 } }]);
+  expect(f.requests).toEqual([]);
+  expect(f.egressRequests).toEqual([]);
 });

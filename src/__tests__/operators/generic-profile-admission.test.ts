@@ -295,14 +295,16 @@ describe('REQ-OPERATOR-058/007/048: session-independent installed Dispatcher pre
 
   it.each([true, false])(
     'REQ-OPERATOR-047: AC2 expired human denies session-free preparation with native-enabled=%s', async nativeSource => {
-      const { post } = installedDispatcher(nativeSource);
+      const { post, prepared } = installedDispatcher(nativeSource);
       const expiresAt = claims.expiresAt;
       try {
         claims.expiresAt = Math.floor(Date.now() / 1000) - 1;
         const response = await post({ installationId: 'review-install', invocation: { repository: 'owner/repository', pullRequest: 17 } });
-        expect([400, 403]).toContain(response.status);
-        expect(await response.json()).toMatchObject({ code: expect.stringMatching(/^(?:VALIDATION_ERROR|FORBIDDEN)$/),
-          error: expect.stringMatching(/authority|expired/i) });
+        // Expired grants deliberately hide installation existence, just like a
+        // non-invoker. Preserve that established visibility contract, not 403.
+        expect(response.status).toBe(404);
+        expect(await response.json()).toMatchObject({ code: 'NOT_FOUND' });
+        expect(prepared()).toBeUndefined();
       } finally { claims.expiresAt = expiresAt; }
     });
 

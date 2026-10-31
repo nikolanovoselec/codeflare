@@ -1,11 +1,11 @@
 /** CI-only owner/send boundary, not a Flue/application/session/model workload.
- * Production authorization, encryption, profile parsing and send/body reading stay real.
+ * Production authorization, encryption and legacy inference send/body reading stay real.
  * Only upstream Access, persisted selection/KV and the existing-container recipient
  * are controlled. Both owner session reads and Request/Response use native DO RPC.
  */
 import { DurableObject } from 'cloudflare:workers';
 import { z } from 'zod';
-import { discoverDispatcherOwnerProfile, forwardDispatcherOwnerInference,
+import { forwardDispatcherOwnerInference,
   type ConfiguredDispatcherInference } from '../../../operators/dispatcher-owner-inference';
 import { createOperatorExecutionContext } from '../../../operators/execution-context';
 import type { OperatorRuntimePlan } from '../../../operators/activity';
@@ -20,9 +20,9 @@ import { browserAccess } from './dispatcher-owner-diagnostics';
 import { prepareOperatorActivity } from '../../../operators/orchestrator';
 
 const configSchema = z.strictObject({
-  operation: z.enum(['discovery', 'inference']), source: z.enum(['native', 'managed-default', 'managed-off']).default('native'),
+  operation: z.literal('inference'), source: z.enum(['native', 'managed-default', 'managed-off']).default('native'),
   loggingEnabled: z.boolean().default(true),
-  prepareSource: z.boolean().default(false),
+  prepareMetadata: z.boolean().default(false),
   barrier: z.enum(['none', 'headers', 'body']).default('none'),
   size: z.enum(['ordinary', 'exact', 'actual-over', 'declared-over']).default('ordinary'),
   lifetimeMs: z.number().int().min(1000).max(30_000).default(30_000),
@@ -60,11 +60,10 @@ type Wire = { url: string; method: string; contentType: string | null; activityH
   operationId?: string; context?: typeof ownerRpcContext; options?: { reasoning?: string; temperature: number; maxTokens: number };
   requestDigest?: string; profileDigest?: string };
 type Outcome = { status: 'pending' } | { status: 'refused'; failure: 'rpc-data-clone' | 'owner-refused' }
-  | { status: 'accepted'; profile?: ConfiguredDispatcherInference; response?: { events: unknown[]; result: typeof ownerRpcResult }; responseBytes?: number };
-type SourcePreparation = { activityId: string; invocationJson: string; deadline: number;
-  ownerSource: { bucket: string; sessionId: string; sessionGeneration: number } };
+  | { status: 'accepted'; response?: { events: unknown[]; result: typeof ownerRpcResult }; responseBytes?: number };
+type MetadataPreparation = { activityId: string; invocationJson: string; deadline: number };
 export type OwnerRpcSnapshot = { outcome: Outcome; deadline: number; activityId: string; sessionGeneration: number;
-  preparation?: SourcePreparation;
+  preparation?: MetadataPreparation;
   recipient: { entered: boolean; bodyOffered: boolean; bodyAdvanced: boolean; headersReleased: boolean; bodyReleased: boolean;
     cancelled: boolean; responseBytes: number; wire: Wire | null; loggingContext: unknown } };
 interface FixtureEnv { OWNER_RPC: DurableObjectNamespace<FixtureOwnerRpc> }
@@ -76,7 +75,7 @@ export class FixtureOwnerRpc extends DurableObject<FixtureEnv> {
   private recipient?: DurableObjectStub<FixtureOwnerRpc>;
   private config?: Config;
   private outcome: Outcome = { status: 'pending' };
-  private preparation?: SourcePreparation;
+  private preparation?: MetadataPreparation;
   private controller = new AbortController();
   private current = true;
   private selection?: ManagementExecutionSelection;
@@ -123,12 +122,9 @@ export class FixtureOwnerRpc extends DurableObject<FixtureEnv> {
         options: body.options && { temperature: body.options.temperature, maxTokens: body.options.maxTokens,
           ...(body.options.reasoning === undefined ? {} : { reasoning: body.options.reasoning }) } } : {}) };
     if (config.barrier === 'headers' && !this.headersReleased) await new Promise<void>(resolve => { this.releaseHeaders = resolve; });
-    const { source: _source, ...profile } = selected(config);
-    // routeId belongs to the parent selection, not the strict SDK profile wire.
-    const { routeId: _routeId, ...profileWire } = profile as typeof profile & { routeId?: string };
-    const result = { ...ownerRpcResult, provider: profileWire.provider, model: profileWire.model, api: profileWire.api };
-    let text = JSON.stringify(config.operation === 'discovery' ? profileWire
-      : { events: [{ type: 'done', reason: 'stop', message: result }], result });
+    const profile = selected(config);
+    const result = { ...ownerRpcResult, provider: profile.provider, model: profile.model, api: profile.api };
+    let text = JSON.stringify({ events: [{ type: 'done', reason: 'stop', message: result }], result });
     if (config.size === 'exact' || config.size === 'actual-over') {
       text += ' '.repeat(OWNER_RPC_LIMIT - new TextEncoder().encode(text).byteLength + (config.size === 'actual-over' ? 1 : 0));
     }
@@ -218,34 +214,30 @@ export class FixtureOwnerRpc extends DurableObject<FixtureEnv> {
     const environment = { ...encryption, ENTERPRISE_MODE: 'active', AIG_GATEWAY_URL: gateway.gatewayUrl, AIG_TOKEN: gateway.token,
       KV: { get: async (key: string) => values[key] ?? null }, CONTAINER: this.env.OWNER_RPC,
       OPERATOR_REGISTRY: { getByName: () => ({ resolveManagementExecution: async () => ({ ok: true, value: structuredClone(this.selection!) }) }) },
-    } as unknown as Parameters<typeof discoverDispatcherOwnerProfile>[0]['env'];
+    } as unknown as Parameters<typeof forwardDispatcherOwnerInference>[0]['env'];
     this.deadline = config.fault === 'expired' ? Date.now() - 1 : Date.now() + config.lifetimeMs;
     let executionContext = await createOperatorExecutionContext({ activityId: this.activityId, operatorId: 'rpc-dispatcher',
       artifactDigest: pinned.release.bundleDigest, policyDigest: 'f'.repeat(64), human, accessJwt: credential.jwt }, encryption);
-    if (config.prepareSource) {
+    if (config.prepareMetadata) {
       // Reuse the existing no-application RPC fixture. Only Activity persistence is
-      // a stateful collaborator; preparation and both owner transports stay real.
-      let prepared: { activityId: string; deadline: number; invocationJson: string } | undefined;
+      // a stateful collaborator; preparation and legacy inference transport stay real.
       environment.OPERATOR_ACTIVITY = { getByName: () => ({
         prepareAuthorized: async (intent: { activityId: string; deadline: number }, context: typeof executionContext, invocationJson: string) => {
-          prepared = { activityId: intent.activityId, deadline: intent.deadline, invocationJson };
+          this.preparation = { activityId: intent.activityId, deadline: intent.deadline, invocationJson };
           executionContext = context;
           return { ok: true, phase: 'prepared' };
-        },
-        bindDispatcherOwnerSource: async (ownerSource: SourcePreparation['ownerSource']) => {
-          if (!prepared) return false;
-          this.preparation = { ...prepared, ownerSource: structuredClone(ownerSource) };
-          return true;
         },
       }) } as unknown as NonNullable<typeof environment.OPERATOR_ACTIVITY>;
       await prepareOperatorActivity({ installationId: pinned.installation.id, invocation: { repository: 'example/fixture' },
         sourceSession: { sessionId, sessionGeneration: 3 } },
       { human: { ...human, expiresAt: Math.floor(this.deadline / 1000) }, accessJwt: credential.jwt }, environment,
       { activityId: this.activityId });
-      if (!this.preparation) throw new Error('Explicit source was not retained by preparation');
+      if (!this.preparation) throw new Error('Metadata preparation was not persisted');
       this.deadline = this.preparation.deadline;
     }
-    const plan: OperatorRuntimePlan = { activityId: this.activityId, ownerSource: this.preparation?.ownerSource ?? { bucket, sessionId, sessionGeneration: 3 },
+    // Explicit legacy fixture authority, not a source binding produced by preparation.
+    // This exercises only the still-public Host inference RPC, never SDK execution.
+    const plan: OperatorRuntimePlan = { activityId: this.activityId, ownerSource: { bucket, sessionId, sessionGeneration: 3 },
       deadline: this.deadline, invocationJson: this.preparation?.invocationJson ?? '{"repository":"example/fixture"}', executionContext,
       receipt: { installationId: pinned.installation.id, activityId: this.activityId, intentDigest: 'a'.repeat(64), expectedInstallationRevision: 1,
         expectedOperatorRevision: 1, expectedControlsRevision: 1, deadline: this.deadline, admittedAt: Date.now(), selection: pinned } };
@@ -253,16 +245,13 @@ export class FixtureOwnerRpc extends DurableObject<FixtureEnv> {
     else if (config.fault && config.fault !== 'expired') await this.change(config.fault);
     const input = { generation: 7, plan, env: environment, current: async () => this.current, signal: this.controller.signal,
       waitUntil: (promise: Promise<unknown>) => this.ctx.waitUntil(promise) };
-    // Public functions are the SUT. No wrapper changes their Request or cancellation.
+    // The public legacy inference function is the SUT. No wrapper changes its Request or cancellation.
     this.ctx.waitUntil((async () => {
       try {
-        if (config.operation === 'discovery') this.outcome = { status: 'accepted', profile: await discoverDispatcherOwnerProfile(input) };
-        else {
-          const response = await forwardDispatcherOwnerInference({ ...input, selection: selected(config), operation: {
-            operationId: 'fixture-inference', context: ownerRpcContext, options: ownerRpcOptions, requestDigest: '0'.repeat(64) } });
-          const bytes = await response.arrayBuffer();
-          this.outcome = { status: 'accepted', response: JSON.parse(new TextDecoder().decode(bytes)), responseBytes: bytes.byteLength };
-        }
+        const response = await forwardDispatcherOwnerInference({ ...input, selection: selected(config), operation: {
+          operationId: 'fixture-inference', context: ownerRpcContext, options: ownerRpcOptions, requestDigest: '0'.repeat(64) } });
+        const bytes = await response.arrayBuffer();
+        this.outcome = { status: 'accepted', response: JSON.parse(new TextDecoder().decode(bytes)), responseBytes: bytes.byteLength };
       } catch (error) {
         this.outcome = { status: 'refused', failure: error instanceof DOMException && error.name === 'DataCloneError' ? 'rpc-data-clone' : 'owner-refused' };
       }
