@@ -707,8 +707,9 @@ export class container extends Container<Env> implements ContainerEnvState {
       // intentional status and existing private error detail in plain data.
       const status = error.status === 409 || error.status === 413 ? error.status : 403;
       const captured = captureRawValue(error);
+      // RPC requires ordinary objects, not the safe snapshot's null-prototype dictionaries.
       const cause = captured && typeof captured === 'object' && Object.hasOwn(captured, 'cause')
-        ? { cause: (captured as Record<string, unknown>).cause } : {};
+        ? { cause: JSON.parse(JSON.stringify((captured as Record<string, unknown>).cause)) } : {};
       return { ok: false, status, message: error.message, stack: error.stack, ...cause };
     }
   }
