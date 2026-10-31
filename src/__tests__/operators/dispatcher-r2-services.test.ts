@@ -652,6 +652,7 @@ describe('REQ-OPERATOR-007/047/048/058: owner R2 configured-service HTTP contrac
   it.each(['model', 'provider', 'owner metadata', 'migration', 'key', 'regime'] as const)(
     '%s changes during SDK refresh fence persistence and return', change => lane(async (f, store, metadataEnvironment) => {
       await admitted(f);
+      const originalOwner = (await f.activity.getRuntimePlan())!.executionContext.owner.email;
       const saved = { [providerId]: { ...oldOAuth, expires: 1 }, other };
       store.put(authKey, saved);
       oauthBoundary(async () => {
@@ -667,8 +668,17 @@ describe('REQ-OPERATOR-007/047/048/058: owner R2 configured-service HTTP contrac
         if (change === 'key') metadataEnvironment.ENCRYPTION_KEY = btoa('b'.repeat(32));
         return tokenReply();
       });
-      await denied(await read(f), [403, 409, 503]);
-      expect(store.value(authKey)).toEqual(saved);
+      try {
+        await denied(await read(f), [403, 409, 503]);
+        expect(store.value(authKey)).toEqual(saved);
+      } finally {
+        // The metadata DO outlives this case. Restore only after exercising the
+        // foreign-owner denial, reacquiring its stub in the current I/O context.
+        if (change === 'owner metadata') await runInDurableObject(
+          (env as unknown as Env).CONTAINER.getByName('bucket-owner:owner-bucket'), async (_instance, state) => {
+            await state.storage.put('bucketOwnerEmail', originalOwner);
+          });
+      }
     }));
 
   it.each(fences)('%s fence denies before R2 and after a late R2 read', (_name, fence) => lane(async (f, store) => {
