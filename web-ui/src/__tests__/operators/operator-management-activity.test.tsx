@@ -513,7 +513,7 @@ describe('REQ-OPERATOR-081: AC6 retained Dispatcher diagnostics in Activity deta
     expect(panel.getByText(/A failed or unfulfilled handoff was retained\. It is not necessarily the first failure\./)).toBeVisible();
     fireEvent.click(summaryDetails);
     expect(panel.getByText(/last confirmed.*e-1/i)).not.toBeVisible();
-    expect(panel.getByRole('button', { name: 'View record e-2' })).toBeVisible();
+    expect(await panel.findByRole('button', { name: 'View record e-2' })).toBeVisible();
     expect(panel.getByText(/(?:inspect|view|check).*failure/i)).toBeInTheDocument();
     expect(screen.getByText(/Original result for activity-1/)).toBeInTheDocument();
     expect(screen.getAllByText(/Execution: failed · Cleanup: stopped/).length).toBeGreaterThan(0);
@@ -603,6 +603,24 @@ describe('REQ-OPERATOR-081: AC6 retained Dispatcher diagnostics in Activity deta
     expect(state.mutations).toEqual([]);
   });
 
+  it.each([
+    { transportStatus: 299 }, { transportStatus: 600 }, { transportStatus: 403.5 },
+    { transportReason: 'PRIVATE_TRANSPORT_REASON' }, { transportDisposition: 'PRIVATE_TRANSPORT_DISPOSITION' },
+    { privateTransport: 'PRIVATE_TRANSPORT_FIELD' },
+  ])('rejects invalid or unknown transport metadata %j without exposing it or changing the Activity', async invalid => {
+    const { state } = ownedDiagnosticFixture();
+    Object.assign(state.detail.record.error!, invalid);
+    render(() => <OperatorManagement />);
+    await selectDiagnosticActivity();
+    const panel = await openDiagnostics();
+    fireEvent.click(await panel.findByRole('button', { name: 'View record e-2' }));
+    expect(await panel.findByRole('alert')).toHaveTextContent(/diagnostic.*(?:invalid|unavailable|could not|cannot)|(?:invalid|unavailable).*diagnostic/i);
+    expect(panel.queryByRole('region', { name: 'Record e-2' })).not.toBeInTheDocument();
+    expect(panel.queryByText(/PRIVATE_TRANSPORT/)).not.toBeInTheDocument();
+    expect(screen.getByText(/Original result for activity-1/)).toBeInTheDocument();
+    expect(state.mutations).toEqual([]);
+  });
+
   it('REQ-OPERATOR-084 AC3: opens retained operation evidence inside the selected operation without replay or execution', async () => {
     const { state, routes } = ownedDiagnosticFixture();
     const operation = diagnosticOperation();
@@ -625,7 +643,7 @@ describe('REQ-OPERATOR-081: AC6 retained Dispatcher diagnostics in Activity deta
     render(() => <OperatorManagement />);
     await selectDiagnosticActivity();
     const panel = await openDiagnostics();
-    fireEvent.click(panel.getByText('Capture and source technical details', { selector: 'summary' }));
+    fireEvent.click(await panel.findByText('Capture and source technical details', { selector: 'summary' }));
     const coverage = within(await panel.findByRole('region', { name: /(?:capture )?(?:capabilities|coverage)/i }));
     for (const family of diagnosticFamilies) {
       const words = family.replace(/-/g, '[ -]');
@@ -694,14 +712,13 @@ describe('REQ-OPERATOR-081: AC6 retained Dispatcher diagnostics in Activity deta
     await waitFor(() => expect(exportButton).not.toBeDisabled());
     fireEvent.click(exportButton);
     await waitFor(() => expect(panel.queryByText(/loading.*export/i)).not.toBeInTheDocument());
-    expect(await panel.findByText(/(?:metadata|export).*part|part.*(?:metadata|export)/i)).toBeInTheDocument();
-    expect(panel.getByText(/(?:more|next).*part|part.*(?:more|next)/i)).toBeInTheDocument();
+    expect(await panel.findByRole('status')).toHaveTextContent('Metadata export part 1 read. More parts remain.');
     expect(panel.queryByText(/export complete|all retained.*exported/i)).not.toBeInTheDocument();
     const nextPart = await panel.findByRole('button', { name: /(?:export|download).*next.*part|next.*export.*part/i });
     await waitFor(() => expect(nextPart).not.toBeDisabled());
     fireEvent.click(nextPart);
     expect(await panel.findByText(/Metadata export part 2 read\. Export traversal exhausted: all retained metadata parts read\./i)).toBeInTheDocument();
-    expect(panel.getByText(/(?:retention|retained).*loss|evicted.*5|5.*evicted/i)).toBeInTheDocument();
+    expect(panel.getByText('Retained evidence loss remains even after all export parts have been read. Traversal completeness does not describe complete execution history.')).toBeVisible();
     expect(panel.getByText(/does not describe complete execution history/i)).toBeInTheDocument();
     // Reject completeness claims, not the explicit disclaimer of execution-history completeness.
     expect(panel.queryByText(text => /complete execution history|no evidence loss/i.test(
@@ -767,7 +784,7 @@ describe('REQ-OPERATOR-081: AC6 retained Dispatcher diagnostics in Activity deta
     render(() => <OperatorManagement />);
     await selectDiagnosticActivity();
     const panel = await openDiagnostics();
-    expect(await panel.findByText(/logging.*(?:off|disabled)|capture.*disabled/i)).toBeInTheDocument();
+    expect(await panel.findByText('Logging was off. Optional errors and timeline records were not captured.')).toBeVisible();
     expect(panel.getByText(/deadline.*expir/i)).toBeInTheDocument();
     fireEvent.click(panel.getByText('Summary technical details', { selector: 'summary' }));
     expect(panel.getByText(/(?:original|binding).*generation.*3|generation.*3.*(?:original|binding)/i)).toBeVisible();
@@ -837,7 +854,7 @@ describe('REQ-OPERATOR-081: AC6 retained Dispatcher diagnostics in Activity deta
     render(() => <OperatorManagement />);
     await selectDiagnosticActivity();
     const panel = await openDiagnostics();
-    expect(panel.getByText('Some runtime records have not been imported into this metadata view. This does not establish whether their original runtime logs are available.')).toBeVisible();
+    expect(await panel.findByText('Some runtime records have not been imported into this metadata view. This does not establish whether their original runtime logs are available.')).toBeVisible();
     fireEvent.click(panel.getByText('Summary technical details', { selector: 'summary' }));
     expect(await panel.findByText(/SDK.*import.*(?:pending|incomplete)|(?:pending|incomplete).*SDK.*import/i)).toBeVisible();
     expect(panel.getByText(/(?:local|child).*captur.*(?:not|does not|unavailable).*host.persisted.*cause|host.persist.*(?:not|unconfirmed|unavailable).*cause/i)).toBeInTheDocument();

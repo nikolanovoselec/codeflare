@@ -3160,7 +3160,7 @@ describe('normal installed Dispatcher control', () => {
         catch (error) { controller.error(error); }
       } }, { highWaterMark: 0 });
       pending = f.installationCapability.fetch(new Request(normalCallback(f.activityId, 'phase-context', { deliveryToken: token },
-        { 'x-codeflare-dispatcher-delivery': token }), { body }));
+        { 'x-codeflare-dispatcher-delivery': token }), { method: 'POST', body }));
       const response = await within(pending, 'context across authenticated pre-ack handoff');
       expect(response.status).toBe(200);
       expect(await response.json()).toMatchObject({ generation: 1, deliveryToken: token,
