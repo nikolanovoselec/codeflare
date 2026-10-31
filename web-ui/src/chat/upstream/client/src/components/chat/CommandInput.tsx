@@ -23,6 +23,9 @@ import { ModelSelector } from "../settings/ModelSelector.js";
 import { RolePickNoticeCallout } from "../settings/RolePickNotice.js";
 import { DELIVERY_ITEM_CLASS, DeliveryChip, type DeliveryMode, DeliveryRadioItems, useMenuKeys } from "./ComposerDeliveryMenu.js";
 
+/** Presentation item kind; `flow` is not a native CommandInfo source/provenance. */
+export type CommandInputItem = Omit<CommandInfo, "source"> & { source: CommandInfo["source"] | "flow" };
+
 /** Built-in pi commands available from the dashboard */
 const BUILTIN_COMMANDS: CommandInfo[] = [
   { name: "compact", description: "Compact session context", source: "builtin" },
@@ -69,7 +72,7 @@ export function parseViewCommand(
 }
 
 interface Props {
-  commands: CommandInfo[];
+  commands: CommandInputItem[];
   /** Embedders may expose only their authorized catalog, without standalone commands. */
   includeBuiltinCommands?: boolean;
   onSend: (text: string, images?: ImageContent[], delivery?: "steer" | "followUp") => void;
@@ -221,6 +224,7 @@ const SOURCE_GROUP_LABEL: Record<string, string> = {
   extension: "Extensions",
   skill: "Skills",
   prompt: "Prompts",
+  flow: "Flows",
 };
 
 /** Argument hints for commands the dashboard controls; shown in the `/` menu. */
@@ -550,7 +554,7 @@ export function CommandInput({ commands: externalCommands, includeBuiltinCommand
   // correct and has no measurable render-perf cost (the dropdown items are
   // not memoized children). See change: fix-autocomplete-stale-closure.
 
-  const selectCommand = (cmd: CommandInfo) => {
+  const selectCommand = (cmd: CommandInputItem) => {
     const newText = `/${cmd.name} `;
     setText(newText);
     setDismissed(newText); // prevent dropdown from reopening for selected text
@@ -590,7 +594,7 @@ export function CommandInput({ commands: externalCommands, includeBuiltinCommand
     });
   };
 
-  const localizedCommandDescription = (cmd: CommandInfo) => {
+  const localizedCommandDescription = (cmd: CommandInputItem) => {
     if (cmd.source !== "builtin") return cmd.description;
     switch (cmd.name) {
       case "compact":

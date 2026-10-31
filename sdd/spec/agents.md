@@ -870,11 +870,12 @@ The former REQ-AGENT-131 Usage installation and warming workflow is retired. [Re
 3. Restoring that Codeflare session starts its immutable tab-1 agent with the same UUID. <!-- @impl: entrypoint.sh::configure_tab_autostart --> <!-- @test: host/__tests__/entrypoint-tab-autostart.test.js (REQ-AGENT-211 AC1+AC3+AC4: binds fresh and restored Pi and Claude launches to the Codeflare session) --> <!-- @test: host/__tests__/entrypoint-rclone-filters.test.js (REQ-AGENT-211 AC3: persists only the current classic agent-session binding) -->
 4. The restored native agent resumes its synced transcript. <!-- @impl: entrypoint.sh::configure_tab_autostart --> <!-- @test: host/__tests__/entrypoint-tab-autostart.test.js (REQ-AGENT-211 AC1+AC3+AC4: binds fresh and restored Pi and Claude launches to the Codeflare session) -->
 5. A different Codeflare session receives a different native conversation UUID. <!-- @impl: entrypoint.sh::configure_tab_autostart --> <!-- @test: host/__tests__/entrypoint-tab-autostart.test.js (REQ-AGENT-211 AC5: a different Codeflare session starts empty under a different native ID) -->
-6. Successful explicit Classic Pi resume/fork adoption, and a new conversation once its native transcript is persisted, atomically replace that Codeflare session's binding with the adopted root transcript ID. Initial startup, child sessions and failed/cancelled transitions do not overwrite it. Native unused empty conversations remain ephemeral; no synthetic transcript is written to force persistence. <!-- @impl: preseed/agents/pi/extensions/classic-session-binding.ts::adoptClassicResumedSession --> <!-- @impl: entrypoint.sh::configure_tab_autostart --> <!-- @test: src/__tests__/lib/pi-classic-session-binding.test.ts (REQ-AGENT-211 AC6: Classic Pi adopts every explicit resumed transcript) --> <!-- @test: src/__tests__/lib/pi-classic-session-binding.test.ts (REQ-AGENT-211 AC6 / REQ-AGENT-224: explicit %s adoption becomes the Classic restart target) --> <!-- @test: host/__tests__/entrypoint-tab-autostart.test.js (REQ-AGENT-211 AC6: restarts Classic Pi with its last explicitly resumed named session) -->
+6. Every successful Classic Pi `/resume` switch atomically replaces that Codeflare session's binding with the selected root transcript ID, including repeated switches. <!-- @impl: preseed/agents/pi/extensions/classic-session-binding.ts::adoptClassicResumedSession --> <!-- @impl: entrypoint.sh::configure_tab_autostart --> <!-- @test: src/__tests__/lib/pi-classic-session-binding.test.ts (REQ-AGENT-211 AC6: Classic Pi adopts every explicit resumed transcript) --> <!-- @test: host/__tests__/entrypoint-tab-autostart.test.js (REQ-AGENT-211 AC6: restarts Classic Pi with its last explicitly resumed named session) -->
 
 **Constraints:**
 
-- The binding is scoped only by the immutable Codeflare session ID and changes only after initial creation or successful explicit native adoption of a persisted transcript. Deferred first-message persistence is observed through public native events; Chat neither fabricates transcript files nor persists a browser-selected target.
+- The binding is scoped only by the immutable Codeflare session ID and changes only after initial creation or successful explicit native adoption of a persisted root transcript.
+- Startup, child sessions and failed/cancelled transitions cannot overwrite the binding.
 - Historical Classic sessions without a binding start empty rather than guessing from the newest transcript.
 - Herdr keeps its own native session-reference lifecycle and does not use this Classic bootstrap.
 
@@ -4131,28 +4132,9 @@ None.
 2. Normal-workspace Chat and Terminal control the same configured live primary and ongoing conversation without replacing the independent IDE conversation. <!-- @test: src/__tests__/routes/chat-integration.test.ts (REQ-AGENT-224: explicit %s/%s attachment preserves owner and generation without a wake) --> <!-- @manual: In disposable Normal-workspace Integration sessions, verify actual primary PID/session and deterministic tool continuity across Chat/Terminal for classic and Herdr; verify the external IDE remains independent. HTTP fixtures alone do not establish process identity. --> <!-- @impl: host/src/server.ts::readPrimaryIdentity -->
 3. Explicit Chat/Terminal entry adopts or starts the configured primary idempotently, including prewarm reuse without duplicate runtimes or a standalone Dashboard authorization step. <!-- @test: src/__tests__/routes/chat-integration.test.ts (REQ-SESSION-002 / REQ-AGENT-224: %s attach and reconnect never wake compute) --> <!-- @test: host/__tests__/chat-boundary.test.js (REQ-AGENT-224: routes explicit HTTP attachment through the authenticated optional adapter) --> <!-- @impl: host/src/session-manager.ts::ensurePrimary --> <!-- @test: host/__tests__/chat-primary.test.js (REQ-AGENT-224: Chat-only entry adopts the exact prewarm without a hidden terminal client) --> <!-- @test: host/__tests__/chat-proxy.test.js (REQ-AGENT-224: concurrent explicit attach returns actual primary identity, with no terminal client or manual input) --> <!-- @manual: Verify composed Host late entry/concurrent adoption in Integration; authored fixtures do not establish deployed process identity. --> <!-- @impl: host/src/server.ts::ensurePrimary --> <!-- @test: web-ui/src/__tests__/components/Layout-chat.test.tsx (REQ-AGENT-224: Chat entry retains Terminal ownership until its primary binding is confirmed) --> <!-- @test: host/__tests__/chat-startup.test.js (writes the public standalone auto-start policy without creating Pi settings) --> <!-- @impl: image/chat/primary-identity.mjs::preparePrimaryDashboard -->
 4. A surface switch disposes hidden browser ownership without stopping the primary or ongoing tools. <!-- @test: web-ui/src/__tests__/components/Layout-chat.test.tsx (REQ-AGENT-224: %s surface switches unmount hidden ownership without stopping or restamping the session) --> <!-- @test: web-ui/src/__tests__/components/Layout-chat.test.tsx (REQ-AGENT-224: Chat on a secondary classic tab returns to primary without resetting tab order or tiling) --> <!-- @manual: Verify real PTY/tool survival, Herdr pane return and hidden-terminal socket absence; the shell renderer fixture proves unmounting, not native socket disposal. --> <!-- @impl: web-ui/src/components/TerminalArea.tsx::TerminalArea --> <!-- @test: web-ui/src/__tests__/components/Layout-chat.test.tsx (REQ-AGENT-224: failed Chat attachment preserves the mounted %s Terminal and permits retry) -->
-5. Chat presents the primary conversation, attachments, progress, questions and errors using the retained public renderer/composer, with the controls below accessible without visiting Terminal on an updated runtime. Existing active runtimes lacking those controls retain basic Chat without unsupported frames or forced session restarts. <!-- @manual: Inspect the complete integrated surface; do not duplicate tests for untouched imported renderers. --> <!-- @impl: web-ui/src/chat/ChatMount.tsx::mountChat --> <!-- @test: web-ui/src/chat/__tests__/controls.test.tsx --> <!-- @test: host/__tests__/chat-http-controls.test.js -->
+5. Chat presents the primary conversation, attachments, progress, questions and errors using the retained public renderer/composer, with the scoped Chat controls accessible without visiting Terminal on an updated runtime. Existing active runtimes lacking those controls retain basic Chat without unsupported frames or forced session restarts. <!-- @manual: Inspect the complete integrated surface; do not duplicate tests for untouched imported renderers. --> <!-- @impl: web-ui/src/chat/ChatMount.tsx::mountChat --> <!-- @test: web-ui/src/chat/__tests__/controls.test.tsx (preserves basic Chat on an older runtime without sending unsupported control frames) --> <!-- @test: host/__tests__/chat-http-controls.test.js (advertises complete controls without provider, transcript or runtime mutation) -->
 6. Returning to Chat restores only that session’s in-memory composer draft. <!-- @test: web-ui/src/__tests__/components/Layout-chat.test.tsx (REQ-AGENT-224: drafts survive surface unmount but are session-local and not persisted) --> <!-- @test: web-ui/src/__tests__/components/Layout-chat.test.tsx (REQ-AGENT-224: deleting a session clears its unsent draft before that identity is reused) --> <!-- @manual: Verify logout clears retained session drafts before another account uses the shell. --> <!-- @impl: web-ui/src/components/Layout.tsx::Layout -->
 7. Chat preserves accessible keyboard/mobile operation alongside existing Terminal/IDE behavior. <!-- @test: web-ui/src/__tests__/components/Header.test.tsx --> <!-- @test: web-ui/src/__tests__/components/Layout-chat.test.tsx (REQ-AGENT-224: auth expiry during explicit entry is visible and does not leave a hidden terminal or retry loop) --> <!-- @manual: Verify actual mobile/keyboard/scrolling and existing Terminal/IDE/MultiView regressions in the delivered application. --> <!-- @impl: web-ui/src/components/Layout.tsx::Layout --> <!-- @test: web-ui/src/__tests__/components/Layout-chat.test.tsx (REQ-AGENT-224: choosing the visible Terminal cancels pending Chat entry even if its response arrives late) --> <!-- @test: web-ui/src/__tests__/components/Layout-chat.test.tsx (REQ-IDE-056: Chat-first pending entry keeps Terminal actionable) --> <!-- @test: web-ui/src/__tests__/components/Layout-chat.test.tsx (REQ-AGENT-224: a generation change during pending Chat entry cannot select or attach the replacement primary) -->
-
-8. Personal-provider sign-in is available inside Chat, including provider-supported browser/device/manual-input steps, cancellation and actionable failures. Credentials reach the same provider authority used by the primary, not an isolated transport credential store. <!-- @manual: Complete personal-provider authentication in a disposable Integration session without using Terminal. --> <!-- @test: host/__tests__/chat-auth.test.js --> <!-- @test: web-ui/src/chat/__tests__/controls.test.tsx -->
-9. Credential status, supported credential updates and logout are available without exposing stored secrets. The interface identifies credential scope truthfully; cancelling an authentication flow is not presented as logging out. <!-- @manual: Verify redacted status, credential update and logout against the actual primary. --> <!-- @test: host/__tests__/chat-auth.test.js --> <!-- @test: host/__tests__/chat-http-controls.test.js -->
-10. Managed Enterprise sessions send through their authorized default gateway route without requiring personal-provider login. Chat exposes only routes and authentication choices permitted by the existing Enterprise policy. <!-- @manual: Verify inference in Enterprise Integration using the configured primary and managed gateway, not a separately authenticated browser client. --> <!-- @test: host/__tests__/chat-auth.test.js --> <!-- @test: web-ui/src/chat/__tests__/controls.test.tsx -->
-11. Chat shows the current model, refreshes its permitted catalog and applies a selected model to the bound primary, reporting rejection without falsely displaying success. <!-- @manual: Change an allowed model and verify the actual primary's next request. --> <!-- @test: host/__tests__/chat-controls.test.js --> <!-- @test: web-ui/src/chat/__tests__/controls.test.tsx -->
-12. Chat shows and changes the primary's supported reasoning level; unsupported levels are unavailable and failed changes do not become the displayed selection. <!-- @manual: Verify reasoning selection against the selected model or gateway route's capabilities. --> <!-- @test: host/__tests__/chat-controls.test.js --> <!-- @test: web-ui/src/chat/__tests__/controls.test.tsx -->
-13. Users can browse authorized persisted Pi conversations belonging to the current workspace, without confusing them with Codeflare container/session navigation or revealing another workspace's transcripts. <!-- @manual: Inspect older conversation history and reject foreign or arbitrary transcript targets. --> <!-- @test: host/__tests__/chat-conversations.test.js --> <!-- @test: host/__tests__/chat-primary-controls.test.js --> <!-- @test: web-ui/src/chat/__tests__/controls.test.tsx -->
-14. Creating a conversation explicitly replaces the active conversation through the primary's supported lifecycle owner, without starting a competing primary or silently discarding ongoing work. <!-- @manual: Verify actual primary carrier identity and fresh conversation after explicit creation. --> <!-- @test: host/__tests__/chat-conversations.test.js --> <!-- @test: host/__tests__/chat-http-controls.test.js --> <!-- @test: web-ui/src/chat/__tests__/controls.test.tsx -->
-15. Resuming a persisted conversation updates the shared primary binding only after successful native adoption, so Chat, Terminal and subsequent Classic/Herdr recovery agree on the target. <!-- @manual: Resume an authorized conversation and verify cross-surface continuity and restart recovery. --> <!-- @test: host/__tests__/chat-conversations.test.js --> <!-- @test: host/__tests__/chat-primary-controls.test.js --> <!-- @test: web-ui/src/chat/__tests__/controls.test.tsx -->
-16. Forking from a message creates and adopts the native branch without rewriting the source conversation or selecting a target from browser metadata. <!-- @manual: Verify branch ancestry and shared-primary adoption in a disposable session. --> <!-- @test: host/__tests__/chat-conversations.test.js --> <!-- @test: host/__tests__/chat-primary-controls.test.js --> <!-- @test: web-ui/src/chat/__tests__/controls.test.tsx -->
-17. Chat discovers and executes supported primary commands through the existing public command path, with actionable errors and no advertised command that silently becomes an ordinary model prompt. <!-- @manual: Exercise command discovery and supported execution without Terminal input injection. --> <!-- @test: host/__tests__/chat-controls.test.js --> <!-- @test: web-ui/src/chat/__tests__/controls.test.tsx -->
-18. Chat offers workspace-scoped file search/completion that selects the intended file; foreign paths and traversal never widen the accessible workspace. <!-- @manual: Select a workspace file and reject an out-of-workspace target. --> <!-- @test: host/__tests__/chat-controls.test.js --> <!-- @test: web-ui/src/chat/__tests__/controls.test.tsx -->
-19. Chat displays current context usage from the native conversation/model metadata, distinguishing unknown values from zero usage. <!-- @manual: Compare known and unknown context usage with the actual primary state. --> <!-- @test: web-ui/src/chat/__tests__/controls.test.tsx -->
-20. Chat exposes the native bridge's buffered follow-up edit/remove/promote/clear actions with truthful buffer labels; actions do not claim to cancel or rewrite already delivered work. <!-- @manual: Mutate buffered follow-ups while preserving images and native queue ownership. --> <!-- @test: host/__tests__/chat-controls.test.js --> <!-- @test: web-ui/src/chat/__tests__/controls.test.tsx -->
-21. Force-stop explicitly identifies that it terminates the shared primary Pi, targets only that bound process and never stops the container or independent IDE. <!-- @manual: Verify explicit force-stop and its terminal effect in a disposable session. --> <!-- @test: host/__tests__/chat-controls.test.js --> <!-- @test: web-ui/src/chat/__tests__/controls.test.tsx -->
-22. Stop-after-turn uses the supported native graceful-stop behavior and clearly discloses its effect on the shared primary, rather than presenting shutdown as ordinary inference cancellation. <!-- @manual: Verify the supported idle/busy behavior and actual end-of-turn shutdown. --> <!-- @test: host/__tests__/chat-controls.test.js --> <!-- @test: web-ui/src/chat/__tests__/controls.test.tsx -->
-23. Pending-prompt recovery and explicit re-entry after termination preserve truthful delivery state; recovery never automatically resends a prompt whose delivery is uncertain. <!-- @manual: Exercise failed/pending input, reconnect and explicit primary recovery without duplicate work. --> <!-- @test: host/__tests__/chat-primary-controls.test.js --> <!-- @test: host/__tests__/chat-proxy.test.js --> <!-- @test: web-ui/src/chat/__tests__/controls.test.tsx -->
-24. Chat exposes working native display controls while inheriting Codeflare appearance; display changes do not acquire session, credential or lifecycle authority. <!-- @manual: Change supported display options and verify their effect across Chat/Terminal navigation. --> <!-- @test: host/__tests__/chat-controls.test.js --> <!-- @test: host/__tests__/chat-http-controls.test.js --> <!-- @test: web-ui/src/chat/__tests__/controls.test.tsx -->
-25. Transcript, composer, controls and overlays use Codeflare typography, surfaces and active accent consistently, with bounded scrolling, readable prose, usable focus/touch targets and complete loading/empty/error/recovery states on desktop, tablet and mobile. The existing left session dropdown retains its identity, actions and placement. <!-- @manual: Inspect the delivered application at representative desktop/tablet/mobile sizes, including soft keyboard and overlay interaction. -->
 
 **Constraints:**
 
@@ -4175,6 +4157,173 @@ None.
 **Dependencies:** [REQ-AGENT-003](#req-agent-003-agent-cli-auto-started-in-tab-1), [REQ-AGENT-211](#req-agent-211-classic-agent-transcript-resume), [REQ-AGENT-218](#req-agent-218-bounded-pi-questionnaire-wait), [REQ-AGENT-219](#req-agent-219-pi-questionnaire-cancellation-and-isolation), [REQ-AGENT-220](#req-agent-220-managed-questionnaire-preparation), [REQ-IDE-048](browser-ide.md#req-ide-048-default-workspace-and-dashboard-owned-vs-code-sessions), [REQ-TERM-035](terminal.md#req-term-035-terminal-readiness-follows-mode-and-workspace), [REQ-TERM-023](terminal.md#req-term-023-away-only-agent-notification-delivery), [REQ-AGENT-150](#req-agent-150-independent-managed-release-activation-validation), [REQ-AGENT-154](#req-agent-154-build-compatible-managed-release-discovery), [REQ-AGENT-162](#req-agent-162-session-start-managed-release-snapshot), [REQ-OPS-028](operations.md#req-ops-028-deploy-verification-and-outcome-gate), [REQ-OPS-029](operations.md#req-ops-029-automatic-manual-deploy-verification-reuse), [REQ-SESSION-002](session-lifecycle.md#req-session-002-one-container-per-session-isolation), [REQ-SESSION-004](session-lifecycle.md#req-session-004-idle-containers-sleep-after-configurable-timeout), [REQ-SESSION-005](session-lifecycle.md#req-session-005-input-based-idle-detection), [REQ-TERM-001](terminal.md#req-term-001-terminal-surface-count-follows-session-mode), [REQ-TERM-011](terminal.md#req-term-011-visible-terminal-panes-own-websocket-connections), [REQ-TERM-012](terminal.md#req-term-012-multiview-virtual-session-workspace), [REQ-TERM-024](terminal.md#req-term-024-pi-native-terminal-notification-producer), [REQ-TERM-028](terminal.md#req-term-028-notification-reconnect-reconciliation-and-cancellation), [REQ-TERM-031](terminal.md#req-term-031-herdr-notification-compatibility-boundary), [REQ-TERM-034](terminal.md#req-term-034-terminal-mode-assignment-is-immutable)
 
 **Verification:** Navigation/default corrections and their review/CI at `58d97dff` remain completed. The added authentication, history/lifecycle, command/model/file/queue/display wiring and runtime-compatibility policy have authored first-party behavioral suites; only safe syntax/static checks have run. Exact-head CI, same-primary and credential-store adoption, managed Enterprise inference, restart recovery and desktop/tablet/mobile Integration acceptance remain pending. Source inspection and mockups are not runtime evidence. Existing questionnaire, idle, isolation, signature and compiler-compatibility boundaries remain unchanged; untouched imported/SDK suites are not duplicated.
+
+**Status:** Planned
+
+---
+
+### REQ-AGENT-225: Chat provider authentication and credential scope
+
+**Intent:** Users authenticate the shared primary and manage its credentials within the existing personal or managed Enterprise policy.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Personal-provider sign-in is available inside Chat, including provider-supported browser/device/manual-input steps, cancellation and actionable failures. <!-- @manual: Complete personal-provider authentication in a disposable Integration session without using Terminal. --> <!-- @test: host/__tests__/chat-auth.test.js (projects auth URL + code, text, selection and device metadata using the retained public UI contract) --> <!-- @test: host/__tests__/chat-auth.test.js (cancel aborts pending input, preserves existing credentials and cannot be resurrected by late callbacks) --> <!-- @test: host/__tests__/chat-auth.test.js (keeps SDK synchronization errors generic even when their public credential field contains secrets) --> <!-- @test: web-ui/src/chat/__tests__/controls.test.tsx (binds provider discovery/status and the native answer callback to this primary auth scope) -->
+2. Chat authentication reaches the same provider credential authority used by the primary, not an isolated transport credential store. <!-- @manual: Complete personal-provider authentication in a disposable Integration session without using Terminal. --> <!-- @test: host/__tests__/chat-auth.test.js (persists login in the SDK-authoritative primary store, not the Dashboard transport store) --> <!-- @test: host/__tests__/chat-http-controls.test.js (routes provider discovery/status and step-bound login to the actual primary credential authority) -->
+3. Credential status, supported credential updates and logout are available without exposing stored secrets or misrepresenting credential scope. <!-- @manual: Verify redacted status, credential update and logout against the actual primary. --> <!-- @test: host/__tests__/chat-auth.test.js (returns only permitted provider actions and native redacted status, not SDK objects) --> <!-- @test: host/__tests__/chat-auth.test.js (updates an API key through public SDK login, keeping answers out of flow/status) --> <!-- @test: host/__tests__/chat-auth.test.js (logout removes the shared stored credential without falsely disconnecting native ambient auth) -->
+4. Cancelling an authentication flow is not presented as logging out. <!-- @manual: Cancel a live sign-in and verify existing credentials remain configured without a logout success claim. --> <!-- @test: host/__tests__/chat-http-controls.test.js (cancel uses its scoped DELETE road and never becomes credential logout) -->
+5. Managed Enterprise sessions send through their authorized default gateway route without requiring personal-provider login. <!-- @manual: Verify inference in Enterprise Integration using the configured primary and managed gateway, not a separately authenticated browser client. --> <!-- @test: web-ui/src/chat/__tests__/controls.test.tsx (discovers the permitted catalog and shows authoritative primary metadata, not optimistic selection) -->
+6. Chat exposes only routes and authentication choices permitted by the existing Enterprise policy. <!-- @manual: Verify inference in Enterprise Integration using the configured primary and managed gateway, not a separately authenticated browser client. --> <!-- @test: host/__tests__/chat-auth.test.js (managed Enterprise keeps native configured status but forbids personal mutation by default) -->
+
+**Constraints:**
+
+- Authenticate and scope flows before protected I/O; never return or log stored tokens or submitted credential values.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-224](#req-agent-224-shared-live-pi-chat-and-session-local-surfaces), [REQ-ENTERPRISE-004](models-and-routing.md#req-enterprise-004-outbound-interception-llm-routing-to-customer-ai-gateway), [REQ-ENTERPRISE-049](models-and-routing.md#req-enterprise-049-unified-enterprise-model-authorization)
+
+**Verification:** Manual check: retain each criterion’s Integration procedure; named first-party tests are supplemental authored evidence, not executed GREEN. Exact-head CI and disposable Integration/Enterprise acceptance remain pending.
+
+**Status:** Planned
+
+---
+
+### REQ-AGENT-226: Chat model and reasoning selection
+
+**Intent:** Users inspect and change permitted model and reasoning selections on the bound primary.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Chat shows the current model, refreshes its permitted catalog and applies a selected model to the bound primary, reporting rejection without falsely displaying success. <!-- @manual: Change an allowed model and verify the actual primary's next request. --> <!-- @test: host/__tests__/chat-controls.test.js (pinned control wire contract: ${control.type} ${JSON.stringify(control.indices ?? '')} reaches only the bound primary) --> <!-- @test: web-ui/src/chat/__tests__/controls.test.tsx (discovers the permitted catalog and shows authoritative primary metadata, not optimistic selection) --> <!-- @test: web-ui/src/chat/__tests__/controls.test.tsx (keeps the selection and exposes a rejected change rather than claiming success) -->
+2. Chat shows and changes the primary's supported reasoning level; unsupported levels are unavailable and failed changes do not become the displayed selection. <!-- @manual: Verify reasoning selection against the selected model or gateway route's capabilities. --> <!-- @test: host/__tests__/chat-controls.test.js (pinned control wire contract: ${control.type} ${JSON.stringify(control.indices ?? '')} reaches only the bound primary) --> <!-- @test: web-ui/src/chat/__tests__/controls.test.tsx (discovers the permitted catalog and shows authoritative primary metadata, not optimistic selection) -->
+
+**Constraints:**
+
+- Only authoritative primary metadata establishes the displayed selection.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-224](#req-agent-224-shared-live-pi-chat-and-session-local-surfaces)
+
+**Verification:** Manual check: retain each criterion’s Integration procedure; named first-party tests are supplemental authored evidence, not executed GREEN. Exact-head CI and disposable Integration/Enterprise acceptance remain pending.
+
+**Status:** Planned
+
+---
+
+### REQ-AGENT-227: Shared primary conversation lifecycle
+
+**Intent:** Users browse and explicitly replace native conversations without competing runtime ownership or losing durable Classic restart continuity.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Users can browse authorized persisted Pi conversations belonging to the current workspace, without confusing them with Codeflare container/session navigation or revealing another workspace's transcripts. <!-- @manual: Inspect older conversation history and reject foreign or arbitrary transcript targets. --> <!-- @test: host/__tests__/chat-conversations.test.js (AC13 lists only authorized metadata, not transcript text, paths or another workspace) --> <!-- @test: host/__tests__/chat-primary-controls.test.js (lists in native order, even while native work is busy, and allowlists metadata without rebinding) --> <!-- @test: web-ui/src/chat/__tests__/controls.test.tsx (lists workspace conversation metadata without replacing Codeflare navigation or selecting a metadata-derived target) -->
+2. Creating a conversation explicitly replaces the active conversation through the primary's supported lifecycle owner, without starting a competing primary or silently discarding ongoing work. <!-- @manual: Verify actual primary carrier identity and fresh conversation after explicit creation. --> <!-- @test: host/__tests__/chat-conversations.test.js (AC14–16 ${op} publishes the actual fresh adoption on the same configured carrier) --> <!-- @test: host/__tests__/chat-conversations.test.js (AC14–16 refuses ${op} with active/queued work rather than aborting or deferring: ${JSON.stringify(state)}) --> <!-- @test: host/__tests__/chat-http-controls.test.js (native ${action} returns the confirmed adopted binding, not a competing conversation claim) --> <!-- @test: web-ui/src/chat/__tests__/controls.test.tsx (%s adopts only the actual returned native binding and clears the old in-memory draft) -->
+3. Resuming a persisted conversation updates the shared primary binding only after successful native adoption, so Chat, Terminal and subsequent Classic/Herdr recovery agree on the target. <!-- @manual: Resume an authorized conversation and verify cross-surface continuity and restart recovery. --> <!-- @test: host/__tests__/chat-conversations.test.js (AC14–16 ${op} publishes the actual fresh adoption on the same configured carrier) --> <!-- @test: host/__tests__/chat-primary-controls.test.js (requires the outcome to match the actual published session, not a plausible requested target) --> <!-- @test: web-ui/src/chat/__tests__/controls.test.tsx (%s adopts only the actual returned native binding and clears the old in-memory draft) -->
+4. Forking from a message creates and adopts the native branch without rewriting the source conversation or selecting a target from browser metadata. <!-- @manual: Verify branch ancestry and shared-primary adoption in a disposable session. --> <!-- @test: host/__tests__/chat-conversations.test.js (AC16 accepts an assistant message as a current native fork point) --> <!-- @test: host/__tests__/chat-primary-controls.test.js (${op} uses the exact private command and returns only the correlated actual adoption) --> <!-- @test: web-ui/src/chat/__tests__/controls.test.tsx (%s adopts only the actual returned native binding and clears the old in-memory draft) -->
+5. Successful explicit Classic Pi new/fork adoption atomically replaces that Codeflare session’s restart binding with the adopted persisted root transcript ID. <!-- @impl: preseed/agents/pi/extensions/classic-session-binding.ts::adoptClassicResumedSession --> <!-- @test: src/__tests__/lib/pi-classic-session-binding.test.ts (REQ-AGENT-211 AC6 / REQ-AGENT-224: explicit %s adoption becomes the Classic restart target) --> <!-- @manual: Verify new/fork restart continuity in disposable Classic Integration sessions. -->
+6. An explicitly created Classic Pi conversation adopts its restart binding only once native persistence is observed; unused empty conversations remain ephemeral without warnings or synthetic transcript creation. <!-- @impl: preseed/agents/pi/extensions/classic-session-binding.ts::registerClassicSessionBinding --> <!-- @test: src/__tests__/lib/pi-classic-session-binding.test.ts (defers empty new adoption without warnings until a native file exists at %s) --> <!-- @manual: Verify empty-new then first-message persistence and restart in Integration. -->
+7. Deferred Classic adoption cannot overwrite the restart binding after its intended native conversation or lifecycle transition changes. <!-- @impl: preseed/agents/pi/extensions/classic-session-binding.ts::registerClassicSessionBinding --> <!-- @test: src/__tests__/lib/pi-classic-session-binding.test.ts (does not adopt stale pending new after %s) --> <!-- @test: src/__tests__/lib/pi-classic-session-binding.test.ts (rejects deferred %s files without changing the restart target) --> <!-- @test: src/__tests__/lib/pi-classic-session-binding.test.ts (does not defer adoption outside the owning Classic primary: %o) --> <!-- @manual: Verify a superseding Terminal transition cannot be undone by late native persistence. -->
+
+**Constraints:**
+
+- Use legitimate command-capable public lifecycle authority and fresh binding confirmation, never private context capture, terminal injection or another runtime.
+- Deferred persistence uses public native events; Chat cannot persist a browser-selected target.
+- Startup, child sessions and failed/cancelled transitions cannot overwrite Classic bindings.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-224](#req-agent-224-shared-live-pi-chat-and-session-local-surfaces), [REQ-AGENT-211](#req-agent-211-classic-agent-transcript-resume)
+
+**Verification:** Manual check: retain each criterion’s Integration procedure; named first-party tests are supplemental authored evidence, not executed GREEN. Exact-head CI and disposable Integration/Enterprise acceptance remain pending.
+
+**Status:** Planned
+
+---
+
+### REQ-AGENT-228: Chat commands files and context
+
+**Intent:** Users operate supported primary commands with workspace file completion and truthful native context usage.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Chat discovers and executes supported primary commands through the existing public command path, with actionable errors and no advertised command that silently becomes an ordinary model prompt. <!-- @manual: Exercise command discovery and supported execution without Terminal input injection. --> <!-- @test: host/__tests__/chat-controls.test.js (discovered-command wire contract executes only safe advertised commands on the bound primary) --> <!-- @test: web-ui/src/chat/__tests__/controls.test.tsx (discovers commands and sends an authorized slash command only through the bound native prompt road) -->
+2. Chat offers workspace-scoped file search/completion that selects the intended file; foreign paths and traversal never widen the accessible workspace. <!-- @manual: Select a workspace file and reject an out-of-workspace target. --> <!-- @test: host/__tests__/chat-controls.test.js (rejects malformed or widened ${invalid.type} controls before protected dispatch) --> <!-- @test: web-ui/src/chat/__tests__/controls.test.tsx (routes @file queries and results without mixing another primary response) -->
+3. Chat displays current context usage from the native conversation/model metadata, distinguishing unknown values from zero usage. <!-- @manual: Compare known and unknown context usage with the actual primary state. --> <!-- @test: web-ui/src/chat/__tests__/controls.test.tsx (forwards native context tokens %j without manufacturing unknown as zero) -->
+
+**Constraints:**
+
+- Command discovery must not confer terminal-only lifecycle or management authority.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-224](#req-agent-224-shared-live-pi-chat-and-session-local-surfaces)
+
+**Verification:** Manual check: retain each criterion’s Integration procedure; named first-party tests are supplemental authored evidence, not executed GREEN. Exact-head CI and disposable Integration/Enterprise acceptance remain pending.
+
+**Status:** Planned
+
+---
+
+### REQ-AGENT-229: Chat buffered work and primary recovery
+
+**Intent:** Users control native buffered work and explicitly stop or recover the bound shared primary without ambiguous delivery claims.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Chat exposes the native bridge's buffered follow-up edit/remove/promote/clear actions with truthful buffer labels; actions do not claim to cancel or rewrite already delivered work. <!-- @manual: Mutate buffered follow-ups while preserving images and native queue ownership. --> <!-- @test: host/__tests__/chat-controls.test.js (pinned control wire contract: ${control.type} ${JSON.stringify(control.indices ?? '')} reaches only the bound primary) --> <!-- @test: web-ui/src/chat/__tests__/controls.test.tsx (wires all buffered follow-up actions without optimistic deletion or resending image bytes) -->
+2. Force-stop explicitly identifies that it terminates the shared primary Pi, targets only that bound process and never stops the container or independent IDE. <!-- @manual: Verify explicit force-stop and its terminal effect in a disposable session. --> <!-- @test: host/__tests__/chat-controls.test.js (pinned control wire contract: ${control.type} ${JSON.stringify(control.indices ?? '')} reaches only the bound primary) --> <!-- @test: web-ui/src/chat/__tests__/controls.test.tsx (%s discloses shared Pi termination and cancellation emits no shutdown) -->
+3. Stop-after-turn uses the supported native graceful-stop behavior and clearly discloses its effect on the shared primary, rather than presenting shutdown as ordinary inference cancellation. <!-- @manual: Verify the supported idle/busy behavior and actual end-of-turn shutdown. --> <!-- @test: host/__tests__/chat-controls.test.js (pinned control wire contract: ${control.type} ${JSON.stringify(control.indices ?? '')} reaches only the bound primary) --> <!-- @test: web-ui/src/chat/__tests__/controls.test.tsx (%s discloses shared Pi termination and cancellation emits no shutdown) -->
+4. Pending-prompt recovery and explicit re-entry after termination preserve truthful delivery state; recovery never automatically resends a prompt whose delivery is uncertain. <!-- @manual: Exercise failed/pending input, reconnect and explicit primary recovery without duplicate work. --> <!-- @test: host/__tests__/chat-primary-controls.test.js (does not infer success from a changed actual ID without correlated outcome) --> <!-- @test: host/__tests__/chat-proxy.test.js (REQ-AGENT-224: primary-unavailable close contract fences input and requires explicit reentry) --> <!-- @test: web-ui/src/chat/__tests__/controls.test.tsx (does not replay uncertain handed text on reconnect or explicit recovery) -->
+
+**Constraints:**
+
+- Keep native pending-input and buffer ownership without another receipt queue or automatic replay.
+- Termination targets only the bound primary, never the container or independent IDE.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-224](#req-agent-224-shared-live-pi-chat-and-session-local-surfaces)
+
+**Verification:** Manual check: retain each criterion’s Integration procedure; named first-party tests are supplemental authored evidence, not executed GREEN. Exact-head CI and disposable Integration/Enterprise acceptance remain pending.
+
+**Status:** Planned
+
+---
+
+### REQ-AGENT-230: Codeflare-native Chat presentation
+
+**Intent:** Users retain Codeflare appearance and usable complete-state controls throughout Chat and its overlays.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Chat exposes working native display controls while inheriting Codeflare appearance; display changes do not acquire session, credential or lifecycle authority. <!-- @manual: Change supported display options and verify their effect across Chat/Terminal navigation. --> <!-- @test: host/__tests__/chat-controls.test.js (pinned control wire contract: ${control.type} ${JSON.stringify(control.indices ?? '')} reaches only the bound primary) --> <!-- @test: host/__tests__/chat-http-controls.test.js (reads and saves display defaults through the fixed private preference road) --> <!-- @test: web-ui/src/chat/__tests__/controls.test.tsx (offers native View controls and applies only the acknowledged bound override to the rendered display context) -->
+2. Transcript, composer, controls and overlays use Codeflare typography, surfaces and active accent consistently, with bounded scrolling, readable prose, usable focus/touch targets and complete loading/empty/error/recovery states on desktop, tablet and mobile. <!-- @manual: Inspect the delivered application at representative desktop/tablet/mobile sizes, including soft keyboard and overlay interaction. -->
+3. The existing left session dropdown retains its identity, actions and placement. <!-- @manual: Inspect the delivered application at representative desktop/tablet/mobile sizes, including soft keyboard and overlay interaction. -->
+
+**Constraints:**
+
+- Display controls reuse native display preferences without acquiring session, credential or lifecycle authority.
+- Use progressive disclosure inside the existing shell, not a second Dashboard application.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-224](#req-agent-224-shared-live-pi-chat-and-session-local-surfaces)
+
+**Verification:** Manual check: retain each criterion’s Integration procedure; named first-party tests are supplemental authored evidence, not executed GREEN. Exact-head CI and disposable Integration/Enterprise acceptance remain pending.
 
 **Status:** Planned
 

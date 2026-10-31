@@ -4,6 +4,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { getByLabelText, getByRole, queryByRole, waitFor } from '@testing-library/dom';
 import { mountChat, type ChatMountProps } from '../ChatMount';
 
+const presentationProbe = vi.hoisted(() => ({ realComposer: false }));
+
 // Public native component ports, not donor implementation tests. Small accessible
 // probes expose only what OUR mount supplies. Real socket/reducer/actions remain
 // live; no model selector, file picker keyboard, queue or SDK algorithm is tested.
@@ -13,6 +15,7 @@ vi.mock('../upstream/client/src/chat-embed', async importOriginal => {
   return {
     ...actual,
     CommandInput: (p: ComponentProps<typeof actual.CommandInput>) => <section aria-label="Composer wiring">
+      {presentationProbe.realComposer && <actual.CommandInput {...p} />}
       <output aria-label="Current model">{p.model ?? 'unknown'}</output>
       <output aria-label="Reasoning level">{p.thinkingLevel ?? 'unknown'}</output>
       <output aria-label="Model catalog">{JSON.stringify(p.models ?? [])}</output>
@@ -35,6 +38,10 @@ vi.mock('../upstream/client/src/chat-embed', async importOriginal => {
       <button disabled={p.disabled} onClick={() => p.onSend('/compact')}>Run discovered command</button>
       <button disabled={p.disabled} onClick={() => p.onSend('/not-supported')}>Run unsupported command</button>
       <button disabled={p.disabled} onClick={() => p.onSend('A possibly handed prompt')}>Send prompt</button>
+      <button disabled={p.disabled} onClick={() => p.onSend('Prompt with attachments', [
+        { type: 'image', data: 'aW1hZ2U=', mimeType: 'image/png' },
+        { type: 'image', data: 'anBlZw==', mimeType: 'image/jpeg' },
+      ], 'followUp')}>Send attached prompt</button>
       <button disabled={p.disabled || !p.onCancelPending} onClick={p.onCancelPending}>Cancel pending</button>
       <button disabled={p.disabled || !p.onForceKill} onClick={p.onForceKill}>Force stop Pi</button>
       <button disabled={p.disabled || !p.onStopAfterTurn} onClick={p.onStopAfterTurn}>Stop Pi after turn</button>
@@ -50,7 +57,10 @@ vi.mock('../upstream/client/src/chat-embed', async importOriginal => {
     ChatView: (p: ComponentProps<typeof actual.ChatView>) => {
       const prefs = useDisplayPrefs(p.sessionId);
       return <section aria-label="Transcript wiring">
-        <button onClick={() => p.toolContext?.send?.({ type: 'setSessionDisplayPrefs', sessionId: p.sessionId, override: { reasoning: true } })}>Try advanced tool action</button>
+        <button onClick={() => {
+          if (!p.sessionId) throw new Error('Expected the actual bound Chat session ID');
+          p.toolContext?.send?.({ type: 'setSessionDisplayPrefs', sessionId: p.sessionId, override: { reasoning: true } });
+        }}>Try advanced tool action</button>
         <output aria-label="Reasoning visible">{String(prefs.reasoning)}</output>
         <output aria-label="Context visible">{String(prefs.contextUsageBar)}</output>
         <button disabled={!p.onRetryPendingPrompt} onClick={p.onRetryPendingPrompt}>Recover pending prompt</button>
@@ -65,8 +75,14 @@ vi.mock('../upstream/client/src/chat-embed', async importOriginal => {
 vi.mock('../upstream/client/src/components/settings/OAuthFlowView', () => ({
   OAuthFlowView: (p: ComponentProps<typeof import('../upstream/client/src/components/settings/OAuthFlowView').OAuthFlowView>) => <section aria-label="Native auth flow wiring">
     <output aria-label="Auth flow">{JSON.stringify(p.flow)}</output>
-    <button onClick={() => p.onSendInput(p.flow.flowId, 'public-code')}>Submit native auth answer</button>
-    <button onClick={p.onCancel}>Cancel native auth flow</button>
+    <button onClick={() => {
+      if (!p.flow.status) throw new Error('Expected the current auth flow status');
+      return p.onSendInput(p.flow.status.flowId, 'public-code');
+    }}>Submit native auth answer</button>
+    <button onClick={() => {
+      if (!p.flow.status) throw new Error('Expected the current auth flow status');
+      return p.onCancel(p.flow.status.flowId);
+    }}>Cancel native auth flow</button>
   </section>,
 }));
 
@@ -124,7 +140,7 @@ function expectScoped(request: Request, method = 'GET') {
 }
 afterEach(async () => {
   if (mounted) await act(() => mounted!.dispose());
-  mounted = undefined; host?.remove(); vi.unstubAllGlobals();
+  mounted = undefined; host?.remove(); vi.unstubAllGlobals(); presentationProbe.realComposer = false;
 });
 
 describe('REQ-AGENT-224 AC10–12: first-party model and reasoning wiring', () => {
@@ -189,6 +205,17 @@ describe('REQ-AGENT-224 AC10–12: first-party model and reasoning wiring', () =
     expect(host.textContent).toMatch(/Model selection denied by policy/);
   });
 
+  it('accepts only string Host errors for the actual bound primary', async () => {
+    await mount();
+    await receive({ type: 'error', sessionId: 'other-primary', message: 'Foreign error' });
+    await receive({ type: 'error', message: 'Unscoped error' });
+    await receive({ type: 'error', sessionId: PRIMARY, message: { text: 'Malformed error' } });
+    expect(queryByRole(host, 'alert')).toBeNull();
+    await receive({ type: 'error', sessionId: PRIMARY, message: 'Bound control rejected' });
+    expect(getByRole(host, 'alert').textContent).toBe('Bound control rejected');
+    expect(output('Current model')).toBe('codeflare-gateway/route-fast');
+  });
+
   it('ignores another primary metadata/catalog and cannot mutate while offline', async () => {
     await mount();
     await receive({ type: 'session_updated', sessionId: 'other-primary', updates: { model: 'foreign/secret', thinkingLevel: 'high' } });
@@ -204,6 +231,34 @@ describe('REQ-AGENT-224 AC10–12: first-party model and reasoning wiring', () =
 });
 
 describe('REQ-AGENT-224 AC17–19: first-party command, file and context ports', () => {
+  it.each([undefined, 'workspace/custom-flow.yaml', 'builtin'])('presents flow source %s as a Flow item, retaining raw-name dispatch and native command provenance', async source => {
+    presentationProbe.realComposer = true;
+    await mount({ draft: '/' });
+    const nativeCommands = [{ name: 'explain', description: 'Explain work', source: 'prompt', location: 'project', path: '/workspace/prompts/explain.md' }];
+    await receive({ type: 'commands_list', sessionId: PRIMARY, commands: nativeCommands });
+    await receive({ type: 'flows_list', sessionId: PRIMARY, flows: [
+      { name: 'review-task', description: 'Review current work', taskRequired: false, ...(source === undefined ? {} : { source }) },
+      { name: 'flows:new', description: 'Forbidden management alias', taskRequired: false },
+    ] });
+    expect(JSON.parse(output('Commands'))).toEqual([
+      ...nativeCommands, { name: 'review-task', description: 'Review current work', source: 'flow' },
+    ]);
+    const flow = getByRole(document.body, 'button', { name: /\/review-task Review current work flow/i });
+    expect(flow.textContent).toContain('Review current work');
+    expect(flow.textContent).not.toMatch(/builtin|extension/i);
+    expect(document.body.textContent).toContain('Flows');
+    expect(queryByRole(document.body, 'button', { name: /Forbidden management alias/i })).toBeNull();
+    await receive({ type: 'flows_list', sessionId: 'other-primary', flows: [{ name: 'foreign-flow', description: 'Foreign flow', taskRequired: false }] });
+    expect(queryByRole(document.body, 'button', { name: /foreign-flow/i })).toBeNull();
+    await act(() => { flow.click(); });
+    expect(output('Draft')).toBe('/review-task ');
+    await click('Send');
+    expect(frames('send_prompt')).toEqual([expect.objectContaining({ sessionId: PRIMARY, text: '/review-task' })]);
+    const sent = [...frames('send_prompt')];
+    await click('Run unsupported command');
+    expect(frames('send_prompt')).toEqual(sent);
+  });
+
   it('discovers commands and sends an authorized slash command only through the bound native prompt road', async () => {
     await mount();
     expect(frames('request_commands')).toContainEqual({ type: 'request_commands', sessionId: PRIMARY });
@@ -316,6 +371,23 @@ describe('REQ-AGENT-224 AC20–23: first-party native queue and recovery wiring'
     expect(output('Pending delivery')).toBe('sending');
   });
 
+  it('preserves image bytes, MIME types and delivery on explicit known-unsent recovery', async () => {
+    await mount(); sockets[0].failPrompt = true;
+    await click('Send attached prompt');
+    expect(frames('send_prompt')).toEqual([]);
+    expect(output('Pending delivery')).toBe('failed');
+    sockets[0].failPrompt = false;
+    await click('Recover pending prompt');
+    expect(frames('send_prompt')).toEqual([expect.objectContaining({
+      sessionId: PRIMARY, text: 'Prompt with attachments', delivery: 'followUp',
+      images: [
+        { type: 'image', data: 'aW1hZ2U=', mimeType: 'image/png' },
+        { type: 'image', data: 'anBlZw==', mimeType: 'image/jpeg' },
+      ],
+    })]);
+    expect(output('Pending delivery')).toBe('sending');
+  });
+
   it('does not replay uncertain handed text on reconnect or explicit recovery', async () => {
     await mount(); await click('Send prompt');
     expect(frames('send_prompt')).toHaveLength(1);
@@ -355,6 +427,8 @@ describe('REQ-AGENT-224 AC24: first-party display preference binding', () => {
     await mount();
     expect(output('Reasoning visible')).toBe('false');
     expect(output('Context visible')).toBe('false');
+    expect(getByRole(host, 'button', { name: 'View options' })).toBeTruthy();
+    expect(queryByRole(host, 'button', { name: 'View' })).toBeNull();
     // This is intentionally the actual mounted native menu, not a preference
     // mock or assertions on its internal toggle/keyboard implementation.
     await click(/view/i);

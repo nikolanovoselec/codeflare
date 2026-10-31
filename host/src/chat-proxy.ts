@@ -377,7 +377,7 @@ export function createChatProxy(options: ChatOptions): ChatPort & { close(): voi
             case 'list_files': allowed = keys(msg, ['type', 'sessionId', 'query']) && fileQuery(msg.query); break;
             case 'edit_followup_entry':
               allowed = keys(msg, ['type', 'sessionId', 'index', 'text']) && integer(msg.index)
-                && typeof msg.text === 'string' && msg.text.length <= MAX_BODY_BYTES;
+                && typeof msg.text === 'string' && msg.text.length <= MAX_BYTES;
               human = true; break;
             case 'remove_followup_entry': case 'promote_followup_entry':
               allowed = keys(msg, ['type', 'sessionId', 'index']) && integer(msg.index); human = true; break;
@@ -414,16 +414,17 @@ export function createChatProxy(options: ChatOptions): ChatPort & { close(): voi
               allowed = keys(msg, ['type', 'sessionId', 'requestId', 'result', 'cancelled']) && id(msg.requestId)
                 && dialogs.has(msg.requestId) && (msg.cancelled === undefined || typeof msg.cancelled === 'boolean'); human = true; break;
           }
-          if (!allowed || msg.type !== 'send_prompt' && Buffer.byteLength(bytes.toString()) > MAX_BODY_BYTES) { stop(); return; }
+          if (!allowed || msg.type !== 'send_prompt' && Buffer.byteLength(bytes.toString()) > MAX_BYTES) { stop(); return; }
           upstream.send(JSON.stringify(msg));
           if (human) options.recordInput();
         });
         upstream.on('message', (bytes, binary) => {
           if (!stillBound()) { stop(4002); return; }
           if (binary || client.bufferedAmount > MAX_UPSTREAM_BYTES) { stop(); return; }
-          let msg: unknown;
-          try { msg = JSON.parse(bytes.toString()); } catch { stop(1011); return; }
-          if (!object(msg)) return;
+          let parsed: unknown;
+          try { parsed = JSON.parse(bytes.toString()); } catch { stop(1011); return; }
+          if (!object(parsed)) return;
+          let msg: Record<string, unknown> = parsed;
           if (msg.type === 'display_prefs_updated') {
             if (displayPrefs(msg.prefs)) client.send(JSON.stringify({ type: msg.type, prefs: msg.prefs }));
             return;

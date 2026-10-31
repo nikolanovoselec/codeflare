@@ -4,6 +4,7 @@ import { createRoot } from 'react-dom/client';
 import { LayerHostProvider } from '@blackbelt-technology/pi-dashboard-client-utils/LayerPortal';
 import { DISPLAY_PRESETS } from '@blackbelt-technology/pi-dashboard-shared/display-prefs.js';
 import type { DashboardSession, FollowUpEntryView } from '@blackbelt-technology/pi-dashboard-shared/types.js';
+import type { ServerToBrowserMessage } from '@blackbelt-technology/pi-dashboard-shared/browser-protocol.js';
 import {
   ChatView, CommandInput, QueuePanel, useSessionState, EmbedProviders,
   DisplayPrefsProvider, UiPrimitiveProvider, createHostPrimitiveRegistry, SessionAssetsProvider,
@@ -24,7 +25,8 @@ import { attachChatSession, ChatAttachError, createChatControlApi, probeChatCont
 import { ProviderControls } from './ProviderControls';
 import { ConversationControls } from './ConversationControls';
 import { ChatViewMenu } from './upstream/client/src/components/chat/ChatViewMenu';
-import type { CommandInfo, ModelInfo } from '@blackbelt-technology/pi-dashboard-shared/types.js';
+import type { CommandInfo, FlowInfo, ModelInfo } from '@blackbelt-technology/pi-dashboard-shared/types.js';
+import type { CommandInputItem } from './upstream/client/src/components/chat/CommandInput';
 import type { DisplayPrefs } from '@blackbelt-technology/pi-dashboard-shared/display-prefs.js';
 import { sessionStore } from '../stores/session';
 import { parseControlMessage } from '../stores/terminal-protocol';
@@ -61,6 +63,13 @@ const unusedActions = {
 const BASE_CHAT_MESSAGES = new Set(['subscribe', 'unsubscribe', 'history_backfill', 'prompt_resync_request',
   'send_prompt', 'abort', 'prompt_response', 'extension_ui_response']);
 
+// Accepted by Codeflare Host's scoped wire allowlist, not an SDK reducer event.
+interface HostControlError {
+  type: 'error';
+  sessionId: string;
+  message: string;
+}
+
 function BoundChat(props: ChatMountProps & { layerHost: HTMLElement; onAdopt: (id: string) => void; onReattach: () => void }) {
   const id = props.boundSessionId;
   const controlsAvailable = props.controlsAvailable === true;
@@ -77,7 +86,7 @@ function BoundChat(props: ChatMountProps & { layerHost: HTMLElement; onAdopt: (i
   const [loading, setLoading] = useState(true);
   const [models, setModels] = useState<ModelInfo[]>([]);
   const [commands, setCommands] = useState<CommandInfo[]>([]);
-  const [flowCommands, setFlowCommands] = useState<CommandInfo[]>([]);
+  const [flows, setFlows] = useState<FlowInfo[]>([]);
   const [fileResults, setFileResults] = useState<React.ComponentProps<typeof CommandInput>['fileResults']>(null);
   const [controlError, setControlError] = useState('');
   const [providersOpen, setProvidersOpen] = useState(false);
@@ -111,7 +120,10 @@ function BoundChat(props: ChatMountProps & { layerHost: HTMLElement; onAdopt: (i
   const ended = lastCloseCode === 4002 || metadata.status === 'ended';
   const available = status === 'connected' && !ended && !changingConversation && !uncertain;
   const advancedAvailable = controlsAvailable && available;
-  const supportedCommands = controlsAvailable ? [...new Map([...commands, ...flowCommands].filter(command =>
+  // Flow origin stays in the original DTO. `flow` labels the UI item kind,
+  // never a guessed SDK command source, location, or path.
+  const flowItems: CommandInputItem[] = flows.map(flow => ({ name: flow.name, description: flow.description, source: 'flow' }));
+  const supportedCommands = controlsAvailable ? [...new Map([...commands, ...flowItems].filter(command =>
     !/^(?:new|spawn|resume|fork|exit|quit|shutdown|restart|reload|view|codeflare-conversation|dashboard(?:-.*)?|__dashboard.*|flows:(?:new|edit|delete))$/.test(command.name)
   ).map(command => [command.name, command])).values()] : [];
 
@@ -177,7 +189,11 @@ function BoundChat(props: ChatMountProps & { layerHost: HTMLElement; onAdopt: (i
     ...unusedActions, selectedId: id, send: sendAction, sessions, setSessions, setSessionStates, sessionStatesRef: stateRef,
   });
 
-  useEffect(() => onMessage(message => {
+  useEffect(() => onMessage((message: ServerToBrowserMessage | HostControlError) => {
+    if (message.type === 'error') {
+      if (message.sessionId === id && typeof message.message === 'string') setControlError(message.message);
+      return;
+    }
     // Target selection is exclusively the attach response. Metadata never
     // selects a target by cwd, name, ordering, or registration recency.
     if (String(message.type).startsWith('agent-event')) return;
@@ -189,12 +205,11 @@ function BoundChat(props: ChatMountProps & { layerHost: HTMLElement; onAdopt: (i
     else if (message.type === 'session_removed') responseProtocols.current.clear();
     if (message.type === 'models_list') setModels(message.models);
     else if (message.type === 'commands_list') setCommands(message.commands);
-    else if (message.type === 'flows_list') setFlowCommands(message.flows.map(flow => ({ name: flow.name, description: flow.description ?? '' })));
+    else if (message.type === 'flows_list') setFlows(message.flows);
     else if (message.type === 'files_list') setFileResults({ query: message.query, files: message.files });
     else if (message.type === 'display_prefs_updated') {
       prefsRevision.current++; setGlobalPrefs(message.prefs ?? DISPLAY_PRESETS.simple);
     }
-    else if (message.type === 'error') setControlError(message.message);
     apply(message);
     if (message.type === 'sessions_snapshot') {
       const bound = message.sessions.find(session => session.id === id);
@@ -326,7 +341,7 @@ function BoundChat(props: ChatMountProps & { layerHost: HTMLElement; onAdopt: (i
             <div className="cf-chat-content">
               {controlsAvailable && <div className="cf-chat-controls">
                 <ConversationControls api={api} disabled={!available} onNew={() => void replaceConversation('new')} onResume={target => void replaceConversation('resume', target)} />
-                <ChatViewMenu sessionId={id} currentOverride={metadata.displayPrefsOverride ?? undefined} send={message => { sendAction(message); }}
+                <ChatViewMenu iconOnly sessionId={id} currentOverride={metadata.displayPrefsOverride ?? undefined} send={message => { sendAction(message); }}
                   onSaveGlobal={async prefs => {
                     if (!advancedAvailable) throw new Error('Reconnect before saving display preferences.');
                     const saved = await api.envelope<DisplayPrefs | null>('/api/preferences/display', { method: 'PATCH', body: JSON.stringify(prefs) }, lifetime.current.signal);
@@ -350,7 +365,7 @@ function BoundChat(props: ChatMountProps & { layerHost: HTMLElement; onAdopt: (i
                 onForkFromMessage={advancedAvailable ? entryId => void replaceConversation('fork', entryId) : undefined}
                 onRetryPendingPrompt={controlsAvailable ? () => {
                   const pending = stateRef.current.get(id)?.pendingPrompt;
-                  if (available && pending?.status === 'failed' && pending.failureCause === 'connection') actions.handleSend(pending.text, pending.images, pending.delivery);
+                  if (available && pending?.status === 'failed' && pending.failureCause === 'connection') actions.handleSend(pending.text, pending.images?.map(image => ({ type: 'image', data: image.data, mimeType: image.mimeType })), pending.delivery);
                 } : undefined}
                 onPromptResync={sessionId => { sendAction({ type: 'prompt_resync_request', sessionId }); }} />
               </div>

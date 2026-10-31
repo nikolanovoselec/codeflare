@@ -32,6 +32,12 @@
   --accent-soft: var(--color-accent-muted);
   --accent-solid: var(--color-accent-hover);
   --accent-text: var(--color-accent);
+  --severity-error-border: var(--color-error-border);
+  --severity-error-bg: var(--color-error-bg);
+  --severity-error-fg: var(--color-error);
+  --severity-warning-border: var(--color-warning);
+  --severity-warning-bg: var(--color-warning-muted);
+  --severity-warning-fg: var(--color-warning);
   --link: var(--color-accent);
   --link-hover: var(--color-accent-hover);
   /* The retained renderer uses blue utilities for user messages and selection. */
