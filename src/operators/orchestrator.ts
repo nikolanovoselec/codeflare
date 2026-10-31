@@ -4,7 +4,6 @@ import { captureError, type Boundary, type ReasonCode } from './dispatcher-diagn
 import type { Env } from '../types';
 import type { VerifiedHumanAccessClaims } from '../lib/jwt';
 import { AppError, ValidationError } from '../lib/error-types';
-import { getContainerId } from '../lib/container-helpers';
 import { canInvokeOperator, loadEnterpriseRouteConfig, requireOperatorHumanContext,
   resolveBucketName, resolveSessionAccessGroup } from '../lib/access';
 import { createOperatorExecutionContext, openOperatorExecutionAccess } from './execution-context';
@@ -104,24 +103,6 @@ export async function prepareOperatorActivity(input: unknown, authority: {
   const operatorId = managementSelection ? managementSelection.operator.operatorId : requestedOperatorId!;
   if (operatorId === 'codeflare-gate1-fixture') {
     throw new AppError('NOT_FOUND', 404, 'Operator is not available for execution');
-  }
-  const requiresSourceHost = managementSelection?.operator.profile === 'dispatcher'
-    && managementSelection.operator.policy.capabilities.includes('inference')
-    && managementSelection.installation.policy.capabilities.includes('inference');
-  if (requiresSourceHost && !('sourceSession' in parsed.data && parsed.data.sourceSession)) {
-    throw new ValidationError('Select an existing ordinary source Host before preparing configured inference');
-  }
-  let ownerSource: { bucket: string; sessionId: string; sessionGeneration: number } | undefined;
-  if ('sourceSession' in parsed.data && parsed.data.sourceSession && managementSelection?.operator.profile === 'dispatcher') {
-    const source = parsed.data.sourceSession;
-    const bucket = await resolveBucketName(env, authority.human.email);
-    const reference = { bucket, sessionId: source.sessionId, email: authority.human.email };
-    const container = env.CONTAINER.getByName(getContainerId(bucket, source.sessionId)) as unknown as {
-      getPersonalPiSession(input: typeof reference, ordinaryOnly?: boolean): Promise<{ generation: number }> };
-    if ((await container.getPersonalPiSession(reference, true)).generation !== source.sessionGeneration) {
-      throw new AppError('CONFLICT', 409, 'Owner source session changed');
-    }
-    ownerSource = { bucket, ...source };
   }
   if (managementSelection?.operator.profile === 'dispatcher' && prospectiveRenovatePackageSupported(managementSelection.manifestJson)) {
     bounded = configuredRenovateInvocation(managementSelection.installation.configurationJson, bounded);
@@ -228,9 +209,6 @@ export async function prepareOperatorActivity(input: unknown, authority: {
     ? await activity.prepareAuthorized(intent, executionContext, invocationJson, parentReservation.boundary)
     : await activity.prepareAuthorized(intent, executionContext, invocationJson);
   if (!prepared.ok) throw new AppError('CONFLICT', 409, 'Operator activity could not be prepared');
-  if (ownerSource && !await activity.bindDispatcherOwnerSource(ownerSource)) {
-    throw new AppError('CONFLICT', 409, 'Owner source could not be bound');
-  }
   return { activityId, startCapability, startExpiresAt };
 }
 

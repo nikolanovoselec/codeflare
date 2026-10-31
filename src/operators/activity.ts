@@ -6,6 +6,8 @@
  * See sdd/spec/operators.md and documentation/lanes/operators.md for acceptance boundaries.
  */
 import { WorkerEntrypoint } from 'cloudflare:workers';
+import { readDispatcherSdkConfiguration, dispatcherSdkCredentials, forwardDispatcherSdkHttp } from './dispatcher-sdk-services';
+import { dispatcherSdkOwnerContext } from './dispatcher-owner-inference';
 import { openOperatorSecret } from './protected-secrets';
 import { discoverDispatcherOwnerProfile, forwardDispatcherOwnerInference, type ConfiguredDispatcherInference } from './dispatcher-owner-inference';
 import { captureError, hashDiagnostic, hostSource, readSdkProvenance, readSdkDiagnosticHeader, runtimeSchema, sourceMatches, sdkAdmissionTypes,
@@ -145,7 +147,7 @@ class NormalDispatcherObservationUnavailable extends Error {}
 
 type InstalledDispatcherEnv = Pick<AppEnv, 'OPERATOR_REGISTRY' | 'ENCRYPTION_KEY'>;
 
-async function installedDispatcherConnection(env: InstalledDispatcherEnv, installationId: string): Promise<NormalDispatcherConnection> {
+export async function installedDispatcherConnection(env: InstalledDispatcherEnv, installationId: string): Promise<NormalDispatcherConnection> {
   if (!env.OPERATOR_REGISTRY) throw new Error('Dispatcher installation unavailable');
   // Narrow internal RPC seam until Registry's generated stub type includes its getter.
   const registry: { getManagementDispatcherConnection(id: string): Promise<unknown> } =
@@ -223,7 +225,10 @@ interface DispatcherOperationRecord {
   response?: { status: number; contentType: string; body: string };
   inference?: DispatcherInferenceChain;
   native?: DispatcherNativeOperation;
+  sdkHttp?: { permitId: string; expiresAt: number; selection: ConfiguredDispatcherInference;
+    phase: 'ready' | 'sending' | 'completed' | 'unknown'; requestDigest?: string; attempts: number };
 }
+const DISPATCHER_PROFILE_LEASE = 'dispatcher:profile-lease';
 const DISPATCHER_LEASE = 'dispatcher:lease';
 const DISPATCHER_OPERATIONS = 'dispatcher:operations';
 const DISPATCHER_JOURNAL = 'dispatcher:journal';
@@ -581,6 +586,7 @@ export class OperatorActivity extends Agent {
   #reconciling?: Promise<void>;
   #dispatcherTerminalWake = false;
   #nativeBindings = new Map<number, NativePiBinding>();
+  #sdkHttpControllers = new Set<AbortController>();
   #nativeFlights = new Map<string, { digest: string; controller: AbortController; result: Promise<DispatcherNativeResponse> }>();
   #inferenceOwner?: { generation: number; epoch: Promise<number> };
   #inferenceFlights = new Map<string, { digest: string; controller: AbortController; result: Promise<DispatcherInferenceResponse> }>();
@@ -802,6 +808,7 @@ export class OperatorActivity extends Agent {
     if (result.ok) {
       for (const flight of this.#inferenceFlights.values()) flight.controller.abort();
       for (const flight of this.#nativeFlights.values()) flight.controller.abort();
+      for (const controller of this.#sdkHttpControllers) controller.abort();
       this.#nativeBindings.clear();
       await this.publishBrowserSummary().catch(() => {});
     }
@@ -1796,6 +1803,7 @@ export class OperatorActivity extends Agent {
     if (result.ok) {
       for (const flight of this.#inferenceFlights.values()) flight.controller.abort();
       for (const flight of this.#nativeFlights.values()) flight.controller.abort();
+      for (const controller of this.#sdkHttpControllers) controller.abort();
       this.#nativeBindings.clear();
       if (originalGeneration !== undefined && reason) {
         this.#enqueueDiagnostic(async () => {
@@ -1860,11 +1868,23 @@ export class OperatorActivity extends Agent {
         const { connectionSecretCiphertext: _secret, ...deployment } = connection;
         lease.deployment = deployment;
         lease.connectionSecretCiphertext = connection.connectionSecretCiphertext;
-        // Resolve configured public SDK services in the recorded owner's Host. No provider-wire mapper.
+        // Freeze the original deployment before the App resolves its SDK profile. Only
+        // bounded config/auth reads may use this envelope; it grants no model authority.
+        await this.ctx.storage.transaction(async tx => {
+          const state = await tx.get<AdmissionState>('admission');
+          const previous = await tx.get<DispatcherLease>(DISPATCHER_LEASE);
+          if (state?.phase !== 'queued' || state.drive?.status !== 'running' || state.drive.generation !== generation
+            || lease.expiresAt <= Date.now() || (previous && (previous.status !== 'settled' || previous.generation !== generation - 1))) {
+            throw new Error('Dispatcher profile owner unavailable');
+          }
+          await tx.put(DISPATCHER_PROFILE_LEASE, lease);
+        });
+        // The installed App, not a Host, resolves its public SDK model profile.
         const inference = await authorizeDispatcherPlan(plan, this.#appEnv);
         if (inference.inferencePolicies.every(policy => policy.capabilities.includes('inference'))) {
-          const selection = await discoverDispatcherOwnerProfile({ generation, plan, env: this.#appEnv,
-            waitUntil: promise => this.ctx.waitUntil(promise), current: () => this.operatorGenerationCurrent(generation) });
+          const profileInput = { generation, plan, env: this.#appEnv, connection,
+            waitUntil: (promise: Promise<unknown>) => this.ctx.waitUntil(promise), current: () => this.operatorGenerationCurrent(generation) };
+          const selection = await discoverDispatcherOwnerProfile(profileInput);
           if (plan.configuredSelection && !sameDispatcherPhaseValue(plan.configuredSelection, selection)) throw new Error('Normal Dispatcher selection changed');
           lease.configuredSelection = selection;
         }
@@ -1896,6 +1916,7 @@ export class OperatorActivity extends Agent {
           version: 1, attemptLimit,
         };
         await tx.put(DISPATCHER_LEASE, lease);
+        await tx.delete(DISPATCHER_PROFILE_LEASE);
         await tx.put('admission', { ...record, diagnosticsVersion: 1,
           ...(lease.hosting === 'normal' && lease.configuredSelection ? { configuredSelection: lease.configuredSelection } : {}) });
         // Old completed entries remain isolated; a continued generation reserves its own reads.
@@ -2233,11 +2254,22 @@ export class OperatorActivity extends Agent {
     try {
       const binding = await authenticateInstalledDispatcher(this.#appEnv, request);
       const state = await this.ctx.storage.get<AdmissionState>('admission');
-      const lease = await this.ctx.storage.get<DispatcherLease>(DISPATCHER_LEASE);
+      const active = await this.ctx.storage.get<DispatcherLease>(DISPATCHER_LEASE);
+      const profile = await this.ctx.storage.get<DispatcherLease>(DISPATCHER_PROFILE_LEASE);
+      const lease = active?.generation === generation ? active : profile;
       if (binding.generation !== generation || state?.intent.activityId !== binding.activityId || lease?.hosting !== 'normal'
-        || lease.generation !== generation || lease.deployment?.installationId !== binding.connection.installationId) {
+        || lease.generation !== generation || lease.deployment?.installationId !== binding.connection.installationId
+        || lease.connectionSecretCiphertext !== binding.connection.connectionSecretCiphertext
+        || !sameDispatcherPhaseValue(lease.deployment,
+          (({ connectionSecretCiphertext: _secret, ...deployment }) => deployment)(binding.connection))) {
         return dispatcherRefusal('execution-inactive');
       }
+      const path = new URL(request.url).pathname;
+      if (['/v1/dispatcher/pi/config', '/v1/dispatcher/gateway',
+        '/v1/dispatcher/pi/credentials', '/v1/dispatcher/model-admission', '/v1/dispatcher/model-fetch'].includes(path)) {
+        return await this.#dispatcherSdkCallback(generation, request, lease);
+      }
+      if (lease !== active) return dispatcherRefusal('execution-inactive');
       // getRuntimePlan reopens only recorded owner context, never an owner/bucket from headers/body.
       const plan = await this.#normalDispatcherCurrent(lease);
       await this.#normalDispatcherConnection(lease, plan);
@@ -2248,6 +2280,262 @@ export class OperatorActivity extends Agent {
       // Deliberately no native-binding/result, arbitrary outbound or private SDK-method route.
       return await this.dispatcherOperation(generation, request);
     } catch { return dispatcherRefusal('execution-inactive'); }
+  }
+
+  /** Read-only profile bootstrap retains original queued-owner authority, never model authority. */
+  async #dispatcherSdkCurrent(generation: number, original: DispatcherLease, modelScope: boolean): Promise<boolean> {
+    if (modelScope) return this.#dispatcherDeliveryCurrent(generation, undefined, true);
+    if (!await this.operatorGenerationCurrent(generation) || original.expiresAt <= Date.now()) return false;
+    const plan = await this.getRuntimePlan();
+    if (!plan) return false;
+    await authorizeDispatcherPlan(plan, this.#appEnv);
+    await this.#normalDispatcherConnection(original, plan);
+    const active = await this.ctx.storage.get<DispatcherLease>(DISPATCHER_LEASE);
+    const live = active?.generation === generation ? active
+      : await this.ctx.storage.get<DispatcherLease>(DISPATCHER_PROFILE_LEASE);
+    return !!live && live.generation === generation && live.expiresAt > Date.now()
+      && live.artifactDigest === original.artifactDigest && live.inputDigest === original.inputDigest
+      && sameDispatcherPhaseValue(live.deployment, original.deployment)
+      && live.connectionSecretCiphertext === original.connectionSecretCiphertext
+      && await this.operatorGenerationCurrent(generation);
+  }
+
+  /** Private installed SDK services. No provider execution or SDK normalization occurs here. */
+  async #dispatcherSdkCallback(generation: number, request: Request, lease: DispatcherLease): Promise<Response> {
+    const path = new URL(request.url).pathname;
+    const credentials = path === '/v1/dispatcher/pi/credentials';
+    const modelScope = path === '/v1/dispatcher/model-admission' || path === '/v1/dispatcher/model-fetch';
+    const noStore = { 'cache-control': 'no-store' };
+    const conflict = () => dispatcherRefusal('operation-conflict', 409, 'OPERATOR_OPERATION_CONFLICT');
+    try {
+      if (request.headers.get('content-type')?.split(';')[0].trim().toLowerCase() !== 'application/json') {
+        return dispatcherRefusal('request-invalid');
+      }
+      // Persist-only credential completion is validated by the owner's bounded lease,
+      // not by renewed run authority. All other operations retain original live authority.
+      const state = await this.ctx.storage.get<AdmissionState>('admission');
+      if (!state?.executionContext || !state.receipt || state.intent.activityId !== request.headers.get('x-codeflare-operator-activity')
+        || lease.inputDigest !== state.receipt.intentDigest || lease.artifactDigest !== state.executionContext.artifactDigest) {
+        return dispatcherRefusal('execution-inactive');
+      }
+      const prospectiveAdmissionId = await this.ctx.storage.get<string>('prospective-admission');
+      const retainedPlan: OperatorRuntimePlan = { activityId: state.intent.activityId, deadline: state.intent.deadline,
+        invocationJson: state.invocationJson ?? 'null', receipt: structuredClone(state.receipt),
+        executionContext: structuredClone(state.executionContext),
+        ...(state.configuredSelection ? { configuredSelection: state.configuredSelection } : {}),
+        ...(state.ownerSource ? { ownerSource: structuredClone(state.ownerSource) } : {}),
+        ...(prospectiveAdmissionId ? { prospectiveAdmissionId } : {}) };
+      const policy = isManagementReceipt(state.receipt) ? state.receipt.selection.operator.policy : undefined;
+      const limits = dispatcherCapacities(policy);
+      const body: unknown = JSON.parse(await readDispatcherBody(request, request.signal,
+        modelScope ? Math.ceil(inferenceRequestBytes(policy) * 4 / 3) + 64 * 1024 : credentials ? 1024 * 1024 : 4096));
+      const persistOnly = credentials && !!body && typeof body === 'object'
+        && ['commit', 'abort'].includes(String((body as { operation?: unknown }).operation));
+      const current = () => this.#dispatcherSdkCurrent(generation, lease, modelScope);
+      if (!persistOnly && (request.signal.aborted || !await current())) return dispatcherRefusal('execution-inactive');
+      const plan = persistOnly ? retainedPlan : await this.getRuntimePlan();
+      if (!plan) return dispatcherRefusal('execution-inactive');
+      const input = { generation, plan, env: this.#appEnv, current, signal: request.signal,
+        exports: (this.ctx as unknown as { exports: import('./dispatcher-sdk-services').SdkInput['exports'] }).exports };
+      if (credentials) {
+        const result = await dispatcherSdkCredentials(input, body);
+        if (!persistOnly && (request.signal.aborted || !await current())) return dispatcherRefusal('execution-inactive');
+        if (new TextEncoder().encode(JSON.stringify(result) ?? 'null').byteLength > 1024 * 1024) throw new Error('SDK credential envelope too large');
+        return (body as { operation?: string }).operation === 'abort'
+          ? new Response(null, { status: 204, headers: noStore }) : Response.json(result, { headers: noStore });
+      }
+      if (!modelScope) {
+        z.strictObject({ operation: z.literal('read') }).parse(body);
+        const result = await readDispatcherSdkConfiguration(input);
+        if (!await current() || request.signal.aborted) return dispatcherRefusal('execution-inactive');
+        const serialized = JSON.stringify(path === '/v1/dispatcher/pi/config' && (result as { source?: string }).source === 'managed'
+          ? { source: 'managed' } : result);
+        if (new TextEncoder().encode(serialized).byteLength > 1024 * 1024) throw new Error('SDK configuration too large');
+        return new Response(serialized, { headers: { ...noStore, 'content-type': 'application/json' } });
+      }
+      if (!lease.configuredSelection || plan.authFailure) return dispatcherRefusal('policy-denied');
+      // Reuse the platform's owner/source/complete-grant validation before issuing
+      // logical model authority and again immediately around physical egress.
+      await dispatcherSdkOwnerContext(input, lease.configuredSelection);
+      const selection = lease.configuredSelection;
+      if (path === '/v1/dispatcher/model-admission') {
+        const parsed = z.strictObject({ operationId: syncIdentity,
+          context: z.looseObject({ messages: z.array(z.json()).min(1).max(limits.inferenceMessageLimit),
+            systemPrompt: z.string().optional(), tools: z.array(z.json()).max(limits.inferenceToolLimit).optional() }),
+          options: z.strictObject({ reasoning: z.enum(['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']).optional(),
+            maxTokens: z.number().int().positive().max(limits.inferenceTokenLimit).optional(), temperature: z.number().finite().optional(),
+            toolChoice: z.json().optional(), thinkingBudgets: z.record(z.string(), z.number().int().nonnegative().max(limits.inferenceTokenLimit)).optional(),
+            cacheRetention: z.enum(['none', 'short', 'long']).optional(), sessionId: z.string().min(1).max(512).optional() }),
+        }).parse(body);
+        if (new TextEncoder().encode(JSON.stringify(body)).byteLength > inferenceRequestBytes(policy)) return dispatcherRefusal('request-invalid');
+        const requestDigest = await sha256(JSON.stringify({ context: parsed.context, options: parsed.options, selection }));
+        if (!await current()) return dispatcherRefusal('execution-inactive');
+        return await this.ctx.storage.transaction(async tx => {
+          const live = await tx.get<DispatcherLease>(DISPATCHER_LEASE);
+          if (!this.#leaseMatches(await tx.get<AdmissionState>('admission'), live, generation)
+            || !this.#phaseTokenMatches(live, undefined, true, true)) return dispatcherRefusal('execution-inactive');
+          const journal = await loadDispatcherJournal(tx, generation);
+          const prior = await tx.get<DispatcherOperationRecord>(dispatcherEntryKey(journal, parsed.operationId));
+          if (prior) return prior.requestDigest === requestDigest && prior.sdkHttp && prior.sdkHttp.expiresAt > Date.now()
+            ? Response.json({ permitId: prior.sdkHttp.permitId, expiresAt: prior.sdkHttp.expiresAt }, { headers: noStore }) : conflict();
+          if (journal.count >= dispatcherOperationLimit(policy) || inferenceAttemptLimit(policy) < 1) return conflict();
+          const permit = { permitId: crypto.randomUUID(), expiresAt: Math.min(lease.expiresAt, plan.deadline),
+            selection, phase: 'ready' as const, attempts: 0 };
+          await putDispatcherEntry(tx, journal, parsed.operationId, undefined,
+            { generation, requestDigest, phase: 'reserved', ordinal: journal.nextOrdinal, sdkHttp: permit });
+          return Response.json({ permitId: permit.permitId, expiresAt: permit.expiresAt }, { headers: noStore });
+        });
+      }
+      const parsed = z.strictObject({ operationId: syncIdentity, permitId: z.string().uuid(),
+        request: z.strictObject({ url: z.string().min(1).max(limits.sourceUrlChars), method: z.string().regex(/^[A-Z]+$/).max(16),
+          headers: z.array(z.tuple([z.string().max(8192), z.string().max(16384)])).max(128),
+          bodyBase64: z.string().max(Math.ceil(inferenceRequestBytes(policy) / 3) * 4).optional() }) }).parse(body);
+      const requestDigest = await sha256(JSON.stringify(parsed.request));
+      const controller = new AbortController();
+      const signal = AbortSignal.any([request.signal, controller.signal,
+        AbortSignal.timeout(Math.max(1, Math.min(plan.deadline, lease.expiresAt) - Date.now()))]);
+      this.#sdkHttpControllers.add(controller);
+      let reserved = false;
+      let streaming = false;
+      try {
+        if (signal.aborted || !await current()) return dispatcherRefusal('execution-inactive');
+        reserved = await this.ctx.storage.transaction(async tx => {
+          const live = await tx.get<DispatcherLease>(DISPATCHER_LEASE);
+          if (!this.#leaseMatches(await tx.get<AdmissionState>('admission'), live, generation)
+            || !this.#phaseTokenMatches(live, undefined, true, true)) return false;
+          const journal = await loadDispatcherJournal(tx, generation);
+          const record = await tx.get<DispatcherOperationRecord>(dispatcherEntryKey(journal, parsed.operationId));
+          const permit = record?.sdkHttp;
+          if (!record || !permit || permit.permitId !== parsed.permitId || permit.expiresAt <= Date.now()
+            || permit.phase !== 'ready' || permit.attempts !== 0 || record.phase !== 'reserved'
+            || !sameDispatcherPhaseValue(permit.selection, selection)) return false;
+          // Charge the initial paid attempt durably BEFORE I/O. Reconstruction and
+          // uncertainty never reset this permit or buy a second physical request.
+          await tx.put(dispatcherEntryKey(journal, parsed.operationId), { ...record,
+            sdkHttp: { ...permit, phase: 'sending', attempts: 1, requestDigest } });
+          return true;
+        });
+        if (!reserved) return conflict();
+        await dispatcherSdkOwnerContext({ ...input, signal }, selection);
+        if (signal.aborted || !await current()) throw new Error('SDK HTTP fenced');
+        const response = await forwardDispatcherSdkHttp({ ...input, signal, selection, request: parsed.request });
+        const limit = inferenceRequestBytes(policy);
+        const checkScope = async () => {
+          if (signal.aborted || Date.now() >= Math.min(plan.deadline, lease.expiresAt)) throw new Error('SDK HTTP aborted');
+          await dispatcherSdkOwnerContext({ ...input, signal }, selection);
+          if (signal.aborted || !await current() || signal.aborted
+            || Date.now() >= Math.min(plan.deadline, lease.expiresAt)) throw new Error('SDK HTTP result fenced');
+        };
+        const complete = async () => {
+          await checkScope();
+          await this.ctx.storage.transaction(async tx => {
+            const live = await tx.get<DispatcherLease>(DISPATCHER_LEASE);
+            if (!this.#leaseMatches(await tx.get<AdmissionState>('admission'), live, generation)
+              || !this.#phaseTokenMatches(live, undefined, true, true)) throw new Error('SDK HTTP result stale');
+            const journal = await loadDispatcherJournal(tx, generation);
+            const record = await tx.get<DispatcherOperationRecord>(dispatcherEntryKey(journal, parsed.operationId));
+            if (signal.aborted || record?.sdkHttp?.phase !== 'sending'
+              || record.sdkHttp.requestDigest !== requestDigest) throw new Error('SDK HTTP permit changed');
+            await putDispatcherEntry(tx, journal, parsed.operationId, record,
+              { ...record, phase: 'completed', sdkHttp: { ...record.sdkHttp, phase: 'completed' } });
+            if (signal.aborted || Date.now() >= Math.min(plan.deadline, lease.expiresAt)) throw new Error('SDK HTTP result fenced');
+          });
+        };
+        const declaredLength = Number(response.headers.get('content-length'));
+        if (Number.isFinite(declaredLength) && declaredLength > limit) {
+          void response.body?.cancel('SDK HTTP response too large').catch(() => undefined);
+          throw new Error('SDK HTTP response too large');
+        }
+        await checkScope();
+        if (!response.body) {
+          await complete();
+          return new Response(null, { status: response.status, statusText: response.statusText, headers: response.headers });
+        }
+        const reader = response.body.getReader();
+        let total = 0;
+        let ended = false;
+        let failure: Promise<void> | undefined;
+        let abort: () => void;
+        const cleanup = () => {
+          signal.removeEventListener('abort', abort);
+          this.#sdkHttpControllers.delete(controller);
+          controller.abort();
+        };
+        const fail = (reason: unknown): Promise<void> => {
+          if (failure) return failure;
+          if (ended) return Promise.resolve();
+          ended = true;
+          cleanup();
+          // Cancellation must interrupt a pending vendor read, not wait for it.
+          void reader.cancel(reason).catch(() => undefined).finally(() => reader.releaseLock());
+          failure = this.ctx.storage.transaction(async tx => {
+            const journal = await loadDispatcherJournal(tx, generation);
+            const record = await tx.get<DispatcherOperationRecord>(dispatcherEntryKey(journal, parsed.operationId));
+            if (record?.sdkHttp?.phase === 'sending' && record.sdkHttp.requestDigest === requestDigest) {
+              await putDispatcherEntry(tx, journal, parsed.operationId, record,
+                { ...record, phase: 'unknown', sdkHttp: { ...record.sdkHttp, phase: 'unknown' } });
+            }
+          });
+          return failure;
+        };
+        const body = new ReadableStream<Uint8Array>({
+          start: stream => {
+            abort = () => {
+              if (ended) return;
+              const error = new Error('SDK HTTP aborted');
+              stream.error(error);
+              void fail(error).catch(() => undefined);
+            };
+            signal.addEventListener('abort', abort, { once: true });
+            if (signal.aborted) abort();
+          },
+          pull: async stream => {
+            try {
+              await checkScope();
+              if (ended) return;
+              const { done, value } = await reader.read();
+              await checkScope();
+              if (ended) return;
+              if (done) {
+                await complete();
+                if (ended) return;
+                ended = true;
+                cleanup();
+                reader.releaseLock();
+                stream.close();
+                return;
+              }
+              total += value.byteLength;
+              if (total > limit) throw new Error('SDK HTTP response too large');
+              stream.enqueue(value);
+            } catch (error) {
+              if (!ended) stream.error(error);
+              await fail(error);
+            }
+          },
+          cancel: reason => fail(reason),
+        }, { highWaterMark: 0 });
+        // The SDK receives original HTTP headers immediately and unchanged byte
+        // chunks on demand; only guarded EOF completes the durable paid permit.
+        const forwarded = new Response(body,
+          { status: response.status, statusText: response.statusText, headers: response.headers });
+        streaming = true;
+        return forwarded;
+      } catch (error) {
+        if (reserved) await this.ctx.storage.transaction(async tx => {
+          const journal = await loadDispatcherJournal(tx, generation);
+          const record = await tx.get<DispatcherOperationRecord>(dispatcherEntryKey(journal, parsed.operationId));
+          if (record?.sdkHttp?.phase === 'sending') await putDispatcherEntry(tx, journal, parsed.operationId, record,
+            { ...record, phase: 'unknown', sdkHttp: { ...record.sdkHttp, phase: 'unknown' } });
+        });
+        throw error;
+      } finally {
+        if (!streaming) { this.#sdkHttpControllers.delete(controller); controller.abort(); }
+      }
+    } catch (error) {
+      if (error instanceof DispatcherRefusal) return dispatcherRefusal(error.reason, error.reason === 'operation-conflict' ? 409 : 403);
+      return dispatcherRefusal(error instanceof z.ZodError || error instanceof SyntaxError ? 'request-invalid' : 'execution-inactive');
+    }
   }
 
   /** Public bounded observation never translates timeout/unavailability into abort or new admission. */

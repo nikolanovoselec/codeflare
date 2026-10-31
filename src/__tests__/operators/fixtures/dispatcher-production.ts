@@ -490,7 +490,7 @@ export async function fixture(test: (f: {
         }),
         EgressController: ({ props }: { props: Record<string, unknown> }) => options.nativeInference || options.realInterceptors
           ? new EgressController({ props } as unknown as ExecutionContext, { ...environment,
-            EGRESS: { fetch: options.nativeInference ? nativeTransport : options.sourceTransport } } as unknown as Env)
+            EGRESS: { fetch: options.nativeInference ? environment.EGRESS?.fetch.bind(environment.EGRESS) ?? nativeTransport : options.sourceTransport } } as unknown as Env)
           : ({ fetch: async () => {
           if (options.sourceDelayMs) await new Promise(resolve => setTimeout(resolve, options.sourceDelayMs));
           return new Response(sourceBody, {

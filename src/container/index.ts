@@ -27,6 +27,7 @@
  * pre-start).
  */
 import { Container } from '@cloudflare/containers';
+import { DispatcherSdkStorageError, handleDispatcherSdkCredentials, type SdkStorageScope } from '../operators/dispatcher-sdk-storage';
 import type { Env, ManagedResourcePolicy, SessionWorkspace, TabConfig, TerminalMode } from '../types';
 import type { PiDefaultSource } from '../lib/personal-pi-policy';
 import type { OperatorLoggingContext } from '../lib/container-helpers';
@@ -687,6 +688,17 @@ export class container extends Container<Env> implements ContainerEnvState {
       await txn.put('bucketOwnerEmail', normalizedEmail);
       return 'owned';
     });
+  }
+
+  /** Owner metadata only: never starts a container or calls back into an Activity. */
+  async dispatcherSdkCredentials(scope: SdkStorageScope, body: unknown): Promise<unknown | null> {
+    if (!scope || typeof scope.bucket !== 'string' || !/^[a-z0-9][a-z0-9.-]{1,62}$/.test(scope.bucket)
+      || typeof scope.email !== 'string' || !scope.email || scope.email !== scope.email.trim().toLowerCase()
+      || !this.ctx.id.equals(this.env.CONTAINER.idFromName(`bucket-owner:${scope.bucket}`))
+      || await this.ctx.storage.get<string>('bucketOwnerEmail') !== scope.email) {
+      throw new DispatcherSdkStorageError(403);
+    }
+    return handleDispatcherSdkCredentials(this.ctx.storage, this.env, scope, body);
   }
 
   /** Update envVars with current bucket name and credentials. */

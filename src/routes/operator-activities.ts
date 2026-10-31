@@ -191,9 +191,7 @@ app.get('/installations/:installationId/preview', async c => {
   if (!selected.ok || !canInvokeOperator(c.get('operatorHuman').human, selected.value.operator)) return c.notFound();
   const preview = guidedPreview(selected.value);
   return preview ? c.json({ ...preview,
-    requiresSourceHost: selected.value.operator.profile === 'dispatcher'
-      && selected.value.operator.policy.capabilities.includes('inference')
-      && selected.value.installation.policy.capabilities.includes('inference'),
+    requiresSourceHost: false,
   }) : c.notFound();
 });
 app.post('/', async c => {

@@ -11,7 +11,8 @@ import { resolveOperatorInference } from './inference-selection';
 import { operatorOwnerKey } from './browser-activity';
 import { PiAuthRequiredError, safePiAuthFailure } from './pi-auth-failure';
 import { inferenceRequestBytes } from './dispatcher-inference-limits';
-import type { OperatorRuntimePlan } from './activity';
+import { installedDispatcherConnection, type OperatorRuntimePlan } from './activity';
+import { openOperatorSecret } from './protected-secrets';
 
 const identity = z.string().min(1).max(512).refine(value => [...value].every(character =>
   character.charCodeAt(0) >= 0x20 && character.charCodeAt(0) !== 0x7f));
@@ -20,10 +21,50 @@ const profile = z.strictObject({ provider: identity, model: identity, api: ident
   profileDigest: z.string().regex(/^[a-f0-9]{64}$/) });
 export type ConfiguredDispatcherInference = z.infer<typeof profile> & (
   { source: 'pi-native' } | { source: 'managed'; routeId: string });
-type Input = { generation: number; plan: OperatorRuntimePlan; env: Env; current(): Promise<boolean>; signal?: AbortSignal };
+type Input = { generation: number; plan: OperatorRuntimePlan; env: Env; current(): Promise<boolean>; signal?: AbortSignal;
+  connection?: Awaited<ReturnType<typeof installedDispatcherConnection>> };
 type SendInput = Input & Pick<ExecutionContext, 'waitUntil'>;
 
 /** Current grants select the source. The SDK resolves models/authentication; no vendor lookup or fallback. */
+/** Root authority/configuration scope only: never resolves models or opens a user Host. */
+export async function dispatcherSdkOwnerContext(input: Input, selection?: ConfiguredDispatcherInference) {
+  const { plan, env } = input;
+  if (input.signal?.aborted || plan.authFailure || !await input.current() || !('selection' in plan.receipt)) throw new Error('Owner inference denied');
+  const { authority, inferencePolicies } = await authorizeDispatcherPlan(plan, env);
+  if (!await operatorAccessSessionCurrent(authority.human, authority.accessJwt)) throw new Error('Owner access expired');
+  const bucket = await resolveBucketName(env, authority.human.email);
+  const groups = await resolveSessionAccessGroup(new Request('https://operator.internal/', {
+    headers: { 'cf-access-jwt-assertion': authority.accessJwt } }), env);
+  const routes = await loadEnterpriseRouteConfig(env, groups);
+  const source = routes.piDefaultSource === 'pi-native' ? 'pi-native' : 'managed';
+  if (selection && selection.source !== source) throw new Error('Owner inference source changed');
+  const eligible = { routeIds: routes.routeCatalog, defaultRouteId: routes.defaultRoute, defaultReasoningLevel: routes.defaultReasoning };
+  const declared = inferencePolicies.find(policy => policy.inference !== undefined)?.inference;
+  const managed = source !== 'managed' ? undefined : declared
+    ? resolveOperatorInference({ policy: { inference: declared }, eligible })
+    : { routeId: routes.defaultRoute, reasoningLevel: routes.defaultReasoning || null };
+  if (source === 'pi-native' && routes.allowPersonalPiProviders !== true) throw new Error('Owner inference source denied');
+  if (managed && selection && (selection.source !== 'managed' || selection.routeId !== managed.routeId
+    || selection.reasoningLevel !== managed.reasoningLevel)) throw new Error('Owner managed selection changed');
+  for (const policy of inferencePolicies) {
+    if (!policy.capabilities.includes('inference')) throw new Error('Owner inference policy denied');
+    if (source === 'pi-native') {
+      if (!policy.inference?.allowedSources?.includes('pi-native')
+        || selection && (selection.reasoningLevel === null || !policy.inference.reasoningLevels.includes(selection.reasoningLevel))) {
+        throw new Error('Owner native policy denied');
+      }
+    } else if (policy.inference) {
+      resolveOperatorInference({ policy: { inference: policy.inference }, trusted: managed!, eligible: {
+        routeIds: routes.routeCatalog, defaultRouteId: routes.defaultRoute, defaultReasoningLevel: routes.defaultReasoning } });
+    }
+  }
+  if (managed && !routes.routeCatalog.includes(managed.routeId)) throw new Error('Owner managed route unavailable');
+  if (Date.now() >= plan.deadline || input.signal?.aborted || !await input.current()) throw new Error('Owner inference expired');
+  return { bucket, email: authority.human.email.trim().toLowerCase(), authority, groups, source,
+    ownerKey: await operatorOwnerKey(authority.human), managed, deadline: plan.deadline,
+    reasoningOverride: source === 'pi-native' ? plan.receipt.selection.installation.piReasoningOverride : undefined };
+}
+
 async function ownerContext(input: Input, selection?: ConfiguredDispatcherInference) {
   const { plan, env } = input;
   if (input.signal?.aborted || plan.authFailure || !await input.current() || !('selection' in plan.receipt)) throw new Error('Owner inference denied');
@@ -129,21 +170,61 @@ async function send(input: SendInput, pathname: string, body: Record<string, unk
   }
 }
 export async function discoverDispatcherOwnerProfile(input: SendInput): Promise<ConfiguredDispatcherInference> {
+  const logging = { activityId: input.plan.activityId, generation: input.generation,
+    loggingEnabled: 'selection' in input.plan.receipt && input.plan.receipt.selection.operator.policy.loggingEnabled !== false,
+    credentials: [] as string[] };
   try {
-    const context = await ownerContext(input);
-    const response = await send(input, '/operator-inference/profile', {});
-    const selected = profile.parse(await response.json());
-    const result: ConfiguredDispatcherInference = context.source === 'pi-native' ? { source: 'pi-native', ...selected }
-      : { source: 'managed', routeId: context.managed!.model, ...selected };
-    if (result.source === 'pi-native' && result.reasoningLevel === null) throw new Error('Native reasoning unavailable');
-    if (context.managed && (selected.provider !== context.managed.provider || selected.model !== context.managed.model
-      || selected.reasoningLevel !== context.managed.reasoningLevel)) throw new Error('Managed SDK binding changed');
-    await ownerContext(input, result);
+    const context = await dispatcherSdkOwnerContext(input);
+    if (!('selection' in input.plan.receipt)) throw new Error('Dispatcher installation missing');
+    const { installation, release } = input.plan.receipt.selection;
+    const connection = input.connection ?? await installedDispatcherConnection(input.env, installation.id);
+    if (connection.installationId !== installation.id || connection.releaseId !== release.id
+      || connection.bundleDigest !== release.bundleDigest || connection.sourceCommit !== release.sourceCommit
+      || connection.manifestDigest !== release.manifestDigest || connection.compilerCommit !== release.provenance?.compilerCommit) {
+      throw new Error('Dispatcher profile deployment changed');
+    }
+    const secret = await openOperatorSecret(connection.connectionSecretCiphertext, input.env,
+      { purpose: 'connection', recordId: installation.id });
+    logging.credentials.push(secret);
+    const signal = AbortSignal.any([...(input.signal ? [input.signal] : []),
+      AbortSignal.timeout(Math.max(1, Math.min(15_000, input.plan.deadline - Date.now())))]);
+    emitRaw(logging, 'owner-request', () => ({ pathname: '/control/profile', installationId: installation.id,
+      activityId: input.plan.activityId, generation: input.generation, releaseId: release.id,
+      connectionRevision: connection.connectionRevision, workerVersionId: connection.workerVersionId }));
+    const response = await fetch(new Request(`${connection.controlOrigin}/control/profile`, {
+      method: 'POST', redirect: 'manual', signal,
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${secret}` },
+      body: JSON.stringify({ id: `${input.plan.activityId}-g${input.generation}`, installationId: installation.id,
+        activityId: input.plan.activityId, generation: input.generation, releaseId: release.id,
+        connectionRevision: connection.connectionRevision, workerVersionId: connection.workerVersionId }),
+    }));
+    const bytes = await readBoundedResponse(response, 1024 * 1024, 'SDK profile', signal);
+    emitRaw(logging, 'owner-response', () => ({ pathname: '/control/profile', status: response.status,
+      headers: response.headers, body: new TextDecoder().decode(bytes) }));
+    const value: unknown = JSON.parse(new TextDecoder().decode(bytes));
+    if (!response.ok) {
+      const failure = safePiAuthFailure(value && typeof value === 'object' ? (value as { authFailure?: unknown }).authFailure : undefined);
+      if (context.source === 'pi-native' && failure) throw new PiAuthRequiredError(failure.provider, failure.reason);
+      throw new Error('Configured owner inference unavailable');
+    }
+    const parsed = z.strictObject({ selection: z.discriminatedUnion('source', [
+      profile.extend({ source: z.literal('pi-native') }),
+      profile.extend({ source: z.literal('managed'), routeId: identity }),
+    ]) }).parse(value).selection;
+    if (parsed.source !== context.source || parsed.source === 'pi-native' && parsed.reasoningLevel === null
+      || parsed.source === 'managed' && (!context.managed || parsed.provider !== 'codeflare-gateway'
+        || parsed.model !== context.managed.routeId || parsed.routeId !== context.managed.routeId
+        || parsed.reasoningLevel !== context.managed.reasoningLevel)) throw new Error('SDK profile selection changed');
+    const canonical = { source: parsed.source, provider: parsed.provider, model: parsed.model,
+      api: parsed.api, reasoningLevel: parsed.reasoningLevel };
+    const expectedDigest = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',
+      new TextEncoder().encode(JSON.stringify(canonical)))), byte => byte.toString(16).padStart(2, '0')).join('');
+    if (parsed.profileDigest !== expectedDigest) throw new Error('SDK profile digest changed');
+    const result = parsed as ConfiguredDispatcherInference;
+    await dispatcherSdkOwnerContext(input, result);
     return result;
   } catch (error) {
-    emitRaw({ activityId: input.plan.activityId, generation: input.generation,
-      loggingEnabled: 'selection' in input.plan.receipt && input.plan.receipt.selection.operator.policy.loggingEnabled !== false },
-    'owner-profile-failure', () => error);
+    emitRaw(logging, 'owner-profile-failure', () => error);
     throw error;
   }
 }

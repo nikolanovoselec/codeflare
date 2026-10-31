@@ -5154,7 +5154,9 @@ None.
 
 - GitHub history uses at most ten 100-record pages.
 - Validation remains memory-bounded and fail closed.
-- Background refresh reuses bounded compatible-history lookup after a verified runtime mismatch and retains the five-minute attempt cache. Session startup does not perform discovery.
+- Background refresh reuses bounded compatible-history lookup after a verified runtime mismatch.
+- Background refresh retains the five-minute attempt cache.
+- Session startup does not perform discovery.
 - Hash selection excludes native-engine differences outside the three managed npm lockfiles.
 
 **Priority:** P1

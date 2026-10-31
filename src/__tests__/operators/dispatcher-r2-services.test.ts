@@ -1,6 +1,7 @@
 /// <reference types="@cloudflare/vitest-plugin/types" />
 import { describe, expect, it, vi } from 'vitest';
 import { env } from 'cloudflare:test';
+import { inspect } from 'node:util';
 import type { Env } from '../../types';
 import * as access from '../../lib/access';
 import * as r2 from '../../lib/r2-client';
@@ -12,9 +13,18 @@ import {
 } from './fixtures/dispatcher-production';
 import { connectionSecret, normalCallback } from './fixtures/normal-dispatcher';
 
+// Metadata-only Root: replace the external container lifecycle base, not Root's
+// ownership/credential coordination. Native DO storage and RPC remain real; no
+// container process or user-session Host is available in this lane.
+vi.mock('@cloudflare/containers', async importOriginal => {
+  const sdk = await importOriginal<typeof import('@cloudflare/containers')>();
+  const { DurableObject } = await import('cloudflare:workers');
+  return { ...sdk, Container: DurableObject };
+});
+
 /**
  * Root #119 RED: public Activity/installed HTTP + R2 boundary contracts, NOT SDK/Flue execution proof.
- * Proposed private protocol (all POST, installation headers from normalCallback, no-store):
+ * Frozen private protocol (all POST, installation headers from normalCallback, no-store):
  *   pi/config {operation:'read'} -> Parent-derived source and opaque SDK settings/models/resources;
  *             managed mode returns only {source:'managed'}, with no native R2 reads.
  *   pi/credentials {operation:'read', providerId} -> {credential: Credential | null}
@@ -34,7 +44,7 @@ import { connectionSecret, normalCallback } from './fixtures/normal-dispatcher';
  * Begin grants at most 30 seconds of persist-only authority, even after original cancellation/expiry;
  * read/list/begin/config/gateway still require live original authority. Commit never authorizes inference.
  * Config bodies <=4096 bytes; config object and credential envelopes <=1 MiB UTF-8. Redirects deny.
- * This wire is a test proposal for root to approve/refine before GREEN, not a new public owner API.
+ * This is an installed HTTP capability, not a new public owner API.
  */
 const settingsKey = '.pi/agent/settings.json';
 const modelsKey = '.pi/agent/models.json';
@@ -112,7 +122,7 @@ function storageBoundary() {
       touchedKeys.add(`/owner-bucket/${extensionPrefix}`);
       const overridden = responseOverride?.();
       if (overridden) return overridden;
-      return new Response(`<ListBucketResult><IsTruncated>false</IsTruncated><Contents><Key>${extensionKey}</Key></Contents></ListBucketResult>`,
+      return new Response(`<ListBucketResult><IsTruncated>false</IsTruncated><Contents><Key>${extensionKey}</Key><Size>${new TextEncoder().encode(extensionSource).byteLength}</Size><LastModified>2026-10-30T00:00:00.000Z</LastModified></Contents></ListBucketResult>`,
         { headers: { 'content-type': 'application/xml' } });
     }
     touchedKeys.add(path);
@@ -143,7 +153,7 @@ function storageBoundary() {
 }
 type Store = ReturnType<typeof storageBoundary>;
 async function lane(run: (f: DispatcherFixture, store: Store) => Promise<void>, native = true, sharedStore?: Store,
-  realInterceptors = false) {
+  realInterceptors = false, limits: { operationLimit?: number; inferenceAttemptLimit?: number } = {}) {
   return fixture(async f => {
     const store = sharedStore ?? storageBoundary();
     const cleanups: Array<() => void> = [];
@@ -182,6 +192,9 @@ async function lane(run: (f: DispatcherFixture, store: Store) => Promise<void>, 
     spy(vi.spyOn(regime, 'getRegimeState')).mockResolvedValue({ status: 'ready', regime: 'plain', generation: 1 });
     spy(vi.spyOn(regime, 'isBucketMigrating')).mockResolvedValue(false);
     spy(vi.spyOn(regime, 'isR2SseDisabledForBucket')).mockResolvedValue(true);
+    // External strict-Gateway transport reaches the selected HTTP ledger; the
+    // real Root egress interceptor and its fail-closed checks remain in the path.
+    f.environment.EGRESS = { fetch: (request: Request) => globalThis.fetch(request) } as Env['EGRESS'];
     const normalFetch = f.normalTransport!.fetcher;
     vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
       const request = new Request(input, init);
@@ -196,7 +209,7 @@ async function lane(run: (f: DispatcherFixture, store: Store) => Promise<void>, 
     });
     try { await run(f, store); }
     finally { cleanups.reverse().forEach(cleanup => cleanup()); }
-  }, { normalHosting: true, repositoryOnly: true, recovery: true, nativeInference: native, realInterceptors });
+  }, { normalHosting: true, repositoryOnly: true, recovery: true, nativeInference: native, realInterceptors, ...limits });
 }
 async function admitted(f: DispatcherFixture) {
   expect(await start(f)).toMatchObject({ ok: true, state: { status: 'running', generation: 1 } });
@@ -406,6 +419,73 @@ describe('REQ-OPERATOR-007/047/048: protected SDK-prepared HTTP, not Parent mode
     expect(JSON.stringify(await f.activity.getBrowserDetail())).not.toContain('parent-only');
   }, false, undefined, true));
 
+  it.each([false, true])('one-operation policy refuses fresh paid work after exhaustion (Actor reconstruction: %s)', reconstructed => lane(async f => {
+    await admitted(f);
+    // External provider ledger: these are actual HTTP requests, not internal
+    // coordination calls. A different body avoids conflating capacity with
+    // duplicate-wire protection.
+    const paid: Array<{ url: string; body: string }> = [];
+    const original = globalThis.fetch;
+    vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
+      const request = new Request(input, init);
+      if (new URL(request.url).origin !== 'https://custom.example.test') return original(input, init);
+      paid.push({ url: request.url, body: await request.text() });
+      return new Response('first paid response', { headers: { 'x-provider-trace': 'capacity-first' } });
+    });
+    const request = { url: 'https://custom.example.test/native/stream', method: 'POST',
+      headers: [['content-type', 'application/json']], bodyBase64: encodeBody(sdkBody) };
+    const permit = await json(await modelAdmission(f, 'capacity-first'));
+    const first = await modelFetch(f, permit.permitId, request, 'capacity-first');
+    expect(first.status).toBe(200); expect(await first.text()).toBe('first paid response');
+    if (reconstructed) { f.restart(); await f.drainBackground(); }
+    const next = await modelAdmission(f, 'capacity-second');
+    if (next.ok) {
+      const second = await json(next);
+      await denied(await modelFetch(f, second.permitId, { ...request,
+        bodyBase64: encodeBody(sdkBody.replace('原始 😀', 'Second distinct SDK request.')) }, 'capacity-second'), [403, 404, 409]);
+    } else await denied(next, [403, 404, 409]);
+    // A committed permit is either replayed from its receipt or refused. Neither
+    // outcome authorizes a second paid request, even after memory is discarded.
+    const replay = await modelFetch(f, permit.permitId, request, 'capacity-first');
+    if (replay.ok) {
+      expect(replay.status).toBe(200); expect(await replay.text()).toBe('first paid response');
+      expect(replay.headers.get('x-provider-trace')).toBe('capacity-first');
+    } else await denied(replay, [403, 404, 409]);
+    expect(paid).toEqual([{ url: request.url, body: sdkBody }]);
+  }, true, undefined, false, { operationLimit: 1, inferenceAttemptLimit: 1 }));
+
+  it.each([false, true])('initial attempt exhausts a one-attempt policy; HTTP failure replay cannot buy a retry (Actor reconstruction: %s)', reconstructed => lane(async f => {
+    await admitted(f);
+    const paid: Array<{ url: string; body: string }> = [];
+    const original = globalThis.fetch;
+    vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
+      const request = new Request(input, init);
+      if (new URL(request.url).origin !== 'https://custom.example.test') return original(input, init);
+      paid.push({ url: request.url, body: await request.text() });
+      return new Response('provider retryable quota failure', { status: 429, headers: { 'x-provider-trace': 'attempt-first' } });
+    });
+    const request = { url: 'https://custom.example.test/native/stream', method: 'POST',
+      headers: [['content-type', 'application/json']], bodyBase64: encodeBody(sdkBody) };
+    const permit = await json(await modelAdmission(f, 'attempt-only'));
+    const first = await modelFetch(f, permit.permitId, request, 'attempt-only');
+    expect(first.status).toBe(429); expect(await first.text()).toBe('provider retryable quota failure');
+    if (reconstructed) { f.restart(); await f.drainBackground(); }
+    const checkReplay = async (permitId: string) => {
+      const replay = await modelFetch(f, permitId, request, 'attempt-only');
+      if (replay.status === 429) {
+        expect(await replay.text()).toBe('provider retryable quota failure');
+        expect(replay.headers.get('x-provider-trace')).toBe('attempt-first');
+      } else await denied(replay, [403, 404, 409]);
+    };
+    await checkReplay(permit.permitId);
+    const readmission = await modelAdmission(f, 'attempt-only');
+    if (readmission.ok) await checkReplay((await json(readmission)).permitId);
+    else await denied(readmission, [403, 404, 409]);
+    // Spare operation capacity is intentional: only inferenceAttemptLimit=1
+    // forbids another attempt for this operation, including its initial send.
+    expect(paid).toEqual([{ url: request.url, body: sdkBody }]);
+  }, true, undefined, false, { operationLimit: 2, inferenceAttemptLimit: 1 }));
+
   it.each(['permit', 'operation', 'generation', 'owner', 'expiry', 'cancel'] as const)('%s drift cannot turn SDK HTTP authority into a reusable proxy', failure => lane(async f => {
     await admitted(f);
     const permit = await json(await modelAdmission(f));
@@ -597,8 +677,12 @@ describe('REQ-OPERATOR-007/047/048: serialized bounded SDK credential persistenc
           expect(JSON.stringify(storage.sql.exec(`SELECT * FROM "${name}"`).toArray())).not.toContain(canary);
         }
       });
-      expect(JSON.stringify(output)).not.toContain(canary);
-      expect(JSON.stringify(output)).toContain('SDK_R2_REFRESH_IO_FAILURE');
+      // Node inspection retains Error message/stack/cause, handles cycles, and
+      // must not truncate a credential hidden deep inside a logged failure.
+      const logged = inspect(output, { depth: null, maxStringLength: null, maxArrayLength: null,
+        customInspect: false, getters: false, colors: false });
+      expect(logged).not.toContain(canary);
+      expect(logged).toContain('SDK_R2_REFRESH_IO_FAILURE');
       expect(store.value(authKey)).toEqual({ [providerId]: rotated, other });
     } finally { setLogLevel('silent'); spies.forEach(spy => spy.mockRestore()); }
   }));
