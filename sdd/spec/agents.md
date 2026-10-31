@@ -2583,7 +2583,12 @@ None.
 5. Repository-installed analyzers take precedence over their image copies. <!-- @impl: preseed/agents/claude/skills/safe-local-checks/scripts/safe-local-check.mjs::repositoryBinary --> <!-- @impl: preseed/agents/claude/skills/safe-local-checks/scripts/safe-local-check.mjs::main --> <!-- @test: host/__tests__/safe-local-check.test.js (prefers the nearest repository-local copy for every supported analyzer) -->
 6. Managed sessions can parse YAML without installing project dependencies. <!-- @impl: preseed/agents/claude/skills/safe-local-checks/scripts/safe-local-check.mjs::checkYaml --> <!-- @impl: preseed/agents/claude/skills/safe-local-checks/scripts/safe-local-check.mjs::syntaxParserRequire --> <!-- @test: host/__tests__/safe-local-check-image.test.js (parses YAML using the image library without dependencies or repository mutation) -->
 
-**Constraints:** Image fallbacks use exact manifests/locks: `/opt/codeflare/npm-tools` for esbuild and `/opt/codeflare/oxlint` for analyzers/YAML. Installed project versions take precedence. Checked paths remain repository-contained; syntax parsing never builds, typechecks, installs, or writes output.
+**Constraints:**
+
+- Image fallbacks use exact manifests/locks: `/opt/codeflare/npm-tools` for esbuild and `/opt/codeflare/oxlint` for analyzers/YAML.
+- Installed project versions take precedence.
+- Checked paths remain repository-contained.
+- Syntax parsing never builds, typechecks, installs, or writes output.
 
 **Priority:** P1
 
