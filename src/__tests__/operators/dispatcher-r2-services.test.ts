@@ -249,7 +249,7 @@ describe('REQ-OPERATOR-007/047/048/058: owner R2 configured-service HTTP contrac
     // ok acknowledges the durable drive fence, not admission of the rejected profile.
     expect(result).toMatchObject({ ok: true, state: { status: 'unknown' } });
     expect((await f.activity.getRuntimePlan())?.configuredSelection).toBeUndefined();
-    expect(f.normalTransport!.requests.filter(request => new URL(request.url).pathname === '/control/dispatch')).toEqual([]);
+    expect(f.normalTransport!.requests.filter(request => request.path === '/control/dispatch')).toEqual([]);
   }, true, false, { nativeNullProfile: true }));
 
   it.each([false, true])('caller High cannot replace admitted native reasoning (provider-default: %s)', providerDefault => lane(async f => {
