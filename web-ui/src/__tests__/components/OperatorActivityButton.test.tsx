@@ -25,6 +25,20 @@ const active = { activityId: 'activity-1', operatorId: 'reviewer', executionStat
   attention: false, sessionId: 'session-1', source: 'Repository dispatch', updatedAt: new Date().toISOString() };
 
 describe('REQ-OPERATOR-027: operator activity header control', () => {
+  it('REQ-OPERATOR-007: shows provider-default in the existing run dropdown without Off or Medium', async () => {
+    listMock.mockResolvedValue({ items: [active] });
+    detailMock.mockResolvedValue({ ...active, checkpoint: null, result: null,
+      inferenceSelection: { source: 'pi-native', provider: 'groq', model: 'openai/gpt-oss-20b',
+        api: 'openai-completions', reasoningLevel: null, reasoningSource: 'inherited' } });
+    render(() => <OperatorActivityButton enabled />);
+    await fireEvent.click(screen.getByRole('button', { name: /operator activity/i }));
+    await fireEvent.click(await screen.findByRole('button', { name: 'View activity-1' }));
+    const inference = await screen.findByText(/Inference:.*groq.*openai\/gpt-oss-20b/);
+    expect(inference.textContent).toContain('Provider default');
+    expect(inference.textContent).not.toMatch(/Off|Medium|inherited Pi default|installation override/);
+    expect(screen.getByText('Execution: running')).toBeTruthy();
+  });
+
   it('renders nothing and issues no request outside enterprise', () => {
     render(() => <OperatorActivityButton enabled={false} />);
     expect(screen.queryByRole('button', { name: /operator activity/i })).toBeNull();

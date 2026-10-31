@@ -13,7 +13,7 @@ import '../styles/operator-dropdown.css';
 interface Props { enabled: boolean }
 const workingStates = new Set(['queued', 'running', 'waiting', 'cancel-requested', 'unknown']);
 const nativeSelection = (selection: OperatorActivityDetail['inferenceSelection']) => selection?.source === 'pi-native' ? selection : undefined;
-const reasoningLabel = (level: string) => level.charAt(0).toUpperCase() + level.slice(1);
+const reasoningLabel = (level: string | null) => level === null ? 'Provider default' : level.charAt(0).toUpperCase() + level.slice(1);
 
 /** REQ-OPERATOR-086: four nested views inside the existing anchored, owner-scoped dropdown. */
 const OperatorActivityButton: Component<Props> = props => {
@@ -168,7 +168,7 @@ const OperatorActivityButton: Component<Props> = props => {
                 <Show when={!detail.loading} fallback={<p>Loading activity detail…</p>}><Show when={!detail.error && detail()} fallback={<div role="alert">Activity detail unavailable<button type="button" onClick={() => void refetchDetail()}>Retry detail</button></div>}>
                   {value => <div class="operator-activity-detail"><h3>{value().operatorName || value().operatorId}</h3><Show when={value().context}><p>{value().context}</p></Show>
                     <Show when={value().version}><p>Version: {value().version}</p></Show><p>Execution: {value().executionStatus}</p>
-                    <Show when={nativeSelection(value().inferenceSelection)}>{selection => <p>Inference: Pi built-in providers · {selection().provider} / {selection().model} · {reasoningLabel(selection().reasoningLevel)} ({selection().reasoningSource === 'installation' ? 'installation override' : selection().reasoningSource === 'default' ? 'Medium default' : selection().reasoningSource ? 'inherited Pi default' : 'reasoning origin unavailable'})</p>}</Show>
+                    <Show when={nativeSelection(value().inferenceSelection)}>{selection => <p>Inference: Pi built-in providers · {selection().provider} / {selection().model} · {reasoningLabel(selection().reasoningLevel)}<Show when={selection().reasoningLevel !== null}> ({selection().reasoningSource === 'installation' ? 'installation override' : selection().reasoningSource === 'default' ? 'Medium default' : selection().reasoningSource ? 'inherited Pi default' : 'reasoning origin unavailable'})</Show></p>}</Show>
                     <Show when={value().authFailure}>{failure => <div role="alert"><p>Pi login required · {failure().provider}</p><p>{piLoginRecoveryCopy}</p></div>}</Show>
                     <h4>Result</h4><Show when={value().result != null} fallback={<p>{value().executionStatus === 'unknown' ? 'Outcome unknown' : value().executionStatus === 'failed' ? 'Activity failed without a result' : value().executionStatus === 'completed' ? 'Result unavailable' : 'Result pending'}</p>}><OperatorActivityResult result={value().result} /></Show>
                     <div class="operator-run-metadata"><p>Cleanup: {value().cleanupStatus === 'released' ? 'SDK release confirmed' : value().cleanupStatus}</p><p>Collection: {value().collectionStatus}</p>
