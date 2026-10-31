@@ -48,6 +48,14 @@ vi.mock('@cloudflare/containers', async importOriginal => {
  * Config bodies <=4096 bytes; config object and credential envelopes <=1 MiB UTF-8. Redirects deny.
  * This is an installed HTTP capability, not a new public owner API.
  */
+// Security assertions must inspect actual bytes, not their numeric JSON rendering.
+function decodeRetainedBytes(value: unknown): unknown {
+  if (ArrayBuffer.isView(value)) return new TextDecoder().decode(new Uint8Array(value.buffer, value.byteOffset, value.byteLength));
+  if (value instanceof ArrayBuffer) return new TextDecoder().decode(value);
+  if (Array.isArray(value)) return value.map(decodeRetainedBytes);
+  if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, decodeRetainedBytes(entry)]));
+  return value;
+}
 const settingsKey = '.pi/agent/settings.json';
 const modelsKey = '.pi/agent/models.json';
 const authKey = '.pi/agent/auth.json';
@@ -160,6 +168,8 @@ async function lane(run: (f: DispatcherFixture, store: Store, metadataEnvironmen
     const store = sharedStore ?? storageBoundary();
     const cleanups: Array<() => void> = [];
     const spy = <T extends { mockRestore(): void }>(value: T) => { cleanups.push(() => value.mockRestore()); return value; };
+    // Synthetic fixture identity is an external Access collaborator, not a real issuer.
+    spy(vi.spyOn(access, 'resolveOperatorGroupIdentity')).mockImplementation(async human => human);
     // The existing bucket-owner DO is metadata, not a running user container.
     // Keep that real coordination boundary while denying every user-session Host.
     const metadataNamespace = (env as unknown as Env).CONTAINER;
@@ -434,6 +444,56 @@ describe('REQ-OPERATOR-007/047/048: protected SDK-prepared HTTP, not Parent mode
     expect(JSON.stringify(await f.activity.getBrowserDetail())).not.toContain('parent-only');
   }, false, undefined, true));
 
+  it.each(['body', 'header'] as const)('managed Gateway credential %s echoes remain Root-only through durable response reconciliation', echo => lane(async f => {
+    await admitted(f);
+    const paid: string[] = [];
+    let gatewayCredential = '';
+    const original = globalThis.fetch;
+    vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
+      const request = new Request(input, init);
+      if (new URL(request.url).origin !== 'https://gateway.ai.cloudflare.com') return original(input, init);
+      paid.push(await request.text());
+      gatewayCredential = request.headers.get('cf-aig-authorization')!.replace(/^Bearer\s+/i, '');
+      return new Response(echo === 'body' ? `upstream echoed ${gatewayCredential}` : 'data: [DONE]\n\n', {
+        status: echo === 'body' ? 429 : 200,
+        headers: { 'content-type': 'text/event-stream',
+          'x-provider-trace': echo === 'header' ? `Bearer ${gatewayCredential}` : 'safe-trace' },
+      });
+    });
+    const operationId = `managed-echo-${echo}`;
+    const permit = await json(await modelAdmission(f, operationId));
+    const request = { url: 'https://api.openai.com/v1/chat/completions', method: 'POST',
+      headers: [['content-type', 'application/json'], ['authorization', 'Bearer codeflare-enterprise']],
+      bodyBase64: encodeBody(JSON.stringify({ model: 'approved', messages: [{ role: 'user', content: 'Managed SDK input.' }],
+        max_completion_tokens: 16, stream: true })) };
+    const first = await modelFetch(f, permit.permitId, request, operationId);
+    expect(gatewayCredential).toBe('parent-only');
+    if (echo === 'body') {
+      expect(first.ok).toBe(false);
+      expect(await first.text()).not.toContain(gatewayCredential);
+    } else {
+      expect(first.status).toBe(200);
+      expect(first.headers.get('x-provider-trace')).toBeNull();
+      expect(await first.text()).toBe('data: [DONE]\n\n');
+    }
+    f.restart(); await f.drainBackground();
+    const replay = await modelFetch(f, permit.permitId, request, operationId);
+    if (echo === 'body') await denied(replay, [403, 404, 409]);
+    else {
+      expect(replay.status).toBe(200);
+      expect(replay.headers.get('x-provider-trace')).toBeNull();
+      expect(await replay.text()).toBe('data: [DONE]\n\n');
+    }
+    expect(paid).toHaveLength(1);
+    await f.mutateEvidence(async storage => {
+      expect(inspect(decodeRetainedBytes([...await storage.list()]), { depth: null, maxArrayLength: null,
+        maxStringLength: null, customInspect: false })).not.toContain(gatewayCredential);
+    });
+    expect(JSON.stringify(await diagnosticTraversal(diagnosticsBrowser(f)))).not.toContain(gatewayCredential);
+    expect(JSON.stringify(await f.activity.getBrowserDetail())).not.toContain(gatewayCredential);
+    expect(JSON.stringify(f.normalTransport!.requests)).not.toContain(gatewayCredential);
+  }, false, undefined, true));
+
   it('complete SDK HTTP response is durable before delivery and reconciles exact SSE after reconstruction', () => lane(async f => {
     await admitted(f);
     const payload = new TextEncoder().encode('data: {"text":"原始 😀"}\n\ndata: [DONE]\n\n');
@@ -484,15 +544,8 @@ describe('REQ-OPERATOR-007/047/048: protected SDK-prepared HTTP, not Parent mode
     expect(response.ok).toBe(false);
     expect(await response.text()).not.toContain(oldOAuth.access);
     await f.mutateEvidence(async storage => {
-      const decodeBytes = (value: unknown): unknown => {
-        if (ArrayBuffer.isView(value)) return new TextDecoder().decode(new Uint8Array(value.buffer, value.byteOffset, value.byteLength));
-        if (value instanceof ArrayBuffer) return new TextDecoder().decode(value);
-        if (Array.isArray(value)) return value.map(decodeBytes);
-        if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, decodeBytes(entry)]));
-        return value;
-      };
       // Stored binary responses must be decoded, not merely inspected as numbers.
-      const retained = inspect(decodeBytes([...await storage.list()]), { depth: null, maxArrayLength: null,
+      const retained = inspect(decodeRetainedBytes([...await storage.list()]), { depth: null, maxArrayLength: null,
         maxStringLength: null, customInspect: false });
       expect(retained).not.toContain(oldOAuth.access);
     });

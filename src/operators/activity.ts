@@ -2434,12 +2434,12 @@ export class OperatorActivity extends Agent {
         }
         reserved = true;
         await checkScope();
-        const response = await forwardDispatcherSdkHttp({ ...input, signal, selection, request: parsed.request });
+        const { response, transportCredentials } = await forwardDispatcherSdkHttp({ ...input, signal, selection, request: parsed.request });
         const bytes = await readBoundedResponse(response, inferenceRequestBytes(policy), 'SDK HTTP response', signal);
         await checkScope();
-        const secrets = selection.source === 'managed' ? [] : parsed.request.headers
+        const secrets = [...transportCredentials, ...(selection.source === 'managed' ? [] : parsed.request.headers
           .filter(([name]) => /authorization|api[-_]?key|token|secret|cookie/i.test(name))
-          .flatMap(([, value]) => [value, value.replace(/^Bearer\s+/i, '')]).filter(Boolean);
+          .flatMap(([, value]) => [value, value.replace(/^Bearer\s+/i, '')]).filter(Boolean))];
         const url = new URL(parsed.request.url);
         if (selection.source !== 'managed') for (const [name, value] of url.searchParams) {
           if (/key|token|secret|signature/i.test(name) && value) secrets.push(value);

@@ -101,7 +101,7 @@ export async function dispatcherSdkCredentials(input: SdkInput, body: unknown): 
 export async function forwardDispatcherSdkHttp(input: SdkInput & {
   selection: ConfiguredDispatcherInference;
   request: { url: string; method: string; headers: Array<[string, string]>; bodyBase64?: string };
-}): Promise<Response> {
+}): Promise<{ response: Response; transportCredentials: string[] }> {
   const owner = await dispatcherSdkOwnerContext(input, input.selection);
   const url = new URL(input.request.url);
   if (url.protocol !== 'https:' || url.username || url.password || url.port || url.hash
@@ -120,6 +120,7 @@ export async function forwardDispatcherSdkHttp(input: SdkInput & {
   const request = new Request(url, { method: input.request.method, headers, body, redirect: 'manual', signal });
   await sameOwner(input, owner);
   let response: Response;
+  const transportCredentials: string[] = [];
   if (input.selection.source === 'managed') {
     if (url.href !== 'https://api.openai.com/v1/chat/completions' || request.method !== 'POST') throw new Error('Managed SDK HTTP target denied');
     const { authority, inferencePolicies } = await authorizeDispatcherPlan(input.plan, input.env);
@@ -130,9 +131,13 @@ export async function forwardDispatcherSdkHttp(input: SdkInput & {
         defaultReasoningLevel: input.selection.reasoningLevel, inheritUserDefaults: false } };
     const trusted = { routeId: input.selection.routeId, reasoningLevel: input.selection.reasoningLevel };
     const aig = await getAigConfig(input.env);
+    // Match this transport's actual token, including its existing env fallback.
+    // Retain it only in the Root-local result, never SDK configuration or receipts.
+    const token = aig.token ?? input.env.AIG_TOKEN;
+    if (token) transportCredentials.push(token);
     if (!input.exports?.LlmInterceptor) throw new Error('SDK Gateway transport unavailable');
     const transport = input.exports.LlmInterceptor({ props: { user: authority.human.email, groups: owner.groups,
-      sessionId: input.plan.activityId, gatewayUrl: aig.gatewayUrl, gatewayId: aig.gatewayId, token: aig.token,
+      sessionId: input.plan.activityId, gatewayUrl: aig.gatewayUrl, gatewayId: aig.gatewayId, token,
       operatorInference: { activityId: input.plan.activityId, operatorId: input.plan.executionContext.operatorId, policy, trusted } } });
     response = await transport.fetch(request);
   } else {
@@ -152,5 +157,5 @@ export async function forwardDispatcherSdkHttp(input: SdkInput & {
   }
   try { await sameOwner(input, owner); signal.throwIfAborted(); }
   catch (error) { await response.body?.cancel().catch(() => {}); throw error; }
-  return response;
+  return { response, transportCredentials };
 }
