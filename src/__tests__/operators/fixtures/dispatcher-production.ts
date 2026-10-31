@@ -259,8 +259,8 @@ export async function fixture(test: (f: {
   } } : baseBundle;
   const fixtureBytes = options.normalHosting || options.runtimeVersion || sdkProvenance ? new TextEncoder().encode(JSON.stringify(fixtureBundle)) : bytes;
   const namespace = (env as unknown as { OPERATOR_ACTIVITY: DurableObjectNamespace }).OPERATOR_ACTIVITY;
-  const stub = namespace.getByName(`dispatcher-${crypto.randomUUID()}`);
-  await runInDurableObject(stub, async (_instance, native) => {
+  const objectName = `dispatcher-${crypto.randomUUID()}`;
+  await runInDurableObject(namespace.getByName(objectName), async (_instance, native) => {
     const activityId = `activity-${crypto.randomUUID()}`;
     const artifactDigest = await digest(fixtureBytes);
     const now = Date.now();
@@ -779,7 +779,8 @@ export async function fixture(test: (f: {
         drainBackground,
         readRemoteMerge: () => structuredClone(remoteMerge),
         mutateEvidence: change => change(native.storage),
-        inOwnContext: action => runInDurableObject(stub, () => action()),
+        // Retain only the name; acquire the I/O stub in the current caller's context.
+        inOwnContext: action => runInDurableObject(namespace.getByName(objectName), () => action()),
         readRemoteComments: async () => {
           // Independent remote readback: bypass the Activity journal/capability so a
           // cached parent response cannot conceal duplicate repository effects.

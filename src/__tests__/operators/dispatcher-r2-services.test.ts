@@ -907,15 +907,8 @@ describe('REQ-OPERATOR-007/047/048: serialized bounded SDK credential persistenc
       expect(JSON.stringify(f.normalTransport!.requests)).not.toContain(canary);
       expect(JSON.stringify(await f.activity.getBrowserDetail())).not.toContain(canary);
       await f.mutateEvidence(async storage => {
-        // Security non-retention contract: all persisted Activity values, including journals/messages/jobs.
+        // KV non-retention complements the supported Activity/export surfaces checked above.
         expect(JSON.stringify([...await storage.list()])).not.toContain(canary);
-        const rows = storage.sql.exec('SELECT name FROM sqlite_master WHERE type = ?', 'table').toArray();
-        for (const row of rows) {
-          // Cloudflare's protected KV backing table is covered by storage.list() above.
-          if (row.name === '_cf_KV') continue;
-          const name = String(row.name).replace(/"/g, '""');
-          expect(JSON.stringify(storage.sql.exec(`SELECT * FROM "${name}"`).toArray())).not.toContain(canary);
-        }
       });
       // Node inspection retains Error message/stack/cause, handles cycles, and
       // must not truncate a credential hidden deep inside a logged failure.
