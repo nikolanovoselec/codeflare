@@ -570,7 +570,7 @@ async function verifyCodeServerRuntime() {
   assert.equal(ftpClient.closed, true);
 
   // Dependency pin contract: exercise the installed redirect overlay, not a runner copy.
-  assert.equal(requireFromCodeServer('follow-redirects/package.json').version, '1.16.1');
+  assert.equal(requireFromCodeServer('follow-redirects/package.json').version, '1.16.2');
   const redirectServer = createServer((request, response) => {
     if (request.url === '/redirect') response.writeHead(302, { Location: '/complete' }).end();
     else response.end('follow-redirects-smoke');
