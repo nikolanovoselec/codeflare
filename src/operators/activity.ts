@@ -2468,13 +2468,14 @@ export class OperatorActivity extends Agent {
           return 'send' as const;
         });
         if (claim === 'denied') return conflict();
+        const permitCurrent = async () => !signal.aborted && await current()
+          && (admittedDeliveryToken === undefined || this.#phaseTokenMatches(
+            await this.ctx.storage.get<DispatcherLease>(DISPATCHER_LEASE), admittedDeliveryToken));
         const checkScope = async () => {
           if (signal.aborted || Date.now() >= Math.min(plan.deadline, lease.expiresAt)) throw new Error('SDK HTTP aborted');
           const currentOwner = await dispatcherSdkOwnerContext({ ...input, signal }, selection);
           if (currentOwner.bucket !== ownerScope.bucket || currentOwner.email !== ownerScope.email) throw new Error('SDK HTTP owner changed');
-          if (signal.aborted || !await current()
-            || admittedDeliveryToken !== undefined && !this.#phaseTokenMatches(
-              await this.ctx.storage.get<DispatcherLease>(DISPATCHER_LEASE), admittedDeliveryToken)) throw new Error('SDK HTTP result fenced');
+          if (!await permitCurrent()) throw new Error('SDK HTTP result fenced');
         };
         if (claim === 'replay') {
           const cached = await this.ctx.storage.get<SdkResponse>(responseKey);
@@ -2485,7 +2486,8 @@ export class OperatorActivity extends Agent {
         }
         reserved = true;
         await checkScope();
-        const { response, transportCredentials } = await forwardDispatcherSdkHttp({ ...input, signal, selection, ownerScope, request: parsed.request });
+        const { response, transportCredentials } = await forwardDispatcherSdkHttp({ ...input, current: permitCurrent,
+          signal, selection, ownerScope, request: parsed.request });
         const bytes = await readBoundedResponse(response, inferenceRequestBytes(policy), 'SDK HTTP response', signal);
         await checkScope();
         const secrets = [...transportCredentials, ...(selection.source === 'managed' ? [] : parsed.request.headers

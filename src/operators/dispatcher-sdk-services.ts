@@ -174,7 +174,7 @@ export async function forwardDispatcherSdkHttp(input: SdkInput & {
     }
     await sameOwner(input, owner);
     if (strict) {
-      if (!input.exports?.EgressController) throw new Error('SDK strict transport unavailable');
+      if (!input.env.EGRESS || !input.exports?.EgressController) throw new Error('SDK strict transport unavailable');
       const transport = input.exports.EgressController({ props: { strict: true } });
       response = await transport.fetch(request);
     } else response = await fetch(request);

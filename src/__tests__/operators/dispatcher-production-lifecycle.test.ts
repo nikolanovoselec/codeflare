@@ -14,6 +14,11 @@ import type { CurrentProspectiveRegistration } from '../../operators/registry';
 import { within } from '../helpers/pending-recipient';
 import { OperatorOwnerInferenceAuthority, discoverDispatcherOwnerProfile, forwardDispatcherOwnerInference } from '../../operators/dispatcher-owner-inference';
 import { connectionSecret, normalCallback, normalDeployment } from './fixtures/normal-dispatcher';
+import * as fixtureAig from '../../lib/aig-config';
+import { SETUP_KEYS } from '../../lib/kv-keys';
+
+// Acquire the original binding in the Runner, never by loader I/O in a DO callback.
+const actualAig = await vi.importActual<typeof import('../../lib/aig-config')>('../../lib/aig-config');
 
 describe('REQ-OPERATOR-063: comprehensive pipeline diagnostic contract', () => {
   const marker = 'PRIVATE_PIPELINE_CONTENT';
@@ -3119,6 +3124,77 @@ describe('normal installed Dispatcher control', () => {
     const config = await callback(f, 'gateway', { operation: 'read' });
     expect(config.status).toBe(200); expect(await config.json()).toMatchObject({ deliveryToken: nextToken });
   }, { ...options, intent4: true }));
+
+  it.each([false, true])('REQ-OPERATOR-048/062: phase change during post-claim authorization prevents physical model send (native: %s)', native => fixture(async f => {
+    expect(await start(f)).toMatchObject({ ok: true });
+    expect((await f.activity.getRuntimePlan())?.configuredSelection?.source).toBe(native ? 'pi-native' : 'managed');
+    const token = phaseToken(f);
+    const stamp = await (await installedContext(f, token)).json() as InstalledPhaseContext;
+    const operationId = 'post-claim-phase-race';
+    const admission = await callback(f, 'model-admission', { operationId, deliveryToken: token,
+      context: { messages: [{ role: 'user', content: 'Original phase input' }] }, options: { maxTokens: 16 } });
+    expect(admission.status).toBe(200);
+    const permit = await admission.json() as { permitId: string };
+    let entered = false; let released = false;
+    const pause = async () => {
+      if (entered) return;
+      entered = true;
+      while (!released) await new Promise<void>(resolve => setTimeout(resolve, 1));
+    };
+    const cleanups: Array<() => void> = [];
+    const vendorSends: Request[] = [];
+    const originalFetch = globalThis.fetch;
+    vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
+      const request = new Request(input, init);
+      if (new URL(request.url).hostname !== 'api.openai.com') return originalFetch(request);
+      vendorSends.push(request.clone());
+      return new Response('data: [DONE]\n\n');
+    });
+    if (native) {
+      f.environment.ENTERPRISE_MODE = 'active';
+      const get = f.environment.KV.get.bind(f.environment.KV);
+      const spy = vi.spyOn(f.environment.KV, 'get').mockImplementation((async (key: string, ...args: unknown[]) => {
+        if (key === SETUP_KEYS.STRICT_EGRESS) await pause();
+        return (get as (...args: unknown[]) => Promise<unknown>)(key, ...args);
+      }) as typeof f.environment.KV.get);
+      cleanups.push(() => spy.mockRestore());
+    } else {
+      const get = fixtureAig.getAigConfig;
+      for (const module of new Set([fixtureAig, actualAig])) {
+        const spy = vi.spyOn(module, 'getAigConfig').mockImplementation(async environment => {
+          await pause(); return get(environment);
+        });
+        cleanups.push(() => spy.mockRestore());
+      }
+    }
+    let pending: Promise<Response> | undefined;
+    const send = { operationId, permitId: permit.permitId,
+      request: { url: 'https://api.openai.com/v1/chat/completions', method: 'POST', headers: [], bodyBase64: btoa('{}') } };
+    try {
+      pending = callback(f, 'model-fetch', send);
+      await vi.waitFor(() => expect(entered).toBe(true));
+      // Observable single-send contract: the first call already owns the claim,
+      // so an identical concurrent send refuses before the phase changes.
+      expect((await callback(f, 'model-fetch', send)).status).toBe(409);
+      const target = { pullRequest: 17, headSha: '1'.repeat(40) };
+      f.normalTransport!.settle('completed', [{ name: 'dispatcher-progress', data: {
+        version: 1, scope: stamp.scope, generation: stamp.generation, submissionId: stamp.submissionId,
+        phase: stamp.phase, next: { kind: 'target', index: 0, target }, targets: [target],
+      } }]);
+      await f.activity.reconcileDispatcherLease();
+      expect(phaseToken(f)).not.toBe(token);
+      released = true;
+      const response = await pending;
+      expect([403, 409, 503]).toContain(response.status);
+      expect(response.headers.get('x-codeflare-sdk-model-response')).toBeNull();
+      expect(vendorSends).toEqual([]);
+      expect(f.sent).toEqual([]);
+    } finally {
+      released = true;
+      if (pending) await Promise.allSettled([pending]);
+      cleanups.reverse().forEach(cleanup => cleanup());
+    }
+  }, { ...options, intent4: true, nativeInference: native }));
 
   it('REQ-OPERATOR-048/062: ordinary configuration and permits omit phase projection tokens', () => fixture(async f => {
     expect(await start(f)).toMatchObject({ ok: true });

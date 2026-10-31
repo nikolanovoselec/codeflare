@@ -159,11 +159,6 @@ const renewedAccess = `${canary}_renewed_access`;
 const renewedRefresh = `${canary}_renewed_refresh`;
 const tokenReply = () => Response.json({ access_token: renewedAccess, refresh_token: renewedRefresh,
   expires_in: 3600, scope: 'openid chatgpt.tokens.use.direct' });
-function deferred() {
-  let resolve!: () => void;
-  const promise = new Promise<void>(done => { resolve = done; });
-  return { promise, resolve };
-}
 type Store = ReturnType<typeof storageBoundary>;
 async function lane(run: (f: DispatcherFixture, store: Store, metadataEnvironment: Env) => Promise<void>, native = true,
   realInterceptors = false, limits: { operationLimit?: number; inferenceAttemptLimit?: number; managedProviderDefault?: boolean;
@@ -395,14 +390,26 @@ describe('REQ-OPERATOR-007/047/048/058: owner R2 configured-service HTTP contrac
   it('concurrent renewal reads again under metadata serialization and shares one rotation', () => lane(async (f, store) => {
     await admitted(f);
     store.put(authKey, { [providerId]: { ...oldOAuth, expires: 1 }, other });
-    const started = deferred(); const release = deferred();
-    const exchanges = oauthBoundary(async () => { started.resolve(); await release.promise; return tokenReply(); });
-    const first = read(f); await started.promise;
-    const second = read(f); release.resolve();
-    for (const result of await Promise.all([first, second])) expect(await json(result)).toEqual({ apiKey: renewedAccess });
-    expect(exchanges).toHaveLength(1);
-    expect(store.value(authKey).other).toEqual(other);
-    expect(store.value(authKey)[providerId].refresh).toBe(renewedRefresh);
+    // Share plain coordination state only. Each wait/timer belongs to the DO
+    // executing it; an Activity-owned pending promise cannot gate metadata I/O.
+    let started = false; let released = false;
+    const exchanges = oauthBoundary(async () => {
+      started = true;
+      while (!released) await new Promise<void>(resolve => setTimeout(resolve, 1));
+      return tokenReply();
+    });
+    const requests: Promise<Response>[] = [];
+    try {
+      requests.push(read(f)); await vi.waitFor(() => expect(started).toBe(true));
+      requests.push(read(f)); released = true;
+      for (const result of await Promise.all(requests)) expect(await json(result)).toEqual({ apiKey: renewedAccess });
+      expect(exchanges).toHaveLength(1);
+      expect(store.value(authKey).other).toEqual(other);
+      expect(store.value(authKey)[providerId].refresh).toBe(renewedRefresh);
+    } finally {
+      released = true;
+      await Promise.allSettled(requests);
+    }
   }));
 
   it.each(['login', 'other provider'] as const)('concurrent %s wins CAS without refresh retry or superseded auth', change => lane(async (f, store) => {
@@ -470,16 +477,26 @@ describe('REQ-OPERATOR-007/047/048/058: owner R2 configured-service HTTP contrac
     await admitted(f);
     const saved = { [providerId]: { ...oldOAuth, expires: 1 }, other };
     store.put(authKey, saved);
-    const started = deferred(); const release = deferred(); const finished = deferred();
-    oauthBoundary(async () => { started.resolve(); await release.promise; finished.resolve(); return tokenReply(); });
+    let started = false; let released = false; let finished = false;
+    oauthBoundary(async () => {
+      started = true;
+      while (!released) await new Promise<void>(resolve => setTimeout(resolve, 1));
+      finished = true;
+      return tokenReply();
+    });
     const abort = new AbortController();
     const request = new Request(normalCallback(f.activityId, 'pi/credentials', { operation: 'read', providerId }), { signal: abort.signal });
     const pending = f.installationCapability.fetch(request);
-    await started.promise;
-    abort.abort(); release.resolve();
-    await denied(await pending, [403, 409, 503]);
-    await finished.promise;
-    expect(store.value(authKey)).toEqual(saved);
+    try {
+      await vi.waitFor(() => expect(started).toBe(true));
+      abort.abort(); released = true;
+      await denied(await pending, [403, 409, 503]);
+      await vi.waitFor(() => expect(finished).toBe(true));
+      expect(store.value(authKey)).toEqual(saved);
+    } finally {
+      released = true;
+      await Promise.allSettled([pending]);
+    }
   }));
 
   it.each([
