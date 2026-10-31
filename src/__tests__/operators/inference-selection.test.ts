@@ -40,3 +40,33 @@ describe('REQ-OPERATOR-007: operator inference intersection', () => {
     expect(resolveOperatorInference({ eligible, policy: providerDefault })).toEqual({ routeId: 'production', reasoningLevel: null });
   });
 });
+
+
+describe('REQ-OPERATOR-007: parent-prepared native inference narrowing', () => {
+  const native = { source: 'pi-native', provider: 'openai-codex', model: 'gpt-6.1-sol',
+    api: 'openai-codex-responses', reasoningLevel: 'low', profileDigest: 'a'.repeat(64) };
+  const nativePolicy: OperatorPolicy = { ...policy, inference: { ...policy.inference,
+    allowedSources: ['managed', 'pi-native'], reasoningLevels: ['low', 'high'], defaultReasoningLevel: 'high' } };
+  const nativeEligible = { ...eligible, piDefaultSource: 'pi-native', allowPersonalPiProviders: true };
+
+  it('retains the authorized native model and operator Low rather than substituting managed defaults', () => {
+    expect(resolveOperatorInference({ eligible: nativeEligible, policy: nativePolicy, trusted: native }))
+      .toMatchObject(native);
+  });
+
+  it('requires explicit installed native approval even when the human native default is enabled', () => {
+    expect(() => resolveOperatorInference({ eligible: nativeEligible, policy,
+      trusted: { ...native, reasoningLevel: 'high' } })).toThrow();
+  });
+
+  it('does not turn a native default into personal-provider permission', () => {
+    const deniedEligibility = { ...nativeEligible, allowPersonalPiProviders: false };
+    expect(() => resolveOperatorInference({ eligible: deniedEligibility,
+      policy: nativePolicy, trusted: native })).toThrow();
+  });
+
+  it('rejects native reasoning outside the installed restriction without selecting a managed fallback', () => {
+    expect(() => resolveOperatorInference({ eligible: nativeEligible, policy: nativePolicy,
+      trusted: { ...native, reasoningLevel: 'medium' } })).toThrow();
+  });
+});

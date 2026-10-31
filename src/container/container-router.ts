@@ -12,6 +12,7 @@
  * used. Only the in-process dispatch mechanism is typed.
  */
 import type { ManagedResourcePolicy, SessionWorkspace, TabConfig, TerminalMode } from '../types';
+import type { PiDefaultSource } from '../lib/personal-pi-policy';
 import { toError } from '../lib/error-types';
 import { SetSessionIdBodySchema } from '../lib/container-config-schema';
 import { validateBucketNameInput, applyPrefsOnRestart } from './container-env';
@@ -40,6 +41,7 @@ interface SetBucketNameBody {
   userGroups?: string[];
   routeCatalog?: string[];
   allowPersonalPiProviders?: boolean;
+  piDefaultSource?: PiDefaultSource;
   defaultRoute?: string;
   defaultReasoning?: string;
   // REQ-ENTERPRISE-012: per-route context window (route name -> tokens) forwarded by
@@ -171,7 +173,7 @@ export function dispatchInternalRoute(
 /** Handle POST /_internal/setBucketName. */
 async function handleSetBucketName(host: ContainerHost, request: Request): Promise<Response> {
   try {
-    const { bucketName, sessionId, userEmail, userGroups, routeCatalog, allowPersonalPiProviders, defaultRoute, defaultReasoning, routeContextWindows, routeReasoningLevels, modelDisplayNames, promptCacheTargets, r2AccessKeyId, r2SecretAccessKey, r2AccountId, r2Endpoint, workspaceSyncEnabled, fastStartEnabled, tabConfig, openaiApiKey, geminiApiKey, githubToken, cloudflareApiToken, cloudflareAccountId, encryptionKey, r2SseDisabled, remoteCurationActive, remoteCurationReleaseDigest, remoteCurationManifestDigest, managedResourcePolicy, managedResourcePathsDigest, sessionMode, sessionWorkspace, terminalMode, userTimezone, gitCloneRepo, gitCloneRef, gitCloneTargets, sleepAfter: sleepAfterPref } =
+    const { bucketName, sessionId, userEmail, userGroups, routeCatalog, allowPersonalPiProviders, piDefaultSource, defaultRoute, defaultReasoning, routeContextWindows, routeReasoningLevels, modelDisplayNames, promptCacheTargets, r2AccessKeyId, r2SecretAccessKey, r2AccountId, r2Endpoint, workspaceSyncEnabled, fastStartEnabled, tabConfig, openaiApiKey, geminiApiKey, githubToken, cloudflareApiToken, cloudflareAccountId, encryptionKey, r2SseDisabled, remoteCurationActive, remoteCurationReleaseDigest, remoteCurationManifestDigest, managedResourcePolicy, managedResourcePathsDigest, sessionMode, sessionWorkspace, terminalMode, userTimezone, gitCloneRepo, gitCloneRef, gitCloneTargets, sleepAfter: sleepAfterPref } =
       await request.json() as SetBucketNameBody;
 
     const resourceIdentityError = managedResourcePolicy === undefined && managedResourcePathsDigest !== undefined
@@ -186,7 +188,7 @@ async function handleSetBucketName(host: ContainerHost, request: Request): Promi
           : null;
     const validationError = resourceIdentityError ?? validateBucketNameInput({
       bucketName, sessionId, r2AccessKeyId, r2SecretAccessKey, r2AccountId, r2Endpoint,
-      workspaceSyncEnabled, fastStartEnabled, sessionMode, sessionWorkspace, terminalMode, routeReasoningLevels, modelDisplayNames, promptCacheTargets,
+      workspaceSyncEnabled, fastStartEnabled, sessionMode, sessionWorkspace, terminalMode, routeReasoningLevels, modelDisplayNames, promptCacheTargets, piDefaultSource,
     });
     if (validationError) {
       return new Response(JSON.stringify({ error: validationError }), {
@@ -238,7 +240,7 @@ async function handleSetBucketName(host: ContainerHost, request: Request): Promi
       // Update user preferences on restart even though bucket is already set.
       // Without this, preference changes made between sessions are lost.
       const prefsChanged = await applyPrefsOnRestart(host, host.ctx.storage, {
-        sessionId, userEmail, userGroups, routeCatalog, allowPersonalPiProviders: allowPersonalPiProviders === true, defaultRoute, defaultReasoning, routeContextWindows, routeReasoningLevels, modelDisplayNames, promptCacheTargets,
+        sessionId, userEmail, userGroups, routeCatalog, allowPersonalPiProviders: allowPersonalPiProviders === true, piDefaultSource: piDefaultSource ?? 'managed', defaultRoute, defaultReasoning, routeContextWindows, routeReasoningLevels, modelDisplayNames, promptCacheTargets,
         workspaceSyncEnabled, fastStartEnabled, tabConfig,
         openaiApiKey, geminiApiKey, githubToken, cloudflareApiToken, cloudflareAccountId,
         encryptionKey, r2SseDisabled, remoteCurationActive, remoteCurationReleaseDigest, remoteCurationManifestDigest,
@@ -294,6 +296,8 @@ async function handleSetBucketName(host: ContainerHost, request: Request): Promi
     if (routeCatalog !== undefined) {
       host._allowPersonalPiProviders = allowPersonalPiProviders === true;
       await host.ctx.storage.put('allowPersonalPiProviders', host._allowPersonalPiProviders);
+      host._piDefaultSource = piDefaultSource ?? 'managed';
+      await host.ctx.storage.put('piDefaultSource', host._piDefaultSource);
       await host.ctx.storage.put('routeCatalog', routeCatalog);
       host._routeCatalog = routeCatalog;
       // `!== undefined`, not truthiness: an empty-string default route/reasoning is the

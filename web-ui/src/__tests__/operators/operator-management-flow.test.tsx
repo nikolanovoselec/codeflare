@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@solidjs/testing-library';
 import OperatorManagement, { ManagementAccessPanel } from '../../components/OperatorManagement';
+import { getManagedOperator } from '../../api/operator-management';
 
 const grant = { users: ['manager@example.test'], groups: [] };
 const policy = { capabilities: [], resourceProfileId: null };
@@ -140,24 +141,50 @@ describe('REQ-OPERATOR-049: management decisions and recovery', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Disable' }));
     await waitFor(() => expect(screen.queryByRole('link', { name: 'Run as yourself' })).not.toBeInTheDocument());
   });
-  it('explains why Dispatcher has no resource profile and opens its invocation without a reload or start', async () => {
+  it.each([true, false])('REQ-OPERATOR-058: AC1/2 management opens a Dispatcher with native approval=%s and an empty session catalog without starting until explicit submission', async nativeApproved => {
+    const dispatcherPolicy = { capabilities: ['inference'], resourceProfileId: null,
+      inference: { allowedSources: nativeApproved ? ['managed', 'pi-native'] : ['managed'], routeIds: ['account-default'],
+        defaultRouteId: 'account-default', reasoningLevels: ['low'], defaultReasoningLevel: 'low', inheritUserDefaults: false } };
     const dispatcher = { ...operator, profile: 'dispatcher', repositoryUrl: 'https://github.com/nikolanovoselec/codeflare-operator-dispatcher',
-      policy: { capabilities: ['inference'], resourceProfileId: null } };
-    serve = url => url.pathname.endsWith('/operator-1') ? json({ ...detail(), operator: dispatcher,
-      releases: [{ ...release, name: 'Renovate Dispatcher' }],
-      installations: [{ ...installation, enabled: true, releaseId: release.id }] })
-      : url.pathname.endsWith('/preview') ? json({ name: 'Renovate Dispatcher', version: 'v0.1.2', guidedAssessment: true, guidedMode: 'legacy-pull-request' })
-      : url.pathname === '/api/operator-activities' ? json({ items: [] }) : json({ items: [dispatcher], cursor: null });
+      policy: dispatcherPolicy };
+    const writes: Array<{ path: string; body: unknown }> = [];
+    serve = (url, init) => {
+      if (init?.method === 'POST') {
+        writes.push({ path: url.pathname, body: JSON.parse(String(init.body)) });
+        if (url.pathname === '/api/operator-activities') return json({ activityId: 'management-assessment', startCapability: 'm'.repeat(43), startExpiresAt: Date.now() + 30000 });
+        if (url.pathname === '/api/operator-activities/management-assessment/start') return json({ ok: true });
+        return json({ error: 'No session or configuration mutation authorized' }, 403);
+      }
+      if (url.pathname === '/api/sessions') return json({ sessions: [] });
+      if (url.pathname.endsWith('/operator-1')) return json({ ...detail(), operator: dispatcher,
+        releases: [{ ...release, name: 'Renovate Dispatcher' }],
+        installations: [{ ...installation, enabled: true, releaseId: release.id, policy: dispatcherPolicy }] });
+      if (url.pathname.endsWith('/preview')) return json({ name: 'Renovate Dispatcher', version: 'v0.1.2', guidedAssessment: true, guidedMode: 'legacy-pull-request', requiresSourceHost: false });
+      return url.pathname === '/api/operator-activities' ? json({ items: [] }) : json({ items: [dispatcher], cursor: null });
+    };
     render(() => <OperatorManagement />);
     fireEvent.click(await screen.findByRole('button', { name: `Manage ${dispatcher.repositoryUrl}` }));
     expect(screen.queryByRole('combobox', { name: 'test resource profile' })).not.toBeInTheDocument();
     expect(await screen.findByRole('heading', { name: 'Runtime permissions' })).toBeInTheDocument();
-    const link = screen.getByRole('link', { name: /assess a pull request/i });
-    fireEvent.click(link);
+    fireEvent.click(screen.getByRole('link', { name: /assess a pull request/i }));
     expect(await screen.findByRole('heading', { name: 'Assess a Renovate pull request' })).toBeInTheDocument();
     expect(window.location.search).toContain('invoke=installation-1');
     expect(screen.queryByRole('region', { name: 'Installed version' })).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Start assessment' })).toBeInTheDocument();
+    const start = screen.getByRole('button', { name: 'Start assessment' });
+    expect(start).toBeEnabled();
+    expect(screen.queryByRole('combobox', { name: /source.*host/i })).not.toBeInTheDocument();
+    expect(writes).toEqual([]);
+    fireEvent.input(screen.getByRole('textbox', { name: 'Repository' }), { target: { value: 'selected/repository' } });
+    fireEvent.input(screen.getByRole('spinbutton', { name: 'Pull request number' }), { target: { value: '17' } });
+    expect(writes).toEqual([]);
+    fireEvent.click(start);
+    expect(await screen.findByText(/Activity start accepted/)).toBeInTheDocument();
+    // Exact public wire demonstrates no implicit session lifecycle/settings write,
+    // no source identity in child input, and start bound to the returned Activity.
+    expect(writes).toEqual([
+      { path: '/api/operator-activities', body: { installationId: 'installation-1', invocation: { repository: 'selected/repository', pullRequest: 17 } } },
+      { path: '/api/operator-activities/management-assessment/start', body: { capability: 'm'.repeat(43) } },
+    ]);
   });
 
   it('shows save success and failure next to Permissions rather than only at the page header', async () => {
@@ -399,5 +426,103 @@ describe('REQ-OPERATOR-049: management decisions and recovery', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Save permissions' }));
     await waitFor(() => expect(saved).toEqual({ revision: 3, managers: grant, invokers: { users: ['invoker@example.test'], groups: [] } }));
     expect(await screen.findByText('Permissions saved. Management does not grant execution.')).toBeInTheDocument();
+  });
+});
+
+
+describe('REQ-OPERATOR-007: installation-only Pi reasoning', () => {
+  it('saves the installation-only Low override without enabling the installation', async () => {
+    let current = { ...installation, piReasoningOverride: undefined as string | undefined };
+    let saved: Record<string, unknown> | undefined;
+    serve = (url, init) => {
+      if (url.pathname.endsWith('/configure') && init?.method === 'POST') {
+        saved = JSON.parse(String(init.body));
+        current = { ...current, piReasoningOverride: saved!.piReasoningOverride as string, revision: current.revision + 1 };
+        return json(current);
+      }
+      return url.pathname.endsWith('/operator-1') ? json({ ...detail(), installations: [current] })
+        : json({ items: [operator], cursor: null });
+    };
+    render(() => <OperatorManagement />);
+    fireEvent.click(await screen.findByRole('button', { name: `Manage ${operator.repositoryUrl}` }));
+    const override = await screen.findByRole('combobox', { name: 'test Pi reasoning' });
+    expect(override).toHaveValue('');
+    fireEvent.change(override, { target: { value: 'low' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save restrictions for test' }));
+    await waitFor(() => expect(saved).toMatchObject({ revision: 2, piReasoningOverride: 'low', policy }));
+    await waitFor(() => expect(screen.getByRole('combobox', { name: 'test Pi reasoning' })).toHaveValue('low'));
+    expect(screen.queryByRole('button', { name: 'Disable' })).not.toBeInTheDocument();
+  });
+});
+
+
+describe('REQ-OPERATOR-007: management source approval controls', () => {
+  const inference = { allowedSources: ['managed', 'pi-native'], routeIds: ['approved-route'], defaultRouteId: 'approved-route',
+    reasoningLevels: ['low'], defaultReasoningLevel: 'low', inheritUserDefaults: false };
+
+  it.each([
+    { allowedSources: ['unapproved-source'] },
+    { routeIds: ['approved-route', 'approved-route'] },
+    { defaultRouteId: 'unapproved-route' },
+    { reasoningLevels: ['unsupported-level'] },
+    { defaultReasoningLevel: 'high' },
+    { unexpectedAuthority: true },
+  ])('rejects malformed inference restrictions from the management wire contract: %j', async invalid => {
+    serve = () => json({ ...detail(), operator: { ...operator, policy: { ...policy, inference: { ...inference, ...invalid } } } });
+    await expect(getManagedOperator(operator.id)).rejects.toThrow();
+  });
+
+  it('retains canonical operator and installation restrictions when saving unrelated settings through the real client', async () => {
+    let operatorSave: any; let installationSave: any;
+    const configuration = { unrelated: { keep: true } };
+    serve = (url, init) => {
+      const currentOperator = { ...operator, policy: { ...policy, inference } };
+      const currentInstallation = { ...installation, policy: { ...policy, inference }, configuration, piReasoningOverride: 'low' };
+      if (url.pathname.endsWith('/capabilities') && init?.method === 'POST') {
+        operatorSave = JSON.parse(String(init.body));
+        return json({ ...currentOperator, revision: 4 });
+      }
+      if (url.pathname.endsWith('/configure') && init?.method === 'POST') {
+        installationSave = JSON.parse(String(init.body));
+        return json({ ...currentInstallation, revision: 3 });
+      }
+      return url.pathname.endsWith('/operator-1') ? json({ ...detail(), operator: currentOperator, installations: [currentInstallation] })
+        : json({ items: [currentOperator], cursor: null });
+    };
+    render(() => <OperatorManagement />);
+    fireEvent.click(await screen.findByRole('button', { name: `Manage ${operator.repositoryUrl}` }));
+    const native = await screen.findByRole('checkbox', { name: 'Operator approve Pi-native source' });
+    expect(native).toBeChecked();
+    expect(screen.getByRole('checkbox', { name: 'Operator allow low reasoning' })).toBeChecked();
+    expect(screen.getByRole('checkbox', { name: 'Operator allow high reasoning' })).not.toBeChecked();
+    fireEvent.click(screen.getByRole('checkbox', { name: /Enable logging/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save operator capabilities' }));
+    await waitFor(() => expect(operatorSave).toMatchObject({ inference, loggingEnabled: false }));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Save restrictions for test' })).toBeEnabled());
+    fireEvent.click(screen.getByRole('button', { name: 'Save restrictions for test' }));
+    await waitFor(() => expect(installationSave).toEqual({ revision: 2, policy: { ...policy, inference }, configuration, piReasoningOverride: 'low' }));
+  });
+
+  it('leaves legacy native approval off and requires explicit reasoning choices without broadening either policy', async () => {
+    let saved: any;
+    serve = (url, init) => {
+      if (url.pathname.endsWith('/capabilities') && init?.method === 'POST') {
+        saved = JSON.parse(String(init.body)); return json({ ...operator, policy: { ...policy, inference: saved.inference } });
+      }
+      return url.pathname.endsWith('/operator-1') ? json(detail()) : json({ items: [operator], cursor: null });
+    };
+    render(() => <OperatorManagement />);
+    fireEvent.click(await screen.findByRole('button', { name: `Manage ${operator.repositoryUrl}` }));
+    const native = await screen.findByRole('checkbox', { name: 'Operator approve Pi-native source' });
+    expect(native).not.toBeChecked();
+    expect(screen.getByRole('checkbox', { name: 'test approve Pi-native source' })).not.toBeChecked();
+    expect(screen.getByRole('checkbox', { name: 'test approve Pi-native source' })).toBeDisabled();
+    fireEvent.click(native);
+    expect(screen.getByRole('checkbox', { name: 'Operator allow high reasoning' })).not.toBeChecked();
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Operator allow low reasoning' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save operator capabilities' }));
+    await waitFor(() => expect(saved).toMatchObject({ inference: { allowedSources: ['managed', 'pi-native'], routeIds: [],
+      defaultRouteId: null, reasoningLevels: ['low'], defaultReasoningLevel: null, inheritUserDefaults: false } }));
+    expect(screen.getByRole('checkbox', { name: 'test approve Pi-native source' })).not.toBeChecked();
   });
 });

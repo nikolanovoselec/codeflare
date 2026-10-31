@@ -34,6 +34,10 @@ export const DiagnosticRecordMetadata: Component<{ record: DiagnosticRecord; sou
   when={props.record.kind === 'event' ? props.record : undefined} fallback={(() => {
     const row = () => props.record.kind === 'operation' ? props.record : undefined;
     return <Show when={row()}>{operation => <>
+      <p>{operation().status === 'completed' ? 'The operation was recorded as completed.'
+        : operation().status === 'reserved' ? 'The operation was reserved; completion is not confirmed.'
+        : 'The operation outcome is unknown.'} {operation().availability === 'unavailable' ? 'Its retained metadata is unavailable.' : ''}</p>
+      <details><summary>Operation technical details</summary>
       <p>Logical ordinal: {available(operation().ordinal)} · Journal status: {operation().status} · Record generation: {operation().generation}</p>
       <p>Availability: {operation().availability} · Association: {diagnosticWords(operation().association)}</p>
       <p>Operation digest: <span class="operator-diagnostic-digest">{operation().operationDigest}</span></p>
@@ -51,8 +55,23 @@ export const DiagnosticRecordMetadata: Component<{ record: DiagnosticRecord; sou
         </>}</Show>
         <p>Legacy operation metadata does not supply an SDK attempt, diagnostic sequence, or retrospective error.</p>
       </Show>
+      </details>
     </>}</Show>;
   })()}>{event => <>
+    <p><strong>{event().boundary === 'inference-response' ? 'Host response'
+      : event().boundary === 'canonical-commit' ? 'Saving the response'
+      : event().boundary === 'settlement' ? 'Finishing the work'
+      : event().boundary === 'tool' ? 'Tool execution' : 'Runtime step'}</strong></p>
+    <p>{event().evidence === 'unavailable' ? 'Evidence for this step is unavailable.'
+      : event().outcome === 'failed' ? 'A failure was recorded at this step.'
+      : event().outcome === 'recovered' ? 'This step recovered from an earlier problem.'
+      : event().outcome === 'unknown' ? 'The outcome of this step is unknown.'
+      : 'A runtime step was recorded; it does not establish the outcome of the whole run.'}</p>
+    <Show when={event().error?.transportStatus || event().error?.transportReason}><p>Request failure{event().error?.transportStatus ? ` (HTTP ${event().error!.transportStatus})` : ''}: {event().error?.transportReason === 'execution-inactive'
+      ? 'The platform could not confirm this request belonged to an active run.'
+      : event().error?.transportReason ? diagnosticWords(event().error!.transportReason!) : 'No further reason was retained.'}</p></Show>
+    <Show when={event().error?.loss.length}><p>Some error details are unavailable in this metadata view. Protected runtime logs are separate and may contain more detail.</p></Show>
+    <details><summary>Record technical details</summary>
     <p class="operator-diagnostic-event-heading"><strong>{event().id}</strong><span>{event().boundary === 'inference-response' ? 'Host inference response' : diagnosticWords(event().boundary)}</span><span>{event().outcome}</span></p>
     <p><time datetime={new Date(event().timestamp).toISOString()}>{new Date(event().timestamp).toLocaleString()}</time> · Owner: {event().owner} · Evidence: {event().evidence} · Record generation: {event().generation}</p>
     <Correlation event={event()} />
@@ -69,19 +88,24 @@ export const DiagnosticRecordMetadata: Component<{ record: DiagnosticRecord; sou
         }</Show>
       </li>}</For></ul>
     </Show>
+    </details>
   </>}</Show>;
 
 const OperatorDiagnosticRecord: Component<{ detail: DiagnosticDetail }> = props => <section class="operator-diagnostic-detail"
   aria-label={`Record ${props.detail.record.id}`}>
   <h4>Record {props.detail.record.id}</h4>
-  <p>Record metadata read <time datetime={new Date(props.detail.capturedAt).toISOString()}>{new Date(props.detail.capturedAt).toLocaleString()}</time>; current original-lease binding generation {props.detail.binding.generation}.</p>
+  <details><summary>Record snapshot technical details</summary>
+  <p>Record metadata read <time datetime={new Date(props.detail.capturedAt).toISOString()}>{new Date(props.detail.capturedAt).toLocaleString()}</time>; current original-lease binding generation {props.detail.binding.generation}.</p></details>
   <DiagnosticRecordMetadata record={props.detail.record} source />
   <Show when={props.detail.capsule}>{capsule => <div class="operator-diagnostic-capsule">
-    <h5>{capsule().kind === 'failure' ? 'Retained failure capsule' : 'Retained terminal capsule'} {capsule().id}</h5>
-    <Show when={props.detail.record.kind !== 'event' || capsule().code !== props.detail.record.code}><p>Capsule reason: {diagnosticWords(capsule().code)}</p></Show>
-    <p>Last host-persisted evidence: {capsule().lastHostPersistedId ?? 'Unavailable'}</p>
+    <h5>{capsule().kind === 'failure' ? 'Retained failure information' : 'Retained completion information'}</h5>
     <p>{capsule().uncertainty === 'prior-effect-uncertain' ? 'Prior affected effects are uncertain. Do not replay uncertain work.'
       : capsule().uncertainty === 'evidence-incomplete' ? 'Affected-effect evidence is incomplete.' : 'No uncertainty observed in this capsule; this is not proof of absence elsewhere.'}</p>
+    <Show when={capsule().loss.length}><p>Some details of this record are missing; the retained information may be incomplete.</p></Show>
+    <details><summary>Retained failure and completion technical details</summary>
+    <p>Capsule ID: {capsule().id}</p>
+    <Show when={props.detail.record.kind !== 'event' || capsule().code !== props.detail.record.code}><p>Capsule reason: {diagnosticWords(capsule().code)}</p></Show>
+    <p>Last host-persisted evidence: {capsule().lastHostPersistedId ?? 'Unavailable'}</p>
     <Show when={capsule().sdk} fallback={<p>SDK capsule coordinates and operational settlement unavailable.</p>}>{sdk => <>
       <p>SDK operational settlement: {sdk().settlement}</p>
       <dl class="operator-diagnostic-facts"><For each={Object.entries(sdk()).filter(([key]) => key !== 'settlement')}>{([key, value]) =>
@@ -98,6 +122,7 @@ const OperatorDiagnosticRecord: Component<{ detail: DiagnosticDetail }> = props 
     </li>}</For></ul>
     <p>Affected operations omitted: {available(capsule().affectedOperationsOmitted)}</p>
     <Show when={capsule().loss.length}><p>Capsule evidence gaps: {capsule().loss.map(diagnosticWords).join(', ')}</p></Show>
+    </details>
   </div>}</Show>
 </section>;
 export default OperatorDiagnosticRecord;

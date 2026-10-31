@@ -14,8 +14,15 @@ import type { OperatorPiFactory, OperatorPiSession } from './operator-pi.js';
 import { createOperatorPiReviewTools, type OperatorPiReviewConfig, type ReviewToolSdk } from './operator-pi-review.js';
 import { createIsolatedPiTools, type IsolatedPiInitialization } from './operator-pi-isolated.js';
 import { runApprovedTasks } from './operator-pi-isolated-runner.js';
+import { EMPTY_PI_CREDENTIALS, type OperatorPiAuthBinding, type OperatorPiAuthDescriptor, safePiAuthFailure, piAuthError } from './operator-pi-auth.js';
+import { bindNativePiProvider, type NativePiAi, type NativePiModel, type NativePiProvider } from './operator-pi-native.js';
+import { createOperatorPiSdkSession, readOnlyPiRuntime } from './operator-pi-session.js';
 
 export interface OperatorPiSdkProfile {
+  source?: 'managed' | 'pi-native';
+  /** Required and validated for pi-native; never inferred from a replacement model. */
+  api?: string;
+  authBinding?: OperatorPiAuthDescriptor;
   provider: string;
   model: string;
   thinkingLevel: string;
@@ -29,7 +36,9 @@ export interface OperatorPiSdkProfile {
 }
 
 interface PiModelRuntime {
-  getModel(provider: string, model: string): unknown;
+  getModel(provider: string, model: string): NativePiModel | undefined;
+  getProvider(provider: string): NativePiProvider | undefined;
+  registerNativeProvider(provider: NativePiProvider): void;
 }
 interface PiAgentTool {
   name: string;
@@ -37,7 +46,7 @@ interface PiAgentTool {
   execute(toolCallId: string, arguments_: unknown, signal?: AbortSignal,
     onUpdate?: (result: unknown) => void): Promise<unknown>;
 }
-interface PiAi {
+interface PiAi extends NativePiAi {
   validateToolArguments(tool: PiAgentTool, toolCall: {
     type: 'toolCall'; id: string; name: string; arguments: unknown;
   }): unknown;
@@ -61,13 +70,16 @@ interface PiSdk extends ReviewToolSdk {
     open(file: string, sessionDir: string, cwdOverride?: string): unknown };
   createExtensionRuntime(): unknown;
   createAgentSession(options: object): Promise<{ session: PiAgentSession }>;
+  createAgentSessionServices(options: object): Promise<Record<string, unknown>>;
+  createAgentSessionFromServices(options: object): Promise<{ session: PiAgentSession }>;
 }
 
 const DEFAULT_SDK_ROOT = '/opt/codeflare/npm-tools/node_modules/@earendil-works/pi-coding-agent';
 
 function validateProfile(profile: OperatorPiSdkProfile): void {
   const bounded = (value: string, max: number) => value.trim().length > 0 && new TextEncoder().encode(value).byteLength <= max;
-  if (!bounded(profile.provider, 128) || !bounded(profile.model, 256) || !bounded(profile.thinkingLevel, 32)
+  if ((profile.source === 'pi-native' && (typeof profile.api !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(profile.api)))
+    || !bounded(profile.provider, 128) || !bounded(profile.model, 256) || !bounded(profile.thinkingLevel, 32)
     || !bounded(profile.systemPrompt, 64 * 1024) || profile.tools.length > 64
     || profile.tools.some(tool => !/^[a-zA-Z0-9_-]{1,64}$/.test(tool))) {
     throw new Error('Invalid approved Pi profile');
@@ -89,8 +101,11 @@ export function createProvisionedOperatorPiFactory(options: {
   sdkRoot?: string;
   importSdk?: () => Promise<Record<string, unknown>>;
   importPiAi?: () => Promise<Record<string, unknown>>;
+  authBinding?: OperatorPiAuthBinding;
 }): OperatorPiFactory {
   validateProfile(options.profile);
+  const native = options.profile.source === 'pi-native';
+  if (native && !options.authBinding) throw new Error('Native Pi requires a private binding');
   const cwd = path.resolve(options.cwd);
   const agentDir = path.resolve(options.agentDir);
   const sessionDir = path.resolve(options.sessionDir);
@@ -119,13 +134,31 @@ export function createProvisionedOperatorPiFactory(options: {
         || !piAi?.validateToolArguments) {
         throw new Error('Provisioned Pi SDK is incompatible');
       }
-      const provisionedRuntime = await sdk.ModelRuntime.create({
+      const provisionedRuntime = await sdk.ModelRuntime.create(native ? {
+        credentials: EMPTY_PI_CREDENTIALS, modelsPath: null,
+        refreshOnCreate: false, allowModelNetwork: false,
+      } : {
         authPath: path.join(agentDir, 'auth.json'),
         modelsPath: path.join(agentDir, 'models.json'),
         allowModelNetwork: false,
       });
       const model = provisionedRuntime.getModel(options.profile.provider, options.profile.model);
       if (!model) throw new Error('Approved model is unavailable in the provisioned Pi SDK');
+      if (native) {
+        if (!sdk.createAgentSessionServices || !sdk.createAgentSessionFromServices
+          || !piAi.createProvider || !piAi.getSupportedThinkingLevels
+          || !provisionedRuntime.getProvider || !provisionedRuntime.registerNativeProvider) {
+          throw new Error('Provisioned Pi native SDK is incompatible');
+        }
+        if (model.provider !== options.profile.provider || model.id !== options.profile.model
+          || model.api !== options.profile.api) {
+          throw new Error('Approved Pi model binding mismatch');
+        }
+        const provider = provisionedRuntime.getProvider(options.profile.provider);
+        if (!provider) throw new Error('Approved native Pi provider is unavailable');
+        provisionedRuntime.registerNativeProvider(bindNativePiProvider({ native: provider, model,
+          thinkingLevel: options.profile.thinkingLevel, piAi, binding: options.authBinding! }));
+      }
       const runtime = sdk.createExtensionRuntime();
       const fixedReviewResources = options.review !== undefined || options.isolated !== undefined;
       const resourceLoader = {
@@ -144,11 +177,11 @@ export function createProvisionedOperatorPiFactory(options: {
       const reviewTools = options.review ? createOperatorPiReviewTools(sdk, cwd, options.review) : undefined;
       const isolatedTools = options.isolated
         ? createIsolatedPiTools(sdk, cwd, options.isolated.initialization) : undefined;
-      const base = { cwd, agentDir, model, modelRuntime: provisionedRuntime, resourceLoader,
+      const base = { cwd, agentDir, model, modelRuntime: native ? readOnlyPiRuntime(provisionedRuntime, model) : provisionedRuntime, resourceLoader,
         tools: options.isolated ? ['read', 'write'] : approvedTools,
         thinkingLevel: options.profile.thinkingLevel,
         settingsManager: sdk.SettingsManager.inMemory({
-          compaction: { enabled: false }, retry: { enabled: false },
+          compaction: { enabled: false }, retry: { enabled: false }, cacheWarming: 'off',
         }) };
       return { sdk, piAi, base: {
         ...base,
@@ -161,33 +194,50 @@ export function createProvisionedOperatorPiFactory(options: {
   };
 
   const createWith = async (sessionManager: unknown): Promise<OperatorPiSession> => {
+    options.authBinding?.resolve();
     const { sdk, piAi, base } = await context();
-    const result = await sdk.createAgentSession({ ...base, sessionManager });
+    const result = await createOperatorPiSdkSession(sdk, { ...base, sessionManager }, native);
     const session = result?.session;
     if (!session?.sessionId || !session.agent?.state || !Array.isArray(session.agent.state.tools)) {
       throw new Error('Provisioned Pi SDK returned no session');
     }
+    const checked = async (operation: () => Promise<unknown>): Promise<void> => {
+      options.authBinding?.resolve();
+      try { await operation(); }
+      catch (error) {
+        const failure = safePiAuthFailure(error) ?? options.authBinding?.authFailure;
+        if (failure && (!native || failure.provider === options.profile.provider)) {
+          options.authBinding?.fail(failure.reason);
+          throw piAuthError(failure.provider, failure.reason);
+        }
+        throw error;
+      }
+      const failure = options.authBinding?.authFailure;
+      if (failure) throw piAuthError(failure.provider, failure.reason);
+    };
     return {
       get sessionId() { return session.sessionId; },
       get sessionFile() { return session.sessionFile; },
       get isStreaming() { return session.isStreaming; },
-      prompt: text => options.isolated ? Promise.reject(Error('Isolated Pi requires approved tasks')) : session.prompt(text),
+      prompt: text => options.isolated ? Promise.reject(Error('Isolated Pi requires approved tasks')) : checked(() => session.prompt(text)),
       async executeTool(input) {
         if (session.isStreaming) throw new Error('Pi conversation is busy');
         if (!approvedTools.includes(input.name)) throw new Error('Approved Pi tool is unavailable');
         input.signal.throwIfAborted();
         if (options.isolated) {
+          const isolated = options.isolated;
           // This is a parent-mediated structured request, not a tool offered
           // to the root model. Only children receive SDK filesystem tools.
           const supplied = input.arguments;
-          const expected = createHash('sha256').update(JSON.stringify(options.isolated.initialization)).digest('hex');
+          const expected = createHash('sha256').update(JSON.stringify(isolated.initialization)).digest('hex');
           if (input.name !== 'run_approved_tasks' || !supplied || typeof supplied !== 'object'
             || Array.isArray(supplied) || Object.keys(supplied).length !== 1
             || supplied.initializationDigest !== expected) throw Error('Approved task binding denied');
-          await runApprovedTasks({ sdk, base, cwd, sessionDir, taskId: input.toolCallId,
-            outputRoot: options.isolated.outputRoot ?? '/home/user/Operators',
-            initialization: options.isolated.initialization, deadline: options.isolated.deadline,
-            signal: input.signal });
+          await checked(() => runApprovedTasks({ sdk, base, cwd, sessionDir, taskId: input.toolCallId,
+            native, authBinding: options.authBinding,
+            outputRoot: isolated.outputRoot ?? '/home/user/Operators',
+            initialization: isolated.initialization, deadline: isolated.deadline,
+            signal: input.signal }));
           input.signal.throwIfAborted();
           return;
         }
@@ -203,8 +253,8 @@ export function createProvisionedOperatorPiFactory(options: {
         await tool.execute(input.toolCallId, arguments_, input.signal, undefined);
         input.signal.throwIfAborted();
       },
-      followUp: text => options.isolated ? Promise.reject(Error('Isolated Pi requires approved tasks')) : session.followUp(text),
-      steer: text => options.isolated ? Promise.reject(Error('Isolated Pi requires approved tasks')) : session.steer(text),
+      followUp: text => options.isolated ? Promise.reject(Error('Isolated Pi requires approved tasks')) : checked(() => session.followUp(text)),
+      steer: text => options.isolated ? Promise.reject(Error('Isolated Pi requires approved tasks')) : checked(() => session.steer(text)),
       abort: () => session.abort(),
       subscribe: listener => session.subscribe(listener),
       dispose: () => session.dispose(),
@@ -213,6 +263,7 @@ export function createProvisionedOperatorPiFactory(options: {
 
   return {
     async create() {
+      options.authBinding?.resolve();
       const { sdk } = await context();
       if (options.isolated) {
         // Pi's create() defers writing a session file until an assistant message.
@@ -232,6 +283,7 @@ export function createProvisionedOperatorPiFactory(options: {
       return createWith(sdk.SessionManager.create(cwd, sessionDir));
     },
     async open(sessionFile: string) {
+      options.authBinding?.resolve();
       const resolved = path.resolve(sessionFile);
       if (sessionFile !== resolved || path.dirname(resolved) !== sessionDir || path.extname(resolved) !== '.jsonl') {
         throw new Error('Invalid owned session file');

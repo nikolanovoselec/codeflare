@@ -565,8 +565,9 @@ export default {
 export { container } from './container';
 export { Timekeeper as timekeeper } from './timekeeper/index';
 export { OperatorRegistry } from './operators/registry';
-export { OperatorActivity, OperatorDispatcherCapability, OperatorDispatcherTail } from './operators/activity';
+export { OperatorActivity, OperatorDispatcherCapability, OperatorInstalledDispatcherCapability, OperatorDispatcherTail } from './operators/activity';
 export { OperatorRuntimeCapability } from './operators/operator-runtime-capability';
+export { OperatorOwnerInferenceAuthority } from './operators/dispatcher-owner-inference';
 
 // Enterprise-mode LLM interceptor (REQ-ENTERPRISE-004). A WorkerEntrypoint the
 // container DO wires into container egress via ctx.exports.LlmInterceptor +

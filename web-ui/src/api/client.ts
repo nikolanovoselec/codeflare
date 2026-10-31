@@ -533,6 +533,15 @@ export async function stopSession(id: string): Promise<void> {
   });
 }
 
+export async function killSession(id: string): Promise<void> {
+  if (!SESSION_ID_RE.test(id)) {
+    throw new ApiError('Invalid session ID format', 400, 'Bad Request');
+  }
+  await fetchApi(`/sessions/${id}/kill`, {
+    method: 'POST',
+  });
+}
+
 // User management
 export type UserEntry = z.infer<typeof UserEntrySchema>;
 

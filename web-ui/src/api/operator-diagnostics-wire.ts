@@ -42,7 +42,11 @@ const publicCode = z.enum(['none', 'unknown', 'schema-validation', 'target-admis
 export const diagnosticErrorSchema = z.strictObject({ kind: errorKind, publicCode: publicCode.nullable(),
   messageDigest: digest.nullable(), stackDigest: digest.nullable(),
   causes: z.array(z.strictObject({ kind: errorKind, messageDigest: digest.nullable(), stackDigest: digest.nullable() })).max(3),
-  loss: z.array(errorLoss).max(6), fingerprintScope: z.enum(['full', 'bounded', 'unavailable']) });
+  loss: z.array(errorLoss).max(6), fingerprintScope: z.enum(['full', 'bounded', 'unavailable']),
+  transportStatus: z.number().int().min(300).max(599).optional(),
+  transportReason: z.enum(['execution-inactive', 'authority-unverified', 'request-invalid', 'policy-denied',
+    'receipt-unavailable', 'operation-conflict', 'operation-limit', 'effect-uncertain', 'upstream-unavailable', 'operation-failed']).optional(),
+  transportDisposition: z.enum(['authority-denied', 'operation-local', 'effect-uncertain', 'retryable']).optional() });
 export const diagnosticBindingSchema = z.strictObject({ generation: integer, artifactDigest: digest, inputDigest: digest });
 const repository = z.enum(['nikolanovoselec/codeflare', 'nikolanovoselec/codeflare-operator-dispatcher',
   'withastro/flue', 'cloudflare/agents']);

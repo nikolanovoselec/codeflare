@@ -500,10 +500,6 @@ jobs:
       needs.changes.outputs.full == 'true' ||
       needs.changes.outputs.backend == 'true'
     runs-on: ${{ vars.RUNNER || 'ubuntu-24.04' }}
-    # Native workerd groups run separately from ordinary Node tests so a stuck
-    # generated facet cannot hold the complete backend lane for ten minutes.
-    # Flue needs room for setup and cleanup around its passing suite.
-    timeout-minutes: ${{ matrix.slug == 'flue' && 4 || 3 }}
     strategy:
       fail-fast: false
       max-parallel: 3
@@ -1045,6 +1041,12 @@ jobs:
           directory: host
           key-prefix: host
 
+      - uses: ./.github/actions/install-deps
+        with:
+          directory: preseed/agents/pi
+          key-prefix: host-pi-inference
+          ignore-scripts: 'true'
+
       - name: Install authentic Graphify MCP compatibility runtime
         run: |
           set -euo pipefail
@@ -1174,6 +1176,8 @@ jobs:
         # native 1/5 partition appears exactly once across the parallel jobs.
         env:
           SHARDS: ${{ matrix.shards }}
+          OPERATOR_INFERENCE_TEST_SDK_ROOT: ${{ github.workspace }}/preseed/agents/pi/node_modules/@earendil-works/pi-coding-agent
+          OPERATOR_INFERENCE_TEST_AI_ENTRY: ${{ github.workspace }}/preseed/agents/pi/node_modules/@earendil-works/pi-ai/dist/index.js
         run: |
           set -euo pipefail
           part=0

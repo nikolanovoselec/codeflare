@@ -217,6 +217,7 @@ describe('REQ-OPERATOR-061: configured Renovate run settings', () => {
       enabled: true, releaseId: 'release', configurationJson: JSON.stringify(configuration),
       policy: { capabilities: ['fetch'], resourceProfileId: null } },
       operator: { operatorId: 'renovate-dispatcher', profile: 'dispatcher', revision: 1,
+        policy: { capabilities: ['fetch'], resourceProfileId: null },
         invokers: { users: [claims.email], groups: [] } }, release: { id: 'release', bundleDigest: 'a'.repeat(64) },
       manifestJson: JSON.stringify({ id: 'renovate-dispatcher', profile: 'dispatcher', intentVersion }) };
     const host = { ...encryption, OPERATOR_REGISTRY: { getByName: () => ({
@@ -272,4 +273,61 @@ describe('REQ-OPERATOR-061: configured Renovate run settings', () => {
     expect(f.prepared).toEqual(original);
   });
 
+});
+
+
+describe('REQ-OPERATOR-058: session-independent managed Dispatcher preparation', () => {
+  function managed(operatorCapabilities = ['fetch', 'inference'], installationCapabilities = ['fetch', 'inference']) {
+    const prepared: Array<{ activityId: string; invocation: unknown }> = [];
+    const selection = { controlsRevision: 1,
+      operator: { operatorId: 'renovate-dispatcher', profile: 'dispatcher', revision: 1,
+        invokers: { users: [claims.email], groups: [] }, policy: { capabilities: operatorCapabilities } },
+      installation: { id: 'source-install', revision: 1, releaseId: 'release', enabled: true,
+        configurationJson: '{}', policy: { capabilities: installationCapabilities, resourceProfileId: null } },
+      release: { id: 'release', bundleDigest: 'a'.repeat(64) },
+      manifestJson: JSON.stringify({ id: 'renovate-dispatcher', profile: 'dispatcher', intentVersion: '2' }) };
+    const host = { ...encryption,
+      OPERATOR_REGISTRY: { getByName: () => ({ resolveManagementExecution: async () => ({ ok: true, value: selection }) }) },
+      OPERATOR_ACTIVITY: { getByName: () => ({ prepareAuthorized: async (intent: { activityId: string }, _context: unknown, invocation: string) => {
+        prepared.push({ activityId: intent.activityId, invocation: JSON.parse(invocation) }); return { ok: true };
+      } }) },
+    } as unknown as Env;
+    return { host, prepared, selection };
+  }
+
+  it.each([{}, { sourceSession: undefined }])('REQ-OPERATOR-058: AC1 absent source %j permits independent managed inference preparation', async source => {
+    const f = managed();
+    const result = await prepareOperatorActivity({ installationId: 'source-install', invocation: { repository: 'owner/repo', pullRequest: 17 }, ...source },
+      { human: claims, accessJwt: 'private.jwt' }, f.host);
+    expect(f.prepared).toEqual([{ activityId: result.activityId, invocation: { repository: 'owner/repo', pullRequest: 17 } }]);
+    expect(result.startCapability).toMatch(/^[A-Za-z0-9_-]{43}$/);
+  });
+
+  it('REQ-OPERATOR-058: AC1 child sourceSession stays inert invocation data rather than Root authority', async () => {
+    const f = managed();
+    const invocation = { repository: 'owner/repo', pullRequest: 17,
+      sourceSession: { sessionId: 'ownersession1', sessionGeneration: 3 } };
+    const result = await prepareOperatorActivity({ installationId: 'source-install', invocation },
+      { human: claims, accessJwt: 'private.jwt' }, f.host);
+    expect(f.prepared).toEqual([{ activityId: result.activityId, invocation }]);
+    expect(result.startCapability).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    const original = structuredClone(f.prepared);
+    f.selection.operator.invokers.users = [];
+    await expect(prepareOperatorActivity({ installationId: 'source-install', invocation,
+      sourceSession: invocation.sourceSession }, { human: claims, accessJwt: 'private.jwt' }, f.host))
+      .rejects.toMatchObject({ statusCode: 404 });
+    expect(f.prepared).toEqual(original);
+  });
+
+  it.each([
+    { operator: ['fetch', 'inference'], installation: ['fetch'] },
+    { operator: ['fetch'], installation: ['fetch', 'inference'] },
+    { operator: ['fetch'], installation: ['fetch'] },
+  ])('REQ-OPERATOR-058: AC1 non-inference intersection %j retains source-free Dispatcher preparation', async policy => {
+    const f = managed(policy.operator, policy.installation);
+    const result = await prepareOperatorActivity({ installationId: 'source-install', invocation: { repository: 'owner/repo', pullRequest: 17 } },
+      { human: claims, accessJwt: 'private.jwt' }, f.host);
+    expect(f.prepared).toEqual([{ activityId: result.activityId, invocation: { repository: 'owner/repo', pullRequest: 17 } }]);
+    expect(result.startCapability).toMatch(/^[A-Za-z0-9_-]{43}$/);
+  });
 });

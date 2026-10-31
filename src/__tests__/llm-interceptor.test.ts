@@ -42,6 +42,7 @@ import { createOperatorExecutionContext } from '../operators/execution-context';
 import type { OperatorRuntimePlan } from '../operators/activity';
 import * as access from '../lib/access';
 import { bedrockChunkFrame, bedrockEventFrame, bedrockToolResponse, readOpenAiToolTurn } from './helpers/bedrock-eventstream';
+import { pendingRecipient, within } from './helpers/pending-recipient';
 
 vi.mock('../lib/ai-gateway-management', async (original) => ({
   ...await original<typeof import('../lib/ai-gateway-management')>(),
@@ -981,6 +982,73 @@ describe('native provider authorization and compat dispatch', () => {
     } };
   }
 
+  it.each(['REST', 'native compatibility', 'REST404 fallback', 'JWT REST', 'JWT REST404 fallback'])(
+    'REQ-OPERATOR-047: AC2 LLM %s preserves cancellation to the actual recipient', async leg => {
+      const recipient = pendingRecipient();
+      const controller = new AbortController();
+      const fallback = leg.includes('fallback');
+      const native = leg === 'native compatibility' ? nativeFixture(true, { provider: 'openai', model: 'gpt-5.6-sol',
+        profileId: 'native-openai-compat', providerConfigId: 'openai-default', providerConfigAlias: 'default',
+        adapterVersion: 'native-openai-compat-v1' }) : undefined;
+      const urls: string[] = [];
+      (globalThis.fetch as ReturnType<typeof vi.fn>).mockImplementation((request: Request) => {
+        urls.push(request.url);
+        if (fallback && new URL(request.url).hostname === 'api.cloudflare.com') return Promise.resolve(new Response('', { status: 404 }));
+        return recipient.fetch(request);
+      });
+      const stamped = leg.startsWith('JWT');
+      const interceptor = makeInterceptor(native ? { __kv: native.kv } as Partial<Env> : {}, {
+        user: SESSION_USER, sessionId: 'signal-continuity', ...(native ? { groups: ['engineering'] } : {}),
+        ...(stamped ? { jwtStamping: { mode: 'list' as const, destinations: ['api.cloudflare.com', 'gateway.ai.cloudflare.com'] }, jwtAuthority } : {}),
+      });
+      const result = interceptor.fetch(new Request('https://api.openai.com/v1/chat/completions', {
+        method: 'POST', signal: controller.signal, headers: { authorization: 'Bearer placeholder',
+          ...(stamped ? { 'cf-access-jwt-assertion': 'spoof' } : {}) },
+        body: JSON.stringify({ model: native?.handle ?? 'dynamic/codeflare-enterprise', messages: [{ role: 'user', content: 'cancel me' }] }),
+      }));
+      try {
+        const forwarded = await within(recipient.entered, 'LLM recipient entry');
+        controller.abort();
+        await expect.poll(recipient.aborted, { timeout: 300 }).toBe(true);
+        const response = await within(result, 'LLM abort response');
+        expect(response.status).toBe(502);
+        expect(await response.json()).toEqual({ error: 'gateway fetch failed', code: 'GATEWAY_FETCH_FAILED' });
+        const compat = fallback || !!native;
+        expect(new URL(forwarded.url).hostname).toBe(compat ? 'gateway.ai.cloudflare.com' : 'api.cloudflare.com');
+        expect(forwarded.headers.get(compat ? 'cf-aig-authorization' : 'authorization')).toBe(`Bearer ${AIG_TOKEN}`);
+        expect(forwarded.headers.get('cf-access-jwt-assertion')).toBe(stamped ? 'verified.jwt' : null);
+        expect(forwarded.redirect).toBe('manual');
+        // Recipient trace is paired with abort/error policy: no post-abort replacement leg.
+        expect(urls).toEqual(fallback ? [`${REST_BASE}/v1/chat/completions`, `${GATEWAY}/compat/chat/completions`] : [forwarded.url]);
+      } finally {
+        controller.abort(); recipient.release();
+        await within(result, 'LLM cleanup').catch(() => undefined);
+      }
+    });
+
+  it('REQ-OPERATOR-047: AC2 cancellation before REST404 fallback cannot start live compatibility work', async () => {
+    const recipient = pendingRecipient(); const controller = new AbortController();
+    let entered!: () => void; const restEntered = new Promise<void>(resolve => { entered = resolve; });
+    let finish!: (response: Response) => void; const rest = new Promise<Response>(resolve => { finish = resolve; });
+    (globalThis.fetch as ReturnType<typeof vi.fn>).mockImplementation((request: Request) => {
+      if (new URL(request.url).hostname === 'api.cloudflare.com') { entered(); return rest; }
+      return recipient.fetch(request);
+    });
+    const result = makeInterceptor().fetch(new Request('https://api.openai.com/v1/chat/completions', {
+      method: 'POST', signal: controller.signal, body: '{"model":"dynamic/codeflare-enterprise","messages":[{"role":"user","content":"cancel"}]}',
+    }));
+    try {
+      await within(restEntered, 'REST entry'); controller.abort(); finish(new Response('', { status: 404 }));
+      const response = await within(result, 'pre-aborted fallback response');
+      expect(response.status).toBe(502);
+      expect(await response.json()).toMatchObject({ code: 'GATEWAY_FETCH_FAILED' });
+      expect(recipient.activeUrls).toEqual([]);
+    } finally {
+      controller.abort(); finish(new Response('', { status: 404 })); recipient.release();
+      await within(result, 'fallback cleanup').catch(() => undefined);
+    }
+  });
+
   it('REQ-OPERATOR-048: Dispatcher uses real native inference with stable Activity-isolated signed tool replay', async () => {
     const fixture = nativeFixture(true, { model: 'eu.anthropic.claude-opus-5', profileId: 'bedrock-anthropic-native-opus-stream',
       transport: 'aig-bedrock-anthropic-eventstream', region: 'eu-central-1', adapterVersion: 'bedrock-anthropic-native-v5' });
@@ -988,7 +1056,7 @@ describe('native provider authorization and compat dispatch', () => {
     const encryption = Buffer.alloc(32, 7).toString('base64');
     const installationPolicy = { capabilities: ['inference', 'fetch'], resourceProfileId: null };
     const selection = { controlsRevision: 1, installation: { id: 'installation', revision: 1, policy: installationPolicy },
-      operator: { profile: 'dispatcher', revision: 1, invokers: { users: [SESSION_USER], groups: [] } },
+      operator: { profile: 'dispatcher', revision: 1, policy: installationPolicy, invokers: { users: [SESSION_USER], groups: [] } },
       release: { bundleDigest: 'a'.repeat(64) } };
     const environment = { ENCRYPTION_KEY: encryption, AIG_GATEWAY_URL: GATEWAY, AIG_TOKEN,
       KV: { get: async (key: string, type?: string) => type === 'json' && kv[key] ? JSON.parse(kv[key]) : kv[key] ?? null },
@@ -1204,57 +1272,108 @@ describe('native provider authorization and compat dispatch', () => {
     expect(globalThis.fetch).not.toHaveBeenCalled();
   });
 
-  describe('REQ-OPERATOR-063: interceptor-to-native closed diagnostic correlation', () => {
-    it.each(['complete', 'native-failure', 'fetch-failure'] as const)('correlates %s without exposing authority or provider data', async scenario => {
+  describe.each([
+    { setting: 'original ON', loggingEnabled: true, ownedContext: true },
+    { setting: 'original OFF', loggingEnabled: false, ownedContext: true },
+    { setting: 'owned omitted flag compatibility', loggingEnabled: undefined, ownedContext: true },
+    { setting: 'absent owned context', loggingEnabled: undefined, ownedContext: false },
+  ])('REQ-OPERATOR-063/079/082/090: interceptor-to-native diagnostic privacy with $setting', ({ loggingEnabled, ownedContext }) => {
+    it.each(['complete', 'native-failure', 'fetch-failure'] as const)('correlates %s while separating bounded privacy from protected original evidence', async scenario => {
       const fixture = nativeFixture(true, { model: 'eu.anthropic.claude-opus-5', profileId: 'bedrock-anthropic-native-opus-stream',
         transport: 'aig-bedrock-anthropic-eventstream', region: 'eu-central-1', adapterVersion: 'bedrock-anthropic-native-v5' });
       const marker = 'PRIVATE_INTERCEPTOR_DIAGNOSTIC';
+      const fullrawOriginalEvidence = `${marker}:${'original unbounded evidence;'.repeat(2048)}:ORIGINAL_EVIDENCE_END`;
+      const inboundToken = 'private-interceptor-inbound-token';
       const records: Array<Record<string, unknown>> = [];
+      const protectedRecords: Array<{ message: string; data: { value: unknown } }> = [];
       const raw: string[] = [];
       const spies = ['log', 'warn', 'error'].map(method => vi.spyOn(console, method as 'log').mockImplementation((...values) => {
         raw.push(JSON.stringify(values));
-        try { const entry = JSON.parse(String(values[0])); if (entry.module === 'operator-inference') records.push(entry.data); } catch { /* Structured contract only. */ }
+        try {
+          const entry = JSON.parse(String(values[0]));
+          if (entry.module === 'operator-inference') records.push(entry.data);
+          if (entry.module === 'operator-execution') protectedRecords.push(entry);
+        } catch { /* Keep every console record above, even outside the structured channels. */ }
       }));
       setLogLevel('info');
       const policy: OperatorPolicy = { schemaVersion: 1, networkHosts: [], github: { repositories: [], methods: [] },
         storage: { readPrefixes: [], writePrefixes: [] }, inference: { routeIds: [fixture.handle], defaultRouteId: fixture.handle,
           reasoningLevels: ['high'], defaultReasoningLevel: 'high', inheritUserDefaults: false } };
       const context = { activityId: 'activity-diagnostic', generation: 1, operationOrdinal: 7, requestDigest: 'd'.repeat(64) };
+      const diagnosticContext = { ...context, ...(loggingEnabled === undefined ? {} : { loggingEnabled }) };
       const props = { user: SESSION_USER, sessionId: 'activity-diagnostic', groups: ['engineering'], operatorInference: {
-        activityId: 'activity-diagnostic', operatorId: 'dispatcher', policy, trusted: { routeId: fixture.handle, reasoningLevel: 'high' }, diagnosticContext: context } };
+        activityId: 'activity-diagnostic', operatorId: 'dispatcher', policy, trusted: { routeId: fixture.handle, reasoningLevel: 'high' },
+        ...(ownedContext ? { diagnosticContext } : {}) } };
       (globalThis.fetch as ReturnType<typeof vi.fn>).mockImplementationOnce(async (input: RequestInfo | URL) => {
         const request = input as Request;
         lastFetch = { url: request.url, method: request.method, headers: request.headers, body: await request.text() };
-        if (scenario === 'fetch-failure') throw new Error(marker);
+        // A later setting edit must not rewrite this request's original decision.
+        diagnosticContext.loggingEnabled = loggingEnabled === false;
+        if (scenario === 'fetch-failure') throw new Error(fullrawOriginalEvidence);
         if (scenario === 'complete') return new Response(new ReadableStream<Uint8Array>({ start(controller) {
           for (const event of [
             { type: 'message_start', message: {} },
             { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } },
-            { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: marker } },
+            { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: fullrawOriginalEvidence } },
             { type: 'message_delta', delta: { stop_reason: 'end_turn' } },
             { type: 'message_stop' },
           ]) controller.enqueue(bedrockChunkFrame(event));
           controller.close();
         } }), { headers: { 'content-type': 'application/vnd.amazon.eventstream' } });
         return new Response(new ReadableStream<Uint8Array>({ start(controller) {
-          controller.enqueue(bedrockEventFrame('modelStreamErrorException', { message: marker }, 'exception')); controller.close();
+          controller.enqueue(bedrockEventFrame('modelStreamErrorException', { message: fullrawOriginalEvidence }, 'exception')); controller.close();
         } }), { headers: { 'content-type': 'application/vnd.amazon.eventstream', 'x-private-header': marker } });
       });
       try {
         const response = await makeInterceptor({ __kv: fixture.kv, ENCRYPTION_KEY: Buffer.alloc(32, 7).toString('base64') } as Partial<Env>, props).fetch(
-          new Request('https://api.openai.com/v1/chat/completions', { method: 'POST', body: JSON.stringify({
-            model: fixture.handle, stream: true, messages: [{ role: 'user', content: marker }],
+          new Request('https://api.openai.com/v1/chat/completions', { method: 'POST', headers: {
+            authorization: `Bearer ${inboundToken}`, 'x-api-key': inboundToken,
+          }, body: JSON.stringify({
+            model: fixture.handle, stream: true, messages: [{ role: 'user', content: fullrawOriginalEvidence }],
           }) }));
         const body = await response.text();
         expect(response.status).toBe(scenario === 'fetch-failure' ? 502 : 200);
-        if (scenario === 'complete') expect(body).toContain('"finish_reason":"stop"');
+        if (scenario === 'complete') {
+          expect(body).toContain('"finish_reason":"stop"');
+          expect(body).toContain(fullrawOriginalEvidence);
+        }
         if (scenario === 'native-failure') { expect(body).toContain('NATIVE_BEDROCK_STREAM_ERROR'); expect(body).not.toMatch(/"finish_reason":"[^"]+"/); }
         if (scenario === 'fetch-failure') expect(JSON.parse(body).code).toBe('GATEWAY_FETCH_FAILED');
+        if (scenario !== 'complete') expect(body).not.toContain(marker);
+        expect(lastFetch!.url).toBe(`${GATEWAY}/aws-bedrock/bedrock-runtime/eu-central-1/model/eu.anthropic.claude-opus-5/invoke-with-response-stream`);
         expect(lastFetch!.headers.get('cf-aig-authorization')).toBe(`Bearer ${AIG_TOKEN}`);
-        expect(records).toContainEqual(expect.objectContaining({ ...context, stage: 'route-selection', outcome: 'completed', transport: 'eventstream' }));
-        expect(records).toContainEqual(expect.objectContaining({ ...context, stage: 'gateway-fetch', outcome: scenario === 'fetch-failure' ? 'failed' : 'completed' }));
-        if (scenario === 'native-failure') expect(records).toContainEqual(expect.objectContaining({ ...context, stage: 'native-stream', outcome: 'failed', failureClass: 'provider-exception' }));
-        for (const secret of [marker, SESSION_USER, AIG_TOKEN, 'verified.jwt', 'modelStreamErrorException', 'https://']) expect(JSON.stringify(raw)).not.toContain(secret);
+        expect(lastFetch!.headers.get('authorization')).toBeNull();
+        expect(lastFetch!.headers.get('x-api-key')).toBeNull();
+        expect(JSON.parse(lastFetch!.body).messages[0].content).toEqual([{ type: 'text', text: fullrawOriginalEvidence }]);
+        if (loggingEnabled === false && ownedContext) expect(records).toEqual([]);
+        else {
+          const correlation = ownedContext ? context : {};
+          expect(records).toContainEqual(expect.objectContaining({ ...correlation, stage: 'route-selection', outcome: 'completed', transport: 'eventstream' }));
+          expect(records).toContainEqual(expect.objectContaining({ ...correlation, stage: 'gateway-fetch', outcome: scenario === 'fetch-failure' ? 'failed' : 'completed' }));
+          if (scenario === 'native-failure') expect(records).toContainEqual(expect.objectContaining({ ...correlation, stage: 'native-stream', outcome: 'failed', failureClass: 'provider-exception' }));
+        }
+        // The bounded channel still excludes all private values. Protected raw
+        // evidence may intentionally contain noncredential request/error data.
+        for (const privateValue of [marker, SESSION_USER, AIG_TOKEN, 'verified.jwt', 'modelStreamErrorException', 'https://'])
+          expect(JSON.stringify(records)).not.toContain(privateValue);
+        // Credential safety applies to ALL output, including unknown destinations.
+        for (const credential of [AIG_TOKEN, 'verified.jwt', inboundToken]) expect(JSON.stringify(raw)).not.toContain(credential);
+        if (ownedContext && loggingEnabled !== false) {
+          const requestEvidence = protectedRecords.find(record => record.message === 'gateway-request')!.data.value as { body: string };
+          expect(JSON.parse(requestEvidence.body).messages[0].content).toEqual([{ type: 'text', text: fullrawOriginalEvidence }]);
+          if (scenario === 'complete') expect(protectedRecords).toContainEqual(expect.objectContaining({ message: 'native-event',
+            data: expect.objectContaining({ value: expect.arrayContaining([{ stage: 'provider-stream-event',
+              value: { type: 'content_block_delta', index: 0,
+                delta: { type: 'text_delta', text: fullrawOriginalEvidence } } }]) }) }));
+          if (scenario === 'fetch-failure') expect(protectedRecords).toContainEqual(expect.objectContaining({ message: 'gateway-fetch',
+            data: expect.objectContaining({ value: expect.objectContaining({ message: fullrawOriginalEvidence }) }) }));
+          if (scenario === 'native-failure') expect(protectedRecords).toContainEqual(expect.objectContaining({ message: 'native-stream',
+            data: expect.objectContaining({ value: expect.objectContaining({ failureClass: 'provider-exception',
+              message: expect.any(String), stack: expect.any(String) }) }) }));
+        } else {
+          expect(protectedRecords).toEqual([]);
+          expect(JSON.stringify(raw)).not.toContain(marker);
+        }
       } finally { setLogLevel('silent'); spies.forEach(spy => spy.mockRestore()); }
     });
   });

@@ -370,7 +370,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 1. The default sync scope (`none`) syncs only settings and config directories and excludes the workspace directory entirely. <!-- @impl: entrypoint.sh::SYNC_MODE --> <!-- @test: host/__tests__/entrypoint-hooks-merge.test.js (workspaceSyncEnabled scope (REQ-STOR-011)) -->
 2. The full sync scope (`full`) syncs the entire workspace directory, excluding dependency-install directories. <!-- @impl: entrypoint.sh::SYNC_MODE --> <!-- @test: host/__tests__/entrypoint-hooks-merge.test.js (workspaceSyncEnabled scope (REQ-STOR-011)) -->
 3. The metadata sync scope (`metadata`) syncs only the agent-config files (per-repo agent instruction files and the per-repo agent rule directory). <!-- @impl: entrypoint.sh::SYNC_MODE --> <!-- @test: host/__tests__/entrypoint-hooks-merge.test.js (workspaceSyncEnabled scope (REQ-STOR-011)) -->
-4. All sync scopes exclude package-manager and sync-tool caches, agent logs and ephemeral data, root Pi work-evidence, build artifacts, regenerable tool state, and on-demand vendor credential caches; the path inventory is documented in [Storage & Sync](../../documentation/lanes/storage-and-sync.md#whats-synced-vs-excluded-req-stor-011). <!-- @impl: entrypoint.sh::RCLONE_FILTERS_COMMON --> <!-- @test: host/__tests__/entrypoint-hooks-merge.test.js (workspaceSyncEnabled scope (REQ-STOR-011)) --> <!-- @test: host/__tests__/entrypoint-rclone-filters.test.js (REQ-STOR-011 AC4: excludes only root Pi work-evidence in every sync scope) -->
+4. Every sync scope excludes the [documented caches, logs, ephemeral data, root Pi work-evidence, build artifacts, regenerable state, vendor credential caches and disposable Temporary checkout/download paths](../../documentation/lanes/storage-and-sync.md#whats-synced-vs-excluded-req-stor-011). Ordinary Temporary and Uploads content remains persistent. <!-- @impl: entrypoint.sh::RCLONE_FILTERS_COMMON --> <!-- @test: host/__tests__/entrypoint-hooks-merge.test.js (workspaceSyncEnabled scope (REQ-STOR-011)) --> <!-- @test: host/__tests__/entrypoint-rclone-filters.test.js (REQ-STOR-011 AC4: excludes only root Pi work-evidence in every sync scope) --> <!-- @test: host/__tests__/entrypoint-rclone-filters.test.js (REQ-STOR-011 AC4: disposable agent checkouts never sync while user trays remain persistent) -->
 5. Recovery archives in the home cache remain outside normal restoration and synchronization in every session and workspace mode, regardless of their contents. <!-- @impl: entrypoint.sh::RCLONE_FILTERS_COMMON --> <!-- @test: scripts/ci/rclone-bisync-s3.py (test_recovery_archive_filters) -->
 6. Normal restoration and synchronization leave existing local and remote recovery archives in the home cache unchanged. <!-- @impl: entrypoint.sh::RCLONE_FILTERS_COMMON --> <!-- @test: scripts/ci/rclone-bisync-s3.py (test_recovery_archive_filters) -->
 7. Excluding recovery archives does not change which live files outside the home cache are restored or synchronized under the selected session and workspace modes. <!-- @impl: entrypoint.sh::RCLONE_FILTERS_COMMON --> <!-- @test: scripts/ci/rclone-bisync-s3.py (test_recovery_archive_filters) -->
@@ -384,7 +384,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Dependencies:** [REQ-STOR-003](#req-stor-003-bidirectional-sync-every-15-minutes-with-manual-triggers)
 
-**Verification:** Automated test ([entrypoint-hooks-merge](../../host/__tests__/entrypoint-hooks-merge.test.js))
+**Verification:** Automated test ([entrypoint-hooks-merge](../../host/__tests__/entrypoint-hooks-merge.test.js), [behavioral rclone filters](../../host/__tests__/entrypoint-rclone-filters.test.js))
 
 **Status:** Implemented
 
@@ -733,23 +733,24 @@ R2 persistence, rclone bisync, quotas, and file browser.
 **Acceptance Criteria:**
 
 1. After the five-minute freshness window, the resolver rechecks the latest release. <!-- @impl: src/lib/remote-curation.ts::resolveManagedEnvironmentRelease --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (uses the stored ETag after five minutes and treats 304 as a fresh no-op) --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-STOR-040 AC1: checks for a later managed release while status is current) --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-STOR-040 AC1: an overlapping poll does not duplicate the managed-release check) -->
-2. A compatible latest release becomes active only after its immutable assets and signature verify. <!-- @impl: src/lib/remote-curation.ts::resolveManagedEnvironmentRelease --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-STOR-040 AC2: activates only a GitHub immutable release whose two immutable asset digests and signature verify) -->
+2. The newest runtime-compatible release becomes active only after its immutable assets and signature verify. <!-- @impl: src/lib/remote-curation.ts::resolveManagedEnvironmentRelease --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-STOR-040 AC2: activates only a GitHub immutable release whose two immutable asset digests and signature verify) -->
 3. A failed initial managed-release check remains retryable. <!-- @impl: web-ui/src/stores/session.ts::loadSessions --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-STOR-040 AC3: retries the managed-release check after the initial batch request fails) -->
 4. A failed background managed-release check remains retryable. <!-- @impl: web-ui/src/stores/session-polling.ts::refreshSessionStatuses --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-STOR-040 AC4: a failed batch-status call does not consume the managed-release check window) -->
-5. A degraded background attempt is cached for the five-minute freshness window. <!-- @impl: src/lib/remote-curation.ts::resolveManagedEnvironmentRelease --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-STOR-040 AC5: status refresh bounds incompatible discovery to latest and caches the failed attempt) -->
+5. A degraded background attempt is cached for the five-minute freshness window. <!-- @impl: src/lib/remote-curation.ts::resolveManagedEnvironmentRelease --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-STOR-040 AC5: status refresh caches failed compatible discovery for five minutes) -->
 
 **Constraints:**
 
-- Background refresh validates only the latest release after a runtime mismatch.
-- Explicit fresh-required validation owns bounded release-history traversal.
+- Background refresh and explicit fresh-required validation share [REQ-AGENT-154](agents.md#req-agent-154-build-compatible-managed-release-discovery)'s ten-page, 1,000-record compatible-history traversal past newer incompatible releases. <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-AGENT-154 AC2+AC3+AC4 + REQ-STOR-040 AC2: skips mismatches and unrelated releases then activates the newest compatible seed (fresh-required=%s)) -->
+- Traversal preserves signature, immutable-asset, runtime-hash and activation monotonicity checks.
+- A degraded attempt remains cached for five minutes; session startup remains snapshot-only.
 
 **Priority:** P1
 
 **Dependencies:** [REQ-STOR-020](#req-stor-020-managed-environment-reconciliation), [REQ-AGENT-147](agents.md#req-agent-147-signed-managed-agent-configuration-releases)
 
-**Verification:** Automated resolver and session-polling tests
+**Verification:** Automated resolver and session-polling tests; the compatible-background-discovery correction is pending behavioral RED/GREEN verification.
 
-**Status:** Implemented
+**Status:** Planned
 
 ---
 

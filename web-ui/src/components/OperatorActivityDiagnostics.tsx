@@ -6,29 +6,29 @@ import type { DiagnosticDetail, DiagnosticExport, DiagnosticHistory, DiagnosticR
 import OperatorDiagnosticRecord, { DiagnosticRecordMetadata, diagnosticWords } from './OperatorDiagnosticRecord';
 
 const reasons: Record<DiagnosticSummary['diagnosis']['code'], string> = {
-  none: 'No boundary failure code supplied.', unclassified: 'The originating failure is not classified in retained evidence.',
+  none: 'The retained records do not identify a failure.', unclassified: 'The retained records do not classify the failure.',
   'artifact-unavailable': 'The admitted artifact was unavailable.', 'artifact-mismatch': 'The artifact did not match its immutable binding.',
   'admission-denied': 'Activity admission was denied.', 'authority-expired': 'Execution authority expired.',
-  'authority-denied': 'Execution authority was denied.', 'stale-drive': 'The drive was stale.',
-  'startup-failed': 'SDK startup failed.', 'submission-failed': 'SDK submission failed.',
+  'authority-denied': 'The platform rejected a request because it could not confirm the run’s current authorization.', 'stale-drive': 'The request belonged to an earlier execution.',
+  'startup-failed': 'The execution runtime could not start.', 'submission-failed': 'The work could not be submitted to the execution runtime.',
   'sse-json-invalid': 'Provider stream JSON parsing failed.', 'provider-failed': 'The model provider failed.',
   'stream-failed': 'The response stream failed.', 'response-unusable': 'The inference response was unusable.',
-  'canonical-append-failed': 'Canonical append failed; canonical persistence was not confirmed.',
+  'canonical-append-failed': 'The response could not be saved to the execution journal; a durable save was not confirmed.',
   'tool-failed': 'A tool failed.', 'effect-unknown': 'The effect outcome is unknown; do not replay uncertain work.',
-  'settlement-failed': 'Operational settlement failed.', 'continuation-not-ready': 'Continuation was not ready.',
+  'settlement-failed': 'The runtime did not finish with a confirmed final result.', 'continuation-not-ready': 'The run was not ready to continue.',
   cancelled: 'Cancellation was observed.', 'deadline-expired': 'The activity deadline expired.',
-  'cleanup-failed': 'SDK cleanup failed.', 'capacity-exhausted': 'The admitted capacity was exhausted.',
+  'cleanup-failed': 'The execution runtime could not finish cleanup.', 'capacity-exhausted': 'The admitted capacity was exhausted.',
   'recorder-unavailable': 'The diagnostic recorder is unavailable.',
   'platform-evidence-required': 'Correlated platform evidence is required; the JavaScript cause is not known.',
 };
 const nextChecks: Record<DiagnosticSummary['diagnosis']['nextCheck'], string> = {
-  'inspect-failure': 'Inspect the retained failure record and its source evidence.',
-  'inspect-sdk-import': 'Inspect SDK import status; local capture is not proof of host retention.',
+  'inspect-failure': 'Check the failure record in the timeline to see what was recorded.',
+  'inspect-sdk-import': 'Check the technical details for records that have not been confirmed as saved by the host.',
   'inspect-platform-events': 'Inspect independently correlated platform events and evidence.',
-  'inspect-retention-gap': 'Inspect the retention gap and available counters.',
-  'inspect-original-binding': 'Inspect the original activity binding and essential fence reason.',
-  'inspect-pending-handoff': 'Inspect the pending SDK handoff; receipt, commit and settlement remain independent.',
-  none: 'No further evidence check is specified by this snapshot. This does not authorize execution.',
+  'inspect-retention-gap': 'Check the retention gaps in technical details for missing records before drawing conclusions.',
+  'inspect-original-binding': 'Check the original activity binding in technical details to check any recorded reason for stopping this run.',
+  'inspect-pending-handoff': 'Check the pending handoff in the timeline; receiving a response does not confirm that it was saved or the work finished.',
+  none: 'Review the retained timeline if more context is needed. These diagnostics cannot resume or replay work.',
 };
 function diagnosticFailure(error: unknown): string {
   if (error instanceof ApiError) {
@@ -40,7 +40,11 @@ function diagnosticFailure(error: unknown): string {
 }
 const quantity = (value: number | null) => value === null ? 'Unknown / unavailable' : String(value);
 const Retention: Component<{ summary: DiagnosticSummary | DiagnosticHistory | DiagnosticExport; additionalGaps: string[] }> = props => <div class="operator-diagnostic-retention">
-  <h4>Retention and evidence gaps</h4>
+  <h4>Evidence availability</h4>
+  <p>{props.summary.health.status === 'loss' ? 'Some diagnostic metadata is missing. The retained records may not explain everything that happened.'
+    : props.summary.health.status === 'unavailable' ? 'Diagnostic metadata availability is unknown. Missing records cannot rule out a failure.'
+    : 'Only the metadata saved in this snapshot is shown; uncaptured failures cannot be ruled out.'} Protected runtime logs are stored separately; gaps here do not prove those logs were lost.</p>
+  <details><summary>Retention technical details</summary>
   <p>Retained evidence health: {props.summary.health.status}. {props.summary.health.status === 'loss' ? 'Evidence gaps are reported; counters below describe observed retention loss only.'
     : props.summary.health.status === 'unavailable' ? 'Retention loss quantities are unknown / unavailable.' : 'Availability applies only to this captured metadata snapshot.'}</p>
   <p>Routine events evicted: {quantity(props.summary.retention.evictedRoutine)}</p>
@@ -48,6 +52,7 @@ const Retention: Component<{ summary: DiagnosticSummary | DiagnosticHistory | Di
   <p>Terminal capsules dropped: {quantity(props.summary.retention.droppedTerminal)}</p>
   <p>Oversized records: {quantity(props.summary.retention.oversized)} · Rejected records: {quantity(props.summary.retention.rejected)}</p>
   <Show when={props.additionalGaps.length}><p>Additional evidence gaps: {props.additionalGaps.map(diagnosticWords).join(', ')}</p></Show>
+  </details>
 </div>;
 
 /** Manual metadata reads only. Component lifetime owns responses and download URLs. */
@@ -175,21 +180,30 @@ const OperatorActivityDiagnostics: Component<{ activityId: string; openOnMount?:
       <Show when={summary()}>{value => <>
         <div class="operator-diagnostic-diagnosis">
           <h4>Evidence summary</h4>
-          <p class="operator-state">{value().diagnosis.state === 'recovered-failure' ? 'Recovered failure — not the successful successor’s terminal cause.'
-            : value().diagnosis.state === 'observed-failure' ? 'Observed failure in retained evidence.'
-            : value().diagnosis.state === 'evidence-incomplete' ? 'Evidence incomplete — the cause or handoff cannot be fully confirmed.'
-            : 'No failure observed in retained evidence; this does not establish execution success.'}</p>
-          <p>{reasons[value().diagnosis.code]}</p>
+          <p class="operator-state">{value().diagnosis.state === 'recovered-failure' ? 'A failure was recorded and later recovered. It does not explain how the later work ended.'
+            : value().diagnosis.state === 'observed-failure' ? 'A failure was recorded. Its original cause is not established by this summary.'
+            : value().diagnosis.state === 'evidence-incomplete' ? 'The available records are incomplete. The cause or handoff cannot be fully confirmed.'
+            : 'The retained records do not show a failure, but they do not establish that execution succeeded.'}</p>
+          <Show when={value().diagnosis.code !== 'none'}><p>{reasons[value().diagnosis.code]}</p></Show>
+          <p>{value().diagnosis.lastConfirmedId ? 'A last confirmed record is available in the timeline; it does not prove that later work succeeded.'
+            : 'No last confirmed record is available; no successful step can be inferred.'} {value().diagnosis.failedId
+              ? 'A failed or unfulfilled handoff was retained. It is not necessarily the first failure.'
+              : 'The failed transition is unconfirmed; a missing record does not rule out a failure.'}</p>
+          <p>Next: {nextChecks[value().diagnosis.nextCheck]}</p>
+          <Show when={value().capture !== 'enabled'}><p>{value().capture === 'legacy' ? 'This older run did not capture diagnostic evidence.'
+            : value().capture === 'disabled' ? 'Logging was off. Optional errors and timeline records were not captured.'
+            : 'Diagnostic capture is unavailable.'}</p></Show>
+          <Show when={value().health.sdkImport === 'pending' || value().health.gaps.includes('sdk-import-incomplete')}>
+            <p>Some runtime records have not been imported into this metadata view. This does not establish whether their original runtime logs are available.</p>
+          </Show>
+          <Show when={value().fence?.uncertain}><p>Earlier effects are uncertain. Do not replay uncertain work.</p></Show>
+          <details><summary>Summary technical details</summary>
+          <p>Capture status: {value().capture}</p>
           <p>Last confirmed evidence: {value().diagnosis.lastConfirmedId ?? 'Unavailable; no last success is inferred.'}</p>
           <p>{value().diagnosis.failedId ? `Retained failed / unfulfilled handoff: ${value().diagnosis.failedId}`
-            : 'Failed transition: unconfirmed; absence of a record does not establish absence of a failure.'}</p>
-          <Show when={value().diagnosis.failedId}><p>This summary reference does not establish the earliest or originating failure; inspect the retained timeline and source evidence.</p></Show>
-          <p>Safe next check: {nextChecks[value().diagnosis.nextCheck]}</p>
+            : 'Failed transition: unconfirmed.'}</p>
           <p>Snapshot captured <time datetime={new Date(value().capturedAt).toISOString()}>{new Date(value().capturedAt).toLocaleString()}</time>. No automatic refresh or polling.</p>
           <p>Current original-lease binding generation: {value().binding.generation}</p>
-          <Show when={value().capture !== 'enabled'}><p>{value().capture === 'legacy' ? 'Legacy evidence was not captured.'
-            : value().capture === 'disabled' ? 'Logging OFF / diagnostic capture disabled. Optional errors and timeline are not captured.'
-            : 'Diagnostic capture unavailable.'}</p></Show>
           <Show when={value().fence}>{fence => <p>Essential fence: {diagnosticWords(fence().boundary)} · {fence().code === value().diagnosis.code ? 'Reason shown above' : reasons[fence().code]} · Fence generation: {fence().generation} · {new Date(fence().timestamp).toLocaleString()}{fence().uncertain ? ' · Prior effects uncertain.' : ''}</p>}</Show>
           <p>SDK import: {diagnosticWords(value().health.sdkImport)}</p>
           <Show when={value().health.sdkImport === 'pending' || value().health.gaps.includes('sdk-import-incomplete')}>
@@ -197,21 +211,27 @@ const OperatorActivityDiagnostics: Component<{ activityId: string; openOnMount?:
               ? 'The last observed SDK watermark and its known record window are host-persisted. This does not prove that an unseen retirement tail reached the host; the future tail is unwitnessed, not an observed dropped-record count.'
               : 'Local child capture does not confirm a host-persisted cause. A persisted last-observed watermark does not prove that an unseen retirement tail reached the host.'} This uncertainty does not authorize reopening retired SDK work.</p>
           </Show>
+          </details>
         </div>
         <Retention summary={value()} additionalGaps={value().health.gaps.filter(gap =>
           !(gap === 'legacy-uncaptured' && value().capture === 'legacy')
           && !(gap === 'logging-disabled' && value().capture === 'disabled')
           && !(gap === 'sdk-import-incomplete' && value().health.sdkImport === 'pending')
           && gap !== value().diagnosis.code)} />
-        <p>Host response / inference does not prove SDK receipt, canonical commit, or operational settlement. A canonical commit is not settlement; a live terminal signal is not finalization.</p>
+        <p>A host response does not prove that the runtime received or saved it, or that the work finished.</p>
         <Show when={history()}>{page => <div class="operator-diagnostic-history">
           <h4>Retained timeline</h4>
+          <Show when={page().health.status !== value().health.status && page().health.status !== 'available' || page().retainedStatus !== 'complete' && value().health.status === 'available'}>
+            <p>The history page reports missing or unavailable evidence. Check timeline technical details for the gaps.</p>
+          </Show>
+          <details><summary>Timeline technical details</summary>
           <p>Diagnostic event sequence is host-persistence order, not SDK source time. Legacy operations follow in operation storage-key order, not logical ordinal order or a total chronology.</p>
           <p>History page: {page().pageStatus} · Retained history: {page().retainedStatus} · Event high-water: {quantity(page().highWater.events)} · Operation high-water: {quantity(page().highWater.operations)}. Counts do not prove enumeration exhaustion.</p>
           <p>History metadata read <time datetime={new Date(page().capturedAt).toISOString()}>{new Date(page().capturedAt).toLocaleString()}</time>; resumed pages preserve the history snapshot’s high-water and retention epoch.</p>
           <Show when={page().health.status !== value().health.status || page().retainedStatus !== 'complete'}>
             <p>Page evidence gaps: {page().health.gaps.filter(gap => !value().health.gaps.includes(gap)).map(diagnosticWords).join(', ') || 'Already described in the snapshot above'}.</p>
           </Show>
+          </details>
           <ol class="operator-diagnostic-timeline" aria-label="Diagnostic timeline"><For each={records().filter(row => row.kind === 'event')}>{record => <li>
             <DiagnosticRecordMetadata record={record} />
             <button class="admin-secondary-button" disabled={disabled()} aria-expanded={detail()?.record.id === record.id}
@@ -231,6 +251,7 @@ const OperatorActivityDiagnostics: Component<{ activityId: string; openOnMount?:
           </Show>
           <Show when={page().nextCursor}><div class="operator-actions"><button class="admin-secondary-button" disabled={disabled()} onClick={() => void nextHistory()}>Load next history page</button></div></Show>
         </div>}</Show>
+        <details><summary>Capture and source technical details</summary>
         <section aria-label="Capture capabilities" class="operator-diagnostic-coverage">
           <h4>Capture capabilities and provenance</h4>
           <p>Support describes this artifact’s capture capability, not identification of an earlier historical failure.</p>
@@ -249,6 +270,7 @@ const OperatorActivityDiagnostics: Component<{ activityId: string; openOnMount?:
             <dd>{value().sdkBinding[key] ?? 'Unavailable'}</dd>
           </div>}</For></dl>
         </section>
+        </details>
         <section class="operator-diagnostic-export" aria-label="Diagnostics metadata export"><h4>Metadata export</h4>
           <p>Read-only public metadata; no prompts, payloads, credentials or raw errors. Each download covers only one segment of retained evidence.</p>
           <Show when={!exportPart()}><button class="admin-secondary-button" disabled={disabled()} onClick={() => void exportMetadata()}>Export metadata</button></Show>
@@ -256,9 +278,13 @@ const OperatorActivityDiagnostics: Component<{ activityId: string; openOnMount?:
             <p role="status">Metadata export part {partCount()} read. {part().nextCursor ? 'More parts remain.'
               : part().pageStatus === 'complete' ? 'Export traversal exhausted: all retained metadata parts read.'
               : 'Export traversal unavailable; retained evidence cannot be claimed complete.'}</p>
-            <p>Export retention status: {part().retainedStatus}. {part().retainedStatus === 'loss' ? 'Retained evidence loss remains even after traversal exhaustion. ' : ''}Traversal completeness does not describe complete execution history.</p>
+            <p>{part().retainedStatus === 'loss' ? 'Retained evidence loss remains even after all export parts have been read. '
+              : part().retainedStatus === 'unavailable' ? 'The availability of retained export evidence is unknown. '
+              : 'The export covers only retained records. '}Traversal completeness does not describe complete execution history.</p>
+            <details><summary>Export technical details</summary>
+            <p>Export retention status: {part().retainedStatus}</p>
             <dl class="operator-diagnostic-facts"><div><dt>Snapshot digest</dt><dd>{part().snapshotDigest}</dd></div>
-              <div><dt>Part digest</dt><dd>{part().partDigest}</dd></div></dl>
+              <div><dt>Part digest</dt><dd>{part().partDigest}</dd></div></dl></details>
             <ul class="operator-diagnostic-downloads" aria-label="Metadata downloads"><For each={downloads()}>{saved => <li>
               <a href={saved.url} download={`${props.activityId}-diagnostics-part-${saved.number}.json`}>Save part {saved.number} (.json)</a>
             </li>}</For></ul>

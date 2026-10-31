@@ -30,7 +30,8 @@ function state(overrides: Partial<ContainerEnvState> = {}): ContainerEnvState {
 
 describe('operator container environment', () => {
   it('emits parent-bound Pi config and no broad credentials or whole-home restore', () => {
-    const vars = buildEnvVars(state({ _operatorContainerProfile: profile }), { ENTERPRISE_MODE: 'active' } as Env);
+    const vars = buildEnvVars(state({ _operatorContainerProfile: profile,
+      _allowPersonalPiProviders: true, _piDefaultSource: 'pi-native' }), { ENTERPRISE_MODE: 'active' } as Env);
     expect(vars.R2_ACCESS_KEY_ID).not.toBe('real-r2-key');
     expect(vars.R2_SECRET_ACCESS_KEY).not.toBe('real-r2-secret');
     expect(vars).not.toHaveProperty('ENCRYPTION_KEY');
@@ -51,6 +52,9 @@ describe('operator container environment', () => {
     expect(vars.CODEFLARE_OPERATOR_SYNC_CONFIG).not.toContain('owner@example.test');
     expect(vars).not.toHaveProperty('GIT_CLONE_REPO');
     expect(vars).not.toHaveProperty('REMOTE_CURATION_ACTIVE');
+    // REQ-ENTERPRISE-089: human source/permission hints never enter Operator startup.
+    expect(vars).not.toHaveProperty('ENTERPRISE_PI_PERSONAL_PROVIDERS');
+    expect(vars).not.toHaveProperty('ENTERPRISE_PI_DEFAULT_SOURCE');
   });
 
   it('separates finite initialization from the SDK profile without granting ambient tools', () => {
@@ -67,6 +71,31 @@ describe('operator container environment', () => {
         systemPrompt: 'Approved operator context', tools: ['read', 'write'] },
       mode: 'isolated', initialization, deadline: profile.deadline });
     expect(vars.CODEFLARE_OPERATOR_PI_CONFIG).not.toContain('real-github');
+  });
+
+  it.each([false, true])('REQ-OPERATOR-007/021/047: native API survives Host config serialization (isolated=%s)', isolated => {
+    const initialization = { schemaVersion: 1 as const, profileId: 'approved-profile', contextPath: 'review/input.json',
+      context: '{}', inputs: [{ kind: 'resource' as const, reference: 'review/child.md',
+        target: 'review/resources/child.md' }], tasks: [{ id: 'child', instruction: 'review/resources/child.md',
+        reads: ['review/input.json', 'review/resources/child.md'], output: 'reports/child.json' }] };
+    const authBinding = { ownerKey: 'a'.repeat(64), activityId: profile.activityId, sessionId: profile.sessionId,
+      generation: 1, selectionDigest: 'c'.repeat(64), profileDigest: 'd'.repeat(64), deadline: profile.deadline };
+    const configured = { ...profile, piProfile: { ...profile.piProfile, source: 'pi-native' as const,
+      provider: 'openai-codex', model: 'gpt-6.1-sol', api: 'openai-codex-responses', authBinding,
+      tools: ['read', 'write'], ...(isolated ? { initialization } : {}) } };
+    const vars = buildEnvVars(state({ _operatorContainerProfile: configured }), { ENTERPRISE_MODE: 'active' } as Env);
+    const config = JSON.parse(vars.CODEFLARE_OPERATOR_PI_CONFIG);
+    // Intentional trusted Host wire contract: API travels beside, not inside,
+    // the unchanged private seven-field authentication descriptor.
+    expect(config.profile).toEqual({ source: 'pi-native', provider: 'openai-codex', model: 'gpt-6.1-sol',
+      api: 'openai-codex-responses', authBinding, thinkingLevel: 'medium',
+      systemPrompt: profile.piProfile.systemPrompt, tools: ['read', 'write'] });
+    expect(config.initialization).toEqual(isolated ? initialization : undefined);
+    // Standard Host configuration is the existing five-field wire; its native
+    // deadline remains bound inside the private nonsecret descriptor.
+    expect(config.deadline).toBe(isolated ? profile.deadline : undefined);
+    expect(config.profile.authBinding.deadline).toBe(profile.deadline);
+    if (!isolated) expect(Object.keys(config).sort()).toEqual(['activityId', 'profile', 'root', 'schemaVersion', 'sessionId']);
   });
 
   it('preserves ordinary non-enterprise credential and full-sync behavior when no profile exists', () => {

@@ -74,13 +74,22 @@ async function buildBundle(raw) {
   const bundle = { ...object(raw, 'bundle') };
   const dispatcher = Object.hasOwn(bundle, 'sourceCommit') || Object.hasOwn(bundle, 'className') || Object.hasOwn(bundle, 'versions');
   if (dispatcher) {
-    exactKeys(bundle, ['schemaVersion', 'sourceCommit', 'versions', 'className', 'compatibilityDate', 'compatibilityFlags', 'mainModule', 'modules'], 'Dispatcher bundle');
-    if (bundle.schemaVersion !== 1 || !COMMIT.test(bundle.sourceCommit || '') || bundle.className !== 'FlueDispatcherAgent'
+    exactKeys(bundle, ['schemaVersion', 'hosting', 'sourceCommit', 'versions', 'className', 'compatibilityDate', 'compatibilityFlags', 'mainModule', 'modules'], 'Dispatcher bundle');
+    if (![1, 2].includes(bundle.schemaVersion)
+      || (bundle.schemaVersion === 2) !== Object.hasOwn(bundle, 'hosting')
+      || !COMMIT.test(bundle.sourceCommit || '') || bundle.className !== 'FlueDispatcherAgent'
       || bundle.compatibilityDate !== '2026-09-10' || JSON.stringify(bundle.compatibilityFlags) !== '["nodejs_compat"]') fail('Dispatcher bundle metadata is incompatible');
+    if (bundle.schemaVersion === 2) {
+      const hosting = object(bundle.hosting, 'bundle.hosting');
+      exactKeys(hosting, ['kind', 'binding', 'className', 'migrationTag'], 'bundle.hosting');
+      if (hosting.kind !== 'normal' || hosting.binding !== 'FLUE_DISPATCHER_AGENT'
+        || hosting.className !== bundle.className || hosting.migrationTag !== 'v1') fail('Dispatcher hosting is incompatible');
+    }
     const versions = object(bundle.versions, 'bundle.versions');
     exactKeys(versions, ['runtime', 'vitePlugin', 'agents'], 'bundle.versions');
-    if (!['2.1.0', '2.2.2'].includes(versions.runtime) || versions.vitePlugin !== versions.runtime
-      || versions.agents !== '0.20.1') fail('Dispatcher versions are incompatible');
+    if (!['2.1.0', '2.2.2', '2.3.0'].includes(versions.runtime) || versions.vitePlugin !== versions.runtime
+      || (versions.agents !== '0.20.1'
+        && !(versions.runtime === '2.3.0' && versions.agents === '0.30.1'))) fail('Dispatcher versions are incompatible');
     validateModules(bundle.modules, bundle.mainModule);
     return { bundle, dispatcher: true };
   }

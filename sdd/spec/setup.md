@@ -1541,18 +1541,18 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 **Acceptance Criteria:**
 
-1. Administration strictly validates and preserves the default-off permission per group and enabled fallback, including checkbox-only changes and explicit revocation. <!-- @impl: src/lib/admin-configuration.ts::aiRoutingComparison --> <!-- @test: src/__tests__/routes/admin-configuration-preview.test.ts (REQ-ENTERPRISE-088 AC1: checkbox-only group grants and revocations survive preview save and reload) --> <!-- @test: src/__tests__/lib/personal-pi-policy.test.ts (REQ-ENTERPRISE-088 AC1: fallback preserves exact booleans and rejects coercion) -->
-2. Accessible group/fallback controls preserve independent submitted permissions without changing sanctioned defaults. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::PolicyFields --> <!-- @test: web-ui/src/__tests__/components/ai-routing-fields-suite.tsx (REQ-ENTERPRISE-088 AC2: group and fallback checkboxes retain independent submitted permissions) -->
-3. Review changes communicate personal-provider grants and revocations separately from unchanged sanctioned defaults. <!-- @impl: web-ui/src/components/admin/AiRoutingReview.tsx::AiRoutingReview --> <!-- @test: web-ui/src/__tests__/components/AiRoutingReview.test.tsx (REQ-ENTERPRISE-088 AC3: Review renders $action for $scope without changing sanctioned defaults) -->
+1. Administration preserves independent personal-provider permission and Pi default source per group and enabled fallback; omitted source remains managed, and a native default never grants permission. <!-- @impl: src/lib/admin-configuration.ts::aiRoutingComparison --> <!-- @test: src/__tests__/routes/admin-configuration-preview.test.ts (REQ-ENTERPRISE-088 AC1: checkbox-only group grants and revocations survive preview save and reload) --> <!-- @test: src/__tests__/lib/personal-pi-policy.test.ts (REQ-ENTERPRISE-088 AC1: fallback preserves exact booleans and rejects coercion) --> <!-- @test: src/__tests__/routes/admin-configuration-preview.test.ts (REQ-ENTERPRISE-088: native default survives preview save and reload without replacing managed defaults) --> <!-- @test: src/__tests__/lib/personal-pi-policy.test.ts (REQ-ENTERPRISE-088: saved-profile default source) -->
+2. Accessible group/fallback controls submit source and permission independently without changing sanctioned route defaults. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::PolicyFields --> <!-- @test: web-ui/src/__tests__/components/ai-routing-fields-suite.tsx (REQ-ENTERPRISE-088 AC2: group and fallback checkboxes retain independent submitted permissions) --> <!-- @test: web-ui/src/__tests__/components/ai-routing-fields-suite.tsx (REQ-ENTERPRISE-088: group and fallback native defaults submit independently of managed routes) -->
+3. Review communicates source changes and personal-provider grants or revocations separately from unchanged sanctioned defaults. <!-- @impl: web-ui/src/components/admin/AiRoutingReview.tsx::AiRoutingReview --> <!-- @test: web-ui/src/__tests__/components/AiRoutingReview.test.tsx (REQ-ENTERPRISE-088 AC3: Review renders $action for $scope without changing sanctioned defaults) --> <!-- @test: web-ui/src/__tests__/components/AiRoutingReview.test.tsx (REQ-ENTERPRISE-088: Review shows the native default change without implying a permission grant or managed-route change) -->
 
 **Constraints:**
 
 - Additive `allowPersonalPiProviders`, default off.
 - Preserve existing fallback route validation and configured group matching.
-- Enterprise human Pi sessions only.
+- Human startup and explicitly approved owner-bound Operator native inference; permission alone never authorizes an Operator.
 - Fixed native destinations derive from pinned Pi; cloud resource/region families retain network policy, not an arbitrary custom-origin exception.
 - Native OpenAI JSON requests are bounded at eight MiB.
-- No production deployment, Operator activation or parallel OAuth service.
+- Configuration alone implies no deployment, Operator activation or OAuth service.
 - Startup permission changes take effect on container restart; request-time policy checks do not rely on picker state.
 - Owner authentication follows the deployment's existing storage/governance regime.
 
@@ -1562,6 +1562,6 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 **Verification:** Administration and shared editor tests cover persistence/payloads; separate actual Review component regressions cover grant/revocation rendering without changing sanctioned defaults. Test execution and exact-head CI remain unverified; startup/provider/Operator evidence belongs to the siblings below.
 
-**Status:** Implemented
+**Status:** Planned
 
 ---

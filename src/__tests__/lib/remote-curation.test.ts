@@ -483,7 +483,7 @@ describe('managed release resolver', () => {
     expect(JSON.stringify(persisted)).not.toContain('secret-pat');
   });
 
-  it('REQ-AGENT-154 AC2+AC3+AC4: skips mismatches and unrelated releases then activates the newest compatible seed', async () => {
+  it.each([true, false])('REQ-AGENT-154 AC2+AC3+AC4 + REQ-STOR-040 AC2: skips mismatches and unrelated releases then activates the newest compatible seed (fresh-required=%s)', async requireFresh => {
     const keyPair = await crypto.subtle.generateKey({ name: 'Ed25519' }, true, ['sign', 'verify']) as CryptoKeyPair;
     const latest = await signedFixture(release({
       sequence: 9,
@@ -547,16 +547,16 @@ describe('managed release resolver', () => {
       expectedRuntimeHash: 'c'.repeat(64),
       fetcher,
       now: new Date('2026-08-18T00:00:00.000Z'),
-      requireFresh: true,
+      requireFresh,
     });
 
+    expect(resolved.freshness).toBe('fresh');
     expect(resolved.active?.sequence).toBe(8);
     expect(resolved.active?.runtimeDependencyHash).toBe('c'.repeat(64));
-    expect(fetcher.mock.calls.some(([request]) => new URL((request as Request).url).pathname.endsWith('/releases'))).toBe(true);
-    expect(fetcher.mock.calls.some(([request]) => (request as Request).url.endsWith('/assets/771'))).toBe(false);
+    expect(resolved.active?.digest).toBe(await sha256(compatible.compressed));
   });
 
-  it('REQ-AGENT-154 AC5: stops when an advertised history release fails validation', async () => {
+  it.each([true, false])('REQ-AGENT-154 AC5: stops when an advertised history release fails validation (fresh-required=%s)', async requireFresh => {
     const fixture = await signedFixture(release({ runtimeDependencyHash: 'd'.repeat(64) }));
     const bundleDigest = await sha256(fixture.compressed);
     const signatureDigest = await sha256(fixture.signature);
@@ -571,7 +571,7 @@ describe('managed release resolver', () => {
       .mockResolvedValueOnce(new Response(fixture.signature, { status: 200 }))
       .mockResolvedValueOnce(releaseListResponse([advertisedInvalid]));
 
-    await expect(resolveManagedEnvironmentRelease({
+    const resolution = resolveManagedEnvironmentRelease({
       kv: createMockKV() as unknown as KVNamespace,
       stateKey: 'state',
       cache: state.cache,
@@ -582,12 +582,15 @@ describe('managed release resolver', () => {
       expectedRuntimeHash: 'c'.repeat(64),
       fetcher,
       now: new Date('2026-08-18T00:00:00.000Z'),
-      requireFresh: true,
-    })).rejects.toThrow(/managed release history contains invalid immutable metadata/i);
+      requireFresh,
+    });
+    if (requireFresh) await expect(resolution).rejects.toThrow(/managed release history contains invalid immutable metadata/i);
+    else expect(await resolution).toMatchObject({ freshness: 'degraded',
+      lastError: expect.stringMatching(/managed release history contains invalid immutable metadata/i) });
     expect(state.active()).toBeUndefined();
   });
 
-  it('REQ-AGENT-154 AC1+AC6: bounds compatible-release discovery to the 1,000 most recent records', async () => {
+  it.each([true, false])('REQ-AGENT-154 AC1+AC6: bounds compatible-release discovery to the 1,000 most recent records (fresh-required=%s)', async requireFresh => {
     const fixture = await signedFixture(release({ runtimeDependencyHash: 'd'.repeat(64) }));
     const ordinaryPage = Array.from({ length: 100 }, (_, index) => ({
       id: index + 1,
@@ -606,7 +609,7 @@ describe('managed release resolver', () => {
       .mockResolvedValueOnce(new Response(fixture.signature, { status: 200 }));
     for (let page = 0; page < 10; page += 1) fetcher.mockResolvedValueOnce(releaseListResponse(ordinaryPage));
 
-    await expect(resolveManagedEnvironmentRelease({
+    const resolution = resolveManagedEnvironmentRelease({
       kv: createMockKV() as unknown as KVNamespace,
       stateKey: 'state',
       cache: resolverCache().cache,
@@ -617,9 +620,13 @@ describe('managed release resolver', () => {
       expectedRuntimeHash: 'c'.repeat(64),
       fetcher,
       now: new Date('2026-08-18T00:00:00.000Z'),
-      requireFresh: true,
-    })).rejects.toThrow(/No immutable managed release matches/i);
+      requireFresh,
+    });
+    if (requireFresh) await expect(resolution).rejects.toThrow(/No immutable managed release matches/i);
+    else expect(await resolution).toMatchObject({ freshness: 'degraded',
+      lastError: expect.stringMatching(/No immutable managed release matches/i) });
 
+    // Intentional GitHub wire/resource bound: ten pages, never an eleventh.
     const historyUrls = fetcher.mock.calls
       .map(([request]) => (request as Request).url)
       .filter((url) => url.includes('/releases?'));
@@ -627,7 +634,7 @@ describe('managed release resolver', () => {
     expect(historyUrls.at(-1)).toContain('page=10');
   });
 
-  it('REQ-STOR-040 AC5: status refresh bounds incompatible discovery to latest and caches the failed attempt', async () => {
+  it('REQ-STOR-040 AC5: status refresh caches failed compatible discovery for five minutes', async () => {
     const fixture = await signedFixture(release({ runtimeDependencyHash: 'd'.repeat(64) }));
     const kv = createMockKV();
     const fetcher = vi.fn()
@@ -636,7 +643,8 @@ describe('managed release resolver', () => {
         signatureDigest: await sha256(fixture.signature),
       }))
       .mockResolvedValueOnce(new Response(fixture.compressed, { status: 200 }))
-      .mockResolvedValueOnce(new Response(fixture.signature, { status: 200 }));
+      .mockResolvedValueOnce(new Response(fixture.signature, { status: 200 }))
+      .mockResolvedValueOnce(releaseListResponse([]));
 
     const first = await resolveManagedEnvironmentRelease({
       kv: kv as unknown as KVNamespace,
@@ -650,6 +658,8 @@ describe('managed release resolver', () => {
       fetcher,
       now: new Date('2026-08-18T00:00:00.000Z'),
     });
+    // Make network availability change observably; a cached attempt must not be replaced by it.
+    fetcher.mockImplementation(async () => { throw new Error('Network unavailable inside freshness window'); });
     const second = await resolveManagedEnvironmentRelease({
       kv: kv as unknown as KVNamespace,
       stateKey: 'state',
@@ -663,10 +673,9 @@ describe('managed release resolver', () => {
       now: new Date('2026-08-18T00:04:59.000Z'),
     });
 
-    expect(first).toMatchObject({ freshness: 'degraded', lastCheckedAt: '2026-08-18T00:00:00.000Z' });
+    expect(first).toMatchObject({ freshness: 'degraded', lastCheckedAt: '2026-08-18T00:00:00.000Z',
+      lastError: expect.stringMatching(/No immutable managed release matches/i) });
     expect(second).toEqual(first);
-    expect(fetcher).toHaveBeenCalledTimes(3);
-    expect(fetcher.mock.calls.some(([request]) => (request as Request).url.includes('/releases?'))).toBe(false);
   });
 
   it('uses a complete verified cache without GitHub I/O inside the five-minute freshness window', async () => {

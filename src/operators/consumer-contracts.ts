@@ -9,6 +9,7 @@
  */
 import { z } from 'zod';
 import { ValidationError } from '../lib/error-types';
+import { parseNativeOperatorInference, type NativeOperatorInference } from './inference-selection';
 
 const id = z.string().regex(/^[A-Za-z0-9_-]{1,128}$/);
 const routeId = z.string().regex(/^[A-Za-z0-9_-][A-Za-z0-9_.-]{0,127}$/);
@@ -26,7 +27,12 @@ const invocationSchema = z.strictObject({
   revision: z.strictObject({ reference, digest }), inputDigest: digest,
   input: z.json(), attachments: z.array(attachment).max(16),
   resources: z.strictObject({
-    inference: z.strictObject({ routeId, reasoningLevel: z.string().max(16).nullable() }).nullable(),
+    inference: z.union([
+      z.strictObject({ routeId, reasoningLevel: z.string().max(16).nullable() }),
+      z.custom<NativeOperatorInference>(value => {
+        try { parseNativeOperatorInference(value); return true; } catch { return false; }
+      }).transform(value => parseNativeOperatorInference(value)),
+    ]).nullable(),
     session: z.strictObject({ profileId: id }).nullable(),
     storage: z.strictObject({ scopeId: id }).nullable(),
   }),

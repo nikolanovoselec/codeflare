@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Env } from '../../types';
+import { getBucketName } from '../../lib/access';
 import { GitHubInterceptor } from '../../github-interceptor';
 import { parseOperatorConsumerInvocation } from '../../operators/consumer-contracts';
 import type { BoundaryActivityBinding } from '../../operators/activity';
@@ -17,6 +18,7 @@ vi.mock('../../lib/access', async (importOriginal) => {
   }, accessJwt: 'private.jwt' }) };
 });
 afterEach(() => vi.restoreAllMocks());
+const ownerBucket = getBucketName('owner@example.test');
 const oldHead = 'a'.repeat(40), head = 'b'.repeat(40), base = 'c'.repeat(40), mergeBase = 'd'.repeat(40);
 const packet = (text: string) => `${(new TextEncoder().encode(text).length + 4).toString(16).padStart(4, '0')}${text}`;
 const upload = packet(`${oldHead} ${head} refs/heads/feature\0report-status side-band-64k\n`) + '0000';
@@ -30,7 +32,7 @@ function fixture(options: { denied?: boolean; moved?: boolean; graphqlRejected?:
   missingInput?: boolean; noAuthority?: boolean; tamperedAction?: boolean;
   multipleHeadPulls?: boolean; lifecycleChange?: boolean; wrongCreationRepository?: boolean;
   actionUnprotectedMidflight?: boolean; handoffUncertain?: boolean;
-  restartedBeforePush?: boolean; piFirst?: boolean } = {}) {
+  restartedBeforePush?: boolean; piFirst?: boolean; wrongOwnerBucket?: boolean } = {}) {
   let piEvidence = !options.piFirst;
   let prepared: { activityId: string; contextDigest: string } | null = null;
   let activity: { activityId: string; phase: string } | null = null;
@@ -42,6 +44,7 @@ function fixture(options: { denied?: boolean; moved?: boolean; graphqlRejected?:
       installation: { id: 'review-install', operatorId: 'conductor-operator', revision: 2,
         policy: { capabilities: [], resourceProfileId: 'review-profile' }, configurationJson: '{}' },
       operator: { operatorId: 'conductor-operator', revision: 3, profile: 'conductor', enabled: true,
+        policy: { capabilities: [], resourceProfileId: 'review-profile' },
         invokers: { users: ['owner@example.test'], groups: [] } },
       release: { id: 'review-release', bundleDigest: 'e'.repeat(64) }, controlsRevision: 4,
     } }),
@@ -89,11 +92,15 @@ function fixture(options: { denied?: boolean; moved?: boolean; graphqlRejected?:
   }, getBrowserDetail: async () => activity, getBoundaryStartBinding: async () => boundary,
     getPreparedInvocation: async () => admittedInvocation };
   const env = { ENTERPRISE_MODE: 'active', ENCRYPTION_KEY: btoa('a'.repeat(32)),
-    CONTAINER: { getByName: () => container }, OPERATOR_REGISTRY: { getByName: () => registry },
+    CONTAINER: { getByName: () => container, idFromName: (name: string) => name,
+      get: (id: string) => ({ claimBucketOwner: async (email: string) =>
+        id === `bucket-owner:${ownerBucket}` && email === 'owner@example.test' ? 'owned' : 'conflict' }) },
+    OPERATOR_REGISTRY: { getByName: () => registry },
     OPERATOR_ACTIVITY: { getByName: () => operatorActivity } } as unknown as Env;
   const waiting: Promise<unknown>[] = [];
   let branchReads = 0;
-  const client = new GitHubInterceptor({ props: { user: 'owner@example.test', bucket: 'review-owner',
+  const client = new GitHubInterceptor({ props: { user: 'owner@example.test',
+    bucket: options.wrongOwnerBucket ? 'another-owner-bucket' : ownerBucket,
     sessionId: 'review1234', lifecycleGeneration: 1 },
     waitUntil: (work: Promise<unknown>) => { waiting.push(work); } } as unknown as ExecutionContext, env);
   vi.spyOn(globalThis, 'fetch').mockImplementation(async request => {
@@ -197,7 +204,19 @@ describe('REQ-OPERATOR-053: authenticated Git push prepares exactly one visible 
     } });
     expect(await operatorActivity.getBoundaryStartBinding()).toMatchObject({ repositoryId: 138,
       pullRequest: 34, contextDigest: reserved?.contextDigest,
-      session: { bucket: 'review-owner', sessionId: 'review1234', generation: 1 } });
+      session: { bucket: ownerBucket, sessionId: 'review1234', generation: 1 } });
+  });
+  it('rejects remote preparation when the verified owner bucket differs from the bound session', async () => {
+    const { client, registry, operatorActivity, waiting } = fixture({ wrongOwnerBucket: true });
+    const response = await client.fetch(new Request('https://github.com/owner/repo.git/git-receive-pack', {
+      method: 'POST', body: upload,
+    }));
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe(result);
+    await Promise.all(waiting);
+    expect(await registry.getBoundaryPreparation()).toBeNull();
+    expect(await registry.getOwnedActivity()).toBeNull();
+    expect(await operatorActivity.getBrowserDetail()).toBeNull();
   });
   it('accepts verified GraphQL PR creation only after independent exact-context lookup, not from HTTP 200', async () => {
     for (const graphqlRejected of [false, true]) {

@@ -895,7 +895,7 @@ export async function resolveManagedEnvironmentRelease(input: {
         fetcher,
       });
     } catch (error) {
-      if (!(error instanceof ManagedRuntimeMismatchError) || !input.requireFresh) throw error;
+      if (!(error instanceof ManagedRuntimeMismatchError)) throw error;
       for (let page = 1; page <= MAX_RELEASE_HISTORY_PAGES && !selected; page += 1) {
         const historyResponse = await fetchGithub(fetcher, `${GITHUB_API_ORIGIN}/repos/${input.repository}/releases?per_page=100&page=${page}`, {
           headers: githubHeaders(input.token),

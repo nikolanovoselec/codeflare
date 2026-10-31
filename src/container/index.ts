@@ -27,7 +27,11 @@
  * pre-start).
  */
 import { Container } from '@cloudflare/containers';
+import { captureRawValue } from '../../host/src/operator-raw-logging';
+import { DispatcherSdkStorageError, handleDispatcherSdkCredentials, type DispatcherSdkCredentialResult, type SdkStorageScope } from '../operators/dispatcher-sdk-storage';
 import type { Env, ManagedResourcePolicy, SessionWorkspace, TabConfig, TerminalMode } from '../types';
+import type { PiDefaultSource } from '../lib/personal-pi-policy';
+import type { OperatorLoggingContext } from '../lib/container-helpers';
 import { getR2Config } from '../lib/r2-config';
 import { D1SessionRepository } from '../lib/session-repository';
 import { toErrorMessage } from '../lib/error-types';
@@ -70,6 +74,7 @@ import {
   collectMetrics as lifecycleCollectMetrics,
   destroy as lifecycleDestroy,
   stopSession as lifecycleStopSession,
+  killSession as lifecycleKillSession,
   type SessionStopRequest,
   onStop as lifecycleOnStop,
   onError as lifecycleOnError,
@@ -107,6 +112,7 @@ export class container extends Container<Env> implements ContainerEnvState {
   logger = createLogger('container');
   private renovateScheduling: Promise<void> = Promise.resolve();
   private sessionStopInFlight?: SessionStopRequest & { completion: Promise<void> };
+  private sessionKillInFlight?: SessionStopRequest & { completion: Promise<void> };
 
   private async ensureRenovateSchedule(pin: RenovateScanPin, activate = false, rearm = false): Promise<boolean> {
     const previous = this.renovateScheduling;
@@ -230,6 +236,7 @@ export class container extends Container<Env> implements ContainerEnvState {
    */
   _routeCatalog: string[] = [];
   _allowPersonalPiProviders = false;
+  _piDefaultSource: PiDefaultSource = 'managed';
   _defaultRoute: string | null = null;
   _defaultReasoning: string | null = null;
   _routeContextWindows: Record<string, number> = {};
@@ -261,6 +268,7 @@ export class container extends Container<Env> implements ContainerEnvState {
    * Public so container-lifecycle.ts can read/write it via LifecycleHost.
    */
   _shutdownStartedAt = 0;
+  _teardownEpoch = 0;
   /** Monotonic usage counter (seconds) - sent to Timekeeper for delta computation */
   _usageSeconds = 0;
   containerStartedAt = 0;
@@ -407,6 +415,7 @@ export class container extends Container<Env> implements ContainerEnvState {
       // re-emits the entrypoint env (matches the userGroups / userEmail pattern).
       this._routeCatalog = await this.ctx.storage.get<string[]>('routeCatalog') || [];
       this._allowPersonalPiProviders = await this.ctx.storage.get<boolean>('allowPersonalPiProviders') === true;
+      this._piDefaultSource = await this.ctx.storage.get<string>('piDefaultSource') === 'pi-native' ? 'pi-native' : 'managed';
       this._defaultRoute = await this.ctx.storage.get<string>('defaultRoute') || null;
       this._defaultReasoning = await this.ctx.storage.get<string>('defaultReasoning') || null;
       this._routeContextWindows = await this.ctx.storage.get<Record<string, number>>('routeContextWindows') || {};
@@ -622,7 +631,8 @@ export class container extends Container<Env> implements ContainerEnvState {
           let prepared;
           try {
             prepared = await prepareOperatorActivity({ installationId: pin.installationId,
-              invocation: { repository: winner.repository } },
+              invocation: { repository: winner.repository },
+              sourceSession: { sessionId: proof.actor.sessionId, sessionGeneration: proof.actor.sessionGeneration } },
             { human: winner.human, accessJwt: winner.accessJwt }, this.env,
             { activityId: reserved.activityId, expectedManagement: { controlsRevision: winner.controlsRevision,
               installationRevision: winner.installationRevision, operatorRevision: winner.operatorRevision,
@@ -681,6 +691,29 @@ export class container extends Container<Env> implements ContainerEnvState {
     });
   }
 
+  /** Owner metadata only: never starts a container or calls back into an Activity. */
+  async dispatcherSdkCredentials(scope: SdkStorageScope, body: unknown): Promise<DispatcherSdkCredentialResult> {
+    try {
+      if (!scope || typeof scope.bucket !== 'string' || !/^[a-z0-9][a-z0-9.-]{1,62}$/.test(scope.bucket)
+        || typeof scope.email !== 'string' || !scope.email || scope.email !== scope.email.trim().toLowerCase()
+        || !this.ctx.id.equals(this.env.CONTAINER.idFromName(`bucket-owner:${scope.bucket}`))
+        || await this.ctx.storage.get<string>('bucketOwnerEmail') !== scope.email) {
+        throw new DispatcherSdkStorageError(403);
+      }
+      return { ok: true, value: await handleDispatcherSdkCredentials(this.ctx.storage, this.env, scope, body) };
+    } catch (error) {
+      if (!(error instanceof DispatcherSdkStorageError)) throw error;
+      // Custom exception properties do not survive RPC propagation. Keep the
+      // intentional status and existing private error detail in plain data.
+      const status = error.status === 409 || error.status === 413 ? error.status : 403;
+      const captured = captureRawValue(error);
+      // RPC requires ordinary objects, not the safe snapshot's null-prototype dictionaries.
+      const cause = captured && typeof captured === 'object' && Object.hasOwn(captured, 'cause')
+        ? { cause: JSON.parse(JSON.stringify((captured as Record<string, unknown>).cause)) } : {};
+      return { ok: false, status, message: error.message, stack: error.stack, ...cause };
+    }
+  }
+
   /** Update envVars with current bucket name and credentials. */
   private updateEnvVars(): void {
     configUpdateEnvVars(this.host);
@@ -703,7 +736,7 @@ export class container extends Container<Env> implements ContainerEnvState {
   }
 
   /** Low-level port forwarding cannot start a replacement or trust stale SDK state. */
-  async forwardExisting(request: Request): Promise<Response> {
+  async forwardExisting(request: Request, loggingContext?: OperatorLoggingContext): Promise<Response> {
     const token = await this.ctx.storage.get<string>('containerAuthToken');
     if (!this.ctx.container || !token) return new Response('Existing container unavailable', { status: 503 });
     try {
@@ -714,6 +747,19 @@ export class container extends Container<Env> implements ContainerEnvState {
       privateUrl.pathname = url.pathname;
       privateUrl.search = url.search;
       const forwarded = new Request(privateUrl, request);
+      forwarded.headers.delete('x-codeflare-operator-logging');
+      if (loggingContext && typeof loggingContext === 'object'
+        && Object.keys(loggingContext).length === 3
+        && Object.keys(loggingContext).every(key => ['activityId', 'generation', 'loggingEnabled'].includes(key))
+        && typeof loggingContext.activityId === 'string' && /^[A-Za-z0-9_-]{1,128}$/.test(loggingContext.activityId)
+        && Number.isSafeInteger(loggingContext.generation) && loggingContext.generation > 0
+        && typeof loggingContext.loggingEnabled === 'boolean' && request.method === 'POST'
+        && (url.pathname === '/operator-inference' || url.pathname === '/operator-inference/profile')
+        && !url.search && !url.hash
+        && request.headers.get('x-codeflare-operator-activity') === loggingContext.activityId
+        && request.headers.get('x-codeflare-operator-generation') === String(loggingContext.generation)) {
+        forwarded.headers.set('x-codeflare-operator-logging', loggingContext.loggingEnabled ? 'on' : 'off');
+      }
       forwarded.headers.set('Authorization', `Bearer ${token}`);
       // `running` can itself transiently read false after DO reconstruction.
       // Only an answer from the existing private port proves it survived.
@@ -734,6 +780,12 @@ export class container extends Container<Env> implements ContainerEnvState {
 
   /** Override fetch to handle internal routes via typed dispatch (CF-016). */
   override async fetch(request: Request): Promise<Response> {
+    // Ordinary ingress cannot manufacture the separate admitted RPC context.
+    if (request.headers.has('x-codeflare-operator-logging')) {
+      const headers = new Headers(request.headers);
+      headers.delete('x-codeflare-operator-logging');
+      request = new Request(request, { headers });
+    }
     // WebSocket responses cannot cross the DO RPC serialization boundary.
     // Stub.fetch has native WebSocket response transport; keep terminal and IDE
     // sockets on the same no-start private-port forwarding used for health probes.
@@ -860,6 +912,10 @@ export class container extends Container<Env> implements ContainerEnvState {
    * full rationale.
    */
   override async destroy(): Promise<void> {
+    if (this.sessionKillInFlight) {
+      await this.sessionKillInFlight.completion;
+      return;
+    }
     await lifecycleDestroy(this.lifecycleHost);
   }
 
@@ -876,14 +932,46 @@ export class container extends Container<Env> implements ContainerEnvState {
       await pending.completion;
       return;
     }
-    // Defer I/O until the whole operation has been registered, not only its
-    // teardown. Cleanup belongs to that protected promise too, so failure can retry.
+    // Capture authority before ownership I/O: even a delayed old D1 reply
+    // cannot authorize teardown after KILL or a replacement start supersedes it.
+    const epoch = this._teardownEpoch;
+    // Register the entire operation before any I/O, including its claim.
     const completion: Promise<void> = Promise.resolve().then(() =>
-      lifecycleStopSession(this.env, input, () => this.destroy())
+      lifecycleStopSession(this.env, input, () => {
+        if (this._teardownEpoch !== epoch) throw new Error('Session stop superseded');
+        return this.destroy();
+      })
     ).finally(() => {
       if (this.sessionStopInFlight?.completion === completion) this.sessionStopInFlight = undefined;
     });
     this.sessionStopInFlight = { ...input, completion };
+    this.ctx.waitUntil(completion);
+    await completion;
+  }
+
+  /** A caller-independent force lane, separate from any blocked graceful Stop. */
+  async killSession(input: SessionStopRequest): Promise<void> {
+    if (this.env.CONTAINER.idFromName(`${input.bucket}-${input.sessionId}`).toString() !== this.ctx.id.toString()) {
+      throw new Error('Session KILL address mismatch');
+    }
+    const pending = this.sessionKillInFlight;
+    if (pending) {
+      if (pending.bucket !== input.bucket || pending.sessionId !== input.sessionId || pending.generation !== input.generation) {
+        throw new Error('Another session KILL generation is in progress');
+      }
+      await pending.completion;
+      return;
+    }
+    const completion: Promise<void> = Promise.resolve().then(() => lifecycleKillSession(this.lifecycleHost, input))
+      .then(() => {
+        const stop = this.sessionStopInFlight;
+        if (stop?.bucket === input.bucket && stop.sessionId === input.sessionId && stop.generation === input.generation) {
+          this.sessionStopInFlight = undefined;
+        }
+      }).finally(() => {
+        if (this.sessionKillInFlight?.completion === completion) this.sessionKillInFlight = undefined;
+      });
+    this.sessionKillInFlight = { ...input, completion };
     this.ctx.waitUntil(completion);
     await completion;
   }
@@ -896,10 +984,10 @@ export class container extends Container<Env> implements ContainerEnvState {
     await bindReviewSessionHuman(this as unknown as Parameters<typeof bindReviewSessionHuman>[0], input, expected);
   }
 
-  async getPersonalPiSession(ref: { bucket: string; sessionId: string; email: string }): Promise<{
+  async getPersonalPiSession(ref: { bucket: string; sessionId: string; email: string }, ordinaryOnly = false): Promise<{
     generation: number; groups: string[];
   }> {
-    return await getPersonalPiSession(this.interceptionHost, ref);
+    return await getPersonalPiSession(this.interceptionHost, ref, ordinaryOnly);
   }
 
   async openReviewHuman(ref: { bucket: string; sessionId: string; email: string }): Promise<{

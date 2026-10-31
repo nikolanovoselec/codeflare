@@ -3,6 +3,7 @@ import { mdiChevronLeft, mdiMagnify } from '@mdi/js';
 import Icon from './Icon';
 import OperatorActivityPages from './OperatorActivityPages';
 import { ApiError } from '../api/fetch-helper';
+import { sessionStore } from '../stores/session';
 import { configureInstallation, getInstallationActivityPreview, getManagedOperator, getOwnedActivity,
   listOperatorInstallations, prepareInstallationActivity, startInstallationActivity, type InstalledOperator } from '../api/operator-management';
 
@@ -84,7 +85,10 @@ const ManualRun: Component<Props & { item: InstalledOperator; back: () => void }
       const value = preview()!;
       const invocation = value.guidedMode === 'repository' ? { repository: value.configuredRepository! }
         : { repository: repository(), pullRequest: pullRequest() };
-      const prepared = await prepareInstallationActivity(props.item.id, invocation);
+      const source = sessionStore.getActiveSession();
+      const prepared = source?.generation && source.status === 'running'
+        ? await prepareInstallationActivity(props.item.id, invocation, { sessionId: source.id, sessionGeneration: source.generation })
+        : await prepareInstallationActivity(props.item.id, invocation);
       setPreparedId(prepared.activityId);
       try {
         await startInstallationActivity(prepared.activityId, prepared.startCapability);

@@ -7,24 +7,27 @@ import routes from '../../routes/operator-activities';
 import { operatorOwnerKey } from '../../operators/browser-activity';
 
 const claims = {
-  subject: 'owner-subject', email: 'owner@example.test', issuer: 'https://access.example.test',
+  subject: 'owner-subject', email: 'owner@example.test', issuer: 'https://route-identity.cloudflareaccess.com',
   audiences: ['account-audience'], issuedAt: Math.floor(Date.now() / 1000) - 10,
   expiresAt: Math.floor(Date.now() / 1000) + 300,
 };
-const accessState = vi.hoisted(() => ({ active: true }));
-vi.mock('../../lib/access', async importOriginal => ({
-  ...await importOriginal<typeof import('../../lib/access')>(),
-  requireOperatorHumanContext: async () => {
-    if (!accessState.active) throw new AppError('FORBIDDEN', 403, 'Human Access authentication required');
-    return { human: claims, accessJwt: 'private.access.jwt' };
-  },
-  operatorAccessSessionCurrent: async () => accessState.active,
-  resolveOperatorGroupIdentity: async (human: unknown) => human,
-  authenticateRequest: async (_request: Request, bindings: Env) => {
-    const record = JSON.parse((await bindings.KV.get(`user:${claims.email}`)) ?? '{}') as { role?: string };
-    return { user: { email: claims.email, role: record.role }, bucketName: 'owner-bucket' };
-  },
-}));
+const accessState = vi.hoisted(() => ({ active: true, realIdentity: false }));
+vi.mock('../../lib/access', async importOriginal => {
+  const actual = await importOriginal<typeof import('../../lib/access')>();
+  return { ...actual,
+    requireOperatorHumanContext: async () => {
+      if (!accessState.active) throw new AppError('FORBIDDEN', 403, 'Human Access authentication required');
+      return { human: claims, accessJwt: 'private.access.jwt' };
+    },
+    operatorAccessSessionCurrent: async () => accessState.active,
+    resolveOperatorGroupIdentity: async (human: Parameters<typeof actual.resolveOperatorGroupIdentity>[0], accessJwt: string) =>
+      accessState.realIdentity ? actual.resolveOperatorGroupIdentity(human, accessJwt) : human,
+    authenticateRequest: async (_request: Request, bindings: Env) => {
+      const record = JSON.parse((await bindings.KV.get(`user:${claims.email}`)) ?? '{}') as { role?: string };
+      return { user: { email: claims.email, role: record.role }, bucketName: 'owner-bucket' };
+    },
+  };
+});
 const orchestration = vi.hoisted(() => ({
   prepare: vi.fn(async () => ({ activityId: 'prepared-activity', startCapability: 'p'.repeat(43), startExpiresAt: 1_900_000_000_000 })),
   run: vi.fn(async (_activityId: string, _env: Env, _bindCapability: unknown) => {}),
@@ -96,7 +99,7 @@ function fixture() {
   return { activity, registry, env, kv, request, waitUntil, loopback, setGithub };
 }
 
-beforeEach(() => { vi.clearAllMocks(); accessState.active = true; });
+beforeEach(() => { vi.clearAllMocks(); accessState.active = true; accessState.realIdentity = false; });
 
 describe('REQ-OPERATOR-027: authenticated owned activity browser surfaces', () => {
   it('REQ-OPERATOR-027: retired private failure inspection returns 404 for the approved owner', async () => {
@@ -113,14 +116,15 @@ describe('REQ-OPERATOR-027: authenticated owned activity browser surfaces', () =
   it('previews only an enabled, authorized pinned Renovate Dispatcher without creating an Activity or exposing credentials', async () => {
     const { request, registry, activity } = fixture();
     const selection = { operator: { id: 'operator-1', profile: 'dispatcher', repositoryUrl: 'https://github.com/nikolanovoselec/codeflare-operator-dispatcher',
-      invokers: { users: [claims.email], groups: [] } },
+      policy: { capabilities: ['fetch'] }, invokers: { users: [claims.email], groups: [] } },
       release: { tagName: 'v0.1.2', githubReleaseId: 17 }, manifestJson: JSON.stringify({ name: 'Renovate Dispatcher', inputSchema: { type: 'object', additionalProperties: false,
         required: ['repository', 'pullRequest'], properties: { repository: { type: 'string' }, pullRequest: { type: 'integer', minimum: 1 } } } }),
-      installation: { id: 'installation-1', releaseId: 'release-1', configurationJson: '{}' } };
+      installation: { id: 'installation-1', releaseId: 'release-1', configurationJson: '{}',
+        policy: { capabilities: ['fetch'], resourceProfileId: null } } };
     registry.resolveManagementExecution.mockResolvedValue({ ok: true, value: selection });
     const preview = await request('/installations/installation-1/preview');
     expect(preview.status).toBe(200);
-    expect(await preview.json()).toEqual({ name: 'Renovate Dispatcher', version: 'v0.1.2', guidedAssessment: true, guidedMode: 'legacy-pull-request' });
+    expect(await preview.json()).toEqual({ name: 'Renovate Dispatcher', version: 'v0.1.2', guidedAssessment: true, guidedMode: 'legacy-pull-request', requiresSourceHost: false });
     const schema = { type: 'object', additionalProperties: false, required: ['repository'],
       properties: { repository: { type: 'string', maxLength: 201, pattern: '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$' } } };
     const installed = (inputSchema: unknown) => ({ ...selection,
@@ -155,6 +159,30 @@ describe('REQ-OPERATOR-027: authenticated owned activity browser surfaces', () =
       operator: { ...selection.operator, repositoryUrl: 'https://github.com/elsewhere/dispatcher' } } });
     expect(await (await request('/installations/installation-1/preview')).json()).toMatchObject({ guidedAssessment: false });
   });
+  it.each([
+    { operatorInference: true, installationInference: true, requiresSourceHost: false },
+    { operatorInference: true, installationInference: false, requiresSourceHost: false },
+    { operatorInference: false, installationInference: true, requiresSourceHost: false },
+    { operatorInference: false, installationInference: false, requiresSourceHost: false },
+  ])('REQ-OPERATOR-058: AC1 preview never requires a source Host even at the admitted inference intersection (operator=$operatorInference installation=$installationInference)', async policy => {
+    const f = fixture();
+    f.registry.resolveManagementExecution.mockResolvedValue({ ok: true, value: {
+      operator: { id: 'operator-1', profile: 'dispatcher', repositoryUrl: 'https://github.com/nikolanovoselec/codeflare-operator-dispatcher',
+        invokers: { users: [claims.email], groups: [] }, policy: { capabilities: policy.operatorInference ? ['fetch', 'inference'] : ['fetch'] } },
+      installation: { id: 'installation-1', releaseId: 'release-1', configurationJson: '{}',
+        policy: { capabilities: policy.installationInference ? ['fetch', 'inference'] : ['fetch'], resourceProfileId: null } },
+      release: { tagName: 'v0.1.2' }, manifestJson: JSON.stringify({ name: 'Renovate Dispatcher', inputSchema: {
+        type: 'object', additionalProperties: false, required: ['repository', 'pullRequest'],
+        properties: { repository: { type: 'string' }, pullRequest: { type: 'integer', minimum: 1 } } } }),
+    } });
+    const response = await f.request('/installations/installation-1/preview?requiresSourceHost=false&sourceSession=caller-source');
+    expect(response.status).toBe(200);
+    // Public preview contract: inference eligibility does not require a Host picker,
+    // and URL-supplied source hints never choose the execution principal.
+    expect(await response.json()).toEqual({ name: 'Renovate Dispatcher', version: 'v0.1.2', guidedAssessment: true,
+      guidedMode: 'legacy-pull-request', requiresSourceHost: policy.requiresSourceHost });
+  });
+
   it('returns a side-effect-free safe summary collection for the exact human account', async () => {
     const { request, registry, activity } = fixture();
     const response = await request();
@@ -470,7 +498,8 @@ describe('REQ-OPERATOR-061: configured Renovate run settings', () => {
     const f = fixture();
     const selected = { operator: { id: 'dispatcher', profile: 'dispatcher',
       repositoryUrl: 'https://github.com/nikolanovoselec/codeflare-operator-dispatcher',
-      invokers: { users: [claims.email], groups: [] } }, installation: { id: 'install', enabled: true,
+      policy: { capabilities: ['fetch'] }, invokers: { users: [claims.email], groups: [] } },
+      installation: { id: 'install', enabled: true, policy: { capabilities: ['fetch'], resourceProfileId: null },
       configurationJson: JSON.stringify({ renovate: { repository: 'acme/updates', automaticRuns: false,
         repetitionIntervalSeconds: 900 }, privateSetting: 'DO_NOT_PROJECT' }) },
       release: { tagName: 'v1', githubReleaseId: 17 }, manifestJson: JSON.stringify({ id: 'renovate-dispatcher',
@@ -479,11 +508,11 @@ describe('REQ-OPERATOR-061: configured Renovate run settings', () => {
     const preview = await f.request('/installations/install/preview?repository=other/repo');
     expect(preview.status).toBe(200);
     expect(await preview.json()).toEqual({ name: 'Renovate Dispatcher', version: 'v1', guidedAssessment: true,
-      guidedMode: 'repository', configuredRepository: 'acme/updates' });
+      guidedMode: 'repository', configuredRepository: 'acme/updates', requiresSourceHost: false });
     f.registry.resolveManagementExecution.mockResolvedValue({ ok: true, value: { ...selected,
       installation: { ...selected.installation, configurationJson: '{}' } } });
     expect(await (await f.request('/installations/install/preview')).json()).toEqual({
-      name: 'Renovate Dispatcher', version: 'v1', guidedAssessment: true, guidedMode: 'repository' });
+      name: 'Renovate Dispatcher', version: 'v1', guidedAssessment: true, guidedMode: 'repository', requiresSourceHost: false });
     f.registry.resolveManagementExecution.mockResolvedValue({ ok: true, value: { ...selected,
       operator: { ...selected.operator, invokers: { users: [], groups: [] } } } });
     expect((await f.request('/installations/install/preview')).status).toBe(404);
@@ -517,6 +546,36 @@ describe('REQ-OPERATOR-061: configured Renovate run settings', () => {
     return { ...f, selected, admitted, armed, reads, command: {
       installationId: 'dispatcher-install', sessionId: 'session0001', sessionGeneration: 3 } };
   }
+  it.each(['revoked', 'unavailable', 'malformed', 'transport-error'] as const)(
+    'REQ-OPERATOR-047: automatic activation recheck rejects %s live identity despite an email grant and admits verified no-group recovery', async fault => {
+      const f = activationFixture();
+      accessState.realIdentity = true;
+      let invalid = true;
+      const identity = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+        const request = new Request(input, init);
+        expect(request.url).toBe(`${claims.issuer}/cdn-cgi/access/get-identity`);
+        expect(request.headers.get('cookie')).toBe('CF_Authorization=private.access.jwt');
+        if (invalid && fault === 'transport-error') throw Error('Identity transport unavailable');
+        if (invalid && fault === 'revoked') return new Response(null, { status: 401 });
+        if (invalid && fault === 'unavailable') return new Response(null, { status: 503 });
+        return Response.json({ user_uuid: claims.subject, email: claims.email,
+          ...(invalid ? { groups: null } : {}) });
+      });
+      try {
+        expect((await f.request('/renovate/activation', 'POST', f.command)).status).toBe(403);
+        expect(f.admitted).toEqual([]);
+        expect(f.armed).toEqual([]);
+        expect(f.reads).toEqual([]);
+        invalid = false;
+        const response = await f.request('/renovate/activation', 'POST', f.command);
+        expect(response.status).toBe(202);
+        expect(await response.json()).toEqual({ activatedAt: '2026-09-28T00:00:00.000Z', repositoryId: 424242 });
+        expect(f.admitted).toEqual([expect.objectContaining({ installationId: f.command.installationId,
+          repository: { repository: 'acme/updates', repositoryId: 424242, baseBranch: 'trunk' } })]);
+        expect(f.armed).toEqual([expect.objectContaining({ registrationId: 'scan-configured' })]);
+      } finally { identity.mockRestore(); accessState.realIdentity = false; }
+    });
+
   it.each(['unset', 'off', 'redirect', 'foreign-name', 'unsafe-id', 'no-branch', 'changed-selection', 'revoked-session'])
     ('denies %s before persisting or arming a registration', async fault => {
       const f = activationFixture();

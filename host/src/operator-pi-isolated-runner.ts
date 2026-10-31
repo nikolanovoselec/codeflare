@@ -2,6 +2,8 @@ import path from 'node:path';
 import { constants } from 'node:fs';
 import { mkdir, readFile, realpath, lstat, open, link, rm, writeFile, rename } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
+import { createOperatorPiSdkSession } from './operator-pi-session.js';
+import { safePiAuthFailure, piAuthError, record, type OperatorPiAuthBinding, type SafePiAuthFailure } from './operator-pi-auth.js';
 import { boundedOperatorOutput, createIsolatedPiTools, type IsolatedPiInitialization,
   type IsolatedToolSdk } from './operator-pi-isolated.js';
 
@@ -16,6 +18,8 @@ interface PiAgentSession {
 interface PiSdk extends IsolatedToolSdk {
   SessionManager: { create(cwd: string, sessionDir: string): unknown };
   createAgentSession(options: object): Promise<{ session: PiAgentSession }>;
+  createAgentSessionServices?(options: object): Promise<Record<string, unknown>>;
+  createAgentSessionFromServices?(options: object): Promise<{ session: PiAgentSession }>;
 }
 async function publishApprovedOutputs(cwd: string, outputRoot: string,
   initialization: IsolatedPiInitialization, signal: AbortSignal): Promise<void> {
@@ -93,9 +97,9 @@ async function approvedReviewText(file: string): Promise<string> {
   } finally { await handle.close(); }
 }
 
-async function createBoundChild(sdk: PiSdk, options: object, signal: AbortSignal): Promise<PiAgentSession> {
+async function createBoundChild(sdk: PiSdk, options: Record<string, unknown>, signal: AbortSignal, native: boolean): Promise<PiAgentSession> {
   signal.throwIfAborted();
-  const pending = sdk.createAgentSession(options);
+  const pending = createOperatorPiSdkSession(sdk, options, native);
   let selected = false;
   void pending.then(async created => {
     if (signal.aborted && !selected && created.session) {
@@ -123,10 +127,13 @@ async function createBoundChild(sdk: PiSdk, options: object, signal: AbortSignal
 /** Installed package selects finite inert task descriptors; the Host supplies restricted SDK sessions. */
 export async function runApprovedTasks(input: { sdk: PiSdk; base: Record<string, unknown>;
   cwd: string; sessionDir: string; outputRoot: string; taskId: string; deadline: number;
-  initialization: IsolatedPiInitialization; signal: AbortSignal }): Promise<void> {
+  initialization: IsolatedPiInitialization; signal: AbortSignal;
+  native?: boolean; authBinding?: OperatorPiAuthBinding }): Promise<void> {
   if (!Number.isSafeInteger(input.deadline) || input.deadline <= Date.now()) {
     throw new Error('Approved reviewer authority expired');
   }
+  input.authBinding?.resolve();
+  let authFailure: SafePiAuthFailure | undefined;
   const failed = new AbortController();
   const signal = AbortSignal.any([input.signal, AbortSignal.timeout(input.deadline - Date.now()), failed.signal]);
   const children: Array<{ task: IsolatedPiInitialization['tasks'][number]; session: PiAgentSession }> = [];
@@ -160,7 +167,7 @@ export async function runApprovedTasks(input: { sdk: PiSdk; base: Record<string,
           + `Never call shell, network, publisher or candidate configuration.\n\n${resource}` },
         tools: ['read', 'write'],
         customTools: createIsolatedPiTools(input.sdk, input.cwd, input.initialization, task),
-      }, signal);
+      }, signal, input.native === true);
       if (!session?.sessionId || !session.sessionFile || !/^[A-Za-z0-9_-]{1,128}$/.test(session.sessionId)
         || path.dirname(session.sessionFile) !== directory || path.extname(session.sessionFile) !== '.jsonl') {
         session?.dispose();
@@ -185,11 +192,24 @@ export async function runApprovedTasks(input: { sdk: PiSdk; base: Record<string,
         signal.addEventListener('abort', onAbort, { once: true });
         if (signal.aborted) onAbort();
       });
+      let terminalError = false;
+      const unsubscribe = session.subscribe(event => {
+        if (record(event) && event.type === 'message_end' && record(event.message)
+          && event.message.role === 'assistant' && ['error', 'aborted'].includes(String(event.message.stopReason))) {
+          terminalError = true;
+        }
+      });
       try {
         current();
+        input.authBinding?.resolve();
         // Pi's prompt promise resolves only after its run finishes, including retries.
         await Promise.race([session.prompt(`Execute the approved ${task.id} instructions at ${task.instruction}. `
           + `Read only the declared input paths and write your bounded result to ${task.output}.`), interrupted]);
+        if (input.authBinding?.authFailure) {
+          const failure = input.authBinding.authFailure;
+          throw piAuthError(failure.provider, failure.reason);
+        }
+        if (terminalError) throw new Error('Approved reviewer inference failed');
         current();
         const outputFile = await open(path.join(input.cwd, task.output),
           constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
@@ -202,9 +222,14 @@ export async function runApprovedTasks(input: { sdk: PiSdk; base: Record<string,
           if (output.length !== info.size) throw new Error('Approved reviewer report unavailable');
           boundedOperatorOutput(new TextDecoder('utf-8', { fatal: true, ignoreBOM: false }).decode(output));
         } finally { await outputFile.close(); }
-      } catch (error) { failed.abort(); throw error; }
-      finally { signal.removeEventListener('abort', onAbort); }
+      } catch (error) {
+        authFailure ??= safePiAuthFailure(error) ?? input.authBinding?.authFailure;
+        failed.abort();
+        throw error;
+      }
+      finally { unsubscribe(); signal.removeEventListener('abort', onAbort); }
     }));
+    if (authFailure) throw piAuthError(authFailure.provider, authFailure.reason);
     current();
     if (outcomes.some(outcome => outcome.status === 'rejected')) throw new Error('Approved reviewer incomplete');
     await publishApprovedOutputs(input.cwd, input.outputRoot, input.initialization, signal);

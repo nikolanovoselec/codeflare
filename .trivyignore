@@ -1,6 +1,35 @@
 # Trivy vulnerability suppressions
 # Review monthly and remove entries when upstream fixes are available.
 #
+# Owner-authorized release exceptions, 2026-10-26; expire 2026-11-02.
+# Deploy scans 40247521604 / 40247521566 found these vendored npm DoS issues
+# in code-server, shared CLI tooling, Pi's seed and browser-run-mcp. Hostile
+# requests, responses or schema inputs can crash/exhaust the user's session
+# processes; authentication and single-tenant isolation do NOT make these
+# paths unreachable. Accept that residual session-availability risk for this
+# release, not a dependency repair or a general security-gate bypass.
+# Entries suppress each CVE IMAGE-WIDE, not only the paths observed here.
+# Remove sooner when the pinned consuming artifacts/locks carry the fixes;
+# do not force Zod 3 consumers onto its incompatible v4 API to clear a scan.
+# body-parser 2.3.0: compressed-body trailing bytes can crash its process.
+# Upstream fixes: 2.4.0 / 1.20.9. GHSA-27r3-jxmh-p828.
+CVE-2026-111181 exp:2026-11-02
+# undici 6.29.0 / 7.30.0 / 8.11.2: malicious content-encoding responses can
+# crash fetch callers. Fixes: 6.29.1 / 7.30.1 / 8.12.2. GHSA-xjj6-f33q-929c.
+CVE-2026-109869 exp:2026-11-02
+# zod 3.25.76 / 4.3.6 / 4.4.3 / 4.6.5: oversized collection validation can
+# exhaust memory. Fix: 4.6.6; no v3 fix listed. GHSA-mrhx-c7xc-m3w5.
+CVE-2023-54404 exp:2026-11-02
+#
+# Owner-authorized renewal, 2026-10-29: CVE-2026-111943 remains in the latest
+# stable lazygit 0.66.2 (Go 1.26.9), confirmed against its official release and
+# Enterprise Integration scan 40913550019. No fixed stable lazygit artifact
+# is available. gh and rclone already use Go 1.27.3. Accept the residual
+# CLI-process vulnerability, not unreachable code or a patched lazygit.
+# This CVE-level suppression is IMAGE-WIDE, not limited to lazygit.
+# Expires 2026-11-05; remove sooner when a fixed stable artifact is pinned.
+CVE-2026-111943 exp:2026-11-05
+#
 # Owner-authorized accepted risk, 2026-10-12: CVE-2026-78669 in the Go
 # dependencies embedded in gh, rclone and lazygit. Integration deployment
 # scans 38295109713 and 38295113082 reported four findings for x/net 0.58.0

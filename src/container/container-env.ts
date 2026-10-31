@@ -6,6 +6,7 @@
  */
 import type { Env, ManagedResourcePolicy, SessionWorkspace, TabConfig, TerminalMode } from '../types';
 import type { OperatorContainerProfile } from './operator-context';
+import type { PiDefaultSource } from '../lib/personal-pi-policy';
 import { TERMINAL_SERVER_PORT, ENTERPRISE_GH_TOKEN_PLACEHOLDER, ENTERPRISE_R2_KEY_PLACEHOLDER,
   ENTERPRISE_BROWSER_TOKEN_PLACEHOLDER, SESSION_ID_PATTERN } from '../lib/constants';
 import { getR2Config } from '../lib/r2-config';
@@ -55,6 +56,7 @@ export interface ContainerEnvState {
   /** REQ-ENTERPRISE-005 (revised): the full dynamic-route catalog (Pi models.json lists all). */
   _routeCatalog: string[];
   _allowPersonalPiProviders?: boolean;
+  _piDefaultSource?: PiDefaultSource;
   /** REQ-ENTERPRISE-005 (revised): the resolved default route (Copilot model + Pi default model). */
   _defaultRoute: string | null;
   /** REQ-ENTERPRISE-005 (revised): the default route's reasoning grade (Pi defaultThinkingLevel). */
@@ -88,6 +90,7 @@ interface RestartPrefsInput {
   userGroups?: string[];
   routeCatalog?: string[];
   allowPersonalPiProviders?: boolean;
+  piDefaultSource?: PiDefaultSource;
   defaultRoute?: string;
   defaultReasoning?: string;
   routeContextWindows?: Record<string, number>;
@@ -131,6 +134,7 @@ export interface SetBucketNameCreds {
   userGroups?: string[];
   routeCatalog?: string[];
   allowPersonalPiProviders?: boolean;
+  piDefaultSource?: PiDefaultSource;
   defaultRoute?: string;
   defaultReasoning?: string;
   routeContextWindows?: Record<string, number>;
@@ -194,6 +198,7 @@ export function validateBucketNameInput(input: {
   routeReasoningLevels?: unknown;
   modelDisplayNames?: unknown;
   promptCacheTargets?: unknown;
+  piDefaultSource?: unknown;
 }): string | null {
   const { bucketName, sessionId, r2AccessKeyId, r2SecretAccessKey, r2AccountId, r2Endpoint, workspaceSyncEnabled, fastStartEnabled, sessionMode, sessionWorkspace, terminalMode, routeReasoningLevels, modelDisplayNames } = input;
 
@@ -239,6 +244,9 @@ export function validateBucketNameInput(input: {
     } catch {
       return 'r2Endpoint must be a valid URL';
     }
+  }
+  if (input.piDefaultSource !== undefined && input.piDefaultSource !== 'managed' && input.piDefaultSource !== 'pi-native') {
+    return 'piDefaultSource must be managed or pi-native when provided';
   }
   if (routeReasoningLevels !== undefined) {
     if (!routeReasoningLevels || typeof routeReasoningLevels !== 'object' || Array.isArray(routeReasoningLevels)) return 'routeReasoningLevels must be an object';
@@ -366,6 +374,8 @@ export function buildEnvVars(
         root: `/home/user/.codeflare/operators/${operatorProfile.activityId}`,
         profile: operatorProfile.piProfile.initialization
           ? { provider: operatorProfile.piProfile.provider, model: operatorProfile.piProfile.model,
+            ...(operatorProfile.piProfile.source === 'pi-native' ? { source: 'pi-native',
+              api: operatorProfile.piProfile.api, authBinding: operatorProfile.piProfile.authBinding } : {}),
             thinkingLevel: operatorProfile.piProfile.thinkingLevel,
             systemPrompt: operatorProfile.piProfile.systemPrompt, tools: operatorProfile.piProfile.tools }
           : operatorProfile.piProfile,
@@ -486,6 +496,8 @@ export function buildEnvVars(
     // enterprise AND present, so a non-enterprise (or unconfigured) container's env
     // is byte-identical to today.
     ...(isEnterpriseMode(env) && !restrictedOperator && state._allowPersonalPiProviders === true && { ENTERPRISE_PI_PERSONAL_PROVIDERS: 'true' }),
+    // REQ-ENTERPRISE-088/089: source is a human startup preference, never permission.
+    ...(isEnterpriseMode(env) && !restrictedOperator && state._piDefaultSource === 'pi-native' && { ENTERPRISE_PI_DEFAULT_SOURCE: 'pi-native' }),
     ...(isEnterpriseMode(env) && { ENTERPRISE_ROUTE_CATALOG: JSON.stringify(state._routeCatalog) }),
     ...(isEnterpriseMode(env) && state._defaultRoute && { ENTERPRISE_DEFAULT_ROUTE: state._defaultRoute }),
     ...(isEnterpriseMode(env) && state._defaultReasoning !== null && { ENTERPRISE_DEFAULT_REASONING: state._defaultReasoning }),
@@ -534,6 +546,8 @@ export async function applyBucketName(
   if (r2Creds?.routeCatalog !== undefined) {
     state._allowPersonalPiProviders = r2Creds.allowPersonalPiProviders === true;
     await storage.put('allowPersonalPiProviders', state._allowPersonalPiProviders);
+    state._piDefaultSource = r2Creds.piDefaultSource ?? 'managed';
+    await storage.put('piDefaultSource', state._piDefaultSource);
     state._routeCatalog = [...r2Creds.routeCatalog];
     state._defaultRoute = r2Creds.defaultRoute ?? null;
     state._defaultReasoning = r2Creds.defaultReasoning ?? null;
@@ -852,6 +866,11 @@ export async function applyPrefsOnRestart(
   if (input.allowPersonalPiProviders !== undefined && input.allowPersonalPiProviders !== state._allowPersonalPiProviders) {
     state._allowPersonalPiProviders = input.allowPersonalPiProviders;
     await storage.put('allowPersonalPiProviders', input.allowPersonalPiProviders);
+    changed = true;
+  }
+  if (input.piDefaultSource !== undefined && input.piDefaultSource !== state._piDefaultSource) {
+    state._piDefaultSource = input.piDefaultSource;
+    await storage.put('piDefaultSource', input.piDefaultSource);
     changed = true;
   }
   if (input.routeCatalog !== undefined && JSON.stringify(input.routeCatalog) !== JSON.stringify(state._routeCatalog)) {

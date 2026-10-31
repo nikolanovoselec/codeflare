@@ -35,6 +35,12 @@ const sessionStopRateLimiter = createRateLimiter({
   keyPrefix: 'session-stop',
 });
 
+const sessionKillRateLimiter = createRateLimiter({
+  windowMs: 60_000,
+  maxRequests: 10,
+  keyPrefix: 'session-kill',
+});
+
 /**
  * Rate limiter for manual fan-out sync trigger (REQ-STOR-015 AC7).
  * 6/min matches the destructive-action pattern of session-stop / session-
@@ -229,6 +235,21 @@ app.post('/:id/stop', sessionStopRateLimiter, async (c) => {
   };
   await container.stopSession({ bucket: bucketName, sessionId, generation: existing.lifecycleGeneration });
 
+  return c.json({ success: true, stopped: true, id: sessionId });
+});
+
+/** KILL is a separate DO-owned force-destroy lane, never a join of Stop. */
+app.post('/:id/kill', sessionKillRateLimiter, async (c) => {
+  const bucket = c.get('bucketName');
+  const sessionId = c.req.param('id');
+  if (!SESSION_ID_PATTERN.test(sessionId)) throw new ValidationError('Invalid sessionId format');
+  const session = await new D1SessionRepository(c.env.USAGE_DB).getSession(bucket, sessionId);
+  if (!session) throw new NotFoundError('Session not found');
+  if (session.lifecycleState === 'stopped') return c.json({ success: true, stopped: true, id: sessionId });
+  const addressed = getContainer(c.env.CONTAINER, getContainerId(bucket, sessionId)) as unknown as {
+    killSession(input: SessionStopRequest): Promise<void>;
+  };
+  await addressed.killSession({ bucket, sessionId, generation: session.lifecycleGeneration });
   return c.json({ success: true, stopped: true, id: sessionId });
 });
 

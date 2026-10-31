@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import { Buffer } from 'node:buffer';
 import type { DispatcherBundle } from './distribution';
 import { producerCodes } from './dispatcher-diagnostic-wire';
+import { dispatcherRefusalReasons, dispatcherRefusalDispositions, transportDiagnosticShape } from './dispatcher-refusal';
 
 export const boundaries = ['artifact', 'admission', 'construction', 'submission', 'scheduling', 'delivery', 'model',
   'inference-response', 'canonical-commit', 'tool', 'effect', 'recovery', 'settlement', 'continuation', 'fence',
@@ -17,6 +18,10 @@ export const gaps = ['legacy-uncaptured', 'sdk-import-incomplete', 'platform-evi
   'recorder-unavailable', 'source-unverified', 'logging-disabled'] as const;
 const errorLoss = ['cause-cycle', 'cause-depth', 'message-truncated', 'stack-truncated', 'unsafe-error-access', 'uninspectable-throw'] as const;
 const kinds = ['Error', 'TypeError', 'RangeError', 'SyntaxError', 'ValidationError', 'TransportDenied', 'DefiniteEffectFailure', 'other'] as const;
+/** Public pinned-SDK error types only; never retain response messages/details/meta. */
+export const sdkAdmissionTypes = ['invalid_request', 'invalid_json', 'unsupported_media_type', 'agent_instance_not_found',
+  'agent_instance_exists', 'submission_conflict', 'conversation_record_invariant', 'attachment_integrity',
+  'persisted_format_version_unsupported', 'internal_error', 'conversation_stream_store_failure', 'runtime_unavailable'] as const;
 export const digestSchema = z.string().regex(/^[a-f0-9]{64}$/);
 export const counter = z.number().int().nonnegative().safe();
 export const bindingSchema = z.strictObject({ generation: counter, artifactDigest: digestSchema, inputDigest: digestSchema });
@@ -31,7 +36,8 @@ const sourceSchema = z.strictObject({ package: z.enum(['codeflare', '@codeflare/
 const causeSchema = z.strictObject({ kind: z.enum(kinds), messageDigest: digestSchema.nullable(), stackDigest: digestSchema.nullable() });
 export const errorSchema = z.strictObject({ ...causeSchema.shape,
   publicCode: z.enum(producerCodes).nullable(), causes: z.array(causeSchema).max(3), loss: z.array(z.enum(errorLoss)).max(6),
-  fingerprintScope: z.enum(['full', 'bounded', 'unavailable']) });
+  fingerprintScope: z.enum(['full', 'bounded', 'unavailable']), ...transportDiagnosticShape,
+  admissionType: z.enum(sdkAdmissionTypes).optional() });
 export const correlationSchema = z.strictObject({ logicalOrdinal: counter.optional(), hostAttemptIndex: counter.optional(),
   chargedOrdinal: counter.optional(), sdkAttemptDigest: digestSchema.optional(), submissionDigest: digestSchema.optional(),
   deliveryDigest: digestSchema.optional(), requestDigest: digestSchema.optional(), responseDigest: digestSchema.optional(),
@@ -51,12 +57,25 @@ export const runtimeSchema = z.strictObject({ version: z.literal(1), captureId: 
     settlement: z.enum(['reserved', 'canonical', 'finalized', 'unknown']).optional() }).optional(),
   local: z.strictObject({ through: counter, dropped: counter, status: z.enum(['captured', 'loss', 'unavailable']) })
 }).refine(record => record.boundary === record.source.boundary && record.local.through >= record.sequence);
+const preparationSchema = z.strictObject({ step: z.enum(['parse', 'capability']),
+  failureClass: z.enum(['body-limit', 'invalid-json', 'invalid-wire', 'request-denied', 'authority-denied']),
+  route: z.enum(['inference', 'source', 'github-read', 'github-comment', 'github-merge', 'receipt', 'resolve', 'unknown']),
+  byteLimit: counter.positive().optional(), observedBytesLowerBound: counter.positive().optional(),
+}).refine(value => (value.step === 'capability') === (value.failureClass === 'authority-denied')
+  && (value.failureClass === 'body-limit'
+    ? value.byteLimit !== undefined && value.observedBytesLowerBound !== undefined && value.observedBytesLowerBound > value.byteLimit
+    : value.byteLimit === undefined && value.observedBytesLowerBound === undefined));
+export type DiagnosticPreparation = z.infer<typeof preparationSchema>;
 export const eventSchema = z.strictObject({ kind: z.literal('event'), id: z.string().regex(/^e-[1-9][0-9]*$/), sequence: counter.min(1),
   generation: counter, timestamp: counter, owner: z.enum(['host', 'sdk', 'producer', 'platform', 'recorder']),
   boundary: z.enum(boundaries), outcome: z.enum(['started', 'accepted', 'applied', 'committed', 'completed', 'failed', 'recovered', 'unknown', 'released', 'suppressed']),
   code: z.enum(reasonCodes), evidence: z.enum(['observed', 'unavailable']), origin: z.enum(['originating', 'catching', 'state-transition']),
-  correlation: correlationSchema, source: sourceSchema, error: errorSchema.optional(), capsuleId: z.string().regex(/^(f-[1-9][0-9]*|t-[0-9]+)$/).optional()
-}).refine(record => record.id === `e-${record.sequence}` && record.boundary === record.source.boundary);
+  correlation: correlationSchema, source: sourceSchema, error: errorSchema.optional(), preparation: preparationSchema.optional(),
+  capsuleId: z.string().regex(/^(f-[1-9][0-9]*|t-[0-9]+)$/).optional()
+}).refine(record => record.id === `e-${record.sequence}` && record.boundary === record.source.boundary
+  && (!record.preparation || record.owner === 'host' && record.outcome === 'failed'
+    && (record.preparation.step === 'parse' ? record.boundary === 'tool' && record.code === 'tool-failed'
+      : record.boundary === 'admission' && record.code === 'authority-denied')));
 export type RuntimeEnvelope = z.infer<typeof runtimeSchema>;
 export type DiagnosticEvent = z.infer<typeof eventSchema>;
 export type DiagnosticBinding = z.infer<typeof bindingSchema>;
@@ -92,6 +111,7 @@ export function readSdkDiagnosticHeader(response: Response): z.infer<typeof head
 function captureDiagnosticErrorInternal(original: unknown): ErrorMetadata {
   const loss = new Set<typeof errorLoss[number]>();
   const seen = new Set<object>();
+  const transport: Pick<ErrorMetadata, 'transportStatus' | 'transportReason' | 'transportDisposition' | 'admissionType'> = {};
   const descriptor = (value: object, key: string): unknown => {
     try { const field = Object.getOwnPropertyDescriptor(value, key);
       if (field && !('value' in field)) loss.add('unsafe-error-access');
@@ -114,6 +134,22 @@ function captureDiagnosticErrorInternal(original: unknown): ErrorMetadata {
     if (value !== null && typeof value === 'object') {
       const name = descriptor(value, 'name');
       if (kind === 'Error' && kinds.includes(name as typeof kinds[number])) kind = name as typeof kinds[number];
+      if (!Object.keys(transport).length) {
+        const status = descriptor(value, 'transportStatus');
+        const reason = descriptor(value, 'transportReason');
+        const disposition = descriptor(value, 'transportDisposition');
+        const admissionType = descriptor(value, 'admissionType');
+        if (typeof status === 'number' && Number.isInteger(status) && status >= 300 && status <= 599) transport.transportStatus = status;
+        if (typeof admissionType === 'string' && sdkAdmissionTypes.includes(admissionType as typeof sdkAdmissionTypes[number])) {
+          transport.admissionType = admissionType as typeof sdkAdmissionTypes[number];
+        }
+        if (typeof reason === 'string' && dispatcherRefusalReasons.includes(reason as typeof dispatcherRefusalReasons[number])) {
+          transport.transportReason = reason as typeof dispatcherRefusalReasons[number];
+        }
+        if (typeof disposition === 'string' && dispatcherRefusalDispositions.includes(disposition as typeof dispatcherRefusalDispositions[number])) {
+          transport.transportDisposition = disposition as typeof dispatcherRefusalDispositions[number];
+        }
+      }
       return { kind, messageDigest: fingerprint(descriptor(value, 'message'), 'message'), stackDigest: fingerprint(descriptor(value, 'stack'), 'stack') };
     }
     if (typeof value === 'bigint' && (value > 18446744073709551615n || value < -18446744073709551615n)) {
@@ -136,7 +172,7 @@ function captureDiagnosticErrorInternal(original: unknown): ErrorMetadata {
     causes.push(inspect(cause)); value = cause;
     if (value !== null && typeof value === 'object') seen.add(value);
   }
-  return { ...root, publicCode: null, causes, loss: [...loss], fingerprintScope:
+  return { ...root, ...transport, publicCode: null, causes, loss: [...loss], fingerprintScope:
     root.messageDigest === null && root.stackDigest === null ? 'unavailable' : loss.size ? 'bounded' : 'full' };
 }
 

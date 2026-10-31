@@ -8,10 +8,12 @@
  */
 import { DurableObject } from 'cloudflare:workers';
 import { createOperatorWebhookKey, openOperatorSecret, sealOperatorSecret } from './protected-secrets';
-import { parseOperatorManifest, validateOperatorEndpoint, type OperatorManifest } from './distribution';
+import { parseOperatorManifest, parseDispatcherBundle, validateOperatorEndpoint, type OperatorManifest } from './distribution';
 import { ValidationError } from '../lib/error-types';
+import type { DispatcherDeploymentVerification } from './dispatcher-deployment';
+import { isPiReasoningLevel, type PiReasoningLevel } from '../lib/reasoning-profiles';
 import { createLogger } from '../lib/logger';
-import { parseOperatorPolicy } from './policy';
+import { inferencePolicySchema, parseOperatorPolicy, type OperatorPolicy } from './policy';
 import { MAX_SOURCE_RESPONSE_BYTES, sourceResponseBytes as effectiveSourceResponseBytes } from './dispatcher-source-limits';
 import { submissionAttemptLimit as effectiveSubmissionAttemptLimit } from './dispatcher-submission-limits';
 import { inferenceRequestBytes as effectiveInferenceRequestBytes, inferenceAttemptLimit as effectiveInferenceAttemptLimit } from './dispatcher-inference-limits';
@@ -117,7 +119,10 @@ interface ProtectedDistribution {
 export type ManagementOperatorProfile = 'conductor' | 'dispatcher';
 export type ManagementOperatorRealm = 'internal' | 'external';
 export interface ManagementGrant { users: string[]; groups: Array<{ issuer: string; id: string }> }
-export interface ManagementPolicy { capabilities: string[]; resourceProfileId: string | null; sourceResponseBytes?: number }
+export interface ManagementPolicy { capabilities: string[]; resourceProfileId: string | null; sourceResponseBytes?: number;
+  /** Omission preserves legacy managed-only inference; native requires explicit approval at both scopes. */
+  inference?: OperatorPolicy['inference'];
+}
 interface ManagementOperatorPolicy extends ManagementPolicy, DispatcherCapacityPolicy { inferenceRequestBytes?: number; inferenceAttemptLimit?: number; submissionAttemptLimit?: number; operationLimit?: number; loggingEnabled?: boolean }
 export interface ManagementRelease {
   id: string; operatorId: string; githubReleaseId: number; sourceCommit: string;
@@ -207,12 +212,23 @@ export interface ManagementCatalogQuery {
   /** Activity reads may include invokers, without expanding the management catalog. */
   includeInvokers?: boolean; managersEligible?: boolean;
 }
+export interface DispatcherConnectionMetadata {
+  installationId: string; releaseId: string; connectionRevision: number;
+  workerName: string; workerVersionId: string; sourceCommit: string; compilerCommit: string;
+  manifestDigest: string; bundleDigest: string;
+}
+interface DispatcherConnectionRecord extends DispatcherConnectionMetadata {
+  connectionSecretCiphertext: string; controlOrigin: string;
+}
 export interface ManagementInstallation {
   id: string; operatorId: string; name: string; releaseId: string | null;
   revision: number; enabled: boolean; policy: ManagementPolicy;
   /** JSON object bytes cross the Durable Object RPC boundary as a string. */
   configurationJson: string;
+  /** Absent means inherit the execution owner's saved Pi reasoning preference. */
+  piReasoningOverride?: PiReasoningLevel;
   approvedSourceRevision: number | null;
+  dispatcherConnection?: DispatcherConnectionMetadata;
 }
 interface ManagementOperatorState {
   id: string; revision: number; repositoryUrl: string; repositoryId: number;
@@ -547,6 +563,7 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string; O
       CREATE TABLE IF NOT EXISTS operator_search_schema (version INTEGER PRIMARY KEY);
       CREATE TABLE IF NOT EXISTS operator_releases (id TEXT PRIMARY KEY, operator_id TEXT NOT NULL, data TEXT NOT NULL, manifest TEXT NOT NULL);
       CREATE INDEX IF NOT EXISTS operator_release_owner ON operator_releases(operator_id,id);
+      CREATE TABLE IF NOT EXISTS operator_dispatcher_abort_connections (installation_id TEXT NOT NULL, revision INTEGER NOT NULL, data TEXT NOT NULL, PRIMARY KEY(installation_id,revision));
       CREATE TABLE IF NOT EXISTS operator_installations (id TEXT PRIMARY KEY, operator_id TEXT NOT NULL, name TEXT NOT NULL, enabled INTEGER NOT NULL, data TEXT NOT NULL, UNIQUE(operator_id,name));
       CREATE INDEX IF NOT EXISTS operator_installation_owner ON operator_installations(operator_id,id);
       CREATE TABLE IF NOT EXISTS operator_bytes (digest TEXT NOT NULL, part INTEGER NOT NULL, bytes BLOB NOT NULL, PRIMARY KEY(digest,part));
@@ -979,7 +996,8 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string; O
   private withinManagementCeiling(policy: ManagementPolicy): boolean {
     const controls = this.managementControls();
     const bytes = effectiveSourceResponseBytes(policy);
-    return controls.revision > 0 && policy.capabilities.every(value => controls.ceiling.capabilities.includes(value))
+    return (policy.inference === undefined || inferencePolicySchema.safeParse(policy.inference).success)
+      && controls.revision > 0 && policy.capabilities.every(value => controls.ceiling.capabilities.includes(value))
       && (policy.resourceProfileId === null || controls.ceiling.resourceProfileIds.includes(policy.resourceProfileId))
       && Number.isInteger(bytes) && bytes >= 1 && bytes <= MAX_SOURCE_RESPONSE_BYTES
       && bytes <= effectiveSourceResponseBytes(controls.ceiling);
@@ -988,7 +1006,11 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string; O
   private managementState(id: string): ManagementOperatorState | null {
     this.managementSchema();
     const row = this.ctx.storage.sql.exec<{ data: string }>('SELECT data FROM operator_catalog WHERE id=?', id).toArray()[0];
-    return row ? JSON.parse(row.data) as ManagementOperatorState : null;
+    const state = row ? JSON.parse(row.data) as ManagementOperatorState : null;
+    if (state?.policy.inference !== undefined && !inferencePolicySchema.safeParse(state.policy.inference).success) {
+      throw new ValidationError('Invalid operator inference policy');
+    }
+    return state;
   }
 
   private indexManagementSearch(state: ManagementOperatorState): void {
@@ -1166,7 +1188,10 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string; O
   }
 
   private parseManagementInstallation(data: string): ManagementInstallation {
-    const parsed = JSON.parse(data) as ManagementInstallation & { configuration?: unknown };
+    const { dispatcherConnectionSecretCiphertext: _secret, dispatcherConnectionVerification: _verification, ...parsed } = JSON.parse(data) as ManagementInstallation & { configuration?: unknown; dispatcherConnectionSecretCiphertext?: string; dispatcherConnectionVerification?: DispatcherDeploymentVerification };
+    if (parsed.policy.inference !== undefined && !inferencePolicySchema.safeParse(parsed.policy.inference).success) {
+      throw new ValidationError('Invalid installation inference policy');
+    }
     if (typeof parsed.configurationJson === 'string') return parsed;
     if (!parsed.configuration || typeof parsed.configuration !== 'object' || Array.isArray(parsed.configuration)) {
       throw new ValidationError('Invalid installation configuration');
@@ -1192,8 +1217,16 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string; O
 
   private saveInstallation(value: ManagementInstallation): void {
     const sql = this.ctx.storage.sql;
-    sql.exec('INSERT OR REPLACE INTO operator_installations VALUES(?,?,?,?,?)', value.id, value.operatorId, value.name.toLowerCase(), Number(value.enabled), JSON.stringify(value));
-    sql.exec('INSERT INTO operator_configuration_history VALUES(?,?,?)', value.id, value.revision, JSON.stringify(value));
+    const previous = sql.exec<{ data: string }>('SELECT data FROM operator_installations WHERE id=?', value.id).toArray()[0];
+    const secret = (value as ManagementInstallation & { dispatcherConnectionSecretCiphertext?: string }).dispatcherConnectionSecretCiphertext
+      ?? (previous ? (JSON.parse(previous.data) as { dispatcherConnectionSecretCiphertext?: string }).dispatcherConnectionSecretCiphertext : undefined);
+    const verification = Object.hasOwn(value, 'dispatcherConnectionVerification')
+      ? (value as ManagementInstallation & { dispatcherConnectionVerification?: DispatcherDeploymentVerification | null }).dispatcherConnectionVerification
+      : previous ? (JSON.parse(previous.data) as { dispatcherConnectionVerification?: DispatcherDeploymentVerification }).dispatcherConnectionVerification : undefined;
+    const stored = { ...value, ...(secret ? { dispatcherConnectionSecretCiphertext: secret } : {}),
+      ...(verification ? { dispatcherConnectionVerification: verification } : { dispatcherConnectionVerification: null }) };
+    sql.exec('INSERT OR REPLACE INTO operator_installations VALUES(?,?,?,?,?)', value.id, value.operatorId, value.name.toLowerCase(), Number(value.enabled), JSON.stringify(stored));
+    sql.exec('INSERT INTO operator_configuration_history VALUES(?,?,?)', value.id, value.revision, JSON.stringify(stored));
     sql.exec('UPDATE operator_catalog SET enabled=EXISTS(SELECT 1 FROM operator_installations WHERE operator_id=? AND enabled=1) WHERE id=?', value.operatorId, value.operatorId);
     const state = sql.exec<{ data: string }>('SELECT data FROM operator_catalog WHERE id=?', value.operatorId).one();
     this.indexManagementSearch(JSON.parse(state.data) as ManagementOperatorState);
@@ -1256,10 +1289,16 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string; O
   private restrictivePolicy(policy: ManagementPolicy, ceiling: ManagementPolicy): boolean {
     return this.withinManagementCeiling(policy) && policy.capabilities.every(capability => ceiling.capabilities.includes(capability))
       && (policy.resourceProfileId === null || policy.resourceProfileId === ceiling.resourceProfileId)
-      && effectiveSourceResponseBytes(policy) <= effectiveSourceResponseBytes(ceiling);
+      && effectiveSourceResponseBytes(policy) <= effectiveSourceResponseBytes(ceiling)
+      && (policy.inference?.allowedSources ?? ['managed']).every(source => (ceiling.inference?.allowedSources ?? ['managed']).includes(source))
+      && (policy.inference === undefined || ceiling.inference === undefined || (
+        policy.inference.routeIds.every(route => ceiling.inference!.routeIds.includes(route))
+        && policy.inference.reasoningLevels.every(level => ceiling.inference!.reasoningLevels.includes(level))
+        && (!policy.inference.inheritUserDefaults || ceiling.inference.inheritUserDefaults)
+      ));
   }
 
-  async createManagementInstallation(operatorId: string, name: string, policy: ManagementPolicy, authority: ManagementAuthority, configurationJson = '{}'): Promise<OperatorRegistryResult<ManagementInstallation>> {
+  async createManagementInstallation(operatorId: string, name: string, policy: ManagementPolicy, authority: ManagementAuthority, configurationJson = '{}', piReasoningOverride?: PiReasoningLevel): Promise<OperatorRegistryResult<ManagementInstallation>> {
     this.managementSchema();
     return this.ctx.storage.transactionSync(() => {
       const state = this.managementState(operatorId);
@@ -1268,7 +1307,9 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string; O
       if (!this.restrictivePolicy(policy, state!.policy)) throw new ValidationError('Installation exceeds operator policy');
       if (this.ctx.storage.sql.exec('SELECT id FROM operator_installations WHERE operator_id=? AND name=?', operatorId, name.toLowerCase()).toArray().length) return { ok: false, reason: 'already-exists' };
       if (this.ctx.storage.sql.exec<{ n: number }>('SELECT COUNT(*) AS n FROM operator_installations WHERE operator_id=?', operatorId).one().n >= 100) throw new ValidationError('Installation limit reached');
+      if (piReasoningOverride !== undefined && !isPiReasoningLevel(piReasoningOverride)) throw new ValidationError('Invalid Pi reasoning override');
       const value: ManagementInstallation = { id: crypto.randomUUID(), operatorId, name, releaseId: null, revision: 1,
+        ...(piReasoningOverride !== undefined && { piReasoningOverride }),
         enabled: false, policy, configurationJson: this.managementConfiguration(configurationJson, state!.profile === 'dispatcher' && state!.repositoryUrl.replace(/\.git$/i, '').toLowerCase() === 'https://github.com/nikolanovoselec/codeflare-operator-dispatcher'), approvedSourceRevision: null };
       this.saveInstallation(value);
       return { ok: true, value };
@@ -1301,8 +1342,23 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string; O
     });
   }
 
-  async setManagementInstallationEnabled(installationId: string, enabled: boolean, expectedRevision: number, authority: ManagementAuthority): Promise<OperatorRegistryResult<ManagementInstallation>> {
+  async setManagementInstallationEnabled(installationId: string, enabled: boolean, expectedRevision: number, authority: ManagementAuthority, verification?: DispatcherDeploymentVerification): Promise<OperatorRegistryResult<ManagementInstallation>> {
     this.managementSchema();
+    const before = this.managementInstallation(installationId);
+    let normal = false;
+    if (enabled && before?.releaseId && this.managementState(before.operatorId)?.profile === 'dispatcher') {
+      const row = this.ctx.storage.sql.exec<{ data: string }>('SELECT data FROM operator_releases WHERE id=? AND operator_id=?', before.releaseId, before.operatorId).toArray()[0];
+      const release = row ? JSON.parse(row.data) as ManagementRelease : null;
+      if (release) {
+        const bytes = await this.getManagementBundle(release.bundleDigest);
+        if (!bytes) return { ok: false, reason: 'artifact-unapproved' };
+        // Historical approvals keep their original semantics; only schema2 introduces this deployment gate.
+        let schema: unknown;
+        try { schema = JSON.parse(new TextDecoder().decode(bytes)); } catch { /* opaque historical approval */ }
+        normal = !!schema && typeof schema === 'object' && 'schemaVersion' in schema && schema.schemaVersion === 2;
+        if (normal) await parseDispatcherBundle(bytes, release.bundleDigest);
+      }
+    }
     return this.ctx.storage.transactionSync(() => {
       const installation = this.managementInstallation(installationId);
       if (!installation) return { ok: false, reason: 'not-found' };
@@ -1311,6 +1367,11 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string; O
       if (fence) return fence;
       if (installation.revision !== expectedRevision) return { ok: false, reason: 'revision-conflict' };
       if (enabled) {
+        if (normal && (!installation.dispatcherConnection || installation.dispatcherConnection.releaseId !== installation.releaseId
+          || !verification || verification.connectionRevision !== installation.dispatcherConnection.connectionRevision
+          || verification.bundleDigest !== installation.dispatcherConnection.bundleDigest
+          || verification.workerVersionId !== installation.dispatcherConnection.workerVersionId
+          || !/^https:\/\/[a-z0-9-]+\.[a-z0-9-]+\.workers\.dev$/.test(verification.controlOrigin))) return { ok: false, reason: 'artifact-unapproved' };
         if (!this.restrictivePolicy(installation.policy, state!.policy)) throw new ValidationError('Installation exceeds operator policy');
         if (!installation.releaseId || installation.approvedSourceRevision !== state!.sourceRevision) return { ok: false, reason: 'artifact-unapproved' };
         const row = this.ctx.storage.sql.exec<{ data: string }>('SELECT data FROM operator_releases WHERE id=? AND operator_id=?', installation.releaseId, installation.operatorId).toArray()[0];
@@ -1323,12 +1384,81 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string; O
         if (!release.approved || !this.ctx.storage.sql.exec('SELECT part FROM operator_bytes WHERE digest=? LIMIT 1', release.bundleDigest).toArray().length) return { ok: false, reason: 'artifact-unapproved' };
       }
       const value = { ...installation, revision: installation.revision + 1, enabled };
-      this.saveInstallation(value);
+      this.saveInstallation(normal && enabled ? { ...value, dispatcherConnectionVerification: verification } as ManagementInstallation : value);
+      if (normal && enabled && verification && installation.dispatcherConnection) {
+        const row = this.ctx.storage.sql.exec<{ data: string }>('SELECT data FROM operator_installations WHERE id=?', installationId).toArray()[0];
+        const secret = (JSON.parse(row.data) as { dispatcherConnectionSecretCiphertext?: string }).dispatcherConnectionSecretCiphertext;
+        if (!secret) throw new Error('Dispatcher connection unavailable');
+        // Installation revisions, never per-run credentials. Retired credentials authorize only fenced original abort.
+        this.ctx.storage.sql.exec('INSERT INTO operator_dispatcher_abort_connections(installation_id,revision,data) VALUES(?,?,?) ON CONFLICT(installation_id,revision) DO NOTHING',
+          installationId, installation.dispatcherConnection.connectionRevision, JSON.stringify({ ...installation.dispatcherConnection,
+            connectionSecretCiphertext: secret, controlOrigin: verification.controlOrigin }));
+      }
       return { ok: true, value };
     });
   }
 
-  async configureManagementInstallation(installationId: string, input: { policy: ManagementPolicy; configurationJson: string; revision: number }, authority: ManagementAuthority): Promise<OperatorRegistryResult<ManagementInstallation>> {
+  /** REQ-OPERATOR-046/049: an installation connection is revision-fenced, write-only and disables starts. */
+  async configureManagementDispatcherConnection(installationId: string, input: {
+    revision: number; connectionSecret: string; workerName: string; workerVersionId: string;
+    releaseId: string; sourceCommit: string; compilerCommit: string; manifestDigest: string; bundleDigest: string;
+  }, authority: ManagementAuthority): Promise<OperatorRegistryResult<ManagementInstallation>> {
+    this.managementSchema();
+    const ciphertext = await sealOperatorSecret(input.connectionSecret, this.env, { purpose: 'connection', recordId: installationId });
+    return this.ctx.storage.transactionSync(() => {
+      const installation = this.managementInstallation(installationId);
+      if (!installation) return { ok: false, reason: 'not-found' };
+      const state = this.managementState(installation.operatorId);
+      const fence = this.managementFence(state, authority);
+      if (fence) return fence;
+      if (installation.revision !== input.revision) return { ok: false, reason: 'revision-conflict' };
+      const row = this.ctx.storage.sql.exec<{ data: string }>('SELECT data FROM operator_releases WHERE id=? AND operator_id=?', input.releaseId, installation.operatorId).toArray()[0];
+      const release = row ? JSON.parse(row.data) as ManagementRelease : null;
+      if (state!.profile !== 'dispatcher' || !release || !release.approved || installation.releaseId !== release.id
+        || installation.approvedSourceRevision !== state!.sourceRevision || release.sourceRevision !== state!.sourceRevision
+        || release.sourceCommit !== input.sourceCommit || release.provenance.compilerCommit !== input.compilerCommit
+        || release.manifestDigest !== input.manifestDigest || release.bundleDigest !== input.bundleDigest) {
+        return { ok: false, reason: 'artifact-unapproved' };
+      }
+      const { revision: _revision, connectionSecret: _secret, ...metadata } = input;
+      const connection: DispatcherConnectionMetadata = { ...metadata, installationId,
+        connectionRevision: (installation.dispatcherConnection?.connectionRevision ?? 0) + 1 };
+      const value: ManagementInstallation = { ...installation, enabled: false,
+        revision: installation.revision + 1, dispatcherConnection: connection };
+      this.saveInstallation({ ...value, dispatcherConnectionSecretCiphertext: ciphertext, dispatcherConnectionVerification: null } as ManagementInstallation);
+      return { ok: true, value };
+    });
+  }
+
+  /** Parent-only unverified metadata for the authorized enablement boundary; never supplies an endpoint. */
+  async getConfiguredDispatcherConnection(installationId: string): Promise<DispatcherConnectionMetadata | null> {
+    return this.managementInstallation(installationId)?.dispatcherConnection ?? null;
+  }
+
+  /** Parent-only local read: endpoint and exact active version were verified before enablement. */
+  async getManagementDispatcherConnection(installationId: string): Promise<DispatcherConnectionRecord | null> {
+    this.managementSchema();
+    const row = this.ctx.storage.sql.exec<{ data: string }>('SELECT data FROM operator_installations WHERE id=?', installationId).toArray()[0];
+    if (!row) return null;
+    const stored = JSON.parse(row.data) as ManagementInstallation & { dispatcherConnectionSecretCiphertext?: string;
+      dispatcherConnectionVerification?: DispatcherDeploymentVerification };
+    const connection = stored.dispatcherConnection;
+    const proof = stored.dispatcherConnectionVerification;
+    if (!connection || !proof || !stored.dispatcherConnectionSecretCiphertext || connection.releaseId !== stored.releaseId
+      || proof.connectionRevision !== connection.connectionRevision || proof.workerVersionId !== connection.workerVersionId
+      || proof.bundleDigest !== connection.bundleDigest) return null;
+    return { ...connection, connectionSecretCiphertext: stored.dispatcherConnectionSecretCiphertext, controlOrigin: proof.controlOrigin };
+  }
+
+  /** Parent-only historical installation credential. Never authorizes dispatch/read/effects or renews a run. */
+  async getManagementDispatcherAbortConnection(installationId: string, revision: number): Promise<DispatcherConnectionRecord | null> {
+    this.managementSchema();
+    const row = this.ctx.storage.sql.exec<{ data: string }>('SELECT data FROM operator_dispatcher_abort_connections WHERE installation_id=? AND revision=?',
+      installationId, revision).toArray()[0];
+    return row ? JSON.parse(row.data) as DispatcherConnectionRecord : null;
+  }
+
+  async configureManagementInstallation(installationId: string, input: { policy: ManagementPolicy; configurationJson: string; revision: number; piReasoningOverride?: PiReasoningLevel }, authority: ManagementAuthority): Promise<OperatorRegistryResult<ManagementInstallation>> {
     this.managementSchema();
     return this.ctx.storage.transactionSync(() => {
       const installation = this.managementInstallation(installationId);
@@ -1338,13 +1468,15 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string; O
       if (fence) return fence;
       if (installation.revision !== input.revision) return { ok: false, reason: 'revision-conflict' };
       if (!this.restrictivePolicy(input.policy, state!.policy)) throw new ValidationError('Installation exceeds operator policy');
-      const value = { ...installation, policy: input.policy, configurationJson: this.managementConfiguration(input.configurationJson, state!.profile === 'dispatcher' && state!.repositoryUrl.replace(/\.git$/i, '').toLowerCase() === 'https://github.com/nikolanovoselec/codeflare-operator-dispatcher'), revision: installation.revision + 1, enabled: false };
+      if (input.piReasoningOverride !== undefined && !isPiReasoningLevel(input.piReasoningOverride)) throw new ValidationError('Invalid Pi reasoning override');
+      const { piReasoningOverride: _previous, ...inherited } = installation;
+      const value: ManagementInstallation = { ...inherited, ...(input.piReasoningOverride !== undefined && { piReasoningOverride: input.piReasoningOverride }), policy: input.policy, configurationJson: this.managementConfiguration(input.configurationJson, state!.profile === 'dispatcher' && state!.repositoryUrl.replace(/\.git$/i, '').toLowerCase() === 'https://github.com/nikolanovoselec/codeflare-operator-dispatcher'), revision: installation.revision + 1, enabled: false };
       this.saveInstallation(value);
       return { ok: true, value };
     });
   }
 
-  async setManagementCapabilities(operatorId: string, capabilities: string[], authority: ManagementAuthority, sourceResponseBytes?: number, inferenceRequestBytes?: number, operationLimit?: number, loggingEnabled?: boolean, inferenceAttemptLimit?: number, submissionAttemptLimit?: number, capacityPolicy: DispatcherCapacityPolicy = {}): Promise<OperatorRegistryResult<ManagementOperatorProjection>> {
+  async setManagementCapabilities(operatorId: string, capabilities: string[], authority: ManagementAuthority, sourceResponseBytes?: number, inferenceRequestBytes?: number, operationLimit?: number, loggingEnabled?: boolean, inferenceAttemptLimit?: number, submissionAttemptLimit?: number, capacityPolicy: DispatcherCapacityPolicy = {}, inference?: OperatorPolicy['inference']): Promise<OperatorRegistryResult<ManagementOperatorProjection>> {
     this.managementSchema();
     return this.ctx.storage.transactionSync(() => {
       const state = this.managementState(operatorId);
@@ -1373,6 +1505,7 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string; O
         throw new ValidationError('Invalid Dispatcher capacity limits');
       }
       const policy = { ...state!.policy, ...capacityPolicy, capabilities,
+        ...(inference === undefined ? {} : { inference }),
         ...(sourceResponseBytes === undefined ? {} : { sourceResponseBytes }),
         ...(inferenceRequestBytes === undefined ? {} : { inferenceRequestBytes }),
         ...(operationLimit === undefined ? {} : { operationLimit }),
@@ -1389,6 +1522,7 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string; O
         && effectiveInferenceAttemptLimit(policy) === effectiveInferenceAttemptLimit(state!.policy)
         && effectiveSubmissionAttemptLimit(policy) === effectiveSubmissionAttemptLimit(state!.policy)
         && dispatcherCapacityKeys.every(key => limits[key] === storedLimits[key])
+        && JSON.stringify(policy.inference) === JSON.stringify(state!.policy.inference)
         && (policy.loggingEnabled ?? true) === (state!.policy.loggingEnabled ?? true)) return { ok: true, value: this.saveManagement(state!) };
       const rows = this.ctx.storage.sql.exec<{ data: string }>('SELECT data FROM operator_installations WHERE operator_id=? AND enabled=1', operatorId).toArray();
       for (const row of rows) {
@@ -1530,7 +1664,9 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string; O
         if (fields.some(key => key === 'resultSummary'
           ? (['assessed', 'merged', 'notMerged', 'deferred', 'unknown'] as const)
             .some(field => prior.resultSummary?.[field] !== observed.resultSummary?.[field])
-          : prior[key] !== observed[key])) return;
+          : key === 'inferenceSelection' || key === 'authFailure'
+            ? JSON.stringify(prior[key]) !== JSON.stringify(observed[key])
+            : prior[key] !== observed[key])) return;
       }
       let count = await tx.get<number>(countKey);
       if (count === undefined) {

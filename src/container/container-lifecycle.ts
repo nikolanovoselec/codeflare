@@ -12,7 +12,7 @@
  */
 import { toError, toErrorMessage } from '../lib/error-types';
 import type { Env } from '../types';
-import { D1SessionRepository } from '../lib/session-repository';
+import { D1SessionRepository, type D1Session } from '../lib/session-repository';
 import { fencePendingBoundaryStart } from '../routes/session/boundary-stop';
 import { updateEnvVars, type ContainerHost } from './container-config';
 import {
@@ -45,6 +45,8 @@ export interface LifecycleHost extends ContainerHost {
   lastSeenInputAt: number | null;
   _usageSeconds: number;
   _shutdownStartedAt: number;
+  /** Invalidates an older graceful continuation when KILL or a fresh start wins. */
+  _teardownEpoch?: number;
 
   stop(signal: number | string): Promise<void>;
   schedule(delaySec: number, method: string): Promise<unknown>;
@@ -59,8 +61,35 @@ export interface SessionStopRequest {
   generation: number;
 }
 
+const OPERATIONAL_STORAGE_KEYS = [
+  SESSION_ID_KEY, 'bucketName', 'workspaceSyncEnabled', 'fastStartEnabled',
+  'tabConfig', 'sessionWorkspace', 'sleepAfter', TRANSPORT_FAILURE_STREAK_KEY,
+  'containerAuthToken', 'vaultKey', 'review:session-human', 'review:session-principal',
+  'review:boundary-input', 'review:push-evidence', 'review:pr-creation',
+];
+
+function clearOperationalMemory(host: LifecycleHost): void {
+  host._bucketName = null;
+  host._sessionId = null;
+  host._r2AccessKeyId = null;
+  host._r2SecretAccessKey = null;
+  host._containerAuthToken = null;
+  host._vaultKey = null;
+  host._openaiApiKey = null;
+  host._geminiApiKey = null;
+  host._githubToken = null;
+  host._cloudflareApiToken = null;
+  host._cloudflareAccountId = null;
+  host._encryptionKey = null;
+  host._remoteCurationActive = false;
+  host._remoteCurationReleaseDigest = null;
+  host._remoteCurationManifestDigest = null;
+  host._sessionMode = 'default';
+  host._sessionWorkspace = 'terminal';
+}
+
 /** Complete an owner-authorized Stop without depending on operational DO keys. */
-export async function stopSession(env: Env, input: SessionStopRequest, destroyContainer: () => Promise<void>): Promise<void> {
+export async function stopSession(env: Env, input: SessionStopRequest, destroyContainer: (owned: D1Session) => Promise<void>): Promise<void> {
   const { bucket, sessionId, generation } = input;
   const repository = new D1SessionRepository(env.USAGE_DB);
   const current = await repository.getSession(bucket, sessionId);
@@ -69,7 +98,8 @@ export async function stopSession(env: Env, input: SessionStopRequest, destroyCo
 
   const claimed = current.lifecycleState === 'stopping'
     ? current
-    : await repository.claimStop(bucket, sessionId, crypto.randomUUID(), new Date().toISOString(), generation);
+    : await repository.claimStop(bucket, sessionId, crypto.randomUUID(), new Date().toISOString(), generation)
+      ?? await repository.getSession(bucket, sessionId);
   if (!claimed || claimed.lifecycleState !== 'stopping' || claimed.lifecycleGeneration !== generation
       || claimed.terminationGeneration !== generation || !claimed.terminationIntentId) {
     throw new Error('Session stop ownership unavailable');
@@ -85,10 +115,52 @@ export async function stopSession(env: Env, input: SessionStopRequest, destroyCo
       || owned.terminationGeneration !== generation || owned.terminationIntentId !== intentId) {
     throw new Error('Session stop ownership changed');
   }
-  await destroyContainer();
+  await destroyContainer(owned);
   if (!await repository.confirmStoppedOrObserved(bucket, sessionId, generation, intentId, new Date().toISOString())) {
     throw new Error('Confirmed exit could not be persisted');
   }
+}
+
+/** Force destruction shares D1 ownership with Stop, but never its graceful I/O. */
+export async function killSession(host: LifecycleHost, input: SessionStopRequest): Promise<void> {
+  await stopSession(host.env, input, async claimed => {
+    const epoch = host._teardownEpoch = (host._teardownEpoch ?? 0) + 1;
+    const assertCurrent = () => {
+      if (host._teardownEpoch !== epoch) throw new Error('KILL generation superseded');
+    };
+    const repository = new D1SessionRepository(host.env.USAGE_DB);
+    const stillOwned = async (): Promise<boolean> => {
+      assertCurrent();
+      const current = await repository.getSession(input.bucket, input.sessionId);
+      assertCurrent();
+      if (!current || current.lifecycleGeneration !== input.generation) throw new Error('KILL generation changed');
+      if (current.lifecycleState === 'stopped') return false; // Positive monitored exit already confirmed in D1.
+      if (current.lifecycleState !== 'stopping' || current.terminationGeneration !== input.generation
+        || current.terminationIntentId !== claimed.terminationIntentId) throw new Error('KILL ownership changed');
+      return true;
+    };
+    host._shutdownStartedAt = Date.now();
+    if (!await stillOwned()) return;
+    await host.ctx.storage.put(SHUTDOWN_REQUESTED_KEY, host._shutdownStartedAt);
+    if (!await stillOwned()) return;
+    try { host.deleteSchedules('collectMetrics'); } catch { /* no schedule to retire */ }
+    await host.ctx.storage.transaction(async txn => {
+      assertCurrent();
+      const storedGeneration = await txn.get<number>('lifecycleGeneration');
+      assertCurrent();
+      if (storedGeneration !== undefined && storedGeneration !== input.generation) {
+        throw new Error('KILL operational generation changed');
+      }
+      await txn.delete([...OPERATIONAL_STORAGE_KEYS, TRANSPORT_RECOVERY_KEY]);
+      assertCurrent();
+    });
+    if (!await stillOwned()) return;
+    clearOperationalMemory(host);
+    // SDK 0.3.7 public destroy() awaits native SIGKILL; no running hint or
+    // synthetic onStop callback is used as process-exit evidence.
+    await host.superDestroy();
+    assertCurrent();
+  });
 }
 
 /** Called when the container starts successfully. */
@@ -104,6 +176,7 @@ export async function onStart(host: LifecycleHost): Promise<void> {
 
   const isFreshStart = session.lifecycleState === 'starting';
   if (isFreshStart) {
+    host._teardownEpoch = (host._teardownEpoch ?? 0) + 1;
     const startedAt = Date.now();
     // Retire old authority with the generation handoff even if exit cleanup
     // is delayed. Same-generation authority and newer executions remain intact.
@@ -241,31 +314,38 @@ async function recordFinalSyncAudit(host: LifecycleHost, result: FinalSyncResult
  * resurrect the KV entry (REQ-SESSION-009).
  */
 export async function destroy(host: LifecycleHost): Promise<void> {
+  const epoch = host._teardownEpoch = (host._teardownEpoch ?? 0) + 1;
+  const assertCurrent = () => {
+    if (host._teardownEpoch !== epoch) throw new Error('Graceful teardown superseded');
+  };
   const hardKillMs = 135_000;
   host._shutdownStartedAt = Date.now();
   const start = host._shutdownStartedAt;
-  const withinDeadline = async <T>(operation: Promise<T>): Promise<T> => {
+  const withinDeadline = async <T>(operation: () => Promise<T>): Promise<T> => {
+    assertCurrent();
     const remaining = hardKillMs - (Date.now() - start);
     if (remaining <= 0) throw new Error('teardown deadline exceeded');
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {
-      return await Promise.race([
-        operation,
+      const result = await Promise.race([
+        operation(),
         new Promise<T>((_, reject) => {
           timer = setTimeout(() => reject(new Error('teardown deadline exceeded')), remaining);
         }),
       ]);
+      assertCurrent();
+      return result;
     } finally {
       if (timer) clearTimeout(timer);
     }
   };
   // Fence protected admissions before any teardown I/O yields. Cleanup failures
   // do not prevent the existing bounded final sync and guaranteed stop path.
-  try { await withinDeadline(host.ctx.storage.put(SHUTDOWN_REQUESTED_KEY, start)); }
+  try { await withinDeadline(() => host.ctx.storage.put(SHUTDOWN_REQUESTED_KEY, start)); }
   catch (err) { host.logger.warn('Shutdown fence could not be persisted', { error: toError(err).message }); }
-  try { await withinDeadline(discardReviewSessionHuman(host as unknown as Parameters<typeof discardReviewSessionHuman>[0])); }
+  try { await withinDeadline(() => discardReviewSessionHuman(host as unknown as Parameters<typeof discardReviewSessionHuman>[0])); }
   catch (err) { host.logger.warn('Review authority cleanup failed', { error: toError(err).message }); }
-  try { await withinDeadline(host.ctx.storage.delete(['review:boundary-input', 'review:push-evidence', 'review:pr-creation'])); }
+  try { await withinDeadline(() => host.ctx.storage.delete(['review:boundary-input', 'review:push-evidence', 'review:pr-creation'])); }
   catch (err) { host.logger.warn('Boundary input cleanup failed', { error: toError(err).message }); }
   host.logger.info('Destroying container, clearing operational storage');
   // Capture the session id BEFORE the storage-clear below nulls host._sessionId,
@@ -278,7 +358,7 @@ export async function destroy(host: LifecycleHost): Promise<void> {
   // re-created for this delete and never hydrated the in-memory field.
   let auditAuthToken: string | null = host._containerAuthToken;
   if (!auditAuthToken) {
-    try { auditAuthToken = (await withinDeadline(host.ctx.storage.get<string>('containerAuthToken'))) ?? null; } catch { auditAuthToken = null; }
+    try { auditAuthToken = (await withinDeadline(() => host.ctx.storage.get<string>('containerAuthToken'))) ?? null; } catch { auditAuthToken = null; }
   }
   // Persist the deliberate-stop marker and drop the metrics alarm BEFORE
   // clearing identifiers. If a DO eviction interrupts this teardown, the
@@ -294,7 +374,7 @@ export async function destroy(host: LifecycleHost): Promise<void> {
   // after teardown has started deleting them. Failure is best-effort and cannot
   // suppress the later sync, cleanup, or stop.
   try {
-    await withinDeadline(drainAgentEventsBeforeStop(
+    await withinDeadline(() => drainAgentEventsBeforeStop(
       host,
       host.ctx,
       host.env,
@@ -307,46 +387,15 @@ export async function destroy(host: LifecycleHost): Promise<void> {
 
   // Lifecycle remains stopping until destroy() returns confirmed process-exit evidence.
   // The Stop owner persists its captured generation-bound termination intent.
+  assertCurrent();
   try { host.deleteSchedules('collectMetrics'); } catch { /* no-op if table empty */ }
   // Recovery residue must not survive teardown even when another operational
   // key deletion fails below.
-  try { await withinDeadline(host.ctx.storage.delete(TRANSPORT_RECOVERY_KEY)); } catch { /* best-effort */ }
+  try { await withinDeadline(() => host.ctx.storage.delete(TRANSPORT_RECOVERY_KEY)); } catch { /* best-effort */ }
   try {
-    await withinDeadline(Promise.all([
-      host.ctx.storage.delete(SESSION_ID_KEY),
-      host.ctx.storage.delete('bucketName'),
-      host.ctx.storage.delete('workspaceSyncEnabled'),
-      host.ctx.storage.delete('fastStartEnabled'),
-      host.ctx.storage.delete('tabConfig'),
-      host.ctx.storage.delete('sessionWorkspace'),
-      host.ctx.storage.delete('sleepAfter'),
-      host.ctx.storage.delete(TRANSPORT_FAILURE_STREAK_KEY),
-      // Drop auth and vault keys before the next lifecycle can reuse this DO.
-      host.ctx.storage.delete('containerAuthToken'),
-      host.ctx.storage.delete('vaultKey'),
-      host.ctx.storage.delete('review:session-human'),
-      host.ctx.storage.delete('review:session-principal'),
-      host.ctx.storage.delete('review:boundary-input'),
-      host.ctx.storage.delete('review:push-evidence'),
-      host.ctx.storage.delete('review:pr-creation'),
-    ]));
-    host._bucketName = null;
-    host._sessionId = null;
-    host._r2AccessKeyId = null;
-    host._r2SecretAccessKey = null;
-    host._containerAuthToken = null;
-    host._vaultKey = null;
-    host._openaiApiKey = null;
-    host._geminiApiKey = null;
-    host._githubToken = null;
-    host._cloudflareApiToken = null;
-    host._cloudflareAccountId = null;
-    host._encryptionKey = null;
-    host._remoteCurationActive = false;
-    host._remoteCurationReleaseDigest = null;
-    host._remoteCurationManifestDigest = null;
-    host._sessionMode = 'default';
-    host._sessionWorkspace = 'terminal';
+    await withinDeadline(() => Promise.all(OPERATIONAL_STORAGE_KEYS.map(key => host.ctx.storage.delete(key))));
+    assertCurrent();
+    clearOperationalMemory(host);
     host.logger.info('Operational storage cleared');
   } catch (err) {
     host.logger.error('Failed to clear storage', toError(err));
@@ -376,7 +425,7 @@ export async function destroy(host: LifecycleHost): Promise<void> {
   // never silent (#516).
   let syncResult: FinalSyncResult;
   try {
-    syncResult = await withinDeadline(drainFinalSyncAudited(
+    syncResult = await withinDeadline(() => drainFinalSyncAudited(
       host,
       Math.max(1, Math.min(FINAL_SYNC_BUDGET_MS, hardKillMs - (Date.now() - start))),
       auditAuthToken,
@@ -385,16 +434,18 @@ export async function destroy(host: LifecycleHost): Promise<void> {
     syncResult = { outcome: 'errored', reason: toError(err).message };
   }
   try {
-    await withinDeadline(recordFinalSyncAudit(host, syncResult, auditSessionId));
+    await withinDeadline(() => recordFinalSyncAudit(host, syncResult, auditSessionId));
   } catch (err) {
     host.logger.warn('Final sync audit exceeded teardown deadline', { error: toError(err).message });
   }
 
+  assertCurrent();
   if (host.ctx.container?.running) {
     try {
-      await withinDeadline(host.stop('SIGTERM'));
+      await withinDeadline(() => host.stop('SIGTERM'));
       while (host.ctx.container?.running && Date.now() - start < hardKillMs) {
         await new Promise((resolve) => setTimeout(resolve, pollMs));
+        assertCurrent();
         if (!warned && Date.now() - start >= warnThresholdMs) {
           warned = true;
           host.logger.warn('Shutdown approaching budget ceiling', {
@@ -419,6 +470,7 @@ export async function destroy(host: LifecycleHost): Promise<void> {
   // entire budget. When time remains, bound the await to that same deadline;
   // when it does not, observe the promise in the background so a later provider
   // rejection is handled, then reject the teardown as unconfirmed.
+  assertCurrent();
   const superDestroyPromise = host.superDestroy();
   const remaining = hardKillMs - (Date.now() - start);
   if (remaining <= 0) {
@@ -430,7 +482,7 @@ export async function destroy(host: LifecycleHost): Promise<void> {
     throw deadlineError;
   }
   try {
-    await withinDeadline(superDestroyPromise);
+    await withinDeadline(() => superDestroyPromise);
   } catch (err) {
     host.logger.warn('Forced destroy failed or exceeded teardown deadline', { error: toError(err).message });
     throw err;

@@ -69,7 +69,7 @@ vi.mock('../../lib/circuit-breakers', () => ({
 import lifecycleRoutes from '../../routes/container/lifecycle';
 import { createBucketIfNotExists } from '../../lib/r2-admin';
 import { seedGettingStartedDocs } from '../../lib/r2-seed';
-import { buildSessionMetadata } from '../../lib/kv-keys';
+import { buildSessionMetadata, SETUP_KEYS } from '../../lib/kv-keys';
 
 describe('Container Lifecycle Routes', () => {
   let mockKV: ReturnType<typeof createMockKV>;
@@ -169,6 +169,29 @@ describe('Container Lifecycle Routes', () => {
         lookup: async () => boundHuman,
       };
     }
+
+    it.each([
+      { allowed: true, source: 'pi-native' },
+      { allowed: false, source: 'pi-native' },
+      { allowed: true, source: 'managed' },
+      { allowed: true, source: undefined },
+    ])('REQ-ENTERPRISE-088/089: human start carries resolved fallback source $source without granting permission ($allowed)', async ({ allowed, source }) => {
+      mockKV._set(SETUP_KEYS.REASONING_CONFIGURATION, {
+        schemaVersion: 1, customProfileRevisions: [], routeAssignments: {},
+        fallbackRouting: { enabled: true, routes: [], defaultRoute: '', reasoning: 'off',
+          allowPersonalPiProviders: allowed, ...(source !== undefined && { piDefaultSource: source }) },
+      });
+      const { fetch, stub } = enterpriseHarness(false);
+      const response = await fetch(path, { method: 'POST', headers: { 'cf-access-jwt-assertion': 'human-credential' } });
+      expect(response.status).toBe(200);
+      const configuredRequest = stub.fetch.mock.calls.map(([request]) => request as Request)
+        .find(request => request.url.endsWith('/_internal/setBucketName'))!;
+      // Intentional Worker-to-container startup wire contract, resolved from saved policy.
+      expect(await configuredRequest.json()).toMatchObject({
+        routeCatalog: [], defaultRoute: '', defaultReasoning: '',
+        piDefaultSource: source ?? 'managed', allowPersonalPiProviders: allowed,
+      });
+    });
 
     for (const running of [false, true]) {
       it(`#29: authenticated Enterprise ${running ? 'reconnect' : 'cold start'} binds the same human after configuration`, async () => {

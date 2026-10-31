@@ -2,7 +2,7 @@
  * CloudflareBrowserInterceptor — outbound `api.cloudflare.com` credential injection, two modes:
  *   (1) enterprise Browser Rendering admin-token injection (REQ-BROWSER-008);
  *   (2) non-enterprise OAuth mode (REQ-AGENT-078) — stamps a freshly-refreshed per-user Cloudflare
- *       OAuth token on EVERY api.cloudflare.com request (as `Authorization`) AND on the AI Gateway
+ *       OAuth token on managed api.cloudflare.com requests (as `Authorization`) AND on the AI Gateway
  *       data-plane `gateway.ai.cloudflare.com` (as `cf-aig-authorization`, the token's aig.run scope),
  *       so `wrangler`, browser-run, and AI Gateway all survive past the short OAuth access-token
  *       lifetime, with the real token never entering the container. The gateway host is OAuth-mode
@@ -24,24 +24,28 @@
  * extension run in authed mode but never possess the real credential. Each intercepted
  * request is routed HERE:
  *   - TRUSTED path — `api.cloudflare.com/client/v4/accounts/<browserAccountId>/browser-rendering/*`
- *     where `<browserAccountId>` equals the SETUP-WIZARD-configured Browser Rendering account
+ *     for absent credentials or the exact enterprise placeholder, where `<browserAccountId>`
+ *     equals the SETUP-WIZARD-configured Browser Rendering account
  *     (props, bound at wiring): strip the placeholder `authorization`, inject the real
- *     "Browser Rendering - Edit" token (resolved worker-side at wiring), egress DIRECT
- *     (own-account platform backend, AD86). REST and the CDP WebSocket upgrade
+ *     "Browser Rendering - Edit" token (resolved worker-side at wiring), use `env.EGRESS`
+ *     when strict is on and direct forwarding otherwise. REST and the CDP WebSocket upgrade
  *     (`/browser-rendering/devtools/...`) are both handled — the WS is bridged via a fresh
  *     `WebSocketPair` so the socket actually returns to the container.
- *   - EVERYTHING ELSE on `api.cloudflare.com` (a different account id, or any non-
- *     `browser-rendering` path): the container has no business reaching it in enterprise.
+ *   - Other MANAGED requests on `api.cloudflare.com` (a different account id, or any non-
+ *     `browser-rendering` path) cannot borrow administrator Browser credentials.
  *     "rest → gateway": forward through `env.EGRESS` (the customer's Zero Trust Gateway) for
  *     inspection when strict is on; otherwise fail closed (403). The real token is NEVER
  *     injected on this path — it can only ever reach the one configured account's Browser
  *     Rendering API.
  *
- * Fail closed: the trusted path with no configured token returns 401 WITHOUT any upstream
- * request; the non-trusted path returns 403 (non-strict) or 503 (strict but EGRESS unbound).
+ * Caller-owned Bearer/key+email or Gateway credentials bypass managed lookup, not native or
+ * Operator authorization. They use ordinary direct/strict egress with manual redirects and no
+ * managed fallback, including when Browser configuration is absent.
+ * Fail closed: managed Browser requests with no configured token/account return 401 WITHOUT
+ * upstream I/O; other managed paths return 403 (non-strict) or 503 (strict but EGRESS unbound).
  *
- * Wiring: in enterprise the DO wires this for api.cloudflare.com when an admin Browser Rendering
- * token + account are configured (mode 1, the `browserRendering` registry entry); in non-enterprise
+ * Wiring: in enterprise the DO always wires this for api.cloudflare.com, independently of admin
+ * Browser configuration (mode 1, the `browserRendering` registry entry); in non-enterprise
  * it wires this for OAuth "Connect to Cloudflare" sessions with only the bound bucket in props
  * (mode 2, the `cloudflareOauthApi` registry entry). Otherwise unreached.
  */
@@ -50,6 +54,9 @@ import { forwardPersonalPi, type PersonalPiProps } from './lib/personal-pi-forwa
 import type { Env } from './types';
 import { createLogger } from './lib/logger';
 import { getValidCloudflareToken } from './lib/cloudflare-token';
+import { classifyCloudflareCredentials } from './lib/cloudflare-credentials';
+import { CLOUDFLARE_OAUTH_TOKEN_PLACEHOLDER, ENTERPRISE_BROWSER_TOKEN_PLACEHOLDER } from './lib/constants';
+import { STRIPPED_REQUEST_HOP_BY_HOP, RESPONSE_HOP_BY_HOP } from './lib/controller-egress';
 import { prepareJwtStampedRequest, type JwtStampingAuthority, type JwtStampingPolicy } from './operators/jwt-stamping';
 import type { OperatorPolicy } from './operators/policy';
 
@@ -76,7 +83,7 @@ interface BrowserInterceptorProps extends PersonalPiProps {
   browserAccountId?: string;
   /** The real admin "Browser Rendering - Edit" token, resolved worker-side at wiring. */
   browserToken?: string;
-  /** Strict gateway egress: route non-trusted api.cloudflare.com via env.EGRESS, else 403. */
+  /** Strict egress requires env.EGRESS for managed Browser and other CF API traffic. */
   strict?: boolean;
   jwtStamping?: JwtStampingPolicy;
   jwtAuthority?: JwtStampingAuthority;
@@ -84,10 +91,10 @@ interface BrowserInterceptorProps extends PersonalPiProps {
   operatorPolicy?: OperatorPolicy;
   /**
    * NON-enterprise OAuth mode (REQ-AGENT-078): the bound per-session bucket. When set, this
-   * interceptor stamps a FRESH `getValidCloudflareToken(bucket)` on EVERY api.cloudflare.com
-   * request (wrangler + browser-run), so the user's short-lived OAuth token is refreshed at the
-   * boundary and never sits in the container. Mutually exclusive with the enterprise props above
-   * (different wiring paths) — enterprise never sets `bucket`, so its path stays byte-identical.
+   * interceptor stamps a FRESH `getValidCloudflareToken(bucket)` only when Cloudflare credentials
+   * are absent or the exact OAuth placeholder, so managed credentials are refreshed at the
+   * boundary and never enter the container. Mutually exclusive with the enterprise props above
+   * (different wiring paths) — enterprise never sets `bucket` or runs managed OAuth resolution.
    */
   bucket?: string;
 }
@@ -138,18 +145,28 @@ export class CloudflareBrowserInterceptor extends WorkerEntrypoint<Env> {
     const personal = await forwardPersonalPi(request, this.env, props);
     if (personal) return personal;
 
-    // NON-enterprise OAuth mode (REQ-AGENT-078): stamp a fresh, refreshed token on EVERY
-    // api.cloudflare.com path. Keyed on the bound bucket; `bucket` is never set in enterprise
-    // (which wires browserAccountId/browserToken) — so the enterprise path below is untouched.
-    if (props?.bucket) return this.fetchOAuth(request, url, props.bucket);
+    // Resolve caller intent before any managed credential lookup. Native authorization above
+    // and the existing Operator restriction remain authoritative for both credential lanes.
+    const credentials = classifyCloudflareCredentials(request.headers, url.hostname.replace(/\.$/, '') === AI_GATEWAY_HOST,
+      props?.bucket ? CLOUDFLARE_OAUTH_TOKEN_PLACEHOLDER : ENTERPRISE_BROWSER_TOKEN_PLACEHOLDER);
+    if (credentials === 'invalid') {
+      return jsonError(400, 'CF_CREDENTIALS_INVALID', 'Cloudflare credentials are invalid');
+    }
     if (props?.operatorPolicy) {
       return jsonError(403, 'OPERATOR_BROWSER_DENIED', 'Browser administrator credentials are not available to operators');
     }
+    if (credentials !== 'managed') return this.forwardCaller(request, credentials === 'key-email', props);
+    if (props?.bucket) return this.fetchOAuth(request, url, props.bucket);
 
     const browserAccountId = props?.browserAccountId;
     const browserToken = props?.browserToken;
     const strict = props?.strict === true;
     const isWs = request.headers.get('Upgrade')?.toLowerCase() === 'websocket';
+
+    if ((!browserAccountId?.trim() || !browserToken)
+      && /^\/client\/v4\/accounts\/[^/]+\/browser-rendering\//.test(url.pathname)) {
+      return jsonError(401, 'BROWSER_NO_TOKEN', 'Browser Rendering token not configured');
+    }
 
     if (!isBrowserRenderingPath(url, browserAccountId)) {
       // Not the configured account's browser-rendering path. The container has no business
@@ -176,7 +193,6 @@ export class CloudflareBrowserInterceptor extends WorkerEntrypoint<Env> {
     }
 
     // Strip the container placeholder + recomputed headers, then stamp the real token.
-    // Own-account platform backend ⇒ egress DIRECT (AD86), never cf1:network.
     const headers = new Headers(request.headers);
     for (const h of STRIPPED_REQUEST_HEADERS) headers.delete(h);
     headers.set('authorization', `Bearer ${browserToken}`);
@@ -189,9 +205,13 @@ export class CloudflareBrowserInterceptor extends WorkerEntrypoint<Env> {
       try { forward = prepareJwtStampedRequest(forward, props.jwtStamping, props.jwtAuthority); }
       catch { return jsonError(403, 'JWT_STAMPING_AUTHORITY_UNAVAILABLE', 'Current human Access authority is required'); }
     }
+    // Browser REST requests/results carry web content eligible for Gateway policy/AV/DLP.
+    // CDP shares the required transport and bridge, not remote Chrome networking or frame DLP.
+    const egress = this.env.EGRESS;
+    if (strict && !egress) return jsonError(503, 'EGRESS_UNAVAILABLE', 'Strict gateway egress unavailable');
     let upstream: Response;
     try {
-      upstream = await fetch(forward);
+      upstream = strict ? await egress!.fetch(forward) : await fetch(forward);
     } catch (err) {
       console.error('CloudflareBrowserInterceptor: upstream fetch failed', {
         error: err instanceof Error ? err.message : String(err),
@@ -201,10 +221,42 @@ export class CloudflareBrowserInterceptor extends WorkerEntrypoint<Env> {
     return isWs ? this.bridge(upstream) : this.relay(upstream);
   }
 
+  /** Caller credentials use ordinary egress, never the managed Browser backend exemption. */
+  private async forwardCaller(request: Request, keyEmail: boolean, props?: BrowserInterceptorProps): Promise<Response> {
+    const url = new URL(request.url);
+    if (url.protocol !== 'https:' || url.username || url.password || url.port
+      || !INTERCEPTED_CF_OAUTH_HOSTS.includes(url.hostname)) {
+      return jsonError(403, 'CF_API_BLOCKED', 'Cloudflare API access is not permitted');
+    }
+    if (props?.strict && !this.env.EGRESS) {
+      return jsonError(503, 'EGRESS_UNAVAILABLE', 'Strict gateway egress unavailable');
+    }
+    const isWs = request.headers.get('upgrade')?.toLowerCase() === 'websocket';
+    const headers = new Headers(request.headers);
+    for (const name of [...STRIPPED_REQUEST_HOP_BY_HOP, 'host', 'content-length']) headers.delete(name);
+    if (keyEmail) headers.delete('authorization');
+    if (isWs) { headers.set('upgrade', 'websocket'); headers.set('connection', 'Upgrade'); }
+    let forward = new Request(request, { headers, redirect: 'manual' });
+    if (props?.jwtStamping) {
+      try { forward = prepareJwtStampedRequest(forward, props.jwtStamping, props.jwtAuthority); }
+      catch { return jsonError(403, 'JWT_STAMPING_AUTHORITY_UNAVAILABLE', 'Current human Access authority is required'); }
+    }
+    try {
+      const upstream = props?.strict ? await this.env.EGRESS!.fetch(forward) : await fetch(forward);
+      if (isWs) return this.bridge(upstream);
+      const responseHeaders = new Headers(upstream.headers);
+      for (const name of RESPONSE_HOP_BY_HOP) responseHeaders.delete(name);
+      return new Response(upstream.body, { status: upstream.status, statusText: upstream.statusText, headers: responseHeaders });
+    } catch {
+      logger.warn('caller Cloudflare forwarding failed');
+      return jsonError(502, 'CF_API_FETCH_FAILED', 'Failed to reach Cloudflare API');
+    }
+  }
+
   /**
    * OAuth mode (REQ-AGENT-078, non-enterprise): resolve a FRESH token for the bound bucket
-   * (`getValidCloudflareToken` refreshes via the stored refresh_token), stamp it on EVERY
-   * api.cloudflare.com request/upgrade, and forward DIRECT. The container holds only the
+   * (`getValidCloudflareToken` refreshes via the stored refresh_token), stamp managed
+   * api.cloudflare.com requests/upgrades, and forward DIRECT. The container holds only the
    * placeholder. Fail closed 401 (no upstream) when no valid token can be minted. Identity is
    * the bound bucket ONLY — never read from the request (no cross-user spoofing).
    */
@@ -234,7 +286,7 @@ export class CloudflareBrowserInterceptor extends WorkerEntrypoint<Env> {
     headers.delete('host');
     headers.delete('content-length');
     if (url.hostname.trim().toLowerCase().replace(/^\[|\]$/g, '').replace(/\.$/, '') === AI_GATEWAY_HOST) {
-      // Interceptor-owned control header: strip any container-supplied value, then stamp fresh.
+      // Only managed Gateway requests reach here: replace the exact placeholder with a fresh token.
       headers.delete('cf-aig-authorization');
       headers.set('cf-aig-authorization', `Bearer ${token}`);
     } else {

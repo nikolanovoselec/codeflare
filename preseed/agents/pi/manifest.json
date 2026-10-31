@@ -98,6 +98,12 @@
       "advanced"
     ]
   },
+  "extensions/questionnaire-timeout-authorization.ts": {
+    "modes": [
+      "default",
+      "advanced"
+    ]
+  },
   "extensions/ctx-command.ts": {
     "modes": [
       "default",

@@ -9,13 +9,15 @@ import { getAigConfig } from '../lib/aig-config';
 import { sourceResponseBytes } from './dispatcher-source-limits';
 import { DEFAULT_INFERENCE_REQUEST_BYTES } from './dispatcher-inference-limits';
 import { dispatcherCapacities, type DispatcherCapacityPolicy } from './dispatcher-capacity-limits';
-import { resolveOperatorInference } from './inference-selection';
+import { resolveOperatorInference, type EligibleInference, type NativeOperatorInference } from './inference-selection';
+import { createOwnerNativePiProfileReader } from './native-pi-profile';
 import type { DispatcherInferenceSelection } from './dispatcher-inference-recovery';
 import { z } from 'zod';
+import { DispatcherRefusal } from './dispatcher-refusal';
 import { discoverRenovatePulls, eligibleRenovatePull, renovateGithub, executeRenovateDecision } from './renovate-publication';
 import { openOperatorExecutionAccess } from './execution-context';
 import { operatorOwnerKey } from './browser-activity';
-import { parseOperatorPolicy } from './policy';
+import { parseOperatorPolicy, type OperatorPolicy } from './policy';
 import { projectChangedCompose, projectDispatcherFiles } from './dispatcher-compose-projection';
 import { createConductorProductionCapability } from './conductor-production';
 import type { OperatorRuntimePlan } from './activity';
@@ -57,6 +59,17 @@ const dispatcherInferenceSchema = (limits = dispatcherCapacities()) => z.strictO
   }) });
 
 const dispatcherReceiptSchema = z.strictObject({ operationId: dispatcherOperationId });
+// Structural inference-only guard while the canonical optional management field
+// crosses the registry/RPC boundary. Never manufacture network/storage authority.
+const dispatcherPolicyInferenceSchema = z.strictObject({
+  allowedSources: z.array(z.enum(['managed', 'pi-native'])).optional(),
+  routeIds: z.array(z.string()), defaultRouteId: z.string().nullable(),
+  reasoningLevels: z.array(z.string()), defaultReasoningLevel: z.string().nullable(), inheritUserDefaults: z.boolean(),
+});
+function dispatcherInferencePolicy(policy: unknown): Pick<OperatorPolicy, 'inference'> {
+  if (!policy || typeof policy !== 'object' || !('inference' in policy)) throw new Error('Dispatcher inference approval missing');
+  return { inference: dispatcherPolicyInferenceSchema.parse(policy.inference) };
+}
 const dispatcherResolutionSchema = (limits = dispatcherCapacities()) => z.strictObject({ operationId: dispatcherOperationId,
   requestDigest: z.string().regex(/^[0-9a-f]{64}$/),
   readbacks: z.array(z.strictObject({ operationId: dispatcherOperationId,
@@ -78,6 +91,7 @@ export type DispatcherInferenceCountObservation = {
   messages: number; tools: number | null; messageMinimum: number; messageMaximum: number;
   messageCountViolation: 'below-minimum' | 'above-maximum';
 };
+export type DispatcherBodyOverflowObservation = { byteLimit: number; observedBytesLowerBound: number };
 
 /** Closed private diagnostic labels only; never export Zod paths, keys or values. */
 export function dispatcherWireRules(error: z.ZodError): { wireRules: string[]; wireRulesTruncated: boolean } {
@@ -108,13 +122,14 @@ export function dispatcherWireRules(error: z.ZodError): { wireRules: string[]; w
 /** Bounded transport wire; source reads select a URL, never credentials, identity or transport. */
 export async function parseDispatcherOperation(request: Request, inferenceByteLimit = DEFAULT_INFERENCE_REQUEST_BYTES,
   capacityPolicy?: DispatcherCapacityPolicy,
-  onInferenceCountRejected?: (value: DispatcherInferenceCountObservation) => void): Promise<DispatcherOperation> {
+  onInferenceCountRejected?: (value: DispatcherInferenceCountObservation) => void,
+  onBodyLimitExceeded?: (value: DispatcherBodyOverflowObservation) => void): Promise<DispatcherOperation> {
   const limits = dispatcherCapacities(capacityPolicy);
   const url = new URL(request.url);
   if (url.origin !== 'https://operator.internal' || url.search || url.hash || request.method !== 'POST'
     || request.headers.get('content-type')?.split(';')[0].trim() !== 'application/json') throw new Error('Dispatcher request denied');
   const value: unknown = JSON.parse(await readDispatcherBody(request, request.signal,
-    url.pathname === '/v1/dispatcher/inference' ? inferenceByteLimit : limits.dispatcherRequestBytes));
+    url.pathname === '/v1/dispatcher/inference' ? inferenceByteLimit : limits.dispatcherRequestBytes, onBodyLimitExceeded));
   const schema = url.pathname === '/v1/dispatcher/github/read' ? dispatcherReadSchema
     : url.pathname === '/v1/dispatcher/github/comment' ? dispatcherCommentSchema(limits)
     : url.pathname === '/v1/dispatcher/github/merge' ? dispatcherMergeSchema(limits)
@@ -155,7 +170,8 @@ export async function parseDispatcherOperation(request: Request, inferenceByteLi
 
 /** Primitive body bound; approved inference requests and source responses supply their independent limits. */
 export async function readDispatcherBody(message: Request | Response, signal?: AbortSignal,
-  byteLimit = DEFAULT_DISPATCHER_BODY_BYTES): Promise<string> {
+  byteLimit = DEFAULT_DISPATCHER_BODY_BYTES,
+  onLimitExceeded?: (value: DispatcherBodyOverflowObservation) => void): Promise<string> {
   if (!message.body) throw new Error('Dispatcher body unavailable');
   const reader = message.body.getReader();
   const decoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: false });
@@ -174,7 +190,12 @@ export async function readDispatcherBody(message: Request | Response, signal?: A
       if (signal?.aborted) throw signal.reason;
       if (chunk.done) return value + decode();
       size += chunk.value.byteLength;
-      if (size > byteLimit) throw new Error('Dispatcher body exceeds limit');
+      if (size > byteLimit) {
+        const error = new Error('Dispatcher body exceeds limit');
+        try { onLimitExceeded?.({ byteLimit, observedBytesLowerBound: size }); }
+        catch { /* Optional observation cannot replace the original reader failure. */ }
+        throw error;
+      }
       value += decode(chunk.value, true);
     }
   } finally { signal?.removeEventListener('abort', abort); void reader.cancel().catch(() => {}); reader.releaseLock(); }
@@ -197,7 +218,7 @@ export async function authorizeDispatcherPlan(plan: OperatorRuntimePlan, env: En
   const parent = z.strictObject({ repository: z.string().regex(/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/),
     pullRequest: z.number().safe().int().positive().optional() }).parse(JSON.parse(plan.invocationJson));
   // No resource resolver is introduced: only the direct read/inference profile is supported.
-  if (pinned.installation.policy.resourceProfileId !== null) throw new Error('Dispatcher resource profile unavailable');
+  if (pinned.installation.policy.resourceProfileId !== null) throw new DispatcherRefusal('policy-denied', 'Dispatcher resource profile unavailable');
   let admittedTarget: DispatcherAdmittedTarget | undefined;
   if (plan.prospectiveAdmissionId) {
     const repositoryOnly = parent.pullRequest === undefined;
@@ -249,7 +270,62 @@ export async function authorizeDispatcherPlan(plan: OperatorRuntimePlan, env: En
       pullRequest: proof.pullRequest, headSha: proof.head, createdAt: proof.createdAt,
       createdAfter: proof.activatedAt, baseBranch: proof.baseBranch };
   }
-  return { authority: { ...authority, human }, parent, policy: pinned.installation.policy, admittedTarget };
+  return { authority: { ...authority, human }, parent, policy: pinned.installation.policy, admittedTarget,
+    inferencePolicies: [pinned.installation.policy, pinned.operator.policy,
+      selected.value.installation.policy, selected.value.operator.policy] };
+}
+
+/** Current owner/source authority for Dispatcher native bootstrap and every later binding/send.
+ * Management policies expose inference only when explicitly installed; legacy omission denies native.
+ */
+export async function prepareDispatcherNative(input: { plan: OperatorRuntimePlan; env: Env;
+  selection?: NativeOperatorInference; current(): Promise<boolean>; signal?: AbortSignal }) {
+  const { plan, env } = input;
+  if (!isManagementReceipt(plan.receipt)) throw new Error('Dispatcher native authority denied');
+  const pinned = plan.receipt.selection;
+  let ownerBucket: string | undefined;
+  const authorize = async (selection?: NativeOperatorInference) => {
+    if (input.signal?.aborted || !await input.current()) throw new Error('Dispatcher native generation changed');
+    const { authority } = await authorizeDispatcherPlan(plan, env);
+    if (!env.OPERATOR_REGISTRY) throw new Error('Dispatcher native authority denied');
+    const selected = await env.OPERATOR_REGISTRY.getByName('registry').resolveManagementExecution(pinned.installation.id);
+    if (!selected.ok || selected.value.installation.revision !== pinned.installation.revision
+      || selected.value.operator.revision !== pinned.operator.revision
+      || selected.value.controlsRevision !== pinned.controlsRevision
+      || selected.value.release.bundleDigest !== pinned.release.bundleDigest) throw new Error('Dispatcher native installation changed');
+    const groups = await resolveSessionAccessGroup(new Request('https://operator.internal/', {
+      headers: { 'cf-access-jwt-assertion': authority.accessJwt },
+    }), env);
+    const routes = await loadEnterpriseRouteConfig(env, groups);
+    const personal = { piDefaultSource: routes.piDefaultSource, allowPersonalPiProviders: routes.allowPersonalPiProviders };
+    if (!selection && !input.selection && personal.piDefaultSource !== 'pi-native') return { native: false as const };
+    if (!await operatorAccessSessionCurrent(authority.human, authority.accessJwt)) throw new Error('Dispatcher native session expired');
+    if (!personal.allowPersonalPiProviders) throw new Error('Dispatcher native permission denied');
+    const bucket = await resolveBucketName(env, authority.human.email);
+    if (ownerBucket !== undefined && ownerBucket !== bucket) throw new Error('Dispatcher native owner changed');
+    ownerBucket = bucket;
+    for (const policy of [pinned.installation.policy, pinned.operator.policy,
+      selected.value.installation.policy, selected.value.operator.policy]) {
+      if (!policy.capabilities.includes('inference')) throw new Error('Dispatcher inference grant denied');
+      const parsed = dispatcherInferencePolicy(policy);
+      if (!parsed.inference.allowedSources?.includes('pi-native')) throw new Error('Dispatcher native source denied');
+      if (selection) resolveOperatorInference({ policy: parsed, trusted: selection, eligible: {
+        routeIds: [], defaultRouteId: '', defaultReasoningLevel: '', allowPersonalPiProviders: personal.allowPersonalPiProviders } });
+    }
+    if (input.signal?.aborted || !await input.current()) throw new Error('Dispatcher native generation changed');
+    return { native: true as const };
+  };
+  if (!(await authorize(input.selection)).native) return undefined;
+  const reader = await createOwnerNativePiProfileReader({ env, ownerBucket: ownerBucket!, deadline: plan.deadline,
+    signal: input.signal, authorize: async () => { await authorize(input.selection); } });
+  const selection = input.selection ?? await reader.resolveSelection(pinned.installation.piReasoningOverride);
+  await authorize(selection);
+  return { selection, bind: async () => {
+    await authorize(selection);
+    const bound = await reader.bind(selection);
+    await authorize(selection);
+    return bound;
+  } };
 }
 
 /** Parent-only composition with the existing credential-injecting interceptors, never direct upstream fetch. */
@@ -264,21 +340,21 @@ export async function createDispatcherOperation(input: {
 }): Promise<() => Promise<Response>> {
   const { plan, env, operation } = input;
   const limits = dispatcherCapacities(isManagementReceipt(plan.receipt) ? plan.receipt.selection.operator.policy : undefined);
-  const { authority, parent, policy: installationPolicy, admittedTarget } = await authorizeDispatcherPlan(plan, env);
+  const { authority, parent, policy: installationPolicy, admittedTarget, inferencePolicies } = await authorizeDispatcherPlan(plan, env);
   const current = async () => {
     await authorizeDispatcherPlan(plan, env);
-    if (!await input.current()) throw new Error('Dispatcher generation changed');
+    if (!await input.current()) throw new DispatcherRefusal('execution-inactive', 'Dispatcher generation changed');
   };
   const inference = operation.path === '/v1/dispatcher/inference';
-  if (!installationPolicy.capabilities.includes(inference ? 'inference' : 'fetch')) throw new Error('Dispatcher capability denied');
+  if (!installationPolicy.capabilities.includes(inference ? 'inference' : 'fetch')) throw new DispatcherRefusal('policy-denied', 'Dispatcher capability denied');
   if (operation.path === '/v1/dispatcher/source') {
     // Repository-only packages own source selection. Legacy single-PR profiles retain their fixed reads.
-    if (parent.pullRequest !== undefined) throw new Error('Legacy Dispatcher source selection denied');
+    if (parent.pullRequest !== undefined) throw new DispatcherRefusal('request-invalid', 'Legacy Dispatcher source selection denied');
     const sourceCurrent = async () => {
-      if (operation.signal?.aborted) throw new Error('Dispatcher caller cancelled');
+      if (operation.signal?.aborted) throw new DispatcherRefusal('execution-inactive', 'Dispatcher caller cancelled');
       await current();
       if (!await operatorAccessSessionCurrent(authority.human, authority.accessJwt)) {
-        throw new Error('Dispatcher caller session expired');
+        throw new DispatcherRefusal('authority-unverified', 'Dispatcher caller session expired');
       }
     };
     await sourceCurrent();
@@ -288,34 +364,36 @@ export async function createDispatcherOperation(input: {
     const method = source.method ?? 'GET';
     const github = interceptedGithubHosts(env).includes(url.hostname);
     if (method !== 'GET' && (!github || url.origin !== dispatcherGithubApiOrigin(env))) {
-      throw new Error('Mutation transport denied');
+      throw new DispatcherRefusal('policy-denied', 'Mutation transport denied');
     }
-    if (input.phase && method !== 'GET' && input.phase.value.kind !== 'target') throw new Error('Dispatcher phase mutation denied');
+    if (input.phase && method !== 'GET' && input.phase.value.kind !== 'target') throw new DispatcherRefusal('request-invalid', 'Dispatcher phase mutation denied');
     const phaseTarget = input.phase?.value.kind === 'target'
       ? { repository: input.phase.repository, ...input.phase.value.target } : admittedTarget;
     if (admittedTarget && phaseTarget && (phaseTarget.repository !== admittedTarget.repository
       || phaseTarget.pullRequest !== admittedTarget.pullRequest || phaseTarget.headSha !== admittedTarget.headSha)) {
-      throw new Error('Dispatcher phase admission target changed');
+      throw new DispatcherRefusal('execution-inactive', 'Dispatcher phase admission target changed');
     }
     if (phaseTarget && method !== 'GET') {
       const base = `${dispatcherGithubApiOrigin(env)}/repos/${phaseTarget.repository}`;
       // Compare the original wire, not URL-normalized aliases (queries, encodings or traversal).
       const comment = method === 'POST' && source.url === `${base}/issues/${phaseTarget.pullRequest}/comments`;
       const merge = method === 'PUT' && source.url === `${base}/pulls/${phaseTarget.pullRequest}/merge`;
-      if (!comment && !merge) throw new Error('Prospective mutation target denied');
+      if (!comment && !merge) throw new DispatcherRefusal('policy-denied', 'Prospective mutation target denied');
       const body = JSON.parse(source.body!);
       if (comment) z.strictObject({ body: z.string().min(1).refine(value => value.length <= limits.targetCommentChars)
         .refine(value => value.trim().length > 0) }).parse(body);
       else z.strictObject({ sha: z.literal(phaseTarget.headSha), merge_method: z.literal('merge') }).parse(body);
     }
     const entrypoint = github ? input.exports.GitHubInterceptor : input.exports.EgressController;
-    if (!entrypoint) throw new Error('Dispatcher source transport unavailable');
+    if (!entrypoint) throw new DispatcherRefusal('operation-failed', 'Dispatcher source transport unavailable');
     const bucket = await resolveBucketName(env, authority.human.email);
     // Managed installations grant capabilities, not a manufactured legacy OperatorPolicy.
     // No resource credentials or account-scoped Gateway exemption are granted by fetch.
     const transport = entrypoint({ props: github
       ? { user: authority.human.email, bucket, strict: true }
       : { bucket, strict: true } });
+    const diagnosticContext = input.diagnosticContext ? { ...input.diagnosticContext,
+      credentials: [...(input.diagnosticContext.credentials ?? []), authority.accessJwt] } : undefined;
     return async () => {
       await sourceCurrent();
       const timeout = AbortSignal.timeout(Math.max(1, Math.min(limits.sourceTimeoutMs, plan.deadline - Date.now())));
@@ -346,14 +424,14 @@ export async function createDispatcherOperation(input: {
         if (signal.aborted) throw new Error('Prospective preflight expired');
       }
       const fetchBegan = performance.now();
-      inferenceDiagnostic(input.diagnosticContext, { stage: 'source-fetch', outcome: 'started', resource: 'source' });
+      inferenceDiagnostic(diagnosticContext, { stage: 'source-fetch', outcome: 'started', resource: 'source' }, () => ({ url: url.href, method, body: source.body }));
       let response: Response;
       try {
         response = await transport.fetch(new Request(url, { method, body: source.body, redirect: 'manual', signal,
           headers: { accept: 'application/json, text/plain, text/html', 'user-agent': 'Codeflare-Operator-Dispatcher',
             ...(method !== 'GET' ? { 'content-type': 'application/json' } : {}) } }));
-      } catch {
-        inferenceDiagnostic(input.diagnosticContext, { stage: 'source-fetch', outcome: 'failed', failureClass: 'source-fetch', elapsedMs: performance.now() - fetchBegan });
+      } catch (error) {
+        inferenceDiagnostic(diagnosticContext, { stage: 'source-fetch', outcome: 'failed', failureClass: 'source-fetch', elapsedMs: performance.now() - fetchBegan }, () => error);
         await sourceCurrent();
         if (method !== 'GET') throw new Error('Mutation response unknown');
         return Response.json({ code: 'OPERATOR_SOURCE_UNAVAILABLE' }, { status: 422 });
@@ -361,12 +439,14 @@ export async function createDispatcherOperation(input: {
       inferenceDiagnostic(input.diagnosticContext, { stage: 'source-fetch', outcome: 'completed', sourceStatus: response.status, elapsedMs: performance.now() - fetchBegan });
       let body: string;
       try { body = response.body ? await readDispatcherBody(response, signal, responseBytes) : ''; }
-      catch {
-        inferenceDiagnostic(input.diagnosticContext, { stage: 'source-read', outcome: signal.aborted ? 'canceled' : 'failed', failureClass: 'source-read', sourceStatus: response.status });
+      catch (error) {
+        inferenceDiagnostic(diagnosticContext, { stage: 'source-read', outcome: signal.aborted ? 'canceled' : 'failed', failureClass: 'source-read', sourceStatus: response.status }, () => error);
         await sourceCurrent();
         if (method !== 'GET') throw new Error('Mutation body unknown');
         return Response.json({ code: 'OPERATOR_SOURCE_INCOMPLETE' }, { status: 422 });
       }
+      inferenceDiagnostic(diagnosticContext, { stage: 'source-read', outcome: 'completed', sourceStatus: response.status },
+        () => ({ status: response.status, headers: response.headers, body }));
       await sourceCurrent();
       if (method !== 'GET' && (signal.aborted || response.status >= 500
         || input.phase !== undefined && response.status === 408 || (response.status >= 300 && response.status < 400))) {
@@ -394,7 +474,7 @@ export async function createDispatcherOperation(input: {
       return new Response(envelope, { headers: { 'content-type': 'application/json' } });
     };
   }
-  if (input.phase && !inference) throw new Error('Dispatcher serial legacy endpoint denied');
+  if (input.phase && !inference) throw new DispatcherRefusal('request-invalid', 'Dispatcher serial legacy endpoint denied');
   const phase = operation.path === '/v1/dispatcher/github/comment' ? 'comment'
     : operation.path === '/v1/dispatcher/github/merge' ? 'merge' : undefined;
   const effect = phase === 'comment' ? dispatcherCommentSchema(limits).parse(operation.body)
@@ -402,28 +482,28 @@ export async function createDispatcherOperation(input: {
   const read = !inference && !phase ? dispatcherReadSchema.parse(operation.body) : undefined;
   const resource = read?.resource;
   if (admittedTarget && (phase || resource === 'open-pull-requests')) {
-    throw new Error('Prospective legacy endpoint denied');
+    throw new DispatcherRefusal('request-invalid', 'Prospective legacy endpoint denied');
   }
   if (read?.target && (read.pullRequest !== undefined || read.headSha !== undefined)) {
-    throw new Error('Contradictory read target');
+    throw new DispatcherRefusal('request-invalid', 'Contradictory read target');
   }
   const target = effect?.target ?? read?.target ?? read;
   const pullRequest = target?.pullRequest ?? parent.pullRequest;
   if (admittedTarget && !inference && (pullRequest !== admittedTarget.pullRequest
-    || target?.headSha !== admittedTarget.headSha)) throw new Error('Prospective read target denied');
+    || target?.headSha !== admittedTarget.headSha)) throw new DispatcherRefusal('policy-denied', 'Prospective read target denied');
   if (resource === 'open-pull-requests' && (read?.target || read?.pullRequest !== undefined || read?.headSha !== undefined)) {
-    throw new Error('Discovery target denied');
+    throw new DispatcherRefusal('request-invalid', 'Discovery target denied');
   }
   if (!inference && resource !== 'open-pull-requests' && (!pullRequest
     || (parent.pullRequest !== undefined && pullRequest !== parent.pullRequest)
-    || (parent.pullRequest === undefined && !target?.headSha))) throw new Error('Pull request target denied');
+    || (parent.pullRequest === undefined && !target?.headSha))) throw new DispatcherRefusal('request-invalid', 'Pull request target denied');
   const policy = parseOperatorPolicy({ schemaVersion: 1, networkHosts: [],
     github: { repositories: resource === 'release-notes' || resource === 'upstream-guide'
       ? [parent.repository.toLowerCase(), 'amir20/dozzle'] : [parent.repository.toLowerCase()], methods: ['GET'] },
     storage: { readPrefixes: [], writePrefixes: [] },
     inference: { routeIds: [], defaultRouteId: null, reasoningLevels: [], defaultReasoningLevel: null, inheritUserDefaults: false } });
   if (inference) {
-    if (!input.exports.LlmInterceptor) throw new Error('LLM interceptor unavailable');
+    if (!input.exports.LlmInterceptor) throw new DispatcherRefusal('operation-failed', 'LLM interceptor unavailable');
     let groups = await resolveSessionAccessGroup(new Request('https://operator.internal/', {
       headers: { 'cf-access-jwt-assertion': authority.accessJwt },
     }), env);
@@ -433,17 +513,32 @@ export async function createDispatcherOperation(input: {
       reasoningLevels: [routes.defaultReasoning], defaultReasoningLevel: routes.defaultReasoning, inheritUserDefaults: false };
     const trusted = resolveOperatorInference({ policy, eligible: { routeIds: routes.routeCatalog,
       defaultRouteId: routes.defaultRoute, defaultReasoningLevel: routes.defaultReasoning } });
+    const enforcePolicies = (policies: typeof inferencePolicies, eligible: EligibleInference) => {
+      for (const installed of policies) {
+        // Legacy omission permits managed inference only; explicit restrictions all intersect.
+        if (installed.inference) {
+          resolveOperatorInference({ policy: dispatcherInferencePolicy(installed), eligible, trusted });
+        }
+      }
+    };
+    enforcePolicies(inferencePolicies, { routeIds: routes.routeCatalog,
+      defaultRouteId: routes.defaultRoute, defaultReasoningLevel: routes.defaultReasoning });
     await input.pinInferenceSelection?.({ routeId: trusted.routeId, reasoningLevel: trusted.reasoningLevel });
     const aig = await getAigConfig(env);
     const value = dispatcherInferenceSchema(limits).parse(operation.body);
     return async () => {
       await current();
+      const latestAuthority = await authorizeDispatcherPlan(plan, env);
+      groups = await resolveSessionAccessGroup(new Request('https://operator.internal/', {
+        headers: { 'cf-access-jwt-assertion': latestAuthority.authority.accessJwt },
+      }), env);
+      const latest = await loadEnterpriseRouteConfig(env, groups);
+      resolveOperatorInference({ policy, trusted, eligible: { routeIds: latest.routeCatalog,
+        defaultRouteId: latest.defaultRoute, defaultReasoningLevel: latest.defaultReasoning } });
+      enforcePolicies(latestAuthority.inferencePolicies, { routeIds: latest.routeCatalog,
+        defaultRouteId: latest.defaultRoute, defaultReasoningLevel: latest.defaultReasoning });
       if (input.pinInferenceSelection) {
-        groups = await resolveSessionAccessGroup(new Request('https://operator.internal/', {
-          headers: { 'cf-access-jwt-assertion': authority.accessJwt },
-        }), env);
-        const latest = await loadEnterpriseRouteConfig(env, groups);
-        if (!latest.routeCatalog.includes(trusted.routeId) || latest.defaultRoute !== trusted.routeId
+        if (latest.defaultRoute !== trusted.routeId
           || latest.defaultReasoning !== trusted.reasoningLevel) throw new Error('Dispatcher inference route changed');
         await input.pinInferenceSelection({ routeId: trusted.routeId, reasoningLevel: trusted.reasoningLevel });
       }
@@ -459,7 +554,7 @@ export async function createDispatcherOperation(input: {
           max_tokens: value.input.max_tokens ?? limits.inferenceDefaultTokens, model: trusted.routeId, stream: value.input.stream ?? true }) }));
     };
   }
-  if (!input.exports.GitHubInterceptor) throw new Error('GitHub interceptor unavailable');
+  if (!input.exports.GitHubInterceptor) throw new DispatcherRefusal('operation-failed', 'GitHub interceptor unavailable');
   const bucket = await resolveBucketName(env, authority.human.email);
   const transport = input.exports.GitHubInterceptor({ props: { user: authority.human.email, bucket, strict: true, operatorPolicy: policy } });
   const host = env.GITHUB_API_HOST?.trim() || 'api.github.com';

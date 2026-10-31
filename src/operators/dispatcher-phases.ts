@@ -22,11 +22,15 @@ const finalSchema = z.object({ kind: z.literal('final') }).strict();
 const phaseSchema = z.discriminatedUnion('kind', [discoverySchema, targetPhaseSchema, finalSchema]);
 const nextSchema = z.discriminatedUnion('kind', [targetPhaseSchema, finalSchema]);
 const deliverySchema = z.object({ deliveryToken: token, idempotencyKey: z.string().min(1).max(256) }).strict();
-const receiptSchema = z.object({ submissionId: identity, uid: z.string().min(1).max(512), offset: z.string().min(1).max(2048) }).strict();
-const sdkReceiptSchema = receiptSchema.extend({ deduplicated: z.literal(true).optional() });
+const legacyReceiptSchema = z.object({ submissionId: identity, uid: z.string().min(1).max(512), offset: z.string().min(1).max(2048) }).strict();
+const normalReceiptSchema = z.object({ submissionId: identity, uid: z.string().min(1).max(512),
+  acceptedAt: z.string().max(128).refine(value => Number.isFinite(Date.parse(value))) }).strict();
+const receiptSchema = z.union([legacyReceiptSchema, normalReceiptSchema]);
+const sdkReceiptSchema = legacyReceiptSchema.extend({ deduplicated: z.literal(true).optional() });
+const normalSdkReceiptSchema = normalReceiptSchema.extend({ deduplicated: z.literal(true).optional() });
 const terminalSchema = z.object({ submissionId: identity, phase: phaseSchema, outcome: z.enum(['completed', 'failed']) }).strict();
 const stateSchema = z.object({
-  version: z.literal(1), scope: identity, authorityDigest: digest, uid: receiptSchema.shape.uid.optional(),
+  version: z.literal(1), scope: identity, authorityDigest: digest, uid: legacyReceiptSchema.shape.uid.optional(),
   current: z.object({ phase: phaseSchema, ...deliverySchema.shape, receipt: receiptSchema.optional() }).strict(),
   previous: z.array(terminalSchema), targets: z.array(targetSchema).optional(), results: z.array(resultSchema),
 }).strict();
@@ -208,12 +212,31 @@ export function bindDispatcherPhaseReceipt(state: DispatcherPhaseState, authorit
   requireWire(checked.uid === undefined || checked.uid === incoming.uid, 'Original SDK incarnation changed');
   const prior = checked.current.receipt;
   if (prior) {
-    requireWire(prior.submissionId === incoming.submissionId && prior.uid === incoming.uid
+    requireWire('offset' in prior && prior.submissionId === incoming.submissionId && prior.uid === incoming.uid
       && (prior.offset === incoming.offset || incoming.offset === '-1' && incoming.deduplicated === true), 'SDK receipt conflict');
     return checked;
   }
   return readState({ ...checked, uid: incoming.uid, current: { ...checked.current,
     receipt: { submissionId: incoming.submissionId, uid: incoming.uid, offset: incoming.offset } } });
+}
+
+/** Normal public admission carries acceptedAt, never an invented stream cursor. Historical
+ * offset receipts keep their original representation; neither format is migrated/relabelled.
+ */
+export function bindNormalDispatcherPhaseReceipt(state: DispatcherPhaseState, authority: DispatcherPhaseAuthority,
+  capturedToken: string, value: unknown): DispatcherPhaseState {
+  const checked = check(state, authority, capturedToken).state;
+  const incoming = normalSdkReceiptSchema.parse(value);
+  requireWire(!checked.previous.some(row => row.submissionId === incoming.submissionId), 'SDK submission reused across phases');
+  requireWire(checked.uid === undefined || checked.uid === incoming.uid, 'Original SDK incarnation changed');
+  const prior = checked.current.receipt;
+  if (prior) {
+    requireWire('acceptedAt' in prior && prior.submissionId === incoming.submissionId && prior.uid === incoming.uid
+      && prior.acceptedAt === incoming.acceptedAt, 'SDK receipt conflict');
+    return checked;
+  }
+  return readState({ ...checked, uid: incoming.uid, current: { ...checked.current,
+    receipt: { submissionId: incoming.submissionId, uid: incoming.uid, acceptedAt: incoming.acceptedAt } } });
 }
 
 /** Exact package context; no pre-admission or future SID. Package's initial-transition

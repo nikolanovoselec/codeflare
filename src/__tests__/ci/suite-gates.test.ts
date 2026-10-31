@@ -434,7 +434,7 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
     const { default: BackendTimingReporter } = await import(reporterUrl);
     const output = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
     try {
-      new BackendTimingReporter().onTestRunEnd([{
+      await new BackendTimingReporter().onTestRunEnd([{
         moduleId: join(REPO, 'src/__tests__/example.test.ts'),
         diagnostic: () => ({ environmentSetupDuration: 2, prepareDuration: 3,
           collectDuration: 17, setupDuration: 4, duration: 9 }),
@@ -686,6 +686,68 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
     expect(merged.status, merged.stderr).toBe(0);
     expect(merged.stdout).toContain('Merged 2 shard coverage reports');
     expect(readFileSync(join(output, 'lcov.info'), 'utf8')).toContain('DA:2,1');
+
+    // Same function identity, different bundler label: merge complementary hits
+    // without counting the uncalled alias as a second, uncovered function.
+    for (const [firstName, secondName] of [['covered', 'covered_2'], ['covered_2', 'covered']] as const) {
+      const first = coverage(1, 0);
+      const second = coverage(0, 1);
+      first[source].fnMap[0].name = firstName;
+      second[source].fnMap[0].name = secondName;
+      first[source].f[0] = 0;
+      second[source].f[0] = 1;
+      writeFileSync(join(artifacts, 'shard-1', 'coverage', 'coverage-final.json'), JSON.stringify(first));
+      writeFileSync(join(artifacts, 'shard-2', 'coverage', 'coverage-final.json'), JSON.stringify(second));
+      const aliased = spawnSync(process.execPath, [
+        COVERAGE_MERGER, artifacts, output, '2', 'shard', '80', '80', '80', '80',
+      ], { encoding: 'utf8' });
+      expect(aliased.status, aliased.stderr).toBe(0);
+      expect(aliased.stdout).toContain('All files | 100 | 100 | 100 | 100 |');
+      expect(readFileSync(join(output, 'lcov.info'), 'utf8')).toContain('DA:1,1');
+      expect(readFileSync(join(output, 'lcov.info'), 'utf8')).toContain('DA:2,1');
+    }
+
+    const uncalledFirst = coverage(1, 0);
+    const uncalledSecond = coverage(0, 1);
+    uncalledFirst[source].f[0] = 0;
+    uncalledSecond[source].f[0] = 0;
+    uncalledSecond[source].fnMap[0].name = 'covered_2';
+    writeFileSync(join(artifacts, 'shard-1', 'coverage', 'coverage-final.json'), JSON.stringify(uncalledFirst));
+    writeFileSync(join(artifacts, 'shard-2', 'coverage', 'coverage-final.json'), JSON.stringify(uncalledSecond));
+    const uncalled = spawnSync(process.execPath, [
+      COVERAGE_MERGER, artifacts, output, '2', 'shard', '80', '80', '80', '80',
+    ], { encoding: 'utf8' });
+    expect(uncalled.status).toBe(1);
+    expect(uncalled.stderr).toContain('Coverage for functions (0%) does not meet global threshold (80%)');
+
+    type CoverageFixture = ReturnType<typeof coverage>[string];
+    const incompatibleMaps: Array<[string, (record: CoverageFixture) => void, string]> = [
+      ['function declaration', (record) => { record.fnMap[0].decl.end.column = 2; }, 'fnMap'],
+      ['function body', (record) => { record.fnMap[0].loc.end.line = 3; }, 'fnMap'],
+      ['function metadata', (record) => { record.fnMap[0].line = 2; }, 'fnMap'],
+      ['function counter identity', (record) => {
+        const functions: Record<string, typeof record.fnMap[0]> = record.fnMap;
+        const hits: Record<string, number> = record.f;
+        functions['1'] = record.fnMap[0];
+        hits['1'] = record.f[0];
+        delete functions['0'];
+        delete hits['0'];
+      }, 'fnMap'],
+      ['statement', (record) => { record.statementMap[1].end.column = 2; }, 'statementMap'],
+      ['branch', (record) => { record.branchMap[0].locations[0].end.column = 2; }, 'branchMap'],
+    ];
+    for (const [name, mutate, map] of incompatibleMaps) {
+      const different = coverage(0, 1);
+      different[source].fnMap[0].name = 'covered_2';
+      mutate(different[source]);
+      writeFileSync(join(artifacts, 'shard-1', 'coverage', 'coverage-final.json'), JSON.stringify(coverage(1, 0)));
+      writeFileSync(join(artifacts, 'shard-2', 'coverage', 'coverage-final.json'), JSON.stringify(different));
+      const incompatible = spawnSync(process.execPath, [
+        COVERAGE_MERGER, artifacts, output, '2', 'shard', '80', '80', '80', '80',
+      ], { encoding: 'utf8' });
+      expect(incompatible.status, name).toBe(1);
+      expect(incompatible.stderr, name).toContain(`${map} differs between shards`);
+    }
 
     const incomplete = spawnSync(process.execPath, [
       COVERAGE_MERGER, artifacts, join(work, 'incomplete'), '3', 'shard', '0', '0', '0', '0',

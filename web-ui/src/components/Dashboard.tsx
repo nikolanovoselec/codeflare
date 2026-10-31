@@ -125,6 +125,7 @@ const Dashboard: Component<DashboardProps> = (props) => {
     position: { x: 0, y: 0 },
     session: null,
   });
+  const menuSession = createMemo(() => props.sessions.find(session => session.id === menuState().session?.id));
 
   // ── Adaptive right-column split (bug #21) ──────────────────────────────
   // GitHub (top) + Storage (bottom) share the column. The flex engine does the
@@ -539,6 +540,8 @@ const Dashboard: Component<DashboardProps> = (props) => {
                     position={menuState().position}
                     canStop={['running', 'initializing', 'starting', 'unreachable', 'stopping'].includes(menuState().session?.status ?? '')
                       || (menuState().session?.workspace === 'vscode' && menuState().session?.status === 'error')}
+                    canKill={['starting', 'running', 'unreachable', 'stopping'].includes(menuSession()?.status ?? '')}
+                    onKill={() => { const session = menuSession(); if (session) void sessionStore.killSession(session.id); }}
                     stopLabel={menuState().session?.status === 'stopping' ? 'Retry Stop' : 'Stop'}
                     sessionName={menuState().session?.name || ''}
                     onStop={() => { if (menuState().session) props.onStopSession(menuState().session!.id); }}

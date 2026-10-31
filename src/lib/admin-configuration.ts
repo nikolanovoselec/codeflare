@@ -117,6 +117,7 @@ const aiRoutingSchema = z.object({
   groupRouting: z.array(z.object({
     accessGroup: name,
     allowPersonalPiProviders: z.boolean().optional(),
+    piDefaultSource: z.enum(['managed', 'pi-native']).optional(),
     routes: z.array(policyTargetSchema),
     defaultRoute: z.union([policyTargetSchema, z.literal('')]),
     reasoning,
@@ -280,7 +281,7 @@ function normalizeValues(section: ConfigurationSection, mode: AdministrationMode
     const normalizedGroups = groups.map((group) => group.routes.some((route) => nativeHandles.has(route))
       ? { ...group, targets: group.routes.map(targetRef), defaultTarget: group.defaultRoute ? targetRef(group.defaultRoute) : undefined }
       : group);
-    const normalizedFallback = fallback.enabled ? { ...fallback, targets: fallback.routes.map(targetRef), defaultTarget: targetRef(fallback.defaultRoute) } : fallback;
+    const normalizedFallback = fallback.enabled ? { ...fallback, targets: fallback.routes.map(targetRef), ...(fallback.defaultRoute && { defaultTarget: targetRef(fallback.defaultRoute) }) } : fallback;
     return {
       ...values,
       dynamicRoutes: activeRoutes,
@@ -760,6 +761,7 @@ function aiRoutingComparison(values: ConfigurationValues): ConfigurationValues {
   const policy = (value: Record<string, unknown>) => ({
     routes: value.routes ?? [], defaultRoute: value.defaultRoute ?? '', reasoning: value.reasoning ?? 'off',
     ...(value.allowPersonalPiProviders === true && { allowPersonalPiProviders: true }),
+    ...(value.piDefaultSource === 'pi-native' && { piDefaultSource: 'pi-native' }),
   });
   const groups = Array.isArray(values.groupRouting)
     ? values.groupRouting as Array<Record<string, unknown>>
@@ -982,6 +984,7 @@ export async function executeConfigurationTask(
             group.accessGroup as string,
             { routes: group.routes, defaultRoute: group.defaultRoute, reasoning: group.reasoning,
               ...(typeof group.allowPersonalPiProviders === 'boolean' && { allowPersonalPiProviders: group.allowPersonalPiProviders }),
+              ...(group.piDefaultSource !== undefined && { piDefaultSource: group.piDefaultSource }),
               ...(Array.isArray(group.targets) ? { targets: group.targets } : {}), ...(group.defaultTarget ? { defaultTarget: group.defaultTarget } : {}) },
           ]))
         : submittedGroups as Record<string, unknown>;

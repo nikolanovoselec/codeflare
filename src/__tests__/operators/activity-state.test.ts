@@ -45,6 +45,31 @@ async function withActivity(
     await test({ activity, registry, token, ctx, activityEnv, deadline });
   });
 }
+it('REQ-OPERATOR-058/047/048: AC1 parent-prepared ordinary source is immutable across cold Activity reconstruction', async () => {
+  await withActivity(async ({ ctx, activityEnv, deadline }) => {
+    const securedEnv = { ...activityEnv, ENCRYPTION_KEY: btoa('s'.repeat(32)) };
+    const activity = new OperatorActivity(ctx, securedEnv);
+    const human = { subject: 'source-owner', email: 'owner@example.test', issuer: 'https://access.example.test',
+      audiences: ['aud'], issuedAt: Math.floor(Date.now() / 1000) - 1, expiresAt: Math.ceil(deadline / 1000) + 1 };
+    const context = await createOperatorExecutionContext({ activityId: 'activity', operatorId: 'dispatcher',
+      artifactDigest: 'a'.repeat(64), policyDigest: 'b'.repeat(64), human, accessJwt: 'synthetic.source.assertion' }, securedEnv);
+    const invocationJson = '{"repository":"owner/repo"}';
+    expect(await activity.prepareAuthorized({ activityId: 'activity', operatorId: 'dispatcher', installationId: 'installation',
+      expectedRevision: 1, expectedInstallationRevision: 1, expectedControlsRevision: 1, deadline,
+      startExpiresAt: deadline, startVerifier: 'c'.repeat(64),
+      intentDigest: await createOperatorIntentDigest('dispatcher', 'activity', invocationJson) }, context, invocationJson))
+      .toEqual({ ok: true, phase: 'prepared' });
+    const source = { bucket: 'owner-bucket', sessionId: 'ownersession1', sessionGeneration: 3 };
+    expect(await activity.bindDispatcherOwnerSource(source)).toBe(true);
+    for (const changed of [{ ...source, bucket: 'foreign-bucket' }, { ...source, sessionId: 'othersession1' },
+      { ...source, sessionGeneration: 4 }]) expect(await activity.bindDispatcherOwnerSource(changed)).toBe(false);
+    const cold = new OperatorActivity(ctx, securedEnv);
+    expect(await cold.bindDispatcherOwnerSource({ ...source, sessionGeneration: 4 })).toBe(false);
+    expect(await cold.bindDispatcherOwnerSource(source)).toBe(true);
+    expect(await cold.getAdmission()).toMatchObject({ activityId: 'activity', phase: 'prepared', receipt: null });
+  }, false, false);
+});
+
 const update = { schemaVersion: 1, status: 'waiting', checkpoint: { step: 1 } };
 function ownedSessionFixture() {
   return {
@@ -64,6 +89,78 @@ function ownedSessionFixture() {
     },
   };
 }
+
+const conductorNativeSelection = { source: 'pi-native' as const, provider: 'openai-codex', model: 'gpt-6.1-sol',
+  api: 'openai-codex-responses', reasoningLevel: 'low' as const, profileDigest: '9'.repeat(64) };
+async function withNativeConductor(test: (activity: OperatorActivity, ctx: DurableObjectState,
+  activityEnv: ConstructorParameters<typeof OperatorActivity>[1]) => Promise<void>, piReasoningOverride?: 'low') {
+  await withActivity(async ({ ctx, activityEnv, token, deadline }) => {
+    const claims = { subject: 'owner', email: 'owner@example.test', issuer: 'https://access.example.test',
+      audiences: ['aud'], issuedAt: Math.floor(Date.now() / 1000) - 1, expiresAt: Math.floor(deadline / 1000) + 1 };
+    const policy = { capabilities: ['session', 'pi', 'storage'], resourceProfileId: 'review-profile', loggingEnabled: false,
+      inference: { allowedSources: ['pi-native'], routeIds: [], defaultRouteId: null, reasoningLevels: ['low'],
+        defaultReasoningLevel: 'low', inheritUserDefaults: false } };
+    const selection = { controlsRevision: 1,
+      operator: { operatorId: 'operator', revision: 1, profile: 'conductor', policy },
+      installation: { id: 'installation', revision: 1, policy, ...(piReasoningOverride ? { piReasoningOverride } : {}) },
+      release: { id: 'release', bundleDigest: 'a'.repeat(64) } };
+    const securedEnv = { ...activityEnv, ENCRYPTION_KEY: btoa('n'.repeat(32)), OPERATOR_REGISTRY: { getByName: () => ({
+      admitManagement: async (input: Record<string, unknown>) => ({ ok: true, value: { ...input, selection, admittedAt: Date.now() } }),
+      upsertOwnedActivity: async () => {},
+    }) } } as unknown as ConstructorParameters<typeof OperatorActivity>[1];
+    const activity = new OperatorActivity(ctx, securedEnv);
+    const policyDigest = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',
+      new TextEncoder().encode(JSON.stringify(policy))))).map(byte => byte.toString(16).padStart(2, '0')).join('');
+    const execution = await createOperatorExecutionContext({ activityId: 'activity', operatorId: 'operator',
+      artifactDigest: selection.release.bundleDigest, policyDigest, human: claims, accessJwt: 'private.fixture.jwt' }, securedEnv);
+    const invocationJson = JSON.stringify({ resources: { inference: conductorNativeSelection } });
+    const startVerifier = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',
+      new TextEncoder().encode(token)))).map(byte => byte.toString(16).padStart(2, '0')).join('');
+    expect(await activity.prepareAuthorized({ activityId: 'activity', operatorId: 'operator', installationId: 'installation',
+      expectedRevision: 1, expectedInstallationRevision: 1, expectedControlsRevision: 1, deadline,
+      startExpiresAt: deadline, startVerifier,
+      intentDigest: await createOperatorIntentDigest('operator', 'activity', invocationJson) }, execution, invocationJson))
+      .toEqual({ ok: true, phase: 'prepared' });
+    expect(await activity.start(token)).toEqual({ ok: true, phase: 'queued' });
+    expect(await activity.beginDrive()).toMatchObject({ ok: true, state: { generation: 1, status: 'running' } });
+    await test(activity, ctx, securedEnv);
+  }, false, false);
+}
+
+describe('REQ-OPERATOR-007/047: durable Conductor native recovery without logging', () => {
+  it.each([{ override: undefined, source: 'inherited' }, { override: 'low' as const, source: 'installation' }])(
+    'shows effective native reasoning origin $source without changing admitted inference identity', async ({ override, source }) => {
+      await withNativeConductor(async activity => {
+        expect((await activity.getBrowserDetail())?.inferenceSelection).toMatchObject({
+          ...conductorNativeSelection, reasoningSource: source });
+        expect((await activity.getRuntimePlan())?.inferenceSelection).toEqual(conductorNativeSelection);
+      }, override);
+    });
+  it('pins the admitted selection and retains login-stop through reconstruction without settling or claiming cleanup', () => withNativeConductor(async (activity, ctx, activityEnv) => {
+    expect(await activity.getRuntimePlan()).toMatchObject({ inferenceSelection: conductorNativeSelection });
+    const before = await activity.getBrowserDetail();
+    const authFailure = { code: 'PI_LOGIN_REQUIRED', reason: 'rejected', provider: 'openai-codex' };
+    expect(await activity.recordConductorPiAuthFailure(1, conductorNativeSelection.profileDigest, authFailure)).toBe(true);
+    const cold = new OperatorActivity(ctx, activityEnv);
+    expect(await cold.getRuntimePlan()).toMatchObject({ inferenceSelection: conductorNativeSelection, authFailure });
+    expect(await cold.getBrowserDetail()).toMatchObject({ inferenceSelection: conductorNativeSelection, authFailure,
+      executionStatus: before!.executionStatus, cleanupStatus: before!.cleanupStatus, result: before!.result });
+    expect(await cold.operatorGenerationCurrent(1)).toBe(true); // Cleanup authority survives the authentication stop.
+    expect(await cold.commitDrive(1, { schemaVersion: 1, status: 'failed', checkpoint: null, result: null }))
+      .toMatchObject({ ok: true, state: { status: 'failed' } });
+    expect(await cold.getBrowserDetail()).toMatchObject({ authFailure });
+  }));
+  it('rejects stale generation, foreign provider/profile and arbitrary failure metadata without changing state', () => withNativeConductor(async (activity) => {
+    const before = await activity.getBrowserDetail();
+    const failure = { code: 'PI_LOGIN_REQUIRED', reason: 'missing', provider: 'openai-codex' };
+    for (const [generation, profile, value] of [[2, conductorNativeSelection.profileDigest, failure],
+      [1, '8'.repeat(64), failure], [1, conductorNativeSelection.profileDigest, { ...failure, provider: 'anthropic' }],
+      [1, conductorNativeSelection.profileDigest, { ...failure, reason: 'arbitrary-provider-message' }]] as const) {
+      expect(await activity.recordConductorPiAuthFailure(generation, profile, value)).toBe(false);
+      expect(await activity.getBrowserDetail()).toEqual(before);
+    }
+  }));
+});
 
 describe('REQ-OPERATOR-086 AC3: safe owner run metadata', () => {
   it('projects pinned version and complete outcome quantities without exposing result bodies', () => withActivity(async ({ activity, ctx }) => {
@@ -89,7 +186,9 @@ describe('REQ-OPERATOR-086 AC3: safe owner run metadata', () => {
     const initial = { activityId: 'activity', operatorId: 'operator', executionStatus: 'completed' as const,
       cleanupStatus: 'unknown' as const, collectionStatus: 'ready' as const, attention: true,
       sessionId: null, source: null, updatedAt: Date.now(),
-      resultSummary: { assessed: 1, merged: 0, notMerged: 1, deferred: 0, unknown: 0 } };
+      resultSummary: { assessed: 1, merged: 0, notMerged: 1, deferred: 0, unknown: 0 },
+      inferenceSelection: conductorNativeSelection,
+      authFailure: { code: 'PI_LOGIN_REQUIRED' as const, reason: 'rejected' as const, provider: 'openai-codex' } };
     await registry.upsertOwnedActivity(owner, initial);
     const observation = await registry.getOwnedActivity(owner, 'activity');
     expect(observation).toEqual(initial);
@@ -523,7 +622,7 @@ describe('REQ-OPERATOR-003: instrumented activity state outcomes', () => {
 
   it('persists protected parent identity without exposing credentials and permits same-owner reauthentication', () => withActivity(async ({ ctx, activityEnv }) => {
     const claims: VerifiedHumanAccessClaims = { subject: 'owner', email: 'owner@example.test',
-      issuer: 'https://access.example.test', audiences: ['audience'], issuedAt: Math.floor(Date.now() / 1000) - 10,
+      issuer: 'https://activity-reauth.cloudflareaccess.com', audiences: ['audience'], issuedAt: Math.floor(Date.now() / 1000) - 10,
       expiresAt: Math.floor(Date.now() / 1000) + 300 };
     const encryption = { ENCRYPTION_KEY: btoa('a'.repeat(32)) };
     const context = await createOperatorExecutionContext({ activityId: 'activity', operatorId: 'operator',
@@ -537,8 +636,19 @@ describe('REQ-OPERATOR-003: instrumented activity state outcomes', () => {
       owner: { email: 'owner@example.test' }, artifactDigest: 'a'.repeat(64), policyDigest: 'b'.repeat(64) });
     expect(JSON.stringify(await secured.getExecutionContext())).not.toContain('private.jwt');
     const renewed = { ...claims, expiresAt: claims.expiresAt + 300 };
-    expect(await secured.reauthenticate(renewed, 'renewed.jwt')).toMatchObject({ expiresAt: renewed.expiresAt });
-    await expect(secured.reauthenticate({ ...renewed, subject: 'other' }, 'attacker.jwt')).rejects.toThrow('owner');
+    const identity = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const request = new Request(input, init);
+      expect(request.url).toBe(`${claims.issuer}/cdn-cgi/access/get-identity`);
+      const cookie = request.headers.get('cookie');
+      if (cookie !== 'CF_Authorization=renewed.jwt' && cookie !== 'CF_Authorization=attacker.jwt')
+        return new Response(null, { status: 401 });
+      return Response.json({ user_uuid: cookie === 'CF_Authorization=renewed.jwt' ? claims.subject : 'other',
+        email: claims.email });
+    });
+    try {
+      expect(await secured.reauthenticate(renewed, 'renewed.jwt')).toMatchObject({ expiresAt: renewed.expiresAt });
+      await expect(secured.reauthenticate({ ...renewed, subject: 'other' }, 'attacker.jwt')).rejects.toThrow('owner');
+    } finally { identity.mockRestore(); }
   }, false));
 
   it('REQ-OPERATOR-053: stopping the bound session durably fences a prepared Action activity before either start path', () => withActivity(async ({ ctx, activityEnv, token }) => {

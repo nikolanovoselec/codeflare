@@ -367,8 +367,37 @@ const GrantFields: Component<{ title: string; value: api.ManagementGrant; choice
       <span>{group.id} · not listed in this session, retained until removed</span></label>}</For></div></div></div>
   </fieldset>;
 };
+const InferencePolicyFields: Component<{ title: string; value: api.ManagementPolicy['inference']; ceiling?: api.ManagementPolicy;
+  onChange: (value: NonNullable<api.ManagementPolicy['inference']>) => void }> = props => {
+  const current = (): NonNullable<api.ManagementPolicy['inference']> => props.value ?? {
+    allowedSources: ['managed'], routeIds: [], defaultRouteId: null, reasoningLevels: [], defaultReasoningLevel: null, inheritUserDefaults: false,
+  };
+  const sources = (): Array<'managed' | 'pi-native'> => current().allowedSources ?? ['managed'];
+  const allowedSources = () => props.ceiling ? props.ceiling.inference?.allowedSources ?? ['managed'] : ['managed', 'pi-native'];
+  return <fieldset class="operator-fields"><legend>{props.title} inference restrictions</legend>
+    <p>Native Pi requires explicit approval in both the operator and installation policies, plus the execution owner's current personal-provider permission. A human default or reasoning override is not approval. Saving a change disables new runs until explicitly re-enabled.</p>
+    <div class="admin-checkbox-list"><For each={['managed', 'pi-native'] as const}>{source =>
+      <label class="admin-toggle-field"><input type="checkbox" aria-label={`${props.title} ${source === 'pi-native' ? 'approve Pi-native source' : 'allow managed source'}`}
+        checked={sources().includes(source)} disabled={!allowedSources().includes(source) && !sources().includes(source)}
+        onChange={event => props.onChange({ ...current(), allowedSources: event.currentTarget.checked
+          ? [...sources(), source] : sources().filter(value => value !== source) })} />
+        <span>{source === 'pi-native' ? 'Approve Pi-native owner profile' : 'Allow managed inference'}</span></label>
+    }</For></div>
+    <Show when={props.value}><div class="admin-form-field"><span>Allowed reasoning levels</span>
+      <small>Choose explicitly; an empty list permits no native reasoning level. Provider/model support is checked before execution. Existing managed routes, defaults and inheritance are retained.</small>
+      <div class="admin-checkbox-list"><For each={api.piReasoningLevels}>{level => <label class="admin-toggle-field">
+        <input type="checkbox" aria-label={`${props.title} allow ${level} reasoning`} checked={current().reasoningLevels.includes(level)}
+          disabled={!!props.ceiling?.inference && !props.ceiling.inference.reasoningLevels.includes(level) && !current().reasoningLevels.includes(level)}
+          onChange={event => props.onChange({ ...current(), reasoningLevels: event.currentTarget.checked
+            ? [...current().reasoningLevels, level] : current().reasoningLevels.filter(value => value !== level),
+            defaultReasoningLevel: !event.currentTarget.checked && current().defaultReasoningLevel === level ? null : current().defaultReasoningLevel })} />
+        <span>{level.charAt(0).toUpperCase() + level.slice(1)}</span>
+      </label>}</For></div>
+    </div></Show>
+  </fieldset>;
+};
 const PolicyFields: Component<{ title: string; profile: 'conductor' | 'dispatcher'; value: api.ManagementPolicy; capabilities: string[]; profiles: string[]; sourceResponseMax: number;
-  onChange: (value: api.ManagementPolicy) => void }> = props => <fieldset class="operator-fields"><legend>{props.title === 'Operator' ? 'Operator actions and scope' : 'Installation restrictions'}</legend>
+  inferenceCeiling?: api.ManagementPolicy; onChange: (value: api.ManagementPolicy) => void }> = props => <fieldset class="operator-fields"><legend>{props.title === 'Operator' ? 'Operator actions and scope' : 'Installation restrictions'}</legend>
   <div class="admin-form-grid"><div class="admin-form-field"><span>Allowed actions</span><div class="admin-checkbox-list"><For each={props.capabilities}>{capability =>
     <label class="admin-toggle-field"><input type="checkbox" checked={props.value.capabilities.includes(capability)} onChange={event => props.onChange({ ...props.value,
       capabilities: event.currentTarget.checked ? [...props.value.capabilities, capability] : props.value.capabilities.filter(value => value !== capability) })} />
@@ -393,6 +422,8 @@ const PolicyFields: Component<{ title: string; profile: 'conductor' | 'dispatche
       </select><small>The <a href="/admin/environment/access">Environment allowlist</a> permits scope IDs; this installation narrows access to the selected ID. Runtime constructs the restricted session. Adding an ID does not provision a profile.</small>
       <Show when={!props.profiles.length}><small>No scope ID is eligible under current Environment and operator limits. A saved unavailable value is retained unless explicitly changed.</small></Show></label>
     </Show></div>
+  <InferencePolicyFields title={props.title} value={props.value.inference} ceiling={props.inferenceCeiling}
+    onChange={inference => props.onChange({ ...props.value, inference })} />
 </fieldset>;
 
 const OperatorDetail: Component<{ detail: api.ManagementDetail; choices?: api.ManagementChoices; isAdmin?: boolean; locked: boolean;
@@ -406,6 +437,7 @@ const OperatorDetail: Component<{ detail: api.ManagementDetail; choices?: api.Ma
   const [installOpen, setInstallOpen] = createSignal(false);
   const [policy, setPolicy] = createSignal(emptyPolicy());
   const [operatorCapabilities, setOperatorCapabilities] = createSignal<string[]>([]);
+  const [operatorInference, setOperatorInference] = createSignal<api.ManagementPolicy['inference']>();
   const [operatorSourceResponseBytes, setOperatorSourceResponseBytes] = createSignal<number>();
   const [operatorInferenceRequestBytes, setOperatorInferenceRequestBytes] = createSignal<number>();
   const [operatorOperationLimit, setOperatorOperationLimit] = createSignal<number>();
@@ -413,6 +445,7 @@ const OperatorDetail: Component<{ detail: api.ManagementDetail; choices?: api.Ma
   const [operatorSubmissionAttemptLimit, setOperatorSubmissionAttemptLimit] = createSignal<number>();
   const [operatorCapacities, setOperatorCapacities] = createSignal<api.DispatcherCapacityPolicy>({});
   const [operatorLoggingEnabled, setOperatorLoggingEnabled] = createSignal(true);
+  const [piReasoningOverride, setPiReasoningOverride] = createSignal<api.PiReasoningLevel | undefined>();
   const inferenceFieldId = createUniqueId();
   const operationFieldId = createUniqueId();
   const inferenceAttemptFieldId = createUniqueId();
@@ -430,6 +463,7 @@ const OperatorDetail: Component<{ detail: api.ManagementDetail; choices?: api.Ma
   createEffect(() => {
     setManagers(props.detail.grants.managers); setInvokers(props.detail.grants.invokers);
     setOperatorCapabilities(props.detail.operator.policy.capabilities);
+    setOperatorInference(props.detail.operator.policy.inference);
     setOperatorSourceResponseBytes(props.detail.operator.policy.sourceResponseBytes);
     setOperatorInferenceRequestBytes(props.detail.operator.policy.inferenceRequestBytes);
     setOperatorOperationLimit(props.detail.operator.policy.operationLimit);
@@ -484,7 +518,10 @@ const OperatorDetail: Component<{ detail: api.ManagementDetail; choices?: api.Ma
   const allowedCapabilities = () => operator().policy.capabilities.filter(item => props.choices?.ceiling.capabilities.includes(item));
   const allowedProfiles = () => operator().profile !== 'dispatcher' && operator().policy.resourceProfileId && props.choices?.ceiling.resourceProfileIds.includes(operator().policy.resourceProfileId!)
     ? [operator().policy.resourceProfileId!] : [];
-  createEffect(() => { setPolicy(installation()?.policy ?? emptyPolicy()); });
+  createEffect(() => {
+    setPolicy(installation()?.policy ?? emptyPolicy());
+    setPiReasoningOverride(installation()?.piReasoningOverride);
+  });
   onCleanup(() => setSourcePat(''));
   const otherReleases = () => props.detail.releases.filter(item => item.id !== installation()?.releaseId);
   const selectedRelease = () => props.detail.releases.find(item => item.id === releaseId());
@@ -578,6 +615,7 @@ const OperatorDetail: Component<{ detail: api.ManagementDetail; choices?: api.Ma
   if (!selected || !validRunSettings()) return;
   void props.perform(() => api.configureInstallation(selected.id, {
     revision: selected.revision, policy: selected.policy,
+    piReasoningOverride: selected.piReasoningOverride,
     configuration: { ...selected.configuration, renovate: {
       repository: runRepository(), automaticRuns: runAutomatic(), repetitionIntervalSeconds: runInterval(),
     } },
@@ -604,6 +642,7 @@ const OperatorDetail: Component<{ detail: api.ManagementDetail; choices?: api.Ma
         <h3>Runtime permissions</h3>
         <form onSubmit={event => { event.preventDefault(); if (!validOperatorSource()) return; void props.perform(() => api.saveOperatorCapabilities(operator().id, {
           revision: operator().revision, capabilities: operatorCapabilities(), loggingEnabled: operatorLoggingEnabled(),
+          ...(operatorInference() === undefined ? {} : { inference: operatorInference() }),
           ...(operator().profile === 'dispatcher' && operatorSourceResponseBytes() !== undefined ? { sourceResponseBytes: operatorSourceResponseBytes() } : {}),
           ...(operator().profile === 'dispatcher' && operatorInferenceRequestBytes() !== undefined ? { inferenceRequestBytes: operatorInferenceRequestBytes() } : {}),
           ...(operator().profile === 'dispatcher' && operatorOperationLimit() !== undefined ? { operationLimit: operatorOperationLimit() } : {}),
@@ -664,13 +703,17 @@ const OperatorDetail: Component<{ detail: api.ManagementDetail; choices?: api.Ma
               </div>;
             }}</For></div>
           </Show>
+          <InferencePolicyFields title="Operator" value={operatorInference()} onChange={setOperatorInference} />
           <label class="admin-toggle-field operator-logging-toggle"><input type="checkbox" checked={operatorLoggingEnabled()} onChange={event => setOperatorLoggingEnabled(event.currentTarget.checked)} /><span class="admin-form-field"><strong>Enable logging</strong><small>Operator execution diagnostics only. Privacy and security audits remain unchanged.</small></span></label>
           <button class="admin-secondary-button" type="submit" disabled={!props.choices || !validOperatorSource() || operatorCapabilities().some(value => !props.choices?.ceiling.capabilities.includes(value))}>Save operator capabilities</button>
         </fieldset>{props.feedback('operator-capabilities')}</form>
         <Show when={installation()}>{item => <form onSubmit={event => { event.preventDefault(); if (!validInstallationSource()) return; void props.perform(() => api.configureInstallation(item().id, {
-          revision: item().revision, policy: policy(), configuration: item().configuration ?? {},
+          revision: item().revision, policy: policy(), configuration: item().configuration ?? {}, piReasoningOverride: piReasoningOverride(),
         }), 'Restrictions saved. Enable new runs separately when ready.', 'installed-restrictions'); }}><fieldset disabled={props.locked}>
-          <PolicyFields title={item().name} profile={operator().profile} value={policy()} sourceResponseMax={installationSourceMax()} capabilities={allowedCapabilities()} profiles={allowedProfiles()} onChange={setPolicy} />
+          <PolicyFields title={item().name} profile={operator().profile} value={policy()} sourceResponseMax={installationSourceMax()} capabilities={allowedCapabilities()} profiles={allowedProfiles()} inferenceCeiling={operator().policy} onChange={setPolicy} />
+          <label class="admin-form-field"><span>Pi reasoning</span><select aria-label={`${item().name} Pi reasoning`} value={piReasoningOverride() ?? ''} onChange={event => setPiReasoningOverride(event.currentTarget.value ? event.currentTarget.value as api.PiReasoningLevel : undefined)}>
+            <option value="">Inherit Pi default</option><For each={api.piReasoningLevels}>{level => <option value={level}>{level.charAt(0).toUpperCase() + level.slice(1)}</option>}</For>
+          </select><small>Native Pi inference keeps the execution owner's saved provider and model. An override must be supported by that model and the approved operator restrictions; unsupported levels, including Off, are rejected before execution. Saving disables new runs until explicitly re-enabled.</small></label>
           <button class="admin-secondary-button" type="submit" aria-label={`Save restrictions for ${item().name}`} disabled={!props.choices || !validInstallationSource() || hasUnavailablePolicy(policy(), allowedCapabilities(), allowedProfiles())}>Save restrictions</button>
         </fieldset>{props.feedback('installed-restrictions')}</form>}</Show>
       </section>

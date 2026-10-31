@@ -207,6 +207,104 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 ---
 
+### REQ-SESSION-038: User can force-kill a session container
+
+**Intent:** Dashboard and in-session menus offer an explicit KILL recovery action that reaches SDK force-destroy without waiting for graceful Stop, while retaining the session and persistent files.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Dashboard and in-session context menus offer `Kill` for `starting`, `running`, `unreachable` and persisted `stopping`, but not for a confirmed-stopped session. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-SESSION-038: dashboard KILL remains accessible for %s without entering the session) --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-SESSION-038: dashboard does not offer KILL for a confirmed-stopped session) --> <!-- @impl: web-ui/src/components/SessionDropdown.tsx::SessionDropdown --> <!-- @impl: web-ui/src/components/SessionContextMenu.tsx::SessionContextMenu --> <!-- @test: web-ui/src/__tests__/components/SessionDropdown.test.tsx (REQ-SESSION-038: KILL in the existing session menu) --> <!-- @test: web-ui/src/__tests__/components/SessionContextMenu.test.tsx (REQ-SESSION-038: optional KILL action) -->
+2. KILL remains usable while a local Stop attempt is pending. <!-- @impl: web-ui/src/stores/session.ts::killSession --> <!-- @impl: web-ui/src/components/SessionDropdown.tsx::SessionDropdown --> <!-- @test: web-ui/src/__tests__/stores/session-kill.test.ts (REQ-SESSION-038: session KILL through the public store and HTTP boundary) --> <!-- @test: web-ui/src/__tests__/components/SessionDropdown.test.tsx (REQ-SESSION-038: KILL in the existing session menu) -->
+3. Clicking KILL targets only the selected session. <!-- @impl: web-ui/src/components/SessionDropdown.tsx::SessionDropdown --> <!-- @impl: web-ui/src/components/SessionContextMenu.tsx::SessionContextMenu --> <!-- @impl: web-ui/src/api/client.ts::killSession --> <!-- @test: web-ui/src/__tests__/components/SessionDropdown.test.tsx (REQ-SESSION-038: KILL in the existing session menu) --> <!-- @test: web-ui/src/__tests__/components/SessionContextMenu.test.tsx (REQ-SESSION-038: optional KILL action) -->
+4. The frontend retains the session row, workspace identity and tabs after KILL. <!-- @impl: web-ui/src/stores/session.ts::killSession --> <!-- @test: web-ui/src/__tests__/stores/session-kill.test.ts (REQ-SESSION-038: session KILL through the public store and HTTP boundary) -->
+5. Failed or uncertain KILL presents a retryable error without inventing stopped or deleted state. <!-- @impl: web-ui/src/stores/session.ts::killSession --> <!-- @impl: web-ui/src/api/client.ts::killSession --> <!-- @test: web-ui/src/__tests__/stores/session-kill.test.ts (REQ-SESSION-038: session KILL through the public store and HTTP boundary) --> <!-- @test: web-ui/src/__tests__/api/session-kill.test.ts (REQ-SESSION-039 AC1: KILL HTTP contract) -->
+6. An active local KILL attempt suppresses duplicate submissions. <!-- @impl: web-ui/src/stores/session.ts::killSession --> <!-- @test: web-ui/src/__tests__/stores/session-kill.test.ts (REQ-SESSION-038: session KILL through the public store and HTTP boundary) -->
+7. The selected session's mounted runtime is disposed only after newer authoritative stopped evidence. <!-- @impl: web-ui/src/stores/session.ts::loadSessions --> <!-- @test: web-ui/src/__tests__/stores/session-kill.test.ts (REQ-SESSION-038: session KILL through the public store and HTTP boundary) -->
+
+**Constraints:**
+
+- Preserve Rename, Stop, Kill, Delete ordering and behavior, with the Material Design `file-excel-box` glyph for Kill. <!-- @impl: web-ui/src/components/SessionContextMenu.tsx::SessionContextMenu --> <!-- @test: web-ui/src/__tests__/components/SessionContextMenu.test.tsx (REQ-SESSION-038: optional KILL action) --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-SESSION-038: dashboard KILL remains accessible for %s without entering the session) -->
+- Existing context-menu dismissal on action invocation remains unchanged. <!-- @impl: web-ui/src/components/SessionContextMenu.tsx::SessionContextMenu --> <!-- @test: web-ui/src/__tests__/components/SessionContextMenu.test.tsx (REQ-SESSION-038: optional KILL action) --> <!-- @test: web-ui/src/__tests__/components/SessionDropdown.test.tsx (REQ-SESSION-038: KILL in the existing session menu) -->
+- Existing Stop, Rename, Delete and idle-timeout behavior remains unchanged. <!-- @impl: web-ui/src/components/SessionContextMenu.tsx::SessionContextMenu --> <!-- @impl: src/container/container-lifecycle.ts::destroy --> <!-- @test: web-ui/src/__tests__/components/SessionContextMenu.test.tsx (REQ-SESSION-038: optional KILL action) --> <!-- @test: src/__tests__/container/session-kill.test.ts (REQ-SESSION-039 / REQ-SESSION-040: DO-owned native force termination) -->
+- No automatic recovery scheduler, idle-policy change or new user setting.
+- KILL does not promise to save unsynced container-local edits.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-SESSION-006](#req-session-006-user-can-stop-restart-and-delete-sessions), [REQ-SESSION-039](#req-session-039-authorized-do-owned-native-kill), [REQ-SESSION-040](#req-session-040-kill-confirmation-retry-and-generation-fencing)
+
+**Verification:** Behavioral dropdown, context-menu, HTTP/client and store suites passed predecessor CI (`00358f73`, run `41022257374`); changed revisions require independently passing CI. Hosted native qualification and owner acceptance remain pending. These tests are not hosted proof.
+
+**Status:** Planned
+
+---
+
+### REQ-SESSION-039: Authorized DO-owned native KILL
+
+**Intent:** An explicit owner-authorized KILL reaches native force-destroy independently of graceful Stop and the calling request.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. KILL is an owner-authenticated addressed mutation using existing session validation, access policy and mutation protections. <!-- @impl: src/routes/session/index.ts::app --> <!-- @impl: src/routes/session/lifecycle.ts::app --> <!-- @test: src/__tests__/routes/session-kill.test.ts (REQ-SESSION-039 / REQ-SESSION-040: owner-authenticated POST /api/sessions/:id/kill) -->
+2. The Worker reads current owner-scoped D1 authority and fails closed if unavailable. <!-- @impl: src/routes/session/lifecycle.ts::app --> <!-- @test: src/__tests__/routes/session-kill.test.ts (REQ-SESSION-039 / REQ-SESSION-040: owner-authenticated POST /api/sessions/:id/kill) -->
+3. The DO alone claims stopping upon acceptance and owns completion independently of the HTTP caller, from termination claim through Protected Action cancellation, operational cleanup, native destruction and D1 exit confirmation. <!-- @impl: src/container/index.ts::container --> <!-- @impl: src/container/container-lifecycle.ts::stopSession --> <!-- @test: src/__tests__/container/session-kill.test.ts (REQ-SESSION-039 / REQ-SESSION-040: DO-owned native force termination) -->
+4. The generation's Protected Action cancellation fence must settle successfully before operational cleanup or native termination. <!-- @impl: src/container/container-lifecycle.ts::stopSession --> <!-- @impl: src/routes/session/boundary-stop.ts::fencePendingBoundaryStart --> <!-- @test: src/__tests__/container/session-kill.test.ts (REQ-SESSION-039 / REQ-SESSION-040: DO-owned native force termination) -->
+5. Operational teardown cleanup precedes awaited native force-destroy. <!-- @impl: src/container/container-lifecycle.ts::killSession --> <!-- @test: src/__tests__/container/session-kill.test.ts (REQ-SESSION-039 / REQ-SESSION-040: DO-owned native force termination) -->
+6. KILL bypasses final notification drain, workspace final-sync wait and SIGTERM polling; a hung graceful Stop cannot block it. <!-- @impl: src/container/container-lifecycle.ts::killSession --> <!-- @impl: src/container/index.ts::container --> <!-- @test: src/__tests__/container/session-kill.test.ts (REQ-SESSION-039 / REQ-SESSION-040: DO-owned native force termination) -->
+7. KILL preserves the D1 session row, workspace identity and persistent R2 files. <!-- @impl: src/container/container-lifecycle.ts::killSession --> <!-- @impl: src/lib/session-repository.ts::confirmStopped --> <!-- @test: src/__tests__/container/session-kill.test.ts (REQ-SESSION-039 / REQ-SESSION-040: DO-owned native force termination) -->
+
+**Constraints:**
+
+- Native force-destroy uses the public Containers SDK inside the owning DO.
+- No SDK patch, forged identity or historical Activity replay.
+- No session-row deletion or persistent-storage deletion.
+- No promise to save unsynced container-local edits.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-SESSION-006](#req-session-006-user-can-stop-restart-and-delete-sessions), [REQ-SESSION-009](#req-session-009-container-destroy-wipes-session-state), [REQ-SESSION-040](#req-session-040-kill-confirmation-retry-and-generation-fencing)
+
+**Verification:** Route and modeled DO/native-process behavioral suites passed predecessor CI (`00358f73`, run `41022257374`); changed revisions require independently passing CI. Hosted native termination/disconnection qualification remains pending. Models are not hosted proof.
+
+**Status:** Planned
+
+---
+
+### REQ-SESSION-040: KILL confirmation, retry and generation fencing
+
+**Intent:** KILL retains authoritative termination ownership through uncertainty and cannot affect a replacement runtime.
+
+**Applies To:** System (session lifecycle)
+
+**Acceptance Criteria:**
+
+1. D1 confirms stopped only from a generation-fenced positive process-exit monitor observation or awaited native destruction confirming exit. Stale stopping, SDK hints, unevidenced callbacks, transport rejection and elapsed time cannot establish exit. <!-- @impl: src/container/container-lifecycle.ts::killSession --> <!-- @impl: src/container/container-lifecycle.ts::confirmMonitoredExit --> <!-- @impl: src/lib/session-repository.ts::confirmStoppedOrObserved --> <!-- @test: src/__tests__/container/session-kill.test.ts (REQ-SESSION-039 / REQ-SESSION-040: DO-owned native force termination) -->
+2. Failed or unconfirmed destruction or D1 confirmation retains retryable termination ownership without reporting stopped or deleted. <!-- @impl: src/container/container-lifecycle.ts::stopSession --> <!-- @impl: src/container/container-lifecycle.ts::killSession --> <!-- @test: src/__tests__/container/session-kill.test.ts (REQ-SESSION-039 / REQ-SESSION-040: DO-owned native force termination) -->
+3. Same-generation retries reuse the retained termination intent, including after operational identity erasure or coordinator reconstruction. <!-- @impl: src/container/container-lifecycle.ts::stopSession --> <!-- @impl: src/container/container-lifecycle.ts::killSession --> <!-- @test: src/__tests__/container/session-kill.test.ts (REQ-SESSION-039 / REQ-SESSION-040: DO-owned native force termination) -->
+4. Duplicate KILL requests do not perform competing native teardowns. <!-- @impl: src/container/index.ts::container --> <!-- @test: src/__tests__/container/session-kill.test.ts (REQ-SESSION-039 / REQ-SESSION-040: DO-owned native force termination) -->
+5. A retry after confirmed stopped succeeds idempotently without another teardown. <!-- @impl: src/container/container-lifecycle.ts::stopSession --> <!-- @test: src/__tests__/container/session-kill.test.ts (REQ-SESSION-039 / REQ-SESSION-040: DO-owned native force termination) -->
+6. Before effects and after asynchronous work, the addressed DO validates captured owner/session identity, address, lifecycle generation and termination-intent ownership; mismatches fail closed. <!-- @impl: src/container/index.ts::container --> <!-- @impl: src/container/container-lifecycle.ts::killSession --> <!-- @impl: src/container/container-lifecycle.ts::stopSession --> <!-- @test: src/__tests__/container/session-kill.test.ts (REQ-SESSION-039 / REQ-SESSION-040: DO-owned native force termination) -->
+7. Graceful teardown superseded by KILL cannot later clear a replacement generation's operational state, signal it or destroy it. <!-- @impl: src/container/container-lifecycle.ts::destroy --> <!-- @impl: src/container/container-lifecycle.ts::onStart --> <!-- @impl: src/container/container-lifecycle.ts::killSession --> <!-- @test: src/__tests__/container/session-kill.test.ts (REQ-SESSION-039 / REQ-SESSION-040: DO-owned native force termination) -->
+
+**Constraints:**
+
+- Current D1 authority, not erased operational keys, governs same-intent retry.
+- Caller-independent completion is not automatic crash recovery or a new scheduler.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-SESSION-018](#req-session-018-d1-lifecycle-evidence-is-generation-fenced), [REQ-SESSION-035](#req-session-035-stale-stopping-retains-ownership-until-confirmed-exit)
+
+**Verification:** Route and modeled DO/native-process confirmation, retry and fencing suites passed predecessor CI (`00358f73`, run `41022257374`); changed revisions require independently passing CI. Hosted qualification remains pending. Models are not hosted native termination proof.
+
+**Status:** Planned
+
+---
+
 ### REQ-SESSION-027: User can rename sessions
 
 **Intent:** A user can change a session's display name without affecting its runtime or workspace.
@@ -348,13 +446,13 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 
 ### REQ-SESSION-011: Graceful shutdown with final sync
 
-**Intent:** Deliberate stop paths complete one bounded live workspace sync before terminating the container; the SIGTERM trap remains only a best-effort backstop.
+**Intent:** Graceful stop/delete paths complete one bounded live workspace sync before terminating the container; the SIGTERM trap remains only a best-effort backstop. Explicit KILL ([REQ-SESSION-038](#req-session-038-user-can-force-kill-a-session-container)) intentionally bypasses this graceful drain.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. Before signalling the container to stop, every deliberate stop path runs a live bidirectional R2 sync to completion while the container is still fully running including a delete where the platform reports `running:false` transiently. <!-- @impl: src/container/container-lifecycle.ts::destroy --> <!-- @impl: src/container/container-lifecycle.ts::drainFinalSyncAudited --> <!-- @impl: src/container/container-lifecycle.ts::recordFinalSyncAudit --> <!-- @impl: src/container/container-metrics.ts::drainFinalSync --> <!-- @test: src/__tests__/container/index.test.ts (container DO class / REQ-SESSION-002 (one container per session)) -->
+1. Before signalling the container to stop, every graceful stop/delete path runs a live bidirectional R2 sync to completion while the container is still fully running including a delete where the platform reports `running:false` transiently. <!-- @impl: src/container/container-lifecycle.ts::destroy --> <!-- @impl: src/container/container-lifecycle.ts::drainFinalSyncAudited --> <!-- @impl: src/container/container-lifecycle.ts::recordFinalSyncAudit --> <!-- @impl: src/container/container-metrics.ts::drainFinalSync --> <!-- @test: src/__tests__/container/index.test.ts (container DO class / REQ-SESSION-002 (one container per session)) -->
 2. For runnable sync, the final-sync endpoint starts and awaits its own run, distinguishing success, failure and timeout. <!-- @impl: host/src/request-router.ts::createRequestHandler --> <!-- @test: host/__tests__/final-sync-endpoint.test.js (REQ-SESSION-011 AC2: final-sync HTTP boundary (behavioral)) -->
 3. The sync-status record carries a monotonic timestamp and a `syncing`->`success`/`failed` transition, and the endpoint accepts a terminal status only after observing its own run's `syncing` (stamped strictly after the trigger), never a bare `success`. <!-- @impl: host/src/final-sync.ts::FinalSyncEval --> <!-- @test: host/__tests__/final-sync-endpoint.test.js (REQ-SESSION-011 AC2/AC3: evaluateFinalSync completion detection (behavioral)) -->
 4. The Durable Object waits up to a bounded sync budget (120s) for the live sync to report completion; a failed or timed-out sync still proceeds to stop rather than blocking teardown. <!-- @impl: src/container/container-lifecycle.ts::destroy --> <!-- @test: src/__tests__/container/index.test.ts (destroy) -->

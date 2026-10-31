@@ -1,5 +1,5 @@
 import { Component, Show, createSignal, createEffect } from 'solid-js';
-import { mdiPencilOutline, mdiStop, mdiTrashCanOutline } from '@mdi/js';
+import { mdiPencilOutline, mdiStop, mdiTrashCanOutline, mdiFileExcelBox } from '@mdi/js';
 import Icon from './Icon';
 import '../styles/session-context-menu.css';
 
@@ -7,6 +7,8 @@ interface SessionContextMenuProps {
   isOpen: boolean;
   position: { x: number; y: number };
   canStop: boolean;
+  canKill?: boolean;
+  onKill?: () => void;
   stopLabel?: string;
   sessionName: string;
   onStop: () => void;
@@ -41,7 +43,7 @@ const SessionContextMenu: Component<SessionContextMenuProps> = (props) => {
 
   const clampedPosition = () => {
     const menuWidth = 160;
-    const menuHeight = 120;
+    const menuHeight = props.canKill && props.onKill ? 160 : 120;
     const pad = 8;
     return {
       x: Math.max(pad, Math.min(props.position.x, window.innerWidth - menuWidth - pad)),
@@ -51,6 +53,12 @@ const SessionContextMenu: Component<SessionContextMenuProps> = (props) => {
 
   const handleStop = () => {
     props.onStop();
+    resetTransient();
+    props.onClose();
+  };
+
+  const handleKill = () => {
+    props.onKill?.();
     resetTransient();
     props.onClose();
   };
@@ -99,17 +107,6 @@ const SessionContextMenu: Component<SessionContextMenuProps> = (props) => {
         data-testid="session-context-menu"
         style={{ top: `${clampedPosition().y}px`, left: `${clampedPosition().x}px` }}
       >
-        <Show when={props.canStop}>
-          <button
-            type="button"
-            class="session-context-menu__item"
-            data-testid="context-menu-stop"
-            onClick={handleStop}
-          >
-            <Icon path={mdiStop} size={16} />
-            {props.stopLabel ?? 'Stop'}
-          </button>
-        </Show>
         <Show when={!renaming()}>
           <button
             type="button"
@@ -139,6 +136,27 @@ const SessionContextMenu: Component<SessionContextMenuProps> = (props) => {
               onKeyDown={handleRenameKeyDown}
             />
           </form>
+        </Show>
+        <Show when={props.canStop}>
+          <button
+            type="button"
+            class="session-context-menu__item"
+            data-testid="context-menu-stop"
+            onClick={handleStop}
+          >
+            <Icon path={mdiStop} size={16} />
+            {props.stopLabel ?? 'Stop'}
+          </button>
+        </Show>
+        <Show when={props.canKill && props.onKill}>
+          <button
+            type="button"
+            class="session-context-menu__item session-context-menu__item--danger"
+            onClick={handleKill}
+          >
+            <Icon path={mdiFileExcelBox} size={16} />
+            Kill
+          </button>
         </Show>
         <Show when={!confirmingDelete()}>
           <button

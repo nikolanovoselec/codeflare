@@ -231,6 +231,30 @@ describe('REQ-ENTERPRISE-058: generated routing consumed by the pinned Pi runtim
 });
 
 
+for (const [label, settings] of [
+  ['a previous Gateway pin', { defaultProvider: 'codeflare-gateway', defaultModel: 'development', defaultThinkingLevel: 'off' }],
+  ['absent settings', null],
+]) {
+  it(`REQ-ENTERPRISE-089: pinned Pi selects native after ${label}`, async t => {
+    const fixture = enterpriseStartup({ personalProviders: true, piDefaultSource: 'pi-native', settings,
+      auth: { anthropic: { type: 'api_key', key: 'synthetic-personal-key' } } });
+    t.after(fixture.cleanup);
+    assert.equal(fixture.result.status, 0, fixture.result.stderr);
+    const modelRuntime = await ModelRuntime.create({ modelsPath: fixture.modelsPath,
+      authPath: join(fixture.agentDir, 'auth.json'), modelsStorePath: join(fixture.agentDir, 'models-store.json'),
+      allowModelNetwork: false });
+    const settingsManager = SettingsManager.create(fixture.home, fixture.agentDir);
+    const resourceLoader = new DefaultResourceLoader({ cwd: fixture.home, agentDir: fixture.agentDir,
+      settingsManager, noExtensions: true, noSkills: true, noPromptTemplates: true, noThemes: true });
+    await resourceLoader.reload();
+    const { session } = await createAgentSession({ cwd: fixture.home, agentDir: fixture.agentDir, modelRuntime,
+      sessionManager: SessionManager.inMemory(fixture.home), settingsManager, resourceLoader, tools: [] });
+    t.after(() => session.dispose());
+    assert.equal(session.model?.provider, 'anthropic');
+    assert.deepEqual(modelRuntime.getModels('codeflare-gateway').map(model => model.id).sort(), [...authorizedRoutes].sort());
+  });
+}
+
 it('REQ-ENTERPRISE-088 AC4: pinned Pi retains native authenticated providers alongside sanctioned models', async t => {
   const fixture = enterpriseStartup({ personalProviders: true, auth: { anthropic: { type: 'api_key', key: 'synthetic-personal-key' } } });
   t.after(fixture.cleanup);

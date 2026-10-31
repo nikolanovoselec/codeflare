@@ -33,6 +33,7 @@ import { getPrewarmConfig } from './prewarm-config.js';
 import { handlePrewarmOrphanExpiry } from './prewarm-readiness.js';
 import { createRequestHandler, type ProxyTarget } from './request-router.js';
 import { createOperatorPiService } from './operator-pi-service.js';
+import { createOperatorInferenceOwnerResolver } from './operator-inference-owner.js';
 import { createOperatorSyncService } from './operator-sync-service.js';
 import { runApprovedPacket } from './operator-approved-packet.js';
 import { AGENT_EVENT_LIMITS } from './agent-events.js';
@@ -285,8 +286,16 @@ const operatorPacket = process.env.ENTERPRISE_MODE === 'active' && !process.env.
       signal: options.signal }) }
   : null;
 
+// Ordinary owner Hosts resolve current Activity authority through their
+// container-bound parent egress. Startup captures paths, never run authority.
+const operatorInference = !process.env.CODEFLARE_OPERATOR_SESSION
+  ? createOperatorInferenceOwnerResolver({ cwd: WORKSPACE_DEFAULT,
+    agentDir: process.env.PI_CODING_AGENT_DIR ?? '/home/user/.pi/agent' })
+  : null;
+
 // Create HTTP server; all plain-HTTP branches live in request-router.ts.
 const server = http.createServer(createRequestHandler({
+  ...(operatorInference ? { operatorInference } : {}),
   ...(operatorPacket ? { operatorPacket } : {}),
   ...(operatorPi ? { operatorPi } : {}),
   ...(operatorSync ? { operatorSync } : {}),
@@ -541,8 +550,11 @@ server.listen(PORT, '0.0.0.0', async () => {
 });
 
 // Graceful shutdown helper
-function shutdown(signal: string): void {
+async function shutdown(signal: string): Promise<void> {
   log('info', `Received ${signal}, shutting down`);
+  // Fence private Pi authentication before awaiting owned SDK cancellation.
+  try { await operatorPi?.stop(); }
+  catch { log('warn', 'Owned Pi shutdown cancellation uncertain'); }
   herdrAgentStatusMonitor?.stop();
   herdrAgentStatusMonitor = null;
   // M2: Kill all active sessions before exit to avoid orphaned PTY processes
@@ -555,5 +567,5 @@ function shutdown(signal: string): void {
 }
 
 // Handle shutdown
-process.on('SIGTERM', () => shutdown('SIGTERM'));
-process.on('SIGINT', () => shutdown('SIGINT'));
+process.on('SIGTERM', () => { void shutdown('SIGTERM'); });
+process.on('SIGINT', () => { void shutdown('SIGINT'); });

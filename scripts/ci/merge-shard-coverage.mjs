@@ -92,9 +92,20 @@ function addCounts(target, source, label) {
   }
 }
 
+function coverageMapIdentity(kind, map) {
+  if (kind !== 'fnMap') return map;
+  // Bundler-deconflicted function labels can differ for the same source region.
+  // Keep counter IDs, declaration/body locations and all other metadata exact.
+  return Object.fromEntries(Object.entries(map).map(([id, entry]) => {
+    const identity = { ...entry };
+    delete identity.name;
+    return [id, identity];
+  }));
+}
+
 function mergeFileCoverage(target, source) {
   for (const map of ['statementMap', 'fnMap', 'branchMap']) {
-    if (JSON.stringify(target[map]) !== JSON.stringify(source[map])) {
+    if (JSON.stringify(coverageMapIdentity(map, target[map])) !== JSON.stringify(coverageMapIdentity(map, source[map]))) {
       throw new Error(`${map} differs between shards for ${target.path}`);
     }
   }

@@ -7,13 +7,16 @@
  * work; uncertain effects are never turned into a fresh prompt automatically.
  */
 
+import { safePiAuthFailure, piAuthError, type SafePiAuthFailure } from './operator-pi-auth.js';
+
 export interface OperatorPiMetadata {
   schemaVersion: 1;
   activityId: string;
   sessionId: string;
   conversationId: string;
   sessionFile: string;
-  tasks: Record<string, { digest: string; mode: 'prompt' | 'follow-up' | 'steer' | 'tool'; status: string }>;
+  tasks: Record<string, { digest: string; mode: 'prompt' | 'follow-up' | 'steer' | 'tool'; status: string;
+    authFailure?: SafePiAuthFailure }>;
 }
 
 export interface OperatorPiStore {
@@ -99,6 +102,8 @@ export class OperatorPiConversation {
     if (stored) {
       if (stored.schemaVersion !== 1 || stored.activityId !== this.activityId || stored.sessionId !== this.sessionId
         || !stored.sessionFile || !stored.conversationId) throw new Error('Owned Pi metadata mismatch');
+      const stopped = Object.values(stored.tasks).map(task => safePiAuthFailure(task.authFailure)).find(Boolean);
+      if (stopped) throw piAuthError(stopped.provider, stopped.reason);
       session = await this.factory.open(stored.sessionFile);
       if (session.sessionId !== stored.conversationId || session.sessionFile !== stored.sessionFile) {
         session.dispose();
@@ -121,7 +126,7 @@ export class OperatorPiConversation {
   }
 
   /** Persist stable intent before invoking the SDK; same ID/digest only reconciles. */
-  async send(input: OperatorPiTaskInput): Promise<{ status: string }> {
+  async send(input: OperatorPiTaskInput): Promise<{ status: string; authFailure?: SafePiAuthFailure }> {
     const payload = input.mode === 'tool' ? JSON.stringify(input.arguments) : input.text;
     if (!ID.test(input.taskId) || !DIGEST.test(input.digest)
       || (input.mode === 'tool' && (!ID.test(input.toolName) || !plain(input.arguments)))
@@ -130,7 +135,20 @@ export class OperatorPiConversation {
     return this.admit(() => this.sendAdmitted(input));
   }
 
-  private async sendAdmitted(input: OperatorPiTaskInput): Promise<{ status: string }> {
+  private async sendAdmitted(input: OperatorPiTaskInput): Promise<{ status: string; authFailure?: SafePiAuthFailure }> {
+    // A persisted login stop is terminal under normal reconciliation. Reading
+    // that safe receipt must not create a session or require renewed credentials.
+    if (!this.metadata) {
+      const stored = await this.store.load();
+      if (stored && (stored.activityId !== this.activityId || stored.sessionId !== this.sessionId)) {
+        throw new Error('Owned Pi metadata mismatch');
+      }
+      const stopped = stored?.tasks[input.taskId];
+      if (stopped?.authFailure) {
+        if (stopped.digest !== input.digest || stopped.mode !== input.mode) throw new Error('Pi task conflict');
+        return { status: stopped.status, authFailure: stopped.authFailure };
+      }
+    }
     await this.ensure();
     const metadata = this.metadata!;
     const existing = metadata.tasks[input.taskId];
@@ -138,7 +156,7 @@ export class OperatorPiConversation {
       if (existing.digest !== input.digest || existing.mode !== input.mode) throw new Error('Pi task conflict');
       // A terminal status is not observable until its metadata write settles.
       await this.saveChain;
-      return { status: existing.status };
+      return { status: existing.status, ...(existing.authFailure ? { authFailure: existing.authFailure } : {}) };
     }
     const active = this.activePrompt !== null || this.session!.isStreaming;
     if ((input.mode === 'prompt' || input.mode === 'tool') && active) throw new Error('Pi conversation is busy');
@@ -162,6 +180,8 @@ export class OperatorPiConversation {
       } catch (error) {
         this.activeToolAbort = null;
         metadata.tasks[input.taskId].status = 'failed';
+        const authFailure = safePiAuthFailure(error);
+        if (authFailure) metadata.tasks[input.taskId].authFailure = authFailure;
         await this.persist();
         throw error;
       }
@@ -169,11 +189,25 @@ export class OperatorPiConversation {
     } else if (input.mode === 'follow-up') {
       this.pendingFollowUp = true;
       try { await this.session!.followUp(input.text); }
-      catch (error) { this.pendingFollowUp = false; metadata.tasks[input.taskId].status = 'failed'; await this.persist(); throw error; }
+      catch (error) {
+        this.pendingFollowUp = false;
+        metadata.tasks[input.taskId].status = 'failed';
+        const authFailure = safePiAuthFailure(error);
+        if (authFailure) metadata.tasks[input.taskId].authFailure = authFailure;
+        await this.persist();
+        throw error;
+      }
     } else {
       this.pendingSteer = true;
       try { await this.session!.steer(input.text); }
-      catch (error) { this.pendingSteer = false; metadata.tasks[input.taskId].status = 'failed'; await this.persist(); throw error; }
+      catch (error) {
+        this.pendingSteer = false;
+        metadata.tasks[input.taskId].status = 'failed';
+        const authFailure = safePiAuthFailure(error);
+        if (authFailure) metadata.tasks[input.taskId].authFailure = authFailure;
+        await this.persist();
+        throw error;
+      }
     }
     return { status };
   }
@@ -208,6 +242,14 @@ export class OperatorPiConversation {
     return { status: 'cancelled' };
   }
 
+  async stop(): Promise<void> {
+    this.activeToolAbort?.abort();
+    try {
+      await this.session?.abort();
+      if (this.activePrompt) await this.activePrompt;
+    } finally { this.dispose(); }
+  }
+
   dispose(): void {
     this.unsubscribe?.();
     this.unsubscribe = null;
@@ -239,9 +281,11 @@ export class OperatorPiConversation {
       await operation;
       const task = this.metadata?.tasks[taskId];
       if (task && task.status === 'running') task.status = 'completed';
-    } catch {
+    } catch (error) {
       const task = this.metadata?.tasks[taskId];
       if (task && task.status === 'running') task.status = 'failed';
+      const authFailure = safePiAuthFailure(error);
+      if (task && authFailure) task.authFailure = authFailure;
     } finally {
       this.pendingFollowUp = false;
       this.pendingSteer = false;
@@ -252,6 +296,10 @@ export class OperatorPiConversation {
   }
 
   private captureEvent(event: unknown): void {
+    // Authentication detail is task metadata, never credential-bearing SDK text.
+    // Native transport sanitizes upstream error bodies before Pi can persist them.
+    const authFailure = safePiAuthFailure(event);
+    if (authFailure) event = { type: 'auth_failure', authFailure };
     let bytes: number;
     try { bytes = new TextEncoder().encode(JSON.stringify(event)).byteLength; }
     catch { return; }

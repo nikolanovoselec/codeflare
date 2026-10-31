@@ -102,6 +102,21 @@ describe('AI routing review', () => {
     expect(screen.getByRole('button', { name: 'Confirm Save' })).toBeEnabled();
   });
 
+  it('REQ-ENTERPRISE-088: Review shows the native default change without implying a permission grant or managed-route change', () => {
+    const existing = values();
+    const current = { ...existing, groupRouting: [{ ...existing.groupRouting[0],
+      allowPersonalPiProviders: true, piDefaultSource: 'managed' }] };
+    const after = current.groupRouting.map(group => ({ ...group, piDefaultSource: 'pi-native' }));
+    renderReview(current, preview({ changes: [{ field: 'groupRouting', before: current.groupRouting, after }] }), current);
+    const policy = within(screen.getByRole('region', { name: 'Group access' }))
+      .getByRole('article', { name: 'Platform engineers' });
+    const source = within(policy).getByText('Pi default source').parentElement!;
+    expect(within(source).getByRole('definition')).toHaveTextContent(/Pi built-in providers/);
+    const permission = within(policy).getByText('Native Pi providers').parentElement!;
+    expect(within(permission).getByRole('definition')).toHaveTextContent(/^Allowed with personal authentication$/);
+    expect(within(within(policy).getByText('Default route').parentElement!).getByRole('definition')).toHaveTextContent(/^production$/);
+  });
+
   it.each([false, true])('REQ-ENTERPRISE-046: labels changed route sections Dynamic routes and Native routes (saved: %s)', (saved) => {
     const reviewed = { ...values(), nativeTargets: [{ label: 'Opus5', model: 'eu.anthropic.claude-opus-5', region: 'eu-central-1', contextWindow: 200000, enabled: true }] };
     const changes = additions(reviewed);

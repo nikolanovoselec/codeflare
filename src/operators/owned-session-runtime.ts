@@ -28,6 +28,7 @@ export interface OperatorContainerStub {
   configureOperatorResources?(resources: OperatorPackageResourceProjection): Promise<void>;
   configureOperatorAttachments?(attachments: OperatorAttachmentProjection): Promise<void>;
   configureOperatorContext(profile: unknown, authority: JwtStampingAuthority): Promise<void>;
+  bindOperatorAuthority?(authority: JwtStampingAuthority): Promise<void>;
   startAndWaitForPorts(): Promise<void>;
   getState(): Promise<{ status: string }>;
   fetch(request: Request): Promise<Response>;
@@ -39,6 +40,7 @@ export class ContainerOwnedSessionRuntime implements OwnedOperatorSessionRuntime
   constructor(private readonly options: { activityId: string; ownerBucket: string; sessionId: string;
     userEmail: string; userGroups: string[]; routes: OperatorRouteConfig; bootstrap: OperatorSessionBootstrap;
     packageResources?: OperatorPackageResourceProjection | null; attachments?: OperatorAttachmentProjection | null;
+    current?: () => Promise<void>;
     resolve: (containerId: string) => OperatorContainerStub }) {}
   private container(sessionId: string): OperatorContainerStub {
     return this.options.resolve(getContainerId(this.options.ownerBucket, sessionId));
@@ -54,22 +56,28 @@ export class ContainerOwnedSessionRuntime implements OwnedOperatorSessionRuntime
       || profile.sessionId !== sessionId) throw new Error('Operator session ownership mismatch');
     const container = this.container(sessionId);
     try {
+      await this.options.current?.();
       await container.setBucketName(this.options.ownerBucket, { sessionId, userEmail: this.options.userEmail,
         userGroups: this.options.userGroups, ...this.options.routes, ...this.options.bootstrap });
+      await this.options.current?.();
       if (this.options.packageResources) {
         if (!container.configureOperatorResources) throw new Error('Operator resource restore unavailable');
         await container.configureOperatorResources(this.options.packageResources);
+        await this.options.current?.();
       }
       if (this.options.attachments) {
         if (!container.configureOperatorAttachments) throw new Error('Operator attachment restore unavailable');
         await container.configureOperatorAttachments(this.options.attachments);
+        await this.options.current?.();
       }
       await container.configureOperatorContext(profile, authority);
+      await this.options.current?.();
     } catch { throw new Error('Operator session configuration failed'); }
   }
   async start(sessionId: string): Promise<void> {
     const container = this.container(sessionId);
-    try { await container.startAndWaitForPorts(); }
+    await this.options.current?.();
+    try { await container.startAndWaitForPorts(); await this.options.current?.(); }
     catch {
       let category = 'unknown';
       try {
@@ -93,14 +101,17 @@ export class ContainerOwnedSessionRuntime implements OwnedOperatorSessionRuntime
   }
   async readiness(sessionId: string): Promise<'starting' | 'ready' | 'stopped' | 'unknown'> {
     try {
+      await this.options.current?.();
       const container = this.container(sessionId);
       const state = await container.getState();
+      await this.options.current?.();
       // SDK state is an observation, not proof that this generation was destroyed.
       if (state.status === 'stopped' || state.status === 'stopping') return 'unknown';
       if (state.status !== 'running' && state.status !== 'healthy') return state.status === 'starting' ? 'starting' : 'unknown';
       const response = await container.fetch(new Request('http://container/health'));
       if (!response.ok) return 'starting';
       const health = await response.json() as { initFlagObserved?: boolean; terminalServiceReady?: boolean };
+      await this.options.current?.();
       return health.initFlagObserved && health.terminalServiceReady ? 'ready' : 'starting';
     } catch { return 'unknown'; }
   }

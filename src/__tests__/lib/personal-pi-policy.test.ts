@@ -48,3 +48,35 @@ describe('REQ-ENTERPRISE-088: native Pi policy selection', () => {
     expect((await loadEnterpriseRouteConfig(env, ['second']) as { allowPersonalPiProviders?: boolean }).allowPersonalPiProviders === true).toBe(false);
   });
 });
+
+
+describe('REQ-ENTERPRISE-088: saved-profile default source', () => {
+  it('preserves an explicit native default separately from personal-provider permission', () => {
+    expect(parseFallbackRouting({ enabled: true, routes: [], defaultRoute: '', reasoning: 'off',
+      allowPersonalPiProviders: true, piDefaultSource: 'pi-native' })).toMatchObject({
+      piDefaultSource: 'pi-native', allowPersonalPiProviders: true,
+    });
+    expect(parseFallbackRouting({ enabled: true, routes: ['route'], defaultRoute: 'route', reasoning: 'off',
+      allowPersonalPiProviders: true, piDefaultSource: 'managed' })).toMatchObject({
+      piDefaultSource: 'managed', allowPersonalPiProviders: true,
+    });
+    expect(() => parseFallbackRouting({ enabled: true, routes: [], defaultRoute: '', reasoning: 'off',
+      allowPersonalPiProviders: true, piDefaultSource: 'not-a-source' })).toThrow();
+  });
+
+  it('retains first-group source precedence and uses only the explicitly enabled fallback', async () => {
+    const kv = createMockKV();
+    const env = { ENTERPRISE_MODE: 'active', KV: kv } as unknown as Env;
+    const base = { routes: [], defaultRoute: '', reasoning: 'off', allowPersonalPiProviders: true };
+    kv._set(SETUP_KEYS.GROUP_ROUTING, { native: { ...base, piDefaultSource: 'pi-native' },
+      managed: { ...base, piDefaultSource: 'managed' } });
+    kv._set(SETUP_KEYS.REASONING_CONFIGURATION, { schemaVersion: 1, customProfileRevisions: [],
+      routeAssignments: {}, fallbackRouting: { ...base, enabled: true, piDefaultSource: 'pi-native' } });
+    expect(await loadEnterpriseRouteConfig(env, ['native', 'managed'])).toMatchObject({ piDefaultSource: 'pi-native' });
+    expect(await loadEnterpriseRouteConfig(env, ['managed', 'native'])).toMatchObject({ piDefaultSource: 'managed' });
+    expect(await loadEnterpriseRouteConfig(env, [])).toMatchObject({ piDefaultSource: 'pi-native' });
+    kv._set(SETUP_KEYS.REASONING_CONFIGURATION, { schemaVersion: 1, customProfileRevisions: [],
+      routeAssignments: {}, fallbackRouting: { enabled: false } });
+    expect((await loadEnterpriseRouteConfig(env, []) as { piDefaultSource?: string }).piDefaultSource ?? 'managed').toBe('managed');
+  });
+});

@@ -504,14 +504,60 @@ describe('CF-016 dispatchInternalRoute', () => {
 });
 
 
-it('REQ-ENTERPRISE-088 AC4: warm internal configuration emits and revokes the native Pi startup hint', async () => {
+it.each([true, false])('REQ-ENTERPRISE-089: cold human configuration persists native source independently of permission (%s)', async enabled => {
+  const persisted = new Map<string, unknown>();
+  const host = makeHost({ env: { ENTERPRISE_MODE: 'active' } as any, _sessionMode: 'advanced' });
+  vi.mocked(host.ctx.storage.put).mockImplementation(async (key: any, value: any) => { persisted.set(key, value); });
+  const response = await dispatchInternalRoute(host, new Request('http://container/_internal/setBucketName', {
+    method: 'POST', body: JSON.stringify({ bucketName: 'b', routeCatalog: ['development'],
+      defaultRoute: 'development', defaultReasoning: 'medium', allowPersonalPiProviders: enabled, piDefaultSource: 'pi-native' }),
+  }))!;
+  expect(response.status).toBe(200);
+  // Intentional persisted startup and next-start environment contracts.
+  expect(persisted.get('piDefaultSource')).toBe('pi-native');
+  expect(persisted.get('allowPersonalPiProviders')).toBe(enabled);
+  expect(host.envVars.ENTERPRISE_PI_DEFAULT_SOURCE).toBe('pi-native');
+  expect(host.envVars.ENTERPRISE_PI_PERSONAL_PROVIDERS).toBe(enabled ? 'true' : undefined);
+  expect(host.envVars.ENTERPRISE_DEFAULT_ROUTE).toBe('development');
+  expect(host.envVars.ENTERPRISE_DEFAULT_REASONING).toBe('medium');
+});
+
+it.each(['invalid', '', null, true, 1])('REQ-ENTERPRISE-089: malformed source %s cannot change warm startup configuration', async source => {
+  const host = makeHost({ env: { ENTERPRISE_MODE: 'active' } as any, _bucketName: 'b',
+    _piDefaultSource: 'managed', envVars: { ENTERPRISE_DEFAULT_ROUTE: 'development' } });
+  const response = await dispatchInternalRoute(host, new Request('http://container/_internal/setBucketName', {
+    method: 'POST', body: JSON.stringify({ bucketName: 'b', routeCatalog: [], piDefaultSource: source }),
+  }))!;
+  expect(response.status).toBe(400);
+  expect(host.envVars).toEqual({ ENTERPRISE_DEFAULT_ROUTE: 'development' });
+});
+
+it.each([{ routeCatalog: [] }, { routeCatalog: ['development'] }])('REQ-ENTERPRISE-088 AC4: warm internal configuration emits and revokes the native Pi startup hint', async ({ routeCatalog }) => {
   const host = makeHost({ env: { ENTERPRISE_MODE: 'active' } as any, _bucketName: 'b', _sessionMode: 'advanced', _userGroups: [] });
-  for (const enabled of [true, false]) {
+  const persisted = new Map<string, unknown>();
+  vi.mocked(host.ctx.storage.put).mockImplementation(async (key: any, value: any) => { persisted.set(key, value); });
+  for (const { enabled, source } of [
+    { enabled: true, source: 'pi-native' },
+    { enabled: true, source: 'managed' },
+    { enabled: false, source: 'pi-native' },
+    { enabled: false, source: 'managed' },
+    { enabled: true, source: 'pi-native' },
+    { enabled: true, source: undefined },
+  ]) {
     const response = await dispatchInternalRoute(host, new Request('http://container/_internal/setBucketName', {
       method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ bucketName: 'b', routeCatalog: [], allowPersonalPiProviders: enabled }),
+      body: JSON.stringify({ bucketName: 'b', routeCatalog, defaultRoute: routeCatalog[0] ?? '',
+        defaultReasoning: routeCatalog.length ? 'medium' : '', allowPersonalPiProviders: enabled, piDefaultSource: source }),
     }))!;
     expect(response.status).toBe(409);
+    expect(persisted.get('piDefaultSource')).toBe(source ?? 'managed');
+    expect(persisted.get('allowPersonalPiProviders')).toBe(enabled);
     expect(host.envVars.ENTERPRISE_PI_PERSONAL_PROVIDERS).toBe(enabled ? 'true' : undefined);
+    expect(host.envVars.ENTERPRISE_ROUTE_CATALOG).toBe(JSON.stringify(routeCatalog));
+    expect(host.envVars.ENTERPRISE_DEFAULT_ROUTE).toBe(routeCatalog[0]);
+    expect(host.envVars.ENTERPRISE_DEFAULT_REASONING).toBe(routeCatalog.length ? 'medium' : '');
+    // Intentional next-start environment contract; source revocation is independent of permission revocation.
+    if (source === 'pi-native') expect(host.envVars.ENTERPRISE_PI_DEFAULT_SOURCE).toBe('pi-native');
+    else expect(host.envVars.ENTERPRISE_PI_DEFAULT_SOURCE).not.toBe('pi-native');
   }
 });

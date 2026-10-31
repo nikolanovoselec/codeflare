@@ -566,7 +566,37 @@ async function verifyCodeServerRuntime() {
   const ftpClient = new basicFtp.Client();
   ftpClient.close();
   assert.equal(ftpClient.closed, true);
+
+  // Dependency pin contract: exercise the installed redirect overlay, not a runner copy.
+  assert.equal(requireFromCodeServer('follow-redirects/package.json').version, '1.16.2');
+  const redirectServer = createServer((request, response) => {
+    if (request.url === '/redirect') response.writeHead(302, { Location: '/complete' }).end();
+    else response.end('follow-redirects-smoke');
+  });
+  await new Promise((resolve, reject) => {
+    redirectServer.once('error', reject);
+    redirectServer.listen(0, '127.0.0.1', resolve);
+  });
+  try {
+    const body = await new Promise((resolve, reject) => {
+      const request = requireFromCodeServer('follow-redirects').http.get(
+        `http://127.0.0.1:${redirectServer.address().port}/redirect`, { timeout: 5_000 }, response => {
+          let result = '';
+          response.setEncoding('utf8');
+          response.on('data', chunk => { result += chunk; });
+          response.once('error', reject);
+          response.once('end', () => resolve(result));
+        });
+      request.once('error', reject);
+      request.once('timeout', () => request.destroy(new Error('redirect overlay smoke timed out')));
+    });
+    assert.equal(body, 'follow-redirects-smoke');
+  } finally {
+    redirectServer.closeAllConnections();
+    await new Promise(resolve => redirectServer.close(resolve));
+  }
   for (const [packageName, minimumVersion] of [
+    ['libexpat1', '2.5.0-1+deb12u5'],
     ['libde265-0', '1.0.11-1+deb12u3'],
     ['libevent-core-2.1-7', '2.1.12-stable-8+deb12u1'],
   ]) {

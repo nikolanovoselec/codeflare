@@ -86,12 +86,16 @@ These compatibility anchors resolve dated changelog references to retired review
 1. One five-minute deadline, starting at the first rendered questionnaire or native dialog, completes the invocation with only the first authored option for each unanswered single- or multi-select question and releases its TUI/native-dialog wait. <!-- @impl: scripts/rpiv-question-timeout.mjs::withQuestionnaireDeadline --> <!-- @impl: scripts/rpiv-question-timeout.mjs::defaultQuestionnaireAnswers --> <!-- @test: preseed/agents/pi/test/questionnaire-timeout.test.mjs (selects option one only after five unanswered minutes) --> <!-- @test: preseed/agents/pi/test/questionnaire-timeout.test.mjs (retains completed answers and defaults only unanswered questions on one deadline) -->
 2. An option or custom answer submitted before expiry completes normally without waiting for the deadline. <!-- @impl: scripts/rpiv-question-timeout.mjs::withQuestionnaireDeadline --> <!-- @test: preseed/agents/pi/test/questionnaire-timeout.test.mjs (preserves) -->
 3. Timeout preserves completed answers, manual multiple selections, and saved or currently edited notes. <!-- @impl: scripts/rpiv-question-timeout.mjs::defaultQuestionnaireAnswers --> <!-- @impl: scripts/patch-rpiv-question-timeout.mjs::patchQuestionnaireTimeout --> <!-- @test: preseed/agents/pi/test/questionnaire-timeout.test.mjs (retains completed answers and defaults only unanswered questions on one deadline) --> <!-- @test: preseed/agents/pi/test/questionnaire-timeout.test.mjs (TUI timeout preserves completed and currently edited notes) --> <!-- @test: preseed/agents/pi/test/questionnaire-timeout.test.mjs (preserves manual multiple selections while defaulting another question) -->
-4. Automatic answers are identified individually and at result level in the tool details and model-facing content, not represented as a user response or explicit authorization. <!-- @impl: scripts/rpiv-question-timeout.mjs::withQuestionnaireDeadline --> <!-- @test: preseed/agents/pi/test/questionnaire-timeout.test.mjs (selects option one only after five unanswered minutes) -->
+4. Automatic answers remain identified individually and at result level and are never represented as manual responses. <!-- @impl: preseed/agents/pi/extensions/questionnaire-timeout-authorization.ts::questionnaireTimeoutAuthorization -->
+5. The managed public `tool_result` policy treats successful, non-cancelled `ask_user_question` timeout selections as standing user-delegated authorization without routine re-confirmation only when the actual automatic recommended selection matches the original question and options. <!-- @impl: preseed/agents/pi/extensions/questionnaire-timeout-authorization.ts::questionnaireTimeoutAuthorization -->
+6. Non-recommended defaults, cancellation, errors and invalid or unrecognized results gain no authorization. <!-- @impl: preseed/agents/pi/extensions/questionnaire-timeout-authorization.ts::questionnaireTimeoutAuthorization -->
 
 **Constraints:**
 
-- The first option is the recommended default.
-- Automatic selection never authorizes protected operations that require explicit user approval.
+- Keep the first authored option as the timeout default; never reorder options to find a recommendation.
+- Timeout delegation applies only to verified automatic recommended selections; preserve all manual answers, previews, notes, global notes and tool details.
+- Delegation does not bypass protected server grants, security boundaries or platform constraints.
+- Deliver this policy as manifest-listed managed TypeScript content in both Pi modes using the installed public `tool_result` hook; keep image-owned deadlines/helpers, upstream bytes, SDK, dependencies, pins and user configuration unchanged.
 - Scope is the managed Pi questionnaire only, not Claude native questions, Plan questions, Impeccable, or unrelated UI dialogs.
 - Keep dependency pins and archive integrity unchanged; do not modify restored user configuration.
 - RPC wait release does not prove visual dialog dismissal in every external client.
@@ -100,7 +104,7 @@ These compatibility anchors resolve dated changelog references to retired review
 
 **Dependencies:** [REQ-AGENT-210](#req-agent-210-managed-extension-startup-preparation)
 
-**Verification:** Actual pinned package through the SDK-wrapped tool, real TUI component input and native-dialog host responses with a platform clock; final exact-head CI and deployed acceptance remain separate gates.
+**Verification:** Existing actual-package tests cover questionnaire deadlines and automatic-answer provenance, not the managed authorization handler. Handler behavioral coverage is absent under the user-authorized no-new-questionnaire-tests exception; source/seed consistency is not behavioral proof. Signed publication and runtime adoption remain separate gates.
 
 **Status:** Implemented
 
@@ -2540,9 +2544,9 @@ None.
 1. The attribution guard fires not only on `git commit` and `gh pr create` but across `git merge`, `git tag`, `git notes`, and the `gh pr`, `gh issue`, and `gh release` subcommand families, including accepted global-option forms. <!-- @impl: preseed/agents/pi/extensions/guard-helpers.ts::attributionBlockReason --> <!-- @manual -->
 2. The attribution detection set matches genuine attribution signatures only - the canonical commit-attribution-block set plus the brain emoji and `ChatGPT` as a deliberate Pi-guard superset since a Pi session may run a non-Claude model. <!-- @impl: preseed/agents/pi/extensions/guard-helpers.ts::attributionBlockReason --> <!-- @manual -->
 3. The attribution guard does not match a bare `Claude`, so `git`/`gh` commands that name `preseed/agents/claude/` paths are not false-positives. <!-- @impl: preseed/agents/pi/extensions/guard-helpers.ts::attributionBlockReason --> <!-- @manual -->
-4. The guard rejects local build, test, lint, typecheck and development execution, including chained or nested runners; staging similarly named files remains allowed. <!-- @impl: preseed/agents/pi/extensions/guard-helpers.ts::isLocalBuildCommand --> <!-- @test: src/__tests__/lib/pi-local-build-guard.test.ts (REQ-AGENT-052 AC4: Pi local-build guard classifies execution, not staged filenames) -->
-5. The local-build guard honors a user-only consume-on-use sentinel at `/tmp/local-build-bypass`: when present, the guard deletes it and allows the one command through; the block message names the override path. <!-- @impl: preseed/agents/pi/extensions/guard-helpers.ts::localBuildBlockReason --> <!-- @manual -->
-6. The seeded safe-local-check wrapper runs approved read-only analyzers, Node syntax checks, or explicitly named Node test files from any repository through local binaries at low priority with one bounded deadline and no file-count limit. <!-- @impl: preseed/agents/claude/skills/safe-local-checks/scripts/safe-local-check.mjs::FORBIDDEN_ARGUMENTS --> <!-- @impl: preseed/agents/claude/skills/safe-local-checks/scripts/safe-local-check.mjs::repositoryBinary --> <!-- @impl: preseed/agents/claude/skills/safe-local-checks/scripts/safe-local-check.mjs::managedTimeout --> <!-- @impl: preseed/agents/claude/skills/safe-local-checks/scripts/safe-local-check.mjs::runBounded --> <!-- @impl: preseed/agents/claude/skills/safe-local-checks/scripts/safe-local-check.mjs::main --> <!-- @test: host/__tests__/safe-local-check.test.js (REQ-AGENT-052 AC6: managed safe local checks) -->
+4. The guard rejects local build, test, lint, typecheck and development execution, including chained or nested runners; runner names in metadata-only Git pathspecs, directory paths and package-name arrays do not count as execution or consume the user override. <!-- @impl: preseed/agents/pi/extensions/guard-helpers.ts::isLocalBuildCommand --> <!-- @test: src/__tests__/lib/pi-local-build-guard.test.ts (REQ-AGENT-052 AC4: Pi local-build guard classifies execution, not staged filenames) -->
+5. The local-build guard honors a user-only consume-on-use sentinel at `/tmp/local-build-bypass`: when present, the guard deletes it and allows the one guarded command through; failed consumption keeps blocking, and the block message names the override path. <!-- @impl: preseed/agents/pi/extensions/guard-helpers.ts::localBuildBlockReason --> <!-- @test: src/__tests__/lib/pi-local-build-guard.test.ts (REQ-AGENT-052 AC5: user-only consume-on-use build override) -->
+6. Approved analyzer/parser dependencies are image-installed, with repository versions preferred; the seeded wrapper retains read-only execution, syntax checks, explicit Node tests, low priority, one bounded deadline and no file-count limit. <!-- @impl: Dockerfile --> <!-- @impl: preseed/agents/claude/skills/safe-local-checks/scripts/safe-local-check.mjs::FORBIDDEN_ARGUMENTS --> <!-- @impl: preseed/agents/claude/skills/safe-local-checks/scripts/safe-local-check.mjs::repositoryBinary --> <!-- @impl: preseed/agents/claude/skills/safe-local-checks/scripts/safe-local-check.mjs::managedTimeout --> <!-- @impl: preseed/agents/claude/skills/safe-local-checks/scripts/safe-local-check.mjs::runBounded --> <!-- @impl: preseed/agents/claude/skills/safe-local-checks/scripts/safe-local-check.mjs::main --> <!-- @test: host/__tests__/safe-local-check.test.js (REQ-AGENT-052 AC6: managed safe local checks) -->
 7. Checked paths whose canonical targets leave the current repository directly or through symlinks are rejected. <!-- @impl: preseed/agents/claude/skills/safe-local-checks/scripts/safe-local-check.mjs::repositoryFiles --> <!-- @test: host/__tests__/safe-local-check.test.js (REQ-AGENT-052 AC6: managed safe local checks) -->
 
 **Constraints:**
@@ -2555,9 +2559,9 @@ None.
 
 **Dependencies:** [REQ-AGENT-005](#req-agent-005-pro-mode-includes-additional-skills-rules-agents-and-mcp-servers)
 
-**Verification:** Automated tests and manual verification ([safe local check](../../host/__tests__/safe-local-check.test.js))
+**Verification:** Focused wrapper tests cover managed checks; shared-analyzer coverage is authored, with exact-head CI, consuming-image checks and managed delivery still required. <!-- @test: host/__tests__/safe-local-check-image.test.js (uses image-baked Oxlint without dependencies, ignores ancestor/PATH tools, and stays read-only) -->
 
-**Status:** Implemented
+**Status:** Planned
 
 ---
 
@@ -3020,22 +3024,28 @@ None.
 
 ### REQ-AGENT-078: Cloudflare OAuth token refreshed at the `api.cloudflare.com` boundary
 
-**Intent:** A Cloudflare-dashboard OAuth **access token** is short-lived by design (expires in hours), so baking it into the container as `CLOUDFLARE_API_TOKEN` at start left a running non-enterprise session broken after expiry — `wrangler` and browser-run both got `9109 Invalid access token`, with nothing refreshing the container's env var. Instead of baking the real token, inject a non-secret placeholder and intercept `api.cloudflare.com` at the container-egress boundary, stamping a **freshly refreshed** token per request. This reuses the enterprise Browser Rendering interceptor's transport ([REQ-BROWSER-008](browser-run.md#req-browser-008-browser-rendering-token-interception-never-in-the-container)) — one interceptor per host, serving two modes — rather than adding a new class, a container-side refresher, or new storage.
+**Intent:** Refresh managed Cloudflare OAuth credentials at the Worker boundary without replacing an explicitly supplied caller identity. Reuse the existing API/Gateway interceptor rather than introducing another credential store or refresher.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
 1. When the session's Cloudflare token source is `'oauth'`, the container receives only a non-secret placeholder (`CLOUDFLARE_OAUTH_TOKEN_PLACEHOLDER`) as `CLOUDFLARE_API_TOKEN` — the real access token never enters the container env. A non-oauth source (PAT / enterprise) is passed through untouched. <!-- @impl: src/lib/cloudflare-token.ts::applyCloudflareOAuthToken --> <!-- @impl: src/lib/constants.ts::CLOUDFLARE_OAUTH_TOKEN_PLACEHOLDER --> <!-- @impl: src/container/container-env.ts::buildEnvVars --> <!-- @test: src/__tests__/lib/cloudflare-token.test.ts (applyCloudflareOAuthToken (REQ-AGENT-078: injects the placeholder, real token never in the container)) -->
-2. In OAuth sessions (non-enterprise, oauth source only) `api.cloudflare.com` is intercepted and every request — on every path — is re-stamped with a token refreshed within the skew window, so the forwarded credential is the refreshed token, not the baked placeholder. <!-- @impl: src/cloudflare-browser-interceptor.ts::fetchOAuth --> <!-- @impl: src/container/container-interception.ts::cloudflareOauthApi --> <!-- @test: src/__tests__/cloudflare-browser-interceptor.test.ts (stamps a FRESH refreshed token on ANY api.cloudflare.com path (e.g. wrangler), egress DIRECT) -->
-3. Both the REST surface and the CDP WebSocket upgrade (browser-run) are stamped and forwarded via the shared transport, so a session survives past the access-token lifetime for wrangler **and** interactive browser-run. <!-- @impl: src/cloudflare-browser-interceptor.ts::bridge --> <!-- @test: src/__tests__/cloudflare-browser-interceptor.test.ts (bridges the CDP upgrade with the fresh token, returning a FRESH client socket, direct not Gateway) -->
-4. The token is resolved **solely** from the session-bound bucket, never from any request-supplied header — no cross-user token spoofing — and the interceptor fails closed with `401` and no upstream call when no valid token can be minted. <!-- @impl: src/cloudflare-browser-interceptor.ts::fetchOAuth --> <!-- @test: src/__tests__/cloudflare-browser-interceptor.test.ts (REQ-AGENT-078: CloudflareBrowserInterceptor OAuth mode (non-enterprise) — REST) -->
-5. OAuth-mode AI Gateway requests receive the refreshed `cf-aig-authorization` token without changing the caller's `Authorization`. <!-- @impl: src/cloudflare-browser-interceptor.ts::fetchOAuth --> <!-- @impl: src/cloudflare-browser-interceptor.ts::INTERCEPTED_CF_OAUTH_HOSTS --> <!-- @test: src/__tests__/cloudflare-browser-interceptor.test.ts (REQ-AGENT-078: OAuth mode — AI Gateway data-plane (gateway.ai.cloudflare.com)) -->
+2. OAuth sessions forward `api.cloudflare.com` requests with absent credentials or the exact OAuth placeholder using the bound owner token refreshed within its skew window. <!-- @impl: src/cloudflare-browser-interceptor.ts::fetchOAuth --> <!-- @impl: src/container/container-interception.ts::cloudflareOauthApi --> <!-- @test: src/__tests__/cloudflare-browser-interceptor.test.ts (stamps a FRESH refreshed token on ANY api.cloudflare.com path (e.g. wrangler), egress DIRECT) -->
+3. Both the REST surface and the CDP WebSocket upgrade (browser-run) are stamped and forwarded via the shared transport, so a session survives past the access-token lifetime for wrangler **and** interactive browser-run. <!-- @impl: src/cloudflare-browser-interceptor.ts::bridge --> <!-- @test: src/__tests__/container/browser-interception.test.ts (REQ-AGENT-078: registered OAuth CDP relays bidirectional text and binary frames with the bound owner token) -->
+4. Managed OAuth requests without valid authorization from their bound session bucket fail closed with `401` before any upstream call. <!-- @impl: src/cloudflare-browser-interceptor.ts::fetchOAuth --> <!-- @test: src/__tests__/cloudflare-browser-interceptor.test.ts (REQ-AGENT-078: CloudflareBrowserInterceptor OAuth mode (non-enterprise) — REST) -->
+5. Managed OAuth Gateway requests with absent Cloudflare credentials or the exact OAuth placeholder receive refreshed `cf-aig-authorization`. <!-- @impl: src/cloudflare-browser-interceptor.ts::fetchOAuth --> <!-- @impl: src/cloudflare-browser-interceptor.ts::INTERCEPTED_CF_OAUTH_HOSTS --> <!-- @test: src/__tests__/cloudflare-browser-interceptor.test.ts (REQ-AGENT-078: OAuth mode — AI Gateway data-plane (gateway.ai.cloudflare.com)) -->
 6. In an OAuth session the container trusts the platform-mounted intercept CA (`/etc/cloudflare/certs/cloudflare-containers-ca.crt`) so the intercepted `api.cloudflare.com` / `gateway.ai.cloudflare.com` TLS validates in agent runtimes instead of failing `SELF_SIGNED_CERT_IN_CHAIN`. <!-- @impl: entrypoint.sh::CF_OAUTH_CA_SRC --> <!-- @test: host/__tests__/entrypoint-oauth-ca-trust.test.js (REQ-AGENT-078 AC6: non-enterprise OAuth intercept-CA trust (entrypoint.sh)) -->
+7. Explicit API Bearer, complete key/email and Gateway credentials retain their caller identity regardless of managed credential availability or upstream `401`/`403`. <!-- @impl: src/cloudflare-browser-interceptor.ts::CloudflareBrowserInterceptor --> <!-- @impl: src/lib/cloudflare-credentials.ts::classifyCloudflareCredentials --> <!-- @impl: src/lib/personal-pi-forwarding.ts::forwardPersonalPi --> <!-- @test: src/__tests__/personal-pi-interception.test.ts (REQ-AGENT-078: native Cloudflare Gateway preserves caller roles under strict inspection and revocation) --> <!-- @test: src/__tests__/cloudflare-browser-interceptor.test.ts (REQ-AGENT-078: caller Cloudflare credential precedence) --> <!-- @test: src/__tests__/container/browser-interception.test.ts (REQ-BROWSER-008/REQ-AGENT-078: caller identity through registered $mode transport) -->
 
 **Constraints:**
 
-- Enterprise is untouched: the OAuth CF-API interception-registry entry (`cloudflareOauthApi`) is double-guarded (`!isEnterpriseMode` **and** placeholder-value match), so it can never wire or collide on `api.cloudflare.com` in enterprise; the enterprise branch is unchanged.
+- OAuth registration remains non-enterprise-only and placeholder-guarded.
+- Caller precedence applies across OAuth, PAT/plain and Enterprise.
+- PAT/plain sessions retain their transparent transport.
+- Managed OAuth identity uses only the bound session bucket, never request-supplied identity.
+- Explicit caller credentials bypass managed lookup, refresh and fallback.
+- Gateway provider `Authorization` is never selected or rewritten as Cloudflare authentication.
 - The AI Gateway host lives only in `INTERCEPTED_CF_OAUTH_HOSTS` (never the enterprise browser list), so enterprise never intercepts its own `LlmInterceptor` gateway rewrites.
 - `CLOUDFLARE_OAUTH_TOKEN_PLACEHOLDER` must stay distinct from `ENTERPRISE_BROWSER_TOKEN_PLACEHOLDER` — the placeholder value is itself the DO's OAuth-mode wiring signal.
 - The GitHub interceptor is not touched — non-enterprise git stays direct (GitHub tokens are long-lived); `api.cloudflare.com` and `gateway.ai.cloudflare.com` are the only hosts newly intercepted (OAuth-mode only).
@@ -3045,7 +3055,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-064](#req-agent-064-connect-to-cloudflare-via-oauth), [REQ-BROWSER-008](browser-run.md#req-browser-008-browser-rendering-token-interception-never-in-the-container), [REQ-SEC-002](security.md#req-sec-002-api-tokens-never-enter-containers)
 
-**Verification:** Automated test ([Interceptor test](../../src/__tests__/cloudflare-browser-interceptor.test.ts) + [Lib test](../../src/__tests__/lib/cloudflare-token.test.ts) + [OAuth CA-trust test](../../host/__tests__/entrypoint-oauth-ca-trust.test.js))
+**Verification:** Automated test ([Interceptor test](../../src/__tests__/cloudflare-browser-interceptor.test.ts) + [registered REST/CDP transport](../../src/__tests__/container/browser-interception.test.ts) + [Lib test](../../src/__tests__/lib/cloudflare-token.test.ts) + [OAuth CA-trust test](../../host/__tests__/entrypoint-oauth-ca-trust.test.js))
 
 **Status:** Implemented
 
@@ -5127,33 +5137,35 @@ None.
 
 ### REQ-AGENT-154: Build-compatible managed-release discovery
 
-**Intent:** Fresh-required discovery selects the newest signed managed release matching the deployment's exact managed npm lockfile identity within a fixed history bound.
+**Intent:** Explicit fresh-required validation and background refresh select the newest signed managed release matching the deployment's exact managed npm lockfile identity within the same fixed history bound.
 
 **Applies To:** Admin
 
 **Acceptance Criteria:**
 
-1. Discovery examines at most the 1,000 most recent published release records. <!-- @impl: src/lib/remote-curation.ts::resolveManagedEnvironmentRelease --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-AGENT-154 AC1+AC6: bounds compatible-release discovery to the 1,000 most recent records) -->
-2. A runtime-hash mismatch continues discovery. <!-- @impl: src/lib/remote-curation.ts::resolveManagedEnvironmentRelease --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-AGENT-154 AC2+AC3+AC4: skips mismatches and unrelated releases then activates the newest compatible seed) -->
-3. The newest matching signed release activates. <!-- @impl: src/lib/remote-curation.ts::resolveManagedEnvironmentRelease --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-AGENT-154 AC2+AC3+AC4: skips mismatches and unrelated releases then activates the newest compatible seed) -->
-4. Unrelated published releases are ignored. <!-- @impl: src/lib/remote-curation.ts::publishedReleasePage --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-AGENT-154 AC2+AC3+AC4: skips mismatches and unrelated releases then activates the newest compatible seed) -->
-5. An advertised managed release that fails validation stops discovery. <!-- @impl: src/lib/remote-curation.ts::publishedReleasePage --> <!-- @impl: src/lib/remote-curation.ts::resolveManagedEnvironmentRelease --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-AGENT-154 AC5: stops when an advertised history release fails validation) -->
-6. Discovery fails when the bounded history contains no matching runtime hash. <!-- @impl: src/lib/remote-curation.ts::resolveManagedEnvironmentRelease --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-AGENT-154 AC1+AC6: bounds compatible-release discovery to the 1,000 most recent records) -->
+1. Discovery examines at most the 1,000 most recent published release records. <!-- @impl: src/lib/remote-curation.ts::resolveManagedEnvironmentRelease --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-AGENT-154 AC1+AC6: bounds compatible-release discovery to the 1,000 most recent records (fresh-required=%s)) -->
+2. A runtime-hash mismatch continues discovery. <!-- @impl: src/lib/remote-curation.ts::resolveManagedEnvironmentRelease --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-AGENT-154 AC2+AC3+AC4 + REQ-STOR-040 AC2: skips mismatches and unrelated releases then activates the newest compatible seed (fresh-required=%s)) -->
+3. The newest matching signed release activates. <!-- @impl: src/lib/remote-curation.ts::resolveManagedEnvironmentRelease --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-AGENT-154 AC2+AC3+AC4 + REQ-STOR-040 AC2: skips mismatches and unrelated releases then activates the newest compatible seed (fresh-required=%s)) -->
+4. Unrelated published releases are ignored. <!-- @impl: src/lib/remote-curation.ts::publishedReleasePage --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-AGENT-154 AC2+AC3+AC4 + REQ-STOR-040 AC2: skips mismatches and unrelated releases then activates the newest compatible seed (fresh-required=%s)) -->
+5. An advertised managed release that fails validation stops discovery. <!-- @impl: src/lib/remote-curation.ts::publishedReleasePage --> <!-- @impl: src/lib/remote-curation.ts::resolveManagedEnvironmentRelease --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-AGENT-154 AC5: stops when an advertised history release fails validation (fresh-required=%s)) -->
+6. Discovery fails when the bounded history contains no matching runtime hash. <!-- @impl: src/lib/remote-curation.ts::resolveManagedEnvironmentRelease --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-AGENT-154 AC1+AC6: bounds compatible-release discovery to the 1,000 most recent records (fresh-required=%s)) -->
 
 **Constraints:**
 
 - GitHub history uses at most ten 100-record pages.
 - Validation remains memory-bounded and fail closed.
-- Background refresh checks only the latest release.
+- Background refresh reuses bounded compatible-history lookup after a verified runtime mismatch.
+- Background refresh retains the five-minute attempt cache.
+- Session startup does not perform discovery.
 - Hash selection excludes native-engine differences outside the three managed npm lockfiles.
 
 **Priority:** P1
 
 **Dependencies:** [REQ-AGENT-147](#req-agent-147-signed-managed-agent-configuration-releases), [REQ-AGENT-150](#req-agent-150-independent-managed-release-activation-validation)
 
-**Verification:** Automated Worker release-discovery tests
+**Verification:** Automated Worker release-discovery tests; the shared background-lookup correction is pending behavioral RED/GREEN verification.
 
-**Status:** Implemented
+**Status:** Planned
 
 ---
 

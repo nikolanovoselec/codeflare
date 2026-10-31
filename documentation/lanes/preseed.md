@@ -122,7 +122,7 @@ Context-mode and Evaluate [remain pinned](../../preseed/agents/pi/package.json).
 
 The [Pi package reference](../references/pi-packages.md#loading-and-warm-compatibility) owns current native-MCP and adapter lifecycle behavior. Managed startup disables `builtin:mcp` with `-builtin:mcp`, preserves unrelated extension selections, and leaves the adapter as the managed MCP lifecycle owner. A historical command-replacement warning is not proof of correct ownership or itself a crash diagnosis.
 
-The image-owned questionnaire transform completes an unanswered Pi `ask_user_question` after five minutes. It keeps completed answers and notes, defaults only unanswered questions to their first authored option, and finishes through the existing TUI/native-dialog lifecycle. Automatic answers are labelled in both the result and model-facing text and are not user authorization ([REQ-AGENT-218](../../sdd/spec/agents.md#req-agent-218-bounded-pi-questionnaire-wait)). Cancellation, abort, errors and independent invocations retain their distinct outcomes ([REQ-AGENT-219](../../sdd/spec/agents.md#req-agent-219-pi-questionnaire-cancellation-and-isolation)); Claude and Plan Mode questions are unchanged.
+The image-owned questionnaire transform completes an unanswered Pi `ask_user_question` after five minutes. It keeps completed answers and notes, defaults only unanswered questions to their first authored option, and finishes through the existing TUI/native-dialog lifecycle. Automatic answers remain labelled and are not manual responses. Only verified successful automatic recommended selections count as standing user-delegated authorization without routine re-confirmation; other defaults gain none, and protected server grants, security boundaries and platform constraints remain unchanged ([REQ-AGENT-218](../../sdd/spec/agents.md#req-agent-218-bounded-pi-questionnaire-wait)). Cancellation, abort, errors and independent invocations retain their distinct outcomes ([REQ-AGENT-219](../../sdd/spec/agents.md#req-agent-219-pi-questionnaire-cancellation-and-isolation)); Claude and Plan Mode questions are unchanged.
 
 The exact-version/source guard runs before image JITI warming, after package update/repair and in the shared RPIV shadow-pin verifier ([REQ-AGENT-220](../../sdd/spec/agents.md#req-agent-220-managed-questionnaire-preparation), [REQ-AGENT-210](../../sdd/spec/agents.md#req-agent-210-managed-extension-startup-preparation)). Source implementation is present; final exact-head CI and deployed acceptance remain separate gates. <!-- @impl: Dockerfile::patch-rpiv-question-timeout --> <!-- @impl: entrypoint.sh::update_pi_and_codex_when_fast_start_disabled --> <!-- @impl: scripts/verify-rpiv-host-peers.mjs -->
 
@@ -558,12 +558,13 @@ Vault note capture, and path-scoped Cloudflare Workers routing. Generic language
 remain absent.
 
 The default+advanced `safe-local-checks` skill supplies the operational policy and one
-managed wrapper for every repository. It resolves only already-installed local
-Oxlint, ESLint, Biome, or Prettier binaries, permits full-project read-only checks with
-no file-count limit, and runs them at low priority for at most three minutes. Node
-syntax checks and explicitly named Node test files use the same deadline. TypeScript syntax parsing prefers repository-local
-`esbuild` and falls back to the exact immutable copy under `/opt/codeflare/npm-tools`,
-so managed sessions need no project install for this supplemental check. This parser
+managed wrapper for every repository. The image supplies every supported analyzer
+and parser dependency; repository versions take precedence over the fixed image
+copies, without per-repository setup, downloads, or arbitrary `PATH` lookup.
+Full-project read-only checks have no file-count limit and run at low priority for
+at most three minutes. Node syntax checks and explicitly named Node test files use
+the same deadline. TypeScript and YAML parsing retain repository-first resolution
+and use available approved image copies when project dependencies are absent. This parser
 selection follows [REQ-AGENT-192](../../sdd/spec/agents.md#req-agent-192-image-baked-typescript-syntax-parser). <!-- @impl: preseed/agents/claude/skills/safe-local-checks/scripts/safe-local-check.mjs::syntaxParserRequire -->
 
 Under [REQ-AGENT-157 AC6–AC7](../../sdd/spec/agents.md#req-agent-157-managed-local-check-delivery-policy),
