@@ -810,6 +810,36 @@ describe('Pi marker-or-dialog review ingress', () => {
     expect(app.sent).toHaveLength(0);
   });
 
+  it('retains explicit Mark review complete across a fresh extension instance without launching review', async () => {
+    const input = fixture();
+    const first = await harness(input, ['Mark review complete']);
+    await first.emit('tool_result', boundary('git pull'));
+    expect(readCompletion(input.identity, { root: join(input.home, '.codeflare/review-state/v1') })).toMatchObject({
+      status: 'complete', marker: input.identity,
+    });
+    expect(first.sent).toHaveLength(0);
+
+    const resumed = await harness(input);
+    await resumed.emit('session_start', { reason: 'resume' });
+    expect(resumed.prompts).toHaveLength(0);
+    expect(resumed.sent).toHaveLength(0);
+  });
+
+  it('does not apply Mark review complete to a head that changed while the choice was open', async () => {
+    const input = fixture();
+    const app = await harness(input);
+    app.ctx.ui.select = async () => {
+      input.head = 'b'.repeat(40);
+      input.pr.headRefOid = input.head;
+      return 'Mark review complete';
+    };
+    await app.emit('tool_result', boundary('git pull'));
+    const root = join(input.home, '.codeflare/review-state/v1');
+    expect(readCompletion(input.identity, { root }).status).toBe('missing');
+    expect(readCompletion({ ...input.identity, head: input.head }, { root }).status).toBe('missing');
+    expect(app.sent).toHaveLength(0);
+  });
+
   it('honors an existing user-scoped marker without prompting', async () => {
     const input = fixture();
     writeCompletion(input.identity, {

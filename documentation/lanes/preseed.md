@@ -558,12 +558,13 @@ Vault note capture, and path-scoped Cloudflare Workers routing. Generic language
 remain absent.
 
 The default+advanced `safe-local-checks` skill supplies the operational policy and one
-managed wrapper for every repository. It resolves only already-installed local
-Oxlint, ESLint, Biome, or Prettier binaries, permits full-project read-only checks with
-no file-count limit, and runs them at low priority for at most three minutes. Node
-syntax checks and explicitly named Node test files use the same deadline. TypeScript syntax parsing prefers repository-local
-`esbuild` and falls back to the exact immutable copy under `/opt/codeflare/npm-tools`,
-so managed sessions need no project install for this supplemental check. This parser
+managed wrapper for every repository. The image supplies every supported analyzer
+and parser dependency; repository versions take precedence over the fixed image
+copies, without per-repository setup, downloads, or arbitrary `PATH` lookup.
+Full-project read-only checks have no file-count limit and run at low priority for
+at most three minutes. Node syntax checks and explicitly named Node test files use
+the same deadline. TypeScript and YAML parsing retain repository-first resolution
+and use available approved image copies when project dependencies are absent. This parser
 selection follows [REQ-AGENT-192](../../sdd/spec/agents.md#req-agent-192-image-baked-typescript-syntax-parser). <!-- @impl: preseed/agents/claude/skills/safe-local-checks/scripts/safe-local-check.mjs::syntaxParserRequire -->
 
 Under [REQ-AGENT-157 AC6–AC7](../../sdd/spec/agents.md#req-agent-157-managed-local-check-delivery-policy),

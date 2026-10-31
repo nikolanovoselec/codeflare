@@ -107,14 +107,16 @@ async function repositoryRequire(cwd, packageName) {
   }
 }
 
-async function syntaxParserRequire(cwd) {
+async function syntaxParserRequire(cwd, packageName = 'esbuild') {
+  if (packageName !== 'esbuild' && packageName !== 'yaml') throw new Error('unsupported syntax parser');
   try {
-    return await repositoryRequire(cwd, 'esbuild');
+    return await repositoryRequire(cwd, packageName);
   } catch (repositoryError) {
     try {
-      const imageRoot = await realpath('/opt/codeflare/npm-tools/node_modules');
-      const require = createRequire('/opt/codeflare/npm-tools/package.json');
-      const resolved = await realpath(require.resolve('esbuild'));
+      const imageTools = packageName === 'yaml' ? '/opt/codeflare/oxlint' : '/opt/codeflare/npm-tools';
+      const imageRoot = await realpath(join(imageTools, 'node_modules'));
+      const require = createRequire(join(imageTools, 'package.json'));
+      const resolved = await realpath(require.resolve(packageName));
       const rel = relative(imageRoot, resolved);
       if (rel.startsWith('..') || rel === '' || parse(rel).root) throw new Error('outside image tools');
       return require(resolved);
@@ -207,7 +209,7 @@ async function checkJson(args) {
 
 async function checkYaml(args) {
   const { files } = await repositoryFiles(args, 'yaml');
-  const yaml = await repositoryRequire(process.cwd(), 'yaml');
+  const yaml = await syntaxParserRequire(process.cwd(), 'yaml');
   for (const file of files) {
     const doc = yaml.parseDocument(await readFile(file, 'utf8'));
     if (doc.errors?.length) throw new Error(`${file}: ${doc.errors[0].message}`);
@@ -346,8 +348,10 @@ async function main() {
   if (mode === 'pi-preseed') return checkPiPreseed();
   if (!ANALYZERS.has(mode)) throw new Error(`unsupported analyzer ${JSON.stringify(mode)}`);
   validateReadOnly(mode, args);
-  const binary = await repositoryBinary(mode, process.cwd());
-  if (!binary) throw new Error(`repository-local ${mode} is not installed`);
+  let binary = await repositoryBinary(mode, process.cwd());
+  const imageBinary = join('/opt/codeflare/oxlint/node_modules/.bin', mode);
+  if (!binary && await executable(imageBinary)) binary = imageBinary;
+  if (!binary) throw new Error(`repository-local ${mode} is not installed and no approved image analyzer is available`);
   return runBounded(binary, args, managedTimeout());
 }
 

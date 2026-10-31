@@ -483,9 +483,12 @@ COPY scripts/ci/coding-agent-selection-core.mjs scripts/ci/coding-agent-selectio
 RUN cd /opt/codeflare/oxlint && \
     npm ci --omit=dev --ignore-scripts --no-audit --no-fund && \
     node /opt/codeflare/scripts/prune-npm-platform-artifacts.mjs node_modules && \
-    [ -e node_modules/.bin/oxlint ] && \
-    ln -sf "$(readlink -f node_modules/.bin/oxlint)" /usr/local/bin/oxlint && \
-    oxlint --version
+    for tool in oxlint eslint biome prettier; do \
+      [ -e "node_modules/.bin/$tool" ] || exit 1; \
+      ln -sf "$(readlink -f "node_modules/.bin/$tool")" "/usr/local/bin/$tool"; \
+      "$tool" --version || exit 1; \
+    done && \
+    node -e "require('yaml').parse('ready: true')"
 # npm ci already installs the locked production tree for the full agent selection.
 # For reduced selections, remove omitted agent roots without re-resolving the
 # already integrity-checked tree; npm prune fails on the Pi-only image.

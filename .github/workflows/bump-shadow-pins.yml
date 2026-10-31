@@ -9,7 +9,7 @@ name: Bump Shadow Pins
 #   so no Dockerfile literal to bump)
 # - Herdr, zoxide, yazi, lazygit, silverbullet, code-server (GitHub release binaries pinned in Dockerfile; code-server also owns its embedded Code gitlink)
 # - Anthropic's official Claude Code Open VSX package (version + linux-x64 SHA-256 metadata)
-# - lock-backed image npm tools: agent CLIs, Bun, context-mode,
+# - lock-backed image npm tools: agent CLIs, Bun, esbuild, context-mode,
 #   consult-llm-mcp, and chrome-devtools-mcp
 # - uv versioned GitHub archive + authoritative SHA-256 digest
 # - browser-run-mcp: @modelcontextprotocol/sdk manifest + lock pin
@@ -1152,8 +1152,14 @@ jobs:
           gh pr create --base develop --head "$BRANCH" --title "chore(deps): bump uv $CUR -> $LAT" --body "Updates the immutable uv release archive and its authoritative SHA-256 digest together. CI verifies the digest before extraction."
 
   bun:
-    # Bun is installed from the shared lock because context-mode
-    # autodetects it for faster ctx_execute/ctx_batch_execute subprocess starts.
+    # Shared tools require atomic manifest, lock and generated-seed updates.
+    name: Bump shared tool (${{ matrix.package }})
+    strategy:
+      fail-fast: false
+      matrix:
+        package: [bun, esbuild]
+    env:
+      PKG: ${{ matrix.package }}
     runs-on: ubuntu-24.04
     # Without this every job inherits the 360-minute ceiling. These jobs curl
     # third-party hosts with no --max-time and several run `npm ci`; a hung TLS
@@ -1178,7 +1184,7 @@ jobs:
         id: cooldown
         uses: ./.github/actions/npm-cooldown-version
         with:
-          package: bun
+          package: ${{ matrix.package }}
 
       - name: Diff Dockerfile pin against npm latest
         id: ver
@@ -1186,7 +1192,7 @@ jobs:
           COOLDOWN_VERSION: ${{ steps.cooldown.outputs.version }}
         run: |
           set -euo pipefail
-          CURRENT=$(node -p "require('./preseed/npm-tools/package.json').dependencies.bun")
+          CURRENT=$(node -p "require('./preseed/npm-tools/package.json').dependencies[process.env.PKG]")
           LATEST="$COOLDOWN_VERSION"
           if [ -z "$LATEST" ]; then echo "skip=true" >> "$GITHUB_OUTPUT"; echo "Nothing past the cooldown."; exit 0; fi
           echo "current=$CURRENT" >> "$GITHUB_OUTPUT"
@@ -1208,7 +1214,7 @@ jobs:
           LAT: ${{ steps.ver.outputs.latest }}
         id: branch
         run: |
-          BRANCH="bump/bun-$LAT"
+          BRANCH="bump/$PKG-$LAT"
           if git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null 2>&1; then
             echo "Branch $BRANCH already exists, skipping (existing PR likely open)."
             echo "skip=true" >> "$GITHUB_OUTPUT"
@@ -1229,7 +1235,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git checkout -B "$BRANCH"
           node scripts/update-npm-tool-manifests.mjs \
-            preseed/npm-tools/package.json bun "$CUR" "$LAT"
+            preseed/npm-tools/package.json "$PKG" "$CUR" "$LAT"
           node scripts/regenerate-npm-package-lock.mjs preseed/npm-tools
           node scripts/generate-agent-seed.mjs
           git add preseed/npm-tools/package.json preseed/npm-tools/package-lock.json src/lib/agent-seed.generated.ts
@@ -1237,7 +1243,7 @@ jobs:
             echo "Nothing changed - aborting."
             exit 1
           fi
-          git commit -m "chore(deps): bump bun $CUR -> $LAT"
+          git commit -m "chore(deps): bump $PKG $CUR -> $LAT"
           git push "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "HEAD:refs/heads/$BRANCH"
 
       - name: Open PR
@@ -1250,22 +1256,22 @@ jobs:
         run: |
           set -euo pipefail
           BODY=$(cat <<EOF
-          Auto-generated bump of \`bun\` from \`$CUR\` to \`$LAT\`.
+          Auto-generated bump of \`$PKG\` from \`$CUR\` to \`$LAT\`.
 
-          Bun is installed for context-mode subprocess startup speed from the committed image-tools lock.
+          Shared tool update from the committed image-tools lock, including the generated runtime identity.
 
           Files updated:
           - \`preseed/npm-tools/package.json\` + \`package-lock.json\`
 
           ## Test plan
           - [ ] CI green
-          - [ ] Smoke test on integration: \`ctx_execute\` still detects Bun and starts quickly
+          - [ ] Smoke test the updated tool on integration
           EOF
           )
           gh pr create \
             --base develop \
             --head "$BRANCH" \
-            --title "chore(deps): bump bun $CUR -> $LAT" \
+            --title "chore(deps): bump $PKG $CUR -> $LAT" \
             --body "$BODY"
 
   # Every Pi extension in preseed/agents/pi/package.json (the @juicesharp rpiv

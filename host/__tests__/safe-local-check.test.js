@@ -58,6 +58,36 @@ describe('REQ-AGENT-052 AC6: managed safe local checks', () => {
     assert.ok(Number(readFileSync(join(root, 'niceness.txt'), 'utf8').trim()) >= 10);
   });
 
+  it('prefers the nearest repository-local copy for every supported analyzer', () => {
+    for (const [name, args] of [
+      ['oxlint', ['.']], ['eslint', ['.']], ['biome', ['check', '.']], ['prettier', ['--check', '.']],
+    ]) {
+      const root = fixture(name, 'exit 21\n');
+      mkdirSync(join(root, '.git'));
+      const nested = join(root, 'packages', 'app');
+      const bin = join(nested, 'node_modules', '.bin');
+      mkdirSync(bin, { recursive: true });
+      writeFileSync(join(bin, name), '#!/bin/sh\nexit 23\n', { mode: 0o755 });
+      const child = join(nested, 'src');
+      mkdirSync(child);
+
+      assert.equal(run(child, [name, ...args]).status, 23, `${name}: nearest analyzer must win`);
+      assert.equal(run(root, [name, ...args]).status, 21, `${name}: local analyzer must win over image`);
+    }
+  });
+
+  it('does not resolve an analyzer from arbitrary PATH entries', () => {
+    const parent = fixture('eslint', 'printf unexpected > "$SAFE_CHECK_CAPTURE"\nexit 23\n');
+    const root = join(parent, 'repository');
+    mkdirSync(join(root, '.git'), { recursive: true });
+    const result = run(root, ['eslint', '--help'], {
+      PATH: `${join(parent, 'node_modules', '.bin')}:${process.env.PATH}`,
+    });
+
+    assert.equal(result.status, existsSync('/opt/codeflare/npm-tools/node_modules/.bin/eslint') ? 0 : 2, result.stderr);
+    assert.equal(existsSync(join(root, 'capture.txt')), false, 'PATH analyzer must not start');
+  });
+
   it('does not impose a file-count limit', () => {
     const root = fixture('oxlint');
     const files = Array.from({ length: 75 }, (_, index) => `src/file-${index}.ts`);
@@ -76,6 +106,8 @@ describe('REQ-AGENT-052 AC6: managed safe local checks', () => {
       ['eslint', '--cache', '.'],
       ['eslint', '--cache-location=.cache/eslint', '.'],
       ['eslint', '--init'],
+      ['biome', 'check', '--write', '.'],
+      ['prettier', '--check', '--write', '.'],
     ]) {
       const root = fixture(args[0]);
       const result = run(root, args);
@@ -91,19 +123,29 @@ describe('REQ-AGENT-052 AC6: managed safe local checks', () => {
     const parent = fixture('eslint');
     const root = join(parent, 'repository');
     mkdirSync(join(root, '.git'), { recursive: true });
-    const result = run(root, ['eslint', '.']);
+    const result = run(root, ['eslint', '--help']);
 
-    assert.equal(result.status, 2);
-    assert.match(result.stderr, /repository-local eslint/i);
-    assert.equal(existsSync(join(parent, 'capture.txt')), false, 'ancestor analyzer must not start');
+    assert.equal(result.status, existsSync('/opt/codeflare/npm-tools/node_modules/.bin/eslint') ? 0 : 2, result.stderr);
+    assert.equal(existsSync(join(root, 'capture.txt')), false, 'ancestor analyzer must not start');
   });
 
-  it('requires an already-installed repository-local analyzer', () => {
+  it('fails closed for analyzers absent from both approved locations', (t) => {
+    const name = ['eslint', 'biome', 'prettier'].find((tool) =>
+      !existsSync(`/opt/codeflare/npm-tools/node_modules/.bin/${tool}`));
+    if (!name) return t.skip('all supported shared analyzers are installed in this image');
     const root = mkdtempSync(join(tmpdir(), 'safe-local-check-missing-'));
-    const result = run(root, ['eslint', '.']);
+    const args = name === 'biome' ? ['check', '--help'] : name === 'prettier' ? ['--check', '--help'] : ['--help'];
+    const result = run(root, [name, ...args]);
 
     assert.equal(result.status, 2);
-    assert.match(result.stderr, /repository-local eslint/i);
+    assert.match(result.stderr, /not installed.*no approved image analyzer/i);
+  });
+
+  it('does not expose arbitrary image tools as analyzer modes', () => {
+    const root = mkdtempSync(join(tmpdir(), 'safe-local-check-unsupported-'));
+    const result = run(root, ['esbuild', '--help']);
+    assert.equal(result.status, 2);
+    assert.match(result.stderr, /unsupported analyzer/i);
   });
 
   it('requires Prettier check mode', () => {
@@ -168,7 +210,7 @@ describe('REQ-AGENT-052 AC6: managed safe local checks', () => {
     const yamlPackage = join(parent, 'node_modules', 'yaml');
     mkdirSync(join(root, '.git'), { recursive: true });
     mkdirSync(yamlPackage, { recursive: true });
-    writeFileSync(join(root, 'valid.yaml'), 'ok: true\n', 'utf8');
+    writeFileSync(join(root, 'valid.yaml'), 'ok: [\n', 'utf8');
     writeFileSync(join(yamlPackage, 'package.json'), JSON.stringify({
       name: 'yaml',
       version: '1.0.0',
@@ -177,8 +219,22 @@ describe('REQ-AGENT-052 AC6: managed safe local checks', () => {
     writeFileSync(join(yamlPackage, 'index.js'), 'module.exports = { parseDocument: () => ({ errors: [] }) };\n', 'utf8');
 
     const result = run(root, ['yaml', 'valid.yaml']);
-    assert.equal(result.status, 2);
-    assert.match(result.stderr, /repository-local yaml/i);
+    assert.equal(result.status, 2, result.stderr);
+    assert.notEqual(result.stderr, '', 'invalid YAML must fail rather than use the permissive ancestor parser');
+  });
+
+  it('prefers repository-local YAML over the image parser', () => {
+    const root = mkdtempSync(join(tmpdir(), 'safe-local-check-local-yaml-'));
+    const packageRoot = join(root, 'node_modules', 'yaml');
+    mkdirSync(join(root, '.git'));
+    mkdirSync(packageRoot, { recursive: true });
+    writeFileSync(join(root, 'valid.yaml'), 'ok: true\n', 'utf8');
+    writeFileSync(join(packageRoot, 'package.json'), JSON.stringify({ name: 'yaml', main: 'index.cjs' }), 'utf8');
+    writeFileSync(join(packageRoot, 'index.cjs'), "module.exports = { parseDocument: () => ({ errors: [new Error('local YAML diagnostic')] }) };\n", 'utf8');
+
+    const result = run(root, ['yaml', 'valid.yaml']);
+    assert.equal(result.status, 2, result.stderr);
+    assert.match(result.stderr, /local YAML diagnostic/);
   });
 
   it('REQ-AGENT-192 AC1: prefers a repository-local TypeScript syntax parser', () => {

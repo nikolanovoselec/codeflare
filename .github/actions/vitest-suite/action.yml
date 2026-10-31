@@ -147,12 +147,13 @@ runs:
           console_output=/dev/null
         fi
         set +e
-        # Leave headroom inside the 200s CI budget for setup and reporting.
-        # Bound the entire process group/pipeline so stuck descendants cannot
-        # hold the job open through GitHub's long cancellation grace period.
-        # CLI reporters replace the config one; JSON remains mandatory for the gate.
+        # Workers collection and coverage need headroom beyond the observed
+        # 150s interruption; four minutes remains inside the 10-minute job budget.
+        suite_timeout=150s
+        if [[ "$NAME" == backend-shard-* ]]; then suite_timeout=240s; fi
+        # Bound the entire process group/pipeline; completed JSON remains mandatory.
         bash "$GITHUB_WORKSPACE/scripts/ci/run-bounded-suite.sh" \
-          150s "$RUNNER_TEMP/${NAME}.log" "$console_output" \
+          "$suite_timeout" "$RUNNER_TEMP/${NAME}.log" "$console_output" \
           npm run "$SCRIPT" -- "${test_args[@]}" ${SHARD:+--shard="$SHARD"} \
           "${coverage_args[@]}" \
           --reporter="$HUMAN_REPORTER" --reporter=json "${timing_args[@]}" --outputFile.json="$RUNNER_TEMP/${NAME}.json"
