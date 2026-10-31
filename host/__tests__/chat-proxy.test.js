@@ -327,12 +327,12 @@ describe('Codeflare primary-only Chat public adapter boundary', { timeout: 15000
       assert.deepEqual(await answer, automatic); assert.deepEqual(input, []);
     } finally { ws.terminate(); }
   });
-  it('REQ-AGENT-224: an upstream ended primary fences input rather than entering stock auto-resume', async () => {
+  it('REQ-AGENT-224: primary-unavailable close contract fences input and requires explicit reentry', async () => {
     const ws = await connect(port); const closed = once(ws, 'close');
     for (const backend of upstreamWss.clients) backend.send(JSON.stringify({
       type: 'session_updated', sessionId: identity.sessionId, updates: { status: 'ended' },
     }));
-    assert.equal((await closed)[0], 1008); assert.deepEqual(effects, []);
+    assert.equal((await closed)[0], 4002); assert.deepEqual(effects, []);
   });
   it('REQ-AGENT-224: revalidates identity on each frame, not just the handshake', async () => {
     const ws = await connect(port); live = { sessionId: 'replacement', generation: 7 };

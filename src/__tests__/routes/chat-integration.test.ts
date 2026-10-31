@@ -93,6 +93,46 @@ describe('Codeflare shared-primary Chat boundary', () => {
     method: 'POST', body: JSON.stringify({ generation }),
   }), env, ctx);
 
+  const controlRoads: { path: string; method: string; body?: Record<string, unknown> }[] = [
+    { path: '/api/capabilities', method: 'GET' },
+    { path: '/api/provider-auth/providers', method: 'GET' },
+    { path: '/api/provider-auth/status', method: 'GET' },
+    { path: '/api/provider-auth/start', method: 'POST', body: { providerId: 'openai-codex', type: 'oauth' } },
+    { path: '/api/provider-auth/flow/flow-1', method: 'GET' },
+    { path: '/api/provider-auth/flow/flow-1/input', method: 'POST', body: { stepId: 'step-1', value: 'test-code' } },
+    { path: '/api/provider-auth/flow/flow-1', method: 'DELETE' },
+    { path: '/api/provider-auth/logout', method: 'POST', body: { providerId: 'openai-codex' } },
+    { path: '/api/conversations', method: 'GET' },
+    { path: '/api/conversations/new', method: 'POST', body: { sessionId: 'live-primary-pi' } },
+    { path: '/api/conversations/resume', method: 'POST', body: { sessionId: 'live-primary-pi', conversationId: 'older-conversation' } },
+    { path: '/api/conversations/fork', method: 'POST', body: { sessionId: 'live-primary-pi', entryId: 'message-1' } },
+    { path: '/api/preferences/display', method: 'GET' },
+    { path: '/api/preferences/display', method: 'PATCH', body: { reasoning: true } },
+  ];
+  it.each(controlRoads)('REQ-AGENT-224: protected $method $path reaches only its existing owner-scoped Host', async ({ path, method, body }) => {
+    const result = await worker.fetch(request(`${path}?generation=7`, {
+      method, body: body === undefined ? undefined : JSON.stringify(body),
+    }), env, ctx);
+    expect(result.status).toBe(200);
+    expect(await result.json()).toMatchObject({ path: `/api/chat/${sid}${path}` });
+    expect(boundary.wakes).toEqual([]);
+    if (body !== undefined) {
+      // Intentional JSON wire contract: this is the authorized operation body,
+      // not a rewritten identity, browser-provided generation or generic proxy.
+      const forwarded = boundary.forwarded.find(r => new URL(r.url).pathname === `/api/chat/${sid}${path}`)!;
+      expect(await forwarded.json()).toEqual(body);
+    }
+  });
+  it.each(['/api/provider-auth/status', '/api/conversations', '/api/preferences/display'])
+  ('REQ-AGENT-224: new protected family %s cannot bypass owner or generation fences', async path => {
+    boundary.bucket = 'another-owner';
+    expect((await worker.fetch(request(`${path}?generation=7`), env, ctx)).status).toBe(404);
+    boundary.bucket = 'chat-owner';
+    expect((await worker.fetch(request(`${path}?generation=6`), env, ctx)).status).toBe(409);
+    expect(boundary.forwarded).toEqual([]);
+    expect(boundary.wakes).toEqual([]);
+  });
+
   it.each([
     ['classic', 'terminal'], ['herdr', 'terminal'], ['classic', 'vscode'], ['herdr', 'vscode'],
   ])('REQ-AGENT-224: explicit %s/%s attachment preserves owner and generation without a wake', async (terminalMode, workspace) => {

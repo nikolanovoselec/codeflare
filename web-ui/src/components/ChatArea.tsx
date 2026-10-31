@@ -1,6 +1,6 @@
 import { createEffect, createSignal, on, onCleanup, Show } from 'solid-js';
 import type { ChatMountProps, mountChat } from '../chat/ChatMount';
-import { attachChatSession, ChatAttachError } from '../chat/api';
+import { attachChatSession, ChatAttachError, probeChatControls } from '../chat/api';
 
 /** Root owns session-local draft lifetime; unmounting only disposes browser UI/WS. */
 export interface ChatAreaProps {
@@ -19,7 +19,7 @@ export interface ChatAreaProps {
 export default function ChatArea(props: ChatAreaProps) {
   let container!: HTMLDivElement;
   let mounted: ReturnType<typeof mountChat> | undefined;
-  let binding: { sessionId: string; generation: number; boundSessionId: string } | undefined;
+  let binding: { sessionId: string; generation: number; boundSessionId: string; controlsAvailable: boolean } | undefined;
   const [error, setError] = createSignal<string>();
   const [loading, setLoading] = createSignal(true);
   const mountProps = (): ChatMountProps => ({
@@ -43,7 +43,9 @@ export default function ChatArea(props: ChatAreaProps) {
           ? await attachChatSession(sessionId, generation, controller.signal)
           : { sessionId: boundSessionId, generation };
         if (disposed) return;
-        binding = { sessionId, generation, boundSessionId: attached.sessionId };
+        const controlsAvailable = await probeChatControls(sessionId, generation, controller.signal);
+        if (disposed) return;
+        binding = { sessionId, generation, boundSessionId: attached.sessionId, controlsAvailable };
         // The normal Vite chunk is fetched only after explicit authorized entry.
         const { mountChat } = await import('../chat/ChatMount');
         if (disposed) return;
@@ -51,7 +53,7 @@ export default function ChatArea(props: ChatAreaProps) {
         setLoading(false);
       } catch (cause) {
         if (!disposed) {
-          if (cause instanceof ChatAttachError && (cause.status === 401 || cause.status === 403)) props.onAuthError?.(cause.message);
+          if (cause instanceof ChatAttachError && (cause.status === 401 || cause.status === 403 || cause.status === 409)) props.onAuthError?.(cause.message);
           setError(cause instanceof Error ? cause.message : 'Unable to open Chat.'); setLoading(false);
         }
       }

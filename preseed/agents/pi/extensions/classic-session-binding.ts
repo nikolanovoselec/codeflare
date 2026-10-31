@@ -21,6 +21,7 @@ type SessionContext = {
 };
 type ExtensionAPI = {
   on(event: "session_start", handler: (event: SessionStartEvent, ctx: SessionContext) => void): void;
+  on(event: "message_end" | "agent_end", handler: (event: unknown, ctx: SessionContext) => void): void;
 };
 type RuntimeEnvironment = Record<string, string | undefined>;
 
@@ -30,7 +31,7 @@ export function adoptClassicResumedSession(
   env: RuntimeEnvironment = process.env,
 ): boolean {
   if (
-    event.reason !== "resume"
+    (event.reason !== "resume" && event.reason !== "new" && event.reason !== "fork")
     || env.CODEFLARE_TERMINAL_MODE !== "classic"
     || env.TERMINAL_ID !== "1"
     || env.MANUAL_TAB
@@ -49,8 +50,15 @@ export function adoptClassicResumedSession(
     || !PI_SESSION_ID.test(nativeSessionId)
   ) return false;
 
+  let canonicalSessionFile: string;
+  try {
+    canonicalSessionFile = realpathSync(sessionFile);
+  } catch (error) {
+    // Native new sessions allocate a path but remain ephemeral until conversation persistence.
+    if (event.reason === "new" && (error as { code?: string }).code === "ENOENT") return false;
+    throw error;
+  }
   const sessionRoot = realpathSync(resolve(home, ".pi", "agent", "sessions"));
-  const canonicalSessionFile = realpathSync(sessionFile);
   const sessionRelative = relative(sessionRoot, canonicalSessionFile);
   const parts = sessionRelative.split(sep);
   if (sessionRelative.startsWith(`..${sep}`) || isAbsolute(sessionRelative) || parts.length !== 2) return false;
@@ -74,11 +82,35 @@ export default function registerClassicSessionBinding(
   pi: ExtensionAPI,
   env: RuntimeEnvironment = process.env,
 ): void {
-  pi.on("session_start", (event, ctx) => {
+  let pendingNew: { id: string; file: string | undefined } | undefined;
+  const adopt = (event: SessionStartEvent, ctx: SessionContext): void => {
     try {
-      adoptClassicResumedSession(event, ctx, env);
+      if (adoptClassicResumedSession(event, ctx, env)) pendingNew = undefined;
     } catch {
+      pendingNew = undefined;
       ctx.ui.notify("Codeflare could not preserve the selected Classic Pi transcript for the next restart.", "warning");
     }
+  };
+
+  pi.on("session_start", (event, ctx) => {
+    // Every lifecycle transition invalidates the previous explicit adoption intent.
+    pendingNew = event.reason === "new"
+      ? { id: ctx.sessionManager.getSessionId(), file: ctx.sessionManager.getSessionFile() }
+      : undefined;
+    adopt(event, ctx);
   });
+
+  const observePersistence = (_event: unknown, ctx: SessionContext): void => {
+    if (!pendingNew) return;
+    if (ctx.sessionManager.getSessionId() !== pendingNew.id
+      || ctx.sessionManager.getSessionFile() !== pendingNew.file) {
+      pendingNew = undefined;
+      return;
+    }
+    adopt({ reason: "new" }, ctx);
+  };
+  // Extension message_end precedes SDK persistence. A later message or agent_end
+  // observes the native file without manufacturing an empty transcript.
+  pi.on("message_end", observePersistence);
+  pi.on("agent_end", observePersistence);
 }

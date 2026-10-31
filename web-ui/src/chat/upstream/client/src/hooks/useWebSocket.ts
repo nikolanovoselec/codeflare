@@ -70,6 +70,7 @@ export function useWebSocket(url: string, onIdentityExpired?: () => void | Promi
   const hostAuthenticated = options?.hostAuthenticated === true;
   const wsRef = useRef<WebSocket | null>(null);
   const [status, setStatus] = useState<ConnectionStatus>("connecting");
+  const [lastCloseCode, setLastCloseCode] = useState<number>();
   // The live socket, exposed for consumers that attach their OWN `message`
   // listener instead of routing through `onMessage` (the plugin runtime's
   // `usePluginMessage`). State, not the ref, so a (re)connect re-attaches them.
@@ -177,6 +178,7 @@ export function useWebSocket(url: string, onIdentityExpired?: () => void | Promi
       setWs(ws);
 
       ws.onopen = () => {
+        setLastCloseCode(undefined);
         setStatus("connected");
         backoffRef.current = 1000;
         failCountRef.current = 0;
@@ -197,6 +199,11 @@ export function useWebSocket(url: string, onIdentityExpired?: () => void | Promi
 
       ws.onclose = (ev) => {
         setWs(null);
+        setLastCloseCode(ev?.code);
+        if (hostAuthenticated && ev?.code === 4002) {
+          setStatus("offline");
+          return;
+        }
         // The embedding host owns authentication and rejects stale bindings. Never
         // probe Dashboard auth or retry an explicit host policy/auth rejection.
         if (hostAuthenticated && (ev?.code === 4001 || ev?.code === 1008)) {
@@ -371,5 +378,5 @@ export function useWebSocket(url: string, onIdentityExpired?: () => void | Promi
     };
   }, []);
 
-  return { send, onMessage, status, ws, onOutboxExpiry };
+  return { send, onMessage, status, ws, onOutboxExpiry, get lastCloseCode() { return lastCloseCode; } };
 }

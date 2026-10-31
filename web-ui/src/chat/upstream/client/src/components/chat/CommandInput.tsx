@@ -70,6 +70,8 @@ export function parseViewCommand(
 
 interface Props {
   commands: CommandInfo[];
+  /** Embedders may expose only their authorized catalog, without standalone commands. */
+  includeBuiltinCommands?: boolean;
   onSend: (text: string, images?: ImageContent[], delivery?: "steer" | "followUp") => void;
   onListFiles?: (query: string) => void;
   fileResults?: { query: string; files: FileEntry[] } | null;
@@ -291,7 +293,7 @@ function isBelowDeliveryFold(card: HTMLElement | null): boolean {
   return width > 0 && width < DELIVERY_FOLD_REM * (Number.isFinite(root) && root > 0 ? root : 16);
 }
 
-export function CommandInput({ commands: externalCommands, onSend, onListFiles, fileResults, disabled, sessionStatus, retrying, onAbort, onForceKill, onStopAfterTurn, pendingPrompt, onCancelPending, sessionId, draft, onDraftChange, invalid, history, images, onImagesChange, currentCwd, onViewLocal, onOpenInlineTerminal, sessionMessages, model, models, favorites, onToggleFavorite, thinkingLevel, onSelectModel, onSelectThinkingLevel, onRefreshModels, onOpenProviderSettings, modelRefreshErrors, currentTool, streamingText, contextUsage, commandsOrigin, sendLabel, modelTag, thinkingTag, unsetLabel, toolbarExtra }: Props) {
+export function CommandInput({ commands: externalCommands, includeBuiltinCommands = true, onSend, onListFiles, fileResults, disabled, sessionStatus, retrying, onAbort, onForceKill, onStopAfterTurn, pendingPrompt, onCancelPending, sessionId, draft, onDraftChange, invalid, history, images, onImagesChange, currentCwd, onViewLocal, onOpenInlineTerminal, sessionMessages, model, models, favorites, onToggleFavorite, thinkingLevel, onSelectModel, onSelectThinkingLevel, onRefreshModels, onOpenProviderSettings, modelRefreshErrors, currentTool, streamingText, contextUsage, commandsOrigin, sendLabel, modelTag, thinkingTag, unsetLabel, toolbarExtra }: Props) {
   const { t } = useI18n();
   // One-shot `@role` pick for the model chip (resolves once; never follows later
   // role changes). See change: add-role-aware-model-refs.
@@ -307,11 +309,12 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
   const isWorking = isComposerWorking(sessionStatus ?? "idle", retrying === true);
   // Merge server commands with built-in + dashboard-local commands, avoiding duplicates.
   const commands = useMemo(() => {
+    if (!includeBuiltinCommands) return externalCommands;
     const names = new Set(externalCommands.map((c) => c.name));
     const builtins = BUILTIN_COMMANDS.filter((c) => !names.has(c.name));
     const dashLocal = DASHBOARD_LOCAL_COMMANDS.filter((c) => !names.has(c.name) && !builtins.some((b) => b.name === c.name));
     return [...builtins, ...dashLocal, ...externalCommands];
-  }, [externalCommands]);
+  }, [externalCommands, includeBuiltinCommands]);
   // Controlled when `draft` prop is provided, otherwise fall back to local state
   // (preserves backward-compat for callers/tests that don't pass `draft`).
   const isControlled = draft !== undefined;

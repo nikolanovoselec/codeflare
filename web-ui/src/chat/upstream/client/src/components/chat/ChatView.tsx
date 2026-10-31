@@ -360,9 +360,9 @@ function MessageBubble({ content, className, timestamp, entryId, onFork, context
       <div ref={contentRef}>
         <MarkdownContent content={content} context={context} />
       </div>
-      <div className="border-t border-[var(--border-secondary)] mt-2 pt-1.5 flex justify-end items-center gap-0.5 opacity-50 hover:opacity-100 transition-opacity">
+      <div className="cf-message-actions border-t border-[var(--border-secondary)] mt-2 pt-1.5 flex justify-end items-center gap-0.5 opacity-50 hover:opacity-100 transition-opacity">
         {timestamp != null && (
-          <span className="text-[10px] text-[var(--text-tertiary)] mr-auto">{formatMessageTime(timestamp)}</span>
+          <span className="cf-message-time text-[10px] text-[var(--text-tertiary)] mr-auto">{formatMessageTime(timestamp)}</span>
         )}
         <CopyButton getText={() => content} icon={<Icon path={mdiContentCopy} size={0.6} />} title={i18nT("common.copyAsMarkdown", undefined, "Copy as Markdown")} />
         <CopyButton getText={getPlainText} icon={<Icon path={mdiTextBox} size={0.6} />} title={i18nT("common.copyAsPlainText", undefined, "Copy as plain text")} />
@@ -2302,7 +2302,7 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
             {changeBlock}
             <div className="mt-4 mb-4 flex flex-col items-end" {...(msg.turnIndex != null ? { "data-turn": msg.turnIndex } : {})}>
               {msg.streamingBehavior && <StreamingBehaviorBadge behavior={msg.streamingBehavior} />}
-              <div className={`bg-blue-500/10 border border-blue-500/20 border-l-2 border-l-blue-400 rounded-xl shadow-md px-4 py-2 ${bubbleMax}`}>
+              <div className={`cf-message-user bg-blue-500/10 border border-blue-500/20 border-l-2 border-l-blue-400 rounded-xl shadow-md px-4 py-2 ${bubbleMax}`}>
                 {msg.images && msg.images.length > 0 && (
                   <ImageAttachments images={msg.images} sessionId={sessionId} onImageLoad={(e) => requestRowMeasure(e.currentTarget)} />
                 )}
@@ -2532,7 +2532,7 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
           <div key={msg.id} className="mt-4 mb-4 flex justify-start">
             <MessageBubble
               content={msg.content}
-              className={`bg-[var(--bg-tertiary)] border border-[var(--border-subtle)] rounded-xl shadow-md px-4 py-2 ${bMax}`}
+              className={`cf-message-assistant bg-[var(--bg-tertiary)] border border-[var(--border-subtle)] rounded-xl shadow-md px-4 py-2 ${bMax}`}
               timestamp={msg.timestamp}
               entryId={msg.entryId}
               onFork={onForkFromMessage}
@@ -2572,7 +2572,7 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
           live streamingText. See change: preserve-streaming-tail-selection. */}
       {streamingTailText && (
         <ChatEnter ref={tailContainerRef} entering={arrival.tail} className="flex justify-start chat-cv-skip">
-          <div ref={streamFxRef} className={`chat-stream-live bg-[var(--bg-tertiary)] border border-[var(--border-subtle)] rounded-xl shadow-md px-4 py-2 ${hasMermaid(streamingTailText) ? bubbleWide : bubbleMax}`}>
+          <div ref={streamFxRef} className={`cf-message-assistant chat-stream-live bg-[var(--bg-tertiary)] border border-[var(--border-subtle)] rounded-xl shadow-md px-4 py-2 ${hasMermaid(streamingTailText) ? bubbleWide : bubbleMax}`}>
             {tailBlocks ? (
               <div className="markdown-split">
                 {tailBlocks.map((block, i) => (
@@ -2616,7 +2616,7 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
           honest-mid-turn-queue-surface. */}
       {pendingSteering && pendingSteering.length > 0 && pendingSteering.map((steerText, idx) => (
         <ChatEnter key={`pending-steer-${idx}-${steerText.slice(0, 16)}`} entering={arrival.steering[idx] ?? false} data-testid="pending-steer-card" className="mt-4 mb-4 flex justify-end chat-cv-skip">
-          <div className={`relative bg-blue-500/10 border border-blue-500/20 border-l-2 border-l-blue-400 rounded-xl shadow-md px-4 py-2 ${bubbleMax}`}>
+          <div className={`cf-message-user relative bg-blue-500/10 border border-blue-500/20 border-l-2 border-l-blue-400 rounded-xl shadow-md px-4 py-2 ${bubbleMax}`}>
             <div className="flex items-center gap-1.5 mb-1 text-[10px] uppercase tracking-wider text-blue-400/80 font-medium">
               <Icon path={mdiLoading} size={0.45} className="animate-spin" />
               {i18nT("session.steering", undefined, "Steering")}
@@ -2642,7 +2642,7 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
           See change: optimistic-prompt-progress. */}
       {state.pendingPrompt && (
         <ChatEnter entering={arrival.pendingPrompt} data-testid="pending-prompt-card" data-status={state.pendingPrompt.status} className="mt-4 mb-4 flex justify-end">
-          <div className={`bg-blue-500/10 border border-blue-500/20 border-l-2 border-l-blue-400 rounded-xl shadow-md px-4 py-2 ${bubbleMax} ${state.pendingPrompt.status === "sending" ? "opacity-60 prompt-sending-fx prompt-edge-pulse" : ""}`}>
+          <div className={`cf-message-user bg-blue-500/10 border border-blue-500/20 border-l-2 border-l-blue-400 rounded-xl shadow-md px-4 py-2 ${bubbleMax} ${state.pendingPrompt.status === "sending" ? "opacity-60 prompt-sending-fx prompt-edge-pulse" : ""}`}>
             {state.pendingPrompt.images && state.pendingPrompt.images.length > 0 && (
               <ImageAttachments images={state.pendingPrompt.images} sessionId={sessionId} />
             )}

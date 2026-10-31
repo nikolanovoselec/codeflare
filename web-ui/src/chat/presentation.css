@@ -10,16 +10,41 @@
   --bg-tertiary: var(--color-bg-tertiary);
   --bg-surface: var(--color-bg-elevated);
   --bg-hover: var(--color-bg-muted);
+  --bg-selected: var(--color-bg-tertiary);
+  --bg-overlay: var(--color-bg-overlay);
+  --bg-canvas: var(--color-bg-surface);
+  --bg-code: var(--color-bg-base);
   --text-primary: var(--color-text-primary);
   --text-secondary: var(--color-text-secondary);
+  --text-tertiary: var(--color-text-secondary);
+  --text-muted: var(--color-text-muted);
   --border-primary: var(--color-border-subtle);
   --border-secondary: var(--color-border-default);
-  --border-focus: var(--color-border-strong);
+  --border-subtle: var(--color-border-subtle);
+  --border-focus: var(--color-accent);
+  --border-strong: var(--color-border-strong);
+  --focus-ring: var(--color-accent);
+  --accent: var(--color-accent);
+  --accent-blue: var(--color-accent);
+  --accent-blue-text: var(--color-accent);
+  --accent-primary: var(--color-accent);
+  --accent-primary-strong: var(--color-accent-hover);
+  --accent-soft: var(--color-accent-muted);
+  --accent-solid: var(--color-accent-hover);
+  --accent-text: var(--color-accent);
+  --link: var(--color-accent);
+  --link-hover: var(--color-accent-hover);
+  /* The retained renderer uses blue utilities for user messages and selection. */
+  --color-blue-300: var(--color-accent);
+  --color-blue-400: var(--color-accent);
+  --color-blue-500: var(--color-accent);
+  --color-blue-600: var(--color-accent-hover);
+  --color-blue-700: var(--color-accent-hover);
   color: var(--text-primary);
   background: var(--bg-primary);
-  font-family: var(--font-mono);
+  font-family: var(--font-sans);
   font-size: var(--text-base);
-  line-height: 1.8;
+  line-height: 1.6;
   min-width: 0;
   min-height: 0;
 }
@@ -31,35 +56,378 @@
   color: var(--color-text-secondary);
   font-size: var(--text-sm);
 }
+/* Owned controls stay inside Chat, independent of the shell's session picker. */
+.codeflare-chat .cf-chat-controls {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  flex-shrink: 0;
+  min-width: 0;
+  padding: var(--space-2) max(var(--space-4), env(safe-area-inset-right, 0px)) var(--space-2) max(var(--space-4), env(safe-area-inset-left, 0px));
+  border-bottom: 1px solid var(--border-subtle);
+}
+.codeflare-chat .cf-chat-controls > :not(.cf-chat-conversations) { flex-shrink: 0; }
+.codeflare-chat .cf-chat-controls [aria-haspopup="dialog"] { min-height: 36px; }
+.codeflare-chat .cf-chat-conversations {
+  display: flex;
+  flex: 1;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.codeflare-chat :is(.cf-chat-conversations > button, .cf-chat-panel button, .cf-chat-content > button) {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  min-width: 0;
+  min-height: 36px;
+  max-width: 100%;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border-secondary);
+  border-radius: var(--radius-md);
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
+  line-height: 1.5;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+.codeflare-chat :is(.cf-chat-conversations > button, .cf-chat-panel button, .cf-chat-content > button):hover:not(:disabled) {
+  background: var(--bg-hover);
+  border-color: var(--border-strong);
+}
+.codeflare-chat .cf-chat-conversations > button[aria-expanded="true"] {
+  border-color: var(--color-accent);
+  background: var(--accent-soft);
+}
+.codeflare-chat :is(.cf-chat-conversations > button, .cf-chat-panel button, .cf-chat-content > button):disabled {
+  color: var(--text-secondary);
+  background: var(--bg-secondary);
+  border-color: var(--border-subtle);
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+.codeflare-chat .cf-chat-content > button {
+  align-self: flex-start;
+  flex-shrink: 0;
+  margin: var(--space-2) max(var(--space-4), env(safe-area-inset-left, 0px));
+  max-width: calc(100% - var(--space-8) - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px));
+}
+.codeflare-chat .cf-chat-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  box-sizing: border-box;
+  min-width: 0;
+  min-height: 0;
+  max-width: 100%;
+  padding: var(--space-3);
+  border: 1px solid var(--border-secondary);
+  border-radius: var(--radius-lg);
+  background: var(--bg-secondary);
+  font-size: var(--text-base);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  overflow: auto;
+  overscroll-behavior: contain;
+  scroll-padding-block: var(--space-3);
+}
+.codeflare-chat .cf-chat-panel > * { flex-shrink: 0; }
+.codeflare-chat .cf-chat-panel-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2) var(--space-3);
+}
+.codeflare-chat .cf-chat-panel h2 {
+  margin: 0;
+  font-size: var(--text-lg);
+  font-weight: var(--font-semibold);
+  line-height: 1.4;
+}
+.codeflare-chat .cf-chat-panel :is(p, h3) { margin: 0; }
+.codeflare-chat .cf-chat-panel p { color: var(--text-secondary); }
+.codeflare-chat .cf-chat-panel h3 {
+  font-size: var(--text-base);
+  font-weight: var(--font-semibold);
+  line-height: 1.5;
+}
+.codeflare-chat .cf-chat-history {
+  flex-basis: 100%;
+  max-height: min(32dvh, 20rem);
+}
+.codeflare-chat .cf-chat-history ul { margin: 0; padding: 0; list-style: none; }
+.codeflare-chat .cf-chat-history li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-3);
+  padding-block: var(--space-2);
+  border-top: 1px solid var(--border-subtle);
+}
+.codeflare-chat .cf-chat-history li button {
+  flex: 1 1 12rem;
+  justify-content: flex-start;
+  text-align: start;
+}
+.codeflare-chat .cf-chat-history li span {
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
+}
+.codeflare-chat .cf-chat-providers {
+  flex-shrink: 1;
+  max-height: min(40dvh, 28rem);
+  margin: var(--space-2) max(var(--space-4), env(safe-area-inset-right, 0px)) var(--space-2) max(var(--space-4), env(safe-area-inset-left, 0px));
+}
+.codeflare-chat .cf-chat-provider {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border-subtle);
+}
+.codeflare-chat .cf-chat-provider h3 { flex: 1 1 10rem; }
+.codeflare-chat .cf-chat-provider p { flex: 1 1 10rem; font-size: var(--text-sm); }
+.codeflare-chat .cf-chat-providers form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+.codeflare-chat .cf-chat-providers label {
+  display: block;
+  flex-basis: 100%;
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+}
+.codeflare-chat .cf-chat-providers input {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  min-height: 44px;
+  margin-top: var(--space-1);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border-secondary);
+  border-radius: var(--radius-md);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: max(1rem, var(--text-base));
+  line-height: 1.5;
+  caret-color: var(--color-accent);
+}
+.codeflare-chat .cf-chat-providers input:focus { border-color: var(--color-accent); }
+.codeflare-chat .cf-chat-providers input:disabled { color: var(--text-secondary); cursor: not-allowed; }
+.codeflare-chat .cf-chat-providers a { color: var(--link); text-underline-offset: 0.15em; }
+.codeflare-chat .cf-chat-providers a:hover { color: var(--link-hover); }
+.codeflare-chat .cf-chat-providers [data-testid="dialog-flow-waiting"] {
+  --text-muted: var(--color-text-secondary);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border-subtle);
+}
+.codeflare-chat .cf-chat-providers [data-testid^="dialog-option-"] {
+  flex-direction: column;
+  align-items: flex-start;
+  text-align: start;
+}
+/* Include unclassed transition/reattach states, without styling transcript alerts. */
+.codeflare-chat > :is([role="status"], [role="alert"]),
+.codeflare-chat > div > :is([role="status"], [role="alert"]),
+.codeflare-chat .cf-chat-content > :is([role="status"], [role="alert"]) {
+  flex-shrink: 0;
+  padding: var(--space-2) max(var(--space-4), env(safe-area-inset-right, 0px)) var(--space-2) max(var(--space-4), env(safe-area-inset-left, 0px));
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.codeflare-chat .cf-chat-panel [role="alert"],
+.codeflare-chat .cf-chat-status[role="alert"],
+.codeflare-chat > [role="alert"],
+.codeflare-chat > div > [role="alert"] {
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--severity-error-border);
+  border-radius: var(--radius-md);
+  background: var(--severity-error-bg);
+  color: var(--severity-error-fg);
+}
 /* Keep the native virtualized transcript and composer; change only their canvas. */
 .cf-chat-transcript [data-testid="chat-scroll-container"] {
   padding-block: var(--space-8);
-  padding-inline: max(var(--space-4), calc((100% - 46rem) / 2));
+  padding-left: max(var(--space-4), env(safe-area-inset-left, 0px), calc((100% - 72ch) / 2));
+  padding-right: max(var(--space-4), env(safe-area-inset-right, 0px), calc((100% - 72ch) / 2));
   overscroll-behavior: contain;
 }
 .cf-chat-content > [data-testid="composer-root"] {
   align-self: center;
-  width: min(calc(100% - var(--space-8)), 46rem);
-  margin-block: var(--space-3) var(--space-6);
+  width: min(calc(100% - var(--space-8) - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px)), 72ch);
+  margin-block: var(--space-3) max(var(--space-4), env(safe-area-inset-bottom, 0px));
   padding: 0;
   border-top: 0;
 }
 .codeflare-chat [data-testid="composer-card"] {
+  border-style: solid;
+  border-width: 1px;
   border-radius: var(--radius-xl);
-  padding: var(--space-3) var(--space-4) var(--space-2);
+  padding: var(--space-2) var(--space-3);
   background: var(--bg-secondary);
 }
 .codeflare-chat textarea {
-  font-family: var(--font-mono);
+  font-family: var(--font-sans);
   font-size: var(--text-base);
   line-height: 1.6;
+  caret-color: var(--color-accent);
 }
-.codeflare-chat :is(pre, code) { font-family: var(--font-mono); }
+/* Override the host's unlayered textarea defaults only for the retained input. */
+.codeflare-chat [data-testid="composer-input-row"] textarea {
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  padding: var(--space-1);
+  resize: none;
+  box-shadow: none;
+  outline: none;
+  font-size: max(1rem, var(--text-base)); /* Avoid focus zoom on mobile browsers. */
+}
+.codeflare-chat [data-testid="composer-input-row"] textarea::placeholder {
+  color: var(--color-text-secondary);
+}
+.codeflare-chat [data-testid="composer-card"]:focus-within:not(:has([aria-invalid="true"])) {
+  border-color: var(--color-accent);
+}
+.codeflare-chat [data-testid="composer-settings-row"] { min-height: 44px; }
+.codeflare-chat [data-testid="composer-footer"] {
+  color: var(--color-text-secondary);
+  line-height: 1.5;
+}
+.codeflare-chat [data-testid="send-button"]:not(:disabled) {
+  background: var(--color-accent);
+  color: var(--color-accent-contrast);
+}
+.codeflare-chat [data-testid="send-button"]:not(:disabled):hover {
+  background: var(--color-accent-hover);
+}
+.codeflare-chat [data-testid="send-button"]:disabled {
+  background: var(--bg-surface);
+  color: var(--text-muted);
+}
+.codeflare-chat [data-testid="stop-button"] {
+  background: var(--text-primary);
+  color: var(--bg-primary);
+}
+.codeflare-chat :is([data-testid="force-stop-button"], [data-testid="killing-button"]) {
+  background: var(--severity-warning-bg);
+  color: var(--severity-warning-fg);
+  border: 1px solid var(--severity-warning-border);
+}
+.codeflare-chat :is(pre, code, kbd, samp) { font-family: var(--font-mono); }
+/* Retained markdown declares an important font override for syntax spans. */
+.codeflare-chat .markdown-content pre { font-family: var(--font-mono) !important; }
+.codeflare-chat .markdown-content {
+  font-family: var(--font-sans);
+  font-size: var(--text-base);
+  line-height: 1.65;
+  overflow-wrap: anywhere;
+}
+.codeflare-chat .markdown-content :is(h1, h2, h3, h4) {
+  color: var(--color-text-primary);
+  line-height: 1.3;
+}
+.codeflare-chat .markdown-content h1 { font-size: var(--text-xl); }
+.codeflare-chat .markdown-content h2 { font-size: var(--text-lg); }
+.codeflare-chat .markdown-content h3 { font-size: var(--text-base); }
+.codeflare-chat .markdown-content pre { overflow-x: auto; overflow-wrap: normal; }
+.codeflare-chat .markdown-content table { display: block; max-width: 100%; overflow-x: auto; }
+.codeflare-chat .markdown-content :is(img, video) { max-width: 100%; height: auto; }
+.codeflare-chat .markdown-content a { text-underline-offset: 0.15em; }
+/* Stable role hooks preserve the retained renderer, actions and virtualization. */
+.codeflare-chat :is(.cf-message-user, .cf-message-assistant) {
+  min-width: 0;
+  box-shadow: none;
+}
+.codeflare-chat .cf-message-user {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-xl);
+  padding: var(--space-3) var(--space-4);
+}
+.codeflare-chat .cf-message-assistant {
+  width: 100%;
+  max-width: 100%;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  padding: var(--space-2) 0;
+}
+/* Streaming remains visible through the retained cursor/status, not a blue rail. */
+.codeflare-chat .cf-message-assistant.chat-stream-live {
+  overflow: visible;
+}
+.codeflare-chat .cf-message-assistant.chat-stream-live::before,
+.codeflare-chat .cf-message-assistant.chat-stream-live::after { content: none; }
+.codeflare-chat .cf-message-actions {
+  justify-content: flex-start;
+  gap: var(--space-1);
+  margin-top: var(--space-2);
+  padding-top: 0;
+  border: 0;
+  opacity: 1;
+  color: var(--color-text-secondary);
+}
+.codeflare-chat .cf-message-time {
+  margin-right: var(--space-2);
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+}
+.codeflare-chat .cf-message-actions button {
+  min-width: 28px;
+  min-height: 28px;
+}
+.codeflare-chat .cf-message-actions button:hover {
+  color: var(--color-text-primary);
+  background: var(--bg-hover);
+}
+.codeflare-chat :is(button, input, select, a, summary, [tabindex]):focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
 @media (max-width: 640px) {
-  .cf-chat-transcript [data-testid="chat-scroll-container"] { padding: var(--space-4); }
+  .cf-chat-transcript [data-testid="chat-scroll-container"] {
+    padding-block: var(--space-4);
+    padding-left: max(var(--space-4), env(safe-area-inset-left, 0px));
+    padding-right: max(var(--space-4), env(safe-area-inset-right, 0px));
+  }
   .cf-chat-content > [data-testid="composer-root"] {
-    width: calc(100% - var(--space-6));
+    width: calc(100% - var(--space-6) - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px));
     margin-bottom: max(var(--space-3), env(safe-area-inset-bottom));
+  }
+}
+/* Short landscape/keyboard viewports can scroll the open controls as a whole. */
+@media (max-height: 560px) {
+  .codeflare-chat .cf-chat-content:has(.cf-chat-panel) {
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+  .codeflare-chat .cf-chat-providers { flex-shrink: 0; }
+}
+@media (pointer: coarse) {
+  .codeflare-chat :is(.cf-chat-conversations > button, .cf-chat-panel button, .cf-chat-content > button),
+  .codeflare-chat .cf-chat-controls [aria-haspopup="dialog"] {
+    min-width: 44px;
+    min-height: 44px;
+  }
+  .codeflare-chat .cf-message-actions button,
+  .codeflare-chat [data-testid="composer-settings-row"] button {
+    min-width: 44px;
+    min-height: 44px;
   }
 }
 /* No layout box: fixed upstream overlays measure the real viewport. */

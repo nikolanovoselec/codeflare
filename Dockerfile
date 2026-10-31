@@ -275,7 +275,7 @@ COPY --chmod=0755 image/herdr/codeflare-herdr-terminal /usr/local/bin/codeflare-
 COPY --chmod=0755 image/herdr/codeflare-agent-event /usr/local/bin/codeflare-agent-event
 # Process-scoped primary bridge activation; never copied to user extension/settings lists.
 COPY --chmod=0755 image/chat/codeflare-primary-pi /usr/local/bin/codeflare-primary-pi
-COPY image/chat/primary-bridge.ts image/chat/primary-identity.mjs image/chat/primary-questions.mjs /opt/codeflare/chat-primary/
+COPY image/chat/primary-bridge.ts image/chat/primary-identity.mjs image/chat/primary-questions.mjs image/chat/primary-conversations.mjs /opt/codeflare/chat-primary/
 
 # Install zoxide from GitHub releases (pinned version, not in Debian bookworm repos)
 RUN ZOXIDE_VERSION="0.10.0" && \

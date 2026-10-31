@@ -56,9 +56,11 @@ interface Props {
    * See change: reorganize-session-header.
    */
   iconOnly?: boolean;
+  /** Embedding owner may fence persistence to its authenticated API. */
+  onSaveGlobal?: (prefs: DisplayPrefs) => Promise<void>;
 }
 
-export function ChatViewMenu({ sessionId, send, currentOverride, iconOnly = false }: Props): React.ReactElement {
+export function ChatViewMenu({ sessionId, send, currentOverride, iconOnly = false, onSaveGlobal }: Props): React.ReactElement {
   const { global } = useDisplayPrefsContext();
   const prefs = useDisplayPrefs(sessionId);
   const customGroups = useCustomEventGroups();
@@ -122,13 +124,17 @@ export function ChatViewMenu({ sessionId, send, currentOverride, iconOnly = fals
     setSetGlobalError(null);
     setSaving(true);
     try {
-      const res = await fetch("/api/preferences/display", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(prefs),
-        credentials: "include",
-      });
-      if (!res.ok) throw new Error(String(res.status));
+      if (onSaveGlobal) {
+        await onSaveGlobal(prefs);
+      } else {
+        const res = await fetch("/api/preferences/display", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(prefs),
+          credentials: "include",
+        });
+        if (!res.ok) throw new Error(String(res.status));
+      }
     } catch {
       setSetGlobalError(i18nT("session.setAsGlobalFailed", undefined, "Could not save as global."));
       return;
@@ -136,7 +142,7 @@ export function ChatViewMenu({ sessionId, send, currentOverride, iconOnly = fals
       setSaving(false);
     }
     clearOverride();
-  }, [saving, prefs, clearOverride]);
+  }, [saving, prefs, clearOverride, onSaveGlobal]);
 
   // ONE sameness rule (`differs`) drives the row dots, the footer count, the
   // trigger dot, and whether Reset / Set as global are enabled.

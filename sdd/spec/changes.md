@@ -2,6 +2,12 @@
 
 Semantic changes to the specification. Git history captures diffs; this file captures intent.
 
+## 2026-10-31
+
+- Expand the approved shared-primary Chat scope to provider authentication/credential management, automatic managed Enterprise inference, model/reasoning controls, durable conversation history/new/resume/fork, supported commands, workspace file completion, context usage, buffered queue management, explicit primary-stop/recovery and display controls ([REQ-AGENT-224](agents.md#req-agent-224-shared-live-pi-chat-and-session-local-surfaces)). Preserve public APIs, shared-primary ownership, tenant/generation fencing and external VS Code. The former Simple-only omission policy is superseded; unsupported public lifecycle or credential authority remains a delivery blocker, not permission for private workarounds.
+- Preserve the last successfully adopted native transcript for Classic restart after explicit new/fork as well as resume ([REQ-AGENT-211 AC6](agents.md#req-agent-211-classic-agent-transcript-resume), [REQ-AGENT-224 AC14–16](agents.md#req-agent-224-shared-live-pi-chat-and-session-local-surfaces)). Retain startup/child/manual-tab isolation; new first-party binding tests are authored, not executed, and expanded requirements remain Planned.
+- Require consistent Codeflare-native typography, surfaces, active accent and responsive complete-state design across the integrated controls, restoring the existing left session-dropdown placement ([REQ-AGENT-224 AC25](agents.md#req-agent-224-shared-live-pi-chat-and-session-local-surfaces)). Test only directly added/modified Codeflare behavior, not untouched imported components, SDK internals or unchanged integrations. This expanded scope is Planned; no passing execution, release or acceptance is claimed.
+
 ## 2026-10-30
 
 - Keep explicit view entry authoritative over the browser default and permit acting on the current choice for fenced Chat re-entry or external editor reopening ([REQ-IDE-056](browser-ide.md#req-ide-056-normal-workspace-view-navigation)). Extract coherent view/default/presentation criteria from REQ-AGENT-224 and the new label criterion from REQ-IDE-048 without changing the approved scope, workspace values or ownership; primary startup remains in REQ-AGENT-224 AC3. Preserve exact approved glyphs in linked design documentation. Corrected-head CI and delivered acceptance remain required.

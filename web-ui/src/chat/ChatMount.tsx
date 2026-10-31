@@ -20,6 +20,12 @@ import { setQuestionTransport } from './upstream/client/src/lib/questions/questi
 import { setGlobalApiBase } from './upstream/client/src/lib/api/api-context';
 import type { SessionAssets } from './upstream/client/src/lib/session/SessionAssetsContext';
 import type { ThemeState } from './upstream/client/src/hooks/useTheme';
+import { attachChatSession, ChatAttachError, createChatControlApi, probeChatControls } from './api';
+import { ProviderControls } from './ProviderControls';
+import { ConversationControls } from './ConversationControls';
+import { ChatViewMenu } from './upstream/client/src/components/chat/ChatViewMenu';
+import type { CommandInfo, ModelInfo } from '@blackbelt-technology/pi-dashboard-shared/types.js';
+import type { DisplayPrefs } from '@blackbelt-technology/pi-dashboard-shared/display-prefs.js';
 import { sessionStore } from '../stores/session';
 import { parseControlMessage } from '../stores/terminal-protocol';
 import { agentEventDisposition, createAgentEventConsumer } from '../lib/agent-notifications';
@@ -30,13 +36,14 @@ export interface ChatMountProps {
   sessionId: string;
   generation: number;
   boundSessionId: string;
+  /** Enabled only by the protected Host probe; absent means legacy/base Chat. */
+  controlsAvailable?: boolean;
   draft?: string;
   onDraftChange?: (draft: string) => void;
   onManualInput?: () => void;
   onAuthError?: (message: string) => void;
 }
 
-const SIMPLE = { global: DISPLAY_PRESETS.simple, getSessionOverride: () => undefined };
 const HOST_THEME: ThemeState = {
   preference: 'dark', resolved: 'dark', themeName: 'base', setPreference() {}, setThemeName() {},
 };
@@ -49,36 +56,77 @@ const unusedActions = {
   pendingTerminalCwdRef: { current: null }, terminals: new Map(), pendingSpawnsRef: { current: new Map() },
 };
 
-function BoundChat(props: ChatMountProps & { layerHost: HTMLElement }) {
+// The running pre-controls Host accepts only this base protocol. Native tool
+// context sends must obey the same fence as visible owner controls.
+const BASE_CHAT_MESSAGES = new Set(['subscribe', 'unsubscribe', 'history_backfill', 'prompt_resync_request',
+  'send_prompt', 'abort', 'prompt_response', 'extension_ui_response']);
+
+function BoundChat(props: ChatMountProps & { layerHost: HTMLElement; onAdopt: (id: string) => void; onReattach: () => void }) {
   const id = props.boundSessionId;
+  const controlsAvailable = props.controlsAvailable === true;
   const apiBase = `/api/chat/${encodeURIComponent(props.sessionId)}`;
   const url = new URL(`${apiBase}/ws`, window.location.origin);
   url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
   url.searchParams.set('generation', String(props.generation));
   const { state, apply, update } = useSessionState(id);
-  const { send, onMessage, status, ws, onOutboxExpiry } = useWebSocket(url.href, undefined, { hostAuthenticated: true });
+  const { send, onMessage, status, ws, onOutboxExpiry, lastCloseCode } = useWebSocket(url.href, undefined, { hostAuthenticated: true });
   const [sessions, setSessions] = useState<Map<string, DashboardSession>>(() => new Map());
   const [metadata, setMetadata] = useState<Partial<DashboardSession>>({});
   const [assets, setAssets] = useState<SessionAssets>({});
   const [queue, setQueue] = useState<{ steering: string[]; followUp: FollowUpEntryView[] }>({ steering: [], followUp: [] });
   const [loading, setLoading] = useState(true);
+  const [models, setModels] = useState<ModelInfo[]>([]);
+  const [commands, setCommands] = useState<CommandInfo[]>([]);
+  const [flowCommands, setFlowCommands] = useState<CommandInfo[]>([]);
+  const [fileResults, setFileResults] = useState<React.ComponentProps<typeof CommandInput>['fileResults']>(null);
+  const [controlError, setControlError] = useState('');
+  const [providersOpen, setProvidersOpen] = useState(false);
+  const [changingConversation, setChangingConversation] = useState(false);
+  const [uncertain, setUncertain] = useState(false);
+  const [globalPrefs, setGlobalPrefs] = useState<DisplayPrefs>(DISPLAY_PRESETS.simple);
+  const lifetime = useRef(new AbortController());
+  const transition = useRef(false);
+  const prefsRevision = useRef(0);
+  const callbacks = useRef(props);
+  callbacks.current = props;
+  const api = useMemo(() => createChatControlApi(props.sessionId, props.generation,
+    message => { if (!lifetime.current.signal.aborted) callbacks.current.onAuthError?.(message); }), [props.sessionId, props.generation]);
+  useEffect(() => () => lifetime.current.abort(), []);
+  useEffect(() => {
+    if (!controlsAvailable) return;
+    let current = true;
+    const revision = prefsRevision.current;
+    void api.envelope<DisplayPrefs | null>('/api/preferences/display', undefined, lifetime.current.signal)
+      .then(prefs => { if (current && !lifetime.current.signal.aborted && revision === prefsRevision.current) setGlobalPrefs(prefs ?? DISPLAY_PRESETS.simple); })
+      .catch(() => { /* Keep the embed default; the menu reports persistence failures. */ });
+    return () => { current = false; };
+  }, [api, controlsAvailable]);
+
   const questions = useMemo(() => new QuestionStackStore(), []);
   const registry = useMemo(() => createHostPrimitiveRegistry(), []);
   const stateRef = useRef(new Map<string, SessionState>());
   stateRef.current = new Map([[id, state]]);
   // Transport correlation only; the upstream reducer/native Pi still own state.
   const responseProtocols = useRef(new Map<string, 'prompt_response' | 'extension_ui_response'>());
+  const ended = lastCloseCode === 4002 || metadata.status === 'ended';
+  const available = status === 'connected' && !ended && !changingConversation && !uncertain;
+  const advancedAvailable = controlsAvailable && available;
+  const supportedCommands = controlsAvailable ? [...new Map([...commands, ...flowCommands].filter(command =>
+    !/^(?:new|spawn|resume|fork|exit|quit|shutdown|restart|reload|view|codeflare-conversation|dashboard(?:-.*)?|__dashboard.*|flows:(?:new|edit|delete))$/.test(command.name)
+  ).map(command => [command.name, command])).values()] : [];
+
   const sendAction = useCallback<SessionActionDeps['send']>(message => {
+    if (!available || ws?.readyState !== WebSocket.OPEN || (!controlsAvailable && !BASE_CHAT_MESSAGES.has(message.type))) return { status: 'rejected', reason: 'no_socket' };
+    if (message.type === 'send_prompt' && (typeof message.text !== 'string' || message.text.trimStart().startsWith('!')
+      || (message.text.trimStart().startsWith('/') && (/[\r\n]/.test(message.text)
+        || !supportedCommands.some(command => command.name === message.text.trimStart().slice(1).split(/\s/)[0]))))) return { status: 'rejected', reason: 'send_failed' };
     if (message.type === 'prompt_response' || message.type === 'extension_ui_response') {
       const requestId = message.type === 'prompt_response' ? message.promptId : message.requestId;
       if (responseProtocols.current.get(requestId) !== message.type) return;
       responseProtocols.current.delete(requestId);
     }
     return send(message);
-  }, [send]);
-  const callbacks = useRef(props);
-  callbacks.current = props;
-
+  }, [send, available, ws, controlsAvailable, supportedCommands]);
   // Host-only controls never enter Dashboard's send/outbox/replay road.
   const sendControl = useCallback((message: Record<string, unknown>) => {
     if (ws?.readyState !== WebSocket.OPEN) return;
@@ -139,6 +187,14 @@ function BoundChat(props: ChatMountProps & { layerHost: HTMLElement }) {
     else if (message.type === 'prompt_dismiss' || message.type === 'prompt_cancel') responseProtocols.current.delete(message.promptId);
     else if (message.type === 'ui_dismiss') responseProtocols.current.delete(message.requestId);
     else if (message.type === 'session_removed') responseProtocols.current.clear();
+    if (message.type === 'models_list') setModels(message.models);
+    else if (message.type === 'commands_list') setCommands(message.commands);
+    else if (message.type === 'flows_list') setFlowCommands(message.flows.map(flow => ({ name: flow.name, description: flow.description ?? '' })));
+    else if (message.type === 'files_list') setFileResults({ query: message.query, files: message.files });
+    else if (message.type === 'display_prefs_updated') {
+      prefsRevision.current++; setGlobalPrefs(message.prefs ?? DISPLAY_PRESETS.simple);
+    }
+    else if (message.type === 'error') setControlError(message.message);
     apply(message);
     if (message.type === 'sessions_snapshot') {
       const bound = message.sessions.find(session => session.id === id);
@@ -172,9 +228,13 @@ function BoundChat(props: ChatMountProps & { layerHost: HTMLElement }) {
       // Full upstream replay is safe: useSessionState owns its reset/fold logic.
       // Only subscriptions are repeated. Handed prompts are never retransmitted.
       send({ type: 'subscribe', sessionId: id, lastSeq: 0 });
+      if (controlsAvailable) {
+        send({ type: 'request_models', sessionId: id });
+        send({ type: 'request_commands', sessionId: id });
+      }
     }
     if (status === 'auth_required') callbacks.current.onAuthError?.('Chat session expired or its binding is no longer available. Re-enter Chat to sign in again.');
-  }, [status, send, id]);
+  }, [status, send, id, controlsAvailable]);
   useEffect(() => onOutboxExpiry((message, entryId) => {
     if (message.type === 'send_prompt') actions.markPromptUndelivered(id, entryId);
   }), [onOutboxExpiry, actions.markPromptUndelivered, id]);
@@ -203,8 +263,14 @@ function BoundChat(props: ChatMountProps & { layerHost: HTMLElement }) {
 
   const manual = (action: () => void) => { callbacks.current.onManualInput?.(); action(); };
   const composerStatus = composerLiveness(state.status, metadata.status);
-  const toolContext = { sessionId: id, session: state, cwd: metadata.cwd, send };
+  const toolContext = { sessionId: id, session: state, cwd: metadata.cwd, send: sendAction };
   const sendPrompt: React.ComponentProps<typeof CommandInput>['onSend'] = (text, images, delivery) => {
+    if (!available) return;
+    const trimmed = text.trimStart();
+    if (trimmed.startsWith('!') || (trimmed.startsWith('/') && (/[\r\n]/.test(trimmed) || !supportedCommands.some(command => command.name === trimmed.slice(1).split(/\s/)[0])))) {
+      setControlError('This command is unavailable in Chat. Choose a supported command.'); return;
+    }
+    setControlError('');
     manual(() => actions.handleSend(text, images, delivery));
     callbacks.current.onDraftChange?.('');
   };
@@ -213,29 +279,99 @@ function BoundChat(props: ChatMountProps & { layerHost: HTMLElement }) {
       || !stateRef.current.get(id)?.interactiveRequests.some(request => request.requestId === requestId && request.status === 'pending')) return;
     manual(() => actions.handleRespondToUi(requestId, result, cancelled));
   };
-  const abort = () => manual(actions.handleAbort);
+  const abort = () => { if (available) manual(actions.handleAbort); };
+  const terminate = (kind: 'force' | 'after') => {
+    if (!advancedAvailable || !window.confirm(kind === 'force'
+      ? 'Force stop the shared Pi primary? This terminates Pi for both Chat and Terminal.'
+      : 'Stop the shared Pi primary after this turn? This will shut down Pi for both Chat and Terminal.')) return;
+    manual(kind === 'force' ? actions.handleForceKill : actions.handleStopAfterTurn);
+  };
+  const replaceConversation = async (operation: 'new' | 'resume' | 'fork', target?: string) => {
+    if (!advancedAvailable || transition.current) return;
+    if ((composerStatus === 'streaming' || state.pendingPrompt) && !window.confirm('Replace the current conversation on the shared Pi primary? Active work may be interrupted.')) return;
+    transition.current = true; setChangingConversation(true); setControlError('');
+    const controller = new AbortController();
+    const abort = () => controller.abort();
+    lifetime.current.signal.addEventListener('abort', abort, { once: true });
+    // A timed-out handoff may already have changed native state: never resend.
+    const timeout = setTimeout(() => controller.abort(), 65000);
+    try {
+      const result = await api.request<unknown>(`/api/conversations/${operation}`, {
+        method: 'POST', body: JSON.stringify({ sessionId: id,
+          ...(operation === 'resume' ? { conversationId: target } : operation === 'fork' ? { entryId: target } : {}) }),
+      }, controller.signal);
+      if (lifetime.current.signal.aborted) return;
+      if (!result || typeof result !== 'object' || !('sessionId' in result) || typeof result.sessionId !== 'string' || !result.sessionId.trim()
+        || !('generation' in result) || result.generation !== props.generation) throw new Error('Invalid conversation binding or stale generation. Re-enter Chat.');
+      props.onAdopt(result.sessionId);
+    } catch (cause) {
+      if (lifetime.current.signal.aborted) return;
+      const ambiguous = controller.signal.aborted || cause instanceof TypeError
+        || !(cause instanceof ChatAttachError) || (cause.status !== undefined && (cause.status >= 500 || cause.status === 408));
+      setUncertain(ambiguous);
+      setControlError(ambiguous ? 'Conversation handoff is uncertain. Re-enter Chat to explicitly reattach. Do not resend.' : cause instanceof Error ? cause.message : 'Conversation replacement failed.');
+    } finally {
+      clearTimeout(timeout); lifetime.current.signal.removeEventListener('abort', abort);
+      if (!lifetime.current.signal.aborted) { transition.current = false; setChangingConversation(false); }
+    }
+  };
+  const displayPrefs = { global: globalPrefs, getSessionOverride: (sessionId: string | undefined) => sessionId === id ? metadata.displayPrefsOverride ?? undefined : undefined };
+
 
   return <UiPrimitiveProvider value={registry}>
     <EmbedProviders apiBase={apiBase} theme={HOST_THEME}>
-      <DisplayPrefsProvider value={SIMPLE}>
+      <DisplayPrefsProvider value={displayPrefs}>
         <SessionAssetsProvider assets={assets}>
           <LayerHostProvider host={props.layerHost}>
             <div className="cf-chat-content">
-              {status !== 'connected' && <div role={status === 'auth_required' ? 'alert' : 'status'} className="cf-chat-status">
-                {status === 'auth_required' ? 'Chat session expired. Sign in again or re-enter Chat.' : status === 'offline' ? 'Chat is offline. Reconnecting…' : 'Connecting to Pi…'}
+              {controlsAvailable && <div className="cf-chat-controls">
+                <ConversationControls api={api} disabled={!available} onNew={() => void replaceConversation('new')} onResume={target => void replaceConversation('resume', target)} />
+                <ChatViewMenu sessionId={id} currentOverride={metadata.displayPrefsOverride ?? undefined} send={message => { sendAction(message); }}
+                  onSaveGlobal={async prefs => {
+                    if (!advancedAvailable) throw new Error('Reconnect before saving display preferences.');
+                    const saved = await api.envelope<DisplayPrefs | null>('/api/preferences/display', { method: 'PATCH', body: JSON.stringify(prefs) }, lifetime.current.signal);
+                    if (lifetime.current.signal.aborted) throw new Error('Chat closed.');
+                    prefsRevision.current++; setGlobalPrefs(saved ?? DISPLAY_PRESETS.simple);
+                  }} />
               </div>}
-              <SessionBanner state={deriveBannerState(state)} />
+              {!controlsAvailable && <div role="status" className="cf-chat-status">Advanced controls are unavailable on this runtime. Keep using Chat; after an updated runtime is available, re-enter Chat to check again.</div>}
+              {controlsAvailable && providersOpen && <ProviderControls api={api} onClose={() => setProvidersOpen(false)} />}
+              {controlError && <div role="alert" className="cf-chat-status">{controlError}</div>}
+              {changingConversation && <div role="status">Switching conversation…</div>}
+              {ended && <div role="status" className="cf-chat-status">The shared Pi primary has ended. Re-enter Chat to restart Pi.</div>}
+              {(ended || uncertain || !controlsAvailable) && <button type="button" onClick={props.onReattach}>Re-enter Chat</button>}
+              {status !== 'connected' && !ended && <div role={status === 'auth_required' ? 'alert' : 'status'} className="cf-chat-status">
+                {status === 'auth_required' ? 'Chat session expired. Sign in again or re-enter Chat.' : status === 'offline' ? 'Chat is offline. Reconnecting…' : 'Reconnecting to Pi…'}
+              </div>}
+              <SessionBanner state={deriveBannerState(state)} onRetry={advancedAvailable ? () => actions.handleRetrySession(id) : undefined} retryRevision={state.lastError?.timestamp} />
               <QuestionStack sessions={[]} store={questions} onOpenSession={noop} />
               <div className="cf-chat-transcript"><ChatView sessionId={id} state={state} toolContext={toolContext}
                 loadingHistory={loading} pendingSteering={queue.steering} onAbort={abort} onRespondToUi={respond}
-                onPromptResync={sessionId => send({ type: 'prompt_resync_request', sessionId })} />
+                onForkFromMessage={advancedAvailable ? entryId => void replaceConversation('fork', entryId) : undefined}
+                onRetryPendingPrompt={controlsAvailable ? () => {
+                  const pending = stateRef.current.get(id)?.pendingPrompt;
+                  if (available && pending?.status === 'failed' && pending.failureCause === 'connection') actions.handleSend(pending.text, pending.images, pending.delivery);
+                } : undefined}
+                onPromptResync={sessionId => { sendAction({ type: 'prompt_resync_request', sessionId }); }} />
               </div>
-              <QueuePanel followUp={queue.followUp} />
-              <CommandInput sessionId={id} commands={[]} draft={props.draft} onDraftChange={draft => {
+              <QueuePanel followUp={queue.followUp}
+                onEdit={advancedAvailable ? actions.editFollowUpEntry : undefined} onRemove={advancedAvailable ? actions.removeFollowUpEntry : undefined}
+                onPromote={advancedAvailable ? actions.promoteFollowUpEntry : undefined} onClearAll={advancedAvailable ? () => actions.clearFollowUpEntries('all') : undefined} />
+              <CommandInput sessionId={id} includeBuiltinCommands={false} commands={supportedCommands} model={metadata.model ?? undefined} models={models} thinkingLevel={metadata.thinkingLevel ?? undefined}
+                onRefreshModels={controlsAvailable ? () => { sendAction({ type: 'request_models', sessionId: id }); } : undefined}
+                onSelectModel={controlsAvailable ? label => {
+                  const separator = label.indexOf('/');
+                  if (separator > 0) sendAction({ type: 'set_model', sessionId: id, provider: label.slice(0, separator), modelId: label.slice(separator + 1) });
+                } : undefined}
+                onSelectThinkingLevel={controlsAvailable ? level => { sendAction({ type: 'set_thinking_level', sessionId: id, level }); } : undefined}
+                onListFiles={controlsAvailable ? query => { sendAction({ type: 'list_files', sessionId: id, query }); } : undefined} fileResults={fileResults}
+                contextUsage={state.contextUsage} onOpenProviderSettings={controlsAvailable ? () => setProvidersOpen(true) : undefined}
+                onCancelPending={() => { if (available) actions.handleCancelPending(); }}
+                onForceKill={controlsAvailable ? () => terminate('force') : undefined} onStopAfterTurn={controlsAvailable ? () => terminate('after') : undefined} draft={props.draft} onDraftChange={draft => {
                 sendControl({ type: 'chat-input' });
                 callbacks.current.onManualInput?.(); callbacks.current.onDraftChange?.(draft);
               }}
-                disabled={status !== 'connected' || composerStatus === 'ended'} sessionStatus={composerStatus}
+                disabled={!available || composerStatus === 'ended'} sessionStatus={composerStatus}
                 retrying={!!state.retryState} pendingPrompt={state.pendingPrompt?.status} onSend={sendPrompt} onAbort={abort}
                 currentTool={metadata.currentTool ?? undefined} streamingText={state.streamingText} sessionMessages={state.messages} />
             </div>
@@ -246,13 +382,54 @@ function BoundChat(props: ChatMountProps & { layerHost: HTMLElement }) {
   </UiPrimitiveProvider>;
 }
 
+/** Keep adopted native identity local; parent presentation updates cannot undo it. */
+function ChatBinding(props: ChatMountProps & { layerHost: HTMLElement }) {
+  const [bound, setBound] = useState(props.boundSessionId);
+  const [controls, setControls] = useState(props.controlsAvailable === true);
+  useEffect(() => { setControls(props.controlsAvailable === true); }, [props.controlsAvailable]);
+  const [revision, setRevision] = useState(0);
+  const [draft, setDraft] = useState(props.draft ?? '');
+  const [error, setError] = useState('');
+  const [reattaching, setReattaching] = useState(false);
+  const reentry = useRef(false);
+  const lifetime = useRef(new AbortController());
+  useEffect(() => () => lifetime.current.abort(), []);
+  useEffect(() => { setDraft(props.draft ?? ''); }, [props.draft]);
+  const reattach = async () => {
+    if (reentry.current) return;
+    reentry.current = true; setReattaching(true); setError('');
+    try {
+      const result = await attachChatSession(props.sessionId, props.generation, lifetime.current.signal);
+      if (lifetime.current.signal.aborted) return;
+      const supported = await probeChatControls(props.sessionId, props.generation, lifetime.current.signal);
+      if (lifetime.current.signal.aborted) return;
+      setControls(supported);
+      if (result.sessionId !== bound) { setDraft(''); props.onDraftChange?.(''); }
+      setBound(result.sessionId); setRevision(value => value + 1);
+    } catch (cause) {
+      if (!lifetime.current.signal.aborted) {
+        const message = cause instanceof Error ? cause.message : 'Could not re-enter Chat.';
+        setError(message);
+        if (cause instanceof ChatAttachError && (cause.status === 401 || cause.status === 403 || cause.status === 409)) props.onAuthError?.(message);
+      }
+    } finally { if (!lifetime.current.signal.aborted) { reentry.current = false; setReattaching(false); } }
+  };
+  return <>
+    {error && <div role="alert">{error}</div>}
+    {reattaching && <div role="status">Reattaching to the confirmed primary…</div>}
+    <BoundChat key={`${bound}:${revision}`} {...props} controlsAvailable={controls} boundSessionId={bound} draft={draft}
+      onDraftChange={value => { setDraft(value); props.onDraftChange?.(value); }} onReattach={() => void reattach()}
+      onAdopt={id => { setDraft(''); props.onDraftChange?.(''); setBound(id); setRevision(value => value + 1); }} />
+  </>;
+}
+
 /** One React root, owned/disposed by the visible Solid surface. */
 export function mountChat(container: HTMLElement, props: ChatMountProps) {
   const root = createRoot(container);
   const layerHost = document.createElement('div');
   layerHost.className = 'codeflare-chat cf-chat-overlays';
   document.body.append(layerHost);
-  const render = (next: ChatMountProps) => root.render(<BoundChat key={`${next.sessionId}:${next.generation}:${next.boundSessionId}`} {...next} layerHost={layerHost} />);
+  const render = (next: ChatMountProps) => root.render(<ChatBinding key={`${next.sessionId}:${next.generation}:${next.boundSessionId}`} {...next} layerHost={layerHost} />);
   render(props);
   return { update: render, dispose() { root.unmount(); layerHost.remove(); } };
 }

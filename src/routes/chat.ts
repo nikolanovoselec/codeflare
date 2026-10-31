@@ -25,6 +25,28 @@ const logger = createLogger('chat');
 const MAX_BODY_BYTES = 64 * 1024;
 const generationSchema = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
 const attachSchema = z.object({ generation: generationSchema }).strict();
+const nativeIdSchema = z.string().regex(/^[A-Za-z0-9._:-]{1,128}$/);
+const providerIdSchema = z.string().min(1).max(128).regex(/^[^\u0000-\u001f\u007f]+$/);
+const authStartSchema = z.object({ providerId: providerIdSchema, type: z.enum(['api_key', 'oauth']) }).strict();
+const authInputSchema = z.object({ stepId: nativeIdSchema, value: z.string().min(1).max(16384) }).strict();
+const authLogoutSchema = z.object({ providerId: providerIdSchema }).strict();
+const conversationSchemas = {
+  new: z.object({ sessionId: nativeIdSchema }).strict(),
+  resume: z.object({ sessionId: nativeIdSchema, conversationId: nativeIdSchema }).strict(),
+  fork: z.object({ sessionId: nativeIdSchema, entryId: nativeIdSchema }).strict(),
+};
+const displaySchema = z.object({
+  tokenStatsBar: z.boolean().optional(), contextUsageBar: z.boolean().optional(), reasoning: z.boolean().optional(),
+  toolResults: z.boolean().optional(), turnMetadata: z.boolean().optional(), debugTools: z.boolean().optional(),
+  keepReasoningOpenUntilTurnEnds: z.boolean().optional(), toolGroupDefaultCollapsed: z.boolean().optional(),
+  changeSummaryTable: z.boolean().optional(), reserveProcessLineAtIdle: z.boolean().optional(),
+  showOutOfCwdSessionDiffs: z.boolean().optional(), reasoningInlineFlow: z.boolean().optional(), chatMotion: z.boolean().optional(),
+  reasoningAutoCollapseMs: generationSchema.optional(), notifyMinLevel: z.enum(['all', 'success', 'warnings', 'errors']).optional(),
+  toolCalls: z.object({ read: z.boolean().optional(), bash: z.boolean().optional(), edit: z.boolean().optional(),
+    agent: z.boolean().optional(), generic: z.boolean().optional() }).strict().optional(),
+  customEventGroups: z.record(z.string().min(1).max(256), z.boolean()).refine(value =>
+    Object.keys(value).every(key => !['__proto__', 'constructor', 'prototype'].includes(key))).optional(),
+}).strict();
 // Pinned shared/question-types.ts: QuestionAnswerRequest. Provenance and target
 // fields are deliberately not accepted from the browser, even on cancellation.
 const answerSchema = z.union([
@@ -62,13 +84,20 @@ export async function handleChatRequest(request: Request, env: Env): Promise<Res
   // Pinned QuestionStore IDs are base64url; do not decode path separators or
   // admit a nested/global API. Only detail and manual answer are needed here.
   const question = path.match(/^\/api\/questions\/[a-zA-Z0-9_-]+(\/answer)?$/);
-  if (!isAttach && !isWebSocket && !question) {
+  const provider = path.match(/^\/api\/provider-auth\/(providers|status|start|logout|flow\/([a-zA-Z0-9_-]{1,128})(\/input)?)$/);
+  const conversation = path.match(/^\/api\/conversations(?:\/(new|resume|fork))?$/);
+  const preferences = path === '/api/preferences/display';
+  const capabilities = path === '/api/capabilities';
+  if (!isAttach && !isWebSocket && !question && !provider && !conversation && !preferences && !capabilities) {
     return reject(404, 'Not found', 'NOT_FOUND');
   }
-  const method = isAttach || question?.[1] ? 'POST' : 'GET';
-  if (request.method !== method) {
+  const methods = isAttach || question?.[1] || conversation?.[1] ? ['POST']
+    : preferences ? ['GET', 'PATCH'] : provider
+      ? provider[1] === 'start' || provider[1] === 'logout' || provider[3] ? ['POST']
+        : provider[2] ? ['GET', 'DELETE'] : ['GET'] : ['GET'];
+  if (!methods.includes(request.method)) {
     const response = reject(405, 'Method not allowed', 'METHOD_NOT_ALLOWED');
-    response.headers.set('Allow', method);
+    response.headers.set('Allow', methods.join(', '));
     return response;
   }
   if (isWebSocket && request.headers.get('Upgrade')?.toLowerCase() !== 'websocket') {
@@ -97,7 +126,11 @@ export async function handleChatRequest(request: Request, env: Env): Promise<Res
 
     let body: string | undefined;
     let generation: number | undefined;
-    if (isAttach || question?.[1]) {
+    const controlSchema = provider?.[1] === 'start' ? authStartSchema : provider?.[1] === 'logout' ? authLogoutSchema
+      : provider?.[3] ? authInputSchema : conversation?.[1]
+        ? conversationSchemas[conversation[1] as keyof typeof conversationSchemas]
+        : preferences && request.method === 'PATCH' ? displaySchema : undefined;
+    if (isAttach || question?.[1] || controlSchema) {
       const declaredLength = Number(request.headers.get('Content-Length'));
       if (Number.isFinite(declaredLength) && declaredLength > MAX_BODY_BYTES) {
         return reject(413, 'Request body too large', 'BODY_TOO_LARGE');
@@ -119,6 +152,10 @@ export async function handleChatRequest(request: Request, env: Env): Promise<Res
         const parsed = attachSchema.safeParse(raw);
         if (!parsed.success) return reject(400, 'Expected exactly {generation}', 'INVALID_BODY');
         generation = parsed.data.generation;
+        body = JSON.stringify(parsed.data);
+      } else if (controlSchema) {
+        const parsed = controlSchema.safeParse(raw);
+        if (!parsed.success) return reject(400, 'Invalid Chat control body', 'INVALID_BODY');
         body = JSON.stringify(parsed.data);
       } else {
         const parsed = answerSchema.safeParse(raw);

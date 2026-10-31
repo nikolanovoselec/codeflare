@@ -30,3 +30,56 @@ export async function attachChatSession(sessionId: string, generation: number, s
   }
   return { sessionId: attached.sessionId, generation };
 }
+
+/** Protected, no-wake metadata. Missing support never upgrades the old runtime. */
+export async function probeChatControls(sessionId: string, generation: number, signal?: AbortSignal): Promise<boolean> {
+  const url = new URL(`/api/chat/${encodeURIComponent(sessionId)}/api/capabilities`, window.location.origin);
+  url.searchParams.set('generation', String(generation));
+  let response: Response;
+  try { response = await fetch(url, { credentials: 'same-origin', signal }); }
+  catch (cause) {
+    if (signal?.aborted) throw cause;
+    return false;
+  }
+  if (signal?.aborted) throw new DOMException('Chat probe cancelled.', 'AbortError');
+  if (response.status === 404 || response.status === 503) return false;
+  const body: unknown = await response.json().catch(() => null);
+  if (!response.ok) {
+    const message = body && typeof body === 'object' && 'error' in body && typeof body.error === 'string'
+      ? body.error : `Unable to check Chat controls (HTTP ${response.status}).`;
+    throw new ChatAttachError(message, response.status);
+  }
+  return !!body && typeof body === 'object' && 'success' in body && body.success === true
+    && 'data' in body && !!body.data && typeof body.data === 'object'
+    && 'controls' in body.data && body.data.controls === true;
+}
+
+/** Private owner transport: never changes global fetch or Dashboard's API base. */
+export function createChatControlApi(sessionId: string, generation: number, onAuthError?: (message: string) => void) {
+  const base = `/api/chat/${encodeURIComponent(sessionId)}`;
+  const request = async <T>(path: string, init?: RequestInit, signal?: AbortSignal): Promise<T> => {
+    if (!path.startsWith('/api/')) throw new Error('Invalid Chat control road.');
+    const url = new URL(`${base}${path}`, window.location.origin);
+    url.searchParams.set('generation', String(generation));
+    const response = await fetch(url, {
+      ...init, signal, credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json', ...init?.headers },
+    });
+    const body: unknown = await response.json().catch(() => null);
+    if (!response.ok) {
+      if (!signal?.aborted && (response.status === 401 || response.status === 403)) onAuthError?.('Chat authorization is unavailable. Sign in or re-enter Chat.');
+      const error = body && typeof body === 'object' && 'error' in body && typeof body.error === 'string' ? body.error : `Chat action failed (HTTP ${response.status}).`;
+      throw new ChatAttachError(error, response.status);
+    }
+    return body as T;
+  };
+  return {
+    request,
+    async envelope<T>(path: string, init?: RequestInit, signal?: AbortSignal): Promise<T> {
+      const body = await request<{ success: boolean; data: T }>(path, init, signal);
+      if (!body || body.success !== true || !('data' in body)) throw new Error('Invalid Chat control response.');
+      return body.data;
+    },
+  };
+}
+export type ChatControlApi = ReturnType<typeof createChatControlApi>;

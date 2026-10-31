@@ -24,10 +24,13 @@
  */
 
 import http from 'node:http';
-import { WebSocketServer } from 'ws';
+import { WebSocket, WebSocketServer } from 'ws';
 import fs from 'node:fs';
+import { join } from 'node:path';
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import { createChatProxy, type ChatPrimary } from './chat-proxy.js';
+import { createChatAuthService, type ChatAuthScope, type ChatAuthService } from './chat-auth.js';
+import { createPrimaryConversations, type ChatNativePrimary } from './chat-primary-controls.js';
 import { createActivityTracker } from './activity-tracker.js';
 import { isPrewarmTimeoutReady, resolveHostTerminalConfig } from './terminal-mode.js';
 import { getPrewarmConfig } from './prewarm-config.js';
@@ -310,7 +313,7 @@ const primaryTerminalId = `${process.env.SESSION_ID}-1`;
 function privateChatToken(): string {
   return fs.readFileSync(`${CHAT_ROOT}/.pi/dashboard/local/token`, 'utf8').trim();
 }
-function readPrimaryIdentity(): (ChatPrimary & { pid: number; paneId?: string }) | null {
+function readPrimaryIdentity(): ChatNativePrimary | null {
   if (!chatEligible || CHAT_GENERATION === null) return null;
   const terminal = sessionManager.get(primaryTerminalId) ?? sessionManager.get(PREWARM_SESSION_ID);
   if (!terminal?.isPtyAlive()) return null;
@@ -327,14 +330,14 @@ function readPrimaryIdentity(): (ChatPrimary & { pid: number; paneId?: string })
     const stat = fs.readFileSync(`/proc/${launchedPid}/stat`, 'utf8');
     const startTime = stat.slice(stat.lastIndexOf(')') + 2).split(' ')[19];
     if (typeof record.startTime !== 'string' || record.startTime !== startTime) return null;
-    return { sessionId: record.sessionId, generation: CHAT_GENERATION, pid: launchedPid,
+    return { sessionId: record.sessionId, generation: CHAT_GENERATION, pid: launchedPid, startTime: record.startTime,
       ...(typeof record.paneId === 'string' ? { paneId: record.paneId } : {}) };
   } catch { return null; }
 }
 function primary(): ChatPrimary | null {
   const record = readPrimaryIdentity();
   if (!record || !chatTransport?.pid || chatTransport.exitCode !== null
-    || confirmedPrimary !== `${record.pid}:${record.sessionId}`) return null;
+    || confirmedPrimary !== `${record.pid}:${record.startTime}:${record.sessionId}`) return null;
   return { sessionId: record.sessionId, generation: record.generation };
 }
 function startChatTransport(): void {
@@ -365,6 +368,59 @@ function startChatTransport(): void {
   chatTransport.on('error', () => log('warn', 'Private Chat transport failed to start'));
   chatTransport.on('exit', () => { confirmedPrimary = undefined; log('warn', 'Private Chat transport exited'); });
 }
+const sameNativePrimary = (left: ChatNativePrimary | null, right: ChatNativePrimary): boolean =>
+  left !== null && left.sessionId === right.sessionId && left.generation === right.generation
+  && left.pid === right.pid && left.startTime === right.startTime && left.paneId === right.paneId;
+async function tryConfirmPrimary(expected: ChatNativePrimary): Promise<ChatPrimary | null> {
+  if (!sameNativePrimary(readPrimaryIdentity(), expected)) return null;
+  const response = await fetch(`http://127.0.0.1:${CHAT_PORT}/api/sessions?id=${encodeURIComponent(expected.sessionId)}`, {
+    headers: { 'x-pi-local-token': privateChatToken() }, signal: AbortSignal.timeout(5000),
+  });
+  const envelope: unknown = await response.json();
+  if (!response.ok || !envelope || typeof envelope !== 'object' || !('data' in envelope)
+    || !Array.isArray(envelope.data) || !envelope.data.some((row: Record<string, unknown>) =>
+      row.id === expected.sessionId && row.pid === expected.pid && row.status !== 'ended')
+    || !sameNativePrimary(readPrimaryIdentity(), expected)) return null;
+  confirmedPrimary = `${expected.pid}:${expected.startTime}:${expected.sessionId}`;
+  return { sessionId: expected.sessionId, generation: expected.generation };
+}
+const conversationFailure = (code: string): Error => Object.assign(new Error('Native conversation unavailable'), { code });
+async function confirmConversation(expected: ChatNativePrimary): Promise<ChatPrimary> {
+  const deadline = Date.now() + EDITOR_WARMING_BUDGET_MS;
+  while (Date.now() < deadline && sameNativePrimary(readPrimaryIdentity(), expected)) {
+    try {
+      const result = await tryConfirmPrimary(expected);
+      if (result) return result;
+    } catch { /* keep the existing bounded native-registration wait */ }
+    await new Promise(resolve => setTimeout(resolve, 100));
+  }
+  throw conversationFailure('UNCONFIRMED_ADOPTION');
+}
+async function dispatchConversation(source: ChatNativePrimary, text: string): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    const token = privateChatToken();
+    if (!token) { reject(conversationFailure('CONVERSATION_UNAVAILABLE')); return; }
+    const socket = new WebSocket(`ws://127.0.0.1:${CHAT_PORT}/ws`, {
+      headers: { 'x-pi-local-token': token }, handshakeTimeout: 5000,
+    });
+    socket.once('error', () => reject(conversationFailure('CONVERSATION_UNAVAILABLE')));
+    socket.once('open', () => {
+      if (!sameNativePrimary(readPrimaryIdentity(), source)) {
+        socket.close(); reject(conversationFailure('STALE_PRIMARY')); return;
+      }
+      // Reserved command only: no prompt receipt/replay or browser-controlled
+      // dispatch. The correlated native outcome, not this send, proves adoption.
+      socket.send(JSON.stringify({ type: 'send_prompt', sessionId: source.sessionId, text }), error => {
+        socket.close();
+        if (error) reject(conversationFailure('CONVERSATION_PENDING'));
+        else resolve();
+      });
+    });
+    socket.once('close', () => reject(conversationFailure('CONVERSATION_PENDING')));
+  });
+}
+const conversations = chatEligible ? createPrimaryConversations({ runtimeDir: CHAT_ROOT, budgetMs: EDITOR_WARMING_BUDGET_MS,
+  readIdentity: readPrimaryIdentity, confirm: confirmConversation, dispatch: dispatchConversation }) : undefined;
 let primaryEntry: Promise<ChatPrimary> | undefined;
 async function ensurePrimary(): Promise<ChatPrimary> {
   if (!chatEligible || CHAT_GENERATION === null) throw new Error('Configured Chat primary/generation unavailable');
@@ -378,17 +434,8 @@ async function ensurePrimary(): Promise<ChatPrimary> {
       const record = readPrimaryIdentity();
       if (record) {
         try {
-          const path = `/api/sessions?id=${encodeURIComponent(record.sessionId)}`;
-          const response = await fetch(`http://127.0.0.1:${CHAT_PORT}${path}`, {
-            headers: { 'x-pi-local-token': privateChatToken() }, signal: AbortSignal.timeout(5000),
-          });
-          const envelope: unknown = await response.json();
-          if (response.ok && envelope && typeof envelope === 'object' && 'data' in envelope
-            && Array.isArray(envelope.data) && envelope.data.some((row: Record<string, unknown>) =>
-              row.id === record.sessionId && row.pid === record.pid && row.status !== 'ended')) {
-            confirmedPrimary = `${record.pid}:${record.sessionId}`;
-            return { sessionId: record.sessionId, generation: record.generation };
-          }
+          const confirmed = await tryConfirmPrimary(record);
+          if (confirmed) return confirmed;
         } catch { /* bounded registration wait; never provision a replacement */ }
       }
       await new Promise(resolve => setTimeout(resolve, 100));
@@ -397,8 +444,42 @@ async function ensurePrimary(): Promise<ChatPrimary> {
   })().finally(() => { primaryEntry = undefined; });
   return primaryEntry;
 }
+let providerAuth: ChatAuthService | undefined;
+let providerCarrier: ChatNativePrimary | undefined;
+let providerAuthClosed = false;
+function currentAuthScope(): ChatAuthScope | null {
+  const bound = primary();
+  if (!bound || providerAuthClosed || CHAT_GENERATION === null) return null;
+  // Worker D1 admission already proves the owner. This immutable allocation key
+  // scopes the local service; it is not an identity accepted from the browser.
+  return { cfid: process.env.SESSION_ID!, ownerId: process.env.SESSION_ID!, generation: CHAT_GENERATION, primary: bound };
+}
+const providerAuthAccess = {
+  forPrimary(bound: ChatPrimary) {
+    const carrier = readPrimaryIdentity();
+    const scope = currentAuthScope();
+    if (!carrier || !scope || scope.primary.sessionId !== bound.sessionId || scope.primary.generation !== bound.generation) {
+      throw conversationFailure('STALE_PRIMARY');
+    }
+    if (!providerAuth || !providerCarrier || !sameNativePrimary(carrier, providerCarrier)) {
+      providerAuth?.close();
+      const agentDir = process.env.PI_CODING_AGENT_DIR || '/home/user/.pi/agent';
+      const sdkEntry = 'file:///opt/codeflare/npm-tools/node_modules/@earendil-works/pi-coding-agent/dist/index.js';
+      providerAuth = createChatAuthService({ scope, currentScope: currentAuthScope,
+        authPath: join(agentDir, 'auth.json'), modelsPath: join(agentDir, 'models.json'),
+        policy: { mode: process.env.ENTERPRISE_MODE === 'active' ? 'managed' : 'personal',
+          allowPersonalAuth: process.env.ENTERPRISE_MODE !== 'active' || process.env.ENTERPRISE_PI_PERSONAL_PROVIDERS === 'true' },
+        loadSdk: () => import(sdkEntry),
+      });
+      providerCarrier = carrier;
+    }
+    return { scope, service: providerAuth };
+  },
+  close() { providerAuthClosed = true; providerAuth?.close(); },
+};
 const chat = chatEligible ? createChatProxy({ cfid: process.env.SESSION_ID!, generation: CHAT_GENERATION,
-  primary, ensurePrimary, upstream: { port: CHAT_PORT, token: privateChatToken },
+  primary, ensurePrimary, conversations, providerAuth: providerAuthAccess,
+  upstream: { port: CHAT_PORT, token: privateChatToken },
   notificationSession: () => sessionManager.get(primaryTerminalId),
   recordInput: () => {
     sessionManager.retainPrimary(primaryTerminalId);

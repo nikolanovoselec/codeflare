@@ -137,6 +137,7 @@ describe('Codeflare session-local Chat composition', () => {
           ? { sessionId: 'bound-primary-pi', generation }
           : attachFailure, { status: attachStatus });
       }
+      if (path.endsWith('/api/capabilities')) return Response.json({ success: true, data: { controls: true } });
       if (path.includes('gravatar')) return new Response(null, { status: 404 });
       return new Response('{}', { status: 404 });
     });
@@ -534,12 +535,12 @@ describe('Codeflare session-local Chat composition', () => {
     expect(await screen.findByRole('textbox')).toHaveValue('');
   });
 
-  it('REQ-AGENT-224: the mount keeps Send and omits management and advanced stop affordances', async () => {
+  it('REQ-AGENT-224: the mount keeps Send and conversation controls without a competing Dashboard shell', async () => {
     await openTerminalSession(); await enterChat();
     expect(screen.getByRole('textbox')).toBeEnabled();
     expect(screen.getByRole('button', { name: /^Send$/i })).toBeInTheDocument();
-    for (const name of [/force.?kill/i, /provider settings/i, /thinking level/i, /inline terminal/i,
-      /plugin management/i, /new dashboard session/i]) {
+    expect(screen.getByRole('button', { name: /conversation history|browse conversations|history/i })).toBeInTheDocument();
+    for (const name of [/inline terminal/i, /plugin management/i, /new dashboard session/i]) {
       expect(screen.queryByRole('button', { name })).not.toBeInTheDocument();
     }
     // The choice and draft are UI-local, not a new global/default-workspace preference.
