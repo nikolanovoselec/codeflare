@@ -558,9 +558,10 @@ Vault note capture, and path-scoped Cloudflare Workers routing. Generic language
 remain absent.
 
 The default+advanced `safe-local-checks` skill supplies the operational policy and one
-managed wrapper for every repository. The image supplies every supported analyzer
-and parser dependency; repository versions take precedence over the fixed image
-copies, without per-repository setup, downloads, or arbitrary `PATH` lookup.
+managed wrapper for every repository. The image supplies Oxlint, Biome, Prettier
+and both parser dependencies; repository versions take precedence over the fixed image
+copies, without downloads or arbitrary `PATH` lookup. ESLint remains a repository-only
+mode: it requires an existing local installation and never substitutes another analyzer.
 Full-project read-only checks have no file-count limit and run at low priority for
 at most three minutes. Node syntax checks and explicitly named Node test files use
 the same deadline. TypeScript and YAML parsing retain repository-first resolution

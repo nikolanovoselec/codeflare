@@ -18,7 +18,7 @@ Use this skill only when a bounded local static, syntax, or explicit Node test-f
 
 ## Managed runner
 
-Run the seeded wrapper from the repository being checked. Analyzer resolution prefers the nearest existing `node_modules/.bin` copy, searching upward only through that repository's root. If no local analyzer exists, the wrapper checks only its fixed image path: `/opt/codeflare/oxlint/node_modules/.bin/{oxlint,eslint,biome,prettier}`. Compatible updated images preinstall all four supported analyzers and both parser libraries (`yaml` and `esbuild`), so checks also work in repositories with no dependencies. Older or incompatible images may lack a required tool; the wrapper fails closed rather than installing it on demand. If neither a local nor an approved image analyzer is available, report the check as unavailable and rely on CI—never install it locally. The wrapper does not search arbitrary ancestors or `PATH`, accept environment-configured tool roots, or download packages.
+Run the seeded wrapper from the repository being checked. Analyzer resolution prefers the nearest existing `node_modules/.bin` copy, searching upward only through that repository's root. If no local analyzer exists, Oxlint, Biome and Prettier may use only their fixed image paths: `/opt/codeflare/oxlint/node_modules/.bin/{oxlint,biome,prettier}`. Compatible updated images preinstall these three analyzers and both parser libraries (`yaml` and `esbuild`). ESLint is repository-only: without an existing local installation, the wrapper refuses and never substitutes another analyzer. Older or incompatible images may lack a required tool; the wrapper fails closed rather than installing it on demand. If neither a local nor an approved image analyzer is available, report the check as unavailable and rely on CI—never install it locally. The wrapper does not search arbitrary ancestors or `PATH`, accept environment-configured tool roots, or download packages.
 
 ```bash
 node ~/.claude/skills/safe-local-checks/scripts/safe-local-check.mjs oxlint [paths...]
@@ -51,7 +51,7 @@ node ~/.pi/agent/skills/safe-local-checks/scripts/safe-local-check.mjs <mode> [.
 - `node-test`: runs only the explicitly named repository test files with Node's test runner.
 - `lock-consistency`: checks npm lockfile root dependency mirrors, exact pinned entries, tarball URL/version shape, and SHA-512 integrity. Defaults to `package-lock.json`.
 - `pi-preseed`: checks Codeflare Pi preseed package lock consistency, `entrypoint.sh` required package specs, and generated seed embedding.
-- `oxlint`, `eslint`, `biome check`, `prettier --check`: run existing analyzers through the bounded wrapper, preferring repository-local copies; each supported analyzer has the fixed image fallback described above when installed.
+- `oxlint`, `eslint`, `biome check`, `prettier --check`: run existing analyzers through the bounded wrapper, preferring repository-local copies; only Oxlint, Biome and Prettier have fixed image fallbacks; ESLint requires a repository-installed copy.
 
 Examples:
 
@@ -69,7 +69,7 @@ node ~/.claude/skills/safe-local-checks/scripts/safe-local-check.mjs ts-syntax s
 The wrapper:
 
 - permits full-project checks and imposes no file-count limit;
-- resolves analyzers only from the repository's existing `node_modules/.bin` tree, then the supported analyzer's fixed image path when no local copy is installed;
+- resolves analyzers only from the repository's existing `node_modules/.bin` tree, then the fixed image path for Oxlint, Biome or Prettier when no local copy is installed; ESLint remains repository-only;
 - runs external analyzers at low priority and stops the complete process group after at most three minutes;
 - rejects mutation, watch, output-file, cache-writing, and analyzer-concurrency flags;
 - rejects repository-file modes that target paths outside the repository;

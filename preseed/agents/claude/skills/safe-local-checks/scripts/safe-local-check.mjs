@@ -7,6 +7,7 @@ import { spawn } from 'node:child_process';
 
 const DEFAULT_TIMEOUT_MS = 180_000;
 const ANALYZERS = new Set(['oxlint', 'eslint', 'biome', 'prettier']);
+const IMAGE_ANALYZERS = new Set(['oxlint', 'biome', 'prettier']);
 const FORBIDDEN_ARGUMENTS = [
   /^--fix(?:$|=|-)/u,
   /^--write(?:$|=)/u,
@@ -349,6 +350,9 @@ async function main() {
   if (!ANALYZERS.has(mode)) throw new Error(`unsupported analyzer ${JSON.stringify(mode)}`);
   validateReadOnly(mode, args);
   let binary = await repositoryBinary(mode, process.cwd());
+  if (!binary && !IMAGE_ANALYZERS.has(mode)) {
+    throw new Error(`repository-local ${mode} is not installed; ${mode} is repository-only and has no image fallback`);
+  }
   const imageBinary = join('/opt/codeflare/oxlint/node_modules/.bin', mode);
   if (!binary && await executable(imageBinary)) binary = imageBinary;
   if (!binary) throw new Error(`repository-local ${mode} is not installed and no approved image analyzer is available`);

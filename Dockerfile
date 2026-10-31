@@ -483,7 +483,7 @@ COPY scripts/ci/coding-agent-selection-core.mjs scripts/ci/coding-agent-selectio
 RUN cd /opt/codeflare/oxlint && \
     npm ci --omit=dev --ignore-scripts --no-audit --no-fund && \
     node /opt/codeflare/scripts/prune-npm-platform-artifacts.mjs node_modules && \
-    for tool in oxlint eslint biome prettier; do \
+    for tool in oxlint biome prettier; do \
       [ -e "node_modules/.bin/$tool" ] || exit 1; \
       ln -sf "$(readlink -f "node_modules/.bin/$tool")" "/usr/local/bin/$tool"; \
       "$tool" --version || exit 1; \

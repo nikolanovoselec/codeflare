@@ -2569,7 +2569,7 @@ None.
 
 ### REQ-AGENT-192: Image-baked managed-check dependencies
 
-**Intent:** Managed sessions can run supported analyzer and syntax checks without installing project dependencies.
+**Intent:** Managed sessions can run image-supported checks without project dependencies while retaining repository-only ESLint.
 
 **Applies To:** Agent
 
@@ -2579,9 +2579,11 @@ None.
 2. Managed sessions can parse valid TypeScript when the project provides no parser, without installing dependencies. <!-- @impl: preseed/agents/claude/skills/safe-local-checks/scripts/safe-local-check.mjs::syntaxParserRequire --> <!-- @test: host/__tests__/safe-local-check-image.test.js (REQ-AGENT-192 AC2-AC3: parses TypeScript without project dependencies or repository writes) -->
 3. A TypeScript syntax check leaves the checked repository unchanged. <!-- @impl: preseed/agents/claude/skills/safe-local-checks/scripts/safe-local-check.mjs::checkTsSyntax --> <!-- @test: host/__tests__/safe-local-check-image.test.js (REQ-AGENT-192 AC2-AC3: parses TypeScript without project dependencies or repository writes) -->
 
-4. Supported analyzers are preinstalled and usable without project dependencies. <!-- @impl: image/oxlint/package.json::dependencies --> <!-- @impl: Dockerfile::oxlint --> <!-- @test: host/__tests__/safe-local-check-image.test.js (REQ-AGENT-192 AC4: supported image analyzers work without project dependencies) -->
-5. Repository-installed analyzers take precedence over their image copies. <!-- @impl: preseed/agents/claude/skills/safe-local-checks/scripts/safe-local-check.mjs::repositoryBinary --> <!-- @impl: preseed/agents/claude/skills/safe-local-checks/scripts/safe-local-check.mjs::main --> <!-- @test: host/__tests__/safe-local-check.test.js (prefers the nearest repository-local copy for every supported analyzer) -->
+4. Oxlint, Biome and Prettier are preinstalled and usable without project dependencies. <!-- @impl: image/oxlint/package.json::dependencies --> <!-- @impl: Dockerfile::oxlint --> <!-- @test: host/__tests__/safe-local-check-image.test.js (REQ-AGENT-192 AC4: supported image analyzers work without project dependencies) -->
+5. For image-supported analyzers, repository-installed copies take precedence. <!-- @impl: preseed/agents/claude/skills/safe-local-checks/scripts/safe-local-check.mjs::repositoryBinary --> <!-- @impl: preseed/agents/claude/skills/safe-local-checks/scripts/safe-local-check.mjs::main --> <!-- @test: host/__tests__/safe-local-check.test.js (prefers the nearest repository-local copy for every supported analyzer) -->
 6. Managed sessions can parse YAML without installing project dependencies. <!-- @impl: preseed/agents/claude/skills/safe-local-checks/scripts/safe-local-check.mjs::checkYaml --> <!-- @impl: preseed/agents/claude/skills/safe-local-checks/scripts/safe-local-check.mjs::syntaxParserRequire --> <!-- @test: host/__tests__/safe-local-check-image.test.js (parses YAML using the image library without dependencies or repository mutation) -->
+
+7. ESLint runs only from an existing repository installation; without one, the wrapper refuses rather than using an image copy or another analyzer. <!-- @impl: preseed/agents/claude/skills/safe-local-checks/scripts/safe-local-check.mjs::main --> <!-- @test: host/__tests__/safe-local-check-image.test.js (requires repository-installed ESLint without substituting an image analyzer) -->
 
 **Constraints:**
 

@@ -76,7 +76,7 @@ describe('REQ-AGENT-052 AC6: managed safe local checks', () => {
     }
   });
 
-  it('does not resolve an analyzer from arbitrary PATH entries', () => {
+  it('fails repository-only ESLint rather than resolving arbitrary PATH entries', () => {
     const parent = fixture('eslint', 'printf unexpected > "$SAFE_CHECK_CAPTURE"\nexit 23\n');
     const root = join(parent, 'repository');
     mkdirSync(join(root, '.git'), { recursive: true });
@@ -84,7 +84,8 @@ describe('REQ-AGENT-052 AC6: managed safe local checks', () => {
       PATH: `${join(parent, 'node_modules', '.bin')}:${process.env.PATH}`,
     });
 
-    assert.equal(result.status, existsSync('/opt/codeflare/oxlint/node_modules/.bin/eslint') ? 0 : 2, result.stderr);
+    assert.equal(result.status, 2, result.stderr);
+    assert.match(result.stderr, /repository-local eslint is not installed.*repository-only.*no image fallback/i);
     assert.equal(existsSync(join(root, 'capture.txt')), false, 'PATH analyzer must not start');
   });
 
@@ -119,20 +120,31 @@ describe('REQ-AGENT-052 AC6: managed safe local checks', () => {
     }
   });
 
-  it('does not resolve an analyzer outside the repository boundary', () => {
+  it('fails repository-only ESLint rather than resolving outside the repository boundary', () => {
     const parent = fixture('eslint');
     const root = join(parent, 'repository');
     mkdirSync(join(root, '.git'), { recursive: true });
     const result = run(root, ['eslint', '--help']);
 
-    assert.equal(result.status, existsSync('/opt/codeflare/oxlint/node_modules/.bin/eslint') ? 0 : 2, result.stderr);
+    assert.equal(result.status, 2, result.stderr);
+    assert.match(result.stderr, /repository-local eslint is not installed.*repository-only.*no image fallback/i);
     assert.equal(existsSync(join(root, 'capture.txt')), false, 'ancestor analyzer must not start');
   });
 
-  it('fails closed for analyzers absent from both approved locations', (t) => {
-    const name = ['eslint', 'biome', 'prettier'].find((tool) =>
+  it('fails missing repository ESLint without substituting available Oxlint', () => {
+    const root = fixture('oxlint');
+    mkdirSync(join(root, '.git'));
+    const result = run(root, ['eslint', '.']);
+
+    assert.equal(result.status, 2, result.stderr);
+    assert.match(result.stderr, /repository-local eslint is not installed.*repository-only.*no image fallback/i);
+    assert.equal(existsSync(join(root, 'capture.txt')), false, 'Oxlint must not substitute for ESLint');
+  });
+
+  it('fails closed for image-eligible analyzers absent from both approved locations', (t) => {
+    const name = ['oxlint', 'biome', 'prettier'].find((tool) =>
       !existsSync(`/opt/codeflare/oxlint/node_modules/.bin/${tool}`));
-    if (!name) return t.skip('all supported shared analyzers are installed in this image');
+    if (!name) return t.skip('all image-eligible analyzers are installed in this image');
     const root = mkdtempSync(join(tmpdir(), 'safe-local-check-missing-'));
     const args = name === 'biome' ? ['check', '--help'] : name === 'prettier' ? ['--check', '--help'] : ['--help'];
     const result = run(root, [name, ...args]);

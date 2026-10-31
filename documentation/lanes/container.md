@@ -53,7 +53,7 @@ APT sources use HTTPS. Additional package installation requires `apt-get update`
 
 Codex rejects unknown TUI settings. Restored personal configuration containing the removed `tui.prompt_suggestions` needs a user-approved correction; startup does not rewrite it. The bundled `plugin-creator` skill was removed upstream, but user and managed skills remain distinct from the runtime-owned system-skill directory. Upstream references: [TUI schema](https://github.com/openai/codex/blob/092d3acd6bec3e3a14bdc7e7a2810ab628ab759d/codex-rs/core/config.schema.json#L4534) and [setting/skill removals](https://github.com/openai/codex/releases/tag/rust-v0.159.0).
 
-Shared agents, Bun, esbuild, context-mode, `consult-llm-mcp`, and `chrome-devtools-mcp` install from `preseed/npm-tools/package.json` and its committed lock. The dedicated `image/oxlint` manifest/lock supplies Oxlint, ESLint, Biome, Prettier and YAML under `/opt/codeflare/oxlint`; its four analyzer launchers also link into `/usr/local/bin`. Weekly cooldown-backed Dependabot configuration owns this dependency group ([REQ-OPS-051](../../sdd/spec/operations.md#req-ops-051-image-owned-oxlint-lifecycle)). Esbuild remains under `/opt/codeflare/npm-tools`, with atomic manifest/lock/generated-seed updates configured in the Bun/esbuild Shadow Pins matrix. Configuration alone does not establish a successful update run.
+Shared agents, Bun, esbuild, context-mode, `consult-llm-mcp`, and `chrome-devtools-mcp` install from `preseed/npm-tools/package.json` and its committed lock. The dedicated `image/oxlint` manifest/lock supplies Oxlint, Biome, Prettier and YAML under `/opt/codeflare/oxlint`; its three analyzer launchers also link into `/usr/local/bin`. Weekly cooldown-backed Dependabot configuration owns this dependency group ([REQ-OPS-051](../../sdd/spec/operations.md#req-ops-051-image-owned-oxlint-lifecycle)). Esbuild remains under `/opt/codeflare/npm-tools`, with atomic manifest/lock/generated-seed updates configured in the Bun/esbuild Shadow Pins matrix. Configuration alone does not establish a successful update run.
 
 `.cache-bust` invalidates build layers while `npm ci` preserves reviewed registry integrity and transitive versions. Build pruning removes alternate OS/architecture/baseline/musl payloads, retaining canonical Linux x64 packages. Pruning tests check retained directories; complete-image smoke rejects alternates and executes every selected launcher. The pruning boundary reports reclaimed bytes ([REQ-OPS-040](../../sdd/spec/operations.md#req-ops-040-selected-coding-agent-packaging) AC4).
 
@@ -68,7 +68,7 @@ Environment-scoped `CODING_AGENTS` may select any non-empty subset of `claude-co
 | `@github/copilot` | image-tools lock | `copilot`; non-linux-x64 prebuilds, `mxc-bin/arm64`, bundled ripgrep and non-linux native modules are stripped; system `rg` is used |
 | `@earendil-works/pi-coding-agent` | image-tools lock | `pi`, including the separate native Pi Chat RPC backend |
 | `bun` | image-tools lock | context-mode JS/TS subprocess runtime; cleanup retains linux-x64 only |
-| `oxlint`, `eslint`, `@biomejs/biome`, `prettier` | dedicated `image/oxlint` lock; Dependabot | Four read-only analyzer modes; fixed fallback binaries under `/opt/codeflare/oxlint/node_modules/.bin` |
+| `oxlint`, `@biomejs/biome`, `prettier` | dedicated `image/oxlint` lock; Dependabot | Three read-only analyzer modes; fixed fallback binaries under `/opt/codeflare/oxlint/node_modules/.bin` |
 | `yaml` | dedicated `image/oxlint` lock; Dependabot | YAML parser library under `/opt/codeflare/oxlint/node_modules` |
 | `esbuild` | image-tools lock; Shadow Pins | TypeScript syntax parser/module and native executable under `/opt/codeflare/npm-tools/node_modules` |
 | `consult-llm-mcp` | image-tools lock | Consultation MCP for Claude and Pi |
@@ -79,7 +79,7 @@ Browser Run is a browser-automation capability, not the Browser IDE editor. `bro
 
 `consult-llm-mcp` and `chrome-devtools-mcp` are shared-`npm ci` installs linked onto PATH; image smoke runs Chrome DevTools MCP help. Stable binaries avoid registry resolution at startup. Their Shadow Pins definitions prescribe paired atomic manifest/lock changes, but that workflow is intentionally disabled; this is not a startup repair obligation. Antigravity remains a checksum-verified non-npm installer when selected. Weekly Shadow Pins applies supply-chain cooldown to owning pins/locks where enabled.
 
-The [managed-check resolution policy](preseed.md) prefers repository-local analyzers/parsers before the fixed image copies. Older images missing a required copy fail closed rather than downloading it; see the canonical [safe-local-check guidance](../../preseed/agents/claude/skills/safe-local-checks/SKILL.md).
+The [managed-check resolution policy](preseed.md) prefers repository-local analyzers/parsers before the fixed image copies. ESLint is repository-only: the wrapper requires a repository-installed copy and never substitutes another analyzer. Older images missing a required copy fail closed rather than downloading it; see the canonical [safe-local-check guidance](../../preseed/agents/claude/skills/safe-local-checks/SKILL.md).
 
 Long-lived sessions keep their starting image even when a later reviewed image has newer CLIs. Compatibility risk remains, but reviewed PR checks/image smoke replace mutable deploy-time resolution.
 

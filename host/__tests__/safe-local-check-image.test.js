@@ -49,7 +49,7 @@ it('uses image-baked Oxlint without dependencies, ignores ancestor/PATH tools, a
 it('REQ-AGENT-192 AC4: supported image analyzers work without project dependencies', {
   skip: process.env.CODEFLARE_IMAGE_TEST !== '1',
 }, () => {
-  for (const name of ['oxlint', 'eslint', 'biome', 'prettier']) {
+  for (const name of ['oxlint', 'biome', 'prettier']) {
     const parent = mkdtempSync(join(tmpdir(), 'safe-local-check-image-bin-'));
     const root = join(parent, 'repository');
     const bin = join(parent, 'node_modules', '.bin');
@@ -57,7 +57,6 @@ it('REQ-AGENT-192 AC4: supported image analyzers work without project dependenci
     mkdirSync(bin, { recursive: true });
     writeFileSync(join(bin, name), '#!/bin/sh\nexit 23\n', { mode: 0o755 });
     writeFileSync(join(root, 'valid.js'), 'export const value = 1;\n', 'utf8');
-    writeFileSync(join(root, 'eslint.config.mjs'), 'export default [{}];\n', 'utf8');
     const before = readdirSync(root).sort();
     const args = name === 'biome' ? ['check', 'valid.js'] : name === 'prettier' ? ['--check', 'valid.js'] : ['valid.js'];
     const result = spawnSync(process.execPath, [WRAPPER, name, ...args], {
@@ -68,6 +67,22 @@ it('REQ-AGENT-192 AC4: supported image analyzers work without project dependenci
     assert.deepEqual(readdirSync(root).sort(), before, 'no repository dependencies or outputs created');
     assert.equal(readFileSync(join(root, 'valid.js'), 'utf8'), 'export const value = 1;\n');
   }
+});
+
+it('requires repository-installed ESLint without substituting an image analyzer', {
+  skip: process.env.CODEFLARE_IMAGE_TEST !== '1',
+}, () => {
+  const root = mkdtempSync(join(tmpdir(), 'safe-local-check-image-eslint-'));
+  mkdirSync(join(root, '.git'));
+  writeFileSync(join(root, 'valid.js'), 'export const value = 1;\n', 'utf8');
+  const before = readdirSync(root).sort();
+  const result = spawnSync(process.execPath, [WRAPPER, 'eslint', 'valid.js'], {
+    cwd: root, encoding: 'utf8',
+  });
+  assert.equal(result.status, 2, result.stderr);
+  assert.match(result.stderr, /repository-local eslint is not installed/i);
+  assert.deepEqual(readdirSync(root).sort(), before);
+  assert.equal(readFileSync(join(root, 'valid.js'), 'utf8'), 'export const value = 1;\n');
 });
 
 it('runs image-provided Node and Bash syntax checks without repository dependencies', {
