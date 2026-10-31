@@ -193,6 +193,7 @@ export async function fixture(test: (f: {
   readRemoteComments: () => Promise<unknown>;
   readRemoteMerge: () => unknown;
   mutateEvidence: (change: (storage: DurableObjectStorage) => Promise<void>) => Promise<void>;
+  inOwnContext: <T>(action: () => Promise<T>) => Promise<T>;
   restart: () => OperatorActivity; drainBackground: () => Promise<void>; seedHistoricalAdmitting: () => Promise<void>;
   loseResponse: () => void; restoreTransport: () => void; throwTransport: () => void;
   emptyResponse: () => void; upstreamConflict: (enabled: boolean) => void; nextAlarm: () => Promise<number | null>;
@@ -258,7 +259,8 @@ export async function fixture(test: (f: {
   } } : baseBundle;
   const fixtureBytes = options.normalHosting || options.runtimeVersion || sdkProvenance ? new TextEncoder().encode(JSON.stringify(fixtureBundle)) : bytes;
   const namespace = (env as unknown as { OPERATOR_ACTIVITY: DurableObjectNamespace }).OPERATOR_ACTIVITY;
-  await runInDurableObject(namespace.getByName(`dispatcher-${crypto.randomUUID()}`), async (_instance, native) => {
+  const stub = namespace.getByName(`dispatcher-${crypto.randomUUID()}`);
+  await runInDurableObject(stub, async (_instance, native) => {
     const activityId = `activity-${crypto.randomUUID()}`;
     const artifactDigest = await digest(fixtureBytes);
     const now = Date.now();
@@ -777,6 +779,7 @@ export async function fixture(test: (f: {
         drainBackground,
         readRemoteMerge: () => structuredClone(remoteMerge),
         mutateEvidence: change => change(native.storage),
+        inOwnContext: action => runInDurableObject(stub, () => action()),
         readRemoteComments: async () => {
           // Independent remote readback: bypass the Activity journal/capability so a
           // cached parent response cannot conceal duplicate repository effects.

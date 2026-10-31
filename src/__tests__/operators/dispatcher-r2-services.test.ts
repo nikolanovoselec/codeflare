@@ -793,7 +793,8 @@ describe('REQ-OPERATOR-007/047/048: serialized bounded SDK credential persistenc
       await denied(await begin(second), [409]);
       // Knowing another run's lease does not transfer its persist-only authority.
       await denied(await commit(second, lease.leaseId), [403, 404, 409]);
-      expect(await json(await commit(first, lease.leaseId))).toEqual({ credential: rotated });
+      expect(await first.inOwnContext(async () => json(await commit(first, lease.leaseId))))
+        .toEqual({ credential: rotated });
       const next = await json(await begin(second));
       expect(next.credential).toEqual(rotated);
       expect((await credentials(second, { operation: 'abort', leaseId: next.leaseId })).status).toBe(204);
@@ -910,6 +911,8 @@ describe('REQ-OPERATOR-007/047/048: serialized bounded SDK credential persistenc
         expect(JSON.stringify([...await storage.list()])).not.toContain(canary);
         const rows = storage.sql.exec('SELECT name FROM sqlite_master WHERE type = ?', 'table').toArray();
         for (const row of rows) {
+          // Cloudflare's protected KV backing table is covered by storage.list() above.
+          if (row.name === '_cf_KV') continue;
           const name = String(row.name).replace(/"/g, '""');
           expect(JSON.stringify(storage.sql.exec(`SELECT * FROM "${name}"`).toArray())).not.toContain(canary);
         }
