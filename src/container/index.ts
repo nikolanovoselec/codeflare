@@ -28,7 +28,7 @@
  */
 import { Container } from '@cloudflare/containers';
 import { captureRawValue } from '../../host/src/operator-raw-logging';
-import { DispatcherSdkStorageError, handleDispatcherSdkCredentials, type DispatcherSdkCredentialResult, type SdkStorageScope } from '../operators/dispatcher-sdk-storage';
+import { DispatcherSdkStorageError, handleDispatcherSdkCredentials, type DispatcherSdkCredentialResult, type SdkStorageScope, type SdkCredentialAuthority } from '../operators/dispatcher-sdk-storage';
 import type { Env, ManagedResourcePolicy, SessionWorkspace, TabConfig, TerminalMode } from '../types';
 import type { PiDefaultSource } from '../lib/personal-pi-policy';
 import type { OperatorLoggingContext } from '../lib/container-helpers';
@@ -109,6 +109,7 @@ const sameScanPin = (a: RenovateScanPin | undefined, b: RenovateScanPin | undefi
 type ExitEvidence = { owner: string; session: string; generation: number };
 
 export class container extends Container<Env> implements ContainerEnvState {
+  #sdkCredentialQueues = new Map<string, Promise<void>>();
   logger = createLogger('container');
   private renovateScheduling: Promise<void> = Promise.resolve();
   private sessionStopInFlight?: SessionStopRequest & { completion: Promise<void> };
@@ -691,8 +692,9 @@ export class container extends Container<Env> implements ContainerEnvState {
     });
   }
 
-  /** Owner metadata only: never starts a container or calls back into an Activity. */
-  async dispatcherSdkCredentials(scope: SdkStorageScope, body: unknown): Promise<DispatcherSdkCredentialResult> {
+  /** Owner metadata only: request-owned Root authority; never starts a container. */
+  async dispatcherSdkCredentials(scope: SdkStorageScope, body: unknown,
+    authority: SdkCredentialAuthority): Promise<DispatcherSdkCredentialResult> {
     try {
       if (!scope || typeof scope.bucket !== 'string' || !/^[a-z0-9][a-z0-9.-]{1,62}$/.test(scope.bucket)
         || typeof scope.email !== 'string' || !scope.email || scope.email !== scope.email.trim().toLowerCase()
@@ -700,7 +702,24 @@ export class container extends Container<Env> implements ContainerEnvState {
         || await this.ctx.storage.get<string>('bucketOwnerEmail') !== scope.email) {
         throw new DispatcherSdkStorageError(403);
       }
-      return { ok: true, value: await handleDispatcherSdkCredentials(this.ctx.storage, this.env, scope, body) };
+      const provider = body && typeof body === 'object' && 'providerId' in body ? String(body.providerId) : '';
+      const prior = this.#sdkCredentialQueues.get(provider) ?? Promise.resolve();
+      let release!: () => void;
+      const pending = new Promise<void>(resolve => { release = resolve; });
+      this.#sdkCredentialQueues.set(provider, pending);
+      let modification: Promise<unknown> = Promise.resolve();
+      try {
+        await prior;
+        return { ok: true, value: await handleDispatcherSdkCredentials(this.ctx.storage, this.env, scope, body, authority,
+          pending => { modification = pending; }) };
+      } finally {
+        // getAuth may return on abort while SDK's 15s refresh still runs.
+        // Keep serialization until it settles, without retaining write authority.
+        this.ctx.waitUntil(modification.catch(() => undefined).then(() => {
+          release();
+          if (this.#sdkCredentialQueues.get(provider) === pending) this.#sdkCredentialQueues.delete(provider);
+        }));
+      }
     } catch (error) {
       if (!(error instanceof DispatcherSdkStorageError)) throw error;
       // Custom exception properties do not survive RPC propagation. Keep the

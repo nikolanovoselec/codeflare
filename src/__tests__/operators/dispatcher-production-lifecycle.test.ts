@@ -3077,6 +3077,65 @@ describe('normal installed Dispatcher control', () => {
     f.installationCapability.fetch(normalCallback(f.activityId, 'phase-context', { deliveryToken: token },
       { 'x-codeflare-dispatcher-delivery': token, ...headers }));
 
+  it('REQ-OPERATOR-048/062: projected model permits retain the admitted phase on replay and reject stale phases', () => fixture(async f => {
+    expect(await start(f)).toMatchObject({ ok: true });
+    const token = phaseToken(f);
+    const stampResponse = await installedContext(f, token);
+    expect(stampResponse.status).toBe(200);
+    const stamp = await stampResponse.json() as InstalledPhaseContext;
+    for (const path of ['pi/config', 'gateway']) {
+      const response = await callback(f, path, { operation: 'read' });
+      expect(response.status).toBe(200);
+      expect(await response.json()).toMatchObject({ source: 'managed', deliveryToken: token });
+    }
+    // The App retains its own original operation identity. Root hashes and
+    // authorizes these actual projected bytes, never a caller-provided digest.
+    const body = { operationId: 'original-canonical-operation', deliveryToken: token,
+      context: { messages: [{ role: 'user', content: 'Only the current admitted phase' }] }, options: { maxTokens: 16 } };
+    const first = await callback(f, 'model-admission', body);
+    expect(first.status).toBe(200);
+    const permit = await first.json() as { permitId: string; expiresAt: number; deliveryToken: string };
+    expect(permit).toEqual({ permitId: expect.any(String), expiresAt: expect.any(Number), deliveryToken: token });
+    const replay = await callback(f, 'model-admission', body);
+    expect(replay.status).toBe(200); expect(await replay.json()).toEqual(permit);
+    expect((await callback(f, 'model-admission', { ...body, context: { messages: [{ role: 'user', content: 'Changed projected bytes' }] } })).status).toBe(409);
+    expect((await callback(f, 'model-admission', { ...body, operationId: 'foreign-phase', deliveryToken: 'unadmitted-future-phase' })).status).toBe(403);
+    const target = { pullRequest: 17, headSha: '1'.repeat(40) };
+    f.normalTransport!.settle('completed', [{ name: 'dispatcher-progress', data: {
+      version: 1, scope: stamp.scope, generation: stamp.generation, submissionId: stamp.submissionId,
+      phase: stamp.phase, next: { kind: 'target', index: 0, target }, targets: [target],
+    } }]);
+    await f.activity.reconcileDispatcherLease();
+    const nextToken = phaseToken(f);
+    expect(nextToken).not.toBe(token);
+    expect((await callback(f, 'model-admission', body)).status).toBe(403);
+    expect((await callback(f, 'model-admission', { ...body, deliveryToken: nextToken })).status).toBe(409);
+    const next = await callback(f, 'model-admission', { ...body, operationId: 'next-original-operation', deliveryToken: nextToken });
+    expect(next.status).toBe(200); expect(await next.json()).toMatchObject({ deliveryToken: nextToken });
+    const oldSend = await callback(f, 'model-fetch', { operationId: body.operationId, permitId: permit.permitId,
+      request: { url: 'https://api.openai.com/v1/chat/completions', method: 'POST', headers: [], bodyBase64: btoa('{}') } });
+    expect(oldSend.status).toBe(409);
+    expect(f.sent).toEqual([]);
+    const config = await callback(f, 'gateway', { operation: 'read' });
+    expect(config.status).toBe(200); expect(await config.json()).toMatchObject({ deliveryToken: nextToken });
+  }, { ...options, intent4: true }));
+
+  it('REQ-OPERATOR-048/062: ordinary configuration and permits omit phase projection tokens', () => fixture(async f => {
+    expect(await start(f)).toMatchObject({ ok: true });
+    for (const path of ['pi/config', 'gateway']) {
+      const response = await callback(f, path, { operation: 'read' });
+      expect(response.status).toBe(200); expect(await response.json()).not.toHaveProperty('deliveryToken');
+    }
+    const body = { operationId: 'ordinary-model-permit', context: { messages: [{ role: 'user', content: 'Ordinary input' }] }, options: { maxTokens: 16 } };
+    const first = await callback(f, 'model-admission', body);
+    expect(first.status).toBe(200);
+    const permit = await first.json();
+    expect(permit).toEqual({ permitId: expect.any(String), expiresAt: expect.any(Number) });
+    const replay = await callback(f, 'model-admission', body);
+    expect(replay.status).toBe(200); expect(await replay.json()).toEqual(permit);
+    expect((await callback(f, 'model-admission', { ...body, deliveryToken: 'fabricated' })).status).toBe(403);
+  }, options));
+
   it('REQ-OPERATOR-048/062: AC2 installed phase context joins original pending HTTP202 and advances only its serial receipt', () => fixture(async f => {
     const acknowledgement = f.normalTransport!.delayAcknowledgement();
     const starting = start(f);

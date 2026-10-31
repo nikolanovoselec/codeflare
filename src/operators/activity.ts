@@ -226,7 +226,7 @@ interface DispatcherOperationRecord {
   response?: { status: number; contentType: string; body: string };
   inference?: DispatcherInferenceChain;
   native?: DispatcherNativeOperation;
-  sdkHttp?: { permitId: string; expiresAt: number; selection: ConfiguredDispatcherInference;
+  sdkHttp?: { permitId: string; expiresAt: number; deliveryToken?: string; selection: ConfiguredDispatcherInference;
     ownerScope: { bucket: string; email: string };
     phase: 'ready' | 'sending' | 'completed' | 'unknown'; requestDigest?: string; responseKey?: string; attempts: number };
 }
@@ -2365,9 +2365,12 @@ export class OperatorActivity extends Agent {
       if (!modelScope) {
         z.strictObject({ operation: z.literal('read') }).parse(body);
         const result = await readDispatcherSdkConfiguration(input);
+        const live = await this.ctx.storage.get<DispatcherLease>(DISPATCHER_LEASE);
         if (!await current() || request.signal.aborted) return dispatcherRefusal('execution-inactive');
-        const serialized = JSON.stringify(path === '/v1/dispatcher/pi/config' && (result as { source?: string }).source === 'managed'
-          ? { source: 'managed' } : result);
+        const token = live?.serial?.current.deliveryToken;
+        const phase = token && this.#phaseTokenMatches(live, token) ? { deliveryToken: token } : {};
+        const serialized = JSON.stringify({ ...(path === '/v1/dispatcher/pi/config' && (result as { source?: string }).source === 'managed'
+          ? { source: 'managed' } : result), ...phase });
         if (new TextEncoder().encode(serialized).byteLength > 1024 * 1024) throw new Error('SDK configuration too large');
         return new Response(serialized, { headers: { ...noStore, 'content-type': 'application/json' } });
       }
@@ -2379,6 +2382,7 @@ export class OperatorActivity extends Agent {
       const selection = lease.configuredSelection;
       if (path === '/v1/dispatcher/model-admission') {
         const parsed = z.strictObject({ operationId: syncIdentity,
+          deliveryToken: z.string().regex(/^[A-Za-z0-9_-]{1,128}$/).optional(),
           context: z.looseObject({ messages: z.array(z.json()).min(1).max(limits.inferenceMessageLimit),
             systemPrompt: z.string().optional(), tools: z.array(z.json()).max(limits.inferenceToolLimit).optional() }),
           options: z.strictObject({ reasoning: z.enum(['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']).optional(),
@@ -2395,17 +2399,26 @@ export class OperatorActivity extends Agent {
         return await this.ctx.storage.transaction(async tx => {
           const live = await tx.get<DispatcherLease>(DISPATCHER_LEASE);
           if (!this.#leaseMatches(await tx.get<AdmissionState>('admission'), live, generation)
-            || !this.#phaseTokenMatches(live, undefined, true, true)) return dispatcherRefusal('execution-inactive');
+            || !this.#phaseTokenMatches(live, undefined, true, true)
+            || parsed.deliveryToken !== undefined && (!live?.serial || !this.#phaseTokenMatches(live, parsed.deliveryToken))) {
+            return dispatcherRefusal('execution-inactive');
+          }
           const journal = await loadDispatcherJournal(tx, generation);
           const prior = await tx.get<DispatcherOperationRecord>(dispatcherEntryKey(journal, parsed.operationId));
           if (prior) return prior.requestDigest === requestDigest && prior.sdkHttp && prior.sdkHttp.expiresAt > Date.now()
-            ? Response.json({ permitId: prior.sdkHttp.permitId, expiresAt: prior.sdkHttp.expiresAt }, { headers: noStore }) : conflict();
+            && (parsed.deliveryToken === undefined || parsed.deliveryToken === prior.sdkHttp.deliveryToken)
+            && (prior.sdkHttp.deliveryToken === undefined || this.#phaseTokenMatches(live, prior.sdkHttp.deliveryToken))
+            ? Response.json({ permitId: prior.sdkHttp.permitId, expiresAt: prior.sdkHttp.expiresAt,
+              ...(prior.sdkHttp.deliveryToken ? { deliveryToken: prior.sdkHttp.deliveryToken } : {}) }, { headers: noStore }) : conflict();
           if (journal.count >= dispatcherOperationLimit(policy) || inferenceAttemptLimit(policy) < 1) return conflict();
           const permit = { permitId: crypto.randomUUID(), expiresAt: Math.min(lease.expiresAt, plan.deadline),
-            selection, ownerScope, phase: 'ready' as const, attempts: 0 };
+            selection, ownerScope, phase: 'ready' as const, attempts: 0,
+            ...(live?.serial && this.#phaseTokenMatches(live, live.serial.current.deliveryToken)
+              ? { deliveryToken: live.serial.current.deliveryToken } : {}) };
           await putDispatcherEntry(tx, journal, parsed.operationId, undefined,
             { generation, requestDigest, phase: 'reserved', ordinal: journal.nextOrdinal, sdkHttp: permit });
-          return Response.json({ permitId: permit.permitId, expiresAt: permit.expiresAt }, { headers: noStore });
+          return Response.json({ permitId: permit.permitId, expiresAt: permit.expiresAt,
+            ...(permit.deliveryToken ? { deliveryToken: permit.deliveryToken } : {}) }, { headers: noStore });
         });
       }
       const parsed = z.strictObject({ operationId: syncIdentity, permitId: z.string().uuid(),
@@ -2418,6 +2431,7 @@ export class OperatorActivity extends Agent {
         AbortSignal.timeout(Math.max(1, Math.min(plan.deadline, lease.expiresAt) - Date.now()))]);
       this.#sdkHttpControllers.add(controller);
       let reserved = false;
+      let admittedDeliveryToken: string | undefined;
       type SdkResponse = { status: number; headers: Record<string, string>; bytes: Uint8Array };
       const responseKey = `dispatcher:response:${generation}:${parsed.operationId}`;
       // Only validated vendor receipts carry this private provenance marker.
@@ -2442,7 +2456,9 @@ export class OperatorActivity extends Agent {
           const permit = record?.sdkHttp;
           if (!record || !permit || permit.permitId !== parsed.permitId || permit.expiresAt <= Date.now()
             || !sameDispatcherPhaseValue(permit.selection, selection)
-            || !sameDispatcherPhaseValue(permit.ownerScope, ownerScope)) return 'denied' as const;
+            || !sameDispatcherPhaseValue(permit.ownerScope, ownerScope)
+            || permit.deliveryToken !== undefined && !this.#phaseTokenMatches(live, permit.deliveryToken)) return 'denied' as const;
+          admittedDeliveryToken = permit.deliveryToken;
           if (permit.phase === 'completed' && record.phase === 'completed' && permit.requestDigest === requestDigest
             && permit.responseKey === responseKey) return 'replay' as const;
           if (permit.phase !== 'ready' || permit.attempts !== 0 || record.phase !== 'reserved') return 'denied' as const;
@@ -2456,7 +2472,9 @@ export class OperatorActivity extends Agent {
           if (signal.aborted || Date.now() >= Math.min(plan.deadline, lease.expiresAt)) throw new Error('SDK HTTP aborted');
           const currentOwner = await dispatcherSdkOwnerContext({ ...input, signal }, selection);
           if (currentOwner.bucket !== ownerScope.bucket || currentOwner.email !== ownerScope.email) throw new Error('SDK HTTP owner changed');
-          if (signal.aborted || !await current()) throw new Error('SDK HTTP result fenced');
+          if (signal.aborted || !await current()
+            || admittedDeliveryToken !== undefined && !this.#phaseTokenMatches(
+              await this.ctx.storage.get<DispatcherLease>(DISPATCHER_LEASE), admittedDeliveryToken)) throw new Error('SDK HTTP result fenced');
         };
         if (claim === 'replay') {
           const cached = await this.ctx.storage.get<SdkResponse>(responseKey);
@@ -2493,7 +2511,8 @@ export class OperatorActivity extends Agent {
             || !this.#phaseTokenMatches(live, undefined, true, true)) throw new Error('SDK HTTP result stale');
           const journal = await loadDispatcherJournal(tx, generation);
           const record = await tx.get<DispatcherOperationRecord>(dispatcherEntryKey(journal, parsed.operationId));
-          if (record?.sdkHttp?.phase !== 'sending' || record.sdkHttp.requestDigest !== requestDigest) throw new Error('SDK HTTP permit changed');
+          if (record?.sdkHttp?.phase !== 'sending' || record.sdkHttp.requestDigest !== requestDigest
+            || record.sdkHttp.deliveryToken !== undefined && !this.#phaseTokenMatches(live, record.sdkHttp.deliveryToken)) throw new Error('SDK HTTP permit changed');
           await tx.put(responseKey, receipt);
           if (signal.aborted || Date.now() >= Math.min(plan.deadline, lease.expiresAt)) throw new Error('SDK HTTP result fenced');
           await putDispatcherEntry(tx, journal, parsed.operationId, record,

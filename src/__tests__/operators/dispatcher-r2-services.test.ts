@@ -39,8 +39,8 @@ const [access, r2, regime, aig] = await Promise.all([
  * pi/config {operation:'read'} -> {source:'pi-native',settings:{defaultProvider,defaultModel},selection?}
  *                             or {source:'managed'} with no native R2 reads.
  * pi/credentials {operation:'read',providerId} -> {apiKey: saved API key or OAuth access token}
- * Only the selected provider may be read; list/begin/commit/abort and writes are denied.
- * No Pi settings passthrough, models.json, extensions, environment, refresh or account metadata.
+ * Only the selected provider may be resolved; caller listing/login/writes are denied.
+ * SDK refresh stays Root-private with serialized ETag CAS; no refresh metadata enters the DTO.
  * gateway/model-admission/model-fetch retain their protected HTTP contracts and Root-only account auth.
  * Root derives owner and fixed storage keys; Flue owns inference without a user-session Host.
  * Original authority, bounded reads (1 MiB), redirect denial and no-store remain mandatory.
@@ -57,9 +57,9 @@ const settingsKey = '.pi/agent/settings.json';
 const authKey = '.pi/agent/auth.json';
 const canary = 'PRIVATE_R2_SERVICES_CANARY_é🦊';
 const managedSse = 'data: {"choices":[{"index":0,"delta":{"content":"managed"},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n';
-const providerId = 'groq';
-const logical = { provider: providerId, model: 'openai/gpt-oss-20b', api: 'openai-completions', reasoningLevel: 'low' };
-const oldOAuth = { type: 'oauth', access: `${canary}_old_access`, refresh: `${canary}_old_refresh`, expires: 1, accountId: 'owner-account' };
+const providerId = 'openai';
+const logical = { provider: providerId, model: 'gpt-4o-mini', api: 'openai-responses', reasoningLevel: 'low' };
+const oldOAuth = { type: 'oauth', access: `${canary}_old_access`, refresh: `${canary}_old_refresh`, expires: Date.now() + 3_600_000, clientId: 'owner-issued-client', scopes: ['chatgpt.tokens.use.direct'] };
 const other = { type: 'api_key', key: `${canary}_other_provider`, env: { PROJECT: 'unchanged' } };
 const callback = (f: DispatcherFixture, path: string, body: unknown, headers?: Record<string, string>) =>
   f.installationCapability.fetch(normalCallback(f.activityId, path, body, headers));
@@ -86,15 +86,16 @@ async function denied(response: Response, statuses = [403, 404, 503]) {
   expect(await response.text()).not.toContain(canary);
 }
 
-/** Protected R2 wire allowlist: only fixed settings/auth GETs; every other request is denied. */
+/** Protected R2 wire: fixed GETs and conditional auth PUT only. */
 function storageBoundary() {
   const objects = new Map<string, { body: string; etag: string }>();
   const escapedReads: string[] = [];
   const touchedKeys = new Set<string>();
   let ordinal = 0;
-  let afterRead: (() => void | Promise<void>) | undefined;
+  let afterRead: ((path: string) => void | Promise<void>) | undefined;
   let responseOverride: (() => Response) | undefined;
   let requireSse = false;
+  let beforeWrite: (() => void | Promise<void>) | undefined;
   const put = (key: string, value: unknown, bucket = 'owner-bucket') => {
     objects.set(`/${bucket}/${key}`, { body: JSON.stringify(value), etag: `"revision-${++ordinal}"` });
   };
@@ -108,7 +109,8 @@ function storageBoundary() {
     const url = new URL(request.url);
     const path = url.pathname;
     if (url.origin !== 'https://r2.example.test' || ![settingsKey, authKey]
-      .some(key => path === `/owner-bucket/${key}`) || url.search || request.method !== 'GET') {
+      .some(key => path === `/owner-bucket/${key}`) || url.search || !['GET', 'PUT'].includes(request.method)
+      || request.method === 'PUT' && path !== `/owner-bucket/${authKey}`) {
       escapedReads.push(`${request.method} ${request.url}`);
       return new Response(`${canary}_CROSS_OWNER`, { status: 403 });
     }
@@ -116,23 +118,56 @@ function storageBoundary() {
     if (requireSse && (request.headers.get('x-amz-server-side-encryption-customer-algorithm') !== 'AES256'
       || !request.headers.get('x-amz-server-side-encryption-customer-key')
       || !request.headers.get('x-amz-server-side-encryption-customer-key-md5'))) return new Response(null, { status: 403 });
+    if (request.method === 'PUT') {
+      const action = beforeWrite; beforeWrite = undefined; await action?.();
+      const object = objects.get(path);
+      if (!object || request.headers.get('if-match') !== object.etag) return new Response(null, { status: 412 });
+      put(authKey, JSON.parse(await request.text()));
+      return new Response(null, { headers: { etag: objects.get(path)!.etag } });
+    }
     const object = objects.get(path);
     const response = responseOverride?.() ?? (object ? new Response(object.body,
       { headers: { etag: object.etag, 'content-type': 'application/json' } }) : new Response(null, { status: 404 }));
-    const action = afterRead; afterRead = undefined; await action?.();
+    const action = afterRead; afterRead = undefined; await action?.(path);
     return response;
   };
   return { fetcher, escapedReads, touchedKeys, put,
     value: (key: string) => JSON.parse(objects.get(`/owner-bucket/${key}`)!.body),
-    afterRead: (action: () => void | Promise<void>) => { afterRead = action; },
+    etag: (key: string) => objects.get(`/owner-bucket/${key}`)!.etag,
+    beforeWrite: (action: () => void | Promise<void>) => { beforeWrite = action; },
+    afterRead: (action: (path: string) => void | Promise<void>) => { afterRead = action; },
     override: (action: () => Response) => { responseOverride = action; },
     requireSse: () => { requireSse = true; },
   };
 }
+// Exercise the public SDK's real auth resolver, replacing only external OAuth HTTP.
+const tokenUrl = 'https://auth.openai.com/api/accounts/oauth/token';
+function oauthBoundary(reply: (request: Request, ordinal: number) => Promise<Response> = async () => {
+  throw new Error('Fresh OAuth must not exchange tokens');
+}) {
+  const requests: Request[] = [];
+  const original = globalThis.fetch;
+  vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
+    const request = new Request(input, init);
+    if (request.url !== tokenUrl) return original(request);
+    requests.push(request.clone());
+    return reply(request, requests.length);
+  });
+  return requests;
+}
+const renewedAccess = `${canary}_renewed_access`;
+const renewedRefresh = `${canary}_renewed_refresh`;
+const tokenReply = () => Response.json({ access_token: renewedAccess, refresh_token: renewedRefresh,
+  expires_in: 3600, scope: 'openid chatgpt.tokens.use.direct' });
+function deferred() {
+  let resolve!: () => void;
+  const promise = new Promise<void>(done => { resolve = done; });
+  return { promise, resolve };
+}
 type Store = ReturnType<typeof storageBoundary>;
 async function lane(run: (f: DispatcherFixture, store: Store, metadataEnvironment: Env) => Promise<void>, native = true,
   realInterceptors = false, limits: { operationLimit?: number; inferenceAttemptLimit?: number; managedProviderDefault?: boolean;
-    nativeProviderDefault?: boolean; nativeNullProfile?: boolean; loggingEnabled?: boolean } = {}) {
+    nativeProviderDefault?: boolean; nativeNullProfile?: boolean; loggingEnabled?: boolean; nativeSelection?: typeof logical } = {}) {
   return fixture(async f => {
     const store = storageBoundary();
     const cleanups: Array<() => void> = [];
@@ -189,7 +224,7 @@ async function lane(run: (f: DispatcherFixture, store: Store, metadataEnvironmen
       if (new URL(request.url).pathname !== '/control/profile') return normalFetch(request);
       if (request.headers.get('authorization') !== `Bearer ${connectionSecret}`) return new Response(null, { status: 403 });
       // External normal-App HTTP boundary, not an SDK context or model resolver.
-      const selected = native ? { ...logical,
+      const selected = native ? { ...(limits.nativeSelection ?? logical),
         ...(limits.nativeProviderDefault || limits.nativeNullProfile ? { reasoningLevel: null } : {}) }
         : { provider: 'codeflare-gateway', model: 'approved',
         api: 'openai-completions', reasoningLevel: limits.managedProviderDefault ? null : 'off' };
@@ -272,6 +307,200 @@ describe('REQ-OPERATOR-007/047/048/058: owner R2 configured-service HTTP contrac
     expect(store.touchedKeys).toEqual(new Set([settingsKey, authKey].map(key => `/owner-bucket/${key}`)));
     expect(store.escapedReads).toEqual([]);
     expect(store.value(authKey)).toEqual({ [providerId]: oldOAuth, other });
+  }));
+
+  it('normal fresh OAuth does not force renewal or mutate the owner credential', () => lane(async (f, store) => {
+    await admitted(f);
+    const exchanges = oauthBoundary();
+    const version = store.etag(authKey);
+    expect(await json(await read(f))).toEqual({ apiKey: oldOAuth.access });
+    expect(exchanges).toEqual([]);
+    expect(store.value(authKey)).toEqual({ [providerId]: oldOAuth, other });
+    expect(store.etag(authKey)).toBe(version);
+  }));
+
+  it('a fresh concurrent login found under the SDK lock is returned without rewriting its R2 version', () => lane(async (f, store) => {
+    await admitted(f);
+    store.put(authKey, { [providerId]: { ...oldOAuth, expires: 1 }, other });
+    const login = { ...oldOAuth, access: `${canary}_fresh_login`, refresh: `${canary}_fresh_login_refresh`,
+      expires: Date.now() + 3_600_000 };
+    let authReads = 0;
+    let loginVersion: string | undefined;
+    const loginDuringRead = (path: string) => {
+      if (path === `/owner-bucket/${authKey}` && ++authReads === 2) {
+        store.put(authKey, { [providerId]: login, other });
+        loginVersion = store.etag(authKey);
+      } else store.afterRead(loginDuringRead);
+    };
+    store.afterRead(loginDuringRead);
+    oauthBoundary();
+    expect(await json(await read(f))).toEqual({ apiKey: login.access });
+    expect(loginVersion).toBeDefined();
+    expect(store.etag(authKey)).toBe(loginVersion);
+    expect(store.value(authKey)).toEqual({ [providerId]: login, other });
+  }));
+
+  it.each([false, true])('successive credential requests cross SDK freshness and persist the full renewed credential (SSE: %s)', sse => lane(async (f, store, metadataEnvironment) => {
+    await admitted(f);
+    f.advanceClock(0);
+    if (sse) {
+      metadataEnvironment.ENCRYPTION_KEY = btoa('a'.repeat(32));
+      vi.spyOn(regime, 'getRegimeState').mockResolvedValue({ status: 'ready', regime: 'sse-c', generation: 1 });
+      store.requireSse();
+    }
+    store.put(authKey, { [providerId]: { ...oldOAuth, expires: Date.now() + 301_000 }, other });
+    const exchanges = oauthBoundary(async request => {
+      // Intentional public OAuth wire contract; no manual token exchange implementation.
+      expect(request.method).toBe('POST');
+      expect(Object.fromEntries(new URLSearchParams(await request.text()))).toEqual({ grant_type: 'refresh_token',
+        client_id: oldOAuth.clientId, refresh_token: oldOAuth.refresh, resource: 'https://api.openai.com/v1' });
+      return tokenReply();
+    });
+    expect(await json(await read(f))).toEqual({ apiKey: oldOAuth.access });
+    f.advanceClock(2000);
+    expect(await json(await read(f))).toEqual({ apiKey: renewedAccess });
+    expect(await json(await read(f))).toEqual({ apiKey: renewedAccess });
+    expect(exchanges).toHaveLength(1);
+    expect(store.value(authKey)).toEqual({ [providerId]: { type: 'oauth', access: renewedAccess,
+      refresh: renewedRefresh, clientId: oldOAuth.clientId, scopes: ['openid', 'chatgpt.tokens.use.direct'],
+      expires: expect.any(Number) }, other });
+  }));
+
+  it('Root-owned OAuth maintenance does not relax strict delegated model HTTP', () => lane(async (f, store) => {
+    await admitted(f);
+    f.environment.ENTERPRISE_MODE = 'active';
+    delete f.environment.EGRESS;
+    const originalGet = f.environment.KV.get.bind(f.environment.KV);
+    vi.spyOn(f.environment.KV, 'get').mockImplementation((async (key: string, ...args: unknown[]) => {
+      if (key === SETUP_KEYS.STRICT_EGRESS) return 'active';
+      return (originalGet as (...args: unknown[]) => Promise<unknown>)(key, ...args);
+    }) as typeof f.environment.KV.get);
+    store.put(authKey, { [providerId]: { ...oldOAuth, expires: 1 }, other });
+    const exchanges = oauthBoundary(async () => tokenReply());
+    expect(await json(await read(f))).toEqual({ apiKey: renewedAccess });
+    const permit = await json(await modelAdmission(f, 'strict-model-not-auth'));
+    const modelRequests: Request[] = [];
+    const original = globalThis.fetch;
+    vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
+      const request = new Request(input, init);
+      if (new URL(request.url).origin !== 'https://custom.example.test') return original(request);
+      modelRequests.push(request); return new Response('must not send');
+    });
+    await denied(await modelFetch(f, permit.permitId, { url: 'https://custom.example.test/native/stream', method: 'POST',
+      headers: [['authorization', `Bearer ${renewedAccess}`]], bodyBase64: encodeBody(sdkBody) }, 'strict-model-not-auth'), [403, 409, 503]);
+    expect(exchanges).toHaveLength(1);
+    expect(modelRequests).toEqual([]);
+  }, true, true));
+
+  it('concurrent renewal reads again under metadata serialization and shares one rotation', () => lane(async (f, store) => {
+    await admitted(f);
+    store.put(authKey, { [providerId]: { ...oldOAuth, expires: 1 }, other });
+    const started = deferred(); const release = deferred();
+    const exchanges = oauthBoundary(async () => { started.resolve(); await release.promise; return tokenReply(); });
+    const first = read(f); await started.promise;
+    const second = read(f); release.resolve();
+    for (const result of await Promise.all([first, second])) expect(await json(result)).toEqual({ apiKey: renewedAccess });
+    expect(exchanges).toHaveLength(1);
+    expect(store.value(authKey).other).toEqual(other);
+    expect(store.value(authKey)[providerId].refresh).toBe(renewedRefresh);
+  }));
+
+  it.each(['login', 'other provider'] as const)('concurrent %s wins CAS without refresh retry or superseded auth', change => lane(async (f, store) => {
+    await admitted(f);
+    store.put(authKey, { [providerId]: { ...oldOAuth, expires: 1 }, other });
+    const login = { ...oldOAuth, access: `${canary}_new_login`, refresh: `${canary}_new_login_refresh` };
+    const changed = change === 'login' ? { [providerId]: login, other }
+      : { [providerId]: { ...oldOAuth, expires: 1 }, other: { type: 'api_key', key: `${canary}_new_other` } };
+    store.beforeWrite(() => { store.put(authKey, changed); });
+    const exchanges = oauthBoundary(async () => tokenReply());
+    await denied(await read(f), [403, 409, 503]);
+    expect(store.value(authKey)).toEqual(changed);
+    expect(exchanges).toHaveLength(1);
+    if (change === 'login') expect(await json(await read(f))).toEqual({ apiKey: login.access });
+  }));
+
+  it('rejected renewal with secret echoes has closed evidence and preserves saved auth', () => lane(async (f, store) => {
+    const output: unknown[][] = [];
+    const spies = (['log', 'warn', 'error'] as const).map(method => vi.spyOn(console, method)
+      .mockImplementation((...args: unknown[]) => { output.push(args); }));
+    setLogLevel('info');
+    try {
+      await admitted(f);
+      const saved = { [providerId]: { ...oldOAuth, expires: 1 }, other };
+      store.put(authKey, saved);
+      oauthBoundary(async () => Response.json({ error: 'invalid_grant', error_description: `${canary} ${oldOAuth.refresh}` }, { status: 401 }));
+      await denied(await read(f));
+      expect(store.value(authKey)).toEqual(saved);
+      for (const evidence of [await f.activity.getBrowserDetail(), await diagnosticTraversal(diagnosticsBrowser(f))]) {
+        expect(inspect(evidence, { depth: null, maxStringLength: null })).not.toContain(canary);
+      }
+      const logged = inspect(output, { depth: null, maxStringLength: null, maxArrayLength: null,
+        customInspect: false, getters: false, colors: false });
+      // Intentional closed auth-failure contract; vendor causes are not retained.
+      expect(logged).toContain('SDK authentication unavailable (oauth)');
+      expect(logged).not.toContain('invalid_grant');
+      expect(logged).not.toContain(canary);
+    } finally { setLogLevel('silent'); spies.forEach(spy => spy.mockRestore()); }
+  }));
+
+  it('credential PUT transport errors cannot retain secret-bearing request bodies', () => lane(async (f, store) => {
+    const output: unknown[][] = [];
+    const spies = (['log', 'warn', 'error'] as const).map(method => vi.spyOn(console, method)
+      .mockImplementation((...args: unknown[]) => { output.push(args); }));
+    setLogLevel('info');
+    try {
+      await admitted(f);
+      const saved = { [providerId]: { ...oldOAuth, expires: 1 }, other };
+      store.put(authKey, saved);
+      oauthBoundary(async () => tokenReply());
+      store.beforeWrite(() => { throw new Error(`Transport echoed ${renewedRefresh} ${other.key}`); });
+      await denied(await read(f));
+      expect(store.value(authKey)).toEqual(saved);
+      const logged = inspect(output, { depth: null, maxStringLength: null, maxArrayLength: null,
+        customInspect: false, getters: false, colors: false });
+      expect(logged).toContain('SDK credential persistence unavailable');
+      expect(logged).not.toContain(canary);
+      for (const evidence of [await f.activity.getBrowserDetail(), await diagnosticTraversal(diagnosticsBrowser(f))]) {
+        expect(inspect(evidence, { depth: null, maxStringLength: null })).not.toContain(canary);
+      }
+    } finally { setLogLevel('silent'); spies.forEach(spy => spy.mockRestore()); }
+  }));
+
+  it('caller cancellation cannot authorize persistence when a started SDK exchange finishes late', () => lane(async (f, store) => {
+    await admitted(f);
+    const saved = { [providerId]: { ...oldOAuth, expires: 1 }, other };
+    store.put(authKey, saved);
+    const started = deferred(); const release = deferred(); const finished = deferred();
+    oauthBoundary(async () => { started.resolve(); await release.promise; finished.resolve(); return tokenReply(); });
+    const abort = new AbortController();
+    const request = new Request(normalCallback(f.activityId, 'pi/credentials', { operation: 'read', providerId }), { signal: abort.signal });
+    const pending = f.installationCapability.fetch(request);
+    await started.promise;
+    abort.abort(); release.resolve();
+    await denied(await pending, [403, 409, 503]);
+    await finished.promise;
+    expect(store.value(authKey)).toEqual(saved);
+  }));
+
+  it.each([
+    { provider: 'kimi-coding', model: 'kimi-for-coding', api: 'anthropic-messages', reasoningLevel: 'low' },
+    { provider: 'github-copilot', model: 'gpt-4o', api: 'openai-completions', reasoningLevel: 'low' },
+  ])('SDK $provider auth requiring headers/baseUrl is refused rather than silently flattened', selection => lane(async (f, store) => {
+    store.put(settingsKey, { defaultProvider: selection.provider, defaultModel: selection.model });
+    store.put(authKey, { [selection.provider]: oldOAuth, other });
+    await admitted(f);
+    const exchanges = oauthBoundary();
+    await denied(await credentials(f, { operation: 'read', providerId: selection.provider }));
+    expect(exchanges).toEqual([]);
+    expect(store.value(authKey)).toEqual({ [selection.provider]: oldOAuth, other });
+  }, true, false, { nativeSelection: selection }));
+
+  it.each(['enterpriseUrl', 'tokenEndpoint', 'env'] as const)('untrusted OAuth %s cannot choose private exchange destinations', field => lane(async (f, store) => {
+    await admitted(f);
+    store.put(authKey, { [providerId]: { ...oldOAuth, expires: 1, [field]: 'https://127.0.0.1/private' }, other });
+    const exchanges = oauthBoundary();
+    await denied(await read(f));
+    expect(exchanges).toEqual([]);
   }));
 
   it('returns only the selected saved API key, without evaluating or exporting provider metadata', () => lane(async (f, store) => {
@@ -394,6 +623,37 @@ describe('REQ-OPERATOR-007/047/048/058: owner R2 configured-service HTTP contrac
     }],
     ['owner', () => { vi.spyOn(access, 'resolveBucketName').mockResolvedValue('foreign-bucket'); }],
   ];
+  it.each(fences)('%s fence during started SDK refresh grants no late write or auth', (_name, fence) => lane(async (f, store) => {
+    await admitted(f);
+    const saved = { [providerId]: { ...oldOAuth, expires: 1 }, other };
+    store.put(authKey, saved);
+    oauthBoundary(async () => { await fence(f); return tokenReply(); });
+    await denied(await read(f), [403, 409, 503]);
+    expect(store.value(authKey)).toEqual(saved);
+  }));
+
+  it.each(['model', 'provider', 'owner metadata', 'migration', 'key', 'regime'] as const)(
+    '%s changes during SDK refresh fence persistence and return', change => lane(async (f, store, metadataEnvironment) => {
+      await admitted(f);
+      const saved = { [providerId]: { ...oldOAuth, expires: 1 }, other };
+      store.put(authKey, saved);
+      oauthBoundary(async () => {
+        if (change === 'model' || change === 'provider') store.put(settingsKey, {
+          defaultProvider: change === 'provider' ? 'other' : providerId,
+          defaultModel: change === 'model' ? 'different-model' : logical.model });
+        if (change === 'owner metadata') await runInDurableObject(
+          (env as unknown as Env).CONTAINER.getByName('bucket-owner:owner-bucket'), async (_instance, state) => {
+            await state.storage.put('bucketOwnerEmail', 'foreign@example.test');
+          });
+        if (change === 'migration') vi.spyOn(regime, 'getRegimeState').mockResolvedValue({ status: 'migrating', regime: 'sse-c', generation: 1 });
+        if (change === 'regime') vi.spyOn(regime, 'getRegimeState').mockResolvedValue({ status: 'ready', regime: 'sse-c', generation: 2 });
+        if (change === 'key') metadataEnvironment.ENCRYPTION_KEY = btoa('b'.repeat(32));
+        return tokenReply();
+      });
+      await denied(await read(f), [403, 409, 503]);
+      expect(store.value(authKey)).toEqual(saved);
+    }));
+
   it.each(fences)('%s fence denies before R2 and after a late R2 read', (_name, fence) => lane(async (f, store) => {
     await admitted(f);
     store.afterRead(async () => { await fence(f); });

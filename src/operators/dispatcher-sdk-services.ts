@@ -1,3 +1,4 @@
+import { RpcTarget } from 'cloudflare:workers';
 /** Protected saved configuration and HTTP capabilities for normal Flue inference.
  * This module never resolves a model, refreshes OAuth, or parses vendor completions.
  */
@@ -27,13 +28,14 @@ type Owner = Awaited<ReturnType<typeof dispatcherSdkOwnerContext>>;
 const record = (value: unknown): value is Record<string, unknown> => !!value && typeof value === 'object' && !Array.isArray(value);
 function storageScope(input: SdkInput, owner: Pick<Owner, 'bucket' | 'email'>): SdkStorageScope {
   return { bucket: owner.bucket, email: owner.email, activityId: input.plan.activityId,
-    generation: input.generation, deadline: input.plan.deadline };
+    generation: input.generation, deadline: input.plan.deadline,
+    ...(input.plan.configuredSelection ? { model: input.plan.configuredSelection.model } : {}) };
 }
 function metadata(input: SdkInput, scope: SdkStorageScope) {
   const id = input.env.CONTAINER.idFromName(`bucket-owner:${scope.bucket}`);
   return input.env.CONTAINER.get(id) as unknown as {
     claimBucketOwner(email: string, allowInitialClaim: boolean): Promise<string>;
-    dispatcherSdkCredentials(scope: SdkStorageScope, body: unknown): Promise<DispatcherSdkCredentialResult>;
+    dispatcherSdkCredentials(scope: SdkStorageScope, body: unknown, authority: SdkRequestAuthority): Promise<DispatcherSdkCredentialResult>;
   };
 }
 async function sameOwner(input: SdkInput, original: Owner) {
@@ -80,6 +82,17 @@ export async function readDispatcherSdkConfiguration(input: SdkInput): Promise<R
   } catch (error) { return failure(input, error); }
 }
 
+/** Revoked when the request returns, even if SDK refresh ignores caller abort. */
+class SdkRequestAuthority extends RpcTarget {
+  #open = true;
+  constructor(private readonly check: () => Promise<void>) { super(); }
+  close(): void { this.#open = false; }
+  async current(): Promise<boolean> {
+    if (!this.#open) return false;
+    try { await this.check(); return this.#open; } catch { return false; }
+  }
+}
+
 export async function dispatcherSdkCredentials(input: SdkInput, body: unknown): Promise<unknown | null> {
   try {
     if (!record(body) || body.operation !== 'read' || Object.keys(body).length !== 2
@@ -90,7 +103,10 @@ export async function dispatcherSdkCredentials(input: SdkInput, body: unknown): 
     if (owner.source !== 'pi-native' || input.plan.configuredSelection
       && body.providerId !== input.plan.configuredSelection.provider) throw new Error('Native credentials denied');
     const scope = storageScope(input, owner);
-    const result = await metadata(input, scope).dispatcherSdkCredentials(scope, body);
+    const authority = new SdkRequestAuthority(async () => { await sameOwner(input, owner); });
+    let result: DispatcherSdkCredentialResult;
+    try { result = await metadata(input, scope).dispatcherSdkCredentials(scope, body, authority); }
+    finally { authority.close(); }
     if (!result.ok) {
       const error = new DispatcherSdkStorageError(result.status, result.message,
         Object.hasOwn(result, 'cause') ? { cause: result.cause } : undefined);

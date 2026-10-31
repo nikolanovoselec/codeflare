@@ -1,3 +1,5 @@
+import { createModels, ModelsError, type Credential, type CredentialStore } from '@earendil-works/pi-ai';
+import { builtinProviders } from '@earendil-works/pi-ai/providers/all';
 import type { Env } from '../types';
 import { createR2Client, getR2Url } from '../lib/r2-client';
 import { getRegimeState } from '../lib/r2-regime-state';
@@ -10,6 +12,7 @@ export interface SdkStorageScope {
   activityId: string;
   generation: number;
   deadline: number;
+  model?: string;
 }
 export class DispatcherSdkStorageError extends Error {
   constructor(public readonly status: number, message = 'Private SDK storage unavailable', options?: ErrorOptions) { super(message, options); }
@@ -28,6 +31,7 @@ function scopeValid(scope: SdkStorageScope): void {
   if (!scope || !/^[a-z0-9][a-z0-9.-]{1,62}$/.test(scope.bucket)
     || typeof scope.email !== 'string' || !scope.email || scope.email !== scope.email.trim().toLowerCase()
     || typeof scope.activityId !== 'string' || !scope.activityId || scope.activityId.length > 256
+    || scope.model !== undefined && (typeof scope.model !== 'string' || !scope.model || scope.model.length > 512 || /[\x00-\x20\x7f]/.test(scope.model))
     || !Number.isSafeInteger(scope.generation) || scope.generation < 0 || !Number.isSafeInteger(scope.deadline)) deny();
 }
 function active(scope: SdkStorageScope): void { if (Date.now() >= scope.deadline) deny(); }
@@ -100,9 +104,9 @@ async function transport(env: Env, scope: SdkStorageScope, authorize: () => Prom
     || endpointUrl.hash || endpointUrl.pathname !== '/') deny();
   const client = createR2Client(env);
   await guard();
-  const request = async (url: string) => {
+  const request = async (url: string, init?: RequestInit) => {
     await guard();
-    const pending = client.fetch(new Request(url, { headers, redirect: 'manual', signal }));
+    const pending = client.fetch(new Request(url, { ...init, headers: { ...headers, ...Object.fromEntries(new Headers(init?.headers)) }, redirect: 'manual', signal }));
     let abort: (() => void) | undefined;
     const cancelled = new Promise<never>((_, reject) => {
       abort = () => reject(new DispatcherSdkStorageError(403));
@@ -123,9 +127,28 @@ async function transport(env: Env, scope: SdkStorageScope, authorize: () => Prom
     const bytes = response.status === 200 ? await bounded(response, signal) : null;
     if (!bytes) void response.body?.cancel().catch(() => undefined);
     await guard();
-    return { bytes };
+    return { bytes, etag: response.headers.get('etag') };
   };
-  return { guard, read };
+  const write = async (path: string, value: JsonObject, etag: string) => {
+    const bytes = new TextEncoder().encode(JSON.stringify(value));
+    if (bytes.byteLength > LIMIT) deny(413);
+    let response: Response;
+    try {
+      response = await request(getR2Url(endpoint, scope.bucket, path), {
+        method: 'PUT', headers: { 'if-match': etag, 'content-type': 'application/json' }, body: bytes,
+      });
+    } catch (error) {
+      if (error instanceof DispatcherSdkStorageError) throw error;
+      // This request carries the whole credential file. Transport exceptions
+      // must not retain its body, unlike existing read-only R2 causal evidence.
+      throw new DispatcherSdkStorageError(403, 'SDK credential persistence unavailable');
+    }
+    void response.body?.cancel().catch(() => undefined);
+    if (response.status === 412) deny(409);
+    if (!response.ok) deny();
+    await guard();
+  };
+  return { guard, read, write, signal };
 }
 
 function savedDefaults(bytes: Uint8Array | null): { defaultProvider: string; defaultModel: string } {
@@ -158,9 +181,30 @@ export async function readDispatcherSdkFiles(input: SdkStorageScope & {
   });
 }
 
-/** Owner metadata exposes only the selected saved token; no authentication mutation. */
+/** Only Root can supply this live, request-owned RPC authority. No App fields select it. */
+export interface SdkCredentialAuthority { current(): Promise<boolean> }
+
+function oauthCredential(value: unknown): Credential {
+  if (!object(value) || value.type !== 'oauth' || typeof value.expires !== 'number'
+    || !Number.isFinite(value.expires) || value.expires <= 0) deny();
+  for (const field of ['access', 'refresh']) {
+    const token = value[field];
+    if (typeof token !== 'string' || !token.trim() || token.startsWith('!') || /[\r\n\x00]/.test(token)) deny();
+  }
+  // Public built-ins own token endpoints. Stored endpoint/env overrides cannot
+  // turn private maintenance into caller-addressed credential-bearing I/O.
+  if (Object.keys(value).some(key => /url|host|endpoint|^env$|^headers$/i.test(key))) deny();
+  if (value.clientId !== undefined && (typeof value.clientId !== 'string' || !value.clientId.trim()
+    || /[\r\n\x00]/.test(value.clientId))) deny();
+  if (value.scopes !== undefined && (!Array.isArray(value.scopes)
+    || value.scopes.some(scope => typeof scope !== 'string' || !scope || /[\r\n\x00]/.test(scope)))) deny();
+  return value as unknown as Credential;
+}
+
+/** Serialized by the existing bucket-owner metadata DO, never a user Host. */
 export async function handleDispatcherSdkCredentials(storage: DurableObjectStorage, env: Env,
-  scope: SdkStorageScope, body: unknown): Promise<unknown | null> {
+  scope: SdkStorageScope, body: unknown, authority: SdkCredentialAuthority,
+  retainModification: (pending: Promise<unknown>) => void): Promise<unknown | null> {
   return privateOperation(async () => {
     scopeValid(scope);
     if (!object(body) || body.operation !== 'read' || Object.keys(body).length !== 2
@@ -168,18 +212,99 @@ export async function handleDispatcherSdkCredentials(storage: DurableObjectStora
       || !body.providerId || body.providerId.length > 512 || /[\x00-\x20\x7f]/.test(body.providerId)) deny();
     const authorize = async () => {
       active(scope);
-      if (await storage.get<string>('bucketOwnerEmail') !== scope.email) deny();
+      if (!authority || !await authority.current()
+        || await storage.get<string>('bucketOwnerEmail') !== scope.email) deny();
       active(scope);
     };
     const io = await transport(env, scope, authorize, scope.deadline);
     const selected = savedDefaults((await io.read(SETTINGS)).bytes);
-    if (selected.defaultProvider !== body.providerId) deny();
-    const bytes = (await io.read(AUTH)).bytes;
-    const auth = bytes ? json(bytes) : {};
-    const credential = Object.hasOwn(auth, selected.defaultProvider) ? auth[selected.defaultProvider] : undefined;
-    if (!object(credential)) deny();
-    const apiKey = credential.type === 'api_key' ? credential.key : credential.type === 'oauth' ? credential.access : undefined;
-    if (typeof apiKey !== 'string' || !apiKey.trim() || apiKey.startsWith('!') || /[\r\n\x00]/.test(apiKey)) deny();
+    if (selected.defaultProvider !== body.providerId || scope.model && selected.defaultModel !== scope.model) deny();
+    const selectionCurrent = async () => {
+      const now = savedDefaults((await io.read(SETTINGS)).bytes);
+      if (now.defaultProvider !== selected.defaultProvider || now.defaultModel !== selected.defaultModel) deny();
+      await io.guard();
+    };
+    const snapshot = async () => {
+      await selectionCurrent();
+      const file = await io.read(AUTH);
+      const auth = file.bytes ? json(file.bytes) : {};
+      const raw = Object.hasOwn(auth, selected.defaultProvider) ? auth[selected.defaultProvider] : undefined;
+      if (!object(raw)) deny();
+      return { ...file, auth, raw };
+    };
+    let saved = await snapshot();
+    if (saved.raw.type === 'api_key') {
+      const key = saved.raw.key;
+      if (typeof key !== 'string' || !key.trim() || key.startsWith('!') || /[\r\n\x00]/.test(key)) deny();
+      await selectionCurrent();
+      const latest = await snapshot();
+      if (latest.etag !== saved.etag || JSON.stringify(latest.raw) !== JSON.stringify(saved.raw)) deny(409);
+      await io.guard();
+      return { apiKey: key };
+    }
+    oauthCredential(saved.raw);
+    const provider = builtinProviders().find(provider => provider.id === selected.defaultProvider);
+    if (!provider?.auth.oauth) deny();
+    let storageFailure: unknown;
+    const storageOperation = async <T>(operation: () => Promise<T>): Promise<T> => {
+      try { return await operation(); }
+      catch (error) { storageFailure = error; throw error; }
+    };
+    const checkProvider = (id: string) => { if (id !== selected.defaultProvider) deny(); };
+    const credentials: CredentialStore = {
+      read: id => storageOperation(async () => {
+        checkProvider(id); saved = await snapshot(); return oauthCredential(saved.raw);
+      }),
+      modify: (id, fn) => {
+        const pending = (async () => {
+          checkProvider(id);
+          // Re-read under the metadata lock. No retry after CAS conflict: a
+          // concurrent login/other-provider update wins the whole-file revision.
+          saved = await storageOperation(snapshot);
+          const current = oauthCredential(saved.raw);
+          const original = JSON.stringify(current);
+          const next = await fn(current);
+          return storageOperation(async () => {
+            await selectionCurrent();
+            if (next !== undefined) {
+              oauthCredential(next);
+              // SDK freshness is rechecked under the lock; an already renewed
+              // credential must not cause an unnecessary persistent mutation.
+              if (JSON.stringify(next) === original) return next;
+              if (!saved.etag || !/^"[^"\r\n]+"$/.test(saved.etag)) deny();
+              await io.write(AUTH, { ...saved.auth, [id]: next }, saved.etag);
+              const persisted = await snapshot();
+              if (JSON.stringify(persisted.raw) !== JSON.stringify(next)) deny(409);
+              saved = persisted;
+              return next;
+            }
+            return current;
+          });
+        })();
+        retainModification(pending);
+        return pending;
+      },
+      list: async () => deny(), delete: async () => deny(),
+    };
+    const models = createModels({ credentials,
+      authContext: { env: async () => undefined, fileExists: async () => false } });
+    models.setProvider(provider);
+    let resolved;
+    try { resolved = await models.getAuth(selected.defaultProvider, { signal: io.signal }); }
+    catch (error) {
+      // Preserve existing private R2 causal evidence, never SDK/vendor bodies,
+      // raw causes or token echoes. Started SDK refresh has no late authority.
+      if (storageFailure) throw storageFailure;
+      const category = error instanceof ModelsError && error.code === 'oauth' ? 'oauth' : 'auth';
+      throw new DispatcherSdkStorageError(403, `SDK authentication unavailable (${category})`);
+    }
+    await selectionCurrent();
+    const latest = await snapshot();
+    if (latest.etag !== saved.etag || JSON.stringify(latest.raw) !== JSON.stringify(saved.raw)) deny(409);
+    if (!resolved || resolved.env && Object.keys(resolved.env).length
+      || Object.keys(resolved.auth).some(key => key !== 'apiKey')) deny();
+    const apiKey = resolved.auth.apiKey;
+    if (typeof apiKey !== 'string' || !apiKey.trim() || /[\r\n\x00]/.test(apiKey)) deny();
     await io.guard();
     return { apiKey };
   });
