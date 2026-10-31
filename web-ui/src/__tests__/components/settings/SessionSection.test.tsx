@@ -167,8 +167,8 @@ describe('default workspace selection', () => {
     expect(icon.querySelector('path')).toHaveAttribute('d', mdiFileTree);
     const control = screen.getByTestId('default-workspace-control');
     expect(control).toHaveAttribute('role', 'radiogroup');
-    expect(screen.getByRole('radio', { name: 'Normal', exact: true })).toBeChecked();
-    expect(screen.getByRole('radio', { name: 'Normal', exact: true })).toHaveAttribute('value', 'terminal');
+    expect(screen.getByRole('radio', { name: 'Normal' })).toBeChecked();
+    expect(screen.getByRole('radio', { name: 'Normal' })).toHaveAttribute('value', 'terminal');
     expect(screen.getByTestId('default-workspace-terminal')).toBeChecked();
     expect(screen.getByTestId('default-workspace-vscode')).not.toBeChecked();
   });

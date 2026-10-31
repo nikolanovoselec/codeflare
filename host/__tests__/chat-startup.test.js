@@ -21,7 +21,7 @@ function existing(value, mode = 0o600) {
 }
 
 describe('REQ-AGENT-224 AC3: managed primary public Dashboard startup configuration', () => {
-  it('disables standalone auto-start before the primary loads Dashboard, without creating Pi settings', () => {
+  it('writes the public standalone auto-start policy without creating Pi settings', () => {
     const { home, directory, file } = fixture();
     preparePrimaryDashboard(home);
     assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')), { autoStart: false });

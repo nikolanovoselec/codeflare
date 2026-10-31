@@ -683,8 +683,7 @@ const Layout: Component<LayoutProps> = (props) => {
       && !activeSurfaceState()?.invalidated) {
       // An already visible surface is a no-op; a fenced choice needs a fresh
       // gesture even when its label and backend generation have not changed.
-      if (surface === 'chat' ? activeSurfaceState()?.generation === session.generation
-        : session.workspace !== 'vscode' || explicitPrimarySessionId() === id) return;
+      if (surface === 'terminal' || activeSurfaceState()?.generation === session.generation) return;
     }
     const generation = session.generation;
     const previous = untrack(surfaces)[id];
@@ -712,6 +711,8 @@ const Layout: Component<LayoutProps> = (props) => {
       }
     }
     let handoffPending = surface === 'terminal';
+    // An explicit confirmed entry takes precedence over the first-entry default.
+    enteredNormalSessions.add(id);
     // Commit the surface and primary selection together: no transient secondary
     // tab/browser owner may mount between dropping Chat and focusing tab one.
     batch(() => {

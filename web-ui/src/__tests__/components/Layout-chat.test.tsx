@@ -175,7 +175,8 @@ describe('Codeflare session-local Chat composition', () => {
     await screen.findByRole('region', { name: `Terminal ${firstId} 1` });
   }
   async function chooseView(value: string) {
-    await fireEvent.change(await screen.findByRole('combobox', { name: 'View' }), { target: { value } });
+    await fireEvent.click(await screen.findByRole('button', { name: 'View' }));
+    await fireEvent.click(screen.getByRole('button', { name: value === 'vscode' ? 'VS Code' : value === 'chat' ? 'Chat' : 'Terminal' }));
   }
   async function enterChat() {
     await chooseView('chat');
@@ -201,22 +202,36 @@ describe('Codeflare session-local Chat composition', () => {
     await renderLayout();
     await fireEvent.click(screen.getByRole('button', { name: 'Select Primary Pi' }));
     expect(await screen.findByRole('textbox')).toBeEnabled();
-    expect(screen.queryByRole('option', { name: 'VS Code' })).not.toBeInTheDocument();
+    await fireEvent.click(screen.getByRole('button', { name: 'View' }));
+    expect(screen.queryByRole('button', { name: 'VS Code' })).not.toBeInTheDocument();
   });
 
   it('REQ-AGENT-224: denied browser storage still permits Chat-first entry and switching', async () => {
-    vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => { throw new DOMException('Denied', 'SecurityError'); });
-    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new DOMException('Denied', 'SecurityError'); });
+    // setup.ts supplies a plain-object localStorage, not Storage.prototype.
+    // Deny this owned preference boundary without changing donor persistence.
+    const getItem = localStorage.getItem.bind(localStorage);
+    const setItem = localStorage.setItem.bind(localStorage);
+    vi.spyOn(localStorage, 'getItem').mockImplementation(key => {
+      if (key === 'codeflare:normal-view') throw new DOMException('Denied', 'SecurityError');
+      return getItem(key);
+    });
+    vi.spyOn(localStorage, 'setItem').mockImplementation((key, value) => {
+      if (key === 'codeflare:normal-view') throw new DOMException('Denied', 'SecurityError');
+      setItem(key, value);
+    });
     await renderLayout();
     await fireEvent.click(screen.getByRole('button', { name: 'Select Primary Pi' }));
     expect(await screen.findByRole('textbox')).toBeEnabled();
+    expect(getItem('codeflare:normal-view')).toBe('terminal');
     await chooseView('terminal');
     expect(await screen.findByRole('region', { name: `Terminal ${firstId} 1` })).toBeInTheDocument();
+    expect(await enterChat()).toBeEnabled();
+    expect(getItem('codeflare:normal-view')).toBe('terminal');
   });
 
   it('REQ-AGENT-224: remembered Terminal opens without Chat attachment on a fresh shell', async () => {
     await openTerminalSession();
-    expect(screen.getByRole('combobox', { name: 'View' })).toHaveValue('terminal');
+    expect(screen.getByRole('button', { name: 'View' })).toHaveTextContent('Terminal');
     expect(attachRequests()).toEqual([]);
   });
 
@@ -240,6 +255,61 @@ describe('Codeflare session-local Chat composition', () => {
     expect(await screen.findByText(/pop.?up.*block|allow.*pop.?up/i)).toBeInTheDocument();
     expect(screen.getByRole('textbox')).toHaveValue('Keep this draft');
     expect(sessionStore.getActiveSession()?.workspace).toBe('terminal');
+  });
+
+  it('REQ-IDE-056: choosing current VS Code retries a blocked popup and reopens a closed authenticated editor without replacing Chat', async () => {
+    const open = vi.spyOn(window, 'open').mockReturnValue(null);
+    await openTerminalSession();
+    await fireEvent.input(await enterChat(), { target: { value: 'Keep my live Pi draft' } });
+    const wires = [...openWires()];
+    await chooseView('vscode');
+    expect(await screen.findByText(/pop.?up.*block|allow.*pop.?up/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'View' })).toHaveTextContent('VS Code');
+
+    const opened = { closed: false, opener: {}, focus() {} };
+    open.mockReturnValue(opened as unknown as Window);
+    await chooseView('vscode');
+    expect(opened.opener).toBeNull();
+    expect(open).toHaveBeenLastCalledWith(`/api/vscode/${firstId}/`, `codeflare-vscode-${firstId}`);
+    expect(screen.queryByText(/pop.?up.*block|allow.*pop.?up/i)).not.toBeInTheDocument();
+
+    opened.closed = true;
+    const reopened = { closed: false, opener: {}, focus() {} };
+    open.mockReturnValue(reopened as unknown as Window);
+    await chooseView('vscode');
+    expect(reopened.opener).toBeNull();
+    expect(open).toHaveBeenLastCalledWith(`/api/vscode/${firstId}/`, `codeflare-vscode-${firstId}`);
+    expect(screen.getByRole('textbox')).toHaveValue('Keep my live Pi draft');
+    expect(openWires()).toEqual(wires);
+    expect(sessionStore.getActiveSession()).toMatchObject({ workspace: 'terminal', generation: 7 });
+    expect(attachRequests().map(r => new URL(r.url).pathname)).toEqual([`/api/chat/${firstId}/attach`]);
+  });
+
+  it.each([
+    { surface: 'Terminal', preference: null },
+    { surface: 'Terminal', preference: 'chat' },
+    { surface: 'Terminal', preference: 'vscode' },
+    { surface: 'Chat', preference: 'vscode' },
+  ] as const)('REQ-IDE-056 AC3: explicit Dashboard $surface takes precedence over browser default $preference on first Normal entry', async ({ surface, preference }) => {
+    if (preference === null) localStorage.removeItem('codeflare:normal-view');
+    else localStorage.setItem('codeflare:normal-view', preference);
+    const open = vi.spyOn(window, 'open').mockReturnValue(null);
+    await renderLayout();
+    await fireEvent.click(screen.getByRole('button', { name: `Open Primary Pi in ${surface}` }));
+    if (surface === 'Chat') {
+      expect(await screen.findByRole('textbox')).toBeEnabled();
+      expect(screen.queryByRole('region', { name: `Terminal ${firstId} 1` })).not.toBeInTheDocument();
+    } else {
+      expect(await screen.findByRole('region', { name: `Terminal ${firstId} 1` })).toBeInTheDocument();
+      expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
+      expect(new URL(screen.getByRole('link', { name: 'Terminal attachment' }).getAttribute('href')!).searchParams.get('primary')).toBe('1');
+    }
+    expect(screen.getByRole('button', { name: 'View' })).toHaveTextContent(surface);
+    expect(open).not.toHaveBeenCalled();
+    expect(localStorage.getItem('codeflare:normal-view')).toBe(preference);
+    expect(sessionStore.getActiveSession()).toMatchObject({ workspace: 'terminal', terminalMode: 'classic', generation: 7 });
+    expect(await Promise.all(attachRequests().map(r => r.json()))).toEqual([{ generation: 7 }]);
+    expect(requests.filter(r => !['GET', 'HEAD'].includes(r.method) && !new URL(r.url).pathname.endsWith('/attach'))).toEqual([]);
   });
 
   it.each([undefined, 'claude-code', 'codex', 'bash'] as const)('REQ-AGENT-224: configured primary Pi exposes working Chat when the legacy creation agent is %s', async agentType => {
@@ -315,20 +385,18 @@ describe('Codeflare session-local Chat composition', () => {
     expect(attachRequests().map(r => new URL(r.url).pathname)).toEqual([`/api/chat/${firstId}/attach`]);
   });
 
-  it('REQ-AGENT-224: Chat-first pending entry keeps Terminal selectable as a distinct native choice', async () => {
+  it('REQ-IDE-056: Chat-first pending entry keeps Terminal actionable', async () => {
     localStorage.removeItem('codeflare:normal-view');
     deferAttach = true;
     await renderLayout();
     await fireEvent.click(screen.getByRole('button', { name: 'Select Primary Pi' }));
     await waitFor(() => expect(releaseAttach).toBeTypeOf('function'));
     const terminal = screen.getByRole('region', { name: `Terminal ${firstId} 1` });
-    // The native picker must actually differ from Terminal before selecting it:
-    // browsers do not emit change when users choose the already selected option.
-    expect(screen.getByRole('combobox', { name: 'View' })).toHaveValue('chat');
+    expect(screen.getByRole('button', { name: 'View' })).toHaveTextContent('Chat');
     const finishChatEntry = releaseAttach!;
     await chooseView('terminal');
     await act(async () => { finishChatEntry(); });
-    expect(screen.getByRole('combobox', { name: 'View' })).toHaveValue('terminal');
+    expect(screen.getByRole('button', { name: 'View' })).toHaveTextContent('Terminal');
     expect(screen.getByRole('region', { name: `Terminal ${firstId} 1` })).toBe(terminal);
     expect(screen.queryByRole('region', { name: 'Pi Chat' })).not.toBeInTheDocument();
     expect(ChatWire.wires).toEqual([]);
@@ -499,7 +567,7 @@ describe('Codeflare session-local Chat composition', () => {
     await openTerminalSession();
     await fireEvent.input(await enterChat(), { target: { value: 'Independent in-app draft' } });
     await chooseView('vscode');
-    expect(screen.getByRole('combobox', { name: 'View' })).toHaveValue('vscode');
+    expect(screen.getByRole('button', { name: 'View' })).toHaveTextContent('VS Code');
     expect(localStorage.getItem('codeflare:normal-view')).toBe('vscode');
     expect(open).toHaveBeenCalledWith(`/api/vscode/${firstId}/`, `codeflare-vscode-${firstId}`);
     expect(opened.opener).toBeNull();
@@ -528,7 +596,7 @@ describe('Codeflare session-local Chat composition', () => {
     await fireEvent.click(screen.getByRole('button', { name: 'Open Primary Pi in Terminal' }));
     expect(attachRequests()).toEqual([]);
     expect(ChatWire.wires).toEqual([]);
-    expect(screen.queryByRole('combobox', { name: 'View' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'View' })).not.toBeInTheDocument();
     expect(screen.queryByRole('region', { name: `Terminal ${firstId} 1` })).not.toBeInTheDocument();
     expect(sessionStore.sessions[0]).toMatchObject({ workspace: 'vscode', terminalMode, generation: 7 });
   });
@@ -615,7 +683,7 @@ describe('Codeflare session-local Chat composition', () => {
     expect(attachRequests()).toEqual([]);
   });
 
-  it.each(['stopped', 'stopping', 'generation'] as const)('REQ-AGENT-224: %s invalidates visible Chat without automatically attaching its replacement', async change => {
+  it.each(['stopped', 'stopping', 'generation'] as const)('REQ-IDE-056: choosing current Chat after %s invalidation explicitly re-enters without automatic attachment', async change => {
     await openTerminalSession(); await enterChat();
     sessions = [makeSession(change === 'generation' ? { generation: 8, revision: 2 } : { status: change, revision: 2 })];
     await act(async () => { await sessionStore.loadSessions(); });
@@ -715,10 +783,15 @@ describe('Codeflare session-local Chat composition', () => {
     expect(screen.queryByRole('region', { name: `Terminal ${firstId} 1` })).not.toBeInTheDocument();
     expect(openWires().filter(wire => String(wire.url).includes('/api/chat/'))).toEqual([]);
     // JSDOM does not navigate the external logout URL. Re-enter within this
-    // disposable shell to observe that neither the choice nor draft survived.
+    // disposable shell: the browser's remembered Chat preference survives,
+    // but the prior mounted owner and draft must not.
+    const oldWires = [...ChatWire.wires];
+    expect(localStorage.getItem('codeflare:normal-view')).toBe('chat');
     await fireEvent.click(screen.getByRole('button', { name: 'Select Primary Pi' }));
-    await screen.findByRole('region', { name: `Terminal ${firstId} 1` });
-    expect(await enterChat()).toHaveValue('');
+    expect(await screen.findByRole('textbox')).toHaveValue('');
+    expect(screen.queryByRole('region', { name: `Terminal ${firstId} 1` })).not.toBeInTheDocument();
+    expect(oldWires.every(wire => wire.readyState === ChatWire.CLOSED)).toBe(true);
+    await waitFor(() => expect(openWires().some(wire => !oldWires.includes(wire))).toBe(true));
   });
 
   it('REQ-AGENT-224: unmount retains browser view preference but clears composer draft before a fresh shell', async () => {
@@ -763,11 +836,11 @@ describe('Codeflare session-local Chat composition', () => {
     expect(attachRequests()).toHaveLength(1);
   });
 
-  it('REQ-AGENT-224: View remains a native keyboard-focusable control at phone width', async () => {
+  it('REQ-IDE-056: View remains a native keyboard-focusable control at phone width', async () => {
     Object.defineProperty(window, 'innerWidth', { configurable: true, value: 390 });
     window.dispatchEvent(new Event('resize'));
     await openTerminalSession();
-    const view = screen.getByRole('combobox', { name: 'View' });
+    const view = screen.getByRole('button', { name: 'View' });
     view.focus(); expect(document.activeElement).toBe(view);
     await chooseView('chat');
     expect(await screen.findByRole('textbox')).toBeEnabled();

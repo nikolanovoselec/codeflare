@@ -47,7 +47,7 @@ function mount(candidate = session) {
 afterEach(cleanup);
 
 describe('Dashboard explicit primary surface entry', () => {
-  it.each(['Chat', 'Terminal'] as const)('REQ-AGENT-224 AC9: Normal Pi card menu opens %s without changing session selection', async surface => {
+  it.each(['Chat', 'Terminal'] as const)('REQ-IDE-056 AC7: Normal Pi card menu opens %s without changing session selection', async surface => {
     mount();
     await fireEvent.click(screen.getByRole('button', { name: `Activate session ${session.name}` }));
     expect(screen.getByLabelText('Explicit entry')).toHaveTextContent(`${session.id}:selection`);
@@ -57,14 +57,14 @@ describe('Dashboard explicit primary surface entry', () => {
     expect(screen.queryByTestId('session-context-menu')).not.toBeInTheDocument();
   });
 
-  it.each(['classic', 'herdr'] as const)('REQ-AGENT-224 AC9: exclusive %s VS Code hides Chat and Terminal while opening the ready editor', async terminalMode => {
+  it.each(['classic', 'herdr'] as const)('REQ-IDE-056 AC7: exclusive %s VS Code hides Chat and Terminal while opening the ready editor', async terminalMode => {
     mount({ ...session, workspace: 'vscode', terminalMode });
     await fireEvent.click(screen.getByTestId(`session-stat-card-${session.id}-menu`));
     expect(screen.queryByRole('button', { name: 'Open in Chat' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Open in Terminal' })).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Stop', exact: true })).toBeEnabled();
-    expect(screen.getByRole('button', { name: 'Delete', exact: true })).toBeEnabled();
-    await fireEvent.click(screen.getByRole('button', { name: 'Stop', exact: true }));
+    expect(screen.getByRole('button', { name: 'Stop' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Delete' })).toBeEnabled();
+    await fireEvent.click(screen.getByRole('button', { name: 'Stop' }));
     expect(screen.getByLabelText('Explicit entry')).toHaveTextContent(`${session.id}:stop`);
     await fireEvent.click(screen.getByRole('button', { name: `Activate session ${session.name}` }));
     expect(screen.getByLabelText('Explicit entry')).toHaveTextContent(`${session.id}:editor`);
@@ -75,29 +75,29 @@ describe('Dashboard explicit primary surface entry', () => {
     { status: 'error' as const, editorReady: false, editorReadyError: true, expected: 'start' },
     { status: 'running' as const, editorReady: false, editorReadyError: true, expected: 'start' },
     { status: 'unreachable' as const, editorReady: true, editorReadyError: false, expected: 'editor' },
-  ])('REQ-AGENT-224 AC9: exclusive VS Code retains $status editor activation and recovery without shared entry', async candidate => {
+  ])('REQ-IDE-056 AC7: exclusive VS Code retains $status editor activation and recovery without shared entry', async candidate => {
     const { expected, ...state } = candidate;
     mount({ ...session, ...state, workspace: 'vscode' });
     await fireEvent.click(screen.getByTestId(`session-stat-card-${session.id}-menu`));
     expect(screen.queryByRole('button', { name: 'Open in Chat' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Open in Terminal' })).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Delete', exact: true })).toBeEnabled();
-    if (candidate.status !== 'stopped') expect(screen.getByRole('button', { name: 'Stop', exact: true })).toBeEnabled();
-    await fireEvent.click(screen.getByRole('button', { name: 'Delete', exact: true }));
+    expect(screen.getByRole('button', { name: 'Delete' })).toBeEnabled();
+    if (candidate.status !== 'stopped') expect(screen.getByRole('button', { name: 'Stop' })).toBeEnabled();
+    await fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
     await fireEvent.click(screen.getByRole('button', { name: 'Are you sure?' }));
     expect(screen.getByLabelText('Explicit entry')).toHaveTextContent(`${session.id}:delete`);
     await fireEvent.click(screen.getByRole('button', { name: `Activate session ${session.name}` }));
     expect(screen.getByLabelText('Explicit entry')).toHaveTextContent(`${session.id}:${expected}`);
   });
 
-  it('REQ-AGENT-224 AC9: exclusive VS Code keeps preparing editor non-actionable and shared entries hidden', async () => {
+  it('REQ-IDE-056 AC7: exclusive VS Code keeps preparing editor non-actionable and shared entries hidden', async () => {
     mount({ ...session, workspace: 'vscode', editorReady: false });
     expect(screen.queryByRole('button', { name: `Activate session ${session.name}` })).not.toBeInTheDocument();
     await fireEvent.click(screen.getByTestId(`session-stat-card-${session.id}-menu`));
     expect(screen.queryByRole('button', { name: 'Open in Chat' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Open in Terminal' })).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Stop', exact: true })).toBeEnabled();
-    expect(screen.getByRole('button', { name: 'Delete', exact: true })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Stop' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Delete' })).toBeEnabled();
     expect(screen.getByLabelText('Explicit entry')).toBeEmptyDOMElement();
   });
 

@@ -360,15 +360,16 @@ describe('Header Component / REQ-VAULT-012 (vault button render and readiness ga
   // REQ-IDE-001/003: the browser-IDE (OpenVSCode) header button. The Show gate
   // renders it only when the parent (Layout, for an advanced running session)
   // passes onVscodeOpen; clicking invokes that handler (which opens the IDE tab).
-  describe('REQ-AGENT-224: native Normal View selection', () => {
+  describe('REQ-IDE-056: Normal View selection', () => {
     it('replaces only the IDE action and retains account, storage and settings', () => {
       const [surface, setSurface] = createSignal<'chat' | 'terminal'>('chat');
       render(() => <Header {...defaultSessionProps} surface={surface()} onSurfaceChange={setSurface} onVscodeOpen={() => {}} />);
-      const view = screen.getByRole('combobox', { name: 'View' });
-      expect(view).toHaveValue('chat');
-      fireEvent.change(view, { target: { value: 'terminal' } });
-      expect(view).toHaveValue('terminal');
-      expect(screen.getByRole('option', { name: 'VS Code' })).toBeInTheDocument();
+      const view = screen.getByRole('button', { name: 'View' });
+      expect(view).toHaveTextContent('Chat');
+      fireEvent.click(view);
+      expect(screen.getByRole('button', { name: 'VS Code' })).toBeVisible();
+      fireEvent.click(screen.getByRole('button', { name: 'Terminal' }));
+      expect(view).toHaveTextContent('Terminal');
       expect(screen.queryByTestId('header-vscode-button')).not.toBeInTheDocument();
       expect(screen.getByTestId('header-user-menu')).toBeInTheDocument();
       expect(screen.getByTestId('header-storage-button')).toBeInTheDocument();
@@ -378,8 +379,29 @@ describe('Header Component / REQ-VAULT-012 (vault button render and readiness ga
 
     it('does not offer unauthorized editor access', () => {
       render(() => <Header {...defaultSessionProps} surface="chat" onSurfaceChange={() => {}} />);
-      expect(screen.getByRole('combobox', { name: 'View' })).toBeEnabled();
-      expect(screen.queryByRole('option', { name: 'VS Code' })).not.toBeInTheDocument();
+      fireEvent.click(screen.getByRole('button', { name: 'View' }));
+      expect(screen.getByRole('button', { name: 'Chat' })).toBeEnabled();
+      expect(screen.queryByRole('button', { name: 'VS Code' })).not.toBeInTheDocument();
+    });
+
+    it('closes View choices on Escape and outside pointer or touch while retaining native button focus', () => {
+      render(() => <Header {...defaultSessionProps} surface="chat" onSurfaceChange={() => {}} />);
+      const view = screen.getByRole('button', { name: 'View' });
+      view.focus(); expect(document.activeElement).toBe(view);
+      fireEvent.click(view);
+      const chat = screen.getByRole('button', { name: 'Chat' });
+      chat.focus(); expect(document.activeElement).toBe(chat);
+      fireEvent.keyDown(chat, { key: 'Escape' });
+      expect(chat).not.toBeVisible();
+      expect(document.activeElement).toBe(view);
+      fireEvent.click(view);
+      expect(chat).toBeVisible();
+      fireEvent.mouseDown(document.body);
+      expect(chat).not.toBeVisible();
+      fireEvent.click(view);
+      expect(chat).toBeVisible();
+      fireEvent.touchStart(document.body);
+      expect(chat).not.toBeVisible();
     });
   });
 

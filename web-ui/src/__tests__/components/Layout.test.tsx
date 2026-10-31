@@ -1265,7 +1265,8 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
       mockActiveWorkspace = { kind: 'session', sessionId: terminalSessionId };
       mockVisiblePanes = [{ sessionId: terminalSessionId, terminalId: '1' }];
       window.history.replaceState(null, '', `/app/session/${terminalSessionId}`);
-      const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null);
+      const opened = { closed: false, opener: {}, focus() {} };
+      const openSpy = vi.spyOn(window, 'open').mockReturnValue(opened as unknown as Window);
 
       try {
         render(() => <Layout />);
@@ -1278,7 +1279,8 @@ describe('Layout Component / REQ-AUTH-014 (session expiry handling on 401)', () 
         expect(mockActiveWorkspace).toEqual({ kind: 'dashboard' });
         expect(terminalWorkspaceStore.setSingleSessionWorkspace).not.toHaveBeenCalledWith(vscodeSessionId, expect.anything(), expect.anything());
         expect(window.location.pathname).toBe('/app/');
-        expect(openSpy).not.toHaveBeenCalled();
+        expect(openSpy).toHaveBeenCalledWith(`/api/vscode/${vscodeSessionId}/`, `codeflare-vscode-${vscodeSessionId}`);
+        expect(opened.opener).toBeNull();
       } finally {
         openSpy.mockRestore();
       }

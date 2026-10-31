@@ -17,7 +17,6 @@ import {
   mdiChevronDown,
 } from '@mdi/js';
 import Icon from './Icon';
-import Select from './ui/Select';
 import type { NormalView } from '../lib/normal-view';
 import SessionSwitcher from './SessionSwitcher';
 import VaultButton, { type VaultButtonStatus } from './VaultButton';
@@ -78,6 +77,16 @@ const Header: Component<HeaderProps> = (props) => {
   const [showTimerDropdown, setShowTimerDropdown] = createSignal(false);
   let userMenuRef: HTMLDivElement | undefined;
   let timerMenuRef: HTMLDivElement | undefined;
+  let viewMenuRef: HTMLDetailsElement | undefined;
+  let viewSummaryRef: HTMLElement | undefined;
+  const closeViewMenu = (restoreFocus = false) => {
+    if (!viewMenuRef?.open) return;
+    viewMenuRef.open = false;
+    if (restoreFocus) viewSummaryRef?.focus();
+  };
+  const handleKeyDown = (event: KeyboardEvent) => {
+    if (event.key === 'Escape') closeViewMenu(true);
+  };
 
   const activeSession = createMemo(() =>
     props.sessions.find(s => s.id === props.activeSessionId)
@@ -96,21 +105,26 @@ const Header: Component<HeaderProps> = (props) => {
       ? session.lastStartedAt : session.lastActiveAt;
     return getSleepTimerInfo(lastActiveAt, sessionStore.preferences.sleepAfter);
   });
-  const handleClickOutside = (e: MouseEvent) => {
+  const handleClickOutside = (e: Event) => {
     if (showUserMenu() && userMenuRef && !userMenuRef.contains(e.target as Node)) {
       setShowUserMenu(false);
     }
     if (showTimerDropdown() && timerMenuRef && !timerMenuRef.contains(e.target as Node)) {
       setShowTimerDropdown(false);
     }
+    if (viewMenuRef && !viewMenuRef.contains(e.target as Node)) closeViewMenu();
   };
 
   onMount(() => {
     document.addEventListener('mousedown', handleClickOutside);
+    document.addEventListener('touchstart', handleClickOutside, { passive: true });
+    document.addEventListener('keydown', handleKeyDown);
   });
 
   onCleanup(() => {
     document.removeEventListener('mousedown', handleClickOutside);
+    document.removeEventListener('touchstart', handleClickOutside);
+    document.removeEventListener('keydown', handleKeyDown);
   });
 
   return (
@@ -282,8 +296,8 @@ const Header: Component<HeaderProps> = (props) => {
           )}
         </Show>
 
-        {/* Normal View occupies the original editor-action slot. The native
-            select retains keyboard and platform mobile picker behavior. */}
+        {/* Normal View occupies the original editor-action slot. Native disclosure
+            and buttons allow re-entry/retry even for the current choice. */}
         <Show when={props.onSurfaceChange} fallback={
           <Show when={props.onVscodeOpen}>
             {(onOpen) => (
@@ -294,26 +308,39 @@ const Header: Component<HeaderProps> = (props) => {
             )}
           </Show>
         }>
-          <div class="header-view-control">
-            <span class="header-view-desktop" aria-hidden="true">
-              <Icon path={(props.view ?? props.surface) === 'vscode' ? mdiMicrosoftVisualStudioCode
-                : (props.view ?? props.surface) === 'terminal' ? mdiConsoleLine : mdiFormTextbox} size={20} />
-              <span>{(props.view ?? props.surface) === 'vscode' ? 'VS Code'
-                : (props.view ?? props.surface) === 'terminal' ? 'Terminal' : 'Chat'}</span>
-              <Icon path={mdiChevronDown} size={16} />
-            </span>
-            <span class="header-view-mobile" aria-hidden="true"><Icon path={mdiGradientHorizontal} size={20} /></span>
-            <Select class="header-view-select" ariaLabel="View" value={props.view ?? props.surface ?? 'chat'}
-              options={[
-                ...(props.chatAvailable !== false ? [{ value: 'chat', label: 'Chat' }] : []),
-                { value: 'terminal', label: 'Terminal' },
-                ...(props.onVscodeOpen ? [{ value: 'vscode', label: 'VS Code' }] : []),
-              ]}
-              onChange={value => {
-                if (value === 'vscode') props.onVscodeOpen?.();
-                else if (value === 'chat' || value === 'terminal') props.onSurfaceChange?.(value);
-              }} />
-          </div>
+          <details class="header-view-control" ref={viewMenuRef}>
+            <summary class="header-view-summary" role="button" aria-label="View" ref={viewSummaryRef}>
+              <span class="header-view-desktop" aria-hidden="true">
+                <Icon path={(props.view ?? props.surface) === 'vscode' ? mdiMicrosoftVisualStudioCode
+                  : (props.view ?? props.surface) === 'terminal' ? mdiConsoleLine : mdiFormTextbox} size={20} />
+                <span>{(props.view ?? props.surface) === 'vscode' ? 'VS Code'
+                  : (props.view ?? props.surface) === 'terminal' ? 'Terminal' : 'Chat'}</span>
+                <Icon path={mdiChevronDown} size={16} />
+              </span>
+              <span class="header-view-mobile" aria-hidden="true"><Icon path={mdiGradientHorizontal} size={20} /></span>
+            </summary>
+            <div class="header-view-dropdown">
+              <Show when={props.chatAvailable !== false}>
+                <button type="button" class="header-user-dropdown-item"
+                  aria-pressed={(props.view ?? props.surface ?? 'chat') === 'chat'}
+                  onClick={() => { closeViewMenu(true); props.onSurfaceChange?.('chat'); }}>
+                  <Icon path={mdiFormTextbox} size={20} /><span>Chat</span>
+                </button>
+              </Show>
+              <button type="button" class="header-user-dropdown-item"
+                aria-pressed={(props.view ?? props.surface) === 'terminal'}
+                onClick={() => { closeViewMenu(true); props.onSurfaceChange?.('terminal'); }}>
+                <Icon path={mdiConsoleLine} size={20} /><span>Terminal</span>
+              </button>
+              <Show when={props.onVscodeOpen}>
+                <button type="button" class="header-user-dropdown-item"
+                  aria-pressed={props.view === 'vscode'}
+                  onClick={() => { closeViewMenu(true); props.onVscodeOpen?.(); }}>
+                  <Icon path={mdiMicrosoftVisualStudioCode} size={20} /><span>VS Code</span>
+                </button>
+              </Show>
+            </div>
+          </details>
         </Show>
 
         {/* Terminal: keep operator activity with the session tools, between VS Code and Storage. */}

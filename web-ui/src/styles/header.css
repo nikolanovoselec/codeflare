@@ -15,12 +15,14 @@
           z-index: 50;
         }
 
-        /* Native View picker uses the same compact action slot at every size. */
+        /* Native View disclosure uses the same compact action slot at every size. */
         .header-view-control {
           position: relative;
-          display: inline-flex;
-          align-items: center;
           flex-shrink: 0;
+        }
+        .header-view-summary {
+          display: flex;
+          align-items: center;
           min-height: 36px;
           padding: var(--space-2);
           border-radius: var(--radius-md);
@@ -29,21 +31,16 @@
           color: var(--color-text-secondary);
           font-family: var(--font-mono);
           font-size: var(--text-sm);
+          list-style: none;
+          cursor: pointer;
         }
+        .header-view-summary::-webkit-details-marker { display: none; }
+        .header-view-dropdown { min-width: 140px; }
         .header-view-desktop { display: inline-flex; align-items: center; gap: var(--space-2); }
         .header-view-desktop > svg:first-child { color: var(--color-accent); }
         .header-view-mobile { display: none; }
-        .header-view-select {
-          position: absolute;
-          inset: 0;
-          width: 100%;
-          height: 100%;
-          opacity: 0;
-          font: inherit;
-          cursor: pointer;
-        }
-        .header-view-control:hover { background: var(--color-bg-muted); color: var(--color-text-primary); }
-        .header-view-control:focus-within { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+        .header-view-summary:hover { background: var(--color-bg-muted); color: var(--color-text-primary); }
+        .header-view-summary:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
         .header--with-surfaces .session-switcher-wrapper { min-width: 0; }
         @media (min-width: 641px) and (max-width: 960px) {
           .header--with-surfaces { gap: var(--space-2); }
@@ -54,7 +51,7 @@
           .header--with-surfaces { gap: 0; padding-inline: var(--space-1); flex-wrap: nowrap; }
           .header--with-surfaces .header-actions { gap: 0; flex-shrink: 0; flex-wrap: nowrap; }
           .header--with-surfaces .header-spacer { display: none; }
-          .header-view-control { width: 44px; height: 44px; justify-content: center; padding: 0; border: 0; background: transparent; }
+          .header-view-summary { width: 44px; height: 44px; justify-content: center; padding: 0; border: 0; background: transparent; }
           .header-view-desktop { display: none; }
           .header-view-mobile { display: inline-flex; }
         }
@@ -224,7 +221,8 @@
           white-space: nowrap;
         }
 
-        .header-user-dropdown {
+        .header-user-dropdown,
+        .header-view-dropdown {
           position: absolute;
           top: calc(100% + 8px);
           right: 0;

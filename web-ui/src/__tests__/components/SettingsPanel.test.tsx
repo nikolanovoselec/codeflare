@@ -501,7 +501,7 @@ describe('SettingsPanel Component / REQ-AGENT-019 (branded settings UI)', () => 
       render(() => <SettingsPanel isOpen={true} onClose={() => {}} />);
       fireEvent.click(screen.getByTestId('accordion-header-session'));
 
-      expect(screen.getByRole('radio', { name: 'Normal', exact: true })).toBeChecked();
+      expect(screen.getByRole('radio', { name: 'Normal' })).toBeChecked();
       expect(screen.getByTestId('default-workspace-terminal')).toHaveAttribute('value', 'terminal');
       fireEvent.click(screen.getByTestId('default-workspace-vscode'));
 
