@@ -1,7 +1,7 @@
 /** @jsxImportSource react */
 import React, { act, type ComponentProps } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { getByLabelText, getByRole, queryByRole, waitFor } from '@testing-library/dom';
+import { fireEvent, getByLabelText, getByRole, queryByRole, waitFor } from '@testing-library/dom';
 import { mountChat, type ChatMountProps } from '../ChatMount';
 
 const presentationProbe = vi.hoisted(() => ({ realComposer: false }));
@@ -233,7 +233,7 @@ describe('REQ-AGENT-224 AC10–12: first-party model and reasoning wiring', () =
 describe('REQ-AGENT-224 AC17–19: first-party command, file and context ports', () => {
   it.each([undefined, 'workspace/custom-flow.yaml', 'builtin'])('presents flow source %s as a Flow item, retaining raw-name dispatch and native command provenance', async source => {
     presentationProbe.realComposer = true;
-    await mount({ draft: '/' });
+    await mount({ draft: '' });
     const nativeCommands = [{ name: 'explain', description: 'Explain work', source: 'prompt', location: 'project', path: '/workspace/prompts/explain.md' }];
     await receive({ type: 'commands_list', sessionId: PRIMARY, commands: nativeCommands });
     await receive({ type: 'flows_list', sessionId: PRIMARY, flows: [
@@ -243,7 +243,13 @@ describe('REQ-AGENT-224 AC17–19: first-party command, file and context ports',
     expect(JSON.parse(output('Commands'))).toEqual([
       ...nativeCommands, { name: 'review-task', description: 'Review current work', source: 'flow' },
     ]);
-    const flow = getByRole(document.body, 'button', { name: /\/review-task Review current work flow/i });
+    // Open completion through the real controlled input once discovery is ready;
+    // the suggestion is rendered into the mount's presentation-layer portal.
+    const input = getByRole(host, 'textbox') as HTMLTextAreaElement;
+    expect(input.disabled).toBe(false);
+    await act(() => { fireEvent.input(input, { target: { value: '/' } }); });
+    expect(output('Draft')).toBe('/');
+    const flow = await waitFor(() => getByRole(document.body, 'button', { name: /\/review-task Review current work flow/i }));
     expect(flow.textContent).toContain('Review current work');
     expect(flow.textContent).not.toMatch(/builtin|extension/i);
     expect(document.body.textContent).toContain('Flows');

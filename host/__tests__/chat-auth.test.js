@@ -193,11 +193,13 @@ describe('REQ-AGENT-224 AC8: scoped public AuthInteraction adapter', () => {
     assert.deepEqual(flow.pending, { kind: 'select', message: 'Choose account',
       options: [{ id: 'work', label: 'Work', description: 'Work account' }] });
     await rejected(() => h.service.input(scope, flow.flowId, { stepId: flow.stepId, value: 'foreign' }), 'invalid_auth_input');
-    await h.service.input(scope, flow.flowId, { stepId: flow.stepId, value: 'work' });
+    const answeredStepId = flow.stepId;
+    await h.service.input(scope, flow.flowId, { stepId: answeredStepId, value: 'work' });
     flow = await eventually(() => h.service.flow(scope, flow.flowId), f => f.pending?.kind === 'device_code');
     assert.deepEqual(flow.pending, { kind: 'device_code', userCode: 'ABCD-EFGH',
       verificationUri: 'https://login.example/device', intervalSeconds: 5, expiresInSeconds: 300 });
-    await rejected(() => h.service.input(scope, flow.flowId, { stepId: flow.stepId, value: 'not-an-answer' }), 'auth_not_waiting');
+    assert.equal(flow.stepId, undefined, 'automatic device-code waiting exposes no answer step');
+    await rejected(() => h.service.input(scope, flow.flowId, { stepId: answeredStepId, value: 'not-an-answer' }), 'auth_not_waiting');
     device.resolve();
     const terminal = await complete(h.service, flow.flowId);
     assert.equal(terminal.pending, undefined);
