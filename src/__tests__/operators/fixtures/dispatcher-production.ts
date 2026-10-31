@@ -234,9 +234,7 @@ export async function fixture(test: (f: {
   nativeInference?: boolean; managedProviderDefault?: boolean;
   ownerTransport?: (request: Request) => Promise<Response | undefined>;
   normalProfileTransport?: (request: Request) => Promise<Response | undefined>;
-  realInterceptors?: boolean; sourceTransport?: (request: Request) => Promise<Response>; normalHosting?: boolean;
-  inspectEntryBindings?: (namespace: typeof access) => Promise<void> } = {}) {
-  if (options.inspectEntryBindings) await options.inspectEntryBindings(access);
+  realInterceptors?: boolean; sourceTransport?: (request: Request) => Promise<Response>; normalHosting?: boolean } = {}) {
   callerSessionCurrent = true;
   callerRoute = 'approved';
   nativeProfileFiles = new Map<string, unknown>(options.nativeInference ? [

@@ -7,9 +7,8 @@ import type { Env } from '../../types';
 import {
   type DispatcherFixture, diagnosticTraversal, diagnosticsBrowser, digest, fixture, start,
 } from './fixtures/dispatcher-production';
-import * as access from '../../lib/access';
-import * as r2 from '../../lib/r2-client';
-import * as regime from '../../lib/r2-regime-state';
+import * as fixtureAccess from '../../lib/access';
+import * as fixtureAig from '../../lib/aig-config';
 import { SETUP_KEYS } from '../../lib/kv-keys';
 import { discoverDispatcherOwnerProfile } from '../../operators/dispatcher-owner-inference';
 import { setLogLevel } from '../../lib/logger';
@@ -24,38 +23,15 @@ vi.mock('@cloudflare/containers', async importOriginal => {
   return { ...sdk, Container: DurableObject };
 });
 
-// Temporary, single-CI binding probe authorized by the recorded questionnaire.
-// It emits only reference equality/change flags; no function source or values.
-let fixtureAccessBindings: typeof access | undefined;
-const bindingBaseline = new Map<string, readonly [unknown, unknown]>();
-async function inspectModuleBindings(stage: string): Promise<void> {
-  const [actualAccess, actualR2, actualRegime] = await Promise.all([
-    vi.importActual<typeof import('../../lib/access')>('../../lib/access'),
-    vi.importActual<typeof import('../../lib/r2-client')>('../../lib/r2-client'),
-    vi.importActual<typeof import('../../lib/r2-regime-state')>('../../lib/r2-regime-state'),
-  ]);
-  const rows: Array<readonly [string, unknown, unknown, unknown?]> = [
-    ['group-identity', access.resolveOperatorGroupIdentity, actualAccess.resolveOperatorGroupIdentity, fixtureAccessBindings?.resolveOperatorGroupIdentity],
-    ['current-session', access.operatorAccessSessionCurrent, actualAccess.operatorAccessSessionCurrent, fixtureAccessBindings?.operatorAccessSessionCurrent],
-    ['owner-bucket', access.resolveBucketName, actualAccess.resolveBucketName, fixtureAccessBindings?.resolveBucketName],
-    ['session-groups', access.resolveSessionAccessGroup, actualAccess.resolveSessionAccessGroup, fixtureAccessBindings?.resolveSessionAccessGroup],
-    ['route-config', access.loadEnterpriseRouteConfig, actualAccess.loadEnterpriseRouteConfig, fixtureAccessBindings?.loadEnterpriseRouteConfig],
-    ['r2-client', r2.createR2Client, actualR2.createR2Client],
-    ['migration', regime.isBucketMigrating, actualRegime.isBucketMigrating],
-    ['sse-disabled', regime.isR2SseDisabledForBucket, actualRegime.isR2SseDisabledForBucket],
-    ['regime-state', regime.getRegimeState, actualRegime.getRegimeState],
-  ];
-  const bindings = rows.map(([name, imported, original, fixtureImported]) => {
-    const baseline: readonly [unknown, unknown] = bindingBaseline.get(name) ?? [imported, original];
-    if (!bindingBaseline.has(name)) bindingBaseline.set(name, baseline);
-    return { name, importedEqualsOriginal: imported === original,
-      importedChanged: imported !== baseline[0], originalChanged: original !== baseline[1],
-      fixtureEqualsImported: fixtureImported === undefined ? null : fixtureImported === imported,
-      fixtureEqualsOriginal: fixtureImported === undefined ? null : fixtureImported === original };
-  });
-  console.info('R2_BINDING_DIAGNOSTIC', JSON.stringify({ stage, bindings }));
-}
-await inspectModuleBindings('module-initialization');
+// CI observed the original resolver executing while fixture replacements lived
+// on a different namespace. Configure the original exports as well, acquiring
+// them in the Runner context rather than performing loader I/O in DO callbacks.
+const [access, r2, regime, aig] = await Promise.all([
+  vi.importActual<typeof import('../../lib/access')>('../../lib/access'),
+  vi.importActual<typeof import('../../lib/r2-client')>('../../lib/r2-client'),
+  vi.importActual<typeof import('../../lib/r2-regime-state')>('../../lib/r2-regime-state'),
+  vi.importActual<typeof import('../../lib/aig-config')>('../../lib/aig-config'),
+]);
 
 /**
  * Root #119 RED: public Activity/installed HTTP + R2 boundary contracts, NOT SDK/Flue execution proof.
@@ -201,8 +177,15 @@ async function lane(run: (f: DispatcherFixture, store: Store, metadataEnvironmen
     const store = sharedStore ?? storageBoundary();
     const cleanups: Array<() => void> = [];
     const spy = <T extends { mockRestore(): void }>(value: T) => { cleanups.push(() => value.mockRestore()); return value; };
-    // Synthetic fixture identity is an external Access collaborator, not a real issuer.
-    spy(vi.spyOn(access, 'resolveOperatorGroupIdentity')).mockImplementation(async human => human);
+    // Reuse the shared fixture's external identity/configuration behavior on the
+    // original exports used by the application. Real invoker checks stay intact.
+    spy(vi.spyOn(access, 'resolveOperatorGroupIdentity')).mockImplementation(fixtureAccess.resolveOperatorGroupIdentity);
+    spy(vi.spyOn(access, 'operatorAccessSessionCurrent')).mockImplementation(fixtureAccess.operatorAccessSessionCurrent);
+    spy(vi.spyOn(access, 'resolveBucketName')).mockImplementation(fixtureAccess.resolveBucketName);
+    spy(vi.spyOn(access, 'resolveSessionAccessGroup')).mockImplementation(fixtureAccess.resolveSessionAccessGroup);
+    spy(vi.spyOn(access, 'loadEnterpriseRouteConfig')).mockImplementation(fixtureAccess.loadEnterpriseRouteConfig);
+    spy(vi.spyOn(access, 'requireOperatorHumanContext')).mockImplementation((...args) => fixtureAccess.requireOperatorHumanContext(...args));
+    spy(vi.spyOn(aig, 'getAigConfig')).mockImplementation(fixtureAig.getAigConfig);
     // The existing bucket-owner DO is metadata, not a running user container.
     // Keep that real coordination boundary while denying every user-session Host.
     const metadataNamespace = (env as unknown as Env).CONTAINER;
@@ -216,7 +199,6 @@ async function lane(run: (f: DispatcherFixture, store: Store, metadataEnvironmen
     if (await metadata.claimBucketOwner(parent.executionContext.owner.email, true) !== 'owned') {
       throw new Error('Owner metadata fixture claim failed');
     }
-    await inspectModuleBindings('after-metadata-initialization');
     const onlyMetadataName = (name: string) => {
       if (name !== metadataName) throw new Error('User-session Host access is unavailable');
       return metadataId;
@@ -268,14 +250,9 @@ async function lane(run: (f: DispatcherFixture, store: Store, metadataEnvironmen
       else delete metadataEnvironment.ENCRYPTION_KEY;
       cleanups.reverse().forEach(cleanup => cleanup());
     }
-  }, { normalHosting: true, repositoryOnly: true, recovery: true, nativeInference: native, realInterceptors, ...limits,
-    inspectEntryBindings: async namespace => {
-      fixtureAccessBindings = namespace;
-      await inspectModuleBindings('fixture-entry');
-    } });
+  }, { normalHosting: true, repositoryOnly: true, recovery: true, nativeInference: native, realInterceptors, ...limits });
 }
 async function admitted(f: DispatcherFixture) {
-  await inspectModuleBindings('before-admission');
   expect(await start(f)).toMatchObject({ ok: true, state: { status: 'running', generation: 1 } });
 }
 
