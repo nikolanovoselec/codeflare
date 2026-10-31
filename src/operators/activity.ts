@@ -2405,8 +2405,10 @@ export class OperatorActivity extends Agent {
       let reserved = false;
       type SdkResponse = { status: number; headers: Record<string, string>; bytes: Uint8Array };
       const responseKey = `dispatcher:response:${generation}:${parsed.operationId}`;
+      // Only validated vendor receipts carry this private provenance marker.
+      // Overwrite upstream values; private refusals never use this reply path.
       const reply = (value: SdkResponse) => new Response([204, 205, 304].includes(value.status) ? null : value.bytes.slice(),
-        { status: value.status, headers: value.headers });
+        { status: value.status, headers: { ...value.headers, 'x-codeflare-sdk-model-response': '1' } });
       try {
         if (signal.aborted || !await current()) return dispatcherRefusal('execution-inactive');
         const claim = await this.ctx.storage.transaction(async tx => {

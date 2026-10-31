@@ -46,6 +46,7 @@ const [access, r2, regime, aig] = await Promise.all([
  *   gateway {operation:'read'} -> nonsecret platform-provisioned SDK configuration and admitted route.
  *   model-admission {operationId, context, options:neutral} -> {permitId, expiresAt}
  *   model-fetch {operationId, permitId, request:{url, method, headers:[pairs], bodyBase64?}} -> original HTTP response
+ *     with Root-stamped x-codeflare-sdk-model-response: 1; private refusals are unmarked.
  * Account Gateway credentials remain Root-only; a trusted SDK fetch uses the protected HTTP capability.
  * The Parent chooses SDK configuration/resource keys; callers cannot address storage.
  * Auth is accessible ONLY through CredentialStore.
@@ -114,6 +115,7 @@ async function json(response: Response, status = 200): Promise<Record<string, an
 }
 async function denied(response: Response, statuses = [403, 404, 503]) {
   expect(statuses).toContain(response.status);
+  expect(response.headers.get('x-codeflare-sdk-model-response')).toBeNull();
   expect(await response.text()).not.toContain(canary);
 }
 
@@ -443,7 +445,7 @@ describe('REQ-OPERATOR-007/047/048/058: owner R2 configured-service HTTP contrac
 });
 
 describe('REQ-OPERATOR-007/047/048: protected SDK-prepared HTTP, not Parent model execution', () => {
-  it('native custom API forwards SDK-prepared bytes and original HTTP failure without account credential injection', () => lane(async f => {
+  it.each([401, 429, 503])('native custom API forwards SDK-prepared bytes and original HTTP%i failure without account credential injection', status => lane(async f => {
     await admitted(f);
     const outgoing: Request[] = [];
     const original = globalThis.fetch;
@@ -451,8 +453,9 @@ describe('REQ-OPERATOR-007/047/048: protected SDK-prepared HTTP, not Parent mode
       const request = new Request(input, init);
       if (request.url !== 'https://custom.example.test/native/stream') return original(request);
       outgoing.push(request.clone());
-      return new Response('original SDK provider quota failure 😀', { status: 429,
-        headers: { 'content-type': 'text/plain; charset=utf-8', 'x-provider-trace': 'original-trace' } });
+      return new Response('original SDK provider quota failure 😀', { status,
+        headers: { 'content-type': 'text/plain; charset=utf-8', 'x-provider-trace': 'original-trace',
+          'x-codeflare-sdk-model-response': 'vendor-controlled' } });
     });
     const permit = await json(await modelAdmission(f));
     expect(permit).toMatchObject({ permitId: expect.any(String), expiresAt: expect.any(Number) });
@@ -460,7 +463,8 @@ describe('REQ-OPERATOR-007/047/048: protected SDK-prepared HTTP, not Parent mode
     const response = await modelFetch(f, permit.permitId, { url: 'https://custom.example.test/native/stream', method: 'POST',
       headers: [['content-type', 'application/json'], ['authorization', `Bearer ${oldOAuth.access}`]],
       bodyBase64: encodeBody(sdkBody) });
-    expect(response.status).toBe(429); expect(response.headers.get('x-provider-trace')).toBe('original-trace');
+    expect(response.status).toBe(status); expect(response.headers.get('x-provider-trace')).toBe('original-trace');
+    expect(response.headers.get('x-codeflare-sdk-model-response')).toBe('1');
     expect(await response.text()).toBe('original SDK provider quota failure 😀');
     expect(outgoing).toHaveLength(1);
     expect(await outgoing[0].text()).toBe(sdkBody);
@@ -577,12 +581,14 @@ describe('REQ-OPERATOR-007/047/048: protected SDK-prepared HTTP, not Parent mode
     controller.enqueue(payload.slice(19)); controller.close();
     const first = await pending;
     expect(first.status).toBe(200);
+    expect(first.headers.get('x-codeflare-sdk-model-response')).toBe('1');
     expect(new Uint8Array(await first.arrayBuffer())).toEqual(payload);
     f.restart(); await f.drainBackground();
     const replay = await modelFetch(f, permit.permitId, request, 'durable-sdk');
     expect(replay.status).toBe(200);
     expect(replay.headers.get('content-type')).toBe('text/event-stream');
     expect(replay.headers.get('x-provider-trace')).toBe('durable-sdk');
+    expect(replay.headers.get('x-codeflare-sdk-model-response')).toBe('1');
     expect(new Uint8Array(await replay.arrayBuffer())).toEqual(payload);
     expect(paid).toEqual([sdkBody]);
   }));
