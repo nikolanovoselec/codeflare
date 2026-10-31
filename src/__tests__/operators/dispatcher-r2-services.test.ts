@@ -71,6 +71,7 @@ const authKey = '.pi/agent/auth.json';
 const extensionPrefix = '.pi/agent/extensions/';
 const extensionKey = `${extensionPrefix}owner-provider.mjs`;
 const canary = 'PRIVATE_R2_SERVICES_CANARY_é🦊';
+const managedSse = 'data: {"choices":[{"index":0,"delta":{"content":"managed"},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n';
 const providerId = 'owner-custom-virtual';
 const logical = { provider: providerId, model: 'logical-review-model', api: 'owner-custom-api', reasoningLevel: 'low' };
 const oldOAuth = { type: 'oauth', access: `${canary}_old_access`, refresh: `${canary}_old_refresh`, expires: 1, accountId: 'owner-account' };
@@ -88,7 +89,20 @@ const sdkBody = '{ "model": "physical-sdk-model", "messages": [{"role":"user","c
 const encodeBody = (body: string) => btoa(String.fromCharCode(...new TextEncoder().encode(body)));
 const modelFetch = (f: DispatcherFixture, permitId: string, request: Record<string, unknown>, operationId = 'sdk-model-operation',
   headers?: Record<string, string>) => callback(f, 'model-fetch', { operationId, permitId, request }, headers);
-const credentials = (f: DispatcherFixture, body: Record<string, unknown>) => callback(f, 'pi/credentials', body);
+const credentialLeases = new WeakMap<DispatcherFixture, Set<string>>();
+async function credentials(f: DispatcherFixture, body: Record<string, unknown>): Promise<Response> {
+  const response = await callback(f, 'pi/credentials', body);
+  if (response.ok && body.operation === 'begin') {
+    const value = await response.clone().json() as { leaseId?: unknown };
+    if (typeof value.leaseId === 'string') {
+      const owned = credentialLeases.get(f) ?? new Set<string>();
+      owned.add(value.leaseId); credentialLeases.set(f, owned);
+    }
+  } else if (response.ok && (body.operation === 'commit' || body.operation === 'abort') && typeof body.leaseId === 'string') {
+    credentialLeases.get(f)?.delete(body.leaseId);
+  }
+  return response;
+}
 const read = (f: DispatcherFixture) => credentials(f, { operation: 'read', providerId });
 const begin = (f: DispatcherFixture) => credentials(f, { operation: 'begin', providerId });
 const commit = (f: DispatcherFixture, leaseId: string, credential: unknown = rotated) =>
@@ -173,19 +187,23 @@ function storageBoundary() {
 type Store = ReturnType<typeof storageBoundary>;
 async function lane(run: (f: DispatcherFixture, store: Store, metadataEnvironment: Env) => Promise<void>, native = true, sharedStore?: Store,
   realInterceptors = false, limits: { operationLimit?: number; inferenceAttemptLimit?: number } = {}) {
+  const enclosingFetch = globalThis.fetch;
   return fixture(async f => {
     const store = sharedStore ?? storageBoundary();
     const cleanups: Array<() => void> = [];
     const spy = <T extends { mockRestore(): void }>(value: T) => { cleanups.push(() => value.mockRestore()); return value; };
     // Reuse the shared fixture's external identity/configuration behavior on the
     // original exports used by the application. Real invoker checks stay intact.
-    spy(vi.spyOn(access, 'resolveOperatorGroupIdentity')).mockImplementation(fixtureAccess.resolveOperatorGroupIdentity);
-    spy(vi.spyOn(access, 'operatorAccessSessionCurrent')).mockImplementation(fixtureAccess.operatorAccessSessionCurrent);
-    spy(vi.spyOn(access, 'resolveBucketName')).mockImplementation(fixtureAccess.resolveBucketName);
-    spy(vi.spyOn(access, 'resolveSessionAccessGroup')).mockImplementation(fixtureAccess.resolveSessionAccessGroup);
-    spy(vi.spyOn(access, 'loadEnterpriseRouteConfig')).mockImplementation(fixtureAccess.loadEnterpriseRouteConfig);
-    spy(vi.spyOn(access, 'requireOperatorHumanContext')).mockImplementation((...args) => fixtureAccess.requireOperatorHumanContext(...args));
-    spy(vi.spyOn(aig, 'getAigConfig')).mockImplementation(fixtureAig.getAigConfig);
+    // A shared-store inner Activity borrows the enclosing collaborator lifetime.
+    if (!sharedStore) {
+      spy(vi.spyOn(access, 'resolveOperatorGroupIdentity')).mockImplementation(fixtureAccess.resolveOperatorGroupIdentity);
+      spy(vi.spyOn(access, 'operatorAccessSessionCurrent')).mockImplementation(fixtureAccess.operatorAccessSessionCurrent);
+      spy(vi.spyOn(access, 'resolveBucketName')).mockImplementation(fixtureAccess.resolveBucketName);
+      spy(vi.spyOn(access, 'resolveSessionAccessGroup')).mockImplementation(fixtureAccess.resolveSessionAccessGroup);
+      spy(vi.spyOn(access, 'loadEnterpriseRouteConfig')).mockImplementation(fixtureAccess.loadEnterpriseRouteConfig);
+      spy(vi.spyOn(access, 'requireOperatorHumanContext')).mockImplementation((...args) => fixtureAccess.requireOperatorHumanContext(...args));
+      spy(vi.spyOn(aig, 'getAigConfig')).mockImplementation(fixtureAig.getAigConfig);
+    }
     // The existing bucket-owner DO is metadata, not a running user container.
     // Keep that real coordination boundary while denying every user-session Host.
     const metadataNamespace = (env as unknown as Env).CONTAINER;
@@ -216,10 +234,12 @@ async function lane(run: (f: DispatcherFixture, store: Store, metadataEnvironmen
       const { ownerSource: _retiredSource, ...retained } = admission!;
       await storage.put('admission', retained);
     });
-    spy(vi.spyOn(r2, 'createR2Client')).mockImplementation(() => ({ fetch: store.fetcher }) as unknown as ReturnType<typeof r2.createR2Client>);
-    spy(vi.spyOn(regime, 'getRegimeState')).mockResolvedValue({ status: 'ready', regime: 'plain', generation: 1 });
-    spy(vi.spyOn(regime, 'isBucketMigrating')).mockResolvedValue(false);
-    spy(vi.spyOn(regime, 'isR2SseDisabledForBucket')).mockResolvedValue(true);
+    if (!sharedStore) {
+      spy(vi.spyOn(r2, 'createR2Client')).mockImplementation(() => ({ fetch: store.fetcher }) as unknown as ReturnType<typeof r2.createR2Client>);
+      spy(vi.spyOn(regime, 'getRegimeState')).mockResolvedValue({ status: 'ready', regime: 'plain', generation: 1 });
+      spy(vi.spyOn(regime, 'isBucketMigrating')).mockResolvedValue(false);
+      spy(vi.spyOn(regime, 'isR2SseDisabledForBucket')).mockResolvedValue(true);
+    }
     // External strict-Gateway transport reaches the selected HTTP ledger; the
     // real Root egress interceptor and its fail-closed checks remain in the path.
     f.environment.EGRESS = { fetch: (request: Request) => globalThis.fetch(request) } as Env['EGRESS'];
@@ -247,13 +267,24 @@ async function lane(run: (f: DispatcherFixture, store: Store, metadataEnvironmen
     for (const key of environmentKeys) metadataEnvironment[key] = f.environment[key];
     try { await run(f, store, metadataEnvironment); }
     finally {
-      for (const { key, present, value } of originalEnvironment) {
-        if (present) metadataEnvironment[key] = value;
-        else delete metadataEnvironment[key];
+      try {
+        for (const leaseId of credentialLeases.get(f) ?? []) {
+          await credentials(f, { operation: 'abort', leaseId });
+        }
+      } finally {
+        credentialLeases.delete(f);
+        for (const { key, present, value } of originalEnvironment) {
+          if (present) metadataEnvironment[key] = value;
+          else delete metadataEnvironment[key];
+        }
+        cleanups.reverse().forEach(cleanup => cleanup());
       }
-      cleanups.reverse().forEach(cleanup => cleanup());
     }
-  }, { normalHosting: true, repositoryOnly: true, recovery: true, nativeInference: native, realInterceptors, ...limits });
+  }, { normalHosting: true, repositoryOnly: true, recovery: true, nativeInference: native, realInterceptors,
+    preserveGlobalMocks: sharedStore !== undefined, ...limits }).finally(() => {
+    // Inner cancellation and pending work must finish on its own transport first.
+    if (sharedStore) vi.stubGlobal('fetch', enclosingFetch);
+  });
 }
 async function admitted(f: DispatcherFixture) {
   expect(await start(f)).toMatchObject({ ok: true, state: { status: 'running', generation: 1 } });
@@ -397,7 +428,7 @@ describe('REQ-OPERATOR-007/047/048/058: owner R2 configured-service HTTP contrac
     if (failure === 'key-change') store.afterRead(() => {
       metadataEnvironment.ENCRYPTION_KEY = btoa('b'.repeat(32));
     });
-    await denied(await read(f));
+    await denied(await read(f), failure === 'missing-key' ? [403, 404, 503] : [403, 404, 409, 503]);
     expect(store.value(authKey)).toEqual({ [providerId]: oldOAuth, other });
   }));
 
@@ -450,7 +481,7 @@ describe('REQ-OPERATOR-007/047/048: protected SDK-prepared HTTP, not Parent mode
       }
       if (new URL(request.url).origin !== 'https://gateway.ai.cloudflare.com') return original(request);
       outgoing.push(request.clone());
-      return new Response('data: [DONE]\n\n', { headers: { 'content-type': 'text/event-stream' } });
+      return new Response(managedSse, { headers: { 'content-type': 'text/event-stream' } });
     });
     const configuration = await json(await gateway(f));
     expect(JSON.stringify(configuration)).not.toContain('parent-only');
@@ -459,7 +490,7 @@ describe('REQ-OPERATOR-007/047/048: protected SDK-prepared HTTP, not Parent mode
       headers: [['content-type', 'application/json'], ['authorization', 'Bearer codeflare-enterprise']],
       bodyBase64: encodeBody(JSON.stringify({ model: 'approved', messages: [{ role: 'user', content: 'Original managed SDK input.' }],
         max_tokens: 16, stream: true })) });
-    expect(response.status).toBe(200); expect(await response.text()).toBe('data: [DONE]\n\n');
+    expect(response.status).toBe(200); expect(await response.text()).toBe(managedSse);
     expect(outgoing).toHaveLength(1);
     expect(outgoing[0].headers.get('cf-aig-authorization')).toBe('Bearer parent-only');
     expect(await outgoing[0].json()).toMatchObject({ model: 'dynamic/approved',
@@ -480,7 +511,7 @@ describe('REQ-OPERATOR-007/047/048: protected SDK-prepared HTTP, not Parent mode
       if (new URL(request.url).origin !== 'https://gateway.ai.cloudflare.com') return original(request);
       paid.push(await request.text());
       gatewayCredential = request.headers.get('cf-aig-authorization')!.replace(/^Bearer\s+/i, '');
-      return new Response(echo === 'body' ? `upstream echoed ${gatewayCredential}` : 'data: [DONE]\n\n', {
+      return new Response(echo === 'body' ? `upstream echoed ${gatewayCredential}` : managedSse, {
         status: echo === 'body' ? 429 : 200,
         headers: { 'content-type': 'text/event-stream',
           'x-provider-trace': echo === 'header' ? `Bearer ${gatewayCredential}` : 'safe-trace' },
@@ -500,7 +531,7 @@ describe('REQ-OPERATOR-007/047/048: protected SDK-prepared HTTP, not Parent mode
     } else {
       expect(first.status).toBe(200);
       expect(first.headers.get('x-provider-trace')).toBeNull();
-      expect(await first.text()).toBe('data: [DONE]\n\n');
+      expect(await first.text()).toBe(managedSse);
     }
     f.restart(); await f.drainBackground();
     const replay = await modelFetch(f, permit.permitId, request, operationId);
@@ -508,7 +539,7 @@ describe('REQ-OPERATOR-007/047/048: protected SDK-prepared HTTP, not Parent mode
     else {
       expect(replay.status).toBe(200);
       expect(replay.headers.get('x-provider-trace')).toBeNull();
-      expect(await replay.text()).toBe('data: [DONE]\n\n');
+      expect(await replay.text()).toBe(managedSse);
     }
     expect(paid).toHaveLength(1);
     await f.mutateEvidence(async storage => {

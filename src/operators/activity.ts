@@ -2329,7 +2329,11 @@ export class OperatorActivity extends Agent {
         ...(prospectiveAdmissionId ? { prospectiveAdmissionId } : {}) };
       const policy = isManagementReceipt(state.receipt) ? state.receipt.selection.operator.policy : undefined;
       const limits = dispatcherCapacities(policy);
-      const body: unknown = JSON.parse(await readDispatcherBody(request, request.signal,
+      // An already-begun credential lease may finish after caller cancellation.
+      // Bound envelope parsing independently; non-finishing operations still
+      // check the original signal below, and metadata validates every lease.
+      const bodySignal = credentials ? AbortSignal.timeout(30_000) : request.signal;
+      const body: unknown = JSON.parse(await readDispatcherBody(request, bodySignal,
         modelScope ? Math.ceil(inferenceRequestBytes(policy) * 4 / 3) + 64 * 1024 : credentials ? 1024 * 1024 : 4096));
       const persistOnly = credentials && !!body && typeof body === 'object'
         && ['commit', 'abort'].includes(String((body as { operation?: unknown }).operation));

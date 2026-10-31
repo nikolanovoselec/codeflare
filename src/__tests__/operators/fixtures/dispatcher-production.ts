@@ -234,7 +234,8 @@ export async function fixture(test: (f: {
   nativeInference?: boolean; managedProviderDefault?: boolean;
   ownerTransport?: (request: Request) => Promise<Response | undefined>;
   normalProfileTransport?: (request: Request) => Promise<Response | undefined>;
-  realInterceptors?: boolean; sourceTransport?: (request: Request) => Promise<Response>; normalHosting?: boolean } = {}) {
+  realInterceptors?: boolean; sourceTransport?: (request: Request) => Promise<Response>; normalHosting?: boolean;
+  preserveGlobalMocks?: boolean } = {}) {
   callerSessionCurrent = true;
   callerRoute = 'approved';
   nativeProfileFiles = new Map<string, unknown>(options.nativeInference ? [
@@ -846,10 +847,14 @@ export async function fixture(test: (f: {
       });
     } finally {
       failOwnedAbort = false;
-      await activity.cancelDrive();
-      vi.restoreAllMocks();
-      vi.unstubAllGlobals();
-      await Promise.allSettled(pending);
+      try { await activity.cancelDrive(); }
+      finally {
+        if (!options.preserveGlobalMocks) {
+          vi.restoreAllMocks();
+          vi.unstubAllGlobals();
+        }
+        await Promise.allSettled(pending);
+      }
     }
   });
 }
