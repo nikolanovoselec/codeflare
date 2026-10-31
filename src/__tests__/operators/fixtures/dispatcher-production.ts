@@ -232,7 +232,7 @@ export async function fixture(test: (f: {
   capacityPolicy?: DispatcherCapacityPolicy; runtimeVersion?: '2.1.0' | '2.2.2'; sdkDiagnostics?: boolean;
   recovery?: boolean; intent4?: boolean; losePhaseAdmission?: number; facetContract?: boolean; receiptFixture?: boolean;
   inferenceAttemptLimit?: number; inferenceTransport?: (request: Request, attempt: number) => Promise<Response>;
-  nativeInference?: boolean; managedProviderDefault?: boolean;
+  nativeInference?: boolean; nativeProviderDefault?: boolean; managedProviderDefault?: boolean;
   ownerTransport?: (request: Request) => Promise<Response | undefined>;
   normalProfileTransport?: (request: Request) => Promise<Response | undefined>;
   realInterceptors?: boolean; sourceTransport?: (request: Request) => Promise<Response>; normalHosting?: boolean;
@@ -269,14 +269,14 @@ export async function fixture(test: (f: {
       audiences: ['audience'], issuedAt: Math.floor(now / 1000) - 1, expiresAt };
     const policy = { capabilities: options.capabilities ?? ['fetch', 'inference'], resourceProfileId: null,
       ...(options.nativeInference ? { inference: { allowedSources: ['pi-native'], routeIds: [], defaultRouteId: null,
-        reasoningLevels: ['low'], defaultReasoningLevel: 'low', inheritUserDefaults: false } }
+        reasoningLevels: ['low'], defaultReasoningLevel: options.nativeProviderDefault ? null : 'low', inheritUserDefaults: false } }
         : options.managedProviderDefault ? { inference: { allowedSources: ['managed'], routeIds: ['approved'], defaultRouteId: 'approved',
           reasoningLevels: ['off', 'low'], defaultReasoningLevel: null, inheritUserDefaults: false } } : {}),
       ...(options.sourceResponseBytes === undefined ? {} : { sourceResponseBytes: options.sourceResponseBytes }) };
     const fixtureOperatorId = options.prospective || options.intent4 ? 'renovate-dispatcher' : 'operator';
     let inferenceAttempts = 0;
     const selection = { controlsRevision: 1, installation: { id: 'installation', operatorId: fixtureOperatorId, revision: 1,
-      enabled: true, ...(options.nativeInference ? { piReasoningOverride: 'low' } : {}),
+      enabled: true, ...(options.nativeInference && !options.nativeProviderDefault ? { piReasoningOverride: 'low' } : {}),
       policy: options.installationSourceResponseBytes === undefined ? policy
         : { ...policy, sourceResponseBytes: options.installationSourceResponseBytes },
       configurationJson: options.prospective ? JSON.stringify({ renovate: { repository: configuredTarget.repository, automaticRuns: true, repetitionIntervalSeconds: 900 } }) : '{}', releaseId: 'release' },

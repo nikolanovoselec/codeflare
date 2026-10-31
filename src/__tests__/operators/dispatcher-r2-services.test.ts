@@ -34,29 +34,15 @@ const [access, r2, regime, aig] = await Promise.all([
 ]);
 
 /**
- * Root #119 RED: public Activity/installed HTTP + R2 boundary contracts, NOT SDK/Flue execution proof.
- * Frozen private protocol (all POST, installation headers from normalCallback, no-store):
- *   pi/config {operation:'read'} -> Parent-derived source and opaque SDK settings/models/resources;
- *             managed mode returns only {source:'managed'}, with no native R2 reads.
- *   pi/credentials {operation:'read', providerId} -> {credential: Credential | null}
- *                  {operation:'list'} -> {credentials: CredentialInfo[]}
- *                  {operation:'begin', providerId} -> {leaseId, credential, expiresAt}
- *                  {operation:'commit', leaseId, credential} -> {credential}
- *                  {operation:'abort', leaseId} -> 204
- *   gateway {operation:'read'} -> nonsecret platform-provisioned SDK configuration and admitted route.
- *   model-admission {operationId, context, options:neutral} -> {permitId, expiresAt}
- *   model-fetch {operationId, permitId, request:{url, method, headers:[pairs], bodyBase64?}} -> original HTTP response
- *     with Root-stamped x-codeflare-sdk-model-response: 1; private refusals are unmarked.
- * Account Gateway credentials remain Root-only; a trusted SDK fetch uses the protected HTTP capability.
- * The Parent chooses SDK configuration/resource keys; callers cannot address storage.
- * Auth is accessible ONLY through CredentialStore.
- * No callback function crosses HTTP. Flue runs the SDK modify callback between begin and commit.
- * Owner credential transactions serialize the auth file, merge fresh other-provider state, and use conditional R2 writes.
- * A same-provider external update yields 409, never blind retry/overwrite. A busy begin yields 409.
- * Begin grants at most 30 seconds of persist-only authority, even after original cancellation/expiry;
- * read/list/begin/config/gateway still require live original authority. Commit never authorizes inference.
- * Config bodies <=4096 bytes; config object and credential envelopes <=1 MiB UTF-8. Redirects deny.
- * This is an installed HTTP capability, not a new public owner API.
+ * Root #119 test-only contract: installed HTTP + fixed owner R2 reads, not Flue execution proof.
+ * pi/config {operation:'read'} -> {source:'pi-native',settings:{defaultProvider,defaultModel},selection?}
+ *                             or {source:'managed'} with no native R2 reads.
+ * pi/credentials {operation:'read',providerId} -> {apiKey: saved API key or OAuth access token}
+ * Only the selected provider may be read; list/begin/commit/abort and writes are denied.
+ * No Pi settings passthrough, models.json, extensions, environment, refresh or account metadata.
+ * gateway/model-admission/model-fetch retain their protected HTTP contracts and Root-only account auth.
+ * Root derives owner and fixed storage keys; Flue owns inference without a user-session Host.
+ * Original authority, bounded reads (1 MiB), redirect denial and no-store remain mandatory.
  */
 // Security assertions must inspect actual bytes, not their numeric JSON rendering.
 function decodeRetainedBytes(value: unknown): unknown {
@@ -67,16 +53,12 @@ function decodeRetainedBytes(value: unknown): unknown {
   return value;
 }
 const settingsKey = '.pi/agent/settings.json';
-const modelsKey = '.pi/agent/models.json';
 const authKey = '.pi/agent/auth.json';
-const extensionPrefix = '.pi/agent/extensions/';
-const extensionKey = `${extensionPrefix}owner-provider.mjs`;
 const canary = 'PRIVATE_R2_SERVICES_CANARY_é🦊';
 const managedSse = 'data: {"choices":[{"index":0,"delta":{"content":"managed"},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n';
-const providerId = 'owner-custom-virtual';
-const logical = { provider: providerId, model: 'logical-review-model', api: 'owner-custom-api', reasoningLevel: 'low' };
+const providerId = 'groq';
+const logical = { provider: providerId, model: 'openai/gpt-oss-20b', api: 'openai-completions', reasoningLevel: 'low' };
 const oldOAuth = { type: 'oauth', access: `${canary}_old_access`, refresh: `${canary}_old_refresh`, expires: 1, accountId: 'owner-account' };
-const rotated = { ...oldOAuth, access: `${canary}_fresh_access`, refresh: `${canary}_fresh_refresh`, expires: 9_999_999_999_999 };
 const other = { type: 'api_key', key: `${canary}_other_provider`, env: { PROJECT: 'unchanged' } };
 const callback = (f: DispatcherFixture, path: string, body: unknown, headers?: Record<string, string>) =>
   f.installationCapability.fetch(normalCallback(f.activityId, path, body, headers));
@@ -86,28 +68,12 @@ const gateway = (f: DispatcherFixture) => callback(f, 'gateway', { operation: 'r
 const modelContext = { messages: [{ role: 'user', content: 'Owner SDK transport input.', timestamp: 1 }] };
 const modelAdmission = (f: DispatcherFixture, operationId = 'sdk-model-operation') =>
   callback(f, 'model-admission', { operationId, context: modelContext, options: { maxTokens: 16 } });
-const sdkBody = '{ "model": "physical-sdk-model", "messages": [{"role":"user","content":"原始 😀"}], "stream": true }';
+const sdkBody = '{ "model": "gpt-4o-mini", "messages": [{"role":"user","content":"原始 😀"}], "stream": true }';
 const encodeBody = (body: string) => btoa(String.fromCharCode(...new TextEncoder().encode(body)));
 const modelFetch = (f: DispatcherFixture, permitId: string, request: Record<string, unknown>, operationId = 'sdk-model-operation',
   headers?: Record<string, string>) => callback(f, 'model-fetch', { operationId, permitId, request }, headers);
-const credentialLeases = new WeakMap<DispatcherFixture, Set<string>>();
-async function credentials(f: DispatcherFixture, body: Record<string, unknown>): Promise<Response> {
-  const response = await callback(f, 'pi/credentials', body);
-  if (response.ok && body.operation === 'begin') {
-    const value = await response.clone().json() as { leaseId?: unknown };
-    if (typeof value.leaseId === 'string') {
-      const owned = credentialLeases.get(f) ?? new Set<string>();
-      owned.add(value.leaseId); credentialLeases.set(f, owned);
-    }
-  } else if (response.ok && (body.operation === 'commit' || body.operation === 'abort') && typeof body.leaseId === 'string') {
-    credentialLeases.get(f)?.delete(body.leaseId);
-  }
-  return response;
-}
+const credentials = (f: DispatcherFixture, body: Record<string, unknown>) => callback(f, 'pi/credentials', body);
 const read = (f: DispatcherFixture) => credentials(f, { operation: 'read', providerId });
-const begin = (f: DispatcherFixture) => credentials(f, { operation: 'begin', providerId });
-const commit = (f: DispatcherFixture, leaseId: string, credential: unknown = rotated) =>
-  credentials(f, { operation: 'commit', leaseId, credential });
 async function json(response: Response, status = 200): Promise<Record<string, any>> {
   expect(response.status).toBe(status);
   expect(response.headers.get('cache-control')).toBe('no-store');
@@ -119,93 +85,66 @@ async function denied(response: Response, statuses = [403, 404, 503]) {
   expect(await response.text()).not.toContain(canary);
 }
 
-/** S3 boundary simulation: enforce If-Match functionally; never assert private calls or mock counts. */
+/** Protected R2 wire allowlist: only fixed settings/auth GETs; every other request is denied. */
 function storageBoundary() {
   const objects = new Map<string, { body: string; etag: string }>();
   const escapedReads: string[] = [];
   const touchedKeys = new Set<string>();
   let ordinal = 0;
   let afterRead: (() => void | Promise<void>) | undefined;
-  let beforeWrite: (() => void) | undefined;
   let responseOverride: (() => Response) | undefined;
   let requireSse = false;
   const put = (key: string, value: unknown, bucket = 'owner-bucket') => {
     objects.set(`/${bucket}/${key}`, { body: JSON.stringify(value), etag: `"revision-${++ordinal}"` });
   };
   put(settingsKey, { defaultProvider: providerId, defaultModel: logical.model, defaultThinkingLevel: 'high',
-    privateSetting: `${canary}_settings` });
-  put(modelsKey, { providers: { [providerId]: { baseUrl: 'https://custom.example.test', api: logical.api,
-    apiKey: `${canary}_command_or_key`, models: [{ id: logical.model, name: 'Logical model', reasoning: true }] } } });
-  // This lane verifies opaque SDK file delivery; actual resource execution is tested by the App's public SDK lane.
-  const extensionSource = `export const ownerResource = ${JSON.stringify(`${canary}_opaque_resource`)};\n`;
-  objects.set(`/owner-bucket/${extensionKey}`, { body: extensionSource, etag: `"revision-${++ordinal}"` });
+    privateSetting: `${canary}_settings`, env: { SECRET: `${canary}_env` },
+    extensions: [`${canary}_extension`], resources: { files: [`${canary}_resource`] } });
   put(authKey, { [providerId]: oldOAuth, other });
   put(authKey, { victim: { type: 'api_key', key: `${canary}_CROSS_OWNER` } }, 'foreign-bucket');
   const fetcher = async (input: RequestInfo | URL, init?: RequestInit) => {
     const request = new Request(input, init);
     const url = new URL(request.url);
     const path = url.pathname;
-    const extensionList = ['/owner-bucket', '/owner-bucket/'].includes(path) && request.method === 'GET'
-      && url.searchParams.get('list-type') === '2' && url.searchParams.get('prefix') === extensionPrefix
-      && [...url.searchParams.keys()].every(key => ['list-type', 'prefix', 'max-keys', 'continuation-token'].includes(key));
-    if (url.origin !== 'https://r2.example.test' || (!extensionList && (![settingsKey, modelsKey, authKey, extensionKey]
-      .some(key => path === `/owner-bucket/${key}`) || url.search)) || !['GET', 'HEAD', 'PUT'].includes(request.method)) {
-      escapedReads.push(request.url);
+    if (url.origin !== 'https://r2.example.test' || ![settingsKey, authKey]
+      .some(key => path === `/owner-bucket/${key}`) || url.search || request.method !== 'GET') {
+      escapedReads.push(`${request.method} ${request.url}`);
       return new Response(`${canary}_CROSS_OWNER`, { status: 403 });
-    }
-    if (extensionList) {
-      touchedKeys.add(`/owner-bucket/${extensionPrefix}`);
-      const overridden = responseOverride?.();
-      if (overridden) return overridden;
-      return new Response(`<ListBucketResult><IsTruncated>false</IsTruncated><Contents><Key>${extensionKey}</Key><Size>${new TextEncoder().encode(extensionSource).byteLength}</Size><LastModified>2026-10-30T00:00:00.000Z</LastModified></Contents></ListBucketResult>`,
-        { headers: { 'content-type': 'application/xml' } });
     }
     touchedKeys.add(path);
     if (requireSse && (request.headers.get('x-amz-server-side-encryption-customer-algorithm') !== 'AES256'
       || !request.headers.get('x-amz-server-side-encryption-customer-key')
       || !request.headers.get('x-amz-server-side-encryption-customer-key-md5'))) return new Response(null, { status: 403 });
-    if (request.method === 'PUT') {
-      const action = beforeWrite; beforeWrite = undefined; action?.();
-      const current = objects.get(path);
-      if (!current || request.headers.get('if-match') !== current.etag) return new Response(null, { status: 412 });
-      const body = await request.text();
-      objects.set(path, { body, etag: `"revision-${++ordinal}"` });
-      return new Response(null, { status: 200, headers: { etag: objects.get(path)!.etag } });
-    }
     const object = objects.get(path);
-    const response = responseOverride?.() ?? (object ? new Response(request.method === 'HEAD' ? null : object.body,
+    const response = responseOverride?.() ?? (object ? new Response(object.body,
       { headers: { etag: object.etag, 'content-type': 'application/json' } }) : new Response(null, { status: 404 }));
     const action = afterRead; afterRead = undefined; await action?.();
     return response;
   };
-  return { fetcher, escapedReads, touchedKeys, put, extensionSource,
+  return { fetcher, escapedReads, touchedKeys, put,
     value: (key: string) => JSON.parse(objects.get(`/owner-bucket/${key}`)!.body),
     afterRead: (action: () => void | Promise<void>) => { afterRead = action; },
-    beforeWrite: (action: () => void) => { beforeWrite = action; },
     override: (action: () => Response) => { responseOverride = action; },
     requireSse: () => { requireSse = true; },
   };
 }
 type Store = ReturnType<typeof storageBoundary>;
-async function lane(run: (f: DispatcherFixture, store: Store, metadataEnvironment: Env) => Promise<void>, native = true, sharedStore?: Store,
-  realInterceptors = false, limits: { operationLimit?: number; inferenceAttemptLimit?: number } = {}) {
-  const enclosingFetch = globalThis.fetch;
+async function lane(run: (f: DispatcherFixture, store: Store, metadataEnvironment: Env) => Promise<void>, native = true,
+  realInterceptors = false, limits: { operationLimit?: number; inferenceAttemptLimit?: number; managedProviderDefault?: boolean;
+    nativeProviderDefault?: boolean; nativeNullProfile?: boolean } = {}) {
   return fixture(async f => {
-    const store = sharedStore ?? storageBoundary();
+    const store = storageBoundary();
     const cleanups: Array<() => void> = [];
     const spy = <T extends { mockRestore(): void }>(value: T) => { cleanups.push(() => value.mockRestore()); return value; };
     // Reuse the shared fixture's external identity/configuration behavior on the
     // original exports used by the application. Real invoker checks stay intact.
-    // A shared-store inner Activity borrows the enclosing collaborator lifetime.
-    if (!sharedStore) {
-      spy(vi.spyOn(access, 'resolveOperatorGroupIdentity')).mockImplementation(fixtureAccess.resolveOperatorGroupIdentity);
-      spy(vi.spyOn(access, 'operatorAccessSessionCurrent')).mockImplementation(fixtureAccess.operatorAccessSessionCurrent);
-      spy(vi.spyOn(access, 'resolveBucketName')).mockImplementation(fixtureAccess.resolveBucketName);
-      spy(vi.spyOn(access, 'resolveSessionAccessGroup')).mockImplementation(fixtureAccess.resolveSessionAccessGroup);
-      spy(vi.spyOn(access, 'loadEnterpriseRouteConfig')).mockImplementation(fixtureAccess.loadEnterpriseRouteConfig);
-      spy(vi.spyOn(access, 'requireOperatorHumanContext')).mockImplementation((...args) => fixtureAccess.requireOperatorHumanContext(...args));
-      spy(vi.spyOn(aig, 'getAigConfig')).mockImplementation(fixtureAig.getAigConfig);
-    }
+    spy(vi.spyOn(access, 'resolveOperatorGroupIdentity')).mockImplementation(fixtureAccess.resolveOperatorGroupIdentity);
+    spy(vi.spyOn(access, 'operatorAccessSessionCurrent')).mockImplementation(fixtureAccess.operatorAccessSessionCurrent);
+    spy(vi.spyOn(access, 'resolveBucketName')).mockImplementation(fixtureAccess.resolveBucketName);
+    spy(vi.spyOn(access, 'resolveSessionAccessGroup')).mockImplementation(fixtureAccess.resolveSessionAccessGroup);
+    spy(vi.spyOn(access, 'loadEnterpriseRouteConfig')).mockImplementation(fixtureAccess.loadEnterpriseRouteConfig);
+    spy(vi.spyOn(access, 'requireOperatorHumanContext')).mockImplementation((...args) => fixtureAccess.requireOperatorHumanContext(...args));
+    spy(vi.spyOn(aig, 'getAigConfig')).mockImplementation(fixtureAig.getAigConfig);
     // The existing bucket-owner DO is metadata, not a running user container.
     // Keep that real coordination boundary while denying every user-session Host.
     const metadataNamespace = (env as unknown as Env).CONTAINER;
@@ -236,12 +175,10 @@ async function lane(run: (f: DispatcherFixture, store: Store, metadataEnvironmen
       const { ownerSource: _retiredSource, ...retained } = admission!;
       await storage.put('admission', retained);
     });
-    if (!sharedStore) {
-      spy(vi.spyOn(r2, 'createR2Client')).mockImplementation(() => ({ fetch: store.fetcher }) as unknown as ReturnType<typeof r2.createR2Client>);
-      spy(vi.spyOn(regime, 'getRegimeState')).mockResolvedValue({ status: 'ready', regime: 'plain', generation: 1 });
-      spy(vi.spyOn(regime, 'isBucketMigrating')).mockResolvedValue(false);
-      spy(vi.spyOn(regime, 'isR2SseDisabledForBucket')).mockResolvedValue(true);
-    }
+    spy(vi.spyOn(r2, 'createR2Client')).mockImplementation(() => ({ fetch: store.fetcher }) as unknown as ReturnType<typeof r2.createR2Client>);
+    spy(vi.spyOn(regime, 'getRegimeState')).mockResolvedValue({ status: 'ready', regime: 'plain', generation: 1 });
+    spy(vi.spyOn(regime, 'isBucketMigrating')).mockResolvedValue(false);
+    spy(vi.spyOn(regime, 'isR2SseDisabledForBucket')).mockResolvedValue(true);
     // External strict-Gateway transport reaches the selected HTTP ledger; the
     // real Root egress interceptor and its fail-closed checks remain in the path.
     f.environment.EGRESS = { fetch: (request: Request) => globalThis.fetch(request) } as Env['EGRESS'];
@@ -251,8 +188,10 @@ async function lane(run: (f: DispatcherFixture, store: Store, metadataEnvironmen
       if (new URL(request.url).pathname !== '/control/profile') return normalFetch(request);
       if (request.headers.get('authorization') !== `Bearer ${connectionSecret}`) return new Response(null, { status: 403 });
       // External normal-App HTTP boundary, not an SDK context or model resolver.
-      const selected = native ? logical : { provider: 'codeflare-gateway', model: 'approved',
-        api: 'openai-completions', reasoningLevel: 'off' };
+      const selected = native ? { ...logical,
+        ...(limits.nativeProviderDefault || limits.nativeNullProfile ? { reasoningLevel: null } : {}) }
+        : { provider: 'codeflare-gateway', model: 'approved',
+        api: 'openai-completions', reasoningLevel: limits.managedProviderDefault ? null : 'off' };
       const identity = { source: native ? 'pi-native' : 'managed', ...selected };
       return Response.json({ selection: { ...identity, ...(!native ? { routeId: 'approved' } : {}),
         profileDigest: await digest(JSON.stringify(identity)) } });
@@ -269,32 +208,22 @@ async function lane(run: (f: DispatcherFixture, store: Store, metadataEnvironmen
     for (const key of environmentKeys) metadataEnvironment[key] = f.environment[key];
     try { await run(f, store, metadataEnvironment); }
     finally {
-      try {
-        for (const leaseId of credentialLeases.get(f) ?? []) {
-          await credentials(f, { operation: 'abort', leaseId });
-        }
-      } finally {
-        credentialLeases.delete(f);
-        for (const { key, present, value } of originalEnvironment) {
-          if (present) metadataEnvironment[key] = value;
-          else delete metadataEnvironment[key];
-        }
-        cleanups.reverse().forEach(cleanup => cleanup());
+      for (const { key, present, value } of originalEnvironment) {
+        if (present) metadataEnvironment[key] = value;
+        else delete metadataEnvironment[key];
       }
+      cleanups.reverse().forEach(cleanup => cleanup());
     }
   }, { normalHosting: true, repositoryOnly: true, recovery: true, nativeInference: native, realInterceptors,
-    preserveGlobalMocks: sharedStore !== undefined, ...limits }).finally(() => {
-    // Inner cancellation and pending work must finish on its own transport first.
-    if (sharedStore) vi.stubGlobal('fetch', enclosingFetch);
-  });
+    ...limits });
 }
 async function admitted(f: DispatcherFixture) {
   expect(await start(f)).toMatchObject({ ok: true, state: { status: 'running', generation: 1 } });
 }
 
-// Requirements: 007 AC4/5/6; 047 AC1/2/3; 048 AC1/2/5/6/7; 058 AC1 + native/default constraints.
+// Requirements: 007 AC4/5/6; 047 AC1/2/3/5; 048 AC2/5/6 + native/default constraints; 058 AC1.
 describe('REQ-OPERATOR-007/047/048/058: owner R2 configured-service HTTP contracts', () => {
-  it('pins the SDK custom logical profile with zero Host catalog and no source-session descriptor', () => lane(async f => {
+  it('pins the saved built-in logical profile with zero Host catalog and no source-session descriptor', () => lane(async f => {
     await admitted(f);
     const plan = (await f.activity.getRuntimePlan())!;
     expect(await discoverDispatcherOwnerProfile({ plan, generation: 1, env: f.environment,
@@ -304,33 +233,70 @@ describe('REQ-OPERATOR-007/047/048/058: owner R2 configured-service HTTP contrac
     expect(JSON.stringify(f.normalTransport!.requests)).not.toMatch(/ownerhost123|sessionGeneration|private\.jwt/);
   }));
 
-  it('delivers opaque native SDK configuration/resources and exposes auth solely as typed CredentialStore read/list', () => lane(async (f, store) => {
+  it('admits normal native provider-default when approved without inventing an explicit reasoning level', () => lane(async f => {
     await admitted(f);
-    const snapshot = await json(await config(f));
-    expect(snapshot).toMatchObject({ source: 'pi-native', settings: store.value(settingsKey), models: store.value(modelsKey) });
-    expect(snapshot.selection).toMatchObject({ source: 'pi-native', ...logical });
-    expect(snapshot.resources).toMatchObject({ files: expect.arrayContaining([
-      { path: 'extensions/owner-provider.mjs', content: store.extensionSource },
-    ]) });
-    expect(snapshot).not.toHaveProperty('credentials');
-    expect(snapshot).not.toHaveProperty('auth');
-    expect(await json(await read(f))).toEqual({ credential: oldOAuth });
-    expect(await json(await credentials(f, { operation: 'read', providerId: 'other' }))).toEqual({ credential: other });
-    expect(await json(await credentials(f, { operation: 'read', providerId: 'missing' }))).toEqual({ credential: null });
-    const listed = await json(await credentials(f, { operation: 'list' }));
-    expect(listed).toEqual({ credentials: expect.arrayContaining([
-      { providerId, type: 'oauth' }, { providerId: 'other', type: 'api_key' },
-    ]) });
-    expect(listed.credentials).toHaveLength(2);
-    expect(JSON.stringify(listed)).not.toContain(canary);
+    const selected = (await f.activity.getRuntimePlan())!.configuredSelection;
+    expect(selected).toMatchObject({ source: 'pi-native', provider: providerId, model: logical.model, reasoningLevel: null });
+    expect((await modelAdmission(f)).status).toBe(200);
+  }, true, false, { nativeProviderDefault: true }));
+
+  it('provider-default discovery cannot erase an existing installation Low override', () => lane(async f => {
+    const result = await start(f);
+    expect(result.ok).toBe(false);
+    expect((await f.activity.getRuntimePlan())?.configuredSelection).toBeUndefined();
+  }, true, false, { nativeNullProfile: true }));
+
+  it('returns only saved provider/model and selected OAuth access token through fixed read-only DTOs', () => lane(async (f, store) => {
+    await admitted(f);
+    const selection = (await f.activity.getRuntimePlan())!.configuredSelection;
+    expect(selection).toMatchObject({ source: 'pi-native', ...logical });
+    // Exact DTO is the intentional wire contract: no settings/resources/auth metadata passthrough.
+    expect(await json(await config(f))).toEqual({ source: 'pi-native',
+      settings: { defaultProvider: providerId, defaultModel: logical.model }, selection });
+    expect(await json(await read(f))).toEqual({ apiKey: oldOAuth.access });
     await denied(await callback(f, 'pi/config', { operation: 'read', key: authKey }), [400, 403]);
-    // Intentional storage wire allowlist, independent of retries or implementation call counts.
-    expect(store.touchedKeys).toEqual(new Set([settingsKey, modelsKey, authKey, extensionKey, extensionPrefix]
-      .map(key => `/owner-bucket/${key}`)));
+    expect(store.touchedKeys).toEqual(new Set([settingsKey, authKey].map(key => `/owner-bucket/${key}`)));
+    expect(store.escapedReads).toEqual([]);
+    expect(store.value(authKey)).toEqual({ [providerId]: oldOAuth, other });
+  }));
+
+  it('returns only the selected saved API key, without evaluating or exporting provider metadata', () => lane(async (f, store) => {
+    const saved = { type: 'api_key', key: `${canary}_selected_api_key`, env: { PRIVATE: `${canary}_private_env` } };
+    store.put(authKey, { [providerId]: saved, other });
+    await admitted(f);
+    expect(await json(await read(f))).toEqual({ apiKey: saved.key });
+    expect(store.value(authKey)).toEqual({ [providerId]: saved, other });
     expect(store.escapedReads).toEqual([]);
   }));
 
-  it('Native OFF returns account default Gateway without reading or exporting Pi R2 canaries', () => lane(async (f, store) => {
+  it.each(['other', 'missing', '../auth.json', 'openai/../../foreign'])(
+    'denies nonselected or invalid credential provider %s without exporting another provider', requested => lane(async (f, store) => {
+      await admitted(f);
+      await denied(await credentials(f, { operation: 'read', providerId: requested }), [400, 403, 404]);
+      expect(await json(await read(f))).toEqual({ apiKey: oldOAuth.access });
+      expect(store.value(authKey)).toEqual({ [providerId]: oldOAuth, other });
+      expect(store.escapedReads).toEqual([]);
+    }));
+
+  it.each(['list', 'begin', 'commit', 'abort'])(
+    'denies abandoned credential %s operations without R2 access or persistence', operation => lane(async (f, store) => {
+      await admitted(f);
+      store.override(() => { throw new Error(`${canary}_FORBIDDEN_CREDENTIAL_OPERATION`); });
+      await denied(await credentials(f, { operation, ...(operation === 'begin' ? { providerId } : {}),
+        ...(['commit', 'abort'].includes(operation) ? { leaseId: 'unissued-lease' } : {}),
+        ...(operation === 'commit' ? { credential: { type: 'api_key', key: `${canary}_rejected_write` } } : {}) }),
+        [400, 403, 404]);
+      expect(store.value(authKey)).toEqual({ [providerId]: oldOAuth, other });
+      expect(store.touchedKeys).toEqual(new Set());
+      expect(store.escapedReads).toEqual([]);
+    }));
+
+  it.each([false, true])('Native OFF returns account default Gateway without Pi R2 access (stale native preference: %s)', staleNative => lane(async (f, store) => {
+    if (staleNative) {
+      const routes = await fixtureAccess.loadEnterpriseRouteConfig(f.environment, []);
+      vi.spyOn(access, 'loadEnterpriseRouteConfig').mockResolvedValue({ ...routes,
+        piDefaultSource: 'pi-native', allowPersonalPiProviders: false });
+    }
     // Any R2 access returns a hostile canary, so native-disabled mode cannot quietly consume native files.
     store.override(() => { throw new Error(`${canary}_NATIVE_OFF_R2_READ`); });
     await admitted(f);
@@ -344,7 +310,7 @@ describe('REQ-OPERATOR-007/047/048/058: owner R2 configured-service HTTP contrac
     expect(JSON.stringify(managed)).not.toMatch(/parent-only|PRIVATE_R2_SERVICES_CANARY/);
     expect(managed).not.toHaveProperty('token'); expect(managed).not.toHaveProperty('credentials');
     expect(await json(await config(f))).toEqual({ source: 'managed' });
-    await denied(await read(f)); await denied(await begin(f));
+    await denied(await read(f));
     await denied(await credentials(f, { operation: 'list' }));
     expect(JSON.stringify(f.normalTransport!.requests)).not.toContain(canary);
     // Native OFF's intentional storage wire allowlist is empty, not merely a redacted response.
@@ -352,18 +318,41 @@ describe('REQ-OPERATOR-007/047/048/058: owner R2 configured-service HTTP contrac
     expect(store.escapedReads).toEqual([]);
   }, false));
 
+  it('Native OFF denies an account default excluded by policy rather than substituting an allowed route', () => lane(async (f, store) => {
+    await admitted(f);
+    const routes = await fixtureAccess.loadEnterpriseRouteConfig(f.environment, []);
+    vi.spyOn(access, 'loadEnterpriseRouteConfig').mockResolvedValue({ ...routes,
+      routeCatalog: ['approved', 'not-allowed'], defaultRoute: 'not-allowed', allowPersonalPiProviders: false });
+    store.override(() => { throw new Error(`${canary}_NATIVE_OFF_R2_READ`); });
+    await denied(await gateway(f));
+    await denied(await config(f));
+    expect(store.touchedKeys).toEqual(new Set());
+    expect(store.escapedReads).toEqual([]);
+  }, false, false, { managedProviderDefault: true }));
+
+  it('denies configuration writes without touching R2 or changing saved selection/auth', () => lane(async (f, store) => {
+    await admitted(f);
+    const settings = store.value(settingsKey);
+    await denied(await callback(f, 'pi/config', { operation: 'write',
+      settings: { defaultProvider: 'foreign', defaultModel: 'foreign' } }), [400, 403, 404]);
+    expect(store.value(settingsKey)).toEqual(settings);
+    expect(store.value(authKey)).toEqual({ [providerId]: oldOAuth, other });
+    expect(store.touchedKeys).toEqual(new Set());
+    expect(store.escapedReads).toEqual([]);
+  }));
+
   it.each([
     { bucket: 'foreign-bucket' }, { owner: 'foreign@example.test' }, { endpoint: 'https://attacker.example.test' },
     { path: '../auth.json' }, { key: '../auth.json' }, { key: '.pi/agent/sessions/private.jsonl' },
     { key: '.pi/agent/settings.json?bucket=foreign-bucket' }, { key: authKey },
-    { key: '.pi/agent/extensions/private.ts' },
+    { key: '.pi/agent/extensions/private.ts' }, { key: '.pi/agent/models.json' },
   ])('fixed-key wire allowlist refuses caller addressing %j without cross-owner I/O', attack => lane(async (f, store) => {
     await admitted(f);
     await denied(await callback(f, 'pi/config', { operation: 'read', ...attack }), [400, 403, 404]);
     expect(store.escapedReads).toEqual([]);
     expect(store.value(authKey)).toEqual({ [providerId]: oldOAuth, other });
     // A rejected addressing attempt must not poison subsequent exact owner reads.
-    expect(await json(await read(f))).toEqual({ credential: oldOAuth });
+    expect(await json(await read(f))).toEqual({ apiKey: oldOAuth.access });
   }));
 
   it.each([
@@ -385,6 +374,10 @@ describe('REQ-OPERATOR-007/047/048/058: owner R2 configured-service HTTP contrac
     ['installation revision', f => f.changeInferenceAuthority('installation')],
     ['release digest', f => f.changeInferenceAuthority('digest')], ['deadline', f => f.expire()],
     ['cancel', f => f.activity.cancelDrive()], ['retired generation', f => f.activity.interruptDrive(1)],
+    ['source', async f => {
+      const routes = await fixtureAccess.loadEnterpriseRouteConfig(f.environment, []);
+      vi.spyOn(access, 'loadEnterpriseRouteConfig').mockResolvedValue({ ...routes, piDefaultSource: 'managed' });
+    }],
     ['owner', () => { vi.spyOn(access, 'resolveBucketName').mockResolvedValue('foreign-bucket'); }],
   ];
   it.each(fences)('%s fence denies before R2 and after a late R2 read', (_name, fence) => lane(async (f, store) => {
@@ -392,7 +385,7 @@ describe('REQ-OPERATOR-007/047/048/058: owner R2 configured-service HTTP contrac
     store.afterRead(async () => { await fence(f); });
     await denied(await read(f));
     store.override(() => { throw new Error(`${canary}_READ_AFTER_FENCE`); });
-    await denied(await config(f)); await denied(await read(f)); await denied(await begin(f));
+    await denied(await config(f)); await denied(await read(f));
     await denied(await gateway(f));
     expect(store.value(authKey)).toEqual({ [providerId]: oldOAuth, other });
     expect(store.escapedReads).toEqual([]);
@@ -411,7 +404,7 @@ describe('REQ-OPERATOR-007/047/048/058: owner R2 configured-service HTTP contrac
     await admitted(f);
     store.override(() => { throw new Error(`${canary}_BAD_REQUEST_READ`); });
     await denied(await callback(f, 'pi/config', { operation: 'read', key: settingsKey, padding: 'x'.repeat(4097) }), [400, 403, 413]);
-    await denied(await credentials(f, { operation: 'read', providerId, credentials: rotated }), [400, 403]);
+    await denied(await credentials(f, { operation: 'read', providerId, credentials: oldOAuth }), [400, 403]);
   }));
 
   it.each(['missing-key', 'migration', 'regime-change', 'key-change'] as const)('SSE %s fails closed around owner reads', failure => lane(async (f, store, metadataEnvironment) => {
@@ -439,7 +432,7 @@ describe('REQ-OPERATOR-007/047/048/058: owner R2 configured-service HTTP contrac
     vi.spyOn(regime, 'isR2SseDisabledForBucket').mockResolvedValue(false); store.requireSse();
     vi.spyOn(regime, 'getRegimeState').mockResolvedValue({ status: 'ready', regime: 'sse-c', generation: 1 });
     const response = await json(await read(f));
-    expect(response).toEqual({ credential: oldOAuth });
+    expect(response).toEqual({ apiKey: oldOAuth.access });
     expect(JSON.stringify(response)).not.toContain(metadataEnvironment.ENCRYPTION_KEY);
   }));
 });
@@ -500,7 +493,7 @@ describe('REQ-OPERATOR-007/047/048: protected SDK-prepared HTTP, not Parent mode
     expect(await outgoing[0].json()).toMatchObject({ model: 'dynamic/approved',
       messages: [{ role: 'user', content: 'Original managed SDK input.' }] });
     expect(JSON.stringify(await f.activity.getBrowserDetail())).not.toContain('parent-only');
-  }, false, undefined, true));
+  }, false, true));
 
   it.each(['body', 'header'] as const)('managed Gateway credential %s echoes remain Root-only through durable response reconciliation', echo => lane(async f => {
     await admitted(f);
@@ -553,7 +546,7 @@ describe('REQ-OPERATOR-007/047/048: protected SDK-prepared HTTP, not Parent mode
     expect(JSON.stringify(await diagnosticTraversal(diagnosticsBrowser(f)))).not.toContain(gatewayCredential);
     expect(JSON.stringify(await f.activity.getBrowserDetail())).not.toContain(gatewayCredential);
     expect(JSON.stringify(f.normalTransport!.requests)).not.toContain(gatewayCredential);
-  }, false, undefined, true));
+  }, false, true));
 
   it('complete SDK HTTP response is durable before delivery and reconciles exact SSE after reconstruction', () => lane(async f => {
     await admitted(f);
@@ -693,7 +686,7 @@ describe('REQ-OPERATOR-007/047/048: protected SDK-prepared HTTP, not Parent mode
     expect(replay.status).toBe(200); expect(await replay.text()).toBe('first paid response');
     expect(replay.headers.get('x-provider-trace')).toBe('capacity-first');
     expect(paid).toEqual([{ url: request.url, body: sdkBody }]);
-  }, true, undefined, false, { operationLimit: 1, inferenceAttemptLimit: 1 }));
+  }, true, false, { operationLimit: 1, inferenceAttemptLimit: 1 }));
 
   it.each([false, true])('initial attempt exhausts a one-attempt policy; HTTP failure replay cannot buy a retry (Actor reconstruction: %s)', reconstructed => lane(async f => {
     await admitted(f);
@@ -724,7 +717,7 @@ describe('REQ-OPERATOR-007/047/048: protected SDK-prepared HTTP, not Parent mode
     // Spare operation capacity is intentional: only inferenceAttemptLimit=1
     // forbids another attempt for this operation, including its initial send.
     expect(paid).toEqual([{ url: request.url, body: sdkBody }]);
-  }, true, undefined, false, { operationLimit: 2, inferenceAttemptLimit: 1 }));
+  }, true, false, { operationLimit: 2, inferenceAttemptLimit: 1 }));
 
   it.each(['permit', 'operation', 'generation', 'owner', 'expiry', 'cancel'] as const)('%s drift cannot turn SDK HTTP authority into a reusable proxy', failure => lane(async f => {
     await admitted(f);
@@ -754,139 +747,7 @@ describe('REQ-OPERATOR-007/047/048: protected SDK-prepared HTTP, not Parent mode
   }));
 });
 
-describe('REQ-OPERATOR-007/047/048: serialized bounded SDK credential persistence', () => {
-  it('persists fresh OAuth rotation and preserves a newer unrelated provider', () => lane(async (f, store) => {
-    await admitted(f);
-    const lease = await json(await begin(f));
-    expect(lease).toMatchObject({ leaseId: expect.any(String), credential: oldOAuth, expiresAt: expect.any(Number) });
-    const externalOther = { ...other, key: `${canary}_external_other` };
-    store.put(authKey, { [providerId]: oldOAuth, other: externalOther });
-    expect(await json(await commit(f, lease.leaseId))).toEqual({ credential: rotated });
-    expect(store.value(authKey)).toEqual({ [providerId]: rotated, other: externalOther });
-    expect(await json(await read(f))).toEqual({ credential: rotated });
-    await denied(await commit(f, lease.leaseId, oldOAuth), [403, 404, 409]);
-    expect(store.value(authKey)).toEqual({ [providerId]: rotated, other: externalOther });
-  }));
-
-  it('concurrent begin has one winner and the next lease sees the committed rotation', () => lane(async (f, store) => {
-    await admitted(f);
-    const responses = await Promise.all([begin(f), begin(f)]);
-    expect(responses.map(response => response.status).sort()).toEqual([200, 409]);
-    const lease = await json(responses.find(response => response.status === 200)!);
-    expect(await json(await commit(f, lease.leaseId))).toEqual({ credential: rotated });
-    const next = await json(await begin(f));
-    expect(next.credential).toEqual(rotated);
-    expect((await credentials(f, { operation: 'abort', leaseId: next.leaseId })).status).toBe(204);
-    expect(store.value(authKey)).toEqual({ [providerId]: rotated, other });
-  }));
-
-  it('different providers share one owner auth-file transaction without changing their credentials', () => lane(async (f, store) => {
-    await admitted(f);
-    const lease = await json(await begin(f));
-    await denied(await credentials(f, { operation: 'begin', providerId: 'other' }), [409]);
-    expect(await json(await credentials(f, { operation: 'read', providerId: 'other' }))).toEqual({ credential: other });
-    expect(await json(await commit(f, lease.leaseId))).toEqual({ credential: rotated });
-    const next = await json(await credentials(f, { operation: 'begin', providerId: 'other' }));
-    expect(next.credential).toEqual(other);
-    expect((await credentials(f, { operation: 'abort', leaseId: next.leaseId })).status).toBe(204);
-    expect(store.value(authKey)).toEqual({ [providerId]: rotated, other });
-  }));
-
-  it('one owner credential transaction serializes separate Activities, not merely one Activity instance', () => lane(async (first, store) => {
-    await admitted(first); const lease = await json(await begin(first));
-    await lane(async second => {
-      await admitted(second);
-      await denied(await begin(second), [409]);
-      // Knowing another run's lease does not transfer its persist-only authority.
-      await denied(await commit(second, lease.leaseId), [403, 404, 409]);
-      expect(await first.inOwnContext(async () => json(await commit(first, lease.leaseId))))
-        .toEqual({ credential: rotated });
-      const next = await json(await begin(second));
-      expect(next.credential).toEqual(rotated);
-      expect((await credentials(second, { operation: 'abort', leaseId: next.leaseId })).status).toBe(204);
-      expect(store.value(authKey)).toEqual({ [providerId]: rotated, other });
-    }, true, store);
-  }));
-
-  it('CAS 412 preserves the latest external same-provider write instead of replaying stale OAuth', () => lane(async (f, store) => {
-    await admitted(f);
-    const lease = await json(await begin(f));
-    const latest = { ...rotated, refresh: `${canary}_EXTERNAL_LOGIN`, access: `${canary}_EXTERNAL_ACCESS` };
-    // Race at the S3 write boundary, after any implementation-side read/merge.
-    store.beforeWrite(() => store.put(authKey, { [providerId]: latest, other }));
-    await denied(await commit(f, lease.leaseId), [409]);
-    expect(store.value(authKey)).toEqual({ [providerId]: latest, other });
-    expect(await json(await read(f))).toEqual({ credential: latest });
-  }));
-
-  it('external same-provider login between begin and commit is never overwritten', () => lane(async (f, store) => {
-    await admitted(f); const lease = await json(await begin(f));
-    const latest = { type: 'api_key', key: `${canary}_NEW_LOGIN` };
-    store.put(authKey, { [providerId]: latest, other });
-    await denied(await commit(f, lease.leaseId), [409]);
-    expect(store.value(authKey)).toEqual({ [providerId]: latest, other });
-  }));
-
-  it('abort releases serialization without writes; unknown or malformed commits cannot write', () => lane(async (f, store) => {
-    await admitted(f); const lease = await json(await begin(f));
-    expect((await credentials(f, { operation: 'abort', leaseId: lease.leaseId })).status).toBe(204);
-    await denied(await commit(f, lease.leaseId), [403, 404, 409]);
-    await denied(await commit(f, 'foreign-lease'), [403, 404, 409]);
-    const next = await json(await begin(f));
-    await denied(await commit(f, next.leaseId, { type: 'oauth', access: 7 }), [400, 403]);
-    expect(store.value(authKey)).toEqual({ [providerId]: oldOAuth, other });
-    expect((await credentials(f, { operation: 'abort', leaseId: next.leaseId })).status).toBe(204);
-  }));
-
-  it.each(['expiry', 'caller-abort', 'activity-cancel'] as const)('already-begun bounded rotation survives %s but grants no new work', interruption => lane(async (f, store) => {
-    await admitted(f);
-    // Begin just before the original human deadline; persistence finishes just after it,
-    // still well inside the independent 30-second lease (not 5 minutes after begin).
-    if (interruption === 'expiry') f.advanceClock(299_000);
-    const lease = await json(await begin(f));
-    expect(lease.expiresAt).toBeGreaterThan(Date.now());
-    expect(lease.expiresAt).toBeLessThanOrEqual(Date.now() + 30_000);
-    if (interruption === 'expiry') f.advanceClock(300_001);
-    if (interruption === 'activity-cancel') await f.activity.cancelDrive();
-    if (interruption === 'caller-abort') {
-      const controller = new AbortController(); controller.abort();
-      const request = normalCallback(f.activityId, 'pi/credentials', { operation: 'commit', leaseId: lease.leaseId, credential: rotated });
-      expect((await f.installationCapability.fetch(new Request(request, { signal: controller.signal }))).status).toBe(200);
-    } else expect(await json(await commit(f, lease.leaseId))).toEqual({ credential: rotated });
-    expect(store.value(authKey)).toEqual({ [providerId]: rotated, other });
-    if (interruption !== 'caller-abort') {
-      await denied(await read(f)); await denied(await begin(f)); await denied(await config(f));
-      await denied(await callback(f, 'inference', { operationId: 'persist-is-not-infer-authority', context: { messages: [] }, options: {} }));
-    }
-  }));
-
-  it.each(['migration', 'regime-change', 'key-change'] as const)('an OAuth lease cannot write through an owner SSE %s', failure => lane(async (f, store, metadataEnvironment) => {
-    await admitted(f);
-    vi.spyOn(regime, 'isR2SseDisabledForBucket').mockResolvedValue(false);
-    vi.spyOn(regime, 'getRegimeState').mockResolvedValue({ status: 'ready', regime: 'sse-c', generation: 1 });
-    store.requireSse();
-    const lease = await json(await begin(f));
-    if (failure === 'migration') {
-      vi.spyOn(regime, 'isBucketMigrating').mockResolvedValue(true);
-      vi.spyOn(regime, 'getRegimeState').mockResolvedValue({ status: 'migrating', regime: 'sse-c', generation: 1 });
-    } else if (failure === 'regime-change') {
-      vi.spyOn(regime, 'getRegimeState').mockResolvedValue({ status: 'ready', regime: 'sse-c', generation: 2 });
-    } else {
-      metadataEnvironment.ENCRYPTION_KEY = btoa('b'.repeat(32));
-    }
-    await denied(await commit(f, lease.leaseId), [403, 409, 503]);
-    expect(store.value(authKey)).toEqual({ [providerId]: oldOAuth, other });
-    expect(store.escapedReads).toEqual([]);
-  }));
-
-  it('expired persist-only lease cannot commit even while the Activity remains authorized', () => lane(async (f, store) => {
-    await admitted(f); const lease = await json(await begin(f));
-    f.advanceClock(31_000);
-    await denied(await commit(f, lease.leaseId), [403, 404, 409]);
-    expect(store.value(authKey)).toEqual({ [providerId]: oldOAuth, other });
-    expect(await json(await read(f))).toEqual({ credential: oldOAuth });
-  }));
-
+describe('REQ-OPERATOR-007/047/048: read-only credential non-retention', () => {
   it('SDK private files/auth never enter journal, jobs or exports; raw failures retain nonsecret detail only', () => lane(async (f, store) => {
     const output: unknown[][] = [];
     const spies = (['log', 'warn', 'error'] as const).map(method => vi.spyOn(console, method)
@@ -895,7 +756,6 @@ describe('REQ-OPERATOR-007/047/048: serialized bounded SDK credential persistenc
     try {
       await admitted(f);
       await json(await config(f)); await json(await read(f));
-      const lease = await json(await begin(f)); await json(await commit(f, lease.leaseId));
       const originalFetch = globalThis.fetch;
       vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
         const request = new Request(input, init);
@@ -904,9 +764,9 @@ describe('REQ-OPERATOR-007/047/048: serialized bounded SDK credential persistenc
       });
       const permit = await json(await modelAdmission(f));
       const transported = await modelFetch(f, permit.permitId, { url: 'https://custom.example.test/native/stream', method: 'POST',
-        headers: [['authorization', `Bearer ${rotated.access}`], ['content-type', 'application/json']], bodyBase64: encodeBody(sdkBody) });
+        headers: [['authorization', `Bearer ${oldOAuth.access}`], ['content-type', 'application/json']], bodyBase64: encodeBody(sdkBody) });
       expect(transported.status).toBe(200); expect(await transported.text()).toBe('original private SDK HTTP bytes');
-      store.override(() => { throw new Error('SDK_R2_REFRESH_IO_FAILURE', { cause: { credentials: rotated } }); });
+      store.override(() => { throw new Error('SDK_R2_READ_IO_FAILURE', { cause: { credentials: oldOAuth } }); });
       await denied(await read(f));
       const exported = await diagnosticTraversal(diagnosticsBrowser(f));
       expect(JSON.stringify(exported)).not.toContain(canary);
@@ -921,8 +781,8 @@ describe('REQ-OPERATOR-007/047/048: serialized bounded SDK credential persistenc
       const logged = inspect(output, { depth: null, maxStringLength: null, maxArrayLength: null,
         customInspect: false, getters: false, colors: false });
       expect(logged).not.toContain(canary);
-      expect(logged).toContain('SDK_R2_REFRESH_IO_FAILURE');
-      expect(store.value(authKey)).toEqual({ [providerId]: rotated, other });
+      expect(logged).toContain('SDK_R2_READ_IO_FAILURE');
+      expect(store.value(authKey)).toEqual({ [providerId]: oldOAuth, other });
     } finally { setLogLevel('silent'); spies.forEach(spy => spy.mockRestore()); }
   }));
 });
