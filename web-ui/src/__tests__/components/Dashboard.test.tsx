@@ -328,9 +328,9 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
       // Intentional user action-order contract, shared with the in-session menu.
       expect([...screen.getByTestId('session-context-menu').querySelectorAll('button')]
         .map(button => button.textContent?.trim())).toEqual([
-        'Rename', status === 'stopping' ? 'Retry Stop' : 'Stop', 'KILL', 'Delete',
+        'Rename', status === 'stopping' ? 'Retry Stop' : 'Stop', 'Kill', 'Delete',
       ]);
-      await fireEvent.click(screen.getByRole('button', { name: 'KILL' }));
+      await fireEvent.click(screen.getByRole('button', { name: 'Kill' }));
       expect(killed).toEqual(['recover']);
       expect(screen.getByTestId('session-card-recover')).toBeInTheDocument();
       expect(screen.getByTestId('session-card-untouched')).toBeInTheDocument();
@@ -344,7 +344,7 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
       createdAt: '2024-01-01', lastAccessedAt: '2024-01-01',
     }]} />);
     await fireEvent.click(screen.getByTestId('menu-stopped'));
-    expect(screen.queryByRole('button', { name: 'KILL' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Kill' })).not.toBeInTheDocument();
     expect(screen.getByTestId('context-menu-rename')).toBeInTheDocument();
     expect(screen.getByTestId('context-menu-delete')).toBeInTheDocument();
   });

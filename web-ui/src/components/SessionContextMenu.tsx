@@ -155,7 +155,7 @@ const SessionContextMenu: Component<SessionContextMenuProps> = (props) => {
             onClick={handleKill}
           >
             <Icon path={mdiStop} size={16} />
-            KILL
+            Kill
           </button>
         </Show>
         <Show when={!confirmingDelete()}>

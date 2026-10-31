@@ -230,8 +230,8 @@ describe('SessionDropdown', () => {
           onDeleteSession={id => deleted.push(id)} />);
 
         fireEvent.click(screen.getByTestId('card-menu-kill-target'));
-        // KILL's exact user copy is the deliberate recovery-action contract.
-        const kill = screen.getByRole('button', { name: 'KILL' });
+        // Kill's exact user copy is the deliberate recovery-action contract.
+        const kill = screen.getByRole('button', { name: 'Kill' });
         expect(kill).toBeEnabled();
         expect(screen.getByRole('button', { name: status === 'stopping' ? 'Retry Stop' : 'Stop' })).toBeEnabled();
         expect(screen.getByRole('button', { name: 'Rename' })).toBeEnabled();
@@ -250,7 +250,7 @@ describe('SessionDropdown', () => {
     it('AC1 and inherited-behavior constraint: hides KILL for a confirmed-stopped session without hiding Rename or Delete', () => {
       render(() => <SessionDropdown {...defaultProps} />);
       fireEvent.click(screen.getByTestId('card-menu-s2'));
-      expect(screen.queryByRole('button', { name: 'KILL' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Kill' })).not.toBeInTheDocument();
       expect(screen.getByRole('button', { name: 'Rename' })).toBeEnabled();
       expect(screen.getByRole('button', { name: 'Delete' })).toBeEnabled();
     });
@@ -272,7 +272,7 @@ describe('SessionDropdown', () => {
         expect(screen.queryByTestId('session-context-menu')).not.toBeInTheDocument();
 
         fireEvent.click(screen.getByTestId('card-menu-pending-stop'));
-        const kill = screen.getByRole('button', { name: 'KILL' });
+        const kill = screen.getByRole('button', { name: 'Kill' });
         expect(kill).toBeEnabled();
         fireEvent.click(kill);
         expect(killed).toEqual(['pending-stop']);
@@ -292,7 +292,7 @@ describe('SessionDropdown', () => {
         onStopSession={id => stopped.push(id)} onDeleteSession={id => deleted.push(id)} />);
 
       fireEvent.click(screen.getByTestId('card-menu-s1'));
-      expect(screen.getByRole('button', { name: 'KILL' })).toBeEnabled();
+      expect(screen.getByRole('button', { name: 'Kill' })).toBeEnabled();
       fireEvent.click(screen.getByRole('button', { name: 'Stop' }));
       expect(stopped).toEqual(['s1']);
       expect(screen.queryByTestId('session-context-menu')).not.toBeInTheDocument();

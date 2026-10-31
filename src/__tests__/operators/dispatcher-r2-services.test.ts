@@ -504,7 +504,7 @@ describe('REQ-OPERATOR-007/047/048: protected SDK-prepared HTTP, not Parent mode
     expect(JSON.stringify([...outgoing[0].headers])).not.toContain('parent-only');
   }));
 
-  it.each([false, true])('REQ-OPERATOR-057 AC3 / 048: native top-level rejection remains visible with logging OFF and exact failed settlement (cached recovery: %s)', cached => lane(async f => {
+  it.each([false, true])('REQ-OPERATOR-057 AC6/AC7 / 048: native top-level rejection remains visible with logging OFF and exact failed settlement (cached recovery: %s)', cached => lane(async f => {
     await admitted(f);
     const paid: string[] = [];
     const body = '{ "code":"token_expired", "message":"Provider rejected this request — 原始 😀", "type":"invalid_request_error", "param":null }';
@@ -540,8 +540,8 @@ describe('REQ-OPERATOR-007/047/048: protected SDK-prepared HTTP, not Parent mode
       await assertOriginal(await modelFetch(f, permit.permitId, request, operationId));
     }
     const authFailure = { code: 'PI_LOGIN_REQUIRED', reason: 'rejected', provider: providerId };
-    expect(await f.activity.getBrowserSummary(f.proof.ownerKey)).toMatchObject({ authFailure, executionStatus: 'running' });
-    expect(await f.activity.getBrowserDetail()).toMatchObject({ authFailure, loggingEnabled: false,
+    expect(await f.activity.getBrowserSummary(f.proof.ownerKey)).toMatchObject({ authFailure, loggingEnabled: false, executionStatus: 'running' });
+    expect(await f.activity.getBrowserDetail()).toMatchObject({ authFailure,
       executionStatus: 'running', collectionStatus: 'unavailable', result: null });
     // Refusal of subsequent work is functional, not an optional diagnostic side effect.
     await denied(await modelAdmission(f, 'explicit-later-attempt'), [403, 404, 409]);

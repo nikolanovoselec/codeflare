@@ -156,8 +156,8 @@ describe('SessionContextMenu', () => {
         onRename={() => { actions.push('rename'); }}
         onClose={() => setOpen(false)} />);
 
-      // Exact KILL user copy distinguishes force termination from ordinary Stop.
-      fireEvent.click(screen.getByRole('button', { name: 'KILL' }));
+      // Exact Kill user copy distinguishes force termination from ordinary Stop.
+      fireEvent.click(screen.getByRole('button', { name: 'Kill' }));
       expect(actions).toEqual(['kill']);
       expect(screen.queryByTestId('session-context-menu')).not.toBeInTheDocument();
     });
@@ -165,7 +165,7 @@ describe('SessionContextMenu', () => {
     it('AC1 and inherited-behavior constraint: does not offer KILL when canKill is false', () => {
       const killProps = { canKill: false, onKill: () => { throw Error('Stopped sessions cannot be killed'); } };
       render(() => <SessionContextMenu {...defaultProps} {...killProps} />);
-      expect(screen.queryByRole('button', { name: 'KILL' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Kill' })).not.toBeInTheDocument();
       expect(screen.getByRole('button', { name: 'Stop' })).toBeEnabled();
       expect(screen.getByRole('button', { name: 'Rename' })).toBeEnabled();
       expect(screen.getByRole('button', { name: 'Delete' })).toBeEnabled();
@@ -173,7 +173,7 @@ describe('SessionContextMenu', () => {
 
     it('Inherited-behavior constraint: leaves existing callers without KILL callbacks unchanged', () => {
       render(() => <SessionContextMenu {...defaultProps} />);
-      expect(screen.queryByRole('button', { name: 'KILL' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Kill' })).not.toBeInTheDocument();
       expect(screen.getByRole('button', { name: 'Stop' })).toBeEnabled();
       expect(screen.getByRole('button', { name: 'Rename' })).toBeEnabled();
       fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
@@ -190,7 +190,7 @@ describe('SessionContextMenu', () => {
           onDelete={() => { actions.push('delete'); }}
           onRename={name => { actions.push(`rename:${name}`); }}
           onClose={() => setOpen(false)} />);
-        expect(screen.getByRole('button', { name: 'KILL' })).toBeEnabled();
+        expect(screen.getByRole('button', { name: 'Kill' })).toBeEnabled();
         fireEvent.click(screen.getByRole('button', { name: action }));
         if (action === 'Rename') {
           fireEvent.input(screen.getByRole('textbox', { name: 'Session name' }), { target: { value: 'New name' } });
