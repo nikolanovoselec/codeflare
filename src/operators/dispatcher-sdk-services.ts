@@ -4,7 +4,7 @@
 import type { Env } from '../types';
 import type { OperatorRuntimePlan } from './activity';
 import { dispatcherSdkOwnerContext, type ConfiguredDispatcherInference } from './dispatcher-owner-inference';
-import { readDispatcherSdkFiles, type SdkStorageScope } from './dispatcher-sdk-storage';
+import { DispatcherSdkStorageError, readDispatcherSdkFiles, type DispatcherSdkCredentialResult, type SdkStorageScope } from './dispatcher-sdk-storage';
 import { resolveBucketName } from '../lib/access';
 import { getAigConfig } from '../lib/aig-config';
 import { isDisallowedEgressHost } from '../lib/controller-egress';
@@ -34,7 +34,7 @@ function metadata(input: SdkInput, scope: SdkStorageScope) {
   const id = input.env.CONTAINER.idFromName(`bucket-owner:${scope.bucket}`);
   return input.env.CONTAINER.get(id) as unknown as {
     claimBucketOwner(email: string, allowInitialClaim: boolean): Promise<string>;
-    dispatcherSdkCredentials(scope: SdkStorageScope, body: unknown): Promise<unknown | null>;
+    dispatcherSdkCredentials(scope: SdkStorageScope, body: unknown): Promise<DispatcherSdkCredentialResult>;
   };
 }
 async function sameOwner(input: SdkInput, original: Owner) {
@@ -93,16 +93,23 @@ export async function dispatcherSdkCredentials(input: SdkInput, body: unknown): 
     if (!finishing && (!('source' in owner) || owner.source !== 'pi-native')) throw new Error('Native SDK credentials denied');
     const scope = storageScope(input, owner);
     const result = await metadata(input, scope).dispatcherSdkCredentials(scope, body);
+    if (!result.ok) {
+      const error = new DispatcherSdkStorageError(result.status, result.message);
+      if (result.stack) error.stack = result.stack;
+      throw error;
+    }
     if (!finishing) await sameOwner(input, owner as Owner);
-    return result;
+    return result.value;
   } catch (error) { return failure(input, error); }
 }
 
 export async function forwardDispatcherSdkHttp(input: SdkInput & {
   selection: ConfiguredDispatcherInference;
+  ownerScope: Pick<Owner, 'bucket' | 'email'>;
   request: { url: string; method: string; headers: Array<[string, string]>; bodyBase64?: string };
 }): Promise<{ response: Response; transportCredentials: string[] }> {
   const owner = await dispatcherSdkOwnerContext(input, input.selection);
+  if (owner.bucket !== input.ownerScope.bucket || owner.email !== input.ownerScope.email) throw new Error('SDK HTTP owner changed');
   const url = new URL(input.request.url);
   if (url.protocol !== 'https:' || url.username || url.password || url.port || url.hash
     || isDisallowedEgressHost(url.hostname) || url.hostname === 'operator.internal'
@@ -139,6 +146,7 @@ export async function forwardDispatcherSdkHttp(input: SdkInput & {
     const transport = input.exports.LlmInterceptor({ props: { user: authority.human.email, groups: owner.groups,
       sessionId: input.plan.activityId, gatewayUrl: aig.gatewayUrl, gatewayId: aig.gatewayId, token,
       operatorInference: { activityId: input.plan.activityId, operatorId: input.plan.executionContext.operatorId, policy, trusted } } });
+    await sameOwner(input, owner);
     response = await transport.fetch(request);
   } else {
     // Unlike container-start discovery, execution cannot interpret an unavailable
@@ -149,6 +157,7 @@ export async function forwardDispatcherSdkHttp(input: SdkInput & {
       if (setting !== null && setting !== 'active' && setting !== 'inactive') throw new Error('SDK transport policy unavailable');
       strict = setting === 'active';
     }
+    await sameOwner(input, owner);
     if (strict) {
       if (!input.exports?.EgressController) throw new Error('SDK strict transport unavailable');
       const transport = input.exports.EgressController({ props: { strict: true } });

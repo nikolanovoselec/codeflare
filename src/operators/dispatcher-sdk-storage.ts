@@ -14,6 +14,8 @@ export interface SdkStorageScope {
 export class DispatcherSdkStorageError extends Error {
   constructor(public readonly status: number, message = 'Private SDK storage unavailable', options?: ErrorOptions) { super(message, options); }
 }
+export type DispatcherSdkCredentialResult = { ok: true; value: unknown | null }
+  | { ok: false; status: 403 | 409 | 413; message: string; stack?: string };
 type JsonObject = Record<string, unknown>;
 const LIMIT = 1024 * 1024;
 const PREFIX = '.pi/agent/extensions/';

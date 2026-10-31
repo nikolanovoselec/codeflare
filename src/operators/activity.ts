@@ -227,6 +227,7 @@ interface DispatcherOperationRecord {
   inference?: DispatcherInferenceChain;
   native?: DispatcherNativeOperation;
   sdkHttp?: { permitId: string; expiresAt: number; selection: ConfiguredDispatcherInference;
+    ownerScope: { bucket: string; email: string };
     phase: 'ready' | 'sending' | 'completed' | 'unknown'; requestDigest?: string; responseKey?: string; attempts: number };
 }
 const DISPATCHER_PROFILE_LEASE = 'dispatcher:profile-lease';
@@ -2357,7 +2358,8 @@ export class OperatorActivity extends Agent {
       if (!lease.configuredSelection || plan.authFailure) return dispatcherRefusal('policy-denied');
       // Reuse the platform's owner/source/complete-grant validation before issuing
       // logical model authority and again immediately around physical egress.
-      await dispatcherSdkOwnerContext(input, lease.configuredSelection);
+      const owner = await dispatcherSdkOwnerContext(input, lease.configuredSelection);
+      const ownerScope = { bucket: owner.bucket, email: owner.email };
       const selection = lease.configuredSelection;
       if (path === '/v1/dispatcher/model-admission') {
         const parsed = z.strictObject({ operationId: syncIdentity,
@@ -2369,7 +2371,7 @@ export class OperatorActivity extends Agent {
             cacheRetention: z.enum(['none', 'short', 'long']).optional(), sessionId: z.string().min(1).max(512).optional() }),
         }).parse(body);
         if (new TextEncoder().encode(JSON.stringify(body)).byteLength > inferenceRequestBytes(policy)) return dispatcherRefusal('request-invalid');
-        const requestDigest = await sha256(JSON.stringify({ context: parsed.context, options: parsed.options, selection }));
+        const requestDigest = await sha256(JSON.stringify({ context: parsed.context, options: parsed.options, selection, ownerScope }));
         if (!await current()) return dispatcherRefusal('execution-inactive');
         return await this.ctx.storage.transaction(async tx => {
           const live = await tx.get<DispatcherLease>(DISPATCHER_LEASE);
@@ -2381,7 +2383,7 @@ export class OperatorActivity extends Agent {
             ? Response.json({ permitId: prior.sdkHttp.permitId, expiresAt: prior.sdkHttp.expiresAt }, { headers: noStore }) : conflict();
           if (journal.count >= dispatcherOperationLimit(policy) || inferenceAttemptLimit(policy) < 1) return conflict();
           const permit = { permitId: crypto.randomUUID(), expiresAt: Math.min(lease.expiresAt, plan.deadline),
-            selection, phase: 'ready' as const, attempts: 0 };
+            selection, ownerScope, phase: 'ready' as const, attempts: 0 };
           await putDispatcherEntry(tx, journal, parsed.operationId, undefined,
             { generation, requestDigest, phase: 'reserved', ordinal: journal.nextOrdinal, sdkHttp: permit });
           return Response.json({ permitId: permit.permitId, expiresAt: permit.expiresAt }, { headers: noStore });
@@ -2411,7 +2413,8 @@ export class OperatorActivity extends Agent {
           const record = await tx.get<DispatcherOperationRecord>(dispatcherEntryKey(journal, parsed.operationId));
           const permit = record?.sdkHttp;
           if (!record || !permit || permit.permitId !== parsed.permitId || permit.expiresAt <= Date.now()
-            || !sameDispatcherPhaseValue(permit.selection, selection)) return 'denied' as const;
+            || !sameDispatcherPhaseValue(permit.selection, selection)
+            || !sameDispatcherPhaseValue(permit.ownerScope, ownerScope)) return 'denied' as const;
           if (permit.phase === 'completed' && record.phase === 'completed' && permit.requestDigest === requestDigest
             && permit.responseKey === responseKey) return 'replay' as const;
           if (permit.phase !== 'ready' || permit.attempts !== 0 || record.phase !== 'reserved') return 'denied' as const;
@@ -2423,7 +2426,8 @@ export class OperatorActivity extends Agent {
         if (claim === 'denied') return conflict();
         const checkScope = async () => {
           if (signal.aborted || Date.now() >= Math.min(plan.deadline, lease.expiresAt)) throw new Error('SDK HTTP aborted');
-          await dispatcherSdkOwnerContext({ ...input, signal }, selection);
+          const currentOwner = await dispatcherSdkOwnerContext({ ...input, signal }, selection);
+          if (currentOwner.bucket !== ownerScope.bucket || currentOwner.email !== ownerScope.email) throw new Error('SDK HTTP owner changed');
           if (signal.aborted || !await current()) throw new Error('SDK HTTP result fenced');
         };
         if (claim === 'replay') {
@@ -2434,7 +2438,7 @@ export class OperatorActivity extends Agent {
         }
         reserved = true;
         await checkScope();
-        const { response, transportCredentials } = await forwardDispatcherSdkHttp({ ...input, signal, selection, request: parsed.request });
+        const { response, transportCredentials } = await forwardDispatcherSdkHttp({ ...input, signal, selection, ownerScope, request: parsed.request });
         const bytes = await readBoundedResponse(response, inferenceRequestBytes(policy), 'SDK HTTP response', signal);
         await checkScope();
         const secrets = [...transportCredentials, ...(selection.source === 'managed' ? [] : parsed.request.headers

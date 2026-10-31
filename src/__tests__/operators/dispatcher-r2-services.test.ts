@@ -444,6 +444,10 @@ describe('REQ-OPERATOR-007/047/048: protected SDK-prepared HTTP, not Parent mode
     const original = globalThis.fetch;
     vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
       const request = new Request(input, init);
+      // The real interceptor owns REST-first routing and the 404 compat fallback.
+      if (request.method === 'POST' && request.url === 'https://api.cloudflare.com/client/v4/accounts/0123456789abcdef0123456789abcdef/ai/v1/chat/completions') {
+        return new Response('Fixture provider is unavailable on REST', { status: 404 });
+      }
       if (new URL(request.url).origin !== 'https://gateway.ai.cloudflare.com') return original(request);
       outgoing.push(request.clone());
       return new Response('data: [DONE]\n\n', { headers: { 'content-type': 'text/event-stream' } });
@@ -470,6 +474,9 @@ describe('REQ-OPERATOR-007/047/048: protected SDK-prepared HTTP, not Parent mode
     const original = globalThis.fetch;
     vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
       const request = new Request(input, init);
+      if (request.method === 'POST' && request.url === 'https://api.cloudflare.com/client/v4/accounts/0123456789abcdef0123456789abcdef/ai/v1/chat/completions') {
+        return new Response('Fixture provider is unavailable on REST', { status: 404 });
+      }
       if (new URL(request.url).origin !== 'https://gateway.ai.cloudflare.com') return original(request);
       paid.push(await request.text());
       gatewayCredential = request.headers.get('cf-aig-authorization')!.replace(/^Bearer\s+/i, '');
