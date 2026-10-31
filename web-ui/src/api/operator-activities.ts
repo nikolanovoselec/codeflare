@@ -10,7 +10,7 @@ const providerId = z.string().min(1).max(512).refine(value => [...value].every(c
   character.charCodeAt(0) >= 0x20 && character.charCodeAt(0) !== 0x7f));
 export const safePiAuthFailureSchema = z.strictObject({ code: z.literal('PI_LOGIN_REQUIRED'),
   reason: z.enum(['missing', 'expired', 'rejected']), provider: providerId });
-export const piLoginRecoveryCopy = 'The saved Pi authentication is missing, expired or rejected. Open your Pi session, run /login or update the API key, wait for successful synchronization to R2, then explicitly retry.';
+export const piLoginRecoveryCopy = 'Check the saved provider login or API key used by this run. If credentials were updated, wait for successful synchronization to R2, then explicitly retry. No automatic retry or provider fallback occurs.';
 const piReasoningLevel = z.enum(['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']);
 export const inferenceSelectionSchema = z.union([
   z.strictObject({ source: z.literal('managed').optional(), routeId: z.string().min(1).max(256),

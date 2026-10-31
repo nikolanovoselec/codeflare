@@ -3951,12 +3951,16 @@ COPILOT_BYOK_EOF
             if [ "${ENTERPRISE_PI_PERSONAL_PROVIDERS:-false}" = "true" ] \
                 && [ "${ENTERPRISE_PI_DEFAULT_SOURCE:-managed}" = "pi-native" ] \
                 && [ "${CODEFLARE_OPERATOR_SESSION:-}" != "true" ]; then
-                # Only a permitted human native-default startup retains the saved
-                # provider/model/reasoning. Sanctioned catalog publication is unchanged.
-                cat "$PI_SETTINGS_JSON" > "$PI_SETTINGS_STAGE" || PI_GATEWAY_CONFIG_OK=0
+                # Retain saved native defaults, but remove a previous managed pin
+                # so Pi's normal native selection can honor the new default source.
+                jq 'if .defaultProvider == "codeflare-gateway" then del(.defaultProvider,.defaultModel,.defaultThinkingLevel) else . end' "$PI_SETTINGS_JSON" > "$PI_SETTINGS_STAGE" 2>/dev/null || PI_GATEWAY_CONFIG_OK=0
             else
                 jq --argjson cfg "$PI_SETTINGS_CFG" 'del(.defaultThinkingLevel) * $cfg' "$PI_SETTINGS_JSON" > "$PI_SETTINGS_STAGE" 2>/dev/null || PI_GATEWAY_CONFIG_OK=0
             fi
+        elif [ "${ENTERPRISE_PI_PERSONAL_PROVIDERS:-false}" = "true" ] \
+            && [ "${ENTERPRISE_PI_DEFAULT_SOURCE:-managed}" = "pi-native" ] \
+            && [ "${CODEFLARE_OPERATOR_SESSION:-}" != "true" ]; then
+            printf '%s\n' '{}' > "$PI_SETTINGS_STAGE" || PI_GATEWAY_CONFIG_OK=0
         else
             printf '%s\n' "$PI_SETTINGS_CFG" > "$PI_SETTINGS_STAGE" || PI_GATEWAY_CONFIG_OK=0
         fi
@@ -3966,7 +3970,7 @@ COPILOT_BYOK_EOF
     fi
     rm -f "$PI_MODELS_STAGE" "$PI_SETTINGS_STAGE"
     if [ "$PI_GATEWAY_CONFIG_OK" = "1" ]; then
-        echo "[entrypoint] Enterprise Mode: Pi pinned to codeflare-gateway/$ENTERPRISE_DEFAULT_ROUTE (applied catalog=$ENTERPRISE_ROUTE_CATALOG)"
+        echo "[entrypoint] Enterprise Mode: Pi configuration applied (requested default source=${ENTERPRISE_PI_DEFAULT_SOURCE:-managed}, catalog=$ENTERPRISE_ROUTE_CATALOG)"
     else
         clear_enterprise_pi_configuration
         echo "[entrypoint] WARNING: could not apply Pi enterprise gateway config; managed Pi routes unavailable — container stays up"

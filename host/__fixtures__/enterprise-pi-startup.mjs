@@ -46,7 +46,7 @@ export function enterpriseStartup({ reasoning, personalProviders, piDefaultSourc
       models: ['general_usage', 'development'].map((id) => ({ id, name: id, reasoning: true })) },
     'unrelated-provider': siblingProvider,
   } }));
-  writeFileSync(settingsPath, JSON.stringify(settings ?? { defaultProvider: 'codeflare-gateway', defaultModel: 'development', defaultThinkingLevel: 'high', theme: 'dark' }));
+  if (settings !== null) writeFileSync(settingsPath, JSON.stringify(settings ?? { defaultProvider: 'codeflare-gateway', defaultModel: 'development', defaultThinkingLevel: 'high', theme: 'dark' }));
   if (auth !== undefined) writeFileSync(join(agentDir, 'auth.json'), JSON.stringify(auth), { mode: 0o600 });
   const entrypoint = readFileSync(new URL('../../entrypoint.sh', import.meta.url), 'utf8');
   const env = {

@@ -61,7 +61,7 @@ import { parseOperatorAttachmentProjection, projectOperatorAttachments } from '.
 import { prospectiveRenovateRetryProof, type ProspectiveRenovateRetryProof } from './renovate-retry-proof';
 import { parseNativeOperatorInference, type NativeOperatorInference } from './inference-selection';
 import type { NativePiBinding } from './native-pi-profile';
-import { safePiAuthFailure, PiAuthRequiredError, type SafePiAuthFailure } from './pi-auth-failure';
+import { nativePiAuthFailure, safePiAuthFailure, PiAuthRequiredError, type SafePiAuthFailure } from './pi-auth-failure';
 import { inspectNativeRequest, commitNativeResponse, nativeResponse, nativeDigest,
   type DispatcherNativeResponse, type DispatcherNativeOperation } from './dispatcher-native';
 
@@ -1675,12 +1675,16 @@ export class OperatorActivity extends Agent {
       const lease = await tx.get<DispatcherLease>(DISPATCHER_LEASE);
       if (lease && lease.generation === generation) {
         const journal = await loadDispatcherJournal(tx, generation);
+        const failedAuthentication = parsed.status === 'failed' && parsed.result === undefined && parsed.checkpoint === null
+          && lease.hosting === 'normal' && lease.configuredSelection?.source === 'pi-native'
+          && record.authFailure?.provider === lease.configuredSelection.provider;
         if (lease.status !== 'running' || lease.expiresAt <= Date.now()
           || !lease.submissionId || lease.settledSubmissionId !== lease.submissionId
-          || (lease.serial ? !await this.#serialJournalAccounted(tx, lease, parsed.result) : journal.unresolved !== 0)) {
+          || (failedAuthentication ? journal.unresolved !== 0
+            : lease.serial ? !await this.#serialJournalAccounted(tx, lease, parsed.result) : journal.unresolved !== 0)) {
           return { ok: false, reason: 'invalid-update' };
         }
-        await tx.put(DISPATCHER_LEASE, { ...lease, status: parsed.status === 'waiting' || parsed.status === 'completed' ? 'settled' : 'unknown',
+        await tx.put(DISPATCHER_LEASE, { ...lease, status: parsed.status === 'waiting' || parsed.status === 'completed' || failedAuthentication ? 'settled' : 'unknown',
           ...(lease.serial && parsed.status === 'completed' ? { terminalAt: lease.terminalAt ?? Date.now() } : {}) });
       }
       const state: OperatorDriveState = {
@@ -2398,6 +2402,13 @@ export class OperatorActivity extends Agent {
       // Overwrite upstream values; private refusals never use this reply path.
       const reply = (value: SdkResponse) => new Response([204, 205, 304].includes(value.status) ? null : value.bytes.slice(),
         { status: value.status, headers: { ...value.headers, 'x-codeflare-sdk-model-response': '1' } });
+      const retainAuthenticationFailure = async (value: SdkResponse) => {
+        if (selection.source !== 'pi-native' || ![401, 403].includes(value.status)) return;
+        let failure: SafePiAuthFailure | undefined;
+        try { failure = nativePiAuthFailure(value.status, JSON.parse(new TextDecoder().decode(value.bytes)),
+          selection.provider, selection.api); } catch { return; }
+        if (failure) await this.#nativeLoginStop(generation, failure);
+      };
       try {
         if (signal.aborted || !await current()) return dispatcherRefusal('execution-inactive');
         const claim = await this.ctx.storage.transaction(async tx => {
@@ -2429,6 +2440,7 @@ export class OperatorActivity extends Agent {
           const cached = await this.ctx.storage.get<SdkResponse>(responseKey);
           if (!cached || cached.bytes.byteLength > inferenceRequestBytes(policy)) return conflict();
           await checkScope();
+          await retainAuthenticationFailure(cached);
           return reply(cached);
         }
         reserved = true;
@@ -2468,6 +2480,7 @@ export class OperatorActivity extends Agent {
           if (signal.aborted || Date.now() >= Math.min(plan.deadline, lease.expiresAt)) throw new Error('SDK HTTP result fenced');
         });
         await checkScope();
+        await retainAuthenticationFailure(receipt);
         // SDK-owned SSE parsing is unchanged; complete bytes are durable before delivery.
         return reply(receipt);
       } catch (error) {
@@ -2529,6 +2542,28 @@ export class OperatorActivity extends Agent {
         const terminal = z.strictObject({ status: z.enum(['failed', 'aborted']), receipt: normalDispatcherReceiptSchema,
           submissionId: z.string() }).parse(response.value);
         if (terminal.submissionId !== lease.receipt.submissionId) throw new Error('Normal Dispatcher foreign terminal reply');
+        if (terminal.status === 'failed') {
+          const authenticationFailed = await this.ctx.storage.transaction(async tx => {
+            const record = await tx.get<AdmissionState>('admission');
+            const live = await tx.get<DispatcherLease>(DISPATCHER_LEASE);
+            if (!this.#leaseMatches(record, live, lease.generation) || live!.status !== 'running'
+              || !sameDispatcherPhaseValue(live!.wire, lease.wire)
+              || !sameDispatcherPhaseValue(live!.receipt, lease.receipt)) throw new Error('Normal Dispatcher failure authority changed');
+            if (live!.configuredSelection?.source !== 'pi-native'
+              || !record!.authFailure || record!.authFailure.provider !== live!.configuredSelection.provider) return false;
+            if ((await loadDispatcherJournal(tx, lease.generation)).unresolved !== 0) {
+              throw new Error('Normal Dispatcher authentication failure has unresolved operations');
+            }
+            await tx.put(DISPATCHER_LEASE, { ...live!, settledSubmissionId: lease.submissionId });
+            return true;
+          });
+          if (authenticationFailed) {
+            const committed = await this.commitDrive(lease.generation,
+              { schemaVersion: 1, status: 'failed', checkpoint: null });
+            if (!committed.ok) throw new Error('Normal Dispatcher authentication failure commit refused');
+            return;
+          }
+        }
         reply = { submissionId: terminal.submissionId, upToDate: true, outcome: terminal.status, data: {} };
       }
       const { admittedTarget } = await authorizeDispatcherPlan(plan, this.#appEnv);

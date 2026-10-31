@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@solidjs/testing-library';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import OperatorActivityButton from '../../components/OperatorActivityButton';
-import type { OperatorActivityDetail } from '../../api/operator-activities';
+import { piLoginRecoveryCopy, type OperatorActivityDetail } from '../../api/operator-activities';
 
 const { listMock, cancelMock, detailMock, readMock } = vi.hoisted(() => ({
   listMock: vi.fn(), cancelMock: vi.fn(), detailMock: vi.fn(), readMock: vi.fn(async (_through: number) => ({ unreadCount: 0 })) }));
@@ -754,21 +754,35 @@ describe('REQ-OPERATOR-027: repository-only Dispatcher result presentation', () 
 describe('REQ-OPERATOR-057: functional Pi login recovery', () => {
   it('shows safe provider recovery with logging OFF while retaining failed execution state', async () => {
     const failed = { ...active, executionStatus: 'failed' as const, cleanupStatus: 'stopped' as const,
-      collectionStatus: 'unavailable' as const, attention: true };
+      collectionStatus: 'unavailable' as const, attention: true,
+      authFailure: { code: 'PI_LOGIN_REQUIRED' as const, reason: 'rejected' as const, provider: 'openai-codex' } };
     listMock.mockResolvedValue({ items: [failed] });
     detailMock.mockResolvedValue({ ...failed, checkpoint: null, result: null, loggingEnabled: false,
-      authFailure: { code: 'PI_LOGIN_REQUIRED', reason: 'expired', provider: 'openai-codex' },
+      authFailure: failed.authFailure,
       inferenceSelection: { source: 'pi-native', provider: 'openai-codex', model: 'gpt-6.1-sol',
         api: 'openai-codex-responses', reasoningLevel: 'low', reasoningSource: 'installation' } });
     render(() => <OperatorActivityButton enabled />);
     await fireEvent.click(screen.getByRole('button', { name: /operator activity/i }));
-    await fireEvent.click(await screen.findByRole('button', { name: 'View activity-1' }));
-    // Intentional recovery-copy contract; neither a new Activity state nor an automatic retry action.
-    expect(await screen.findByText('The saved Pi authentication is missing, expired or rejected. Open your Pi session, run /login or update the API key, wait for successful synchronization to R2, then explicitly retry.')).toBeTruthy();
+    const view = await screen.findByRole('button', { name: 'View activity-1' });
+    const row = within(view.closest('article')!);
+    // Intentional visible outcome contract in both the run row and detail.
+    expect(row.getByText(/Provider authentication rejected/)).toBeTruthy();
+    expect(row.getByText(/openai-codex/)).toBeTruthy();
+    expect(row.getByText('failed')).toBeTruthy();
+    await fireEvent.click(view);
+    expect(await screen.findByText(/Provider authentication rejected/)).toBeTruthy();
+    // Named recovery-copy contract: actionable advice, not a diagnosis of an expired account.
+    const advice = await screen.findByText(piLoginRecoveryCopy);
+    expect(advice.textContent).toMatch(/explicit.*retry/i);
+    expect(advice.textContent).toMatch(/R2|synchron/i);
+    expect(advice.textContent).not.toMatch(/Open your Pi session|(?:token|account|authentication) (?:has |is )(?:definitely )?expired/i);
     expect(screen.getAllByText(/openai-codex/).length).toBeGreaterThan(0);
     expect(screen.getByText(/gpt-6\.1-sol/)).toBeTruthy();
     expect(screen.getByText(/Low/)).toBeTruthy();
     expect(screen.getByText(/override/i)).toBeTruthy();
     expect(screen.getByText('Execution: failed')).toBeTruthy();
+    expect(screen.getByText('Cleanup: stopped')).toBeTruthy();
+    expect(screen.getByText('Collection: unavailable')).toBeTruthy();
+    expect(screen.queryByText(/No eligible pull requests discovered|merged successfully/i)).toBeNull();
   });
 });

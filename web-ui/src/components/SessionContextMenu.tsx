@@ -107,27 +107,6 @@ const SessionContextMenu: Component<SessionContextMenuProps> = (props) => {
         data-testid="session-context-menu"
         style={{ top: `${clampedPosition().y}px`, left: `${clampedPosition().x}px` }}
       >
-        <Show when={props.canStop}>
-          <button
-            type="button"
-            class="session-context-menu__item"
-            data-testid="context-menu-stop"
-            onClick={handleStop}
-          >
-            <Icon path={mdiStop} size={16} />
-            {props.stopLabel ?? 'Stop'}
-          </button>
-        </Show>
-        <Show when={props.canKill && props.onKill}>
-          <button
-            type="button"
-            class="session-context-menu__item session-context-menu__item--danger"
-            onClick={handleKill}
-          >
-            <Icon path={mdiStop} size={16} />
-            KILL
-          </button>
-        </Show>
         <Show when={!renaming()}>
           <button
             type="button"
@@ -157,6 +136,27 @@ const SessionContextMenu: Component<SessionContextMenuProps> = (props) => {
               onKeyDown={handleRenameKeyDown}
             />
           </form>
+        </Show>
+        <Show when={props.canStop}>
+          <button
+            type="button"
+            class="session-context-menu__item"
+            data-testid="context-menu-stop"
+            onClick={handleStop}
+          >
+            <Icon path={mdiStop} size={16} />
+            {props.stopLabel ?? 'Stop'}
+          </button>
+        </Show>
+        <Show when={props.canKill && props.onKill}>
+          <button
+            type="button"
+            class="session-context-menu__item session-context-menu__item--danger"
+            onClick={handleKill}
+          >
+            <Icon path={mdiStop} size={16} />
+            KILL
+          </button>
         </Show>
         <Show when={!confirmingDelete()}>
           <button

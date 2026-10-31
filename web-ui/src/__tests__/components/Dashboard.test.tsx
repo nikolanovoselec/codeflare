@@ -130,6 +130,7 @@ vi.mock('../../stores/session', async () => {
       get preferences() { return { sessionMode: _sessionMode }; },
       isAtSessionLimit: () => _isAtLimit,
       startR2Polling: vi.fn(),
+      killSession: vi.fn().mockResolvedValue(undefined),
       _setSessionMode: (v: string) => { _sessionMode = v; },
       _setTestLimit: (atLimit: boolean, max?: number) => {
         _isAtLimit = atLimit;
@@ -251,6 +252,7 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
     vi.mocked(githubStore.loadStatus).mockReset();
     vi.mocked(storageStore.fetchStats).mockReset();
     vi.mocked(sessionStore.startR2Polling).mockReset();
+    vi.mocked(sessionStore.killSession).mockReset().mockResolvedValue(undefined);
     vi.mocked(upgradeRecovery.retryPreseedUpgrade).mockReset().mockResolvedValue(undefined);
     upgradeRecovery.preseedUpgradeFailed = false;
     vi.mocked(storageApi.recreateAgentConfigs).mockReset();
@@ -310,6 +312,42 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
       expect(screen.queryByTestId('session-context-menu')).not.toBeInTheDocument();
     },
   );
+
+  it.each(['running', 'starting', 'unreachable', 'stopping'] as const)(
+    'REQ-SESSION-038: dashboard KILL remains accessible for %s without entering the session', async status => {
+      const killed: string[] = [];
+      vi.mocked(sessionStore.killSession).mockImplementationOnce(async id => { killed.push(id); });
+      render(() => <Dashboard {...defaultProps} sessions={[{
+        id: 'recover', name: 'Recover', status, workspace: 'terminal',
+        createdAt: '2024-01-01', lastAccessedAt: '2024-01-01',
+      }, { id: 'untouched', name: 'Untouched', status: 'running', workspace: 'terminal',
+        createdAt: '2024-01-01', lastAccessedAt: '2024-01-01' }]}
+        onStartSession={() => { throw Error('KILL must not start a session'); }}
+        onDeleteSession={() => { throw Error('KILL must not delete a session'); }} />);
+      await fireEvent.click(screen.getByTestId('menu-recover'));
+      // Intentional user action-order contract, shared with the in-session menu.
+      expect([...screen.getByTestId('session-context-menu').querySelectorAll('button')]
+        .map(button => button.textContent?.trim())).toEqual([
+        'Rename', status === 'stopping' ? 'Retry Stop' : 'Stop', 'KILL', 'Delete',
+      ]);
+      await fireEvent.click(screen.getByRole('button', { name: 'KILL' }));
+      expect(killed).toEqual(['recover']);
+      expect(screen.getByTestId('session-card-recover')).toBeInTheDocument();
+      expect(screen.getByTestId('session-card-untouched')).toBeInTheDocument();
+      expect(screen.queryByTestId('session-context-menu')).not.toBeInTheDocument();
+    },
+  );
+
+  it('REQ-SESSION-038: dashboard does not offer KILL for a confirmed-stopped session', async () => {
+    render(() => <Dashboard {...defaultProps} sessions={[{
+      id: 'stopped', name: 'Stopped', status: 'stopped', workspace: 'terminal',
+      createdAt: '2024-01-01', lastAccessedAt: '2024-01-01',
+    }]} />);
+    await fireEvent.click(screen.getByTestId('menu-stopped'));
+    expect(screen.queryByRole('button', { name: 'KILL' })).not.toBeInTheDocument();
+    expect(screen.getByTestId('context-menu-rename')).toBeInTheDocument();
+    expect(screen.getByTestId('context-menu-delete')).toBeInTheDocument();
+  });
 
   // === Initialization Tests ===
 

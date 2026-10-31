@@ -16,9 +16,10 @@ export function safePiAuthFailure(value: unknown): SafePiAuthFailure | undefined
 }
 /** Closed native rejection evidence; status/text alone never selects login recovery. */
 export function nativePiAuthFailure(status: number, value: unknown, provider: string, api?: string): SafePiAuthFailure | undefined {
-  if (![401, 403].includes(status) || !value || typeof value !== 'object' || Array.isArray(value)
-    || !('error' in value) || !value.error || typeof value.error !== 'object' || Array.isArray(value.error)) return undefined;
-  const error = value.error as { code?: unknown; type?: unknown; status?: unknown };
+  if (![401, 403].includes(status) || !value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+  const envelope = 'error' in value ? value.error : value;
+  if (!envelope || typeof envelope !== 'object' || Array.isArray(envelope)) return undefined;
+  const error = envelope as { code?: unknown; type?: unknown; status?: unknown };
   const rejected = ['invalid_api_key', 'invalid_token', 'token_expired', 'authentication_error']
     .some(code => error.code === code || error.type === code)
     || (api === 'google-generative-ai' || api === 'google-vertex') && error.status === 'UNAUTHENTICATED';

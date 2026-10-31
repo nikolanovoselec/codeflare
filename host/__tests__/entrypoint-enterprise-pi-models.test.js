@@ -390,6 +390,27 @@ describe('REQ-ENTERPRISE-088: personal Pi startup authority', () => {
 
 
 describe('REQ-ENTERPRISE-089: authorized saved Pi defaults', () => {
+  it('removes a previous Gateway startup pin when permitted native becomes the default', t => {
+    const auth = { openai: { type: 'api_key', key: 'native-owner-fixture' } };
+    const personal = { 'openai/gpt-6.1-sol': 'high' };
+    const fixture = enterpriseStartup({ personalProviders: true, piDefaultSource: 'pi-native', auth,
+      settings: { defaultProvider: 'codeflare-gateway', defaultModel: 'development', defaultThinkingLevel: 'off',
+        modelThinkingLevels: personal, theme: 'dark' } });
+    t.after(fixture.cleanup);
+    assert.equal(fixture.result.status, 0, fixture.result.stderr);
+    assert.deepEqual(fixture.readSettings(), { modelThinkingLevels: personal, theme: 'dark' });
+    assert.deepEqual(JSON.parse(readFileSync(join(fixture.agentDir, 'auth.json'), 'utf8')), auth);
+    assert.deepEqual(fixture.readModels().providers['codeflare-gateway'].models.map(model => model.id), authorizedRoutes);
+  });
+
+  it('does not create a Gateway startup pin when permitted native has no saved settings', t => {
+    const fixture = enterpriseStartup({ personalProviders: true, piDefaultSource: 'pi-native', settings: null });
+    t.after(fixture.cleanup);
+    assert.equal(fixture.result.status, 0, fixture.result.stderr);
+    assert.deepEqual(fixture.readSettings(), {});
+    assert.deepEqual(fixture.readModels().providers['codeflare-gateway'].models.map(model => model.id), authorizedRoutes);
+  });
+
   it('preserves the saved personal provider model and High when native is the permitted startup default', t => {
     const saved = { defaultProvider: 'openai-codex', defaultModel: 'gpt-6.1-sol', defaultThinkingLevel: 'high',
       modelThinkingLevels: { 'openai-codex/gpt-6.1-sol': 'high' }, theme: 'dark' };

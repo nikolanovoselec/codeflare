@@ -13,6 +13,7 @@ import { SETUP_KEYS } from '../../lib/kv-keys';
 import { discoverDispatcherOwnerProfile } from '../../operators/dispatcher-owner-inference';
 import { setLogLevel } from '../../lib/logger';
 import { connectionSecret, normalCallback } from './fixtures/normal-dispatcher';
+import { nativePiAuthFailure } from '../../operators/pi-auth-failure';
 
 // Metadata-only Root: replace the external container lifecycle base, not Root's
 // ownership/credential coordination. Native DO storage and RPC remain real; no
@@ -131,7 +132,7 @@ function storageBoundary() {
 type Store = ReturnType<typeof storageBoundary>;
 async function lane(run: (f: DispatcherFixture, store: Store, metadataEnvironment: Env) => Promise<void>, native = true,
   realInterceptors = false, limits: { operationLimit?: number; inferenceAttemptLimit?: number; managedProviderDefault?: boolean;
-    nativeProviderDefault?: boolean; nativeNullProfile?: boolean } = {}) {
+    nativeProviderDefault?: boolean; nativeNullProfile?: boolean; loggingEnabled?: boolean } = {}) {
   return fixture(async f => {
     const store = storageBoundary();
     const cleanups: Array<() => void> = [];
@@ -450,6 +451,30 @@ describe('REQ-OPERATOR-007/047/048/058: owner R2 configured-service HTTP contrac
   }));
 });
 
+// REQ-OPERATOR-057 AC3: the closed DTO reports rejection, not an account diagnosis.
+describe('REQ-OPERATOR-057: trusted native authentication evidence', () => {
+  it.each(['invalid_api_key', 'invalid_token', 'token_expired', 'authentication_error'])(
+    'top-level and nested trusted %s produce only safe rejected recovery', code => {
+      for (const evidence of [{ code }, { type: code }, { error: { code } }, { error: { type: code } }]) {
+        const failure = nativePiAuthFailure(401, { ...evidence, message: canary, param: null,
+          access_token: oldOAuth.access, refresh_token: oldOAuth.refresh }, providerId, logical.api);
+        // Exact three-field wire is the intentional nonsecret DTO contract.
+        expect(failure).toEqual({ code: 'PI_LOGIN_REQUIRED', reason: 'rejected', provider: providerId });
+        expect(JSON.stringify(failure)).not.toContain(canary);
+      }
+    });
+
+  it.each([
+    [401, null], [401, {}], [401, { message: 'token_expired: please login' }],
+    [401, { error: { message: 'invalid_api_key' } }],
+    [401, { code: 'insufficient_quota' }], [429, { code: 'token_expired' }],
+    [503, { error: { type: 'authentication_error' } }],
+    [403, { code: 'OPERATOR_CAPABILITY_DENIED', reason: 'policy-denied' }],
+  ])('HTTP %s without trusted authentication evidence has no login recovery: %j', (status, evidence) => {
+    expect(nativePiAuthFailure(status as number, evidence, providerId, logical.api)).toBeUndefined();
+  });
+});
+
 describe('REQ-OPERATOR-007/047/048: protected SDK-prepared HTTP, not Parent model execution', () => {
   it.each([401, 429, 503])('native custom API forwards SDK-prepared bytes and original HTTP%i failure without account credential injection', status => lane(async f => {
     await admitted(f);
@@ -478,6 +503,118 @@ describe('REQ-OPERATOR-007/047/048: protected SDK-prepared HTTP, not Parent mode
     expect(outgoing[0].headers.has('cf-aig-authorization')).toBe(false);
     expect(JSON.stringify([...outgoing[0].headers])).not.toContain('parent-only');
   }));
+
+  it.each([false, true])('REQ-OPERATOR-057 AC3 / 048: native top-level rejection remains visible with logging OFF and exact failed settlement (cached recovery: %s)', cached => lane(async f => {
+    await admitted(f);
+    const paid: string[] = [];
+    const body = '{ "code":"token_expired", "message":"Provider rejected this request — 原始 😀", "type":"invalid_request_error", "param":null }';
+    const bytes = new TextEncoder().encode(body);
+    const original = globalThis.fetch;
+    vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
+      const request = new Request(input, init);
+      if (request.url !== 'https://custom.example.test/native/stream') return original(request);
+      paid.push(await request.text());
+      return new Response(bytes, { status: 401, headers: { 'content-type': 'application/json',
+        'x-provider-trace': 'auth-rejection', 'x-codeflare-sdk-model-response': 'vendor-controlled' } });
+    });
+    const operationId = 'native-auth-rejection';
+    const permit = await json(await modelAdmission(f, operationId));
+    const request = { url: 'https://custom.example.test/native/stream', method: 'POST',
+      headers: [['authorization', `Bearer ${oldOAuth.access}`]], bodyBase64: encodeBody(sdkBody) };
+    const assertOriginal = async (response: Response) => {
+      expect(response.status).toBe(401);
+      expect(response.headers.get('x-codeflare-sdk-model-response')).toBe('1');
+      expect(response.headers.get('x-provider-trace')).toBe('auth-rejection');
+      expect(new Uint8Array(await response.arrayBuffer())).toEqual(bytes);
+    };
+    await assertOriginal(await modelFetch(f, permit.permitId, request, operationId));
+    if (cached) {
+      // Arrange a retained complete HTTP receipt without its derived browser projection.
+      // Recovery is asserted only through the original public model-fetch and status APIs.
+      await f.mutateEvidence(async storage => {
+        const state = (await storage.get<Record<string, unknown>>('admission'))!;
+        const { authFailure: _projection, ...retained } = state;
+        await storage.put('admission', retained);
+      });
+      f.restart(); await f.drainBackground();
+      await assertOriginal(await modelFetch(f, permit.permitId, request, operationId));
+    }
+    const authFailure = { code: 'PI_LOGIN_REQUIRED', reason: 'rejected', provider: providerId };
+    expect(await f.activity.getBrowserSummary(f.proof.ownerKey)).toMatchObject({ authFailure, executionStatus: 'running' });
+    expect(await f.activity.getBrowserDetail()).toMatchObject({ authFailure, loggingEnabled: false,
+      executionStatus: 'running', collectionStatus: 'unavailable', result: null });
+    // Refusal of subsequent work is functional, not an optional diagnostic side effect.
+    await denied(await modelAdmission(f, 'explicit-later-attempt'), [403, 404, 409]);
+    f.normalTransport!.settle('failed');
+    await f.activity.reconcileDispatcherLease();
+    expect(await f.activity.getBrowserSummary(f.proof.ownerKey)).toMatchObject({ authFailure, executionStatus: 'failed' });
+    expect(await f.activity.getBrowserDetail()).toMatchObject({ authFailure, executionStatus: 'failed',
+      collectionStatus: 'ready', result: null });
+    // Existing terminal-record collection remains available; it does not create an assessment.
+    expect(await f.activity.collectBrowserResult()).toMatchObject({ ok: true,
+      detail: { authFailure, executionStatus: 'failed', collectionStatus: 'consumed', result: null } });
+    expect(JSON.stringify(await f.activity.getBrowserDetail())).not.toContain(canary);
+    expect(paid).toEqual([sdkBody]);
+    expect(f.normalTransport!.admissions.size).toBe(1);
+  }, true, false, { loggingEnabled: false }));
+
+  it.each(['managed401', 'quota429', 'quota503', 'private-refusal', 'foreign-receipt', 'unresolved-effect'] as const)(
+    'REQ-OPERATOR-048/057: %s cannot establish definite failed-auth settlement', fault => lane(async f => {
+      await admitted(f);
+      const paid: string[] = [];
+      const original = globalThis.fetch;
+      const status = fault === 'quota429' ? 429 : fault === 'quota503' ? 503 : 401;
+      const body = JSON.stringify(fault.startsWith('quota') ? { error: { code: 'insufficient_quota' } }
+        : { code: 'token_expired', type: 'invalid_request_error', message: 'Request rejected', param: null });
+      vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
+        const request = new Request(input, init);
+        if (fault === 'managed401' && request.url === 'https://api.cloudflare.com/client/v4/accounts/0123456789abcdef0123456789abcdef/ai/v1/chat/completions') {
+          return new Response('Fixture provider is unavailable on REST', { status: 404 });
+        }
+        if (fault === 'managed401' ? new URL(request.url).origin !== 'https://gateway.ai.cloudflare.com'
+          : request.url !== 'https://custom.example.test/native/stream') return original(request);
+        paid.push(await request.text()); return new Response(body, { status, headers: { 'content-type': 'application/json' } });
+      });
+      const permit = await json(await modelAdmission(f));
+      const response = await modelFetch(f, permit.permitId, {
+        url: fault === 'managed401' ? 'https://api.openai.com/v1/chat/completions' : 'https://custom.example.test/native/stream',
+        method: 'POST', headers: fault === 'managed401' ? [['content-type', 'application/json'], ['authorization', 'Bearer codeflare-enterprise']] : [],
+        bodyBase64: encodeBody(fault === 'managed401' ? JSON.stringify({ model: 'approved',
+          messages: [{ role: 'user', content: 'Managed authentication rejection' }], max_tokens: 16, stream: true }) : sdkBody),
+      }, 'sdk-model-operation', fault === 'private-refusal' ? { 'x-codeflare-operator-generation': '2' } : undefined);
+      if (fault === 'private-refusal') {
+        await denied(response, [403, 404, 409]); expect(paid).toEqual([]);
+      } else {
+        expect(response.status).toBe(status);
+        expect(response.headers.get('x-codeflare-sdk-model-response')).toBe('1');
+        expect(await response.text()).toBe(body);
+        if (fault === 'managed401') {
+          expect(paid).toHaveLength(1);
+          expect(JSON.parse(paid[0])).toMatchObject({ model: 'dynamic/approved' });
+        } else expect(paid).toEqual([sdkBody]);
+      }
+      if (fault === 'foreign-receipt') f.normalTransport!.changeReceipt({ uid: 'foreign-sdk-instance' });
+      if (fault === 'unresolved-effect') await f.mutateEvidence(async storage => {
+        const journal = (await storage.get<{ generation: number; count: number; nextOrdinal: number; unresolved: number }>('dispatcher:journal'))!;
+        await storage.put('dispatcher:operation:1:uncertain-comment', { generation: 1, phase: 'unknown',
+          requestDigest: 'a'.repeat(64), ordinal: journal.nextOrdinal,
+          request: { method: 'POST', url: 'https://api.github.com/repos/authorized/project/issues/17/comments' } });
+        await storage.put('dispatcher:journal', { ...journal, count: journal.count + 1,
+          nextOrdinal: journal.nextOrdinal + 1, unresolved: journal.unresolved + 1 });
+      });
+      f.normalTransport!.settle('failed');
+      await f.activity.reconcileDispatcherLease();
+      const detail = await f.activity.getBrowserDetail();
+      expect(detail).toMatchObject({ collectionStatus: 'unavailable', result: null });
+      if (fault === 'foreign-receipt' || fault === 'unresolved-effect') {
+        expect(detail?.executionStatus).not.toBe('failed');
+      } else {
+        expect(detail).not.toHaveProperty('authFailure');
+        expect(await f.activity.getBrowserSummary(f.proof.ownerKey)).not.toHaveProperty('authFailure');
+      }
+      expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
+      expect(f.normalTransport!.admissions.size).toBe(1);
+    }, fault !== 'managed401', fault === 'managed401', { loggingEnabled: false }));
 
   it('managed SDK HTTP reuses the real operator-aware Gateway interceptor while its account token remains Root-only', () => lane(async f => {
     await admitted(f);
