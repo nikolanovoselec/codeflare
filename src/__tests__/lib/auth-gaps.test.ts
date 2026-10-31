@@ -359,21 +359,26 @@ describe('REQ-AUTH-008: Session cookie auto-refresh', () => {
 
   // REQ-AUTH-008 AC2: boundary — exactly 15 minutes remaining is NOT refreshed
   it('REQ-AUTH-008 AC2: shouldRefreshJWT returns false at exactly 15 minutes boundary', async () => {
-    // 15 * 60 = 900 seconds exactly — threshold is STRICTLY less-than 900
-    const token = await signSessionJWT(
-      { email: 'user@example.com', sub: 'gh-001', ghLogin: 'userhandle' },
-      TEST_JWT_SECRET,
-      15 * 60,
-    );
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      // Keep signing and threshold evaluation at the same instant.
+      vi.setSystemTime(new Date('2026-01-01T00:00:00Z'));
+      const token = await signSessionJWT(
+        { email: 'user@example.com', sub: 'gh-001', ghLogin: 'userhandle' },
+        TEST_JWT_SECRET,
+        15 * 60,
+      );
 
-    const payload = await verifySessionJWT(token, TEST_JWT_SECRET);
-    expect(payload).not.toBeNull();
+      const payload = await verifySessionJWT(token, TEST_JWT_SECRET);
+      expect(payload).not.toBeNull();
 
-    // At the moment of signing, exp - now >= 15*60 (could equal 900), so not refreshed
-    const result = shouldRefreshJWT(payload!);
+      const result = shouldRefreshJWT(payload!);
 
-    // Expect false because the threshold is strictly < 900
-    expect(result).toBe(false);
+      // Expect false because the threshold is strictly < 900.
+      expect(result).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   // REQ-AUTH-008 AC2: refresh produces a new token with 1-hour TTL

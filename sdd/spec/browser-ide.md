@@ -1511,6 +1511,8 @@ A full code-server browser editor for an advanced running session. The editor op
 
 **Status:** Planned
 
+---
+
 ### REQ-IDE-056: Normal workspace view navigation
 
 **Intent:** Users choose session views with predictable browser-local defaults while preserving exclusive editor workspaces and existing session authority.
