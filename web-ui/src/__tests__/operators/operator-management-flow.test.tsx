@@ -602,17 +602,20 @@ describe('REQ-OPERATOR-007/049/075: installation Gateway selection', () => {
     const choicesGate = new Promise<void>(resolve => { releaseChoices = resolve; });
     fixture({ choicesGate, savedLevel: level });
     render(() => <OperatorManagement />);
-    const route = await open();
+    await open();
+    const route = () => screen.getByRole('combobox', { name: 'test Managed Gateway route' });
     const reasoning = () => screen.getByRole('combobox', { name: 'test Managed reasoning' });
-    expect(route).toHaveValue('opus');
+    expect(route()).toHaveValue('opus');
     expect(reasoning()).toHaveValue(level ?? '');
     expect(screen.getByRole('button', { name: 'Save restrictions for test' })).toBeDisabled();
     const before = await getManagedOperator(operator.id);
     releaseChoices();
     await screen.findByRole('option', { name: 'Opus' });
     await waitFor(() => expect(screen.getByRole('button', { name: 'Save restrictions for test' })).toBeEnabled());
-    expect(route).toHaveValue('opus');
-    expect(reasoning()).toHaveValue(level ?? '');
+    await waitFor(() => {
+      expect(route()).toHaveValue('opus');
+      expect(reasoning()).toHaveValue(level ?? '');
+    });
     save();
     await screen.findByText(/Restrictions saved\. Enable new runs separately/);
     const read = await getManagedOperator(operator.id);

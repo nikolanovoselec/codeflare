@@ -155,7 +155,11 @@ function oauthBoundary(reply: (request: Request, ordinal: number) => Promise<Res
     const request = new Request(input, init);
     if (request.url !== tokenUrl) return original(request);
     requests.push(request.clone());
-    return reply(request, requests.length);
+    const response = reply(request, requests.length);
+    // Observe the fixture-owned promise before forwarding across the DO I/O
+    // boundary. Await the original rejection so the real SDK still handles it.
+    void response.catch(() => undefined);
+    return await response;
   });
   return requests;
 }

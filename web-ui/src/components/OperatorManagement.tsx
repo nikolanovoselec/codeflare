@@ -746,6 +746,11 @@ const OperatorDetail: Component<{ detail: api.ManagementDetail; choices?: api.Ma
           <div class="admin-form-grid">
             <label class="admin-form-field"><span>Managed Gateway route</span>
               <select aria-label={`${item().name} Managed Gateway route`} value={policy().inference?.defaultRouteId ?? ''}
+                ref={element => createEffect(() => {
+                  const value = policy().inference?.defaultRouteId ?? '';
+                  managedRoutes(); // Reapply after available/retained options reconcile.
+                  queueMicrotask(() => { if (element.isConnected) element.value = value; });
+                })}
                 disabled={!policy().inference} onChange={event => changeManagedSelection({ defaultRouteId: event.currentTarget.value || null })}>
                 <option value="" selected={!policy().inference?.defaultRouteId}>Not configured</option><For each={managedRoutes()}>{route => <option value={route.id} selected={policy().inference?.defaultRouteId === route.id}>{route.label}</option>}</For>
                 <Show when={policy().inference?.defaultRouteId && !managedRoute()}>
@@ -756,6 +761,11 @@ const OperatorDetail: Component<{ detail: api.ManagementDetail; choices?: api.Ma
             </label>
             <label class="admin-form-field"><span>Managed reasoning</span>
               <select aria-label={`${item().name} Managed reasoning`} value={policy().inference?.defaultReasoningLevel ?? ''}
+                ref={element => createEffect(() => {
+                  const value = policy().inference?.defaultReasoningLevel ?? '';
+                  managedLevels();
+                  queueMicrotask(() => { if (element.isConnected) element.value = value; });
+                })}
                 disabled={!policy().inference} onChange={event => changeManagedSelection({ defaultReasoningLevel: event.currentTarget.value ? event.currentTarget.value as api.PiReasoningLevel : null })}>
                 <option value="" selected={policy().inference?.defaultReasoningLevel == null}>Provider default</option><For each={managedLevels()}>{level => <option value={level} selected={policy().inference?.defaultReasoningLevel === level}>{level.charAt(0).toUpperCase() + level.slice(1)}</option>}</For>
                 <Show when={policy().inference?.defaultReasoningLevel != null && !managedLevels().includes(policy().inference!.defaultReasoningLevel!)}>
