@@ -389,11 +389,13 @@ const InferencePolicyFields: Component<{ title: string; value: api.ManagementPol
         <input type="checkbox" aria-label={`${props.title} allow Gateway route ${route.label}`} checked={current().routeIds.includes(route.id)}
           disabled={!!props.ceiling && !props.ceiling.inference?.routeIds.includes(route.id) && !current().routeIds.includes(route.id)}
           onChange={event => props.onChange({ ...current(), routeIds: event.currentTarget.checked
-            ? [...current().routeIds, route.id] : current().routeIds.filter(id => id !== route.id) })} />
+            ? [...current().routeIds, route.id] : current().routeIds.filter(id => id !== route.id),
+            defaultRouteId: !event.currentTarget.checked && current().defaultRouteId === route.id ? null : current().defaultRouteId })} />
         <span>{route.label}</span>
       </label>}</For><For each={current().routeIds.filter(id => !props.routes?.some(route => route.id === id))}>{id =>
         <label class="admin-toggle-field"><input type="checkbox" checked aria-label={`${props.title} remove unavailable Gateway route ${id}`}
-          onChange={() => props.onChange({ ...current(), routeIds: current().routeIds.filter(value => value !== id) })} />
+          onChange={() => props.onChange({ ...current(), routeIds: current().routeIds.filter(value => value !== id),
+            defaultRouteId: current().defaultRouteId === id ? null : current().defaultRouteId })} />
           <span>{id} · unavailable, retained</span></label>
       }</For></div>
     </div></Show>

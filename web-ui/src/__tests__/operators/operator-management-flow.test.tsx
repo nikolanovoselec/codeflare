@@ -562,7 +562,8 @@ describe('REQ-OPERATOR-007/049/075: installation Gateway selection', () => {
       if (url.pathname.endsWith('/configure') && init?.method === 'POST') {
         if (failure) return Promise.resolve(json({ error: failure === 409 ? 'Conflict' : 'Unavailable' }, failure));
         const body = JSON.parse(String(init.body));
-        const id = url.pathname.split('/').at(-2);
+        const segments = url.pathname.split('/');
+        const id = segments[segments.length - 2];
         const saved = installations.find(item => item.id === id)!;
         if (saved.revision !== body.revision) return Promise.resolve(json({ error: 'Conflict' }, 409));
         const updated = { ...saved, ...body, revision: saved.revision + 1, enabled: false };
@@ -660,6 +661,38 @@ describe('REQ-OPERATOR-007/049/075: installation Gateway selection', () => {
     }));
     expect(await reopen()).toHaveValue('cheap');
     expect((await getManagedOperator(operator.id)).installations[1].policy.inference?.defaultRouteId).toBeNull();
+  });
+
+  it.each([
+    { scope: 'operator', route: 'opus', label: 'Operator allow Gateway route Opus' },
+    { scope: 'operator', route: 'retired-route', label: 'Operator remove unavailable Gateway route retired-route' },
+    { scope: 'installation', route: 'opus', label: 'test allow Gateway route Opus' },
+    { scope: 'installation', route: 'retired-route', label: 'test remove unavailable Gateway route retired-route' },
+  ])('revoking the selected $route at $scope clears only its default and survives save and reopen', async ({ scope, route, label }) => {
+    fixture({ savedRoute: route });
+    render(() => <OperatorManagement />);
+    await open();
+    const before = await getManagedOperator(operator.id);
+    fireEvent.click(screen.getByRole('checkbox', { name: label }));
+    if (scope === 'operator') fireEvent.click(screen.getByRole('button', { name: 'Save operator capabilities' }));
+    else save();
+    const previous = scope === 'operator' ? before.operator.policy.inference! : before.installations[0].policy.inference!;
+    const expected = { ...previous, routeIds: previous.routeIds.filter(id => id !== route), defaultRouteId: null };
+    await waitFor(async () => {
+      const read = await getManagedOperator(operator.id);
+      expect(scope === 'operator' ? read.operator.policy.inference : read.installations[0].policy.inference).toEqual(expected);
+    });
+    const read = await getManagedOperator(operator.id);
+    expect(read.installations[0]).toMatchObject({ enabled: false, piReasoningOverride: 'low', configuration: before.installations[0].configuration });
+    expect(read.installations[1].policy).toEqual(before.installations[1].policy);
+    expect(read.grants).toEqual(before.grants);
+    if (scope === 'operator') expect(read.installations[0].policy).toEqual(before.installations[0].policy);
+    else expect(read.operator.policy).toEqual(before.operator.policy);
+    await reopen();
+    if (route === 'retired-route') expect(screen.queryByRole('checkbox', { name: label })).not.toBeInTheDocument();
+    else expect(screen.getByRole('checkbox', { name: label })).not.toBeChecked();
+    const reopened = await getManagedOperator(operator.id);
+    expect(scope === 'operator' ? reopened.operator.policy.inference : reopened.installations[0].policy.inference).toEqual(expected);
   });
 
   it('keeps Provider default null distinct from Off and clears a route to Not configured without account inheritance', async () => {
