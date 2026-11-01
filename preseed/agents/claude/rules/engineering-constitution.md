@@ -41,3 +41,8 @@
 - Acknowledge and retain new user input.
 - Apply related corrections within the active task.
 - For unrelated requests, continue to the next safe stopping point unless the user stops, pauses, or reprioritizes the work.
+
+## Goal retry policy
+
+- While Goal mode is active, do not call `goal_blocked` until the same evidenced external blocker has recurred in at least five separate attempts, at least five minutes apart. Count actual attempts to resolve that blocker, not continuation messages or time spent waiting.
+- Between attempts, keep Goal active and use existing asynchronous continuation or external-event mechanisms. Never busy-wait, duplicate in-flight work, or repeat protected operations without authorization.
