@@ -10,7 +10,7 @@ import {
 import * as fixtureAccess from '../../lib/access';
 import * as fixtureAig from '../../lib/aig-config';
 import { SETUP_KEYS } from '../../lib/kv-keys';
-import { discoverDispatcherOwnerProfile } from '../../operators/dispatcher-owner-inference';
+import { discoverDispatcherOwnerProfile, dispatcherSdkOwnerContext } from '../../operators/dispatcher-owner-inference';
 import { setLogLevel } from '../../lib/logger';
 import { connectionSecret, normalCallback } from './fixtures/normal-dispatcher';
 import { nativePiAuthFailure } from '../../operators/pi-auth-failure';
@@ -251,6 +251,65 @@ async function lane(run: (f: DispatcherFixture, store: Store, metadataEnvironmen
 async function admitted(f: DispatcherFixture) {
   expect(await start(f)).toMatchObject({ ok: true, state: { status: 'running', generation: 1 } });
 }
+
+// REQ-007 AC1/2: Dispatcher account defaults are trusted selection; every grant still constrains them.
+async function managedOwner(f: DispatcherFixture, reasoning: string, levels: string[][]) {
+  await admitted(f);
+  const plan = (await f.activity.getRuntimePlan())!;
+  if (!('selection' in plan.receipt)) throw new Error('Expected management receipt');
+  const live = await f.environment.OPERATOR_REGISTRY!.getByName('registry')
+    .resolveManagementExecution(plan.receipt.selection.installation.id);
+  if (!live.ok) throw new Error('Expected current management grants');
+  const pinned = plan.receipt.selection;
+  const policies = [pinned.installation.policy, pinned.operator.policy,
+    live.value.installation.policy, live.value.operator.policy];
+  policies.forEach((policy, index) => {
+    const allowed = levels[index] ?? levels[0];
+    policy.inference = { allowedSources: ['managed'], routeIds: ['approved', 'policy-default'],
+      defaultRouteId: 'policy-default', reasoningLevels: allowed,
+      defaultReasoningLevel: allowed.includes('off') ? 'off' : 'low', inheritUserDefaults: false };
+  });
+  const routes = await fixtureAccess.loadEnterpriseRouteConfig(f.environment, []);
+  vi.spyOn(access, 'loadEnterpriseRouteConfig').mockResolvedValue({ ...routes,
+    routeCatalog: ['approved', 'policy-default'], defaultRoute: 'approved', defaultReasoning: reasoning,
+    piDefaultSource: 'managed', allowPersonalPiProviders: false });
+  const grants = structuredClone({ pinned, live: live.value });
+  return {
+    select: () => dispatcherSdkOwnerContext({ plan, generation: 1, env: f.environment,
+      current: () => f.activity.operatorGenerationCurrent(1) }),
+    unchanged: () => expect({ pinned, live: live.value }).toEqual(grants),
+  };
+}
+
+describe('REQ-OPERATOR-007/047: Dispatcher trusted Gateway defaults', () => {
+  it('inherits the account default route and Medium despite policy Off and disabled user-default inheritance', () => lane(async f => {
+    const owner = await managedOwner(f, 'medium', [['off', 'medium']]);
+    expect(await owner.select()).toMatchObject({ source: 'managed', managed: { routeId: 'approved', reasoningLevel: 'medium' } });
+    owner.unchanged();
+  }, false));
+
+  it('intersects mismatched scope policies at owner Medium without first-scope Off substitution', () => lane(async f => {
+    const owner = await managedOwner(f, 'medium', [['off', 'medium'], ['medium', 'low'], ['off', 'medium'], ['medium', 'low']]);
+    expect(await owner.select()).toMatchObject({ source: 'managed', managed: { routeId: 'approved', reasoningLevel: 'medium' } });
+    owner.unchanged();
+  }, false));
+
+  it.each([
+    { scope: 'admitted installation', index: 0 }, { scope: 'admitted operator', index: 1 },
+    { scope: 'current installation', index: 2 }, { scope: 'current operator', index: 3 },
+  ])('refuses configured Medium denied by $scope without substitution or grant mutation', ({ index }) => lane(async f => {
+    const levels = Array.from({ length: 4 }, (_, scope) => scope === index ? ['off', 'low'] : ['off', 'medium']);
+    const owner = await managedOwner(f, 'medium', levels);
+    await expect(owner.select()).rejects.toMatchObject({ code: 'REASONING_NOT_ELIGIBLE' });
+    owner.unchanged();
+  }, false));
+
+  it('retains account provider-default null rather than forcing policy Off', () => lane(async f => {
+    const owner = await managedOwner(f, '', [['off', 'medium']]);
+    expect(await owner.select()).toMatchObject({ source: 'managed', managed: { routeId: 'approved', reasoningLevel: null } });
+    owner.unchanged();
+  }, false));
+});
 
 // Requirements: 007 AC4/5/6; 047 AC1/2/3/5; 048 AC2/5/6 + native/default constraints; 058 AC1.
 describe('REQ-OPERATOR-007/047/048/058: owner R2 configured-service HTTP contracts', () => {

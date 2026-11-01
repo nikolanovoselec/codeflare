@@ -34,6 +34,14 @@ afterAll(async () => {
 beforeEach((context) => { console.info(`[native-loader] test begin: ${context.task.name}`); });
 afterEach((context) => { console.info(`[native-loader] test end: ${context.task.name}`); });
 
+describe('REQ-OPERATOR-007: ordinary Wrangler bundle OAuth delivery', () => {
+  it('derives fresh built-in OpenAI OAuth auth through the bundled Root composition', async () => {
+    const response = await worker!.fetch('/dispatcher-bundled-oauth');
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ apiKey: 'synthetic-bundled-openai-access', source: 'OAuth' });
+  });
+});
+
 describe('REQ-OPERATOR-015: Worker Loader runtime boundary', () => {
   it('loads fresh Workers rather than retaining isolate-local state', async () => {
     const response = await worker!.fetch('/fresh');

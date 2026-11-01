@@ -4,6 +4,7 @@
  * authorization logic. The adjacent Wrangler file is isolated from deployment configuration.
  */
 import { WorkerEntrypoint } from 'cloudflare:workers';
+import { bundledDispatcherOAuth } from './dispatcher-bundled-oauth';
 import { ownerRpcFixture, type FixtureOwnerRpc } from './dispatcher-owner-rpc';
 export { FixtureOwnerRpc } from './dispatcher-owner-rpc';
 import { flueFixture, type FixtureTailInbox } from './flue-native-fixture';
@@ -194,6 +195,8 @@ export default {
     const props = { principal: 'fixture-owner' };
     try {
       const url = new URL(request.url);
+      // Ordinary Wrangler-packaged public SDK auth only; no Flue/Activity execution.
+      if (url.pathname === '/dispatcher-bundled-oauth') return await bundledDispatcherOAuth();
       // This route exercises owner/send RPC only; it never enters Flue/Activity.
       if (url.pathname === '/dispatcher-owner-rpc') return ownerRpcFixture(request, env);
       if (url.pathname === '/dispatcher-composed') {

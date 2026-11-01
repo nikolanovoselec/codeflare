@@ -1,10 +1,15 @@
 import { createModels, ModelsError, type Credential, type CredentialStore } from '@earendil-works/pi-ai';
 import { builtinProviders } from '@earendil-works/pi-ai/providers/all';
+import { registerBunOAuthFlows } from '@earendil-works/pi-ai/bun-oauth';
 import type { Env } from '../types';
 import { createR2Client, getR2Url } from '../lib/r2-client';
 import { getRegimeState } from '../lib/r2-regime-state';
 import { computeKeyMd5, getSseHeaders } from '../lib/r2-sse';
 import { SETUP_KEYS } from '../lib/kv-keys';
+
+// The SDK's opaque OAuth imports are not discovered by Worker bundling.
+// Its public static-flow registration preserves SDK-owned resolution and refresh.
+registerBunOAuthFlows();
 
 export interface SdkStorageScope {
   bucket: string;

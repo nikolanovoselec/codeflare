@@ -41,7 +41,8 @@ export async function dispatcherSdkOwnerContext(input: Input, selection?: Config
   const eligible = { routeIds: routes.routeCatalog, defaultRouteId: routes.defaultRoute, defaultReasoningLevel: routes.defaultReasoning };
   const declared = inferencePolicies.find(policy => policy.inference !== undefined)?.inference;
   const managed = source !== 'managed' ? undefined : declared
-    ? resolveOperatorInference({ policy: { inference: declared }, trusted: { routeId: routes.defaultRoute }, eligible })
+    ? resolveOperatorInference({ policy: { inference: declared }, trusted: {
+      routeId: routes.defaultRoute, reasoningLevel: routes.defaultReasoning || null }, eligible })
     : { routeId: routes.defaultRoute, reasoningLevel: routes.defaultReasoning || null };
   const reasoningOverride = source === 'pi-native' ? plan.receipt.selection.installation.piReasoningOverride : undefined;
   if (selection && reasoningOverride !== undefined && selection.reasoningLevel !== reasoningOverride) {
