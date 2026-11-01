@@ -7,7 +7,7 @@ import { getContainerId, forwardExisting } from '../lib/container-helpers';
 import { readBoundedResponse, readBoundedStream } from '../lib/bounded-stream';
 import { loadEnterpriseRouteConfig, resolveSessionAccessGroup, resolveBucketName, operatorAccessSessionCurrent } from '../lib/access';
 import { authorizeDispatcherPlan } from './operator-runtime-capability';
-import { resolveOperatorInference } from './inference-selection';
+import { OperatorInferenceSelectionError, resolveOperatorInference } from './inference-selection';
 import { operatorOwnerKey } from './browser-activity';
 import { PiAuthRequiredError, safePiAuthFailure } from './pi-auth-failure';
 import { inferenceRequestBytes } from './dispatcher-inference-limits';
@@ -38,12 +38,18 @@ export async function dispatcherSdkOwnerContext(input: Input, selection?: Config
   const routes = await loadEnterpriseRouteConfig(env, groups);
   const source = routes.piDefaultSource === 'pi-native' && routes.allowPersonalPiProviders === true ? 'pi-native' : 'managed';
   if (selection && selection.source !== source) throw new Error('Owner inference source changed');
-  const eligible = { routeIds: routes.routeCatalog, defaultRouteId: routes.defaultRoute, defaultReasoningLevel: routes.defaultReasoning };
-  const declared = inferencePolicies.find(policy => policy.inference !== undefined)?.inference;
-  const managed = source !== 'managed' ? undefined : declared
-    ? resolveOperatorInference({ policy: { inference: declared }, trusted: {
-      routeId: routes.defaultRoute, reasoningLevel: routes.defaultReasoning || null }, eligible })
-    : { routeId: routes.defaultRoute, reasoningLevel: routes.defaultReasoning || null };
+  const eligible = { routeIds: routes.routeCatalog, defaultRouteId: '', defaultReasoningLevel: '' };
+  const installed = plan.receipt.selection.installation.policy.inference;
+  if (source === 'managed' && !installed?.defaultRouteId) {
+    throw new OperatorInferenceSelectionError('ROUTE_SELECTION_REQUIRED', 'Configure a managed Gateway route for this installation');
+  }
+  const managed = source !== 'managed' ? undefined : resolveOperatorInference({
+    policy: { inference: installed! }, trusted: {
+      routeId: installed!.defaultRouteId!, reasoningLevel: installed!.defaultReasoningLevel }, eligible });
+  const supportedReasoning = managed && routes.routeReasoningLevels?.[managed.routeId];
+  if (managed && managed.reasoningLevel !== null && supportedReasoning && !supportedReasoning.some(level => level === managed.reasoningLevel)) {
+    throw new OperatorInferenceSelectionError('REASONING_NOT_ELIGIBLE', 'Installation reasoning is not supported by its Gateway route');
+  }
   const reasoningOverride = source === 'pi-native' ? plan.receipt.selection.installation.piReasoningOverride : undefined;
   if (selection && reasoningOverride !== undefined && selection.reasoningLevel !== reasoningOverride) {
     throw new Error('Owner reasoning override changed');
@@ -59,8 +65,7 @@ export async function dispatcherSdkOwnerContext(input: Input, selection?: Config
         throw new Error('Owner native policy denied');
       }
     } else if (policy.inference) {
-      resolveOperatorInference({ policy: { inference: policy.inference }, trusted: managed!, eligible: {
-        routeIds: routes.routeCatalog, defaultRouteId: routes.defaultRoute, defaultReasoningLevel: routes.defaultReasoning } });
+      resolveOperatorInference({ policy: { inference: policy.inference }, trusted: managed!, eligible });
     }
   }
   if (managed && !routes.routeCatalog.includes(managed.routeId)) throw new Error('Owner managed route unavailable');

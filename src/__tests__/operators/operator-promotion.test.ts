@@ -310,6 +310,41 @@ describe('REQ-OPERATOR-061: configured Renovate run settings', () => {
     ] });
   }));
 
+  it('REQ-OPERATOR-007: persists installation Gateway defaults through configure CAS without changing grants, native override or another installation', () => withManagementApi(async request => {
+    const operator = await setup(request);
+    const configuration = { unrelated: { keep: ['labels', 'nested'] }, renovate: {
+      repository: 'acme/updates', automaticRuns: false, repetitionIntervalSeconds: 900 } };
+    const initialPolicy = { ...policy, inference: { allowedSources: ['managed'],
+      routeIds: ['approved', 'other-route'], defaultRouteId: 'other-route',
+      reasoningLevels: ['off', 'low', 'medium'], defaultReasoningLevel: 'medium', inheritUserDefaults: false } };
+    const created = await request(`/operators/${operator.operatorId}/installations`, 'POST', {
+      name: 'gateway-profile', revision: operator.revision, policy: initialPolicy, configuration, piReasoningOverride: 'low' });
+    expect(created.status).toBe(201);
+    const installation = await created.json() as { id: string; revision: number };
+    const current = await (await request(`/operators/${operator.operatorId}`)).json() as { operator: { revision: number } };
+    const otherResponse = await request(`/operators/${operator.operatorId}/installations`, 'POST', {
+      name: 'independent', revision: current.operator.revision, policy: initialPolicy,
+      configuration: { unrelated: { other: true } }, piReasoningOverride: 'high' });
+    expect(otherResponse.status).toBe(201);
+    const other = await otherResponse.json();
+    const before = await (await request(`/operators/${operator.operatorId}`)).json() as { operator: unknown };
+    const selectedPolicy = { ...initialPolicy, inference: { ...initialPolicy.inference,
+      defaultRouteId: 'approved', defaultReasoningLevel: 'low' } };
+    const saved = await request(`/installations/${installation.id}/configure`, 'POST', {
+      revision: installation.revision, policy: selectedPolicy, configuration, piReasoningOverride: 'low' });
+    expect(saved.status).toBe(200);
+    expect(await saved.json()).toMatchObject({ id: installation.id, revision: installation.revision + 1,
+      policy: selectedPolicy, configuration, piReasoningOverride: 'low', enabled: false });
+    expect((await request(`/installations/${installation.id}/configure`, 'POST', {
+      revision: installation.revision, policy: initialPolicy, configuration, piReasoningOverride: 'high' })).status).toBe(409);
+    expect(await (await request(`/operators/${operator.operatorId}`)).json()).toMatchObject({
+      operator: before.operator, installations: expect.arrayContaining([
+        expect.objectContaining({ id: installation.id, revision: installation.revision + 1,
+          policy: selectedPolicy, configuration, piReasoningOverride: 'low', enabled: false }), other,
+      ]),
+    });
+  }));
+
   it('validates reserved settings at the Registry RPC boundary and retains state on rejection', () => withManagementApi(async (request, ctx) => {
     const operator = await setup(request);
     const configuration = { renovate: { repository: 'acme/updates', automaticRuns: false, repetitionIntervalSeconds: 900 } };

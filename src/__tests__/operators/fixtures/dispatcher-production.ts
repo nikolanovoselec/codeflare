@@ -272,8 +272,8 @@ export async function fixture(test: (f: {
     const policy = { capabilities: options.capabilities ?? ['fetch', 'inference'], resourceProfileId: null,
       ...(options.nativeInference ? { inference: { allowedSources: ['pi-native'], routeIds: [], defaultRouteId: null,
         reasoningLevels: ['low'], defaultReasoningLevel: options.nativeProviderDefault ? null : 'low', inheritUserDefaults: false } }
-        : options.managedProviderDefault ? { inference: { allowedSources: ['managed'], routeIds: ['approved'], defaultRouteId: 'approved',
-          reasoningLevels: ['off', 'low'], defaultReasoningLevel: null, inheritUserDefaults: false } } : {}),
+        : options.normalHosting || options.managedProviderDefault ? { inference: { allowedSources: ['managed'], routeIds: ['approved'], defaultRouteId: 'approved',
+          reasoningLevels: ['off', 'low'], defaultReasoningLevel: options.managedProviderDefault ? null : 'off', inheritUserDefaults: false } } : {}),
       ...(options.sourceResponseBytes === undefined ? {} : { sourceResponseBytes: options.sourceResponseBytes }) };
     const fixtureOperatorId = options.prospective || options.intent4 ? 'renovate-dispatcher' : 'operator';
     let inferenceAttempts = 0;

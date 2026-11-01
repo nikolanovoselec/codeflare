@@ -10,6 +10,8 @@ import { dispatcherCapacityFields, dispatcherCapacityKeys } from '../../operator
 import { createMockKV } from '../helpers/mock-kv';
 import { SETUP_KEYS } from '../../lib/kv-keys';
 import { createOperatorGitHubFixture } from '../helpers/operator-github-fixture';
+import { getBuiltInProfileRef } from '../../lib/reasoning-profiles';
+import { routingGatewayUrl, verifiedRoutingConfiguration } from '../helpers/verified-routing';
 
 const actor = vi.hoisted(() => ({ email: 'manager@example.test', role: 'user', groups: ['operators'] as string[] | undefined }));
 vi.mock('../../middleware/auth', async importOriginal => ({
@@ -742,6 +744,52 @@ describe('REQ-OPERATOR-045: delegated management and invocation', () => {
     await kv.put('user:invoker@example.test', JSON.stringify({ role: 'user' }));
     await kv.put(SETUP_KEYS.ENTERPRISE_ACCESS_GROUP, 'review-team,Display Team,unverified-id');
   }));
+  it('REQ-OPERATOR-007/075: options expose only current verified manager routes and exact executable levels without provider bindings', async () => withApi(async request => {
+    await delegate(request);
+    actor.groups = ['operators', 'review-team'];
+    const response = await request('/api/operator-management/options');
+    expect(response.status).toBe(200);
+    const value = await response.json() as { managedRoutes: unknown };
+    expect(value.managedRoutes).toEqual([{ id: 'tools-off', label: 'tools-off', reasoningLevels: ['off'] }]);
+    const wire = JSON.stringify(value);
+    for (const secret of ['options-private-token', 'fixture-model', 'connectionFingerprint', 'activeProfile', 'providerConfigId', 'routeAssignments']) {
+      expect(wire).not.toContain(secret);
+    }
+    // A configured but unverified group's wider policy is not this manager's catalog.
+    actor.groups = ['operators'];
+    const unmatched = await request('/api/operator-management/options');
+    expect(unmatched.status).toBe(200);
+    expect(await unmatched.json()).toMatchObject({ managedRoutes: [] });
+    actor.email = 'outsider@example.test'; actor.groups = [];
+    expect((await request('/api/operator-management/options')).status).toBe(404);
+  }, async kv => {
+    const token = 'options-private-token';
+    const configuration = verifiedRoutingConfiguration({ schemaVersion: 1, customProfileRevisions: [], routeAssignments: {
+      'tools-off': { activeProfile: getBuiltInProfileRef('openai-gpt-chat-tools-off') },
+      'unverified-group-route': { activeProfile: getBuiltInProfileRef('openai-gpt-chat-tools-off') },
+    }, fallbackRouting: { enabled: false } }, { gatewayUrl: routingGatewayUrl, token });
+    await kv.put(SETUP_KEYS.AIG_GATEWAY_URL, routingGatewayUrl);
+    kv._set(SETUP_KEYS.AIG_TOKEN, { token });
+    kv._set(SETUP_KEYS.DYNAMIC_ROUTES, ['tools-off', 'unverified-group-route']);
+    kv._set(SETUP_KEYS.REASONING_CONFIGURATION, configuration);
+    await kv.put(SETUP_KEYS.ENTERPRISE_ACCESS_GROUP, 'review-team,unverified-group');
+    kv._set(SETUP_KEYS.GROUP_ROUTING, {
+      'review-team': { routes: ['tools-off'], defaultRoute: 'tools-off', reasoning: 'off' },
+      'unverified-group': { routes: ['unverified-group-route'], defaultRoute: 'unverified-group-route', reasoning: 'off' },
+    });
+  }));
+
+  it('REQ-OPERATOR-075: options retain the 64 KiB public-response bound without leaking oversized choices', async () => withApi(async request => {
+    actor.role = 'admin';
+    const response = await request('/api/operator-management/options');
+    expect(response.status).toBe(503);
+    expect(await response.text()).not.toContain('oversized-options-user');
+  }, async kv => {
+    for (let index = 0; index < 256; index++) {
+      await kv.put(`user:oversized-options-user-${index}-${'x'.repeat(256)}@example.test`, JSON.stringify({ role: 'user' }));
+    }
+  }));
+
   it('REQ-OPERATOR-049 AC2: management registration, detail and catalog never return the stored GitHub credential', async () => withApi(async request => {
     await delegate(request);
     const created = await request('/api/operator-management/operators', 'POST', registration);

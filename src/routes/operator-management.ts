@@ -3,7 +3,7 @@ import { bodyLimit } from 'hono/body-limit';
 import { z } from 'zod';
 import type { Env } from '../types';
 import { authMiddleware, type AuthVariables } from '../middleware/auth';
-import { authenticateRequest, requireOperatorHumanContext, canManageOperator, hasOperatorManagementEligibility, parseAccessGroups } from '../lib/access';
+import { authenticateRequest, requireOperatorHumanContext, canManageOperator, hasOperatorManagementEligibility, parseAccessGroups, loadEnterpriseRouteConfig } from '../lib/access';
 import { getAllUsers } from '../lib/access-policy';
 import { SETUP_KEYS } from '../lib/kv-keys';
 import { operatorCapabilityChoices } from '../operators/distribution';
@@ -195,7 +195,18 @@ app.get('/options', async c => {
   // Environment may contain display names. Only IDs actually observed in this
   // human's verified Access membership are safe to use in an issuer-bound ACL.
   const verifiedGroups = new Set(context.human.groups ?? []);
-  const value = { users: [...new Set(users.map(user => user.toLowerCase()))].sort(),
+  // Reuse this request's current verified human membership, in configured user-group order.
+  const routes = await loadEnterpriseRouteConfig(c.env,
+    parseAccessGroups(userGroups).filter(group => verifiedGroups.has(group)));
+  const managedRoutes = routes.routeCatalog.map(id => ({ id, label: routes.modelDisplayNames[id] || id,
+    reasoningLevels: routes.routeReasoningLevels[id] ?? [] }));
+  // Keep the public projection compatible with the bounded browser contract.
+  // Never include provider coordinates, credentials, or internal target bindings.
+  if (managedRoutes.length > 128 || managedRoutes.some(route => !route.id.length || route.id.length > 128
+    || route.id.trim() !== route.id || route.label.length > 256 || route.reasoningLevels.length > 7)) {
+    throw new AppError('UNAVAILABLE', 503, 'Operator choices unavailable');
+  }
+  const value = { managedRoutes, users: [...new Set(users.map(user => user.toLowerCase()))].sort(),
     groups: configuredGroups.filter(id => verifiedGroups.has(id)).map(id => ({ issuer: context.human.issuer, id })),
     unresolvedGroups: context.platformAdmin ? configuredGroups.filter(group => !verifiedGroups.has(group)) : [],
     capabilities: operatorCapabilityChoices, resourceProfileIds: context.controls.ceiling.resourceProfileIds,

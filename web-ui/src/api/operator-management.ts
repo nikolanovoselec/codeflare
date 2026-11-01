@@ -88,7 +88,10 @@ export function listManagedOperators(query: CatalogQuery = {}) {
 }
 const choicesSchema = z.object({ users: z.array(z.string()), groups: z.array(z.object({ issuer: z.string(), id: z.string() })),
   unresolvedGroups: z.array(z.string()).default([]), capabilities: z.array(z.string()), resourceProfileIds: z.array(z.string()),
-  ceiling: z.object({ capabilities: z.array(z.string()), resourceProfileIds: z.array(z.string()), sourceResponseBytes }) });
+  ceiling: z.object({ capabilities: z.array(z.string()), resourceProfileIds: z.array(z.string()), sourceResponseBytes }),
+  managedRoutes: z.array(z.strictObject({ id: policyRouteId, label: z.string().min(1).max(256),
+    reasoningLevels: uniquePolicyItems(policyReasoning, 7) })).max(128)
+    .refine(routes => new Set(routes.map(route => route.id)).size === routes.length).optional() });
 export type ManagementChoices = z.infer<typeof choicesSchema>;
 export const getManagementChoices = () => request('/options', choicesSchema);
 const accessSchema = z.object({ revision: z.number().int().nonnegative(), managers: grantSchema,

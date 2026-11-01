@@ -10,7 +10,8 @@ import {
 import * as fixtureAccess from '../../lib/access';
 import * as fixtureAig from '../../lib/aig-config';
 import { SETUP_KEYS } from '../../lib/kv-keys';
-import { discoverDispatcherOwnerProfile, dispatcherSdkOwnerContext } from '../../operators/dispatcher-owner-inference';
+import type { PiReasoningLevel } from '../../lib/reasoning-profiles';
+import { type ConfiguredDispatcherInference, discoverDispatcherOwnerProfile, dispatcherSdkOwnerContext } from '../../operators/dispatcher-owner-inference';
 import { setLogLevel } from '../../lib/logger';
 import { connectionSecret, normalCallback } from './fixtures/normal-dispatcher';
 import { nativePiAuthFailure } from '../../operators/pi-auth-failure';
@@ -252,8 +253,11 @@ async function admitted(f: DispatcherFixture) {
   expect(await start(f)).toMatchObject({ ok: true, state: { status: 'running', generation: 1 } });
 }
 
-// REQ-007 AC1/2: Dispatcher account defaults are trusted selection; every grant still constrains them.
-async function managedOwner(f: DispatcherFixture, reasoning: string, levels: string[][]) {
+// REQ-007 AC1/2 and 047 AC1/2/3: installation selection, constrained by all four grants.
+async function managedOwner(f: DispatcherFixture, options: {
+  reasoning?: 'low' | null; deniedScope?: number; denial?: 'route' | 'reasoning';
+  missingRoute?: boolean; eligibleRoutes?: string[]; supportedReasoning?: PiReasoningLevel[];
+} = {}) {
   await admitted(f);
   const plan = (await f.activity.getRuntimePlan())!;
   if (!('selection' in plan.receipt)) throw new Error('Expected management receipt');
@@ -264,63 +268,127 @@ async function managedOwner(f: DispatcherFixture, reasoning: string, levels: str
   const policies = [pinned.installation.policy, pinned.operator.policy,
     live.value.installation.policy, live.value.operator.policy];
   policies.forEach((policy, index) => {
-    const allowed = levels[index] ?? levels[0];
     policy.inference = { allowedSources: ['managed'], routeIds: ['approved', 'policy-default'],
-      defaultRouteId: 'policy-default', reasoningLevels: allowed,
-      defaultReasoningLevel: allowed.includes('off') ? 'off' : 'low', inheritUserDefaults: false };
+      defaultRouteId: 'policy-default', reasoningLevels: ['off', 'low', 'medium'],
+      defaultReasoningLevel: 'off', inheritUserDefaults: false };
+    if (index === options.deniedScope) {
+      if (options.denial === 'route') policy.inference.routeIds = ['policy-default'];
+      else policy.inference.reasoningLevels = ['off', 'medium'];
+    }
   });
+  pinned.installation.policy.inference!.defaultRouteId = options.missingRoute ? null : 'approved';
+  pinned.installation.policy.inference!.defaultReasoningLevel = options.reasoning === null ? null : 'low';
+  pinned.installation.policy.inference!.inheritUserDefaults = options.missingRoute === true;
   const routes = await fixtureAccess.loadEnterpriseRouteConfig(f.environment, []);
-  vi.spyOn(access, 'loadEnterpriseRouteConfig').mockResolvedValue({ ...routes,
-    routeCatalog: ['approved', 'policy-default'], defaultRoute: 'approved', defaultReasoning: reasoning,
-    piDefaultSource: 'managed', allowPersonalPiProviders: false });
+  const routeConfig = { ...routes, routeCatalog: options.eligibleRoutes ?? ['approved', 'policy-default'],
+    defaultRoute: 'policy-default', defaultReasoning: 'medium',
+    ...(options.supportedReasoning ? { routeReasoningLevels: { approved: options.supportedReasoning } } : {}),
+    piDefaultSource: 'managed' as const, allowPersonalPiProviders: false };
+  const routeBoundary = vi.spyOn(access, 'loadEnterpriseRouteConfig').mockResolvedValue(routeConfig);
   const grants = structuredClone({ pinned, live: live.value });
   return {
-    select: () => dispatcherSdkOwnerContext({ plan, generation: 1, env: f.environment,
-      current: () => f.activity.operatorGenerationCurrent(1) }),
+    select: (selection?: ConfiguredDispatcherInference) => dispatcherSdkOwnerContext({ plan, generation: 1, env: f.environment,
+      current: () => f.activity.operatorGenerationCurrent(1) }, selection),
+    changeAccountDefaults: (route: string, reasoning: string) => routeBoundary.mockResolvedValue({ ...routeConfig,
+      defaultRoute: route, defaultReasoning: reasoning }),
     unchanged: () => expect({ pinned, live: live.value }).toEqual(grants),
   };
 }
 
-describe('REQ-OPERATOR-007/047: Dispatcher trusted Gateway defaults', () => {
-  it('inherits the account default route and Medium despite policy Off and disabled user-default inheritance', () => lane(async f => {
-    const owner = await managedOwner(f, 'medium', [['off', 'medium']]);
-    expect(await owner.select()).toMatchObject({ source: 'managed', managed: { routeId: 'approved', reasoningLevel: 'medium' } });
+const managedSelection = (routeId = 'approved', reasoningLevel: 'low' | 'off' = 'low'): ConfiguredDispatcherInference => ({
+  source: 'managed', provider: 'codeflare-gateway', model: routeId, routeId,
+  api: 'openai-completions', reasoningLevel, profileDigest: 'a'.repeat(64),
+});
+
+describe('REQ-OPERATOR-007/047: Dispatcher installation Gateway selection', () => {
+  it('selects installation approved/Low despite a different account route/Medium and operator Off defaults', () => lane(async f => {
+    const owner = await managedOwner(f);
+    expect(await owner.select()).toMatchObject({ source: 'managed', managed: { routeId: 'approved', reasoningLevel: 'low' } });
     owner.unchanged();
   }, false));
 
-  it('intersects mismatched scope policies at owner Medium without first-scope Off substitution', () => lane(async f => {
-    const owner = await managedOwner(f, 'medium', [['off', 'medium'], ['medium', 'low'], ['off', 'medium'], ['medium', 'low']]);
-    expect(await owner.select()).toMatchObject({ source: 'managed', managed: { routeId: 'approved', reasoningLevel: 'medium' } });
+  it('account default changes do not alter the installation selected pair', () => lane(async f => {
+    const owner = await managedOwner(f);
+    const selection = managedSelection();
+    expect(await owner.select(selection)).toMatchObject({ managed: { routeId: 'approved', reasoningLevel: 'low' } });
+    owner.changeAccountDefaults('foreign-account-route', 'high');
+    expect(await owner.select(selection)).toMatchObject({ managed: { routeId: 'approved', reasoningLevel: 'low' } });
     owner.unchanged();
   }, false));
 
   it.each([
     { scope: 'admitted installation', index: 0 }, { scope: 'admitted operator', index: 1 },
     { scope: 'current installation', index: 2 }, { scope: 'current operator', index: 3 },
-  ])('refuses configured Medium denied by $scope without substitution or grant mutation', ({ index }) => lane(async f => {
-    const levels = Array.from({ length: 4 }, (_, scope) => scope === index ? ['off', 'low'] : ['off', 'medium']);
-    const owner = await managedOwner(f, 'medium', levels);
+  ])('refuses installation route denied by $scope without substitution or grant mutation', ({ index }) => lane(async f => {
+    const owner = await managedOwner(f, { deniedScope: index, denial: 'route' });
+    await expect(owner.select()).rejects.toMatchObject({ code: 'ROUTE_NOT_ELIGIBLE' });
+    owner.unchanged();
+  }, false));
+
+  it.each([
+    { scope: 'admitted installation', index: 0 }, { scope: 'admitted operator', index: 1 },
+    { scope: 'current installation', index: 2 }, { scope: 'current operator', index: 3 },
+  ])('refuses installation Low denied by $scope without substitution or grant mutation', ({ index }) => lane(async f => {
+    const owner = await managedOwner(f, { deniedScope: index, denial: 'reasoning' });
     await expect(owner.select()).rejects.toMatchObject({ code: 'REASONING_NOT_ELIGIBLE' });
     owner.unchanged();
   }, false));
 
-  it('retains account provider-default null rather than forcing policy Off', () => lane(async f => {
-    const owner = await managedOwner(f, '', [['off', 'medium']]);
+  it('refuses the installation route excluded by the eligible catalog without substituting its eligible default', () => lane(async f => {
+    const owner = await managedOwner(f, { eligibleRoutes: ['policy-default'] });
+    await expect(owner.select()).rejects.toMatchObject({ code: 'ROUTE_NOT_ELIGIBLE' });
+    owner.unchanged();
+  }, false));
+
+  it('refuses explicit Low unsupported by the known route profile without substituting Off', () => lane(async f => {
+    const owner = await managedOwner(f, { supportedReasoning: ['off', 'medium'] });
+    await expect(owner.select()).rejects.toMatchObject({ code: 'REASONING_NOT_ELIGIBLE' });
+    owner.unchanged();
+  }, false));
+
+  it('retains installation provider-default null rather than forcing policy Off or account Medium', () => lane(async f => {
+    const owner = await managedOwner(f, { reasoning: null, supportedReasoning: ['off'] });
     expect(await owner.select()).toMatchObject({ source: 'managed', managed: { routeId: 'approved', reasoningLevel: null } });
+    owner.unchanged();
+  }, false));
+
+  it('missing installation route refuses with ROUTE_SELECTION_REQUIRED even with user-default inheritance enabled', () => lane(async f => {
+    const owner = await managedOwner(f, { missingRoute: true });
+    // Intentional management error contract: explain the installation configuration required, not account fallback.
+    await expect(owner.select()).rejects.toMatchObject({ code: 'ROUTE_SELECTION_REQUIRED',
+      message: 'Configure a managed Gateway route for this installation' });
+    owner.unchanged();
+  }, false));
+
+  it.each([
+    { changed: 'route', selection: managedSelection('policy-default') },
+    { changed: 'reasoning', selection: managedSelection('approved', 'off') },
+  ])('refuses a changed already selected $changed without substitution or grant mutation', ({ selection }) => lane(async f => {
+    const owner = await managedOwner(f);
+    expect(await owner.select(managedSelection())).toMatchObject({ managed: { routeId: 'approved', reasoningLevel: 'low' } });
+    await expect(owner.select(selection)).rejects.toThrow('Owner managed selection changed');
     owner.unchanged();
   }, false));
 });
 
 // Requirements: 007 AC4/5/6; 047 AC1/2/3/5; 048 AC2/5/6 + native/default constraints; 058 AC1.
 describe('REQ-OPERATOR-007/047/048/058: owner R2 configured-service HTTP contracts', () => {
-  it('pins the saved built-in logical profile with zero Host catalog and no source-session descriptor', () => lane(async f => {
+  it('pins the saved built-in logical profile with zero Host catalog and no source-session descriptor', () => lane(async (f, store) => {
     await admitted(f);
     const plan = (await f.activity.getRuntimePlan())!;
+    // Native ON has no managed route/reasoning defaults and still uses saved R2 identity at installation Low.
+    expect(plan.receipt).toMatchObject({ selection: { installation: { piReasoningOverride: 'low',
+      policy: { inference: { routeIds: [], defaultRouteId: null } } } } });
+    expect(await dispatcherSdkOwnerContext({ plan, generation: 1, env: f.environment,
+      current: () => f.activity.operatorGenerationCurrent(1) })).toMatchObject({ source: 'pi-native', reasoningOverride: 'low' });
     expect(await discoverDispatcherOwnerProfile({ plan, generation: 1, env: f.environment,
       current: () => f.activity.operatorGenerationCurrent(1), waitUntil: f.waitUntil })).toEqual({ source: 'pi-native', ...logical,
       profileDigest: await digest(JSON.stringify({ source: 'pi-native', ...logical })) });
     expect((await f.activity.getRuntimePlan())!.configuredSelection).toMatchObject({ source: 'pi-native', ...logical });
     expect(JSON.stringify(f.normalTransport!.requests)).not.toMatch(/ownerhost123|sessionGeneration|private\.jwt/);
+    expect(await json(await read(f))).toEqual({ apiKey: oldOAuth.access });
+    expect(store.touchedKeys).toEqual(new Set([settingsKey, authKey].map(key => `/owner-bucket/${key}`)));
+    expect(store.escapedReads).toEqual([]);
   }));
 
   it('admits normal native provider-default when approved without inventing an explicit reasoning level', () => lane(async f => {
@@ -494,18 +562,38 @@ describe('REQ-OPERATOR-007/047/048/058: owner R2 configured-service HTTP contrac
       await admitted(f);
       const saved = { [providerId]: { ...oldOAuth, expires: 1 }, other };
       store.put(authKey, saved);
-      oauthBoundary(async () => Response.json({ error: 'invalid_grant', error_description: `${canary} ${oldOAuth.refresh}` }, { status: 401 }));
-      await denied(await read(f));
+      const vendorMessage = `PRIVATE_VENDOR_RENEWAL_MESSAGE ${canary} ${oldOAuth.refresh}`;
+      const vendorCause = `PRIVATE_VENDOR_NESTED_CAUSE ${oldOAuth.access}`;
+      oauthBoundary(async () => Response.json({ error: 'invalid_grant', error_description: vendorMessage,
+        cause: { message: vendorCause, cause: { token: other.key } } }, { status: 401 }));
+      await denied(await read(f), [403]);
       expect(store.value(authKey)).toEqual(saved);
       for (const evidence of [await f.activity.getBrowserDetail(), await diagnosticTraversal(diagnosticsBrowser(f))]) {
         expect(inspect(evidence, { depth: null, maxStringLength: null })).not.toContain(canary);
       }
       const logged = inspect(output, { depth: null, maxStringLength: null, maxArrayLength: null,
         customInspect: false, getters: false, colors: false });
-      // Intentional closed auth-failure contract; vendor causes are not retained.
+      // Intentional private error contract: the real metadata RPC failure is
+      // reconstructed by the service and logged with only finite SDK classification.
+      const failures = output.flatMap(args => args.flatMap(arg => {
+        if (typeof arg !== 'string') return [];
+        try {
+          const record = JSON.parse(arg);
+          return record.module === 'operator-execution' && record.message === 'sdk-service-failure'
+            ? [record.data.value] : [];
+        } catch { return []; }
+      }));
+      const failure = failures.find(value => value.message === 'SDK authentication unavailable (oauth)');
+      expect(failure).toMatchObject({ status: 403, message: 'SDK authentication unavailable (oauth)' });
+      // Exact closed cause excludes raw SDK messages and recursively retained causes.
+      expect(failure?.cause).toEqual({ sdkCode: 'oauth', requestAborted: false, abortReason: null });
       expect(logged).toContain('SDK authentication unavailable (oauth)');
       expect(logged).not.toContain('invalid_grant');
-      expect(logged).not.toContain(canary);
+      expect(logged).not.toContain('PRIVATE_VENDOR_RENEWAL_MESSAGE');
+      expect(logged).not.toContain('PRIVATE_VENDOR_NESTED_CAUSE');
+      expect(logged).not.toContain(vendorMessage);
+      expect(logged).not.toContain(vendorCause);
+      for (const secret of [canary, oldOAuth.access, oldOAuth.refresh, other.key]) expect(logged).not.toContain(secret);
     } finally { setLogLevel('silent'); spies.forEach(spy => spy.mockRestore()); }
   }));
 
@@ -610,7 +698,7 @@ describe('REQ-OPERATOR-007/047/048/058: owner R2 configured-service HTTP contrac
       expect(store.escapedReads).toEqual([]);
     }));
 
-  it.each([false, true])('Native OFF returns account default Gateway without Pi R2 access (stale native preference: %s)', staleNative => lane(async (f, store) => {
+  it.each([false, true])('Native OFF returns installation Gateway without Pi R2 access (stale native preference: %s)', staleNative => lane(async (f, store) => {
     if (staleNative) {
       const routes = await fixtureAccess.loadEnterpriseRouteConfig(f.environment, []);
       vi.spyOn(access, 'loadEnterpriseRouteConfig').mockResolvedValue({ ...routes,
@@ -637,14 +725,15 @@ describe('REQ-OPERATOR-007/047/048/058: owner R2 configured-service HTTP contrac
     expect(store.escapedReads).toEqual([]);
   }, false));
 
-  it('Native OFF denies an account default excluded by policy rather than substituting an allowed route', () => lane(async (f, store) => {
+  it('Native OFF ignores a foreign account default and retains the installation Gateway without Pi R2 access', () => lane(async (f, store) => {
     await admitted(f);
     const routes = await fixtureAccess.loadEnterpriseRouteConfig(f.environment, []);
     vi.spyOn(access, 'loadEnterpriseRouteConfig').mockResolvedValue({ ...routes,
       routeCatalog: ['approved', 'not-allowed'], defaultRoute: 'not-allowed', allowPersonalPiProviders: false });
     store.override(() => { throw new Error(`${canary}_NATIVE_OFF_R2_READ`); });
-    await denied(await gateway(f));
-    await denied(await config(f));
+    expect(await json(await gateway(f))).toMatchObject({ source: 'managed', routeId: 'approved' });
+    expect(await json(await config(f))).toEqual({ source: 'managed' });
+    await denied(await read(f));
     expect(store.touchedKeys).toEqual(new Set());
     expect(store.escapedReads).toEqual([]);
   }, false, false, { managedProviderDefault: true }));

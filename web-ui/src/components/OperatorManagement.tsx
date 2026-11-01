@@ -368,7 +368,7 @@ const GrantFields: Component<{ title: string; value: api.ManagementGrant; choice
   </fieldset>;
 };
 const InferencePolicyFields: Component<{ title: string; value: api.ManagementPolicy['inference']; ceiling?: api.ManagementPolicy;
-  onChange: (value: NonNullable<api.ManagementPolicy['inference']>) => void }> = props => {
+  routes?: api.ManagementChoices['managedRoutes']; onChange: (value: NonNullable<api.ManagementPolicy['inference']>) => void }> = props => {
   const current = (): NonNullable<api.ManagementPolicy['inference']> => props.value ?? {
     allowedSources: ['managed'], routeIds: [], defaultRouteId: null, reasoningLevels: [], defaultReasoningLevel: null, inheritUserDefaults: false,
   };
@@ -383,6 +383,20 @@ const InferencePolicyFields: Component<{ title: string; value: api.ManagementPol
           ? [...sources(), source] : sources().filter(value => value !== source) })} />
         <span>{source === 'pi-native' ? 'Approve Pi-native owner profile' : 'Allow managed inference'}</span></label>
     }</For></div>
+    <Show when={sources().includes('managed')}><div class="admin-form-field"><span>Allowed Gateway routes</span>
+      <small>Approve routes explicitly before choosing an installation default. Approval alone does not select a model or enable runs.</small>
+      <div class="admin-checkbox-list"><For each={props.routes ?? []}>{route => <label class="admin-toggle-field">
+        <input type="checkbox" aria-label={`${props.title} allow Gateway route ${route.label}`} checked={current().routeIds.includes(route.id)}
+          disabled={!!props.ceiling && !props.ceiling.inference?.routeIds.includes(route.id) && !current().routeIds.includes(route.id)}
+          onChange={event => props.onChange({ ...current(), routeIds: event.currentTarget.checked
+            ? [...current().routeIds, route.id] : current().routeIds.filter(id => id !== route.id) })} />
+        <span>{route.label}</span>
+      </label>}</For><For each={current().routeIds.filter(id => !props.routes?.some(route => route.id === id))}>{id =>
+        <label class="admin-toggle-field"><input type="checkbox" checked aria-label={`${props.title} remove unavailable Gateway route ${id}`}
+          onChange={() => props.onChange({ ...current(), routeIds: current().routeIds.filter(value => value !== id) })} />
+          <span>{id} · unavailable, retained</span></label>
+      }</For></div>
+    </div></Show>
     <Show when={props.value}><div class="admin-form-field"><span>Allowed reasoning levels</span>
       <small>Choose explicitly; an empty list permits no native reasoning level. Provider/model support is checked before execution. Existing managed routes, defaults and inheritance are retained.</small>
       <div class="admin-checkbox-list"><For each={api.piReasoningLevels}>{level => <label class="admin-toggle-field">
@@ -397,7 +411,7 @@ const InferencePolicyFields: Component<{ title: string; value: api.ManagementPol
   </fieldset>;
 };
 const PolicyFields: Component<{ title: string; profile: 'conductor' | 'dispatcher'; value: api.ManagementPolicy; capabilities: string[]; profiles: string[]; sourceResponseMax: number;
-  inferenceCeiling?: api.ManagementPolicy; onChange: (value: api.ManagementPolicy) => void }> = props => <fieldset class="operator-fields"><legend>{props.title === 'Operator' ? 'Operator actions and scope' : 'Installation restrictions'}</legend>
+  inferenceCeiling?: api.ManagementPolicy; routes?: api.ManagementChoices['managedRoutes']; onChange: (value: api.ManagementPolicy) => void }> = props => <fieldset class="operator-fields"><legend>{props.title === 'Operator' ? 'Operator actions and scope' : 'Installation restrictions'}</legend>
   <div class="admin-form-grid"><div class="admin-form-field"><span>Allowed actions</span><div class="admin-checkbox-list"><For each={props.capabilities}>{capability =>
     <label class="admin-toggle-field"><input type="checkbox" checked={props.value.capabilities.includes(capability)} onChange={event => props.onChange({ ...props.value,
       capabilities: event.currentTarget.checked ? [...props.value.capabilities, capability] : props.value.capabilities.filter(value => value !== capability) })} />
@@ -422,7 +436,7 @@ const PolicyFields: Component<{ title: string; profile: 'conductor' | 'dispatche
       </select><small>The <a href="/admin/environment/access">Environment allowlist</a> permits scope IDs; this installation narrows access to the selected ID. Runtime constructs the restricted session. Adding an ID does not provision a profile.</small>
       <Show when={!props.profiles.length}><small>No scope ID is eligible under current Environment and operator limits. A saved unavailable value is retained unless explicitly changed.</small></Show></label>
     </Show></div>
-  <InferencePolicyFields title={props.title} value={props.value.inference} ceiling={props.inferenceCeiling}
+  <InferencePolicyFields title={props.title} value={props.value.inference} ceiling={props.inferenceCeiling} routes={props.routes}
     onChange={inference => props.onChange({ ...props.value, inference })} />
 </fieldset>;
 
@@ -436,6 +450,7 @@ const OperatorDetail: Component<{ detail: api.ManagementDetail; choices?: api.Ma
   const [releaseId, setReleaseId] = createSignal('');
   const [installOpen, setInstallOpen] = createSignal(false);
   const [policy, setPolicy] = createSignal(emptyPolicy());
+  const [managedSelectionEdited, setManagedSelectionEdited] = createSignal(false);
   const [operatorCapabilities, setOperatorCapabilities] = createSignal<string[]>([]);
   const [operatorInference, setOperatorInference] = createSignal<api.ManagementPolicy['inference']>();
   const [operatorSourceResponseBytes, setOperatorSourceResponseBytes] = createSignal<number>();
@@ -514,12 +529,27 @@ const OperatorDetail: Component<{ detail: api.ManagementDetail; choices?: api.Ma
     || (validSourceBytes(operatorSourceResponseBytes(), environmentSourceMax()) && validInferenceBytes(operatorInferenceRequestBytes())
       && validOperationLimit(operatorOperationLimit()) && validInferenceAttemptLimit(operatorInferenceAttemptLimit())
       && validSubmissionAttemptLimit(operatorSubmissionAttemptLimit()) && api.validDispatcherCapacities(operatorCapacities()));
-  const validInstallationSource = () => operator().profile !== 'dispatcher' || validSourceBytes(policy().sourceResponseBytes, installationSourceMax());
+  const managedRoutes = () => (props.choices?.managedRoutes ?? []).filter(route =>
+    policy().inference?.routeIds.includes(route.id) && operator().policy.inference?.routeIds.includes(route.id));
+  const managedRoute = () => managedRoutes().find(route => route.id === policy().inference?.defaultRouteId);
+  const managedLevels = () => (managedRoute()?.reasoningLevels ?? []).filter(level =>
+    policy().inference?.reasoningLevels.includes(level) && operator().policy.inference?.reasoningLevels.includes(level));
+  const validManagedSelection = () => (!policy().inference?.defaultRouteId || !!managedRoute())
+    && (policy().inference?.defaultReasoningLevel == null || managedLevels().includes(policy().inference!.defaultReasoningLevel!));
+  const changeManagedSelection = (selection: { defaultRouteId?: string | null; defaultReasoningLevel?: api.PiReasoningLevel | null }) => {
+    const inference = policy().inference;
+    if (!inference) return;
+    setManagedSelectionEdited(true);
+    setPolicy({ ...policy(), inference: { ...inference, ...selection, inheritUserDefaults: false } });
+  };
+  const validInstallationSource = () => (operator().profile !== 'dispatcher' || validSourceBytes(policy().sourceResponseBytes, installationSourceMax()))
+    && (!managedSelectionEdited() || validManagedSelection());
   const allowedCapabilities = () => operator().policy.capabilities.filter(item => props.choices?.ceiling.capabilities.includes(item));
   const allowedProfiles = () => operator().profile !== 'dispatcher' && operator().policy.resourceProfileId && props.choices?.ceiling.resourceProfileIds.includes(operator().policy.resourceProfileId!)
     ? [operator().policy.resourceProfileId!] : [];
   createEffect(() => {
     setPolicy(installation()?.policy ?? emptyPolicy());
+    setManagedSelectionEdited(false);
     setPiReasoningOverride(installation()?.piReasoningOverride);
   });
   onCleanup(() => setSourcePat(''));
@@ -703,14 +733,38 @@ const OperatorDetail: Component<{ detail: api.ManagementDetail; choices?: api.Ma
               </div>;
             }}</For></div>
           </Show>
-          <InferencePolicyFields title="Operator" value={operatorInference()} onChange={setOperatorInference} />
+          <InferencePolicyFields title="Operator" value={operatorInference()} routes={props.choices?.managedRoutes} onChange={setOperatorInference} />
           <label class="admin-toggle-field operator-logging-toggle"><input type="checkbox" checked={operatorLoggingEnabled()} onChange={event => setOperatorLoggingEnabled(event.currentTarget.checked)} /><span class="admin-form-field"><strong>Enable logging</strong><small>Operator execution diagnostics only. Privacy and security audits remain unchanged.</small></span></label>
           <button class="admin-secondary-button" type="submit" disabled={!props.choices || !validOperatorSource() || operatorCapabilities().some(value => !props.choices?.ceiling.capabilities.includes(value))}>Save operator capabilities</button>
         </fieldset>{props.feedback('operator-capabilities')}</form>
         <Show when={installation()}>{item => <form onSubmit={event => { event.preventDefault(); if (!validInstallationSource()) return; void props.perform(() => api.configureInstallation(item().id, {
           revision: item().revision, policy: policy(), configuration: item().configuration ?? {}, piReasoningOverride: piReasoningOverride(),
         }), 'Restrictions saved. Enable new runs separately when ready.', 'installed-restrictions'); }}><fieldset disabled={props.locked}>
-          <PolicyFields title={item().name} profile={operator().profile} value={policy()} sourceResponseMax={installationSourceMax()} capabilities={allowedCapabilities()} profiles={allowedProfiles()} inferenceCeiling={operator().policy} onChange={setPolicy} />
+          <PolicyFields title={item().name} profile={operator().profile} value={policy()} sourceResponseMax={installationSourceMax()} capabilities={allowedCapabilities()} profiles={allowedProfiles()} inferenceCeiling={operator().policy} routes={props.choices?.managedRoutes} onChange={setPolicy} />
+          <div class="admin-form-grid">
+            <label class="admin-form-field"><span>Managed Gateway route</span>
+              <select aria-label={`${item().name} Managed Gateway route`} value={policy().inference?.defaultRouteId ?? ''}
+                disabled={!policy().inference} onChange={event => changeManagedSelection({ defaultRouteId: event.currentTarget.value || null })}>
+                <option value="">Not configured</option><For each={managedRoutes()}>{route => <option value={route.id}>{route.label}</option>}</For>
+                <Show when={policy().inference?.defaultRouteId && !managedRoute()}>
+                  <option value={policy().inference?.defaultRouteId ?? ''} disabled>{policy().inference?.defaultRouteId} · unavailable, retained</option>
+                </Show>
+              </select>
+              <small>Installation-only Gateway choice, not an account default. Choices intersect this manager's verified catalog and both policies; they do not guarantee eligibility for every execution owner. Missing choices never grant permission.</small>
+            </label>
+            <label class="admin-form-field"><span>Managed reasoning</span>
+              <select aria-label={`${item().name} Managed reasoning`} value={policy().inference?.defaultReasoningLevel ?? ''}
+                disabled={!policy().inference} onChange={event => changeManagedSelection({ defaultReasoningLevel: event.currentTarget.value ? event.currentTarget.value as api.PiReasoningLevel : null })}>
+                <option value="">Provider default</option><For each={managedLevels()}>{level => <option value={level}>{level.charAt(0).toUpperCase() + level.slice(1)}</option>}</For>
+                <Show when={policy().inference?.defaultReasoningLevel != null && !managedLevels().includes(policy().inference!.defaultReasoningLevel!)}>
+                  <option value={policy().inference?.defaultReasoningLevel ?? ''} disabled>{policy().inference?.defaultReasoningLevel} · unavailable, retained</option>
+                </Show>
+              </select>
+              <small>Provider default is distinct from Off. Changing the route never substitutes a reasoning level. Gateway choices are inactive when Native Pi is on; the separate Pi reasoning override below still applies.</small>
+            </label>
+          </div>
+          <Show when={!validManagedSelection()}><p role="status">The saved Gateway route or reasoning is unavailable under the current catalog and restrictions. Retained without substitution; {managedSelectionEdited() ? 'choose a compatible reasoning level and route, or clear them, before saving.' : 'unchanged choices can be retained when saving unrelated fields.'}</p></Show>
+          <Show when={!policy().inference}><p>Gateway choices require explicit existing inference permissions. Saving Native settings does not require a managed default.</p></Show>
           <label class="admin-form-field"><span>Pi reasoning</span><select aria-label={`${item().name} Pi reasoning`} value={piReasoningOverride() ?? ''} onChange={event => setPiReasoningOverride(event.currentTarget.value ? event.currentTarget.value as api.PiReasoningLevel : undefined)}>
             <option value="">Inherit Pi default</option><For each={api.piReasoningLevels}>{level => <option value={level}>{level.charAt(0).toUpperCase() + level.slice(1)}</option>}</For>
           </select><small>Native Pi inference keeps the execution owner's saved provider and model. An override must be supported by that model and the approved operator restrictions; unsupported levels, including Off, are rejected before execution. Saving disables new runs until explicitly re-enabled.</small></label>

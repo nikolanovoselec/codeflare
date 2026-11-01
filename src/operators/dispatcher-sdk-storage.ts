@@ -300,8 +300,15 @@ export async function handleDispatcherSdkCredentials(storage: DurableObjectStora
       // Preserve existing private R2 causal evidence, never SDK/vendor bodies,
       // raw causes or token echoes. Started SDK refresh has no late authority.
       if (storageFailure) throw storageFailure;
-      const category = error instanceof ModelsError && error.code === 'oauth' ? 'oauth' : 'auth';
-      throw new DispatcherSdkStorageError(403, `SDK authentication unavailable (${category})`);
+      const sdkCode = error instanceof ModelsError ? error.code : null;
+      const category = sdkCode === 'oauth' ? 'oauth' : 'auth';
+      // Keep only the public SDK code and this operation's own bounded deadline
+      // state, never SDK messages/causes with credential-bearing response bodies.
+      const requestAborted = io.signal.aborted;
+      const abortReason = requestAborted ? 'timeout' : null;
+      throw new DispatcherSdkStorageError(403, `SDK authentication unavailable (${category})`, {
+        cause: { sdkCode, requestAborted, abortReason },
+      });
     }
     await selectionCurrent();
     const latest = await snapshot();

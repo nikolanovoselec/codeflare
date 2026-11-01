@@ -37,7 +37,7 @@ export function parseNativeOperatorInference(value: unknown): NativeOperatorInfe
   return parsed.data;
 }
 
-class OperatorInferenceSelectionError extends Error {
+export class OperatorInferenceSelectionError extends Error {
   constructor(public readonly code: 'SOURCE_NOT_ELIGIBLE' | 'ROUTE_NOT_ELIGIBLE' | 'ROUTE_SELECTION_REQUIRED' | 'REASONING_NOT_ELIGIBLE', message: string) {
     super(message);
     this.name = 'OperatorInferenceSelectionError';
