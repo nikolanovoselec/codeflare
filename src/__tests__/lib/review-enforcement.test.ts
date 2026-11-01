@@ -1206,21 +1206,55 @@ describe('Pi marker-or-dialog review ingress', () => {
     ]);
   });
 
-  it('preserves review-owned Goal pause and releases it only after acknowledged FIX handoff', async () => {
+  it.each(['active', 'paused', 'blocked', 'complete'] as const)(
+    'REQ-AGENT-112/113: preserves %s Goal state through review and FIX', async (status) => {
+      const input = fixture();
+      const goal = { id: 'goal-1', status };
+      append(input.sessionFile, { type: 'custom', customType: 'goal-state', data: { goal } });
+      const currentGoal = () => readFileSync(input.sessionFile, 'utf8').split('\n').filter(Boolean)
+        .map((line) => JSON.parse(line)).filter((entry) => entry.customType === 'goal-state').at(-1)?.data.goal;
+      const app = await harness(input, []);
+      await app.emit('tool_result', boundary('git push origin feature', 'push-goal'));
+      await app.emit('agent_end');
+      expect(currentGoal()).toEqual(goal);
+
+      appendSuccessfulRound(input, app.sent[0]!.details?.requiredLanes as ReviewLane[], 'goal');
+      await app.emit('agent_end');
+
+      expect(currentGoal()).toEqual(goal);
+      expect(app.sent.map((message) => message.customType)).toEqual([
+        'pr-boundary-launch-plan',
+        'pr-boundary-fix-follow-up',
+      ]);
+      expect(readCompletion(input.identity, { root: join(input.home, '.codeflare/review-state/v1') }).status).toBe('complete');
+    },
+  );
+
+  it.each(['active', 'paused'] as const)(
+    'REQ-AGENT-117: leaves %s Goal untouched when restoring legacy review pause data', async (status) => {
+      const input = fixture();
+      const goal = { id: 'goal-legacy', status };
+      append(input.sessionFile,
+        { type: 'custom', customType: 'goal-state', data: { goal } },
+        { type: 'custom', customType: 'pr-boundary-goal-pause', data: { head: input.head, goalId: goal.id } },
+      );
+      const app = await harness(input, []);
+      await app.emit('session_start');
+      await app.emit('agent_end');
+      const restoredGoal = readFileSync(input.sessionFile, 'utf8').split('\n').filter(Boolean)
+        .map((line) => JSON.parse(line)).filter((entry) => entry.customType === 'goal-state').at(-1)?.data.goal;
+      expect(restoredGoal).toEqual(goal);
+      expect(app.sent).toEqual([]);
+    },
+  );
+
+  it('REQ-AGENT-112/113: delivers review and FIX without Goal installed', async () => {
     const input = fixture();
-    append(input.sessionFile, { type: 'custom', customType: 'goal-state', data: { goal: { id: 'goal-1', status: 'active' } } });
-    const app = await harness(input, []);
-    await app.emit('tool_result', boundary('git push origin feature', 'push-goal'));
+    const app = await harness(input, [], { goalControlAvailable: false });
+    await app.emit('tool_result', boundary('git push origin feature', 'push-no-goal'));
     await app.emit('agent_end');
-
-    const pause = readFileSync(input.sessionFile, 'utf8').split('\n').filter(Boolean)
-      .map((line) => JSON.parse(line)).filter((entry) => entry.customType === 'pr-boundary-goal-pause').at(-1);
-    expect(pause.data).toEqual({ head: input.head, goalId: 'goal-1' });
-
-    appendSuccessfulRound(input, app.sent[0]!.details?.requiredLanes as ReviewLane[], 'goal');
+    appendSuccessfulRound(input, app.sent[0]!.details?.requiredLanes as ReviewLane[], 'no-goal');
     await app.emit('agent_end');
-
-    expect(app.goalActions).toEqual(['pause', 'resume']);
     expect(app.sent.map((message) => message.customType)).toEqual([
       'pr-boundary-launch-plan',
       'pr-boundary-fix-follow-up',
@@ -1228,31 +1262,28 @@ describe('Pi marker-or-dialog review ingress', () => {
     expect(readCompletion(input.identity, { root: join(input.home, '.codeflare/review-state/v1') }).status).toBe('complete');
   });
 
-  it('keeps launch and FIX fail-open while clearing unavailable or manually resumed Goal ownership', async () => {
-    const unavailable = fixture();
-    append(unavailable.sessionFile, { type: 'custom', customType: 'goal-state', data: { goal: { id: 'goal-1', status: 'active' } } });
-    const unavailableApp = await harness(unavailable, [], { goalControlAvailable: false });
-    await unavailableApp.emit('tool_result', boundary('git push origin feature', 'push-goal-unavailable'));
-    await unavailableApp.emit('agent_end');
-    appendSuccessfulRound(unavailable, unavailableApp.sent[0]!.details?.requiredLanes as ReviewLane[], 'goal-unavailable');
-    await unavailableApp.emit('agent_end');
-    expect(unavailableApp.sent.map((message) => message.customType)).toEqual([
-      'pr-boundary-launch-plan',
-      'pr-boundary-fix-follow-up',
-    ]);
-    expect(unavailableApp.goalActions).toEqual([]);
-
-    const resumed = fixture();
-    append(resumed.sessionFile, { type: 'custom', customType: 'goal-state', data: { goal: { id: 'goal-2', status: 'active' } } });
-    const resumedApp = await harness(resumed, []);
-    await resumedApp.emit('tool_result', boundary('git push origin feature', 'push-goal-resumed'));
-    await resumedApp.emit('agent_end');
-    append(resumed.sessionFile, { type: 'custom', customType: 'goal-state', data: { goal: { id: 'goal-2', status: 'active' } } });
-    appendSuccessfulRound(resumed, resumedApp.sent[0]!.details?.requiredLanes as ReviewLane[], 'goal-resumed');
-    await resumedApp.emit('agent_end');
-    expect(resumedApp.goalActions).toEqual(['pause']);
-    expect(resumedApp.sent.at(-1)?.customType).toBe('pr-boundary-fix-follow-up');
-  });
+  it.each(['fix', 'abandon', 'close'] as const)(
+    'REQ-AGENT-113: preserves a user-paused Goal during review %s cleanup', async (ending) => {
+      const input = fixture();
+      const goal = { id: 'goal-user', status: 'active' };
+      append(input.sessionFile, { type: 'custom', customType: 'goal-state', data: { goal } });
+      const app = await harness(input, []);
+      await app.emit('tool_result', boundary('git push origin feature', 'push-user-goal'));
+      await app.emit('agent_end');
+      const paused = { ...goal, status: 'paused' };
+      append(input.sessionFile, { type: 'custom', customType: 'goal-state', data: { goal: paused } });
+      if (ending === 'fix') {
+        appendSuccessfulRound(input, app.sent[0]!.details?.requiredLanes as ReviewLane[], 'user-paused');
+      } else if (ending === 'close') {
+        input.pr.state = 'CLOSED';
+      }
+      await app.emit('agent_end');
+      const actualGoal = readFileSync(input.sessionFile, 'utf8').split('\n').filter(Boolean)
+        .map((line) => JSON.parse(line)).filter((entry) => entry.customType === 'goal-state').at(-1)?.data.goal;
+      expect(actualGoal).toEqual(paused);
+      if (ending === 'fix') expect(app.sent.at(-1)?.customType).toBe('pr-boundary-fix-follow-up');
+    },
+  );
 
   it('clears stopped work without a recovery message or marker', async () => {
     const input = fixture();

@@ -436,25 +436,19 @@ The former REQ-AGENT-131 Usage installation and warming workflow is retired. [Re
 
 ---
 
-### REQ-AGENT-112: Goal Pause Ownership Across PR Heads
+<a id="req-agent-112-goal-pause-ownership-across-pr-heads"></a>
+### REQ-AGENT-112: Goal-independent PR review
 
-**Intent:** Reviewer-bearing PR boundaries must not pause a Pi Goal unless its release ownership is recoverable.
+**Intent:** PR review must not own or change Goal's lifecycle.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. A reviewer-bearing boundary records ownership before pausing one active Goal. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::pauseGoalForReview --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (preserves review-owned Goal pause and releases it only after acknowledged FIX handoff) -->
-2. Ownership persistence failure leaves the Goal active while review proceeds. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::pauseGoalForReview --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (preserves review-owned Goal pause and releases it only after acknowledged FIX handoff) -->
-3. Repeated handling of one boundary does not issue another pause request. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::pauseGoalForReview --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (preserves review-owned Goal pause and releases it only after acknowledged FIX handoff) -->
-4. A replacement PR head transfers existing pause ownership without pausing again. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::pauseGoalForReview --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::releaseReviewGoalPause --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (preserves review-owned Goal pause and releases it only after acknowledged FIX handoff) -->
-5. Failure to persist replacement-head ownership requests rollback resume. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::pauseGoalForReview --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::releaseReviewGoalPause --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (preserves review-owned Goal pause and releases it only after acknowledged FIX handoff) -->
-6. Successful rollback clears stale review ownership. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::pauseGoalForReview --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::releaseReviewGoalPause --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (preserves review-owned Goal pause and releases it only after acknowledged FIX handoff) -->
-7. Failed rollback retains recoverable ownership for the replacement review's release. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::pauseGoalForReview --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::releaseReviewGoalPause --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (preserves review-owned Goal pause and releases it only after acknowledged FIX handoff) -->
+1. Launching a reviewer-bearing boundary preserves the current Goal identity and state, including an active Goal. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-112/113: preserves %s Goal state through review and FIX) -->
+2. Review launch and FIX delivery work without Goal installed or available. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-112/113: delivers review and FIX without Goal installed) -->
 
-**Constraints:**
-
-- Once ownership is recorded, the exact persisted paused Goal confirms it even when the bridge response is unavailable. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::pauseGoalForReview -->
+**Constraints:** Existing reviewer, exact-head CI, triage and completion gates remain independent of Goal.
 
 **Priority:** P1
 
@@ -466,25 +460,19 @@ The former REQ-AGENT-131 Usage installation and warming workflow is retired. [Re
 
 ---
 
-### REQ-AGENT-113: Review-owned Goal Release
+<a id="req-agent-113-review-owned-goal-release"></a>
+### REQ-AGENT-113: Goal-independent review completion
 
-**Intent:** Review completion must release only the Goal pause owned by the applicable PR boundary.
+**Intent:** Review completion and cleanup must not resume or replace a Goal.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. The matching acknowledged FIX follow-up resumes a review-owned Goal. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::releaseReviewGoalPause --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::sendFixFollowUp --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (preserves review-owned Goal pause and releases it only after acknowledged FIX handoff) --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (keeps launch and FIX fail-open while clearing unavailable or manually resumed Goal ownership) -->
-2. CI notifications do not resume a review-owned Goal. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::releaseReviewGoalPause --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (preserves review-owned Goal pause and releases it only after acknowledged FIX handoff) --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (keeps launch and FIX fail-open while clearing unavailable or manually resumed Goal ownership) -->
-3. Individual reviewer notifications do not resume a review-owned Goal. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::releaseReviewGoalPause --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (preserves review-owned Goal pause and releases it only after acknowledged FIX handoff) --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (keeps launch and FIX fail-open while clearing unavailable or manually resumed Goal ownership) -->
-4. Goal-control unavailability never blocks review launch or FIX delivery. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::requestGoalControl --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::pauseGoalForReview --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::releaseReviewGoalPause --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (preserves review-owned Goal pause and releases it only after acknowledged FIX handoff) --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (keeps launch and FIX fail-open while clearing unavailable or manually resumed Goal ownership) -->
-5. A replacement Goal is not resumed from stale review ownership. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::releaseReviewGoalPause --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (preserves review-owned Goal pause and releases it only after acknowledged FIX handoff) --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (keeps launch and FIX fail-open while clearing unavailable or manually resumed Goal ownership) -->
-6. An independently reactivated owned Goal is not resumed again. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::releaseReviewGoalPause --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (preserves review-owned Goal pause and releases it only after acknowledged FIX handoff) --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (keeps launch and FIX fail-open while clearing unavailable or manually resumed Goal ownership) -->
-7. PR closure releases a matching review-owned pause without blocking closure handling. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::releaseReviewGoalPause --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (preserves review-owned Goal pause and releases it only after acknowledged FIX handoff) --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (keeps launch and FIX fail-open while clearing unavailable or manually resumed Goal ownership) -->
+1. Acknowledged FIX delivery preserves the current Goal identity and state. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::sendFixFollowUp --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-112/113: preserves %s Goal state through review and FIX) -->
+2. FIX, abandoned review work and PR closure preserve an explicit user pause. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-113: preserves a user-paused Goal during review %s cleanup) -->
 
-**Constraints:**
-
-- PR enforcement never depends on Goal availability.
+**Constraints:** Review completion does not invoke Goal control or depend on Goal availability.
 
 **Priority:** P1
 
@@ -496,49 +484,43 @@ The former REQ-AGENT-131 Usage installation and warming workflow is retired. [Re
 
 ---
 
-### REQ-AGENT-114: Review-owned Goal Continuation
+<a id="req-agent-114-review-owned-goal-continuation"></a>
+### REQ-AGENT-114: Review and Goal continuation separation
 
-**Intent:** Releasing a review-owned Goal must produce exactly the continuation appropriate to the release trigger.
+**Intent:** Review's FIX follow-up and explicit Goal-control continuations remain separate.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. Bridge-controlled resume suppresses Goal's separate continuation prompt. <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchPiGoalSource --> <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchPiGoalLifecycleSource --> <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchPiGoalCommandsSource --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-114: suppresses only the bridge-owned resume prompt) -->
-2. The FIX follow-up owns the continuation turn after FIX-triggered resume. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::sendFixFollowUp --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::releaseReviewGoalPause --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (preserves review-owned Goal pause and releases it only after acknowledged FIX handoff) -->
-3. FIX-triggered continuation does not populate user input. <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchPiGoalSource --> <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchPiGoalLifecycleSource --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::sendFixFollowUp --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-114: suppresses only the bridge-owned resume prompt) -->
-4. Closure-triggered release schedules no continuation turn. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::releaseReviewGoalPause --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (preserves review-owned Goal pause and releases it only after acknowledged FIX handoff) -->
+1. Explicit bridge-controlled resume retains its existing suppression of a separate Goal continuation prompt. <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchPiGoalCommandsSource --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-114: suppresses only the bridge-owned resume prompt) -->
+2. Review completion delivers its FIX follow-up without resuming Goal. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::sendFixFollowUp --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-112/113: preserves %s Goal state through review and FIX) -->
+3. Review cleanup does not schedule a Goal continuation. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-113: preserves a user-paused Goal during review %s cleanup) -->
 
-**Constraints:**
-
-- Managed Run RPC remains disabled for review-owned Goal control.
+**Constraints:** Native Goal commands and their compatibility transform remain unchanged; PR review no longer invokes that control channel.
 
 **Priority:** P1
 
 **Dependencies:** [REQ-AGENT-113](#req-agent-113-review-owned-goal-release)
 
-**Verification:** Patched-controller and review-enforcement behavioral tests
+**Verification:** Existing patched-controller and review-enforcement behavioral tests
 
 **Status:** Implemented
 
 ---
 
-### REQ-AGENT-117: Non-disruptive review-owned Goal control
+<a id="req-agent-117-non-disruptive-review-owned-goal-control"></a>
+### REQ-AGENT-117: Goal-independent review restoration
 
-**Intent:** Optional Goal pause and release must not interrupt the PR-boundary turn or its background review work.
+**Intent:** Restoring review state must not change Goal state.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. A reviewer-bearing boundary emits its launch plan before any Goal pause request. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::sendLaunchMessage --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::pauseGoalForReview --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (preserves review-owned Goal pause and releases it only after acknowledged FIX handoff) -->
-2. The successful boundary operation completes before any Goal pause request. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::sendLaunchMessage --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::pauseGoalForReview --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (preserves review-owned Goal pause and releases it only after acknowledged FIX handoff) -->
-3. Exactly one owned Goal pause settles before the queued launch-plan turn begins. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::sendLaunchMessage --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::pauseGoalForReview --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (preserves review-owned Goal pause and releases it only after acknowledged FIX handoff) -->
-4. Missing Goal control does not block review launch. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::requestGoalControl --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::pauseGoalForReview --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::releaseReviewGoalPause --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (preserves review-owned Goal pause and releases it only after acknowledged FIX handoff) -->
-5. Missing Goal control after review does not block FIX delivery. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::requestGoalControl --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::pauseGoalForReview --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::releaseReviewGoalPause --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (preserves review-owned Goal pause and releases it only after acknowledged FIX handoff) -->
-6. A manual resume that wins a release request clears stale ownership without reporting failure. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::releaseReviewGoalPause --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::pauseGoalForReview --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (preserves review-owned Goal pause and releases it only after acknowledged FIX handoff) -->
+1. Session startup ignores legacy review-owned pause records for Goal control and preserves both active and explicitly paused Goals. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-117: leaves %s Goal untouched when restoring legacy review pause data) -->
 
-**Constraints:** A failure in review-owned Goal pause control cannot block review or CI work.
+**Constraints:** Historical session records are not rewritten and no automatic Goal resume is introduced.
 
 **Priority:** P1
 

@@ -4,6 +4,8 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-11-01
 
+- Decouple PR review from Goal lifecycle: launch, FIX, cleanup and restoration no longer pause or resume Goal ([REQ-AGENT-112](agents.md#req-agent-112-goal-independent-pr-review), [113](agents.md#req-agent-113-goal-independent-review-completion), [114](agents.md#req-agent-114-review-and-goal-continuation-separation), [117](agents.md#req-agent-117-goal-independent-review-restoration)). Preserve review/CI/triage gates, explicit user pauses and native Goal behavior.
+
 - Give Pi AST build and refresh a ten-minute default process timeout while retaining explicit timeout overrides, resource bounds and failure propagation ([REQ-AGENT-023](agents.md#req-agent-023-knowledge-graph-capability-graphify)).
 
 - Default Pi context-mode to disabled at each container start while retaining explicit `/ctx on|off` and reload persistence ([REQ-AGENT-076](agents.md#req-agent-076-pi-context-mode-enablement-and-tool-extension-defaults)). Bake upstream Fast/Ultrafast controls, preserve user mode/authentication, and migrate only the known recovery registration ([REQ-AGENT-224](agents.md#req-agent-224-pi-fast-and-ultrafast-controls)). CI, image deployment and subsequent signed curation publication remain required.
