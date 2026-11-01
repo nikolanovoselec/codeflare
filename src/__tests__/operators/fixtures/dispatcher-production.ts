@@ -51,6 +51,7 @@ vi.mock('../../../lib/access', async original => ({ ...await original<typeof imp
   resolveSessionAccessGroup: async () => [],
   operatorAccessSessionCurrent: async () => callerSessionCurrent,
   loadEnterpriseRouteConfig: async () => ({ routeCatalog: [callerRoute], defaultRoute: callerRoute, defaultReasoning: callerReasoning,
+    routeContextWindows: {},
     ...(nativeProfileFiles.size ? { piDefaultSource: 'pi-native', allowPersonalPiProviders: true } : {}) }),
 }));
 vi.mock('../../../lib/aig-config', () => ({ getAigConfig: async () => ({ gatewayUrl: 'https://gateway.example.test', token: 'parent-only' }) }));

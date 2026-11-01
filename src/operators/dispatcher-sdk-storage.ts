@@ -206,6 +206,69 @@ function oauthCredential(value: unknown): Credential {
   return value as unknown as Credential;
 }
 
+/** Closed private evidence from Pi AI 1.4; never retain SDK/vendor text. */
+function sdkAuthFailure(error: unknown, providerId: string) {
+  const own = (value: unknown, key: string): unknown => {
+    try {
+      if (value === null || typeof value !== 'object') return undefined;
+      const descriptor = Object.getOwnPropertyDescriptor(value, key);
+      return descriptor && Object.hasOwn(descriptor, 'value') ? descriptor.value : undefined;
+    } catch { return undefined; }
+  };
+  let sdkCode: 'model_source' | 'model_validation' | 'provider' | 'stream' | 'auth' | 'oauth' | null = null;
+  try {
+    if (error instanceof ModelsError) {
+      const code = own(error, 'code');
+      if (code === 'model_source' || code === 'model_validation' || code === 'provider'
+        || code === 'stream' || code === 'auth' || code === 'oauth') sdkCode = code;
+    }
+  } catch { /* Uninspectable exceptions remain unclassified. */ }
+  let sdkStage: 'refresh' | 'derivation' | null = null;
+  const message = own(error, 'message');
+  if (sdkCode === 'oauth' && typeof message === 'string') {
+    // ModelsError appends cause detail after the SDK-owned template.
+    for (const stage of ['refresh', 'derivation'] as const) {
+      const prefix = stage === 'refresh' ? `OAuth refresh failed for ${providerId}`
+        : `OAuth auth derivation failed for ${providerId}`;
+      if (message === prefix || message.startsWith(`${prefix}: `)) sdkStage = stage;
+    }
+  }
+  const cause = own(error, 'cause');
+  const exception = sdkStage ? cause : error;
+  let exceptionCategory: 'unknown' | 'error' | 'timeout' | 'abort' = 'unknown';
+  let nativeName: unknown;
+  try {
+    // DOMException.name is a native accessor, not an application getter.
+    nativeName = Object.getOwnPropertyDescriptor(DOMException.prototype, 'name')?.get?.call(exception);
+  } catch { /* Other causes do not pass the native DOMException brand check. */ }
+  try {
+    const name = nativeName ?? own(exception, 'name');
+    if (name === 'TimeoutError') exceptionCategory = 'timeout';
+    else if (name === 'AbortError') exceptionCategory = 'abort';
+    else if (typeof nativeName === 'string' || exception instanceof Error) exceptionCategory = 'error';
+  } catch { /* Proxies cannot replace the functional refusal. */ }
+  let httpStatus: number | null = null;
+  let oauthError: 'invalid_request' | 'invalid_client' | 'invalid_grant' | 'unauthorized_client'
+    | 'unsupported_grant_type' | 'invalid_scope' | null = null;
+  const detail = own(cause, 'message');
+  // Only the pinned SDK's HTTP formatter is recognized. Limit parsing, not I/O;
+  // no body, arbitrary exception code, or provider-specific error is retained.
+  if (sdkStage === 'refresh' && typeof detail === 'string') {
+    const match = /^OpenAI OAuth token request failed \(([45][0-9]{2})\): /.exec(detail);
+    if (match) {
+      httpStatus = Number(match[1]);
+      try {
+        // A large HTML/JSON error body must not hide its safe HTTP status.
+        // Only bounded suffixes are parsed for the optional standard code.
+        const code = detail.length <= 8192 ? own(JSON.parse(detail.slice(match[0].length)), 'error') : undefined;
+        if (code === 'invalid_request' || code === 'invalid_client' || code === 'invalid_grant'
+          || code === 'unauthorized_client' || code === 'unsupported_grant_type' || code === 'invalid_scope') oauthError = code;
+      } catch { /* Unknown/non-JSON bodies supply no OAuth classification. */ }
+    }
+  }
+  return { sdkCode, sdkStage, exceptionCategory, httpStatus, oauthError };
+}
+
 /** Serialized by the existing bucket-owner metadata DO, never a user Host. */
 export async function handleDispatcherSdkCredentials(storage: DurableObjectStorage, env: Env,
   scope: SdkStorageScope, body: unknown, authority: SdkCredentialAuthority,
@@ -300,14 +363,13 @@ export async function handleDispatcherSdkCredentials(storage: DurableObjectStora
       // Preserve existing private R2 causal evidence, never SDK/vendor bodies,
       // raw causes or token echoes. Started SDK refresh has no late authority.
       if (storageFailure) throw storageFailure;
-      const sdkCode = error instanceof ModelsError ? error.code : null;
-      const category = sdkCode === 'oauth' ? 'oauth' : 'auth';
-      // Keep only the public SDK code and this operation's own bounded deadline
-      // state, never SDK messages/causes with credential-bearing response bodies.
+      const evidence = sdkAuthFailure(error, selected.defaultProvider);
+      const category = evidence.sdkCode === 'oauth' ? 'oauth' : 'auth';
+      // Own-signal state does not exclude the SDK's independent refresh timeout.
       const requestAborted = io.signal.aborted;
       const abortReason = requestAborted ? 'timeout' : null;
       throw new DispatcherSdkStorageError(403, `SDK authentication unavailable (${category})`, {
-        cause: { sdkCode, requestAborted, abortReason },
+        cause: { ...evidence, requestAborted, abortReason },
       });
     }
     await selectionCurrent();

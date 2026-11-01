@@ -10,6 +10,7 @@ import { getAigConfig } from '../lib/aig-config';
 import { isDisallowedEgressHost } from '../lib/controller-egress';
 import { isEnterpriseMode } from '../lib/subscription';
 import { SETUP_KEYS } from '../lib/kv-keys';
+import { DEFAULT_ROUTE_CONTEXT_WINDOW } from '../lib/constants';
 import { authorizeDispatcherPlan, type createDispatcherOperation } from './operator-runtime-capability';
 import { DispatcherRefusal } from './dispatcher-refusal';
 import { emitRaw } from '../../host/src/operator-raw-logging';
@@ -66,7 +67,12 @@ export async function readDispatcherSdkConfiguration(input: SdkInput): Promise<R
         models: { providers: { 'codeflare-gateway': { baseUrl: 'https://api.openai.com/v1',
           api: 'openai-completions', apiKey: 'codeflare-enterprise',
           compat: { supportsDeveloperRole: false, supportsReasoningEffort: true },
-          models: [{ id: routeId, name: routeId, reasoning: true }] } } },
+          // Match the existing platform-managed Pi model limits (entrypoint.sh).
+          // Missing limits otherwise leave the App's 0/0 metadata, which the SDK
+          // clamps to a one-token generation when no caller limit is supplied.
+          models: [{ id: routeId, name: routeId, reasoning: true,
+            contextWindow: owner.routeContextWindows[routeId] ?? DEFAULT_ROUTE_CONTEXT_WINDOW,
+            maxTokens: 16384 }] } } },
         ...(input.plan.configuredSelection ? { selection: input.plan.configuredSelection } : {}) };
       await sameOwner(input, owner);
       return configuration;

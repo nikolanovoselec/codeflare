@@ -534,7 +534,7 @@ describe('REQ-OPERATOR-007/049/075: installation Gateway selection', () => {
     { id: 'cheap', label: 'Cheaper route', reasoningLevels: ['off', 'low'] },
     { id: 'off-only', label: 'Off-only route', reasoningLevels: ['off'] },
   ] satisfies NonNullable<ManagementChoices['managedRoutes']>;
-  function fixture(input: { missing?: boolean; levelsMissing?: boolean; savedRoute?: string | null; savedLevel?: 'low' | null; allGranted?: boolean } = {}) {
+  function fixture(input: { missing?: boolean; levelsMissing?: boolean; savedRoute?: string | null; savedLevel?: 'low' | null; allGranted?: boolean; choicesGate?: Promise<void> } = {}) {
     const inference: NonNullable<ManagementPolicy['inference']> = {
       allowedSources: ['managed', 'pi-native'], routeIds: input.allGranted ? ['opus', 'cheap', 'off-only']
         : input.savedRoute === 'retired-route' ? ['opus', 'retired-route'] : ['opus'],
@@ -551,7 +551,10 @@ describe('REQ-OPERATOR-007/049/075: installation Gateway selection', () => {
     let failure = 0;
     vi.stubGlobal('fetch', vi.fn((inputUrl: string, init?: RequestInit) => {
       const url = new URL(inputUrl, window.location.origin);
-      if (url.pathname.endsWith('/options')) return Promise.resolve(json({ ...choices, ...(input.missing ? {} : { managedRoutes: input.levelsMissing ? routes.map(route => route.id === 'opus' ? { ...route, reasoningLevels: ['minimal'] } : route) : routes }) }));
+      if (url.pathname.endsWith('/options')) {
+        const response = () => json({ ...choices, ...(input.missing ? {} : { managedRoutes: input.levelsMissing ? routes.map(route => route.id === 'opus' ? { ...route, reasoningLevels: ['minimal'] } : route) : routes }) });
+        return input.choicesGate ? input.choicesGate.then(response) : Promise.resolve(response());
+      }
       if (url.pathname.endsWith('/capabilities') && init?.method === 'POST') {
         const { revision, ...changes } = JSON.parse(String(init.body));
         if (revision !== currentOperator.revision) return Promise.resolve(json({ error: 'Conflict' }, 409));
@@ -593,6 +596,34 @@ describe('REQ-OPERATOR-007/049/075: installation Gateway selection', () => {
     return open();
   }
   const save = () => fireEvent.click(screen.getByRole('button', { name: 'Save restrictions for test' }));
+
+  it.each(['low', null] as const)('displays persisted route and reasoning %s when choices arrive after the installation without changing saved values', async level => {
+    let releaseChoices!: () => void;
+    const choicesGate = new Promise<void>(resolve => { releaseChoices = resolve; });
+    fixture({ choicesGate, savedLevel: level });
+    render(() => <OperatorManagement />);
+    const route = await open();
+    const reasoning = () => screen.getByRole('combobox', { name: 'test Managed reasoning' });
+    expect(route).toHaveValue('opus');
+    expect(reasoning()).toHaveValue(level ?? '');
+    expect(screen.getByRole('button', { name: 'Save restrictions for test' })).toBeDisabled();
+    const before = await getManagedOperator(operator.id);
+    releaseChoices();
+    await screen.findByRole('option', { name: 'Opus' });
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Save restrictions for test' })).toBeEnabled());
+    expect(route).toHaveValue('opus');
+    expect(reasoning()).toHaveValue(level ?? '');
+    save();
+    await screen.findByText(/Restrictions saved\. Enable new runs separately/);
+    const read = await getManagedOperator(operator.id);
+    expect(read.installations[0]).toMatchObject({ policy: before.installations[0].policy,
+      configuration: before.installations[0].configuration, piReasoningOverride: 'low', enabled: false });
+    expect(read.installations[1]).toEqual(before.installations[1]);
+    expect(read.operator).toEqual(before.operator);
+    expect(read.grants).toEqual(before.grants);
+    expect(await reopen()).toHaveValue('opus');
+    expect(reasoning()).toHaveValue(level ?? '');
+  });
 
   it('saves an explicit per-installation route independently, preserving Native Low, grants and configuration on server readback and reopen', async () => {
     fixture({ allGranted: true, savedRoute: null, savedLevel: null });

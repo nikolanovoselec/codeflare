@@ -71,8 +71,8 @@ export async function dispatcherSdkOwnerContext(input: Input, selection?: Config
   if (managed && !routes.routeCatalog.includes(managed.routeId)) throw new Error('Owner managed route unavailable');
   if (Date.now() >= plan.deadline || input.signal?.aborted || !await input.current()) throw new Error('Owner inference expired');
   return { bucket, email: authority.human.email.trim().toLowerCase(), authority, groups, source,
-    ownerKey: await operatorOwnerKey(authority.human), managed, deadline: plan.deadline,
-    reasoningOverride };
+    ownerKey: await operatorOwnerKey(authority.human), managed, routeContextWindows: routes.routeContextWindows,
+    deadline: plan.deadline, reasoningOverride };
 }
 
 async function ownerContext(input: Input, selection?: ConfiguredDispatcherInference) {

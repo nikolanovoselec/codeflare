@@ -747,9 +747,9 @@ const OperatorDetail: Component<{ detail: api.ManagementDetail; choices?: api.Ma
             <label class="admin-form-field"><span>Managed Gateway route</span>
               <select aria-label={`${item().name} Managed Gateway route`} value={policy().inference?.defaultRouteId ?? ''}
                 disabled={!policy().inference} onChange={event => changeManagedSelection({ defaultRouteId: event.currentTarget.value || null })}>
-                <option value="">Not configured</option><For each={managedRoutes()}>{route => <option value={route.id}>{route.label}</option>}</For>
+                <option value="" selected={!policy().inference?.defaultRouteId}>Not configured</option><For each={managedRoutes()}>{route => <option value={route.id} selected={policy().inference?.defaultRouteId === route.id}>{route.label}</option>}</For>
                 <Show when={policy().inference?.defaultRouteId && !managedRoute()}>
-                  <option value={policy().inference?.defaultRouteId ?? ''} disabled>{policy().inference?.defaultRouteId} · unavailable, retained</option>
+                  <option value={policy().inference?.defaultRouteId ?? ''} selected disabled>{policy().inference?.defaultRouteId} · unavailable, retained</option>
                 </Show>
               </select>
               <small>Installation-only Gateway choice, not an account default. Choices intersect this manager's verified catalog and both policies; they do not guarantee eligibility for every execution owner. Missing choices never grant permission.</small>
@@ -757,9 +757,9 @@ const OperatorDetail: Component<{ detail: api.ManagementDetail; choices?: api.Ma
             <label class="admin-form-field"><span>Managed reasoning</span>
               <select aria-label={`${item().name} Managed reasoning`} value={policy().inference?.defaultReasoningLevel ?? ''}
                 disabled={!policy().inference} onChange={event => changeManagedSelection({ defaultReasoningLevel: event.currentTarget.value ? event.currentTarget.value as api.PiReasoningLevel : null })}>
-                <option value="">Provider default</option><For each={managedLevels()}>{level => <option value={level}>{level.charAt(0).toUpperCase() + level.slice(1)}</option>}</For>
+                <option value="" selected={policy().inference?.defaultReasoningLevel == null}>Provider default</option><For each={managedLevels()}>{level => <option value={level} selected={policy().inference?.defaultReasoningLevel === level}>{level.charAt(0).toUpperCase() + level.slice(1)}</option>}</For>
                 <Show when={policy().inference?.defaultReasoningLevel != null && !managedLevels().includes(policy().inference!.defaultReasoningLevel!)}>
-                  <option value={policy().inference?.defaultReasoningLevel ?? ''} disabled>{policy().inference?.defaultReasoningLevel} · unavailable, retained</option>
+                  <option value={policy().inference?.defaultReasoningLevel ?? ''} selected disabled>{policy().inference?.defaultReasoningLevel} · unavailable, retained</option>
                 </Show>
               </select>
               <small>Provider default is distinct from Off. Changing the route never substitutes a reasoning level. Gateway choices are inactive when Native Pi is on; the separate Pi reasoning override below still applies.</small>

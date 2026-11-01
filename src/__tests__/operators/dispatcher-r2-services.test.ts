@@ -2,6 +2,9 @@
 import { describe, expect, it, vi } from 'vitest';
 import { env, runInDurableObject } from 'cloudflare:test';
 import { inspect } from 'node:util';
+import { createModels, createProvider } from '@earendil-works/pi-ai';
+import { openAICompletionsApi } from '@earendil-works/pi-ai/api/openai-completions.lazy';
+import { DEFAULT_ROUTE_CONTEXT_WINDOW } from '../../lib/constants';
 import type { Env } from '../../types';
 // Register the fixture's existing Access boundary before any production importer.
 import {
@@ -565,7 +568,7 @@ describe('REQ-OPERATOR-007/047/048/058: owner R2 configured-service HTTP contrac
       const vendorMessage = `PRIVATE_VENDOR_RENEWAL_MESSAGE ${canary} ${oldOAuth.refresh}`;
       const vendorCause = `PRIVATE_VENDOR_NESTED_CAUSE ${oldOAuth.access}`;
       oauthBoundary(async () => Response.json({ error: 'invalid_grant', error_description: vendorMessage,
-        cause: { message: vendorCause, cause: { token: other.key } } }, { status: 401 }));
+        cause: { message: vendorCause, cause: { token: other.key } } }, { status: 400 }));
       await denied(await read(f), [403]);
       expect(store.value(authKey)).toEqual(saved);
       for (const evidence of [await f.activity.getBrowserDetail(), await diagnosticTraversal(diagnosticsBrowser(f))]) {
@@ -586,9 +589,10 @@ describe('REQ-OPERATOR-007/047/048/058: owner R2 configured-service HTTP contrac
       const failure = failures.find(value => value.message === 'SDK authentication unavailable (oauth)');
       expect(failure).toMatchObject({ status: 403, message: 'SDK authentication unavailable (oauth)' });
       // Exact closed cause excludes raw SDK messages and recursively retained causes.
-      expect(failure?.cause).toEqual({ sdkCode: 'oauth', requestAborted: false, abortReason: null });
+      expect(failure?.cause).toEqual({ sdkCode: 'oauth', sdkStage: 'refresh', exceptionCategory: 'error',
+        httpStatus: 400, oauthError: 'invalid_grant', requestAborted: false, abortReason: null });
       expect(logged).toContain('SDK authentication unavailable (oauth)');
-      expect(logged).not.toContain('invalid_grant');
+      expect(logged).toContain('invalid_grant');
       expect(logged).not.toContain('PRIVATE_VENDOR_RENEWAL_MESSAGE');
       expect(logged).not.toContain('PRIVATE_VENDOR_NESTED_CAUSE');
       expect(logged).not.toContain(vendorMessage);
@@ -596,6 +600,102 @@ describe('REQ-OPERATOR-007/047/048/058: owner R2 configured-service HTTP contrac
       for (const secret of [canary, oldOAuth.access, oldOAuth.refresh, other.key]) expect(logged).not.toContain(secret);
     } finally { setLogLevel('silent'); spies.forEach(spy => spy.mockRestore()); }
   }));
+
+  // REQ-007 private OAuth failure wire + REQ-090 existing admitted capture:
+  // public SDK refresh and real protected RPC, replacing only external HTTP.
+  it.each([
+    { label: 'HTTP403 vendor body', kind: 'http', httpStatus: 403, exceptionCategory: 'error' },
+    { label: 'HTTP400 unknown OAuth error', kind: 'unknown-code', httpStatus: 400, exceptionCategory: 'error' },
+    { label: 'HTTP400 malformed JSON', kind: 'malformed', httpStatus: 400, exceptionCategory: 'error' },
+    { label: 'oversized JSON preserves HTTP status without parsing its body', kind: 'oversized', httpStatus: 400, exceptionCategory: 'error' },
+    { label: 'oversized HTML preserves HTTP status without retaining its body', kind: 'oversized-html', httpStatus: 403, exceptionCategory: 'error' },
+    { label: 'unknown thrown cause', kind: 'unknown', httpStatus: null, exceptionCategory: 'unknown' },
+    { label: 'dangerous cause getters', kind: 'getter', httpStatus: null, exceptionCategory: 'unknown' },
+    { label: 'uninspectable proxy cause', kind: 'proxy', httpStatus: null, exceptionCategory: 'error' },
+    { label: 'SDK independent TimeoutError', kind: 'timeout', httpStatus: null, exceptionCategory: 'timeout' },
+    { label: 'SDK independent AbortError', kind: 'abort', httpStatus: null, exceptionCategory: 'abort' },
+  ])('closed private OAuth evidence: $label', test => lane(async (f, store) => {
+    const output: unknown[][] = [];
+    const spies = (['log', 'warn', 'error'] as const).map(method => vi.spyOn(console, method)
+      .mockImplementation((...args: unknown[]) => { output.push(args); }));
+    setLogLevel('info');
+    try {
+      await admitted(f);
+      const saved = { [providerId]: { ...oldOAuth, expires: 1 }, other };
+      store.put(authKey, saved);
+      const version = store.etag(authKey);
+      oauthBoundary(async () => {
+        if (test.kind === 'http') return Response.json({ error: { code: 'vendor_account_blocked',
+          message: `${canary}_VENDOR_BODY`, token: oldOAuth.refresh } }, { status: 403,
+          headers: { 'x-private-vendor': `${canary}_HEADER` } });
+        if (test.kind === 'unknown-code') return Response.json({ error: `${canary}_vendor_code` }, { status: 400 });
+        if (test.kind === 'malformed') return new Response(`{${canary}`, { status: 400 });
+        if (test.kind === 'oversized') return Response.json({ error: 'invalid_grant',
+          error_description: `${'x'.repeat(8192)}${canary}` }, { status: 400 });
+        if (test.kind === 'oversized-html') return new Response(`<!doctype html>${'x'.repeat(8192)}${canary}`,
+          { status: 403, headers: { 'content-type': 'text/html' } });
+        if (test.kind === 'timeout' || test.kind === 'abort') throw new DOMException(`${canary}_RAW_MESSAGE`,
+          test.kind === 'timeout' ? 'TimeoutError' : 'AbortError');
+        if (test.kind === 'getter') {
+          const dangerous = Object.create(null);
+          for (const key of ['message', 'cause', 'code', 'toJSON', 'name']) Object.defineProperty(dangerous, key,
+            { get() { throw new Error(`${canary}_GETTER`); } });
+          dangerous.toString = () => `${canary}_RAW_CAUSE`;
+          throw dangerous;
+        }
+        if (test.kind === 'proxy') throw new Proxy(new Error(`${canary}_RAW_STACK`), {
+          getOwnPropertyDescriptor() { throw new Error(`${canary}_PROXY`); },
+        });
+        throw `${canary}_UNKNOWN_CAUSE`;
+      });
+      const response = await read(f);
+      expect(response.status).toBe(403);
+      const responseText = await response.text();
+      const failures = output.flatMap(args => args.flatMap(arg => {
+        if (typeof arg !== 'string') return [];
+        try {
+          const record = JSON.parse(arg);
+          return record.module === 'operator-execution' && record.message === 'sdk-service-failure'
+            ? [record.data.value] : [];
+        } catch { return []; }
+      }));
+      const failure = failures.find(value => value.message === 'SDK authentication unavailable (oauth)');
+      // Intentional private closed wire: every field is a bounded scalar, not raw evidence.
+      expect(failure).toMatchObject({ status: 403 });
+      expect(failure?.cause).toEqual({ sdkCode: 'oauth', sdkStage: 'refresh',
+        exceptionCategory: test.exceptionCategory, httpStatus: test.httpStatus, oauthError: null,
+        requestAborted: false, abortReason: null });
+      expect(store.value(authKey)).toEqual(saved);
+      expect(store.etag(authKey)).toBe(version);
+      expect(store.escapedReads).toEqual([]);
+      for (const evidence of [responseText, output, await f.activity.getBrowserDetail(),
+        await diagnosticTraversal(diagnosticsBrowser(f))]) {
+        const retained = inspect(decodeRetainedBytes(evidence), { depth: null, maxStringLength: null,
+          maxArrayLength: null, customInspect: false, getters: false });
+        for (const secret of [canary, oldOAuth.access, oldOAuth.refresh, other.key, 'vendor_account_blocked']) {
+          expect(retained).not.toContain(secret);
+        }
+      }
+    } finally { setLogLevel('silent'); spies.forEach(spy => spy.mockRestore()); }
+  }));
+
+  it('OAuth failure with admitted logging OFF remains a private 403 without raw emission', () => lane(async (f, store) => {
+    const output: unknown[][] = [];
+    const spies = (['log', 'warn', 'error'] as const).map(method => vi.spyOn(console, method)
+      .mockImplementation((...args: unknown[]) => { output.push(args); }));
+    setLogLevel('info');
+    try {
+      await admitted(f);
+      const saved = { [providerId]: { ...oldOAuth, expires: 1 }, other };
+      store.put(authKey, saved);
+      oauthBoundary(async () => Response.json({ error: 'invalid_grant', error_description: canary }, { status: 400 }));
+      await denied(await read(f), [403]);
+      expect(store.value(authKey)).toEqual(saved);
+      const logged = inspect(output, { depth: null, maxStringLength: null, customInspect: false, getters: false });
+      expect(logged).not.toContain('sdk-service-failure');
+      expect(logged).not.toContain(canary);
+    } finally { setLogLevel('silent'); spies.forEach(spy => spy.mockRestore()); }
+  }, true, false, { loggingEnabled: false }));
 
   it('credential PUT transport errors cannot retain secret-bearing request bodies', () => lane(async (f, store) => {
     const output: unknown[][] = [];
@@ -613,6 +713,9 @@ describe('REQ-OPERATOR-007/047/048/058: owner R2 configured-service HTTP contrac
       const logged = inspect(output, { depth: null, maxStringLength: null, maxArrayLength: null,
         customInspect: false, getters: false, colors: false });
       expect(logged).toContain('SDK credential persistence unavailable');
+      // Storage causal failure keeps priority over the SDK's wrapping auth error.
+      expect(logged).not.toContain('SDK authentication unavailable');
+      expect(logged).not.toContain('sdkStage');
       expect(logged).not.toContain(canary);
       for (const evidence of [await f.activity.getBrowserDetail(), await diagnosticTraversal(diagnosticsBrowser(f))]) {
         expect(inspect(evidence, { depth: null, maxStringLength: null })).not.toContain(canary);
@@ -721,6 +824,52 @@ describe('REQ-OPERATOR-007/047/048/058: owner R2 configured-service HTTP contrac
     await denied(await credentials(f, { operation: 'list' }));
     expect(JSON.stringify(f.normalTransport!.requests)).not.toContain(canary);
     // Native OFF's intentional storage wire allowlist is empty, not merely a redacted response.
+    expect(store.touchedKeys).toEqual(new Set());
+    expect(store.escapedReads).toEqual([]);
+  }, false));
+
+  it.each([undefined, 131072])('managed SDK metadata uses platform token limits without caller overrides (route window: %s)', contextWindow => lane(async (f, store) => {
+    await admitted(f);
+    const routes = await fixtureAccess.loadEnterpriseRouteConfig(f.environment, []);
+    vi.spyOn(access, 'loadEnterpriseRouteConfig').mockResolvedValue({ ...routes,
+      routeContextWindows: contextWindow === undefined ? {} : { approved: contextWindow } });
+    store.override(() => { throw new Error(`${canary}_MANAGED_NATIVE_READ`); });
+    const configuration = await json(await gateway(f));
+    const configured = configuration.models.providers['codeflare-gateway'];
+    const entry = configured.models[0];
+    expect(entry.contextWindow).toBe(contextWindow ?? DEFAULT_ROUTE_CONTEXT_WINDOW);
+    const models = createModels();
+    // Hydrate the actual protected DTO with the same zero defaults used by the
+    // normal App. The public SDK must serialize the platform ceiling, not 1.
+    models.setProvider(createProvider({ id: 'codeflare-gateway', models: [{
+      input: ['text'], contextWindow: 0, maxTokens: 0,
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, ...entry,
+      provider: 'codeflare-gateway', api: 'openai-completions', baseUrl: configured.baseUrl,
+      compat: configured.compat,
+    }], auth: { apiKey: { name: 'Protected account gateway', resolve: async () => ({ auth: {} }) } },
+    api: openAICompletionsApi() }));
+    let wire: Record<string, any> | undefined;
+    const result = await models.streamSimple(models.getModel('codeflare-gateway', 'approved')!,
+      { messages: [{ role: 'user', content: 'Produce a bounded response.', timestamp: 1 }] }, {
+        apiKey: 'codeflare-enterprise', fetch: async (input, init) => {
+          wire = await new Request(input, init).json() as Record<string, any>;
+          const chunks = [
+            { id: 'managed-limit', object: 'chat.completion.chunk', created: 1, model: 'approved',
+              choices: [{ index: 0, delta: { role: 'assistant', content: 'ready' }, finish_reason: null }] },
+            { id: 'managed-limit', object: 'chat.completion.chunk', created: 1, model: 'approved',
+              choices: [{ index: 0, delta: {}, finish_reason: 'stop' }],
+              usage: { prompt_tokens: 4, completion_tokens: 3, total_tokens: 7 } },
+          ];
+          return new Response(`${chunks.map(chunk => `data: ${JSON.stringify(chunk)}\n\n`).join('')}data: [DONE]\n\n`,
+            { headers: { 'content-type': 'text/event-stream' } });
+        },
+      }).result();
+    expect(wire).toMatchObject({ model: 'approved', stream: true });
+    // Intentional managed Pi wire contract: existing platform 16,384-token
+    // ceiling, under either public OpenAI-compatible token field spelling.
+    expect(wire?.max_completion_tokens ?? wire?.max_tokens).toBe(16384);
+    expect(result.stopReason).toBe('stop');
+    expect(result.usage.output).toBe(3);
     expect(store.touchedKeys).toEqual(new Set());
     expect(store.escapedReads).toEqual([]);
   }, false));
