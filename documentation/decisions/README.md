@@ -4040,7 +4040,7 @@ Placeholder credentials remain inside the strict container. Streaming request bo
 
 **Category:** Agents, Architecture, Storage
 
-**Status:** Accepted (2026-08-27). Supersedes [AD142](#ad142-review-ingress-is-delivery-only-and-completion-is-joint).
+**Status:** Accepted (2026-08-27). Supersedes [AD142](#ad142-review-ingress-is-delivery-only-and-completion-is-joint). The Goal pause/release clause is partially superseded (2026-11-01): review no longer pauses or resumes Goal ([REQ-AGENT-112](../../sdd/spec/agents.md#req-agent-112-goal-independent-pr-review)).
 
 **Context:** Review completion used clone-local files under `.git`, so replacing a container or opening another clone erased a fact the user had already established. Recovery then tried to rebuild authority from old transcript windows and delivery commands. That machinery launched duplicate rounds after resume and could carry stale push authority into another checkout. A review gate that forgets completion but remembers half a launch has the priorities backwards.
 
