@@ -43,13 +43,14 @@ export function collectedRawValues(output: unknown[][], stage: string): unknown[
 
 let callerSessionCurrent = true;
 let callerRoute = 'approved';
+let callerReasoning = 'off';
 export let nativeProfileFiles = new Map<string, unknown>();
 vi.mock('../../../lib/access', async original => ({ ...await original<typeof import('../../../lib/access')>(),
   resolveOperatorGroupIdentity: async (human: unknown) => human,
   resolveBucketName: async () => 'owner-bucket',
   resolveSessionAccessGroup: async () => [],
   operatorAccessSessionCurrent: async () => callerSessionCurrent,
-  loadEnterpriseRouteConfig: async () => ({ routeCatalog: [callerRoute], defaultRoute: callerRoute, defaultReasoning: 'off',
+  loadEnterpriseRouteConfig: async () => ({ routeCatalog: [callerRoute], defaultRoute: callerRoute, defaultReasoning: callerReasoning,
     ...(nativeProfileFiles.size ? { piDefaultSource: 'pi-native', allowPersonalPiProviders: true } : {}) }),
 }));
 vi.mock('../../../lib/aig-config', () => ({ getAigConfig: async () => ({ gatewayUrl: 'https://gateway.example.test', token: 'parent-only' }) }));
@@ -239,6 +240,7 @@ export async function fixture(test: (f: {
   preserveGlobalMocks?: boolean } = {}) {
   callerSessionCurrent = true;
   callerRoute = 'approved';
+  callerReasoning = options.managedProviderDefault ? '' : 'off';
   nativeProfileFiles = new Map<string, unknown>(options.nativeInference ? [
     ['/owner-bucket/.pi/agent/settings.json', { defaultProvider: 'openai-codex', defaultModel: 'gpt-6.1-sol', defaultThinkingLevel: 'high' }],
     ['/owner-bucket/.pi/agent/auth.json', { 'openai-codex': { type: 'oauth', access: 'synthetic-native-access',
