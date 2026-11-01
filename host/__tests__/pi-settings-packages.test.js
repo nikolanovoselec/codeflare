@@ -1,7 +1,7 @@
 // Runs the real embedded Node program from entrypoint.sh that assembles Pi's
 // ~/.pi/agent/settings.json `packages` array, against fixture settings files.
 // This is the "run the real thing" coverage (per tdd-discipline.md) for:
-//   - context-mode being enabled at container boot while /ctx off remains a session opt-out,
+//   - context-mode being disabled at container boot while /ctx on remains a session opt-in,
 //   - the managed extension packages, including Goal, Open TUI, and Evaluate, being present in
 //     `required` so they are
 //     available WITH AND WITHOUT context-mode — toggling /ctx never removes them,
@@ -76,7 +76,7 @@ const REQUIRED = Object.entries(piPackage.dependencies)
   .map(([name, version]) => `npm:${name}@${version}`);
 
 describe('Pi settings.json packages assembly (entrypoint.sh)', () => {
-  it('REQ-AGENT-076 AC1 / REQ-AGENT-133 AC1: fresh container assembles required packages with context-mode enabled', () => {
+  it('REQ-AGENT-076 AC1 / REQ-AGENT-133 AC1: fresh container assembles required packages with context-mode disabled', () => {
     const settings = runAssembly('{}');
     const sources = settings.packages.map(sourceOf);
     assert.ok(REQUIRED.length > 0, 'the derived required set must not be empty');
@@ -84,15 +84,15 @@ describe('Pi settings.json packages assembly (entrypoint.sh)', () => {
       assert.ok(sources.includes(spec), `assembled packages must include ${spec}`);
     }
     assert.deepEqual(settings.packages.filter((entry) => /^npm:context-mode(?:@|$)/.test(sourceOf(entry))),
-      [{ source: 'npm:context-mode@1.0.169', extensions: [] }]);
+      [{ source: 'npm:context-mode@1.0.169', extensions: [], skills: [] }]);
   });
 
-  it('REQ-AGENT-076 AC1/AC2: next container boot restores the enabled default after /ctx off while preserving managed and unrelated settings', () => {
+  it('REQ-AGENT-076 AC1/AC2: next container boot restores the disabled default after /ctx on while preserving managed and unrelated settings', () => {
     const initial = JSON.stringify({
       theme: 'user-theme', defaultProvider: 'user-provider', defaultModel: 'user-model',
       customPreference: { keep: true },
       packages: [
-        { source: 'npm:context-mode@1.0.169', extensions: [], skills: [] },
+        { source: 'npm:context-mode@1.0.169', extensions: [] },
         'npm:pi-goal-list-loop-audit@0.34.16',
         'npm:pi-caveman@1.0.8',
         'npm:some-user-package@1.0.0', // an unrelated package the user added
@@ -101,7 +101,7 @@ describe('Pi settings.json packages assembly (entrypoint.sh)', () => {
     const settings = runAssembly(initial);
     const sources = settings.packages.map(sourceOf);
     const cm = settings.packages.find((e) => sourceOf(e) === 'npm:context-mode@1.0.169');
-    assert.deepEqual(cm, { source: 'npm:context-mode@1.0.169', extensions: [] });
+    assert.deepEqual(cm, { source: 'npm:context-mode@1.0.169', extensions: [], skills: [] });
     for (const key of ['theme', 'defaultProvider', 'defaultModel', 'customPreference']) {
       assert.deepEqual(settings[key], JSON.parse(initial)[key]);
     }
@@ -263,8 +263,51 @@ describe('REQ-AGENT-056 / REQ-AGENT-209: Open TUI adoption and managed Usage ret
       for (const key of ['defaultModel', 'defaultThinkingLevel', 'customPreference']) assert.deepEqual(first[key], initial[key]);
       assert.deepEqual(first.extensions, ['user-extension.ts', '-builtin:mcp']);
       assert.deepEqual(first.packages.find(entry => /^npm:context-mode@/.test(sourceOf(entry))),
-        { source: 'npm:context-mode@1.0.169', extensions: [] });
+        { source: 'npm:context-mode@1.0.169', extensions: [], skills: [] });
       for (const required of REQUIRED) assert.ok(first.packages.some(entry => sourceOf(entry) === required), required);
+    });
+  }
+});
+
+// Exact package identity and settings preservation are the managed migration contract.
+describe('REQ-AGENT-224: managed Fast/Ultrafast startup', () => {
+  const expected = 'npm:@calesennett/pi-codex-fast@0.1.13';
+  it('REQ-AGENT-224: fresh startup registers the pinned extension once', () => {
+    const settings = runAssembly('{}', 2);
+    assert.deepEqual(settings.packages.filter(entry => sourceOf(entry).startsWith('npm:@calesennett/pi-codex-fast@')), [expected]);
+    assert.equal(settings['pi-codex-fast'], undefined, 'startup does not enable a mode for the owner');
+  });
+
+  for (const shape of ['relative', 'absolute', 'filtered-relative', 'filtered-absolute']) {
+    it(`REQ-AGENT-224: recovery registration converges without changing user state (${shape})`, () => {
+      let original;
+      let recoveryFile;
+      const settings = runAssembly(agentDir => {
+        const recovery = join(agentDir, 'packages/pi-codex-fast-0.1.13');
+        mkdirSync(recovery, { recursive: true });
+        recoveryFile = join(recovery, 'owner-note.txt');
+        writeFileSync(recoveryFile, 'preserve recovery files');
+        const source = shape.includes('absolute') ? recovery : './packages/pi-codex-fast-0.1.13';
+        original = {
+          packages: [shape.startsWith('filtered') ? { source, extensions: [] } : source,
+            'npm:@calesennett/pi-codex-fast@0.1.12', expected,
+            './custom/pi-codex-fast-0.1.13', './packages/pi-codex-fast-0.1.13-extra'],
+          'pi-codex-fast': { mode: 'ultrafast' },
+          defaultProvider: 'owner-provider', defaultModel: 'owner-model',
+          auth: { owner: { type: 'oauth', access: 'fixture-only' } },
+          customPreference: { keep: true }, extensions: ['owner-extension.ts'],
+        };
+        return JSON.stringify(original);
+      }, 2);
+      try {
+        assert.deepEqual(settings.packages.filter(entry => sourceOf(entry).startsWith('npm:@calesennett/pi-codex-fast@')), [expected]);
+        assert.ok(!settings.packages.some(entry => /^(?:\.\/)?packages\/pi-codex-fast-0\.1\.13$/.test(sourceOf(entry))));
+        assert.ok(!settings.packages.some(entry => sourceOf(entry) === recoveryFile.replace('/owner-note.txt', '')));
+        for (const path of ['./custom/pi-codex-fast-0.1.13', './packages/pi-codex-fast-0.1.13-extra']) assert.ok(settings.packages.includes(path));
+        for (const key of ['pi-codex-fast', 'defaultProvider', 'defaultModel', 'auth', 'customPreference']) assert.deepEqual(settings[key], original[key]);
+        assert.deepEqual(settings.extensions, ['owner-extension.ts', '-builtin:mcp']);
+        assert.equal(readFileSync(recoveryFile, 'utf8'), 'preserve recovery files');
+      } finally { rmSync(dirname(dirname(dirname(recoveryFile))), { recursive: true, force: true }); }
     });
   }
 });

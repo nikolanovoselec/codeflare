@@ -18,16 +18,17 @@ The authoritative inventory is [`preseed/agents/pi/package.json`](../../preseed/
 | `@juicesharp/rpiv-todo` | Session-scoped task state |
 | `@narumitw/pi-goal` | Native Goal and exact-version continuation/review transform |
 | `@narumitw/pi-plan-mode` | Native Plan and registered-tool policy transform |
+| `@calesennett/pi-codex-fast` | Native Fast/Ultrafast controls for supported OpenAI models |
 | `pi-open-tui` | Native terminal header, footer, prompt editor and `/open-tui` settings |
 | `pi-smart-compact` | Provider-neutral native-pressure compaction, without a competing footer or memory stack |
-| `context-mode` | Enabled at container start; foreground-owned, with explicit `/ctx off` |
+| `context-mode` | Disabled at container start; foreground-owned after explicit `/ctx on` |
 | `pi-evaluate` | User-invoked reporting skill, no tool or command |
 | `pi-mcp-adapter` | Lazy managed MCP servers and lossless legacy migration |
 | `pi-web-access` | Web retrieval and headless-safe default search workflow |
 
 ## Loading and warm compatibility
 
-Image construction warms RPIV, Subagents, MCP Adapter, web-access, Evaluate, Open TUI, Smart Compact, Goal/Plan, and every local TypeScript extension through the exact installed path. Required JITI artifacts must exist. A second fresh Pi process must report cache hits without misses, including imported dependencies. JavaScript entrypoints use native import checks rather than nonexistent JITI artifacts. This is a transpilation-cache gate, not V8-cache evidence or a startup-latency guarantee for restored user content. Runtime updates invalidate only runtime-owned caches.
+Image construction warms RPIV, Subagents, MCP Adapter, web-access, Evaluate, Open TUI, Codex Fast, Smart Compact, Goal/Plan, and every local TypeScript extension through the exact installed path. Required JITI artifacts must exist. A second fresh Pi process must report cache hits without misses, including imported dependencies. JavaScript entrypoints use native import checks rather than nonexistent JITI artifacts. This is a transpilation-cache gate, not V8-cache evidence or a startup-latency guarantee for restored user content. Runtime updates invalidate only runtime-owned caches.
 
 Every file scanned as a Pi extension exports a default factory; pure helpers retain a no-op default beside named exports. Package-presence checks cannot replace actual extension loading.
 
@@ -61,11 +62,17 @@ The complete RPIV preparation contract remains [REQ-AGENT-210](../../sdd/spec/ag
 
 Pi includes native MCP, but deferred tool exposure is not lazy server allocation: enabled native servers connect eagerly. The adapter remains the managed MCP lifecycle owner. Managed startup must disable `builtin:mcp` with the documented `-builtin:mcp` extension entry while preserving unrelated extension selections; a first-session command warning is not proof of correct ownership. The coordinated upgrade's source startup, transform and authentic-adapter checks passed [PR Checks 39013450649](https://github.com/nikolanovoselec/codeflare/actions/runs/39013450649) at `bece2e3065f81ffd038f71dc255ef508eb0c6ea2`. Image construction, installed runtime behavior and deployed acceptance remain separate pending gates; package presence and source CI do not satisfy them.
 
+## Fast and Ultrafast
+
+The image exact-pins `@calesennett/pi-codex-fast`; startup registers it once before Pi discovery and preserves `pi-codex-fast.mode`, provider/model choices and authentication. Only the known recovery path `packages/pi-codex-fast-0.1.13` (relative or under the agent directory) converges to the managed npm registration; custom paths and package files remain untouched. The native `/codex-fast` and `/codex-ultrafast` commands opt into supported OpenAI request tiers without an SDK patch. Existing preferences survive; new profiles retain upstream Off. Provider entitlement and separately hosted Operator inference are outside this extension ([REQ-AGENT-224](../../sdd/spec/agents.md#req-agent-224-pi-fast-and-ultrafast-controls)).
+
+Never install into the live `~/.pi/agent/npm` link. Dependency changes belong in the committed preseed manifest/lock and image build; publication of dependent curation follows a successful compatible deployment.
+
 ## Context-mode and web access
 
 Context-mode has image-owned ESM compatibility and update-probe suppression in both installed copies. Version mismatch, missing required bundles, or failed post-write shim/probe verification fails the image build. An already-absent update-probe URL is permitted; no self-update path is introduced. <!-- @impl: scripts/patch-context-mode-bundles.mjs::patchContextModeInstallations --> <!-- @impl: scripts/patch-context-mode-bundles.mjs::patchContextModeDirectory --> <!-- @impl: scripts/patch-context-mode-bundles.mjs::patchContextModeBundle -->
 
-The foreground extension loads the installed adapter without changing package lifecycle ownership. In-process children do not create competing bridges. Fresh startup restores enabled; `/ctx off` remains effective across Pi reloads until the next container startup. Every managed workflow retains native fallbacks. Licensing rationale remains [AD49](../decisions/README.md#ad49-context-mode-delivered-as-preseed-plugin-not-runtime-install).
+The foreground extension loads the installed adapter without changing package lifecycle ownership. In-process children do not create competing bridges. Fresh startup defaults to disabled; `/ctx on` enables the managed bridge and tools across Pi reloads until the next container startup. Every managed workflow retains native fallbacks. Licensing rationale remains [AD49](../decisions/README.md#ad49-context-mode-delivered-as-preseed-plugin-not-runtime-install).
 
 Web access retains `web_search`, `source_check`, `fetch_content`, and paged `get_search_content` offset/limit retrieval. Search uses Pi's model registry or zero-config Exa routing without a per-user API key. The [reviewed upstream changelog](https://github.com/nicobailon/pi-web-access/blob/7e6e2386dc9a31d5e2a448172060dd1339c604f7/CHANGELOG.md) specifies all-failed tool errors, structured results, Perplexity Search API snippets for ordinary search and isolated session/cache lifetimes. OpenAI search prefers the newest Luna model; the API-key default is `gpt-6-luna`. Paid Ceramic is explicit-only, excluded from `auto`/`all`.
 

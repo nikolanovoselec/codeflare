@@ -148,7 +148,7 @@ Use this when the user chooses Full repo AST-only, `graphify-out/graph.json` exi
 bash /home/user/.pi/agent/scripts/safe-graphify-update.sh .
 ```
 
-The safety wrapper only sets `GRAPHIFY_MAX_WORKERS`, applies `ulimit -v`, and runs upstream `graphify update`.
+The safety wrapper bounds workers, virtual memory, and runtime before running upstream `graphify update`. AST build and refresh default to 600 seconds; `GRAPHIFY_BUILD_TIMEOUT` overrides that limit.
 
 If the user requests community labels, use **Optional local main-session community labels** below. Otherwise keep Graphify's official generated report/html, export `callflow.html`, and continue without `.graphify_labels.json`.
 

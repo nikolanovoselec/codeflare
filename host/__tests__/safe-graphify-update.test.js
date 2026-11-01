@@ -171,3 +171,42 @@ except MemoryError:
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+// The external timeout CLI duration is an intentional process-boundary contract.
+// A short override exercises real timeout termination without a ten-minute CI wait.
+for (const name of ['safe-graphify-update.sh', 'build-graphify-ast.sh']) {
+  const script = resolve(__dirname, '../../preseed/agents/pi/scripts', name);
+  test(`REQ-AGENT-023: ${name} defaults to the 600-second timeout CLI contract`, () => {
+    const dir = mkdtempSync(join(tmpdir(), 'graphify-timeout-default-'));
+    writeFileSync(join(dir, 'timeout'), `#!/usr/bin/env bash
+[ "$1" = 600 ] || exit 91
+shift
+exec "$@"
+`, { mode: 0o755 });
+    writeFileSync(join(dir, 'graphify'), '#!/usr/bin/env bash\necho WORK_COMPLETED\n', { mode: 0o755 });
+    try {
+      const result = spawnSync('bash', [script, dir], {
+        encoding: 'utf8', timeout: 5_000,
+        env: { ...process.env, PATH: `${dir}:${process.env.PATH}`,
+          GRAPHIFY_BUILD_TIMEOUT: '', GRAPHIFY_PYTHON: join(dir, 'graphify') },
+      });
+      assert.equal(result.status, 0, result.stderr);
+      assert.match(result.stdout, /WORK_COMPLETED/);
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+  });
+
+  test(`REQ-AGENT-023: ${name} terminates overdue work and propagates timeout failure`, () => {
+    const dir = mkdtempSync(join(tmpdir(), 'graphify-timeout-enforced-'));
+    writeFileSync(join(dir, 'graphify'), '#!/usr/bin/env bash\necho WORK_STARTED\nsleep 5\necho WORK_COMPLETED\n', { mode: 0o755 });
+    try {
+      const result = spawnSync('bash', [script, dir], {
+        encoding: 'utf8', timeout: 5_000,
+        env: { ...process.env, PATH: `${dir}:${process.env.PATH}`,
+          GRAPHIFY_BUILD_TIMEOUT: '0.2', GRAPHIFY_PYTHON: join(dir, 'graphify') },
+      });
+      assert.equal(result.status, 124, result.stderr);
+      assert.match(result.stdout, /WORK_STARTED/);
+      assert.doesNotMatch(result.stdout, /WORK_COMPLETED|official unlabeled graph/);
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+  });
+}

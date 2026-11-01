@@ -3023,6 +3023,7 @@ configure_pi_packages_and_review_inventory() {
 const fs = require('fs');
 const path = process.argv[2];
 const required = [
+  'npm:@calesennett/pi-codex-fast@0.1.13',
   'npm:@gotgenes/pi-subagents@23.4.2',
   // Pi tool extensions, always enabled (in `required`) so they are available
   // independently of the context-mode toggle — toggling /ctx never disables them.
@@ -3038,11 +3039,11 @@ const required = [
   // The managed terminal adapter initializes the native UI once.
   { source: 'npm:pi-open-tui@0.3.11', extensions: [] },
 ];
-// Each container boot restores context-mode skills and the managed foreground owner.
-// Suppress the package extension to avoid a second owner; `/ctx off` persists until next boot.
+// Each container boot defaults context-mode off; `/ctx on` enables it until next boot.
+// Suppress package discovery; the managed foreground owner remains the only bridge owner.
 const defaultPackageIds = new Set(['npm:context-mode']);
 const defaultPackages = [
-  { source: 'npm:context-mode@1.0.169', extensions: [] },
+  { source: 'npm:context-mode@1.0.169', extensions: [], skills: [] },
 ];
 // Migration: hard-remove retired managed packages from existing settings.
 // The graphify wrapper conflicts with first-party graphify-native tools. The glla package is
@@ -3057,9 +3058,13 @@ function identity(source) {
   // Restored homes may retain this earlier local installation alongside npm.
   // Treat only its known managed location as the same identity before Pi starts;
   // the required npm entry replaces the registration without deleting any files.
-  const legacy = 'packages/pi-smart-compact-10.6.2';
-  if (source === `./${legacy}` || source === require('path').join(require('path').dirname(path), legacy)) {
-    return 'npm:pi-smart-compact';
+  for (const [legacy, id] of [
+    ['packages/pi-smart-compact-10.6.2', 'npm:pi-smart-compact'],
+    ['packages/pi-codex-fast-0.1.13', 'npm:@calesennett/pi-codex-fast'],
+  ]) {
+    if (source === `./${legacy}` || source === require('path').join(require('path').dirname(path), legacy)) {
+      return id;
+    }
   }
   return source.replace(/@[^/@]+$/, '');
 }
