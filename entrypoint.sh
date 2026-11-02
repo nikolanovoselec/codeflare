@@ -3033,7 +3033,7 @@ const required = [
   'npm:pi-web-access@0.40.0',
   'npm:pi-mcp-adapter@5.3.1',
   'npm:pi-evaluate@0.1.5',
-  'npm:pi-smart-compact@10.6.2',
+  'npm:pi-smart-compact@10.7.1',
   'npm:@narumitw/pi-goal@0.54.11',
   'npm:@narumitw/pi-plan-mode@0.59.2',
   // The managed terminal adapter initializes the native UI once.
