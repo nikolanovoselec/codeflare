@@ -3463,8 +3463,9 @@ describe('normal installed Dispatcher control', () => {
     expect(await start(f)).toMatchObject({ ok: true });
     f.normalTransport!.changeObservation(changed);
     await f.activity.reconcileDispatcherLease();
+    expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'unknown', result: null });
+    expect(await f.activity.dispatcherGenerationCurrent(1)).toBe(false);
     expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
-    expect((await f.activity.getBrowserDetail())?.result).toBeNull();
     expect(f.normalTransport!.admissions.size).toBe(1);
     expect(f.sent).toEqual([]);
   }, options));
