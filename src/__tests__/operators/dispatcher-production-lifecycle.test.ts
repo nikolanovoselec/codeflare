@@ -3621,7 +3621,7 @@ describe('normal installed Dispatcher control', () => {
       expect((await callback(f, 'source', { ...source, operationId: 'no-write-replay', method: 'POST', body: '{}' })).status).toBe(403);
       await activity.reconcileDispatcherLease();
       expect([...f.normalTransport!.admissions.values()]).toEqual(admissions);
-      expect(control(f, 'read').every(read => JSON.stringify(read.body.receipt) === JSON.stringify(admissions[0].receipt))).toBe(true);
+      for (const read of control(f, 'read')) expect(read.body.receipt).toEqual(admissions[0].receipt);
       expect(control(f, 'abort')).toEqual([]);
       expect(f.sent).toEqual([]);
     }, { ...options, intent4: true, loggingEnabled }));
