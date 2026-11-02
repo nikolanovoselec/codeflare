@@ -139,6 +139,13 @@ const normalDispatcherReceiptSchema = z.strictObject({ submissionId: z.string().
   uid: z.string().min(1).max(512), acceptedAt: z.string().max(128).refine(value => Number.isFinite(Date.parse(value))),
   deduplicated: z.literal(true).optional() });
 type NormalDispatcherReceipt = z.infer<typeof normalDispatcherReceiptSchema>;
+const normalObservationSchema = z.strictObject({ version: z.literal(1),
+  id: z.string().min(1).max(256), activityId: z.string().min(1).max(128), generation: z.number().int().positive().safe(),
+  installationId: z.string().min(1).max(128), releaseId: z.string().min(1).max(128),
+  connectionRevision: z.number().int().positive().safe(), workerVersionId: z.string().min(1).max(128),
+  uid: z.string().min(1).max(512), submissionId: z.string().min(1).max(128),
+  offset: z.string().max(128).regex(/^(?:-1|\d+_\d+)$/) });
+type NormalObservation = z.infer<typeof normalObservationSchema>;
 interface NormalDispatcherWire {
   id: string; installationId: string; activityId: string; generation: number;
   releaseId: string; connectionRevision: number; workerVersionId: string;
@@ -202,6 +209,8 @@ interface DispatcherLease {
   /** Original installation envelope, parent-only; rotation cannot redirect or prevent original abort. */
   connectionSecretCiphertext?: string;
   receipt?: NormalDispatcherReceipt; abortIntentRecorded?: boolean;
+  /** Advertised by the original admission; not inferred for older Workers. */
+  observation?: NormalObservation;
   submissionId: string | null; settledSubmissionId?: string; sdkReleased?: boolean;
   rootDigest?: string;
   sdkProvenance?: SdkProvenance;
@@ -2055,7 +2064,7 @@ export class OperatorActivity extends Agent {
 
   /** Only application HTTP is used here. Redirects never receive installation authorization. */
   async #normalDispatcherControl(lease: DispatcherLease, plan: OperatorRuntimePlan,
-    action: 'dispatch' | 'read' | 'abort'): Promise<{ status: number; value: unknown }> {
+    action: 'dispatch' | 'read' | 'abort'): Promise<{ status: number; value: unknown; cursorObservation: boolean }> {
     // Live metadata gates new admission/read authority, but never replaces the original transport.
     // Abort exclusively uses the frozen installation connection, even if live rotation is unverified/disabled.
     if (action !== 'abort') await this.#normalDispatcherConnection(lease, plan);
@@ -2066,7 +2075,8 @@ export class OperatorActivity extends Agent {
       { purpose: 'connection', recordId: connection.installationId });
     const { id, installationId, activityId, generation, releaseId, connectionRevision, workerVersionId } = lease.wire;
     const body = action === 'dispatch' ? lease.wire : { id, installationId, activityId, generation,
-      releaseId, connectionRevision, workerVersionId, ...(lease.receipt ? { receipt: lease.receipt } : {}) };
+      releaseId, connectionRevision, workerVersionId, ...(lease.receipt ? { receipt: lease.receipt } : {}),
+      ...(action === 'read' && lease.observation ? { observation: this.#normalObservation(lease, lease.observation) } : {}) };
     const policy = isManagementReceipt(plan.receipt) ? plan.receipt.selection.operator.policy : undefined;
     const limits = dispatcherCapacities(policy);
     // Abort remains deliverable after the original run fence/expiry; it grants no new work.
@@ -2104,7 +2114,8 @@ export class OperatorActivity extends Agent {
       throw error;
     }
     emitRaw(trace, 'dispatcher-control-response', () => ({ status: response.status, headers: response.headers, body: bodyText }));
-    return { status: response.status, value: JSON.parse(bodyText) as unknown };
+    return { status: response.status, value: JSON.parse(bodyText) as unknown,
+      cursorObservation: response.headers.get('x-codeflare-observation') === 'cursor-v1' };
   }
 
   async #normalDispatcherCurrent(lease: DispatcherLease): Promise<OperatorRuntimePlan> {
@@ -2146,9 +2157,17 @@ export class OperatorActivity extends Agent {
         }
         const serial = live!.serial ? bindNormalDispatcherPhaseReceipt(live!.serial, this.#phaseAuthority(live!, plan),
           live!.serial.current.deliveryToken, receipt) : undefined;
+        const { id, activityId, generation, installationId, releaseId, connectionRevision, workerVersionId } = live!.wire!;
+        const observation = response.cursorObservation ? this.#normalObservation({ ...live!, receipt }, {
+          id, activityId, generation, installationId, releaseId, connectionRevision, workerVersionId,
+          version: 1, uid: receipt.uid, submissionId: receipt.submissionId, offset: '-1',
+        }) : undefined;
         await tx.put<DispatcherLease>(DISPATCHER_LEASE, { ...live!, receipt, status: 'running',
-          submissionId: receipt.submissionId, rootDigest: hashDiagnostic(receipt.uid), ...(serial ? { serial } : {}) });
+          submissionId: receipt.submissionId, rootDigest: hashDiagnostic(receipt.uid),
+          ...(observation ? { observation } : {}), ...(serial ? { serial } : {}) });
+        await tx.put<AdmissionState>('admission', { ...record!, updatedAt: Date.now() });
       });
+      await this.publishBrowserSummary();
       this.#recordDiagnostic(lease.generation, 'submission', 'accepted');
     })().finally(() => { if (this.#phaseAdmissions.get(key) === flight) this.#phaseAdmissions.delete(key); });
     this.#phaseAdmissions.set(key, flight);
@@ -2164,6 +2183,19 @@ export class OperatorActivity extends Agent {
   #normalReceiptMatches(expected: NormalDispatcherReceipt, value: NormalDispatcherReceipt): boolean {
     // deduplicated describes this admission delivery, not a different submission/incarnation.
     return expected.submissionId === value.submissionId && expected.uid === value.uid && expected.acceptedAt === value.acceptedAt;
+  }
+
+  /** Validate every retained/returned checkpoint against the immutable lease, never a URL supplied by a child. */
+  #normalObservation(lease: DispatcherLease, value: unknown): NormalObservation {
+    const observation = normalObservationSchema.parse(value);
+    const wire = lease.wire;
+    if (!wire || !lease.receipt || observation.uid !== lease.receipt.uid
+      || observation.submissionId !== lease.receipt.submissionId
+      || ['id', 'activityId', 'generation', 'installationId', 'releaseId', 'connectionRevision', 'workerVersionId']
+        .some(key => observation[key as keyof NormalObservation] !== wire[key as keyof NormalDispatcherWire])) {
+      throw new Error('Normal Dispatcher observation binding mismatch');
+    }
+    return observation;
   }
 
   /** Abort records SDK intent only. Never touch SDK rows, acquire a facet or claim release. */
@@ -2590,8 +2622,22 @@ export class OperatorActivity extends Agent {
       if (!this.#normalReceiptMatches(lease.receipt, receiptEnvelope.receipt)) throw new Error('Normal Dispatcher foreign receipt');
       await this.#normalDispatcherCurrent(lease);
       if (receiptEnvelope.status === 'pending') {
-        if (response.status !== 202 || !z.strictObject({ status: z.literal('pending'), receipt: normalDispatcherReceiptSchema,
-          reason: z.literal('observation-timeout') }).safeParse(response.value).success) throw new Error('Normal Dispatcher pending reply invalid');
+        const pending = z.strictObject({ status: z.literal('pending'), receipt: normalDispatcherReceiptSchema,
+          reason: z.literal('observation-timeout'), observation: normalObservationSchema.optional() }).parse(response.value);
+        if (response.status !== 202 || !!pending.observation !== !!lease.observation) throw new Error('Normal Dispatcher pending reply invalid');
+        if (pending.observation) {
+          const observation = this.#normalObservation(lease, pending.observation);
+          const saved = await this.ctx.storage.transaction(async tx => {
+            const live = await tx.get<DispatcherLease>(DISPATCHER_LEASE);
+            if (!this.#leaseMatches(await tx.get<AdmissionState>('admission'), live, lease.generation)
+              || !sameDispatcherPhaseValue(live!.wire, lease.wire)
+              || !sameDispatcherPhaseValue(live!.receipt, lease.receipt)
+              || !sameDispatcherPhaseValue(live!.observation, lease.observation)) return false;
+            await tx.put(DISPATCHER_LEASE, { ...live!, observation });
+            return true;
+          });
+          if (!saved) return;
+        }
         await this.#scheduleDispatcherRecheck(lease);
         return;
       }
@@ -2646,7 +2692,7 @@ export class OperatorActivity extends Agent {
           const next = advanceDispatcherPhase(serial, this.#phaseAuthority(lease, plan), token, reply,
             { deliveryToken: crypto.randomUUID(), idempotencyKey: crypto.randomUUID() },
             admittedTarget ? { pullRequest: admittedTarget.pullRequest, headSha: admittedTarget.headSha } : undefined);
-          const nextLease: DispatcherLease = { ...lease, serial: next, receipt: undefined, submissionId: null, status: 'admitting' };
+          const nextLease: DispatcherLease = { ...lease, serial: next, receipt: undefined, observation: undefined, submissionId: null, status: 'admitting' };
           nextLease.wire = this.#normalDispatcherWire(nextLease, plan);
           const saved = await this.ctx.storage.transaction(async tx => {
             const record = await tx.get<AdmissionState>('admission');
@@ -4730,8 +4776,15 @@ export class OperatorActivity extends Agent {
       }
     } catch { /* no safe context */ }
     const checkpoint = state.drive?.checkpoint;
-    const progress = checkpoint && typeof checkpoint === 'object' && !Array.isArray(checkpoint)
+    let progress = checkpoint && typeof checkpoint === 'object' && !Array.isArray(checkpoint)
       ? safeText((checkpoint as Record<string, unknown>).stage) : null;
+    if (!progress && executionStatus === 'running' && lease?.hosting === 'normal' && lease.serial) {
+      const phase = lease.serial.current.phase;
+      const total = lease.serial.targets?.length;
+      progress = lease.status === 'admitting' ? 'Awaiting SDK admission receipt'
+        : phase.kind === 'target' ? `PR #${phase.target.pullRequest} - target ${phase.index + 1}${total ? `/${total}` : ''}`
+          : phase.kind === 'discovery' ? 'Discovery phase' : 'Final assessment phase';
+    }
     // Only summarize a complete, admitted-repository report. No body bytes enter the owner index.
     let resultSummary: OperatorBrowserSummary['resultSummary'];
     const result = state.drive?.result;

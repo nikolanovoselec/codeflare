@@ -3093,6 +3093,39 @@ describe('normal installed Dispatcher control', () => {
     f.installationCapability.fetch(normalCallback(f.activityId, 'phase-context', { deliveryToken: token },
       { 'x-codeflare-dispatcher-delivery': token, ...headers }));
 
+  it('REQ-OPERATOR-057/048: owner progress and timestamps reflect admitted phases rather than pending polls or browser reads', () => fixture(async f => {
+    expect(await start(f)).toMatchObject({ ok: true });
+    const originalDeadline = (await f.activity.getRuntimePlan())!.deadline;
+    const discovery = await f.activity.getBrowserDetail();
+    expect(discovery).toMatchObject({ executionStatus: 'running', progress: 'Discovery phase', collectionStatus: 'unavailable' });
+    f.advanceClock(1_000);
+    await f.activity.reconcileDispatcherLease();
+    expect((await f.activity.getBrowserDetail())!.updatedAt).toBe(discovery!.updatedAt);
+    const stamp = await (await installedContext(f, phaseToken(f))).json() as InstalledPhaseContext;
+    const target = { pullRequest: 17, headSha: '1'.repeat(40) };
+    f.normalTransport!.settle('completed', [{ name: 'dispatcher-progress', data: {
+      version: 1, scope: stamp.scope, generation: stamp.generation, submissionId: stamp.submissionId,
+      phase: stamp.phase, next: { kind: 'target', index: 0, target }, targets: [target],
+    } }]);
+    await f.activity.reconcileDispatcherLease();
+    f.normalTransport!.settle('pending');
+    const admitted = await f.activity.getBrowserDetail();
+    expect(admitted).toMatchObject({ executionStatus: 'running', progress: 'PR #17 - target 1/1', collectionStatus: 'unavailable' });
+    expect(admitted!.updatedAt).toBeGreaterThan(discovery!.updatedAt);
+    const admissions = [...f.normalTransport!.admissions.values()];
+    const effects = f.sent.map(request => ({ url: request.url, method: request.method }));
+    f.advanceClock(2_000);
+    await f.activity.reconcileDispatcherLease();
+    expect((await f.activity.getBrowserDetail())!.updatedAt).toBe(admitted!.updatedAt);
+    const activity = await cold(f);
+    expect(await activity.getBrowserDetail()).toMatchObject({ progress: 'PR #17 - target 1/1', updatedAt: admitted!.updatedAt });
+    expect((await activity.getRuntimePlan())!.deadline).toBe(originalDeadline);
+    expect(await activity.dispatcherGenerationCurrent(1)).toBe(true);
+    expect([...f.normalTransport!.admissions.values()]).toEqual(admissions);
+    expect(f.sent.map(request => ({ url: request.url, method: request.method }))).toEqual(effects);
+    expect(await activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
+  }, { ...options, intent4: true }));
+
   it('REQ-OPERATOR-048/062: projected model permits retain the admitted phase on replay and reject stale phases', () => fixture(async f => {
     expect(await start(f)).toMatchObject({ ok: true });
     const token = phaseToken(f);
@@ -3378,6 +3411,73 @@ describe('normal installed Dispatcher control', () => {
       expect(await storage.get('dispatcher:lease')).toMatchObject({ receipt: accepted, expiresAt: before });
     });
     expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
+  }, options));
+
+  it('REQ-OPERATOR-048/041/080/083: cursor checkpoints survive passive cold reads and resume only original settlement', () => fixture(async f => {
+    f.normalTransport!.enableCursorObservation();
+    expect(await start(f)).toMatchObject({ ok: true });
+    const accepted = [...f.normalTransport!.admissions.values()][0].receipt;
+    const deadline = (await f.activity.getRuntimePlan())!.deadline;
+    const before = await f.activity.getBrowserDetail();
+    await f.activity.reconcileDispatcherLease();
+    await f.mutateEvidence(async storage => {
+      expect(await storage.get('dispatcher:lease')).toMatchObject({ receipt: accepted, observation: {
+        version: 1, id: `${f.activityId}-g1`, activityId: f.activityId, generation: 1,
+        installationId: 'installation', releaseId: 'release', connectionRevision: 1,
+        workerVersionId: normalDeployment.workerVersionId, uid: accepted.uid,
+        submissionId: accepted.submissionId, offset: '100_0',
+      } });
+    });
+    f.normalTransport!.failNextRead(503);
+    await f.activity.reconcileDispatcherLease();
+    await f.mutateEvidence(async storage => {
+      expect(await storage.get('dispatcher:lease')).toMatchObject({ receipt: accepted, observation: { offset: '100_0' } });
+    });
+    expect((await f.activity.getBrowserDetail())!.updatedAt).toBe(before!.updatedAt);
+    expect((await f.activity.getRuntimePlan())!.deadline).toBe(deadline);
+    const requests = f.normalTransport!.requests.length;
+    const activity = f.restart();
+    await activity.getDispatcherDiagnostics(f.proof.ownerKey);
+    await activity.getBrowserDetail();
+    await f.drainBackground();
+    expect(f.normalTransport!.requests).toHaveLength(requests);
+    f.normalTransport!.settle('completed', [{ name: 'assessment', data: result }]);
+    await activity.reconcileDispatcherLease();
+    expect(control(f, 'read').at(-1)!.body).toMatchObject({ receipt: accepted, observation: {
+      offset: '100_0', uid: accepted.uid, submissionId: accepted.submissionId,
+    } });
+    expect(await activity.collectBrowserResult()).toMatchObject({ ok: true, detail: { executionStatus: 'completed', result } });
+    expect(f.normalTransport!.admissions.size).toBe(1);
+    expect(control(f, 'abort')).toEqual([]);
+    expect(f.sent).toEqual([]);
+    expect(f.ownerPortRequests).toEqual([]);
+  }, options));
+
+  it.each([
+    { uid: 'foreign' }, { submissionId: 'foreign' }, { id: 'foreign' }, { activityId: 'foreign' },
+    { generation: 9 }, { installationId: 'foreign' }, { releaseId: 'foreign' },
+    { connectionRevision: 9 }, { workerVersionId: 'foreign' }, { offset: 'https://foreign.test' },
+    { streamUrl: 'https://foreign.test' },
+  ])('REQ-OPERATOR-048: foreign cursor continuation %j cannot advance or publish original work', changed => fixture(async f => {
+    f.normalTransport!.enableCursorObservation();
+    expect(await start(f)).toMatchObject({ ok: true });
+    f.normalTransport!.changeObservation(changed);
+    await f.activity.reconcileDispatcherLease();
+    expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
+    expect((await f.activity.getBrowserDetail())?.result).toBeNull();
+    expect(f.normalTransport!.admissions.size).toBe(1);
+    expect(f.sent).toEqual([]);
+  }, options));
+
+  it('REQ-OPERATOR-048: old published Workers remain receipt-only without a guessed cursor fallback', () => fixture(async f => {
+    expect(await start(f)).toMatchObject({ ok: true });
+    await f.activity.reconcileDispatcherLease();
+    expect(control(f, 'read').length).toBeGreaterThan(0);
+    for (const request of control(f, 'read')) expect(request.body.observation).toBeUndefined();
+    f.normalTransport!.settle('completed', [{ name: 'assessment', data: result }]);
+    await f.activity.reconcileDispatcherLease();
+    expect(await f.activity.collectBrowserResult()).toMatchObject({ ok: true, detail: { result } });
+    expect(f.normalTransport!.admissions.size).toBe(1);
   }, options));
 
   it.each([500, 502, 503])('REQ-OPERATOR-048: transient read HTTP%i retains original receipt and authority until exact settlement', status => fixture(async f => {

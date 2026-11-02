@@ -61,6 +61,8 @@ export function createNormalDispatcherTransport(options: {
   let replyPatch: Record<string, unknown> = {};
   let receiptPatch: Record<string, unknown> = {};
   let profileAuthMissing = false;
+  let cursorObservation = false;
+  let observationPatch: Record<string, unknown> = {};
   const fetcher = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     const request = new Request(input, init);
     networkRequests.push({ url: request.url, method: request.method });
@@ -95,7 +97,8 @@ export function createNormalDispatcherTransport(options: {
       if (loseNextAcknowledgement) { loseNextAcknowledgement = false; throw new Error('External acknowledgement lost after durable acceptance'); }
       const pending = pendingAcknowledgement; pendingAcknowledgement = undefined;
       if (pending) { pending.accepted(); await pending.released; }
-      return Response.json({ ...receipt, ...(retained ? { deduplicated: true } : {}) }, { status: 202 });
+      return Response.json({ ...receipt, ...(retained ? { deduplicated: true } : {}) }, { status: 202,
+        headers: cursorObservation ? { 'x-codeflare-observation': 'cursor-v1' } : {} });
     }
     if (path === '/control/abort') return Response.json({ status: 'intent-recorded' }, { status: 202 });
     if (path === '/control/read') {
@@ -106,13 +109,17 @@ export function createNormalDispatcherTransport(options: {
       const receipt = [...admissions.values()].find(item => item.receipt.submissionId === (body.receipt as NormalReceipt)?.submissionId)?.receipt;
       if (!receipt) return Response.json({ code: 'unknown-submission' }, { status: 404 });
       return Response.json({ status: outcome, receipt: { ...receipt, ...receiptPatch },
-        ...(outcome === 'pending' ? { reason: 'observation-timeout' } : outcome === 'completed'
+        ...(outcome === 'pending' ? { reason: 'observation-timeout',
+          ...(cursorObservation ? { observation: { ...(body.observation as Record<string, unknown>),
+            offset: '100_0', ...observationPatch } } : {}) } : outcome === 'completed'
           ? { reply: { uid: receipt.uid, submissionId: receipt.submissionId, text: '', data, ...replyPatch } }
           : { submissionId: receipt.submissionId }) }, { status: outcome === 'pending' ? 202 : 200 });
     }
     return new Response(null, { status: 404 });
   };
   return { fetcher, requests, networkRequests, admissions,
+    enableCursorObservation: () => { cursorObservation = true; },
+    changeObservation: (patch: Record<string, unknown>) => { observationPatch = patch; },
     refuseProfileAuth: () => { profileAuthMissing = true; },
     loseAcknowledgement: () => { loseNextAcknowledgement = true; },
     // Hold only the next external HTTP202, after durable remote acceptance.
