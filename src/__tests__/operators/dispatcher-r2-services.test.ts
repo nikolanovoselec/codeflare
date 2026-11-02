@@ -97,7 +97,7 @@ function storageBoundary() {
   const touchedKeys = new Set<string>();
   let ordinal = 0;
   let afterRead: ((path: string) => void | Promise<void>) | undefined;
-  let responseOverride: (() => Response) | undefined;
+  let responseOverride: ((path: string) => Response | undefined) | undefined;
   let requireSse = false;
   let beforeWrite: (() => void | Promise<void>) | undefined;
   const put = (key: string, value: unknown, bucket = 'owner-bucket') => {
@@ -130,7 +130,7 @@ function storageBoundary() {
       return new Response(null, { headers: { etag: objects.get(path)!.etag } });
     }
     const object = objects.get(path);
-    const response = responseOverride?.() ?? (object ? new Response(object.body,
+    const response = responseOverride?.(path) ?? (object ? new Response(object.body,
       { headers: { etag: object.etag, 'content-type': 'application/json' } }) : new Response(null, { status: 404 }));
     const action = afterRead; afterRead = undefined; await action?.(path);
     return response;
@@ -140,7 +140,7 @@ function storageBoundary() {
     etag: (key: string) => objects.get(`/owner-bucket/${key}`)!.etag,
     beforeWrite: (action: () => void | Promise<void>) => { beforeWrite = action; },
     afterRead: (action: (path: string) => void | Promise<void>) => { afterRead = action; },
-    override: (action: () => Response) => { responseOverride = action; },
+    override: (action: (path: string) => Response | undefined) => { responseOverride = action; },
     requireSse: () => { requireSse = true; },
   };
 }
@@ -514,7 +514,9 @@ describe('REQ-OPERATOR-007/047/048/058: owner R2 configured-service HTTP contrac
     const startedAt = clock.now;
     vi.spyOn(Date, 'now').mockImplementation(() => clock.now);
     const authorityReply = async () => {
-      clock.now += 130;
+      // Model aggregate boundary cost, not individual network timing: the
+      // latest live request spent 30.9s across 203 registry resolutions.
+      clock.now += 160;
       f.afterRegistryResolve(authorityReply);
     };
     f.afterRegistryResolve(authorityReply);
@@ -574,6 +576,25 @@ describe('REQ-OPERATOR-007/047/048/058: owner R2 configured-service HTTP contrac
     await denied(await read(f), [403, 409, 503]);
     expect(clock.elapsed()).toBeLessThan(30_000);
     expect(store.value(authKey)).toEqual(winner);
+  }));
+
+  it('revocation after R2 headers but before body completion releases no credentials', () => lane(async (f, store) => {
+    await admitted(f);
+    const saved = store.value(authKey);
+    let bodyConsumed = false;
+    store.override(path => path === `/owner-bucket/${authKey}` ? new Response(new ReadableStream<Uint8Array>({
+      pull(controller) {
+        bodyConsumed = true;
+        f.revokeGrant();
+        controller.enqueue(new TextEncoder().encode(JSON.stringify(saved)));
+        controller.close();
+      },
+    }, { highWaterMark: 0 }), { headers: { etag: store.etag(authKey), 'content-type': 'application/json' } }) : undefined);
+    oauthBoundary();
+
+    await denied(await read(f), [403, 409, 503]);
+    expect(bodyConsumed).toBe(true);
+    expect(store.value(authKey)).toEqual(saved);
   }));
 
   it('a fresh concurrent login found under the SDK lock is returned without rewriting its R2 version', () => lane(async (f, store) => {

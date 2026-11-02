@@ -122,7 +122,9 @@ async function transport(env: Env, scope: SdkStorageScope, authorize: () => Prom
     let response: Response;
     try { response = await Promise.race([pending, cancelled]); }
     finally { if (abort) signal.removeEventListener('abort', abort); }
-    try { await guard(); if (response.redirected || response.status >= 300 && response.status < 400) deny(); }
+    // Only read/write consume this response; both revalidate after handling it,
+    // before returning bytes or confirming persistence.
+    try { if (response.redirected || response.status >= 300 && response.status < 400) deny(); }
     catch (error) { void response.body?.cancel().catch(() => undefined); throw error; }
     return response;
   };
