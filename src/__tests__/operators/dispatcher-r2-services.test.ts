@@ -581,10 +581,10 @@ describe('REQ-OPERATOR-007/047/048/058: owner R2 configured-service HTTP contrac
     store.put(authKey, { [providerId]: { ...oldOAuth, expires: 1 }, other });
     const login = { ...oldOAuth, access: `${canary}_fresh_login`, refresh: `${canary}_fresh_login_refresh`,
       expires: Date.now() + 3_600_000 };
-    let authReads = 0;
     let loginVersion: string | undefined;
+    // Publish after the initial response snapshot, before the SDK's locked reread.
     const loginDuringRead = (path: string) => {
-      if (path === `/owner-bucket/${authKey}` && ++authReads === 2) {
+      if (path === `/owner-bucket/${authKey}`) {
         store.put(authKey, { [providerId]: login, other });
         loginVersion = store.etag(authKey);
       } else store.afterRead(loginDuringRead);
