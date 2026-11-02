@@ -15,6 +15,37 @@ function packageDirectory(root, scope, name, bytes = 16) {
 }
 
 describe('REQ-OPS-040: Linux coding-agent package pruning', () => {
+  it('assembles a PTY runtime artifact without Windows or macOS prebuilds and preserves Linux addons', () => {
+    const directory = mkdtempSync(join(tmpdir(), 'codeflare-pty-platform-prune-'));
+    try {
+      const nodeModules = join(directory, 'node_modules');
+      const prebuilds = join(nodeModules, 'node-pty', 'prebuilds');
+      const keep = [
+        packageDirectory(prebuilds, '', 'linux-x64'),
+        packageDirectory(prebuilds, '', 'linux-arm64'),
+        packageDirectory(nodeModules, 'node-pty', 'build/Release'),
+        packageDirectory(nodeModules, 'node-pty', 'build/Debug'),
+        packageDirectory(nodeModules, 'node-pty', 'lib'),
+      ];
+      const remove = [
+        packageDirectory(prebuilds, '', 'win32-x64', 32),
+        packageDirectory(prebuilds, '', 'win32-arm64', 32),
+        packageDirectory(prebuilds, '', 'darwin-x64', 32),
+        packageDirectory(prebuilds, '', 'darwin-arm64', 32),
+      ];
+
+      const result = spawnSync(process.execPath, [script, nodeModules], { encoding: 'utf8' });
+
+      assert.equal(result.status, 0, result.stderr);
+      const report = JSON.parse(result.stdout);
+      assert.equal(report.bytesRemoved, 32 * remove.length);
+      for (const path of keep) assert.equal(existsSync(path), true, `must preserve PTY runtime artifact ${path}`);
+      for (const path of remove) assert.equal(existsSync(path), false, `must exclude foreign PTY prebuild ${path}`);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
   it('removes alternate platform payloads and preserves canonical Linux x64 launchers', () => {
     const directory = mkdtempSync(join(tmpdir(), 'codeflare-platform-prune-'));
     try {

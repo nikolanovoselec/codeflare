@@ -16,8 +16,10 @@ RUN npm ci
 COPY host/tsconfig.json /app/host/
 COPY host/src/ /app/host/src/
 RUN npm run build
-# Remove devDependencies after build to keep runtime image lean
-RUN npm prune --omit=dev
+# Remove development dependencies and foreign native prebuilds before runtime COPY.
+COPY scripts/ci/prune-npm-platform-artifacts.mjs /tmp/prune-npm-platform-artifacts.mjs
+RUN npm prune --omit=dev && \
+    node /tmp/prune-npm-platform-artifacts.mjs node_modules
 
 # ---- Pinned rclone with verified per-side bisync bookkeeping ----
 FROM mirror.gcr.io/library/node:26-bookworm-slim@sha256:86f07bc9c5dce4578cf37e5a418b7bfc7f817cda25cde66e2b66e95ed86c4567 AS rclone-builder
