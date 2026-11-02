@@ -60,7 +60,10 @@ const capabilitiesBody = z.strictObject({ ...dispatcherCapacityShape, revision, 
   operationLimit: z.number().int().positive().safe().optional(), loggingEnabled: z.boolean().optional(),
   inferenceAttemptLimit: z.number().int().positive().safe().optional(),
   submissionAttemptLimit: z.number().int().positive().safe().optional() });
-const configureBody = z.strictObject({ policy, configuration, revision, piReasoningOverride });
+const gatewaySelection = z.strictObject({ operatorRevision: revision,
+  routeId: z.string().min(1).max(128).refine(value => value.trim() === value).nullable(),
+  reasoningLevel: z.enum(['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']).nullable() });
+const configureBody = z.strictObject({ policy, configuration, revision, piReasoningOverride, gatewaySelection: gatewaySelection.optional() });
 const boundaryEnrollmentBody = z.strictObject({
   repositoryUrl: z.string().min(1).max(2048),
   protectedRef: z.enum(['refs/heads/main', 'refs/heads/develop', 'refs/heads/master']),
@@ -304,6 +307,7 @@ app.post('/operators/:operatorId/installations', async c => {
   const input = await parseJsonBody(c, installationBody);
   const operator = await managed(c, c.req.param('operatorId'));
   withinCeiling(c.get('operatorHuman'), input.policy);
+  if (operator.profile === 'dispatcher' && input.piReasoningOverride !== undefined) throw new ValidationError('Dispatcher reasoning inherits the owner profile');
   return c.json(presentInstallation(result(await c.get('registry').createManagementInstallation(operator.id, input.name, input.policy, authority(c, operator, input.revision), JSON.stringify(input.configuration), input.piReasoningOverride))), 201);
 });
 
@@ -430,10 +434,28 @@ app.post('/installations/:installationId/configure', async c => {
   const input = await parseJsonBody(c, configureBody);
   const { installation, operator } = await managedInstallation(c);
   withinCeiling(c.get('operatorHuman'), input.policy);
+  if (operator.profile === 'dispatcher' && input.piReasoningOverride !== undefined) throw new ValidationError('Dispatcher reasoning inherits the owner profile');
+  if (input.gatewaySelection) {
+    if (operator.profile !== 'dispatcher') throw new ValidationError('Gateway approval requires a Dispatcher operator');
+    const reauthorize = acquisitionContext(c, operator).reauthorize;
+    await reauthorize();
+    const human = c.get('operatorHuman').human;
+    const groups = [...(human.groups ?? [])].sort();
+    const configuredGroups = parseAccessGroups(await c.env.KV.get(SETUP_KEYS.ENTERPRISE_ACCESS_GROUP));
+    const catalog = await loadEnterpriseRouteConfig(c.env, configuredGroups.filter(group => groups.includes(group)));
+    const { routeId, reasoningLevel } = input.gatewaySelection;
+    if ((routeId !== null && !catalog.routeCatalog.includes(routeId))
+      || (reasoningLevel !== null && (routeId === null || !(catalog.routeReasoningLevels[routeId] ?? []).includes(reasoningLevel)))) {
+      throw new ValidationError('Gateway selection is unavailable');
+    }
+    const current = await reauthorize();
+    if (JSON.stringify([...(current.groups ?? [])].sort()) !== JSON.stringify(groups)) denied();
+  }
   const configured = result(await c.get('registry').configureManagementInstallation(installation.id, {
     policy: input.policy, configurationJson: JSON.stringify(input.configuration), revision: input.revision,
     ...(input.piReasoningOverride !== undefined && { piReasoningOverride: input.piReasoningOverride }),
-  }, authority(c, operator)));
+    ...(input.gatewaySelection && { gatewaySelection: input.gatewaySelection }),
+  }, authority(c, operator, input.gatewaySelection?.operatorRevision ?? operator.revision)));
   return c.json(presentInstallation(configured));
 });
 

@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@solidjs/testing-library';
 import OperatorManagement from '../../components/OperatorManagement';
+import OperatorActivityDiagnostics from '../../components/OperatorActivityDiagnostics';
 import OperatorManagementActivity from '../../components/OperatorManagementActivity';
 import type { Session } from '../../types';
 const summary = { activityId: 'activity-1', operatorId: 'operator-1', executionStatus: 'running', cleanupStatus: 'pending', collectionStatus: 'unavailable',
@@ -392,7 +393,10 @@ const diagnosticSummary = () => ({ ...diagnosticHeaders(), capture: 'enabled',
     { status: string; rootDigest?: string; submissionDigest?: string; attemptDigest?: string },
   fence: null as null | { generation: number; timestamp: number; boundary: string; code: string; uncertain: boolean },
   diagnosis: { state: 'observed-failure', code: 'canonical-append-failed', lastConfirmedId: 'e-1' as string | null,
-    failedId: 'e-2' as string | null, nextCheck: 'inspect-failure' } });
+    failedId: 'e-2' as string | null, nextCheck: 'inspect-failure' } as {
+      state: string; code: string; lastConfirmedId: string | null; failedId: string | null; nextCheck: string;
+      sdkService?: import('../../api/operator-diagnostics-wire').SdkServiceFailure; continuedId?: string; publicCode?: string; executionStatus?: string;
+    } });
 const diagnosticEvent = (sequence: number, boundary: string, outcome: string, code = 'none') => ({
   kind: 'event', id: `e-${sequence}`, sequence, generation: 3, timestamp: 1791936000000 + sequence,
   owner: boundary === 'inference-response' ? 'host' : 'sdk', boundary, outcome, code,
@@ -475,10 +479,16 @@ async function selectDiagnosticActivity(activityId = 'activity-1') {
   fireEvent.click(await screen.findByRole('button', { name: `View ${activityId}` }));
   expect(await screen.findByRole('heading', { name: 'Activity detail' })).toBeInTheDocument();
 }
-async function openDiagnostics() {
+async function openDiagnostics(expandTimeline = true) {
   // Baseline RED is the missing accessible button, not a nonexistent import or shape exception.
   fireEvent.click(await screen.findByRole('button', { name: diagnosticButtonName }));
-  return within(await screen.findByRole('region', { name: /^(?:Activity )?Diagnostics$/i }));
+  const panel = within(await screen.findByRole('region', { name: /^(?:Activity )?Diagnostics$/i }));
+  await waitFor(() => expect(panel.queryByText(/Loading diagnostics|Loading diagnostic history/)).not.toBeInTheDocument());
+  if (expandTimeline) {
+    const disclosure = panel.queryByText('Timeline technical details and retained records', { selector: 'summary' });
+    if (disclosure) fireEvent.click(disclosure);
+  }
+  return panel;
 }
 function deferredDiagnosticResponse() {
   let resolve!: (response: Response) => void;
@@ -488,7 +498,7 @@ function deferredDiagnosticResponse() {
 
 // All scenarios below map to planned REQ-OPERATOR-084 AC1 and its passive UI Constraints.
 describe('REQ-OPERATOR-081: AC6 retained Dispatcher diagnostics in Activity detail', () => {
-  afterEach(() => vi.useRealTimers());
+  afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); });
 
   it('opens diagnostics manually for the selected Activity via authenticated GET without changing execution or its original result', async () => {
     const { state, routes } = ownedDiagnosticFixture();
@@ -510,7 +520,7 @@ describe('REQ-OPERATOR-081: AC6 retained Dispatcher diagnostics in Activity deta
     expect(panel.getByText(/last confirmed.*e-1/i)).toBeVisible();
     expect(panel.getByText(/last confirmed.*e-1/i)).toBeInTheDocument();
     expect(panel.getByText(/(?:(?:failed|unfulfilled).*(?:handoff|transition)|first failure).*e-2/i)).toBeInTheDocument();
-    expect(panel.getByText(/A failed or unfulfilled handoff was retained\. It is not necessarily the first failure\./)).toBeVisible();
+    expect(panel.getByRole('button', { name: 'View failure evidence' })).toBeVisible();
     fireEvent.click(summaryDetails);
     expect(panel.getByText(/last confirmed.*e-1/i)).not.toBeVisible();
     expect(await panel.findByRole('button', { name: 'View record e-2' })).toBeVisible();
@@ -695,7 +705,7 @@ describe('REQ-OPERATOR-081: AC6 retained Dispatcher diagnostics in Activity deta
     expect(state.mutations).toEqual([]);
   });
 
-  it('exports metadata in explicit resumable parts and distinguishes export exhaustion from retention loss', async () => {
+  it('Task116: one Export metadata action downloads every retained part once and preserves retention loss', async () => {
     const { state, routes } = ownedDiagnosticFixture();
     const first = diagnosticExport([diagnosticEvent(1, 'inference-response', 'completed'),
       diagnosticEvent(2, 'canonical-commit', 'failed', 'canonical-append-failed')]);
@@ -705,26 +715,181 @@ describe('REQ-OPERATOR-081: AC6 retained Dispatcher diagnostics in Activity deta
     const last = { ...first, records: [diagnosticOperation()], nextCursor: null, pageStatus: 'complete', partDigest: 'c'.repeat(64) };
     routes.set(`${diagnosticPath}/export`, () => diagnosticJson(first));
     routes.set(`${diagnosticPath}/export?cursor=export-page-two`, () => diagnosticJson(last));
+    const clicked: string[] = [];
+    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (this: HTMLAnchorElement) { clicked.push(this.download); });
     render(() => <OperatorManagement />);
     await selectDiagnosticActivity();
     const panel = await openDiagnostics();
-    const exportButton = await panel.findByRole('button', { name: /^(?:export|download)(?: diagnostics)?(?: metadata)?(?: part)?$/i });
+    fireEvent.click(panel.getByRole('button', { name: 'Export metadata' }));
+    expect(await panel.findByText(/Export traversal exhausted: all retained metadata parts read \(2 parts\)/)).toBeVisible();
+    expect(panel.getByText('Retained evidence loss remains in the download.')).toBeVisible();
+    expect(clicked).toEqual(['activity-1-diagnostics.json']);
+    expect(URL.createObjectURL).toHaveBeenCalledTimes(1);
+    const blob = vi.mocked(URL.createObjectURL).mock.calls[0][0] as Blob;
+    const content = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader(); reader.onload = () => resolve(String(reader.result)); reader.onerror = reject; reader.readAsText(blob);
+    });
+    expect(JSON.parse(content)).toMatchObject({ activityId: 'activity-1', binding: diagnosticBinding,
+      highWater: first.highWater, snapshotDigest: first.snapshotDigest, traversal: 'complete', parts: [first, last] });
+    expect(panel.getByText(/does not establish complete execution history/)).toBeVisible();
+    expect(panel.queryByRole('button', { name: /next.*part/i })).not.toBeInTheDocument();
+    expect(state.mutations).toEqual([]);
+  });
+
+  it('Task127: compact OAuth diagnosis distinguishes upstream400 from wrapper403 and links safe retained evidence', async () => {
+    const { state } = ownedDiagnosticFixture();
+    state.summary.diagnosis = { state: 'observed-failure', code: 'provider-failed', lastConfirmedId: 'e-1', failedId: 'e-2',
+      nextCheck: 'inspect-failure', sdkService: { sdkCode: 'oauth', sdkStage: 'refresh', httpStatus: 400,
+        oauthError: 'invalid_grant', exceptionCategory: 'error', requestAborted: false, wrapperStatus: 403 } };
+    state.summary.diagnosis.executionStatus = 'failed';
+    render(() => <OperatorManagement />);
+    await selectDiagnosticActivity();
+    const panel = await openDiagnostics(false);
+    expect(panel.getByText('Current state: failed')).toBeVisible();
+    expect(panel.getByText(/OAuth refresh failed: upstream HTTP 400 \(invalid_grant\).*platform returned HTTP 403/)).toBeVisible();
+    expect(panel.getByText(/execution owner should log in to the provider in Pi, then sync.*R2/)).toBeVisible();
+    expect(panel.getByText(/No later work is confirmed after the retained failed attempt/)).toBeVisible();
+    expect(panel.queryByRole('list', { name: 'Diagnostic timeline' })).not.toBeInTheDocument();
+    expect(panel.getByText(/Current original-lease binding generation/)).not.toBeVisible();
+    expect(panel.queryByText(/revoked|reused|expired refresh|SDK import legacy|identities are not inferred/i)).not.toBeInTheDocument();
+    fireEvent.click(panel.getByRole('button', { name: 'View failure evidence' }));
+    expect(await panel.findByRole('region', { name: 'Record e-2' })).toBeVisible();
+    expect(state.mutations).toEqual([]);
+  });
+
+  it('Task127: a private inference conflict shows HTTP409 and safe recovery without claiming a vendor failure', async () => {
+    const { state } = ownedDiagnosticFixture();
+    state.summary.diagnosis = { state: 'observed-failure', code: 'admission-denied', lastConfirmedId: 'e-1',
+      failedId: 'e-2', nextCheck: 'inspect-failure', transportStatus: 409,
+      transportReason: 'operation-conflict', transportDisposition: 'operation-local' };
+    render(() => <OperatorManagement />);
+    await selectDiagnosticActivity();
+    const panel = await openDiagnostics(false);
+    expect(panel.getByText(/platform refused an inference request with HTTP 409 \(operation-conflict\)/)).toBeVisible();
+    expect(panel.getByText(/exact conflict condition is not retained/)).toBeVisible();
+    expect(panel.getByText(/Inspect the original operation and request comparison before retrying/)).toBeVisible();
+    expect(panel.queryByText(/model provider failed|OAuth refresh failed/)).not.toBeInTheDocument();
+    expect(state.mutations).toEqual([]);
+  });
+
+  it('Task127: empty correlation and missing source versions stay omitted when technical details are opened', async () => {
+    const { state } = ownedDiagnosticFixture();
+    Object.assign(state.detail.record, { correlation: {} });
+    state.detail.record.source.baseVersion = null;
+    render(() => <OperatorManagement />);
+    await selectDiagnosticActivity();
+    const panel = await openDiagnostics(false);
+    expect(panel.queryByRole('list', { name: 'Diagnostic timeline' })).not.toBeInTheDocument();
+    fireEvent.click(panel.getByRole('button', { name: 'View failure evidence' }));
+    const detail = within(await panel.findByRole('region', { name: 'Record e-2' }));
+    fireEvent.click(detail.getByText('Record technical details', { selector: 'summary' }));
+    expect(detail.queryByText(/Correlation|identities are not inferred|Base version: Unavailable/)).not.toBeInTheDocument();
+    expect(detail.getByText('Source package: @flue/runtime')).toBeVisible();
+  });
+
+  it.each([{ oauthError: 'PRIVATE_VENDOR_ERROR' }, { httpStatus: 200 }, { rawBody: 'PRIVATE_AUTH_BODY' },
+    { sdkCode: 'stream', sdkStage: 'refresh' }])('Task127: rejects unsafe or contradictory SDK classification %j', async invalid => {
+    const { state } = ownedDiagnosticFixture();
+    state.summary.diagnosis.sdkService = { sdkCode: 'oauth', sdkStage: 'refresh', httpStatus: 400,
+      oauthError: 'invalid_grant', exceptionCategory: 'error', requestAborted: false, wrapperStatus: 403 };
+    Object.assign(state.summary.diagnosis.sdkService, invalid);
+    render(() => <OperatorManagement />);
+    await selectDiagnosticActivity();
+    fireEvent.click(await screen.findByRole('button', { name: diagnosticButtonName }));
+    expect(await screen.findByRole('alert')).toBeVisible();
+    expect(screen.queryByText(/PRIVATE_VENDOR_ERROR|PRIVATE_AUTH_BODY|OAuth refresh failed/)).not.toBeInTheDocument();
+  });
+
+  it('Task127: an earlier citation failure followed by later work is continued, not recovered or a new fatal cause', async () => {
+    const { state } = ownedDiagnosticFixture();
+    state.summary.diagnosis = { state: 'observed-failure', code: 'tool-failed', publicCode: 'citation-provenance',
+      lastConfirmedId: 'e-2', failedId: 'e-1', continuedId: 'e-2', nextCheck: 'inspect-failure' };
+    state.history.records = [diagnosticEvent(1, 'tool', 'failed', 'tool-failed'), diagnosticEvent(2, 'tool', 'completed')];
+    render(() => <OperatorManagement />);
+    await selectDiagnosticActivity();
+    const panel = await openDiagnostics(false);
+    expect(panel.getByText('Work continued after a failed attempt. Full recovery is not confirmed.')).toBeVisible();
+    expect(panel.getByText('A citation did not match retained source evidence.')).toBeVisible();
+    expect(panel.getByText(/Inspect the later evidence and final result before deciding/)).toBeVisible();
+    expect(panel.queryByText(/run stopped|attempt recovered|OAuth|A tool failed\./)).not.toBeInTheDocument();
+  });
+
+  it('Task116: one action retrieves sixteen parts and all 508 retained records in one ordered download', async () => {
+    const { routes } = ownedDiagnosticFixture();
+    const parts = Array.from({ length: 16 }, (_, index) => {
+      const part = diagnosticExport(Array.from({ length: index === 15 ? 28 : 32 }, (_, offset) =>
+        diagnosticEvent(index * 32 + offset + 1, 'tool', 'completed')));
+      part.highWater = { events: 508, operations: 0 };
+      part.retention.lastSequence = 508;
+      part.partDigest = (index + 1).toString(16).padStart(64, '0');
+      part.nextCursor = index === 15 ? null : `page-${index + 1}`;
+      part.pageStatus = index === 15 ? 'complete' : 'more';
+      routes.set(`${diagnosticPath}/export${index ? `?cursor=page-${index}` : ''}`, () => diagnosticJson(part));
+      return part;
+    });
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+    render(() => <OperatorManagement />);
+    await selectDiagnosticActivity();
+    const panel = await openDiagnostics(false);
+    fireEvent.click(panel.getByRole('button', { name: 'Export metadata' }));
+    expect(await panel.findByText(/all retained metadata parts read \(16 parts\)/)).toBeVisible();
+    expect(click).toHaveBeenCalledTimes(1);
+    expect(URL.createObjectURL).toHaveBeenCalledTimes(1);
+    const blob = vi.mocked(URL.createObjectURL).mock.calls[0][0] as Blob;
+    const content = await new Promise<string>(resolve => {
+      const reader = new FileReader(); reader.onload = () => resolve(String(reader.result)); reader.readAsText(blob);
+    });
+    const saved = JSON.parse(content);
+    expect(saved.parts).toEqual(parts);
+    expect(saved.parts.flatMap((part: { records: unknown[] }) => part.records)).toHaveLength(508);
+    expect(saved).toMatchObject({ binding: diagnosticBinding, highWater: { events: 508, operations: 0 },
+      snapshotDigest: parts[0].snapshotDigest, traversal: 'complete' });
+  });
+
+  it.each(['cursor-cycle', 'binding-drift', 'high-water-drift', 'digest-drift', 'later503', 'duplicate-record', 'raw-field']) (
+    'Task116: %s aborts traversal visibly without any partial download', async fault => {
+      const { state, routes } = ownedDiagnosticFixture();
+      state.export = diagnosticExport([diagnosticEvent(1, 'tool', 'completed')]);
+      state.export.nextCursor = 'next-part'; state.export.pageStatus = 'more';
+      const next = diagnosticExport([diagnosticEvent(2, 'tool', 'completed')]);
+      if (fault === 'cursor-cycle') { next.nextCursor = 'next-part'; next.pageStatus = 'more'; }
+      if (fault === 'binding-drift') next.binding = { ...next.binding, generation: 4 };
+      if (fault === 'high-water-drift') next.highWater = { ...next.highWater, events: 3 };
+      if (fault === 'digest-drift') next.snapshotDigest = 'c'.repeat(64);
+      if (fault === 'duplicate-record') next.records = state.export.records;
+      if (fault === 'raw-field') Object.assign(next, { rawBody: 'PRIVATE_AUTH_BODY' });
+      routes.set(`${diagnosticPath}/export?cursor=next-part`, () => fault === 'later503'
+        ? diagnosticJson({ error: 'PRIVATE_AUTH_BODY' }, 503) : diagnosticJson(next));
+      const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+      render(() => <OperatorManagement />);
+      await selectDiagnosticActivity();
+      const panel = await openDiagnostics(false);
+      fireEvent.click(panel.getByRole('button', { name: 'Export metadata' }));
+      expect(await panel.findByRole('alert')).toBeVisible();
+      expect(URL.createObjectURL).not.toHaveBeenCalled();
+      expect(click).not.toHaveBeenCalled();
+      expect(panel.queryByRole('link', { name: /Save metadata/ })).not.toBeInTheDocument();
+      expect(panel.queryByText(/traversal exhausted|PRIVATE_AUTH_BODY/)).not.toBeInTheDocument();
+      expect(state.mutations).toEqual([]);
+    });
+
+  it('Task116: leaving diagnostics aborts an in-flight traversal and ignores its late response', async () => {
+    const { state, routes } = ownedDiagnosticFixture();
+    const pending = deferredDiagnosticResponse();
+    routes.set(`${diagnosticPath}/export`, () => pending.promise);
+    let signal: AbortSignal | null | undefined;
+    const original = serve;
+    serve = (url, init) => { if (url.pathname.endsWith('/export')) signal = init?.signal; return original(url, init); };
+    const view = render(() => <OperatorActivityDiagnostics activityId="activity-1" openOnMount />);
+    const exportButton = await screen.findByRole('button', { name: 'Export metadata' });
     await waitFor(() => expect(exportButton).not.toBeDisabled());
     fireEvent.click(exportButton);
-    await waitFor(() => expect(panel.queryByText(/loading.*export/i)).not.toBeInTheDocument());
-    expect(await panel.findByRole('status')).toHaveTextContent('Metadata export part 1 read. More parts remain.');
-    expect(panel.queryByText(/export complete|all retained.*exported/i)).not.toBeInTheDocument();
-    const nextPart = await panel.findByRole('button', { name: /(?:export|download).*next.*part|next.*export.*part/i });
-    await waitFor(() => expect(nextPart).not.toBeDisabled());
-    fireEvent.click(nextPart);
-    expect(await panel.findByText(/Metadata export part 2 read\. Export traversal exhausted: all retained metadata parts read\./i)).toBeInTheDocument();
-    expect(panel.getByText('Retained evidence loss remains even after all export parts have been read. Traversal completeness does not describe complete execution history.')).toBeVisible();
-    expect(panel.getByText(/does not describe complete execution history/i)).toBeInTheDocument();
-    // Reject completeness claims, not the explicit disclaimer of execution-history completeness.
-    expect(panel.queryByText(text => /complete execution history|no evidence loss/i.test(
-      text.replace(/does not describe complete execution history/i, '')))).not.toBeInTheDocument();
-    expect(panel.queryByRole('button', { name: /(?:export|download).*next.*part|next.*export.*part/i })).not.toBeInTheDocument();
-    expect(state.mutations).toEqual([]);
+    await waitFor(() => expect(signal).toBeDefined());
+    view.unmount();
+    expect(signal?.aborted).toBe(true);
+    pending.resolve(diagnosticJson(state.export));
+    await Promise.resolve();
+    expect(URL.createObjectURL).not.toHaveBeenCalled();
   });
 
   it('keeps a recovered failure distinct from the successful successor and does not present it as the terminal cause', async () => {
@@ -739,7 +904,7 @@ describe('REQ-OPERATOR-081: AC6 retained Dispatcher diagnostics in Activity deta
     render(() => <OperatorManagement />);
     await selectDiagnosticActivity();
     const panel = await openDiagnostics();
-    expect(await panel.findByText(/recovered failure|failure.*recovered/i)).toBeInTheDocument();
+    expect(await panel.findByText(/failed attempt recovered/i)).toBeInTheDocument();
     expect(await panel.findByRole('list', { name: /timeline/i })).toHaveTextContent(/settlement.*completed|completed.*settlement/i);
     expect(panel.queryByText(/terminal cause.*provider|activity failed.*provider/i)).not.toBeInTheDocument();
     expect(state.mutations).toEqual([]);
@@ -807,8 +972,8 @@ describe('REQ-OPERATOR-081: AC6 retained Dispatcher diagnostics in Activity deta
     await selectDiagnosticActivity();
     const panel = await openDiagnostics();
     expect(await panel.findByText(/(?:retention|evidence).*loss|loss.*(?:retention|evidence)/i)).toBeInTheDocument();
-    expect(panel.getByText('Some diagnostic metadata is missing. The retained records may not explain everything that happened. Protected runtime logs are stored separately; gaps here do not prove those logs were lost.')).toBeVisible();
-    fireEvent.click(panel.getByText('Retention technical details', { selector: 'summary' }));
+    expect(panel.getByText('Some diagnostic metadata is missing. The retained records may not explain everything that happened. Protected runtime logs are stored separately; gaps here do not prove those logs were lost.')).not.toBeVisible();
+    fireEvent.click(panel.getByText('Evidence availability technical details', { selector: 'summary' }));
     expect(panel.getByText(/(?:evicted|routine).*12|12.*(?:evicted|routine)/i)).toBeVisible();
     expect(panel.getByText(/(?:failure|capsule).*2.*(?:drop|lost)|(?:drop|lost).*2.*failure/i)).toBeInTheDocument();
     expect(panel.getByText(/terminal.*(?:unknown|unavailable)|(?:unknown|unavailable).*terminal/i)).toBeInTheDocument();
@@ -854,12 +1019,12 @@ describe('REQ-OPERATOR-081: AC6 retained Dispatcher diagnostics in Activity deta
     render(() => <OperatorManagement />);
     await selectDiagnosticActivity();
     const panel = await openDiagnostics();
-    expect(await panel.findByText('Some runtime records have not been imported into this metadata view. This does not establish whether their original runtime logs are available.')).toBeVisible();
+    expect(await panel.findByText('Some runtime records have not been imported into this metadata view. This does not establish whether their original runtime logs are available.')).not.toBeVisible();
     fireEvent.click(panel.getByText('Summary technical details', { selector: 'summary' }));
     expect(await panel.findByText(/SDK.*import.*(?:pending|incomplete)|(?:pending|incomplete).*SDK.*import/i)).toBeVisible();
     expect(panel.getByText(/(?:local|child).*captur.*(?:not|does not|unavailable).*host.persisted.*cause|host.persist.*(?:not|unconfirmed|unavailable).*cause/i)).toBeInTheDocument();
     expect(panel.getByText(/last confirmed.*e-1/i)).toBeInTheDocument();
-    expect(panel.getByText('Next: Check the technical details for records that have not been confirmed as saved by the host.')).toBeVisible();
+    expect(panel.getByText('Next: Inspect the execution fence and reconcile uncertain effects before considering another run. Do not replay uncertain work.')).toBeVisible();
     expect(panel.queryByText(/canonical.*append.*failed|TypeError/i)).not.toBeInTheDocument();
     expect(panel.queryByRole('button', { name: /retry|renew|continue|replay|collect/i })).not.toBeInTheDocument();
     expect(screen.getByText(/Original result for activity-1/)).toBeInTheDocument();
@@ -917,7 +1082,7 @@ describe('REQ-OPERATOR-081: AC6 retained Dispatcher diagnostics in Activity deta
     render(() => <OperatorManagement />);
     await selectDiagnosticActivity();
     const panel = await openDiagnostics();
-    expect(await panel.findByText('The retained records do not show a failure, but they do not establish that execution succeeded.')).toBeVisible();
+    expect(await panel.findByText('No failure is retained; this does not confirm success.')).toBeVisible();
     const timeline = await panel.findByRole('list', { name: /timeline/i });
     const commit = within(timeline).getAllByRole('listitem')[1];
     expect(commit).toHaveTextContent(/batch.*11/i);
@@ -1026,9 +1191,6 @@ describe('REQ-OPERATOR-081: AC6 retained Dispatcher diagnostics in Activity deta
     const exportButton = await panel.findByRole('button', { name: /^(?:export|download)(?: diagnostics)?(?: metadata)?(?: part)?$/i });
     await waitFor(() => expect(exportButton).not.toBeDisabled());
     fireEvent.click(exportButton);
-    const nextPart = await panel.findByRole('button', { name: /(?:export|download).*next.*part|next.*export.*part/i });
-    await waitFor(() => expect(nextPart).not.toBeDisabled());
-    fireEvent.click(nextPart);
     expect(await screen.findByRole('alert')).toHaveTextContent(/retention.*(?:changed|expired)|snapshot.*(?:expired|invalid|discard)/i);
     expect(panel.queryByText(/export complete|all retained.*exported/i)).not.toBeInTheDocument();
     expect(panel.queryByRole('button', { name: /(?:export|download).*next.*part|next.*export.*part/i })).not.toBeInTheDocument();

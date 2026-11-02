@@ -16,6 +16,9 @@ const json = (body: unknown, status = 200) => new Response(JSON.stringify(body),
 const choices = { users: ['manager@example.test', 'invoker@example.test', 'delegate@example.test'], groups: [], unresolvedGroups: [],
   capabilities: ['session', 'pi', 'storage', 'inference', 'fetch'], resourceProfileIds: [],
   ceiling: { capabilities: [], resourceProfileIds: [] } };
+async function openAdvanced() {
+  fireEvent.click(await screen.findByText('Advanced settings', { selector: 'summary' }));
+}
 async function openSource() {
   await screen.findByRole('region', { name: 'Installed version' });
   fireEvent.click(screen.getByText('Change source', { selector: 'summary' }));
@@ -47,6 +50,7 @@ describe('REQ-OPERATOR-049: management decisions and recovery', () => {
     };
     render(() => <OperatorManagement />);
     fireEvent.click(await screen.findByRole('button', { name: `Manage ${operator.repositoryUrl}` }));
+    await openAdvanced();
     const checkbox = await screen.findByRole('checkbox', { name: /Enable logging/ });
     expect(screen.getAllByRole('checkbox', { name: /Enable logging/ })).toHaveLength(1);
     expect((checkbox as HTMLInputElement).checked).toBe(initial ?? true);
@@ -165,6 +169,7 @@ describe('REQ-OPERATOR-049: management decisions and recovery', () => {
     render(() => <OperatorManagement />);
     fireEvent.click(await screen.findByRole('button', { name: `Manage ${dispatcher.repositoryUrl}` }));
     expect(screen.queryByRole('combobox', { name: 'test resource profile' })).not.toBeInTheDocument();
+    await openAdvanced();
     expect(await screen.findByRole('heading', { name: 'Runtime permissions' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('link', { name: /assess a pull request/i }));
     expect(await screen.findByRole('heading', { name: 'Assess a Renovate pull request' })).toBeInTheDocument();
@@ -210,6 +215,7 @@ describe('REQ-OPERATOR-049: management decisions and recovery', () => {
       : url.pathname.endsWith('/operator-1') ? json(detail()) : json({ items: [operator], cursor: null });
     render(() => <OperatorManagement />);
     fireEvent.click(await screen.findByRole('button', { name: `Manage ${operator.repositoryUrl}` }));
+    await openAdvanced();
     fireEvent.click(await screen.findByRole('button', { name: 'Save restrictions for test' }));
     const installed = screen.getByRole('region', { name: 'Installed version' });
     await waitFor(() => expect(within(installed).getByRole('status')).toHaveTextContent(/restrictions saved/i));
@@ -346,6 +352,7 @@ describe('REQ-OPERATOR-049: management decisions and recovery', () => {
     render(() => <OperatorManagement />);
     fireEvent.click(await screen.findByRole('button', { name: `Manage ${operator.repositoryUrl}` }));
     expect(screen.queryByRole('textbox', { name: /configuration json/i })).not.toBeInTheDocument();
+    await openAdvanced();
     fireEvent.click(await screen.findByRole('button', { name: 'Save restrictions for test' }));
     await waitFor(() => expect(saved).toEqual({ revision: 2, policy, configuration: { repositoryId: 123 } }));
   });
@@ -430,7 +437,7 @@ describe('REQ-OPERATOR-049: management decisions and recovery', () => {
 });
 
 
-describe('REQ-OPERATOR-007: installation-only Pi reasoning', () => {
+describe('REQ-OPERATOR-007: Conductor installation-only Pi reasoning', () => {
   it('saves the installation-only Low override without enabling the installation', async () => {
     let current = { ...installation, piReasoningOverride: undefined as string | undefined };
     let saved: Record<string, unknown> | undefined;
@@ -445,6 +452,7 @@ describe('REQ-OPERATOR-007: installation-only Pi reasoning', () => {
     };
     render(() => <OperatorManagement />);
     fireEvent.click(await screen.findByRole('button', { name: `Manage ${operator.repositoryUrl}` }));
+    await openAdvanced();
     const override = await screen.findByRole('combobox', { name: 'test Pi reasoning' });
     expect(override).toHaveValue('');
     fireEvent.change(override, { target: { value: 'low' } });
@@ -491,6 +499,7 @@ describe('REQ-OPERATOR-007: management source approval controls', () => {
     };
     render(() => <OperatorManagement />);
     fireEvent.click(await screen.findByRole('button', { name: `Manage ${operator.repositoryUrl}` }));
+    await openAdvanced();
     const native = await screen.findByRole('checkbox', { name: 'Operator approve Pi-native source' });
     expect(native).toBeChecked();
     expect(screen.getByRole('checkbox', { name: 'Operator allow low reasoning' })).toBeChecked();
@@ -513,6 +522,7 @@ describe('REQ-OPERATOR-007: management source approval controls', () => {
     };
     render(() => <OperatorManagement />);
     fireEvent.click(await screen.findByRole('button', { name: `Manage ${operator.repositoryUrl}` }));
+    await openAdvanced();
     const native = await screen.findByRole('checkbox', { name: 'Operator approve Pi-native source' });
     expect(native).not.toBeChecked();
     expect(screen.getByRole('checkbox', { name: 'test approve Pi-native source' })).not.toBeChecked();
@@ -528,62 +538,64 @@ describe('REQ-OPERATOR-007: management source approval controls', () => {
 });
 
 // Local fixtures deliberately do not widen the ordinary management choices above.
-describe('REQ-OPERATOR-007/049/075: installation Gateway selection', () => {
+describe('REQ-OPERATOR-007/049/075: installed Dispatcher model settings', () => {
   const routes = [
     { id: 'opus', label: 'Opus', reasoningLevels: ['minimal', 'low'] },
     { id: 'cheap', label: 'Cheaper route', reasoningLevels: ['off', 'low'] },
     { id: 'off-only', label: 'Off-only route', reasoningLevels: ['off'] },
   ] satisfies NonNullable<ManagementChoices['managedRoutes']>;
-  function fixture(input: { missing?: boolean; levelsMissing?: boolean; savedRoute?: string | null; savedLevel?: 'low' | null; allGranted?: boolean; choicesGate?: Promise<void> } = {}) {
+  function fixture(input: { missing?: boolean; levelsMissing?: boolean; savedRoute?: string | null;
+    savedLevel?: 'low' | null; choicesGate?: Promise<void>; legacy?: boolean } = {}) {
     const inference: NonNullable<ManagementPolicy['inference']> = {
-      allowedSources: ['managed', 'pi-native'], routeIds: input.allGranted ? ['opus', 'cheap', 'off-only']
-        : input.savedRoute === 'retired-route' ? ['opus', 'retired-route'] : ['opus'],
+      allowedSources: ['pi-native'], routeIds: input.savedRoute === 'retired-route' ? ['opus', 'retired-route'] : ['opus'],
       defaultRouteId: input.savedRoute === undefined ? 'opus' : input.savedRoute,
-      reasoningLevels: input.allGranted ? ['off', 'minimal', 'low'] : ['minimal', 'low'],
-      defaultReasoningLevel: input.savedLevel === undefined ? 'low' : input.savedLevel, inheritUserDefaults: true,
+      reasoningLevels: ['minimal', 'low'], defaultReasoningLevel: input.savedLevel === undefined ? 'low' : input.savedLevel,
+      inheritUserDefaults: true,
     };
-    let currentOperator = { ...operator, policy: { ...policy, inference } };
+    let currentOperator = { ...operator, profile: 'dispatcher', policy: { ...policy, capabilities: ['inference'], inference } };
     let installations = [
-      { ...installation, policy: { ...policy, inference }, configuration: { unrelated: { keep: true } }, piReasoningOverride: 'low' as const },
-      { ...installation, id: 'installation-2', name: 'second', policy: { ...policy, inference: { ...inference, defaultRouteId: null, defaultReasoningLevel: null } },
-        configuration: { unrelated: { keep: true } }, piReasoningOverride: 'low' as const },
+      { ...installation, policy: { ...policy, capabilities: ['inference'], ...(input.legacy ? {} : { inference }), sourceResponseBytes: 65536 },
+        configuration: { unrelated: { keep: true } }, piReasoningOverride: 'low' as string | undefined },
+      { ...installation, id: 'installation-2', name: 'second', policy: { ...policy, capabilities: ['inference'], inference: { ...inference,
+        defaultRouteId: null, defaultReasoningLevel: null }, sourceResponseBytes: 65536 },
+        configuration: { unrelated: { keep: true } }, piReasoningOverride: 'low' as string | undefined },
     ];
+    const writes: Array<{ path: string; body: any }> = [];
     let failure = 0;
     vi.stubGlobal('fetch', vi.fn((inputUrl: string, init?: RequestInit) => {
       const url = new URL(inputUrl, window.location.origin);
       if (url.pathname.endsWith('/options')) {
-        const response = () => json({ ...choices, ...(input.missing ? {} : { managedRoutes: input.levelsMissing ? routes.map(route => route.id === 'opus' ? { ...route, reasoningLevels: ['minimal'] } : route) : routes }) });
+        const response = () => json({ ...choices, ceiling: { ...choices.ceiling, capabilities: ['inference'] }, ...(input.missing ? {} : { managedRoutes: input.levelsMissing
+          ? routes.map(route => route.id === 'opus' ? { ...route, reasoningLevels: ['minimal'] } : route) : routes }) });
         return input.choicesGate ? input.choicesGate.then(response) : Promise.resolve(response());
       }
-      if (url.pathname.endsWith('/capabilities') && init?.method === 'POST') {
-        const { revision, ...changes } = JSON.parse(String(init.body));
-        if (revision !== currentOperator.revision) return Promise.resolve(json({ error: 'Conflict' }, 409));
-        currentOperator = { ...currentOperator, revision: revision + 1, policy: { ...currentOperator.policy, ...changes } };
-        installations = installations.map(item => ({ ...item, enabled: false }));
-        return Promise.resolve(json(currentOperator));
-      }
-      if (url.pathname.endsWith('/configure') && init?.method === 'POST') {
-        if (failure) return Promise.resolve(json({ error: failure === 409 ? 'Conflict' : 'Unavailable' }, failure));
+      if (init?.method === 'POST') {
         const body = JSON.parse(String(init.body));
-        const segments = url.pathname.split('/');
-        const id = segments[segments.length - 2];
+        writes.push({ path: url.pathname, body });
+        if (failure) return Promise.resolve(json({ error: failure === 409 ? 'Conflict' : 'Unavailable' }, failure));
+        if (!url.pathname.endsWith('/configure')) return Promise.resolve(json({ error: 'Unexpected settings write' }, 400));
+        const id = url.pathname.split('/').at(-2);
         const saved = installations.find(item => item.id === id)!;
         if (saved.revision !== body.revision) return Promise.resolve(json({ error: 'Conflict' }, 409));
-        const updated = { ...saved, ...body, revision: saved.revision + 1, enabled: false };
+        const selection = body.gatewaySelection;
+        // Respond as the atomic public configure endpoint; assertions below test UI intent, not registry internals.
+        const approve = (previous: ManagementPolicy['inference']): NonNullable<ManagementPolicy['inference']> => ({
+          allowedSources: [...new Set([...(previous?.allowedSources ?? []), ...(selection.routeId ? ['managed'] : [])])],
+          routeIds: [...new Set([...(previous?.routeIds ?? []), ...(selection.routeId ? [selection.routeId] : [])])],
+          reasoningLevels: [...new Set([...(previous?.reasoningLevels ?? []), ...(selection.reasoningLevel ? [selection.reasoningLevel] : [])])],
+          defaultRouteId: selection.routeId, defaultReasoningLevel: selection.reasoningLevel, inheritUserDefaults: false,
+        });
+        if (selection) currentOperator = { ...currentOperator, revision: currentOperator.revision + 1,
+          policy: { ...currentOperator.policy, inference: approve(currentOperator.policy.inference) } };
+        const updated = { ...saved, policy: { ...body.policy, ...(selection ? { inference: approve(saved.policy.inference) } : {}) },
+          configuration: body.configuration, piReasoningOverride: body.piReasoningOverride, revision: saved.revision + 1, enabled: false };
         installations = installations.map(item => item.id === id ? updated : item);
         return Promise.resolve(json(updated));
       }
       return Promise.resolve(url.pathname.endsWith('/operator-1')
         ? json({ ...detail(), operator: currentOperator, installations }) : json({ items: [currentOperator], cursor: null }));
     }));
-    return {
-      reject: (status: number) => { failure = status; },
-      grantCheap: (scope: 'operator' | 'installation') => {
-        if (scope === 'operator') currentOperator = { ...currentOperator, policy: { ...policy, inference: { ...inference, routeIds: ['opus', 'cheap'] } } };
-        else installations = installations.map(item => ({ ...item, policy: { ...item.policy,
-          inference: { ...item.policy.inference, routeIds: ['opus', 'cheap'] } } }));
-      },
-    };
+    return { writes, reject: (status: number) => { failure = status; } };
   }
   async function open() {
     fireEvent.click(await screen.findByRole('button', { name: `Manage ${operator.repositoryUrl}` }));
@@ -595,215 +607,208 @@ describe('REQ-OPERATOR-007/049/075: installation Gateway selection', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Back to catalog' }));
     return open();
   }
-  const save = () => fireEvent.click(screen.getByRole('button', { name: 'Save restrictions for test' }));
+  const reasoning = () => screen.getByRole('combobox', { name: 'test Managed reasoning' });
+  const saveButton = () => screen.getByRole('button', { name: 'Save model settings' });
+  const save = () => fireEvent.click(saveButton());
+  const configured = '/api/operator-management/installations/installation-1/configure';
 
-  it.each(['low', null] as const)('displays persisted route and reasoning %s when choices arrive after the installation without changing saved values', async level => {
-    let releaseChoices!: () => void;
-    const choicesGate = new Promise<void>(resolve => { releaseChoices = resolve; });
-    fixture({ choicesGate, savedLevel: level });
-    render(() => <OperatorManagement />);
-    await open();
-    const route = () => screen.getByRole('combobox', { name: 'test Managed Gateway route' });
-    const reasoning = () => screen.getByRole('combobox', { name: 'test Managed reasoning' });
-    expect(route()).toHaveValue('opus');
-    expect(reasoning()).toHaveValue(level ?? '');
-    expect(screen.getByRole('button', { name: 'Save restrictions for test' })).toBeDisabled();
-    const before = await getManagedOperator(operator.id);
-    releaseChoices();
-    await screen.findByRole('option', { name: 'Opus' });
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Save restrictions for test' })).toBeEnabled());
-    await waitFor(() => {
-      expect(route()).toHaveValue('opus');
-      expect(reasoning()).toHaveValue(level ?? '');
-    });
-    save();
-    await screen.findByText(/Restrictions saved\. Enable new runs separately/);
-    const read = await getManagedOperator(operator.id);
-    expect(read.installations[0]).toMatchObject({ policy: before.installations[0].policy,
-      configuration: before.installations[0].configuration, piReasoningOverride: 'low', enabled: false });
-    expect(read.installations[1]).toEqual(before.installations[1]);
-    expect(read.operator).toEqual(before.operator);
-    expect(read.grants).toEqual(before.grants);
-    expect(await reopen()).toHaveValue('opus');
-    expect(reasoning()).toHaveValue(level ?? '');
-  });
-
-  it('saves an explicit per-installation route independently, preserving Native Low, grants and configuration on server readback and reopen', async () => {
-    fixture({ allGranted: true, savedRoute: null, savedLevel: null });
-    render(() => <OperatorManagement />);
-    const route = await open();
-    expect(route).toHaveValue('');
-    fireEvent.change(route, { target: { value: 'opus' } });
-    fireEvent.change(screen.getByRole('combobox', { name: 'test Managed reasoning' }), { target: { value: 'minimal' } });
-    save();
-    await screen.findByText(/Restrictions saved\. Enable new runs separately/);
-    const read = await getManagedOperator(operator.id);
-    expect(read.installations[0]).toMatchObject({ revision: 3, enabled: false, configuration: { unrelated: { keep: true } }, piReasoningOverride: 'low',
-      policy: { inference: { allowedSources: ['managed', 'pi-native'], routeIds: ['opus', 'cheap', 'off-only'],
-        reasoningLevels: ['off', 'minimal', 'low'], defaultRouteId: 'opus', defaultReasoningLevel: 'minimal', inheritUserDefaults: false } } });
-    expect(read.installations[1].policy.inference?.defaultRouteId).toBeNull();
-    expect(read.operator.policy.inference?.inheritUserDefaults).toBe(true);
-    expect(read.grants).toEqual(detail().grants);
-    expect(await reopen()).toHaveValue('opus');
-    expect(screen.getByRole('combobox', { name: 'test Managed reasoning' })).toHaveValue('minimal');
-    expect(screen.getByRole('combobox', { name: 'test Pi reasoning' })).toHaveValue('low');
-    fireEvent.change(screen.getByRole('combobox', { name: 'Installed configuration' }), { target: { value: 'installation-2' } });
-    expect(await screen.findByRole('combobox', { name: 'second Managed Gateway route' })).toHaveValue('');
-    fireEvent.change(screen.getByRole('combobox', { name: 'second Managed Gateway route' }), { target: { value: 'cheap' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Save restrictions for second' }));
-    await waitFor(async () => expect((await getManagedOperator(operator.id)).installations[1].policy.inference?.defaultRouteId).toBe('cheap'));
-    fireEvent.change(screen.getByRole('combobox', { name: 'Installed configuration' }), { target: { value: 'installation-1' } });
-    expect(await screen.findByRole('combobox', { name: 'test Managed Gateway route' })).toHaveValue('opus');
-  });
-
-  it.each(['operator', 'installation'] as const)('does not offer a cheaper catalog route until both policies explicitly grant it (%s first)', async first => {
+  it('shows exactly one Gateway pair and explicit save, without Dispatcher Pi overrides or inference checkbox grids even in Advanced', async () => {
     const state = fixture();
     render(() => <OperatorManagement />);
-    const select = await open();
-    expect(within(select).queryByRole('option', { name: 'Cheaper route' })).not.toBeInTheDocument();
-    expect(within(screen.getByRole('combobox', { name: 'test Managed reasoning' })).queryByRole('option', { name: 'Off' })).not.toBeInTheDocument();
-    state.grantCheap(first); // Explicit permission edit outside this default-selection form.
-    expect(within(await reopen()).queryByRole('option', { name: 'Cheaper route' })).not.toBeInTheDocument();
-    state.grantCheap(first === 'operator' ? 'installation' : 'operator');
-    const refreshed = await reopen();
-    expect(within(refreshed).getByRole('option', { name: 'Cheaper route' })).toBeInTheDocument();
-    expect(refreshed).toHaveValue('opus');
+    await open();
+    await waitFor(() => expect(screen.getByRole('combobox', { name: 'test Managed Gateway route' })).toBeEnabled());
+    expect(saveButton()).toBeDisabled();
+    expect(screen.getAllByRole('combobox', { name: 'test Managed Gateway route' })).toHaveLength(1);
+    expect(screen.getAllByRole('combobox', { name: 'test Managed reasoning' })).toHaveLength(1);
+    expect(screen.getAllByRole('button', { name: 'Save model settings' })).toHaveLength(1);
+    expect(screen.getByText('Gateway route', { selector: 'span' })).toBeVisible();
+    expect(screen.getByText('Gateway reasoning', { selector: 'span' })).toBeVisible();
+    expect(screen.queryByRole('button', { name: 'Save operator capabilities' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Save restrictions for test' })).not.toBeInTheDocument();
+    await openAdvanced();
+    expect(screen.getByRole('button', { name: 'Save operator capabilities' })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Save restrictions for test' })).toBeVisible();
+    expect(screen.queryByRole('combobox', { name: 'test Pi reasoning' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('checkbox', { name: /allow .*reasoning|allow Gateway route/ })).not.toBeInTheDocument();
+    expect(screen.getAllByRole('combobox', { name: 'test Managed Gateway route' })).toHaveLength(1);
+    expect(screen.getByText(/Reasoning approvals are shared with an already-approved Native source/)).toBeVisible();
+    expect(state.writes).toEqual([]);
   });
 
-  it('explicit route approvals persist separately before selecting a cheaper installation default', async () => {
-    fixture();
+  it.each(['low', null] as const)('retains saved reasoning %s through late catalog arrival, without opening-time writes', async level => {
+    let releaseChoices!: () => void;
+    const state = fixture({ choicesGate: new Promise<void>(resolve => { releaseChoices = resolve; }), savedLevel: level });
     render(() => <OperatorManagement />);
-    await open();
-    const installationGrant = () => screen.getByRole('checkbox', { name: 'test allow Gateway route Cheaper route' });
-    expect(installationGrant()).toBeDisabled();
-    fireEvent.click(screen.getByRole('checkbox', { name: 'Operator allow Gateway route Cheaper route' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Save operator capabilities' }));
-    await waitFor(async () => expect((await getManagedOperator(operator.id)).operator.policy.inference?.routeIds).toEqual(['opus', 'cheap']));
-    await waitFor(() => expect(installationGrant()).toBeEnabled());
-    expect((await getManagedOperator(operator.id)).installations[0].policy.inference?.routeIds).toEqual(['opus']);
-    expect(within(screen.getByRole('combobox', { name: 'test Managed Gateway route' })).queryByRole('option', { name: 'Cheaper route' })).not.toBeInTheDocument();
-    fireEvent.click(installationGrant());
-    save();
-    await waitFor(async () => expect((await getManagedOperator(operator.id)).installations[0].policy.inference?.routeIds).toEqual(['opus', 'cheap']));
+    const route = await open();
+    expect(route).toHaveValue('opus');
+    expect(reasoning()).toHaveValue(level ?? '');
+    expect(saveButton()).toBeDisabled();
+    releaseChoices();
+    await waitFor(() => expect(route).toBeEnabled());
+    expect(saveButton()).toBeDisabled();
+    expect(within(route).getByRole('option', { name: 'Opus' })).toBeInTheDocument();
+    expect(route).toHaveValue('opus');
+    expect(reasoning()).toHaveValue(level ?? '');
+    expect(state.writes).toEqual([]);
+    await openAdvanced();
+    fireEvent.click(screen.getByRole('button', { name: 'Save restrictions for test' }));
+    await screen.findByText(/Restrictions saved\. Enable new runs separately/);
+    expect(state.writes).toEqual([{ path: configured, body: {
+      revision: 2, policy: expect.objectContaining({ inference: expect.objectContaining({ defaultRouteId: 'opus', defaultReasoningLevel: level }) }),
+      configuration: { unrelated: { keep: true } },
+    } }]);
     expect(await reopen()).toHaveValue('opus');
-    fireEvent.change(screen.getByRole('combobox', { name: 'test Managed Gateway route' }), { target: { value: 'cheap' } });
+    expect(reasoning()).toHaveValue(level ?? '');
+  });
+
+  it.each([false, true])('one explicit save approves a verified choice without checkbox prerequisites (legacy permissions=%s)', async legacy => {
+    const state = fixture({ legacy });
+    render(() => <OperatorManagement />);
+    const route = await open();
+    await waitFor(() => expect(route).toBeEnabled());
+    expect(within(route).getByRole('option', { name: 'Cheaper route' })).toBeEnabled();
+    fireEvent.change(route, { target: { value: 'cheap' } });
+    expect(reasoning()).toHaveValue(legacy ? '' : 'low');
+    fireEvent.change(reasoning(), { target: { value: 'off' } });
+    expect(state.writes).toEqual([]);
     save();
-    await waitFor(async () => expect((await getManagedOperator(operator.id)).installations[0]).toMatchObject({
-      enabled: false, piReasoningOverride: 'low', configuration: { unrelated: { keep: true } },
-      policy: { inference: { defaultRouteId: 'cheap', defaultReasoningLevel: 'low', routeIds: ['opus', 'cheap'],
-        reasoningLevels: ['minimal', 'low'], allowedSources: ['managed', 'pi-native'], inheritUserDefaults: false } },
-    }));
+    await screen.findByText(/Gateway settings saved\. New runs are disabled/);
+    expect(state.writes).toEqual([{ path: configured, body: {
+      revision: 2, policy: expect.objectContaining({ capabilities: ['inference'], resourceProfileId: null, sourceResponseBytes: 65536 }),
+      configuration: { unrelated: { keep: true } }, gatewaySelection: { operatorRevision: 3, routeId: 'cheap', reasoningLevel: 'off' },
+    } }]);
+    expect(screen.queryByRole('button', { name: 'Disable' })).not.toBeInTheDocument();
     expect(await reopen()).toHaveValue('cheap');
-    expect((await getManagedOperator(operator.id)).installations[1].policy.inference?.defaultRouteId).toBeNull();
+    expect(reasoning()).toHaveValue('off');
+    fireEvent.change(screen.getByRole('combobox', { name: 'Installed configuration' }), { target: { value: 'installation-2' } });
+    expect(await screen.findByRole('combobox', { name: 'second Managed Gateway route' })).toHaveValue('');
+    expect(screen.getByRole('combobox', { name: 'second Managed reasoning' })).toHaveValue('');
   });
 
-  it.each([
-    { scope: 'operator', route: 'opus', label: 'Operator allow Gateway route Opus' },
-    { scope: 'operator', route: 'retired-route', label: 'Operator remove unavailable Gateway route retired-route' },
-    { scope: 'installation', route: 'opus', label: 'test allow Gateway route Opus' },
-    { scope: 'installation', route: 'retired-route', label: 'test remove unavailable Gateway route retired-route' },
-  ])('revoking the selected $route at $scope clears only its default and survives save and reopen', async ({ scope, route, label }) => {
-    fixture({ savedRoute: route });
+  it('distinguishes provider-default null from Off and uses refreshed revisions for the next explicit save', async () => {
+    const state = fixture({ savedLevel: null });
     render(() => <OperatorManagement />);
-    await open();
-    const before = await getManagedOperator(operator.id);
-    fireEvent.click(screen.getByRole('checkbox', { name: label }));
-    if (scope === 'operator') fireEvent.click(screen.getByRole('button', { name: 'Save operator capabilities' }));
-    else save();
-    const previous = scope === 'operator' ? before.operator.policy.inference! : before.installations[0].policy.inference!;
-    const expected = { ...previous, routeIds: previous.routeIds.filter(id => id !== route), defaultRouteId: null };
-    await waitFor(async () => {
-      const read = await getManagedOperator(operator.id);
-      expect(scope === 'operator' ? read.operator.policy.inference : read.installations[0].policy.inference).toEqual(expected);
-    });
-    const read = await getManagedOperator(operator.id);
-    expect(read.installations[0]).toMatchObject({ enabled: false, piReasoningOverride: 'low', configuration: before.installations[0].configuration });
-    expect(read.installations[1].policy).toEqual(before.installations[1].policy);
-    expect(read.grants).toEqual(before.grants);
-    if (scope === 'operator') expect(read.installations[0].policy).toEqual(before.installations[0].policy);
-    else expect(read.operator.policy).toEqual(before.operator.policy);
-    await reopen();
-    if (route === 'retired-route') expect(screen.queryByRole('checkbox', { name: label })).not.toBeInTheDocument();
-    else expect(screen.getByRole('checkbox', { name: label })).not.toBeChecked();
-    const reopened = await getManagedOperator(operator.id);
-    expect(scope === 'operator' ? reopened.operator.policy.inference : reopened.installations[0].policy.inference).toEqual(expected);
-  });
-
-  it('keeps Provider default null distinct from Off and clears a route to Not configured without account inheritance', async () => {
-    fixture({ allGranted: true, savedLevel: null });
-    render(() => <OperatorManagement />);
-    await open();
-    const reasoning = () => screen.getByRole('combobox', { name: 'test Managed reasoning' });
+    const route = await open();
+    fireEvent.change(route, { target: { value: 'cheap' } });
     expect(reasoning()).toHaveValue('');
-    fireEvent.change(screen.getByRole('combobox', { name: 'test Managed Gateway route' }), { target: { value: 'cheap' } });
     fireEvent.change(reasoning(), { target: { value: 'off' } });
     save();
-    await waitFor(async () => expect((await getManagedOperator(operator.id)).installations[0].policy.inference?.defaultReasoningLevel).toBe('off'));
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Save restrictions for test' })).toBeEnabled());
+    await screen.findByText(/Gateway settings saved\. New runs are disabled/);
+    await waitFor(() => expect(reasoning()).toBeEnabled());
     fireEvent.change(reasoning(), { target: { value: '' } });
     fireEvent.change(screen.getByRole('combobox', { name: 'test Managed Gateway route' }), { target: { value: '' } });
     save();
-    await waitFor(async () => expect((await getManagedOperator(operator.id)).installations[0].policy.inference).toMatchObject({
-      defaultRouteId: null, defaultReasoningLevel: null, inheritUserDefaults: false }));
+    await waitFor(() => expect(state.writes.map(write => ({ revision: write.body.revision, selection: write.body.gatewaySelection }))).toEqual([
+      { revision: 2, selection: { operatorRevision: 3, routeId: 'cheap', reasoningLevel: 'off' } },
+      { revision: 3, selection: { operatorRevision: 4, routeId: null, reasoningLevel: null } },
+    ]));
     expect(await reopen()).toHaveValue('');
     expect(reasoning()).toHaveValue('');
   });
 
-  it.each([false, true])('retains unavailable saved route and reasoning on an unrelated Native save with metadata missing=%s', async missing => {
-    fixture({ missing, savedRoute: missing ? 'opus' : 'retired-route' });
+  it.each([
+    { missing: true, savedRoute: 'opus' }, { savedRoute: 'retired-route' }, { levelsMissing: true, savedRoute: 'opus' },
+  ])('retains stale selections on unrelated Advanced saves: %j', async input => {
+    const state = fixture(input);
     render(() => <OperatorManagement />);
     const route = await open();
-    expect(within(route).getByRole('option', { name: /unavailable, retained/ })).toBeInTheDocument();
-    expect(screen.getByText(/The saved Gateway route or reasoning is unavailable/)).toBeInTheDocument();
-    fireEvent.change(screen.getByRole('combobox', { name: 'test Pi reasoning' }), { target: { value: 'minimal' } });
-    save();
+    expect(route).toHaveValue(input.savedRoute);
+    expect(reasoning()).toHaveValue('low');
+    expect(within(input.levelsMissing ? reasoning() : route).getByRole('option', { name: /unavailable, retained/ })).toBeInTheDocument();
+    await openAdvanced();
+    fireEvent.input(screen.getByRole('spinbutton', { name: 'Installation source-response allowance (bytes)' }), { target: { value: '60000' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save restrictions for test' }));
     await screen.findByText(/Restrictions saved\. Enable new runs separately/);
-    const read = await getManagedOperator(operator.id);
-    expect(read.installations[0]).toMatchObject({ enabled: false, piReasoningOverride: 'minimal', policy: { inference: {
-      defaultRouteId: missing ? 'opus' : 'retired-route', defaultReasoningLevel: 'low', inheritUserDefaults: true,
-      routeIds: missing ? ['opus'] : ['opus', 'retired-route'], allowedSources: ['managed', 'pi-native'] } } });
-    expect(await reopen()).toHaveValue(missing ? 'opus' : 'retired-route');
+    expect(state.writes).toEqual([{ path: configured, body: {
+      revision: 2, configuration: { unrelated: { keep: true } }, policy: expect.objectContaining({ sourceResponseBytes: 60000,
+        inference: expect.objectContaining({ defaultRouteId: input.savedRoute, defaultReasoningLevel: 'low', inheritUserDefaults: true }) }),
+    } }]);
+    expect(await reopen()).toHaveValue(input.savedRoute);
+    expect(reasoning()).toHaveValue('low');
   });
 
-  it('retains a saved non-executable level visibly when saving unrelated Native settings', async () => {
-    fixture({ levelsMissing: true });
-    render(() => <OperatorManagement />);
-    await open();
-    const reasoning = screen.getByRole('combobox', { name: 'test Managed reasoning' });
-    expect(reasoning).toHaveValue('low');
-    expect(within(reasoning).getByRole('option', { name: /low · unavailable, retained/ })).toBeInTheDocument();
-    fireEvent.change(screen.getByRole('combobox', { name: 'test Pi reasoning' }), { target: { value: 'minimal' } });
-    save();
-    await screen.findByText(/Restrictions saved\. Enable new runs separately/);
-    expect((await getManagedOperator(operator.id)).installations[0]).toMatchObject({ piReasoningOverride: 'minimal',
-      policy: { inference: { defaultRouteId: 'opus', defaultReasoningLevel: 'low', reasoningLevels: ['minimal', 'low'] } } });
-    await reopen();
-    expect(screen.getByRole('combobox', { name: 'test Managed reasoning' })).toHaveValue('low');
-  });
-
-  it('retains incompatible reasoning after a route change and requires an explicit compatible choice before save', async () => {
-    fixture({ allGranted: true });
+  it('retains incompatible reasoning after route change until an explicit compatible choice, never writing or substituting automatically', async () => {
+    const state = fixture();
     render(() => <OperatorManagement />);
     fireEvent.change(await open(), { target: { value: 'off-only' } });
-    expect(screen.getByRole('combobox', { name: 'test Managed reasoning' })).toHaveValue('low');
-    expect(screen.getByText(/choose a compatible reasoning level and route/)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Save restrictions for test' })).toBeDisabled();
-    expect((await getManagedOperator(operator.id)).installations[0].policy.inference?.defaultRouteId).toBe('opus');
-    fireEvent.change(screen.getByRole('combobox', { name: 'test Managed reasoning' }), { target: { value: 'off' } });
+    expect(reasoning()).toHaveValue('low');
+    expect(within(reasoning()).getByRole('option', { name: /low · unavailable, retained/ })).toBeInTheDocument();
+    expect(saveButton()).toBeDisabled();
+    expect(state.writes).toEqual([]);
+    fireEvent.change(reasoning(), { target: { value: 'off' } });
     save();
-    await waitFor(async () => expect((await getManagedOperator(operator.id)).installations[0].policy.inference).toMatchObject({ defaultRouteId: 'off-only', defaultReasoningLevel: 'off' }));
+    await screen.findByText(/Gateway settings saved\. New runs are disabled/);
+    expect(state.writes.map(write => write.body.gatewaySelection)).toEqual([{ operatorRevision: 3, routeId: 'off-only', reasoningLevel: 'off' }]);
   });
 
-  it.each([409, 503])('shows a rejected Gateway save (%s) without substitution, enablement or server changes', async status => {
-    const state = fixture({ allGranted: true });
+  it('opening and closing Advanced retains Gateway and numeric drafts and local resets without saving', async () => {
+    const state = fixture();
+    render(() => <OperatorManagement />);
+    fireEvent.change(await open(), { target: { value: 'cheap' } });
+    fireEvent.change(reasoning(), { target: { value: 'off' } });
+    await openAdvanced();
+    fireEvent.input(screen.getByRole('spinbutton', { name: 'Operation limit per run' }), { target: { value: '2048' } });
+    fireEvent.input(screen.getByRole('spinbutton', { name: 'Max inference attempts' }), { target: { value: '7' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Reset Max inference attempts to default' }));
+    fireEvent.click(screen.getByText('Advanced settings', { selector: 'summary' }));
+    expect(screen.queryByRole('spinbutton', { name: 'Operation limit per run' })).not.toBeInTheDocument();
+    expect(screen.getByRole('combobox', { name: 'test Managed Gateway route' })).toHaveValue('cheap');
+    expect(reasoning()).toHaveValue('off');
+    await openAdvanced();
+    expect(screen.getByRole('spinbutton', { name: 'Operation limit per run' })).toHaveValue(2048);
+    expect(screen.getByRole('spinbutton', { name: 'Max inference attempts' })).toHaveValue(4);
+    expect(state.writes).toEqual([]);
+  });
+
+  it('normal model save excludes unsaved Advanced changes and Advanced save excludes the Gateway draft', async () => {
+    const state = fixture();
+    render(() => <OperatorManagement />);
+    fireEvent.change(await open(), { target: { value: 'cheap' } });
+    await openAdvanced();
+    fireEvent.input(screen.getByRole('spinbutton', { name: 'Operation limit per run' }), { target: { value: '2048' } });
+    fireEvent.input(screen.getByRole('spinbutton', { name: 'Installation source-response allowance (bytes)' }), { target: { value: '60000' } });
+    save();
+    await screen.findByText(/Gateway settings saved\. New runs are disabled/);
+    expect(state.writes).toEqual([{ path: configured, body: {
+      revision: 2, policy: expect.objectContaining({ sourceResponseBytes: 65536 }), configuration: { unrelated: { keep: true } },
+      gatewaySelection: { operatorRevision: 3, routeId: 'cheap', reasoningLevel: 'low' },
+    } }]);
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Save restrictions for test' })).toBeEnabled());
+    fireEvent.change(screen.getByRole('combobox', { name: 'test Managed Gateway route' }), { target: { value: 'opus' } });
+    fireEvent.input(screen.getByRole('spinbutton', { name: 'Installation source-response allowance (bytes)' }), { target: { value: '60000' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save restrictions for test' }));
+    await screen.findByText(/Restrictions saved\. Enable new runs separately/);
+    expect(state.writes.map(write => write.body)).toEqual([
+      expect.objectContaining({ gatewaySelection: { operatorRevision: 3, routeId: 'cheap', reasoningLevel: 'low' } }),
+      { revision: 3, policy: expect.objectContaining({ sourceResponseBytes: 60000,
+        inference: expect.objectContaining({ defaultRouteId: 'cheap', defaultReasoningLevel: 'low' }) }),
+        configuration: { unrelated: { keep: true } } },
+    ]);
+  });
+
+  it.each([400, 403, 409, 503])('reports a rejected model save (%s) without retry, auto-enable or discarded server state', async status => {
+    const state = fixture();
     render(() => <OperatorManagement />);
     fireEvent.change(await open(), { target: { value: 'cheap' } });
     state.reject(status);
     save();
-    expect(await screen.findByRole('alert')).toBeInTheDocument();
-    expect((await getManagedOperator(operator.id)).installations[0]).toMatchObject({ enabled: false,
-      policy: { inference: { defaultRouteId: 'opus', defaultReasoningLevel: 'low' } } });
-    expect(await reopen()).toHaveValue('opus');
+    const alert = await screen.findByRole('alert');
+    expect(alert).toBeVisible();
+    if (status === 409) expect(alert).toHaveTextContent(/stale/i);
+    if (status === 503) expect(alert).toHaveTextContent(/not confirmed/i);
+    expect(state.writes).toEqual([{ path: configured, body: {
+      revision: 2, policy: expect.any(Object), configuration: { unrelated: { keep: true } },
+      gatewaySelection: { operatorRevision: 3, routeId: 'cheap', reasoningLevel: 'low' },
+    } }]);
+    expect(screen.queryByRole('button', { name: 'Disable' })).not.toBeInTheDocument();
+    if (status === 403) {
+      expect(alert).toHaveTextContent(/Access denied/i);
+      expect(screen.queryByRole('button', { name: 'Save model settings' })).not.toBeInTheDocument();
+    } else {
+      expect(await reopen()).toHaveValue('opus');
+      expect(reasoning()).toHaveValue('low');
+    }
+    expect(state.writes.map(write => write.path)).toEqual([configured]);
   });
 });
 

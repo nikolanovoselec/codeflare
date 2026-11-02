@@ -1091,3 +1091,204 @@ describe('REQ-OPERATOR-007/047: production management inference approval', () =>
     expect(await (await request(path)).json()).toEqual(before);
   }));
 });
+
+
+describe('REQ-OPERATOR-075/045/068/070: atomic bounded Gateway approval', () => {
+  const initialInference: NonNullable<ManagementPolicy['inference']> = {
+    allowedSources: ['pi-native'], routeIds: ['retained-route'], defaultRouteId: 'retained-route',
+    reasoningLevels: ['low'], defaultReasoningLevel: 'low', inheritUserDefaults: true,
+  };
+  const initialPolicy = { ...registration.policy, inference: initialInference };
+  async function routing(kv: ReturnType<typeof createMockKV>) {
+    const token = 'gateway-approval-fixture';
+    await kv.put(SETUP_KEYS.AIG_GATEWAY_URL, routingGatewayUrl);
+    kv._set(SETUP_KEYS.AIG_TOKEN, { token });
+    kv._set(SETUP_KEYS.DYNAMIC_ROUTES, ['tools-off', 'unverified-route']);
+    kv._set(SETUP_KEYS.REASONING_CONFIGURATION, verifiedRoutingConfiguration({ schemaVersion: 1,
+      customProfileRevisions: [], routeAssignments: {
+        'tools-off': { activeProfile: getBuiltInProfileRef('openai-gpt-chat-tools-off') },
+        'unverified-route': { activeProfile: getBuiltInProfileRef('openai-gpt-chat-tools-off') },
+      }, fallbackRouting: { enabled: false } }, { gatewayUrl: routingGatewayUrl, token }));
+    await kv.put(SETUP_KEYS.ENTERPRISE_ACCESS_GROUP, 'review-team,unverified-group');
+    kv._set(SETUP_KEYS.GROUP_ROUTING, {
+      'review-team': { routes: ['tools-off'], defaultRoute: 'tools-off', reasoning: 'off' },
+      'unverified-group': { routes: ['unverified-route'], defaultRoute: 'unverified-route', reasoning: 'off' },
+    });
+  }
+  async function setup(request: RequestApi) {
+    vi.stubGlobal('fetch', (await createOperatorGitHubFixture({ repositoryName: 'release-operator', profile: 'dispatcher' })).fetcher);
+    await delegate(request);
+    actor.groups = ['operators', 'review-team'];
+    const response = await request('/api/operator-management/operators', 'POST', {
+      ...registration, profile: 'dispatcher', policy: initialPolicy });
+    expect(response.status).toBe(201);
+    const operator = await response.json() as { id: string; revision: number };
+    const budgets = await request(`/api/operator-management/operators/${operator.id}/capabilities`, 'POST', {
+      revision: operator.revision, capabilities: [], operationLimit: 4096, loggingEnabled: false });
+    expect(budgets.status).toBe(200);
+    operator.revision = (await budgets.json() as { revision: number }).revision;
+    const id = await enabledInstallation(request, operator, initialPolicy);
+    const path = `/api/operator-management/operators/${operator.id}`;
+    const configure = `/api/operator-management/installations/${id}/configure`;
+    const read = async () => await (await request(path)).json() as {
+      operator: { revision: number; policy: ManagementPolicy }; grants: unknown;
+      releases: Array<{ id: string }>; installations: Array<ManagementInstallation & { configuration: unknown }>;
+    };
+    return { operator, id, path, configure, read };
+  }
+
+  it('unions only explicit choices atomically, retains native approval and unrelated settings, and disables at the original scopes', () => withApi(async request => {
+    const { id, path, configure, read } = await setup(request);
+    const first = await read();
+    const otherConfiguration = { unrelated: { nested: ['keep'] } };
+    const otherResponse = await request(`${path}/installations`, 'POST', {
+      name: 'independent', revision: first.operator.revision, policy: initialPolicy, configuration: otherConfiguration });
+    expect(otherResponse.status).toBe(201);
+    const other = await otherResponse.json() as { id: string; revision: number };
+    const promoted = await request(`/api/operator-management/installations/${other.id}/promote`, 'POST', {
+      revision: other.revision, releaseId: first.releases[0].id });
+    expect(promoted.status).toBe(200);
+    const pinned = await promoted.json() as { revision: number };
+    expect((await request(`/api/operator-management/installations/${other.id}/enable`, 'POST', {
+      revision: pinned.revision, enabled: true })).status).toBe(200);
+    const disabledResponse = await request(`${path}/installations`, 'POST', {
+      name: 'disabled-independent', revision: first.operator.revision, policy: initialPolicy, configuration: otherConfiguration });
+    expect(disabledResponse.status).toBe(201);
+    const untouched = await disabledResponse.json();
+    const before = await read();
+    const installed = before.installations.find(value => value.id === id)!;
+    // Submitted inference permissions cannot be smuggled into either approval scope.
+    const suppliedPolicy = { ...initialPolicy, inference: { ...initialInference,
+      routeIds: ['retained-route', 'smuggled-route'], reasoningLevels: ['low', 'high'] } };
+    const saved = await request(configure, 'POST', { revision: installed.revision, policy: suppliedPolicy,
+      configuration: installed.configuration, gatewaySelection: {
+        operatorRevision: before.operator.revision, routeId: 'tools-off', reasoningLevel: 'off' } });
+    expect(saved.status).toBe(200);
+    const selectedInference = { ...initialInference, allowedSources: ['pi-native', 'managed'],
+      routeIds: ['retained-route', 'tools-off'], reasoningLevels: ['low', 'off'],
+      defaultRouteId: 'tools-off', defaultReasoningLevel: 'off', inheritUserDefaults: false };
+    const after = await read();
+    expect(after.operator).toEqual({ ...before.operator, revision: before.operator.revision + 1, enabled: false,
+      policy: { ...before.operator.policy, inference: { ...selectedInference,
+        defaultRouteId: 'retained-route', defaultReasoningLevel: 'low', inheritUserDefaults: true } } });
+    expect(after.grants).toEqual(before.grants);
+    expect(after.releases).toEqual(before.releases);
+    expect(after.installations).toEqual(expect.arrayContaining([
+      { ...installed, revision: installed.revision + 1, enabled: false, policy: { ...initialPolicy, inference: selectedInference } },
+      { ...before.installations.find(value => value.id === other.id), revision: pinned.revision + 2, enabled: false }, untouched,
+    ]));
+    const selected = after.installations.find(value => value.id === id)!;
+    const enable = `/api/operator-management/installations/${id}/enable`;
+    expect((await request(enable, 'POST', { revision: installed.revision, enabled: true })).status).toBe(409);
+    expect((await request(enable, 'POST', { revision: selected.revision, enabled: true })).status).toBe(200);
+    const otherAfter = after.installations.find(value => value.id === other.id)!;
+    expect((await request(`/api/operator-management/installations/${other.id}/enable`, 'POST', {
+      revision: otherAfter.revision, enabled: true })).status).toBe(200);
+    const enabled = await read();
+    const current = enabled.installations.find(value => value.id === id)!;
+    expect((await request(configure, 'POST', { revision: current.revision, policy: current.policy,
+      configuration: current.configuration, gatewaySelection: {
+        operatorRevision: enabled.operator.revision, routeId: null, reasoningLevel: null } })).status).toBe(200);
+    const cleared = await read();
+    expect(cleared.operator).toMatchObject({ revision: enabled.operator.revision, policy: enabled.operator.policy, enabled: true });
+    expect(cleared.installations.find(value => value.id === id)).toEqual({ ...current,
+      revision: current.revision + 1, enabled: false, policy: { ...current.policy,
+        inference: { ...selectedInference, defaultRouteId: null, defaultReasoningLevel: null } } });
+    expect(cleared.installations.find(value => value.id === other.id)).toEqual(enabled.installations.find(value => value.id === other.id));
+    const clearedInstallation = cleared.installations.find(value => value.id === id)!;
+    expect((await request(configure, 'POST', { revision: clearedInstallation.revision, policy: clearedInstallation.policy,
+      configuration: clearedInstallation.configuration, gatewaySelection: {
+        operatorRevision: cleared.operator.revision, routeId: 'tools-off', reasoningLevel: null } })).status).toBe(200);
+    const providerDefault = await read();
+    expect(providerDefault.operator).toEqual(cleared.operator);
+    expect(providerDefault.installations.find(value => value.id === id)?.policy.inference).toEqual({
+      ...selectedInference, defaultRouteId: 'tools-off', defaultReasoningLevel: null });
+  }, routing));
+
+  it('clears defaults without adding managed source approval to a native-only policy', () => withApi(async request => {
+    const { id, configure, read } = await setup(request);
+    const before = await read();
+    const installed = before.installations[0];
+    expect((await request(configure, 'POST', { revision: installed.revision, policy: installed.policy,
+      configuration: installed.configuration, gatewaySelection: {
+        operatorRevision: before.operator.revision, routeId: null, reasoningLevel: null } })).status).toBe(200);
+    const after = await read();
+    expect(after.operator).toEqual({ ...before.operator, enabled: false });
+    expect(after.installations).toEqual([{ ...installed, revision: installed.revision + 1, enabled: false,
+      policy: { ...installed.policy, inference: { ...initialInference,
+        defaultRouteId: null, defaultReasoningLevel: null, inheritUserDefaults: false } } }]);
+    expect(after.grants).toEqual(before.grants);
+    expect(after.installations[0].id).toBe(id);
+  }, routing));
+
+  it('honors the current Environment ceiling at HTTP and transaction boundaries without partial approvals', () => withApi(async (request, registry) => {
+    const { id, configure, read } = await setup(request);
+    const before = await read();
+    const installed = before.installations[0];
+    expect(await registry.setManagementControls({ revision: 1, managers: registration.managers,
+      ceiling: { capabilities: [], resourceProfileIds: [], sourceResponseBytes: 65536 } }, {
+      email: actor.email, expiresAt: Date.now() + 60000 })).toMatchObject({ ok: true });
+    const gatewaySelection = { operatorRevision: before.operator.revision, routeId: 'tools-off', reasoningLevel: 'off' as const };
+    expect((await request(configure, 'POST', { revision: installed.revision, policy: initialPolicy,
+      configuration: {}, gatewaySelection })).status).toBe(404);
+    await expect(registry.configureManagementInstallation(id, { revision: installed.revision,
+      policy: { ...initialPolicy, sourceResponseBytes: 65536 }, configurationJson: '{}', gatewaySelection }, {
+      operatorRevision: before.operator.revision, controlsRevision: 2, expiresAt: Date.now() + 60000 })).rejects.toBeDefined();
+    expect(await read()).toEqual(before);
+  }, routing));
+
+  it('rejects missing or stale revisions, unavailable choices and cross-scope authority with no partial policy or configuration changes', () => withApi(async (request, registry) => {
+    const { id, operator, path, configure, read } = await setup(request);
+    const before = await read();
+    const installed = before.installations[0];
+    const selection = { operatorRevision: before.operator.revision, routeId: 'tools-off', reasoningLevel: 'off' };
+    const body = { revision: installed.revision, policy: initialPolicy, configuration: { unrelated: 'must-not-write' }, gatewaySelection: selection };
+    for (const [patch, status] of [
+      [{ revision: undefined }, 400], [{ revision: installed.revision - 1 }, 409],
+      [{ gatewaySelection: { routeId: 'tools-off', reasoningLevel: 'off' } }, 400],
+      [{ gatewaySelection: { ...selection, operatorRevision: selection.operatorRevision - 1 } }, 409],
+      [{ gatewaySelection: { ...selection, routeId: 'unverified-route' } }, 400],
+      [{ gatewaySelection: { ...selection, routeId: 'unavailable-route' } }, 400],
+      [{ gatewaySelection: { ...selection, reasoningLevel: 'high' } }, 400],
+      [{ gatewaySelection: { ...selection, reasoningLevel: undefined } }, 400],
+      [{ gatewaySelection: { ...selection, routeId: null } }, 400],
+    ] as const) {
+      expect((await request(configure, 'POST', { ...body, ...patch })).status).toBe(status);
+      expect(await read()).toEqual(before);
+    }
+    expect((await request(configure, 'POST', body, false)).status).toBe(403);
+    actor.groups = ['operators'];
+    expect((await request(configure, 'POST', body)).status).toBe(400);
+    actor.email = 'invoker@example.test'; actor.groups = [];
+    expect((await request(configure, 'POST', body)).status).toBe(404);
+    actor.email = 'manager@example.test'; actor.groups = ['operators', 'review-team'];
+    expect(await read()).toEqual(before);
+    const authority = { operatorRevision: before.operator.revision, controlsRevision: 1, expiresAt: Date.now() + 60000 };
+    const rpcBody = { revision: installed.revision, policy: initialPolicy, configurationJson: '{}',
+      gatewaySelection: { ...selection, reasoningLevel: 'off' as const } };
+    for (const fence of [{ ...authority, operatorRevision: authority.operatorRevision + 1 },
+      { ...authority, controlsRevision: 2 }, { ...authority, expiresAt: Date.now() - 1 }]) {
+      expect(await registry.configureManagementInstallation(id, rpcBody, fence)).toMatchObject({ ok: false });
+      expect(await read()).toEqual(before);
+    }
+    await expect(registry.configureManagementInstallation(id, { ...rpcBody, configurationJson: '[]' }, authority)).rejects.toBeDefined();
+    expect(await read()).toEqual(before);
+    // Global eligibility alone cannot confer ownership of an unrelated operator.
+    actor.role = 'admin';
+    const foreign = await request('/api/operator-management/operators', 'POST', {
+      ...registration, managers: { users: ['foreign@example.test'], groups: [] } });
+    expect(foreign.status).toBe(201);
+    const foreignOperator = await foreign.json() as { id: string; revision: number };
+    const foreignCreated = await request(`/api/operator-management/operators/${foreignOperator.id}/installations`, 'POST', {
+      name: 'foreign', revision: foreignOperator.revision, policy: registration.policy });
+    expect(foreignCreated.status).toBe(201);
+    const foreignInstallation = await foreignCreated.json() as { id: string; revision: number };
+    const foreignBefore = await registry.getManagementInstallation(foreignInstallation.id);
+    actor.role = 'user';
+    expect((await request(`/api/operator-management/installations/${foreignInstallation.id}/configure`, 'POST', {
+      ...body, revision: foreignInstallation.revision, gatewaySelection: { ...selection, operatorRevision: foreignOperator.revision } })).status).toBe(404);
+    expect(await registry.getManagementInstallation(foreignInstallation.id)).toEqual(foreignBefore);
+    expect(await registry.getManagementOperator(operator.id)).toMatchObject({ ok: true, value: before.operator });
+    expect(await (await request(path)).json()).toEqual(before);
+  }, routing));
+});

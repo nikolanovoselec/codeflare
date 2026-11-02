@@ -129,6 +129,7 @@ export interface SessionState {
   preseedUpgradeFailed: boolean;
   managedReleaseStatus: 'current' | 'upgrading' | 'update_pending' | null;
   managedReleaseProgress: ManagedReleaseProgress | null;
+  managedReleaseBlockedReason: 'runtime_incompatible' | null;
   /** REQ-ENTERPRISE-020: the bucket's encryption regime is migrating (Governed Mode flip). Reuses the Upgrading affordance to disable New Session. */
   bucketMigrating: boolean;
   /** REQ-ENTERPRISE-020: a Governed Mode flip is wanted but deferred until the user's running sessions stop (D1: no force-kill). */
@@ -157,6 +158,7 @@ const [state, setState] = createStore<SessionState>({
   preseedUpgradeFailed: false,
   managedReleaseStatus: null,
   managedReleaseProgress: null,
+  managedReleaseBlockedReason: null,
   bucketMigrating: false,
   bucketMigrationPending: false,
   bucketMigrationPercent: null,
@@ -663,7 +665,13 @@ function startSession(id: string): Promise<void> {
         updateSessionStatus(id, 'error');
         setState('error', error);
         if (code === 'MANAGED_ENVIRONMENT_UPDATE_PENDING') {
-          void refreshSessionStatuses(true);
+          // The rejection itself is evidence of a blocked start, not of why it
+          // is blocked. Show it immediately, then ask the managed-status owner
+          // directly; an unrelated batch-status failure must not hide the gate.
+          setState('managedReleaseStatus', 'update_pending');
+          setState('managedReleaseProgress', null);
+          // Keep the observed block visible if the follow-up read is unavailable.
+          void refreshSessionAncillaryStatus().catch(() => undefined);
         }
         reject(new Error(error));
       },
@@ -888,6 +896,7 @@ export const sessionStore = {
   updatePreferences: updateUserPreferences,
   runPreseedUpdate,
   retryPreseedUpgrade,
+  refreshSessionAncillaryStatus,
   get maxSessions() { return state.maxSessions; },
   isAtSessionLimit,
   hasRecentContext,
@@ -895,6 +904,7 @@ export const sessionStore = {
   get preseedUpgradeFailed() { return state.preseedUpgradeFailed; },
   get managedReleaseStatus() { return state.managedReleaseStatus; },
   get managedReleaseProgress() { return state.managedReleaseProgress; },
+  get managedReleaseBlockedReason() { return state.managedReleaseBlockedReason; },
   get bucketMigrating() { return state.bucketMigrating; },
   get bucketMigrationPending() { return state.bucketMigrationPending; },
   get bucketMigrationPercent() { return state.bucketMigrationPercent; },

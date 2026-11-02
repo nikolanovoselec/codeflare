@@ -121,11 +121,11 @@ export function cancelOperatorActivity(activityId: string): Promise<OperatorActi
 
 /** Read-only v2 boundary. Neither response text nor schema errors are user copy. */
 async function diagnosticRead<T extends DiagnosticSnapshot>(activityId: string, suffix: string, schema: z.ZodType<T>,
-  snapshot?: DiagnosticSnapshot, resumed = false): Promise<T> {
+  snapshot?: DiagnosticSnapshot, resumed = false, signal?: AbortSignal): Promise<T> {
   operatorActivitySummarySchema.shape.activityId.parse(activityId);
   if (snapshot) diagnosticBindingSchema.parse(snapshot.binding);
   const value = await baseFetch<T>(new URL(`/api/operator-activities/${encodeURIComponent(activityId)}/diagnostics/v2${suffix}`,
-    window.location.origin).href, { method: 'GET', cache: 'no-store' }, { credentials: 'same-origin', schema });
+    window.location.origin).href, { method: 'GET', cache: 'no-store', ...(signal ? { signal } : {}) }, { credentials: 'same-origin', schema });
   if (value.activityId !== activityId) throw new Error('Invalid diagnostics activity');
   if (snapshot && (snapshot.activityId !== activityId || !sameDiagnosticBinding(value.binding, snapshot.binding)))
     throw new ApiError('Diagnostic snapshot binding changed.', 409, 'Conflict');
@@ -144,5 +144,5 @@ export const getOperatorActivityDiagnosticHistory = (activityId: string, cursor:
 export const getOperatorActivityDiagnosticRecord = (activityId: string, recordId: string, snapshot: DiagnosticSnapshot) =>
   diagnosticRead(activityId, `/records/${encodeURIComponent(diagnosticRecordIdSchema.parse(recordId))}`, diagnosticDetailSchema, snapshot)
     .then(value => { if (value.record.id !== recordId) throw new Error('Invalid diagnostic record'); return value; });
-export const exportOperatorActivityDiagnostics = (activityId: string, cursor: string | null, snapshot: DiagnosticSnapshot) =>
-  diagnosticRead(activityId, `/export${diagnosticCursorQuery(cursor)}`, diagnosticExportSchema, snapshot, cursor !== null);
+export const exportOperatorActivityDiagnostics = (activityId: string, cursor: string | null, snapshot: DiagnosticSnapshot, signal?: AbortSignal) =>
+  diagnosticRead(activityId, `/export${diagnosticCursorQuery(cursor)}`, diagnosticExportSchema, snapshot, cursor !== null, signal);

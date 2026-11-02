@@ -3,7 +3,7 @@ import { ApiError } from '../api/fetch-helper';
 import { exportOperatorActivityDiagnostics, getOperatorActivityDiagnosticHistory,
   getOperatorActivityDiagnosticRecord, getOperatorActivityDiagnostics } from '../api/operator-activities';
 import type { DiagnosticDetail, DiagnosticExport, DiagnosticHistory, DiagnosticRecord, DiagnosticSummary } from '../api/operator-diagnostics-wire';
-import OperatorDiagnosticRecord, { DiagnosticRecordMetadata, diagnosticWords } from './OperatorDiagnosticRecord';
+import OperatorDiagnosticRecord, { DiagnosticRecordMetadata, diagnosticWords, sdkServiceCause, sdkServiceNext } from './OperatorDiagnosticRecord';
 
 const reasons: Record<DiagnosticSummary['diagnosis']['code'], string> = {
   none: 'The retained records do not identify a failure.', unclassified: 'The retained records do not classify the failure.',
@@ -14,7 +14,7 @@ const reasons: Record<DiagnosticSummary['diagnosis']['code'], string> = {
   'sse-json-invalid': 'Provider stream JSON parsing failed.', 'provider-failed': 'The model provider failed.',
   'stream-failed': 'The response stream failed.', 'response-unusable': 'The inference response was unusable.',
   'canonical-append-failed': 'The response could not be saved to the execution journal; a durable save was not confirmed.',
-  'tool-failed': 'A tool failed.', 'effect-unknown': 'The effect outcome is unknown; do not replay uncertain work.',
+  'tool-failed': 'A tool attempt failed; no concrete cause was retained.', 'effect-unknown': 'The effect outcome is unknown; do not replay uncertain work.',
   'settlement-failed': 'The runtime did not finish with a confirmed final result.', 'continuation-not-ready': 'The run was not ready to continue.',
   cancelled: 'Cancellation was observed.', 'deadline-expired': 'The activity deadline expired.',
   'cleanup-failed': 'The execution runtime could not finish cleanup.', 'capacity-exhausted': 'The admitted capacity was exhausted.',
@@ -40,11 +40,11 @@ function diagnosticFailure(error: unknown): string {
 }
 const quantity = (value: number | null) => value === null ? 'Unknown / unavailable' : String(value);
 const Retention: Component<{ summary: DiagnosticSummary | DiagnosticHistory | DiagnosticExport; additionalGaps: string[] }> = props => <div class="operator-diagnostic-retention">
-  <h4>Evidence availability</h4>
+  <details><summary>Evidence availability technical details</summary>
   <p>{props.summary.health.status === 'loss' ? 'Some diagnostic metadata is missing. The retained records may not explain everything that happened.'
     : props.summary.health.status === 'unavailable' ? 'Diagnostic metadata availability is unknown. Missing records cannot rule out a failure.'
     : 'Only the metadata saved in this snapshot is shown; uncaptured failures cannot be ruled out.'} Protected runtime logs are stored separately; gaps here do not prove those logs were lost.</p>
-  <details><summary>Retention technical details</summary>
+  <h4>Retention</h4>
   <p>Retained evidence health: {props.summary.health.status}. {props.summary.health.status === 'loss' ? 'Evidence gaps are reported; counters below describe observed retention loss only.'
     : props.summary.health.status === 'unavailable' ? 'Retention loss quantities are unknown / unavailable.' : 'Availability applies only to this captured metadata snapshot.'}</p>
   <p>Routine events evicted: {quantity(props.summary.retention.evictedRoutine)}</p>
@@ -62,9 +62,12 @@ const OperatorActivityDiagnostics: Component<{ activityId: string; openOnMount?:
   const [history, setHistory] = createSignal<DiagnosticHistory>();
   const [records, setRecords] = createSignal<DiagnosticRecord[]>([]);
   const [detail, setDetail] = createSignal<DiagnosticDetail>();
+  const [detailPlacement, setDetailPlacement] = createSignal<'summary' | 'timeline'>('timeline');
   const [exportPart, setExportPart] = createSignal<DiagnosticExport>();
   const [partCount, setPartCount] = createSignal(0);
-  const [downloads, setDownloads] = createSignal<Array<{ number: number; url: string }>>([]);
+  const [exportRetention, setExportRetention] = createSignal('complete');
+  const [download, setDownload] = createSignal<string>();
+  let exportController: AbortController | undefined;
   const [error, setError] = createSignal('');
   const [loading, setLoading] = createSignal('');
   const [recordLoading, setRecordLoading] = createSignal('');
@@ -72,23 +75,21 @@ const OperatorActivityDiagnostics: Component<{ activityId: string; openOnMount?:
   let revision = 0;
   let recordRevision = 0;
   const urls = new Set<string>();
-  const exportedIds = new Set<string>();
-  let lastExportSequence = 0;
-  let exportOperationsStarted = false;
   function releaseDownloads() {
     for (const url of urls) URL.revokeObjectURL(url);
-    urls.clear(); setDownloads([]);
+    urls.clear(); setDownload(undefined);
   }
   function discard() {
     ++revision; ++recordRevision;
     setSummary(undefined); setHistory(undefined); setRecords([]); setDetail(undefined);
-    setExportPart(undefined); setPartCount(0); exportedIds.clear(); lastExportSequence = 0; exportOperationsStarted = false;
+    exportController?.abort(); exportController = undefined;
+    setExportPart(undefined); setPartCount(0);
     releaseDownloads(); setLoading(''); setRecordLoading('');
   }
   createEffect(() => { void props.activityId; discard(); setOpened(false); setError(''); });
   // The dropdown mounts this reader only after its own explicit View action.
   onMount(() => { if (props.openOnMount) void open(); });
-  onCleanup(() => { active = false; ++revision; ++recordRevision; releaseDownloads(); });
+  onCleanup(() => { exportController?.abort(); active = false; ++revision; ++recordRevision; releaseDownloads(); });
   function current(id: string, token: number) { return active && props.activityId === id && revision === token; }
   function fail(cause: unknown, id: string, token: number) {
     if (!current(id, token)) return;
@@ -128,11 +129,11 @@ const OperatorActivityDiagnostics: Component<{ activityId: string; openOnMount?:
     } catch (cause) { fail(cause, id, token); }
     finally { if (current(id, token)) setLoading(''); }
   }
-  async function inspect(recordId: string) {
+  async function inspect(recordId: string, placement: 'summary' | 'timeline' = 'timeline') {
     const snapshot = summary();
     if (!snapshot || loading() || recordLoading()) return;
     const id = props.activityId, token = revision, request = ++recordRevision;
-    setError(''); setDetail(undefined); setRecordLoading(recordId);
+    setError(''); setDetail(undefined); setDetailPlacement(placement); setRecordLoading(recordId);
     try {
       const value = await getOperatorActivityDiagnosticRecord(id, recordId, snapshot);
       if (current(id, token) && recordRevision === request) setDetail(value);
@@ -140,34 +141,66 @@ const OperatorActivityDiagnostics: Component<{ activityId: string; openOnMount?:
     finally { if (current(id, token) && recordRevision === request) setRecordLoading(''); }
   }
   async function exportMetadata() {
-    const snapshot = exportPart() ?? summary();
+    const snapshot = summary();
     if (!snapshot || loading() || recordLoading()) return;
-    const previous = exportPart();
-    if (previous && !previous.nextCursor) return;
     const id = props.activityId, token = revision;
-    setError(''); setLoading('Loading export metadata part…');
+    const controller = new AbortController();
+    exportController = controller;
+    releaseDownloads(); setExportPart(undefined); setPartCount(0);
+    setError(''); setLoading('Loading metadata export…');
+    const parts: DiagnosticExport[] = [];
+    const cursors = new Set<string>();
+    const ids = new Set<string>();
+    let lastSequence = 0;
+    let operationsStarted = false;
+    let cursor: string | null = null;
     try {
-      const part = await exportOperatorActivityDiagnostics(id, previous?.nextCursor ?? null, snapshot);
-      if (!current(id, token)) return;
-      if (previous && (part.snapshotDigest !== previous.snapshotDigest || part.nextCursor === previous.nextCursor))
-        throw new ApiError('Export snapshot changed.', 409, 'Conflict');
-      for (const record of part.records) {
-        if (exportedIds.has(record.id)) throw new Error('Invalid export traversal progress');
-        if (record.kind === 'event') {
-          if (exportOperationsStarted || record.sequence <= lastExportSequence) throw new Error('Invalid export event order');
-          lastExportSequence = record.sequence;
-        } else exportOperationsStarted = true;
-        exportedIds.add(record.id);
-      }
-      setExportPart(part); setPartCount(value => value + 1);
-      // Export only the successfully validated public metadata, never a server
-      // response/error body. Earlier downloaded parts remain independently labelled.
-      if (typeof URL.createObjectURL === 'function') {
-        const url = URL.createObjectURL(new Blob([JSON.stringify(part)], { type: 'application/json' }));
-        urls.add(url); setDownloads(saved => [...saved, { number: partCount(), url }]);
-      }
-    } catch (cause) { fail(cause, id, token); }
-    finally { if (current(id, token)) setLoading(''); }
+      do {
+        const previous = parts.at(-1);
+        const part = await exportOperatorActivityDiagnostics(id, cursor, previous ?? snapshot, controller.signal);
+        if (!current(id, token) || controller.signal.aborted) return;
+        if (previous && part.snapshotDigest !== previous.snapshotDigest)
+          throw new ApiError('Export snapshot changed.', 409, 'Conflict');
+        if (part.pageStatus === 'unavailable') throw new Error('Export evidence unavailable');
+        if (part.nextCursor && (cursors.has(part.nextCursor) || !part.records.length))
+          throw new Error('Invalid export traversal progress');
+        for (const record of part.records) {
+          if (ids.has(record.id)) throw new Error('Invalid export traversal progress');
+          if (record.kind === 'event') {
+            if (operationsStarted || record.sequence <= lastSequence) throw new Error('Invalid export event order');
+            lastSequence = record.sequence;
+          } else operationsStarted = true;
+          ids.add(record.id);
+        }
+        if (part.nextCursor) cursors.add(part.nextCursor);
+        parts.push(part); setPartCount(parts.length);
+        setLoading(`Loading metadata export… ${parts.length} parts read`);
+        cursor = part.nextCursor;
+      } while (cursor);
+      if (!current(id, token) || controller.signal.aborted) return;
+      const first = parts[0];
+      // Preserve validated parts verbatim, including individual digests, order and
+      // retention loss. Exhaustion describes retained traversal, not execution history.
+      const retainedStatus = parts.some(part => part.retainedStatus === 'loss') ? 'loss'
+        : parts.some(part => part.retainedStatus === 'unavailable') ? 'unavailable' : 'complete';
+      const bundle = { version: 1, format: 'codeflare-diagnostic-export', activityId: id,
+        binding: first.binding, highWater: first.highWater, snapshotDigest: first.snapshotDigest,
+        traversal: 'complete', retainedStatus, parts };
+      setExportRetention(retainedStatus);
+      if (typeof URL.createObjectURL !== 'function') throw new Error('File downloads unavailable');
+      const url = URL.createObjectURL(new Blob([JSON.stringify(bundle)], { type: 'application/json' }));
+      urls.add(url); setDownload(url); setExportPart(parts[parts.length - 1]);
+      const anchor = document.createElement('a');
+      anchor.href = url; anchor.download = `${id}-diagnostics.json`;
+      anchor.click();
+    } catch (cause) {
+      if (current(id, token)) { releaseDownloads(); setExportPart(undefined); }
+      fail(cause, id, token);
+    }
+    finally {
+      if (exportController === controller) exportController = undefined;
+      if (current(id, token)) setLoading('');
+    }
   }
   const disabled = () => !!loading() || !!recordLoading();
   return <div class="operator-diagnostics">
@@ -180,22 +213,32 @@ const OperatorActivityDiagnostics: Component<{ activityId: string; openOnMount?:
       <Show when={summary()}>{value => <>
         <div class="operator-diagnostic-diagnosis">
           <h4>Evidence summary</h4>
-          <p class="operator-state">{value().diagnosis.state === 'recovered-failure' ? 'A failure was recorded and later recovered. It does not explain how the later work ended.'
-            : value().diagnosis.state === 'observed-failure' ? 'A failure was recorded. Its original cause is not established by this summary.'
-            : value().diagnosis.state === 'evidence-incomplete' ? 'The available records are incomplete. The cause or handoff cannot be fully confirmed.'
-            : 'The retained records do not show a failure, but they do not establish that execution succeeded.'}</p>
-          <Show when={value().diagnosis.code !== 'none'}><p>{reasons[value().diagnosis.code]}</p></Show>
-          <p>{value().diagnosis.lastConfirmedId ? 'A last confirmed record is available in the timeline; it does not prove that later work succeeded.'
-            : 'No last confirmed record is available; no successful step can be inferred.'} {value().diagnosis.failedId
-              ? 'A failed or unfulfilled handoff was retained. It is not necessarily the first failure.'
-              : 'The failed transition is unconfirmed; a missing record does not rule out a failure.'}</p>
-          <p>Next: {nextChecks[value().diagnosis.nextCheck]}</p>
+          <Show when={value().diagnosis.executionStatus}>{status => <p class="operator-state">Current state: {diagnosticWords(status())}</p>}</Show>
+          <p class="operator-state">{value().fence ? 'The run stopped at an execution fence.'
+            : value().diagnosis.state === 'recovered-failure' ? 'An earlier failed attempt recovered; the final run outcome is not established here.'
+            : value().diagnosis.continuedId ? 'Work continued after a failed attempt. Full recovery is not confirmed.'
+            : value().diagnosis.state === 'observed-failure' ? 'No later work is confirmed after the retained failed attempt.'
+            : value().diagnosis.state === 'evidence-incomplete' ? 'Evidence is incomplete; the run outcome is unconfirmed.'
+            : 'No failure is retained; this does not confirm success.'}</p>
+          <Show when={value().diagnosis.sdkService} fallback={<Show when={value().diagnosis.code !== 'none'}><p>{value().diagnosis.transportStatus === 409 && value().diagnosis.transportReason === 'operation-conflict'
+            ? 'The platform refused an inference request with HTTP 409 (operation-conflict). No additional vendor send was authorized for that refusal; the exact conflict condition is not retained.'
+            : value().diagnosis.publicCode === 'citation-provenance' ? 'A citation did not match retained source evidence.' : reasons[value().diagnosis.code]}</p></Show>}>
+            {cause => <p>Retained attempt: {sdkServiceCause(cause())}</p>}
+          </Show>
+          <Show when={value().fence && value().diagnosis.sdkService}><p>{reasons[value().diagnosis.code]}</p></Show>
+          <Show when={value().fence && value().diagnosis.continuedId}><p>Later work was recorded after the failed attempt; full recovery is not confirmed.</p></Show>
+          <p>Next: {value().fence?.uncertain ? 'Inspect the execution fence and reconcile uncertain effects before considering another run. Do not replay uncertain work.' : value().diagnosis.sdkService && !value().diagnosis.continuedId && value().diagnosis.state !== 'recovered-failure'
+            ? sdkServiceNext(value().diagnosis.sdkService!) : value().diagnosis.continuedId || value().diagnosis.state === 'recovered-failure'
+              ? 'Inspect the later evidence and final result before deciding whether another run is needed.'
+              : value().diagnosis.transportStatus === 409 && value().diagnosis.transportReason === 'operation-conflict'
+                ? 'Inspect the original operation and request comparison before retrying. Do not replay uncertain work.'
+                : nextChecks[value().diagnosis.nextCheck]}</p>
+          <Show when={value().diagnosis.failedId}>{id => <button class="admin-secondary-button" disabled={disabled()}
+            onClick={() => void inspect(id(), 'summary')}>View failure evidence</button>}</Show>
+          <Show when={detailPlacement() === 'summary' ? detail() : undefined}>{selected => <OperatorDiagnosticRecord detail={selected()} />}</Show>
           <Show when={value().capture !== 'enabled'}><p>{value().capture === 'legacy' ? 'This older run did not capture diagnostic evidence.'
             : value().capture === 'disabled' ? 'Logging was off. Optional errors and timeline records were not captured.'
             : 'Diagnostic capture is unavailable.'}</p></Show>
-          <Show when={value().health.sdkImport === 'pending' || value().health.gaps.includes('sdk-import-incomplete')}>
-            <p>Some runtime records have not been imported into this metadata view. This does not establish whether their original runtime logs are available.</p>
-          </Show>
           <Show when={value().fence?.uncertain}><p>Earlier effects are uncertain. Do not replay uncertain work.</p></Show>
           <details><summary>Summary technical details</summary>
           <p>Capture status: {value().capture}</p>
@@ -206,6 +249,10 @@ const OperatorActivityDiagnostics: Component<{ activityId: string; openOnMount?:
           <p>Current original-lease binding generation: {value().binding.generation}</p>
           <Show when={value().fence}>{fence => <p>Essential fence: {diagnosticWords(fence().boundary)} · {fence().code === value().diagnosis.code ? 'Reason shown above' : reasons[fence().code]} · Fence generation: {fence().generation} · {new Date(fence().timestamp).toLocaleString()}{fence().uncertain ? ' · Prior effects uncertain.' : ''}</p>}</Show>
           <p>SDK import: {diagnosticWords(value().health.sdkImport)}</p>
+          <Show when={value().health.sdkImport === 'pending' || value().health.gaps.includes('sdk-import-incomplete')}>
+            <p>Some runtime records have not been imported into this metadata view. This does not establish whether their original runtime logs are available.</p>
+          </Show>
+
           <Show when={value().health.sdkImport === 'pending' || value().health.gaps.includes('sdk-import-incomplete')}>
             <p>{value().health.sdkImportReason === 'retirement-tail-unwitnessed'
               ? 'The last observed SDK watermark and its known record window are host-persisted. This does not prove that an unseen retirement tail reached the host; the future tail is unwitnessed, not an observed dropped-record count.'
@@ -218,9 +265,10 @@ const OperatorActivityDiagnostics: Component<{ activityId: string; openOnMount?:
           && !(gap === 'logging-disabled' && value().capture === 'disabled')
           && !(gap === 'sdk-import-incomplete' && value().health.sdkImport === 'pending')
           && gap !== value().diagnosis.code)} />
-        <p>A host response does not prove that the runtime received or saved it, or that the work finished.</p>
+
         <Show when={history()}>{page => <div class="operator-diagnostic-history">
-          <h4>Retained timeline</h4>
+          <details><summary>Timeline technical details and retained records</summary>
+          <p>A host response does not prove that the runtime received or saved it, or that the work finished.</p>
           <Show when={page().health.status !== value().health.status && page().health.status !== 'available' || page().retainedStatus !== 'complete' && value().health.status === 'available'}>
             <p>The history page reports missing or unavailable evidence. Check timeline technical details for the gaps.</p>
           </Show>
@@ -237,7 +285,8 @@ const OperatorActivityDiagnostics: Component<{ activityId: string; openOnMount?:
             <button class="admin-secondary-button" disabled={disabled()} aria-expanded={detail()?.record.id === record.id}
               onClick={() => void inspect(record.id)}>View record {record.id}</button>
             <Show when={recordLoading() === record.id}><p role="status" aria-live="polite">Loading record detail…</p></Show>
-            <Show when={detail()?.record.id === record.id ? detail() : undefined}>{selected => <OperatorDiagnosticRecord detail={selected()} />}</Show>
+            <Show when={detailPlacement() === 'timeline' && detail()?.record.id === record.id ? detail() : undefined}>{selected => <OperatorDiagnosticRecord detail={selected()} />}</Show>
+
           </li>}</For></ol>
           <Show when={!records().some(row => row.kind === 'event')}><p>No retained diagnostic events in the pages read. {page().pageStatus === 'unavailable' ? 'History is unavailable, not empty complete evidence.' : 'This does not exclude uncaptured failures.'}</p></Show>
           <Show when={records().some(row => row.kind === 'operation')}><h4>Retained operation metadata</h4>
@@ -246,10 +295,12 @@ const OperatorActivityDiagnostics: Component<{ activityId: string; openOnMount?:
               <button class="admin-secondary-button" disabled={disabled()} aria-expanded={detail()?.record.id === record.id}
                 onClick={() => void inspect(record.id)}>View record {record.id}</button>
               <Show when={recordLoading() === record.id}><p role="status" aria-live="polite">Loading record detail…</p></Show>
-              <Show when={detail()?.record.id === record.id ? detail() : undefined}>{selected => <OperatorDiagnosticRecord detail={selected()} />}</Show>
+            <Show when={detailPlacement() === 'timeline' && detail()?.record.id === record.id ? detail() : undefined}>{selected => <OperatorDiagnosticRecord detail={selected()} />}</Show>
+
             </li>}</For></ul>
           </Show>
           <Show when={page().nextCursor}><div class="operator-actions"><button class="admin-secondary-button" disabled={disabled()} onClick={() => void nextHistory()}>Load next history page</button></div></Show>
+          </details>
         </div>}</Show>
         <details><summary>Capture and source technical details</summary>
         <section aria-label="Capture capabilities" class="operator-diagnostic-coverage">
@@ -258,39 +309,27 @@ const OperatorActivityDiagnostics: Component<{ activityId: string; openOnMount?:
           <ul class="operator-diagnostic-capabilities"><For each={value().capabilities}>{capability => <li><strong>{diagnosticWords(capability.boundary)}</strong><span>{diagnosticWords(capability.availability)} · {diagnosticWords(capability.persistence)}</span></li>}</For></ul>
           <Show when={!value().capabilities.length}><p>No capture capability metadata supplied; support is not inferred.</p></Show>
           <p>{value().provenance.patchSetDigest ? 'Codeflare-derived patched SDK provenance' : 'SDK patch provenance unavailable'}</p>
-          <dl class="operator-diagnostic-facts"><div><dt>Host revision</dt><dd>{value().provenance.hostRevision ?? 'Unavailable'}</dd></div>
-            <div><dt>Flue base runtime</dt><dd>{value().provenance.sdkBaseRuntime ?? 'Unavailable'}</dd></div>
-            <div><dt>Agents base SDK</dt><dd>{value().provenance.sdkBaseAgents ?? 'Unavailable'}</dd></div>
-            <div><dt>Patch set digest</dt><dd>{value().provenance.patchSetDigest ?? 'Unavailable'}</dd></div>
-            <div><dt>Original artifact digest</dt><dd>{value().binding.artifactDigest}</dd></div>
+          <dl class="operator-diagnostic-facts"><For each={Object.entries(value().provenance).filter(([, entry]) => entry != null)}>{([key, entry]) => <div>
+            <dt>{({ hostRevision: 'Host revision', sdkBaseRuntime: 'Flue base runtime', sdkBaseAgents: 'Agents base SDK', patchSetDigest: 'Patch set digest' } as Record<string, string>)[key]}</dt><dd>{entry}</dd>
+          </div>}</For><div><dt>Original artifact digest</dt><dd>{value().binding.artifactDigest}</dd></div>
             <div><dt>Original input digest</dt><dd>{value().binding.inputDigest}</dd></div></dl>
           <p>SDK binding: {value().sdkBinding.status}{value().sdkBinding.reason ? ` · ${diagnosticWords(value().sdkBinding.reason!)}` : ''}</p>
-          <dl class="operator-diagnostic-facts"><For each={(['rootDigest', 'submissionDigest', 'attemptDigest'] as const)}>{key => <div>
+          <dl class="operator-diagnostic-facts"><For each={(['rootDigest', 'submissionDigest', 'attemptDigest'] as const).filter(key => value().sdkBinding[key] != null)}>{key => <div>
             <dt>{key === 'rootDigest' ? 'SDK root digest' : key === 'submissionDigest' ? 'SDK submission digest' : 'SDK attempt digest'}</dt>
             <dd>{value().sdkBinding[key] ?? 'Unavailable'}</dd>
           </div>}</For></dl>
         </section>
         </details>
         <section class="operator-diagnostic-export" aria-label="Diagnostics metadata export"><h4>Metadata export</h4>
-          <p>Read-only public metadata; no prompts, payloads, credentials or raw errors. Each download covers only one segment of retained evidence.</p>
-          <Show when={!exportPart()}><button class="admin-secondary-button" disabled={disabled()} onClick={() => void exportMetadata()}>Export metadata</button></Show>
-          <Show when={exportPart()}>{part => <>
-            <p role="status">Metadata export part {partCount()} read. {part().nextCursor ? 'More parts remain.'
-              : part().pageStatus === 'complete' ? 'Export traversal exhausted: all retained metadata parts read.'
-              : 'Export traversal unavailable; retained evidence cannot be claimed complete.'}</p>
-            <p>{part().retainedStatus === 'loss' ? 'Retained evidence loss remains even after all export parts have been read. '
-              : part().retainedStatus === 'unavailable' ? 'The availability of retained export evidence is unknown. '
-              : 'The export covers only retained records. '}Traversal completeness does not describe complete execution history.</p>
-            <details><summary>Export technical details</summary>
-            <p>Export retention status: {part().retainedStatus}</p>
-            <dl class="operator-diagnostic-facts"><div><dt>Snapshot digest</dt><dd>{part().snapshotDigest}</dd></div>
-              <div><dt>Part digest</dt><dd>{part().partDigest}</dd></div></dl></details>
-            <ul class="operator-diagnostic-downloads" aria-label="Metadata downloads"><For each={downloads()}>{saved => <li>
-              <a href={saved.url} download={`${props.activityId}-diagnostics-part-${saved.number}.json`}>Save part {saved.number} (.json)</a>
-            </li>}</For></ul>
-            <Show when={typeof URL.createObjectURL !== 'function'}><p>File downloads are unavailable in this browser.</p></Show>
-            <Show when={part().nextCursor}><div class="operator-actions"><button class="admin-secondary-button" disabled={disabled()} onClick={() => void exportMetadata()}><span>Export next metadata</span> part</button></div></Show>
-          </>}</Show>
+          <p>Read-only public metadata; no prompts, payloads, credentials or raw errors. One download includes all retained cursor parts.</p>
+          <button class="admin-secondary-button" disabled={disabled()} onClick={() => void exportMetadata()}>Export metadata</button>
+          <Show when={exportPart()}><>
+            <p role="status">Export traversal exhausted: all retained metadata parts read ({partCount()} parts). This does not establish complete execution history.</p>
+            <p>{exportRetention() === 'loss' ? 'Retained evidence loss remains in the download.'
+              : exportRetention() === 'unavailable' ? 'Retained evidence availability is unknown.'
+              : 'The download covers only retained records.'}</p>
+            <Show when={download()}>{url => <a href={url()} download={`${props.activityId}-diagnostics.json`}>Save metadata (.json)</a>}</Show>
+          </></Show>
         </section>
       </>}</Show>
     </section></Show>

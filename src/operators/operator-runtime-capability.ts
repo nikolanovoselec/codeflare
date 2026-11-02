@@ -318,7 +318,10 @@ export async function prepareDispatcherNative(input: { plan: OperatorRuntimePlan
   if (!(await authorize(input.selection)).native) return undefined;
   const reader = await createOwnerNativePiProfileReader({ env, ownerBucket: ownerBucket!, deadline: plan.deadline,
     signal: input.signal, authorize: async () => { await authorize(input.selection); } });
-  const selection = input.selection ?? await reader.resolveSelection(pinned.installation.piReasoningOverride);
+  // New Dispatcher selections inherit owner R2 reasoning. Existing selections remain pinned;
+  // the generic reader's installation override is retained for unrelated profiles.
+  const selection = input.selection ?? await reader.resolveSelection(
+    pinned.operator.profile === 'dispatcher' ? undefined : pinned.installation.piReasoningOverride);
   await authorize(selection);
   return { selection, bind: async () => {
     await authorize(selection);

@@ -1248,7 +1248,26 @@ describe('Session Store', () => {
       );
     });
 
-    it('refreshes managed release status immediately after an update-pending start failure', async () => {
+    it('REQ-STOR-023 AC5 / REQ-AGENT-175: projects runtime incompatibility without claiming an active update and clears it after compatible status', async () => {
+      mockGetSessionAncillaryStatus.mockResolvedValue({
+        maxSessions: 3, managedReleaseStatus: 'update_pending',
+        managedReleaseBlockedReason: 'runtime_incompatible', preseedNeedsUpgrade: false,
+      });
+      await sessionStore.refreshSessionAncillaryStatus();
+      expect(sessionStore.managedReleaseStatus).toBe('update_pending');
+      expect(sessionStore.managedReleaseBlockedReason).toBe('runtime_incompatible');
+      expect(sessionStore.preseedUpgrading).toBe(false);
+      expect(sessionStore.managedReleaseProgress).toBeNull();
+
+      mockGetSessionAncillaryStatus.mockResolvedValue({
+        maxSessions: 3, managedReleaseStatus: 'current', preseedNeedsUpgrade: false,
+      });
+      await sessionStore.refreshSessionAncillaryStatus();
+      expect(sessionStore.managedReleaseStatus).toBe('current');
+      expect(sessionStore.managedReleaseBlockedReason).toBeNull();
+    });
+
+    it.each(['pending', 'failed'] as const)('REQ-STOR-022 AC3 / REQ-AGENT-175: a typed start gate stays visible while ancillary status is %s, independently of batch status', async (statusRead) => {
       mockGetSessions.mockResolvedValue([{
         id: 'session-1',
         name: 'Test Session',
@@ -1260,7 +1279,13 @@ describe('Session Store', () => {
         maxSessions: 3,
       } as never);
       await sessionStore.loadSessions();
-      mockGetSessionAncillaryStatus.mockClear();
+      mockGetBatchSessionStatus.mockRejectedValue(new Error('Batch status unavailable'));
+      let finishStatus!: (value: Awaited<ReturnType<typeof api.getSessionAncillaryStatus>>) => void;
+      let failStatus!: (error: Error) => void;
+      mockGetSessionAncillaryStatus.mockImplementationOnce(() => new Promise((resolve, reject) => {
+        finishStatus = resolve;
+        failStatus = reject;
+      }));
       let rejectStart: ((error: string, code?: string) => void) | undefined;
       vi.mocked(api.startSession).mockImplementation((_id, _progress, _complete, onError) => {
         rejectStart = onError;
@@ -1270,8 +1295,18 @@ describe('Session Store', () => {
       const starting = sessionStore.startSession('session-1');
       const rejected = expect(starting).rejects.toThrow(/update is pending/i);
       rejectStart?.('Container start failed: Managed environment update is pending', 'MANAGED_ENVIRONMENT_UPDATE_PENDING');
+      // The typed rejection must project the block before any GET completes.
+      expect(sessionStore.managedReleaseStatus).toBe('update_pending');
+      expect(sessionStore.managedReleaseProgress).toBeNull();
       await rejected;
-      await vi.waitFor(() => expect(mockGetSessionAncillaryStatus).toHaveBeenCalledWith());
+      if (statusRead === 'failed') {
+        failStatus(new Error('Managed status unavailable'));
+        await Promise.resolve();
+        expect(sessionStore.managedReleaseStatus).toBe('update_pending');
+      } else {
+        finishStatus({ maxSessions: 3, managedReleaseStatus: 'upgrading', preseedNeedsUpgrade: false });
+        await vi.waitFor(() => expect(sessionStore.managedReleaseStatus).toBe('upgrading'));
+      }
     });
   });
 

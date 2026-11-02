@@ -50,10 +50,6 @@ export async function dispatcherSdkOwnerContext(input: Input, selection?: Config
   if (managed && managed.reasoningLevel !== null && supportedReasoning && !supportedReasoning.some(level => level === managed.reasoningLevel)) {
     throw new OperatorInferenceSelectionError('REASONING_NOT_ELIGIBLE', 'Installation reasoning is not supported by its Gateway route');
   }
-  const reasoningOverride = source === 'pi-native' ? plan.receipt.selection.installation.piReasoningOverride : undefined;
-  if (selection && reasoningOverride !== undefined && selection.reasoningLevel !== reasoningOverride) {
-    throw new Error('Owner reasoning override changed');
-  }
   if (managed && selection && (selection.source !== 'managed' || selection.routeId !== managed.routeId
     || selection.reasoningLevel !== managed.reasoningLevel)) throw new Error('Owner managed selection changed');
   for (const policy of inferencePolicies) {
@@ -72,7 +68,7 @@ export async function dispatcherSdkOwnerContext(input: Input, selection?: Config
   if (Date.now() >= plan.deadline || input.signal?.aborted || !await input.current()) throw new Error('Owner inference expired');
   return { bucket, email: authority.human.email.trim().toLowerCase(), authority, groups, source,
     ownerKey: await operatorOwnerKey(authority.human), managed, routeContextWindows: routes.routeContextWindows,
-    deadline: plan.deadline, reasoningOverride };
+    deadline: plan.deadline };
 }
 
 async function ownerContext(input: Input, selection?: ConfiguredDispatcherInference) {
@@ -126,9 +122,7 @@ async function ownerContext(input: Input, selection?: ConfiguredDispatcherInfere
     maxResponseBytes: inferenceRequestBytes(plan.receipt.selection.operator.policy),
     ...(selection ? { selection } : {}),
     // This is the platform's provisioned SDK namespace (entrypoint.sh), not a vendor/API mapping.
-    ...(managed ? { managed: { provider: 'codeflare-gateway', model: managed.routeId, reasoningLevel: managed.reasoningLevel } } : {}),
-    ...(source !== 'pi-native' || plan.receipt.selection.installation.piReasoningOverride === undefined ? {} : {
-      reasoningOverride: plan.receipt.selection.installation.piReasoningOverride }) };
+    ...(managed ? { managed: { provider: 'codeflare-gateway', model: managed.routeId, reasoningLevel: managed.reasoningLevel } } : {}) };
 }
 
 async function send(input: SendInput, pathname: string, body: Record<string, unknown>, selection?: ConfiguredDispatcherInference): Promise<Response> {

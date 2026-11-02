@@ -164,10 +164,10 @@ function savedDefaults(bytes: Uint8Array | null): { defaultProvider: string; def
   return { defaultProvider: settings.defaultProvider, defaultModel: settings.defaultModel };
 }
 
-/** Read the two saved identifiers, never Pi resources or executable configuration. */
+/** Read saved identifiers and selected reasoning only, never Pi resources or executable configuration. */
 export async function readDispatcherSdkFiles(input: SdkStorageScope & {
   env: Env; signal?: AbortSignal; current: () => Promise<boolean>;
-}): Promise<{ settings: { defaultProvider: string; defaultModel: string } }> {
+}): Promise<{ settings: { defaultProvider: string; defaultModel: string }; reasoningOverride?: string }> {
   return privateOperation(async () => {
     scopeValid(input);
     const authorize = async () => {
@@ -180,9 +180,19 @@ export async function readDispatcherSdkFiles(input: SdkStorageScope & {
       active(input);
     };
     const io = await transport(input.env, input, authorize, input.deadline, input.signal);
-    const settings = savedDefaults((await io.read(SETTINGS)).bytes);
+    const bytes = (await io.read(SETTINGS)).bytes;
+    const settings = savedDefaults(bytes);
+    const saved = bytes ? json(bytes) : {};
+    if (saved.modelThinkingLevels !== undefined && !object(saved.modelThinkingLevels)) deny();
+    const reasoning = (object(saved.modelThinkingLevels)
+      ? saved.modelThinkingLevels[`${settings.defaultProvider}/${settings.defaultModel}`] : undefined)
+      ?? saved.defaultThinkingLevel ?? undefined;
+    if (reasoning !== undefined && (typeof reasoning !== 'string'
+      || !['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'].includes(reasoning))) deny();
     await io.guard();
-    return { settings };
+    // Preserve the installed App's configuration wire, but only owner R2 may supply it.
+    // Omission remains provider-default; no synthetic Medium/Off or installation fallback.
+    return { settings, ...(reasoning === undefined ? {} : { reasoningOverride: reasoning as string }) };
   });
 }
 

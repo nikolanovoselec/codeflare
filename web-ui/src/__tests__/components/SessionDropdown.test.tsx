@@ -38,6 +38,7 @@ vi.mock('../../stores/session', () => {
   let _preseedUpgrading = false;
   let _preseedUpgradeFailed = false;
   let _managedReleaseStatus: 'current' | 'upgrading' | 'update_pending' | null = null;
+  let _managedReleaseBlockedReason: 'runtime_incompatible' | null = null;
   return {
     sessionStore: {
       getMetricsForSession: vi.fn(() => null),
@@ -49,6 +50,8 @@ vi.mock('../../stores/session', () => {
       get preseedUpgradeFailed() { return _preseedUpgradeFailed; },
       _setPreseedUpgradeFailed: (v: boolean) => { _preseedUpgradeFailed = v; },
       get managedReleaseStatus() { return _managedReleaseStatus; },
+      get managedReleaseBlockedReason() { return _managedReleaseBlockedReason; },
+      _setManagedReleaseBlockedReason: (v: 'runtime_incompatible' | null) => { _managedReleaseBlockedReason = v; },
       _setPreseedUpgrading: (v: boolean) => { _preseedUpgrading = v; },
       _setManagedReleaseStatus: (v: 'current' | 'upgrading' | 'update_pending' | null) => { _managedReleaseStatus = v; },
     },
@@ -336,6 +339,7 @@ describe('SessionDropdown', () => {
       (sessionStore as any)._setPreseedUpgrading(false);
       (sessionStore as any)._setPreseedUpgradeFailed(false);
       (sessionStore as any)._setManagedReleaseStatus(null);
+      (sessionStore as any)._setManagedReleaseBlockedReason(null);
     });
 
     it('REQ-AGENT-175 AC1: disables New Session button and shows Updating during preseed sync', () => {
@@ -363,6 +367,18 @@ describe('SessionDropdown', () => {
       expect(btn).toBeDisabled();
       expect(btn.textContent).toContain('Update pending');
       expect(btn).toHaveAttribute('aria-label', 'Session environment update pending until session stops');
+    });
+
+    it('REQ-STOR-023 AC5 / REQ-AGENT-175: an incompatible managed release is blocked rather than waiting for session stop', () => {
+      (sessionStore as any)._setManagedReleaseStatus('update_pending');
+      (sessionStore as any)._setManagedReleaseBlockedReason('runtime_incompatible');
+      render(() => <SessionDropdown {...defaultProps} />);
+      const button = screen.getByTestId('session-dropdown-new');
+      expect(button).toBeDisabled();
+      expect(button).toHaveTextContent('Update blocked');
+      expect(button).toHaveAttribute('aria-label', 'Session environment blocked by an incompatible managed release');
+      fireEvent.click(button);
+      expect(screen.getByTestId('create-session-dialog')).toHaveAttribute('data-open', 'false');
     });
 
     it('REQ-AGENT-175: a failed baked upgrade cannot be bypassed through New Session', () => {

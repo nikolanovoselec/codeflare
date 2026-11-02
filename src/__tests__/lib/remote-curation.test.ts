@@ -751,6 +751,16 @@ describe('managed release resolver', () => {
       config,
       active,
     });
+
+    // REQ-STOR-023 AC5: report why this persisted release cannot be admitted,
+    // without exposing it as an active release or changing the persisted pointer.
+    const incompatible = { ...active, runtimeDependencyHash: '0'.repeat(64) };
+    const state = { schemaVersion: 1, active: incompatible };
+    kv._store.set(getManagedEnvironmentStateKey(config.configFingerprint), JSON.stringify(state));
+    await expect(readManagedEnvironmentSnapshot({ KV: kv as unknown as KVNamespace })).resolves.toEqual({
+      configured: true, enabled: true, config, blockedReason: 'runtime_incompatible',
+    });
+    expect(await kv.get(getManagedEnvironmentStateKey(config.configFingerprint), 'json')).toEqual(state);
   });
 
   it('does not reuse a fresh cached release from a different build hash', async () => {

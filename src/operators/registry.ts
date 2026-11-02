@@ -166,6 +166,8 @@ export type BoundaryPublicationInput = {
 export type BoundaryPublicationReceipt = { status: 'pending' | 'published'; digest: string; externalId?: number };
 type BoundaryPublicationOutcome = { status: 'new' | 'pending' | 'published' | 'stale' | 'conflict'; externalId?: number };
 export interface ManagementAuthority { operatorRevision: number; controlsRevision: number; expiresAt: number }
+/** The parent validates these explicit choices against the current verified manager catalog. */
+export interface ManagementGatewaySelection { operatorRevision: number; routeId: string | null; reasoningLevel: PiReasoningLevel | null }
 export interface ManagementAdmissionRequest {
   installationId: string; activityId: string; intentDigest: string;
   expectedInstallationRevision: number; expectedOperatorRevision: number; expectedControlsRevision: number; deadline: number;
@@ -1307,7 +1309,7 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string; O
       if (!this.restrictivePolicy(policy, state!.policy)) throw new ValidationError('Installation exceeds operator policy');
       if (this.ctx.storage.sql.exec('SELECT id FROM operator_installations WHERE operator_id=? AND name=?', operatorId, name.toLowerCase()).toArray().length) return { ok: false, reason: 'already-exists' };
       if (this.ctx.storage.sql.exec<{ n: number }>('SELECT COUNT(*) AS n FROM operator_installations WHERE operator_id=?', operatorId).one().n >= 100) throw new ValidationError('Installation limit reached');
-      if (piReasoningOverride !== undefined && !isPiReasoningLevel(piReasoningOverride)) throw new ValidationError('Invalid Pi reasoning override');
+      if (piReasoningOverride !== undefined && (state!.profile === 'dispatcher' || !isPiReasoningLevel(piReasoningOverride))) throw new ValidationError('Invalid Pi reasoning override');
       const value: ManagementInstallation = { id: crypto.randomUUID(), operatorId, name, releaseId: null, revision: 1,
         ...(piReasoningOverride !== undefined && { piReasoningOverride }),
         enabled: false, policy, configurationJson: this.managementConfiguration(configurationJson, state!.profile === 'dispatcher' && state!.repositoryUrl.replace(/\.git$/i, '').toLowerCase() === 'https://github.com/nikolanovoselec/codeflare-operator-dispatcher'), approvedSourceRevision: null };
@@ -1458,7 +1460,7 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string; O
     return row ? JSON.parse(row.data) as DispatcherConnectionRecord : null;
   }
 
-  async configureManagementInstallation(installationId: string, input: { policy: ManagementPolicy; configurationJson: string; revision: number; piReasoningOverride?: PiReasoningLevel }, authority: ManagementAuthority): Promise<OperatorRegistryResult<ManagementInstallation>> {
+  async configureManagementInstallation(installationId: string, input: { policy: ManagementPolicy; configurationJson: string; revision: number; piReasoningOverride?: PiReasoningLevel; gatewaySelection?: ManagementGatewaySelection }, authority: ManagementAuthority): Promise<OperatorRegistryResult<ManagementInstallation>> {
     this.managementSchema();
     return this.ctx.storage.transactionSync(() => {
       const installation = this.managementInstallation(installationId);
@@ -1467,10 +1469,43 @@ export class OperatorRegistry extends DurableObject<{ ENCRYPTION_KEY?: string; O
       const fence = this.managementFence(state, authority);
       if (fence) return fence;
       if (installation.revision !== input.revision) return { ok: false, reason: 'revision-conflict' };
-      if (!this.restrictivePolicy(input.policy, state!.policy)) throw new ValidationError('Installation exceeds operator policy');
-      if (input.piReasoningOverride !== undefined && !isPiReasoningLevel(input.piReasoningOverride)) throw new ValidationError('Invalid Pi reasoning override');
+      let operatorPolicy = state!.policy;
+      let policy = input.policy;
+      if (input.gatewaySelection !== undefined) {
+        const selection = input.gatewaySelection;
+        if (!Number.isSafeInteger(selection.operatorRevision) || selection.operatorRevision < 1
+          || selection.operatorRevision !== state!.revision) return { ok: false, reason: 'revision-conflict' };
+        if (state!.profile !== 'dispatcher'
+          || (selection.routeId !== null && (typeof selection.routeId !== 'string' || selection.routeId.length < 1
+            || selection.routeId.length > 128 || selection.routeId.trim() !== selection.routeId))
+          || (selection.reasoningLevel !== null && (!isPiReasoningLevel(selection.reasoningLevel) || selection.routeId === null))) {
+          throw new ValidationError('Invalid Gateway selection');
+        }
+        const approve = (previous: ManagementPolicy['inference'], defaults: boolean): NonNullable<ManagementPolicy['inference']> => {
+          const base = previous ?? { routeIds: [], defaultRouteId: null, reasoningLevels: [], defaultReasoningLevel: null, inheritUserDefaults: false };
+          return { ...base,
+            ...(selection.routeId === null ? {} : { allowedSources: [...new Set([...(base.allowedSources ?? ['managed']), 'managed'] as const)] }),
+            routeIds: [...new Set([...base.routeIds, ...(selection.routeId === null ? [] : [selection.routeId])])],
+            reasoningLevels: [...new Set([...base.reasoningLevels, ...(selection.reasoningLevel === null ? [] : [selection.reasoningLevel])])],
+            ...(defaults ? { defaultRouteId: selection.routeId, defaultReasoningLevel: selection.reasoningLevel, inheritUserDefaults: false } : {}) };
+        };
+        // Intent approves only the explicit pair, never permissions smuggled in input.policy.inference.
+        operatorPolicy = selection.routeId === null ? state!.policy : { ...state!.policy, inference: approve(state!.policy.inference, false) };
+        policy = { ...input.policy, inference: approve(installation.policy.inference, true) };
+        if (!this.withinManagementCeiling(operatorPolicy)) throw new ValidationError('Operator exceeds management ceiling');
+      }
+      if (!this.restrictivePolicy(policy, operatorPolicy)) throw new ValidationError('Installation exceeds operator policy');
+      if (input.piReasoningOverride !== undefined && (state!.profile === 'dispatcher' || !isPiReasoningLevel(input.piReasoningOverride))) throw new ValidationError('Invalid Pi reasoning override');
       const { piReasoningOverride: _previous, ...inherited } = installation;
-      const value: ManagementInstallation = { ...inherited, ...(input.piReasoningOverride !== undefined && { piReasoningOverride: input.piReasoningOverride }), policy: input.policy, configurationJson: this.managementConfiguration(input.configurationJson, state!.profile === 'dispatcher' && state!.repositoryUrl.replace(/\.git$/i, '').toLowerCase() === 'https://github.com/nikolanovoselec/codeflare-operator-dispatcher'), revision: installation.revision + 1, enabled: false };
+      const value: ManagementInstallation = { ...inherited, ...(input.piReasoningOverride !== undefined && { piReasoningOverride: input.piReasoningOverride }), policy, configurationJson: this.managementConfiguration(input.configurationJson, state!.profile === 'dispatcher' && state!.repositoryUrl.replace(/\.git$/i, '').toLowerCase() === 'https://github.com/nikolanovoselec/codeflare-operator-dispatcher'), revision: installation.revision + 1, enabled: false };
+      if (JSON.stringify(operatorPolicy) !== JSON.stringify(state!.policy)) {
+        const rows = this.ctx.storage.sql.exec<{ data: string }>('SELECT data FROM operator_installations WHERE operator_id=? AND enabled=1', installation.operatorId).toArray();
+        for (const row of rows) {
+          const other = this.parseManagementInstallation(row.data);
+          if (other.id !== installationId) this.saveInstallation({ ...other, revision: other.revision + 1, enabled: false });
+        }
+        this.saveManagement({ ...state!, revision: state!.revision + 1, policy: operatorPolicy });
+      }
       this.saveInstallation(value);
       return { ok: true, value };
     });

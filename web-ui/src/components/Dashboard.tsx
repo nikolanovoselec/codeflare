@@ -64,6 +64,20 @@ const Dashboard: Component<DashboardProps> = (props) => {
   const [recreateLoading, setRecreateLoading] = createSignal(false);
   const [recreateError, setRecreateError] = createSignal<string | null>(null);
   const [recreateMessage, setRecreateMessage] = createSignal<string | null>(null);
+  const [checkingEnvironment, setCheckingEnvironment] = createSignal(false);
+  const [environmentCheckError, setEnvironmentCheckError] = createSignal<string | null>(null);
+  const checkEnvironmentStatus = async () => {
+    if (checkingEnvironment()) return;
+    setCheckingEnvironment(true);
+    setEnvironmentCheckError(null);
+    try {
+      await sessionStore.refreshSessionAncillaryStatus();
+    } catch {
+      setEnvironmentCheckError('Could not check the session environment update. Try again.');
+    } finally {
+      setCheckingEnvironment(false);
+    }
+  };
   const showUpgradeRecovery = () => sessionStore.preseedUpgradeFailed
     && !sessionStore.preseedUpgrading
     && !sessionStore.bucketMigrating
@@ -457,7 +471,7 @@ const Dashboard: Component<DashboardProps> = (props) => {
                   data-testid="dashboard-new-session"
                   style={managedUpgradeStyle()}
                   disabled={!sessionStore.r2Ready || isAtUsageQuota() || sessionStore.preseedUpgrading || (sessionStore.managedReleaseStatus === 'upgrading' && !sessionStore.preseedUpgradeFailed) || sessionStore.managedReleaseStatus === 'update_pending' || sessionStore.bucketMigrating}
-                  aria-label={sessionStore.bucketMigrating ? 'Storage is migrating' : sessionStore.managedReleaseStatus === 'update_pending' ? 'Session environment update pending until session stops' : sessionStore.preseedUpgradeFailed && !sessionStore.preseedUpgrading ? 'Retry upgrade' : managedUpgradeAriaLabel() ?? (sessionStore.preseedUpgrading ? 'Updating session environment' : !sessionStore.r2Ready ? 'Waiting for storage setup' : isAtUsageQuota() ? 'Monthly compute quota exceeded' : sessionStore.isAtSessionLimit() ? 'Session limit reached' : 'Create new session')}
+                  aria-label={sessionStore.bucketMigrating ? 'Storage is migrating' : sessionStore.managedReleaseStatus === 'update_pending' ? (sessionStore.managedReleaseBlockedReason === 'runtime_incompatible' ? 'Session environment blocked by an incompatible managed release' : 'Session environment update pending until session stops') : sessionStore.preseedUpgradeFailed && !sessionStore.preseedUpgrading ? 'Retry upgrade' : managedUpgradeAriaLabel() ?? (sessionStore.preseedUpgrading ? 'Updating session environment' : !sessionStore.r2Ready ? 'Waiting for storage setup' : isAtUsageQuota() ? 'Monthly compute quota exceeded' : sessionStore.isAtSessionLimit() ? 'Session limit reached' : 'Create new session')}
                   onClick={() => {
                     if (sessionStore.preseedUpgradeFailed) {
                       void sessionStore.retryPreseedUpgrade();
@@ -473,7 +487,7 @@ const Dashboard: Component<DashboardProps> = (props) => {
                   {sessionStore.bucketMigrating
                     ? (sessionStore.bucketMigrationPercent != null ? `Migrating ${sessionStore.bucketMigrationPercent}%` : 'Migrating')
                     : sessionStore.managedReleaseStatus === 'update_pending'
-                      ? 'Update pending'
+                      ? (sessionStore.managedReleaseBlockedReason === 'runtime_incompatible' ? 'Update blocked' : 'Update pending')
                       : sessionStore.preseedUpgradeFailed && !sessionStore.preseedUpgrading
                         ? 'Retry upgrade'
                         : managedUpgradeLabel() ?? (sessionStore.preseedUpgrading ? 'Updating' : '+ New Session')}
@@ -503,6 +517,27 @@ const Dashboard: Component<DashboardProps> = (props) => {
                   </button>
                 </Show>
             </div>
+
+            <Show when={sessionStore.managedReleaseStatus === 'update_pending' || sessionStore.managedReleaseStatus === 'upgrading'}>
+              <div class="dashboard-migration-notice" role="status">
+                <p>{sessionStore.managedReleaseBlockedReason === 'runtime_incompatible'
+                  ? 'Session environment update blocked: the published managed release is incompatible with this deployment. An administrator must publish and activate a compatible signed release. No environment update is running; session starts remain blocked.'
+                  : sessionStore.managedReleaseStatus === 'update_pending'
+                  ? 'Session environment update pending. Session starts are blocked. Stop any sessions that still own the environment so the update can proceed. If none remain, check the update status; if it stays blocked, contact your administrator.'
+                  : 'Updating session environment. Session starts remain blocked until reconciliation finishes.'}</p>
+                <button
+                  type="button"
+                  class="dashboard-new-session-btn"
+                  disabled={checkingEnvironment()}
+                  onClick={() => void checkEnvironmentStatus()}
+                >
+                  {checkingEnvironment() ? 'Checking update status…' : 'Check update status'}
+                </button>
+                <Show when={environmentCheckError()}>
+                  <p role="alert">{environmentCheckError()}</p>
+                </Show>
+              </div>
+            </Show>
 
             <Show when={recreateError()}>
               <p class="dashboard-recovery-message" role="alert">{recreateError()}</p>

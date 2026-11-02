@@ -22,6 +22,7 @@ import { isSaasModeActive } from '../../lib/onboarding';
 import { getTierConfig, getEffectiveTierForUser, isEnterpriseMode } from '../../lib/subscription';
 import { getActiveManagedRelease, hasPendingManagedReconciliation } from '../../lib/managed-release-active';
 import { resolveEffectiveSessionMode } from '../../lib/session-mode';
+import { readManagedEnvironmentSnapshot } from '../../lib/remote-curation';
 import { clearMatchingManagedReconcileProgress, readManagedReconcileProgress } from '../../lib/managed-reconcile-progress';
 import { codingAgentProjectionIdentity } from '../../../scripts/ci/coding-agent-selection-core.mjs';
 
@@ -120,6 +121,7 @@ app.get('/ancillary-status', async (c) => {
   let preseedNeedsUpgrade: boolean | undefined;
   let preseedUpgradeTarget: string | undefined;
   let managedReleaseStatus: 'current' | 'upgrading' | 'update_pending' | undefined;
+  let managedReleaseBlockedReason: 'runtime_incompatible' | undefined;
   let managedReleaseProgress: { phase: 'planning' | 'writing' | 'finalizing'; completed: number; total: number } | undefined;
   const prefs = await c.env.KV.get<UserPreferences>(getPreferencesKey(bucketName), 'json');
   const mode = await resolveEffectiveSessionMode(prefs ?? null, user, c.env);
@@ -133,7 +135,8 @@ app.get('/ancillary-status', async (c) => {
       active ? 'managed' : 'baked', active?.digest ?? PRESEED_CONTENT_HASH,
       active?.pointer.sequence ?? null, mode, projectionIdentity, desiredPolicy,
     ]);
-    const managedMismatch = hasPendingManagedReconciliation(prefs?.managedEnvironmentReconciliation) || (active
+    const hasPendingTargets = hasPendingManagedReconciliation(prefs?.managedEnvironmentReconciliation);
+    const managedMismatch = hasPendingTargets || (active
       ? applied?.digest !== active.digest
         || applied.mode !== mode
         || applied.sequence !== active.pointer.sequence
@@ -150,7 +153,7 @@ app.get('/ancillary-status', async (c) => {
     );
     const needsReconciliation = managedMismatch || bakedMismatch;
     const hasOwner = needsReconciliation ? await hasOwningSessionContainer(c.env, bucketName) : false;
-    if (active || applied) managedReleaseStatus = managedMismatch ? (hasOwner ? 'update_pending' : 'upgrading') : 'current';
+    if (active || applied || hasPendingTargets) managedReleaseStatus = managedMismatch ? (hasOwner ? 'update_pending' : 'upgrading') : 'current';
     if (active) {
       const progress = await readManagedReconcileProgress(c.env.KV, bucketName);
       if (!managedMismatch && progress?.targetDigest === active.digest) {
@@ -167,6 +170,11 @@ app.get('/ancillary-status', async (c) => {
   } catch {
     managedReleaseStatus = 'update_pending';
     preseedNeedsUpgrade = false;
+    // Discovery cannot reconcile an incompatible bundle. Project only the
+    // locally evidenced reason, never infer compatibility from a lookup error.
+    try {
+      managedReleaseBlockedReason = (await readManagedEnvironmentSnapshot(c.env)).blockedReason;
+    } catch { /* Unknown availability remains the generic fail-closed gate. */ }
   }
 
   const { state: regimeState, migrating: bucketMigrating, pending: bucketMigrationPending } = await planRegimeReconcile(
@@ -193,7 +201,7 @@ app.get('/ancillary-status', async (c) => {
   c.header('Pragma', 'no-cache');
   return c.json({
     maxSessions, storageStats: storageStats ?? undefined, usage,
-    preseedNeedsUpgrade, preseedUpgradeTarget, managedReleaseStatus, managedReleaseProgress,
+    preseedNeedsUpgrade, preseedUpgradeTarget, managedReleaseStatus, managedReleaseProgress, managedReleaseBlockedReason,
     bucketMigrating, bucketMigrationPending, bucketMigrationPercent,
   });
 });

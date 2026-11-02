@@ -158,11 +158,11 @@ const SessionDropdown: Component<SessionDropdownProps> = (props) => {
           class="session-dropdown__new-session"
           data-testid="session-dropdown-new"
           disabled={sessionStore.preseedUpgrading || sessionStore.preseedUpgradeFailed || sessionStore.managedReleaseStatus === 'upgrading' || sessionStore.managedReleaseStatus === 'update_pending'}
-          aria-label={sessionStore.managedReleaseStatus === 'update_pending' ? 'Session environment update pending until session stops' : sessionStore.preseedUpgrading || sessionStore.managedReleaseStatus === 'upgrading' ? 'Updating session environment' : 'New Session'}
+          aria-label={sessionStore.managedReleaseStatus === 'update_pending' ? (sessionStore.managedReleaseBlockedReason === 'runtime_incompatible' ? 'Session environment blocked by an incompatible managed release' : 'Session environment update pending until session stops') : sessionStore.preseedUpgrading || sessionStore.managedReleaseStatus === 'upgrading' ? 'Updating session environment' : 'New Session'}
           onClick={() => setShowCreateDialog(!showCreateDialog())}
         >
           <Icon path={mdiPlus} size={16} />
-          <span>{sessionStore.managedReleaseStatus === 'update_pending' ? 'Update pending' : sessionStore.preseedUpgrading || sessionStore.managedReleaseStatus === 'upgrading' ? 'Updating' : 'New Session'}</span>
+          <span>{sessionStore.managedReleaseStatus === 'update_pending' ? (sessionStore.managedReleaseBlockedReason === 'runtime_incompatible' ? 'Update blocked' : 'Update pending') : sessionStore.preseedUpgrading || sessionStore.managedReleaseStatus === 'upgrading' ? 'Updating' : 'New Session'}</span>
         </button>
 
         <Show when={showMultiViewRow()}>

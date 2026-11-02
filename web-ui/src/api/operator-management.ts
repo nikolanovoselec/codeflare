@@ -102,7 +102,8 @@ export const saveManagementAccess = (input: ManagementAccess) => request('/acces
 export const getManagedOperator = (operatorId: string) => request(`/operators/${segment(operatorId)}`, detailSchema);
 export const replaceOperatorSource = (operatorId: string, input: { revision: number; repositoryUrl: string; githubPat: string }) =>
   request(`/operators/${segment(operatorId)}/source`, operatorSchema, input);
-export const configureInstallation = (installationId: string, input: { revision: number; policy: ManagementPolicy; configuration: unknown; piReasoningOverride?: PiReasoningLevel }) =>
+export interface GatewaySelection { operatorRevision: number; routeId: string | null; reasoningLevel: PiReasoningLevel | null }
+export const configureInstallation = (installationId: string, input: { revision: number; policy: ManagementPolicy; configuration: unknown; piReasoningOverride?: PiReasoningLevel; gatewaySelection?: GatewaySelection }) =>
   request(`/installations/${segment(installationId)}/configure`, installationSchema, input);
 export const registerManagedOperator = (input: RegistrationInput) => request('/operators', operatorSchema, input);
 export const refreshManagedReleases = (operatorId: string, revision: number) =>

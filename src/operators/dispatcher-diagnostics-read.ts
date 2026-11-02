@@ -114,7 +114,9 @@ export async function readActivityDiagnostics(input: {
     let response: Record<string, unknown>;
     if (options.view === 'summary') {
       let failure: DiagnosticEvent | undefined;
+      let actionableFailure: DiagnosticEvent | undefined;
       let confirmed: DiagnosticEvent | undefined;
+      let progress: DiagnosticEvent | undefined;
       const recoveries: DiagnosticEvent[] = [];
       // Finite retained-index bound; read only metadata, not the child/journal/cache.
       const pointers = index && !unavailable ? await diagnosticPointers(input.storage) : [];
@@ -123,9 +125,17 @@ export async function readActivityDiagnostics(input: {
       for (const id of selected) {
         const record = await readEvent(id);
         if (record.outcome === 'failed' || record.code === 'effect-unknown') failure = record;
+        if (record.outcome === 'failed' && (record.error?.sdkService
+          || record.error?.transportReason === 'operation-conflict')) actionableFailure = record;
         if (['accepted', 'applied', 'committed', 'completed', 'released'].includes(record.outcome)) confirmed = record;
         if (record.outcome === 'recovered') recoveries.push(record);
+        if (['model', 'inference-response', 'canonical-commit', 'tool', 'effect', 'submission', 'delivery', 'continuation'].includes(record.boundary)
+          && ['started', 'accepted', 'applied', 'committed', 'completed'].includes(record.outcome)) progress = record;
       }
+      // A generic settlement wrapper must not erase a concrete boundary cause.
+      // Later confirmed work, however, prevents that substitution.
+      if (actionableFailure && (!progress || progress.sequence <= actionableFailure.sequence)
+        && (!failure || failure.code === 'settlement-failed' || failure === actionableFailure)) failure = actionableFailure;
       const fenced = before.fence;
       const incomplete = unavailable || before.recorderUnavailable || health.status === 'loss' || !before.logging
         || !index || ['unknown', 'failed', 'cancel-requested'].includes(before.status ?? '') && !fenced;
@@ -154,8 +164,17 @@ export async function readActivityDiagnostics(input: {
               : before.provenance && health.sdkImport === 'pending' ? 'pending' : 'host-persisted' })),
         sdkBinding: before.rootDigest && before.submissionId ? { status: 'available', rootDigest: before.rootDigest,
           submissionDigest: hashDiagnostic(before.submissionId) } : { status: 'unavailable', reason: 'unbound' },
-        fence: fenced ?? null, diagnosis: { state, code: fenced?.code ?? failure?.code ?? 'none',
+        fence: fenced ?? null, diagnosis: { state,
+          ...(['queued', 'running', 'waiting', 'completed', 'failed', 'cancel-requested', 'unknown'].includes(before.status ?? '')
+            ? { executionStatus: before.status } : {}), code: fenced?.code ?? failure?.code ?? 'none',
           lastConfirmedId: confirmed?.id ?? null, failedId: failure?.id ?? null,
+          ...(failure?.error?.publicCode ? { publicCode: failure.error.publicCode } : {}),
+          ...(failure?.error?.sdkService ? { sdkService: failure.error.sdkService } : {}),
+          ...(failure?.error?.transportStatus === undefined ? {} : {
+            transportStatus: failure.error.transportStatus, transportReason: failure.error.transportReason,
+            transportDisposition: failure.error.transportDisposition }),
+          ...(failure && progress && progress.sequence > failure.sequence
+            ? { continuedId: progress.id } : {}),
           nextCheck: fenced?.code === 'platform-evidence-required' ? 'inspect-platform-events'
             : fenced || failure && !recoveredFailure && !recoveryUnretained ? 'inspect-failure' : gapList.includes('sdk-import-incomplete') ? 'inspect-sdk-import'
             : gapList.includes('platform-evidence-required') ? 'inspect-platform-events' : incomplete ? 'inspect-retention-gap' : 'none' } };

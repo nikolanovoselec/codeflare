@@ -403,6 +403,7 @@ export type SessionAncillaryStatus = {
   preseedNeedsUpgrade?: boolean;
   preseedUpgradeTarget?: string;
   managedReleaseStatus?: 'current' | 'upgrading' | 'update_pending';
+  managedReleaseBlockedReason?: 'runtime_incompatible';
   managedReleaseProgress?: ManagedReleaseProgress;
   bucketMigrating?: boolean;
   bucketMigrationPending?: boolean;

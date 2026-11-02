@@ -136,6 +136,20 @@ describe('REQ-OPERATOR-007/047: durable Conductor native recovery without loggin
         expect((await activity.getRuntimePlan())?.inferenceSelection).toEqual(conductorNativeSelection);
       }, override);
     });
+  it('historical Dispatcher native identity and installation provenance survive read-only cold projection unchanged', () => withNativeConductor(async (_activity, ctx, activityEnv) => {
+    const admission = (await ctx.storage.get<any>('admission'))!;
+    admission.receipt.selection.operator.profile = 'dispatcher';
+    admission.configuredSelection = conductorNativeSelection;
+    delete admission.inferenceSelection;
+    await ctx.storage.put('admission', admission);
+    const saved = await ctx.storage.get('admission');
+    const cold = new OperatorActivity(ctx, activityEnv);
+    expect((await cold.getBrowserDetail())?.inferenceSelection).toEqual({
+      ...conductorNativeSelection, reasoningSource: 'installation' });
+    expect((await cold.getRuntimePlan())?.configuredSelection).toEqual(conductorNativeSelection);
+    expect(await ctx.storage.get('admission')).toEqual(saved);
+  }, 'low'));
+
   it('pins the admitted selection and retains login-stop through reconstruction without settling or claiming cleanup', () => withNativeConductor(async (activity, ctx, activityEnv) => {
     expect(await activity.getRuntimePlan()).toMatchObject({ inferenceSelection: conductorNativeSelection });
     const before = await activity.getBrowserDetail();

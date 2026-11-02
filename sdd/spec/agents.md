@@ -2445,6 +2445,7 @@ None.
 
 - Update states reuse existing dashboard polling and add no independent poller.
 - Failed-upgrade recovery follows [REQ-AGENT-049](#req-agent-049-auto-upgrade-preseed-on-release) AC6.
+- Proven runtime incompatibility shows “Update blocked” in both creation controls, not “Updating” or a session-stop explanation. The dashboard explains compatible signed-publication recovery and offers a manual status check without starting a session. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @impl: web-ui/src/components/SessionDropdown.tsx::SessionDropdown --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-STOR-023 AC5 / REQ-AGENT-175: runtime incompatibility explains administrator recovery instead of claiming an update is running) --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-AGENT-175: a failed environment status check offers recovery while starts stay blocked) --> <!-- @test: web-ui/src/__tests__/components/SessionDropdown.test.tsx (REQ-STOR-023 AC5 / REQ-AGENT-175: an incompatible managed release is blocked rather than waiting for session stop) -->
 
 **Priority:** P1
 

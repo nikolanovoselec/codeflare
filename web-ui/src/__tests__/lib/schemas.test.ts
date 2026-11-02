@@ -90,6 +90,17 @@ describe('session workspace and readiness schemas', () => {
 });
 
 describe('SessionAncillaryStatusResponseSchema storageStats', () => {
+  it('REQ-STOR-023 AC5: transports the closed runtime incompatibility reason without arbitrary diagnostic text', () => {
+    const status = {
+      maxSessions: 3, managedReleaseStatus: 'update_pending', preseedNeedsUpgrade: false,
+      managedReleaseBlockedReason: 'runtime_incompatible',
+    };
+    expect(SessionAncillaryStatusResponseSchema.parse(status)).toEqual(status);
+    expect(SessionAncillaryStatusResponseSchema.safeParse({
+      ...status, managedReleaseBlockedReason: 'arbitrary-backend-error',
+    }).success).toBe(false);
+  });
+
   it('accepts storageStats field', () => {
     const data = {
       maxSessions: 3,

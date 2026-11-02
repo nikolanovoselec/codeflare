@@ -12,7 +12,7 @@ import { dispatcherSdkOwnerContext } from './dispatcher-owner-inference';
 import { openOperatorSecret } from './protected-secrets';
 import { discoverDispatcherOwnerProfile, forwardDispatcherOwnerInference, type ConfiguredDispatcherInference } from './dispatcher-owner-inference';
 import { captureError, hashDiagnostic, hostSource, readSdkProvenance, readSdkDiagnosticHeader, runtimeSchema, sourceMatches, sdkAdmissionTypes,
-  type SdkProvenance, type Boundary, type ReasonCode, type Correlation, type RuntimeEnvelope, type DiagnosticBinding, type ErrorMetadata, type DiagnosticPreparation } from './dispatcher-diagnostics-wire';
+  type SdkProvenance, type Boundary, type ReasonCode, type Correlation, type RuntimeEnvelope, type DiagnosticBinding, type ErrorMetadata, type DiagnosticPreparation, type SdkServiceFailure } from './dispatcher-diagnostics-wire';
 import { appendDiagnostic, initializeDiagnostics, diagnosticLoss, observeOutbox,
   type FailureObservation, type FenceReason, type EventObservation, type DiagnosticCapsule } from './dispatcher-diagnostics-store';
 import { readActivityDiagnostics, DiagnosticReadError, type DiagnosticReadOptions, type DiagnosticReadState,
@@ -469,6 +469,8 @@ interface AdmissionState {
   inferenceRecoveryVersion?: 1;
   inferenceSelection?: NativeOperatorInference;
   configuredSelection?: ConfiguredDispatcherInference;
+  /** Admission-time provenance only; absent on historical Activities, never backfilled. */
+  dispatcherNativeReasoningInherited?: true;
   authFailure?: SafePiAuthFailure;
   diagnosticsVersion?: 1;
   diagnosticBinding?: DiagnosticBinding;
@@ -636,13 +638,15 @@ export class OperatorActivity extends Agent {
   #recordDiagnostic(generation: number, boundary: Boundary, outcome: EventObservation['outcome'], code: ReasonCode = 'none',
     error?: unknown, correlation: Correlation = {}, owner: EventObservation['owner'] = 'host', terminalGeneration?: number,
     capturedError?: ErrorMetadata, affectedOperations?: DiagnosticCapsule['affectedOperations'],
-    capturedErrorOrigin: EventObservation['origin'] = 'catching', preparation?: DiagnosticPreparation): void {
+    capturedErrorOrigin: EventObservation['origin'] = 'catching', preparation?: DiagnosticPreparation,
+    currentAuthority?: () => Promise<boolean>): void {
     // Capture the original value now, before any transformation/await. It never enters the queued closure.
     const metadata = capturedError ?? (error === undefined ? undefined : captureError(error));
     const observation: EventObservation = { timestamp: Date.now(), boundary, outcome, code, owner,
       evidence: 'observed', origin: metadata ? capturedErrorOrigin : 'state-transition', source: hostSource(boundary),
       correlation, ...(metadata ? { error: metadata } : {}), ...(preparation ? { preparation } : {}) };
     this.#enqueueDiagnostic(async () => {
+      if (currentAuthority && !await currentAuthority()) return;
       await this.ctx.storage.transaction(async tx => {
         const state = await tx.get<AdmissionState>('admission');
         const lease = await tx.get<DispatcherLease>(DISPATCHER_LEASE);
@@ -1228,6 +1232,7 @@ export class OperatorActivity extends Agent {
       await tx.put<AdmissionState>('admission', {
         ...state, intent: { ...intent, startVerifier: '' }, phase: 'queued', receipt,
         ...(inferenceSelection ? { inferenceSelection } : {}),
+        ...(managementReceipt?.selection.operator.profile === 'dispatcher' ? { dispatcherNativeReasoningInherited: true as const } : {}),
         ...(readVerifier ? { webhook: { readVerifier, expiresAt: intent.deadline + 2 * 60 * 60 * 1000,
           consumed: false } } : {}), updatedAt: Date.now(),
       });
@@ -2334,7 +2339,6 @@ export class OperatorActivity extends Agent {
     const credentials = path === '/v1/dispatcher/pi/credentials';
     const modelScope = path === '/v1/dispatcher/model-admission' || path === '/v1/dispatcher/model-fetch';
     const noStore = { 'cache-control': 'no-store' };
-    const conflict = () => dispatcherRefusal('operation-conflict', 409, 'OPERATOR_OPERATION_CONFLICT');
     try {
       if (request.headers.get('content-type')?.split(';')[0].trim().toLowerCase() !== 'application/json') {
         return dispatcherRefusal('request-invalid');
@@ -2354,7 +2358,27 @@ export class OperatorActivity extends Agent {
       if (request.signal.aborted || !await current()) return dispatcherRefusal('execution-inactive');
       const plan = await this.getRuntimePlan();
       if (!plan) return dispatcherRefusal('execution-inactive');
+      const conflict = () => {
+        if (modelScope && executionLoggingEnabled(state.receipt)) try {
+          this.#recordDiagnostic(generation, 'model', 'failed', 'admission-denied', undefined,
+            {}, 'host', undefined, { kind: 'other', publicCode: null, messageDigest: null,
+              stackDigest: null, causes: [], loss: [], fingerprintScope: 'unavailable',
+              transportStatus: 409, transportReason: 'operation-conflict', transportDisposition: 'operation-local' },
+            undefined, 'catching', undefined, current);
+        } catch { /* Optional diagnostics cannot change the original refusal. */ }
+        return dispatcherRefusal('operation-conflict', 409, 'OPERATOR_OPERATION_CONFLICT');
+      };
+      const observeFailure = (sdkService: SdkServiceFailure) => {
+        if (!executionLoggingEnabled(state.receipt)) return;
+        // Validate original authority again inside the isolated queue. No SDK I/O or
+        // result awaits diagnostics; no successor phase coordinates are borrowed.
+        this.#recordDiagnostic(generation, 'model', 'failed', 'provider-failed', undefined,
+          {}, 'host', undefined, { kind: 'other', publicCode: null, messageDigest: null,
+            stackDigest: null, causes: [], loss: [], fingerprintScope: 'unavailable', sdkService },
+          undefined, 'catching', undefined, current);
+      };
       const input = { generation, plan, env: this.#appEnv, current, signal: request.signal,
+        observeFailure: executionLoggingEnabled(state.receipt) ? observeFailure : undefined,
         exports: (this.ctx as unknown as { exports: import('./dispatcher-sdk-services').SdkInput['exports'] }).exports };
       if (credentials) {
         const result = await dispatcherSdkCredentials(input, body);
@@ -4729,11 +4753,13 @@ export class OperatorActivity extends Agent {
       ...(context ? { context } : {}), ...(progress ? { progress } : {}), executionStatus,
       ...(state.inferenceSelection ? { inferenceSelection: { ...state.inferenceSelection,
         ...(state.receipt && isManagementReceipt(state.receipt) ? { reasoningSource:
-          state.receipt.selection.installation.piReasoningOverride === undefined ? 'inherited' as const : 'installation' as const } : {}) } } : {}),
+          state.dispatcherNativeReasoningInherited || state.receipt.selection.installation.piReasoningOverride === undefined
+            ? 'inherited' as const : 'installation' as const } : {}) } } : {}),
       ...(state.configuredSelection ? { inferenceSelection: state.configuredSelection.source === 'managed'
         ? { source: 'managed' as const, routeId: state.configuredSelection.routeId, reasoningLevel: state.configuredSelection.reasoningLevel }
         : { ...state.configuredSelection, reasoningSource:
-          state.receipt && isManagementReceipt(state.receipt) && state.receipt.selection.installation.piReasoningOverride !== undefined
+          !state.dispatcherNativeReasoningInherited && state.receipt && isManagementReceipt(state.receipt)
+            && state.receipt.selection.installation.piReasoningOverride !== undefined
             ? 'installation' as const : 'inherited' as const } } : {}),
       ...(state.authFailure ? { authFailure: state.authFailure } : {}),
       cleanupStatus: released === true ? 'released' : executionStatus === 'cancel-requested' ? 'stopping'

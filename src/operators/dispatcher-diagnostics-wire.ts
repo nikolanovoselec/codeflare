@@ -34,10 +34,22 @@ const sourceSchema = z.strictObject({ package: z.enum(['codeflare', '@codeflare/
   boundary: z.enum(boundaries), baseVersion: z.string().max(128).nullable(), patchSetDigest: digestSchema.nullable(),
   status: z.enum(['verified', 'partial', 'unavailable']), frames: z.array(sourceFrameSchema).max(4) });
 const causeSchema = z.strictObject({ kind: z.enum(kinds), messageDigest: digestSchema.nullable(), stackDigest: digestSchema.nullable() });
+/** Closed projection of Root's SDK classification; never vendor text or auth bodies. */
+export const sdkServiceFailureSchema = z.strictObject({
+  sdkCode: z.enum(['model_source', 'model_validation', 'provider', 'stream', 'auth', 'oauth']).nullable(),
+  sdkStage: z.enum(['refresh', 'derivation']).nullable(),
+  httpStatus: z.number().int().min(400).max(599).nullable(),
+  oauthError: z.enum(['invalid_request', 'invalid_client', 'invalid_grant', 'unauthorized_client',
+    'unsupported_grant_type', 'invalid_scope']).nullable(),
+  exceptionCategory: z.enum(['unknown', 'error', 'timeout', 'abort']), requestAborted: z.boolean(),
+  wrapperStatus: z.union([z.literal(403), z.literal(409), z.literal(413)]),
+}).refine(value => (!value.sdkStage || value.sdkCode === 'oauth')
+  && (!value.oauthError || value.sdkStage === 'refresh' && value.httpStatus !== null));
+export type SdkServiceFailure = z.infer<typeof sdkServiceFailureSchema>;
 export const errorSchema = z.strictObject({ ...causeSchema.shape,
   publicCode: z.enum(producerCodes).nullable(), causes: z.array(causeSchema).max(3), loss: z.array(z.enum(errorLoss)).max(6),
   fingerprintScope: z.enum(['full', 'bounded', 'unavailable']), ...transportDiagnosticShape,
-  admissionType: z.enum(sdkAdmissionTypes).optional() });
+  admissionType: z.enum(sdkAdmissionTypes).optional(), sdkService: sdkServiceFailureSchema.optional() });
 export const correlationSchema = z.strictObject({ logicalOrdinal: counter.optional(), hostAttemptIndex: counter.optional(),
   chargedOrdinal: counter.optional(), sdkAttemptDigest: digestSchema.optional(), submissionDigest: digestSchema.optional(),
   deliveryDigest: digestSchema.optional(), requestDigest: digestSchema.optional(), responseDigest: digestSchema.optional(),
@@ -56,7 +68,7 @@ export const runtimeSchema = z.strictObject({ version: z.literal(1), captureId: 
     recordType: z.enum(recordTypes).optional(), inputApplied: z.boolean().optional(),
     settlement: z.enum(['reserved', 'canonical', 'finalized', 'unknown']).optional() }).optional(),
   local: z.strictObject({ through: counter, dropped: counter, status: z.enum(['captured', 'loss', 'unavailable']) })
-}).refine(record => record.boundary === record.source.boundary && record.local.through >= record.sequence);
+}).refine(record => record.boundary === record.source.boundary && record.local.through >= record.sequence && !record.error?.sdkService);
 const preparationSchema = z.strictObject({ step: z.enum(['parse', 'capability']),
   failureClass: z.enum(['body-limit', 'invalid-json', 'invalid-wire', 'request-denied', 'authority-denied']),
   route: z.enum(['inference', 'source', 'github-read', 'github-comment', 'github-merge', 'receipt', 'resolve', 'unknown']),
@@ -73,6 +85,7 @@ export const eventSchema = z.strictObject({ kind: z.literal('event'), id: z.stri
   correlation: correlationSchema, source: sourceSchema, error: errorSchema.optional(), preparation: preparationSchema.optional(),
   capsuleId: z.string().regex(/^(f-[1-9][0-9]*|t-[0-9]+)$/).optional()
 }).refine(record => record.id === `e-${record.sequence}` && record.boundary === record.source.boundary
+  && (!record.error?.sdkService || record.owner === 'host' && record.boundary === 'model' && record.outcome === 'failed')
   && (!record.preparation || record.owner === 'host' && record.outcome === 'failed'
     && (record.preparation.step === 'parse' ? record.boundary === 'tool' && record.code === 'tool-failed'
       : record.boundary === 'admission' && record.code === 'authority-denied')));

@@ -644,7 +644,7 @@ describe('REQ-OPERATOR-048: original-lease serial SDK phase ownership', () => {
   it.each(['oauth', 'api_key'] as const)(
     'REQ-OPERATOR-007/047/048: saved OpenAI %s selection uses matching auth, never the separate Codex login', kind => fixture(async f => {
       const token = kind === 'oauth' ? 'synthetic-openai-account-access' : 'synthetic-openai-api-key';
-      const savedSettings = { defaultProvider: 'openai', defaultModel: 'gpt-6.1-sol', defaultThinkingLevel: 'high' };
+      const savedSettings = { defaultProvider: 'openai', defaultModel: 'gpt-6.1-sol', defaultThinkingLevel: 'low' };
       nativeProfileFiles.set('/owner-bucket/.pi/agent/settings.json', savedSettings);
       nativeProfileFiles.set('/owner-bucket/.pi/agent/auth.json', {
         openai: kind === 'oauth'
@@ -897,6 +897,16 @@ describe('REQ-OPERATOR-048: original-lease serial SDK phase ownership', () => {
       expect(f.sent.filter(request => request.url === nativeProviderUrl)).toHaveLength(0);
     }, { repositoryOnly: true, recovery: true, intent4: false, facetContract: true, nativeInference: true, loggingEnabled: false,
       sourceTransport: async () => Response.json({ ok: true }) }));
+
+  it('REQ-OPERATOR-007/048: generic Dispatcher bootstrap denies saved High despite approved legacy installation Low', () => fixture(async f => {
+    nativeProfileFiles.set('/owner-bucket/.pi/agent/settings.json', {
+      defaultProvider: 'openai-codex', defaultModel: 'gpt-6.1-sol', defaultThinkingLevel: 'high' });
+    const saved = structuredClone(nativeProfileFiles);
+    expect(await start(f)).toMatchObject({ ok: true, state: { status: 'unknown' } });
+    expect(f.childSubmissions).toEqual([]);
+    expect((await f.activity.getRuntimePlan())?.inferenceSelection).toBeUndefined();
+    expect(nativeProfileFiles).toEqual(saved);
+  }, { repositoryOnly: true, recovery: true, intent4: false, facetContract: true, nativeInference: true }));
 
   it('REQ-OPERATOR-007/047: unsupported native recovery protocol refuses without managed substitution', () => fixture(async f => {
     expect(await start(f)).toMatchObject({ ok: true, state: { status: 'unknown' } });
@@ -2638,11 +2648,12 @@ describe('REQ-OPERATOR-048: original-lease serial SDK phase ownership', () => {
         const failed = { ...failures.at(-1)!, id: 'e-9000', sequence: 9000 };
         delete failed.capsuleId;
         const unrelated = history.records.find(record => record.kind === 'event' && record.outcome === 'completed'
+          && ['model', 'inference-response', 'canonical-commit', 'tool', 'effect'].includes(record.boundary ?? '')
           && record.correlation?.logicalOrdinal !== undefined
           && record.correlation.logicalOrdinal !== failed.correlation?.logicalOrdinal)!;
         expect(unrelated).toBeDefined();
         await seedDiagnosticSnapshot(f, [failed, { ...unrelated, id: 'e-9001', sequence: 9001 }]);
-        expect((await diagnosticSummary(f)).diagnosis).toMatchObject({ state: 'observed-failure', failedId: failed.id });
+        expect((await diagnosticSummary(f)).diagnosis).toMatchObject({ state: 'observed-failure', failedId: failed.id, continuedId: 'e-9001' });
         // Controlled recovery metadata must keep its event/source boundary consistent.
         const unrelatedRecovery = { ...unrelated, id: 'e-9001', sequence: 9001, boundary: 'recovery', outcome: 'recovered',
           source: { ...(unrelated.source as Record<string, unknown>), boundary: 'recovery' } };

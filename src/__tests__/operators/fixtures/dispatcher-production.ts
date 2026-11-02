@@ -243,7 +243,7 @@ export async function fixture(test: (f: {
   callerRoute = 'approved';
   callerReasoning = options.managedProviderDefault ? '' : 'off';
   nativeProfileFiles = new Map<string, unknown>(options.nativeInference ? [
-    ['/owner-bucket/.pi/agent/settings.json', { defaultProvider: 'openai-codex', defaultModel: 'gpt-6.1-sol', defaultThinkingLevel: 'high' }],
+    ['/owner-bucket/.pi/agent/settings.json', { defaultProvider: 'openai-codex', defaultModel: 'gpt-6.1-sol', defaultThinkingLevel: 'low' }],
     ['/owner-bucket/.pi/agent/auth.json', { 'openai-codex': { type: 'oauth', access: 'synthetic-native-access',
       refresh: 'synthetic-native-refresh', accountId: 'synthetic-account', expires: Date.now() + 120_000 } }],
     ['/owner-bucket/.pi/agent/models.json', { providers: {} }],

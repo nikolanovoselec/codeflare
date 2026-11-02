@@ -1427,6 +1427,7 @@ export async function readManagedEnvironmentSnapshot(
   enabled: boolean;
   config?: ManagedEnvironmentConfig;
   active?: ActiveManagedRelease;
+  blockedReason?: 'runtime_incompatible';
 }> {
   const config = await loadManagedEnvironmentConfig(env.KV, true);
   if (!config) return { configured: false, enabled: false };
@@ -1440,6 +1441,7 @@ export async function readManagedEnvironmentSnapshot(
     enabled: true,
     config,
     ...(active ? { active } : {}),
+    ...(state.active && !active ? { blockedReason: 'runtime_incompatible' as const } : {}),
   };
 }
 

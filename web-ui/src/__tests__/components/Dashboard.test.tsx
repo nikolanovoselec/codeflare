@@ -120,7 +120,9 @@ vi.mock('../../stores/session', async () => {
       get r2Ready() { return r2Ready(); },
       get preseedUpgrading() { return _preseedUpgrading(); },
       preseedUpgradeFailed: false,
+      managedReleaseBlockedReason: null,
       retryPreseedUpgrade: vi.fn().mockResolvedValue(undefined),
+      refreshSessionAncillaryStatus: vi.fn().mockResolvedValue(undefined),
       runPreseedUpdate: vi.fn(async (operation: () => Promise<unknown>) => operation()),
       get bucketMigrating() { return _bucketMigrating; },
       get bucketMigrationPercent() { return _bucketMigrationPercent; },
@@ -255,6 +257,8 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
     vi.mocked(sessionStore.killSession).mockReset().mockResolvedValue(undefined);
     vi.mocked(upgradeRecovery.retryPreseedUpgrade).mockReset().mockResolvedValue(undefined);
     upgradeRecovery.preseedUpgradeFailed = false;
+    (sessionStore as { managedReleaseBlockedReason: 'runtime_incompatible' | null }).managedReleaseBlockedReason = null;
+    vi.mocked(sessionStore.refreshSessionAncillaryStatus).mockReset().mockResolvedValue(undefined);
     vi.mocked(storageApi.recreateAgentConfigs).mockReset();
     (sessionStore as any)._setBucketMigrating(false);
     (sessionStore as any)._setManagedReleaseStatus(null);
@@ -1221,6 +1225,51 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
     expect(button).toBeDisabled();
     expect(button.textContent).toBe('Update pending');
     expect(button).toHaveAttribute('aria-label', 'Session environment update pending until session stops');
+  });
+
+  it.each(['update_pending', 'upgrading'] as const)('REQ-AGENT-175: explains a %s environment gate and offers a status check without starting a session', async (status) => {
+    (sessionStore as any)._setManagedReleaseStatus(status);
+    let complete!: () => void;
+    vi.mocked(sessionStore.refreshSessionAncillaryStatus).mockImplementationOnce(() => new Promise<void>((resolve) => {
+      complete = resolve;
+    }));
+    render(() => <Dashboard {...defaultProps} sessions={[]} />);
+
+    expect(screen.getByText(/Session starts (are|remain) blocked/)).toBeVisible();
+    expect(screen.getByTestId('dashboard-new-session')).toBeDisabled();
+    fireEvent.click(screen.getByRole('button', { name: 'Check update status' }));
+    expect(screen.getByRole('button', { name: 'Checking update status…' })).toBeDisabled();
+    complete();
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Check update status' })).toBeEnabled());
+    expect(defaultProps.onCreateSession).not.toHaveBeenCalled();
+    expect(defaultProps.onStartSession).not.toHaveBeenCalled();
+    // A completed check alone is not evidence that the update was applied.
+    expect(screen.getByTestId('dashboard-new-session')).toBeDisabled();
+  });
+
+  it('REQ-STOR-023 AC5 / REQ-AGENT-175: runtime incompatibility explains administrator recovery instead of claiming an update is running', () => {
+    (sessionStore as any)._setManagedReleaseStatus('update_pending');
+    (sessionStore as { managedReleaseBlockedReason: 'runtime_incompatible' | null }).managedReleaseBlockedReason = 'runtime_incompatible';
+    render(() => <Dashboard {...defaultProps} sessions={[]} />);
+
+    expect(screen.getByText(/administrator must publish and activate a compatible signed release/i)).toBeVisible();
+    expect(screen.getByText(/No environment update is running/)).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Session environment blocked by an incompatible managed release' }))
+      .toBeDisabled();
+    expect(screen.getByTestId('dashboard-new-session')).toHaveTextContent('Update blocked');
+    expect(screen.getByRole('button', { name: 'Check update status' })).toBeEnabled();
+    expect(screen.queryByText(/Stop any sessions/)).not.toBeInTheDocument();
+  });
+
+  it('REQ-AGENT-175: a failed environment status check offers recovery while starts stay blocked', async () => {
+    (sessionStore as any)._setManagedReleaseStatus('update_pending');
+    vi.mocked(sessionStore.refreshSessionAncillaryStatus).mockRejectedValueOnce(new Error('Unavailable'));
+    render(() => <Dashboard {...defaultProps} sessions={[]} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Check update status' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Could not check the session environment update. Try again.');
+    expect(screen.getByRole('button', { name: 'Check update status' })).toBeEnabled();
+    expect(screen.getByTestId('dashboard-new-session')).toBeDisabled();
   });
 
   it('REQ-AGENT-049: offers an actionable Retry upgrade after failure without creating a session or full Recreate', () => {

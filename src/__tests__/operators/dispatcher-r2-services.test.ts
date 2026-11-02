@@ -40,7 +40,7 @@ const [access, r2, regime, aig] = await Promise.all([
 
 /**
  * Root #119 test-only contract: installed HTTP + fixed owner R2 reads, not Flue execution proof.
- * pi/config {operation:'read'} -> {source:'pi-native',settings:{defaultProvider,defaultModel},selection?}
+ * pi/config {operation:'read'} -> {source:'pi-native',settings:{defaultProvider,defaultModel},reasoningOverride?,selection?}
  *                             or {source:'managed'} with no native R2 reads.
  * pi/credentials {operation:'read',providerId} -> {apiKey: saved API key or OAuth access token}
  * Only the selected provider may be resolved; caller listing/login/writes are denied.
@@ -103,7 +103,7 @@ function storageBoundary() {
   const put = (key: string, value: unknown, bucket = 'owner-bucket') => {
     objects.set(`/${bucket}/${key}`, { body: JSON.stringify(value), etag: `"revision-${++ordinal}"` });
   };
-  put(settingsKey, { defaultProvider: providerId, defaultModel: logical.model, defaultThinkingLevel: 'high',
+  put(settingsKey, { defaultProvider: providerId, defaultModel: logical.model, defaultThinkingLevel: 'low',
     privateSetting: `${canary}_settings`, env: { SECRET: `${canary}_env` },
     extensions: [`${canary}_extension`], resources: { files: [`${canary}_resource`] } });
   put(authKey, { [providerId]: oldOAuth, other });
@@ -168,11 +168,17 @@ const renewedRefresh = `${canary}_renewed_refresh`;
 const tokenReply = () => Response.json({ access_token: renewedAccess, refresh_token: renewedRefresh,
   expires_in: 3600, scope: 'openid chatgpt.tokens.use.direct' });
 type Store = ReturnType<typeof storageBoundary>;
+const laneStores = new WeakMap<DispatcherFixture, Store>();
 async function lane(run: (f: DispatcherFixture, store: Store, metadataEnvironment: Env) => Promise<void>, native = true,
   realInterceptors = false, limits: { operationLimit?: number; inferenceAttemptLimit?: number; managedProviderDefault?: boolean;
     nativeProviderDefault?: boolean; nativeNullProfile?: boolean; loggingEnabled?: boolean; nativeSelection?: typeof logical } = {}) {
   return fixture(async f => {
     const store = storageBoundary();
+    laneStores.set(f, store);
+    if (limits.nativeProviderDefault || limits.nativeNullProfile) {
+      const { defaultThinkingLevel: _thinking, ...saved } = store.value(settingsKey);
+      store.put(settingsKey, saved);
+    }
     const cleanups: Array<() => void> = [];
     const spy = <T extends { mockRestore(): void }>(value: T) => { cleanups.push(() => value.mockRestore()); return value; };
     // Reuse the shared fixture's external identity/configuration behavior on the
@@ -227,8 +233,9 @@ async function lane(run: (f: DispatcherFixture, store: Store, metadataEnvironmen
       if (new URL(request.url).pathname !== '/control/profile') return normalFetch(request);
       if (request.headers.get('authorization') !== `Bearer ${connectionSecret}`) return new Response(null, { status: 403 });
       // External normal-App HTTP boundary, not an SDK context or model resolver.
+      const nativeConfig = native ? await json(await config(f)) : undefined;
       const selected = native ? { ...(limits.nativeSelection ?? logical),
-        ...(limits.nativeProviderDefault || limits.nativeNullProfile ? { reasoningLevel: null } : {}) }
+        reasoningLevel: limits.nativeSelection?.reasoningLevel ?? nativeConfig!.reasoningOverride ?? null }
         : { provider: 'codeflare-gateway', model: 'approved',
         api: 'openai-completions', reasoningLevel: limits.managedProviderDefault ? null : 'off' };
       const identity = { source: native ? 'pi-native' : 'managed', ...selected };
@@ -258,6 +265,9 @@ async function lane(run: (f: DispatcherFixture, store: Store, metadataEnvironmen
 }
 async function admitted(f: DispatcherFixture) {
   expect(await start(f)).toMatchObject({ ok: true, state: { status: 'running', generation: 1 } });
+  // HTTP-service assertions below observe post-admission I/O; profile bootstrap now
+  // reads real configuration just as the installed App does. Never reset escaped reads.
+  laneStores.get(f)?.touchedKeys.clear();
 }
 
 // REQ-007 AC1/2 and 047 AC1/2/3: installation selection, constrained by all four grants.
@@ -383,11 +393,11 @@ describe('REQ-OPERATOR-007/047/048/058: owner R2 configured-service HTTP contrac
   it('pins the saved built-in logical profile with zero Host catalog and no source-session descriptor', () => lane(async (f, store) => {
     await admitted(f);
     const plan = (await f.activity.getRuntimePlan())!;
-    // Native ON has no managed route/reasoning defaults and still uses saved R2 identity at installation Low.
+    // Native ON has no managed route defaults; the legacy installation field is inert.
     expect(plan.receipt).toMatchObject({ selection: { installation: { piReasoningOverride: 'low',
       policy: { inference: { routeIds: [], defaultRouteId: null } } } } });
     expect(await dispatcherSdkOwnerContext({ plan, generation: 1, env: f.environment,
-      current: () => f.activity.operatorGenerationCurrent(1) })).toMatchObject({ source: 'pi-native', reasoningOverride: 'low' });
+      current: () => f.activity.operatorGenerationCurrent(1) })).toMatchObject({ source: 'pi-native' });
     expect(await discoverDispatcherOwnerProfile({ plan, generation: 1, env: f.environment,
       current: () => f.activity.operatorGenerationCurrent(1), waitUntil: f.waitUntil })).toEqual({ source: 'pi-native', ...logical,
       profileDigest: await digest(JSON.stringify({ source: 'pi-native', ...logical })) });
@@ -407,15 +417,62 @@ describe('REQ-OPERATOR-007/047/048/058: owner R2 configured-service HTTP contrac
     expect((await modelAdmission(f)).status).toBe(200);
   }, true, false, { nativeProviderDefault: true }));
 
-  it('provider-default discovery cannot erase an existing installation Low override', () => lane(async f => {
+  it('provider-default owner R2 discovery ignores legacy installation Low without relabelling its receipt', () => lane(async f => {
+    await admitted(f);
     expect((await f.activity.getRuntimePlan())?.receipt).toMatchObject({
       selection: { installation: { piReasoningOverride: 'low' } } });
-    const result = await start(f);
-    // ok acknowledges the durable drive fence, not admission of the rejected profile.
-    expect(result).toMatchObject({ ok: true, state: { status: 'unknown' } });
+    expect((await f.activity.getRuntimePlan())?.configuredSelection).toMatchObject({ reasoningLevel: null });
+    expect((await f.activity.getBrowserDetail())?.inferenceSelection).toMatchObject({
+      source: 'pi-native', reasoningLevel: null, reasoningSource: 'inherited' });
+    expect((await modelAdmission(f)).status).toBe(200);
+  }, true, false, { nativeNullProfile: true }));
+
+  it('inherits exact-model R2 Off instead of global High or legacy installation Low without changing saved preferences', () => lane(async (f, store) => {
+    store.put(settingsKey, { defaultProvider: providerId, defaultModel: logical.model, defaultThinkingLevel: 'high',
+      modelThinkingLevels: { [`${providerId}/${logical.model}`]: 'off' } });
+    // Explicitly approve Off at every original/current scope, without changing the legacy field.
+    const plan = (await f.activity.getRuntimePlan())!;
+    if (!('selection' in plan.receipt)) throw new Error('Expected installation receipt');
+    const current = await f.environment.OPERATOR_REGISTRY!.getByName('registry')
+      .resolveManagementExecution(plan.receipt.selection.installation.id);
+    if (!current.ok) throw new Error('Expected current grants');
+    for (const policy of [current.value.operator.policy, current.value.installation.policy]) {
+      policy.inference!.reasoningLevels.push('off');
+    }
+    await f.mutateEvidence(async storage => {
+      const state = (await storage.get<any>('admission'))!;
+      for (const policy of [state.receipt.selection.operator.policy, state.receipt.selection.installation.policy]) {
+        policy.inference.reasoningLevels.push('off');
+      }
+      await storage.put('admission', state);
+    });
+    const saved = store.value(settingsKey);
+    await admitted(f);
+    expect((await f.activity.getRuntimePlan())?.configuredSelection).toMatchObject({ reasoningLevel: 'off' });
+    expect((await f.activity.getBrowserDetail())?.inferenceSelection).toMatchObject({ reasoningLevel: 'off', reasoningSource: 'inherited' });
+    expect(await json(await config(f))).toMatchObject({ reasoningOverride: 'off' });
+    expect(store.value(settingsKey)).toEqual(saved);
+  }));
+
+  it('denies unapproved saved R2 High rather than substituting approved legacy installation Low', () => lane(async (f, store) => {
+    store.put(settingsKey, { defaultProvider: providerId, defaultModel: logical.model, defaultThinkingLevel: 'high' });
+    const saved = store.value(settingsKey);
+    expect(await start(f)).toMatchObject({ ok: true, state: { status: 'unknown' } });
     expect((await f.activity.getRuntimePlan())?.configuredSelection).toBeUndefined();
     expect(f.normalTransport!.requests.filter(request => request.path === '/control/dispatch')).toEqual([]);
-  }, true, false, { nativeNullProfile: true }));
+    expect(store.value(settingsKey)).toEqual(saved);
+  }));
+
+  it('later owner R2 reasoning changes do not replace the original admitted identity across reconstruction', () => lane(async (f, store) => {
+    await admitted(f);
+    const selected = (await f.activity.getRuntimePlan())!.configuredSelection;
+    const original = (await f.activity.getBrowserDetail())!.inferenceSelection;
+    store.put(settingsKey, { defaultProvider: providerId, defaultModel: logical.model, defaultThinkingLevel: 'high' });
+    const cold = f.restart();
+    expect((await cold.getRuntimePlan())!.configuredSelection).toEqual(selected);
+    expect((await cold.getBrowserDetail())!.inferenceSelection).toEqual(original);
+    expect((await modelAdmission(f)).status).toBe(200);
+  }));
 
   it.each([false, true])('caller High cannot replace admitted native reasoning (provider-default: %s)', providerDefault => lane(async f => {
     await admitted(f);
@@ -424,13 +481,13 @@ describe('REQ-OPERATOR-007/047/048/058: owner R2 configured-service HTTP contrac
     expect((await modelAdmission(f)).status).toBe(200);
   }, true, false, { nativeProviderDefault: providerDefault }));
 
-  it('returns only saved provider/model and selected OAuth access token through fixed read-only DTOs', () => lane(async (f, store) => {
+  it('returns only saved provider/model/reasoning and selected OAuth access token through fixed read-only DTOs', () => lane(async (f, store) => {
     await admitted(f);
     const selection = (await f.activity.getRuntimePlan())!.configuredSelection;
     expect(selection).toMatchObject({ source: 'pi-native', ...logical });
     // Exact DTO is the intentional wire contract: no settings/resources/auth metadata passthrough.
     expect(await json(await config(f))).toEqual({ source: 'pi-native',
-      settings: { defaultProvider: providerId, defaultModel: logical.model }, selection });
+      settings: { defaultProvider: providerId, defaultModel: logical.model }, reasoningOverride: 'low', selection });
     expect(await json(await read(f))).toEqual({ apiKey: oldOAuth.access });
     await denied(await callback(f, 'pi/config', { operation: 'read', key: authKey }), [400, 403]);
     expect(store.touchedKeys).toEqual(new Set([settingsKey, authKey].map(key => `/owner-bucket/${key}`)));
@@ -575,7 +632,21 @@ describe('REQ-OPERATOR-007/047/048/058: owner R2 configured-service HTTP contrac
         cause: { message: vendorCause, cause: { token: other.key } } }, { status: 400 }));
       await denied(await read(f), [403]);
       expect(store.value(authKey)).toEqual(saved);
-      for (const evidence of [await f.activity.getBrowserDetail(), await diagnosticTraversal(diagnosticsBrowser(f))]) {
+      await f.drainBackground();
+      f.restart();
+      const actionable = await diagnosticSummary(f);
+      expect(actionable).toMatchObject({ diagnosis: { code: 'provider-failed', sdkService: {
+        sdkCode: 'oauth', sdkStage: 'refresh', httpStatus: 400, oauthError: 'invalid_grant',
+        exceptionCategory: 'error', requestAborted: false, wrapperStatus: 403 } } });
+      const retained = await diagnosticTraversal(diagnosticsBrowser(f));
+      const failed = retained.records.find(record => record.kind === 'event' && record.error
+        && (record.error as { sdkService?: unknown }).sdkService);
+      expect(failed).toMatchObject({ boundary: 'model', outcome: 'failed', error: {
+        sdkService: { httpStatus: 400, wrapperStatus: 403, oauthError: 'invalid_grant' } } });
+      const exported = await diagnosticTraversal(diagnosticsBrowser(f), '/diagnostics/v2/export');
+      expect(exported.records).toContainEqual(expect.objectContaining({ id: failed!.id,
+        error: expect.objectContaining({ sdkService: expect.objectContaining({ oauthError: 'invalid_grant' }) }) }));
+      for (const evidence of [actionable, retained, exported, await f.activity.getBrowserDetail()]) {
         expect(inspect(evidence, { depth: null, maxStringLength: null })).not.toContain(canary);
       }
       const logged = inspect(output, { depth: null, maxStringLength: null, maxArrayLength: null,
@@ -697,6 +768,10 @@ describe('REQ-OPERATOR-007/047/048/058: owner R2 configured-service HTTP contrac
       expect(store.value(authKey)).toEqual(saved);
       const logged = inspect(output, { depth: null, maxStringLength: null, customInspect: false, getters: false });
       expect(logged).not.toContain('sdk-service-failure');
+      await f.drainBackground();
+      expect(await diagnosticSummary(f)).not.toHaveProperty('diagnosis.sdkService');
+      const retained = await diagnosticTraversal(diagnosticsBrowser(f));
+      expect(inspect(retained, { depth: null })).not.toContain('invalid_grant');
       expect(logged).not.toContain(canary);
     } finally { setLogLevel('silent'); spies.forEach(spy => spy.mockRestore()); }
   }, true, false, { loggingEnabled: false }));
@@ -1322,8 +1397,34 @@ describe('REQ-OPERATOR-007/047/048: protected SDK-prepared HTTP, not Parent mode
     expect(replay.headers.get('x-provider-trace')).toBe('durable-sdk');
     expect(replay.headers.get('x-codeflare-sdk-model-response')).toBe('1');
     expect(new Uint8Array(await replay.arrayBuffer())).toEqual(payload);
+    const changed = await modelFetch(f, permit.permitId,
+      { ...request, bodyBase64: encodeBody(`${sdkBody}\n`) }, 'durable-sdk');
+    expect(changed.status).toBe(409);
+    expect(await changed.json()).toMatchObject({ code: 'OPERATOR_OPERATION_CONFLICT',
+      reason: 'operation-conflict', disposition: 'operation-local' });
+    await f.drainBackground();
+    expect(await diagnosticSummary(f)).toMatchObject({ diagnosis: { transportStatus: 409,
+      transportReason: 'operation-conflict', transportDisposition: 'operation-local' } });
+    const exported = await diagnosticTraversal(diagnosticsBrowser(f), '/diagnostics/v2/export');
+    expect(exported.records).toContainEqual(expect.objectContaining({ boundary: 'model', outcome: 'failed',
+      error: expect.objectContaining({ transportStatus: 409, transportReason: 'operation-conflict' }) }));
     expect(paid).toEqual([sdkBody]);
   }));
+
+  it('SDK admission conflicts preserve a private 409 without diagnostics when logging is OFF', () => lane(async f => {
+    await admitted(f);
+    await json(await modelAdmission(f, 'unlogged-conflict'));
+    const conflict = await callback(f, 'model-admission', { operationId: 'unlogged-conflict',
+      context: modelContext, options: { maxTokens: 16, temperature: 0.5 } });
+    expect(conflict.status).toBe(409);
+    expect(await conflict.json()).toMatchObject({ code: 'OPERATOR_OPERATION_CONFLICT',
+      reason: 'operation-conflict', disposition: 'operation-local' });
+    await f.drainBackground();
+    const summary = await diagnosticSummary(f);
+    expect(summary).toMatchObject({ capture: 'disabled' });
+    expect(summary).not.toHaveProperty('diagnosis.transportStatus');
+    expect(summary).not.toHaveProperty('diagnosis.transportReason');
+  }, true, false, { loggingEnabled: false }));
 
   it('vendor credential echoes cannot enter the durable SDK response journal or exported evidence', () => lane(async f => {
     await admitted(f);

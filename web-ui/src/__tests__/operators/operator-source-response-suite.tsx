@@ -56,10 +56,14 @@ beforeEach(() => {
   });
 });
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
+async function openAdvanced() {
+  fireEvent.click(await screen.findByText('Advanced settings', { selector: 'summary' }));
+}
 async function open() {
   window.history.replaceState({}, '', '/operators');
   render(() => <OperatorManagement />);
   fireEvent.click(await screen.findByRole('button', { name: 'Manage Dispatcher' }));
+  await openAdvanced();
   return screen.findByRole('spinbutton', { name: 'Installation source-response allowance (bytes)' });
 }
 
@@ -134,6 +138,7 @@ describe('Dispatcher operator-owned capacities', () => {
     operator.profile = 'conductor';
     render(() => <OperatorManagement />);
     fireEvent.click(await screen.findByRole('button', { name: 'Manage Dispatcher' }));
+    await openAdvanced();
     await screen.findByRole('group', { name: 'Operator capabilities' });
     expect(screen.queryByRole('spinbutton', { name: field.label })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: `Reset ${field.label} to default` })).not.toBeInTheDocument();
@@ -293,6 +298,7 @@ if (partition === 'controls') describe('Dispatcher source response allowance', (
     operator.profile = 'conductor';
     render(() => <OperatorManagement />);
     fireEvent.click(await screen.findByRole('button', { name: 'Manage Dispatcher' }));
+    await openAdvanced();
     await screen.findByRole('group', { name: 'Operator capabilities' });
     expect(screen.queryByRole('spinbutton', { name: 'Max inference messages' })).not.toBeInTheDocument();
   });
@@ -330,6 +336,7 @@ if (partition === 'controls') describe('Dispatcher source response allowance', (
     operator.profile = 'conductor';
     render(() => <OperatorManagement />);
     fireEvent.click(await screen.findByRole('button', { name: 'Manage Dispatcher' }));
+    await openAdvanced();
     await screen.findByRole('group', { name: 'Operator capabilities' });
     expect(screen.queryByRole('spinbutton', { name: 'Max inference attempts' })).not.toBeInTheDocument();
   });
@@ -366,6 +373,7 @@ if (partition === 'controls') describe('Dispatcher source response allowance', (
     operator.profile = 'conductor';
     render(() => <OperatorManagement />);
     fireEvent.click(await screen.findByRole('button', { name: 'Manage Dispatcher' }));
+    await openAdvanced();
     await screen.findByRole('group', { name: 'Operator capabilities' });
     expect(screen.queryByRole('spinbutton', { name: 'Submission attempt limit' })).not.toBeInTheDocument();
   });
@@ -619,6 +627,7 @@ if (partition === 'controls') describe('Dispatcher source response allowance', (
     operator.profile = 'conductor';
     render(() => <OperatorManagement />);
     fireEvent.click(await screen.findByRole('button', { name: 'Manage Dispatcher' }));
+    await openAdvanced();
     await screen.findByRole('region', { name: 'Runtime permissions' });
     expect(screen.queryByRole('spinbutton', { name: /source-response (ceiling|allowance)/ })).not.toBeInTheDocument();
     expect(screen.queryByRole('spinbutton', { name: 'Inference limit (bytes)' })).not.toBeInTheDocument();

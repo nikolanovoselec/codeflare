@@ -13,6 +13,7 @@ import { SETUP_KEYS } from '../lib/kv-keys';
 import { DEFAULT_ROUTE_CONTEXT_WINDOW } from '../lib/constants';
 import { authorizeDispatcherPlan, type createDispatcherOperation } from './operator-runtime-capability';
 import { DispatcherRefusal } from './dispatcher-refusal';
+import { sdkServiceFailureSchema, type SdkServiceFailure } from './dispatcher-diagnostics-wire';
 import { emitRaw } from '../../host/src/operator-raw-logging';
 
 export interface SdkInput {
@@ -21,6 +22,7 @@ export interface SdkInput {
   env: Env;
   current(): Promise<boolean>;
   signal?: AbortSignal;
+  observeFailure?: (failure: SdkServiceFailure) => void;
   exports?: Parameters<typeof createDispatcherOperation>[0]['exports'] & {
     EgressController?: (input: { props: { strict: boolean } }) => Fetcher;
   };
@@ -46,11 +48,41 @@ async function sameOwner(input: SdkInput, original: Owner) {
   }
   return current;
 }
+/** Own data fields only: RPC causes may be plain objects or inaccessible errors. */
+function sdkServiceFailure(error: unknown): SdkServiceFailure | undefined {
+  const own = (value: unknown, key: string): unknown => {
+    if (!value || typeof value !== 'object') return undefined;
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    return descriptor && 'value' in descriptor ? descriptor.value : undefined;
+  };
+  try {
+    const cause = own(error, 'cause');
+    const parsed = sdkServiceFailureSchema.safeParse({
+      sdkCode: own(cause, 'sdkCode'), sdkStage: own(cause, 'sdkStage'),
+      httpStatus: own(cause, 'httpStatus'), oauthError: own(cause, 'oauthError'),
+      exceptionCategory: own(cause, 'exceptionCategory'), requestAborted: own(cause, 'requestAborted'),
+      wrapperStatus: own(error, 'status'),
+    });
+    return parsed.success ? parsed.data : undefined;
+  } catch { return undefined; }
+}
 function failure(input: SdkInput, error: unknown): never {
+  // Observers are synchronous and optional. Their failures cannot replace the SDK result.
+  try {
+    if (input.observeFailure) {
+      const classification = sdkServiceFailure(error);
+      if (classification) input.observeFailure(classification);
+    }
+  } catch { /* Diagnostics never settle SDK work. */ }
   emitRaw({ activityId: input.plan.activityId, generation: input.generation,
     loggingEnabled: 'selection' in input.plan.receipt && input.plan.receipt.selection.operator.policy.loggingEnabled !== false },
   'sdk-service-failure', () => error);
-  if (record(error) && error.status === 409) throw new DispatcherRefusal('operation-conflict');
+  let conflict = false;
+  try {
+    const status = error && typeof error === 'object' ? Object.getOwnPropertyDescriptor(error, 'status') : undefined;
+    conflict = !!status && 'value' in status && status.value === 409;
+  } catch { /* Preserve uninspectable original errors, never execute a status getter. */ }
+  if (conflict) throw new DispatcherRefusal('operation-conflict');
   throw error;
 }
 
@@ -83,7 +115,6 @@ export async function readDispatcherSdkConfiguration(input: SdkInput): Promise<R
       current: async () => { await sameOwner(input, owner); return true; } });
     await sameOwner(input, owner);
     return { source: 'pi-native', ...files,
-      ...(!input.plan.configuredSelection && owner.reasoningOverride !== undefined ? { reasoningOverride: owner.reasoningOverride } : {}),
       ...(input.plan.configuredSelection ? { selection: input.plan.configuredSelection } : {}) };
   } catch (error) { return failure(input, error); }
 }
