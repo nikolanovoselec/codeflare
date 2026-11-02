@@ -11,7 +11,7 @@ export const boundaries = ['artifact', 'admission', 'construction', 'submission'
 const reasonCodes = ['none', 'unclassified', 'artifact-unavailable', 'artifact-mismatch', 'admission-denied',
   'authority-expired', 'authority-denied', 'stale-drive', 'startup-failed', 'submission-failed', 'sse-json-invalid',
   'provider-failed', 'stream-failed', 'response-unusable', 'canonical-append-failed', 'tool-failed', 'effect-unknown',
-  'settlement-failed', 'continuation-not-ready', 'cancelled', 'deadline-expired', 'cleanup-failed',
+  'settlement-failed', 'journal-unaccounted', 'continuation-not-ready', 'cancelled', 'deadline-expired', 'cleanup-failed',
   'capacity-exhausted', 'recorder-unavailable', 'platform-evidence-required'] as const;
 export const gaps = ['legacy-uncaptured', 'sdk-import-incomplete', 'platform-evidence-required', 'routine-evicted',
   'failure-overflow', 'terminal-overflow', 'oversized-record', 'invalid-record', 'error-truncated',
@@ -46,10 +46,18 @@ export const sdkServiceFailureSchema = z.strictObject({
 }).refine(value => (!value.sdkStage || value.sdkCode === 'oauth')
   && (!value.oauthError || value.sdkStage === 'refresh' && value.httpStatus !== null));
 export type SdkServiceFailure = z.infer<typeof sdkServiceFailureSchema>;
+/** Root-owned collection refusal, never supplied by SDK envelopes or child reports. */
+export const journalFailureSchema = z.strictObject({
+  gate: z.enum(['final-binding', 'operation-binding', 'terminal-binding', 'disposition-coverage',
+    'read-coverage', 'mutation-kind', 'mutation-coverage', 'unresolved-count']),
+  operationDigest: digestSchema.optional(), unresolved: counter, inspectedUnresolved: counter,
+  phase: z.enum(['discovery', 'target', 'final', 'single']), phaseIndex: counter.nullable(),
+});
+export type JournalFailure = z.infer<typeof journalFailureSchema>;
 export const errorSchema = z.strictObject({ ...causeSchema.shape,
-  publicCode: z.enum(producerCodes).nullable(), causes: z.array(causeSchema).max(3), loss: z.array(z.enum(errorLoss)).max(6),
+  publicCode: z.enum([...producerCodes, 'journal-unaccounted']).nullable(), causes: z.array(causeSchema).max(3), loss: z.array(z.enum(errorLoss)).max(6),
   fingerprintScope: z.enum(['full', 'bounded', 'unavailable']), ...transportDiagnosticShape,
-  admissionType: z.enum(sdkAdmissionTypes).optional(), sdkService: sdkServiceFailureSchema.optional() });
+  admissionType: z.enum(sdkAdmissionTypes).optional(), sdkService: sdkServiceFailureSchema.optional(), journal: journalFailureSchema.optional() });
 export const correlationSchema = z.strictObject({ logicalOrdinal: counter.optional(), hostAttemptIndex: counter.optional(),
   chargedOrdinal: counter.optional(), sdkAttemptDigest: digestSchema.optional(), submissionDigest: digestSchema.optional(),
   deliveryDigest: digestSchema.optional(), requestDigest: digestSchema.optional(), responseDigest: digestSchema.optional(),
@@ -68,7 +76,7 @@ export const runtimeSchema = z.strictObject({ version: z.literal(1), captureId: 
     recordType: z.enum(recordTypes).optional(), inputApplied: z.boolean().optional(),
     settlement: z.enum(['reserved', 'canonical', 'finalized', 'unknown']).optional() }).optional(),
   local: z.strictObject({ through: counter, dropped: counter, status: z.enum(['captured', 'loss', 'unavailable']) })
-}).refine(record => record.boundary === record.source.boundary && record.local.through >= record.sequence && !record.error?.sdkService);
+}).refine(record => record.boundary === record.source.boundary && record.local.through >= record.sequence && !record.error?.sdkService && !record.error?.journal && record.error?.publicCode !== 'journal-unaccounted' && record.code !== 'journal-unaccounted');
 const preparationSchema = z.strictObject({ step: z.enum(['parse', 'capability']),
   failureClass: z.enum(['body-limit', 'invalid-json', 'invalid-wire', 'request-denied', 'authority-denied']),
   route: z.enum(['inference', 'source', 'github-read', 'github-comment', 'github-merge', 'receipt', 'resolve', 'unknown']),
@@ -85,6 +93,9 @@ export const eventSchema = z.strictObject({ kind: z.literal('event'), id: z.stri
   correlation: correlationSchema, source: sourceSchema, error: errorSchema.optional(), preparation: preparationSchema.optional(),
   capsuleId: z.string().regex(/^(f-[1-9][0-9]*|t-[0-9]+)$/).optional()
 }).refine(record => record.id === `e-${record.sequence}` && record.boundary === record.source.boundary
+  && (record.code !== 'journal-unaccounted' || record.owner === 'host' && record.boundary === 'settlement')
+  && (!record.error?.journal || record.owner === 'host' && record.boundary === 'settlement' && record.code === 'journal-unaccounted'
+    && record.error.publicCode === 'journal-unaccounted')
   && (!record.error?.sdkService || record.owner === 'host' && record.boundary === 'model' && record.outcome === 'failed')
   && (!record.preparation || record.owner === 'host' && record.outcome === 'failed'
     && (record.preparation.step === 'parse' ? record.boundary === 'tool' && record.code === 'tool-failed'

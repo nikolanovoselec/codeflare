@@ -15,6 +15,7 @@ const reasons: Record<DiagnosticSummary['diagnosis']['code'], string> = {
   'stream-failed': 'The response stream failed.', 'response-unusable': 'The inference response was unusable.',
   'canonical-append-failed': 'The response could not be saved to the execution journal; a durable save was not confirmed.',
   'tool-failed': 'A tool attempt failed; no concrete cause was retained.', 'effect-unknown': 'The effect outcome is unknown; do not replay uncertain work.',
+  'journal-unaccounted': 'The final result was received, but protected operations were not fully accounted for. Collection was refused; uncertain work must not be replayed.',
   'settlement-failed': 'The runtime did not finish with a confirmed final result.', 'continuation-not-ready': 'The run was not ready to continue.',
   cancelled: 'Cancellation was observed.', 'deadline-expired': 'The activity deadline expired.',
   'cleanup-failed': 'The execution runtime could not finish cleanup.', 'capacity-exhausted': 'The admitted capacity was exhausted.',
@@ -218,6 +219,7 @@ const OperatorActivityDiagnostics: Component<{ activityId: string; openOnMount?:
             : value().diagnosis.code === 'tool-failed' && value().diagnosis.publicCode === 'citation-provenance' ? 'A citation did not match retained source evidence.' : reasons[value().diagnosis.code]}</p></Show>}>
             {cause => <p>{value().diagnosis.continuedId || value().diagnosis.state === 'recovered-failure' ? 'Earlier attempt: ' : ''}{sdkServiceCause(cause())}</p>}
           </Show>
+          <Show when={value().diagnosis.journal}>{journal => <p>Root accounting gate: {diagnosticWords(journal().gate)} · Unaccounted operations: {journal().unresolved} · Observed phase: {journal().phase}. Inspect the linked failure and operation evidence; these diagnostics do not authorize replay.</p>}</Show>
           <Show when={value().diagnosis.executionStatus}>{status => <p class="operator-state">Execution in this snapshot: {diagnosticWords(status())}</p>}</Show>
           <p class="operator-state">{value().fence ? 'The run stopped at an execution fence.'
             : value().diagnosis.state === 'recovered-failure' ? 'An earlier failed attempt recovered; the final run outcome is not established here.'

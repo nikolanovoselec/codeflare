@@ -983,7 +983,7 @@ export async function diagnosticTraversal(get: ReturnType<typeof diagnosticsBrow
         expect(['none', 'unclassified', 'artifact-unavailable', 'artifact-mismatch', 'admission-denied',
           'authority-expired', 'authority-denied', 'stale-drive', 'startup-failed', 'submission-failed',
           'sse-json-invalid', 'provider-failed', 'stream-failed', 'response-unusable', 'canonical-append-failed',
-          'tool-failed', 'effect-unknown', 'settlement-failed', 'continuation-not-ready', 'cancelled',
+          'tool-failed', 'effect-unknown', 'settlement-failed', 'journal-unaccounted', 'continuation-not-ready', 'cancelled',
           'deadline-expired', 'cleanup-failed', 'capacity-exhausted', 'recorder-unavailable',
           'platform-evidence-required']).toContain(record.code);
         expect(['observed', 'unavailable']).toContain(record.evidence);

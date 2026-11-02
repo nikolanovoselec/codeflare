@@ -6,13 +6,14 @@
  * See sdd/spec/operators.md and documentation/lanes/operators.md for acceptance boundaries.
  */
 import { WorkerEntrypoint } from 'cloudflare:workers';
+import { projectDispatcherOperationEvidence } from './dispatcher-runtime-diagnostics';
 import { readBoundedResponse } from '../lib/bounded-stream';
 import { readDispatcherSdkConfiguration, dispatcherSdkCredentials, forwardDispatcherSdkHttp } from './dispatcher-sdk-services';
 import { dispatcherSdkOwnerContext } from './dispatcher-owner-inference';
 import { openOperatorSecret } from './protected-secrets';
 import { discoverDispatcherOwnerProfile, forwardDispatcherOwnerInference, type ConfiguredDispatcherInference } from './dispatcher-owner-inference';
 import { captureError, hashDiagnostic, hostSource, readSdkProvenance, readSdkDiagnosticHeader, runtimeSchema, sourceMatches, sdkAdmissionTypes,
-  type SdkProvenance, type Boundary, type ReasonCode, type Correlation, type RuntimeEnvelope, type DiagnosticBinding, type ErrorMetadata, type DiagnosticPreparation, type SdkServiceFailure } from './dispatcher-diagnostics-wire';
+  type JournalFailure, type SdkProvenance, type Boundary, type ReasonCode, type Correlation, type RuntimeEnvelope, type DiagnosticBinding, type ErrorMetadata, type DiagnosticPreparation, type SdkServiceFailure } from './dispatcher-diagnostics-wire';
 import { appendDiagnostic, initializeDiagnostics, diagnosticLoss, observeOutbox,
   type FailureObservation, type FenceReason, type EventObservation, type DiagnosticCapsule } from './dispatcher-diagnostics-store';
 import { readActivityDiagnostics, DiagnosticReadError, type DiagnosticReadOptions, type DiagnosticReadState,
@@ -229,6 +230,8 @@ interface DispatcherOperationRecord {
   request?: { method: 'GET' | 'POST' | 'PUT'; url: string };
   phaseBinding?: { submissionId: string; deliveryToken: string;
     phase: DispatcherPhaseState['current']['phase']; resource: string };
+  /** Proven zero-send retirement, not a vendor response or receipt. */
+  terminalOutcome?: 'not-sent';
   responseDigest?: string;
   ordinal?: number;
   resolution?: { readbacks: Array<{ operationId: string; requestDigest: string; responseDigest: string }> };
@@ -237,7 +240,10 @@ interface DispatcherOperationRecord {
   native?: DispatcherNativeOperation;
   sdkHttp?: { permitId: string; expiresAt: number; deliveryToken?: string; selection: ConfiguredDispatcherInference;
     ownerScope: { bucket: string; email: string };
-    phase: 'ready' | 'sending' | 'completed' | 'unknown'; requestDigest?: string; responseKey?: string; attempts: number };
+    phase: 'ready' | 'sending' | 'completed' | 'unknown' | 'not-sent'; requestDigest?: string; responseKey?: string; attempts: number };
+}
+class DispatcherJournalUnaccounted extends Error {
+  constructor(readonly detail: JournalFailure) { super('Normal Dispatcher unresolved journal'); }
 }
 const DISPATCHER_PROFILE_LEASE = 'dispatcher:profile-lease';
 const DISPATCHER_LEASE = 'dispatcher:lease';
@@ -298,15 +304,28 @@ async function putDispatcherEntry(tx: DispatcherJournalTx, journal: DispatcherJo
   });
 }
 const admittedDispatcherResultSchema = (limits = dispatcherCapacities()) => z.strictObject({ repository: z.string(),
-  results: z.tuple([z.strictObject({ pullRequest: z.number().safe().int().positive(),
+  results: z.array(z.strictObject({ pullRequest: z.number().safe().int().positive(),
     headSha: z.string().regex(/^[0-9a-f]{40}$/), decision: z.enum(['MERGE', 'DO_NOT_MERGE']),
-    comment: z.string().min(1).max(limits.targetCommentChars), outcome: z.enum(['MERGED', 'NOT_MERGED', 'EXECUTION_FAILED']) })]) });
+    comment: z.string().min(1).max(limits.targetCommentChars), outcome: z.enum(['MERGED', 'NOT_MERGED', 'EXECUTION_FAILED']) })).max(1) });
 
-/** Intent-3 output contract: one exact admitted result, never a replacement or aggregate target set. */
-function admittedDispatcherResultMatches(value: unknown, target: DispatcherAdmittedTarget, policy?: DispatcherCapacityPolicy): boolean {
+/** Intent3 remains exact-singleton. Empty intent4 output additionally requires the
+ * already validated empty discovery lineage and actual completed final reply. */
+function admittedDispatcherResultMatches(value: unknown, target: DispatcherAdmittedTarget, policy?: DispatcherCapacityPolicy,
+  final?: { state: DispatcherPhaseState; reply: DispatcherPhaseReply }): boolean {
   const limits = dispatcherCapacities(policy);
   const result = admittedDispatcherResultSchema(limits).safeParse(value);
   if (!result.success || new TextEncoder().encode(JSON.stringify(value)).byteLength > limits.assessmentBytes) return false;
+  if (result.data.repository !== target.repository) return false;
+  if (result.data.results.length === 0) {
+    const state = final?.state;
+    const reply = final?.reply;
+    return !!state && !!reply && state.current.phase.kind === 'final' && state.targets?.length === 0
+      && state.results.length === 0 && state.previous.length === 1 && state.previous[0].phase.kind === 'discovery'
+      && state.previous[0].outcome === 'completed' && !!state.current.receipt
+      && reply.submissionId === state.current.receipt.submissionId && reply.upToDate && reply.outcome === 'completed'
+      && (reply.data['dispatcher-progress']?.length ?? 0) === 0 && reply.data.assessment?.length === 1
+      && sameDispatcherPhaseValue(reply.data.assessment[0], result.data);
+  }
   const item = result.data.results[0];
   return result.data.repository === target.repository && item.pullRequest === target.pullRequest
     && item.headSha === target.headSha && (item.outcome !== 'MERGED' || item.decision === 'MERGE');
@@ -663,7 +682,8 @@ export class OperatorActivity extends Agent {
         if (!state || !binding || binding.generation !== generation || state.diagnosticsVersion !== 1
           || !executionLoggingEnabled(state.receipt)) return;
         let affected = affectedOperations;
-        let omitted: number | null = null;
+        let omitted: number | null = observation.error?.journal
+          ? Math.max(0, observation.error.journal.unresolved - (affected?.length ?? 0)) : null;
         if (terminalGeneration !== undefined && !affected) {
           affected = [];
           const prefix = `dispatcher:operation:${generation}:`;
@@ -1695,7 +1715,7 @@ export class OperatorActivity extends Agent {
         if (lease.status !== 'running' || lease.expiresAt <= Date.now()
           || !lease.submissionId || lease.settledSubmissionId !== lease.submissionId
           || (failedAuthentication ? journal.unresolved !== 0
-            : lease.serial ? !await this.#serialJournalAccounted(tx, lease, parsed.result) : journal.unresolved !== 0)) {
+            : lease.serial ? (await this.#serialJournalAccounted(tx, lease, parsed.result)) !== null : journal.unresolved !== 0)) {
           return { ok: false, reason: 'invalid-update' };
         }
         await tx.put(DISPATCHER_LEASE, { ...lease, status: parsed.status === 'waiting' || parsed.status === 'completed' || failedAuthentication ? 'settled' : 'unknown',
@@ -1841,7 +1861,7 @@ export class OperatorActivity extends Agent {
           });
         });
         if (failure?.error) this.#recordDiagnostic(originalGeneration, failure.boundary, 'failed', failure.code,
-          undefined, {}, 'host', undefined, failure.error);
+          undefined, failure.correlation ?? {}, 'host', undefined, failure.error, failure.affectedOperations, failure.origin);
         this.#recordDiagnostic(originalGeneration, reason.boundary, 'unknown', reason.code, undefined, {}, 'host', reason.generation);
       }
     }
@@ -2479,8 +2499,17 @@ export class OperatorActivity extends Agent {
             selection, ownerScope, phase: 'ready' as const, attempts: 0,
             ...(live?.serial && this.#phaseTokenMatches(live, live.serial.current.deliveryToken)
               ? { deliveryToken: live.serial.current.deliveryToken } : {}) };
+          const phaseBinding = parsed.deliveryToken !== undefined
+            ? this.#operationPhase(live!, 'inference') : undefined;
+          // Model admission already requires the acknowledged running lease. Never
+          // await its SDK acknowledgement from inside an installed SDK callback.
+          // Optional unproved model requests retain no phase association; never
+          // borrow the current phase merely because the run remains authorized.
+          if (live!.serial && parsed.deliveryToken !== undefined && (!phaseBinding || phaseBinding.submissionId !== live!.submissionId
+            || !this.#phaseTokenMatches(live, phaseBinding.deliveryToken))) return dispatcherRefusal('execution-inactive');
           await putDispatcherEntry(tx, journal, parsed.operationId, undefined,
-            { generation, requestDigest, phase: 'reserved', ordinal: journal.nextOrdinal, sdkHttp: permit });
+            { generation, requestDigest, phase: 'reserved', ordinal: journal.nextOrdinal, sdkHttp: permit,
+              ...(phaseBinding ? { phaseBinding } : {}) });
           return Response.json({ permitId: permit.permitId, expiresAt: permit.expiresAt,
             ...(permit.deliveryToken ? { deliveryToken: permit.deliveryToken } : {}) }, { headers: noStore });
         });
@@ -2725,6 +2754,7 @@ export class OperatorActivity extends Agent {
             const live = await tx.get<DispatcherLease>(DISPATCHER_LEASE);
             if (!this.#leaseMatches(record, live, lease.generation) || !sameDispatcherPhaseValue(live!.wire, lease.wire)
               || !sameDispatcherPhaseValue(live!.receipt, lease.receipt)) return false;
+            await this.#retireUnsentModelPermits(tx, live!);
             await tx.put(DISPATCHER_LEASE, nextLease);
             return true;
           });
@@ -2738,6 +2768,10 @@ export class OperatorActivity extends Agent {
           return;
         }
         assessment = collectDispatcherFinal(serial, this.#phaseAuthority(lease, plan), token, reply);
+        if (admittedTarget && serial.targets?.length === 0
+          && !admittedDispatcherResultMatches(assessment, admittedTarget, policy, { state: serial, reply })) {
+          throw new Error('Normal Dispatcher admitted empty assessment invalid');
+        }
       } else {
         const parts = reply.data.assessment;
         if (reply.outcome !== 'completed' || !parts || parts.length !== 1 || !parts[0]
@@ -2756,8 +2790,14 @@ export class OperatorActivity extends Agent {
         if (prior !== undefined && !sameDispatcherPhaseValue(prior, assessment)) throw new Error('Normal Dispatcher immutable result changed');
         if (serial) {
           await tx.put(`dispatcher:result:${lease.generation}`, assessment);
-          if (!await this.#serialJournalAccounted(tx, live!, assessment)) throw new Error('Normal Dispatcher unresolved journal');
-        } else if ((await loadDispatcherJournal(tx, lease.generation)).unresolved !== 0) throw new Error('Normal Dispatcher unresolved journal');
+          await this.#retireUnsentModelPermits(tx, live!);
+          const accounting = await this.#serialJournalAccounted(tx, live!, assessment);
+          if (accounting) throw new DispatcherJournalUnaccounted(accounting);
+        } else {
+          const journal = await loadDispatcherJournal(tx, lease.generation);
+          if (journal.unresolved !== 0) throw new DispatcherJournalUnaccounted({ gate: 'unresolved-count',
+            unresolved: journal.unresolved, inspectedUnresolved: 0, phase: 'single', phaseIndex: null });
+        }
         await tx.put(`dispatcher:result:${lease.generation}`, assessment);
         await tx.put(DISPATCHER_LEASE, { ...live!, settledSubmissionId: lease.submissionId });
         return true;
@@ -2770,8 +2810,15 @@ export class OperatorActivity extends Agent {
         try { await this.#normalDispatcherCurrent(lease); await this.#scheduleDispatcherRecheck(lease); return; }
         catch { /* Original authority or immutable pins no longer hold. */ }
       }
+      const journal = error instanceof DispatcherJournalUnaccounted ? error.detail : undefined;
       const fenced = await this.fenceDrive('unknown', lease.generation, false,
-        { boundary: 'settlement', code: 'settlement-failed', error: captureError(error) }, lease);
+        { boundary: 'settlement', code: journal ? 'journal-unaccounted' : 'settlement-failed',
+          error: { ...captureError(error), ...(journal ? { publicCode: 'journal-unaccounted' as const, journal } : {}) },
+          ...(journal ? { origin: 'originating' as const, correlation: {
+            ...(lease.receipt ? { submissionDigest: hashDiagnostic(lease.receipt.submissionId), rootDigest: hashDiagnostic(lease.receipt.uid) } : {}),
+            ...(lease.serial ? { deliveryDigest: hashDiagnostic(lease.serial.current.deliveryToken) } : {}) },
+            affectedOperations: journal.operationDigest ? [{ operationDigest: journal.operationDigest,
+              effect: 'unknown' as const, status: 'unknown' as const }] : [] } : {}) }, lease);
       if (fenced.ok) {
         await this.#releaseDispatcherSdk();
         await this.publishBrowserSummary();
@@ -2793,15 +2840,49 @@ export class OperatorActivity extends Agent {
       deliveryToken: current.deliveryToken, phase: current.phase, resource } : undefined;
   }
 
+  /** Only a claimed send can reach physical egress. Retire zero-send permits in
+   * the SAME transaction that retires their exact phase; never manufacture receipts.
+   * Historical/unbound, sending and uncertain permits remain unresolved. */
+  async #retireUnsentModelPermits(tx: DurableObjectTransaction, lease: DispatcherLease): Promise<void> {
+    const current = lease.serial?.current;
+    if (lease.hosting !== 'normal' || !current?.receipt || !lease.receipt || !lease.submissionId
+      || current.receipt.submissionId !== lease.submissionId
+      || !this.#normalReceiptMatches(lease.receipt, normalDispatcherReceiptSchema.parse(current.receipt))) return;
+    const prefix = `dispatcher:operation:${lease.generation}:`;
+    let startAfter: string | undefined;
+    for (;;) {
+      const page = await tx.list<DispatcherOperationRecord>({ prefix, limit: 128, ...(startAfter ? { startAfter } : {}) });
+      for (const [key, entry] of page) {
+        startAfter = key;
+        const permit = entry.sdkHttp;
+        const binding = entry.phaseBinding;
+        if (entry.generation !== lease.generation || entry.phase !== 'reserved' || !permit || permit.phase !== 'ready'
+          || permit.attempts !== 0 || permit.requestDigest !== undefined || permit.responseKey !== undefined
+          || entry.terminalOutcome !== undefined || entry.responseDigest !== undefined || entry.response !== undefined || entry.request || entry.inference || entry.native
+          || !binding || binding.resource !== 'inference' || binding.submissionId !== lease.submissionId
+          || binding.deliveryToken !== current.deliveryToken || permit.deliveryToken !== current.deliveryToken
+          || !sameDispatcherPhaseValue(binding.phase, current.phase)) continue;
+        const journal = await loadDispatcherJournal(tx, lease.generation);
+        await putDispatcherEntry(tx, journal, key.slice(prefix.length), entry,
+          { ...entry, phase: 'completed', terminalOutcome: 'not-sent', sdkHttp: { ...permit, phase: 'not-sent' } });
+      }
+      if (page.size < 128) return;
+    }
+  }
+
   /** Exact accounting only. Unknown records/counters remain untouched; a final disposition
    * cannot excuse an unbound, foreign or uncovered operation. Legacy leases never opt in. */
-  async #serialJournalAccounted(tx: DurableObjectTransaction, lease: DispatcherLease, result: unknown): Promise<boolean> {
-    if (!lease.serial || lease.serial.current.phase.kind !== 'final'
-      || JSON.stringify(await tx.get(`dispatcher:result:${lease.generation}`)) !== JSON.stringify(result)) return false;
-    const assessment = result as { repository: string; results: Array<{ pullRequest: number; headSha: string;
-      outcome: string; reason?: string }> };
+  async #serialJournalAccounted(tx: DurableObjectTransaction, lease: DispatcherLease, result: unknown): Promise<JournalFailure | null> {
     const journal = await loadDispatcherJournal(tx, lease.generation);
     let accounted = 0;
+    const reject = (gate: JournalFailure['gate'], operationDigest?: string): JournalFailure => ({ gate,
+      ...(operationDigest ? { operationDigest } : {}), unresolved: journal.unresolved, inspectedUnresolved: accounted,
+      phase: lease.serial?.current.phase.kind ?? 'single', phaseIndex: lease.serial?.current.phase.kind === 'target'
+        ? lease.serial.current.phase.index : null });
+    if (!lease.serial || lease.serial.current.phase.kind !== 'final'
+      || JSON.stringify(await tx.get(`dispatcher:result:${lease.generation}`)) !== JSON.stringify(result)) return reject('final-binding');
+    const assessment = result as { repository: string; results: Array<{ pullRequest: number; headSha: string;
+      outcome: string; reason?: string }> };
     let startAfter: string | undefined;
     for (;;) {
       const page = await tx.list<DispatcherOperationRecord>({ prefix: `dispatcher:operation:${lease.generation}:`, limit: 128,
@@ -2810,28 +2891,29 @@ export class OperatorActivity extends Agent {
         startAfter = key;
         if (entry.phase === 'completed') continue;
         accounted++;
+        const operationDigest = hashDiagnostic(key.slice(`dispatcher:operation:${lease.generation}:`.length));
         const binding = entry.phaseBinding;
-        if (entry.generation !== lease.generation || !binding || binding.phase.kind !== 'target') return false;
+        if (entry.generation !== lease.generation || !binding || binding.phase.kind !== 'target') return reject('operation-binding', operationDigest);
         const target = binding.phase.target;
         const terminal = lease.serial.previous.find(row => row.submissionId === binding.submissionId);
-        if (!terminal || JSON.stringify(terminal.phase) !== JSON.stringify(binding.phase)) return false;
+        if (!terminal || JSON.stringify(terminal.phase) !== JSON.stringify(binding.phase)) return reject('terminal-binding', operationDigest);
         const row = assessment.results[binding.phase.index];
-        if (!row || row.pullRequest !== target.pullRequest || row.headSha !== target.headSha || row.outcome !== 'DEFERRED') return false;
+        if (!row || row.pullRequest !== target.pullRequest || row.headSha !== target.headSha || row.outcome !== 'DEFERRED') return reject('disposition-coverage', operationDigest);
         if (binding.resource === 'inference' || entry.request?.method === 'GET') {
           // This accounts for failed target-local read/model work, never an uncertain effect.
-          if (terminal.outcome !== 'failed' && !['research-failed', 'decision-failed', 'preflight-failed'].includes(row.reason ?? '')) return false;
+          if (terminal.outcome !== 'failed' && !['research-failed', 'decision-failed', 'preflight-failed'].includes(row.reason ?? '')) return reject('read-coverage', operationDigest);
         } else {
-          if (!entry.request || binding.resource !== 'source') return false;
+          if (!entry.request || binding.resource !== 'source') return reject('mutation-kind', operationDigest);
           const base = `${dispatcherGithubApiOrigin(this.#appEnv)}/repos/${assessment.repository}`;
           const comment = entry.request.method === 'POST' && entry.request.url === `${base}/issues/${target.pullRequest}/comments`;
           const merge = entry.request.method === 'PUT' && entry.request.url === `${base}/pulls/${target.pullRequest}/merge`;
           if ((!comment && !merge) || !(row.reason === (comment ? 'comment-uncertain' : 'merge-uncertain')
-            || terminal.outcome === 'failed' && row.reason === 'response-failed')) return false;
+            || terminal.outcome === 'failed' && row.reason === 'response-failed')) return reject('mutation-coverage', operationDigest);
         }
       }
       if (page.size < 128) break;
     }
-    return accounted === journal.unresolved;
+    return accounted === journal.unresolved ? null : reject('unresolved-count');
   }
 
   #phaseAuthority(lease: DispatcherLease, plan: OperatorRuntimePlan): DispatcherPhaseAuthority {
@@ -2843,7 +2925,8 @@ export class OperatorActivity extends Agent {
 
   #phaseTokenMatches(lease: DispatcherLease | undefined, token: string | undefined, admitted = true, modelScope = false): boolean {
     // Normal model authorization is Activity-scoped; protected tools retain exact phase tokens.
-    if (modelScope && lease?.hosting === 'normal') return lease.status === 'running' && !!lease.receipt;
+    if (modelScope && lease?.hosting === 'normal') return lease.status === 'running' && !!lease.receipt
+      && lease.settledSubmissionId !== lease.submissionId;
     return !!lease && (!lease.serial || (lease.serial.current.deliveryToken === token
       && (!admitted || !!lease.serial.current.receipt
         && lease.serial.current.receipt.submissionId === lease.submissionId && lease.status === 'running')));
@@ -3572,12 +3655,16 @@ export class OperatorActivity extends Agent {
             return;
           }
           const assessment = collectDispatcherFinal(lease.serial, this.#phaseAuthority(lease, plan), token, reply);
+          if (admittedTarget && lease.serial.targets?.length === 0 && !admittedDispatcherResultMatches(assessment, admittedTarget,
+            isManagementReceipt(plan.receipt) ? plan.receipt.selection.operator.policy : undefined, { state: lease.serial, reply })) {
+            throw new Error('Dispatcher admitted empty assessment invalid');
+          }
           const saved = await this.ctx.storage.transaction(async tx => {
             const record = await tx.get<AdmissionState>('admission');
             const current = await tx.get<DispatcherLease>(DISPATCHER_LEASE);
             if (!this.#leaseMatches(record, current, lease!.generation) || !this.#phaseTokenMatches(current, token)) return false;
             await tx.put(`dispatcher:result:${lease!.generation}`, assessment);
-            if (!await this.#serialJournalAccounted(tx, current!, assessment)) return false;
+            if (await this.#serialJournalAccounted(tx, current!, assessment)) return false;
             await tx.put<DispatcherLease>(DISPATCHER_LEASE, { ...current!, settledSubmissionId: lease!.submissionId! });
             return true;
           });
@@ -5011,7 +5098,7 @@ export class OperatorActivity extends Agent {
               classification: (['usable', 'final-error', 'retryable', 'permanent', 'transport', 'unknown'] as const)
                 .find(value => value === attempt.classification) ?? 'unknown', responseDigest: digest(attempt.responseDigest) };
           }
-          return { kind: 'operation', id: `o-${generation}-${operationDigest}`, generation,
+          return { kind: 'operation', id: `o-${generation}-${operationDigest}`, generation, ...projectDispatcherOperationEvidence(entry),
             operationDigest, ordinal: safeNumber(entry.ordinal), status: entry.phase, requestDigest: digest(entry.requestDigest),
             responseDigest: digest(entry.responseDigest), binding, hostInference, availability: 'retained',
             association: legacy ? 'legacy' : binding ? 'verified' : 'unassociated' };

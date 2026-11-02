@@ -3126,6 +3126,181 @@ describe('normal installed Dispatcher control', () => {
     expect(await activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
   }, { ...options, intent4: true }));
 
+  const unusedPermit = async (f: DispatcherFixture, operationId: string, associated = true) => {
+    const response = await callback(f, 'model-admission', { operationId, ...(associated ? { deliveryToken: phaseToken(f) } : {}),
+      context: { messages: [{ role: 'user', content: 'Original model input' }] }, options: { maxTokens: 16 } });
+    expect(response.status).toBe(200);
+    return await response.json() as { permitId: string; expiresAt: number; deliveryToken: string };
+  };
+  const emptyDiscovery = async (f: DispatcherFixture) => {
+    const stamp = await (await installedContext(f, phaseToken(f))).json() as InstalledPhaseContext;
+    f.normalTransport!.settle('completed', [{ name: 'dispatcher-progress', data: {
+      version: 1, scope: stamp.scope, generation: stamp.generation, submissionId: stamp.submissionId,
+      phase: stamp.phase, next: { kind: 'final' }, targets: [],
+    } }]);
+    await f.activity.reconcileDispatcherLease();
+  };
+  const modelSend = (f: DispatcherFixture, operationId: string, permitId: string) => callback(f, 'model-fetch', {
+    operationId, permitId, request: { url: 'https://api.openai.com/v1/chat/completions', method: 'POST', headers: [], bodyBase64: btoa('{}') },
+  });
+
+  it.each([false, true])('REQ-OPERATOR-048/062 Task132: admitted singleton can collect its validated empty final scope with original logging=%s', loggingEnabled => fixture(async f => {
+    expect(await start(f)).toMatchObject({ ok: true });
+    const deadline = (await f.activity.getRuntimePlan())!.deadline;
+    const permit = await unusedPermit(f, 'empty-discovery-unused-model');
+    await emptyDiscovery(f);
+    const final = await (await installedContext(f, phaseToken(f))).json() as InstalledPhaseContext;
+    expect(final.phase).toEqual({ kind: 'final' });
+    const empty = { repository: f.proof.repository, results: [] };
+    f.normalTransport!.settle('completed', [{ name: 'assessment', data: empty }]);
+    await f.activity.reconcileDispatcherLease();
+    const activity = f.restart(); await f.drainBackground();
+    expect(await activity.collectBrowserResult()).toMatchObject({ ok: true, detail: { executionStatus: 'completed', result: empty } });
+    const parent = (await activity.getDispatcherDiagnostics(f.proof.ownerKey))!.parent;
+    expect(parent.journal).toMatchObject({ count: 1, unresolved: 0 });
+    expect(parent.lease).toMatchObject({ phase: 'final', targetCount: 0, resultCount: 0,
+      settledSubmissionDigest: await digest(final.submissionId), expiresAt: Math.floor(deadline / 1000) * 1000 });
+    expect((await modelSend(f, 'empty-discovery-unused-model', permit.permitId)).status).toBe(403);
+    const summary = await diagnosticSummary(f);
+    expect(summary.capture).toBe(loggingEnabled ? 'enabled' : 'disabled');
+    const { records } = await diagnosticTraversal(diagnosticsBrowser(f));
+    expect(records.filter(row => row.kind === 'operation')).toMatchObject([{ terminalOutcome: 'not-sent' }]);
+    if (!loggingEnabled) expect(records.filter(row => row.kind === 'event')).toEqual([]);
+    expect(f.sent).toEqual([]);
+    expect(f.normalTransport!.admissions.size).toBe(2);
+  }, { ...options, prospective: true, intent4: true, loggingEnabled }));
+
+  it.each(['wrong-repository', 'foreign-final', 'missing-discovery', 'unbound-nonserial', 'changed-head'] as const)(
+    'REQ-OPERATOR-048/062 Task132: empty singleton compatibility rejects %s without effects', fault => fixture(async f => {
+      expect(await start(f)).toMatchObject({ ok: true });
+      if (fault === 'changed-head') {
+        const stamp = await (await installedContext(f, phaseToken(f))).json() as InstalledPhaseContext;
+        const target = { pullRequest: f.proof.pullRequest, headSha: 'f'.repeat(40) };
+        f.normalTransport!.settle('completed', [{ name: 'dispatcher-progress', data: {
+          version: 1, scope: stamp.scope, generation: stamp.generation, submissionId: stamp.submissionId,
+          phase: stamp.phase, next: { kind: 'target', index: 0, target }, targets: [target],
+        } }]);
+      } else {
+        if (fault !== 'missing-discovery' && fault !== 'unbound-nonserial') await emptyDiscovery(f);
+        f.normalTransport!.settle('completed', [{ name: 'assessment', data: {
+          repository: fault === 'wrong-repository' ? 'foreign/repository' : f.proof.repository, results: [],
+        } }]);
+        if (fault === 'foreign-final') f.normalTransport!.changeReply({ submissionId: 'foreign-final-submission' });
+      }
+      await f.activity.reconcileDispatcherLease();
+      expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'unknown', result: null });
+      expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
+      expect(f.sent).toEqual([]);
+    }, { ...options, prospective: true, intent4: fault !== 'unbound-nonserial', loggingEnabled: false }));
+
+  it('REQ-OPERATOR-048/062/083: unused exact-phase model permits retire not-sent and final collection survives cold owner readback', () => fixture(async f => {
+    expect(await start(f)).toMatchObject({ ok: true });
+    const deadline = (await f.activity.getRuntimePlan())!.deadline;
+    const discovery = await unusedPermit(f, 'unused-discovery');
+    const original = await (await installedContext(f, phaseToken(f))).json() as InstalledPhaseContext;
+    const target = { pullRequest: 17, headSha: '1'.repeat(40) };
+    const disposition = { ...target, decision: 'DO_NOT_MERGE', comment: 'No merge required', outcome: 'NOT_MERGED' };
+    const journey = { repository: 'another/service', results: [disposition] };
+    f.normalTransport!.settle('completed', [{ name: 'dispatcher-progress', data: {
+      version: 1, scope: original.scope, generation: original.generation, submissionId: original.submissionId,
+      phase: original.phase, next: { kind: 'target', index: 0, target }, targets: [target],
+    } }]);
+    await f.activity.reconcileDispatcherLease();
+    expect((await modelSend(f, 'unused-discovery', discovery.permitId)).status).toBe(409);
+    await unusedPermit(f, 'unused-target');
+    const targetStamp = await (await installedContext(f, phaseToken(f))).json() as InstalledPhaseContext;
+    f.normalTransport!.settle('completed', [{ name: 'dispatcher-progress', data: {
+      version: 1, scope: targetStamp.scope, generation: targetStamp.generation, submissionId: targetStamp.submissionId,
+      phase: targetStamp.phase, next: { kind: 'final' }, results: [disposition],
+    } }]);
+    await f.activity.reconcileDispatcherLease();
+    const final = await unusedPermit(f, 'unused-final');
+    expect(final.expiresAt).toBe(discovery.expiresAt);
+    f.normalTransport!.settle('completed', [{ name: 'assessment', data: journey }]);
+    await f.activity.reconcileDispatcherLease();
+    expect(await f.activity.collectBrowserResult()).toMatchObject({ ok: true, detail: { executionStatus: 'completed', result: journey } });
+    const activity = f.restart(); await f.drainBackground();
+    expect(await activity.collectBrowserResult()).toMatchObject({ ok: true, detail: { result: journey } });
+    expect((await modelSend(f, 'unused-final', final.permitId)).status).toBe(403);
+    const { records } = await diagnosticTraversal(diagnosticsBrowser(f));
+    const operations = records.filter(row => row.kind === 'operation');
+    expect(operations).toHaveLength(3);
+    for (const row of operations) expect(row).toMatchObject({ status: 'completed', operationKind: 'sdk-model-http',
+      sdkHttp: { state: 'not-sent', attempts: 0 }, terminalOutcome: 'not-sent', responseDigest: null, association: 'verified' });
+    const first = operations.find(row => (row.binding as { phase: string }).phase === 'discovery')!;
+    expect(first.binding).toMatchObject({ submissionDigest: await digest(original.submissionId), phase: 'discovery', resource: 'inference' });
+    const detail = await diagnosticJson<{ record: unknown }>(await diagnosticsBrowser(f)(`/diagnostics/v2/records/${first.id}`));
+    expect(detail.record).toMatchObject({ operationKind: 'sdk-model-http', terminalOutcome: 'not-sent', sdkHttp: { attempts: 0 } });
+    const parent = (await activity.getDispatcherDiagnostics(f.proof.ownerKey))!.parent;
+    expect(parent.journal).toMatchObject({ count: 3, nextOrdinal: 3, unresolved: 0 });
+    expect(parent.lease!.expiresAt).toBe(Math.floor(deadline / 1000) * 1000);
+    expect(f.sent).toEqual([]);
+  }, { ...options, intent4: true, loggingEnabled: true }));
+
+  it('REQ-OPERATOR-062: model admission before original ACK refuses without waiting or issuing send authority', () => fixture(async f => {
+    const acknowledgement = f.normalTransport!.delayAcknowledgement();
+    const starting = start(f);
+    try {
+      await within(acknowledgement.entered, 'SDK accepted before original ACK');
+      const response = await within(callback(f, 'model-admission', { operationId: 'pre-ack-model', deliveryToken: phaseToken(f),
+        context: { messages: [{ role: 'user', content: 'Original input' }] }, options: { maxTokens: 16 } }), 'pre-ACK model refusal');
+      expect(response.status).toBe(403);
+      expect(await response.json()).not.toHaveProperty('permitId');
+      acknowledgement.release();
+      expect(await within(starting, 'original ACK finishes')).toMatchObject({ ok: true });
+      await unusedPermit(f, 'post-ack-model');
+      expect(f.normalTransport!.admissions.size).toBe(1);
+      expect(f.sent).toEqual([]);
+    } finally { acknowledgement.release(); await starting; }
+  }, { ...options, intent4: true }));
+
+  it.each(['sending', 'unknown', 'no-declared-phase', 'missing-binding', 'foreign-submission', 'foreign-phase', 'unproved-response'] as const)(
+    'REQ-OPERATOR-048/081/082/083: %s permit remains fenced with a useful cold owner journal refusal', fault => fixture(async f => {
+      expect(await start(f)).toMatchObject({ ok: true });
+      const permit = await unusedPermit(f, 'unresolved-original', fault !== 'no-declared-phase');
+      const original = await (await installedContext(f, phaseToken(f))).json() as InstalledPhaseContext;
+      // Durable fault fixtures model incomplete physical sends and old/unproved
+      // metadata. They do not execute an SDK or assert on internal call counts.
+      await f.mutateEvidence(async storage => {
+        const entries = await storage.list<Record<string, unknown>>({ prefix: 'dispatcher:operation:1:' });
+        const [key, entry] = [...entries][0];
+        const sdkHttp = entry.sdkHttp as Record<string, unknown>;
+        const phaseBinding = entry.phaseBinding as Record<string, unknown>;
+        await storage.put(key, { ...entry,
+          ...(fault === 'sending' || fault === 'unknown' ? { phase: fault === 'unknown' ? 'unknown' : 'reserved', sdkHttp: { ...sdkHttp, phase: fault, attempts: 1 } } : {}),
+          ...(fault === 'missing-binding' ? { phaseBinding: undefined } : {}),
+          ...(fault === 'foreign-submission' ? { phaseBinding: { ...phaseBinding, submissionId: 'foreign-original' } } : {}),
+          ...(fault === 'foreign-phase' ? { phaseBinding: { ...phaseBinding, phase: { kind: 'final' } } } : {}),
+          ...(fault === 'unproved-response' ? { responseDigest: 'f'.repeat(64) } : {}) });
+      });
+      await emptyDiscovery(f);
+      f.normalTransport!.settle('completed', [{ name: 'assessment', data: result }]);
+      await f.activity.reconcileDispatcherLease();
+      expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
+      expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'unknown', result: null });
+      f.restart(); await f.drainBackground();
+      const summary = await diagnosticSummary(f);
+      expect(summary).toMatchObject({ diagnosis: { code: 'journal-unaccounted', publicCode: 'journal-unaccounted' },
+        fence: { code: 'journal-unaccounted', uncertain: true }, provenance: { hostRevision: null, patchSetDigest: null } });
+      const { records } = await diagnosticTraversal(diagnosticsBrowser(f));
+      const operation = records.find(row => row.kind === 'operation')!;
+      expect(operation).toMatchObject({ status: fault === 'unknown' ? 'unknown' : 'reserved', operationKind: 'sdk-model-http', terminalOutcome: null });
+      if (fault === 'missing-binding' || fault === 'no-declared-phase') expect(operation).toMatchObject({ association: 'unassociated', binding: null,
+        sdkHttp: { state: 'ready', attempts: 0 } });
+      const failed = records.find(row => row.kind === 'event' && row.code === 'journal-unaccounted' && row.outcome === 'failed')!;
+      const detail = await diagnosticJson<{ record: unknown; capsule: unknown }>(await diagnosticsBrowser(f)(`/diagnostics/v2/records/${failed.id}`));
+      expect(detail).toMatchObject({ record: { owner: 'host', origin: 'originating', correlation: {
+        submissionDigest: expect.stringMatching(/^[a-f0-9]{64}$/) }, error: { publicCode: 'journal-unaccounted', journal: {
+        gate: 'operation-binding', phase: 'final', operationDigest: operation.operationDigest, unresolved: 1, inspectedUnresolved: 1 } } },
+        capsule: { affectedOperations: [{ operationDigest: operation.operationDigest, effect: 'unknown' }], affectedOperationsOmitted: 0,
+          sdk: { submissionDigest: expect.stringMatching(/^[a-f0-9]{64}$/) } } });
+      if (fault !== 'missing-binding' && fault !== 'no-declared-phase' && fault !== 'foreign-submission' && fault !== 'foreign-phase') {
+        expect(operation.binding).toMatchObject({ submissionDigest: await digest(original.submissionId), phase: 'discovery' });
+      }
+      expect((await modelSend(f, 'unresolved-original', permit.permitId)).status).toBe(403);
+      expect(f.sent).toEqual([]);
+    }, { ...options, intent4: true, loggingEnabled: true }));
+
   it('REQ-OPERATOR-048/062: projected model permits retain the admitted phase on replay and reject stale phases', () => fixture(async f => {
     expect(await start(f)).toMatchObject({ ok: true });
     const token = phaseToken(f);
@@ -3233,12 +3408,16 @@ describe('normal installed Dispatcher control', () => {
       expect(response.headers.get('x-codeflare-sdk-model-response')).toBeNull();
       expect(vendorSends).toEqual([]);
       expect(f.sent).toEqual([]);
+      const { records } = await diagnosticTraversal(diagnosticsBrowser(f));
+      expect(records.find(row => row.kind === 'operation')).toMatchObject({ status: 'unknown',
+        operationKind: 'sdk-model-http', sdkHttp: { state: 'unknown', attempts: 1 }, terminalOutcome: null,
+        binding: { phase: 'discovery', submissionDigest: await digest(stamp.submissionId) } });
     } finally {
       released = true;
       if (pending) await Promise.allSettled([pending]);
       cleanups.reverse().forEach(cleanup => cleanup());
     }
-  }, { ...options, intent4: true, nativeInference: native }));
+  }, { ...options, intent4: true, nativeInference: native, loggingEnabled: true }));
 
   it('REQ-OPERATOR-048/062: ordinary configuration and permits omit phase projection tokens', () => fixture(async f => {
     expect(await start(f)).toMatchObject({ ok: true });

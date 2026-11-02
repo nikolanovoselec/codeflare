@@ -628,6 +628,33 @@ describe('REQ-OPERATOR-081: AC6 retained Dispatcher diagnostics in Activity deta
     expect(state.mutations).toEqual([]);
   });
 
+  it('REQ-OPERATOR-084: current Root journal refusal and unassociated model permit remain useful without SDK provenance', async () => {
+    const { state, routes } = ownedDiagnosticFixture();
+    state.summary.diagnosis.code = 'journal-unaccounted';
+    state.summary.diagnosis.publicCode = 'journal-unaccounted';
+    state.summary.diagnosis.journal = { gate: 'operation-binding', unresolved: 2, inspectedUnresolved: 1,
+      phase: 'final', phaseIndex: null, operationDigest: '9'.repeat(64) };
+    state.summary.fence = { generation: 3, timestamp: 1791936000000, boundary: 'settlement', code: 'journal-unaccounted', uncertain: true };
+    state.summary.provenance = { hostRevision: null, sdkBaseRuntime: null, sdkBaseAgents: null, patchSetDigest: null };
+    const operation = { ...diagnosticOperation(), status: 'reserved', association: 'unassociated',
+      responseDigest: null, operationKind: 'sdk-model-http', sdkHttp: { state: 'ready', attempts: 0 }, terminalOutcome: null };
+    state.history.records = [operation];
+    routes.set(`${diagnosticPath}/records/${operation.id}`, () => diagnosticJson({ ...diagnosticHeaders(), record: operation }));
+    render(() => <OperatorManagement />);
+    await selectDiagnosticActivity();
+    const panel = await openDiagnostics();
+    expect(await panel.findByText(/final result was received, but protected operations were not fully accounted/)).toBeInTheDocument();
+    expect(panel.getByText(/Root accounting gate: operation binding.*Unaccounted operations: 2.*Observed phase: final/)).toBeInTheDocument();
+    fireEvent.click(await panel.findByRole('button', { name: `View record ${operation.id}` }));
+    const detail = within(await panel.findByRole('region', { name: `Record ${operation.id}` }));
+    expect(detail.getByText(/Operation kind: sdk model http/)).toBeInTheDocument();
+    expect(detail.getByText(/Root model permit: ready.*Claimed sends: 0/)).toBeInTheDocument();
+    expect(detail.getByText(/completion is not confirmed/)).toBeInTheDocument();
+    expect(detail.queryByText(/Legacy operation metadata/)).not.toBeInTheDocument();
+    expect(panel.queryByText(/write was performed|vendor failed|deadline expired/i)).not.toBeInTheDocument();
+    expect(state.mutations).toEqual([]);
+  });
+
   it('REQ-OPERATOR-084 AC3: opens retained operation evidence inside the selected operation without replay or execution', async () => {
     const { state, routes } = ownedDiagnosticFixture();
     const operation = diagnosticOperation();

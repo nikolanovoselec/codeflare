@@ -294,7 +294,8 @@ export function advanceDispatcherPhase(state: DispatcherPhaseState, original: Di
   requireWire(frozen !== undefined, 'Completed discovery scope required');
   if (admittedTarget !== undefined) {
     const admitted = targetSchema.parse(admittedTarget);
-    requireWire(frozen.length === 1 && equal(frozen[0], admitted), 'Exact admitted singleton required');
+    // Filtering can truthfully omit the admitted target, never substitute or widen it.
+    requireWire(frozen.length === 0 || frozen.length === 1 && equal(frozen[0], admitted), 'Exact admitted singleton or empty scope required');
   }
   const delivery = deliverySchema.parse(nextDelivery);
   requireWire(delivery.deliveryToken !== checked.current.deliveryToken

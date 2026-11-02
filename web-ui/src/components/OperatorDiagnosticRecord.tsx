@@ -55,9 +55,11 @@ export const DiagnosticRecordMetadata: Component<{ record: DiagnosticRecord; sou
   when={props.record.kind === 'event' ? props.record : undefined} fallback={(() => {
     const row = () => props.record.kind === 'operation' ? props.record : undefined;
     return <Show when={row()}>{operation => <>
-      <p>{operation().status === 'completed' ? 'The operation was recorded as completed.'
+      <p>{operation().terminalOutcome === 'not-sent' ? 'The model permit retired without a physical send; no vendor receipt is claimed.' : operation().status === 'completed' ? 'The operation was recorded as completed.'
         : operation().status === 'reserved' ? 'The operation was reserved; completion is not confirmed.'
         : 'The operation outcome is unknown.'} {operation().availability === 'unavailable' ? 'Its retained metadata is unavailable.' : ''}</p>
+      <p>Operation kind: {diagnosticWords(operation().operationKind ?? 'unknown')}. This class does not prove an external effect.</p>
+      <Show when={operation().sdkHttp}>{permit => <p>Root model permit: {diagnosticWords(permit().state)} · Claimed sends: {permit().attempts}. A claim is not proof of delivery.</p>}</Show>
       <details><summary>Operation technical details</summary>
       <p>Logical ordinal: {available(operation().ordinal)} · Journal status: {operation().status} · Record generation: {operation().generation}</p>
       <p>Availability: {operation().availability} · Association: {diagnosticWords(operation().association)}</p>
@@ -74,7 +76,7 @@ export const DiagnosticRecordMetadata: Component<{ record: DiagnosticRecord; sou
           <p>Host attempt index: {host().index} · Charged ordinal: {host().ordinal} · Host inference: {host().status} · Classification: {host().classification}</p>
           <p>Host inference response digest: {available(host().responseDigest)}</p>
         </>}</Show>
-        <p>Legacy operation metadata does not supply an SDK attempt, diagnostic sequence, or retrospective error.</p>
+        <p>Parent journal metadata does not establish an SDK attempt or originating SDK error. Missing association remains unknown.</p>
       </Show>
       </details>
     </>}</Show>;
@@ -86,6 +88,11 @@ export const DiagnosticRecordMetadata: Component<{ record: DiagnosticRecord; sou
         : event().outcome === 'recovered' ? 'This step recovered from an earlier problem.'
         : 'The outcome of this step is unknown.'}</p>
     </Show>
+    <Show when={event().error?.journal}>{journal => <>
+      <p>Root refused final collection: {diagnosticWords(journal().gate)}. Unaccounted operations: {journal().unresolved}; inspected before refusal: {journal().inspectedUnresolved}.</p>
+      <p>Observed phase: {journal().phase}. This is a Root journal gate, not a vendor failure or proof that writes occurred.</p>
+      <Show when={journal().operationDigest}>{digest => <p>Affected operation digest: <span class="operator-diagnostic-digest">{digest()}</span></p>}</Show>
+    </>}</Show>
     <Show when={event().error?.sdkService}>{cause => <p>{sdkServiceCause(cause())}</p>}</Show>
     <Show when={event().error?.transportStatus || event().error?.transportReason}><p>Request failure{event().error?.transportStatus ? ` (HTTP ${event().error!.transportStatus})` : ''}: {event().error?.transportReason === 'execution-inactive'
       ? 'The platform could not confirm this request belonged to an active run.'

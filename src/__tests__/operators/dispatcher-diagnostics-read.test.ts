@@ -1,8 +1,9 @@
 /// <reference types="@cloudflare/vitest-plugin/types" />
 import { describe, expect, it } from 'vitest';
+import { projectDispatcherOperationEvidence } from '../../operators/dispatcher-runtime-diagnostics';
 import { readActivityDiagnostics, type DiagnosticReadState } from '../../operators/dispatcher-diagnostics-read';
 import { appendDiagnostic, initializeDiagnostics } from '../../operators/dispatcher-diagnostics-store';
-import { captureError, hostSource } from '../../operators/dispatcher-diagnostics-wire';
+import { captureError, hostSource, runtimeSchema } from '../../operators/dispatcher-diagnostics-wire';
 
 // External metadata storage only; production recording and public readback are real.
 function metadataStorage() {
@@ -64,5 +65,47 @@ describe('REQ-OPERATOR-084: current fence and earlier continued failures', () =>
       projectOperation: async (): Promise<never> => { throw new Error('No operation in this metadata fixture'); } }, { view: 'summary' });
     expect(summary).toMatchObject({ fence: state.fence, diagnosis: { state: 'observed-failure', code: 'settlement-failed',
       failedId: 'e-1', continuedId: 'e-2', nextCheck: 'inspect-failure' } });
+  });
+});
+
+
+describe('REQ-OPERATOR-081/082/083: private-safe current parent operation evidence', () => {
+  it.each([
+    [{ sdkHttp: { phase: 'ready', attempts: 0, permitId: 'PRIVATE_PERMIT', ownerScope: { email: 'PRIVATE_EMAIL' } } }, 'sdk-model-http'],
+    [{ request: { method: 'GET', url: 'https://PRIVATE_URL' } }, 'source-read'],
+    [{ request: { method: 'POST', url: 'https://PRIVATE_URL' } }, 'source-mutation'],
+    [{ inference: { version: 1 } }, 'host-inference'],
+    [{}, 'unknown'],
+    [{ sdkHttp: { phase: 'sending', attempts: 0 } }, 'unknown'],
+    [{ sdkHttp: { phase: 'not-sent', attempts: 1 } }, 'unknown'],
+    [{ sdkHttp: { phase: 'ready', attempts: 0 }, request: { method: 'PUT' } }, 'unknown'],
+  ] as const)('projects only validated class from retained metadata %j', (record, operationKind) => {
+    const evidence = projectDispatcherOperationEvidence(record);
+    expect(evidence.operationKind).toBe(operationKind);
+    expect(evidence.terminalOutcome).toBeNull();
+    expect(JSON.stringify(evidence)).not.toMatch(/PRIVATE_|https:|permitId|ownerScope|selection|deliveryToken/);
+  });
+
+  it('refuses arbitrary getters and inaccessible Proxy metadata without executing error access', () => {
+    let executed = false;
+    const getter = Object.defineProperty({}, 'sdkHttp', { get() { executed = true; throw new Error('PRIVATE_GETTER'); } });
+    const nested = { sdkHttp: Object.defineProperty({}, 'phase', { get() { executed = true; throw new Error('PRIVATE_GETTER'); } }) };
+    const proxy = new Proxy({}, { getOwnPropertyDescriptor() { throw new Error('PRIVATE_PROXY'); } });
+    for (const record of [getter, nested, proxy]) expect(projectDispatcherOperationEvidence(record)).toEqual({
+      operationKind: 'unknown', sdkHttp: null, terminalOutcome: null });
+    expect(executed).toBe(false);
+    const error = Object.defineProperty(new Error('Known safe message'), 'stack', { get() { executed = true; return 'PRIVATE_STACK'; } });
+    expect(captureError(error)).toMatchObject({ messageDigest: expect.stringMatching(/^[a-f0-9]{64}$/),
+      stackDigest: null, loss: ['unsafe-error-access'] });
+    expect(executed).toBe(false);
+  });
+
+  it('child SDK envelopes cannot assert Root journal refusal classification', () => {
+    const envelope = { version: 1, captureId: 'a'.repeat(64), sequence: 1, timestamp: 1, boundary: 'settlement',
+      outcome: 'failed', code: 'journal-unaccounted', origin: 'originating', source: hostSource('settlement'),
+      local: { through: 1, dropped: 0, status: 'captured' } };
+    expect(runtimeSchema.safeParse(envelope).success).toBe(false);
+    expect(runtimeSchema.safeParse({ ...envelope, code: 'settlement-failed', error: {
+      ...captureError(new Error('PRIVATE_CHILD')), publicCode: 'journal-unaccounted' } }).success).toBe(false);
   });
 });

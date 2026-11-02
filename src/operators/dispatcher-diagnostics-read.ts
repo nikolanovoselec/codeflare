@@ -179,6 +179,7 @@ export async function readActivityDiagnostics(input: {
           lastConfirmedId: confirmed?.id ?? null, failedId: failure?.id ?? null,
           ...(failure?.error?.publicCode ? { publicCode: failure.error.publicCode } : {}),
           ...(failure?.error?.sdkService ? { sdkService: failure.error.sdkService } : {}),
+          ...(failure?.error?.journal ? { journal: failure.error.journal } : {}),
           ...(failure?.error?.transportStatus === undefined ? {} : {
             transportStatus: failure.error.transportStatus, transportReason: failure.error.transportReason,
             transportDisposition: failure.error.transportDisposition }),
