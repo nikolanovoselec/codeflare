@@ -433,7 +433,7 @@ const diagnosticDetail = () => ({ ...diagnosticHeaders(),
     affectedOperationsOmitted: 0, loss: ['error-truncated'], uncertainty: 'prior-effect-uncertain' } });
 const diagnosticPath = '/api/operator-activities/activity-1/diagnostics/v2';
 const diagnosticButtonName = /^(?:View diagnostics|Diagnostics)$/i;
-type DiagnosticRoute = () => Response | Promise<Response>;
+type DiagnosticRoute = (url: URL, init?: RequestInit) => Response | Promise<Response>;
 function ownedDiagnosticFixture() {
   // Keep browser download URLs in this fixture: Node's inherited object-URL
   // implementation cannot accept jsdom Blobs. Fetch/wire validation is unchanged.
@@ -463,7 +463,7 @@ function ownedDiagnosticFixture() {
       // Intentional authenticated wire contract: wrong method, credentials, selectors or v1 path cannot supply evidence.
       if (method !== 'GET' || init?.credentials !== 'same-origin' || init?.redirect !== 'manual' || init?.body !== undefined)
         return Promise.resolve(diagnosticJson({ error: 'Invalid diagnostic read.' }, 403));
-      return Promise.resolve(routes.get(url.pathname + url.search)?.() ?? diagnosticJson({ error: 'Invalid diagnostic selector.' }, 400));
+      return Promise.resolve(routes.get(url.pathname + url.search)?.(url, init) ?? diagnosticJson({ error: 'Invalid diagnostic selector.' }, 400));
     }
     if (url.pathname === '/api/operator-activities') return Promise.resolve(diagnosticJson({ items: state.activities }));
     const activity = state.activities.find(item => url.pathname === `/api/operator-activities/${item.activityId}`);
@@ -524,7 +524,7 @@ describe('REQ-OPERATOR-081: AC6 retained Dispatcher diagnostics in Activity deta
     fireEvent.click(summaryDetails);
     expect(panel.getByText(/last confirmed.*e-1/i)).not.toBeVisible();
     expect(await panel.findByRole('button', { name: 'View record e-2' })).toBeVisible();
-    expect(panel.getByText(/(?:inspect|view|check).*failure/i)).toBeInTheDocument();
+    expect(panel.getByText('Next: Check the failure record in the timeline to see what was recorded.')).toBeVisible();
     expect(screen.getByText(/Original result for activity-1/)).toBeInTheDocument();
     expect(screen.getAllByText(/Execution: failed · Cleanup: stopped/).length).toBeGreaterThan(0);
     expect(panel.queryByRole('button', { name: /start|retry|renew|continue|collect|replay|repair/i })).not.toBeInTheDocument();
@@ -749,7 +749,7 @@ describe('REQ-OPERATOR-081: AC6 retained Dispatcher diagnostics in Activity deta
     expect(panel.getByText(/OAuth refresh failed: upstream HTTP 400 \(invalid_grant\).*platform returned HTTP 403/)).toBeVisible();
     expect(panel.getByText(/execution owner should log in to the provider in Pi, then sync.*R2/)).toBeVisible();
     expect(panel.getByText(/No later work is confirmed after the retained failed attempt/)).toBeVisible();
-    expect(panel.queryByRole('list', { name: 'Diagnostic timeline' })).not.toBeInTheDocument();
+    expect(panel.getByRole('list', { name: 'Diagnostic timeline', hidden: true })).not.toBeVisible();
     expect(panel.getByText(/Current original-lease binding generation/)).not.toBeVisible();
     expect(panel.queryByText(/revoked|reused|expired refresh|SDK import legacy|identities are not inferred/i)).not.toBeInTheDocument();
     fireEvent.click(panel.getByRole('button', { name: 'View failure evidence' }));
@@ -779,7 +779,7 @@ describe('REQ-OPERATOR-081: AC6 retained Dispatcher diagnostics in Activity deta
     render(() => <OperatorManagement />);
     await selectDiagnosticActivity();
     const panel = await openDiagnostics(false);
-    expect(panel.queryByRole('list', { name: 'Diagnostic timeline' })).not.toBeInTheDocument();
+    expect(panel.getByRole('list', { name: 'Diagnostic timeline', hidden: true })).not.toBeVisible();
     fireEvent.click(panel.getByRole('button', { name: 'View failure evidence' }));
     const detail = within(await panel.findByRole('region', { name: 'Record e-2' }));
     fireEvent.click(detail.getByText('Record technical details', { selector: 'summary' }));
@@ -876,17 +876,15 @@ describe('REQ-OPERATOR-081: AC6 retained Dispatcher diagnostics in Activity deta
   it('Task116: leaving diagnostics aborts an in-flight traversal and ignores its late response', async () => {
     const { state, routes } = ownedDiagnosticFixture();
     const pending = deferredDiagnosticResponse();
-    routes.set(`${diagnosticPath}/export`, () => pending.promise);
     let signal: AbortSignal | null | undefined;
-    const original = serve;
-    serve = (url, init) => { if (url.pathname.endsWith('/export')) signal = init?.signal; return original(url, init); };
+    routes.set(`${diagnosticPath}/export`, (_url, init) => { signal = init?.signal; return pending.promise; });
     const view = render(() => <OperatorActivityDiagnostics activityId="activity-1" openOnMount />);
     const exportButton = await screen.findByRole('button', { name: 'Export metadata' });
     await waitFor(() => expect(exportButton).not.toBeDisabled());
     fireEvent.click(exportButton);
     await waitFor(() => expect(signal).toBeDefined());
     view.unmount();
-    expect(signal?.aborted).toBe(true);
+    expect(signal).toHaveProperty('aborted', true);
     pending.resolve(diagnosticJson(state.export));
     await Promise.resolve();
     expect(URL.createObjectURL).not.toHaveBeenCalled();

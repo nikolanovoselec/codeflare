@@ -512,6 +512,41 @@ describe('REQ-OPERATOR-007: management source approval controls', () => {
     await waitFor(() => expect(installationSave).toEqual({ revision: 2, policy: { ...policy, inference }, configuration, piReasoningOverride: 'low' }));
   });
 
+  it('preserves a Conductor restriction draft when changing Gateway reasoning and saving both edits', async () => {
+    const savedPolicy = { ...policy, capabilities: ['inference'], inference };
+    const currentOperator = { ...operator, policy: savedPolicy };
+    let currentInstallation = { ...installation, policy: savedPolicy };
+    let submitted: any;
+    vi.stubGlobal('fetch', (input: string, init?: RequestInit) => {
+      const url = new URL(input, window.location.origin);
+      if (url.pathname.endsWith('/options')) return Promise.resolve(json({ ...choices,
+        ceiling: { ...choices.ceiling, capabilities: ['inference'] },
+        managedRoutes: [{ id: 'approved-route', label: 'Approved route', reasoningLevels: ['low'] }] }));
+      if (url.pathname.endsWith('/configure') && init?.method === 'POST') {
+        submitted = JSON.parse(String(init.body));
+        currentInstallation = { ...currentInstallation, policy: submitted.policy, revision: currentInstallation.revision + 1 };
+        return Promise.resolve(json(currentInstallation));
+      }
+      return Promise.resolve(url.pathname.endsWith('/operator-1')
+        ? json({ ...detail(), operator: currentOperator, installations: [currentInstallation] })
+        : json({ items: [currentOperator], cursor: null }));
+    });
+    render(() => <OperatorManagement />);
+    fireEvent.click(await screen.findByRole('button', { name: `Manage ${operator.repositoryUrl}` }));
+    await openAdvanced();
+    const native = await screen.findByRole('checkbox', { name: 'test approve Pi-native source' });
+    fireEvent.click(native);
+    fireEvent.change(screen.getByRole('combobox', { name: 'test Managed reasoning' }), { target: { value: '' } });
+    expect(native).not.toBeChecked();
+    fireEvent.click(screen.getByRole('button', { name: 'Save restrictions for test' }));
+    await waitFor(() => expect(submitted).toMatchObject({ policy: { inference: {
+      allowedSources: ['managed'], defaultRouteId: 'approved-route', defaultReasoningLevel: null,
+    } } }));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Save restrictions for test' })).toBeEnabled());
+    expect(screen.getByRole('checkbox', { name: 'test approve Pi-native source' })).not.toBeChecked();
+    expect(screen.getByRole('combobox', { name: 'test Managed reasoning' })).toHaveValue('');
+  });
+
   it('leaves legacy native approval off and requires explicit reasoning choices without broadening either policy', async () => {
     let saved: any;
     serve = (url, init) => {
@@ -623,8 +658,8 @@ describe('REQ-OPERATOR-007/049/075: installed Dispatcher model settings', () => 
     expect(screen.getAllByRole('button', { name: 'Save model settings' })).toHaveLength(1);
     expect(screen.getByText('Gateway route', { selector: 'span' })).toBeVisible();
     expect(screen.getByText('Gateway reasoning', { selector: 'span' })).toBeVisible();
-    expect(screen.queryByRole('button', { name: 'Save operator capabilities' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Save restrictions for test' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Save operator capabilities', hidden: true })).not.toBeVisible();
+    expect(screen.getByRole('button', { name: 'Save restrictions for test', hidden: true })).not.toBeVisible();
     await openAdvanced();
     expect(screen.getByRole('button', { name: 'Save operator capabilities' })).toBeVisible();
     expect(screen.getByRole('button', { name: 'Save restrictions for test' })).toBeVisible();
@@ -751,7 +786,7 @@ describe('REQ-OPERATOR-007/049/075: installed Dispatcher model settings', () => 
     fireEvent.input(screen.getByRole('spinbutton', { name: 'Max inference attempts' }), { target: { value: '7' } });
     fireEvent.click(screen.getByRole('button', { name: 'Reset Max inference attempts to default' }));
     fireEvent.click(screen.getByText('Advanced settings', { selector: 'summary' }));
-    expect(screen.queryByRole('spinbutton', { name: 'Operation limit per run' })).not.toBeInTheDocument();
+    expect(screen.getByRole('spinbutton', { name: 'Operation limit per run', hidden: true })).not.toBeVisible();
     expect(screen.getByRole('combobox', { name: 'test Managed Gateway route' })).toHaveValue('cheap');
     expect(reasoning()).toHaveValue('off');
     await openAdvanced();

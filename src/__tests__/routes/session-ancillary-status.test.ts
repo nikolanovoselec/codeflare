@@ -110,7 +110,7 @@ describe('REQ-SESSION-010 AC7: ancillary session polling owner', () => {
     const response = await app().request('/sessions/ancillary-status');
     const body = await response.json();
     expect(body).toMatchObject({ managedReleaseStatus: 'update_pending', preseedNeedsUpgrade: false });
-    expect(body.managedReleaseBlockedReason).toBeUndefined();
+    expect(body).not.toHaveProperty('managedReleaseBlockedReason');
   });
 
   it('is explicitly non-cacheable', async () => {

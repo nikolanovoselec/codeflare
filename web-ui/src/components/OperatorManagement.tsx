@@ -532,20 +532,22 @@ const OperatorDetail: Component<{ detail: api.ManagementDetail; choices?: api.Ma
     || (validSourceBytes(operatorSourceResponseBytes(), environmentSourceMax()) && validInferenceBytes(operatorInferenceRequestBytes())
       && validOperationLimit(operatorOperationLimit()) && validInferenceAttemptLimit(operatorInferenceAttemptLimit())
       && validSubmissionAttemptLimit(operatorSubmissionAttemptLimit()) && api.validDispatcherCapacities(operatorCapacities()));
+  const managedPolicy = () => operator().profile === 'dispatcher' ? gatewayPolicy() : policy();
   const managedRoutes = () => (props.choices?.managedRoutes ?? []).filter(route => operator().profile === 'dispatcher'
-    || (gatewayPolicy().inference?.routeIds.includes(route.id) && operator().policy.inference?.routeIds.includes(route.id)));
-  const managedRoute = () => managedRoutes().find(route => route.id === gatewayPolicy().inference?.defaultRouteId);
+    || (managedPolicy().inference?.routeIds.includes(route.id) && operator().policy.inference?.routeIds.includes(route.id)));
+  const managedRoute = () => managedRoutes().find(route => route.id === managedPolicy().inference?.defaultRouteId);
   const managedLevels = () => (managedRoute()?.reasoningLevels ?? []).filter(level => operator().profile === 'dispatcher'
-    || (gatewayPolicy().inference?.reasoningLevels.includes(level) && operator().policy.inference?.reasoningLevels.includes(level)));
-  const validManagedSelection = () => (!gatewayPolicy().inference?.defaultRouteId || !!managedRoute())
-    && (gatewayPolicy().inference?.defaultReasoningLevel == null || managedLevels().includes(gatewayPolicy().inference!.defaultReasoningLevel!));
+    || (managedPolicy().inference?.reasoningLevels.includes(level) && operator().policy.inference?.reasoningLevels.includes(level)));
+  const validManagedSelection = () => (!managedPolicy().inference?.defaultRouteId || !!managedRoute())
+    && (managedPolicy().inference?.defaultReasoningLevel == null || managedLevels().includes(managedPolicy().inference!.defaultReasoningLevel!));
   const changeManagedSelection = (selection: { defaultRouteId?: string | null; defaultReasoningLevel?: api.PiReasoningLevel | null }) => {
-    const inference = gatewayPolicy().inference ?? { allowedSources: ['managed'] as Array<'managed' | 'pi-native'>,
+    const current = managedPolicy();
+    const inference = current.inference ?? { allowedSources: ['managed'] as Array<'managed' | 'pi-native'>,
       routeIds: [], defaultRouteId: null, reasoningLevels: [], defaultReasoningLevel: null, inheritUserDefaults: false };
     setManagedSelectionEdited(true);
-    const next = { ...gatewayPolicy(), inference: { ...inference, ...selection, inheritUserDefaults: false } };
-    setGatewayPolicy(next);
-    if (operator().profile === 'conductor') setPolicy(next);
+    const next = { ...current, inference: { ...inference, ...selection, inheritUserDefaults: false } };
+    if (operator().profile === 'dispatcher') setGatewayPolicy(next);
+    else setPolicy(next);
   };
   const gatewaySavePolicy = (): api.ManagementPolicy => {
     const saved = installation()?.policy ?? emptyPolicy();
