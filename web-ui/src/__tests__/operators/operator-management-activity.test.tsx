@@ -393,10 +393,7 @@ const diagnosticSummary = () => ({ ...diagnosticHeaders(), capture: 'enabled',
     { status: string; rootDigest?: string; submissionDigest?: string; attemptDigest?: string },
   fence: null as null | { generation: number; timestamp: number; boundary: string; code: string; uncertain: boolean },
   diagnosis: { state: 'observed-failure', code: 'canonical-append-failed', lastConfirmedId: 'e-1' as string | null,
-    failedId: 'e-2' as string | null, nextCheck: 'inspect-failure' } as {
-      state: string; code: string; lastConfirmedId: string | null; failedId: string | null; nextCheck: string;
-      sdkService?: import('../../api/operator-diagnostics-wire').SdkServiceFailure; continuedId?: string; publicCode?: string; executionStatus?: string;
-    } });
+    failedId: 'e-2' as string | null, nextCheck: 'inspect-failure' } as import('../../api/operator-diagnostics-wire').DiagnosticSummary['diagnosis'] });
 const diagnosticEvent = (sequence: number, boundary: string, outcome: string, code = 'none') => ({
   kind: 'event', id: `e-${sequence}`, sequence, generation: 3, timestamp: 1791936000000 + sequence,
   owner: boundary === 'inference-response' ? 'host' : 'sdk', boundary, outcome, code,

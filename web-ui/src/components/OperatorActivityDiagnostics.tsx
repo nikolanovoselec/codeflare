@@ -156,7 +156,7 @@ const OperatorActivityDiagnostics: Component<{ activityId: string; openOnMount?:
     let cursor: string | null = null;
     try {
       do {
-        const previous = parts.at(-1);
+        const previous = parts.length ? parts[parts.length - 1] : undefined;
         const part = await exportOperatorActivityDiagnostics(id, cursor, previous ?? snapshot, controller.signal);
         if (!current(id, token) || controller.signal.aborted) return;
         if (previous && part.snapshotDigest !== previous.snapshotDigest)

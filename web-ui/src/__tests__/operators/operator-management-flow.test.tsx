@@ -609,13 +609,14 @@ describe('REQ-OPERATOR-007/049/075: installed Dispatcher model settings', () => 
         writes.push({ path: url.pathname, body });
         if (failure) return Promise.resolve(json({ error: failure === 409 ? 'Conflict' : 'Unavailable' }, failure));
         if (!url.pathname.endsWith('/configure')) return Promise.resolve(json({ error: 'Unexpected settings write' }, 400));
-        const id = url.pathname.split('/').at(-2);
+        const segments = url.pathname.split('/');
+        const id = segments[segments.length - 2];
         const saved = installations.find(item => item.id === id)!;
         if (saved.revision !== body.revision) return Promise.resolve(json({ error: 'Conflict' }, 409));
         const selection = body.gatewaySelection;
         // Respond as the atomic public configure endpoint; assertions below test UI intent, not registry internals.
         const approve = (previous: ManagementPolicy['inference']): NonNullable<ManagementPolicy['inference']> => ({
-          allowedSources: [...new Set([...(previous?.allowedSources ?? []), ...(selection.routeId ? ['managed'] : [])])],
+          allowedSources: [...new Set([...(previous?.allowedSources ?? []), ...(selection.routeId ? ['managed'] as const : [])])],
           routeIds: [...new Set([...(previous?.routeIds ?? []), ...(selection.routeId ? [selection.routeId] : [])])],
           reasoningLevels: [...new Set([...(previous?.reasoningLevels ?? []), ...(selection.reasoningLevel ? [selection.reasoningLevel] : [])])],
           defaultRouteId: selection.routeId, defaultReasoningLevel: selection.reasoningLevel, inheritUserDefaults: false,
