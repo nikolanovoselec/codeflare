@@ -742,7 +742,7 @@ describe('REQ-OPERATOR-081: AC6 retained Dispatcher diagnostics in Activity deta
     render(() => <OperatorManagement />);
     await selectDiagnosticActivity();
     const panel = await openDiagnostics(false);
-    expect(panel.getByText('Current state: failed')).toBeVisible();
+    expect(panel.getByText('Execution in this snapshot: failed')).toBeVisible();
     expect(panel.getByText(/OAuth refresh failed: upstream HTTP 400 \(invalid_grant\).*platform returned HTTP 403/)).toBeVisible();
     expect(panel.getByText(/execution owner should log in to the provider in Pi, then sync.*R2/)).toBeVisible();
     expect(panel.getByText(/No later work is confirmed after the retained failed attempt/)).toBeVisible();
@@ -806,9 +806,78 @@ describe('REQ-OPERATOR-081: AC6 retained Dispatcher diagnostics in Activity deta
     await selectDiagnosticActivity();
     const panel = await openDiagnostics(false);
     expect(panel.getByText('Work continued after a failed attempt. Full recovery is not confirmed.')).toBeVisible();
-    expect(panel.getByText('A citation did not match retained source evidence.')).toBeVisible();
+    expect(panel.getByText('Earlier attempt: A citation did not match retained source evidence.')).toBeVisible();
     expect(panel.getByText(/Inspect the later evidence and final result before deciding/)).toBeVisible();
     expect(panel.queryByText(/run stopped|attempt recovered|OAuth|A tool failed\./)).not.toBeInTheDocument();
+  });
+
+  it('REQ-OPERATOR-057 AC3 / 084 AC1/2/7: presents the supplied later failure without promoting an older citation failure to the current cause', async () => {
+    const { state, routes } = ownedDiagnosticFixture();
+    state.summary.diagnosis = { state: 'observed-failure', code: 'settlement-failed', executionStatus: 'failed',
+      publicCode: 'citation-provenance', lastConfirmedId: 'e-2', failedId: 'e-3', nextCheck: 'inspect-failure' };
+    const earlier = { ...diagnosticEvent(1, 'tool', 'recovered', 'tool-failed'),
+      error: { ...diagnosticError(), publicCode: 'citation-provenance' } };
+    const later = diagnosticEvent(3, 'settlement', 'failed', 'settlement-failed');
+    routes.set(`${diagnosticPath}/records/e-3`, () => diagnosticJson({ ...diagnosticHeaders(),
+      highWater: state.summary.highWater, record: later }));
+    state.summary.highWater.events = 3;
+    state.history = { ...diagnosticHistory([earlier, diagnosticEvent(2, 'tool', 'completed'), later]),
+      highWater: state.summary.highWater };
+    render(() => <OperatorManagement />);
+    await selectDiagnosticActivity();
+    const panel = await openDiagnostics(false);
+    expect(panel.getByText('The runtime did not finish with a confirmed final result.')).toBeVisible();
+    expect(panel.getByText('Execution in this snapshot: failed')).toBeVisible();
+    expect(panel.queryByText(/A citation did not match retained source evidence/)).not.toBeInTheDocument();
+    expect(panel.getByRole('button', { name: 'View failure evidence' })).toBeVisible();
+    expect(panel.getByText(/Next: Check the failure record/)).toBeVisible();
+    expect(panel.getByRole('list', { name: 'Diagnostic timeline', hidden: true })).not.toBeVisible();
+    fireEvent.click(panel.getByText('Timeline technical details and retained records', { selector: 'summary' }));
+    const timeline = within(panel.getByRole('list', { name: 'Diagnostic timeline' }));
+    expect(timeline.getByText('This step recovered from an earlier problem.')).toBeVisible();
+    expect(timeline.getByRole('button', { name: 'View record e-3' })).toBeVisible();
+    fireEvent.click(panel.getByRole('button', { name: 'View failure evidence' }));
+    const detail = within(await panel.findByRole('region', { name: 'Record e-3' }));
+    expect(detail.getByText('Finishing the work')).toBeVisible();
+    expect(state.mutations).toEqual([]);
+  });
+
+  it('REQ-OPERATOR-057 AC3 / 084 AC1/6: an old running snapshot is not a child failure or an OOM diagnosis', async () => {
+    const { state } = ownedDiagnosticFixture();
+    state.summary.capturedAt = 1;
+    state.summary.diagnosis = { state: 'evidence-incomplete', code: 'unclassified', executionStatus: 'running',
+      lastConfirmedId: 'e-1', failedId: null, nextCheck: 'inspect-platform-events' };
+    render(() => <OperatorManagement />);
+    await selectDiagnosticActivity();
+    const panel = await openDiagnostics(false);
+    expect(panel.getByText('Execution in this snapshot: running')).toBeVisible();
+    expect(panel.getByText('Evidence is incomplete; the run outcome is unconfirmed.')).toBeVisible();
+    expect(panel.getByText('Next: Inspect independently correlated platform events and evidence.')).toBeVisible();
+    expect(panel.queryByText(/out of memory|OOM|child failed|Current state:/i)).not.toBeInTheDocument();
+    expect(screen.getByText(/Original result for activity-1/)).toBeVisible();
+    expect(screen.getAllByText(/Execution: failed · Cleanup: stopped/)[0]).toBeVisible();
+    expect(state.mutations).toEqual([]);
+  });
+
+  it('REQ-OPERATOR-084 AC3/5: routine records use available boundary and outcome labels while bulk metadata stays collapsed', async () => {
+    const { state } = ownedDiagnosticFixture();
+    state.history.records = [diagnosticEvent(1, 'scheduling', 'accepted'), diagnosticEvent(2, 'delivery', 'completed')];
+    render(() => <OperatorManagement />);
+    await selectDiagnosticActivity();
+    const panel = await openDiagnostics(false);
+    expect(panel.getByRole('list', { name: 'Diagnostic timeline', hidden: true })).not.toBeVisible();
+    expect(panel.getByText('Original input digest')).not.toBeVisible();
+    fireEvent.click(panel.getByText('Timeline technical details and retained records', { selector: 'summary' }));
+    const timeline = within(panel.getByRole('list', { name: 'Diagnostic timeline' }));
+    expect(timeline.getByText('Scheduling').parentElement).toHaveTextContent('Scheduling · accepted');
+    expect(timeline.getByText('Work delivery').parentElement).toHaveTextContent('Work delivery · completed');
+    expect(timeline.queryByText(/Runtime step|A runtime step was recorded/)).not.toBeInTheDocument();
+    const row = within(timeline.getByRole('button', { name: 'View record e-1' }).closest('li')!);
+    expect(row.getByText('SDK attempt digest')).not.toBeVisible();
+    fireEvent.click(row.getByText('Record technical details', { selector: 'summary' }));
+    expect(row.getByText('SDK attempt digest')).toBeVisible();
+    expect(panel.getByRole('button', { name: 'Export metadata' })).toBeVisible();
+    expect(state.mutations).toEqual([]);
   });
 
   it('Task116: one action retrieves sixteen parts and all 508 retained records in one ordered download', async () => {

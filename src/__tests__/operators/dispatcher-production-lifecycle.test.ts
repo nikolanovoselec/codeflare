@@ -3537,6 +3537,162 @@ describe('normal installed Dispatcher control', () => {
       expect(f.normalTransport!.admissions.size).toBe(1);
     }, options));
 
+  it.each([
+    { outcome: 'failed', loggingEnabled: true }, { outcome: 'failed', loggingEnabled: false },
+    { outcome: 'aborted', loggingEnabled: true }, { outcome: 'aborted', loggingEnabled: false },
+  ] as const)('REQ-OPERATOR-048/057/092: matching $outcome persists uncertainty before post-receipt registry/storage loss, logging=$loggingEnabled',
+    ({ outcome, loggingEnabled }) => fixture(async f => {
+      await start(f);
+      const admissions = structuredClone([...f.normalTransport!.admissions.values()]);
+      let original!: Record<string, unknown>;
+      await f.mutateEvidence(async storage => { original = (await storage.get<Record<string, unknown>>('dispatcher:lease'))!; });
+      // An unassociated mutation is evidence of uncertainty, not a deferred result.
+      const operation = { generation: 1, ordinal: 210, phase: 'reserved', requestDigest: 'a'.repeat(64),
+        request: { method: 'POST', url: 'https://api.github.com/repos/another/service/issues/17/comments' } };
+      const journal = { generation: 1, count: 19, nextOrdinal: 211, unresolved: 1 };
+      // Preserve already-observed seven merge / eleven comment receipts, alongside
+      // the original unassociated reserved ordinal. These are retained wire data,
+      // not a claim that the fixture executed the incident's real repository writes.
+      const retained = new Map<string, unknown>();
+      for (let index = 0; index < 18; index++) {
+        const merge = index < 7;
+        const id = `retained-effect-${index}`;
+        const body = JSON.stringify({ status: merge ? 200 : 201,
+          body: JSON.stringify(merge ? { merged: true, sha: 'b'.repeat(40) } : { id: index + 1 }) });
+        retained.set(`dispatcher:response:${id}`, { status: 200, contentType: 'application/json', body });
+        retained.set(`dispatcher:operation:1:${id}`, { generation: 1, ordinal: index, phase: 'completed',
+          requestDigest: 'c'.repeat(64), responseDigest: await digest(body),
+          request: { method: merge ? 'PUT' : 'POST', url: `https://api.github.com/repos/another/service/${merge ? 'pulls/17/merge' : 'issues/17/comments'}` } });
+      }
+      await f.mutateEvidence(async storage => {
+        for (const [key, value] of retained) await storage.put(key, value);
+        await storage.put('dispatcher:operation:1:unassociated-effect', operation);
+        await storage.put('dispatcher:journal', journal);
+      });
+      // Publication is a remote boundary; its failure cannot erase durable execution truth.
+      const registry = f.environment.OPERATOR_REGISTRY.getByName('registry');
+      vi.spyOn(registry, 'upsertOwnedActivity').mockRejectedValue(new Error('Connection closed: this Durable Object instance is no longer active'));
+      f.normalTransport!.settle(outcome);
+      // Model instance loss at the next external registry round trip ONLY after
+      // the authenticated terminal reply exists. If that round trip precedes the
+      // fence, the old instance can no longer transact to preserve its observation.
+      // This is a storage-I/O fault, not execution of an SDK/native reset workload.
+      let restoreTransactions = () => {};
+      f.normalTransport!.afterNextRead(() => {
+        f.afterRegistryResolve(async () => {
+          const inactive = new Error('Connection closed: this Durable Object instance is no longer active');
+          await f.mutateEvidence(async storage => {
+            const unavailable = vi.spyOn(storage, 'transaction').mockRejectedValue(inactive);
+            restoreTransactions = () => unavailable.mockRestore();
+          });
+          throw inactive;
+        });
+      });
+      try {
+        // An inactive caller may reject. The contract is the durable owner state
+        // visible after storage becomes available again, not the caller's error.
+        await f.activity.reconcileDispatcherLease().catch(() => undefined);
+      } finally {
+        restoreTransactions();
+        // The fixed path need not contact the registry again. Do not carry the
+        // still-armed one-shot external fault into subsequent recovery/readback.
+        f.afterRegistryResolve(async () => {});
+      }
+      expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'unknown', attention: true,
+        cleanupStatus: 'unknown', collectionStatus: 'unavailable', result: null });
+      expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
+      await f.mutateEvidence(async storage => {
+        expect(await storage.get('admission')).toMatchObject({ drive: { generation: 2, status: 'unknown' },
+          diagnosticFence: { generation: 1, boundary: 'settlement', code: 'settlement-failed', uncertain: true } });
+        // Original admission identity and authority survive the uncertainty fence;
+        // unrelated lease bookkeeping is deliberately not an asserted snapshot.
+        expect(await storage.get('dispatcher:lease')).toMatchObject({ hosting: 'normal', status: 'unknown',
+          generation: original.generation, submissionId: original.submissionId,
+          wire: original.wire, receipt: original.receipt, expiresAt: original.expiresAt,
+          inputDigest: original.inputDigest, artifactDigest: original.artifactDigest });
+        expect(await storage.get('dispatcher:operation:1:unassociated-effect')).toEqual(operation);
+        expect(await storage.get('dispatcher:journal')).toEqual(journal);
+        for (const [key, value] of retained) expect(await storage.get(key)).toEqual(value);
+        expect(await storage.get('dispatcher:result:1')).toBeUndefined();
+      });
+      const activity = f.restart();
+      await activity.getBrowserDetail(); await activity.getDispatcherDiagnostics(f.proof.ownerKey); await f.drainBackground();
+      expect(await activity.getBrowserDetail()).toMatchObject({ executionStatus: 'unknown', result: null });
+      expect((await callback(f, 'source', { ...source, operationId: 'no-write-replay', method: 'POST', body: '{}' })).status).toBe(403);
+      await activity.reconcileDispatcherLease();
+      expect([...f.normalTransport!.admissions.values()]).toEqual(admissions);
+      expect(control(f, 'read').every(read => JSON.stringify(read.body.receipt) === JSON.stringify(admissions[0].receipt))).toBe(true);
+      expect(control(f, 'abort')).toEqual([]);
+      expect(f.sent).toEqual([]);
+    }, { ...options, intent4: true, loggingEnabled }));
+
+  it('REQ-OPERATOR-041/048/092: passive cold reads do not observe or reconcile a failed normal child', () => fixture(async f => {
+    await start(f);
+    const admissions = structuredClone([...f.normalTransport!.admissions.values()]);
+    f.normalTransport!.settle('failed');
+    const requests = structuredClone(f.normalTransport!.requests);
+    const activity = f.restart();
+    await activity.getBrowserDetail(); await activity.getDispatcherDiagnostics(f.proof.ownerKey); await f.drainBackground();
+    expect(await activity.getBrowserDetail()).toMatchObject({ executionStatus: 'running', result: null });
+    expect(f.normalTransport!.requests).toEqual(requests);
+    await activity.reconcileDispatcherLease();
+    expect(await activity.getBrowserDetail()).toMatchObject({ executionStatus: 'unknown', result: null });
+    expect([...f.normalTransport!.admissions.values()]).toEqual(admissions);
+  }, { ...options, intent4: true }));
+
+  it.each(['failed', 'aborted'] as const)(
+    'REQ-OPERATOR-048/057: generic serial %s receipt closes authority without assessment or successor even with an empty journal', outcome => fixture(async f => {
+      await start(f);
+      const admissions = structuredClone([...f.normalTransport!.admissions.values()]);
+      f.normalTransport!.settle(outcome);
+      await f.activity.reconcileDispatcherLease();
+      expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'unknown', result: null,
+        cleanupStatus: 'unknown', collectionStatus: 'unavailable' });
+      expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
+      expect([...f.normalTransport!.admissions.values()]).toEqual(admissions);
+      expect((await installedContext(f, phaseToken(f))).status).toBe(403);
+      expect(f.sent).toEqual([]);
+    }, { ...options, intent4: true, loggingEnabled: false }));
+
+  it.each(['uid', 'submissionId', 'acceptedAt'] as const)(
+    'REQ-OPERATOR-048/092: foreign failed receipt %s fences the original read without replacement work', field => fixture(async f => {
+      await start(f);
+      const admissions = structuredClone([...f.normalTransport!.admissions.values()]);
+      f.normalTransport!.settle('failed');
+      f.normalTransport!.changeReceipt({ [field]: field === 'acceptedAt' ? '2026-10-28T00:00:00.000Z' : 'foreign' });
+      await f.activity.reconcileDispatcherLease();
+      expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'unknown', result: null });
+      expect((await callback(f, 'source', source)).status).toBe(403);
+      expect([...f.normalTransport!.admissions.values()]).toEqual(admissions);
+      expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
+    }, options));
+
+  it.each(['wire', 'receipt', 'generation', 'hosting'] as const)(
+    'REQ-OPERATOR-048: superseded %s cannot apply an old failed observation to current work', changed => fixture(async f => {
+      await start(f);
+      const admissions = structuredClone([...f.normalTransport!.admissions.values()]);
+      f.normalTransport!.settle('failed');
+      f.normalTransport!.afterNextRead(() => f.mutateEvidence(async storage => {
+        const lease = (await storage.get<Record<string, unknown>>('dispatcher:lease'))!;
+        const patch = changed === 'wire' ? { wire: { ...lease.wire as object, idempotencyKey: 'new-phase-key' } }
+          : changed === 'receipt' ? { receipt: { ...lease.receipt as object, submissionId: 'new-phase-receipt' }, submissionId: 'new-phase-receipt' }
+          : changed === 'hosting' ? { hosting: undefined } : { generation: 2 };
+        await storage.put('dispatcher:lease', { ...lease, ...patch });
+        if (changed === 'generation') {
+          const record = (await storage.get<{ drive: Record<string, unknown> }>('admission'))!;
+          await storage.put('admission', { ...record, drive: { ...record.drive, generation: 2 } });
+        }
+      }));
+      await f.activity.reconcileDispatcherLease();
+      expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'running', result: null });
+      await f.mutateEvidence(async storage => {
+        expect(await storage.get('admission')).not.toHaveProperty('diagnosticFence');
+        expect(await storage.get('dispatcher:lease')).toMatchObject({ status: 'running' });
+      });
+      expect([...f.normalTransport!.admissions.values()]).toEqual(admissions);
+      expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
+    }, { ...options, intent4: true }));
+
   it('REQ-OPERATOR-016: AC6 normal abort is intent only and retains SDK state without claiming settlement or collection', () => fixture(async f => {
     await start(f);
     const accepted = [...f.normalTransport!.admissions.values()][0].receipt;

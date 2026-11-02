@@ -117,6 +117,8 @@ export async function readActivityDiagnostics(input: {
       let actionableFailure: DiagnosticEvent | undefined;
       let confirmed: DiagnosticEvent | undefined;
       let progress: DiagnosticEvent | undefined;
+      const fenced = before.fence;
+      let fenceEvent: DiagnosticEvent | undefined;
       const recoveries: DiagnosticEvent[] = [];
       // Finite retained-index bound; read only metadata, not the child/journal/cache.
       const pointers = index && !unavailable ? await diagnosticPointers(input.storage) : [];
@@ -124,6 +126,9 @@ export async function readActivityDiagnostics(input: {
         .sort((a, b) => Number(a.slice(2)) - Number(b.slice(2)));
       for (const id of selected) {
         const record = await readEvent(id);
+        if (fenced && record.owner === 'host' && record.outcome === 'unknown'
+          && record.boundary === fenced.boundary && record.code === fenced.code
+          && record.generation === fenced.generation && record.timestamp >= fenced.timestamp) fenceEvent = record;
         if (record.outcome === 'failed' || record.code === 'effect-unknown') failure = record;
         if (record.outcome === 'failed' && (record.error?.sdkService
           || record.error?.transportReason === 'operation-conflict')) actionableFailure = record;
@@ -136,7 +141,11 @@ export async function readActivityDiagnostics(input: {
       // Later confirmed work, however, prevents that substitution.
       if (actionableFailure && (!progress || progress.sequence <= actionableFailure.sequence)
         && (!failure || failure.code === 'settlement-failed' || failure === actionableFailure)) failure = actionableFailure;
-      const fenced = before.fence;
+      // Later productive work makes the old attempt historical, not the cause
+      // of a subsequent fence. The essential fence remains truthful even when
+      // its optional event could not be retained.
+      if (fenced && failure && failure.code !== 'effect-unknown' && progress && progress.sequence > failure.sequence
+        && fenced.timestamp >= progress.timestamp) failure = fenceEvent;
       const incomplete = unavailable || before.recorderUnavailable || health.status === 'loss' || !before.logging
         || !index || ['unknown', 'failed', 'cancel-requested'].includes(before.status ?? '') && !fenced;
       const sameOperation = (a: DiagnosticEvent, b: DiagnosticEvent) => a.generation === b.generation

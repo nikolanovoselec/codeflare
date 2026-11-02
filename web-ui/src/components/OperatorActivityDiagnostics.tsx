@@ -213,18 +213,18 @@ const OperatorActivityDiagnostics: Component<{ activityId: string; openOnMount?:
       <Show when={summary()}>{value => <>
         <div class="operator-diagnostic-diagnosis">
           <h4>Evidence summary</h4>
-          <Show when={value().diagnosis.executionStatus}>{status => <p class="operator-state">Current state: {diagnosticWords(status())}</p>}</Show>
+          <Show when={value().diagnosis.sdkService} fallback={<Show when={value().diagnosis.code !== 'none'}><p>{value().diagnosis.continuedId || value().diagnosis.state === 'recovered-failure' ? 'Earlier attempt: ' : ''}{value().diagnosis.transportStatus === 409 && value().diagnosis.transportReason === 'operation-conflict'
+            ? 'The platform refused an inference request with HTTP 409 (operation-conflict). No additional vendor send was authorized for that refusal; the exact conflict condition is not retained.'
+            : value().diagnosis.code === 'tool-failed' && value().diagnosis.publicCode === 'citation-provenance' ? 'A citation did not match retained source evidence.' : reasons[value().diagnosis.code]}</p></Show>}>
+            {cause => <p>{value().diagnosis.continuedId || value().diagnosis.state === 'recovered-failure' ? 'Earlier attempt: ' : ''}{sdkServiceCause(cause())}</p>}
+          </Show>
+          <Show when={value().diagnosis.executionStatus}>{status => <p class="operator-state">Execution in this snapshot: {diagnosticWords(status())}</p>}</Show>
           <p class="operator-state">{value().fence ? 'The run stopped at an execution fence.'
             : value().diagnosis.state === 'recovered-failure' ? 'An earlier failed attempt recovered; the final run outcome is not established here.'
             : value().diagnosis.continuedId ? 'Work continued after a failed attempt. Full recovery is not confirmed.'
             : value().diagnosis.state === 'observed-failure' ? 'No later work is confirmed after the retained failed attempt.'
             : value().diagnosis.state === 'evidence-incomplete' ? 'Evidence is incomplete; the run outcome is unconfirmed.'
             : 'No failure is retained; this does not confirm success.'}</p>
-          <Show when={value().diagnosis.sdkService} fallback={<Show when={value().diagnosis.code !== 'none'}><p>{value().diagnosis.transportStatus === 409 && value().diagnosis.transportReason === 'operation-conflict'
-            ? 'The platform refused an inference request with HTTP 409 (operation-conflict). No additional vendor send was authorized for that refusal; the exact conflict condition is not retained.'
-            : value().diagnosis.publicCode === 'citation-provenance' ? 'A citation did not match retained source evidence.' : reasons[value().diagnosis.code]}</p></Show>}>
-            {cause => <p>Retained attempt: {sdkServiceCause(cause())}</p>}
-          </Show>
           <Show when={value().fence && value().diagnosis.sdkService}><p>{reasons[value().diagnosis.code]}</p></Show>
           <Show when={value().fence && value().diagnosis.continuedId}><p>Later work was recorded after the failed attempt; full recovery is not confirmed.</p></Show>
           <p>Next: {value().fence?.uncertain ? 'Inspect the execution fence and reconcile uncertain effects before considering another run. Do not replay uncertain work.' : value().diagnosis.sdkService && !value().diagnosis.continuedId && value().diagnosis.state !== 'recovered-failure'

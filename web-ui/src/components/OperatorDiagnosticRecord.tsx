@@ -17,6 +17,13 @@ export function sdkServiceNext(cause: SdkServiceFailure): string {
   return 'Check the execution owner’s model and provider configuration against the retained failure evidence before starting another run.';
 }
 export const diagnosticWords = (value: string) => value.replace(/-/g, ' ');
+const boundaryLabels: Record<DiagnosticEvent['boundary'], string> = {
+  artifact: 'Artifact check', admission: 'Admission', construction: 'Runtime startup', submission: 'Work submission',
+  scheduling: 'Scheduling', delivery: 'Work delivery', model: 'Model request', 'inference-response': 'Host response',
+  'canonical-commit': 'Saving the response', tool: 'Tool execution', effect: 'Effect', recovery: 'Recovery',
+  settlement: 'Finishing the work', continuation: 'Continuation', fence: 'Execution fence', release: 'SDK release',
+  platform: 'Platform observation', recorder: 'Diagnostic capture',
+};
 const available = (value: number | string | null | undefined) => value == null ? 'Unavailable' : String(value);
 const coordinates: Record<keyof DiagnosticEvent['correlation'], string> = {
   logicalOrdinal: 'Logical ordinal', hostAttemptIndex: 'Host attempt index', chargedOrdinal: 'Charged ordinal',
@@ -72,15 +79,13 @@ export const DiagnosticRecordMetadata: Component<{ record: DiagnosticRecord; sou
       </details>
     </>}</Show>;
   })()}>{event => <>
-    <p><strong>{event().boundary === 'inference-response' ? 'Host response'
-      : event().boundary === 'canonical-commit' ? 'Saving the response'
-      : event().boundary === 'settlement' ? 'Finishing the work'
-      : event().boundary === 'tool' ? 'Tool execution' : 'Runtime step'}</strong></p>
-    <p>{event().evidence === 'unavailable' ? 'Evidence for this step is unavailable.'
-      : event().outcome === 'failed' ? 'A failure was recorded at this step.'
-      : event().outcome === 'recovered' ? 'This step recovered from an earlier problem.'
-      : event().outcome === 'unknown' ? 'The outcome of this step is unknown.'
-      : 'A runtime step was recorded; it does not establish the outcome of the whole run.'}</p>
+    <p><strong>{boundaryLabels[event().boundary]}</strong> · {diagnosticWords(event().outcome)}</p>
+    <Show when={event().evidence === 'unavailable' || ['failed', 'recovered', 'unknown'].includes(event().outcome)}>
+      <p>{event().evidence === 'unavailable' ? 'Evidence for this step is unavailable.'
+        : event().outcome === 'failed' ? 'A failure was recorded at this step.'
+        : event().outcome === 'recovered' ? 'This step recovered from an earlier problem.'
+        : 'The outcome of this step is unknown.'}</p>
+    </Show>
     <Show when={event().error?.sdkService}>{cause => <p>{sdkServiceCause(cause())}</p>}</Show>
     <Show when={event().error?.transportStatus || event().error?.transportReason}><p>Request failure{event().error?.transportStatus ? ` (HTTP ${event().error!.transportStatus})` : ''}: {event().error?.transportReason === 'execution-inactive'
       ? 'The platform could not confirm this request belonged to an active run.'

@@ -56,6 +56,7 @@ export function createNormalDispatcherTransport(options: {
   let loseNextAcknowledgement = false;
   let pendingAcknowledgement: { accepted: () => void; released: Promise<void> } | undefined;
   let nextReadFailure: number | undefined;
+  let afterRead: (() => void | Promise<void>) | undefined;
   let outcome: 'pending' | 'completed' | 'failed' | 'aborted' = 'pending';
   let data: Record<string, unknown[]> = {};
   let replyPatch: Record<string, unknown> = {};
@@ -108,12 +109,15 @@ export function createNormalDispatcherTransport(options: {
       }
       const receipt = [...admissions.values()].find(item => item.receipt.submissionId === (body.receipt as NormalReceipt)?.submissionId)?.receipt;
       if (!receipt) return Response.json({ code: 'unknown-submission' }, { status: 404 });
-      return Response.json({ status: outcome, receipt: { ...receipt, ...receiptPatch },
+      const response = Response.json({ status: outcome, receipt: { ...receipt, ...receiptPatch },
         ...(outcome === 'pending' ? { reason: 'observation-timeout',
           ...(cursorObservation ? { observation: { ...(body.observation as Record<string, unknown>),
             offset: '100_0', ...observationPatch } } : {}) } : outcome === 'completed'
           ? { reply: { uid: receipt.uid, submissionId: receipt.submissionId, text: '', data, ...replyPatch } }
           : { submissionId: receipt.submissionId }) }, { status: outcome === 'pending' ? 202 : 200 });
+      const action = afterRead; afterRead = undefined;
+      await action?.();
+      return response;
     }
     return new Response(null, { status: 404 });
   };
@@ -132,6 +136,7 @@ export function createNormalDispatcherTransport(options: {
       return { entered, release };
     },
     failNextRead: (status: number) => { nextReadFailure = status; },
+    afterNextRead: (action: () => void | Promise<void>) => { afterRead = action; },
     settle: (status: typeof outcome, assessmentData: Array<{ name: string; data: unknown }> = []) => {
       outcome = status;
       data = {};

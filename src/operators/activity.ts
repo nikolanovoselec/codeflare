@@ -1788,7 +1788,7 @@ export class OperatorActivity extends Agent {
   }
 
   private async fenceDrive(status: 'cancel-requested' | 'unknown', generation?: number,
-    allowWaiting = false, failure?: FailureObservation): Promise<OperatorDriveResult> {
+    allowWaiting = false, failure?: FailureObservation, normalObservation?: DispatcherLease): Promise<OperatorDriveResult> {
     let originalGeneration: number | undefined;
     let reason: FenceReason | undefined;
     const result = await this.ctx.storage.transaction<OperatorDriveResult>(async tx => {
@@ -1806,6 +1806,14 @@ export class OperatorActivity extends Agent {
         checkpoint: record.drive?.checkpoint ?? null, result: record.drive?.result ?? null,
       };
       const lease = await tx.get<DispatcherLease>(DISPATCHER_LEASE);
+      if (normalObservation && (lease?.hosting !== 'normal' || lease.status !== normalObservation.status
+        || lease.generation !== normalObservation.generation || lease.submissionId !== normalObservation.submissionId
+        || lease.inputDigest !== normalObservation.inputDigest || lease.artifactDigest !== normalObservation.artifactDigest
+        || lease.expiresAt !== normalObservation.expiresAt
+        || !sameDispatcherPhaseValue(lease.wire, normalObservation.wire)
+        || !sameDispatcherPhaseValue(lease.receipt, normalObservation.receipt))) {
+        return { ok: false, reason: 'stale-drive' };
+      }
       originalGeneration = lease?.generation ?? record.drive?.generation ?? 0;
       const expired = record.intent.deadline <= Date.now() || !!lease && lease.expiresAt <= Date.now();
       reason = { generation: originalGeneration, timestamp: Date.now(), boundary: status === 'cancel-requested' || expired ? 'fence'
@@ -2620,8 +2628,8 @@ export class OperatorActivity extends Agent {
       const response = await this.#normalDispatcherControl(lease, plan, 'read');
       const receiptEnvelope = z.object({ status: z.enum(['pending', 'completed', 'failed', 'aborted']), receipt: normalDispatcherReceiptSchema }).parse(response.value);
       if (!this.#normalReceiptMatches(lease.receipt, receiptEnvelope.receipt)) throw new Error('Normal Dispatcher foreign receipt');
-      await this.#normalDispatcherCurrent(lease);
       if (receiptEnvelope.status === 'pending') {
+        await this.#normalDispatcherCurrent(lease);
         const pending = z.strictObject({ status: z.literal('pending'), receipt: normalDispatcherReceiptSchema,
           reason: z.literal('observation-timeout'), observation: normalObservationSchema.optional() }).parse(response.value);
         if (response.status !== 202 || !!pending.observation !== !!lease.observation) throw new Error('Normal Dispatcher pending reply invalid');
@@ -2644,6 +2652,7 @@ export class OperatorActivity extends Agent {
       if (response.status !== 200) throw new Error('Normal Dispatcher terminal reply invalid');
       let reply: DispatcherPhaseReply;
       if (receiptEnvelope.status === 'completed') {
+        await this.#normalDispatcherCurrent(lease);
         const completed = z.strictObject({ status: z.literal('completed'), receipt: normalDispatcherReceiptSchema,
           reply: z.strictObject({ text: z.string(), data: z.record(z.string(), z.array(z.json())),
             metadata: z.record(z.string(), z.json()).optional(), uid: z.string().optional(), submissionId: z.string() }) }).parse(response.value);
@@ -2656,6 +2665,14 @@ export class OperatorActivity extends Agent {
           submissionId: z.string() }).parse(response.value);
         if (terminal.submissionId !== lease.receipt.submissionId) throw new Error('Normal Dispatcher foreign terminal reply');
         if (terminal.status === 'failed') {
+          // Only the existing safe native-auth classification needs another remote
+          // authority check. Generic terminal evidence must close local authority first.
+          const record = await this.ctx.storage.get<AdmissionState>('admission');
+          if (lease.configuredSelection?.source === 'pi-native' && record?.authFailure
+            && record.authFailure.provider === lease.configuredSelection.provider
+            && (await this.ctx.storage.transaction(tx => loadDispatcherJournal(tx, lease.generation))).unresolved === 0) {
+            await this.#normalDispatcherCurrent(lease);
+          }
           const authenticationFailed = await this.ctx.storage.transaction(async tx => {
             const record = await tx.get<AdmissionState>('admission');
             const live = await tx.get<DispatcherLease>(DISPATCHER_LEASE);
@@ -2677,7 +2694,16 @@ export class OperatorActivity extends Agent {
             return;
           }
         }
-        reply = { submissionId: terminal.submissionId, upToDate: true, outcome: terminal.status, data: {} };
+        // A verified failed/aborted normal child cannot supply an assessment or
+        // authorize a successor. Persist uncertainty before release/publication I/O.
+        const fenced = await this.fenceDrive('unknown', lease.generation, false,
+          { boundary: 'settlement', code: 'settlement-failed',
+            error: captureError(new Error(`Normal Dispatcher original SDK submission ${terminal.status}`)) }, lease);
+        if (fenced.ok) {
+          await this.#releaseDispatcherSdk();
+          await this.publishBrowserSummary();
+        }
+        return;
       }
       const { admittedTarget } = await authorizeDispatcherPlan(plan, this.#appEnv);
       const policy = isManagementReceipt(plan.receipt) ? plan.receipt.selection.operator.policy : undefined;
@@ -2744,7 +2770,12 @@ export class OperatorActivity extends Agent {
         try { await this.#normalDispatcherCurrent(lease); await this.#scheduleDispatcherRecheck(lease); return; }
         catch { /* Original authority or immutable pins no longer hold. */ }
       }
-      await this.interruptDrive(lease.generation, { boundary: 'settlement', code: 'settlement-failed', error: captureError(error) });
+      const fenced = await this.fenceDrive('unknown', lease.generation, false,
+        { boundary: 'settlement', code: 'settlement-failed', error: captureError(error) }, lease);
+      if (fenced.ok) {
+        await this.#releaseDispatcherSdk();
+        await this.publishBrowserSummary();
+      }
     }
   }
 
