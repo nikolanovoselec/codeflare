@@ -1,6 +1,6 @@
 ---
 name: browser-run
-description: Read or drive public web pages with a real headless browser (Cloudflare Browser Run). Two surfaces — a cheap one-shot Markdown/HTML/scrape read (browser_markdown / browser_content / browser_scrape) and the interactive chrome-devtools browser (navigate / click / screenshot). Use when WebFetch is blocked by bot protection, login walls, redirects, or JavaScript-only rendering, or when you need to interact with a page.
+description: Read public pages with Browser Run or diagnose configured Chrome DevTools MCP navigation; explicit authorization required for owner login.
 version: 2.0.0
 ---
 
@@ -13,7 +13,7 @@ A real headless browser (Cloudflare Browser Run, headless Chrome) for public web
 | **Markdown / read** (one-shot) | `browser_markdown`, `browser_content`, `browser_scrape` (the `browser-run` MCP server) | Cheap — one request, no live session | **Reading** a page: article/doc content, verifying rendered text/structure, pulling specific elements. The default when you just need to *see what the page says*. |
 | **Interactive** | `mcp__chrome-devtools__*` (`navigate_page`, `take_snapshot`, `take_screenshot`, `click`, `fill`, `evaluate_script`, `resize_page`/`emulate`) | Expensive — holds a remote Chrome/CDP session | **Driving** a page: multi-step flows, clicking/typing, screenshots, viewport testing, e2e. |
 
-Both are Pro (advanced) only, and only when a Cloudflare API token with the **Browser Rendering – Edit** scope is configured. If you see neither the `browser_*` tools nor `mcp__chrome-devtools__*`, Browser Run is not enabled — fall back to `WebFetch` only.
+Managed Browser Run is Advanced-only and requires configured Browser Rendering access (**Browser Rendering – Edit**). Discover the read and interactive surfaces independently through the runtime's configured MCP tooling; absence from the initial tool list is not proof of unavailability. A Browser Run API token authorizes the browser service, not owner login to a website.
 
 ## Decision order (cheapest that does the job)
 
@@ -21,16 +21,35 @@ Both are Pro (advanced) only, and only when a Cloudflare API token with the **Br
 2. **Raw HTTP / JSON API** → `curl` via Bash.
 3. **Blocked or JS-only, but you only need to READ it** → `browser_markdown` (clean Markdown — smallest, best for content), `browser_content` (rendered HTML/DOM), or `browser_scrape` (specific CSS selectors). One-shot, no session — **prefer this over chrome-devtools whenever you don't need to interact.** Don't retry `WebFetch` on a page you already know needs JS.
 4. **You need to INTERACT** — navigate a multi-step flow, click/fill, take a screenshot, test a viewport → the `chrome-devtools` browser. This is where e2e lives; see the `browser-e2e` skill.
-5. Public URLs only. Never point Browser Run at internal hosts, `localhost`, private IPs, or anything requiring the user's session/credentials.
+5. Public URLs only; never internal hosts, `localhost`, or private IPs. One-shot reads must not import user sessions or credentials. Interactive owner login requires explicit current-user authorization for the public site and flow; follow the boundaries below.
 
 ## How to use
 
 - **Read:** `browser_markdown { "url": "https://example.com/guide" }`. For JS-heavy / SPA pages pass `wait_until: "networkidle0"` so content has rendered. Narrow huge pages with `browser_scrape` + selectors.
 - **Interact:** `navigate_page` → `take_snapshot` / `evaluate_script` to observe → `take_screenshot` when a visual is needed → `click` / `fill` to step. Keep a fetch task read-only; full flows belong in `browser-e2e`.
 
-## Version and tool discovery
+## Interactive discovery and recovery
 
-The consolidation source pins Chrome DevTools MCP 1.12.0; verify the installed version independently. Use the configured remote CDP server and discover its current tool names and input schemas; do not install `npx @latest`, implicitly launch a local browser, or replace the user's MCP configuration to make a tool appear. Missing interactive tools do not authorize bypassing authentication. Performance tools may send trace URLs to Google's CrUX service; do not submit private URLs or sensitive traces without authorization.
+1. Connect/discover the configured `chrome-devtools` MCP server using the runtime's exposed schema; inspect live tool names and input schemas before calls. Do not guess qualified names or arguments. In Pi, use the native `browser-run` override and `pi-mcp-adapter` skill for proxy mechanics.
+2. Call live `list_pages` before assuming page IDs. Reuse an appropriate existing tab and `navigate_page` before attempting `new_page`; create a page only if needed. Treat `No page found` as a stale ID: list again, never reuse a cached tab ID blindly.
+3. Use a meaningful bounded long timeout supported by the discovered schema (120000 ms was successful for navigation). If `new_page` aborts, refresh discovery/list pages and try existing-tab navigation rather than repeating creation. Stop if that bounded recovery fails; report the operation, timeout and concrete sanitized error. An abort is not proof of credential expiry or an underlying transport cause.
+4. Preserve the configured command, CA, headers, credentials and retention settings. Do not request Pi reload, install `npx @latest`, change npm/symlinks/configuration, patch the SDK, write a custom CDP client, kill browsers/servers, or warm Pi/Enterprise compute sessions as browser recovery. Missing tools do not authorize authentication bypass. Performance traces may send URLs to Google's CrUX service; do not submit private URLs or sensitive traces without authorization.
+
+## Session lifetime and sequencing
+
+Finish long non-browser build and release prerequisites before requesting an OTP. Perform consecutive authorized owner actions in the same live browser context. After an idle interval, obtain live page inventory and verify protected access again; do not assume a cached page ID or prior login still works. Do not use blind keep-alive pings or export sessions to avoid reauthentication.
+
+The observed configuration used `keep_alive=360000` and `requestTimeoutMs: 360000`. After intervening non-browser work, the authenticated tab was unavailable and reconnecting yielded a fresh blank page. This does not prove owner-credential expiry or the underlying abort cause. Preserve configured lifetime settings; request a fresh authorized login only when current access requires it.
+
+## Authorized public owner login
+
+Only with explicit current-user authorization, navigate the public site in the configured interactive browser. Inspect a bounded DOM projection of input types and button labels only, not full URLs, field values, page dumps, cookies, tokens or challenge metadata. Fill the authorized owner email in the actual form and use **Send login code**. Confirm the verification prompt and its stated validity window before asking for the current code. Use the user-provided code only in that site's actual **Verify** form, submit once, and observe the result; do not replay an uncertain submission or automatically resend codes. Stop for renewed user input if rejected or expired.
+
+Verify the expected application path and, when authorized, a protected owner GET by status only; a login redirect alone is not protected-access proof. Never export sessions/tokens, bypass Access, substitute token API authentication for owner login, or persist email, OTP, token, cookies or challenge URL metadata in docs/logs/artifacts. Authorization to log in does not authorize unrelated protected actions.
+
+## Verified recovery evidence
+
+In the observed Pi session, `new_page` repeatedly aborted at 120000 ms and cached page 2 returned `No page found`. `mcp({connect: "chrome-devtools"})` refreshed the catalog; live `list_pages` returned page 1 (`about:blank`). Reusing that tab with `navigate_page` at 120000 ms reached Cloudflare Access. After explicitly authorized email submission, the prompt confirmed a ten-minute OTP window; a current user-provided code was submitted once through Verify, redirecting to `/app/`. A protected owner GET returned HTTP 200. Observed Chrome DevTools MCP 1.10.1 and adapter 5.3.1 are evidence, not version requirements. No configuration edits or server kill were needed; the underlying abort cause was not proved.
 
 ## Notes
 
