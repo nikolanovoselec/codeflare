@@ -300,7 +300,6 @@ export async function handleDispatcherSdkCredentials(storage: DurableObjectStora
     const selectionCurrent = async () => {
       const now = savedDefaults((await io.read(SETTINGS)).bytes);
       if (now.defaultProvider !== selected.defaultProvider || now.defaultModel !== selected.defaultModel) deny();
-      await io.guard();
     };
     const snapshot = async () => {
       await selectionCurrent();
@@ -314,10 +313,8 @@ export async function handleDispatcherSdkCredentials(storage: DurableObjectStora
     if (saved.raw.type === 'api_key') {
       const key = saved.raw.key;
       if (typeof key !== 'string' || !key.trim() || key.startsWith('!') || /[\r\n\x00]/.test(key)) deny();
-      await selectionCurrent();
       const latest = await snapshot();
       if (latest.etag !== saved.etag || JSON.stringify(latest.raw) !== JSON.stringify(saved.raw)) deny(409);
-      await io.guard();
       return { apiKey: key };
     }
     oauthCredential(saved.raw);
@@ -330,8 +327,12 @@ export async function handleDispatcherSdkCredentials(storage: DurableObjectStora
     };
     const checkProvider = (id: string) => { if (id !== selected.defaultProvider) deny(); };
     const credentials: CredentialStore = {
+      // The initial read is already validated within this request. Refresh
+      // modification and final release still reread the original R2 files.
       read: id => storageOperation(async () => {
-        checkProvider(id); saved = await snapshot(); return oauthCredential(saved.raw);
+        checkProvider(id);
+        if (io.signal.aborted) deny();
+        return oauthCredential(saved.raw);
       }),
       modify: (id, fn) => {
         const pending = (async () => {
@@ -382,14 +383,12 @@ export async function handleDispatcherSdkCredentials(storage: DurableObjectStora
         cause: { ...evidence, requestAborted, abortReason },
       });
     }
-    await selectionCurrent();
     const latest = await snapshot();
     if (latest.etag !== saved.etag || JSON.stringify(latest.raw) !== JSON.stringify(saved.raw)) deny(409);
     if (!resolved || resolved.env && Object.keys(resolved.env).length
       || Object.keys(resolved.auth).some(key => key !== 'apiKey')) deny();
     const apiKey = resolved.auth.apiKey;
     if (typeof apiKey !== 'string' || !apiKey.trim() || /[\r\n\x00]/.test(apiKey)) deny();
-    await io.guard();
     return { apiKey };
   });
 }

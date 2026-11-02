@@ -505,6 +505,77 @@ describe('REQ-OPERATOR-007/047/048/058: owner R2 configured-service HTTP contrac
     expect(store.etag(authKey)).toBe(version);
   }));
 
+  // Charge elapsed time at external authority/R2 boundaries, not at private
+  // helpers. Shared state is plain data; no timer or pending Promise is captured
+  // from the Activity and awaited by the metadata DO. Date-based production
+  // deadline checks remain active, without making CI wait thirty real seconds.
+  function credentialBoundaryLatency(f: DispatcherFixture, store: Store) {
+    const clock = { now: Date.now() };
+    const startedAt = clock.now;
+    vi.spyOn(Date, 'now').mockImplementation(() => clock.now);
+    const authorityReply = async () => {
+      clock.now += 130;
+      f.afterRegistryResolve(authorityReply);
+    };
+    f.afterRegistryResolve(authorityReply);
+    const r2Fetch = store.fetcher;
+    store.fetcher = async (input, init) => {
+      clock.now += 25;
+      return r2Fetch(input, init);
+    };
+    return { elapsed: () => clock.now - startedAt };
+  }
+
+  it.each(['fresh', 'expired'] as const)(
+    '%s OAuth resolves within the existing 30s credential budget under authority and R2 latency', state => lane(async (f, store) => {
+      await admitted(f);
+      const saved = { [providerId]: { ...oldOAuth,
+        expires: state === 'fresh' ? Date.now() + 3_600_000 : 1 }, other };
+      store.put(authKey, saved);
+      oauthBoundary(async () => tokenReply());
+      const clock = credentialBoundaryLatency(f, store);
+
+      expect(await json(await read(f))).toEqual({ apiKey: state === 'fresh' ? oldOAuth.access : renewedAccess });
+      expect(clock.elapsed()).toBeLessThan(30_000);
+      if (state === 'fresh') expect(store.value(authKey)).toEqual(saved);
+      else expect(store.value(authKey)).toEqual({ [providerId]: {
+        type: 'oauth', access: renewedAccess, refresh: renewedRefresh, clientId: oldOAuth.clientId,
+        scopes: ['openid', 'chatgpt.tokens.use.direct'], expires: expect.any(Number),
+      }, other });
+    }));
+
+  it('revocation during OAuth refresh under boundary latency releases no auth or persisted rotation', () => lane(async (f, store) => {
+    await admitted(f);
+    const saved = { [providerId]: { ...oldOAuth, expires: 1 }, other };
+    store.put(authKey, saved);
+    let revoked = false;
+    oauthBoundary(async () => {
+      f.revokeGrant();
+      revoked = true;
+      return tokenReply();
+    });
+    const clock = credentialBoundaryLatency(f, store);
+
+    await denied(await read(f), [403, 409, 503]);
+    expect(revoked).toBe(true);
+    expect(clock.elapsed()).toBeLessThan(30_000);
+    expect(store.value(authKey)).toEqual(saved);
+  }));
+
+  it('concurrent whole-file CAS under boundary latency preserves the winning credential file and releases no auth', () => lane(async (f, store) => {
+    await admitted(f);
+    const saved = { [providerId]: { ...oldOAuth, expires: 1 }, other };
+    const winner = { ...saved, other: { type: 'api_key', key: `${canary}_concurrent_other` } };
+    store.put(authKey, saved);
+    store.beforeWrite(() => { store.put(authKey, winner); });
+    oauthBoundary(async () => tokenReply());
+    const clock = credentialBoundaryLatency(f, store);
+
+    await denied(await read(f), [403, 409, 503]);
+    expect(clock.elapsed()).toBeLessThan(30_000);
+    expect(store.value(authKey)).toEqual(winner);
+  }));
+
   it('a fresh concurrent login found under the SDK lock is returned without rewriting its R2 version', () => lane(async (f, store) => {
     await admitted(f);
     store.put(authKey, { [providerId]: { ...oldOAuth, expires: 1 }, other });
