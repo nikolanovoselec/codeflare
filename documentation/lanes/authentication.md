@@ -137,6 +137,8 @@ Service automation uses `X-Service-Auth` only when the optional Worker `SERVICE_
 
 Current source checks this header before user authentication, compares it in constant time, and returns an admin automation identity when it matches. The stress-mode, SaaS-mode, and hostname restrictions accepted in [AD68](../decisions/README.md#ad68-service-token-admin-bypass-must-be-environment-gated-and-hostname-restricted) are **not implemented** and remain tracked by issue #130. This path must therefore be treated as a privileged residual risk, not described as environment-gated hardening. <!-- @impl: src/lib/access.ts::validateServiceAuthHeader -->
 
+The automation identity carries an explicit active tier for protected app APIs. Ordinary users without a recognized tier remain pending. <!-- @impl: src/lib/access.ts::validateServiceAuthHeader --> <!-- @impl: src/middleware/auth.ts::requireActiveUser -->
+
 Cloudflare Access service headers remain an edge-auth mechanism where configured; they are not a substitute for Codeflare's custom Worker service-auth contract.
 
 ## Identity and Authorization

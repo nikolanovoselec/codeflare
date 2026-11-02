@@ -2,6 +2,10 @@
 
 Semantic changes to the specification. Git history captures diffs; this file captures intent.
 
+## 2026-11-02
+
+- Give successfully authenticated service automation an active tier so it can reach protected APIs in SaaS and onboarding modes ([REQ-AUTH-004](authentication.md#req-auth-004-service-token-authentication-for-service-automation)). Invalid or unconfigured credentials remain rejected, and ordinary users without a recognized tier remain pending.
+
 ## 2026-11-01
 
 - Decouple PR review from Goal lifecycle: launch, FIX, cleanup and restoration no longer pause or resume Goal ([REQ-AGENT-112](agents.md#req-agent-112-goal-independent-pr-review), [113](agents.md#req-agent-113-goal-independent-review-completion), [114](agents.md#req-agent-114-review-and-goal-continuation-separation), [117](agents.md#req-agent-117-goal-independent-review-restoration)). Preserve review/CI/triage gates, explicit user pauses and native Goal behavior.
