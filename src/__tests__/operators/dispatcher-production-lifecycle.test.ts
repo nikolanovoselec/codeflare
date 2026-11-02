@@ -3570,7 +3570,7 @@ describe('normal installed Dispatcher control', () => {
         await storage.put('dispatcher:journal', journal);
       });
       // Publication is a remote boundary; its failure cannot erase durable execution truth.
-      const registry = f.environment.OPERATOR_REGISTRY.getByName('registry');
+      const registry = f.environment.OPERATOR_REGISTRY!.getByName('registry');
       vi.spyOn(registry, 'upsertOwnedActivity').mockRejectedValue(new Error('Connection closed: this Durable Object instance is no longer active'));
       f.normalTransport!.settle(outcome);
       // Model instance loss at the next external registry round trip ONLY after
@@ -3599,7 +3599,7 @@ describe('normal installed Dispatcher control', () => {
         f.afterRegistryResolve(async () => {});
       }
       expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'unknown', attention: true,
-        cleanupStatus: 'unknown', collectionStatus: 'unavailable', result: null });
+        cleanupStatus: 'pending', collectionStatus: 'unavailable', result: null });
       expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
       await f.mutateEvidence(async storage => {
         expect(await storage.get('admission')).toMatchObject({ drive: { generation: 2, status: 'unknown' },
@@ -3647,7 +3647,7 @@ describe('normal installed Dispatcher control', () => {
       f.normalTransport!.settle(outcome);
       await f.activity.reconcileDispatcherLease();
       expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'unknown', result: null,
-        cleanupStatus: 'unknown', collectionStatus: 'unavailable' });
+        cleanupStatus: 'pending', collectionStatus: 'unavailable' });
       expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
       expect([...f.normalTransport!.admissions.values()]).toEqual(admissions);
       expect((await installedContext(f, phaseToken(f))).status).toBe(403);

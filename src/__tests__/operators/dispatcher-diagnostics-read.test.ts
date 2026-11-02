@@ -9,6 +9,10 @@ function metadataStorage() {
   const rows = new Map<string, unknown>();
   return {
     get: async (key: string) => structuredClone(rows.get(key)),
+    list: async (options: { prefix?: string; startAfter?: string; limit?: number } = {}) => new Map(
+      [...rows.keys()].sort().filter(key => (!options.prefix || key.startsWith(options.prefix))
+        && (options.startAfter === undefined || key > options.startAfter)).slice(0, options.limit)
+        .map(key => [key, structuredClone(rows.get(key))] as const)),
     put: async (key: string, value: unknown) => { rows.set(key, structuredClone(value)); },
     delete: async (key: string) => rows.delete(key),
   } as unknown as DurableObjectStorage;
