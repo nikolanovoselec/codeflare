@@ -47,7 +47,7 @@ export const sdkServiceFailureSchema = z.strictObject({
   && (!value.oauthError || value.sdkStage === 'refresh' && value.httpStatus !== null));
 export type SdkServiceFailure = z.infer<typeof sdkServiceFailureSchema>;
 /** Root-owned collection refusal, never supplied by SDK envelopes or child reports. */
-export const journalFailureSchema = z.strictObject({
+const journalFailureSchema = z.strictObject({
   gate: z.enum(['final-binding', 'operation-binding', 'terminal-binding', 'disposition-coverage',
     'read-coverage', 'mutation-kind', 'mutation-coverage', 'unresolved-count']),
   operationDigest: digestSchema.optional(), unresolved: counter, inspectedUnresolved: counter,

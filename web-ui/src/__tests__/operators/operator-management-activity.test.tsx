@@ -667,7 +667,7 @@ describe('REQ-OPERATOR-081: AC6 retained Dispatcher diagnostics in Activity deta
     const detail = within(await within(row).findByRole('region', { name: `Record ${operation.id}` }));
     fireEvent.click(detail.getByText('Operation technical details', { selector: 'summary' }));
     expect(detail.getByText(operation.operationDigest)).toBeVisible();
-    expect(detail.getByText(/legacy operation.*(?:not|cannot)/i)).toBeInTheDocument();
+    expect(detail.getByText('Parent journal metadata does not establish an SDK attempt or originating SDK error. Missing association remains unknown.')).toBeInTheDocument();
     expect(detail.queryByRole('button', { name: /replay|repair|retry|continue|collect/i })).not.toBeInTheDocument();
     expect(state.mutations).toEqual([]);
   });
