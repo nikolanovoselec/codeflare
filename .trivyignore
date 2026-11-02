@@ -13,7 +13,11 @@
 # do not force Zod 3 consumers onto its incompatible v4 API to clear a scan.
 # body-parser 2.3.0: compressed-body trailing bytes can crash its process.
 # Upstream fixes: 2.4.0 / 1.20.9. GHSA-27r3-jxmh-p828.
-CVE-2026-111181 exp:2026-11-02
+# Owner-authorized renewal, 2026-11-02, after deploy 41382190164 found four
+# copies in code-server, browser-run-mcp, npm-tools and Pi. Accept the residual
+# process-crash risk IMAGE-WIDE for delivery; this is not a dependency fix.
+# Remove sooner when the consuming artifacts/locks carry the patched versions.
+CVE-2026-111181 exp:2026-11-09
 # undici 6.29.0 / 7.30.0 / 8.11.2: malicious content-encoding responses can
 # crash fetch callers. Fixes: 6.29.1 / 7.30.1 / 8.12.2. GHSA-xjj6-f33q-929c.
 CVE-2026-109869 exp:2026-11-02
