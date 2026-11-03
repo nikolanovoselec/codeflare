@@ -11,8 +11,6 @@ import type { Env } from '../types';
 import { toErrorMessage } from '../lib/error-types';
 import { createLogger } from '../lib/logger';
 import { getConfiguredMcpPortals } from '../lib/mcp-portals';
-import { isValidCustomDomain, SETUP_KEYS } from '../lib/kv-keys';
-import { D1SessionRepository } from '../lib/session-repository';
 import {
   buildEnvVars,
   applyBucketName,
@@ -74,25 +72,7 @@ export function updateEnvVars(host: ContainerHost): void {
 
 /** Refresh non-secret instance configuration for the next managed Pi start. */
 export async function refreshMcpPortalConfiguration(host: ContainerHost): Promise<void> {
-  host._mcpPortals = host._operatorContainerProfile || host._sessionMode !== 'advanced'
-    ? [] : await getConfiguredMcpPortals(host.env.KV);
-  host._mcpCallbackOrigin = undefined;
-  if (host._mcpPortals.length > 0) {
-    const domain = await host.env.KV.get(SETUP_KEYS.CUSTOM_DOMAIN);
-    if (domain && isValidCustomDomain(domain)) host._mcpCallbackOrigin = `https://${domain.toLowerCase()}`;
-  }
-}
-
-/** Read the claimed D1 execution before launch; operational storage is handed off later in onStart. */
-export async function refreshMcpLaunchGeneration(host: ContainerHost): Promise<void> {
-  host._mcpLifecycleGeneration = undefined;
-  if (host._operatorContainerProfile || host._sessionMode !== 'advanced' || !host._mcpPortals?.length
-    || !host._mcpCallbackOrigin || !host._bucketName || !host._sessionId) return;
-  const current = await new D1SessionRepository(host.env.USAGE_DB).getSession(host._bucketName, host._sessionId);
-  if (current && Number.isSafeInteger(current.lifecycleGeneration) && current.lifecycleGeneration > 0
-    && (current.lifecycleState === 'starting' || current.lifecycleState === 'running') && !current.terminationIntentId) {
-    host._mcpLifecycleGeneration = current.lifecycleGeneration;
-  }
+  host._mcpPortals = host._operatorContainerProfile ? [] : await getConfiguredMcpPortals(host.env.KV);
 }
 
 /** Set the bucket name for this container (called by worker on first access). */

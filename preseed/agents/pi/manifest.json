@@ -164,12 +164,6 @@
       "advanced"
     ]
   },
-  "extensions/mcp-portal-oauth.ts": {
-    "modes": [
-      "default",
-      "advanced"
-    ]
-  },
   "extensions/native-notifications.ts": {
     "modes": [
       "default",
@@ -766,6 +760,30 @@
     ]
   },
   "rules/codeflare-capabilities.md": {
+    "modes": [
+      "default",
+      "advanced"
+    ]
+  },
+  "skills/mcp-portals/SKILL.md": {
+    "modes": [
+      "default",
+      "advanced"
+    ]
+  },
+  "skills/mcp-portal-connect/SKILL.md": {
+    "modes": [
+      "default",
+      "advanced"
+    ]
+  },
+  "skills/mcp-portal-discovery/SKILL.md": {
+    "modes": [
+      "default",
+      "advanced"
+    ]
+  },
+  "skills/mcp-portal-execution/SKILL.md": {
     "modes": [
       "default",
       "advanced"

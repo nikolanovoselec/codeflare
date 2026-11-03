@@ -8,6 +8,8 @@ disable-model-invocation: true
 
 `pi-mcp-extension` owns configured MCP servers. Prefer native tools when they cover the task. The historical skill path remains stable; there is no `mcp` proxy.
 
+For Codeflare-managed portals, load [MCP portals](../mcp-portals/SKILL.md): bootstrap every configured approved portal before semantic selection. Managed portals use Settings-owned OAuth and eager placeholder connections; the lazy/local OAuth instructions below apply to unrelated servers.
+
 ## Discover, connect, activate
 
 1. Discover and activate `mcp_status` through `capability` using its exact name, then inspect configured server names and states. Search/activation alone does not connect a server.

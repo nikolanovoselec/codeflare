@@ -66,17 +66,12 @@ fi
 }
 
 describe('Codeflare Herdr launcher', () => {
-  it('REQ-AGENT-226: Herdr managed autostart selects the private launcher only with complete parent authority', () => {
-    const configured = { SESSION_MODE: 'advanced', CODEFLARE_MCP_CALLBACK_ORIGIN: 'https://instance.example',
-      CODEFLARE_MCP_LIFECYCLE_GENERATION: '7', CODEFLARE_MCP_LAUNCH_CAPABILITY: 'a'.repeat(64),
-      CODEFLARE_MCP_PORTALS_JSON: JSON.stringify([{ name: 'fixture', url: 'https://portal.example/mcp' }]) };
-    for (const patch of [{}, { SESSION_MODE: 'default' }, { CODEFLARE_MCP_LAUNCH_CAPABILITY: '' },
-      { CODEFLARE_MCP_CALLBACK_ORIGIN: 'http://untrusted.example' }, { CODEFLARE_MCP_LIFECYCLE_GENERATION: '0' }, { CODEFLARE_MCP_PORTALS_JSON: '[]' }]) {
-      const { result, calls } = harness('pi', undefined, undefined, { ...configured, ...patch });
+  it('REQ-AGENT-227: both Pi modes launch the stock client without a credential companion', () => {
+    for (const mode of ['default', 'advanced']) {
+      const { result, calls } = harness('pi', undefined, undefined, { SESSION_MODE: mode,
+        CODEFLARE_MCP_PORTALS_JSON: JSON.stringify([{ name: 'fixture', url: 'https://portal.example/mcp' }]) });
       assert.equal(result.status, 0, result.stderr);
-      assert.equal(calls.find(call => call.startsWith('pane run ')), Object.keys(patch).length === 0
-        ? 'pane run w1:p1 /usr/local/bin/codeflare-pi-mcp-launch --tui-mode fullscreen'
-        : 'pane run w1:p1 env -u CODEFLARE_MCP_HOSTED -u CODEFLARE_MCP_LAUNCH_CAPABILITY pi --tui-mode fullscreen');
+      assert.equal(calls.find(call => call.startsWith('pane run ')), 'pane run w1:p1 pi --tui-mode fullscreen');
     }
   });
   it('REQ-AGENT-012: Herdr Codex launch honors Fast Start without changing tab configuration', () => {

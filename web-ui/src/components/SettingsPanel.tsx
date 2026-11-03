@@ -15,6 +15,7 @@ import type { AccessTier, SessionWorkspace, SubscriptionTier } from '../types';
 import AppearanceSection from './settings/AppearanceSection';
 import SessionSection from './settings/SessionSection';
 import DeployKeysSection from './settings/DeployKeysSection';
+import McpPortalsSection from './settings/McpPortalsSection';
 import LlmKeysSection from './settings/LlmKeysSection';
 import AdminActionButton from './settings/AdminActionButton';
 import {
@@ -36,7 +37,7 @@ interface SettingsPanelProps {
   enterpriseMode?: boolean;
 }
 
-type AccordionGroup = 'appearance' | 'session' | 'deploy' | 'llm' | 'admin';
+type AccordionGroup = 'appearance' | 'session' | 'deploy' | 'mcp' | 'llm' | 'admin';
 
 interface AccordionSectionProps {
   group: AccordionGroup;
@@ -109,6 +110,7 @@ const ACCORDION_SUBTITLES: Record<AccordionGroup, string> = {
   appearance: 'Colors, tips & display preferences',
   session: 'Startup behavior & workspace sync',
   deploy: 'Connect GitHub & Cloudflare for one-click deploy',
+  mcp: 'Connect MCP portals & manage tool access',
   llm: 'Connect GPT & Gemini for second opinions (optional)',
   admin: 'Environment, analytics & initialization',
 };
@@ -434,6 +436,16 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
               <DeployKeysSection />
             </AccordionSection>
           </Show>
+
+          <AccordionSection
+            group="mcp"
+            title="MCP"
+            subtitle={ACCORDION_SUBTITLES.mcp}
+            isOpen={openGroup() === 'mcp'}
+            onToggle={() => handleAccordionClick('mcp')}
+          >
+            <McpPortalsSection />
+          </AccordionSection>
 
           {/* ── LLM API Keys (advanced session mode only; never in enterprise mode) ── */}
           <Show when={canUseAdvanced() && currentSessionMode() === 'advanced' && !props.enterpriseMode}>

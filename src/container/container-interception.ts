@@ -18,6 +18,7 @@
  * URL, or token ever enters the container.
  */
 import type { Env, ManagedResourcePolicy } from '../types';
+import { getConfiguredMcpPortals } from '../lib/mcp-portals';
 import { ForbiddenError, toError } from '../lib/error-types';
 import { createLogger } from '../lib/logger';
 import { isEnterpriseMode } from '../lib/subscription';
@@ -510,9 +511,27 @@ export async function refreshStrictEgressInterception(
  */
 export async function wireContainerInterception(host: InterceptionHost): Promise<void> {
   const enterprise = isEnterpriseMode(host.env);
+  const registrations: InterceptorRegistration[] = [];
   for (const spec of CONTAINER_INTERCEPTION_REGISTRY) {
     if ((spec.mode === 'enterprise') !== enterprise) continue;
     const reg = await spec.resolve(host);
-    if (reg) await applyInterception(host, reg);
+    if (reg) registrations.push(reg);
   }
+  // Every deployment/session mode uses the same Worker-owned portal boundary.
+  // Operators never inherit personal grants. Reject host collisions, rather than
+  // silently replacing an existing credential transport or its wildcard authority.
+  const portals = await getConfiguredMcpPortals(host.env.KV);
+  if (portals.length) {
+    const hosts = [...new Set(portals.map(p => new URL(p.url).hostname))];
+    const claimed = registrations.flatMap(reg => reg.hosts).filter(pattern => pattern !== '*');
+    if (hosts.some(name => claimed.some(pattern => pattern === name
+      || (pattern.startsWith('*.') && name.endsWith(pattern.slice(1)))))) {
+      throw new ForbiddenError('MCP portal host collides with an existing outbound transport');
+    }
+    registrations.push({ entrypoint: 'McpPortalInterceptor', mandatory: true, hosts,
+      props: { bucket: host._bucketName ?? '', portals, strict: host._strictEgress === true,
+        operator: !!(host._operatorPolicy || host._operatorContainerProfile) },
+      wiredLog: 'MCP portal interception wired', failLog: 'MCP portal interception unavailable' });
+  }
+  for (const reg of registrations) await applyInterception(host, reg);
 }

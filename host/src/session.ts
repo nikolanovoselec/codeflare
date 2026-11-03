@@ -121,8 +121,6 @@ export class Session {
   private readonly clientResizeRequests: Map<WebSocket, { cols: number; rows: number }>;
   private readonly agentEventParser: OscAgentEventParser;
   private readonly agentEventQueue: AgentEventQueue;
-  private readonly mcpOAuth: SessionOptions['mcpOAuth'];
-  private mcpLaunch?: { capability: string; revoke: () => void };
 
   // Injected dependencies
   private readonly _tabConfigMap: TabConfigMap;
@@ -136,7 +134,6 @@ export class Session {
   private readonly _stopTerminalRuntime: (() => void) | null;
 
   constructor(id: string, name = 'Terminal', manual = false, options: SessionOptions = {}) {
-    this.mcpOAuth = options.mcpOAuth;
     this.id = id;
     this.name = name;
     this.manual = manual;
@@ -234,8 +231,6 @@ export class Session {
       TERMINAL_ID: terminalId,
       CLAUDE_CODE_DISABLE_VIRTUAL_SCROLL: '1',
     };
-    delete ptyEnv.CODEFLARE_MCP_LAUNCH_CAPABILITY;
-    if (this.mcpLaunch) ptyEnv.CODEFLARE_MCP_LAUNCH_CAPABILITY = this.mcpLaunch.capability;
     if (this.manual) {
       ptyEnv.MANUAL_TAB = '1';
     }
@@ -259,8 +254,6 @@ export class Session {
     const cwd = this._getWorkingDirectory();
     const terminalId = this.id.includes('-') ? this.id.split('-').pop() : '1';
 
-    this.mcpLaunch?.revoke();
-    this.mcpLaunch = this.manual ? undefined : this.mcpOAuth?.issue(this, () => this.clients.size > 0);
     this.ptyProcess = pty.spawn(cmd, args, {
       name: 'xterm-256color',
       cols,
@@ -287,8 +280,6 @@ export class Session {
     });
 
     this.ptyProcess.onExit(({ exitCode, signal }: { exitCode: number; signal?: number }) => {
-      this.mcpLaunch?.revoke();
-      this.mcpLaunch = undefined;
       this._log('info', 'PTY exited', { session: this.id, exitCode, signal, connectedClients: this.clients.size });
       this._logWsEvent(this.id, 'pty_exit', { exitCode, signal, connectedClients: this.clients.size });
       for (const client of this.clients) {
@@ -368,7 +359,6 @@ export class Session {
    */
   detach(ws: WebSocket, sessionManager: SessionManagerLike | null = null): void {
     this.clients.delete(ws);
-    if (this.clients.size === 0) this.mcpOAuth?.disconnect(this);
     this.clientResizeRequests.delete(ws);
     if (this.resizeAuthorityClient === ws) {
       this.resizeAuthorityClient = this.clients.values().next().value ?? null;
@@ -529,8 +519,6 @@ export class Session {
    * Kill the PTY process
    */
   kill(): void {
-    this.mcpLaunch?.revoke();
-    this.mcpLaunch = undefined;
     if (this.keepAliveTimeout) {
       clearTimeout(this.keepAliveTimeout);
       this.keepAliveTimeout = null;

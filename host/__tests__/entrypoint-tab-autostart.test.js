@@ -107,37 +107,6 @@ function piSessionHeader(dir, nativeId) {
 // REQ-TERM-006: User-created tabs start with plain bash
 
 describe('entrypoint.sh configure_tab_autostart / REQ-AGENT-003 (Agent CLI auto-started in tab 1)', () => {
-  it('REQ-AGENT-226: Classic evaluates managed launch authority at PTY start and preserves native session args', () => {
-    const configured = { SESSION_MODE: 'advanced', CODEFLARE_MCP_CALLBACK_ORIGIN: 'https://instance.example',
-      CODEFLARE_MCP_LIFECYCLE_GENERATION: '7', CODEFLARE_MCP_LAUNCH_CAPABILITY: 'a'.repeat(64),
-      CODEFLARE_MCP_PORTALS_JSON: JSON.stringify([{ name: 'fixture', url: 'https://portal.example/mcp' }]), CODEFLARE_MCP_HOSTED: 'stale' };
-    for (const patch of [{}, { CODEFLARE_MCP_LAUNCH_CAPABILITY: '' }, { SESSION_MODE: 'default' },
-      { CODEFLARE_MCP_CALLBACK_ORIGIN: 'https://instance.example/other' }, { CODEFLARE_MCP_LIFECYCLE_GENERATION: '0' }, { CODEFLARE_MCP_PORTALS_JSON: '[]' }]) {
-      const dir = mkdtempSync(join(tmpdir(), 'classic-mcp-launch-'));
-      try {
-        mkdirSync(join(dir, 'workspace'), { recursive: true });
-        // No capability exists when entrypoint generates .bashrc. Supply it only
-        // to the synthetic managed PTY below, as the real Host does.
-        const generated = runHarness({ dir, tabConfig: JSON.stringify([{ id: '1', command: 'pi', label: 'Pi' }]) });
-        assert.equal(generated.result.status, 0, generated.result.stderr);
-        const nativeId = bindingId(dir, 'abc12345'), bin = join(dir, 'bin'), receipt = join(dir, 'receipt');
-        mkdirSync(bin);
-        for (const [name, kind] of [['pi', 'plain'], ['managed-pi', 'hosted']]) writeFileSync(join(bin, name),
-          `#!/usr/bin/env bash\nprintf '%s\\n' '${kind}' \"$@\" \"hosted=\${CODEFLARE_MCP_HOSTED:-}\" \"cap=\${CODEFLARE_MCP_LAUNCH_CAPABILITY:-}\" > \"$RECEIPT\"\n`, { mode: 0o755 });
-        // Project the fixed image executable into this synthetic filesystem only.
-        writeFileSync(join(dir, '.bashrc'), generated.bashrc.replaceAll('/usr/local/bin/codeflare-pi-mcp-launch', join(bin, 'managed-pi'))
-          .replace('export PATH="/usr/local/bin:/usr/bin:/bin:$PATH"', `export PATH="${bin}:/usr/local/bin:/usr/bin:/bin:$PATH"`));
-        const result = spawnSync('script', ['-qfec', `bash --noprofile --rcfile ${join(dir, '.bashrc')} -ic 'printf shell-survived'`, '/dev/null'], {
-          encoding: 'utf8', timeout: 10000, env: { ...process.env, ...configured, ...patch, HOME: dir, RECEIPT: receipt,
-            TERMINAL_ID: '1', TERMINAL_APP_STARTED: '', MANUAL_TAB: '' },
-        });
-        assert.equal(result.status, 0, result.stderr);
-        const outcome = readFileSync(receipt, 'utf8').trim().split('\n');
-        assert.deepEqual(outcome.slice(0, 3), [Object.keys(patch).length === 0 ? 'hosted' : 'plain', '--session-id', nativeId]);
-        if (Object.keys(patch).length) assert.deepEqual(outcome.slice(3), ['hosted=', 'cap=']);
-      } finally { rmSync(dir, { recursive: true, force: true }); }
-    }
-  });
   // REQ-AGENT-003 AC1: tab 1 launch command written into .bashrc.
   // REQ-AGENT-003 AC2: claude is launched with --dangerously-skip-permissions
   // (IS_SANDBOX=1 in Dockerfile lets root use this flag; we don't run claude

@@ -34,7 +34,7 @@ const McpPortalSettings: Component = () => {
   return <section class="admin-panel" aria-labelledby="mcp-portals-heading" aria-busy={loading() || saving()}>
     <div class="admin-panel-heading"><div>
       <h2 id="mcp-portals-heading">MCP portals</h2>
-      <p>Named HTTPS MCP endpoints for subsequent advanced Pi startups. Saving does not restart sessions or connect portals. Each connection requires owner OAuth.</p>
+      <p>Named HTTPS MCP endpoints for both Pi modes. Names identify connections, not capabilities. Saving does not create portals, connect users, start compute or restart sessions. Connect your own account in Settings.</p>
     </div></div>
     <Show when={loading()}><p role="status">Loading MCP portals…</p></Show>
     <Show when={error()}><p class="admin-inline-error" role="alert">{error()}</p></Show>
@@ -53,7 +53,7 @@ const McpPortalSettings: Component = () => {
         <button type="submit" class="admin-primary-button" disabled={busy()}>{saving() ? 'Saving…' : 'Save portals'}</button>
       </div>
     </form>
-    <Show when={saved()}><p role="status">MCP portals saved. Changes apply on subsequent advanced Pi startups.</p></Show>
+    <Show when={saved()}><p role="status">MCP portals saved. Changes apply on subsequent Pi startups. Changed or removed endpoints require reconnecting.</p></Show>
   </section>;
 };
 

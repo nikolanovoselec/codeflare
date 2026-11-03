@@ -34,7 +34,6 @@ function makeHost(overrides: Partial<ContainerHost> = {}): ContainerHost {
     delete: vi.fn().mockResolvedValue(undefined),
   };
   return {
-    env: {} as any,
     ctx: { storage } as any,
     logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } as any,
     envVars: {},
@@ -49,6 +48,7 @@ function makeHost(overrides: Partial<ContainerHost> = {}): ContainerHost {
     _sessionWorkspace: 'terminal',
     _terminalMode: 'classic',
     ...(overrides as any),
+    env: { KV: { get: vi.fn().mockResolvedValue(null) }, ...overrides.env } as any,
   } as ContainerHost;
 }
 

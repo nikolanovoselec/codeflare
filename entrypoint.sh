@@ -815,6 +815,7 @@ initial_sync_from_r2() {
     fi
     echo "[entrypoint] Step 1: One-way sync R2 → local (max ${SYNC_TIMEOUT}s, compare ${COMPARE_LABEL})..." | tee -a $CODEFLARE_RUNTIME_ROOT/sync/sync.log
 
+    local SYNC_DEADLINE=$((SECONDS + SYNC_TIMEOUT))
     if timeout $SYNC_TIMEOUT rclone sync "r2:$R2_BUCKET_NAME/" "$USER_HOME/" \
         --config "$RCLONE_CONFIG" \
         "${RCLONE_FILTERS[@]}" \
@@ -831,7 +832,7 @@ initial_sync_from_r2() {
     else
         SYNC_RESULT=$?
     fi
-    if cleanup_rclone_conflicts "$USER_HOME/" "r2:$R2_BUCKET_NAME/" "$SYNC_RESULT" >> "$CODEFLARE_RUNTIME_ROOT/sync/sync.log" 2>&1; then
+    if cleanup_rclone_conflicts "$USER_HOME/" "r2:$R2_BUCKET_NAME/" "$SYNC_RESULT" "$((SYNC_DEADLINE - SECONDS))" >> "$CODEFLARE_RUNTIME_ROOT/sync/sync.log" 2>&1; then
         SYNC_RESULT=0
     else
         SYNC_RESULT=$?
@@ -934,14 +935,14 @@ AGENT_ROOTS
 # curation, preserve release-owned bytes and restore only excluded image-owned runtime
 # companions. Uses cp without -p so relaid bytes receive fresh local mtimes. Idempotent and
 # mode-aware.
-readonly -a IMAGE_OWNED_MANAGED_EXTENSION_COMPANIONS=(context-mode-runtime.ts mcp-portal-oauth.ts)
+readonly -a IMAGE_OWNED_MANAGED_EXTENSION_COMPANIONS=(context-mode-runtime.ts)
 relay_managed_pi_extensions() {
     coding_agent_is_selected pi || return 0
     local warm_src="${PI_WARM_EXTENSIONS_DIR:-/opt/codeflare/pi-agent/extensions}"
     local dest="$USER_HOME/.pi/agent/extensions"
     if [ "${REMOTE_CURATION_ACTIVE:-false}" = "true" ]; then
         # Curation excludes these image-owned companions: context-mode's /ctx
-        # dependency and the prepared MCP package's hosted return adapter.
+        # dependency.
         # Both load inertly outside their configured flows in either mode.
         # Initial sync can remove files absent from R2; restore only these
         # declared image dependencies without overwriting release-owned extensions.
@@ -1034,6 +1035,7 @@ establish_bisync_baseline() {
         BASELINE_OUTPUT=$(mktemp)
         # --use-server-modtime + --checkers 64: avoid the per-file mtime HEAD storm; see
         # the steady-state bisync below + AD88.
+        local BISYNC_DEADLINE=$((SECONDS + BISYNC_TIMEOUT))
         if timeout $BISYNC_TIMEOUT rclone bisync "$USER_HOME/" "r2:$R2_BUCKET_NAME/" \
             --config "$RCLONE_CONFIG" \
             --workdir "$SYNC_RUNTIME_DIR/rclone" \
@@ -1057,7 +1059,7 @@ establish_bisync_baseline() {
         else
             SYNC_RESULT=$?
         fi
-        if cleanup_rclone_conflicts "$USER_HOME/" "r2:$R2_BUCKET_NAME/" "$SYNC_RESULT" >> "$BASELINE_OUTPUT" 2>&1; then
+        if cleanup_rclone_conflicts "$USER_HOME/" "r2:$R2_BUCKET_NAME/" "$SYNC_RESULT" "$((BISYNC_DEADLINE - SECONDS))" >> "$BASELINE_OUTPUT" 2>&1; then
             SYNC_RESULT=0
         else
             SYNC_RESULT=$?
@@ -2327,7 +2329,7 @@ configure_tab_autostart() {
                 pi:fresh|pi:resume)
                     # Evaluate the parent capability in the managed PTY, not now:
                     # Host issues it only when that terminal is actually spawned.
-                    classic_agent_launch="if [[ \"\${SESSION_MODE:-}\" = advanced && \"\${CODEFLARE_MCP_CALLBACK_ORIGIN:-}\" =~ ^https://[^/?#@[:space:]]+$ && \"\${CODEFLARE_MCP_LIFECYCLE_GENERATION:-}\" =~ ^[1-9][0-9]*$ && \"\${CODEFLARE_MCP_LAUNCH_CAPABILITY:-}\" =~ ^[a-f0-9]{64}$ ]] && printf '%s' \"\${CODEFLARE_MCP_PORTALS_JSON:-[]}\" | jq -e 'type == \"array\" and length > 0' >/dev/null 2>&1; then /usr/local/bin/codeflare-pi-mcp-launch --session-id $classic_agent_id; else env -u CODEFLARE_MCP_HOSTED -u CODEFLARE_MCP_LAUNCH_CAPABILITY pi --session-id $classic_agent_id; fi"
+                    classic_agent_launch="pi --session-id $classic_agent_id"
                     ;;
                 claude:fresh) classic_agent_launch="claude --dangerously-skip-permissions --session-id $classic_agent_id" ;;
                 claude:resume) classic_agent_launch="claude --dangerously-skip-permissions --resume $classic_agent_id" ;;
@@ -3468,10 +3470,9 @@ configure_pi_mcp_adapter
 # The merge owns its recorded registrations, never user OAuth grants or other servers.
 configure_pi_mcp_portals() {
     coding_agent_is_selected pi || return 0
-    [ "${SESSION_MODE:-default}" = "advanced" ] || return 0
     [ "${PI_MCP_CONFIG_READY:-0}" = "1" ] || return 0
     PI_MCP_CONFIG_READY="$PI_MCP_CONFIG_READY" \
-    SESSION_MODE="$SESSION_MODE" \
+    SESSION_MODE="${SESSION_MODE:-default}" \
     CODEFLARE_MCP_PORTALS_JSON="${CODEFLARE_MCP_PORTALS_JSON:-[]}" \
         node /opt/codeflare/merge-pi-mcp-portals.mjs "$USER_HOME/.pi/agent/mcp.json"
 }

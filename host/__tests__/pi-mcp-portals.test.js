@@ -1,4 +1,6 @@
 import { test } from 'node:test';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import assert from 'node:assert/strict';
 import { mkdtempSync, readFileSync, writeFileSync, rmSync, existsSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -22,12 +24,12 @@ function fixture(t) {
   };
 }
 
-test('REQ-AGENT-227 AC3: startup produces multiple lazy OAuth portal connections', (t) => {
+test('REQ-AGENT-227 AC3: startup produces multiple eager non-secret placeholder portal connections', (t) => {
   const f = fixture(t);
   assert.equal(f.run(), true);
   const saved = f.read();
   for (const portal of portals) {
-    assert.deepEqual(saved.mcpServers[key(portal.name)], { url: portal.url, auth: { type: 'oauth' }, lifecycle: 'lazy' });
+    assert.deepEqual(saved.mcpServers[key(portal.name)], { url: portal.url, transport: 'streamable-http', headers: { Authorization: 'Bearer codeflare-mcp-portal' }, lifecycle: 'eager' });
   }
   const first = readFileSync(f.configPath, 'utf8');
   f.run();
@@ -53,13 +55,12 @@ test('REQ-AGENT-227 AC4: reconciliation preserves unrelated servers and grants',
   // A separate OAuth write between startups must not be replaced with an old config snapshot.
   const withAuth = f.read();
   withAuth.mcpServers.user_oauth = { url: 'https://auth.example/mcp', auth: { type: 'oauth', clientId: 'existing-client' }, lifecycle: 'lazy' };
-  withAuth.mcpServers[key('github')].auth.clientId = 'saved-client';
   writeFileSync(f.configPath, JSON.stringify(withAuth));
   const updated = [{ ...portals[1], url: 'https://api.githubcopilot.com/mcp/?codemode=search_and_execute' }];
   f.run({ portalsJson: JSON.stringify(updated) });
   const changed = f.read();
   assert.equal(changed.mcpServers[key('codeflare_enterprise')], undefined);
-  assert.equal(changed.mcpServers[key('github')].auth.clientId, 'saved-client');
+  assert.equal(changed.mcpServers[key('github')].auth, undefined);
   assert.deepEqual(changed.mcpServers.user_oauth, withAuth.mcpServers.user_oauth);
   assert.deepEqual(changed.settings, unrelated.settings);
   assert.deepEqual(changed.customSetting, unrelated.customSetting);
@@ -88,18 +89,47 @@ test('REQ-AGENT-227 AC4: unproven prefixed names and modified registrations are 
   assert.equal(readFileSync(f.configPath, 'utf8'), changedBytes);
 });
 
-test('REQ-AGENT-227 AC3: default modes and incomplete migration leave configuration untouched', (t) => {
+test('REQ-AGENT-227 AC3: both supported Pi modes bootstrap while invalid modes and incomplete migration preserve files', (t) => {
   const f = fixture(t);
-  for (const mode of [undefined, 'default', 'standard']) {
+  for (const mode of [undefined, 'standard']) {
     assert.equal(f.run({ sessionMode: mode }), false);
     assert.equal(existsSync(f.configPath), false);
   }
   assert.equal(f.run({ configReady: '0' }), false);
   assert.equal(existsSync(f.configPath), false);
-  const bytes = '{"mcpServers":{"custom":{"command":"custom"}}}\n';
-  writeFileSync(f.configPath, bytes);
-  assert.equal(f.run({ sessionMode: 'default' }), false);
-  assert.equal(readFileSync(f.configPath, 'utf8'), bytes);
+  for (const mode of ['default', 'advanced']) {
+    assert.equal(f.run({ sessionMode: mode }), true);
+    for (const portal of portals) assert.equal(f.read().mcpServers[key(portal.name)].headers.Authorization, 'Bearer codeflare-mcp-portal');
+  }
+});
+
+test('REQ-AGENT-227 AC3: actual entrypoint wiring bootstraps managed portals in default and advanced Pi', t => {
+  const f = fixture(t);
+  const root = fileURLToPath(new URL('../../', import.meta.url));
+  const source = readFileSync(join(root, 'entrypoint.sh'), 'utf8');
+  const start = source.indexOf('configure_pi_mcp_portals() {');
+  const end = source.indexOf('\n}', start);
+  if (start < 0 || end < 0) throw Error('Entrypoint fixture extraction failed');
+  const configure = source.slice(start, end + 2).replace('/opt/codeflare/merge-pi-mcp-portals.mjs', join(root, 'scripts/merge-pi-mcp-portals.mjs'));
+  for (const mode of ['default', 'advanced']) {
+    writeFileSync(f.configPath, JSON.stringify({ mcpServers: { unrelated: { command: 'custom-stdio' } } }));
+    const result = spawnSync('bash', ['-c', `coding_agent_is_selected() { return 0; }\n${configure}\nconfigure_pi_mcp_portals`], {
+      encoding: 'utf8', env: { ...process.env, USER_HOME: f.directory, SESSION_MODE: mode,
+        PI_MCP_CONFIG_READY: '1', CODEFLARE_MCP_PORTALS_JSON: JSON.stringify(portals) }, timeout: 10_000,
+    });
+    assert.equal(result.status, 0, result.stderr);
+    const saved = f.read();
+    for (const portal of portals) assert.equal(saved.mcpServers[key(portal.name)].headers.Authorization, 'Bearer codeflare-mcp-portal');
+    assert.deepEqual(saved.mcpServers.unrelated, { command: 'custom-stdio' });
+  }
+});
+
+test('REQ-AGENT-227 AC2: public HTTPS on the standard port remains supported', t => {
+  const f = fixture(t);
+  const configured = [{ name: 'public', url: 'https://portal.example.com:443/mcp?codemode=search_and_execute' }];
+  assert.equal(f.run({ portalsJson: JSON.stringify(configured) }), true);
+  assert.deepEqual(f.read().mcpServers[key('public')], { url: configured[0].url, transport: 'streamable-http',
+    headers: { Authorization: 'Bearer codeflare-mcp-portal' }, lifecycle: 'eager' });
 });
 
 test('REQ-AGENT-227 AC4: malformed input leaves configuration byte-identical', (t) => {
@@ -109,7 +139,10 @@ test('REQ-AGENT-227 AC4: malformed input leaves configuration byte-identical', (
   const invalid = [
     '{', '{}', '[null]', JSON.stringify([portals[0], portals[0]]),
     JSON.stringify([{ ...portals[0], apiKey: 'secret' }]),
-    ...['http://example.com/mcp', 'https://owner:secret@example.com/mcp', 'https://example.com/mcp#fragment', 'https://example.com/mcp?token=secret', 'https://example.com/mcp?codemode=search_and_execute&codemode=search_and_execute', 'not-a-url'].map((url) => JSON.stringify([{ name: 'github', url }])),
+    ...['http://example.com/mcp', 'https://owner:secret@example.com/mcp', 'https://example.com/mcp#fragment', 'https://example.com/mcp?token=secret', 'https://example.com/mcp?codemode=search_and_execute&codemode=search_and_execute', 'not-a-url',
+      'https://127.0.0.1/mcp', 'https://[::1]/mcp', 'https://portal/mcp', 'https://portal.local/mcp',
+      'https://portal.internal/mcp', 'https://portal.localhost/mcp', 'https://portal.example.com:8443/mcp']
+      .map((url) => JSON.stringify([{ name: 'github', url }])),
     JSON.stringify([{ name: '../github', url: portals[1].url }]),
   ];
   for (const portalsJson of invalid) {

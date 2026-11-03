@@ -167,3 +167,8 @@
 @media (prefers-reduced-motion: reduce) {
   .oauth-connect-spinner { animation: none; }
 }
+
+/* MCP reuses the incumbent provider card with the existing information palette. */
+.mcp-portal-connect-card .oauth-connect-icon {
+  color: var(--color-info);
+}

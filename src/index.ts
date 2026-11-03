@@ -54,7 +54,7 @@ import authApiRoutes from './routes/auth';
 import authRedirectRoutes from './routes/auth-redirects';
 import githubAuthRoutes from './routes/github-auth';
 import cloudflareAuthRoutes from './routes/cloudflare-auth';
-import mcpOAuthRoutes from './routes/mcp-oauth';
+import mcpOAuthRoutes, { createMcpPortalApiRoutes } from './routes/mcp-oauth';
 
 // Type for app context with request ID
 type AppVariables = {
@@ -147,7 +147,7 @@ app.use('*', async (c, next) => {
   await next();
   const duration = Date.now() - start;
 
-  const mcpOAuthReturn = c.req.path === '/auth/mcp/callback' || c.req.path === '/auth/mcp/complete';
+  const mcpOAuthReturn = c.req.path === '/auth/mcp/callback';
   for (const [key, value] of Object.entries(SECURITY_HEADERS)) {
     c.header(key, key === 'Referrer-Policy' && mcpOAuthReturn ? 'no-referrer' : value);
   }
@@ -246,6 +246,7 @@ app.route('/api/auth', authApiRoutes);
 app.route('/auth/github', githubAuthRoutes);
 app.route('/auth/cloudflare', cloudflareAuthRoutes);
 app.route('/auth/mcp', mcpOAuthRoutes);
+app.route('/api/mcp-portals', createMcpPortalApiRoutes());
 app.route('/auth', authRedirectRoutes);
 
 // Public auth providers endpoint (outside /api/* to bypass CF Access).
@@ -609,3 +610,5 @@ export { CloudflareBrowserInterceptor } from './cloudflare-browser-interceptor';
 // interception will not work" — i.e. intercepted requests black-hole. Inert unless the
 // container DO actually registers an interceptor (enterprise mode).
 export { ContainerProxy } from '@cloudflare/containers';
+
+export { McpPortalInterceptor } from './mcp-portal-interceptor';

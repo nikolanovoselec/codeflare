@@ -10,6 +10,7 @@ const object = (value) => value !== null && typeof value === 'object' && !Array.
 function validate(portals) {
   if (!Array.isArray(portals)) throw new Error('Invalid MCP portal list');
   const names = new Set();
+  const destinations = new Set();
   for (const portal of portals) {
     if (!object(portal) || Object.keys(portal).sort().join(',') !== 'name,url'
       || typeof portal.name !== 'string' || !/^[a-z][a-z0-9_-]{0,63}$/.test(portal.name)
@@ -19,8 +20,13 @@ function validate(portals) {
     let url;
     try { url = new URL(portal.url); } catch { throw new Error('Invalid MCP portal URL'); }
     if (url.protocol !== 'https:' || url.username || url.password || portal.url.includes('#')
+      || (url.port && url.port !== '443') || !url.hostname.includes('.')
+      || url.hostname.endsWith('.local') || url.hostname.endsWith('.internal') || url.hostname.endsWith('.localhost')
+      || /^[\d.]+$/.test(url.hostname) || url.hostname.includes(':')
       || [...url.searchParams].some(([key, value]) => key !== 'codemode' || value !== 'search_and_execute')
       || url.searchParams.getAll('codemode').length > 1) throw new Error('Invalid MCP portal URL');
+    if (destinations.has(url.href)) throw new Error('MCP destinations must be unique');
+    destinations.add(url.href);
     names.add(portal.name);
   }
   return portals;
@@ -37,7 +43,9 @@ export function mergePiMcpPortals(config, portals) {
   for (const portal of previous) {
     const server = servers[serverKey(portal.name)];
     if (server !== undefined && (!object(server) || server.url !== portal.url
-      || server.lifecycle !== 'lazy' || !object(server.auth) || server.auth.type !== 'oauth'
+      || !['lazy', 'eager'].includes(server.lifecycle)
+      || !(object(server.auth) && server.auth.type === 'oauth'
+        || server.auth === undefined && object(server.headers) && server.headers.Authorization === 'Bearer codeflare-mcp-portal')
       || server.command !== undefined || (server.transport !== undefined && server.transport !== 'streamable-http'))) {
       throw new Error('Managed MCP portal registration was changed; leaving configuration unchanged');
     }
@@ -50,14 +58,15 @@ export function mergePiMcpPortals(config, portals) {
   for (const key of previousNames) if (!nextNames.has(key)) delete servers[key];
   for (const portal of portals) {
     const key = serverKey(portal.name);
-    servers[key] = { ...servers[key], url: portal.url, auth: { ...servers[key]?.auth, type: 'oauth' }, lifecycle: 'lazy' };
+    servers[key] = { url: portal.url, transport: 'streamable-http',
+      headers: { Authorization: 'Bearer codeflare-mcp-portal' }, lifecycle: 'eager' };
   }
   return { ...config, mcpServers: servers, [ownershipKey]: portals.map(({ name, url }) => ({ name, url })) };
 }
 
 /** Called only after migration. No network, OAuth storage, legacy config, or running process access. */
 export function configurePiMcpPortals({ configPath, portalsJson = '[]', sessionMode, configReady }) {
-  if (sessionMode !== 'advanced' || configReady !== '1') return false;
+  if (!['default', 'advanced'].includes(sessionMode) || configReady !== '1') return false;
   const portals = validate(JSON.parse(portalsJson));
   let original;
   let mode = 0o600;

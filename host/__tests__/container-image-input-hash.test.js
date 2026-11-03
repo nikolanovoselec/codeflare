@@ -79,6 +79,9 @@ describe('deployment container image input hash', () => {
       'COPY entrypoint.sh /entrypoint.sh',
       'COPY transcript-retention.mjs /transcript-retention.mjs',
       'COPY scripts/compact-session-captures.mjs /opt/codeflare/scripts/compact-session-captures.mjs',
+      'COPY scripts/rclone-conflict-cleanup.sh scripts/merge-pi-mcp-portals.mjs scripts/qualify-pi-mcp.mjs /opt/codeflare/scripts/',
+      'COPY host/__tests__/pi-mcp-stock.test.js /opt/codeflare/qualification/',
+      'COPY host/__fixtures__/pi-mcp-extension-server.mjs /opt/codeflare/qualification/',
       'COPY --chmod=0555 scripts/restore-operator-attachments.mjs scripts/materialize-operator-inputs.mjs /opt/codeflare/scripts/',
       '',
     ].join('\n'));
@@ -91,6 +94,11 @@ describe('deployment container image input hash', () => {
       'entrypoint.sh',
       'transcript-retention.mjs',
       'scripts/compact-session-captures.mjs',
+      'scripts/rclone-conflict-cleanup.sh',
+      'scripts/merge-pi-mcp-portals.mjs',
+      'scripts/qualify-pi-mcp.mjs',
+      'host/__tests__/pi-mcp-stock.test.js',
+      'host/__fixtures__/pi-mcp-extension-server.mjs',
       'host/package.json',
       'host/package-lock.json',
       'host/tsconfig.json',
@@ -174,13 +182,32 @@ describe('deployment container image input hash', () => {
     const materializerTag = imageHashResult().tag;
     assert.notEqual(materializerTag, compactorTag);
 
+    write('scripts/rclone-conflict-cleanup.sh', 'bounded cleanup change\n');
+    commit('conflict cleanup change');
+    const cleanupTag = imageHashResult().tag;
+    assert.notEqual(cleanupTag, materializerTag);
+
+    write('scripts/merge-pi-mcp-portals.mjs', 'portal configuration change\n');
+    commit('portal configuration change');
+    const portalTag = imageHashResult().tag;
+    assert.notEqual(portalTag, cleanupTag);
+
+    let qualifierTag = portalTag;
+    for (const file of ['scripts/qualify-pi-mcp.mjs', 'host/__tests__/pi-mcp-stock.test.js', 'host/__fixtures__/pi-mcp-extension-server.mjs']) {
+      write(file, 'image qualification change\n');
+      commit('image qualification change');
+      const changed = imageHashResult().tag;
+      assert.notEqual(changed, qualifierTag, `copied qualification input ${file} must invalidate reuse`);
+      qualifierTag = changed;
+    }
+
     write(
       'scripts/ci/coding-agent-selection-core.mjs',
       `${readFileSync(join(root, 'scripts/ci/coding-agent-selection-core.mjs'), 'utf8')}\n// selection core change\n`,
     );
     commit('selection core change');
     const selectionCoreTag = imageHashResult().tag;
-    assert.notEqual(selectionCoreTag, materializerTag);
+    assert.notEqual(selectionCoreTag, qualifierTag);
 
     write('scripts/verify-pi-lockstep.mjs', 'image script change\n');
     commit('image script change');

@@ -43,7 +43,7 @@ describe('instance MCP portal configuration', () => {
     expect(await instance.kv.get(SETUP_KEYS.MCP_PORTALS, 'json')).toEqual(portals);
     expect(await (await instance.read()).json()).toEqual(portals);
     expect(await (await other.read()).json()).toEqual([]);
-    const edited = [{ ...portals[0], url: 'https://portal.example.com/updated/mcp' }];
+    const edited = [{ ...portals[0], url: 'https://portal.example.com:443/updated/mcp?codemode=search_and_execute' }];
     expect(await (await instance.save(edited)).json()).toEqual(edited);
     expect(await (await instance.read()).json()).toEqual(edited);
     expect((await instance.save([])).status).toBe(200);
@@ -63,6 +63,9 @@ describe('instance MCP portal configuration', () => {
 
   it.each(([
     [{ name: 'github', url: 'http://portal.example.com/mcp' }],
+    ...['https://127.0.0.1/mcp', 'https://[::1]/mcp', 'https://portal/mcp', 'https://portal.local/mcp',
+      'https://portal.internal/mcp', 'https://portal.localhost/mcp', 'https://portal.example.com:8443/mcp']
+      .map(url => [{ name: 'github', url }]),
     [{ name: 'github', url: 'https://owner:password@portal.example.com/mcp' }],
     [{ name: 'github', url: 'https://portal.example.com/mcp#token' }],
     [{ name: 'github', url: 'https://portal.example.com/mcp?api_key=secret' }],

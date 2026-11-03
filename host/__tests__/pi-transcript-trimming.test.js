@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as fs from 'node:fs';
+import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { findPackageJSON, stripTypeScriptTypes } from 'node:module';
@@ -223,6 +224,51 @@ test('REQ-MEM-028 AC4: retained conversation and branch state reopen unchanged',
   assert.deepEqual(fs.readFileSync(noBoundary.file), original);
 });
 
+test('REQ-MEM-028 AC4: uncompacted branches retain reasoning and raw tool payloads', t => {
+  const entries = oversized();
+  function insertHistory(afterId, label) {
+    const stamp = '2026-11-03T00:00:00Z';
+    const rows = [];
+    let parentId = afterId;
+    const add = (suffix, message) => {
+      const row = { type: 'message', id: `${label}-${suffix}`, parentId, timestamp: stamp, message };
+      rows.push(row); parentId = row.id;
+    };
+    add('thinking', { role: 'assistant', stopReason: 'stop', content: [
+      { type: 'thinking', thinking: `${label} reasoning ` + 'r'.repeat(1_000_000), thinkingSignature: `${label}-signature` },
+      { type: 'text', text: `${label} answer` },
+    ] });
+    for (const name of ['read', 'bash']) {
+      add(`${name}-call`, { role: 'assistant', stopReason: 'toolUse', content: [
+        { type: 'toolCall', id: `${label}-${name}`, name, arguments: { fixture: label } },
+      ] });
+      add(`${name}-result`, { role: 'toolResult', toolCallId: `${label}-${name}`, toolName: name,
+        isError: false, content: [{ type: 'text', text: `${label} ${name} ` + 'o'.repeat(1_000_000) }] });
+    }
+    for (const row of entries) if (row.parentId === afterId) row.parentId = parentId;
+    entries.splice(entries.findIndex(e => e.id === afterId) + 1, 0, ...rows);
+    return rows;
+  }
+  const shared = insertHistory(entries[1].id, 'shared');
+  const side = entries.find(e => e.message?.content === 'side branch');
+  const sibling = insertHistory(side.id, 'sibling');
+  const activeThinking = entries.find(e => e.message?.role === 'assistant'
+    && e.message.content.some(b => b.type === 'thinking') && !e.id.startsWith('shared-') && !e.id.startsWith('sibling-'));
+  const f = fixture(t, entries);
+  assert.equal(trimActiveSessionTranscript(f.ctx, f.expected).status, 'trimmed');
+  const after = reopen(f);
+  const digest = row => createHash('sha256').update(JSON.stringify(row)).digest('hex');
+  for (const expected of [...shared, ...sibling]) {
+    assert.equal(digest(after.find(e => e.id === expected.id)), digest(expected), `preserved payload ${expected.id}`);
+  }
+  for (const leaf of [f.ctx.sessionManager.getLeafId(), sibling.at(-1).id]) {
+    assert.deepEqual(replay(branchOf(after, leaf)), replay(branchOf(entries, leaf)));
+  }
+  assert.notEqual(after.find(e => e.id === activeThinking.id).message.content[0].thinking,
+    activeThinking.message.content[0].thinking, 'active-only summarized payload remains eligible');
+  assert.ok(fs.statSync(f.file).size < 50_000_000);
+});
+
 test('REQ-MEM-028 AC5: ordinary appends survive replacement without reload', t => {
   const f = fixture(t);
   const appended = [];
@@ -242,7 +288,7 @@ test('REQ-MEM-028 AC5: ordinary appends survive replacement without reload', t =
   assert.deepEqual(fs.readdirSync(f.root), ['session.jsonl']);
 });
 
-test('REQ-MEM-028 AC6: invalid inputs and failed replacement leave originals intact', t => {
+test('REQ-MEM-029 AC1: invalid inputs and failed replacement leave originals intact', t => {
   const f = fixture(t), original = fs.readFileSync(f.file);
   for (const mutate of [
     s => s.slice(0, -1), s => s + '{partial\n', s => s.replace('"id":"e2"', '"id":"e1"'),
@@ -296,7 +342,22 @@ test('REQ-MEM-028 AC6: invalid inputs and failed replacement leave originals int
   assert.equal(trimActiveSessionTranscript(directory.ctx, directory.expected).status, 'refused');
 });
 
-test('REQ-MEM-028 AC7: registration defers filesystem work and creates no retained backup', t => {
+test('REQ-MEM-029 AC2: directory sync failure retains the committed replacement', t => {
+  const f = fixture(t);
+  const io = { ...fs, fsyncSync(fd) {
+    if (fs.fstatSync(fd).isDirectory()) throw new Error('fixture directory sync failure');
+    return fs.fsyncSync(fd);
+  } };
+  const result = trimActiveSessionTranscript(f.ctx, f.expected, io);
+  assert.equal(result.status, 'trimmed');
+  assert.equal(result.reason, 'directory-sync-failed');
+  const disk = reopen(f);
+  assert.deepEqual(disk.at(-1), f.entries.at(-1));
+  assert.ok(fs.statSync(f.file).size > 18_000_000 && fs.statSync(f.file).size < 20_000_000);
+  assert.deepEqual(fs.readdirSync(f.root), ['session.jsonl']);
+});
+
+test('REQ-MEM-029 AC3: registration defers filesystem work and creates no retained backup', t => {
   const f = fixture(t), original = fs.readFileSync(f.file);
   const l = lifecycle(f);
   l.due(); assert.deepEqual(fs.readFileSync(f.file), original);
@@ -306,7 +367,7 @@ test('REQ-MEM-028 AC7: registration defers filesystem work and creates no retain
   const after = fs.readFileSync(f.file); l.end(); assert.deepEqual(fs.readFileSync(f.file), after);
 });
 
-test('REQ-MEM-028 AC8: a later rewrite is handled at a later cadence', t => {
+test('REQ-MEM-028 AC6: a later rewrite is handled at a later cadence', t => {
   const f = fixture(t), original = fs.readFileSync(f.file), l = lifecycle(f);
   l.emit('session_start'); l.due(); l.end(); assert.ok(fs.statSync(f.file).size < 50_000_000);
   fs.writeFileSync(f.file, original); l.end(); assert.deepEqual(fs.readFileSync(f.file), original);
@@ -337,7 +398,8 @@ test('REQ-MEM-028 AC5: provisioned public SDK appends and disk reopen survive sa
     const result = manager.appendMessage({ role: 'toolResult', toolCallId: `sdk-call-${suffix}`, toolName: 'read',
       content: [{ type: 'text', text: `sdk result ${suffix}` }], isError: false, timestamp: Date.now() });
     const notification = manager.appendCustomMessageEntry('subagent-notification', `sdk terminal ${suffix}`, true);
-    for (const id of [user, assistant, result, notification]) appended.push(manager.getEntry(id));
+    // The on-disk JSON contract omits undefined optional fields from public entries.
+    for (const id of [user, assistant, result, notification]) appended.push(JSON.parse(JSON.stringify(manager.getEntry(id))));
   };
   append('before');
   const cacheBefore = JSON.stringify(manager.getBranch());

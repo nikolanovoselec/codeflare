@@ -1183,7 +1183,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 1. A local append after an upload does not create a false conflict. <!-- @impl: scripts/patch-rclone-bisync.py::patch --> <!-- @test: scripts/ci/rclone-bisync-s3.py (test_server_modtime_sync) -->
 2. Same-size remote edits remain detectable. <!-- @impl: scripts/patch-rclone-bisync.py::patch --> <!-- @test: scripts/ci/rclone-bisync-s3.py (test_server_modtime_sync) -->
 3. Completed transfers retain independent source and destination timestamps. <!-- @impl: scripts/patch-rclone-bisync.py::patch --> <!-- @test: scripts/ci/rclone-bookkeeping_test.go (TestCodeflareCompletedCopyKeepsIndependentMetadata) -->
-4. Genuine conflicting contents are retained. <!-- @impl: scripts/patch-rclone-bisync.py::patch --> <!-- @impl: entrypoint.sh::bisync_with_r2 --> <!-- @test: scripts/ci/rclone-bisync-s3.py (test_server_modtime_sync) -->
+4. Genuine divergence preserves the newer canonical content; eligible loser copies follow the post-sync cleanup policy. <!-- @impl: entrypoint.sh::bisync_with_r2 --> <!-- @impl: scripts/rclone-conflict-cleanup.sh::cleanup_rclone_conflicts --> <!-- @test: host/__tests__/rclone-conflict-cleanup.test.js (REQ-STOR-054 AC1: a genuine divergence preserves the winner and discards eligible loser copies) -->
 5. Unchanged sync cycles do not multiply conflict copies. <!-- @impl: scripts/patch-rclone-bisync.py::patch --> <!-- @impl: entrypoint.sh::bisync_with_r2 --> <!-- @test: scripts/ci/rclone-bisync-s3.py (test_server_modtime_sync) -->
 6. Change detection avoids an all-object metadata-request scan. <!-- @impl: entrypoint.sh::bisync_with_r2 --> <!-- @test: scripts/ci/rclone-bisync-s3.py (test_server_modtime_sync) -->
 
@@ -1660,18 +1660,24 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Acceptance Criteria:**
 
-1. After each existing user-storage sync cycle, including initial restore and periodic/final bisync, files whose basenames contain the case-sensitive `.conflict` marker are removed from the same local and remote sync roots. <!-- @impl: scripts/rclone-conflict-cleanup.sh --> <!-- @test: host/__tests__/rclone-conflict-cleanup.test.js (REQ-STOR-054 AC1: post-sync cleanup removes local and remote conflict copies) -->
-2. Nonmatching originals, directories, unrelated files and other buckets/prefixes remain unchanged; cleanup does not start another sync, session or merge/archive workflow. <!-- @impl: scripts/rclone-conflict-cleanup.sh --> <!-- @test: host/__tests__/rclone-conflict-cleanup.test.js (REQ-STOR-054 AC2: cleanup preserves originals and scopes deletion to the sync roots) -->
+1. After each existing user-storage sync attempt, including initial restore, baseline attempts and periodic/final bisync, eligible files whose basenames contain the case-sensitive `.conflict` marker are removed from the same local and remote roots. <!-- @impl: scripts/rclone-conflict-cleanup.sh::cleanup_rclone_conflicts --> <!-- @test: host/__tests__/rclone-conflict-cleanup.test.js (REQ-STOR-054 AC1: post-sync cleanup removes local and remote conflict copies) -->
+2. Nonmatching originals, directories, symlinks, protected `Operators/**` and `.codeflare/operators/**` roots, and other buckets/prefixes remain unchanged. <!-- @impl: scripts/rclone-conflict-cleanup.sh::cleanup_rclone_conflicts --> <!-- @test: host/__tests__/rclone-conflict-cleanup.test.js (REQ-STOR-054 AC2: cleanup preserves originals and scopes deletion to the sync roots) -->
 3. Cleanup runs after the transfer attempt and cannot turn an existing sync failure into success. <!-- @impl: entrypoint.sh::bisync_with_r2 --> <!-- @test: host/__tests__/rclone-conflict-cleanup.test.js (REQ-STOR-054 AC3: cleanup follows the sync attempt without masking its failure) -->
-4. Cleanup failures are visible through existing sync diagnostics, and repeated cleanup with no matches is harmless. <!-- @impl: scripts/rclone-conflict-cleanup.sh --> <!-- @test: host/__tests__/rclone-conflict-cleanup.test.js (REQ-STOR-054 AC4: cleanup errors remain visible and empty repeats are harmless) -->
+4. Cleanup failures remain visible through existing sync diagnostics. <!-- @impl: scripts/rclone-conflict-cleanup.sh::cleanup_rclone_conflicts --> <!-- @test: host/__tests__/rclone-conflict-cleanup.test.js (REQ-STOR-054 AC4: cleanup errors remain visible and empty repeats are harmless) -->
+5. Repeated cleanup with no matches preserves ordinary files unchanged. <!-- @impl: scripts/rclone-conflict-cleanup.sh::cleanup_rclone_conflicts --> <!-- @test: host/__tests__/rclone-conflict-cleanup.test.js (REQ-STOR-054 AC5: empty repeats preserve ordinary files) -->
+6. Remote cleanup uses the remaining startup/baseline attempt deadline and the existing network-timeout bound for ordinary cycles. <!-- @impl: scripts/rclone-conflict-cleanup.sh::cleanup_rclone_conflicts --> <!-- @impl: entrypoint.sh::initial_sync_from_r2 --> <!-- @impl: entrypoint.sh::establish_bisync_baseline --> <!-- @test: host/__tests__/rclone-conflict-cleanup.test.js (REQ-STOR-054 AC6: startup and baseline share their existing transfer deadline with cleanup) --> <!-- @test: host/__tests__/rclone-conflict-cleanup.test.js (REQ-STOR-054 AC6: a stalled remote cleanup obeys its remaining deadline) --> <!-- @test: host/__tests__/rclone-conflict-cleanup.test.js (REQ-STOR-054 AC6: ordinary cleanup uses the existing thirty-second network bound) -->
 
-**Constraints:** Use the current configured user sync roots and existing rclone credentials. No global binary wrapper, new timer, UI, secret store, protected-workload replay or widening of restricted operator upload scope.
+**Constraints:**
+- Use only the configured user sync roots and existing rclone credentials.
+- Restricted Operator upload roots remain outside cleanup scope.
+- No global binary wrapper, timer, UI, secret store or merge/archive workflow is introduced.
+- No protected-workload replay is authorized.
 
 **Priority:** P1
 
-**Dependencies:** None
+**Dependencies:** None.
 
-**Verification:** Isolated filesystem/remote-fixture sync behavior tests and separately recorded current-user local/R2 inventory and deletion readback.
+**Verification:** Isolated composed sync/local-backend behavior, deadline and failure tests. Historical current-user cleanup receipts do not establish activation of the revised runtime helper.
 
 **Status:** Implemented
 

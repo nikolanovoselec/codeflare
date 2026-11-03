@@ -4,12 +4,11 @@
 // Without this, every vault capture filename gets a +0000 suffix
 // regardless of where the user actually is.
 
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { buildEnvVars, applyBucketName, applyPrefsOnRestart, type ContainerEnvState } from '../../container/container-env';
 import type { Env } from '../../types';
 import { ENTERPRISE_GH_TOKEN_PLACEHOLDER, ENTERPRISE_R2_KEY_PLACEHOLDER } from '../../lib/constants';
-import { setBucketName, refreshMcpLaunchGeneration, type ContainerHost } from '../../container/container-config';
-import { D1SessionRepository, type D1Session } from '../../lib/session-repository';
+import { setBucketName, type ContainerHost } from '../../container/container-config';
 import { createMockKV } from '../helpers/mock-kv';
 import { SETUP_KEYS } from '../../lib/kv-keys';
 import { createLogger } from '../../lib/logger';
@@ -77,30 +76,23 @@ describe('buildEnvVars (REQ-SESSION-016 AC3) / REQ-MEM-010 AC4 (USER_TIMEZONE fe
     expect(vars.USER_TIMEZONE).toBeUndefined();
   });
 
-  it('REQ-AGENT-227 AC3: advanced startup receives the configured portal URLs without credentials', () => {
+  it.each(['default', 'advanced'] as const)('REQ-AGENT-227 AC3: %s startup receives only non-secret portal registration', (mode) => {
     const state = baseState();
-    state._sessionMode = 'advanced';
+    state._sessionMode = mode;
     state._mcpPortals = [
       { name: 'codeflare_enterprise', url: 'https://mcp.example.com/mcp?codemode=search_and_execute' },
       { name: 'second', url: 'https://second.example.com/mcp' },
     ];
-    state._mcpCallbackOrigin = 'https://codeflare.example.com';
-    state._mcpLifecycleGeneration = 7;
     const vars = buildEnvVars(state, baseEnv);
     expect(JSON.parse(vars.CODEFLARE_MCP_PORTALS_JSON)).toEqual(state._mcpPortals);
-    expect(vars.CODEFLARE_MCP_CALLBACK_ORIGIN).toBe('https://codeflare.example.com');
-    expect(vars.CODEFLARE_MCP_LIFECYCLE_GENERATION).toBe('7');
+    expect(vars.CODEFLARE_MCP_CALLBACK_ORIGIN).toBeUndefined();
+    expect(vars.CODEFLARE_MCP_LIFECYCLE_GENERATION).toBeUndefined();
     expect(vars.R2_BUCKET_NAME).toBe('codeflare-test');
     expect(vars.CONTAINER_AUTH_TOKEN).toBe('tok');
   });
 
-  it('REQ-AGENT-227 AC3: default mode and empty portal lists do not introduce MCP environment configuration', () => {
-    const state = baseState();
-    state._mcpPortals = [{ name: 'enterprise', url: 'https://mcp.example.com/mcp' }];
-    expect(buildEnvVars(state, baseEnv).CODEFLARE_MCP_PORTALS_JSON).toBeUndefined();
-    state._sessionMode = 'advanced';
-    state._mcpPortals = [];
-    expect(buildEnvVars(state, baseEnv).CODEFLARE_MCP_PORTALS_JSON).toBeUndefined();
+  it('REQ-AGENT-227 AC3: empty portal lists do not introduce MCP environment configuration', () => {
+    expect(buildEnvVars(baseState(), baseEnv).CODEFLARE_MCP_PORTALS_JSON).toBeUndefined();
   });
 
   it('REQ-AGENT-227 AC3: startup rereads changed instance portal configuration and clears removals', async () => {
@@ -120,7 +112,7 @@ describe('buildEnvVars (REQ-SESSION-016 AC3) / REQ-MEM-010 AC4 (USER_TIMEZONE fe
     await kv.put(SETUP_KEYS.CUSTOM_DOMAIN, 'codeflare.example.com');
     await setBucketName(host, 'codeflare-test');
     expect(JSON.parse(host.envVars.CODEFLARE_MCP_PORTALS_JSON)).toEqual(first);
-    expect(host.envVars.CODEFLARE_MCP_CALLBACK_ORIGIN).toBe('https://codeflare.example.com');
+    expect(host.envVars.CODEFLARE_MCP_CALLBACK_ORIGIN).toBeUndefined();
 
     const next = [{ name: 'second', url: 'https://second.example.com/mcp' }];
     await kv.put(SETUP_KEYS.MCP_PORTALS, JSON.stringify(next));
@@ -134,29 +126,6 @@ describe('buildEnvVars (REQ-SESSION-016 AC3) / REQ-MEM-010 AC4 (USER_TIMEZONE fe
     await kv.put(SETUP_KEYS.MCP_PORTALS, '[]');
     await setBucketName(host, 'codeflare-test');
     expect(host.envVars.CODEFLARE_MCP_PORTALS_JSON).toBeUndefined();
-  });
-
-  it('REQ-AGENT-226 AC3: launch uses the claimed D1 generation rather than stale operational storage', async () => {
-    const host = {
-      ...baseState(), _sessionMode: 'advanced',
-      _mcpPortals: [{ name: 'enterprise', url: 'https://mcp.example.com/mcp' }],
-      _mcpCallbackOrigin: 'https://codeflare.example.com', _mcpLifecycleGeneration: 2,
-      env: { USAGE_DB: {} }, ctx: { storage: { get: async () => 2 } },
-    } as unknown as ContainerHost;
-    const read = vi.spyOn(D1SessionRepository.prototype, 'getSession');
-    try {
-      read.mockResolvedValue({ lifecycleGeneration: 7, lifecycleState: 'starting' } as D1Session);
-      await refreshMcpLaunchGeneration(host);
-      expect(buildEnvVars(host, baseEnv).CODEFLARE_MCP_LIFECYCLE_GENERATION).toBe('7');
-
-      read.mockResolvedValue({ lifecycleGeneration: 8, lifecycleState: 'stopping', terminationIntentId: 'stop-8' } as D1Session);
-      await refreshMcpLaunchGeneration(host);
-      expect(buildEnvVars(host, baseEnv).CODEFLARE_MCP_LIFECYCLE_GENERATION).toBeUndefined();
-
-      read.mockResolvedValue(null);
-      await refreshMcpLaunchGeneration(host);
-      expect(buildEnvVars(host, baseEnv).CODEFLARE_MCP_LIFECYCLE_GENERATION).toBeUndefined();
-    } finally { read.mockRestore(); }
   });
 
   it('emits the immutable terminal mode', () => {

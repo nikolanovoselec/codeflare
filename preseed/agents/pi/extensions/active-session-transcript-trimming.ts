@@ -101,12 +101,26 @@ export function prepareTranscript(raw: string, sessionId: string, branchIds: str
       originalCustomType: "rpiv-todo-state", reason: "Superseded historical snapshot; authoritative branch checkpoints retained.",
     } });
   }
-  // Only the latest applicable compaction on the public active branch authorizes payload shortening.
-  const compaction = [...branchIds].reverse().map(id => entries[byId.get(id)!]).find(e => e.type === "compaction");
-  const cut = compaction && branchIds.includes(compaction.firstKeptEntryId) ? byId.get(compaction.firstKeptEntryId)! : 0;
-  for (let i = 1; i < cut && size > TARGET; i++) {
+  // A summary covers only its ancestry, not earlier records on other branches.
+  const covered = (ids: string[]): Set<string> => {
+    const compactAt = ids.findLastIndex(id => entries[byId.get(id)!].type === "compaction");
+    if (compactAt < 0) return new Set();
+    const firstKept = ids.indexOf(entries[byId.get(ids[compactAt])!].firstKeptEntryId);
+    return firstKept < 0 || firstKept > compactAt ? new Set() : new Set(ids.slice(0, firstKept));
+  };
+  const eligible = covered(branchIds);
+  // Other leaves and branchpoints can reopen without the active branch's summary.
+  for (const e of entries.slice(1)) {
+    if (children.get(e.id) === 1) continue;
+    const ids: string[] = [];
+    for (let id: string | null = e.id; id; id = entries[byId.get(id)!].parentId) ids.push(id);
+    ids.reverse();
+    const summarized = covered(ids);
+    for (const id of ids) if (!summarized.has(id)) eligible.delete(id);
+  }
+  for (let i = 1; i < entries.length && size > TARGET; i++) {
     const e = entries[i], m = e.message;
-    if (e.type === "message" && m?.role === "assistant" && Array.isArray(m.content)
+    if (eligible.has(e.id) && e.type === "message" && m?.role === "assistant" && Array.isArray(m.content)
       && m.content.some((block: any) => block?.type === "thinking")) {
       replace(i, { ...e, message: { ...m, content: m.content.map((block: any) => block?.type === "thinking"
         ? { type: "thinking", thinking: "[Historical reasoning trimmed.]" } : block) } });
@@ -120,9 +134,9 @@ export function prepareTranscript(raw: string, sessionId: string, branchIds: str
       if (b?.type === "toolCall") calls.set(b.id, { index: i, name: b.name });
     }
   }
-  for (let i = 1; i < cut && size > TARGET; i++) {
+  for (let i = 1; i < entries.length && size > TARGET; i++) {
     const e = entries[i], m = e.message, call = calls.get(m?.toolCallId);
-    if (e.type !== "message" || m?.role !== "toolResult" || !["read", "bash"].includes(m.toolName)
+    if (!eligible.has(e.id) || e.type !== "message" || m?.role !== "toolResult" || !["read", "bash"].includes(m.toolName)
       || !call || call.index >= i || call.name !== m.toolName
       || m.details !== undefined || m.structuredContent !== undefined || !Array.isArray(m.content)
       || !m.content.every((b: any) => b?.type === "text" || b?.type === "image")) continue;

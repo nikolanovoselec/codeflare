@@ -35,6 +35,8 @@ interface OAuthConnectCardProps {
   onDisconnect: () => void;
   /** Connected identity (GitHub login / Cloudflare account name). */
   identity?: string;
+  /** Non-secret connection selector shown before connecting (for multi-portal cards). */
+  description?: string;
   /** Scope-tier selector shown in the disconnected state; feeds the OAuth scope param. */
   tierOptions?: OAuthTierOptions;
   /** Account picker shown in the connected state (Cloudflare multi-account). */
@@ -67,6 +69,7 @@ const OAuthConnectCard: Component<OAuthConnectCardProps> = (props) => {
           <button
             type="button"
             class="oauth-connect-disconnect"
+            aria-label={props.description ? `Disconnect ${props.name} ${props.description}` : undefined}
             data-testid={`${props.provider}-disconnect-btn`}
             onClick={() => props.onDisconnect()}
           >
@@ -101,6 +104,7 @@ const OAuthConnectCard: Component<OAuthConnectCardProps> = (props) => {
 
       <Show when={props.status === 'disconnected'}>
         <div class="oauth-connect-body">
+          <Show when={props.description}><span class="oauth-connect-identity">{props.description}</span></Show>
           <Show when={props.tierOptions}>
             {(tier) => (
               <div class="oauth-connect-tier" data-testid={`${props.provider}-tier`}>
@@ -132,6 +136,7 @@ const OAuthConnectCard: Component<OAuthConnectCardProps> = (props) => {
           <button
             type="button"
             class="oauth-connect-btn oauth-connect-btn--connect"
+            aria-label={props.description ? `Connect ${props.name} ${props.description}` : undefined}
             data-testid={`${props.provider}-connect-btn`}
             data-href={href()}
             onClick={() => { window.location.href = href(); }}

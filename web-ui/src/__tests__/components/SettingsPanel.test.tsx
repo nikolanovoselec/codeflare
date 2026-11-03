@@ -57,6 +57,12 @@ vi.mock('../../api/client', () => ({
   getUser: () => mockGetUser(),
 }));
 
+vi.mock('../../api/mcp-portals', () => ({
+  getMcpPortalStatuses: vi.fn(async () => []),
+  disconnectMcpPortal: vi.fn(async () => undefined),
+  mcpPortalConnectUrl: (name: string) => `/auth/mcp/connect/${encodeURIComponent(name)}`,
+}));
+
 vi.mock('../../api/storage', () => ({
   recreateGettingStartedDocs: vi.fn(async () => ({
     success: true,
@@ -144,6 +150,22 @@ describe('SettingsPanel Component / REQ-AGENT-019 (branded settings UI)', () => 
 
   afterEach(() => {
     cleanup();
+  });
+
+  it.each([false, true])('REQ-AGENT-227 AC6: MCP Settings is available in both Pi modes and all subscription modes (enterprise=%s)', async enterprise => {
+    for (const mode of ['default', 'advanced'] as const) {
+      for (const tier of ['free', 'standard', 'advanced', 'max', 'unlimited'] as const) {
+        sessionStoreState.preferences = { sessionMode: mode };
+        mockGetUser.mockResolvedValue({ email: 'owner@example.com', authenticated: true, subscriptionTier: tier, subscribedMode: mode });
+        render(() => <SettingsPanel isOpen={true} onClose={() => {}} currentUserRole="user" currentUserAccessTier="standard" enterpriseMode={enterprise} />);
+        const header = screen.getByRole('button', { name: /MCP.*Connect MCP portals/ });
+        fireEvent.click(header);
+        expect(header).toHaveAttribute('aria-expanded', 'true');
+        expect(screen.getByRole('region', { name: 'MCP' })).toBeInTheDocument();
+        expect(await screen.findByText(/No MCP portals configured/)).toBeInTheDocument();
+        cleanup();
+      }
+    }
   });
 
   describe('KittScanner', () => {

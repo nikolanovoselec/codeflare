@@ -60,7 +60,6 @@ import {
   getBucketName as configGetBucketName,
   updateEnvVars as configUpdateEnvVars,
   refreshMcpPortalConfiguration,
-  refreshMcpLaunchGeneration,
   ensureVaultKey as configEnsureVaultKey,
   type ContainerHost,
 } from './container-config';
@@ -183,8 +182,6 @@ export class container extends Container<Env> implements ContainerEnvState {
   // These satisfy the ContainerEnvState interface, so they are not `private`.
   _bucketName: string | null = null;
   _mcpPortals: Array<{ name: string; url: string }> = [];
-  _mcpCallbackOrigin: string | undefined;
-  _mcpLifecycleGeneration: number | undefined;
   _r2AccountId: string | null = null;
   _r2Endpoint: string | null = null;
   /** REQ-ENTERPRISE-016: strict Gateway egress active (enterprise + KV toggle); resolved once in the constructor. */
@@ -904,7 +901,6 @@ export class container extends Container<Env> implements ContainerEnvState {
     ...args: Parameters<Container<Env>['startAndWaitForPorts']>
   ): Promise<void> {
     await refreshMcpPortalConfiguration(this.host);
-    await refreshMcpLaunchGeneration(this.host);
     this.updateEnvVars();
     await wireContainerInterception(this.interceptionHost);
     await super.startAndWaitForPorts(...args);

@@ -1474,7 +1474,7 @@ jobs:
           if [ "$PKG" = 'pi-mcp-extension' ]; then
             (cd preseed/agents/pi && npm ci --ignore-scripts --no-audit --no-fund)
             # Qualify this regenerated candidate before artifacts/commit/push.
-            node scripts/qualify-pi-mcp-hosted-oauth.mjs
+            node scripts/qualify-pi-mcp.mjs
           fi
           npm run generate:agent-seed
 
