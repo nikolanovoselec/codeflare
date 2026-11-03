@@ -4,7 +4,7 @@
 # ---- Stage 1: Builder (compile native addons + TypeScript) ----
 # Use the digest-verified Google mirror of Docker Hub. Public ECR throttled
 # both pinned Node bases on shared GitHub Actions runners (HTTP 429).
-FROM mirror.gcr.io/library/node:26-bookworm-slim@sha256:86f07bc9c5dce4578cf37e5a418b7bfc7f817cda25cde66e2b66e95ed86c4567 AS builder
+FROM mirror.gcr.io/library/node:26-bookworm-slim@sha256:bc0a2afd3b74ce12222fc8bab99271e66257f021078f5f4a5d687a77d280c1d9 AS builder
 
 RUN apt-get update && apt-get install -y --no-install-recommends make gcc g++ python3 && rm -rf /var/lib/apt/lists/*
 
@@ -22,7 +22,7 @@ RUN npm prune --omit=dev && \
     node /tmp/prune-npm-platform-artifacts.mjs node_modules
 
 # ---- Pinned rclone with verified per-side bisync bookkeeping ----
-FROM mirror.gcr.io/library/node:26-bookworm-slim@sha256:86f07bc9c5dce4578cf37e5a418b7bfc7f817cda25cde66e2b66e95ed86c4567 AS rclone-builder
+FROM mirror.gcr.io/library/node:26-bookworm-slim@sha256:bc0a2afd3b74ce12222fc8bab99271e66257f021078f5f4a5d687a77d280c1d9 AS rclone-builder
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl python3 && rm -rf /var/lib/apt/lists/*
 RUN curl -fsSL https://go.dev/dl/go1.27.3.linux-amd64.tar.gz -o /tmp/go.tar.gz \
     && echo "65efbc80fdc1fa2cd2631cad5b481777a68e8725f34e89f50fc6ac714e379b40  /tmp/go.tar.gz" | sha256sum -c - \
@@ -50,7 +50,7 @@ RUN mkdir -p /out \
     && go build -trimpath -ldflags '-s -w -X github.com/rclone/rclone/fs.Version=v1.73.5-codeflare-bisync1' -o /out/rclone .
 
 # ---- Image-owned Impeccable engine with configured question idle grace ----
-FROM mirror.gcr.io/library/node:26-bookworm-slim@sha256:86f07bc9c5dce4578cf37e5a418b7bfc7f817cda25cde66e2b66e95ed86c4567 AS impeccable-builder
+FROM mirror.gcr.io/library/node:26-bookworm-slim@sha256:bc0a2afd3b74ce12222fc8bab99271e66257f021078f5f4a5d687a77d280c1d9 AS impeccable-builder
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl xz-utils build-essential pkg-config libssl-dev python3 && rm -rf /var/lib/apt/lists/*
 RUN curl -fsSL https://static.rust-lang.org/dist/2026-09-03/rust-1.98.1-x86_64-unknown-linux-gnu.tar.xz -o /tmp/rust.tar.xz \
     && echo "5326b36c53de11d148c8f8dab6553a3d1006c2cfd32123683073fad3c302605b  /tmp/rust.tar.xz" | sha256sum -c - \
@@ -153,7 +153,7 @@ RUN /usr/local/bin/node -e 'require("node:assert/strict").equal(process.versions
     test -z "$(find /out/openvscode -iname '*.vsix' -print -quit)"
 
 # ---- Stage 2: Runtime ----
-FROM mirror.gcr.io/library/node:26-bookworm-slim@sha256:86f07bc9c5dce4578cf37e5a418b7bfc7f817cda25cde66e2b66e95ed86c4567
+FROM mirror.gcr.io/library/node:26-bookworm-slim@sha256:bc0a2afd3b74ce12222fc8bab99271e66257f021078f5f4a5d687a77d280c1d9
 
 # Suppress npm update nag; configure Claude Code for non-interactive container use
 ENV NPM_CONFIG_UPDATE_NOTIFIER=false
