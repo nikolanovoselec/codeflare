@@ -32,6 +32,12 @@ Image construction warms RPIV, Subagents, MCP Extension, web-access, Evaluate, O
 
 Every file scanned as a Pi extension exports a default factory; pure helpers retain a no-op default beside named exports. Package-presence checks cannot replace actual extension loading.
 
+### Pi 1.5 and operator compatibility
+
+Pi 1.5 retains JITI 2.7's path/content-sensitive cache rules; keep the fresh-process replay gate rather than infer reuse from artifact presence. Its extension loader supplies the upstream Pi-AI compatibility view, while ordinary package-root imports no longer export TypeBox. New extension schemas import `typebox` directly and follow Pi's JSON-Schema validation rules; TypeBox-only refinements/codecs are not validation guarantees. The image's gateway-label preparation accepts only its reviewed 1.5 source/bundle hashes and avoids repeating the label as a secondary name. <!-- @impl: scripts/patch-pi-native-model-display.mjs::patchPiNativeModelDisplay -->
+
+Root Pi-AI 1.5 and the immutable operator App's Pi-AI 1.4 are separate boundaries. Flue 2.3.0 still imports the removed package-root `Type` export, so its 1.4 pin must not be forced to 1.5. Root owns OAuth resolution/refresh; the App receives only the protected token DTO. Direct OpenAI/ChatGPT compatibility requires producer/consumer CI and fresh-owner acceptance. It is not blanket Codex/Copilot support, a credential bridge or permission to rebuild immutable assets.
+
 ### Native terminal UI
 
 [REQ-AGENT-056](../../sdd/spec/agents.md#req-agent-056-pi-local-statusline-footer) owns the native UI and session-status contract. Open TUI is exact-pinned and integrity-locked in the image's Pi extension inventory. Startup selects `{source: "npm:pi-open-tui@0.3.12", extensions: []}`: package auto-discovery is suppressed because managed `startup-header.ts` delegates the installed native entrypoint once. Open TUI owns header, footer and editor in both modes; the adapter gates terminal handlers and `/open-tui` to TUI contexts and bounds header/footer lines by real terminal column width. RPC, print and background execution do not acquire its settings overlay or project probes.
