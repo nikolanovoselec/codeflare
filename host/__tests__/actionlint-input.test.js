@@ -40,7 +40,7 @@ test('REQ-OPS-021 AC3: projects only actual self-repository uses, retaining scri
 // The normal host lane still executes the projection contract above without downloading a tool.
 test('REQ-OPS-021 AC3: real pinned actionlint retains local target, input, expression and shell failures', {
   skip: !process.env.ACTIONLINT_BINARY,
-}, () => {
+}, async (t) => {
   const root = mkdtempSync(join(tmpdir(), 'actionlint-input-'));
   const helper = fileURLToPath(new URL('../../scripts/ci/actionlint-input.mjs', import.meta.url));
   const file = join(root, '.github/workflows/verify.yml');
@@ -49,7 +49,8 @@ test('REQ-OPS-021 AC3: real pinned actionlint retains local target, input, expre
   };
   try {
     mkdirSync(join(root, '.git')); // Project marker for the real linter's local metadata lookup.
-    write(join(root, '.github/actions/demo/action.yml'), `name: demo
+    const actionFile = join(root, '.github/actions/demo/action.yml');
+    const actionMetadata = `name: demo
 description: fixture
 inputs:
   value:
@@ -60,7 +61,8 @@ runs:
   steps:
     - shell: bash
       run: 'true'
-`);
+`;
+    write(actionFile, actionMetadata);
     write(join(root, '.github/workflows/called.yml'), `on:
   workflow_call:
     inputs:
@@ -83,16 +85,19 @@ jobs:
     };
     const valid = run(source);
     assert.equal(valid.status, 0, `${valid.stdout}\n${valid.stderr}`);
-    for (const [name, input] of [
-      ['missing action', source.replace('$/.github/actions/demo', '$/.github/actions/missing')],
+    for (const [name, input, metadata = actionMetadata] of [
+      ['malformed local action metadata', source, 'inputs: [\n'],
       ['missing reusable workflow', source.replace('workflows/called.yml', 'workflows/missing.yml')],
       ['invalid action input', source.replace('value: ok', 'unlisted: ok')],
       ['invalid workflow input', source.replace('message: hello', 'unlisted: hello')],
       ['invalid expression', source.replace('value: ok', 'value: ${{ nonexistent.value }}')],
       ['broken shell', source.replace("printf '%s\\n' 'uses: $/.github/actions/untouched'", 'if then')],
     ]) {
-      const result = run(input);
-      assert.notEqual(result.status, 0, `${name} must remain a failure: ${result.stdout}\n${result.stderr}`);
+      await t.test(name, () => {
+        write(actionFile, metadata);
+        const result = run(input);
+        assert.notEqual(result.status, 0, `${name} must remain a failure: ${result.stdout}\n${result.stderr}`);
+      });
     }
   } finally { rmSync(root, { recursive: true, force: true }); }
 });

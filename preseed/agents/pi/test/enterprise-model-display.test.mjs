@@ -213,8 +213,9 @@ for (const [provider, id] of [
     );
     t.after(() => picker.dispose());
     const label = `${dynamic ? name : id} [${provider}]`;
+    const pickerLabel = dynamic ? label : `${id} (${name}) [${provider}]`;
     const rendered = plainRender(picker);
-    assert.ok(rendered.includes(label), 'published route prefixes must display while unrelated rows retain IDs');
+    assert.ok(rendered.includes(pickerLabel), 'published route prefixes must display while unrelated rows retain primary IDs');
     if (!dynamic) assert.ok(!rendered.includes(`${name} [${provider}]`));
     picker.handleInput('\r');
     assert.deepEqual(selections, [[provider, id]]);
