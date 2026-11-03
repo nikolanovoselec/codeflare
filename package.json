@@ -31,8 +31,8 @@
     "aws4fetch": "^1.0.20",
     "edgepush": "0.1.1",
     "fflate": "0.8.3",
-    "hono": "^4.13.13",
-    "zod": "^4.6.5"
+    "hono": "^4.13.16",
+    "zod": "^4.6.6"
   },
   "overrides": {
     "minimatch": ">=10.2.1",
@@ -42,7 +42,7 @@
     "esbuild": "$esbuild"
   },
   "devDependencies": {
-    "@cloudflare/vitest-plugin": "1.4.4",
+    "@cloudflare/vitest-plugin": "1.5.1",
     "@types/node": "^26.6.4",
     "@vitest/coverage-istanbul": "5.0.5",
     "agents": "0.28.1",
