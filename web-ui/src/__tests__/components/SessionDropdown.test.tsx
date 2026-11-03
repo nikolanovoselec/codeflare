@@ -369,14 +369,14 @@ describe('SessionDropdown', () => {
       expect(btn).toHaveAttribute('aria-label', 'Session environment update pending until session stops');
     });
 
-    it('REQ-STOR-023 AC5 / REQ-AGENT-175: an incompatible managed release is blocked rather than waiting for session stop', () => {
+    it('REQ-STOR-023 AC5 / REQ-AGENT-175: runtime incompatibility preserves the existing pending control', () => {
       (sessionStore as any)._setManagedReleaseStatus('update_pending');
       (sessionStore as any)._setManagedReleaseBlockedReason('runtime_incompatible');
       render(() => <SessionDropdown {...defaultProps} />);
       const button = screen.getByTestId('session-dropdown-new');
       expect(button).toBeDisabled();
-      expect(button).toHaveTextContent('Update blocked');
-      expect(button).toHaveAttribute('aria-label', 'Session environment blocked by an incompatible managed release');
+      expect(button).toHaveTextContent('Update pending');
+      expect(button).toHaveAttribute('aria-label', 'Session environment update pending until session stops');
       fireEvent.click(button);
       expect(screen.getByTestId('create-session-dialog')).toHaveAttribute('data-open', 'false');
     });
