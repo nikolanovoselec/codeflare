@@ -255,7 +255,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Acceptance Criteria:**
 
-1. Containers stop after configured idle time without user input: new non-free sessions default to 1h with 1h/2h/4h/8h/12h choices; free-tier 15m and permitted saved legacy durations remain effective. <!-- @impl: src/routes/container/lifecycle-validation.ts::resolveEffectiveSleepAfter --> <!-- @impl: src/types.ts::SleepAfterOptions --> <!-- @test: src/__tests__/routes/session-sleep-timeout.test.ts (defaults to 1h for non-free tiers without stored preference) --> <!-- @impl: src/container/container-metrics.ts::parseSleepAfterMs --> <!-- @test: src/__tests__/container-metrics.test.ts (idle timeout resolution (REQ-OPS-006 AC1) / REQ-OPS-017 (sleepAfter fail-safe invariants)) -->
+1. Containers stop after their effective configured idle period without user input. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @impl: src/container/container-metrics.ts::parseSleepAfterMs --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-004: %s stays alive until its configured idle deadline and then requests SIGTERM) --> <!-- @test: src/__tests__/container-metrics.test.ts (idle timeout resolution (REQ-OPS-006 AC1) / REQ-OPS-017 (sleepAfter fail-safe invariants)) -->
 2. After Codeflare stops a Container and it sleeps, its vCPU, provisioned-memory, and local-disk metering stops. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @manual: Record the Container's vCPU, provisioned-memory, and local-disk usage in Cloudflare analytics; let Codeflare idle-stop it; confirm it is sleeping and all three usage totals stop increasing while it remains stopped. -->
 3. Local disk is ephemeral and restart restores durable files from R2. <!-- @manual -->
 4. Workers, Durable Objects, R2, requests, logs, storage, and network may still incur charges. <!-- @manual -->
@@ -266,6 +266,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 - CPU is billed on active usage only; Memory and disk are billed on provisioned resources during active time.
 - R2 storage is billed by GB-month, with a free tier covering small workspaces.
 - Cost scales per active session, not per user.
+- Idle defaults, selectable presets and legacy/free-tier policies live in [REQ-SESSION-004](session-lifecycle.md#req-session-004-idle-containers-sleep-after-configurable-timeout) and [REQ-SESSION-014](session-lifecycle.md#req-session-014-user-configurable-auto-sleep-timeout-in-settings).
 - Idle-timeout persistence + lifecycle mechanics live in [REQ-OPS-016](#req-ops-016-sleepafter-preference-persistence-and-lifecycle).
 - Idle-timeout fail-safe invariants live in [REQ-OPS-017](#req-ops-017-sleepafter-fail-safe-invariants).
 

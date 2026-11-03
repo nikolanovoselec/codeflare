@@ -36,7 +36,7 @@ Every file scanned as a Pi extension exports a default factory; pure helpers ret
 
 Pi 1.5 retains JITI 2.7's path/content-sensitive cache rules; keep the fresh-process replay gate rather than infer reuse from artifact presence. Its extension loader supplies the upstream Pi-AI compatibility view, while ordinary package-root imports no longer export TypeBox. New extension schemas import `typebox` directly and follow Pi's JSON-Schema validation rules; TypeBox-only refinements/codecs are not validation guarantees. The image's gateway-label preparation accepts only its reviewed 1.5 source/bundle hashes and avoids repeating the label as a secondary name. <!-- @impl: scripts/patch-pi-native-model-display.mjs::patchPiNativeModelDisplay -->
 
-Root Pi-AI 1.5 and the immutable operator App's Pi-AI 1.4 are separate boundaries. Flue 2.3.0 still imports the removed package-root `Type` export, so its 1.4 pin must not be forced to 1.5. Root owns OAuth resolution/refresh; the App receives only the protected token DTO. Direct OpenAI/ChatGPT compatibility requires producer/consumer CI and fresh-owner acceptance. It is not blanket Codex/Copilot support, a credential bridge or permission to rebuild immutable assets.
+Interactive/runtime and prewarm Pi 1.5 are independent of the Worker and immutable App's Pi-AI 1.4 pins. Agents 0.30.1 requires `~1.4.0`; Flue 2.3.0 imports the root `Type` export removed in 1.5. Preserve both supported pins. Root owns OAuth resolution/refresh; the App receives only the protected token DTO. Direct OpenAI/ChatGPT compatibility still requires producer/consumer CI and fresh-owner acceptance, not blanket Codex/Copilot support or credential bridging.
 
 ### Native terminal UI
 

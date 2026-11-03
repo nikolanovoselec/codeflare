@@ -43,12 +43,6 @@ jobs:
           console.log(`required=${version === '1.4.0'}`);
           NODE
 
-      - name: Align the Root Pi-AI dependency
-        if: steps.source.outputs.required == 'true'
-        run: |
-          node scripts/update-npm-tool-manifests.mjs package.json @earendil-works/pi-ai 1.4.0 1.5.0
-          node scripts/regenerate-npm-package-lock.mjs .
-
       - name: Generate the Pi 1.5.0 candidate atomically
         if: steps.source.outputs.required == 'true'
         run: node scripts/update-pi-runtime-artifacts.mjs 1.4.0 1.5.0
