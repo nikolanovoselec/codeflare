@@ -28,8 +28,8 @@ function fixture(t, entries = oversized()) {
 function branchOf(entries, leaf) {
   const byId = new Map(entries.slice(1).map(e => [e.id, e]));
   const branch = [];
-  for (let e = byId.get(leaf); e; e = byId.get(e.parentId)) branch.unshift(e);
-  return branch;
+  for (let e = byId.get(leaf); e; e = byId.get(e.parentId)) branch.push(e);
+  return branch.reverse();
 }
 function oversized({ floor = false, child = false, raw = false, historicalBytes = 8_000_000, protectedBytes } = {}) {
   const entries = [{ type: 'session', version: 3, id: 'fixture', timestamp: '2026-11-03T00:00:00Z', cwd: '/fixture', ...(child ? { parentSession: '/not-read.jsonl' } : {}) }];
@@ -267,6 +267,31 @@ test('REQ-MEM-028 AC4: uncompacted branches retain reasoning and raw tool payloa
   assert.notEqual(after.find(e => e.id === activeThinking.id).message.content[0].thinking,
     activeThinking.message.content[0].thinking, 'active-only summarized payload remains eligible');
   assert.ok(fs.statSync(f.file).size < 50_000_000);
+});
+
+test('REQ-MEM-028 AC4: deeply repeated forks preserve uncompacted branch payloads', t => {
+  const entries = oversized();
+  const compaction = entries.find(e => e.type === 'compaction');
+  const keptAt = entries.findIndex(e => e.id === compaction.firstKeptEntryId);
+  let parentId = entries[keptAt].parentId;
+  const forks = [], samples = [];
+  for (let n = 0; n < 20_000; n++) {
+    const spine = { type: 'message', id: `spine-${n}`, parentId, message: { role: 'user', content: `continuing ${n}` } };
+    const sibling = { type: 'message', id: `sibling-${n}`, parentId: spine.id, message: { role: 'user', content: `branch ${n}` } };
+    forks.push(spine, sibling); parentId = spine.id;
+    if ([0, 10_000, 19_999].includes(n)) samples.push(sibling.id);
+  }
+  entries[keptAt].parentId = parentId;
+  entries.splice(keptAt, 0, ...forks);
+  const f = fixture(t, entries), before = fs.readFileSync(f.file);
+  const digest = bytes => createHash('sha256').update(bytes).digest('hex');
+  const started = performance.now();
+  assert.equal(trimActiveSessionTranscript(f.ctx, f.expected).status, 'unchanged');
+  t.diagnostic(`repeated-fork retention: ${Math.round(performance.now() - started)}ms`);
+  const after = fs.readFileSync(f.file);
+  assert.equal(digest(after), digest(before));
+  const reopened = reopen(f);
+  for (const leaf of samples) assert.deepEqual(replay(branchOf(reopened, leaf)), replay(branchOf(entries, leaf)));
 });
 
 test('REQ-MEM-028 AC5: ordinary appends survive replacement without reload', t => {

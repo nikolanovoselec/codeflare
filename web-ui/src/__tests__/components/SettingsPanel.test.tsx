@@ -152,7 +152,7 @@ describe('SettingsPanel Component / REQ-AGENT-019 (branded settings UI)', () => 
     cleanup();
   });
 
-  it.each([false, true])('REQ-AGENT-227 AC6: MCP Settings is available in both Pi modes and all subscription modes (enterprise=%s)', async enterprise => {
+  it.each([false, true])('REQ-AGENT-228 AC4: MCP Settings is available in both Pi modes and all subscription modes (enterprise=%s)', async enterprise => {
     for (const mode of ['default', 'advanced'] as const) {
       for (const tier of ['free', 'standard', 'advanced', 'max', 'unlimited'] as const) {
         sessionStoreState.preferences = { sessionMode: mode };

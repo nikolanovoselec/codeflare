@@ -18,7 +18,7 @@ beforeEach(() => {
 afterEach(() => { cleanup(); window.history.replaceState({}, '', window.location.pathname); });
 
 describe('Settings MCP connections', () => {
-  it('REQ-AGENT-227 AC6: multiple portal identities connect through existing browser navigation and disconnect independently', async () => {
+  it('REQ-AGENT-228 AC4: multiple portal identities connect through existing browser navigation and disconnect independently', async () => {
     render(() => <McpPortalsSection />);
     expect(screen.getByRole('status')).toHaveTextContent('Loading MCP portals');
     await screen.findByText('alpha');
@@ -33,7 +33,7 @@ describe('Settings MCP connections', () => {
     expect(screen.getByTestId('mcp-beta-connect-btn')).toBeInTheDocument();
   });
 
-  it('REQ-AGENT-227 AC6: clean browser completion status is consumed using the existing connection pattern', async () => {
+  it('REQ-AGENT-228 AC4: clean browser completion status is consumed using the existing connection pattern', async () => {
     window.history.replaceState({}, '', '?mcp=reconnect');
     render(() => <McpPortalsSection />);
     expect(await screen.findByText(/MCP authorization could not be completed/)).toBeInTheDocument();
@@ -41,7 +41,7 @@ describe('Settings MCP connections', () => {
     expect(await screen.findByTestId('mcp-alpha-identity')).toHaveTextContent('alpha');
   });
 
-  it('REQ-AGENT-227 AC6: empty configuration, loading errors and disconnect errors are actionable and accessible', async () => {
+  it('REQ-AGENT-228 AC4: empty configuration, loading errors and disconnect errors are actionable and accessible', async () => {
     stored = []; render(() => <McpPortalsSection />);
     expect(await screen.findByText(/No MCP portals configured/)).toBeInTheDocument(); cleanup();
     get.mockRejectedValueOnce(new Error('network unavailable')); render(() => <McpPortalsSection />);

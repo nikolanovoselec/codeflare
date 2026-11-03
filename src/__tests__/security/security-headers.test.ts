@@ -96,7 +96,7 @@ describe('REQ-SEC-008: Security headers on every worker response', () => {
     expect(res.headers.get('Referrer-Policy')).toBe('strict-origin-when-cross-origin');
   });
 
-  it('REQ-AGENT-226 AC1: full app preserves no-referrer and routes MCP returns before auth fallback', async () => {
+  it('REQ-AGENT-226 AC3: full app preserves no-referrer and routes MCP returns before auth fallback', async () => {
     const { env, ctx } = createBaseEnv();
     const code = 'synthetic-never-retained-callback-code';
     const callback = await worker.fetch(new Request(`https://example.com/auth/mcp/callback?state=${'a'.repeat(64)}&code=${code}`, {

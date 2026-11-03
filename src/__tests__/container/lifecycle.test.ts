@@ -159,7 +159,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       R2_ENDPOINT: 'https://r2.test',
       R2_ACCESS_KEY_ID: 'test-key',
       R2_SECRET_ACCESS_KEY: 'test-secret',
-      KV: {},
+      KV: sessionKV,
       USAGE_DB: createMockSessionD1(sessionKV),
     };
   });

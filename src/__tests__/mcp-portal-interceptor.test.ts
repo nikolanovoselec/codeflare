@@ -13,7 +13,7 @@ const request = (url = portal.url) => new Request(url, { method: 'POST', headers
 }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'synthetic-write' } }) });
 
 describe('MCP exact-destination Worker credential boundary', () => {
-  it('REQ-AGENT-226 AC4: stamps the trusted owner grant and preserves functional response streams and downstream URL context', async () => {
+  it('REQ-AGENT-229 AC4: stamps the trusted owner grant and preserves functional response streams and downstream URL context', async () => {
     const f = await mcpPortalFixture(); await f.begin(); await f.finish();
     const send: typeof fetch = async input => {
       const outgoing = input as Request;
@@ -36,7 +36,7 @@ describe('MCP exact-destination Worker credential boundary', () => {
     expect(body).toContain('context=same-grant'); expect(body).toContain('stream-complete'); expect(body).not.toContain(access);
   });
 
-  it('REQ-AGENT-226 AC4: response cancellation reaches the original upstream stream', async () => {
+  it('REQ-AGENT-229 AC4: response cancellation reaches the original upstream stream', async () => {
     const f = await mcpPortalFixture(); await f.begin(); await f.finish();
     let cancellation: unknown;
     const send: typeof fetch = async () => new Response(new ReadableStream({ cancel(reason) { cancellation = reason; } }), {
@@ -48,7 +48,7 @@ describe('MCP exact-destination Worker credential boundary', () => {
     expect(cancellation).toBe('owner-cancelled');
   });
 
-  it('REQ-AGENT-226 AC4: rejects wrong resource, owner, Operator, instance, configuration, missing grant and strict-egress absence before sending', async () => {
+  it('REQ-AGENT-229 AC2: rejects wrong resource, owner, Operator, instance, configuration, missing grant and strict-egress absence before sending', async () => {
     const f = await mcpPortalFixture(); await f.begin(); await f.finish();
     const forbidden: typeof fetch = async () => { throw Error('Protected upstream I/O must not begin'); };
     for (const url of ['https://portal.example/other', 'http://portal.example/mcp?codemode=search_and_execute',
@@ -68,7 +68,7 @@ describe('MCP exact-destination Worker credential boundary', () => {
     expect((await forwardMcpPortal(request(), f.env, props, forbidden)).status).toBe(403);
   });
 
-  it('REQ-AGENT-226 AC4: rejects redirects without credential leakage and preserves actual upstream failure status', async () => {
+  it('REQ-AGENT-229 AC4: rejects redirects without credential leakage and preserves actual upstream failure status', async () => {
     const f = await mcpPortalFixture(); await f.begin(); await f.finish();
     const response = await forwardMcpPortal(request(), f.env, props, async input => {
       expect((input as Request).redirect).toBe('manual');
@@ -82,7 +82,7 @@ describe('MCP exact-destination Worker credential boundary', () => {
     expect(denied.headers.get('WWW-Authenticate')).toContain('portal.example');
   });
 
-  it('REQ-AGENT-226 AC3: uncertain MCP writes are never replayed after response loss', async () => {
+  it('REQ-AGENT-229 AC5: uncertain MCP writes are never replayed after response loss', async () => {
     const f = await mcpPortalFixture(); await f.begin(); await f.finish();
     const effects: string[] = [];
     const response = await forwardMcpPortal(request(), f.env, props, async input => {

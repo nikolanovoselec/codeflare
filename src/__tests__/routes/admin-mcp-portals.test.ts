@@ -86,7 +86,7 @@ describe('instance MCP portal configuration', () => {
     expect(await (await instance.read()).json()).toEqual(portals);
   });
 
-  it('REQ-AGENT-227 AC5: saving does not mutate running sessions or grants', async () => {
+  it('REQ-AGENT-227 AC3: saving does not mutate running sessions or grants', async () => {
     const instance = fixture();
     const running = { id: 'running', state: 'active', config: { mcpServers: { custom: { url: 'https://custom.example/mcp' } } } };
     await instance.kv.put('session:running', JSON.stringify(running));

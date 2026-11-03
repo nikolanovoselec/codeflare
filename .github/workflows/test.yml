@@ -898,9 +898,13 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Read explicit CI Node patch pin
+        id: node-pin
+        run: node scripts/ci/workflow-tool-pins.mjs github-output ci-node-22 >> "$GITHUB_OUTPUT"
+
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: '22'
+          node-version: ${{ steps.node-pin.outputs.version }}
 
       - uses: $/.github/actions/install-deps
         with:

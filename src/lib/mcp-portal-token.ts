@@ -8,7 +8,7 @@ export { publicHttps } from './mcp-portals';
 import { claimOauthNonce } from './oauth-state';
 import { SETUP_KEYS, isValidCustomDomain } from './kv-keys';
 
-export const MCP_CALLBACK_PATH = '/auth/mcp/callback';
+const MCP_CALLBACK_PATH = '/auth/mcp/callback';
 export const MCP_CLIENT_METADATA_PATH = '/auth/mcp/client-metadata';
 export function mcpPortalClientMetadata(instance: string) {
   return { client_name: 'Codeflare MCP portals', redirect_uris: [`${instance}${MCP_CALLBACK_PATH}`],
@@ -47,7 +47,7 @@ export function portalOAuthFetch(send: typeof fetch = fetch): typeof fetch {
     const signals = [AbortSignal.timeout(10_000)];
     if (init?.signal) signals.push(init.signal);
     if (input instanceof Request) signals.push(input.signal);
-    const response = await send(input, { ...init, redirect: 'error', signal: AbortSignal.any(signals) });
+    const response = await send(input, { ...init, redirect: 'manual', signal: AbortSignal.any(signals) });
     if (response.status >= 300 && response.status < 400) throw new Error('MCP OAuth redirect refused');
     return response;
   };

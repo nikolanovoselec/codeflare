@@ -76,7 +76,7 @@ describe('buildEnvVars (REQ-SESSION-016 AC3) / REQ-MEM-010 AC4 (USER_TIMEZONE fe
     expect(vars.USER_TIMEZONE).toBeUndefined();
   });
 
-  it.each(['default', 'advanced'] as const)('REQ-AGENT-227 AC3: %s startup receives only non-secret portal registration', (mode) => {
+  it.each(['default', 'advanced'] as const)('REQ-AGENT-228 AC1: %s startup receives only non-secret portal registration', (mode) => {
     const state = baseState();
     state._sessionMode = mode;
     state._mcpPortals = [
@@ -91,11 +91,11 @@ describe('buildEnvVars (REQ-SESSION-016 AC3) / REQ-MEM-010 AC4 (USER_TIMEZONE fe
     expect(vars.CONTAINER_AUTH_TOKEN).toBe('tok');
   });
 
-  it('REQ-AGENT-227 AC3: empty portal lists do not introduce MCP environment configuration', () => {
+  it('REQ-AGENT-228 AC1: empty portal lists do not introduce MCP environment configuration', () => {
     expect(buildEnvVars(baseState(), baseEnv).CODEFLARE_MCP_PORTALS_JSON).toBeUndefined();
   });
 
-  it('REQ-AGENT-227 AC3: startup rereads changed instance portal configuration and clears removals', async () => {
+  it('REQ-AGENT-228 AC3: startup rereads changed instance portal configuration and clears removals', async () => {
     const kv = createMockKV();
     const host = {
       ...baseState(),

@@ -66,7 +66,7 @@ fi
 }
 
 describe('Codeflare Herdr launcher', () => {
-  it('REQ-AGENT-227: both Pi modes launch the stock client without a credential companion', () => {
+  it('REQ-AGENT-228: both Pi modes launch the stock client without a credential companion', () => {
     for (const mode of ['default', 'advanced']) {
       const { result, calls } = harness('pi', undefined, undefined, { SESSION_MODE: mode,
         CODEFLARE_MCP_PORTALS_JSON: JSON.stringify([{ name: 'fixture', url: 'https://portal.example/mcp' }]) });
@@ -271,7 +271,7 @@ fi
     const calls = readFileSync(log, 'utf8').trim().split('\n');
     assert.equal(calls.filter((call) => call === 'agent list').length, 2);
     assert.equal(calls.filter((call) => call.startsWith('pane run ')).length, 1);
-    assert.equal(calls.includes('pane run w1:p1 env -u CODEFLARE_MCP_HOSTED -u CODEFLARE_MCP_LAUNCH_CAPABILITY pi --tui-mode fullscreen'), true);
+    assert.equal(calls.includes('pane run w1:p1 pi --tui-mode fullscreen'), true);
     assert.equal(existsSync(join(runtime, 'herdr/abc12345/bootstrap.done')), true);
   });
 

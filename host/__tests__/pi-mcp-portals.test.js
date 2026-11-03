@@ -24,7 +24,7 @@ function fixture(t) {
   };
 }
 
-test('REQ-AGENT-227 AC3: startup produces multiple eager non-secret placeholder portal connections', (t) => {
+test('REQ-AGENT-228 AC1: startup produces multiple eager non-secret placeholder portal connections', (t) => {
   const f = fixture(t);
   assert.equal(f.run(), true);
   const saved = f.read();
@@ -36,7 +36,7 @@ test('REQ-AGENT-227 AC3: startup produces multiple eager non-secret placeholder 
   assert.equal(readFileSync(f.configPath, 'utf8'), first, 'idempotent startup');
 });
 
-test('REQ-AGENT-227 AC4: reconciliation preserves unrelated servers and grants', (t) => {
+test('REQ-AGENT-228 AC2: reconciliation preserves unrelated servers and grants', (t) => {
   const f = fixture(t);
   const unrelated = {
     settings: { toolPrefix: 'custom', requestTimeoutMs: 40000 },
@@ -73,7 +73,7 @@ test('REQ-AGENT-227 AC4: reconciliation preserves unrelated servers and grants',
   assert.equal(readFileSync(authPath, 'utf8'), grants);
 });
 
-test('REQ-AGENT-227 AC4: unproven prefixed names and modified registrations are never claimed or retired', (t) => {
+test('REQ-AGENT-228 AC2: unproven prefixed names and modified registrations are never claimed or retired', (t) => {
   const f = fixture(t);
   const collision = { mcpServers: { [key('github')]: { url: portals[1].url, auth: { type: 'oauth' }, lifecycle: 'lazy' } } };
   const bytes = JSON.stringify(collision);
@@ -89,7 +89,7 @@ test('REQ-AGENT-227 AC4: unproven prefixed names and modified registrations are 
   assert.equal(readFileSync(f.configPath, 'utf8'), changedBytes);
 });
 
-test('REQ-AGENT-227 AC3: both supported Pi modes bootstrap while invalid modes and incomplete migration preserve files', (t) => {
+test('REQ-AGENT-228 AC1: both supported Pi modes bootstrap while invalid modes and incomplete migration preserve files', (t) => {
   const f = fixture(t);
   for (const mode of [undefined, 'standard']) {
     assert.equal(f.run({ sessionMode: mode }), false);
@@ -103,7 +103,7 @@ test('REQ-AGENT-227 AC3: both supported Pi modes bootstrap while invalid modes a
   }
 });
 
-test('REQ-AGENT-227 AC3: actual entrypoint wiring bootstraps managed portals in default and advanced Pi', t => {
+test('REQ-AGENT-228 AC1: actual entrypoint wiring bootstraps managed portals in default and advanced Pi', t => {
   const f = fixture(t);
   const root = fileURLToPath(new URL('../../', import.meta.url));
   const source = readFileSync(join(root, 'entrypoint.sh'), 'utf8');
@@ -124,7 +124,7 @@ test('REQ-AGENT-227 AC3: actual entrypoint wiring bootstraps managed portals in 
   }
 });
 
-test('REQ-AGENT-227 AC2: public HTTPS on the standard port remains supported', t => {
+test('REQ-AGENT-228 AC1: public HTTPS on the standard port remains supported', t => {
   const f = fixture(t);
   const configured = [{ name: 'public', url: 'https://portal.example.com:443/mcp?codemode=search_and_execute' }];
   assert.equal(f.run({ portalsJson: JSON.stringify(configured) }), true);
@@ -132,7 +132,7 @@ test('REQ-AGENT-227 AC2: public HTTPS on the standard port remains supported', t
     headers: { Authorization: 'Bearer codeflare-mcp-portal' }, lifecycle: 'eager' });
 });
 
-test('REQ-AGENT-227 AC4: malformed input leaves configuration byte-identical', (t) => {
+test('REQ-AGENT-228 AC2: malformed input leaves configuration byte-identical', (t) => {
   const f = fixture(t);
   f.run();
   const bytes = readFileSync(f.configPath, 'utf8');

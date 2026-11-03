@@ -10,7 +10,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 const repo = fileURLToPath(new URL('../../', import.meta.url));
 function files(path) {
   if (!existsSync(path)) return [];
-  return readdirSync(path, { withFileTypes: true }).flatMap(e => e.isDirectory() ? files(join(path, e.name)) : [readFileSync(join(path, e.name), 'utf8')]);
+  return readdirSync(path, { withFileTypes: true }).flatMap(e => e.isDirectory() ? files(join(path, e.name)) : e.isFile() ? [readFileSync(join(path, e.name), 'utf8')] : []);
 }
 async function fixture(t, { oauth = false, unavailable = false } = {}) {
   const home = mkdtempSync(join(tmpdir(), 'pi-mcp-stock-'));
@@ -109,7 +109,7 @@ async function fixture(t, { oauth = false, unavailable = false } = {}) {
   };
 }
 
-test('REQ-AGENT-227: stock eager placeholder connections register live Code Mode wrappers with explicit partial coverage', async t => {
+test('REQ-AGENT-228: stock eager placeholder connections register live Code Mode wrappers with explicit partial coverage', async t => {
   const f = await fixture(t, { unavailable: true });
   assert.equal(f.observed.initialized, true);
   const search = f.tool('portal_codemode_search'), execute = f.tool('portal_codemode_execute');
@@ -123,7 +123,7 @@ test('REQ-AGENT-227: stock eager placeholder connections register live Code Mode
   for (const secret of ['synthetic-local-access', 'synthetic-local-refresh', 'synthetic-one-use-code']) assert.equal(f.retained().join('').includes(secret), false);
 });
 
-test('REQ-AGENT-227: unmanaged local OAuth retains real PKCE grant persistence, refresh and shutdown lifecycle', async t => {
+test('REQ-AGENT-228: unmanaged local OAuth retains real PKCE grant persistence, refresh and shutdown lifecycle', async t => {
   const f = await fixture(t, { oauth: true });
   assert.equal(f.observed.initialized, false);
   await f.command('mcp:auth');

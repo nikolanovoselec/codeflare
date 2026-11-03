@@ -16,7 +16,7 @@ async function fixture(mode = '') {
     authenticate: async request => {
       retained.push(request.url);
       if (actor === 'anonymous' || request.headers.has('cf-access-authenticated-user-email')) throw Error('Denied');
-      return { bucketName: actor, user: { email: `${actor}@example.com`, authenticated: true } };
+      return { bucketName: actor, user: { email: `${actor}@example.com`, authenticated: true, subscriptionTier: 'free' } };
     },
     begin: (env, owner, portal, instance) => beginMcpPortalConnect(env, owner, portal, instance, f.send),
     finish: (env, owner, instance, state, code, issuer) => finishMcpPortalConnect(env, owner, instance, state, code, issuer, f.send),
@@ -29,7 +29,7 @@ async function fixture(mode = '') {
 }
 
 describe('Settings MCP owner OAuth and non-secret status API', () => {
-  it.each(['default', 'saas', 'enterprise'])('REQ-AGENT-226 AC1: %s uses browser OAuth and clean owner-bound completion without compute startup', async mode => {
+  it.each(['default', 'saas', 'enterprise'])('REQ-AGENT-226 AC3: %s uses browser OAuth and clean owner-bound completion without compute startup', async mode => {
     const f = await fixture(mode);
     expect(await (await f.request('/api/mcp-portals')).json()).toEqual({ portals: [{ ...portal, connected: false }] });
     // The fixture establishes a genuine synthetic PKCE authorization URL and verifier.
@@ -45,7 +45,7 @@ describe('Settings MCP owner OAuth and non-secret status API', () => {
     actor = 'other'; expect(await (await f.request('/api/mcp-portals')).json()).toEqual({ portals: [{ ...portal, connected: false }] });
   });
 
-  it('REQ-AGENT-226 AC1: authorization servers can read only fixed non-secret public client metadata', async () => {
+  it('REQ-AGENT-226 AC3: authorization servers can read only fixed non-secret public client metadata', async () => {
     const f = await fixture(); actor = 'anonymous';
     const response = await f.request('/auth/mcp/client-metadata');
     expect(response.status).toBe(200);
@@ -53,7 +53,7 @@ describe('Settings MCP owner OAuth and non-secret status API', () => {
       redirect_uris: ['https://instance.example/auth/mcp/callback'], grant_types: ['authorization_code', 'refresh_token'], token_endpoint_auth_method: 'none' });
   });
 
-  it('REQ-AGENT-226 AC1: connect navigates only to the configured portal and callback rejects malformed, wrong-owner and replayed returns', async () => {
+  it('REQ-AGENT-226 AC2: connect navigates only to the configured portal and callback rejects malformed, wrong-owner and replayed returns', async () => {
     const f = await fixture();
     const connect = await f.request('/auth/mcp/connect/fixture');
     expect(connect.status).toBe(302); expect(new URL(connect.headers.get('Location')!).origin).toBe('https://portal.example');
@@ -68,7 +68,7 @@ describe('Settings MCP owner OAuth and non-secret status API', () => {
     expect((await f.request(`/auth/mcp/callback?state=${state}&code=synthetic-code`)).headers.get('Location')).toBe('/app/?mcp=reconnect');
   });
 
-  it('REQ-AGENT-226 AC1: anonymous, service and forged header identities cannot own portal grants', async () => {
+  it('REQ-AGENT-226 AC2: anonymous, service and forged header identities cannot own portal grants', async () => {
     const f = await fixture(); actor = 'anonymous';
     expect((await f.request('/auth/mcp/connect/fixture')).status).toBe(401);
     expect((await f.request('/api/mcp-portals')).status).toBe(401);
@@ -80,7 +80,7 @@ describe('Settings MCP owner OAuth and non-secret status API', () => {
     expect(await getMcpPortalGrant(f.env, 'owner', portal)).toBeNull();
   });
 
-  it('REQ-AGENT-226 AC3: same-origin disconnect clears only the authenticated owner portal', async () => {
+  it('REQ-AGENT-226 AC7: same-origin disconnect clears only the authenticated owner portal', async () => {
     const f = await fixture(); await f.begin(); await f.finish();
     const path = '/api/mcp-portals/fixture/disconnect';
     for (const origin of [undefined, 'https://other.example']) expect((await f.request(path, {

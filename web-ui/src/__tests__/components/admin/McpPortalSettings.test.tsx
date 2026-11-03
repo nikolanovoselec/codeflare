@@ -46,7 +46,7 @@ describe('MCP portal administration', () => {
     expect(stored).toEqual([]);
   });
 
-  it('REQ-AGENT-227 AC6: load validation save errors and saved feedback remain accessible', async () => {
+  it('REQ-AGENT-227 AC1: load validation save errors and saved feedback remain accessible', async () => {
     let finishLoad!: (rows: McpPortal[]) => void;
     get.mockReturnValueOnce(new Promise((resolve) => { finishLoad = resolve; }));
     render(() => <McpPortalSettings />);
@@ -75,7 +75,7 @@ describe('MCP portal administration', () => {
     expect(screen.getByRole('textbox', { name: 'URL 1' })).toHaveValue(cloudflare.url);
   });
 
-  it('REQ-AGENT-227 AC6: a failed load cannot overwrite unseen configuration', async () => {
+  it('REQ-AGENT-227 AC1: a failed load cannot overwrite unseen configuration', async () => {
     get.mockRejectedValueOnce(new Error('Unavailable'));
     render(() => <McpPortalSettings />);
     expect(await screen.findByRole('alert')).toHaveTextContent('MCP portals could not be loaded');

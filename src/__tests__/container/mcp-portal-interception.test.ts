@@ -19,7 +19,7 @@ async function boundary(enterprise: boolean, operator = false) {
   return { ...f, host, handlers };
 }
 
-it.each([false, true])('REQ-AGENT-226 AC4: registered portal boundary is available in all deployment modes and refuses missing owner grants (enterprise=%s)', async enterprise => {
+it.each([false, true])('REQ-AGENT-229 AC1: registered portal boundary is available in all deployment modes and refuses missing owner grants (enterprise=%s)', async enterprise => {
   const f = await boundary(enterprise);
   await wireContainerInterception(f.host);
   const response = await f.handlers.get('portal.example')!.fetch(new Request(portal.url, { headers: { Authorization: 'Bearer arbitrary-agent-value' } }));
@@ -28,7 +28,7 @@ it.each([false, true])('REQ-AGENT-226 AC4: registered portal boundary is availab
   if (enterprise) expect(await (await f.handlers.get('api.github.com')!.fetch('https://api.github.com')).text()).toBe('existing non-MCP transport');
 });
 
-it('REQ-AGENT-226 AC4: portal host collisions and unavailable interception fail startup rather than bypassing credential isolation', async () => {
+it('REQ-AGENT-229 AC3: portal host collisions and unavailable interception fail startup rather than bypassing credential isolation', async () => {
   const f = await boundary(true);
   await f.kv.put(SETUP_KEYS.MCP_PORTALS, JSON.stringify([{ name: 'collision', url: 'https://api.github.com/mcp' }]));
   await expect(wireContainerInterception(f.host)).rejects.toThrow(/collides/);
@@ -37,7 +37,7 @@ it('REQ-AGENT-226 AC4: portal host collisions and unavailable interception fail 
   await expect(wireContainerInterception(unavailable.host)).rejects.toThrow(/interception/);
 });
 
-it('REQ-AGENT-226 AC4: parent-bound Operators cannot inherit ordinary owner portal grants', async () => {
+it('REQ-AGENT-229 AC2: parent-bound Operators cannot inherit ordinary owner portal grants', async () => {
   const f = await boundary(false, true);
   await wireContainerInterception(f.host);
   const response = await f.handlers.get('portal.example')!.fetch(new Request(portal.url));

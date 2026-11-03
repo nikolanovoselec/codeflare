@@ -444,7 +444,7 @@ describe('entrypoint production helpers', () => {
     const result = runFunction(
       'establish_bisync_baseline',
       [
-        `timeout() { shift; printf '%s\\n' "$*" > '${calls}'; return 0; }`,
+        `timeout() { shift; printf '%s\\n' "$*" >> '${calls}'; return 0; }`,
         'rclone() { case "$1" in delete) return 0;; *) return 1;; esac; }',
         'record_sync_disk_failure() { :; }',
         'recover_vanished_files() { return 1; }',
@@ -461,7 +461,8 @@ describe('entrypoint production helpers', () => {
     );
 
     assert.equal(result.status, 0, result.stderr);
-    const args = readFileSync(calls, 'utf8');
+    const args = readFileSync(calls, 'utf8').split('\n').find(line => line.startsWith('rclone bisync '));
+    assert.ok(args, 'baseline transfer invocation must be recorded');
     assert.match(args, /--workdir .*\/sync\/rclone(?: |$)/);
     assert.match(args, /--resync --resync-mode newer/);
   });

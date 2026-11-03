@@ -109,14 +109,39 @@ export function prepareTranscript(raw: string, sessionId: string, branchIds: str
     return firstKept < 0 || firstKept > compactAt ? new Set() : new Set(ids.slice(0, firstKept));
   };
   const eligible = covered(branchIds);
-  // Other leaves and branchpoints can reopen without the active branch's summary.
-  for (const e of entries.slice(1)) {
-    if (children.get(e.id) === 1) continue;
-    const ids: string[] = [];
-    for (let id: string | null = e.id; id; id = entries[byId.get(id)!].parentId) ids.push(id);
-    ids.reverse();
-    const summarized = covered(ids);
-    for (const id of ids) if (!summarized.has(id)) eligible.delete(id);
+  // Mark unsummarized endpoint paths in one tree pass, rather than rebuilding
+  // every ancestry in repeatedly forked histories. Index 0 is the virtual root.
+  const parents = new Int32Array(entries.length);
+  const descendants: number[][] = entries.map(() => []);
+  for (let i = 1; i < entries.length; i++) {
+    const parent = byId.get(entries[i].parentId) ?? 0;
+    parents[i] = parent;
+    descendants[parent].push(i);
+  }
+  const boundaries = new Int32Array(entries.length);
+  const onPath = new Uint8Array(entries.length);
+  const protection = new Int32Array(entries.length);
+  const visit: Array<[number, boolean]> = [[0, false]];
+  while (visit.length) {
+    const [i, leaving] = visit.pop()!;
+    if (leaving) { onPath[i] = 0; continue; }
+    onPath[i] = 1;
+    if (i) {
+      const first = byId.get(entries[i].firstKeptEntryId) ?? 0;
+      boundaries[i] = entries[i].type === "compaction" ? (onPath[first] && first ? first : 0) : boundaries[parents[i]];
+      if (descendants[i].length !== 1) {
+        protection[i]++;
+        if (boundaries[i]) protection[parents[boundaries[i]]]--;
+      }
+    }
+    visit.push([i, true]);
+    for (const child of descendants[i]) visit.push([child, false]);
+  }
+  // Parents precede children in validated JSONL, so reverse order accumulates
+  // each path mark once. Invalid compaction ancestry conservatively protects it.
+  for (let i = entries.length - 1; i > 0; i--) {
+    if (protection[i] > 0) eligible.delete(entries[i].id);
+    protection[parents[i]] += protection[i];
   }
   for (let i = 1; i < entries.length && size > TARGET; i++) {
     const e = entries[i], m = e.message;
