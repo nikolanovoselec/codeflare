@@ -951,6 +951,8 @@ jobs:
           CURRENT_COMMIT=$(grep -oP 'CODE_SERVER_COMMIT="\K[^"]+' Dockerfile)
           CURRENT_CODE_VERSION=$(grep -oP 'CODE_SERVER_CODE_VERSION="\K[^"]+' Dockerfile)
           CURRENT_VSCODE_COMMIT=$(grep -oP 'CODE_SERVER_VSCODE_COMMIT="\K[^"]+' Dockerfile)
+          CURRENT_JS_YAML_VERSION=$(grep -oP 'CODE_SERVER_JS_YAML_VERSION="\K[^"]+' Dockerfile)
+          CURRENT_IDE_TAR_VERSION=$(grep -oP 'CODE_SERVER_IDE_TAR_VERSION="\K[^"]+' Dockerfile)
           TAG=$(gh api repos/coder/code-server/releases/latest --jq .tag_name)
           LATEST="${TAG#v}"
           VERSION_RE='^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$'
@@ -981,6 +983,8 @@ jobs:
           PACKAGE_JSON=$(tar -xOf "/tmp/$ARCHIVE" "$ARCHIVE_ROOT/package.json")
           CODE_PACKAGE_JSON=$(tar -xOf "/tmp/$ARCHIVE" "$ARCHIVE_ROOT/lib/vscode/package.json")
           PRODUCT_JSON=$(tar -xOf "/tmp/$ARCHIVE" "$ARCHIVE_ROOT/lib/vscode/product.json")
+          CODE_SERVER_JS_YAML_VERSION=$(tar -xOf "/tmp/$ARCHIVE" "$ARCHIVE_ROOT/node_modules/js-yaml/package.json" | jq -r .version)
+          CODE_SERVER_IDE_TAR_VERSION=$(tar -xOf "/tmp/$ARCHIVE" "$ARCHIVE_ROOT/lib/vscode/node_modules/tar/package.json" | jq -r .version)
           CODE_SERVER_COMMIT=$(jq -r .commit <<<"$PACKAGE_JSON")
           CODE_SERVER_CODE_VERSION=$(jq -r .version <<<"$CODE_PACKAGE_JSON")
           PRODUCT_COMMIT=$(jq -r .commit <<<"$PRODUCT_JSON")
@@ -992,6 +996,8 @@ jobs:
           [[ "$CODE_SERVER_COMMIT" =~ ^[0-9a-f]{40}$ ]]
           [[ "$CODE_SERVER_VSCODE_COMMIT" =~ ^[0-9a-f]{40}$ ]]
           [[ "$CODE_SERVER_CODE_VERSION" =~ $VERSION_RE ]]
+          [[ "$CODE_SERVER_JS_YAML_VERSION" =~ ^5\.[0-9]+\.[0-9]+$ ]]
+          [[ "$CODE_SERVER_IDE_TAR_VERSION" =~ ^7\.[0-9]+\.[0-9]+$ ]]
           [ "$TAG_CODE_VERSION" = "$CODE_SERVER_CODE_VERSION" ]
           [ "$PRODUCT_COMMIT" = "$CODE_SERVER_COMMIT" ]
           [ "$PRODUCT_CODE_VERSION" = "$CODE_SERVER_CODE_VERSION" ]
@@ -1002,10 +1008,14 @@ jobs:
           echo "commit=$CODE_SERVER_COMMIT" >> "$GITHUB_OUTPUT"
           echo "code_version=$CODE_SERVER_CODE_VERSION" >> "$GITHUB_OUTPUT"
           echo "vscode_commit=$CODE_SERVER_VSCODE_COMMIT" >> "$GITHUB_OUTPUT"
+          echo "js_yaml_version=$CODE_SERVER_JS_YAML_VERSION" >> "$GITHUB_OUTPUT"
+          echo "ide_tar_version=$CODE_SERVER_IDE_TAR_VERSION" >> "$GITHUB_OUTPUT"
           if [ "$CURRENT" = "$LATEST" ] \
             && [ "$CURRENT_COMMIT" = "$CODE_SERVER_COMMIT" ] \
             && [ "$CURRENT_CODE_VERSION" = "$CODE_SERVER_CODE_VERSION" ] \
-            && [ "$CURRENT_VSCODE_COMMIT" = "$CODE_SERVER_VSCODE_COMMIT" ]; then
+            && [ "$CURRENT_VSCODE_COMMIT" = "$CODE_SERVER_VSCODE_COMMIT" ] \
+            && [ "$CURRENT_JS_YAML_VERSION" = "$CODE_SERVER_JS_YAML_VERSION" ] \
+            && [ "$CURRENT_IDE_TAR_VERSION" = "$CODE_SERVER_IDE_TAR_VERSION" ]; then
             echo "skip=true" >> "$GITHUB_OUTPUT"
             echo "All code-server provenance pins already match $TAG."
           else
@@ -1037,6 +1047,8 @@ jobs:
           CODE_SERVER_COMMIT: ${{ steps.ver.outputs.commit }}
           CODE_SERVER_CODE_VERSION: ${{ steps.ver.outputs.code_version }}
           CODE_SERVER_VSCODE_COMMIT: ${{ steps.ver.outputs.vscode_commit }}
+          CODE_SERVER_JS_YAML_VERSION: ${{ steps.ver.outputs.js_yaml_version }}
+          CODE_SERVER_IDE_TAR_VERSION: ${{ steps.ver.outputs.ide_tar_version }}
         run: |
           set -euo pipefail
           git config user.email "github-actions[bot]@users.noreply.github.com"

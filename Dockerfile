@@ -251,72 +251,6 @@ RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-reco
 # CA certificates are installed above; retain signature and TLS verification.
 RUN sed -i 's|http://deb.debian.org|https://deb.debian.org|g' /etc/apt/sources.list.d/debian.sources
 
-# Keep fast server-modtime listings without copying source timestamps into remote state.
-COPY --from=rclone-builder /out/rclone /usr/bin/rclone
-COPY --from=impeccable-builder /out/ /opt/codeflare/impeccable/
-
-# Install the official Herdr terminal runtime from one immutable stable release.
-# Codeflare owns updates through image review; runtime checks and self-update are disabled.
-RUN HERDR_VERSION="0.9.5" && \
-    HERDR_COMMIT="2ecf19a92fc3a7fff75b6ce3655ef04f4625ec01" && \
-    HERDR_SHA256="14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d" && \
-    curl -fsSL --retry 3 --retry-delay 5 --connect-timeout 30 \
-      "https://github.com/herdrdev/herdr/releases/download/v${HERDR_VERSION}/herdr-linux-x86_64" \
-      -o /tmp/herdr && \
-    echo "${HERDR_SHA256}  /tmp/herdr" | sha256sum -c - && \
-    install -m 0755 /tmp/herdr /usr/local/bin/herdr && \
-    test -n "${HERDR_COMMIT}" && \
-    HERDR_DISABLE_SOUND=1 herdr --version | grep -F "${HERDR_VERSION}" && \
-    rm /tmp/herdr
-
-COPY image/herdr/config.toml /etc/codeflare/herdr/config.toml
-COPY image/herdr/LICENSE image/herdr/provenance.json /usr/share/licenses/herdr/
-COPY --chmod=0755 image/herdr/codeflare-herdr-terminal /usr/local/bin/codeflare-herdr-terminal
-COPY --chmod=0755 image/herdr/codeflare-agent-event /usr/local/bin/codeflare-agent-event
-
-# Install zoxide from GitHub releases (pinned version, not in Debian bookworm repos)
-RUN ZOXIDE_VERSION="0.10.0" && \
-    ZOXIDE_SHA256="2d93385b99f3e82cf2701609a1bffcad863fbeb75aa3fe7eb6be4d29be68b1ae" && \
-    curl -fsSL --retry 3 --retry-delay 5 --connect-timeout 30 "https://github.com/ajeetdsouza/zoxide/releases/download/v${ZOXIDE_VERSION}/zoxide-${ZOXIDE_VERSION}-x86_64-unknown-linux-musl.tar.gz" -o /tmp/zoxide.tar.gz && \
-    echo "${ZOXIDE_SHA256}  /tmp/zoxide.tar.gz" | sha256sum -c - && \
-    tar xzf /tmp/zoxide.tar.gz -C /usr/local/bin zoxide && \
-    chmod +x /usr/local/bin/zoxide && \
-    rm /tmp/zoxide.tar.gz
-
-# Install yazi and lazygit from GitHub releases (pinned versions)
-RUN YAZI_VERSION="26.9.1" && \
-    YAZI_SHA256="9b9c39decccf8cb0ff53a7d637d38f8a79d93bbd0099f4ea9c619ef6bb392f5d" && \
-    curl -fsSL --retry 3 --retry-delay 5 --connect-timeout 30 "https://github.com/sxyazi/yazi/releases/download/v${YAZI_VERSION}/yazi-x86_64-unknown-linux-musl.zip" -o /tmp/yazi.zip && \
-    echo "${YAZI_SHA256}  /tmp/yazi.zip" | sha256sum -c - && \
-    unzip -o /tmp/yazi.zip -d /tmp/yazi && \
-    mv /tmp/yazi/yazi-x86_64-unknown-linux-musl/yazi /usr/local/bin/yazi && \
-    chmod +x /usr/local/bin/yazi && \
-    rm -rf /tmp/yazi /tmp/yazi.zip
-RUN LAZYGIT_VERSION="0.66.2" && \
-    LAZYGIT_SHA256="158efc9ddfa1241fab5fb3526bb442c8dc6c4b1904d73213b9e4e93e03c52034" && \
-    curl -fsSL --retry 3 --retry-delay 5 --connect-timeout 30 "https://github.com/jesseduffield/lazygit/releases/download/v${LAZYGIT_VERSION}/lazygit_${LAZYGIT_VERSION}_linux_x86_64.tar.gz" -o /tmp/lazygit.tar.gz && \
-    echo "${LAZYGIT_SHA256}  /tmp/lazygit.tar.gz" | sha256sum -c - && \
-    tar xzf /tmp/lazygit.tar.gz -C /usr/local/bin lazygit && \
-    chmod +x /usr/local/bin/lazygit && \
-    rm /tmp/lazygit.tar.gz
-
-# Install SilverBullet server (Deno-compiled single binary). Used by the
-# codeflare-vault plugin as the in-browser markdown editor for the persistent
-# vault at /home/user/Vault. Bound to localhost:3030 by the
-# supervisor loop in entrypoint.sh; reached from the codeflare UI through the
-# Worker proxy at /api/vault/:sid/.
-#
-# SilverBullet 2.x ships TWO binaries per release: `sb-...` (CLI client) and
-# `silverbullet-server-...` (the actual server). We want the server.
-RUN SILVERBULLET_VERSION="2.12.1" && \
-    SILVERBULLET_SHA256="0ea5c0575021de354b79bf53fb85f170aca93e228b5593959869ff8841dbb1d3" && \
-    curl -fsSL --retry 3 --retry-delay 5 --connect-timeout 30 "https://github.com/silverbulletmd/silverbullet/releases/download/${SILVERBULLET_VERSION}/silverbullet-server-linux-x86_64.zip" -o /tmp/silverbullet.zip && \
-    echo "${SILVERBULLET_SHA256}  /tmp/silverbullet.zip" | sha256sum -c - && \
-    unzip -o /tmp/silverbullet.zip -d /tmp/silverbullet && \
-    mv /tmp/silverbullet/silverbullet /usr/local/bin/silverbullet && \
-    chmod +x /usr/local/bin/silverbullet && \
-    rm -rf /tmp/silverbullet /tmp/silverbullet.zip
-
 # Install coder/code-server as the Browser IDE runtime. It runs per session
 # behind the authenticated /api/vscode/:sid/ proxy, lazy-started on loopback by
 # entrypoint.sh (REQ-IDE-001, AD119). The retained `openvscode` source and
@@ -326,8 +260,8 @@ RUN SILVERBULLET_VERSION="2.12.1" && \
 # immutable upstream VS Code gitlink are all pinned. The artifact embeds the
 # code-server commit in package.json and product.json; the build verifies both
 # plus the real lib/vscode package version. Shadow Pins derives the gitlink from
-# the immutable release tag and owns the five code-server literals below.
-# The pinned code-server archive supplies js-yaml 5.4.1 in its upstream 5.x
+# the immutable release tag and owns the provenance and bundled dependency pins below.
+# The pinned code-server archive supplies js-yaml 5.4.3 in its upstream 5.x
 # range; do not downgrade it with the former 4.x overlay. Retain the independent
 # tar and pacote overlays pending their separate runtime verification.
 # The immutable Node artifact carries vulnerable node-tar; the integrity-pinned
@@ -344,6 +278,8 @@ RUN CODE_SERVER_VERSION="4.144.0" && \
     CODE_SERVER_COMMIT="ee31cdbe02c07b3ba718007f221d14c890696c61" && \
     CODE_SERVER_CODE_VERSION="1.144.0" && \
     CODE_SERVER_VSCODE_COMMIT="2c33b50b16c472efe58357d1d2a8a5414bc23fbf" && \
+    CODE_SERVER_JS_YAML_VERSION="5.4.3" && \
+    CODE_SERVER_IDE_TAR_VERSION="7.5.22" && \
     NODE_TAR_VERSION="7.5.21" && \
     NODE_TAR_SHA512="5dd86d0af94ccb0c31a425bc604ab794e5c126950f4d1d8e1c77302cf3b71f0b09a8e1dad8e93fa09eebb86ce9f89acaa113d50b327001d123a8b5bfbcd44f1c" && \
     BRACE_EXPANSION_VERSION="5.0.12" && \
@@ -374,8 +310,8 @@ RUN CODE_SERVER_VERSION="4.144.0" && \
     echo "${PACOTE_SHA512}  /tmp/pacote.tgz" | sha512sum -c - && \
     mkdir -p /opt/code-server && \
     tar -xzf /tmp/code-server.tar.gz -C /opt/code-server --strip-components=1 && \
-    test "$(jq -r .version /opt/code-server/node_modules/js-yaml/package.json)" = "5.4.1" && \
-    test "$(jq -r .version /opt/code-server/lib/vscode/node_modules/tar/package.json)" = "7.5.22" && \
+    test "$(jq -r .version /opt/code-server/node_modules/js-yaml/package.json)" = "$CODE_SERVER_JS_YAML_VERSION" && \
+    test "$(jq -r .version /opt/code-server/lib/vscode/node_modules/tar/package.json)" = "$CODE_SERVER_IDE_TAR_VERSION" && \
     for NODE_TAR_DIR in /usr/local/lib/node_modules/npm/node_modules/tar; do \
       rm -rf "$NODE_TAR_DIR" && \
       mkdir -p "$NODE_TAR_DIR" && \
@@ -443,6 +379,73 @@ RUN CODE_SERVER_VERSION="4.144.0" && \
     test ! -e /usr/local/bin/openvscode-server && \
     test ! -e /opt/openvscode-server && \
     rm -f /tmp/code-server.tar.gz /tmp/node-tar.tgz /tmp/pacote.tgz
+
+# Keep fast server-modtime listings without copying source timestamps into remote state.
+COPY --from=rclone-builder /out/rclone /usr/bin/rclone
+COPY --from=impeccable-builder /out/ /opt/codeflare/impeccable/
+
+# Install the official Herdr terminal runtime from one immutable stable release.
+# Codeflare owns updates through image review; runtime checks and self-update are disabled.
+RUN HERDR_VERSION="0.9.5" && \
+    HERDR_COMMIT="2ecf19a92fc3a7fff75b6ce3655ef04f4625ec01" && \
+    HERDR_SHA256="14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d" && \
+    curl -fsSL --retry 3 --retry-delay 5 --connect-timeout 30 \
+      "https://github.com/herdrdev/herdr/releases/download/v${HERDR_VERSION}/herdr-linux-x86_64" \
+      -o /tmp/herdr && \
+    echo "${HERDR_SHA256}  /tmp/herdr" | sha256sum -c - && \
+    install -m 0755 /tmp/herdr /usr/local/bin/herdr && \
+    test -n "${HERDR_COMMIT}" && \
+    HERDR_DISABLE_SOUND=1 herdr --version | grep -F "${HERDR_VERSION}" && \
+    rm /tmp/herdr
+
+COPY image/herdr/config.toml /etc/codeflare/herdr/config.toml
+COPY image/herdr/LICENSE image/herdr/provenance.json /usr/share/licenses/herdr/
+COPY --chmod=0755 image/herdr/codeflare-herdr-terminal /usr/local/bin/codeflare-herdr-terminal
+COPY --chmod=0755 image/herdr/codeflare-agent-event /usr/local/bin/codeflare-agent-event
+
+# Install zoxide from GitHub releases (pinned version, not in Debian bookworm repos)
+RUN ZOXIDE_VERSION="0.10.0" && \
+    ZOXIDE_SHA256="2d93385b99f3e82cf2701609a1bffcad863fbeb75aa3fe7eb6be4d29be68b1ae" && \
+    curl -fsSL --retry 3 --retry-delay 5 --connect-timeout 30 "https://github.com/ajeetdsouza/zoxide/releases/download/v${ZOXIDE_VERSION}/zoxide-${ZOXIDE_VERSION}-x86_64-unknown-linux-musl.tar.gz" -o /tmp/zoxide.tar.gz && \
+    echo "${ZOXIDE_SHA256}  /tmp/zoxide.tar.gz" | sha256sum -c - && \
+    tar xzf /tmp/zoxide.tar.gz -C /usr/local/bin zoxide && \
+    chmod +x /usr/local/bin/zoxide && \
+    rm /tmp/zoxide.tar.gz
+
+# Install yazi and lazygit from GitHub releases (pinned versions)
+RUN YAZI_VERSION="26.9.1" && \
+    YAZI_SHA256="9b9c39decccf8cb0ff53a7d637d38f8a79d93bbd0099f4ea9c619ef6bb392f5d" && \
+    curl -fsSL --retry 3 --retry-delay 5 --connect-timeout 30 "https://github.com/sxyazi/yazi/releases/download/v${YAZI_VERSION}/yazi-x86_64-unknown-linux-musl.zip" -o /tmp/yazi.zip && \
+    echo "${YAZI_SHA256}  /tmp/yazi.zip" | sha256sum -c - && \
+    unzip -o /tmp/yazi.zip -d /tmp/yazi && \
+    mv /tmp/yazi/yazi-x86_64-unknown-linux-musl/yazi /usr/local/bin/yazi && \
+    chmod +x /usr/local/bin/yazi && \
+    rm -rf /tmp/yazi /tmp/yazi.zip
+RUN LAZYGIT_VERSION="0.66.2" && \
+    LAZYGIT_SHA256="158efc9ddfa1241fab5fb3526bb442c8dc6c4b1904d73213b9e4e93e03c52034" && \
+    curl -fsSL --retry 3 --retry-delay 5 --connect-timeout 30 "https://github.com/jesseduffield/lazygit/releases/download/v${LAZYGIT_VERSION}/lazygit_${LAZYGIT_VERSION}_linux_x86_64.tar.gz" -o /tmp/lazygit.tar.gz && \
+    echo "${LAZYGIT_SHA256}  /tmp/lazygit.tar.gz" | sha256sum -c - && \
+    tar xzf /tmp/lazygit.tar.gz -C /usr/local/bin lazygit && \
+    chmod +x /usr/local/bin/lazygit && \
+    rm /tmp/lazygit.tar.gz
+
+# Install SilverBullet server (Deno-compiled single binary). Used by the
+# codeflare-vault plugin as the in-browser markdown editor for the persistent
+# vault at /home/user/Vault. Bound to localhost:3030 by the
+# supervisor loop in entrypoint.sh; reached from the codeflare UI through the
+# Worker proxy at /api/vault/:sid/.
+#
+# SilverBullet 2.x ships TWO binaries per release: `sb-...` (CLI client) and
+# `silverbullet-server-...` (the actual server). We want the server.
+RUN SILVERBULLET_VERSION="2.12.1" && \
+    SILVERBULLET_SHA256="0ea5c0575021de354b79bf53fb85f170aca93e228b5593959869ff8841dbb1d3" && \
+    curl -fsSL --retry 3 --retry-delay 5 --connect-timeout 30 "https://github.com/silverbulletmd/silverbullet/releases/download/${SILVERBULLET_VERSION}/silverbullet-server-linux-x86_64.zip" -o /tmp/silverbullet.zip && \
+    echo "${SILVERBULLET_SHA256}  /tmp/silverbullet.zip" | sha256sum -c - && \
+    unzip -o /tmp/silverbullet.zip -d /tmp/silverbullet && \
+    mv /tmp/silverbullet/silverbullet /usr/local/bin/silverbullet && \
+    chmod +x /usr/local/bin/silverbullet && \
+    rm -rf /tmp/silverbullet /tmp/silverbullet.zip
+
 
 # The verified code-server 4.141.0 archive supplies the fixed compression closure.
 # Retire the separate overlay, but verify actual dependency resolution and middleware.
