@@ -18,7 +18,7 @@
   },
   "name": "codeflare-image-npm-tools",
   "overrides": {
-    "@hono/node-server": "2.0.12",
+    "@hono/node-server": "2.1.5",
     "brace-expansion": "5.0.12",
     "protobufjs": "7.6.5",
     "undici": "8.12.3",
