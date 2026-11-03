@@ -26,8 +26,8 @@ function generatedBrowserConfigs({ legacy, target, claude: initialClaude } = {})
   const claudeJsonPath = join(userHome, '.claude.json');
   mkdirSync(join(userHome, '.pi', 'agent'), { recursive: true });
   writeFileSync(claudeJsonPath, JSON.stringify(initialClaude ?? {}));
-  const legacyPath = join(userHome, '.pi', 'agent', 'mcp.json');
-  const targetPath = join(userHome, '.pi', 'agent', 'mcp-adapter.json');
+  const legacyPath = join(userHome, '.pi', 'agent', 'mcp-adapter.json');
+  const targetPath = join(userHome, '.pi', 'agent', 'mcp.json');
   if (legacy !== undefined) writeFileSync(legacyPath, JSON.stringify(legacy));
   if (target !== undefined) writeFileSync(targetPath, JSON.stringify(target));
   const migrationStart = entrypoint.indexOf('configure_pi_mcp_adapter() {');
@@ -53,7 +53,7 @@ ${extractBrowserRunBlock()}
   return {
     claude: JSON.parse(readFileSync(claudeJsonPath, 'utf8')),
     pi: JSON.parse(readFileSync(targetPath, 'utf8')),
-    legacyBytes: target === undefined || legacy === undefined ? undefined : readFileSync(join(userHome, '.pi', 'agent', 'mcp.json.migrated'), 'utf8'),
+    legacyBytes: target === undefined || legacy === undefined ? undefined : readFileSync(join(userHome, '.pi', 'agent', 'mcp-adapter.json.migrated'), 'utf8'),
   };
 }
 
@@ -108,7 +108,7 @@ describe('entrypoint Browser Run MCP registration', () => {
 
   it('REQ-BROWSER-006 AC5: duplicate retention parameters cannot retain a ten-minute browser', () => checkManagedBrowser('target', '180000&keep_alive=600000'));
 
-  it('REQ-BROWSER-009 AC1/AC2/AC4: startup aligns an existing Chrome RPC override without changing auth or lifecycle', () => {
+  it('REQ-BROWSER-009 AC1/AC2/AC4: startup aligns an existing Chrome RPC override while preserving auth and normalizing supported lifecycle', () => {
     const browser = { command: 'chrome-devtools-mcp', args: [
       '--wsEndpoint=wss://api.cloudflare.com/client/v4/accounts/test-account/browser-rendering/devtools/browser?keep_alive=180000&custom=keep',
       '--wsHeaders={"Authorization":"Bearer synthetic-custom-token"}',
@@ -118,7 +118,7 @@ describe('entrypoint Browser Run MCP registration', () => {
     assert.equal(pi.settings.requestTimeoutMs, 360000);
     assert.equal(pi.settings.custom, true);
     assert.equal(pi.mcpServers['chrome-devtools'].requestTimeoutMs, 360000);
-    assert.equal(pi.mcpServers['chrome-devtools'].lifecycle, browser.lifecycle);
+    assert.equal(pi.mcpServers['chrome-devtools'].lifecycle, 'lazy');
     assert.deepEqual(pi.mcpServers['chrome-devtools'].args.slice(1), browser.args.slice(1));
     assert.equal(new URL(wsEndpoint(pi)).searchParams.get('custom'), 'keep');
     assert.deepEqual(pi.mcpServers.custom, custom);

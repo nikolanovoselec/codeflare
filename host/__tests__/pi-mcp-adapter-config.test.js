@@ -14,10 +14,10 @@ async function fixture(t) {
   t.after(() => rmSync(home, { recursive: true, force: true }));
   const directory = join(home, '.pi', 'agent');
   mkdirSync(directory, { recursive: true });
-  return { home, directory, legacy: join(directory, 'mcp.json'), target: join(directory, 'mcp-adapter.json'), backup: join(directory, 'mcp.json.migrated'),
+  return { home, directory, legacy: join(directory, 'mcp-adapter.json'), target: join(directory, 'mcp.json'), backup: join(directory, 'mcp-adapter.json.migrated'),
     migrate: (regenerate = false) => migratePiMcpAdapterConfig(directory, regenerate),
     prepare: (regenerate = false) => migratePiMcpAdapterConfig(directory, regenerate, true),
-    load: () => register({}, { HOME: home }),
+    load: (pi = {}) => register(pi, { HOME: home }),
   };
 }
 
@@ -58,7 +58,7 @@ test('managed extension loading migrates existing users without image startup or
   assert.deepEqual(JSON.parse(readFileSync(f.target, 'utf8')), {
     ...original, settings: { ...original.settings, requestTimeoutMs: 360000 },
   });
-  assertArchived(f, 'mcp.json.migrated', legacyConfig);
+  assertArchived(f, 'mcp-adapter.json.migrated', legacyConfig);
   assert.equal(existsSync(f.legacy), false);
 });
 
@@ -86,12 +86,12 @@ for (const regenerate of [false, true]) {
     assert.deepEqual(prepared.settings, { custom: true, requestTimeoutMs: 360000 });
     assert.deepEqual(prepared.mcpServers.custom, custom);
     assert.equal(prepared.mcpServers['chrome-devtools'].requestTimeoutMs, 360000);
-    assert.equal(prepared.mcpServers['chrome-devtools'].lifecycle, browser.lifecycle);
+    assert.equal(prepared.mcpServers['chrome-devtools'].lifecycle, 'lazy');
     assert.deepEqual(prepared.mcpServers['chrome-devtools'].args.slice(1), browser.args.slice(1));
     const endpoint = new URL(prepared.mcpServers['chrome-devtools'].args[0].slice('--wsEndpoint='.length));
     assert.deepEqual(endpoint.searchParams.getAll('keep_alive'), ['360000']);
     assert.equal(endpoint.searchParams.get('custom'), 'keep');
-    assertArchived(f, 'mcp-adapter.json.migrated', original);
+    assertArchived(f, 'mcp.json.migrated', original);
     if (regenerate) assert.equal(f.prepare(true), true);
     else f.load();
     assert.equal(readFileSync(f.target, 'utf8'), bytes);
@@ -135,13 +135,13 @@ test('existing migration backup is never overwritten or used to discard legacy c
   writeFileSync(f.backup, 'preserved backup');
   assert.equal(f.migrate(), true);
   assert.equal(existsSync(f.legacy), false);
-  assertArchived(f, 'mcp.json.migrated', legacyConfig);
+  assertArchived(f, 'mcp-adapter.json.migrated', legacyConfig);
   assert.equal(readFileSync(f.backup, 'utf8'), 'preserved backup');
   assert.equal(readFileSync(f.target, 'utf8'), '{}');
   writeFileSync(f.legacy, legacyConfig); // A new restore must also be recoverable.
   assert.equal(f.migrate(), true);
   assert.equal(existsSync(f.legacy), false);
-  assertArchived(f, 'mcp.json.migrated', legacyConfig);
+  assertArchived(f, 'mcp-adapter.json.migrated', legacyConfig);
   assert.equal(readFileSync(f.backup, 'utf8'), 'preserved backup');
 });
 
@@ -150,7 +150,7 @@ for (const [name, content] of [['malformed', '{invalid'], ['array', '[]'], ['inv
     const f = await fixture(t);
     writeFileSync(f.legacy, content);
     assert.equal(f.migrate(), true);
-    assertArchived(f, 'mcp.json.migrated', content);
+    assertArchived(f, 'mcp-adapter.json.migrated', content);
     assert.equal(existsSync(f.legacy), false);
     assert.deepEqual(JSON.parse(readFileSync(f.target, 'utf8')), {});
     assert.equal(f.migrate(), true);
@@ -162,7 +162,7 @@ test('malformed existing destination is archived and recovers exact valid legacy
   writeFileSync(f.legacy, legacyConfig);
   writeFileSync(f.target, '{invalid');
   assert.equal(f.migrate(), true);
-  assertArchived(f, 'mcp-adapter.json.invalid', '{invalid');
+  assertArchived(f, 'mcp.json.invalid', '{invalid');
   assert.equal(readFileSync(f.target, 'utf8'), legacyConfig);
   assert.equal(existsSync(f.legacy), false);
 });
@@ -192,7 +192,7 @@ for (const kind of ['symlink', 'directory']) {
     else mkdirSync(f.backup);
     assert.equal(f.migrate(), true);
     assert.equal(existsSync(f.legacy), false);
-    assertArchived(f, 'mcp.json.migrated', legacyConfig);
+    assertArchived(f, 'mcp-adapter.json.migrated', legacyConfig);
     assert.equal(readFileSync(external, 'utf8'), 'external bytes');
     assert.equal(readFileSync(f.target, 'utf8'), '{}');
     assert.equal(kind === 'symlink' ? lstatSync(f.backup).isSymbolicLink() : lstatSync(f.backup).isDirectory(), true);
@@ -205,7 +205,7 @@ test('malformed legacy is archived while a valid adapter stays byte-for-byte unc
   writeFileSync(f.legacy, '{invalid');
   assert.equal(f.migrate(), true);
   assert.equal(readFileSync(f.target, 'utf8'), legacyConfig);
-  assertArchived(f, 'mcp.json.migrated', '{invalid');
+  assertArchived(f, 'mcp-adapter.json.migrated', '{invalid');
   assert.equal(existsSync(f.legacy), false);
 });
 
@@ -215,8 +215,8 @@ for (const legacy of [undefined, '{invalid legacy']) {
     writeFileSync(f.target, '{invalid adapter');
     if (legacy !== undefined) writeFileSync(f.legacy, legacy);
     assert.equal(f.migrate(), true);
-    assertArchived(f, 'mcp-adapter.json.invalid', '{invalid adapter');
-    if (legacy !== undefined) assertArchived(f, 'mcp.json.migrated', legacy);
+    assertArchived(f, 'mcp.json.invalid', '{invalid adapter');
+    if (legacy !== undefined) assertArchived(f, 'mcp-adapter.json.migrated', legacy);
     assert.deepEqual(JSON.parse(readFileSync(f.target, 'utf8')), {});
     assert.equal(existsSync(f.legacy), false);
     assert.equal(f.migrate(), true);
@@ -300,8 +300,8 @@ test('REQ-AGENT-069: startup bootstraps consult-llm at the adapter filename, laz
   assert.equal(result.status, 0, result.stderr);
   const config = JSON.parse(readFileSync(f.target, 'utf8'));
   assert.equal(config.mcpServers['consult-llm'].lifecycle, 'lazy');
-  assert.equal(config.settings.deferWithMissingMetadata, true,
-    'fresh managed configuration must not eagerly launch a lazy server for metadata');
+  assert.equal(config.settings.requestTimeoutMs, 360000,
+    'fresh configuration must retain the fixed six-minute request budget');
   assert.equal(config.mcpServers['consult-llm'].env.OPENAI_API_KEY, 'synthetic-openai');
   assert.equal(existsSync(f.legacy), false);
 });
@@ -330,7 +330,7 @@ test('REQ-AGENT-069: startup retains existing consult credentials and both-file 
   assert.deepEqual(JSON.parse(readFileSync(f.target, 'utf8')), {
     ...original, settings: { ...original.settings, requestTimeoutMs: 360000 },
   });
-  assertArchived(f, 'mcp-adapter.json.migrated', target);
+  assertArchived(f, 'mcp.json.migrated', target);
   assert.equal(readFileSync(f.backup, 'utf8'), legacyConfig);
   assert.equal(existsSync(f.legacy), false);
 });
@@ -341,32 +341,32 @@ test('REQ-AGENT-069: startup recovers malformed legacy and bootstraps lazy consu
   const result = startConsult(f.home);
   assert.equal(result.status, 0, result.stderr);
   assert.equal(existsSync(f.legacy), false);
-  assertArchived(f, 'mcp.json.migrated', '{invalid');
+  assertArchived(f, 'mcp-adapter.json.migrated', '{invalid');
   assert.equal(JSON.parse(readFileSync(f.target, 'utf8')).mcpServers['consult-llm'].lifecycle, 'lazy');
   assert.equal(JSON.parse(readFileSync(join(f.home, '.claude.json'), 'utf8')).mcpServers['consult-llm'].command, 'consult-llm-mcp');
 });
 
 
-test('REQ-AGENT-217: fresh startup prevents baseline from restoring the obsolete MCP filename', async t => {
+test('REQ-AGENT-217: active mcp.json and recovery objects remain baseline-sync eligible', async t => {
   const f = await fixture(t);
   const restored = join(f.home, 'remote');
   const remoteAgent = join(restored, '.pi', 'agent');
   mkdirSync(join(remoteAgent, 'nested'), { recursive: true });
   const remoteAdapter = { mcpServers: { 'consult-llm': { command: 'consult-llm-mcp', lifecycle: 'lazy' } }, settings: { restored: true } };
-  writeFileSync(join(remoteAgent, 'mcp.json'), legacyConfig);
-  writeFileSync(join(remoteAgent, 'mcp-adapter.json'), JSON.stringify(remoteAdapter));
-  writeFileSync(join(remoteAgent, 'mcp.json.migrated.baseline'), 'remote recovery bytes');
-  writeFileSync(join(remoteAgent, 'nested', 'mcp.json'), 'unrelated nested bytes');
+  writeFileSync(join(remoteAgent, 'mcp-adapter.json'), legacyConfig);
+  writeFileSync(join(remoteAgent, 'mcp.json'), JSON.stringify(remoteAdapter));
+  writeFileSync(join(remoteAgent, 'mcp-adapter.json.migrated.baseline'), 'remote recovery bytes');
+  writeFileSync(join(remoteAgent, 'nested', 'mcp-adapter.json'), 'unrelated nested bytes');
   writeFileSync(f.legacy, legacyConfig);
   writeFileSync(f.target, '{}');
   writeFileSync(f.backup, 'old passive archive');
   const result = startConsult(f.home, restored);
   assert.equal(result.status, 0, result.stderr);
-  assert.equal(existsSync(f.legacy), false);
+  assert.equal(readFileSync(f.legacy, 'utf8'), legacyConfig, 'the handoff must not introduce a new sync exclusion');
   assert.deepEqual(JSON.parse(readFileSync(f.target, 'utf8')), remoteAdapter);
-  assert.equal(readFileSync(join(f.directory, 'mcp.json.migrated.baseline'), 'utf8'), 'remote recovery bytes');
-  assert.equal(readFileSync(join(f.directory, 'nested', 'mcp.json'), 'utf8'), 'unrelated nested bytes');
-  assertArchived(f, 'mcp.json.migrated', legacyConfig);
+  assert.equal(readFileSync(join(f.directory, 'mcp-adapter.json.migrated.baseline'), 'utf8'), 'remote recovery bytes');
+  assert.equal(readFileSync(join(f.directory, 'nested', 'mcp-adapter.json'), 'utf8'), 'unrelated nested bytes');
+  assertArchived(f, 'mcp-adapter.json.migrated', legacyConfig);
   assert.equal(readFileSync(f.backup, 'utf8'), 'old passive archive');
 });
 
@@ -425,7 +425,7 @@ test('startup preserves selected custom legacy originals before regenerating own
   const bytes = JSON.stringify(original);
   writeFileSync(f.legacy, bytes);
   assert.equal(f.migrate(true), true);
-  assertArchived(f, 'mcp.json.migrated', bytes);
+  assertArchived(f, 'mcp-adapter.json.migrated', bytes);
   assert.deepEqual(JSON.parse(readFileSync(f.target, 'utf8')), { ...original, mcpServers: {} });
   assert.equal(existsSync(f.legacy), false);
 });
@@ -441,7 +441,7 @@ test('unreadable passive archive cannot block custom legacy recovery', { skip: p
   assert.equal(existsSync(f.legacy), false);
   assert.equal(readFileSync(f.target, 'utf8'), '{}');
   assert.equal(lstatSync(f.backup).mode & 0o777, 0o000);
-  const recoverable = readdirSync(f.directory).filter(name => name.startsWith('mcp.json.migrated.') && lstatSync(join(f.directory, name)).isFile());
+  const recoverable = readdirSync(f.directory).filter(name => name.startsWith('mcp-adapter.json.migrated.') && lstatSync(join(f.directory, name)).isFile());
   assert.ok(recoverable.some(name => readFileSync(join(f.directory, name), 'utf8') === legacyConfig));
 });
 
@@ -452,7 +452,7 @@ test('REQ-AGENT-217: failed preparation does not exclude restored legacy from ba
   symlinkSync(outside, f.target);
   const remote = join(f.home, 'remote-failed-preparation');
   mkdirSync(join(remote, '.pi', 'agent'), { recursive: true });
-  writeFileSync(join(remote, '.pi', 'agent', 'mcp.json'), legacyConfig);
+  writeFileSync(join(remote, '.pi', 'agent', 'mcp-adapter.json'), legacyConfig);
   const result = startConsult(f.home, remote);
   assert.equal(result.status, 0, result.stderr);
   assert.equal(readFileSync(f.legacy, 'utf8'), legacyConfig);
@@ -475,7 +475,7 @@ test('replacement write failure preserves the original custom adapter for recove
     };
     syncBuiltinESMExports();
     assert.equal(f.migrate(true), false);
-    assertArchived(f, 'mcp-adapter.json.migrated', original);
+    assertArchived(f, 'mcp.json.migrated', original);
   } finally {
     fs.writeFileSync = write;
     syncBuiltinESMExports();
@@ -499,7 +499,151 @@ for (const mode of ['no-provider', 'enterprise']) {
     assert.deepEqual(JSON.parse(readFileSync(f.target, 'utf8')), {
       ...original, settings: { ...original.settings, requestTimeoutMs: 360000 },
     });
-    assertArchived(f, 'mcp-adapter.json.migrated', JSON.stringify(original));
+    assertArchived(f, 'mcp.json.migrated', JSON.stringify(original));
     assert.deepEqual(JSON.parse(readFileSync(claude, 'utf8')).mcpServers, { unrelated: { command: 'keep' } });
+  });
+}
+
+for (const lifecycle of ['lazy-keep-alive', 'lazy-keepalive']) {
+  test(`REQ-AGENT-217: ${lifecycle} handoff preserves authentication and supports the replacement lifecycle`, async t => {
+    const f = await fixture(t);
+    const original = { mcpServers: {
+      'chrome-devtools': { command: 'custom-browser', args: ['--wsEndpoint=wss://example.test/?keep_alive=360000', '--wsHeaders={"Authorization":"Bearer synthetic"}'],
+        env: { NODE_EXTRA_CA_CERTS: '/synthetic/ca.pem' }, lifecycle, requestTimeoutMs: 360000 },
+      custom: { command: 'custom', env: { TOKEN: 'synthetic' }, lifecycle: 'eager' },
+    }, settings: { requestTimeoutMs: 360000 } };
+    const bytes = JSON.stringify(original);
+    writeFileSync(f.legacy, bytes, { mode: 0o600 });
+    f.load();
+    const prepared = JSON.parse(readFileSync(f.target, 'utf8'));
+    assert.deepEqual(prepared, { ...original, mcpServers: { ...original.mcpServers,
+      'chrome-devtools': { ...original.mcpServers['chrome-devtools'], lifecycle: 'lazy' } } });
+    assertArchived(f, 'mcp-adapter.json.migrated', bytes);
+    const once = readFileSync(f.target, 'utf8');
+    f.load();
+    assert.equal(readFileSync(f.target, 'utf8'), once);
+    assert.equal(lstatSync(f.target).mode & 0o777, 0o600);
+    assert.equal(existsSync(f.legacy), false);
+  });
+}
+
+
+test('REQ-AGENT-069: generated Pi provider environment preserves a literal leading exclamation mark', async t => {
+  const f = await fixture(t);
+  const result = startConsult(f.home, undefined, { CODEFLARE_OPENAI_API_KEY: '!synthetic-openai' });
+  assert.equal(result.status, 0, result.stderr);
+  const config = JSON.parse(readFileSync(f.target, 'utf8'));
+  assert.equal(config.mcpServers['consult-llm'].env.OPENAI_API_KEY, '!synthetic-openai');
+});
+
+
+for (const regenerate of [false, true]) {
+  test(`REQ-AGENT-217: selected adapter escaped env literals decode once before handoff (regenerate=${regenerate})`, async t => {
+    const f = await fixture(t);
+    const original = { settings: { requestTimeoutMs: 360000 }, mcpServers: {
+      custom: { command: 'synthetic-custom-server', args: ['--synthetic-argument'], lifecycle: 'lazy',
+        env: { ONE: '!!synthetic', TWO: '!!!synthetic', PLAIN: 'synthetic', NODE_EXTRA_CA_CERTS: '/synthetic/ca.pem' },
+        headers: { 'X-Synthetic': '!!unchanged-header' } },
+    } };
+    const bytes = JSON.stringify(original);
+    writeFileSync(f.legacy, bytes, { mode: 0o600 });
+    if (regenerate) assert.equal(f.prepare(true), true); else f.load();
+    const migrated = JSON.parse(readFileSync(f.target, 'utf8'));
+    assert.deepEqual(migrated, { ...original, mcpServers: { custom: { ...original.mcpServers.custom,
+      env: { ...original.mcpServers.custom.env, ONE: '!synthetic', TWO: '!!synthetic' } } } });
+    assertArchived(f, 'mcp-adapter.json.migrated', bytes);
+    const once = readFileSync(f.target, 'utf8');
+    if (regenerate) assert.equal(f.prepare(true), true); else f.load();
+    assert.equal(readFileSync(f.target, 'utf8'), once, 'destination literals must not decode again');
+    assert.equal(existsSync(f.legacy), false);
+  });
+}
+
+for (const expression of ['!synthetic-command', '${SYNTHETIC_VAR}', '$env:SYNTHETIC_VAR', '{env:SYNTHETIC_VAR}', '!!synthetic-${SYNTHETIC_VAR}']) {
+  for (const regenerate of [false, true]) {
+    for (const invalidDestination of [false, true]) {
+      test(`REQ-AGENT-217: unsupported selected env expression fails before writes (${expression}, regenerate=${regenerate}, invalidDestination=${invalidDestination})`, async t => {
+        const f = await fixture(t);
+        const bytes = JSON.stringify({ mcpServers: {
+          first: { command: 'synthetic-first', env: { DECODE: '!!synthetic-first' } },
+          custom: { command: 'synthetic-custom-server', env: { SYNTHETIC: expression } },
+        } });
+        writeFileSync(f.legacy, bytes);
+        if (invalidDestination) writeFileSync(f.target, '{synthetic-invalid');
+        const before = readdirSync(f.directory).sort();
+        assert.equal(f.prepare(regenerate), false);
+        assert.equal(readFileSync(f.legacy, 'utf8'), bytes);
+        assert.deepEqual(readdirSync(f.directory).sort(), before, 'failure must not write even a partial archive or active file');
+        if (invalidDestination) assert.equal(readFileSync(f.target, 'utf8'), '{synthetic-invalid');
+        else assert.equal(existsSync(f.target), false);
+        if (!regenerate) {
+          f.load();
+          assert.equal(readFileSync(f.legacy, 'utf8'), bytes);
+          assert.deepEqual(readdirSync(f.directory).sort(), before);
+        }
+      });
+    }
+  }
+}
+
+for (const regenerate of [false, true]) {
+  test(`REQ-AGENT-217: valid destination env literals win over unsupported adapter expressions (regenerate=${regenerate})`, async t => {
+    const f = await fixture(t);
+    const target = JSON.stringify({ settings: { requestTimeoutMs: 360000 }, mcpServers: {
+      custom: { command: 'synthetic-custom-server', env: { SYNTHETIC: '!!synthetic-destination', ALSO_LITERAL: '${SYNTHETIC_DESTINATION}' } },
+    } });
+    const legacy = JSON.stringify({ mcpServers: { custom: { command: 'synthetic-old', env: { SYNTHETIC: '!synthetic-command' } } } });
+    writeFileSync(f.target, target);
+    writeFileSync(f.legacy, legacy);
+    if (regenerate) assert.equal(f.prepare(true), true); else f.load();
+    assert.equal(readFileSync(f.target, 'utf8'), target);
+    assertArchived(f, 'mcp-adapter.json.migrated', legacy);
+    assert.equal(existsSync(f.legacy), false);
+    if (regenerate) assert.equal(f.prepare(true), true); else f.load();
+    assert.equal(readFileSync(f.target, 'utf8'), target);
+  });
+}
+
+
+test('REQ-AGENT-217: rejected legacy env produces a content-free managed-load diagnostic', async t => {
+  const f = await fixture(t);
+  const bytes = JSON.stringify({ mcpServers: { custom: { command: 'synthetic', env: { SYNTHETIC: '!synthetic-private-command' } } } });
+  writeFileSync(f.legacy, bytes);
+  const handlers = new Map();
+  f.load({ on: (event, handler) => handlers.set(event, handler) });
+  const notifications = [];
+  handlers.get('session_start')({}, { ui: { notify: message => notifications.push(message) } });
+  assert.match(notifications.join(' '), /legacy environment expressions/);
+  assert.equal(notifications.join(' ').includes('synthetic-private-command'), false, 'diagnostics must not expose an expression');
+  assert.equal(readFileSync(f.legacy, 'utf8'), bytes);
+  assert.equal(existsSync(f.target), false);
+});
+
+
+test('REQ-AGENT-217: entrypoint preparation decodes selected custom consult env before preserved-entry merge', async t => {
+  const f = await fixture(t);
+  const original = { settings: { requestTimeoutMs: 360000 }, mcpServers: {
+    'consult-llm': { command: 'consult-llm-mcp', args: ['--synthetic-user-owned'], lifecycle: 'lazy',
+      env: { OPENAI_API_KEY: '!!synthetic-custom-provider', NODE_EXTRA_CA_CERTS: '/synthetic/ca.pem' } },
+  } };
+  const bytes = JSON.stringify(original);
+  writeFileSync(f.legacy, bytes);
+  const result = startConsult(f.home);
+  assert.equal(result.status, 0, result.stderr);
+  assert.deepEqual(JSON.parse(readFileSync(f.target, 'utf8')), { ...original, mcpServers: {
+    'consult-llm': { ...original.mcpServers['consult-llm'], env: { ...original.mcpServers['consult-llm'].env, OPENAI_API_KEY: '!synthetic-custom-provider' } },
+  } });
+  assertArchived(f, 'mcp-adapter.json.migrated', bytes);
+});
+
+for (const expression of ['!synthetic-command', '${SYNTHETIC_VAR}', '$env:SYNTHETIC_VAR', '{env:SYNTHETIC_VAR}']) {
+  test(`REQ-AGENT-217: rejected selected legacy env blocks entrypoint Pi merge (${expression})`, async t => {
+    const f = await fixture(t);
+    const bytes = JSON.stringify({ mcpServers: { 'consult-llm': { command: 'consult-llm-mcp', env: { OPENAI_API_KEY: expression } } } });
+    writeFileSync(f.legacy, bytes);
+    const result = startConsult(f.home);
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(readFileSync(f.legacy, 'utf8'), bytes);
+    assert.equal(existsSync(f.target), false, 'failed semantic preparation must block active Pi config creation');
   });
 }

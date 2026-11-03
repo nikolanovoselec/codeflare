@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { describe, it } from 'node:test';
@@ -541,6 +541,22 @@ const PINNED_PLAN_INTEGRITY = 'sha512-pBLJdDWsANbMmRkTtTUcEJO95WY3tRmbWbS57uKIHs
 function extractPackage(archivePath, integrity, root) {
   const archive = readFileSync(archivePath);
   assert.equal(`sha512-${createHash('sha512').update(archive).digest('base64')}`, integrity);
+  if (archivePath.endsWith('-source.json')) {
+    // Small immutable raw-source capture, not a fabricated npm archive. Every
+    // source file was compared with the tagged commit before capture.
+    const fixture = JSON.parse(archive);
+    assert.equal(fixture.commit, '42738907182c43eb99e5134652fd37e7d06b5e3a');
+    extractPackage(join(FIXTURES_DIRECTORY, fixture.baseArchive), fixture.baseIntegrity, root);
+    for (const [path, source] of Object.entries(fixture.files)) {
+      assert.ok(path === 'package.json' || /^src\/[a-z-]+\.ts$/.test(path));
+      mkdirSync(dirname(join(root, path)), { recursive: true });
+      writeFileSync(join(root, path), source);
+    }
+    for (const [path, sha256] of Object.entries(fixture.sourceSha256)) {
+      assert.equal(createHash('sha256').update(readFileSync(join(root, path))).digest('hex'), sha256, path);
+    }
+    return;
+  }
   execFileSync('tar', ['-xzf', archivePath, '-C', root, '--strip-components=1'], { stdio: 'ignore' });
 }
 
@@ -696,6 +712,43 @@ function createExtensionHarness() {
 }
 
 describe('REQ-AGENT-111: pi-goal review control and continuation patch', () => {
+  it('REQ-AGENT-111 / REQ-OPS-020: 0.54.13 retains queued contract order and custom startup ownership', async (t) => {
+    const root = mkdtempSync(join(tmpdir(), 'pi-goal-contract-queue-'));
+    t.after(() => rmSync(root, { recursive: true, force: true }));
+    extractPackage(join(FIXTURES_DIRECTORY, 'pi-goal-0.54.13-source.json'),
+      'sha512-g770YeTpnO6MPNpldrBA+MQXNE1hXEeSPmdgBS1wqTZKAMhd3emrPFSmivg7wa3ABcfmfE24plrSvzVgfnez5w==', root);
+    patchPiGoalDirectory('0.54.13', root);
+    const { GoalRuntime } = await bundleFixture(join(root, 'src/runtime.ts'), join(root, 'runtime.mjs'), 'namespace');
+    const harness = createExtensionHarness();
+    const deferred = [];
+    harness.api.sendMessage = (message) => deferred.push(message);
+    const runtime = new GoalRuntime(harness.api);
+    const goal = { id: 'queued-goal', text: 'Retain the full objective', status: 'active', iteration: 0,
+      tokensUsed: 0, startedAt: 0, updatedAt: 0, timeUsedSeconds: 0, baselineTokens: 0, automaticModelTurns: 0 };
+    runtime.ensureGoalContextContract(harness.ctx, goal);
+    runtime.ensureGoalContextContract(harness.ctx, goal);
+    assert.deepEqual(deferred.map(message => message.details.state), ['active'], 'identical queued contracts coalesce');
+    harness.entries.push({ type: 'custom_message', ...deferred.shift() });
+    runtime.ensureInactiveGoalContextContract(harness.ctx);
+    runtime.ensureGoalContextContract(harness.ctx, goal);
+    assert.deepEqual(deferred.map(message => message.details.state), ['inactive', 'active'], 'queued inactive tail cannot suppress a new active contract');
+    assert.equal(deferred.at(-1).details.goalId, goal.id);
+    harness.entries.push(...deferred.splice(0).map(message => ({ type: 'custom_message', ...message })));
+    runtime.ensureGoalContextContract(harness.ctx, goal);
+    assert.deepEqual(deferred, [], 'saved publication retires pending state without duplicate output');
+
+    const extension = await bundleFixture(join(root, 'src/index.ts'), join(root, 'goal.mjs'));
+    const session = createExtensionHarness();
+    extension(session.api, { settingsPath: join(root, 'settings.json') });
+    await session.startSession();
+    await session.commands.get('goal').handler('Preserve custom-run ownership', session.ctx);
+    const before = session.entries.filter(entry => entry.customType === 'goal-contract');
+    const result = await session.dispatch('before_agent_start', { messageType: 'custom',
+      message: { customType: 'ci-notification', content: 'CI finished', display: true }, systemPrompt: '' });
+    assert.equal(result, undefined, 'custom startup does not inject a Goal boundary');
+    assert.deepEqual(session.entries.filter(entry => entry.customType === 'goal-contract'), before);
+  });
+
   it('REQ-AGENT-178: unreviewed Plan command layout fails without partial writes', (t) => {
     const root = mkdtempSync(join(tmpdir(), 'pi-plan-policy-drift-'));
     t.after(() => rmSync(root, { recursive: true, force: true }));
@@ -821,6 +874,11 @@ describe('REQ-AGENT-111: pi-goal review control and continuation patch', () => {
       goalIntegrity: 'sha512-ba165WkOdBEQNYgjTa2MHgRtOh/hTLveObPzdoE29FOrfktymcBlayEHoXd9Jjw44VQ8bX7cq6V57zp0rJLVgQ==',
       planArchive: join(FIXTURES_DIRECTORY, 'narumitw-pi-plan-mode-0.58.3.tgz'),
       planIntegrity: 'sha512-mC2dOLXrsLedLH4VrX0t3wwdXrr9AccoI8SgvYYn0KewaR6hZ0a6fIyLnReVlnJ4zNcjhdwBKWujrM49EW4zsg==' },
+    { goal: '0.54.13', plan: '0.59.2',
+      goalArchive: join(FIXTURES_DIRECTORY, 'pi-goal-0.54.13-source.json'),
+      goalIntegrity: 'sha512-g770YeTpnO6MPNpldrBA+MQXNE1hXEeSPmdgBS1wqTZKAMhd3emrPFSmivg7wa3ABcfmfE24plrSvzVgfnez5w==',
+      planArchive: join(FIXTURES_DIRECTORY, 'narumitw-pi-plan-mode-0.59.2.tgz'),
+      planIntegrity: 'sha512-M91Q8doVHnpXziOnoYV9npEmGghQ0rzAPIGrqwR7SP7L2z6ydGH7Xh3nEoowbZ8DqNCKAluptfQvhHAirtkTyw==' },
     { goal: '0.54.11', plan: '0.59.2',
       goalArchive: join(FIXTURES_DIRECTORY, 'pi-goal-0.54.11.tgz'),
       goalIntegrity: 'sha512-dq19XrMMUYto1q6FDFGxXVbLIu3ZLNpPCw+/Oe1XxIXRVx7FGTp8iVT/jPT5egXjrb6e7jSiJGw5Z77ZGtw3YA==',
@@ -969,7 +1027,7 @@ describe('REQ-AGENT-111: pi-goal review control and continuation patch', () => {
     assert.equal(response?.ok, true);
     assert.equal(response?.status, 'active');
     assert.notEqual(response?.goalId, pausedGoalId);
-    if (versions.goal === '0.54.8' || versions.goal === '0.54.11') {
+    if (versions.goal === '0.54.8' || versions.goal === '0.54.11' || versions.goal === '0.54.13') {
       const complete = harness.tools.find((tool) => tool.name === 'goal_complete');
       await harness.dispatch('before_agent_start', { prompt: 'Continue the resumed objective', systemPrompt: '' });
       await harness.dispatch('agent_start');

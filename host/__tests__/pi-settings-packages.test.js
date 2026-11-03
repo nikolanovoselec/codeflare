@@ -311,3 +311,28 @@ describe('REQ-AGENT-224: managed Fast/Ultrafast startup', () => {
     });
   }
 });
+
+
+it('REQ-AGENT-069 / REQ-AGENT-217: restored managed MCP registrations converge to one replacement owner', () => {
+  const custom = { source: 'npm:owner-mcp-tools@1.0.0', extensions: ['keep.ts'], ownerSetting: true };
+  const initial = {
+    packages: ['npm:pi-mcp-adapter', 'npm:pi-mcp-adapter@5.3.1',
+      { source: 'npm:pi-mcp-adapter@5.2.0', extensions: ['index.ts'], skills: [] },
+      'npm:pi-mcp-extension@1.0.0', { source: 'npm:pi-mcp-extension@1.12.1', extensions: [] },
+      'npm:pi-mcp-adapter-extra@1.0.0', './custom/pi-mcp-adapter', custom],
+    extensions: ['builtin:mcp', '+builtin:mcp', '-builtin:mcp', 'owner-mcp-extension.ts'],
+    auth: { provider: 'opaque-restored-value' }, customPreference: { keep: true },
+  };
+  const first = runAssembly(JSON.stringify(initial));
+  const second = runAssembly(JSON.stringify(first));
+  assert.deepEqual(second, first, 'restored package ownership remains idempotent');
+  assert.deepEqual(first.packages.filter(entry => /^npm:pi-mcp-extension(?:@|$)/.test(sourceOf(entry))),
+    [`npm:pi-mcp-extension@${piPackage.dependencies['pi-mcp-extension']}`]);
+  assert.ok(!first.packages.some(entry => /^npm:pi-mcp-adapter(?:@|$)/.test(sourceOf(entry))));
+  assert.deepEqual(first.extensions, ['owner-mcp-extension.ts', '-builtin:mcp']);
+  assert.ok(first.packages.includes('npm:pi-mcp-adapter-extra@1.0.0'));
+  assert.ok(first.packages.includes('./custom/pi-mcp-adapter'));
+  assert.deepEqual(first.packages.find(entry => sourceOf(entry) === custom.source), custom);
+  assert.deepEqual(first.auth, initial.auth);
+  assert.deepEqual(first.customPreference, initial.customPreference);
+});

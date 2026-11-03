@@ -803,11 +803,16 @@ jobs:
           key: trivy-db-v2-${{ steps.hash.outputs.trivy_db_key }}
           restore-keys: trivy-db-v2-
 
+      - name: Read Trivy tool pin
+        if: steps.reuse.outputs.reused != 'true'
+        id: trivy-pin
+        run: node scripts/ci/workflow-tool-pins.mjs github-output trivy >> "$GITHUB_OUTPUT"
+
       - name: Install locked Trivy
         if: steps.reuse.outputs.reused != 'true'
         uses: aquasecurity/setup-trivy@81e514348e19b6112ce2a7e3ecbafe19c1e1f567 # v0.3.1
         with:
-          version: v0.70.0
+          version: v${{ steps.trivy-pin.outputs.version }}
           cache: true
 
       - name: Scan image, generate SBOM, and prepare push tooling

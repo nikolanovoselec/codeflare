@@ -26,9 +26,11 @@ The image pin comes from the managed Graphify plugin metadata; verify the instal
 
 Graphify 0.9.74 prefers authored workspace sources, filters Rust builtins and reclassifies Rust constructor edges as `references` with `context: "constructor"`. Callflow, hubs and counts can change on an explicitly authorized refresh; this is not permission to rebuild, normalize graphs or replace managed skills.
 
-## Graphify 0.9.92 compatibility
+## Graphify 0.9.92–0.9.101 compatibility
 
 The [reviewed release](https://github.com/Graphify-Labs/graphify/blob/86c57be8204673c2a1b9849a3292a7dd3ab373d8/CHANGELOG.md) changes stable IDs and grammar-versioned AST caches; an authorized update may re-extract code and change counts or callflow. Preserve optional `schema_version`/`graphify_version` metadata and parallel relations; do not normalize existing graphs. Qualify ambiguous path endpoints rather than guessing. `.graphify_labels.pending.json` is a regenerable worklist, not curated `.graphify_labels.json`. Upstream hook installation now adds post-merge/post-rewrite rebuilds: do not install these hooks or refresh graphs without explicit authorization. Retain the native Pi tools, `GRAPHIFY_NO_AUTO_REFRESH=1`, local optional labels and the external-provider prohibition; no extra upstream Pi guard or backend setting is needed.
+
+The [0.9.101 release notes](https://github.com/Graphify-Labs/graphify/blob/v0.9.101/CHANGELOG.md) extend these changes: file/declaration collisions and case-distinct symbols can receive different IDs, and AST cache schema 36 plus case-preserving cache keys can cause re-extraction on the next explicitly authorized refresh. Old IDs, counts and callflow are not stable comparison baselines across that refresh; do not rewrite IDs or clear caches manually. Collapsed same-relation edges retain weaker provenance in `also_seen`; preserve it alongside parallel relations. Path confidence is conservative: it reflects the weakest evidence on the weakest hop, and among equal-length routes the route with the weakest such confidence is selected, not the strongest route. See `references/query.md` before interpreting those results. None of this authorizes a refresh or changes the public Pi `subagent` semantic-extraction workflow; never fall back to an external-provider API key.
 
 ## Graph paths
 

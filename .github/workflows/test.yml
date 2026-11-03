@@ -1026,9 +1026,13 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Read explicit CI Node patch pin
+        id: node-pin
+        run: node scripts/ci/workflow-tool-pins.mjs github-output ci-node-26 >> "$GITHUB_OUTPUT"
+
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: '26.8.1'
+          node-version: ${{ steps.node-pin.outputs.version }}
 
       - uses: ./.github/actions/install-deps
         # wrangler-static-assets.test.js imports 'wrangler' from the ROOT
@@ -1111,17 +1115,21 @@ jobs:
         run: npm run build
         working-directory: host
 
+      - name: Read rclone CI pin
+        id: rclone-pin
+        run: node scripts/ci/workflow-tool-pins.mjs github-output rclone >> "$GITHUB_OUTPUT"
+
       - name: Cache rclone archive
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: ${{ runner.tool_cache }}/codeflare/rclone-v1.73.5-linux-amd64.zip
-          key: ${{ runner.os }}-${{ runner.arch }}-rclone-v1.73.5-932cf4b7484de74d82b4875488e0009469fd21f9904673385184520fe11a1bf0
+          path: ${{ runner.tool_cache }}/codeflare/rclone-v${{ steps.rclone-pin.outputs.version }}-linux-amd64.zip
+          key: ${{ runner.os }}-${{ runner.arch }}-rclone-v${{ steps.rclone-pin.outputs.version }}-${{ steps.rclone-pin.outputs.sha256 }}
 
       - name: Install rclone for sync-filter behavioral tests
         env:
-          RCLONE_RELEASE_VERSION: 1.73.5
-          RCLONE_SHA256: 932cf4b7484de74d82b4875488e0009469fd21f9904673385184520fe11a1bf0
-          RCLONE_ARCHIVE: ${{ runner.tool_cache }}/codeflare/rclone-v1.73.5-linux-amd64.zip
+          RCLONE_RELEASE_VERSION: ${{ steps.rclone-pin.outputs.version }}
+          RCLONE_SHA256: ${{ steps.rclone-pin.outputs.sha256 }}
+          RCLONE_ARCHIVE: ${{ runner.tool_cache }}/codeflare/rclone-v${{ steps.rclone-pin.outputs.version }}-linux-amd64.zip
         run: |
           set -euo pipefail
           mkdir -p "$(dirname "$RCLONE_ARCHIVE")"
@@ -1215,9 +1223,13 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Read explicit CI Node patch pin
+        id: node-pin
+        run: node scripts/ci/workflow-tool-pins.mjs github-output ci-node-26 >> "$GITHUB_OUTPUT"
+
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: '26.8.1'
+          node-version: ${{ steps.node-pin.outputs.version }}
       - name: Prepare the exact locked Chrome SDK without lifecycle scripts
         run: |
           set -euo pipefail
@@ -1266,9 +1278,13 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Read explicit CI Node patch pin
+        id: node-pin
+        run: node scripts/ci/workflow-tool-pins.mjs github-output ci-node-22 >> "$GITHUB_OUTPUT"
+
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: '22.21.1'
+          node-version: ${{ steps.node-pin.outputs.version }}
 
       - uses: ./.github/actions/install-deps
         with:

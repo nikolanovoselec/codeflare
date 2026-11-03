@@ -22,9 +22,12 @@
     "brace-expansion": "5.0.12",
     "protobufjs": "7.6.5",
     "undici": "8.12.3",
-    "ip-address": "10.7.3",
+    "ip-address": "10.7.5",
     "ws": "8.21.1",
-    "@modelcontextprotocol/sdk": "1.32.1"
+    "@modelcontextprotocol/sdk": "1.32.2",
+    "body-parser": "2.4.0",
+    "fast-uri": "3.1.9",
+    "hono": "^4.13.16"
   },
   "private": true
 }

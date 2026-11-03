@@ -6,7 +6,7 @@ import { spawnSync } from 'node:child_process';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
-for (const name of ['pi-mcp-adapter', 'pi-open-tui']) {
+for (const name of ['pi-mcp-extension', 'pi-open-tui', 'pi-smart-compact']) {
 test(`REQ-OPS-054 AC6: the real Pi updater preserves aligned pins and startup filters (${name})`, () => {
   const workflow = readFileSync(new URL('../../.github/workflows/bump-shadow-pins.yml', import.meta.url), 'utf8');
   const scripts = [...workflow.matchAll(/node <<'NODE'\n([\s\S]*?)\n\s*NODE/g)]
@@ -25,7 +25,7 @@ test(`REQ-OPS-054 AC6: the real Pi updater preserves aligned pins and startup fi
     writeFileSync(join(root, 'entrypoint.sh'), JSON.stringify({ packages: [
       { source: `npm:${name}@${current}`, extensions: [] }, 'npm:unrelated@1.0.0',
     ] }));
-    writeFileSync(join(root, 'host/__tests__/pi-settings-packages.test.js'), `pkg.dependencies['${name}'], '${current}'\n`);
+    writeFileSync(join(root, 'host/__tests__/pi-settings-packages.test.js'), `pkg.dependencies['${name}'], '${current}'\npiPackage.dependencies['${name}'], '${current}'\npiPackage.dependencies['unrelated'], '${current}'\n`);
     const result = spawnSync(process.execPath, ['-e', scripts[0]], { cwd: root, encoding: 'utf8',
       env: { ...process.env, PKG: name, CUR: current, LAT: latest } });
     assert.equal(result.status, 0, result.stderr);
@@ -36,6 +36,9 @@ test(`REQ-OPS-054 AC6: the real Pi updater preserves aligned pins and startup fi
       assert.equal(manifest.dependencies.unrelated, current);
       assert.equal(manifest.overrides.unrelated, current);
     }
+    assert.equal(readFileSync(join(root, 'host/__tests__/pi-settings-packages.test.js'), 'utf8'),
+      `pkg.dependencies['${name}'], '${latest}'\npiPackage.dependencies['${name}'], '${latest}'\npiPackage.dependencies['unrelated'], '${current}'\n`,
+      'named test-pin contract follows the candidate without changing an unrelated pin');
     assert.deepEqual(JSON.parse(readFileSync(join(root, 'entrypoint.sh'), 'utf8')), { packages: [
       { source: `npm:${name}@${latest}`, extensions: [] }, 'npm:unrelated@1.0.0',
     ] }, 'candidate startup pin changes without removing the adapter-owned extension filter');

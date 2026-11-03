@@ -4,6 +4,7 @@ export const REVIEWED_IMPECCABLE_NATIVE_ENGINES = Object.freeze({
   '4.5.0': '0.1.11',
   '4.6.0': '0.1.15',
   '4.7.0': '0.1.16',
+  '4.8.0': '0.1.18',
 });
 
 export function reviewedImpeccableEngine(skillVersion) {

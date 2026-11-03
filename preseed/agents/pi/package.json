@@ -13,10 +13,10 @@
     "@narumitw/pi-plan-mode": "0.59.2",
     "context-mode": "1.0.169",
     "pi-evaluate": "0.1.5",
-    "pi-mcp-adapter": "5.3.1",
     "pi-open-tui": "0.3.11",
     "pi-smart-compact": "10.6.2",
-    "pi-web-access": "0.40.0"
+    "pi-web-access": "0.40.0",
+    "pi-mcp-extension": "1.12.1"
   },
   "devDependencies": {
     "@earendil-works/pi-agent-core": "1.4.0",
@@ -25,19 +25,18 @@
   },
   "overrides": {
     "@earendil-works/pi-coding-agent": "1.4.0",
-    "pi-mcp-adapter": {
-      "@earendil-works/pi-ai": "$@earendil-works/pi-ai"
-    },
     "@hono/node-server": "2.0.12",
     "@mozilla/readability": "0.6.0",
     "brace-expansion": "5.0.12",
-    "hono": "^4.12.25",
+    "hono": "^4.13.16",
     "protobufjs": "7.6.5",
     "undici": "8.12.3",
-    "ip-address": "10.7.3",
+    "ip-address": "10.7.5",
     "ws": "8.21.1",
-    "@modelcontextprotocol/sdk": "1.32.1",
+    "@modelcontextprotocol/sdk": "1.32.2",
     "@modelcontextprotocol/client": "2.3.1",
-    "@modelcontextprotocol/core": "2.3.1"
+    "@modelcontextprotocol/core": "2.3.1",
+    "body-parser": "2.4.0",
+    "fast-uri": "3.1.9"
   }
 }

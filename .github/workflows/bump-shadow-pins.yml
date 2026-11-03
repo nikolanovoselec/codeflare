@@ -15,7 +15,7 @@ name: Bump Shadow Pins
 # - browser-run-mcp: @modelcontextprotocol/sdk manifest + lock pin
 # - pi-extensions: dependencies in preseed/agents/pi/package.json except context-mode
 #   and the Pi runtime agent (the @juicesharp rpiv family, @narumitw/pi-goal,
-#   @narumitw/pi-plan-mode, pi-open-tui, pi-web-access, pi-mcp-adapter,
+#   @narumitw/pi-plan-mode, pi-open-tui, pi-web-access, pi-mcp-extension,
 #   @gotgenes/pi-subagents) — each is also a literal install spec in entrypoint.sh
 #   + baked into the seed; context-mode has its dedicated atomic job, and the
 #   Pi runtime family is owned atomically by agent-clis
@@ -1275,7 +1275,7 @@ jobs:
             --body "$BODY"
 
   # Every Pi extension in preseed/agents/pi/package.json (the @juicesharp rpiv
-  # family, pi-open-tui, pi-web-access, pi-mcp-adapter, @gotgenes/pi-subagents) is pinned in more
+  # family, pi-open-tui, pi-web-access, pi-mcp-extension, @gotgenes/pi-subagents) is pinned in more
   # than the manifest: each version is mirrored as a literal `npm:<name>@<ver>`
   # install spec in entrypoint.sh's Pi settings `required` array and baked into
   # src/lib/agent-seed.generated.ts, so Dependabot (manifest-only) would drift them.
@@ -1404,7 +1404,8 @@ jobs:
             return s
               .replaceAll(`"${PKG}": "${CUR}"`, `"${PKG}": "${LAT}"`)
               .replaceAll(`npm:${PKG}@${CUR}`, `npm:${PKG}@${LAT}`)
-              .replaceAll(`pkg.dependencies['${PKG}'], '${CUR}'`, `pkg.dependencies['${PKG}'], '${LAT}'`);
+              .replaceAll(`pkg.dependencies['${PKG}'], '${CUR}'`, `pkg.dependencies['${PKG}'], '${LAT}'`)
+              .replaceAll(`piPackage.dependencies['${PKG}'], '${CUR}'`, `piPackage.dependencies['${PKG}'], '${LAT}'`);
           }
           for (const f of [
             'preseed/agents/pi/package.json',
@@ -1567,7 +1568,7 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git config user.name "github-actions[bot]"
           git checkout -B "$BRANCH"
-          node scripts/update-impeccable-skill.mjs
+          node scripts/update-impeccable-skill.mjs "$LAT"
           npm ci --no-audit --no-fund --silent
           npm run generate:agent-seed
           git add preseed/agents/claude/skills/impeccable preseed/agents/pi/skills/impeccable preseed/agents/claude/manifest.json preseed/agents/pi/manifest.json src/lib/agent-seed.generated.ts
@@ -1730,7 +1731,7 @@ jobs:
 
   chrome-devtools-mcp:
     # chrome-devtools-mcp is the interactive Browser Run MCP server Claude Code
-    # and Pi use (Pi through pi-mcp-adapter). It is installed from the shared
+    # and Pi use (Pi through pi-mcp-extension). It is installed from the shared
     # lock and exposed through a stable image bin path.
     runs-on: ubuntu-24.04
     # Without this every job inherits the 360-minute ceiling. These jobs curl
@@ -1839,7 +1840,7 @@ jobs:
 
           ## Test plan
           - [ ] CI green
-          - [ ] Smoke test on integration: \`chrome-devtools\` responds through Claude Code and Pi's MCP adapter
+          - [ ] Smoke test on integration: \`chrome-devtools\` responds through Claude Code and Pi's MCP extension
           EOF
           )
           gh pr create \
@@ -2616,3 +2617,155 @@ jobs:
             --head "$BRANCH" \
             --title "chore(deps): bump actionlint $CUR -> $LAT" \
             --body "$BODY"
+
+  npm-security-pins:
+    # Dependabot owns direct dependencies; only otherwise invisible image
+    # overlays, overrides and forward-only shrinkwrap floors belong here.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: write
+      pull-requests: write
+    strategy:
+      fail-fast: false
+      matrix:
+        pin: [tar, brace-expansion, undici-6, undici-7, undici-8, pacote, basic-ftp, follow-redirects, shell-quote, ip-address, body-parser, fast-uri, hono, '@hono/node-server', protobufjs, ws]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: develop
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+      - name: Resolve a same-major registry candidate past cooldown
+        id: ver
+        env:
+          PIN: ${{ matrix.pin }}
+        run: node scripts/ci/update-npm-security-pins.mjs "$PIN" resolve >> "$GITHUB_OUTPUT"
+      - name: Skip existing candidate branch
+        if: steps.ver.outputs.skip != 'true'
+        id: branch
+        env:
+          PIN: ${{ matrix.pin }}
+          LAT: ${{ steps.ver.outputs.latest }}
+        run: |
+          set -euo pipefail
+          SLUG=$(printf '%s' "$PIN" | tr -c 'A-Za-z0-9' '-')
+          BRANCH="bump/security-${SLUG}-${LAT}"
+          if git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null 2>&1; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Apply verified pairs and regenerate affected locks
+        if: steps.ver.outputs.skip != 'true' && steps.branch.outputs.skip != 'true'
+        env:
+          PIN: ${{ matrix.pin }}
+          CUR: ${{ steps.ver.outputs.current }}
+          LAT: ${{ steps.ver.outputs.latest }}
+          BRANCH: ${{ steps.branch.outputs.branch }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.name "github-actions[bot]"
+          git checkout -B "$BRANCH"
+          node scripts/ci/update-npm-security-pins.mjs "$PIN" apply
+          for DIR in . host web-ui landing openvscode/agent-sidebar image/oxlint preseed/agents/pi preseed/npm-tools preseed/agents/claude/browser-run-mcp .github/npm-tools/wrangler; do
+            if ! git diff --quiet -- "$DIR/package.json" scripts/apply-npm-security-lock-pins.mjs; then
+              node scripts/regenerate-npm-package-lock.mjs "$DIR"
+            fi
+          done
+          node scripts/generate-agent-seed.mjs
+          git add Dockerfile package.json package-lock.json host/package-lock.json web-ui/package-lock.json landing/package-lock.json openvscode/agent-sidebar/package-lock.json image/oxlint/package-lock.json preseed/agents/pi/package.json preseed/agents/pi/package-lock.json preseed/npm-tools/package.json preseed/npm-tools/package-lock.json preseed/agents/claude/browser-run-mcp/package.json preseed/agents/claude/browser-run-mcp/package-lock.json .github/npm-tools/wrangler/package.json .github/npm-tools/wrangler/package-lock.json scripts/apply-npm-security-lock-pins.mjs host/__tests__/npm-security-lock-pins.test.js src/lib/agent-seed.generated.ts
+          if git diff --cached --quiet; then exit 1; fi
+          git commit -m "chore(deps): bump security pin $PIN $CUR -> $LAT"
+          git push "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "HEAD:refs/heads/$BRANCH"
+      - name: Open compatibility PR
+        if: steps.ver.outputs.skip != 'true' && steps.branch.outputs.skip != 'true'
+        env:
+          PIN: ${{ matrix.pin }}
+          CUR: ${{ steps.ver.outputs.current }}
+          LAT: ${{ steps.ver.outputs.latest }}
+          BRANCH: ${{ steps.branch.outputs.branch }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh pr create --base develop --head "$BRANCH" \
+            --title "chore(deps): bump security pin $PIN $CUR -> $LAT" \
+            --body "Updates only this same-major security owner after the seven-day cooldown. Registry tarball identity and SHA-512 are verified before the overlay version/hash pair, applicable overrides, shrinkwrap floor and named test-pin contract change together. Locks and seed are regenerated by CI. Acceptance requires exact-head CI, the image checksum gates, security audit and installed runtime compatibility; this PR is not deployment evidence."
+
+  image-ci-pins:
+    # These pins have no Dependabot owner. Rclone's source checksum and exact
+    # source-transform guard remain manual qualification gates, never bypasses.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: write
+      pull-requests: write
+    strategy:
+      fail-fast: false
+      matrix:
+        pin: [go, rust, rclone, grpc, compress, github-cli, k6, trivy, ci-node-26, ci-node-22]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: develop
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+      - name: Resolve authoritative release metadata
+        id: ver
+        env:
+          PIN: ${{ matrix.pin }}
+        run: node scripts/ci/update-shadow-image-pins.mjs "$PIN" resolve >> "$GITHUB_OUTPUT"
+      - name: Skip existing candidate branch
+        if: steps.ver.outputs.skip != 'true'
+        id: branch
+        env:
+          PIN: ${{ matrix.pin }}
+          LAT: ${{ steps.ver.outputs.latest }}
+        run: |
+          set -euo pipefail
+          BRANCH="bump/image-${PIN}-${LAT}"
+          if git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null 2>&1; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Apply atomic version and checksum pair
+        if: steps.ver.outputs.skip != 'true' && steps.branch.outputs.skip != 'true'
+        env:
+          PIN: ${{ matrix.pin }}
+          CUR: ${{ steps.ver.outputs.current }}
+          LAT: ${{ steps.ver.outputs.latest }}
+          CANDIDATE: ${{ steps.ver.outputs.candidate }}
+          BRANCH: ${{ steps.branch.outputs.branch }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.name "github-actions[bot]"
+          git checkout -B "$BRANCH"
+          node scripts/ci/update-shadow-image-pins.mjs "$PIN" apply
+          git add Dockerfile .github/actions/install-k6/action.yml .github/workflow-tool-pins.json
+          if git diff --cached --quiet; then exit 1; fi
+          git commit -m "chore(deps): bump image pin $PIN $CUR -> $LAT"
+          git push "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "HEAD:refs/heads/$BRANCH"
+      - name: Open qualification PR
+        if: steps.ver.outputs.skip != 'true' && steps.branch.outputs.skip != 'true'
+        env:
+          PIN: ${{ matrix.pin }}
+          CUR: ${{ steps.ver.outputs.current }}
+          LAT: ${{ steps.ver.outputs.latest }}
+          BRANCH: ${{ steps.branch.outputs.branch }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh pr create --base develop --head "$BRANCH" \
+            --title "chore(deps): bump image pin $PIN $CUR -> $LAT" \
+            --body "Updates the named image/CI owner only. Version/hash/date pairs come from authoritative release metadata; image/action checksum checks remain enforced. Explicit Node pins advance only within their existing minor, without touching sidebar runtime/type contracts. Rclone source archives have no published digest: its source hash is deliberately invalidated as NEEDS_UPDATE_SEE_PR_BODY; an operator must review the new source, calculate that digest and qualify the existing exact-version bisync transform before merge. Go grpc/compress source changes require the rclone compatibility and bookkeeping CI gates. No deployment is authorized. Acceptance requires exact-head CI and the existing security gates."

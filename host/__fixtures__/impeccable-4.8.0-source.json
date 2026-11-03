@@ -1,0 +1,339 @@
+{
+  "sourceCommit": "414603bf14c7a344edb466bb1f85690c77ce8b7d",
+  "bundleUrl": "https://github.com/pbakaus/impeccable/releases/download/skill-v4.8.0/universal.zip",
+  "bundleSha256": "82e6f6ff3a2b18f46f0f2fc388c1ab7abf3ccc52bbfc522456396d13011d6706",
+  "engineVersion": "0.1.18",
+  "baseFixture": "impeccable-4.7.0",
+  "sourceNormalizations": {
+    "scripts/impeccable.cmd": "LF to CRLF, independently verified against the integrity-checked release ZIP"
+  },
+  "files": {
+    "SKILL.md": {
+      "baseSha256": "d0adc698e41980383076ef762a7047c8cb7a364961b24cbb3a4ec598ffbb8be6",
+      "sha256": "a2ba4387401c11dc28fd58d4962df1a8dd39d5c3b1fdca45549171c6c26d6e4e",
+      "changes": [
+        {
+          "start": 626,
+          "end": 641,
+          "text": "version: 4.8.0\n"
+        },
+        {
+          "start": 3436,
+          "end": 3858,
+          "text": "**Launcher unavailable:** On refusal or failure, send a separate message **before the next tool call**: “Context loading did not run; I’ll read the existing project context directly.” Then read existing PRODUCT.md and DESIGN.md without inventing missing context, follow applicable steps 2–3, including reading [reference/craft-floor.md](reference/craft-floor.md) immediately before any UI edit, and continue through permitted tools. This applies to planning and editing; launcher failure alone does not block either.\n"
+        }
+      ]
+    },
+    "reference/adapt.md": {
+      "baseSha256": "5826bb4bca75d7b891bed17ff03bd3b685dff0e4f26d387fa6190d4ba3f065e4",
+      "sha256": "5826bb4bca75d7b891bed17ff03bd3b685dff0e4f26d387fa6190d4ba3f065e4",
+      "changes": []
+    },
+    "reference/audit.md": {
+      "baseSha256": "f65689c9848a120c74fbb7be8d9c0c7b4adb6c8580ab014fd59cb84b6c8bd958",
+      "sha256": "a24d86f22f23ac594c87dfffce68b03cb475efbae48a84652ad9023d96295df5",
+      "changes": [
+        {
+          "start": 583,
+          "end": 652,
+          "text": "- **Contrast issues**: Text contrast ratios < 4.5:1, or < 3:1 for large text (or 7:1 for AAA)\n"
+        },
+        {
+          "start": 3090,
+          "end": 3142,
+          "text": "- **Touch targets**: Interactive elements < 44x44px. WCAG AA (SC 2.5.8) requires at least 24x24 CSS px unless an exception applies: spacing, an equivalent control, inline text, user-agent styling, or an essential size. Spacing passes when a 24 CSS px circle centered on the target's bounding box overlaps no other target and no other undersized target's circle\n"
+        }
+      ]
+    },
+    "reference/audit.native.md": {
+      "baseSha256": "33a4ac3906140cfd73f65cd35026867e261adf411da0fc6da95770d9b6edeb81",
+      "sha256": "33a4ac3906140cfd73f65cd35026867e261adf411da0fc6da95770d9b6edeb81",
+      "changes": []
+    },
+    "reference/craft-floor.md": {
+      "baseSha256": "f204158e35616d8d5f0dad8087ee3f1f91c0fe1337fde6e3cf616a51b496822a",
+      "sha256": "ba01bbab98671095b76c2170324abdcceb55fd39fd281bc46daddc2b3c2b0753",
+      "changes": [
+        {
+          "start": 15,
+          "end": 342,
+          "text": "Load this after the direction is settled, and build without announcing the checklist. A pinned brief or the committed visual world overrides anything here except a line marked as a ban; your own habit does not. When the design hook is active it already enforces the mechanical checks below as you edit: act on its findings instead of re-auditing each rule.\n"
+        }
+      ]
+    },
+    "reference/critique.md": {
+      "baseSha256": "7f67463a6417e6df65d4b77a8ac9c79e53324877bca4a96d1fc0985a2a454b7d",
+      "sha256": "7f67463a6417e6df65d4b77a8ac9c79e53324877bca4a96d1fc0985a2a454b7d",
+      "changes": []
+    },
+    "scripts/VERSION": {
+      "baseSha256": "7470694a0b5af87394b523c1a640e2ad099efbe0e6d9e6d2f7a70703e4d04457",
+      "sha256": "447836d46f39c5900faf74ad6a6554b8e1fafeca1f78de0416d5f05c6e09a080",
+      "changes": [
+        {
+          "start": 0,
+          "end": 7,
+          "text": "0.1.18\n"
+        }
+      ]
+    },
+    "scripts/impeccable": {
+      "baseSha256": "f5d9fcd37559ed6af782306f71b7688ad1ec5e1a4f8ae1ef4d3168f42523b1b1",
+      "sha256": "d9709ee88e790bda2d98f55c4d1abe42e28b91db849882a2998bac79b1e074cb",
+      "changes": [
+        {
+          "start": 647,
+          "end": 680,
+          "text": "# every edit and must stay fast. The version-pinned cache and the download are\n# verified against engine-checksums.txt (next to this script), never against\n# anything published beside the binary; a <binary>.verified stamp records that\n# a cached binary passed, so only the first run hashes it.\n"
+        },
+        {
+          "start": 1075,
+          "end": 1156,
+          "text": "  probe_out=$(IMPECCABLE_LAUNCHER_PROBE=1 \"$1\" engine-probe 2>/dev/null) || return 1\n  case \"$probe_out\" in\n"
+        },
+        {
+          "start": 1252,
+          "end": 1252,
+          "text": "# Prints the digest engine-checksums.txt records for engine version $1 and\n# asset $2 (lines are \"<version> <asset> <sha256>\"), nothing when there is none.\n# A CR is a separator too (CRLF checkouts), and a last line with no newline\n# still counts.\nmanifest_digest() {\n  [ -f \"$manifest\" ] || return 0\n  while IFS=\"$(printf ' \\t\\r')\" read -r m_version m_asset m_sum _ || [ -n \"$m_version\" ]; do\n    case \"$m_version\" in ''|'#'*) continue ;; esac\n    if [ \"$m_version\" = \"$1\" ] && [ \"$m_asset\" = \"$2\" ]; then\n      printf '%s' \"$m_sum\"\n      return 0\n    fi\n  done < \"$manifest\"\n  return 0\n}\n# Sets $expected (and, on Windows on ARM, which runs x64 binaries,\n# $expected_x64) from engine-checksums.txt. Only called off the stamped fast\n# path: hooks run this launcher on every edit.\nread_expected() {\n  expected=$(manifest_digest \"$version\" \"$asset\")\n  expected_x64=\"\"\n  if [ \"$os\" = windows ] && [ \"$arch\" = arm64 ]; then\n    expected_x64=$(manifest_digest \"$version\" impeccable-windows-x64.exe)\n  fi\n}\n# Sets $actual to the sha256 of $1, empty when no hash tool works.\nhash_file() {\n  actual=\"\"\n  if command -v shasum >/dev/null 2>&1; then\n    if digest=$(shasum -a 256 \"$1\" 2>/dev/null); then actual=${digest%% *}; fi\n  elif command -v sha256sum >/dev/null 2>&1; then\n    if digest=$(sha256sum \"$1\" 2>/dev/null); then actual=${digest%% *}; fi\n  fi\n}\n\n"
+        },
+        {
+          "start": 1301,
+          "end": 1301,
+          "text": "manifest=\"$dir/engine-checksums.txt\"\n"
+        },
+        {
+          "start": 3209,
+          "end": 3209,
+          "text": "asset=\"impeccable-$os-$arch\"\n[ \"$os\" = windows ] && asset=\"$asset.exe\"\n"
+        },
+        {
+          "start": 3256,
+          "end": 3278,
+          "text": "  if [ -f \"$cached.verified\" ]; then\n    exec \"$cached\" \"$@\"\n  fi\n  read_expected\n  hash_file \"$cached\"\n  if [ -n \"$actual\" ] && { [ \"$actual\" = \"$expected\" ] || [ \"$actual\" = \"$expected_x64\" ]; }; then\n    { echo \"$actual\" > \"$cached.verified\"; } 2>/dev/null || :\n    exec \"$cached\" \"$@\"\n  fi\n  echo \"impeccable: cannot verify the cached engine $cached against $manifest; not using it\" >&2\n"
+        },
+        {
+          "start": 4287,
+          "end": 4311,
+          "text": ""
+        },
+        {
+          "start": 4551,
+          "end": 4592,
+          "text": "    rm -f \"$download_file\"\n"
+        },
+        {
+          "start": 4987,
+          "end": 5062,
+          "text": ""
+        },
+        {
+          "start": 5100,
+          "end": 5100,
+          "text": "  read_expected\n  # Fail closed before any network traffic or cache write.\n  if [ -z \"$expected\" ] && [ -z \"$expected_x64\" ]; then\n    echo \"impeccable: no checksum for engine $version ($asset) in $manifest; refusing the unverified download\" >&2\n    exit 127\n  fi\n"
+        },
+        {
+          "start": 5311,
+          "end": 5372,
+          "text": "  cleanup() { rm -f \"$tmp\" 2>/dev/null || :; }\n"
+        },
+        {
+          "start": 6044,
+          "end": 6072,
+          "text": "  if [ -n \"$expected\" ] && fetch_url \"$url\"; then\n"
+        },
+        {
+          "start": 6086,
+          "end": 6142,
+          "text": "  elif [ -n \"$expected_x64\" ]; then\n"
+        },
+        {
+          "start": 6280,
+          "end": 6280,
+          "text": "    expected=$expected_x64\n"
+        },
+        {
+          "start": 6368,
+          "end": 6983,
+          "text": "    # No sha256 tool refuses the download too.\n    hash_file \"$tmp\"\n"
+        },
+        {
+          "start": 7002,
+          "end": 7466,
+          "text": "    if [ -z \"$actual\" ]; then\n"
+        },
+        {
+          "start": 7485,
+          "end": 7627,
+          "text": "      echo \"impeccable: cannot verify $url (no sha256 tool, or hashing failed); refusing the unverified download\" >&2\n"
+        },
+        {
+          "start": 8236,
+          "end": 8236,
+          "text": "    { echo \"$actual\" > \"$cached.verified\"; } 2>/dev/null || :\n"
+        }
+      ]
+    },
+    "scripts/impeccable.cmd": {
+      "baseSha256": "e0dcc4cd739c8a6ac9e8ce637c216cf8bd4ddae36a8bac458345bdb5a5d7e252",
+      "sha256": "74154d320dda16e7cb184406a9deecc8c6a5953ab675af99cea207471d63b4b4",
+      "changes": [
+        {
+          "start": 0,
+          "end": 9306,
+          "text": "@echo off\r\nsetlocal\r\nrem Impeccable launcher (Windows). Runs bin\\windows-<arch>\\impeccable.exe next\r\nrem to this file, else a cached or freshly downloaded engine binary.\r\nrem\r\nrem Structure notes (this file is exercised by dry parsing and string-level\r\nrem tests, not yet on a real Windows machine):\r\nrem - No multi-line parenthesized blocks: cmd expands %var% at block parse\r\nrem   time, which made the old download path read back empty %url%/%cached%.\r\nrem   Linear goto flow keeps every expansion on its own line, and avoids\r\nrem   delayed expansion eating ! characters in user arguments.\r\nrem - The unversioned user binary and the PATH candidate are validated with\r\nrem   the engine-probe handshake (see :probe) so the retired 3.x npm CLI,\r\nrem   whose bin is also named impeccable, is never exec'd. IMPECCABLE_BIN,\r\nrem   the sibling binary, and the version-pinned cache stay trusted.\r\nrem - Downloads and the version-pinned cache are verified via certutil\r\nrem   against engine-checksums.txt next to this file, and fail closed; a\r\nrem   .verified stamp lets later runs skip hashing the cache. On ARM64 the\r\nrem   arm64 asset is tried first and the x64 asset is the fallback (Windows on\r\nrem   ARM runs x64 binaries), each only when the manifest has a line for it.\r\nif not defined IMPECCABLE_SKILL_DIR set \"IMPECCABLE_SKILL_DIR=%~dp0..\"\r\nif not defined IMPECCABLE_SELF set \"IMPECCABLE_SELF=%~f0\"\r\nset \"arch=x64\"\r\nif /I \"%PROCESSOR_ARCHITECTURE%\"==\"ARM64\" set \"arch=arm64\"\r\n\r\nif not defined IMPECCABLE_BIN goto no_env_bin\r\nif not exist \"%IMPECCABLE_BIN%\" goto no_env_bin\r\nset \"run=%IMPECCABLE_BIN%\"\r\ngoto run\r\n:no_env_bin\r\n\r\nset \"bin=%~dp0bin\\windows-%arch%\\impeccable.exe\"\r\nif not exist \"%bin%\" goto no_sibling\r\nset \"run=%bin%\"\r\ngoto run\r\n:no_sibling\r\n\r\nset \"home_bin=%USERPROFILE%\\.impeccable\\bin\\impeccable.exe\"\r\nif not exist \"%home_bin%\" goto no_home_bin\r\nif defined IMPECCABLE_LAUNCHER_PROBE goto no_home_bin\r\ncall :probe \"%home_bin%\"\r\nif not \"%probe_ok%\"==\"1\" goto no_home_bin\r\nset \"run=%home_bin%\"\r\ngoto run\r\n:no_home_bin\r\n\r\nset \"version=\"\r\nif exist \"%~dp0VERSION\" set /p version=<\"%~dp0VERSION\"\r\nif not defined IMPECCABLE_HOME set \"IMPECCABLE_HOME=%USERPROFILE%\\.impeccable\"\r\nset \"cached=%IMPECCABLE_HOME%\\bin\\%version%\\impeccable.exe\"\r\nset \"asset=impeccable-windows-%arch%.exe\"\r\nset \"manifest=%~dp0engine-checksums.txt\"\r\nif not defined version goto no_cache\r\nif not exist \"%cached%\" goto no_cache\r\nif exist \"%cached%.verified\" goto cache_trusted\r\ncall :read_expected\r\ncall :sha256 \"%cached%\" \"%TEMP%\\impeccable-hash-%RANDOM%%RANDOM%.txt\"\r\nif not defined actual goto cache_unverified\r\nif /I \"%actual%\"==\"%expected%\" goto cache_verified\r\nif /I \"%actual%\"==\"%expected_x64%\" goto cache_verified\r\n:cache_unverified\r\necho impeccable: cannot verify the cached engine \"%cached%\" against \"%manifest%\"; not using it 1>&2\r\ngoto no_cache\r\n:cache_verified\r\n(>\"%cached%.verified\" echo %actual%) 2>nul\r\n:cache_trusted\r\nset \"run=%cached%\"\r\ngoto run\r\n:no_cache\r\n\r\nif defined IMPECCABLE_LAUNCHER_PROBE goto download\r\nwhere impeccable >nul 2>nul\r\nif errorlevel 1 goto download\r\ncall :probe impeccable\r\nif not \"%probe_ok%\"==\"1\" goto download\r\nimpeccable %*\r\nexit /b %errorlevel%\r\n\r\n:download\r\nrem Last resort: fetch this version's binary from the release channel into\r\nrem the version-pinned user cache, verify it, then run it. Never inside\r\nrem another launcher's probe: fail fast and quiet instead.\r\nif defined IMPECCABLE_LAUNCHER_PROBE exit /b 127\r\nif not defined version goto fail\r\ncall :read_expected\r\nif not defined expected if not defined expected_x64 goto no_checksum\r\nwhere curl.exe >nul 2>nul\r\nif errorlevel 1 goto curl_missing\r\nif not defined IMPECCABLE_DOWNLOAD_BASE set \"IMPECCABLE_DOWNLOAD_BASE=https://github.com/pbakaus/impeccable/releases/download\"\r\nif exist \"%IMPECCABLE_HOME%\\bin\\%version%\\\" goto cache_ready\r\nmkdir \"%IMPECCABLE_HOME%\\bin\\%version%\" >nul 2>nul\r\nif errorlevel 1 goto cache_directory_failed\r\n:cache_ready\r\nrem Stage the download in a directory only this run owns, as the sh launcher\r\nrem does with .impeccable.part.$$: concurrent first runs (parallel hooks, two\r\nrem agents) must never write, hash or move each other's files. mkdir fails\r\nrem when the name exists, so it claims the name atomically. RANDOM alone is\r\nrem not enough because cmd seeds it from the clock in whole seconds; the\r\nrem timestamp and the retry on collision keep same-second runs apart. A cache\r\nrem directory that refuses every mkdir is reported as unwritable.\r\nset \"attempt=0\"\r\n:claim_staging\r\nset /a attempt+=1\r\nif %attempt% GTR 20 goto cache_write_failed\r\nset \"stamp=%TIME: =0%\"\r\nset \"stamp=%stamp::=%\"\r\nset \"stamp=%stamp:.=%\"\r\nset \"stamp=%stamp:,=%\"\r\nset \"staging=%IMPECCABLE_HOME%\\bin\\%version%\\.impeccable.part.%stamp%-%RANDOM%%RANDOM%\"\r\nmkdir \"%staging%\" >nul 2>nul\r\nif errorlevel 1 goto claim_staging\r\nset \"part=%staging%\\impeccable.exe\"\r\nrem Redirection failures do not reliably update ERRORLEVEL in cmd.exe;\r\nrem branch on the command's failure directly.\r\n(type nul >\"%part%\") 2>nul || goto staging_write_failed\r\nset \"url=%IMPECCABLE_DOWNLOAD_BASE%/engine-v%version%/%asset%\"\r\nif not defined expected goto fetch_x64\r\ncurl.exe -fsSL -o \"%part%\" \"%url%\" >nul 2>nul\r\nif not errorlevel 1 goto verify\r\n:fetch_x64\r\nif not defined expected_x64 goto download_failed\r\nset \"asset=impeccable-windows-x64.exe\"\r\nset \"expected=%expected_x64%\"\r\nset \"url=%IMPECCABLE_DOWNLOAD_BASE%/engine-v%version%/%asset%\"\r\ncurl.exe -fsSL -o \"%part%\" \"%url%\" >nul 2>nul\r\nif errorlevel 1 goto download_failed\r\n\r\n:verify\r\ncall :check_download\r\nif errorlevel 1 exit /b 127\r\nrem Mirrors the sh launcher and fails closed: a freshly downloaded binary\r\nrem runs only after its hash matches the digest read from engine-checksums.txt.\r\nrem An empty certutil result refuses the download instead of running an\r\nrem unverified binary.\r\ncall :sha256 \"%part%\" \"%staging%\\hash.txt\"\r\ncall :check_download\r\nif errorlevel 1 exit /b 127\r\nif not defined actual goto verify_refuse\r\nif /I \"%actual%\"==\"%expected%\" goto place\r\ncall :discard_staging\r\necho impeccable: checksum mismatch downloading %url% 1>&2\r\nexit /b 127\r\n\r\n:verify_refuse\r\ncall :check_download\r\nif errorlevel 1 exit /b 127\r\ncall :discard_staging\r\necho impeccable: cannot verify %url% (certutil could not hash it); refusing the unverified download 1>&2\r\nexit /b 127\r\n\r\n:read_expected\r\nrem Sets expected (and, on ARM64, expected_x64: Windows on ARM runs x64\r\nrem binaries) from engine-checksums.txt. Only called off the stamped path:\r\nrem hooks run this launcher on every edit.\r\ncall :manifest_digest \"%asset%\" expected\r\nset \"expected_x64=\"\r\nif \"%arch%\"==\"arm64\" call :manifest_digest impeccable-windows-x64.exe expected_x64\r\nexit /b 0\r\n\r\n:manifest_digest\r\nrem Sets the variable named %2 to the digest the first engine-checksums.txt\r\nrem line for this version and asset %1 records, empty when there is none.\r\nset \"%~2=\"\r\nif not exist \"%manifest%\" exit /b 0\r\nfor /f \"usebackq tokens=1-3\" %%a in (\"%manifest%\") do if \"%%a\"==\"%version%\" if /I \"%%b\"==\"%~1\" if not defined %~2 set \"%~2=%%c\"\r\nexit /b 0\r\n\r\n:sha256\r\nrem Sets actual to the sha256 of %~1, empty when certutil fails. %~2 is the\r\nrem scratch file for its output. Check certutil's status before parsing: its\r\nrem error text on stdout is not a digest.\r\nset \"actual=\"\r\ncertutil -hashfile \"%~1\" SHA256 >\"%~2\" 2>nul\r\nif errorlevel 1 goto sha256_done\r\nfor /f \"usebackq skip=1 delims=\" %%h in (\"%~2\") do if not defined actual set \"actual=%%h\"\r\nif not defined actual goto sha256_done\r\nset \"actual=%actual: =%\"\r\n:sha256_done\r\ndel \"%~2\" >nul 2>nul\r\nexit /b 0\r\n\r\n:check_download\r\nset \"download_file=%~1\"\r\nif not defined download_file set \"download_file=%part%\"\r\nif not exist \"%download_file%\" goto download_missing\r\nfor %%f in (\"%download_file%\") do if %%~zf==0 goto download_empty\r\nexit /b 0\r\n\r\n:download_missing\r\ncall :discard_staging\r\necho impeccable: download completed but the file was removed before execution: %url%; check your antivirus quarantine or logs. Refusing to continue; do not disable protection. 1>&2\r\nexit /b 127\r\n\r\n:download_empty\r\ndel \"%download_file%\" >nul 2>nul\r\ncall :discard_staging\r\necho impeccable: downloaded file is empty: %url%; refusing the unverified download 1>&2\r\nexit /b 127\r\n\r\n:discard_staging\r\nrem Removes this run's staging directory and whatever is left in it. Never\r\nrem touches another run's staging directory or the cached binary.\r\nif defined staging rd /s /q \"%staging%\" >nul 2>nul\r\nexit /b 0\r\n\r\n:place\r\ncall :check_download\r\nif errorlevel 1 exit /b 127\r\nmove /y \"%part%\" \"%cached%\" >nul 2>nul\r\nif errorlevel 1 goto place_failed\r\ncall :discard_staging\r\ncall :check_download \"%cached%\"\r\nif errorlevel 1 exit /b 127\r\n(>\"%cached%.verified\" echo %actual%) 2>nul\r\nset \"run=%cached%\"\r\ngoto run\r\n\r\n:place_failed\r\ncall :check_download\r\nif errorlevel 1 exit /b 127\r\ncall :discard_staging\r\necho impeccable: could not cache the verified download: %url% 1>&2\r\nexit /b 127\r\n\r\n:run\r\n\"%run%\" %*\r\nexit /b %errorlevel%\r\n\r\n:probe\r\nrem Sets probe_ok=1 when %1 answers the engine handshake: prints\r\nrem \"impeccable-engine <version>\" and exits 0. The 3.x npm CLI answers any\r\nrem unknown verb with \"Unknown command\", exit 1, so it never passes.\r\nset \"probe_ok=\"\r\nset \"probe_tmp=%TEMP%\\impeccable-probe-%RANDOM%%RANDOM%.txt\"\r\nset \"IMPECCABLE_LAUNCHER_PROBE=1\"\r\n\"%~1\" engine-probe >\"%probe_tmp%\" 2>nul\r\nset \"probe_err=%ERRORLEVEL%\"\r\nset \"IMPECCABLE_LAUNCHER_PROBE=\"\r\nif not \"%probe_err%\"==\"0\" goto probe_done\r\nfindstr /b /c:\"impeccable-engine\" \"%probe_tmp%\" >nul 2>nul\r\nif not errorlevel 1 set \"probe_ok=1\"\r\n:probe_done\r\ndel \"%probe_tmp%\" >nul 2>nul\r\nexit /b 0\r\n\r\n:no_checksum\r\necho impeccable: no checksum for engine %version% (%asset%) in \"%manifest%\"; refusing the unverified download 1>&2\r\nexit /b 127\r\n\r\n:cache_directory_failed\r\necho impeccable: engine %version% is not installed; cannot create cache directory: \"%IMPECCABLE_HOME%\\bin\\%version%\" 1>&2\r\ngoto setup_failed\r\n\r\n:staging_write_failed\r\ncall :discard_staging\r\n\r\n:cache_write_failed\r\necho impeccable: engine %version% is not installed; cannot write to cache directory: \"%IMPECCABLE_HOME%\\bin\\%version%\" 1>&2\r\ngoto setup_failed\r\n\r\n:curl_missing\r\necho impeccable: cannot download engine %version%; curl.exe is unavailable. 1>&2\r\ngoto setup_failed\r\n\r\n:download_failed\r\ncall :discard_staging\r\necho impeccable: could not download engine %version% from %url%; check network access and the release URL. 1>&2\r\n\r\n:setup_failed\r\necho Engine %version% setup needs network access and write permission to \"%IMPECCABLE_HOME%\\bin\\%version%\". 1>&2\r\necho Run this launcher (\"%~f0\") with engine-probe in a terminal that has those permissions, then retry the original command. 1>&2\r\necho Alternatively, set IMPECCABLE_HOME to a writable cache location, or IMPECCABLE_BIN to a preinstalled engine binary. 1>&2\r\nexit /b 127\r\n\r\n:fail\r\necho impeccable: no engine binary found (looked in %bin%, %cached%, PATH). 1>&2\r\necho Download impeccable-windows-%arch%.exe from https://github.com/pbakaus/impeccable/releases (tag engine-v%version%) and save it as %cached%, or set IMPECCABLE_BIN to a preinstalled engine binary. Docs: https://impeccable.style 1>&2\r\nexit /b 127\r\n"
+        }
+      ]
+    },
+    "scripts/live-browser.js": {
+      "baseSha256": "0fc9a1c47540fd088a7d917a478bf3341fc477dd3d87489cfc1fdb1009c00b98",
+      "sha256": "718b7e3c5c9cc3cc8fb75ed99b32a7ebce627e3b6a108e21656fa0fd298e34f0",
+      "changes": [
+        {
+          "start": 534,
+          "end": 534,
+          "text": "  // Take the helper token out of the global before anything else, including\n  // on the double-init return below: each served copy re-prepends it.\n  const TOKEN = window.__IMPECCABLE_TOKEN__;\n  try { delete window.__IMPECCABLE_TOKEN__; } catch { /* non-configurable */ }\n\n"
+        },
+        {
+          "start": 696,
+          "end": 753,
+          "text": "  // Check BEFORE reading port to catch all cases.\n"
+        },
+        {
+          "start": 843,
+          "end": 888,
+          "text": ""
+        },
+        {
+          "start": 3096,
+          "end": 3096,
+          "text": "  let liveStorage = null;\n  try { liveStorage = window.localStorage; } catch { /* storage denied */ }\n"
+        },
+        {
+          "start": 3240,
+          "end": 3269,
+          "text": "      storage: liveStorage,\n"
+        },
+        {
+          "start": 95913,
+          "end": 95975,
+          "text": "    if (!controlsLocked && !touchPrimary()) setTimeout(() => input.focus(), 60);\n"
+        },
+        {
+          "start": 99638,
+          "end": 99700,
+          "text": "    if (!controlsLocked && !touchPrimary()) setTimeout(() => input.focus(), 60);\n"
+        },
+        {
+          "start": 119396,
+          "end": 119396,
+          "text": "  // Tune values a saved session carried across a reload: {sessionId, variant,\n  // values}. Cycling refreshes of that session and variant restore them (a\n  // resume refreshes more than once); a refresh for any other variant, or a\n  // knob edit, drops them.\n  let restoredParamValues = null;\n"
+        },
+        {
+          "start": 125172,
+          "end": 125172,
+          "text": "  function rememberSavedParamValues(saved) {\n    const values = saved.paramValues;\n    if (!values || typeof values !== 'object' || Array.isArray(values)) return;\n    if (Object.keys(values).length === 0) return;\n    const variant = Number(saved.visible != null ? saved.visible : saved.visibleVariant) || 0;\n    restoredParamValues = { sessionId: saved.id || null, variant, values: { ...values } };\n  }\n\n  function restoredParamValuesForVisibleVariant() {\n    const restored = restoredParamValues;\n    if (!restored) return null;\n    if (restored.sessionId === currentSessionId && restored.variant === visibleVariant) return restored.values;\n    restoredParamValues = null;\n    return null;\n  }\n\n  // The local save is what a reload resumes from, so an edit is saved there\n  // as well as checkpointed to the server.\n  function noteParamEdited() {\n    restoredParamValues = null;\n    saveSession();\n    queueCheckpoint('param_changed');\n  }\n\n  // A saved value comes from storage the page does not own, and the variant\n  // may have been regenerated since, so it must still fit the param it names.\n  function isValidSavedParamValue(p, value) {\n    if (p.kind === 'range') {\n      if (typeof value !== 'number' || !Number.isFinite(value)) return false;\n      const min = p.min != null ? Number(p.min) : 0;\n      const max = p.max != null ? Number(p.max) : 1;\n      return value >= min && value <= max;\n    }\n    if (p.kind === 'toggle') return typeof value === 'boolean';\n    if (p.kind === 'steps') {\n      return (p.options || []).some(o => (o && typeof o === 'object' ? o.value : o) === value);\n    }\n    return false;\n  }\n\n  function applySavedParamValues(variantEl, params, saved) {\n    for (const p of params) {\n      if (!Object.hasOwn(saved, p.id) || !isValidSavedParamValue(p, saved[p.id])) continue;\n      paramsCurrentValues[p.id] = saved[p.id];\n      applyParamValue(variantEl, p, saved[p.id]);\n    }\n  }\n\n"
+        },
+        {
+          "start": 125621,
+          "end": 125621,
+          "text": "      // A knob the panel shows must be in the live values and on the variant,\n      // or accept drops it and the preview ignores it. Seed only missing keys\n      // so a reopen keeps edits.\n      if (!Object.hasOwn(paramsCurrentValues, p.id)) {\n        paramsCurrentValues[p.id] = p.default;\n        applyParamValue(variantEl, p, p.default);\n      }\n      const value = paramsCurrentValues[p.id];\n"
+        },
+        {
+          "start": 126585,
+          "end": 126626,
+          "text": "        input.value = String(value);\n"
+        },
+        {
+          "start": 127063,
+          "end": 127107,
+          "text": "          noteParamEdited();\n"
+        },
+        {
+          "start": 127191,
+          "end": 127228,
+          "text": "        const initial = !!value;\n"
+        },
+        {
+          "start": 128365,
+          "end": 128409,
+          "text": "          noteParamEdited();\n"
+        },
+        {
+          "start": 128612,
+          "end": 128767,
+          "text": "        const activeOpt = opts.find(o => o.value === value) || opts[0];\n        readout.textContent = activeOpt ? activeOpt.label : String(value);\n"
+        },
+        {
+          "start": 129057,
+          "end": 129105,
+          "text": "          const active = o.value === value;\n"
+        },
+        {
+          "start": 129997,
+          "end": 130043,
+          "text": "            noteParamEdited();\n"
+        },
+        {
+          "start": 189338,
+          "end": 189338,
+          "text": "    // Values saved before a reload come back for the variant they were saved\n    // on; a switch to any other variant starts from its defaults.\n    const restored = restoredParamValuesForVisibleVariant();\n"
+        },
+        {
+          "start": 189637,
+          "end": 189637,
+          "text": "    if (restored) applySavedParamValues(variantEl, params, restored);\n"
+        },
+        {
+          "start": 191786,
+          "end": 191900,
+          "text": "    // Rebuild the controls from the current values. Defaults are applied\n    // when the variant is initialized, not when its Tune panel is reopened.\n"
+        },
+        {
+          "start": 387464,
+          "end": 387464,
+          "text": "      rememberSavedParamValues(saved);\n"
+        },
+        {
+          "start": 416268,
+          "end": 416547,
+          "text": "      // Build the params panel for the restored visible variant, with any\n      // Tune values saved before the reload (showVariantInDOM above may\n      // already have refreshed; a repeat for the same variant keeps them).\n"
+        },
+        {
+          "start": 434478,
+          "end": 434478,
+          "text": "  // Programmatic focus raises the soft keyboard on touch devices (#1067).\n  function touchPrimary() {\n    return !!window.matchMedia?.('(pointer: coarse)').matches;\n  }\n\n"
+        },
+        {
+          "start": 441654,
+          "end": 441654,
+          "text": "    if (touchPrimary()) return;\n"
+        },
+        {
+          "start": 448578,
+          "end": 448643,
+          "text": "    if (keepExpanded && touchPrimary()) preparePageChatInputForTyping();\n    else if (keepExpanded) focusPageChatInput('steer-error-restore');\n"
+        },
+        {
+          "start": 545839,
+          "end": 545968,
+          "text": "    s = s.replace(/\\[([^\\]]+)\\]\\(([^)]+)\\)/g, (_, t, u) => (\n      isSafeHref(u) ? `<a href=\"${u}\" target=\"_blank\" rel=\"noopener noreferrer\">${t}</a>` : t\n    ));\n"
+        },
+        {
+          "start": 546195,
+          "end": 546195,
+          "text": "  }\n\n  function isSafeHref(url) {\n    // Browsers drop ASCII whitespace and C0 controls inside a scheme, so\n    // \"java\\tscript:\" still runs; strip them before reading the scheme.\n    const probe = String(url).replace(/[\\u0000-\\u0020\\u007f]/g, '');\n    const scheme = probe.match(/^([a-z][a-z0-9+.-]*):/i);\n    return !scheme || ['http', 'https', 'mailto'].includes(scheme[1].toLowerCase());\n"
+        }
+      ]
+    },
+    "LICENSE": {
+      "baseSha256": "02bb8c3b4e70190e3986c0404ad2fd8d639b4f534252d82379cc1b502b6d1812",
+      "sha256": "02bb8c3b4e70190e3986c0404ad2fd8d639b4f534252d82379cc1b502b6d1812",
+      "changes": []
+    },
+    "NOTICE.md": {
+      "baseSha256": "c60a093c2845fd9fb82f9c6f742ece31f379f8190b535309d32d66c45ccffdcb",
+      "sha256": "c60a093c2845fd9fb82f9c6f742ece31f379f8190b535309d32d66c45ccffdcb",
+      "changes": []
+    }
+  }
+}

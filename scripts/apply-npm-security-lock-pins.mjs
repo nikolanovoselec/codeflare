@@ -12,26 +12,26 @@ const BRACE_EXPANSION_5_0_12 = Object.freeze({
   engines: { node: '20 || >=22' },
 });
 
-const UNDICI_7_30_0 = Object.freeze({
-  version: '7.30.0',
-  resolved: 'https://registry.npmjs.org/undici/-/undici-7.30.0.tgz',
-  integrity: 'sha512-dkrQXeHSaoamnItlYbmzG0wFYrM0ZwDxCIg0A7aKjTyyhh9svRzCNFEzV+Vm05/yehjCzjDZ31KXfGEjYSztDQ==',
+const UNDICI_7_30_1 = Object.freeze({
+  version: '7.30.1',
+  resolved: 'https://registry.npmjs.org/undici/-/undici-7.30.1.tgz',
+  integrity: 'sha512-03KrMbjIFDWQR5RNPrSw3bd1r12JpyFQl9/yxjUbJtqkjmllqC5lFjZh6ujeuJCKr8EOQvRW872Oy/az+nLYxg==',
   license: 'MIT',
   engines: { node: '>=20.18.1' },
 });
 
-const UNDICI_8_11_2 = Object.freeze({
-  version: '8.11.2',
-  resolved: 'https://registry.npmjs.org/undici/-/undici-8.11.2.tgz',
-  integrity: 'sha512-u4UB2/IrKdU6lFxumHmmo1a3fCQO5tzQllRorfoRS63txhrB7xTpSn1PftwC4qEHkOaqP95fCWW4lJzwErwzhQ==',
+const UNDICI_8_12_3 = Object.freeze({
+  version: '8.12.3',
+  resolved: 'https://registry.npmjs.org/undici/-/undici-8.12.3.tgz',
+  integrity: 'sha512-+fdndUTwBP86cVjihTp21hZHo7d6oj1c/47XPA3lL8mM0XHs+C4EkcjmgRsFnFk2f/UONGDy9ItBItmXsLOQHw==',
   license: 'MIT',
   engines: { node: '>=22.19.0' },
 });
 
-const IP_ADDRESS_10_7_3 = Object.freeze({
-  version: '10.7.3',
-  resolved: 'https://registry.npmjs.org/ip-address/-/ip-address-10.7.3.tgz',
-  integrity: 'sha512-A1kdq/tSb5QjvKvAMgIoEvDBIgL7qaqVP/jkvSwYYRZ9iEzvPpopxp2wQfu3SuZRHtpHNxMn8Fs0bS+gf5Xmwg==',
+const IP_ADDRESS_10_7_5 = Object.freeze({
+  version: '10.7.5',
+  resolved: 'https://registry.npmjs.org/ip-address/-/ip-address-10.7.5.tgz',
+  integrity: 'sha512-t2v0rkILYv9WXmSL7TpAaU3HXgaFYOPUcH3QHgwQ++gpJuH3bqyMy4Fvt/DJCTKwzH3Cf+bAp5W/mFL39KPLzA==',
   license: 'MIT',
   engines: { node: '>= 12' },
 });
@@ -69,10 +69,10 @@ function main() {
     if (packagePath === 'node_modules/brace-expansion' || packagePath.endsWith('/node_modules/brace-expansion')) {
       securityPin = BRACE_EXPANSION_5_0_12;
     } else if (packagePath === 'node_modules/undici' || packagePath.endsWith('/node_modules/undici')) {
-      if (metadata.version.startsWith('7.')) securityPin = UNDICI_7_30_0;
-      if (metadata.version.startsWith('8.')) securityPin = UNDICI_8_11_2;
+      if (metadata.version.startsWith('7.')) securityPin = UNDICI_7_30_1;
+      if (metadata.version.startsWith('8.')) securityPin = UNDICI_8_12_3;
     } else if (packagePath === 'node_modules/ip-address' || packagePath.endsWith('/node_modules/ip-address')) {
-      if (metadata.version.startsWith('10.')) securityPin = IP_ADDRESS_10_7_3;
+      if (metadata.version.startsWith('10.')) securityPin = IP_ADDRESS_10_7_5;
     }
 
     if (!securityPin || compareVersions(metadata.version, securityPin.version) >= 0) continue;

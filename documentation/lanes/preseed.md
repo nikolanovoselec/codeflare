@@ -47,7 +47,7 @@ deployed on Recreate or new bucket creation.
 | SDD template scaffolding for `/sdd init` | No | Yes | Yes |
 | Known marketplaces plugin config | Yes | Yes | Yes |
 | context-mode helper package (`ctx_*` tools) | Disabled by default; `/ctx on` persists through reload until next container start | Disabled by default; `/ctx on` persists through reload until next container start | Disabled by default; `/ctx on` persists through reload until next container start ([REQ-AGENT-076 AC1](../../sdd/spec/agents.md#req-agent-076-pi-context-mode-enablement-and-tool-extension-defaults)) |
-| Pi extension packages (`@juicesharp/rpiv-advisor`, `@juicesharp/rpiv-ask-user-question`, `@juicesharp/rpiv-todo`, `@narumitw/pi-goal`, `@narumitw/pi-plan-mode`, `pi-open-tui`, `pi-web-access`, `pi-mcp-adapter`) | Yes (always-on `required`) | Yes (always-on `required`) | Yes (always-on `required`) |
+| Pi extension packages (`@juicesharp/rpiv-advisor`, `@juicesharp/rpiv-ask-user-question`, `@juicesharp/rpiv-todo`, `@narumitw/pi-goal`, `@narumitw/pi-plan-mode`, `pi-open-tui`, `pi-web-access`, `pi-mcp-extension`) | Yes (always-on `required`) | Yes (always-on `required`) | Yes (always-on `required`) |
 | context-mode plugin folder (Claude Code auto-routing hooks for context-window reduction) | No | No | Yes |
 
 Default workspace is separate from preseed mode. Advanced entitlement permits VS Code as the future default, but each session keeps the Terminal or VS Code value captured at creation; changing that preference never rewrites the session's seeded agent inventory. Switching to Standard resets only the future workspace default to Terminal ([REQ-IDE-048](../../sdd/spec/browser-ide.md#req-ide-048-default-workspace-and-dashboard-owned-vs-code-sessions)). <!-- @impl: src/routes/preferences.ts::app --> <!-- @impl: src/routes/session/crud.ts::app -->
@@ -120,7 +120,7 @@ The September Pi upgrade retains the session-shutdown/stale-context guards in th
 
 Context-mode and Evaluate [remain pinned](../../preseed/agents/pi/package.json). Existing skill tool names remain unchanged; web-access's optional `web_enable` loader follows its configured `toolActivation` policy, and an old resumed session may need a new session to acquire its recorded web-tool selection. See the [upstream Tool activation guidance](https://github.com/nicobailon/pi-web-access/blob/7bd4509ee4e417a9e0141235bbe276ff77aa81e3/README.md#tool-activation).
 
-The [Pi package reference](../references/pi-packages.md#loading-and-warm-compatibility) owns current native-MCP and adapter lifecycle behavior. Managed startup disables `builtin:mcp` with `-builtin:mcp`, preserves unrelated extension selections, and leaves the adapter as the managed MCP lifecycle owner. A historical command-replacement warning is not proof of correct ownership or itself a crash diagnosis.
+The [Pi package reference](../references/pi-packages.md#loading-and-warm-compatibility) owns current native-MCP and adapter lifecycle behavior. Managed startup disables `builtin:mcp` with `-builtin:mcp`, preserves unrelated extension selections, and leaves pi-mcp-extension as the managed MCP lifecycle owner. A historical command-replacement warning is not proof of correct ownership or itself a crash diagnosis.
 
 The image-owned questionnaire transform completes an unanswered Pi `ask_user_question` after five minutes. It keeps completed answers and notes, defaults only unanswered questions to their first authored option, and finishes through the existing TUI/native-dialog lifecycle. Automatic answers remain labelled and are not manual responses. Only verified successful automatic recommended selections count as standing user-delegated authorization without routine re-confirmation; other defaults gain none, and protected server grants, security boundaries and platform constraints remain unchanged ([REQ-AGENT-218](../../sdd/spec/agents.md#req-agent-218-bounded-pi-questionnaire-wait)). Cancellation, abort, errors and independent invocations retain their distinct outcomes ([REQ-AGENT-219](../../sdd/spec/agents.md#req-agent-219-pi-questionnaire-cancellation-and-isolation)); Claude and Plan Mode questions are unchanged.
 
@@ -326,45 +326,52 @@ external LLMs/GPT, ChatGPT, Gemini, or OpenAI; see [REQ-AGENT-031](../../sdd/spe
 and [REQ-AGENT-067](../../sdd/spec/agents.md#req-agent-067-consult-llm-invocation-and-model-selection-behavior).
 
 Claude receives consult-llm through `~/.claude.json`; Pi receives it through
-`~/.pi/agent/mcp-adapter.json` via the pi-mcp-adapter `mcp` proxy.
-The [Pi manifest and lock](../../preseed/agents/pi/package.json) own the adapter's exact pin.
-It retains the config schema but no longer reads Pi's
-`mcp.json`. Startup and the signed both-mode `00-mcp-adapter-config.ts` extension
-prepare one valid active adapter after restore. Filename migration alone preserves
-valid legacy-only bytes. Startup rebuilds recognizable managed entries from current
-runtime inputs; startup and managed Pi load/reload then apply the timeout profile
-in [REQ-BROWSER-009](../../sdd/spec/browser-run.md#req-browser-009-mcp-and-chrome-sdk-timeout-profile), including managed-load inactivity under AC6.
-The shared Pi adapter/REST timeout sources already match curation at six minutes.
-Claude's generated browser server entries now also receive six-minute tool-call
-budgets through its documented [per-server `timeout`](https://code.claude.com/docs/en/mcp)
-field. No global client environment override or unrelated server budget is changed.
-The image's Chrome SDK transform aligns the remote WebSocket CDP request budget
-with its existing page/navigation defaults without changing native launch safeguards.
-These additional source changes still need exact-head CI and image acceptance.
-Preparation may change active-file bytes, but preserves custom credentials,
-lifecycle, unrelated fields and external routing. Displaced or transformed
-unknown/custom originals remain archived byte-for-byte before replacement;
-malformed originals also survive in recovery copies. Unchanged legacy-only data
-needs no extra archive.
-Passive backups never block startup; unsafe active paths and I/O failures still
-fail closed. Successful startup preparation excludes only root
-`.pi/agent/mcp.json` from subsequent baseline/bisync, not initial restore,
-active adapters or recovery copies. No bucket objects are deleted.
-See [REQ-AGENT-217](../../sdd/spec/agents.md#req-agent-217-lossless-pi-mcp-adapter-migration).
-Managed delivery reaches existing images on the next Pi load or `/reload`, not
-merely when the release is published or refreshed.
+`~/.pi/agent/mcp.json` using pi-mcp-extension direct tools. The [Pi manifest and
+lock](../../preseed/agents/pi/package.json) own the exact package and SDK pins.
+Builtin MCP remains disabled so there is one managed lifecycle owner.
 
-The adapter's transport runs on `@modelcontextprotocol/client` and
-`@modelcontextprotocol/core`, with `jose`, `pkce-challenge`, `eventsource`,
-and `cross-spawn` in the container dependency tree. Because the adapter
-reserves a leading `!` for command-backed secrets, the entrypoint doubles that
-prefix only in Pi's generated env value so a provider key beginning with `!`
-remains literal; Claude's value is unchanged. Pi startup adds the
-`consult-llm` server entry with `lifecycle: "lazy"` after preparing the adapter.
-Startup regenerates standard managed credentials; customized entries and user
-settings remain preserved. Pi load/reload leaves working entries intact. Claude
-retains its existing owned-entry replacement
-([REQ-AGENT-069](../../sdd/spec/agents.md#req-agent-069-pi-consult-llm-mcp-lazy-wiring)).
+Startup and the signed both-mode `00-mcp-adapter-config.ts` extension prepare the
+adapter-to-`mcp.json` handoff after restore. A valid destination wins; displaced
+custom originals remain recoverable without merging conflicting credentials.
+Malformed originals survive in recovery copies; passive archive collisions do not
+clobber data or block ordinary recovery. Unsafe active paths and I/O errors fail
+closed. Existing guards are retained rather than replaced with a new sync scheme.
+The newly active `mcp.json` must not retain the old baseline/bisync exclusion;
+active configuration and recovery copies remain sync-eligible. No bucket objects
+are deleted. See [REQ-AGENT-217](../../sdd/spec/agents.md#req-agent-217-lossless-pi-mcp-adapter-migration).
+
+Known old `lazy-keep-alive` / `lazy-keepalive` lifecycle values become `lazy`.
+Lazy servers start only on explicit `mcp_connect`, not status/capability discovery.
+After connecting, discover and activate the exact registered tool name through
+`capability`; the old `mcp` proxy is absent. The replacement has no idle disconnect.
+A failed transport reconnects for future operations, but must never silently
+replay an uncertain mutating call. The consult skill retains its explicit-user
+request gate. Startup regenerates only recognizable managed entries; customized
+commands, arguments, credentials, CA and unrelated settings remain preserved.
+
+MCP requests retain an explicit fixed 360000 ms per-call budget; progress does not
+extend it. Browser navigation guidance uses 120000 ms explicitly when supported by
+the live schema. Remote Browser Run `keep_alive=360000`, Chrome SDK/CDP budgets,
+and owner website authentication remain independent. No health pings or auth
+retention workaround is added. Existing Chrome SDK preparation and Claude's
+browser-scoped timeouts remain unchanged by this migration
+([REQ-BROWSER-009](../../sdd/spec/browser-run.md#req-browser-009-mcp-and-chrome-sdk-timeout-profile)).
+
+The new extension uses `@modelcontextprotocol/sdk`; stdio `env` values are literal.
+New constructors must not apply the old adapter's Pi-only leading-`!` escaping.
+During handoff, only selected legacy stdio environment values decode exactly one
+leading `!` from `!!`. Existing valid `mcp.json` literals, including `!!`, are never
+decoded. Selected legacy single-`!` commands or interpolation matching
+`${NAME}`, `$env:NAME`, or `{env:NAME}` (`NAME` is `\w+`) fail closed before any
+archive or active-file write; this migration never evaluates commands or resolves
+environment variables. Originals survive and the warning is content-free.
+Unselected legacy expressions do not block a valid destination. Both startup and
+managed-load preparation use this gate before regeneration. Claude behavior is
+unchanged. The replacement package must be baked and verified on both consuming
+deployments before compatible managed activation. Publication alone neither
+reloads a running Pi process nor proves authenticated browser acceptance. Focused
+synthetic-server tests and guarded handoff tests are authored; exact-head CI and
+staged acceptance remain required.
 
 **Rules** (core environment rules in both modes; the rest advanced-only) ([REQ-MEM-006](../../sdd/spec/memory.md#req-mem-006-memory-available-only-in-pro-advanced-mode),
 [REQ-VAULT-007](../../sdd/spec/vault.md#req-vault-007-vault-rules-and-plugin-are-preseeded-into-every-advanced-session)):
@@ -631,8 +638,8 @@ watcher ([AD158](../decisions/README.md#ad158-select-complete-upstream-graphify-
 
 Graphify tools ship as the native extension `extensions/graphify-native.ts` rather
 than through the MCP adapter — a Pi-native first-class choice. Pi still consumes
-MCP servers through the `pi-mcp-adapter`: it reaches `consult-llm` and
-`chrome-devtools` through the `mcp` proxy, wired into `~/.pi/agent/mcp-adapter.json` by
+MCP servers through `pi-mcp-extension`: it explicitly connects `consult-llm` and
+`chrome-devtools`, then activates discovered direct tools; config is `~/.pi/agent/mcp.json` in
 `entrypoint.sh`. A default or token-less start removes restored Codeflare-owned
 Browser Run registrations from Claude and Pi while preserving unrelated user MCP
 servers, so an old bearer-bearing configuration cannot survive a mode or credential
@@ -657,7 +664,7 @@ Pi-native; Claude Code gets a sibling `browser-run` MCP server built from
 `preseed/agents/claude/browser-run-mcp/` and registered in `~/.claude.json`. The
 INTERACTIVE `chrome-devtools` surface supports navigate / click / screenshot /
 viewport; Claude receives it as a registered MCP server, while Pi reaches it through
-the `pi-mcp-adapter`. The `browser-run` skill for both agents frames the
+`pi-mcp-extension`. The `browser-run` skill for both agents frames the
 cost/context decision: cheap markdown read first, interactive browser only when a
 page must be driven.
 
@@ -860,7 +867,7 @@ note requests without embedding hook internals or requiring pre-task graph queri
 `preseed/agents/pi/rules/git-workflow.md` instead. The `consult-llm` skill depends
 on the consult-llm MCP tool, so it is excluded from the codex/opencode/antigravity
 transform lane. Pi still gets a native `consult-llm` skill + MCP server via
-`~/.pi/agent/mcp-adapter.json`, see
+`~/.pi/agent/mcp.json`, see
 [REQ-AGENT-031](../../sdd/spec/agents.md#req-agent-031-consult-llm-key-isolation-subscription-backend-and-multi-agent-parity).
 
 Pi receives native TypeScript extensions for runtime behaviors that cannot be
@@ -1402,7 +1409,7 @@ The complete RPIV image compatibility and prewarm contract belongs to the [Pi pa
 
 ### REQ-AGENT-069 preserved clauses
 
-- Pi reads `consult-llm` from `~/.pi/agent/mcp-adapter.json` through the pi-mcp-adapter `mcp` proxy.
+- Pi reads `consult-llm` from `~/.pi/agent/mcp.json` through pi-mcp-extension after explicit connection and exact registered-tool activation.
 
 <a id="req-agent-217-preserved-clauses"></a>
 The complete lossless MCP migration contract belongs to the [Pi package reference](../references/pi-packages.md#mcp-adapter-and-consult-llm); [REQ-AGENT-217](../../sdd/spec/agents.md#req-agent-217-lossless-pi-mcp-adapter-migration) remains in Agents.

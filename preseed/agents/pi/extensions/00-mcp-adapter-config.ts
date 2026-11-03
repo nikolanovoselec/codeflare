@@ -96,6 +96,44 @@ function managedOnly(value: Config): boolean {
     && Object.entries(value.mcpServers || {}).every(([name, server]) => ownedServer(name, server));
 }
 
+// The replacement supports eager/lazy, not the old idle-disconnecting variants.
+// Convert only known old values; unknown custom values are not silently reinterpreted.
+function prepareLifecycles(value: Config): boolean {
+  let changed = false;
+  for (const candidate of Object.values(value.mcpServers || {})) {
+    if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) continue;
+    const server = candidate as Record<string, unknown>;
+    if (server.lifecycle === "lazy-keep-alive" || server.lifecycle === "lazy-keepalive") {
+      server.lifecycle = "lazy"; changed = true;
+    }
+  }
+  return changed;
+}
+
+// Old adapter utils.ts interpolates exactly these three forms and reserves a
+// single leading ! for commands. The replacement's stdio env is literal. Never
+// evaluate expressions during handoff; validate the entire selection before I/O.
+function prepareLegacyStdioEnvironment(value: Config): boolean {
+  let changed = false;
+  for (const candidate of Object.values(value.mcpServers || {})) {
+    if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) continue;
+    const server = candidate as Record<string, unknown>;
+    const transport = server.transport ?? server.type ?? (server.command ? "stdio" : undefined);
+    if (transport !== "stdio" || !server.env || typeof server.env !== "object" || Array.isArray(server.env)) continue;
+    const env = server.env as Record<string, unknown>;
+    for (const [name, entry] of Object.entries(env)) {
+      if (typeof entry !== "string") continue;
+      const literal = entry.startsWith("!!") ? entry.slice(1) : entry;
+      if ((entry.startsWith("!") && !entry.startsWith("!!"))
+        || /\$\{\w+\}|\$env:\w+|\{env:\w+\}/.test(literal)) {
+        throw Error("Unsupported legacy MCP environment expression");
+      }
+      if (literal !== entry) { env[name] = literal; changed = true; }
+    }
+  }
+  return changed;
+}
+
 // Explicit timeout preparation follows config selection, never filename migration alone.
 function prepareBrowserTimeouts(value: Config): boolean {
   if (value.settings !== undefined && (!value.settings || typeof value.settings !== "object"
@@ -134,14 +172,21 @@ export function migratePiMcpAdapterConfig(directory: string, regenerateManaged =
       if (info && (!info.isDirectory() || info.isSymbolicLink())) return false;
       if (dirname(path) === path) break;
     }
-    const legacyPath = join(directory, "mcp.json");
-    const targetPath = join(directory, "mcp-adapter.json");
+    const legacyPath = join(directory, "mcp-adapter.json");
+    const targetPath = join(directory, "mcp.json");
     const target = read(targetPath);
     const legacy = read(legacyPath);
     if (!target && !legacy && !regenerateManaged && !prepareTimeouts) return true;
     const targetConfig = target && config(target.bytes);
     const legacyConfig = legacy && config(legacy.bytes);
     let bytes = targetConfig ? target!.bytes : legacyConfig ? legacy!.bytes : Buffer.from("{}\n");
+    const selected = config(bytes)!;
+    // Destination literals are already in the new schema: never decode them.
+    // Reject unsupported selected legacy expressions before even archiving a
+    // malformed destination, so a failed handoff cannot partially change files.
+    const envChanged = !targetConfig && !!legacyConfig && prepareLegacyStdioEnvironment(selected);
+    const lifecycleChanged = prepareLifecycles(selected);
+    if (envChanged || lifecycleChanged) bytes = Buffer.from(`${JSON.stringify(selected, null, 2)}\n`);
     if (target && !targetConfig) preserve(target, `${targetPath}.invalid`);
     if (regenerateManaged) {
       const value = config(bytes)!;
@@ -152,7 +197,7 @@ export function migratePiMcpAdapterConfig(directory: string, regenerateManaged =
         }
       }
       if (!targetConfig && !legacyConfig) {
-        value.settings = { deferWithMissingMetadata: true }; changed = true;
+        value.settings = {}; changed = true;
       }
       if (changed) bytes = Buffer.from(`${JSON.stringify(value, null, 2)}\n`);
     }
@@ -193,7 +238,7 @@ export default function registerMcpAdapterMigration(pi: ExtensionAPI, env = proc
   const directory = env.PI_CODING_AGENT_DIR || join(env.HOME || homedir(), ".pi", "agent");
   if (!migratePiMcpAdapterConfig(directory, false, true)) {
     pi.on?.("session_start", (_event, ctx) => {
-      ctx.ui.notify("MCP adapter config migration skipped: inspect legacy and adapter files; user data was preserved.", "warning");
+      ctx.ui.notify("MCP config handoff skipped: inspect legacy environment expressions and configuration paths; user data was preserved.", "warning");
     });
   }
 }
