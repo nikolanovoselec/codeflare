@@ -257,7 +257,7 @@ export function verifyDeveloperTools({ exec = execFileSync } = {}) {
 
 export async function verifyJsYamlRuntime({
   runtimePath = '/opt/code-server/node_modules/js-yaml',
-  expectedVersion = '5.4.1',
+  expectedVersion = '5.4.3',
 } = {}) {
   const manifest = JSON.parse(await readFile(join(runtimePath, 'package.json'), 'utf8'));
   assert.equal(manifest.version, expectedVersion, `${runtimePath} must contain js-yaml ${expectedVersion}`);
@@ -287,7 +287,7 @@ export async function verifyNodeTarRuntimes({
     '/usr/local/lib/node_modules/npm/node_modules/tar',
     '/opt/code-server/lib/vscode/node_modules/tar',
   ],
-  expectedVersion = '7.5.21',
+  expectedVersion = '7.5.22',
   expectedVersions = runtimePaths.map(path => path === '/opt/code-server/lib/vscode/node_modules/tar' ? '7.5.22' : expectedVersion),
   temporaryRoot = tmpdir(),
 } = {}) {

@@ -157,6 +157,8 @@ describe('REQ-OPS-038: deployment coding-agent selection', () => {
 
   it('REQ-OPS-046 AC2-AC3: packaged-image smoke rejects a broken code-server js-yaml overlay', async () => {
     const fixture = mkdtempSync(join(tmpdir(), 'js-yaml-runtime-smoke-'));
+    // Image version-pin contract: exercise production defaults against pinned package metadata.
+    const pinnedVersion = readFileSync(join(ROOT, 'Dockerfile'), 'utf8').match(/CODE_SERVER_JS_YAML_VERSION="([^"]+)"/)[1];
     try {
       const runtimePath = join(fixture, 'js-yaml');
       const brokenRuntime = join(fixture, 'broken-js-yaml');
@@ -164,7 +166,7 @@ describe('REQ-OPS-038: deployment coding-agent selection', () => {
         mkdirSync(path);
         writeFileSync(
           join(path, 'package.json'),
-          JSON.stringify({ name: 'js-yaml', version: '5.4.1', main: 'index.cjs' }),
+          JSON.stringify({ name: 'js-yaml', version: pinnedVersion, main: 'index.cjs' }),
         );
       }
       writeFileSync(join(runtimePath, 'index.cjs'), 'exports.load = () => ({});\n');
@@ -177,9 +179,14 @@ describe('REQ-OPS-038: deployment coding-agent selection', () => {
       );
       writeFileSync(join(wrongVersionRuntime, 'index.cjs'), 'exports.load = () => ({});\n');
 
+      const staleRuntime = join(fixture, 'stale-js-yaml');
+      mkdirSync(staleRuntime);
+      writeFileSync(join(staleRuntime, 'package.json'), JSON.stringify({ name: 'js-yaml', version: '5.4.1', main: 'index.cjs' }));
+      writeFileSync(join(staleRuntime, 'index.cjs'), 'exports.load = () => ({});\n');
+      await assert.rejects(verifyJsYamlRuntime({ runtimePath: staleRuntime }), /must contain js-yaml 5\.4\.3/);
       assert.equal(await verifyJsYamlRuntime({ runtimePath }), runtimePath);
       await assert.rejects(verifyJsYamlRuntime({ runtimePath: brokenRuntime }), /must load js-yaml load/);
-      await assert.rejects(verifyJsYamlRuntime({ runtimePath: wrongVersionRuntime }), /must contain js-yaml 5\.4\.1/);
+      await assert.rejects(verifyJsYamlRuntime({ runtimePath: wrongVersionRuntime }), /must contain js-yaml 5\.4\.3/);
     } finally {
       rmSync(fixture, { recursive: true, force: true });
     }
@@ -223,7 +230,10 @@ describe('REQ-OPS-038: deployment coding-agent selection', () => {
         "exports.extract = async ({ cwd, file }) => copyFile(file, join(cwd, 'probe.txt'));",
         '',
       ].join('\n');
-      const expectedVersions = ['7.5.21', '7.5.22'];
+      // Both independently pinned locations must pass the actual smoke defaults.
+      const docker = readFileSync(join(ROOT, 'Dockerfile'), 'utf8');
+      const expectedVersions = ['NODE_TAR_VERSION', 'CODE_SERVER_IDE_TAR_VERSION']
+        .map(name => docker.match(new RegExp(`${name}="([^"]+)"`))[1]);
       for (const [index, runtimePath] of runtimePaths.entries()) {
         const packagePath = join(runtimePath, 'package.json');
         mkdirSync(runtimePath, { recursive: true });
@@ -231,17 +241,20 @@ describe('REQ-OPS-038: deployment coding-agent selection', () => {
         writeFileSync(join(runtimePath, 'index.cjs'), moduleSource);
       }
 
-      const verified = await verifyNodeTarRuntimes({ runtimePaths, expectedVersions, temporaryRoot: fixture });
+      const verified = await verifyNodeTarRuntimes({ runtimePaths, temporaryRoot: fixture });
       assert.deepEqual(verified, runtimePaths);
-      writeFileSync(join(runtimePaths[1], 'package.json'), JSON.stringify({ name: 'tar', version: '7.5.21', main: 'index.cjs' }));
-      await assert.rejects(verifyNodeTarRuntimes({ runtimePaths, expectedVersions, temporaryRoot: fixture }),
-        /must contain node-tar 7\.5\.22/);
+      for (const runtimePath of runtimePaths) {
+        writeFileSync(join(runtimePath, 'package.json'), JSON.stringify({ name: 'tar', version: '7.5.21', main: 'index.cjs' }));
+        await assert.rejects(verifyNodeTarRuntimes({ runtimePaths, temporaryRoot: fixture }),
+          /must contain node-tar 7\.5\.22/);
+        writeFileSync(join(runtimePath, 'package.json'), JSON.stringify({ name: 'tar', version: '7.5.22', main: 'index.cjs' }));
+      }
 
       const brokenRuntime = join(fixture, 'broken-tar');
       mkdirSync(brokenRuntime, { recursive: true });
       writeFileSync(
         join(brokenRuntime, 'package.json'),
-        JSON.stringify({ name: 'tar', version: '7.5.21', main: 'index.cjs' }),
+        JSON.stringify({ name: 'tar', version: '7.5.22', main: 'index.cjs' }),
       );
       writeFileSync(join(brokenRuntime, 'index.cjs'), 'exports.create = async () => {};\n');
 
