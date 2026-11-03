@@ -3034,7 +3034,7 @@ const required = [
   'npm:pi-mcp-extension@1.12.1',
   'npm:pi-evaluate@0.1.5',
   'npm:pi-smart-compact@10.7.2',
-  'npm:@narumitw/pi-goal@0.54.11',
+  'npm:@narumitw/pi-goal@0.54.13',
   'npm:@narumitw/pi-plan-mode@0.59.2',
   // The managed terminal adapter initializes the native UI once.
   { source: 'npm:pi-open-tui@0.3.12', extensions: [] },
