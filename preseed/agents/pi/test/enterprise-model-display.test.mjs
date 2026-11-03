@@ -120,7 +120,10 @@ for (const [id, name] of [
       assert.equal(settingsManager.getDefaultModel(), persist ? id : initialId);
       assert.equal(message, persist ? `Default model: codeflare-gateway/${name}` : `Model: ${name}`);
       assert.ok(!message.includes(nativeHandle), 'status must not expose the opaque transport handle');
-      if (pickerRendered !== undefined) assert.ok(pickerRendered.includes(`${name} [codeflare-gateway]`));
+      if (pickerRendered !== undefined) {
+        assert.ok(pickerRendered.includes(`${name} [codeflare-gateway]`));
+        assert.ok(!pickerRendered.includes(`${name} (${name})`), 'gateway presentation must not repeat the label as a secondary name');
+      }
     });
   }
 }

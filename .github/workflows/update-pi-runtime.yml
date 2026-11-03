@@ -16,15 +16,21 @@ jobs:
   prepare:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
+    env:
+      NPM_CONFIG_IGNORE_SCRIPTS: 'true'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
 
+      - name: Resolve the governed CI Node pin
+        id: node-pin
+        run: node scripts/ci/workflow-tool-pins.mjs github-output ci-node-26 >> "$GITHUB_OUTPUT"
+
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: 22
+          node-version: ${{ steps.node-pin.outputs.version }}
 
       - name: Check whether the verified update is still required
         id: source
@@ -33,13 +39,19 @@ jobs:
           import { readFileSync } from 'node:fs';
           const manifest = JSON.parse(readFileSync('preseed/npm-tools/package.json', 'utf8'));
           const version = manifest.dependencies['@earendil-works/pi-coding-agent'];
-          if (!['1.3.0', '1.4.0'].includes(version)) throw new Error(`Unreviewed Pi source version: ${version}`);
-          console.log(`required=${version === '1.3.0'}`);
+          if (!['1.4.0', '1.5.0'].includes(version)) throw new Error(`Unreviewed Pi source version: ${version}`);
+          console.log(`required=${version === '1.4.0'}`);
           NODE
 
-      - name: Generate the verified Pi 1.4.0 update atomically
+      - name: Align the Root Pi-AI dependency
         if: steps.source.outputs.required == 'true'
-        run: node scripts/update-pi-runtime-artifacts.mjs 1.3.0 1.4.0
+        run: |
+          node scripts/update-npm-tool-manifests.mjs package.json @earendil-works/pi-ai 1.4.0 1.5.0
+          node scripts/regenerate-npm-package-lock.mjs .
+
+      - name: Generate the Pi 1.5.0 candidate atomically
+        if: steps.source.outputs.required == 'true'
+        run: node scripts/update-pi-runtime-artifacts.mjs 1.4.0 1.5.0
 
       - name: Verify runtime and prewarm lockstep
         run: node scripts/verify-pi-lockstep.mjs preseed/npm-tools/package.json preseed/agents/pi/package.json
@@ -55,7 +67,7 @@ jobs:
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: steps.source.outputs.required == 'true'
         with:
-          name: pi-runtime-1.4.0-${{ github.run_id }}
+          name: pi-runtime-1.5.0-${{ github.run_id }}
           path: ${{ runner.temp }}/pi-runtime-update.patch
           if-no-files-found: error
           retention-days: 7

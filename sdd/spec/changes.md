@@ -2,6 +2,10 @@
 
 Semantic changes to the specification. Git history captures diffs; this file captures intent.
 
+## 2026-11-03
+
+- Migrate Pi’s managed MCP integration to `pi-mcp-extension` and `mcp.json`, with explicit connection then direct-tool discovery/activation ([REQ-AGENT-069](agents.md#req-agent-069-pi-consult-llm-mcp-lazy-wiring), [REQ-AGENT-217](agents.md#req-agent-217-lossless-pi-mcp-adapter-migration), [REQ-BROWSER-006](browser-run.md#req-browser-006-pi-interactive-browser-via-chrome-devtools-through-the-pi-mcp-adapter), [REQ-BROWSER-009](browser-run.md#req-browser-009-mcp-and-chrome-sdk-timeout-profile)). Preserve recoverable originals and selected-legacy literal preparation without command evaluation. Requests use a fixed six-minute deadline, not progress-reset timing; connected lazy servers have no adapter idle-disconnect timer. Remote browser retention and owner authentication remain separate. Managed activation requires compatible images in both integration deployments and validated seed delivery; publication does not reload running Pi sessions.
+
 ## 2026-11-02
 
 - Govern previously uncovered image/build-tool, CI-tool and security-overlay/floor pins through the existing shadow-pin matrices, retaining atomic version/checksum updates and explicit review of unavailable upstream digests ([REQ-OPS-020](operations.md#req-ops-020-shadow-pin-version-bump-automation)). CI Node/Trivy and rclone archive changes use validated non-workflow pin data so routine automation needs no workflow-write permission ([REQ-OPS-041](operations.md#req-ops-041-least-privilege-workflow-tool-pin-updates)).
