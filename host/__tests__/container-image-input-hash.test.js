@@ -106,6 +106,7 @@ describe('deployment container image input hash', () => {
       'scripts/patch-impeccable-engine.py',
       'scripts/ci/impeccable-engine.py',
       'scripts/patch-rclone-bisync.py',
+      'scripts/prepare-rclone-s3-fixture.py',
       'scripts/ci/rclone-bookkeeping_test.go',
       'scripts/patch-context-mode-bundles.mjs',
       'scripts/patch-chrome-devtools-timeouts.mjs',
@@ -215,7 +216,7 @@ describe('deployment container image input hash', () => {
     commit('deployment workflow change');
     assert.notEqual(imageHashResult().tag, selectedPruningTag);
 
-    for (const path of ['scripts/patch-impeccable-engine.py', 'scripts/ci/impeccable-engine.py']) {
+    for (const path of ['scripts/patch-impeccable-engine.py', 'scripts/ci/impeccable-engine.py', 'scripts/prepare-rclone-s3-fixture.py']) {
       const before = imageHashResult().tag;
       write(path, 'native engine input change\n');
       commit(`change ${path}`);

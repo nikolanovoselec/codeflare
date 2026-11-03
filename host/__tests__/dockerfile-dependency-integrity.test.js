@@ -178,7 +178,7 @@ describe('REQ-OPS-033: build dependencies have committed integrity', () => {
       npmToolsPackage.dependencies['@earendil-works/pi-coding-agent'],
     );
     assert.deepEqual(browserRunLock.packages[''].dependencies, browserRunPackage.dependencies);
-    assert.equal(browserRunPackage.overrides['@hono/node-server'], '2.0.12');
+    assert.equal(browserRunPackage.overrides['@hono/node-server'], '2.1.5');
     assert.deepEqual(wranglerLock.packages[''].dependencies, wranglerPackage.dependencies);
     assertCompleteIntegrityTree(piLock);
     assertCompleteIntegrityTree(browserRunLock);
