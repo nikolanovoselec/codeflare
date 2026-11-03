@@ -255,7 +255,7 @@ const WARMED_NPM_ENTRYPOINTS = [
   { variable: 'codex_fast', package: '@calesennett/pi-codex-fast', entrypoint: 'extensions/codex-fast.ts' },
   { variable: 'plan', package: '@narumitw/pi-plan-mode', entrypoint: 'dist/index.ts' },
   { variable: 'subagents', package: '@gotgenes/pi-subagents', entrypoint: 'src/index.ts' },
-  { variable: 'mcp', package: 'pi-mcp-adapter', entrypoint: 'index.ts' },
+  { variable: 'mcp', package: 'pi-mcp-extension', entrypoint: 'src/index.ts' },
   { variable: 'advisor', package: '@juicesharp/rpiv-advisor', entrypoint: 'index.ts' },
   { variable: 'ask_user', package: '@juicesharp/rpiv-ask-user-question', entrypoint: 'index.ts' },
   { variable: 'todo', package: '@juicesharp/rpiv-todo', entrypoint: 'index.ts' },

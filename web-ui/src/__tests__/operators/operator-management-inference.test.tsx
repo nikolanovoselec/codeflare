@@ -55,7 +55,8 @@ describe('REQ-OPERATOR-096 AC4/5/6/7: effective inference for your next manual r
     expect(region).toHaveTextContent('not the operator creator or another account');
     expect(region).toHaveTextContent('not an automatic fallback');
     expect(gatewayDetails().open).toBe(false);
-    expect(screen.queryByRole('combobox', { name: 'default Managed Gateway route' })).not.toBeInTheDocument();
+    // Native details stay in the document, collapsed and inactive until disclosure.
+    expect(within(gatewayDetails()).getByRole('combobox', { name: 'default Managed Gateway route', hidden: true })).toBeDisabled();
     fireEvent.click(within(gatewayDetails()).getByText(/Gateway settings — inactive/, { selector: 'summary' }));
     expect(screen.getByRole('combobox', { name: 'default Managed Gateway route' })).toHaveValue('saved-route');
     expect(screen.getByRole('combobox', { name: 'default Managed reasoning' })).toHaveValue('low');
@@ -75,7 +76,7 @@ describe('REQ-OPERATOR-096 AC4/5/6/7: effective inference for your next manual r
     expect(status()).not.toHaveTextContent('draft-route'); expect(screen.getByRole('button', { name: 'Save model settings' })).toBeEnabled();
     expect(writes).toEqual([]);
   });
-  it('a late Native status response collapses Gateway without resetting Gateway or Advanced drafts', async () => {
+  it('REQ-OPERATOR-075 AC5: a late Native status response collapses Gateway without resetting Gateway or Advanced drafts', async () => {
     let finish!: (value: ManualInference) => void;
     context = () => new Promise(resolve => { finish = resolve; });
     render(() => <OperatorManagement />);

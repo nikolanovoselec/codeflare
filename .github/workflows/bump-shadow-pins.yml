@@ -82,7 +82,7 @@ jobs:
 
       - name: Resolve the newest release past the cooldown
         id: cooldown
-        uses: ./.github/actions/npm-cooldown-version
+        uses: $/.github/actions/npm-cooldown-version
         with:
           package: context-mode
 
@@ -1182,7 +1182,7 @@ jobs:
 
       - name: Resolve the newest release past the cooldown
         id: cooldown
-        uses: ./.github/actions/npm-cooldown-version
+        uses: $/.github/actions/npm-cooldown-version
         with:
           package: ${{ matrix.package }}
 
@@ -1335,7 +1335,7 @@ jobs:
 
       - name: Resolve the newest release past the cooldown
         id: cooldown
-        uses: ./.github/actions/npm-cooldown-version
+        uses: $/.github/actions/npm-cooldown-version
         with:
           package: ${{ matrix.package }}
 
@@ -1635,7 +1635,7 @@ jobs:
 
       - name: Resolve the newest release past the cooldown
         id: cooldown
-        uses: ./.github/actions/npm-cooldown-version
+        uses: $/.github/actions/npm-cooldown-version
         with:
           package: consult-llm-mcp
 
@@ -1755,7 +1755,7 @@ jobs:
 
       - name: Resolve the newest release past the cooldown
         id: cooldown
-        uses: ./.github/actions/npm-cooldown-version
+        uses: $/.github/actions/npm-cooldown-version
         with:
           package: chrome-devtools-mcp
 
@@ -1875,7 +1875,7 @@ jobs:
 
       - name: Resolve the newest release past the cooldown
         id: cooldown
-        uses: ./.github/actions/npm-cooldown-version
+        uses: $/.github/actions/npm-cooldown-version
         with:
           package: '@modelcontextprotocol/sdk'
 
@@ -2133,7 +2133,7 @@ jobs:
 
       - name: Resolve the newest release past the cooldown
         id: cooldown
-        uses: ./.github/actions/npm-cooldown-version
+        uses: $/.github/actions/npm-cooldown-version
         with:
           package: ${{ matrix.pkg }}
 

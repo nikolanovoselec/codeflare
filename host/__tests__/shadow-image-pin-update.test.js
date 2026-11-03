@@ -61,3 +61,20 @@ test('REQ-OPS-020: CI-only pins update data rather than executable workflows; No
     assert.throws(() => updateShadowImagePins(before, id, current, { version: `${major + 1}.0.0` }), /pinned major/);
   }
 });
+
+for (const [id, canonical, nearMatch] of [
+  ['grpc', 'google.golang.org/grpc', 'googleXgolangYorg/grpc'],
+  ['compress', 'github.com/klauspost/compress', 'githubXcom/klauspost/compress'],
+  ['rust', 'https://static.rust-lang.org/dist/', 'https://staticXrust-langYorg/dist/'],
+]) {
+  test(`REQ-OPS-020: rejects near-match ${id} owner without changing input artifacts`, () => {
+    const original = inputs();
+    const malformed = { ...original, Dockerfile: original.Dockerfile.replaceAll(canonical, nearMatch) };
+    const unchanged = { ...malformed };
+    assert.throws(() => currentImagePin(malformed, id), /missing or ambiguous/);
+    assert.throws(() => updateShadowImagePins(malformed, id, currentImagePin(original, id), {
+      version: '1.999.0', sha256: digest, date: '2026-10-01',
+    }), /missing or ambiguous/);
+    assert.deepEqual(malformed, unchanged, 'foreign owner rejection cannot rewrite any artifact');
+  });
+}

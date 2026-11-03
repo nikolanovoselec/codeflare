@@ -62,6 +62,14 @@ function fixture() {
   const request = (query = '?installationId=installation-1') => app.request(`https://enterprise.example.test/api/operator-management/options${query}`, {}, env);
   return { request, installation, operator, env };
 }
+async function readOptions(response: Response) {
+  const value: unknown = await response.json();
+  if (value === null || typeof value !== 'object' || !('inference' in value)) {
+    throw new Error('Expected the inference options response contract');
+  }
+  return value;
+}
+
 beforeEach(() => {
   state.email = 'invoker@example.test'; state.current = true; state.owned = true; state.regime = 'ready'; state.revokeOnRead = false;
   state.routes.piDefaultSource = 'pi-native'; state.routes.allowPersonalPiProviders = true;
@@ -74,7 +82,7 @@ describe('REQ-OPERATOR-096 AC1/2/3/6: current caller next-manual-run inference o
   it('projects caller R2 selection, not creator or legacy override, through a GET-only settings allowlist', async () => {
     const f = fixture(); const response = await f.request();
     expect(response.status).toBe(200); expect(response.headers.get('cache-control')).toBe('no-store');
-    const value = await response.json();
+    const value = await readOptions(response);
     expect(value.inference).toEqual({ source: 'pi-native', status: 'selected', provider: 'owner-provider', model: 'owner-model', reasoningLevel: 'off' });
     // Intentional security contract: the only permitted storage I/O is the caller's settings GET.
     expect([...new Set(state.reads.map(read => `${read.method} ${new URL(read.url).pathname}`))])
@@ -86,33 +94,33 @@ describe('REQ-OPERATOR-096 AC1/2/3/6: current caller next-manual-run inference o
     { settings: {}, reasoningLevel: null },
   ])('retains saved global or provider-default reasoning without the legacy installation override: $reasoningLevel', async item => {
     state.settings = { defaultProvider: 'owner-provider', defaultModel: 'owner-model', ...item.settings };
-    expect((await (await fixture().request()).json()).inference).toMatchObject({ status: 'selected', reasoningLevel: item.reasoningLevel });
+    expect((await readOptions(await fixture().request())).inference).toMatchObject({ status: 'selected', reasoningLevel: item.reasoningLevel });
   });
   it('returns caller-owned profile metadata without claiming installation eligibility when context is absent', async () => {
-    expect((await (await fixture().request('')).json()).inference).toMatchObject({ status: 'profile', source: 'pi-native', model: 'owner-model' });
+    expect((await readOptions(await fixture().request(''))).inference).toMatchObject({ status: 'profile', source: 'pi-native', model: 'owner-model' });
   });
   it('uses the installation managed pair, not the account default, without reading R2', async () => {
     state.routes.piDefaultSource = 'managed'; const f = fixture();
-    expect((await (await f.request()).json()).inference).toEqual({ source: 'managed', status: 'selected',
+    expect((await readOptions(await f.request())).inference).toEqual({ source: 'managed', status: 'selected',
       provider: 'codeflare-gateway', model: 'installed-route', routeId: 'installed-route', reasoningLevel: 'low' });
     expect(state.reads).toEqual([]);
     f.installation.policy.inference.defaultRouteId = null;
-    expect((await (await f.request()).json()).inference).toEqual({ source: 'managed', status: 'unconfigured' });
+    expect((await readOptions(await f.request())).inference).toEqual({ source: 'managed', status: 'unconfigured' });
   });
   it.each([null, 'off'])('keeps managed provider-default and Off distinct: %s', async reasoningLevel => {
     state.routes.piDefaultSource = 'managed'; const f = fixture();
     f.installation.policy.inference.defaultReasoningLevel = reasoningLevel;
-    expect((await (await f.request()).json()).inference).toMatchObject({ status: 'selected', source: 'managed', reasoningLevel });
+    expect((await readOptions(await f.request())).inference).toMatchObject({ status: 'selected', source: 'managed', reasoningLevel });
   });
   it('does not substitute the account default for an installation route outside its approvals', async () => {
     state.routes.piDefaultSource = 'managed'; const f = fixture();
     f.installation.policy.inference.defaultRouteId = 'account-default';
-    expect((await (await f.request()).json()).inference).toEqual({ source: 'managed', status: 'blocked', reason: 'policy-denied' });
+    expect((await readOptions(await f.request())).inference).toEqual({ source: 'managed', status: 'blocked', reason: 'policy-denied' });
     expect(state.reads).toEqual([]);
   });
   it('does not turn admin management access into invocation authority or read another owner profile', async () => {
     const f = fixture(); f.operator.invokers.users = [];
-    expect((await (await f.request()).json()).inference).toEqual({ source: 'pi-native', status: 'blocked', reason: 'invocation-denied' });
+    expect((await readOptions(await f.request())).inference).toEqual({ source: 'pi-native', status: 'blocked', reason: 'invocation-denied' });
     expect(state.reads).toEqual([]);
     expect((await f.request('?installationId=foreign')).status).toBe(404);
   });
@@ -121,12 +129,12 @@ describe('REQ-OPERATOR-096 AC1/2/3/6: current caller next-manual-run inference o
     if (condition === 'disabled') f.installation.enabled = false;
     if (condition === 'native-not-approved') f.operator.policy.inference.allowedSources = ['managed'];
     if (condition === 'reasoning-not-approved') f.operator.policy.inference.reasoningLevels = ['low'];
-    expect((await (await f.request()).json()).inference).toMatchObject({ source: 'pi-native', status: 'blocked',
+    expect((await readOptions(await f.request())).inference).toMatchObject({ source: 'pi-native', status: 'blocked',
       reason: condition === 'disabled' ? 'installation-disabled' : 'policy-denied' });
   });
   it.each(['missing-settings', 'missing-model'] as const)('reports %s as unconfigured, not a storage or authentication failure', async failure => {
     state.settings = failure === 'missing-settings' ? null : { defaultProvider: 'owner-provider' };
-    expect((await (await fixture().request()).json()).inference).toEqual({ source: 'pi-native', status: 'unconfigured' });
+    expect((await readOptions(await fixture().request())).inference).toEqual({ source: 'pi-native', status: 'unconfigured' });
   });
   it.each(['malformed-settings', 'owner-conflict', 'migration', 'revoked-during-read'] as const)('fails closed for %s without substituting managed or legacy settings', async failure => {
     const f = fixture();
@@ -134,7 +142,7 @@ describe('REQ-OPERATOR-096 AC1/2/3/6: current caller next-manual-run inference o
     if (failure === 'owner-conflict') state.owned = false;
     if (failure === 'migration') state.regime = 'migrating';
     if (failure === 'revoked-during-read') state.revokeOnRead = true;
-    expect((await (await f.request()).json()).inference).toEqual({ source: 'pi-native', status: 'unavailable' });
+    expect((await readOptions(await f.request())).inference).toEqual({ source: 'pi-native', status: 'unavailable' });
   });
   it.each(['?installationId=bad/id', '?installationId=installation-1&installationId=foreign', '?owner=creator'])('rejects invalid context %s', async query => {
     expect((await fixture().request(query)).status).toBe(400);

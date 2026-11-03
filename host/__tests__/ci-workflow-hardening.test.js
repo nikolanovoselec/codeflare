@@ -125,7 +125,7 @@ describe('PR lane selection', () => {
     assert.deepEqual([...assigned].sort(), listFrontendTests());
     assert.equal(new Set(assigned).size, assigned.length);
 
-    const merge = prChecks.jobs['coverage-frontend'].steps.find((candidate) => candidate.uses === './.github/actions/merge-coverage');
+    const merge = prChecks.jobs['coverage-frontend'].steps.find((candidate) => candidate.uses === '$/.github/actions/merge-coverage');
     assert.equal(merge.with['expected-shards'], '4');
   });
 });
@@ -166,7 +166,7 @@ describe('REQ-OPS-045 AC5 + AC6: immutable PR Checks tool cache', () => {
       job: 'host-tests',
       cache: 'Cache rclone archive',
       install: 'Install rclone for sync-filter behavioral tests',
-      key: '${{ runner.os }}-${{ runner.arch }}-rclone-v1.73.5-932cf4b7484de74d82b4875488e0009469fd21f9904673385184520fe11a1bf0',
+      key: '${{ runner.os }}-${{ runner.arch }}-rclone-v${{ steps.rclone-pin.outputs.version }}-${{ steps.rclone-pin.outputs.sha256 }}',
       env: (archive) => ({
         RCLONE_RELEASE_VERSION: 'test',
         RCLONE_SHA256: fixtureSha256,
@@ -265,7 +265,7 @@ RCLONE_FIXTURE
 
     const rclone = step(prChecks.jobs['host-tests'], 'Install rclone for sync-filter behavioral tests');
     assert.equal(rclone.env.RCLONE_VERSION, undefined);
-    assert.equal(rclone.env.RCLONE_RELEASE_VERSION, '1.73.5');
+    assert.equal(rclone.env.RCLONE_RELEASE_VERSION, '${{ steps.rclone-pin.outputs.version }}');
   });
 
   it('REQ-OPS-045 AC5: downloads a missing archive once and reuses the valid archive', () => {
@@ -672,8 +672,8 @@ describe('REQ-OPS-022 AC6: bounded changed-production-line LCOV gate', () => {
       const job = prChecks.jobs[jobName];
       assert.deepEqual(job.needs, ['changes', matrixJob]);
       assert.deepEqual(
-        job.steps.filter((candidate) => candidate.uses === './.github/actions/merge-coverage'),
-        [{ uses: './.github/actions/merge-coverage', with: inputs }],
+        job.steps.filter((candidate) => candidate.uses === '$/.github/actions/merge-coverage'),
+        [{ uses: '$/.github/actions/merge-coverage', with: inputs }],
       );
     }
   });
@@ -682,7 +682,7 @@ describe('REQ-OPS-022 AC6: bounded changed-production-line LCOV gate', () => {
 describe('shared CI components', () => {
   it('installs every fuzz package tree before its corresponding suite', () => {
     const steps = fuzz.jobs.fuzz.steps;
-    const installs = steps.filter((candidate) => candidate.uses === './.github/actions/install-deps');
+    const installs = steps.filter((candidate) => candidate.uses === '$/.github/actions/install-deps');
     assert.deepEqual(installs.map((candidate) => candidate.with), [
       { directory: '.', 'key-prefix': 'fuzz-root' },
       { directory: 'web-ui', 'key-prefix': 'fuzz-web-ui' },

@@ -24,10 +24,10 @@ export function currentImagePin(files, id) {
   const docker = files.Dockerfile;
   switch (id) {
     case 'go': return match(docker, /go(\d+\.\d+\.\d+)\.linux-amd64\.tar\.gz/, id)[1];
-    case 'rust': return match(docker, /dist\/(\d{4}-\d{2}-\d{2})\/rust-(\d+\.\d+\.\d+)-x86_64-unknown-linux-gnu\.tar\.xz/, id)[2];
+    case 'rust': return match(docker, /https:\/\/static\.rust-lang\.org\/dist\/(\d{4}-\d{2}-\d{2})\/rust-(\d+\.\d+\.\d+)-x86_64-unknown-linux-gnu\.tar\.xz/, id)[2];
     case 'rclone': return match(docker, /refs\/tags\/v(\d+\.\d+\.\d+) -o \/tmp\/rclone.tar.gz/, id)[1];
-    case 'grpc': return match(docker, /google.golang.org\/grpc@v(\d+\.\d+\.\d+)/, id)[1];
-    case 'compress': return match(docker, /github.com\/klauspost\/compress@v(\d+\.\d+\.\d+)/, id)[1];
+    case 'grpc': return match(docker, /google\.golang\.org\/grpc@v(\d+\.\d+\.\d+)/, id)[1];
+    case 'compress': return match(docker, /github\.com\/klauspost\/compress@v(\d+\.\d+\.\d+)/, id)[1];
     case 'github-cli': return match(docker, /GH_VERSION="(\d+\.\d+\.\d+)"/, id)[1];
     case 'k6': return match(files[K6], /default: '(\d+\.\d+\.\d+)'/, id)[1];
     case 'trivy': return JSON.parse(files[PINS]).trivy.version;
@@ -57,7 +57,7 @@ export function updateShadowImagePins(files, id, current, candidate) {
       break;
     case 'rust': {
       if (!/^\d{4}-\d{2}-\d{2}$/.test(date ?? '')) throw new Error('Rust publication date is required');
-      const block = match(docker, /RUN curl -fsSL https:\/\/static.rust-lang.org\/dist\/[\s\S]*?(?=\nCOPY image\/impeccable)/, id)[0];
+      const block = match(docker, /RUN curl -fsSL https:\/\/static\.rust-lang\.org\/dist\/[\s\S]*?(?=\nCOPY image\/impeccable)/, id)[0];
       const oldDate = match(block, /dist\/(\d{4}-\d{2}-\d{2})\/rust-/, id)[1];
       const updated = block.replaceAll(`rust-${current}-`, `rust-${version}-`).replace(`dist/${oldDate}/`, `dist/${date}/`);
       docker = docker.replace(block, once(updated, /[a-f0-9]{64}(?=  \/tmp\/rust.tar.xz)/, sha256, `${id} checksum`));
@@ -77,8 +77,8 @@ export function updateShadowImagePins(files, id, current, candidate) {
       next[PINS] = JSON.stringify(pins, null, 2) + '\n';
       break;
     }
-    case 'grpc': docker = once(docker, /google.golang.org\/grpc@v\d+\.\d+\.\d+/, `google.golang.org/grpc@v${version}`, id); break;
-    case 'compress': docker = once(docker, /github.com\/klauspost\/compress@v\d+\.\d+\.\d+/, `github.com/klauspost/compress@v${version}`, id); break;
+    case 'grpc': docker = once(docker, /google\.golang\.org\/grpc@v\d+\.\d+\.\d+/, `google.golang.org/grpc@v${version}`, id); break;
+    case 'compress': docker = once(docker, /github\.com\/klauspost\/compress@v\d+\.\d+\.\d+/, `github.com/klauspost/compress@v${version}`, id); break;
     case 'github-cli':
       docker = once(docker, /GH_VERSION="[^"]+"/, `GH_VERSION="${version}"`, id);
       docker = once(docker, /GH_SHA256="[a-f0-9]{64}"/, `GH_SHA256="${sha256}"`, `${id} checksum`);
@@ -120,7 +120,7 @@ async function resolveCandidate(id, current) {
     const manifest = await request('https://static.rust-lang.org/dist/channel-rust-stable.toml');
     const date = match(manifest, /^date = "([^"]+)"/m, 'Rust date')[1];
     const section = match(manifest, /\[pkg.rust.target.x86_64-unknown-linux-gnu\]\n([\s\S]*?)(?=\n\[)/, 'Rust target')[1];
-    const url = match(section, /xz_url = "(https:\/\/static.rust-lang.org\/dist\/[^\"]+)"/, 'Rust archive')[1];
+    const url = match(section, /xz_url = "(https:\/\/static\.rust-lang\.org\/dist\/[^\"]+)"/, 'Rust archive')[1];
     const version = match(url, /rust-(\d+\.\d+\.\d+)-/, 'Rust version')[1];
     const sha256 = match(section, /xz_hash = "([a-f0-9]{64})"/, 'Rust digest')[1];
     if (!url.includes(`/dist/${date}/rust-${version}-x86_64-unknown-linux-gnu.tar.xz`)) throw new Error('Rust target identity mismatch');

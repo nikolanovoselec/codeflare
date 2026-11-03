@@ -201,7 +201,7 @@ A real-browser capability for advanced-mode agents, backed by Cloudflare Browser
 - Customized server shapes, external routing and credentials remain preserved.
 - Remote inactivity is separate from RPC and REST request deadlines.
 - CI watching retains its separate fifteen-minute maximum under [REQ-AGENT-068](agents.md#req-agent-068-independent-pi-ci-monitoring).
-- The replacement requires the compatible image dependency first. Managed activation follows both deployments and seed compatibility validation; a release refresh alone does not reload a running Pi process. No running session is changed by staging source.
+- Managed activation requires compatible images, both integration deployments and seed validation; source staging neither reloads Pi nor mutates running sessions.
 - Old `mcp-adapter.json` is not a managed retirement; guarded handoff preserves its displaced originals, including when both files exist.
 
 **Priority:** P2
@@ -305,20 +305,18 @@ Task #114 implementation candidate follows [RED CI40255590866](https://github.co
 **Constraints:**
 
 - RPC budgets apply per call, not per workflow.
-- Pi's replacement extension uses a fixed six-minute per-call deadline; progress does not reset it. This is an intentional migration change, not progress-reset parity. <!-- @test: preseed/agents/pi/test/consult-proxy.test.mjs (REQ-BROWSER-009: request deadline is fixed and cancellation reaches the real server) --> <!-- @test: preseed/agents/pi/test/consult-proxy.test.mjs (REQ-BROWSER-009: configured six-minute call budget permits a response beyond thirty seconds) -->
-- Claude tool-call overrides remain browser-scoped; native client startup and teardown safeguards and unrelated MCP servers are unchanged.
-- Fresh managed Pi load creates timeout settings without fabricating servers or credentials.
-- Filename migration and managed regeneration remain owned by [REQ-AGENT-217](agents.md#req-agent-217-lossless-pi-mcp-adapter-migration).
-- Timeout preparation follows filename selection/migration.
-- Customized server shapes remain customized.
-- External endpoint routing and credentials are not rewritten.
-- Chrome CPU/network emulation may multiply base page waits without changing the configured six-minute MCP request budget.
-- Short SDK stabilization and teardown timers remain unchanged.
-- The replacement has no adapter idle-shutdown timer. Lazy connected servers remain until stop, shutdown or failure; remote `keep_alive=360000` remains independent. No health-ping retention workaround is added.
-- Browser guidance retains an explicit 120000 ms navigation timeout supported by the discovered server schema; navigation, MCP request, remote inactivity and owner authentication are distinct layers.
-- Transport reconnection does not authorize replay of an uncertain mutating tool call or establish owner authentication.
-- Equal client/server budgets do not guarantee structured timeout reporting before transport expiry.
-- The image-owned SDK transformation retains the exact upstream pin and guards original/prepared bytes.
+- Pi's six-minute deadline never resets on progress. <!-- @test: preseed/agents/pi/test/consult-proxy.test.mjs (REQ-BROWSER-009: request deadline is fixed and cancellation reaches the real server) --> <!-- @test: preseed/agents/pi/test/consult-proxy.test.mjs (REQ-BROWSER-009: configured six-minute call budget permits a response beyond thirty seconds) -->
+- Claude overrides remain browser-scoped, preserving unrelated servers and native startup/teardown safeguards.
+- Fresh Pi load creates timeout settings, never servers or credentials.
+- [REQ-AGENT-217](agents.md#req-agent-217-lossless-pi-mcp-adapter-migration) owns filename migration/regeneration before timeout preparation.
+- Customized shapes, external routing and credentials remain unchanged.
+- Chrome emulation may multiply page waits, not the MCP budget.
+- Short stabilization/teardown timers remain unchanged.
+- Lazy connections have no adapter idle timer or health-ping workaround; remote `keep_alive=360000` is independent.
+- Schema-supported 120000ms navigation guidance separates navigation, RPC, remote inactivity and owner authentication.
+- Reconnection permits neither uncertain-mutation replay nor inferred owner authentication.
+- Equal budgets cannot guarantee structured timeout reporting before transport expiry.
+- Image transformation retains exact upstream version and original/prepared hash guards.
 
 **Priority:** P2
 

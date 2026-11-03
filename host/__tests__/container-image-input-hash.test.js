@@ -84,6 +84,8 @@ describe('deployment container image input hash', () => {
     ].join('\n'));
     for (const path of [
       '.github/workflows/container-image.yml',
+      '.github/workflow-tool-pins.json',
+      'scripts/ci/workflow-tool-pins.mjs',
       '.dockerignore',
       '.trivyignore',
       'entrypoint.sh',
@@ -130,6 +132,7 @@ describe('deployment container image input hash', () => {
         readFileSync(join(ROOT, 'scripts/ci', file), 'utf8'),
       );
     }
+    write('.github/workflow-tool-pins.json', JSON.stringify({ trivy: { version: '0.70.0' } }));
     commit('fixture');
     const baseline = imageHashResult();
     assert.match(baseline.tag ?? '', /^in-[a-f0-9]{16}$/);
@@ -232,6 +235,17 @@ describe('deployment container image input hash', () => {
       assert.notEqual(imageHashResult().tag, before,
         'changing either questionnaire policy input must invalidate image reuse');
     }
+
+    // Scanner selection and its interpretation are part of the retained qualification identity.
+    const beforeScanner = imageHashResult().tag;
+    write('.github/workflow-tool-pins.json', JSON.stringify({ trivy: { version: '0.70.1' } }));
+    commit('scanner pin change');
+    const scannerTag = imageHashResult().tag;
+    assert.notEqual(scannerTag, beforeScanner, 'a new scanner cannot reuse qualification from the previous scanner');
+    assert.equal(imageHashResult().noReuse, '0', 'known scanner changes use the normal qualified image path');
+    write('scripts/ci/workflow-tool-pins.mjs', 'export const scannerPinContract = 2;\n');
+    commit('scanner interpretation change');
+    assert.notEqual(imageHashResult().tag, scannerTag, 'scanner interpretation changes invalidate retained qualification');
 
     write('Dockerfile', `${readFileSync(join(root, 'Dockerfile'), 'utf8')}COPY host/__tests__/ /tmp/tests/\n`);
     commit('uncovered copy source');

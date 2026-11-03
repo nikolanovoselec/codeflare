@@ -3310,7 +3310,7 @@ None.
 
 - The Claude server carries no Pi-only `lifecycle` field.
 - Transport recovery must not replay an uncertain mutating call; cancellation reaches the server and session shutdown releases its child processes. <!-- @test: preseed/agents/pi/test/consult-proxy.test.mjs (REQ-AGENT-069: transport recovery never replays an uncertain mutation and shutdown releases child processes) -->
-- Pi's native consult skill must require an explicit user request, connect `consult-llm` through `mcp_connect`, then discover and activate the exact registered direct tool. There is no old `mcp` proxy.
+- Consult requires an explicit user request, `mcp_connect`, discovery and exact direct-tool activation.
 
 **Priority:** P1
 
@@ -3341,12 +3341,12 @@ None.
 **Constraints:**
 
 - No bucket deletion or sync redesign.
-- Pi load/reload preserves working entries except for known `lazy-keep-alive` / `lazy-keepalive` to `lazy` conversion and explicit timeout preparation under [REQ-BROWSER-009](browser-run.md#req-browser-009-mcp-and-chrome-sdk-timeout-profile).
+- Working entries survive load/reload except `lazy-keep-alive`/`lazy-keepalive` → `lazy` conversion and [timeout preparation](browser-run.md#req-browser-009-mcp-and-chrome-sdk-timeout-profile).
 - Transformed custom originals remain recoverable before replacement.
-- Only selected legacy stdio `env` values are decoded: `!!` loses exactly one leading `!`. A valid new destination's literal environment values are never decoded. Both startup regeneration and managed-load preparation apply this selection rule. <!-- @test: preseed/agents/pi/test/consult-proxy.test.mjs (REQ-AGENT-217: actual stdio server receives the selected schema's literal env (legacy=true, regenerate=false)) --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (REQ-AGENT-217: entrypoint preparation decodes selected custom consult env before preserved-entry merge) -->
-- Single-leading-`!` commands and old interpolation forms (`${NAME}`, `$env:NAME`, `{env:NAME}`, where `NAME` matches `\w+`) in selected legacy stdio environments fail closed before archive or active-file writes. No expression is evaluated; original files survive and diagnostics expose no expression contents. Unsupported expressions in an unselected legacy file do not block a valid destination. <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (REQ-AGENT-217: rejected legacy env produces a content-free managed-load diagnostic) -->
+- Startup and managed load decode selected legacy stdio `!!` by one `!`, never a valid destination's literal environment. <!-- @test: preseed/agents/pi/test/consult-proxy.test.mjs (REQ-AGENT-217: actual stdio server receives the selected schema's literal env (legacy=true, regenerate=false)) --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (REQ-AGENT-217: entrypoint preparation decodes selected custom consult env before preserved-entry merge) -->
+- Selected legacy commands/interpolation fail closed without evaluation before writes, preserving originals and content-free diagnostics; unselected expressions cannot block a valid destination. <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (REQ-AGENT-217: rejected legacy env produces a content-free managed-load diagnostic) -->
 
-- Timeout preparation preserves credentials and unrelated fields; only the known old keep-alive lifecycle aliases normalize to `lazy`. The replacement has no idle-disconnect timer; remote Browser Run retention is independent.
+- Timeout preparation preserves credentials and unrelated fields; lazy connections have no adapter idle timer and remote retention remains independent.
 - Managed constructors and Claude behavior remain governed by [REQ-AGENT-069](#req-agent-069-pi-consult-llm-mcp-lazy-wiring).
 
 **Priority:** P1
