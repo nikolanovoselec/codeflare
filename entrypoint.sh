@@ -3028,14 +3028,14 @@ const required = [
   // Pi tool extensions, always enabled (in `required`) so they are available
   // independently of the context-mode toggle — toggling /ctx never disables them.
   'npm:@juicesharp/rpiv-advisor@2.15.0',
-  'npm:@juicesharp/rpiv-ask-user-question@2.12.0',
+  'npm:@juicesharp/rpiv-ask-user-question@2.15.0',
   'npm:@juicesharp/rpiv-todo@2.15.0',
   'npm:pi-web-access@0.45.0',
   'npm:pi-mcp-extension@1.12.1',
   'npm:pi-evaluate@0.1.5',
   'npm:pi-smart-compact@10.7.2',
   'npm:@narumitw/pi-goal@0.54.13',
-  'npm:@narumitw/pi-plan-mode@0.59.2',
+  'npm:@narumitw/pi-plan-mode@0.59.4',
   // The managed terminal adapter initializes the native UI once.
   { source: 'npm:pi-open-tui@0.3.12', extensions: [] },
 ];
