@@ -29,8 +29,8 @@ RUN curl -fsSL https://go.dev/dl/go1.27.3.linux-amd64.tar.gz -o /tmp/go.tar.gz \
     && tar -C /usr/local -xzf /tmp/go.tar.gz && rm /tmp/go.tar.gz
 ENV PATH="/usr/local/go/bin:${PATH}" CGO_ENABLED=0 GOTOOLCHAIN=local
 WORKDIR /src/rclone
-RUN curl -fsSL https://codeload.github.com/rclone/rclone/tar.gz/refs/tags/v1.73.5 -o /tmp/rclone.tar.gz \
-    && echo "e52541bc238dd434a0335f467697d7d9575529698a74aab534ad39b8649f8a49  /tmp/rclone.tar.gz" | sha256sum -c - \
+RUN curl -fsSL https://codeload.github.com/rclone/rclone/tar.gz/refs/tags/v1.75.2 -o /tmp/rclone.tar.gz \
+    && echo "NEEDS_UPDATE_SEE_PR_BODY  /tmp/rclone.tar.gz" | sha256sum -c - \
     && tar --strip-components=1 -xzf /tmp/rclone.tar.gz && rm /tmp/rclone.tar.gz \
     && go mod edit -require=google.golang.org/grpc@v1.83.2 -require=github.com/klauspost/compress@v1.20.3 \
     && go mod tidy
@@ -43,11 +43,11 @@ RUN mkdir -p /out \
     && python3 -c 'from pathlib import Path; p=Path("cmd/serve/s3/pager.go"); s=p.read_text(); old="list.Contents[i].LastModified.Before(list.Contents[j].LastModified.Time)"; assert s.count(old)==1, "Unreviewed S3 fixture pager"; p.write_text(s.replace(old, "list.Contents[i].Key < list.Contents[j].Key"))' \
     && go build -trimpath -o /out/rclone-unpatched . \
     && cp /tmp/rclone-pager.go cmd/serve/s3/pager.go \
-    && python3 /tmp/patch-rclone-bisync.py /src/rclone 1.73.5 \
+    && python3 /tmp/patch-rclone-bisync.py /src/rclone 1.75.2 \
     && cp /tmp/rclone-bookkeeping_test.go cmd/bisync/codeflare_bookkeeping_test.go \
     && gofmt -w cmd/bisync/codeflare_bookkeeping_test.go \
     && go test ./cmd/bisync -run '^TestCodeflare' -count=1 \
-    && go build -trimpath -ldflags '-s -w -X github.com/rclone/rclone/fs.Version=v1.73.5-codeflare-bisync1' -o /out/rclone .
+    && go build -trimpath -ldflags '-s -w -X github.com/rclone/rclone/fs.Version=v1.75.2-codeflare-bisync1' -o /out/rclone .
 
 # ---- Image-owned Impeccable engine with configured question idle grace ----
 FROM mirror.gcr.io/library/node:26-bookworm-slim@sha256:bc0a2afd3b74ce12222fc8bab99271e66257f021078f5f4a5d687a77d280c1d9 AS impeccable-builder
