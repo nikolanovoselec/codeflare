@@ -25,7 +25,7 @@ export function countsTowardSessionLimit(status: string | undefined): boolean {
  *
  * REQ-SESSION-014 AC2: the "free" tier is locked to 15m regardless of any
  * stored preference; all other tiers honor the stored sleepAfter (or default
- * to 30m when no preference was ever set).
+ * to 1h when no preference was ever set).
  *
  * Exported so the spec-anchored unit test in
  * src/__tests__/routes/session-sleep-timeout.test.ts can call it directly
@@ -36,12 +36,12 @@ export function resolveEffectiveSleepAfter(
   storedSleepAfter: string | undefined,
   env?: Pick<Env, 'ENTERPRISE_MODE'>,
 ): string {
-  // Enterprise deploys: honor the stored preference (or 30m default), never the
+  // Enterprise deploys: honor the stored preference (or 1h default), never the
   // free-tier 15m lock. No-op when the flag is unset, leaving the path below
   // unchanged.
-  if (isEnterpriseMode(env)) return storedSleepAfter || '30m';
+  if (isEnterpriseMode(env)) return storedSleepAfter || '1h';
   if (effectiveTier === 'free') return '15m';
-  return storedSleepAfter || '30m';
+  return storedSleepAfter || '1h';
 }
 
 /**

@@ -872,14 +872,14 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       expect(instance.sleepAfter).toBe('24h');
     });
 
-    it('initializes with idleTimeoutPref 4h (fail-safe default per REQ-OPS-006 AC8)', () => {
-      // The class-field default is the MAXIMUM supported value (4h), not the
+    it('initializes with idleTimeoutPref 12h (fail-safe default per REQ-OPS-006 AC8)', () => {
+      // The class-field default is the MAXIMUM supported value (12h), not the
       // minimum. A short fallback would kill the container before storage
       // reads / user-pref writes complete; a long fallback only lets the
       // container live longer than expected. See REQ-OPS-006 AC8 + AD/issue
       // codeflare#294 context.
       const instance = new ContainerClass(mockCtx as any, mockEnv);
-      expect(instance.idleTimeoutPref).toBe('4h');
+      expect(instance.idleTimeoutPref).toBe('12h');
     });
 
     it('calls blockConcurrencyWhile in constructor', () => {

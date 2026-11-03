@@ -162,7 +162,9 @@ export class Session {
     this._log = options.log ?? (() => {});
     this._logWsEvent = options.logWsEvent ?? (() => {});
     this._activityTracker = options.activityTracker ?? null;
-    this._ptyKeepaliveMs = options.ptyKeepaliveMs ?? 14400000;
+    // The PTY safety net must never preempt a supported 12h container idle policy.
+    this._ptyKeepaliveMs = Number.isFinite(options.ptyKeepaliveMs)
+      ? Math.max(43_200_000, options.ptyKeepaliveMs!) : 43_200_000;
     this._stopTerminalRuntime = options.stopTerminalRuntime ?? null;
   }
 

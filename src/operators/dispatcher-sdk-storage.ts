@@ -22,6 +22,10 @@ export interface SdkStorageScope {
 export class DispatcherSdkStorageError extends Error {
   constructor(public readonly status: number, message = 'Private SDK storage unavailable', options?: ErrorOptions) { super(message, options); }
 }
+/** A missing saved selection is distinct from a denied or unavailable storage read. */
+export class DispatcherSdkSettingsUnconfiguredError extends DispatcherSdkStorageError {
+  constructor() { super(403, 'Saved Dispatcher selection is not configured'); }
+}
 export type DispatcherSdkCredentialResult = { ok: true; value: unknown | null }
   | { ok: false; status: 403 | 409 | 413; message: string; stack?: string; cause?: unknown };
 type JsonObject = Record<string, unknown>;
@@ -32,14 +36,19 @@ function deny(status = 403): never { throw new DispatcherSdkStorageError(status)
 function object(value: unknown): value is JsonObject {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
-function scopeValid(scope: SdkStorageScope): void {
+type SavedSettingsScope = Pick<SdkStorageScope, 'bucket' | 'email' | 'deadline'>;
+function settingsScopeValid(scope: SavedSettingsScope): void {
   if (!scope || !/^[a-z0-9][a-z0-9.-]{1,62}$/.test(scope.bucket)
     || typeof scope.email !== 'string' || !scope.email || scope.email !== scope.email.trim().toLowerCase()
-    || typeof scope.activityId !== 'string' || !scope.activityId || scope.activityId.length > 256
+    || !Number.isSafeInteger(scope.deadline)) deny();
+}
+function scopeValid(scope: SdkStorageScope): void {
+  settingsScopeValid(scope);
+  if (typeof scope.activityId !== 'string' || !scope.activityId || scope.activityId.length > 256
     || scope.model !== undefined && (typeof scope.model !== 'string' || !scope.model || scope.model.length > 512 || /[\x00-\x20\x7f]/.test(scope.model))
     || !Number.isSafeInteger(scope.generation) || scope.generation < 0 || !Number.isSafeInteger(scope.deadline)) deny();
 }
-function active(scope: SdkStorageScope): void { if (Date.now() >= scope.deadline) deny(); }
+function active(scope: SavedSettingsScope): void { if (Date.now() >= scope.deadline) deny(); }
 async function bounded(response: Response, signal: AbortSignal): Promise<Uint8Array> {
   if (Number(response.headers.get('content-length')) > LIMIT) {
     void response.body?.cancel().catch(() => undefined); deny(413);
@@ -81,7 +90,7 @@ async function privateOperation<T>(operation: () => Promise<T>): Promise<T> {
   }
 }
 /** Snapshot the actual bucket regime and key; no setup discovery or repair. */
-async function transport(env: Env, scope: SdkStorageScope, authorize: () => Promise<void>, until: number,
+async function transport(env: Env, scope: SavedSettingsScope, authorize: () => Promise<void>, until: number,
   externalSignal?: AbortSignal) {
   const signal = AbortSignal.any([...(externalSignal ? [externalSignal] : []),
     AbortSignal.timeout(Math.max(1, Math.min(30_000, until - Date.now())))]);
@@ -167,11 +176,11 @@ function savedDefaults(bytes: Uint8Array | null): { defaultProvider: string; def
 }
 
 /** Read saved identifiers and selected reasoning only, never Pi resources or executable configuration. */
-export async function readDispatcherSdkFiles(input: SdkStorageScope & {
+export async function readDispatcherSdkFiles(input: SavedSettingsScope & {
   env: Env; signal?: AbortSignal; current: () => Promise<boolean>;
 }): Promise<{ settings: { defaultProvider: string; defaultModel: string }; reasoningOverride?: string }> {
   return privateOperation(async () => {
-    scopeValid(input);
+    settingsScopeValid(input);
     const authorize = async () => {
       active(input);
       if (!await input.current()) deny();
@@ -183,8 +192,9 @@ export async function readDispatcherSdkFiles(input: SdkStorageScope & {
     };
     const io = await transport(input.env, input, authorize, input.deadline, input.signal);
     const bytes = (await io.read(SETTINGS)).bytes;
-    const settings = savedDefaults(bytes);
     const saved = bytes ? json(bytes) : {};
+    if (saved.defaultProvider === undefined || saved.defaultModel === undefined) throw new DispatcherSdkSettingsUnconfiguredError();
+    const settings = savedDefaults(bytes);
     if (saved.modelThinkingLevels !== undefined && !object(saved.modelThinkingLevels)) deny();
     const reasoning = (object(saved.modelThinkingLevels)
       ? saved.modelThinkingLevels[`${settings.defaultProvider}/${settings.defaultModel}`] : undefined)

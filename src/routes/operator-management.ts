@@ -3,11 +3,13 @@ import { bodyLimit } from 'hono/body-limit';
 import { z } from 'zod';
 import type { Env } from '../types';
 import { authMiddleware, type AuthVariables } from '../middleware/auth';
-import { authenticateRequest, requireOperatorHumanContext, canManageOperator, hasOperatorManagementEligibility, parseAccessGroups, loadEnterpriseRouteConfig } from '../lib/access';
+import { authenticateRequest, requireOperatorHumanContext, canManageOperator, hasOperatorManagementEligibility, parseAccessGroups, loadEnterpriseRouteConfig, canInvokeOperator } from '../lib/access';
 import { getAllUsers } from '../lib/access-policy';
 import { SETUP_KEYS } from '../lib/kv-keys';
 import { operatorCapabilityChoices } from '../operators/distribution';
 import { inferencePolicySchema } from '../operators/policy';
+import { OperatorInferenceSelectionError, resolveOperatorInference } from '../operators/inference-selection';
+import { DispatcherSdkSettingsUnconfiguredError, readDispatcherSdkFiles } from '../operators/dispatcher-sdk-storage';
 import { provisionDispatcherDeployment, verifyDispatcherDeployment, type DispatcherDeploymentVerification } from '../operators/dispatcher-deployment';
 import { MAX_SOURCE_RESPONSE_BYTES, sourceResponseBytes } from '../operators/dispatcher-source-limits';
 import { MAX_INFERENCE_REQUEST_BYTES } from '../operators/dispatcher-inference-limits';
@@ -87,6 +89,10 @@ type Variables = AuthVariables & { operatorHuman: HumanContext; registry: Durabl
 type RouteEnv = { Bindings: Env; Variables: Variables };
 const app = new Hono<RouteEnv>();
 
+app.use('*', async (c, next) => {
+  if (new URL(c.req.url).pathname.endsWith('/options')) c.header('Cache-Control', 'no-store');
+  return next();
+});
 app.use('*', async (c, next) => isEnterpriseMode(c.env) ? next() : c.notFound());
 app.use('*', authMiddleware);
 app.use('*', async (c, next) => {
@@ -188,7 +194,92 @@ function query(c: Context<RouteEnv>) {
   return { limit, cursor, profile, realm, state, search: search?.trim().toLowerCase() };
 }
 
+type ManualInference = {
+  source: 'pi-native' | 'managed'; status: 'profile' | 'selected' | 'blocked' | 'unconfigured' | 'unavailable';
+  reason?: 'invocation-denied' | 'installation-unavailable' | 'installation-disabled' | 'policy-denied';
+  provider?: string; model?: string; routeId?: string; reasoningLevel?: string | null;
+};
+/** Selection preview only: no admission, credential read, SDK auth or inference. */
+async function manualInference(c: Context<RouteEnv>, routes: Awaited<ReturnType<typeof loadEnterpriseRouteConfig>>,
+  installationId?: string): Promise<ManualInference> {
+  const initial = c.get('operatorHuman');
+  // Same source decision as normal Dispatcher SDK configuration, not account defaults.
+  const source = routes.piDefaultSource === 'pi-native' && routes.allowPersonalPiProviders === true ? 'pi-native' : 'managed';
+  const registry = c.get('registry');
+  const installation = installationId ? result(await registry.getManagementInstallation(installationId)) : undefined;
+  const operator = installation ? await managed(c, installation.operatorId) : undefined;
+  if (operator && !canInvokeOperator(initial.human, operator)) return { source, status: 'blocked', reason: 'invocation-denied' };
+  const configured = installation ? await registry.resolveManagementConfiguration(installation.id) : undefined;
+  if (configured && (!configured.ok || configured.value.operator.profile !== 'dispatcher')) {
+    return { source, status: 'blocked', reason: 'installation-unavailable' };
+  }
+  const selection = configured?.ok ? configured.value : undefined;
+  const routeSnapshot = JSON.stringify(routes);
+  const current = async () => {
+    const fresh = await managementContext(c, true);
+    if (fresh.human.subject !== initial.human.subject || fresh.human.email !== initial.human.email
+      || fresh.human.issuer !== initial.human.issuer || fresh.controls.revision !== initial.controls.revision
+      || fresh.human.expiresAt * 1000 <= Date.now() || c.req.raw.signal.aborted) return false;
+    const configuredGroups = parseAccessGroups(await c.env.KV.get(SETUP_KEYS.ENTERPRISE_ACCESS_GROUP));
+    const latestRoutes = await loadEnterpriseRouteConfig(c.env, configuredGroups.filter(group => fresh.human.groups?.includes(group)));
+    if (JSON.stringify(latestRoutes) !== routeSnapshot) return false;
+    if (selection) {
+      const latest = await registry.resolveManagementConfiguration(selection.installation.id);
+      if (!latest.ok || !scopedManager(fresh, latest.value.operator) || !canInvokeOperator(fresh.human, latest.value.operator)
+        || latest.value.installation.revision !== selection.installation.revision
+        || latest.value.operator.revision !== selection.operator.revision
+        || latest.value.controlsRevision !== selection.controlsRevision
+        || latest.value.release.id !== selection.release.id || latest.value.release.bundleDigest !== selection.release.bundleDigest) return false;
+    }
+    return true;
+  };
+  let value: ManualInference = { source, status: selection ? 'selected' : 'profile' };
+  try {
+    if (source === 'pi-native') {
+      const files = await readDispatcherSdkFiles({ env: c.env, bucket: c.get('bucketName'),
+        email: initial.human.email.trim().toLowerCase(), deadline: Math.min(initial.human.expiresAt * 1000, Date.now() + 15_000),
+        signal: c.req.raw.signal, current });
+      value = { ...value, provider: files.settings.defaultProvider, model: files.settings.defaultModel,
+        reasoningLevel: files.reasoningOverride ?? null };
+    } else if (selection) {
+      const inference = selection.installation.policy.inference;
+      if (!inference?.defaultRouteId) return { source, status: 'unconfigured' };
+      const selected = resolveOperatorInference({ policy: { inference }, trusted: {
+        routeId: inference.defaultRouteId, reasoningLevel: inference.defaultReasoningLevel },
+        eligible: { routeIds: routes.routeCatalog, defaultRouteId: '', defaultReasoningLevel: '' } });
+      const supported = routes.routeReasoningLevels[selected.routeId];
+      if (selected.reasoningLevel !== null && supported && !supported.includes(selected.reasoningLevel as typeof supported[number])) {
+        return { source, status: 'blocked', reason: 'policy-denied' };
+      }
+      value = { ...value, provider: 'codeflare-gateway', model: selected.routeId, ...selected };
+    }
+    if (selection) {
+      for (const policy of [selection.operator.policy, selection.installation.policy]) {
+        const inference = policy.inference;
+        if (!policy.capabilities.includes('inference') || source === 'pi-native' && (!inference?.allowedSources?.includes('pi-native')
+          || value.reasoningLevel != null && !inference.reasoningLevels.includes(value.reasoningLevel as typeof inference.reasoningLevels[number]))) {
+          return { ...value, status: 'blocked', reason: 'policy-denied' };
+        }
+        if (source === 'managed' && inference) resolveOperatorInference({ policy: { inference }, trusted: {
+          routeId: value.routeId, reasoningLevel: value.reasoningLevel },
+          eligible: { routeIds: routes.routeCatalog, defaultRouteId: '', defaultReasoningLevel: '' } });
+      }
+      if (!selection.installation.enabled) value = { ...value, status: 'blocked', reason: 'installation-disabled' };
+    }
+    if (!await current()) return { source, status: 'unavailable' };
+    return value;
+  } catch (error) {
+    if (error instanceof DispatcherSdkSettingsUnconfiguredError) return { source, status: 'unconfigured' };
+    return error instanceof OperatorInferenceSelectionError
+      ? { source, status: 'blocked', reason: 'policy-denied' } : { source, status: 'unavailable' };
+  }
+}
+
 app.get('/options', async c => {
+  c.header('Cache-Control', 'no-store');
+  const params = new URL(c.req.url).searchParams;
+  if ([...params.keys()].some(key => key !== 'installationId') || params.getAll('installationId').length > 1
+    || params.has('installationId') && !ID.test(params.get('installationId')!)) throw new ValidationError('Invalid operator options context');
   const context = c.get('operatorHuman');
   const [users, userGroups, adminGroups] = await Promise.all([
     context.platformAdmin ? getAllUsers(c.env.KV).then(entries => entries.map(entry => entry.email)) : Promise.resolve([context.human.email]),
@@ -209,7 +300,8 @@ app.get('/options', async c => {
     || route.id.trim() !== route.id || route.label.length > 256 || route.reasoningLevels.length > 7)) {
     throw new AppError('UNAVAILABLE', 503, 'Operator choices unavailable');
   }
-  const value = { managedRoutes, users: [...new Set(users.map(user => user.toLowerCase()))].sort(),
+  const inference = await manualInference(c, routes, params.get('installationId') ?? undefined);
+  const value = { managedRoutes, inference, users: [...new Set(users.map(user => user.toLowerCase()))].sort(),
     groups: configuredGroups.filter(id => verifiedGroups.has(id)).map(id => ({ issuer: context.human.issuer, id })),
     unresolvedGroups: context.platformAdmin ? configuredGroups.filter(group => !verifiedGroups.has(group)) : [],
     capabilities: operatorCapabilityChoices, resourceProfileIds: context.controls.ceiling.resourceProfileIds,

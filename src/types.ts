@@ -323,8 +323,9 @@ export interface TabConfig {
 /**
  * User preferences persisted across sessions
  */
-export type SleepAfterOption = '15m' | '30m' | '1h' | '2h' | '4h';
-export const SleepAfterOptions: SleepAfterOption[] = ['15m', '30m', '1h', '2h', '4h'];
+/** Legacy minute values remain readable; new selections use SleepAfterOptions. */
+export type SleepAfterOption = '15m' | '30m' | '1h' | '2h' | '4h' | '8h' | '12h';
+export const SleepAfterOptions: SleepAfterOption[] = ['1h', '2h', '4h', '8h', '12h'];
 
 export interface UserPreferences {
   lastAgentType?: AgentType;

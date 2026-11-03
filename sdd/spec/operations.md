@@ -497,9 +497,9 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Acceptance Criteria:**
 
-1. The idle-timeout preference is persisted durably so it survives container-orchestration resets. <!-- @impl: src/container/container-router.ts::dispatchInternalRoute --> <!-- @test: src/__tests__/container/lifecycle.test.ts (persists to DO storage on initial setBucketName) --> <!-- @test: src/__tests__/container/lifecycle.test.ts (loads from DO storage on construction (storage key: sleepAfter)) -->
+1. The idle-timeout preference is persisted durably so it survives container-orchestration resets. <!-- @impl: src/container/container-router.ts::dispatchInternalRoute --> <!-- @test: src/__tests__/container/lifecycle.test.ts (persists to DO storage on initial setBucketName) --> <!-- @test: src/__tests__/container/lifecycle.test.ts (loads %s from DO storage on construction (storage key: sleepAfter)) -->
 2. The preference is persisted on both initial bucket configuration and any subsequent updates. <!-- @impl: src/container/container-router.ts::dispatchInternalRoute --> <!-- @test: src/__tests__/container/lifecycle.test.ts (persists to DO storage on initial setBucketName) --> <!-- @test: src/__tests__/container/lifecycle.test.ts (persists to DO storage on restart (409 path)) -->
-3. On startup, the stored preference is loaded and validated. <!-- @impl: src/container/index.ts::container --> <!-- @test: src/__tests__/container/lifecycle.test.ts (loads from DO storage on construction (storage key: sleepAfter)) --> <!-- @test: src/__tests__/container/lifecycle.test.ts (rejects invalid values from storage and falls back to fail-safe 4h default) -->
+3. On startup, the stored preference is loaded and validated. <!-- @impl: src/container/index.ts::container --> <!-- @test: src/__tests__/container/lifecycle.test.ts (loads %s from DO storage on construction (storage key: sleepAfter)) --> <!-- @test: src/__tests__/container/lifecycle.test.ts (rejects invalid values from storage and falls back to fail-safe 12h default) -->
 4. On session destruction, the persisted preference is removed. <!-- @impl: src/container/index.ts::destroy --> <!-- @test: src/__tests__/container/lifecycle.test.ts (REQ-SESSION-032 AC1/AC4-AC5: destroy preserves credentials, drains before sync, and clears storage) -->
 
 **Constraints:**
@@ -524,10 +524,10 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Acceptance Criteria:**
 
-1. An unresolved idle-timeout preference falls back to the maximum supported four hours, preserving user work. <!-- @impl: src/container/container-metrics.ts::parseSleepAfterMs --> <!-- @impl: src/container/container-metrics.ts::SLEEP_AFTER_FALLBACK_MS = 14_400_000 --> <!-- @test: src/__tests__/lib/sleep-timer-defaults.test.ts (parseSleepAfterMs - fail-safe direction) -->
+1. An unresolved idle-timeout preference falls back to the maximum supported twelve hours, preserving user work. <!-- @impl: src/container/container-metrics.ts::parseSleepAfterMs --> <!-- @impl: src/container/container-metrics.ts::SLEEP_AFTER_FALLBACK_MS = 14_400_000 --> <!-- @test: src/__tests__/lib/sleep-timer-defaults.test.ts (parseSleepAfterMs - fail-safe direction) -->
 2. Every idle-check tick resolves the persisted preference afresh; a valid change takes effect within that cycle regardless of which code path wrote it. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @test: src/__tests__/routes/session-sleep-timeout.test.ts (REQ-SESSION-014: User-configurable auto-sleep timeout in Settings) -->
 3. In-memory copies of the preference do not outlive a single idle-check cycle. <!-- @impl: src/container/index.ts::collectMetrics --> <!-- @test: src/__tests__/container-metrics.test.ts (refreshes idleTimeoutPref from storage on every tick) -->
-4. On any missing, unsupported, malformed, or failed idle-timeout read, resolution substitutes the maximum supported value (4h), replaces stale cached state, and logs the fallback, never a shorter default — so a resolution failure can only lengthen, never shorten, the user's effective timeout. <!-- @impl: src/container/container-metrics.ts::parseSleepAfterMs --> <!-- @test: src/__tests__/lib/sleep-timer-defaults.test.ts (parseSleepAfterMs - fail-safe direction) -->
+4. On any missing, unsupported, malformed, or failed idle-timeout read, resolution substitutes the maximum supported value (12h), replaces stale cached state, and logs the fallback, never a shorter default — so a resolution failure can only lengthen, never shorten, the user's effective timeout. <!-- @impl: src/container/container-metrics.ts::parseSleepAfterMs --> <!-- @test: src/__tests__/lib/sleep-timer-defaults.test.ts (parseSleepAfterMs - fail-safe direction) -->
 
 **Constraints:**
 

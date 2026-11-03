@@ -438,24 +438,24 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
     // The wire + storage names are intentionally preserved so existing clients
     // and persisted DOs keep working across the refactor.
 
-    it('defaults to 4h when not in storage (fail-safe per REQ-OPS-006 AC8)', () => {
+    it('defaults to 12h when not in storage (fail-safe per REQ-OPS-006 AC8)', () => {
       const instance = new ContainerClass(mockCtx as any, mockEnv);
-      expect(instance.idleTimeoutPref).toBe('4h');
+      expect(instance.idleTimeoutPref).toBe('12h');
     });
 
-    it('loads from DO storage on construction (storage key: sleepAfter)', async () => {
+    it.each(['1h', '8h', '12h'])('loads %s from DO storage on construction (storage key: sleepAfter)', async duration => {
       mockStorage.get.mockImplementation(async (key: string) => {
-        if (key === 'sleepAfter') return '1h';
+        if (key === 'sleepAfter') return duration;
         return null;
       });
 
       const instance = new ContainerClass(mockCtx as any, mockEnv);
       await vi.waitFor(() => {
-        expect(instance.idleTimeoutPref).toBe('1h');
+        expect(instance.idleTimeoutPref).toBe(duration);
       });
     });
 
-    it('rejects invalid values from storage and falls back to fail-safe 4h default', async () => {
+    it('rejects invalid values from storage and falls back to fail-safe 12h default', async () => {
       mockStorage.get.mockImplementation(async (key: string) => {
         if (key === 'sleepAfter') return 'invalid';
         return null;
@@ -465,7 +465,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       await vi.waitFor(() => {
         expect(mockCtx.blockConcurrencyWhile).toHaveBeenCalled();
       });
-      expect(instance.idleTimeoutPref).toBe('4h');
+      expect(instance.idleTimeoutPref).toBe('12h');
     });
 
     it('persists to DO storage on initial setBucketName', async () => {
@@ -554,9 +554,9 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
         (c: unknown[]) => c[0] === 'sleepAfter'
       );
       expect(sleepAfterPuts).toHaveLength(0);
-      // Class-field default is now 4h (fail-safe per REQ-OPS-006 AC8) - the
+      // Class-field default is now 12h (fail-safe per REQ-OPS-006 AC8) - the
       // invalid input was correctly rejected and the default preserved.
-      expect(instance.idleTimeoutPref).toBe('4h');
+      expect(instance.idleTimeoutPref).toBe('12h');
     });
 
     it('SDK.sleepAfter stays pinned to 24h regardless of user preference', async () => {
@@ -752,7 +752,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
 
     it('stops with SIGTERM when lastInputAt exceeds idleTimeoutPref', async () => {
       const instance = await createRunningInstance('5m');
-      // Set pref to 5m explicitly (class-field default is now 4h fail-safe per
+      // Set pref to 5m explicitly (class-field default is now 12h fail-safe per
       // REQ-OPS-006 AC8 - so just an idle duration won't do, we need to set
       // the user-configured pref low to exercise the boundary).
       instance.idleTimeoutPref = '5m';
@@ -774,7 +774,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
 
     it('stops with SIGTERM when lastInputAt is null and containerStartedAt is old', async () => {
       const instance = await createRunningInstance('5m');
-      instance.idleTimeoutPref = '5m'; // explicit short pref, otherwise 4h default never trips
+      instance.idleTimeoutPref = '5m'; // explicit short pref, otherwise 12h default never trips
 
       // Manually age the container's started-at so the fallback reference
       // time pushes idleMs past the 5m configured threshold.
@@ -856,7 +856,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       // Properties set by the class
       expect(instance.defaultPort).toBe(8080);
       expect(instance.sleepAfter).toBe('24h');
-      expect(instance.idleTimeoutPref).toBe('4h');
+      expect(instance.idleTimeoutPref).toBe('12h');
     });
   });
 

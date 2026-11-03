@@ -162,11 +162,11 @@ export class container extends Container<Env> implements ContainerEnvState {
   // none of our timeouts having fired.
   override sleepAfter = '24h';
 
-  // User-configured idle timeout (15m/30m/1h/2h/4h; legacy 5m tolerated). Enforced by collectMetrics,
+  // User-configured idle timeout (1h/2h/4h/8h/12h; legacy minute values tolerated). Enforced by collectMetrics,
   // NOT by the SDK. Stored in DO storage under the 'sleepAfter' key for
   // backwards compat with existing sessions created before this refactor.
   //
-  // Default is the MAX supported value (4h), not the min. Rationale: this
+  // Default is the MAX supported value (12h), not the min. Rationale: this
   // class field is the fallback that wins when (a) the DO is freshly
   // constructed and storage hasn't been populated yet, or (b) a code path
   // skipped the setBucketName flow that writes the user pref. In either
@@ -175,7 +175,7 @@ export class container extends Container<Env> implements ContainerEnvState {
   // live longer than expected, which is a strictly safer failure mode. The
   // collectMetrics tick re-reads storage as the authoritative source on
   // every fire (60s cadence) so any drift is corrected within one tick.
-  idleTimeoutPref: string = '4h';
+  idleTimeoutPref: string = '12h';
 
   // Environment variables - set via property assignment in updateEnvVars()
   // These satisfy the ContainerEnvState interface, so they are not `private`.
@@ -444,7 +444,7 @@ export class container extends Container<Env> implements ContainerEnvState {
       // Restore user-configured idle timeout (survives DO resets).
       // Storage key remains 'sleepAfter' for backwards compat with existing sessions.
       const storedIdleTimeout = await this.ctx.storage.get<string>('sleepAfter');
-      if (storedIdleTimeout && /^(5m|15m|30m|1h|2h|4h)$/.test(storedIdleTimeout)) {
+      if (storedIdleTimeout && /^(5m|15m|30m|1h|2h|4h|8h|12h)$/.test(storedIdleTimeout)) {
         this.idleTimeoutPref = storedIdleTimeout;
       }
 

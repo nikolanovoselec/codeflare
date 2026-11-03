@@ -86,14 +86,23 @@ export function listManagedOperators(query: CatalogQuery = {}) {
   for (const [key, value] of Object.entries(query)) if (value) search.set(key, value);
   return request(`/operators?${search}`, z.object({ items: z.array(summarySchema).max(100), cursor: z.string().nullable() }));
 }
-const choicesSchema = z.object({ users: z.array(z.string()), groups: z.array(z.object({ issuer: z.string(), id: z.string() })),
+const manualInferenceSchema = z.strictObject({ source: z.enum(['pi-native', 'managed']),
+  status: z.enum(['profile', 'selected', 'blocked', 'unconfigured', 'unavailable']),
+  reason: z.enum(['invocation-denied', 'installation-unavailable', 'installation-disabled', 'policy-denied']).optional(),
+  provider: z.string().min(1).max(512).optional(), model: z.string().min(1).max(512).optional(),
+  routeId: policyRouteId.optional(), reasoningLevel: policyReasoning.nullable().optional() })
+  .refine(value => value.status !== 'selected' || !!value.provider && !!value.model && value.reasoningLevel !== undefined
+    && (value.source === 'pi-native' || !!value.routeId));
+export type ManualInference = z.infer<typeof manualInferenceSchema>;
+const choicesSchema = z.object({ inference: manualInferenceSchema.optional(), users: z.array(z.string()), groups: z.array(z.object({ issuer: z.string(), id: z.string() })),
   unresolvedGroups: z.array(z.string()).default([]), capabilities: z.array(z.string()), resourceProfileIds: z.array(z.string()),
   ceiling: z.object({ capabilities: z.array(z.string()), resourceProfileIds: z.array(z.string()), sourceResponseBytes }),
   managedRoutes: z.array(z.strictObject({ id: policyRouteId, label: z.string().min(1).max(256),
     reasoningLevels: uniquePolicyItems(policyReasoning, 7) })).max(128)
     .refine(routes => new Set(routes.map(route => route.id)).size === routes.length).optional() });
 export type ManagementChoices = z.infer<typeof choicesSchema>;
-export const getManagementChoices = () => request('/options', choicesSchema);
+export const getManagementChoices = (installationId?: string) => request(
+  `/options${installationId ? `?${new URLSearchParams({ installationId })}` : ''}`, choicesSchema);
 const accessSchema = z.object({ revision: z.number().int().nonnegative(), managers: grantSchema,
   ceiling: z.object({ capabilities: z.array(z.string()).max(32), resourceProfileIds: z.array(z.string()).max(128), sourceResponseBytes }) });
 export type ManagementAccess = z.infer<typeof accessSchema>;
