@@ -2385,7 +2385,7 @@ jobs:
       - name: Compare the zizmor pin against what the pinned action supports
         id: ver
         # NOT zizmor's newest release. zizmor-action resolves `version:` against
-        # a digest table baked into the action release, so naming a version the
+        # hash-pinned locks baked into the action release, so naming a version the
         # PINNED action does not know fails every run with "Unknown version"
         # (v0.5.6 + 1.27.0 did exactly that). The ceiling is that table, and
         # Dependabot raises it by bumping the action pin.
@@ -2395,12 +2395,19 @@ jobs:
           set -euo pipefail
           CURRENT=$(node scripts/ci/workflow-tool-pins.mjs get zizmor version)
           ACTION_SHA=$(grep -oP "zizmorcore/zizmor-action@\K[0-9a-f]{40}" .github/workflows/zizmor.yml)
-          LATEST=$(gh api "repos/zizmorcore/zizmor-action/contents/support/versions?ref=${ACTION_SHA}" \
+          LATEST=$(gh api "repos/zizmorcore/zizmor-action/contents/support/locks/zizmor-latest.txt?ref=${ACTION_SHA}" \
             --jq .content | base64 -d \
-            | awk '$1 ~ /^[0-9]+\.[0-9]+\.[0-9]+$/ { print $1 }' | sort -V | tail -1)
+            | awk 'NR == 1 && $1 ~ /^zizmor==[0-9]+\.[0-9]+\.[0-9]+$/ { sub(/^zizmor==/, "", $1); print $1 }')
           VERSION_RE='^[0-9]+\.[0-9]+\.[0-9]+$'
           if [[ ! "$CURRENT" =~ $VERSION_RE ]] || [[ ! "$LATEST" =~ $VERSION_RE ]]; then
             echo "Invalid zizmor version: current=$CURRENT latest=$LATEST" >&2
+            exit 1
+          fi
+          SUPPORTED=$(gh api "repos/zizmorcore/zizmor-action/contents/support/locks/zizmor-${LATEST}.txt?ref=${ACTION_SHA}" \
+            --jq .content | base64 -d \
+            | awk 'NR == 1 && $1 ~ /^zizmor==[0-9]+\.[0-9]+\.[0-9]+$/ { sub(/^zizmor==/, "", $1); print $1 }')
+          if [ "$SUPPORTED" != "$LATEST" ]; then
+            echo "Pinned zizmor action lock does not match selected version" >&2
             exit 1
           fi
           echo "current=$CURRENT" >> "$GITHUB_OUTPUT"
@@ -2483,7 +2490,7 @@ jobs:
 
           Both the blocking \`workflow-audit\` lane and the SARIF upload read this version from \`.github/workflow-tool-pins.json\`, so they cannot drift. Keeping the routinely updated pin outside \`.github/workflows/\` also lets the least-privilege \`GITHUB_TOKEN\` push the bump branch without workflow-write permission.
 
-          The ceiling is the digest table baked into the pinned \`zizmor-action\` release, not zizmor's newest tag: naming a version the pinned action does not know fails every run with \`Unknown version\`. Dependabot raises that ceiling when it bumps the action.
+          The ceiling is the hash-pinned version locks baked into the pinned \`zizmor-action\` release, not zizmor's newest tag: naming a version the pinned action does not know fails every run with \`Unknown version\`. Dependabot raises that ceiling when it bumps the action.
 
           Files updated:
           - \`.github/workflow-tool-pins.json\` (\`zizmor.version\` + \`zizmor.sha256\`)

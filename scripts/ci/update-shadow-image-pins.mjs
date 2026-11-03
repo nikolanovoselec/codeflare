@@ -108,7 +108,7 @@ function latestWithin(current, versions, patchOnly = false) {
     (!patchOnly || version.split('.').slice(0, 2).join('.') === current.split('.').slice(0, 2).join('.')))
     .sort((a, b) => a.localeCompare(b, undefined, { numeric: true })).at(-1);
 }
-async function resolveCandidate(id, current) {
+export async function resolveCandidate(id, current) {
   if (id === 'go') {
     const releases = await request('https://go.dev/dl/?mode=json&include=all', true);
     const version = latestWithin(current, releases.filter(value => value.stable).map(value => value.version.replace(/^go/, '')), true);
@@ -152,8 +152,19 @@ async function resolveCandidate(id, current) {
   }
   const assetName = id === 'github-cli' ? `gh_${version}_linux_amd64.deb` : `k6-v${version}-linux-amd64.tar.gz`;
   const asset = release.assets.find(value => value.name === assetName);
-  if (!asset || !/^sha256:[a-f0-9]{64}$/.test(asset.digest ?? '')) throw new Error(`authoritative GitHub digest missing for ${assetName}`);
-  return { version, sha256: asset.digest.slice(7) };
+  if (asset && /^sha256:[a-f0-9]{64}$/.test(asset.digest ?? '')) {
+    return { version, sha256: asset.digest.slice(7) };
+  }
+  // Older k6 release assets predate GitHub's digest field. Keep publisher
+  // authentication using that same release's checksum asset, never a self-hash.
+  if (id === 'k6' && asset && asset.digest == null) {
+    const sumsName = `k6-v${version}-checksums.txt`;
+    if (!release.assets.some(value => value.name === sumsName)) throw new Error('k6 publisher checksum asset missing');
+    const sums = await request(`https://github.com/grafana/k6/releases/download/v${version}/${sumsName}`);
+    const sha256 = match(sums, new RegExp(`^([a-f0-9]{64})\\s+\\*?${assetName.replaceAll('.', '\\.')}\\r?$`, 'm'), 'k6 publisher archive digest')[1];
+    return { version, sha256 };
+  }
+  throw new Error(`authoritative GitHub digest missing for ${assetName}`);
 }
 async function main() {
   const [id, command = 'resolve'] = process.argv.slice(2);

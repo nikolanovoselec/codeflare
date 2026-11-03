@@ -984,12 +984,16 @@ describe('REQ-OPS-027: code-server coupled-pin automation', () => {
     const archiveRoot = join(fixture, 'archive', 'code-server-4.2.0-linux-amd64');
     const output = join(fixture, 'github-output');
     mkdirSync(join(archiveRoot, 'lib/vscode'), { recursive: true });
+    mkdirSync(join(archiveRoot, 'node_modules/js-yaml'), { recursive: true });
+    mkdirSync(join(archiveRoot, 'lib/vscode/node_modules/tar'), { recursive: true });
     mkdirSync(fakeBin);
     writeFileSync(join(fixture, 'Dockerfile'), [
       'CODE_SERVER_VERSION="4.1.0"',
       'CODE_SERVER_COMMIT="1111111111111111111111111111111111111111"',
       'CODE_SERVER_CODE_VERSION="1.1.0"',
       'CODE_SERVER_VSCODE_COMMIT="2222222222222222222222222222222222222222"',
+      'CODE_SERVER_JS_YAML_VERSION="5.4.1"',
+      'CODE_SERVER_IDE_TAR_VERSION="7.5.21"',
     ].join('\n'));
     const packageCommit = '3'.repeat(40);
     const tagCommit = '4'.repeat(40);
@@ -997,6 +1001,8 @@ describe('REQ-OPS-027: code-server coupled-pin automation', () => {
     const vscodeCommit = '6'.repeat(40);
     writeFileSync(join(archiveRoot, 'package.json'), JSON.stringify({ version: '4.2.0', commit: packageCommit }));
     writeFileSync(join(archiveRoot, 'lib/vscode/package.json'), JSON.stringify({ version: '1.2.0' }));
+    writeFileSync(join(archiveRoot, 'node_modules/js-yaml/package.json'), JSON.stringify({ version: '5.4.3' }));
+    writeFileSync(join(archiveRoot, 'lib/vscode/node_modules/tar/package.json'), JSON.stringify({ version: '7.5.22' }));
     writeFileSync(join(archiveRoot, 'lib/vscode/product.json'), JSON.stringify({
       version: '1.2.0',
       commit: packageCommit,
@@ -1047,6 +1053,8 @@ esac
       `commit=${packageCommit}`,
       'code_version=1.2.0',
       `vscode_commit=${vscodeCommit}`,
+      'js_yaml_version=5.4.3',
+      'ide_tar_version=7.5.22',
     ]);
 
     writeFileSync(join(archiveRoot, 'lib/vscode/product.json'), JSON.stringify({
@@ -1183,6 +1191,7 @@ esac
     mkdirSync(join(fixture, 'scripts/ci'), { recursive: true });
     mkdirSync(fakeBin);
     copyFileSync(CODE_SERVER_PIN_UPDATER, join(fixture, 'scripts/ci/update-code-server-pins.mjs'));
+    copyFileSync(join(REPO, 'scripts/ci/semver-forward.mjs'), join(fixture, 'scripts/ci/semver-forward.mjs'));
     writeFileSync(join(fakeBin, 'git'), '#!/bin/sh\n[ "$1" = "diff" ] && exit 1\nexit 0\n');
     chmodSync(join(fakeBin, 'git'), 0o755);
     writeFileSync(join(fixture, 'Dockerfile'), [
@@ -1191,6 +1200,8 @@ esac
       'CODE_SERVER_COMMIT="1111111111111111111111111111111111111111"',
       'CODE_SERVER_CODE_VERSION="1.1.0"',
       'CODE_SERVER_VSCODE_COMMIT="2222222222222222222222222222222222222222"',
+      'CODE_SERVER_JS_YAML_VERSION="5.4.1"',
+      'CODE_SERVER_IDE_TAR_VERSION="7.5.21"',
     ].join('\n'));
 
     const result = spawnSync('bash', ['-c', applyStep?.run ?? ''], {
@@ -1208,6 +1219,8 @@ esac
         CODE_SERVER_COMMIT: '3333333333333333333333333333333333333333',
         CODE_SERVER_CODE_VERSION: '1.130.0',
         CODE_SERVER_VSCODE_COMMIT: '4444444444444444444444444444444444444444',
+        CODE_SERVER_JS_YAML_VERSION: '5.4.3',
+        CODE_SERVER_IDE_TAR_VERSION: '7.5.22',
       },
     });
 
@@ -1224,6 +1237,8 @@ esac
       'CODE_SERVER_COMMIT="1111111111111111111111111111111111111111"',
       'CODE_SERVER_CODE_VERSION="1.1.0"',
       'CODE_SERVER_VSCODE_COMMIT="2222222222222222222222222222222222222222"',
+      'CODE_SERVER_JS_YAML_VERSION="5.4.1"',
+      'CODE_SERVER_IDE_TAR_VERSION="7.5.21"',
     ].join('\n'));
 
     const result = spawnSync(process.execPath, [CODE_SERVER_PIN_UPDATER, dockerfile], {
@@ -1234,6 +1249,8 @@ esac
         CODE_SERVER_COMMIT: '3333333333333333333333333333333333333333',
         CODE_SERVER_CODE_VERSION: '1.130.0',
         CODE_SERVER_VSCODE_COMMIT: '4444444444444444444444444444444444444444',
+        CODE_SERVER_JS_YAML_VERSION: '5.4.3',
+        CODE_SERVER_IDE_TAR_VERSION: '7.5.22',
       },
     });
 
@@ -1249,6 +1266,8 @@ esac
       'CODE_SERVER_COMMIT="1111111111111111111111111111111111111111"',
       'CODE_SERVER_CODE_VERSION="1.1.0"',
       'CODE_SERVER_VSCODE_COMMIT="2222222222222222222222222222222222222222"',
+      'CODE_SERVER_JS_YAML_VERSION="5.4.1"',
+      'CODE_SERVER_IDE_TAR_VERSION="7.5.21"',
     ].join('\n');
 
     expect(updateCodeServerPins(source, {
@@ -1256,12 +1275,16 @@ esac
       codeServerCommit: '3333333333333333333333333333333333333333',
       codeVersion: '1.130.0',
       vscodeCommit: '4444444444444444444444444444444444444444',
+      jsYamlVersion: '5.4.3',
+      ideTarVersion: '7.5.22',
     })).toBe([
       'CODE_SERVER_VERSION="4.130.0"',
       'CODE_SERVER_SHA256="NEEDS_UPDATE_SEE_PR_BODY"',
       'CODE_SERVER_COMMIT="3333333333333333333333333333333333333333"',
       'CODE_SERVER_CODE_VERSION="1.130.0"',
       'CODE_SERVER_VSCODE_COMMIT="4444444444444444444444444444444444444444"',
+      'CODE_SERVER_JS_YAML_VERSION="5.4.3"',
+      'CODE_SERVER_IDE_TAR_VERSION="7.5.22"',
     ].join('\n'));
   });
 
@@ -1271,6 +1294,8 @@ esac
       codeServerCommit: '3'.repeat(40),
       codeVersion: '1.130.0',
       vscodeCommit: '4'.repeat(40),
+      jsYamlVersion: '5.4.3',
+      ideTarVersion: '7.5.22',
     };
     expect(() => updateCodeServerPins('CODE_SERVER_VERSION="4.1.0"', pins)).toThrow(/exactly one Dockerfile match/);
     expect(() => updateCodeServerPins([
@@ -1282,6 +1307,7 @@ esac
     ].join('\n'), { ...pins, codeVersion: 'release prose' })).toThrow(/valid release versions/);
   });
 });
+
 
 function flattenPatterns(values: unknown[]): string[] {
   const patterns: string[] = [];
