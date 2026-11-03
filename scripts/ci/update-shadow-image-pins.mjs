@@ -70,6 +70,11 @@ export function updateShadowImagePins(files, id, current, candidate) {
       docker = docker.replaceAll(`rclone/tar.gz/refs/tags/v${current}`, `rclone/tar.gz/refs/tags/v${version}`)
         .replace(`patch-rclone-bisync.py /src/rclone ${current}`, `patch-rclone-bisync.py /src/rclone ${version}`)
         .replace(`fs.Version=v${current}-codeflare-bisync1`, `fs.Version=v${version}-codeflare-bisync1`);
+      for (const action of ['prepare', 'restore']) {
+        const from = `prepare-rclone-s3-fixture.py ${action} /src/rclone ${current} /tmp/rclone-pager.go`;
+        if (docker.split(from).length !== 2) throw new Error(`missing or ambiguous rclone fixture ${action} version`);
+        docker = docker.replace(from, `prepare-rclone-s3-fixture.py ${action} /src/rclone ${version} /tmp/rclone-pager.go`);
+      }
       docker = once(docker, /[a-f0-9]{64}(?=  \/tmp\/rclone.tar.gz)/, 'NEEDS_UPDATE_SEE_PR_BODY', 'rclone source checksum');
       const pins = JSON.parse(files[PINS]);
       if (pins.rclone.version !== current) throw new Error('rclone image/CI version drift');

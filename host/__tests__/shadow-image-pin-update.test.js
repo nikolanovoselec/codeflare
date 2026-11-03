@@ -19,6 +19,8 @@ test('REQ-OPS-020 AC4: rclone source checksum invalidates while matching CI arch
   assert.deepEqual(JSON.parse(next[pinsPath]).rclone, { version: '1.999.0', sha256: digest });
   assert.match(next.Dockerfile, /NEEDS_UPDATE_SEE_PR_BODY  \/tmp\/rclone.tar.gz/, 'unpublished source digest cannot reuse previous trust');
   assert.match(next.Dockerfile, /patch-rclone-bisync.py \/src\/rclone 1\.999\.0/);
+  assert.match(next.Dockerfile, /prepare-rclone-s3-fixture\.py prepare \/src\/rclone 1\.999\.0/);
+  assert.match(next.Dockerfile, /prepare-rclone-s3-fixture\.py restore \/src\/rclone 1\.999\.0/);
   assert.match(next.Dockerfile, /fs.Version=v1\.999\.0-codeflare-bisync1/);
   assert.equal(next[k6Path], before[k6Path]);
   assert.throws(() => updateShadowImagePins(before, 'rclone', current, { version: '1.999.0' }), /checksum/);

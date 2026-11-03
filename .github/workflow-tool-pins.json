@@ -8,8 +8,8 @@
     "sha256": "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8"
   },
   "rclone": {
-    "version": "1.73.5",
-    "sha256": "932cf4b7484de74d82b4875488e0009469fd21f9904673385184520fe11a1bf0"
+    "version": "1.75.2",
+    "sha256": "349ac8fba6ff65d6247043f1750cdcb518ec5d500ef91463a10d37c0ccdf3702"
   },
   "trivy": {
     "version": "0.76.1"

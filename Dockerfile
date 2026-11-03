@@ -29,25 +29,25 @@ RUN curl -fsSL https://go.dev/dl/go1.27.3.linux-amd64.tar.gz -o /tmp/go.tar.gz \
     && tar -C /usr/local -xzf /tmp/go.tar.gz && rm /tmp/go.tar.gz
 ENV PATH="/usr/local/go/bin:${PATH}" CGO_ENABLED=0 GOTOOLCHAIN=local
 WORKDIR /src/rclone
-RUN curl -fsSL https://codeload.github.com/rclone/rclone/tar.gz/refs/tags/v1.73.5 -o /tmp/rclone.tar.gz \
-    && echo "e52541bc238dd434a0335f467697d7d9575529698a74aab534ad39b8649f8a49  /tmp/rclone.tar.gz" | sha256sum -c - \
+RUN curl -fsSL https://codeload.github.com/rclone/rclone/tar.gz/refs/tags/v1.75.2 -o /tmp/rclone.tar.gz \
+    && echo "68afd7f68c84bd978966feae2116339aa7bf454b39c573910c462e87c3774d5a  /tmp/rclone.tar.gz" | sha256sum -c - \
     && tar --strip-components=1 -xzf /tmp/rclone.tar.gz && rm /tmp/rclone.tar.gz \
     && go mod edit -require=google.golang.org/grpc@v1.85.0 -require=github.com/klauspost/compress@v1.20.3 \
     && go mod tidy
 COPY scripts/patch-rclone-bisync.py /tmp/patch-rclone-bisync.py
+COPY scripts/prepare-rclone-s3-fixture.py /tmp/prepare-rclone-s3-fixture.py
 COPY scripts/ci/rclone-bookkeeping_test.go /tmp/rclone-bookkeeping_test.go
 # Only the CI server binary receives S3-compatible lexical pagination.
 # Restore upstream server code before building the shipped client.
 RUN mkdir -p /out \
-    && cp cmd/serve/s3/pager.go /tmp/rclone-pager.go \
-    && python3 -c 'from pathlib import Path; p=Path("cmd/serve/s3/pager.go"); s=p.read_text(); old="list.Contents[i].LastModified.Before(list.Contents[j].LastModified.Time)"; assert s.count(old)==1, "Unreviewed S3 fixture pager"; p.write_text(s.replace(old, "list.Contents[i].Key < list.Contents[j].Key"))' \
+    && python3 /tmp/prepare-rclone-s3-fixture.py prepare /src/rclone 1.75.2 /tmp/rclone-pager.go \
     && go build -trimpath -o /out/rclone-unpatched . \
-    && cp /tmp/rclone-pager.go cmd/serve/s3/pager.go \
-    && python3 /tmp/patch-rclone-bisync.py /src/rclone 1.73.5 \
+    && python3 /tmp/prepare-rclone-s3-fixture.py restore /src/rclone 1.75.2 /tmp/rclone-pager.go \
+    && python3 /tmp/patch-rclone-bisync.py /src/rclone 1.75.2 \
     && cp /tmp/rclone-bookkeeping_test.go cmd/bisync/codeflare_bookkeeping_test.go \
     && gofmt -w cmd/bisync/codeflare_bookkeeping_test.go \
     && go test ./cmd/bisync -run '^TestCodeflare' -count=1 \
-    && go build -trimpath -ldflags '-s -w -X github.com/rclone/rclone/fs.Version=v1.73.5-codeflare-bisync1' -o /out/rclone .
+    && go build -trimpath -ldflags '-s -w -X github.com/rclone/rclone/fs.Version=v1.75.2-codeflare-bisync1' -o /out/rclone .
 
 # ---- Image-owned Impeccable engine with configured question idle grace ----
 FROM mirror.gcr.io/library/node:26-bookworm-slim@sha256:bc0a2afd3b74ce12222fc8bab99271e66257f021078f5f4a5d687a77d280c1d9 AS impeccable-builder
