@@ -4,7 +4,7 @@
     "@earendil-works/pi-coding-agent": "1.4.0",
     "@github/copilot": "1.0.96",
     "@openai/codex": "0.164.0",
-    "bun": "1.4.3",
+    "bun": "1.4.4",
     "chrome-devtools-mcp": "1.12.0",
     "consult-llm-mcp": "2.13.4",
     "context-mode": "1.0.169",
