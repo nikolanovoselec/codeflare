@@ -265,7 +265,7 @@ RUN sed -i 's|http://deb.debian.org|https://deb.debian.org|g' /etc/apt/sources.l
 # range; do not downgrade it with the former 4.x overlay. Retain the independent
 # tar and pacote overlays pending their separate runtime verification.
 # The immutable Node artifact carries vulnerable node-tar; the integrity-pinned
-# 7.5.21 overlay replaces npm's copy only. code-server retains its upstream fixed
+# tar overlay replaces npm's copy only. code-server retains its upstream fixed
 # IDE tar 7.5.22, independently smoke-tested. The Node image's bundled npm also carries pacote
 # 21.5.0 affected by CVE-2026-9496; an integrity-pinned 21.5.1 artifact replaces
 # that runtime copy. code-server's basic-ftp 5.3.1 is replaced with 6.2.3 for
@@ -280,8 +280,8 @@ RUN CODE_SERVER_VERSION="4.144.0" && \
     CODE_SERVER_VSCODE_COMMIT="2c33b50b16c472efe58357d1d2a8a5414bc23fbf" && \
     CODE_SERVER_JS_YAML_VERSION="5.4.3" && \
     CODE_SERVER_IDE_TAR_VERSION="7.5.22" && \
-    NODE_TAR_VERSION="7.5.21" && \
-    NODE_TAR_SHA512="5dd86d0af94ccb0c31a425bc604ab794e5c126950f4d1d8e1c77302cf3b71f0b09a8e1dad8e93fa09eebb86ce9f89acaa113d50b327001d123a8b5bfbcd44f1c" && \
+    NODE_TAR_VERSION="7.5.22" && \
+    NODE_TAR_SHA512="3053bf433bed00e9896e484e6824ef6c670537d2fd6fe26e9c8b03c1a2a58d239d70b31e6b7349d64f54b33feb8dd7d25d3ab875fcdf792ed6e29e1838000778" && \
     BRACE_EXPANSION_VERSION="5.0.12" && \
     BRACE_EXPANSION_SHA512="628bd0debce168b308ac38cd0cc90d4b4d6d79af77aa11211b9c72f1febe47497e770dca8bee6c0a822823de368ae2d94c75a881692d830543854d3d88d12299" && \
     UNDICI_NPM_VERSION="6.29.1" && \
