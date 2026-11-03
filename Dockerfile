@@ -340,7 +340,7 @@ RUN SILVERBULLET_VERSION="2.12.1" && \
 # Drop each overlay after its upstream artifact contains at least the pinned
 # fixed version.
 RUN CODE_SERVER_VERSION="4.144.0" && \
-    CODE_SERVER_SHA256="NEEDS_UPDATE_SEE_PR_BODY" && \
+    CODE_SERVER_SHA256="710f749c40a0f3d0ab3be09c0de65314e5c2907cc50646f5fbc0f24c0e8fba2d" && \
     CODE_SERVER_COMMIT="ee31cdbe02c07b3ba718007f221d14c890696c61" && \
     CODE_SERVER_CODE_VERSION="1.144.0" && \
     CODE_SERVER_VSCODE_COMMIT="2c33b50b16c472efe58357d1d2a8a5414bc23fbf" && \
