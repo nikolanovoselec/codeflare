@@ -172,6 +172,8 @@ Shared pipeline/manifests/config/selection rules occur in broad filters so a mea
 
 Zizmor gate exits nonzero on surviving findings; justified suppressions stay on the finding line. Blocking audit scope remains `.github/`; support JavaScript remains under owning tests. Bundle-size patching avoids duplicated image construction. Summary publishes parsed suite results with `scripts/ci/render-test-summary.mjs` and reconciles coverage of the tree with `scripts/ci/check-suite-completeness.mjs`.
 
+Actionlint 1.7.12 predates GitHub’s `$/…` self-repository syntax. The version-bound input bridge uses the locked YAML parser to change only actual action/reusable-workflow `uses` prefixes from `$` to `.` in memory. Original files, script text, comments and diagnostic positions stay intact; `-stdin-filename` retains original-path local metadata validation. Zizmor still audits untouched sources. There is no diagnostic suppression, binary patch or newer-version fallback. A pin change requires requalification. The audit lane checks valid references and negative target/input/expression/shell cases with the checksum-verified real binary. <!-- @impl: scripts/ci/actionlint-input.mjs::actionlintInput -->
+
 ### PR Exact-Head Monitoring
 
 [Preseed — Review completion prompt or FIX is missing](preseed.md#review-completion-prompt-or-fix-is-missing) owns session boundary eligibility, exact-head resolution and recovery, not this workflow lane. Retired checkpoint files are not a recovery mechanism.

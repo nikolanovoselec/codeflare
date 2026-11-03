@@ -197,7 +197,7 @@ describe('REQ-OPS-045 AC5 + AC6: immutable PR Checks tool cache', () => {
     writeCommand(bin, 'tar', `
       printf 'extract\\n' >> "$EVENT_LOG"
       for argument in "$@"; do target="$argument"; done
-      printf '#!/bin/sh\\nprintf "execute\\\\n" >> "$EVENT_LOG"\\n' > "/tmp/$target"
+      printf '#!/bin/sh\\ncat >/dev/null\\nprintf "execute\\\\n" >> "$EVENT_LOG"\\n' > "/tmp/$target"
       chmod 0755 "/tmp/$target"
     `);
     writeCommand(bin, 'unzip', `
@@ -279,12 +279,12 @@ RCLONE_FIXTURE
 
         const miss = runInstaller({ tool, archive, root, bin });
         assert.equal(miss.status, 0, `${tool.name} miss: ${miss.stderr}`);
-        assert.match(readFileSync(events, 'utf8'), /^download\n(?:attest\n)?extract\n(?:install\n)?execute\n$/);
+        assert.match(readFileSync(events, 'utf8'), /^download\n(?:attest\n)?extract\n(?:install\n)?(?:execute\n)+$/);
 
         writeFileSync(events, '');
         const hit = runInstaller({ tool, archive, root, bin });
         assert.equal(hit.status, 0, `${tool.name} hit: ${hit.stderr}`);
-        assert.match(readFileSync(events, 'utf8'), /^(?:attest\n)?extract\n(?:install\n)?execute\n$/);
+        assert.match(readFileSync(events, 'utf8'), /^(?:attest\n)?extract\n(?:install\n)?(?:execute\n)+$/);
       } finally {
         rmSync(root, { recursive: true, force: true });
         rmSync(`/tmp/${tool.name}`, { force: true });

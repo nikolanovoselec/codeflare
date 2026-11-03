@@ -351,7 +351,7 @@ describe('REQ-AGENT-111/REQ-AGENT-056/REQ-AGENT-133/REQ-AGENT-152/REQ-AGENT-210:
   });
 
   it('REQ-AGENT-152/REQ-AGENT-210: rejects missing managed startup caches', () => {
-    for (const name of ['@calesennett/pi-codex-fast', 'pi-open-tui', '@gotgenes/pi-subagents', 'pi-mcp-adapter', '@narumitw/pi-plan-mode', '@juicesharp/rpiv-advisor', '@juicesharp/rpiv-ask-user-question', '@juicesharp/rpiv-todo', 'pi-web-access', 'pi-smart-compact']) {
+    for (const name of ['@calesennett/pi-codex-fast', 'pi-open-tui', '@gotgenes/pi-subagents', 'pi-mcp-extension', '@narumitw/pi-plan-mode', '@juicesharp/rpiv-advisor', '@juicesharp/rpiv-ask-user-question', '@juicesharp/rpiv-todo', 'pi-web-access', 'pi-smart-compact']) {
       const fixture = runImageWarmFixture(name);
       try {
         assert.notEqual(fixture.result.status, 0);
