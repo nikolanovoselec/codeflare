@@ -32,7 +32,7 @@ WORKDIR /src/rclone
 RUN curl -fsSL https://codeload.github.com/rclone/rclone/tar.gz/refs/tags/v1.73.5 -o /tmp/rclone.tar.gz \
     && echo "e52541bc238dd434a0335f467697d7d9575529698a74aab534ad39b8649f8a49  /tmp/rclone.tar.gz" | sha256sum -c - \
     && tar --strip-components=1 -xzf /tmp/rclone.tar.gz && rm /tmp/rclone.tar.gz \
-    && go mod edit -require=google.golang.org/grpc@v1.83.2 -require=github.com/klauspost/compress@v1.20.3 \
+    && go mod edit -require=google.golang.org/grpc@v1.85.0 -require=github.com/klauspost/compress@v1.20.3 \
     && go mod tidy
 COPY scripts/patch-rclone-bisync.py /tmp/patch-rclone-bisync.py
 COPY scripts/ci/rclone-bookkeeping_test.go /tmp/rclone-bookkeeping_test.go
