@@ -24,6 +24,7 @@
  */
 
 import http from 'node:http';
+import { McpOAuthReturns } from './mcp-oauth.js';
 import { WebSocketServer } from 'ws';
 import fs from 'node:fs';
 import { spawnSync } from 'node:child_process';
@@ -203,6 +204,15 @@ function stopTerminalRuntime(): void {
   }
 }
 
+let portalConfig: { name: string; url: string }[] = [];
+try {
+  const value: unknown = JSON.parse(process.env.CODEFLARE_MCP_PORTALS_JSON ?? '[]');
+  if (Array.isArray(value) && value.every(p => p && typeof p.name === 'string' && typeof p.url === 'string')) portalConfig = value;
+} catch { /* Invalid parent configuration leaves hosted auth unavailable. */ }
+const mcpOAuth = new McpOAuthReturns(portalConfig);
+mcpOAuth.configure({ owner: process.env.R2_BUCKET_NAME, session: process.env.SESSION_ID,
+  generation: Number(process.env.CODEFLARE_MCP_LIFECYCLE_GENERATION), instance: process.env.CODEFLARE_MCP_CALLBACK_ORIGIN });
+
 function createServerState(): ServerState {
   const tabConfigMap = buildTabConfigMap();
   const wsEventLog: WsEvent[] = [];
@@ -212,6 +222,7 @@ function createServerState(): ServerState {
 
   // Shared options for Session and SessionManager
   const sessionOptions: SessionOptions = {
+    mcpOAuth: process.env.SESSION_MODE === 'advanced' ? mcpOAuth : undefined,
     tabConfigMap,
     terminalCommand: TERMINAL_COMMAND,
     terminalArgs: TERMINAL_ARGS,
@@ -297,6 +308,7 @@ const operatorInference = !process.env.CODEFLARE_OPERATOR_SESSION
 
 // Create HTTP server; all plain-HTTP branches live in request-router.ts.
 const server = http.createServer(createRequestHandler({
+  mcpOAuth,
   ...(operatorInference ? { operatorInference } : {}),
   ...(operatorPacket ? { operatorPacket } : {}),
   ...(operatorPi ? { operatorPi } : {}),
@@ -345,6 +357,7 @@ attachTerminalConnectionHandler(wss, {
 });
 
 const upgradeDispatcher = createUpgradeDispatcher({
+  mcpOAuth,
   terminalWss: wss,
   activityTracker: state.activityTracker,
   log,
@@ -561,6 +574,7 @@ async function shutdown(signal: string): Promise<void> {
   herdrAgentStatusMonitor = null;
   // M2: Kill all active sessions before exit to avoid orphaned PTY processes
   sessionManager.killAll();
+  mcpOAuth.close();
   sessionManager.stopCleanup();
   wss.close();
   upgradeDispatcher.close();

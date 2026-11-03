@@ -475,6 +475,11 @@ export interface MultiViewWorkspace {
   layout: Exclude<TileLayout, 'tabbed'>;
 }
 
+export interface McpPortal {
+  name: string;
+  url: string;
+}
+
 export type TerminalWorkspaceMode = 'dashboard' | 'single-session' | 'multiview';
 
 export interface TerminalWorkspaceState {

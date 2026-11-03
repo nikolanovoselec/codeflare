@@ -76,6 +76,8 @@ export function isManagedReleaseContextModePath(value) {
   return typeof value === 'string' && /(^|[/._-])context-mode([/._-]|$)/i.test(value);
 }
 
+const IMAGE_OWNED_PI_COMPANION_PATH = '.pi/agent/extensions/mcp-portal-oauth.ts';
+
 export function validateManagedReleasePath(value, label = 'managed release path') {
   const releasePath = validatePathStructure(value, label);
   if (!MANAGED_RELEASE_PATH_PREFIXES.some((prefix) => releasePath.startsWith(prefix))) {
@@ -86,6 +88,9 @@ export function validateManagedReleasePath(value, label = 'managed release path'
   }
   if (isManagedReleaseContextModePath(releasePath)) {
     throw new Error(`${label} is an image-owned context-mode path: ${releasePath}`);
+  }
+  if (releasePath === IMAGE_OWNED_PI_COMPANION_PATH) {
+    throw new Error(`${label} is an image-owned Pi companion path: ${releasePath}`);
   }
   const basename = releasePath.slice(releasePath.lastIndexOf('/') + 1);
   if (RETIRED_PI_EXTENSION_FILES.has(basename)) {
@@ -104,6 +109,9 @@ export function validateManagedRetiredPath(value, label = 'managed retired path'
   }
   if (isManagedReleaseContextModePath(releasePath)) {
     throw new Error(`${label} is an image-owned context-mode path: ${releasePath}`);
+  }
+  if (releasePath === IMAGE_OWNED_PI_COMPANION_PATH) {
+    throw new Error(`${label} is an image-owned Pi companion path: ${releasePath}`);
   }
   return releasePath;
 }

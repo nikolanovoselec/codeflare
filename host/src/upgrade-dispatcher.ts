@@ -25,6 +25,7 @@ import type { ProxyTarget } from './request-router.js';
 import type { ActivityTracker, Logger } from './types.js';
 
 interface UpgradeDispatcherDeps {
+  mcpOAuth?: import('./mcp-oauth.js').McpOAuthReturns;
   /** The /terminal WSS (owned by server.ts, where its connection handler is attached). */
   terminalWss: WebSocketServer;
   activityTracker: ActivityTracker;
@@ -235,6 +236,12 @@ export function createUpgradeDispatcher(deps: UpgradeDispatcherDeps): UpgradeDis
   // so misrouted clients fail fast.
   function handleUpgrade(req: http.IncomingMessage, socket: import('node:stream').Duplex, head: Buffer): void {
     const { pathname } = parseUrl(req.url ?? '');
+    // This single-use managed-launch capability is separate from container
+    // bearer auth. It can only claim its parent's live OAuth-return pipe.
+    if (pathname === '/mcp-oauth/wait' && deps.mcpOAuth) {
+      deps.mcpOAuth.attach(req, socket, head);
+      return;
+    }
     const authOutcome = checkContainerAuth(
       pathname ?? '',
       singleHeader(req.headers.authorization),

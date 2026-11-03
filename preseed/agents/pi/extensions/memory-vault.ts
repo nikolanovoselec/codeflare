@@ -76,6 +76,7 @@ export interface MemoryVaultDependencies {
 }
 
 export interface MemoryVaultPi extends ToolActivationPi {
+  events?: { emit(event: "codeflare:transcript-trim-due", data: { sessionId: string; file: string }): void };
   on(event: string, handler: (event: any, ctx: any) => void | Promise<void>): void;
   sendMessage(
     message: {
@@ -732,7 +733,13 @@ export function registerMemoryVault(pi: MemoryVaultPi, dependencies: MemoryVault
     const vaultCountFile = vaultCheckCounterPath(paths, session);
     const resumed = isResumedSession(counterExists, currentCount);
     const previousVaultCount = readCount(vaultCountFile);
-    if ((resumed && !existsSync(vaultCountFile)) || shouldCheckVault(previousVaultCount, currentCount)) {
+    const crossedVaultCadence = shouldCheckVault(previousVaultCount, currentCount);
+    if (crossedVaultCadence) {
+      const file = ctx?.sessionManager?.getSessionFile?.();
+      const loadedSessionId = ctx?.sessionManager?.getSessionId?.();
+      if (file && loadedSessionId) pi.events?.emit("codeflare:transcript-trim-due", { sessionId: loadedSessionId, file });
+    }
+    if ((resumed && !existsSync(vaultCountFile)) || crossedVaultCadence) {
       detectNewVaultRequestWhenNoneExists(paths, dependencies, session);
       writeFileSync(vaultCountFile, String(currentCount), "utf8");
     }

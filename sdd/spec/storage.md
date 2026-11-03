@@ -1651,3 +1651,28 @@ R2 persistence, rclone bisync, quotas, and file browser.
 **Status:** Implemented
 
 ---
+
+### REQ-STOR-054: Post-sync rclone conflict-copy cleanup
+
+**Intent:** Conflict-copy files do not accumulate in synchronized local storage or its R2 destination.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. After each existing user-storage sync cycle, including initial restore and periodic/final bisync, files whose basenames contain the case-sensitive `.conflict` marker are removed from the same local and remote sync roots. <!-- @impl: scripts/rclone-conflict-cleanup.sh --> <!-- @test: host/__tests__/rclone-conflict-cleanup.test.js (REQ-STOR-054 AC1: post-sync cleanup removes local and remote conflict copies) -->
+2. Nonmatching originals, directories, unrelated files and other buckets/prefixes remain unchanged; cleanup does not start another sync, session or merge/archive workflow. <!-- @impl: scripts/rclone-conflict-cleanup.sh --> <!-- @test: host/__tests__/rclone-conflict-cleanup.test.js (REQ-STOR-054 AC2: cleanup preserves originals and scopes deletion to the sync roots) -->
+3. Cleanup runs after the transfer attempt and cannot turn an existing sync failure into success. <!-- @impl: entrypoint.sh::bisync_with_r2 --> <!-- @test: host/__tests__/rclone-conflict-cleanup.test.js (REQ-STOR-054 AC3: cleanup follows the sync attempt without masking its failure) -->
+4. Cleanup failures are visible through existing sync diagnostics, and repeated cleanup with no matches is harmless. <!-- @impl: scripts/rclone-conflict-cleanup.sh --> <!-- @test: host/__tests__/rclone-conflict-cleanup.test.js (REQ-STOR-054 AC4: cleanup errors remain visible and empty repeats are harmless) -->
+
+**Constraints:** Use the current configured user sync roots and existing rclone credentials. No global binary wrapper, new timer, UI, secret store, protected-workload replay or widening of restricted operator upload scope.
+
+**Priority:** P1
+
+**Dependencies:** None
+
+**Verification:** Isolated filesystem/remote-fixture sync behavior tests and separately recorded current-user local/R2 inventory and deletion readback.
+
+**Status:** Implemented
+
+---

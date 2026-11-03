@@ -484,7 +484,7 @@ ARG CODEFLARE_CODING_AGENTS=claude-code,codex,copilot,antigravity,opencode,pi
 ENV CODEFLARE_CODING_AGENTS=${CODEFLARE_CODING_AGENTS}
 COPY preseed/npm-tools/package.json preseed/npm-tools/package-lock.json /opt/codeflare/npm-tools/
 COPY image/oxlint/package.json image/oxlint/package-lock.json /opt/codeflare/oxlint/
-COPY scripts/ci/coding-agent-selection-core.mjs scripts/ci/coding-agent-selection.mjs scripts/ci/prune-npm-platform-artifacts.mjs scripts/ci/prune-selected-npm-tools.sh scripts/patch-chrome-devtools-timeouts.mjs /opt/codeflare/scripts/
+COPY scripts/ci/coding-agent-selection-core.mjs scripts/ci/coding-agent-selection.mjs scripts/ci/prune-npm-platform-artifacts.mjs scripts/ci/prune-selected-npm-tools.sh scripts/patch-chrome-devtools-timeouts.mjs scripts/rclone-conflict-cleanup.sh /opt/codeflare/scripts/
 RUN cd /opt/codeflare/oxlint && \
     npm ci --omit=dev --ignore-scripts --no-audit --no-fund && \
     node /opt/codeflare/scripts/prune-npm-platform-artifacts.mjs node_modules && \
@@ -801,6 +801,22 @@ RUN /opt/codeflare/pi-agent/npm/node_modules/.bin/pi --version
 # expensive Pi npm/toolchain and unrelated runtime layers. They reach user
 # containers through the R2 seed verbatim, preserving warm-cache content keys.
 COPY preseed/agents/pi/extensions/ /opt/codeflare/pi-agent/extensions/
+
+# The same exact-candidate gate runs here, in real-Pi CI, and BEFORE an MCP
+# dependency bump can generate/commit/push. Prepare before any extension warm.
+COPY scripts/patch-pi-mcp-hosted-oauth.mjs scripts/qualify-pi-mcp-hosted-oauth.mjs /opt/codeflare/mcp-qualification/scripts/
+COPY preseed/agents/pi/package.json preseed/agents/pi/package-lock.json /opt/codeflare/mcp-qualification/preseed/agents/pi/
+COPY preseed/agents/pi/test/consult-proxy.test.mjs /opt/codeflare/mcp-qualification/preseed/agents/pi/test/
+COPY host/__tests__/mcp-hosted-oauth.test.js host/__tests__/mcp-oauth-return-channel.test.js /opt/codeflare/mcp-qualification/host/__tests__/
+COPY host/__fixtures__/mcp-oauth-channel.mjs host/__fixtures__/pi-mcp-extension-server.mjs /opt/codeflare/mcp-qualification/host/__fixtures__/
+COPY host/src/mcp-oauth.ts /opt/codeflare/mcp-qualification/host/src/
+RUN ln -s /opt/codeflare/pi-agent/npm/node_modules /opt/codeflare/mcp-qualification/preseed/agents/pi/node_modules && \
+    ln -s /opt/codeflare/pi-agent/extensions /opt/codeflare/mcp-qualification/preseed/agents/pi/extensions && \
+    ln -s /opt/codeflare/npm-tools/node_modules /opt/codeflare/mcp-qualification/node_modules && \
+    node /opt/codeflare/mcp-qualification/scripts/qualify-pi-mcp-hosted-oauth.mjs && \
+    rm -rf /opt/codeflare/mcp-qualification
+COPY --chmod=0555 image/herdr/codeflare-pi-mcp-launch.mjs /usr/local/bin/codeflare-pi-mcp-launch
+COPY scripts/merge-pi-mcp-portals.mjs /opt/codeflare/merge-pi-mcp-portals.mjs
 
 # Pi extension warm-up: pre-transpile the full Pi extension set (npm packages +
 # local preseed extensions) into a baked jiti cache + the V8 compile cache.

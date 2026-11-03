@@ -3,6 +3,7 @@ import { A, useParams } from '@solidjs/router';
 import { mdiChevronRight } from '@mdi/js';
 import { Component, For, Show, createSignal } from 'solid-js';
 import Icon from '../Icon';
+import McpPortalSettings from './McpPortalSettings';
 import { useAdministration } from './AdministrationLayout';
 import { environmentAreas, filterEnvironmentAreas } from './environment-areas';
 import {
@@ -101,6 +102,7 @@ const EnvironmentIndex: Component = () => {
           </div>
         </Show>
       </section>
+      <McpPortalSettings />
     </div>
   );
 };

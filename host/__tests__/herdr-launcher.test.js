@@ -9,7 +9,7 @@ import { describe, it } from 'node:test';
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const launcher = join(root, 'image/herdr/codeflare-herdr-terminal');
 
-function harness(command, tabConfig, fastStart = undefined) {
+function harness(command, tabConfig, fastStart = undefined, mcpEnv = {}) {
   const dir = mkdtempSync(join(tmpdir(), 'codeflare-herdr-launcher-'));
   const bin = join(dir, 'bin');
   const runtime = join(dir, 'runtime');
@@ -52,6 +52,7 @@ fi
                 : command.startsWith('agy') ? 'agy' : '',
       HERDR_TEST_PROCESS: ['htop', 'yazi', 'lazygit'].includes(command) ? command : '',
       ...(tabConfig === undefined ? {} : { TAB_CONFIG: JSON.stringify(tabConfig) }),
+      ...mcpEnv,
     },
   });
   return {
@@ -65,6 +66,19 @@ fi
 }
 
 describe('Codeflare Herdr launcher', () => {
+  it('REQ-AGENT-226: Herdr managed autostart selects the private launcher only with complete parent authority', () => {
+    const configured = { SESSION_MODE: 'advanced', CODEFLARE_MCP_CALLBACK_ORIGIN: 'https://instance.example',
+      CODEFLARE_MCP_LIFECYCLE_GENERATION: '7', CODEFLARE_MCP_LAUNCH_CAPABILITY: 'a'.repeat(64),
+      CODEFLARE_MCP_PORTALS_JSON: JSON.stringify([{ name: 'fixture', url: 'https://portal.example/mcp' }]) };
+    for (const patch of [{}, { SESSION_MODE: 'default' }, { CODEFLARE_MCP_LAUNCH_CAPABILITY: '' },
+      { CODEFLARE_MCP_CALLBACK_ORIGIN: 'http://untrusted.example' }, { CODEFLARE_MCP_LIFECYCLE_GENERATION: '0' }, { CODEFLARE_MCP_PORTALS_JSON: '[]' }]) {
+      const { result, calls } = harness('pi', undefined, undefined, { ...configured, ...patch });
+      assert.equal(result.status, 0, result.stderr);
+      assert.equal(calls.find(call => call.startsWith('pane run ')), Object.keys(patch).length === 0
+        ? 'pane run w1:p1 /usr/local/bin/codeflare-pi-mcp-launch --tui-mode fullscreen'
+        : 'pane run w1:p1 env -u CODEFLARE_MCP_HOSTED -u CODEFLARE_MCP_LAUNCH_CAPABILITY pi --tui-mode fullscreen');
+    }
+  });
   it('REQ-AGENT-012: Herdr Codex launch honors Fast Start without changing tab configuration', () => {
     for (const fastStart of [undefined, 'true', 'false']) {
       const { result, calls } = harness('codex', undefined, fastStart);
@@ -262,7 +276,7 @@ fi
     const calls = readFileSync(log, 'utf8').trim().split('\n');
     assert.equal(calls.filter((call) => call === 'agent list').length, 2);
     assert.equal(calls.filter((call) => call.startsWith('pane run ')).length, 1);
-    assert.equal(calls.includes('pane run w1:p1 pi --tui-mode fullscreen'), true);
+    assert.equal(calls.includes('pane run w1:p1 env -u CODEFLARE_MCP_HOSTED -u CODEFLARE_MCP_LAUNCH_CAPABILITY pi --tui-mode fullscreen'), true);
     assert.equal(existsSync(join(runtime, 'herdr/abc12345/bootstrap.done')), true);
   });
 

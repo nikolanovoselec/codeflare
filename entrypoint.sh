@@ -800,6 +800,8 @@ NODE
 # This ensures existing credentials, plugins, etc. are restored BEFORE anything else runs
 # Workspace sync controlled by SYNC_MODE (none, full, or metadata-only)
 # IMPORTANT: Uses timeout to prevent infinite hangs on network issues
+source /opt/codeflare/scripts/rclone-conflict-cleanup.sh
+
 initial_sync_from_r2() {
     local SYNC_TIMEOUT=120  # 2 minutes max for initial sync
     # REQ-STOR-017 / AD90: use checksums when R2 exposes usable hashes. Under SSE-C,
@@ -825,6 +827,11 @@ initial_sync_from_r2() {
         --contimeout 10s \
         --timeout 30s \
         --stats 30s --stats-one-line 2>&1 | tee -a $CODEFLARE_RUNTIME_ROOT/sync/sync.log; then
+        SYNC_RESULT=0
+    else
+        SYNC_RESULT=$?
+    fi
+    if cleanup_rclone_conflicts "$USER_HOME/" "r2:$R2_BUCKET_NAME/" "$SYNC_RESULT" >> "$CODEFLARE_RUNTIME_ROOT/sync/sync.log" 2>&1; then
         SYNC_RESULT=0
     else
         SYNC_RESULT=$?
@@ -924,19 +931,20 @@ AGENT_ROOTS
 # REQ-STOR-017 / AD90: image-authoritative relay of Pi extension code.
 # Without remote curation, re-lay image-baked managed extensions so the jiti prewarm cache's
 # abspath + source + version key stays hot, while preserving user-added filenames. With remote
-# curation, preserve release-owned bytes and restore only their excluded image-owned runtime
-# companion. Uses cp without -p so relaid bytes receive fresh local mtimes. Idempotent and
+# curation, preserve release-owned bytes and restore only excluded image-owned runtime
+# companions. Uses cp without -p so relaid bytes receive fresh local mtimes. Idempotent and
 # mode-aware.
-readonly -a IMAGE_OWNED_MANAGED_EXTENSION_COMPANIONS=(context-mode-runtime.ts)
+readonly -a IMAGE_OWNED_MANAGED_EXTENSION_COMPANIONS=(context-mode-runtime.ts mcp-portal-oauth.ts)
 relay_managed_pi_extensions() {
     coding_agent_is_selected pi || return 0
     local warm_src="${PI_WARM_EXTENSIONS_DIR:-/opt/codeflare/pi-agent/extensions}"
     local dest="$USER_HOME/.pi/agent/extensions"
     if [ "${REMOTE_CURATION_ACTIVE:-false}" = "true" ]; then
-        # Curation deliberately excludes context-mode runtime code because it is
-        # image-owned, while its managed /ctx command imports this companion.
-        # Initial rclone sync removes local files absent from R2, so restore this
-        # declared image-owned dependencies without overwriting release-owned extensions.
+        # Curation excludes these image-owned companions: context-mode's /ctx
+        # dependency and the prepared MCP package's hosted return adapter.
+        # Both load inertly outside their configured flows in either mode.
+        # Initial sync can remove files absent from R2; restore only these
+        # declared image dependencies without overwriting release-owned extensions.
         mkdir -p "$dest"
         local companion
         for companion in "${IMAGE_OWNED_MANAGED_EXTENSION_COMPANIONS[@]}"; do
@@ -1045,6 +1053,11 @@ establish_bisync_baseline() {
             --retries 3 --retries-sleep 10s \
             --transfers 32 --checkers 64 \
             --stats 30s --stats-one-line > "$BASELINE_OUTPUT" 2>&1; then
+            SYNC_RESULT=0
+        else
+            SYNC_RESULT=$?
+        fi
+        if cleanup_rclone_conflicts "$USER_HOME/" "r2:$R2_BUCKET_NAME/" "$SYNC_RESULT" >> "$BASELINE_OUTPUT" 2>&1; then
             SYNC_RESULT=0
         else
             SYNC_RESULT=$?
@@ -1189,6 +1202,11 @@ bisync_with_r2() {
     else
         RESULT=$?
     fi
+    if cleanup_rclone_conflicts "$USER_HOME/" "r2:$R2_BUCKET_NAME/" "$RESULT" >> "$SYNC_OUTPUT" 2>&1; then
+        RESULT=0
+    else
+        RESULT=$?
+    fi
     cat "$SYNC_OUTPUT" >> $CODEFLARE_RUNTIME_ROOT/sync/sync.log
     cat "$SYNC_OUTPUT"
 
@@ -1196,7 +1214,7 @@ bisync_with_r2() {
     # The daemon reads it for vanishing-file recovery. It's overwritten each invocation.
 
     record_sync_disk_failure "$SYNC_OUTPUT"
-    # Pi transcript conflict copies were removed by cleanup; other conflict files remain untouched.
+    # Shared post-transfer cleanup removes conflict copies without changing original transfer failures.
     if [ $RESULT -eq 0 ]; then
         # A sync that rewrote a hook from R2 dropped its exec bit; restore it here so
         # the window is seconds rather than the rest of the daemon cycle.
@@ -2306,8 +2324,11 @@ configure_tab_autostart() {
             fi
 
             case "$classic_agent_kind:$classic_agent_state" in
-                pi:fresh) classic_agent_launch="pi --session-id $classic_agent_id" ;;
-                pi:resume) classic_agent_launch="pi --session-id $classic_agent_id" ;;
+                pi:fresh|pi:resume)
+                    # Evaluate the parent capability in the managed PTY, not now:
+                    # Host issues it only when that terminal is actually spawned.
+                    classic_agent_launch="if [[ \"\${SESSION_MODE:-}\" = advanced && \"\${CODEFLARE_MCP_CALLBACK_ORIGIN:-}\" =~ ^https://[^/?#@[:space:]]+$ && \"\${CODEFLARE_MCP_LIFECYCLE_GENERATION:-}\" =~ ^[1-9][0-9]*$ && \"\${CODEFLARE_MCP_LAUNCH_CAPABILITY:-}\" =~ ^[a-f0-9]{64}$ ]] && printf '%s' \"\${CODEFLARE_MCP_PORTALS_JSON:-[]}\" | jq -e 'type == \"array\" and length > 0' >/dev/null 2>&1; then /usr/local/bin/codeflare-pi-mcp-launch --session-id $classic_agent_id; else env -u CODEFLARE_MCP_HOSTED -u CODEFLARE_MCP_LAUNCH_CAPABILITY pi --session-id $classic_agent_id; fi"
+                    ;;
                 claude:fresh) classic_agent_launch="claude --dangerously-skip-permissions --session-id $classic_agent_id" ;;
                 claude:resume) classic_agent_launch="claude --dangerously-skip-permissions --resume $classic_agent_id" ;;
                 *:unavailable) classic_agent_launch="printf '%s\\n' 'Codeflare: saved Classic agent transcript is unavailable; start or resume it manually.' >&2" ;;
@@ -3442,6 +3463,19 @@ PI_MCP_MIGRATION
     fi
 }
 configure_pi_mcp_adapter
+
+# Instance-managed portal connections are applied only at eligible Pi startup.
+# The merge owns its recorded registrations, never user OAuth grants or other servers.
+configure_pi_mcp_portals() {
+    coding_agent_is_selected pi || return 0
+    [ "${SESSION_MODE:-default}" = "advanced" ] || return 0
+    [ "${PI_MCP_CONFIG_READY:-0}" = "1" ] || return 0
+    PI_MCP_CONFIG_READY="$PI_MCP_CONFIG_READY" \
+    SESSION_MODE="$SESSION_MODE" \
+    CODEFLARE_MCP_PORTALS_JSON="${CODEFLARE_MCP_PORTALS_JSON:-[]}" \
+        node /opt/codeflare/merge-pi-mcp-portals.mjs "$USER_HOME/.pi/agent/mcp.json"
+}
+configure_pi_mcp_portals || echo "[entrypoint] WARNING: Pi MCP portal configuration skipped; existing files preserved"
 
 _merge_consult_llm_mcp() {
     # $1 target json, $2 config json, $3 human label

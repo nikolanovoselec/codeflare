@@ -212,7 +212,16 @@ bootstrap() {
             run_agent "$pane" "$command" codex codex ;;
         'opencode') run_agent "$pane" "$command" opencode opencode ;;
         'copilot'|'copilot --yolo') run_agent "$pane" "$command" copilot copilot ;;
-        'pi') run_agent "$pane" 'pi --tui-mode fullscreen' pi pi ;;
+        'pi')
+            local pi_command='env -u CODEFLARE_MCP_HOSTED -u CODEFLARE_MCP_LAUNCH_CAPABILITY pi --tui-mode fullscreen'
+            if [[ "${SESSION_MODE:-}" = advanced && "${CODEFLARE_MCP_CALLBACK_ORIGIN:-}" =~ ^https://[^/?#@[:space:]]+$ \
+                && "${CODEFLARE_MCP_LIFECYCLE_GENERATION:-}" =~ ^[1-9][0-9]*$ \
+                && "${CODEFLARE_MCP_LAUNCH_CAPABILITY:-}" =~ ^[a-f0-9]{64}$ ]] \
+                && printf '%s' "${CODEFLARE_MCP_PORTALS_JSON:-[]}" | jq -e 'type == "array" and length > 0' >/dev/null 2>&1; then
+                pi_command='/usr/local/bin/codeflare-pi-mcp-launch --tui-mode fullscreen'
+            fi
+            run_agent "$pane" "$pi_command" pi pi
+            ;;
         'agy'|'agy --dangerously-skip-permissions') run_agent "$pane" "$command" antigravity-cli agy ;;
         'htop'|'yazi'|'lazygit') run_process "$pane" "$command" ;;
         *) fail "unsupported terminal command" ;;

@@ -32,6 +32,10 @@ export interface ContainerEnvState {
   /** REQ-ENTERPRISE-018: Governed Mode — this bucket's R2 SSE-C is disabled. Emits R2_SSE_DISABLED so entrypoint.sh drops SSE-C from rclone.conf + enables checksums. */
   _r2SseDisabled?: boolean;
   _remoteCurationActive?: boolean;
+  /** Administrator-owned non-secret portal endpoints; OAuth credentials stay with each owner. */
+  _mcpPortals?: Array<{ name: string; url: string }>;
+  _mcpCallbackOrigin?: string;
+  _mcpLifecycleGeneration?: number;
   _remoteCurationReleaseDigest?: string | null;
   _remoteCurationManifestDigest?: string | null;
   _managedResourcePolicy?: ManagedResourcePolicy;
@@ -469,6 +473,13 @@ export function buildEnvVars(
     ...(!restrictedOperator && state._gitCloneTargets && { GIT_CLONE_TARGETS: state._gitCloneTargets }),
     // Session mode (controls memory persistence in entrypoint.sh)
     SESSION_MODE: state._sessionMode,
+    ...(!restrictedOperator && state._sessionMode === 'advanced' && (state._mcpPortals?.length ?? 0) > 0
+      ? {
+        CODEFLARE_MCP_PORTALS_JSON: JSON.stringify(state._mcpPortals),
+        ...(state._mcpCallbackOrigin && { CODEFLARE_MCP_CALLBACK_ORIGIN: state._mcpCallbackOrigin }),
+        ...(Number.isSafeInteger(state._mcpLifecycleGeneration) && state._mcpLifecycleGeneration! > 0
+          ? { CODEFLARE_MCP_LIFECYCLE_GENERATION: String(state._mcpLifecycleGeneration) } : {}),
+      } : {}),
     CODEFLARE_SESSION_WORKSPACE: state._sessionWorkspace,
     CODEFLARE_TERMINAL_MODE: state._terminalMode,
     // REQ-MEM-001 AC4: user's IANA timezone. The capture haiku resolves

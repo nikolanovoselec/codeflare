@@ -154,8 +154,19 @@
       "advanced"
     ]
   },
+  "extensions/active-session-transcript-trimming.ts": {
+    "modes": [
+      "advanced"
+    ]
+  },
   "extensions/memory-vault.ts": {
     "modes": [
+      "advanced"
+    ]
+  },
+  "extensions/mcp-portal-oauth.ts": {
+    "modes": [
+      "default",
       "advanced"
     ]
   },

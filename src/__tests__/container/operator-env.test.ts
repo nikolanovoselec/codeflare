@@ -29,6 +29,14 @@ function state(overrides: Partial<ContainerEnvState> = {}): ContainerEnvState {
 }
 
 describe('operator container environment', () => {
+  it('REQ-AGENT-227 AC3: restricted operators do not inherit administrator MCP portal connections', () => {
+    const vars = buildEnvVars(state({ _operatorContainerProfile: profile, _sessionMode: 'advanced',
+      _mcpPortals: [{ name: 'enterprise', url: 'https://mcp.example.com/mcp' }] }),
+    { ENTERPRISE_MODE: 'active' } as Env);
+    expect(vars).not.toHaveProperty('CODEFLARE_MCP_PORTALS_JSON');
+    expect(vars.CODEFLARE_OPERATOR_SESSION).toBe('true');
+  });
+
   it('emits parent-bound Pi config and no broad credentials or whole-home restore', () => {
     const vars = buildEnvVars(state({ _operatorContainerProfile: profile,
       _allowPersonalPiProviders: true, _piDefaultSource: 'pi-native' }), { ENTERPRISE_MODE: 'active' } as Env);

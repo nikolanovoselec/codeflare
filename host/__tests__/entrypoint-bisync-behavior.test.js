@@ -33,7 +33,11 @@ function extractTopLevelFunction(name) {
   if (start === -1) throw new Error(`Could not locate ${name}() in entrypoint.sh`);
   const end = lines.findIndex((line, index) => index > start && line === '}');
   if (end === -1) throw new Error(`Could not locate end of ${name}() in entrypoint.sh`);
-  return lines.slice(start, end + 1).join('\n');
+  const body = lines.slice(start, end + 1).join('\n');
+  if (['initial_sync_from_r2', 'establish_bisync_baseline', 'bisync_with_r2'].includes(name)) {
+    return `source ${JSON.stringify(resolve(__dirname, '../../scripts/rclone-conflict-cleanup.sh'))}\n${body}`;
+  }
+  return body;
 }
 
 // Extract just the `start_sync_daemon` function body (from header to
@@ -174,6 +178,7 @@ recover_vanished_files() {
 }
 ${resyncStub}
 cleanup_old_transcripts() { : ; }
+run_vault_session_compaction_after_sync() { : ; }
 update_sync_status() {
   echo "STATUS status=$1 err=$2" >> "${logFile}"
 }
@@ -187,12 +192,12 @@ touch "$SYNC_RUNTIME_DIR/last-bisync-output.txt"
 
 ${patched}
 
-# Run the daemon in the background. Tests send signals + wait.
-start_sync_daemon &
-DAEMON_PID=$!
+# The production function backgrounds its loop and returns its exact PID.
+start_sync_daemon
+DAEMON_PID=$SYNC_DAEMON_PID
 echo "DAEMON_PID=$DAEMON_PID" >> "${logFile}"
-# Print PID on stdout so the parent test process can capture it.
-echo "$DAEMON_PID"
+# Distinguish the PID protocol from ordinary production startup messages.
+echo "DAEMON_PID=$DAEMON_PID"
 # Block on the daemon (tests kill it externally).
 wait $DAEMON_PID 2>/dev/null
 echo "DAEMON_EXITED" >> "${logFile}"
@@ -229,22 +234,18 @@ async function readDaemonPid(child) {
     let buf = '';
     const onData = (chunk) => {
       buf += chunk.toString('utf8');
-      const newline = buf.indexOf('\n');
-      if (newline >= 0) {
+      const match = buf.match(/^DAEMON_PID=(\d+)\r?$/m);
+      if (match) {
         child.stdout.off('data', onData);
-        const pid = parseInt(buf.slice(0, newline).trim(), 10);
-        if (Number.isNaN(pid)) {
-          reject(new Error(`Could not parse daemon PID from harness output: ${buf}`));
-        } else {
-          resolve(pid);
-        }
+        clearTimeout(timer);
+        resolve(Number(match[1]));
       }
     };
-    child.stdout.on('data', onData);
-    setTimeout(() => {
+    const timer = setTimeout(() => {
       child.stdout.off('data', onData);
       reject(new Error('Timeout waiting for daemon PID from harness'));
     }, 2000);
+    child.stdout.on('data', onData);
   });
 }
 
@@ -272,7 +273,7 @@ describe('entrypoint.sh bisync daemon behavior (real) / REQ-STOR-002 (file persi
     try {
       // With sleep patched to 1s, the daemon should call bisync_with_r2
       // within ~2s of launching. We give 4s of headroom for slow CI.
-      const log = await waitFor(h.logFile, (s) => /BISYNC_CALLED/.test(s), 4000);
+      const log = await waitFor(h.logFile, (s) => /STATUS status=success/.test(s), 4000);
       assert.match(log, /BISYNC_CALLED/, 'bisync_with_r2 must be called after the cadence sleep');
       assert.match(log, /STATUS status=syncing/, 'the daemon must publish syncing before each bisync run');
       assert.ok(
@@ -369,7 +370,10 @@ describe('entrypoint.sh bisync daemon behavior (real) / REQ-STOR-002 (file persi
     // The daemon must run EXACTLY ONE additional bisync (n=2), not 5.
     const releaseFile = join(tmpdir(), `bisync-release-${Date.now()}-${Math.random().toString(36).slice(2)}`);
     const h = spawnHarness({
-      daemonBody,
+      daemonBody: daemonBody.replace(
+        'sleep $((CONSECUTIVE_FAILURES > 0 ? 120 : 900))',
+        'sleep $((BISYNC_CALL_COUNT > 0 ? 10 : 1))',
+      ),
       bisyncBehavior: 'block-until-released',
       blockReleaseFile: releaseFile,
     });
@@ -389,11 +393,8 @@ describe('entrypoint.sh bisync daemon behavior (real) / REQ-STOR-002 (file persi
       writeFileSync(releaseFile, '');
       // Wait for the rerun (n=2) to appear.
       await waitFor(h.logFile, (s) => /BISYNC_CALLED n=2/.test(s), 5000);
-      // Sleep long enough to be sure no n=3 ever appears. With patched
-      // 1s cadence, 3 full cycles is the smallest window that catches a
-      // runaway rerun while staying within CI's per-test budget. Tuned up
-      // from 2s after code-reviewer flagged the original as flake-prone
-      // on the resource-constrained CI runner.
+      // The first fixture cadence is one second, later natural cadences ten.
+      // Observe queued reruns without counting unrelated scheduled cycles.
       await new Promise((r) => setTimeout(r, 3500));
       const finalLog = readFileSync(h.logFile, 'utf8');
       const matches = finalLog.match(/BISYNC_CALLED n=\d+/g) || [];
@@ -420,6 +421,7 @@ describe('entrypoint.sh bisync daemon behavior (real) / REQ-STOR-002 (file persi
       bisyncBehavior: 'failure',
       recoveryReturns: 1, // nothing to recover -> CONSECUTIVE_FAILURES increments
       resyncBehavior: 'success',
+      listingPresent: true,
       recordSleepDurations: true,
     });
     const pid = await readDaemonPid(h.child);
@@ -473,7 +475,7 @@ describe('entrypoint.sh bisync daemon behavior (real) / REQ-STOR-002 (file persi
     });
     const pid = await readDaemonPid(h.child);
     try {
-      const log = await waitFor(h.logFile, (s) => /RESYNC_CALLED/.test(s), 8000);
+      const log = await waitFor(h.logFile, (s) => /RESYNC_CALLED/.test(s) && /STATUS status=success err=null/.test(s), 8000);
       assert.match(log, /RESYNC_CALLED/,
         'three consecutive failures must invoke establish_bisync_baseline (the --resync fallback)');
       assert.match(log, /STATUS status=failed/,
@@ -543,6 +545,7 @@ record_sync_disk_failure() { :; }
 repair_hook_exec_bits() { :; }
 pgrep() { return 1; }
 rclone() {
+  case "$1" in delete|deletefile) return 0;; bisync) ;; *) return 1;; esac
   printf 'ARGS:%s\\n' "$*"
   case " $* " in *' -v '*) printf 'Transferred: secret/path.txt\\n';; esac
   printf 'Transferred: 1 / 1, 100%%\\nElapsed time: 1.0s\\n'

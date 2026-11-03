@@ -96,6 +96,7 @@ export interface CachedDiskMetrics {
 
 /** Options passed to Session and SessionManager constructors. */
 export interface SessionOptions {
+  readonly mcpOAuth?: import('./mcp-oauth.js').McpOAuthReturns;
   readonly tabConfigMap?: TabConfigMap;
   readonly terminalCommand?: string;
   readonly terminalArgs?: string;

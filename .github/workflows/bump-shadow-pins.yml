@@ -1471,6 +1471,11 @@ jobs:
               ;;
           esac
           npm ci --no-audit --no-fund --silent
+          if [ "$PKG" = 'pi-mcp-extension' ]; then
+            (cd preseed/agents/pi && npm ci --ignore-scripts --no-audit --no-fund)
+            # Qualify this regenerated candidate before artifacts/commit/push.
+            node scripts/qualify-pi-mcp-hosted-oauth.mjs
+          fi
           npm run generate:agent-seed
 
           git add -A

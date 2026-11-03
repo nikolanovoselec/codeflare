@@ -80,6 +80,7 @@ export interface ReadinessFlags {
 }
 
 export interface RequestRouterDeps {
+  mcpOAuth?: import('./mcp-oauth.js').McpOAuthReturns;
   sessionManager: SessionManager;
   wsEventLog: WsEvent[];
   activityTracker: ActivityTracker;
@@ -288,6 +289,28 @@ export function createRequestHandler(deps: RequestRouterDeps): (req: http.Incomi
     if (!authOutcome.allowed) {
       res.writeHead(authOutcome.status, { 'Content-Type': 'application/json' });
       res.end(authOutcome.body);
+      return;
+    }
+
+    if (pathname === '/mcp-oauth/lookup' || pathname === '/mcp-oauth/return') {
+      // Container bearer admission precedes body reads. Never log this body or
+      // propagate exception messages: only the exact live waiter receives code.
+      let status = 400;
+      let output: object = { error: 'MCP authorization return unavailable' };
+      try {
+        if (method === 'POST' && deps.mcpOAuth) {
+          const value = JSON.parse(new TextDecoder().decode(await readBoundedBody(req, 16384)));
+          if (pathname === '/mcp-oauth/lookup') {
+            const binding = deps.mcpOAuth.lookup(value.state);
+            if (binding) { status = 200; output = binding; } else status = 404;
+          } else {
+            status = deps.mcpOAuth.deliver(value) ? 200 : 409;
+            output = { delivered: status === 200 };
+          }
+        }
+      } catch { /* Deliberately content-free callback failure. */ }
+      res.writeHead(status, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer' });
+      res.end(JSON.stringify(output));
       return;
     }
 

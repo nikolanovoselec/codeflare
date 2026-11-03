@@ -62,6 +62,7 @@ async function managedSource(t) {
     'claude/plugins/context-mode/.claude-plugin/plugin.json',
     'claude/plugins/context-mode/README.md',
     'pi/extensions/context-mode-runtime.ts',
+    'pi/extensions/mcp-portal-oauth.ts',
     'pi/package.json',
     'pi/package-lock.json',
   ]);
@@ -211,6 +212,7 @@ describe('REQ-AGENT-147 AC4: release path and mode boundary', () => {
       '.pi\\agent\\file',
       '.claude/plugins/context-mode/hooks.json',
       '.pi/agent/extensions/context-mode-runtime.ts',
+      '.pi/agent/extensions/mcp-portal-oauth.ts',
       '.pi/agent/npm/package.json',
       '.ssh/config',
       '.pi/agent/extensions/review-job-helpers.ts',
@@ -226,6 +228,13 @@ describe('REQ-AGENT-147 AC4: release path and mode boundary', () => {
         /path|context-mode|retired Pi extension/i,
       );
     }
+  });
+
+  it('REQ-AGENT-226: managed releases cannot retire the image-owned OAuth companion', async () => {
+    const { buildAgentSeedRelease } = await import(releaseUrl);
+    await assert.rejects(buildAgentSeedRelease(releaseOptions(compiledSeed({
+      retiredKeys: ['.pi/agent/extensions/mcp-portal-oauth.ts'],
+    }))), /image-owned Pi companion path/);
   });
 
   it('REQ-AGENT-147 AC4: rejects invalid modes, duplicate ownership, and live paths listed as retired', async () => {

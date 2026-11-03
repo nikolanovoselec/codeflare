@@ -306,6 +306,8 @@ export const SETUP_KEYS = {
   R2_ENDPOINT: 'setup:r2_endpoint',
   CUSTOM_DOMAIN: 'setup:custom_domain',
   ALLOWED_ORIGINS: 'setup:allowed_origins',
+  /** Non-secret instance MCP portal names and HTTPS endpoints; owner OAuth stays in Pi. */
+  MCP_PORTALS: 'setup:mcp_portals',
   ONBOARDING_LANDING_PAGE: 'setup:onboarding_landing_page',
   AUTH_DOMAIN: 'setup:auth_domain',
   ACCESS_AUD: 'setup:access_aud',
@@ -439,7 +441,7 @@ export function getManagedEnvironmentStateKey(configFingerprint: string): string
  */
 const CUSTOM_DOMAIN_PATTERN = /^(?=.{1,253}$)(?!-)[a-z0-9-]{1,63}(?<!-)(?:\.(?!-)[a-z0-9-]{1,63}(?<!-))*$/i;
 
-function isValidCustomDomain(domain: string): boolean {
+export function isValidCustomDomain(domain: string): boolean {
   return CUSTOM_DOMAIN_PATTERN.test(domain);
 }
 

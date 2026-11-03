@@ -752,3 +752,32 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 **Status:** Implemented
 
 ---
+
+### REQ-MEM-028: Pi active transcript size retention
+
+**Intent:** The active Pi transcript remains small without changing the running conversation or memory capture.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. The existing crossed-20 real-user-prompt cadence schedules one trim independently of Vault changes or an active capture; existing counters, extraction requests and receipts are unchanged. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::registerMemoryVault --> <!-- @test: host/__tests__/pi-transcript-trimming.test.js (REQ-MEM-028 AC1: existing cadence schedules trimming without changing capture behavior) -->
+2. Only this instance's loaded parent-session transcript is eligible; switching, forking, shutdown and foreign identity cancel pending work. <!-- @impl: preseed/agents/pi/extensions/active-session-transcript-trimming.ts::registerActiveSessionTranscriptTrimming --> <!-- @test: host/__tests__/pi-transcript-trimming.test.js (REQ-MEM-028 AC2: lifecycle cancellation protects foreign and child transcripts) -->
+3. Files strictly above 50,000,000 UTF-8 bytes are reduced toward approximately 20,000,000 bytes when eligible savings permit; files at or below the trigger and an unreachable protected-state floor remain unchanged. <!-- @impl: preseed/agents/pi/extensions/active-session-transcript-trimming.ts::trimActiveSessionTranscript --> <!-- @test: host/__tests__/pi-transcript-trimming.test.js (REQ-MEM-028 AC3: size policy preserves small files and protected-state floors) -->
+4. Current conversation content, visible text, call arguments, IDs/parents, accounting, Goal/Plan/opaque records and full Todo restoration checkpoints survive; only proven duplicate or eligible historical payloads are reduced. <!-- @impl: preseed/agents/pi/extensions/active-session-transcript-trimming.ts::trimActiveSessionTranscript --> <!-- @test: host/__tests__/pi-transcript-trimming.test.js (REQ-MEM-028 AC4: retained conversation and branch state reopen unchanged) -->
+5. Normal entries continue appending exactly once at the same transcript pathname without reload, session switching or SDK/cache changes. <!-- @impl: preseed/agents/pi/extensions/active-session-transcript-trimming.ts::trimActiveSessionTranscript --> <!-- @test: host/__tests__/pi-transcript-trimming.test.js (REQ-MEM-028 AC5: ordinary appends survive replacement without reload) -->
+6. Malformed, partial or unsupported-format input, symlink/nonregular targets, identity/source changes and pre-commit filesystem failures preserve the original and remove owned staging; post-rename directory-sync failure reports a durability warning without claiming rollback. <!-- @impl: preseed/agents/pi/extensions/active-session-transcript-trimming.ts::trimActiveSessionTranscript --> <!-- @test: host/__tests__/pi-transcript-trimming.test.js (REQ-MEM-028 AC6: invalid inputs and failed replacement leave originals intact) -->
+7. The advanced-only extension uses one synchronous same-process lifecycle commit and retains no transcript backup, watcher, model call or additional prompt counter. <!-- @impl: preseed/agents/pi/extensions/active-session-transcript-trimming.ts::registerActiveSessionTranscriptTrimming --> <!-- @test: host/__tests__/pi-transcript-trimming.test.js (REQ-MEM-028 AC7: registration defers filesystem work and creates no retained backup) -->
+8. A later SDK rewrite may grow the file; a later legitimate cadence can reduce it again without a retry loop or cache mutation. <!-- @impl: preseed/agents/pi/extensions/active-session-transcript-trimming.ts::trimActiveSessionTranscript --> <!-- @test: host/__tests__/pi-transcript-trimming.test.js (REQ-MEM-028 AC8: a later rewrite is handled at a later cadence) -->
+
+**Constraints:** No Goal internals, provider/authentication, dependencies, npm links, frozen extraction inputs or other session files are changed. File-size reduction does not imply RAM reclamation or lossless historical payload replay.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-MEM-002](#req-mem-002-capture-triggers-every-20-user-messages-and-on-resume), [REQ-MEM-006](#req-mem-006-memory-available-only-in-pro-advanced-mode)
+
+**Verification:** Focused filesystem and lifecycle behavior tests; exact-source managed CI and the user's deliberate reload/load receipt remain separate gates.
+
+**Status:** Implemented
+
+---

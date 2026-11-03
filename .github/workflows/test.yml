@@ -175,6 +175,12 @@ jobs:
               - 'landing/**'
               - 'src/lib/design-ready.ts'
             pi:
+              - 'scripts/patch-pi-mcp-hosted-oauth.mjs'
+              - 'scripts/qualify-pi-mcp-hosted-oauth.mjs'
+              - 'host/__tests__/mcp-hosted-oauth.test.js'
+              - 'host/__tests__/mcp-oauth-return-channel.test.js'
+              - 'host/__fixtures__/mcp-oauth-channel.mjs'
+              - 'host/src/mcp-oauth.ts'
               - 'scripts/patch-rpiv-question-timeout.mjs'
               - 'scripts/rpiv-question-timeout.mjs'
               - 'scripts/verify-rpiv-host-peers.mjs'
@@ -949,6 +955,9 @@ jobs:
           key-prefix: pi-prompt
           ignore-scripts: 'true'
 
+      - name: Qualify the real prepared MCP extension and owner return channel
+        run: node scripts/qualify-pi-mcp-hosted-oauth.mjs
+
       - name: Apply pinned Pi native display patch
         run: node scripts/patch-pi-native-model-display.mjs preseed/agents/pi/node_modules/@earendil-works/pi-coding-agent
 
@@ -1002,7 +1011,7 @@ jobs:
       - name: Verify real Pi runtime reports
         env:
           CODEFLARE_PI_REPORT_ROOT: ${{ runner.temp }}
-        run: node --test preseed/agents/pi/test/runtime-projection.test.mjs preseed/agents/pi/test/questionnaire-timeout.test.mjs preseed/agents/pi/test/enterprise-routing.test.mjs preseed/agents/pi/test/enterprise-model-display.test.mjs preseed/agents/pi/test/native-display-patch.test.mjs preseed/agents/pi/test/consult-proxy.test.mjs preseed/agents/pi/test/todo-isolation.test.mjs
+        run: node --test preseed/agents/pi/test/runtime-projection.test.mjs preseed/agents/pi/test/questionnaire-timeout.test.mjs preseed/agents/pi/test/enterprise-routing.test.mjs preseed/agents/pi/test/enterprise-model-display.test.mjs preseed/agents/pi/test/native-display-patch.test.mjs preseed/agents/pi/test/todo-isolation.test.mjs
 
       - name: Upload Pi prompt reports
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -1065,6 +1074,9 @@ jobs:
           directory: preseed/agents/pi
           key-prefix: host-pi-inference
           ignore-scripts: 'true'
+
+      - name: Prepare the selected hosted MCP source before host qualification
+        run: node scripts/patch-pi-mcp-hosted-oauth.mjs preseed/agents/pi/node_modules/pi-mcp-extension
 
       - name: Install authentic Graphify MCP compatibility runtime
         run: |

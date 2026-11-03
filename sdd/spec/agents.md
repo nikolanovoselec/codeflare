@@ -2482,6 +2482,61 @@ None.
 
 ---
 
+### REQ-AGENT-226: Hosted owner-initiated Pi MCP OAuth
+
+**Intent:** An owner can authorize the existing managed MCP connection through Codeflare HTTPS and return to the same waiting Pi process.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Explicit owner command/UI initiation prints the authorization URL; model tool calls, subagents and headless contexts cannot initiate hosted browser authentication. <!-- @impl: preseed/agents/pi/extensions/mcp-portal-oauth.ts::mcpPortalOAuth --> <!-- @test: host/__tests__/mcp-hosted-oauth.test.js (REQ-AGENT-226 AC1: only explicit owner initiation exposes hosted authorization) -->
+2. The original MCP provider owns state, PKCE, exchange, token persistence and refresh; hosted return uses the same HTTPS redirect and one upstream initialization without a loopback listener or OS browser opener. <!-- @impl: scripts/patch-pi-mcp-hosted-oauth.mjs::prepareHostedOAuth --> <!-- @test: host/__tests__/mcp-hosted-oauth.test.js (REQ-AGENT-226 AC2: the real prepared provider completes hosted OAuth and MCP initialization) -->
+3. Callback authentication and pending-flow identity bind the owner, instance, lifecycle generation, exact live process/waiter, server, issuer, redirect and SDK state; replay, expiry, cancellation and replaced runtime cannot deliver elsewhere or start compute. <!-- @impl: src/routes/mcp-oauth.ts::default --> <!-- @test: src/__tests__/routes/mcp-oauth.test.ts (REQ-AGENT-226 AC3: callback authority and one-use delivery protect the original waiter) --> <!-- @impl: src/container/container-config.ts::refreshMcpLaunchGeneration --> <!-- @test: src/__tests__/container/container-env.test.ts (REQ-AGENT-226 AC3: launch uses the claimed D1 generation rather than stale operational storage) -->
+4. Codes and tokens stay out of model/transcript payloads, application diagnostics and completion URLs; callbacks do not enter code-bearing login-return chains, durable code queues or another token store. Platform invocation-log confidentiality requires separate qualification before live authorization. <!-- @impl: src/routes/mcp-oauth.ts::default --> <!-- @test: src/__tests__/routes/mcp-oauth.test.ts (REQ-AGENT-226 AC4: callback responses and retained diagnostics exclude secret material) --> <!-- @test: src/__tests__/security/security-headers.test.ts (REQ-AGENT-226 AC4: full app preserves no-referrer and routes MCP returns before auth fallback) -->
+5. Existing local OAuth, valid-grant refresh/reconnect, lazy/direct tools, config migration and shutdown behavior remain intact. <!-- @impl: preseed/agents/pi/extensions/mcp-portal-oauth.ts::mcpPortalOAuth --> <!-- @test: host/__tests__/mcp-hosted-oauth.test.js (REQ-AGENT-226 AC5: local OAuth refresh lazy tools and shutdown remain unchanged) -->
+6. Package drift or absent/incompatible companions fail closed before warm imports; preparation is exact-profile guarded, complete and idempotent, without modifying live npm trees or SDK internals. <!-- @impl: scripts/patch-pi-mcp-hosted-oauth.mjs::prepareHostedOAuth --> <!-- @test: host/__tests__/mcp-hosted-oauth.test.js (REQ-AGENT-226 AC6: preparation rejects drift without partial runnable output) --> <!-- @impl: scripts/agent-seed-release-limits.mjs::validateManagedReleasePath --> <!-- @test: host/__tests__/agent-seed-release.test.js (REQ-AGENT-226: managed releases cannot retire the image-owned OAuth companion) -->
+7. The existing candidate-update path qualifies the real locked prepared extension, companion and SDK before seed generation, commit or push; image qualification uses the same behavioral entry and retains consult-proxy coverage. <!-- @impl: .github/workflows/bump-shadow-pins.yml --> <!-- @test: host/__tests__/mcp-hosted-oauth.test.js (REQ-AGENT-226 AC7: candidate qualification uses the actual prepared dependency family) -->
+
+**Constraints:** One MCP lifecycle/token owner, one hosted return path, no OAuth broker, SDK fork, generic IPC framework, automatic session start or shared account/GitHub credential substitution. GitHub uses the full write-capable endpoint and per-user grants; configuring capability does not authorize unrelated repository mutations.
+
+**Priority:** P1
+
+**Dependencies:** None
+
+**Verification:** Synthetic OAuth/MCP/host integration and callback isolation tests; portal configuration, real owner consent, platform-log privacy and hosted acceptance require independent evidence.
+
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-227: Instance administration of Pi MCP portals
+
+**Intent:** Administrators configure the portal connections provided to managed Pi sessions without distributing account credentials.
+
+**Applies To:** Admin
+
+**Acceptance Criteria:**
+
+1. Existing Administration controls let an administrator read, add, edit, remove and save multiple uniquely named HTTPS MCP portal URLs; unauthorized users cannot read or change the configuration. <!-- @impl: web-ui/src/components/admin/McpPortalSettings.tsx::McpPortalSettings --> <!-- @test: web-ui/src/__tests__/components/admin/McpPortalSettings.test.tsx (REQ-AGENT-227 AC1: administrators manage multiple named portal URLs) -->
+2. The backend validates names, HTTPS URLs and credential-free input, persists configuration per instance, and returns the saved values without provisioning resources or starting authentication. <!-- @impl: src/lib/mcp-portals.ts::validateMcpPortals --> <!-- @test: src/__tests__/routes/admin-mcp-portals.test.ts (REQ-AGENT-227 AC2: authorized validated configuration persists without secrets or external actions) -->
+3. Session startup propagates the saved list through container environment and entrypoint into advanced Pi's existing mcp.json as lazy OAuth connections; no API key or Worker service binding is substituted for owner OAuth. <!-- @impl: scripts/merge-pi-mcp-portals.mjs::mergePiMcpPortals --> <!-- @test: host/__tests__/pi-mcp-portals.test.js (REQ-AGENT-227 AC3: startup produces multiple lazy OAuth portal connections) --> <!-- @impl: src/container/container-env.ts::buildEnvVars --> <!-- @impl: src/container/container-config.ts::setBucketName --> <!-- @test: src/__tests__/container/container-env.test.ts (REQ-AGENT-227 AC3: startup rereads changed instance portal configuration and clears removals) -->
+4. Repeated startup and portal changes preserve unrelated MCP settings and saved grants; only registrations owned by this managed portal configuration are reconciled. <!-- @impl: scripts/merge-pi-mcp-portals.mjs::mergePiMcpPortals --> <!-- @test: host/__tests__/pi-mcp-portals.test.js (REQ-AGENT-227 AC4: reconciliation preserves unrelated servers and grants) -->
+5. Saving affects subsequent startup without restarting sessions, connecting servers, granting access, or rewriting a running session's MCP configuration. <!-- @impl: src/lib/mcp-portals.ts::validateMcpPortals --> <!-- @test: src/__tests__/routes/admin-mcp-portals.test.ts (REQ-AGENT-227 AC5: saving does not mutate running sessions or grants) -->
+6. The form retains the incumbent administration design and exposes loading, validation, save failure and saved states accessibly without API-key fields or a new configuration framework. <!-- @impl: web-ui/src/components/admin/McpPortalSettings.tsx::McpPortalSettings --> <!-- @test: web-ui/src/__tests__/components/admin/McpPortalSettings.test.tsx (REQ-AGENT-227 AC6: load validation save errors and saved feedback remain accessible) -->
+
+**Constraints:** The name is a stable local connection identifier; the URL is the actual MCP endpoint, optionally carrying the documented Code Mode query. Cloudflare provisioning credentials remain outside Pi configuration. Existing advanced-mode gating and explicit owner-authentication boundaries remain intact.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-226](#req-agent-226-hosted-owner-initiated-pi-mcp-oauth)
+
+**Verification:** Administration, authorization, startup-merge and persistence behavior tests; browser rendering, deployment and owner OAuth acceptance require separate evidence.
+
+**Status:** Implemented
+
+---
+
 ### REQ-AGENT-050: Pi-Native `/review` Workflow Skill
 
 **Intent:** Pi users running `/review` must get the same multi-perspective workflow as Claude users through a dedicated Pi-native review skill, separate from PR-boundary enforcement.

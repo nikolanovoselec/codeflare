@@ -84,6 +84,7 @@ function runSuccessfulBisync(home) {
     `RCLONE_CONFIG=${JSON.stringify(join(home, 'rclone.conf'))}`,
     `RECOVERY_FILTER_FILE=${JSON.stringify(recoveryFile)}`,
     'RCLONE_FILTERS=()',
+    `source ${JSON.stringify(resolve(__dirname, '../../scripts/rclone-conflict-cleanup.sh'))}`,
     'pgrep() { return 1; }',
     'cleanup_main_transcripts() { :; }',
     'cleanup_remote_pi_transcript_conflicts() { :; }',
