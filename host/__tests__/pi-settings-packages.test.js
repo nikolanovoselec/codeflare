@@ -154,19 +154,19 @@ describe('Pi settings.json packages assembly (entrypoint.sh)', () => {
 // Its provider-neutral configuration is exercised against real settings files in
 // src/__tests__/lib/pi-smart-compact-config.test.ts.
 describe('REQ-AGENT-222 AC1: managed Smart Compact package assembly', () => {
-  it('REQ-AGENT-222 AC1: fresh boot installs exactly npm:pi-smart-compact@10.6.2', () => {
+  it('REQ-AGENT-222 AC1: fresh boot installs exactly npm:pi-smart-compact@10.7.2', () => {
     const settings = runAssembly('{}');
     assert.deepEqual(settings.packages.filter(entry => /^npm:pi-smart-compact(?:@|$)/.test(sourceOf(entry))),
-      ['npm:pi-smart-compact@10.6.2']);
-    assert.equal(piPackage.dependencies['pi-smart-compact'], '10.6.2', 'the baked package matches the startup pin');
+      ['npm:pi-smart-compact@10.7.2']);
+    assert.equal(piPackage.dependencies['pi-smart-compact'], '10.7.2', 'the baked package matches the startup pin');
   });
 
   for (const stale of ['npm:pi-smart-compact', 'npm:pi-smart-compact@9.0.0',
-    { source: 'npm:pi-smart-compact@10.6.2', extensions: [], skills: [] }]) {
+    { source: 'npm:pi-smart-compact@10.7.2', extensions: [], skills: [] }]) {
     it(`REQ-AGENT-222 AC1: restored ${JSON.stringify(stale)} converges once without changing user settings or similarly named packages`, () => {
       const user = { source: 'npm:user-extension@1.0.0', extensions: ['keep.ts'], userField: true };
       const initial = {
-        packages: [stale, 'npm:pi-smart-compact@10.6.2', 'npm:pi-smart-compact@8.0.0',
+        packages: [stale, 'npm:pi-smart-compact@10.7.2', 'npm:pi-smart-compact@8.0.0',
           'npm:pi-smart-compact-extra@1.0.0', user],
         theme: 'user-theme', defaultProvider: 'user-provider', defaultModel: 'user-model',
         auth: { 'user-provider': { type: 'oauth', access: 'fixture-only' } },
@@ -176,7 +176,7 @@ describe('REQ-AGENT-222 AC1: managed Smart Compact package assembly', () => {
       const first = runAssembly(JSON.stringify(initial));
       const second = runAssembly(JSON.stringify(first));
       assert.deepEqual(first.packages.filter(entry => /^npm:pi-smart-compact(?:@|$)/.test(sourceOf(entry))),
-        ['npm:pi-smart-compact@10.6.2']);
+        ['npm:pi-smart-compact@10.7.2']);
       assert.deepEqual(second, first, 'repeat startup neither duplicates the package nor changes settings');
       assert.deepEqual(first.packages.find(entry => sourceOf(entry) === user.source), user);
       assert.ok(first.packages.includes('npm:pi-smart-compact-extra@1.0.0'));
@@ -199,7 +199,7 @@ describe('REQ-AGENT-222 AC1: restored local Smart Compact registration migration
           : './packages/pi-smart-compact-10.6.2';
         original = {
           packages: [shape.startsWith('filtered') ? { source, extensions: ['dist/index.js'] } : source,
-            'npm:pi-smart-compact@10.6.2', 'npm:pi-smart-compact-extra@1.0.0',
+            'npm:pi-smart-compact@10.7.2', 'npm:pi-smart-compact-extra@1.0.0',
             './custom/pi-smart-compact-10.6.2', './packages/pi-smart-compact-10.6.2-extra'],
           smartCompact: { mode: 'fast', autoTrigger: false },
           semanticCompact: { futureOption: false }, theme: 'keep-theme',
@@ -216,7 +216,7 @@ describe('REQ-AGENT-222 AC1: restored local Smart Compact registration migration
     const sources = settings.packages.map(sourceOf);
     assert.equal(sources.includes(sourceOf(original.packages[0])), false, 'the duplicate local registration is removed');
     assert.deepEqual(settings.packages.filter(entry => /^npm:pi-smart-compact(?:@|$)/.test(sourceOf(entry))),
-      ['npm:pi-smart-compact@10.6.2']);
+      ['npm:pi-smart-compact@10.7.2']);
     for (const source of original.packages.slice(2)) assert.ok(sources.includes(source), source);
     for (const spec of REQUIRED) assert.ok(sources.includes(spec), spec);
     for (const key of ['smartCompact', 'semanticCompact', 'theme', 'customPreference']) {
