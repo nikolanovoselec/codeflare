@@ -2459,15 +2459,13 @@ None.
 
 ### REQ-AGENT-225: Environment update recovery
 
-**Intent:** Users receive actionable recovery guidance while environment admission remains enforced.
+**Intent:** Managed-start rejections remain visibly blocking while status recovery is unavailable.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
 1. A typed managed-start rejection remains visibly blocking while ancillary status reads are pending or failed. <!-- @impl: web-ui/src/stores/session.ts::sessionStore --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-STOR-022 AC3 / REQ-AGENT-175: a typed start gate stays visible while ancillary status is %s, independently of batch status) -->
-2. Proven runtime incompatibility identifies administrator publication and activation of a compatible signed release, without claiming reconciliation is running. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @impl: web-ui/src/components/SessionDropdown.tsx::SessionDropdown --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-STOR-023 AC5 / REQ-AGENT-175: runtime incompatibility explains administrator recovery instead of claiming an update is running) --> <!-- @test: web-ui/src/__tests__/components/SessionDropdown.test.tsx (REQ-STOR-023 AC5 / REQ-AGENT-175: an incompatible managed release is blocked rather than waiting for session stop) -->
-3. An explicit environment-status check reports pending or failure feedback without starting a session. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-AGENT-175: explains a %s environment gate and offers a status check without starting a session) --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-AGENT-175: a failed environment status check offers recovery while starts stay blocked) -->
 
 **Constraints:**
 
@@ -2478,7 +2476,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-175](#req-agent-175-environment-update-ui-lockdown), [REQ-STOR-023](storage.md#req-stor-023-managed-release-status-projection)
 
-**Verification:** Automated session-store and dashboard component tests; deployed reconciliation and hosted acceptance require separate evidence.
+**Verification:** Automated session-store tests; deployed reconciliation and hosted acceptance require separate evidence.
 
 **Status:** Implemented
 

@@ -109,7 +109,7 @@ vi.mock('../../stores/session', async () => {
   const [_preseedUpgrading, setPreseedUpgrading] = createSignal(false);
   let _bucketMigrating = false;
   let _bucketMigrationPercent: number | null = null;
-  let _managedReleaseStatus: 'current' | 'upgrading' | 'update_pending' | null = null;
+  const [_managedReleaseStatus, setManagedReleaseStatus] = createSignal<'current' | 'upgrading' | 'update_pending' | null>(null);
   let _managedReleaseProgress: { phase: 'planning' | 'writing' | 'finalizing'; completed: number; total: number } | null = null;
   let _enterpriseMode = false;
   let _sessionMode = 'advanced';
@@ -126,7 +126,7 @@ vi.mock('../../stores/session', async () => {
       runPreseedUpdate: vi.fn(async (operation: () => Promise<unknown>) => operation()),
       get bucketMigrating() { return _bucketMigrating; },
       get bucketMigrationPercent() { return _bucketMigrationPercent; },
-      get managedReleaseStatus() { return _managedReleaseStatus; },
+      get managedReleaseStatus() { return _managedReleaseStatus(); },
       get managedReleaseProgress() { return _managedReleaseProgress; },
       get enterpriseMode() { return _enterpriseMode; },
       get preferences() { return { sessionMode: _sessionMode }; },
@@ -142,7 +142,7 @@ vi.mock('../../stores/session', async () => {
       _setPreseedUpgrading: (upgrading: boolean) => { setPreseedUpgrading(upgrading); },
       _setBucketMigrating: (v: boolean) => { _bucketMigrating = v; },
       _setBucketMigrationPercent: (v: number | null) => { _bucketMigrationPercent = v; },
-      _setManagedReleaseStatus: (v: 'current' | 'upgrading' | 'update_pending' | null) => { _managedReleaseStatus = v; },
+      _setManagedReleaseStatus: setManagedReleaseStatus,
       _setManagedReleaseProgress: (v: typeof _managedReleaseProgress) => { _managedReleaseProgress = v; },
       _setEnterpriseMode: (v: boolean) => { _enterpriseMode = v; },
     },
