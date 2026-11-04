@@ -88,9 +88,17 @@ export async function baseFetch<T>(
     let errorMessage = body || `HTTP ${response.status}`;
     let steps: Array<{ step: string; status: string; error?: string }> | undefined;
 
-    // Detect HTML error pages (e.g., CF Access login page returned as 403).
-    // Show a clean auth message instead of dumping raw HTML into the UI.
+    // HTML server failures are not evidence of expired authentication.
+    // Preserve their status without exposing HTML or navigating away.
     if (body && isHtmlResponse(response, body)) {
+      if (response.status >= 500 && response.status < 600) {
+        throw new ApiError(
+          `HTTP ${response.status}: Server error. Please try again later.`,
+          response.status,
+          response.statusText,
+        );
+      }
+      // Keep CF Access login recovery (e.g., an HTML 403) unchanged.
       throw expiredSessionError(
         'Authentication expired. Please refresh the page to log in again.',
         body,

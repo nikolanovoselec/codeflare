@@ -158,11 +158,11 @@ describe('SettingsPanel Component / REQ-AGENT-019 (branded settings UI)', () => 
         sessionStoreState.preferences = { sessionMode: mode };
         mockGetUser.mockResolvedValue({ email: 'owner@example.com', authenticated: true, subscriptionTier: tier, subscribedMode: mode });
         render(() => <SettingsPanel isOpen={true} onClose={() => {}} currentUserRole="user" currentUserAccessTier="standard" enterpriseMode={enterprise} />);
-        const header = screen.getByRole('button', { name: /MCP.*Connect MCP portals/ });
+        const header = screen.getByRole('button', { name: /Model Context Protocol.*Connect portals/ });
         fireEvent.click(header);
         expect(header).toHaveAttribute('aria-expanded', 'true');
-        expect(screen.getByRole('region', { name: 'MCP' })).toBeInTheDocument();
-        expect(await screen.findByText(/No MCP portals configured/)).toBeInTheDocument();
+        expect(screen.getByRole('region', { name: 'Model Context Protocol' })).toBeInTheDocument();
+        expect(await screen.findByText(/No portals configured/)).toBeInTheDocument();
         cleanup();
       }
     }

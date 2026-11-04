@@ -20,36 +20,53 @@ afterEach(() => { cleanup(); window.history.replaceState({}, '', window.location
 describe('Settings MCP connections', () => {
   it('REQ-AGENT-228 AC4: multiple portal identities connect through existing browser navigation and disconnect independently', async () => {
     render(() => <McpPortalsSection />);
-    expect(screen.getByRole('status')).toHaveTextContent('Loading MCP portals');
+    expect(screen.getByRole('status')).toHaveTextContent('Loading portals');
     await screen.findByText('alpha');
-    expect(screen.getByText('Connect MCP portals and manage access to their tools.')).toBeInTheDocument();
+    expect(screen.getByText('Connect Model Context Protocol portals and manage access to their tools.')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'alpha' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'beta' })).toBeInTheDocument();
     expect(screen.getByTestId('mcp-alpha-identity')).toHaveTextContent('alpha');
     expect(screen.getByTestId('mcp-alpha-connected-badge')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Connect MCP portal beta' })).toHaveAttribute('data-href', '/auth/mcp/connect/beta');
-    expect(screen.getByRole('button', { name: 'Disconnect MCP portal alpha' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Connect Model Context Protocol portal beta' })).toHaveAttribute('data-href', '/auth/mcp/connect/beta');
+    expect(screen.getByRole('button', { name: 'Disconnect Model Context Protocol portal alpha' })).toBeInTheDocument();
     fireEvent.click(screen.getByTestId('mcp-alpha-disconnect-btn'));
     await screen.findByTestId('mcp-alpha-connect-btn');
     expect(stored.map(p => ({ name: p.name, connected: p.connected }))).toEqual([{ name: 'alpha', connected: false }, { name: 'beta', connected: false }]);
     expect(screen.getByTestId('mcp-beta-connect-btn')).toBeInTheDocument();
   });
 
+  it('REQ-AGENT-228 AC4: disconnect stays busy until its result and preserves the other portal', async () => {
+    let finish!: () => void;
+    disconnect.mockImplementationOnce(() => new Promise<void>(resolve => { finish = resolve; }));
+    render(() => <McpPortalsSection />);
+    const button = await screen.findByRole('button', { name: 'Disconnect Model Context Protocol portal alpha' });
+    fireEvent.click(button);
+    expect(button).toBeDisabled();
+    expect(screen.getByText('Disconnecting…')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Connect Model Context Protocol portal beta' })).toBeEnabled();
+    stored = stored.map(portal => portal.name === 'alpha' ? { ...portal, connected: false } : portal);
+    finish();
+    expect(await screen.findByRole('button', { name: 'Connect Model Context Protocol portal alpha' })).toBeEnabled();
+    expect(screen.getByRole('heading', { name: 'beta' })).toBeInTheDocument();
+  });
+
   it('REQ-AGENT-228 AC4: clean browser completion status is consumed using the existing connection pattern', async () => {
     window.history.replaceState({}, '', '?mcp=reconnect');
     render(() => <McpPortalsSection />);
-    expect(await screen.findByText(/MCP authorization could not be completed/)).toBeInTheDocument();
+    expect(await screen.findByText(/Portal authorization could not be completed/)).toBeInTheDocument();
     expect(window.location.search).not.toContain('mcp=');
     expect(await screen.findByTestId('mcp-alpha-identity')).toHaveTextContent('alpha');
   });
 
   it('REQ-AGENT-228 AC4: empty configuration, loading errors and disconnect errors are actionable and accessible', async () => {
     stored = []; render(() => <McpPortalsSection />);
-    expect(await screen.findByText(/No MCP portals configured/)).toBeInTheDocument(); cleanup();
+    expect(await screen.findByText(/No portals configured/)).toBeInTheDocument(); cleanup();
     get.mockRejectedValueOnce(new Error('network unavailable')); render(() => <McpPortalsSection />);
-    expect(await screen.findByRole('alert')).toHaveTextContent('MCP portals could not be loaded'); cleanup();
+    expect(await screen.findByRole('alert')).toHaveTextContent('Portals could not be loaded'); cleanup();
     stored = [{ name: 'alpha', url: 'https://alpha.example/mcp', connected: true }];
     disconnect.mockRejectedValueOnce(new Error('denied')); render(() => <McpPortalsSection />);
     fireEvent.click(await screen.findByTestId('mcp-alpha-disconnect-btn'));
-    expect(await screen.findByRole('alert')).toHaveTextContent('MCP portal could not be disconnected');
+    expect(await screen.findByRole('alert')).toHaveTextContent('Portal could not be disconnected');
     expect(screen.getByTestId('mcp-alpha-connected-badge')).toBeInTheDocument();
   });
 });

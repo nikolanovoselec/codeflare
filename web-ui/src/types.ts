@@ -32,11 +32,14 @@ export type ConfigurationSection =
   | 'cloudflareConnection'
   | 'usageReports';
 
+// Environment also includes settings with their own existing Save owner.
+export type EnvironmentSection = ConfigurationSection | 'mcpPortals';
+
 export interface AdminConfigurationResponse {
   mode: AdministrationMode;
   revision: number;
-  applicableSections: ConfigurationSection[];
-  sections: Partial<Record<ConfigurationSection, unknown>>;
+  applicableSections: EnvironmentSection[];
+  sections: Partial<Record<EnvironmentSection, unknown>>;
   activeRunId: string | null;
   latest: Partial<Record<ConfigurationSection, Record<string, unknown>>>;
 }

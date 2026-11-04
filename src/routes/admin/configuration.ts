@@ -227,8 +227,8 @@ app.get('/', requireAdmin, async (c) => {
   return c.json({
     mode,
     revision: parseRevision(revisionRaw),
-    applicableSections,
-    sections,
+    applicableSections: [...applicableSections, 'mcpPortals'],
+    sections: { ...sections, mcpPortals: { portals: await getConfiguredMcpPortals(c.env.KV) } },
     activeRunId: typeof activeRun?.runId === 'string' ? activeRun.runId : null,
     latest,
   });

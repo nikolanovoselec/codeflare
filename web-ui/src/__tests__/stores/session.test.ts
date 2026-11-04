@@ -123,6 +123,198 @@ describe('Session Store', () => {
   });
 
   describe('loadSessions', () => {
+    // Public-store outcomes consumed directly by Dashboard's session-card list.
+    const dashboardSession = {
+      id: 'dashboard-regression', name: 'Dashboard regression',
+      createdAt: '2024-01-01', lastAccessedAt: '2024-01-01',
+      status: 'stopped' as const, lifecycle: 'stopped' as const, generation: 1, revision: 2,
+    };
+    let dashboardFixtureSequence = 0;
+    beforeEach(() => {
+      // The public store is module-scoped: isolate fixture identity without
+      // bypassing lifecycle ordering or adding a test-only reset API.
+      dashboardSession.id = `dashreg${++dashboardFixtureSequence}`;
+    });
+    function deferred<T>() {
+      let resolve!: (value: T) => void;
+      let reject!: (error: Error) => void;
+      const promise = new Promise<T>((yes, no) => { resolve = yes; reject = no; });
+      return { promise, resolve, reject };
+    }
+
+    it('REQ-SESSION-010 AC7: initial authoritative cards appear before pending batch and ancillary reads', async () => {
+      mockGetSessions.mockResolvedValueOnce([]);
+      await sessionStore.loadSessions();
+      const batch = deferred<Awaited<ReturnType<typeof api.getBatchSessionStatus>>>();
+      const ancillary = deferred<api.SessionAncillaryStatus>();
+      mockGetSessions.mockResolvedValueOnce([dashboardSession]);
+      mockGetBatchSessionStatus.mockReturnValueOnce(batch.promise);
+      mockGetSessionAncillaryStatus.mockReturnValueOnce(ancillary.promise);
+      const loading = sessionStore.loadSessions();
+      await vi.waitFor(() => {
+        expect(sessionStore.sessions.find(s => s.id === dashboardSession.id)).toMatchObject(dashboardSession);
+        expect(sessionStore.loading).toBe(false);
+      });
+      batch.resolve({ statuses: {} });
+      await loading; // Ancillary is still unresolved: it cannot own catalog readiness.
+      ancillary.resolve({ maxSessions: 3 });
+      await sessionStore.refreshSessionAncillaryStatus();
+    });
+
+    it('REQ-SESSION-029 AC4/AC5: pending then failed refresh retains last valid cards and tabs', async () => {
+      mockGetSessions.mockResolvedValueOnce([dashboardSession]);
+      await sessionStore.loadSessions();
+      sessionStore.initializeTerminalsForSession(dashboardSession.id);
+      const tabs = sessionStore.getTerminalsForSession(dashboardSession.id)?.tabs.map(tab => tab.id);
+      const list = deferred<Awaited<ReturnType<typeof api.getSessions>>>();
+      mockGetSessions.mockReturnValueOnce(list.promise);
+      mockGetBatchSessionStatus.mockRejectedValueOnce(new Error('status unavailable'));
+      mockGetSessionAncillaryStatus.mockRejectedValueOnce(new Error('metadata unavailable'));
+      const loading = sessionStore.loadSessions();
+      expect(sessionStore.sessions.find(s => s.id === dashboardSession.id)).toMatchObject(dashboardSession);
+      list.reject(new Error('catalog unavailable'));
+      await loading;
+      expect(sessionStore.sessions.find(s => s.id === dashboardSession.id)).toMatchObject(dashboardSession);
+      expect(sessionStore.getTerminalsForSession(dashboardSession.id)?.tabs.map(tab => tab.id)).toEqual(tabs);
+      expect(sessionStore.error).toBe('catalog unavailable');
+    });
+
+    it('REQ-SESSION-010 AC7: slow ancillary work cannot hold a newer lifecycle projection', async () => {
+      mockGetSessions.mockResolvedValueOnce([dashboardSession]);
+      await sessionStore.loadSessions();
+      const ancillary = deferred<api.SessionAncillaryStatus>();
+      mockGetSessionAncillaryStatus.mockReturnValueOnce(ancillary.promise);
+      mockGetBatchSessionStatus.mockResolvedValueOnce({ statuses: {
+        [dashboardSession.id]: { status: 'unreachable', lifecycle: 'unreachable', generation: 1, revision: 3 },
+      } });
+      const polling = sessionStore.refreshSessionStatuses(true);
+      await vi.waitFor(() => expect(sessionStore.sessions.find(s => s.id === dashboardSession.id))
+        .toMatchObject({ status: 'unreachable', revision: 3 }));
+      await polling;
+      ancillary.reject(new Error('metadata unavailable'));
+      await sessionStore.refreshSessionAncillaryStatus().catch(() => undefined);
+      expect(sessionStore.sessions.find(s => s.id === dashboardSession.id)?.status).toBe('unreachable');
+    });
+
+    it('REQ-SESSION-010 AC7: forced metadata refresh is preserved when joining pending status work', async () => {
+      mockGetSessions.mockResolvedValueOnce([dashboardSession]);
+      await sessionStore.loadSessions();
+      const batch = deferred<Awaited<ReturnType<typeof api.getBatchSessionStatus>>>();
+      const ancillary = deferred<api.SessionAncillaryStatus>();
+      mockGetBatchSessionStatus.mockReturnValueOnce(batch.promise);
+      mockGetSessionAncillaryStatus.mockReturnValueOnce(ancillary.promise);
+      const scheduled = sessionStore.refreshSessionStatuses();
+      const forced = sessionStore.refreshSessionStatuses(true);
+      ancillary.resolve({ maxSessions: 7 });
+      await vi.waitFor(() => expect(sessionStore.maxSessions).toBe(7));
+      batch.resolve({ statuses: { [dashboardSession.id]: dashboardSession } });
+      await Promise.all([scheduled, forced]);
+      expect(sessionStore.sessions.find(s => s.id === dashboardSession.id)).toMatchObject(dashboardSession);
+    });
+
+    it('REQ-SESSION-029 AC2: batch absence captured before a newer catalog cannot remove its cards', async () => {
+      mockGetSessions.mockResolvedValue([dashboardSession]);
+      await sessionStore.loadSessions();
+      await sessionStore.refreshSessionStatuses();
+      await sessionStore.refreshSessionStatuses();
+      const oldBatch = deferred<Awaited<ReturnType<typeof api.getBatchSessionStatus>>>();
+      mockGetBatchSessionStatus.mockReturnValueOnce(oldBatch.promise);
+      const polling = sessionStore.refreshSessionStatuses();
+      await sessionStore.loadSessions();
+      oldBatch.resolve({ statuses: {} });
+      await polling;
+      expect(sessionStore.sessions.find(s => s.id === dashboardSession.id)).toMatchObject(dashboardSession);
+    });
+
+    it('REQ-SESSION-029 AC6: overlapping visibility refreshes count one successful absence, not three', async () => {
+      mockGetSessions.mockResolvedValueOnce([dashboardSession]);
+      await sessionStore.loadSessions();
+      const batch = deferred<Awaited<ReturnType<typeof api.getBatchSessionStatus>>>();
+      mockGetBatchSessionStatus.mockReturnValue(batch.promise);
+      const refreshes = [sessionStore.refreshSessionStatuses(), sessionStore.refreshSessionStatuses(), sessionStore.refreshSessionStatuses()];
+      batch.resolve({ statuses: {} });
+      await Promise.all(refreshes);
+      expect(sessionStore.sessions.some(s => s.id === dashboardSession.id)).toBe(true);
+      mockGetBatchSessionStatus.mockResolvedValue({ statuses: {} });
+      await sessionStore.refreshSessionStatuses();
+      expect(sessionStore.sessions.some(s => s.id === dashboardSession.id)).toBe(true);
+      await sessionStore.refreshSessionStatuses();
+      expect(sessionStore.sessions.some(s => s.id === dashboardSession.id)).toBe(false);
+    });
+
+    it('REQ-SESSION-029 AC4/AC5: failed batch reads do not count toward confirmed removal', async () => {
+      mockGetSessions.mockResolvedValueOnce([dashboardSession]);
+      await sessionStore.loadSessions();
+      mockGetBatchSessionStatus.mockResolvedValueOnce({ statuses: {} });
+      await sessionStore.refreshSessionStatuses();
+      mockGetBatchSessionStatus.mockRejectedValue(new Error('status unavailable'));
+      for (let i = 0; i < 3; i++) await sessionStore.refreshSessionStatuses();
+      expect(sessionStore.sessions.some(s => s.id === dashboardSession.id)).toBe(true);
+      mockGetBatchSessionStatus.mockResolvedValue({ statuses: {} });
+      await sessionStore.refreshSessionStatuses();
+      expect(sessionStore.sessions.some(s => s.id === dashboardSession.id)).toBe(true);
+      await sessionStore.refreshSessionStatuses();
+      expect(sessionStore.sessions.some(s => s.id === dashboardSession.id)).toBe(false);
+    });
+
+    it('REQ-SESSION-029 AC2/AC5: an old batch cannot restore a successfully deleted card', async () => {
+      mockGetSessions.mockResolvedValueOnce([dashboardSession]);
+      await sessionStore.loadSessions();
+      const batch = deferred<Awaited<ReturnType<typeof api.getBatchSessionStatus>>>();
+      mockGetBatchSessionStatus.mockReturnValueOnce(batch.promise);
+      const polling = sessionStore.refreshSessionStatuses();
+      mockDeleteSession.mockResolvedValueOnce(undefined);
+      await sessionStore.deleteSession(dashboardSession.id);
+      batch.resolve({ statuses: { [dashboardSession.id]: { status: 'running', generation: 1, revision: 3 } } });
+      await polling;
+      expect(sessionStore.sessions.some(s => s.id === dashboardSession.id)).toBe(false);
+    });
+
+    it.each(['create', 'delete'] as const)('REQ-SESSION-029 AC2: an older catalog cannot undo successful %s', async (mutation) => {
+      mockGetSessions.mockResolvedValueOnce(mutation === 'delete' ? [dashboardSession] : []);
+      await sessionStore.loadSessions();
+      const list = deferred<Awaited<ReturnType<typeof api.getSessions>>>();
+      mockGetSessions.mockReturnValueOnce(list.promise);
+      const loading = sessionStore.loadSessions();
+      if (mutation === 'create') {
+        mockCreateSession.mockResolvedValueOnce(dashboardSession);
+        await sessionStore.createSession(dashboardSession.name);
+      } else {
+        mockDeleteSession.mockResolvedValueOnce(undefined);
+        await sessionStore.deleteSession(dashboardSession.id);
+      }
+      list.resolve(mutation === 'delete' ? [dashboardSession] : []);
+      await loading;
+      expect(sessionStore.sessions.some(s => s.id === dashboardSession.id)).toBe(mutation === 'create');
+      expect(sessionStore.loading).toBe(false);
+    });
+
+    it('REQ-SESSION-029 AC2: accepted authoritative empty catalog still removes an unowned card', async () => {
+      mockGetSessions.mockResolvedValueOnce([dashboardSession]);
+      await sessionStore.loadSessions();
+      mockGetSessions.mockResolvedValueOnce([]);
+      await sessionStore.loadSessions();
+      expect(sessionStore.sessions.some(s => s.id === dashboardSession.id)).toBe(false);
+    });
+
+    it.each(['poll', 'load'] as const)('REQ-SESSION-029 AC1/AC2: stale %s batch readiness and metrics cannot overwrite a newer projection', async (source) => {
+      mockGetSessions.mockResolvedValueOnce([{ ...dashboardSession, editorReady: true }]);
+      mockGetBatchSessionStatus.mockResolvedValueOnce({ statuses: {
+        [dashboardSession.id]: { status: 'stopped', generation: 1, revision: 2, editorReady: true, metrics: { cpu: '20%' } },
+      } });
+      await sessionStore.loadSessions();
+      mockGetBatchSessionStatus.mockResolvedValueOnce({ statuses: {
+        [dashboardSession.id]: { status: 'running', generation: 1, revision: 1, editorReady: false, metrics: { cpu: '99%' } },
+      } });
+      if (source === 'poll') await sessionStore.refreshSessionStatuses();
+      else {
+        mockGetSessions.mockResolvedValueOnce([{ ...dashboardSession, editorReady: true }]);
+        await sessionStore.loadSessions();
+      }
+      expect(sessionStore.sessions.find(s => s.id === dashboardSession.id)).toMatchObject({ status: 'stopped', revision: 2, editorReady: true });
+      expect(sessionStore.getMetricsForSession(dashboardSession.id)?.cpu).toBe('20%');
+    });
+
     it.each(['list', 'list+batch', 'poll'] as const)(
       'REQ-SESSION-012 AC3/AC6: persisted stopping converges to stopped through %s status', async (source) => {
         const base = { id: `d1-stopping-${source}`, name: 'Stopping', createdAt: '2024-01-01', lastAccessedAt: '2024-01-01' };

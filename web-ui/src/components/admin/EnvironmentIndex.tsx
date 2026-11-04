@@ -4,7 +4,8 @@ import { mdiChevronRight } from '@mdi/js';
 import { Component, For, Show, createSignal } from 'solid-js';
 import Icon from '../Icon';
 import McpPortalSettings from './McpPortalSettings';
-import { useAdministration } from './AdministrationLayout';
+import { useAdministration, useAdministrationRefresh } from './AdministrationLayout';
+import type { ConfigurationSection } from '../../types';
 import { environmentAreas, filterEnvironmentAreas } from './environment-areas';
 import {
   ConfigurationRequestError,
@@ -62,9 +63,9 @@ function changeValue(field: string, value: unknown): string {
 
 const EnvironmentIndex: Component = () => {
   const configuration = useAdministration();
-  const areas = environmentAreas(configuration);
+  const areas = () => environmentAreas(configuration);
   const [search, setSearch] = createSignal('');
-  const filteredAreas = () => filterEnvironmentAreas(areas, search());
+  const filteredAreas = () => filterEnvironmentAreas(areas(), search());
 
   return (
     <div class="admin-page">
@@ -102,7 +103,6 @@ const EnvironmentIndex: Component = () => {
           </div>
         </Show>
       </section>
-      <McpPortalSettings />
     </div>
   );
 };
@@ -110,7 +110,22 @@ const EnvironmentIndex: Component = () => {
 export const EnvironmentAreaDetail: Component = () => {
   const configuration = useAdministration();
   const params = useParams<{ section: string }>();
+  const refresh = useAdministrationRefresh();
   const area = () => environmentAreas(configuration).find((item) => item.section === params.section);
+  return <Show when={area()?.section === 'mcpPortals'} fallback={<ConfigurationAreaDetail />}>
+    <div class="admin-page">
+      <header class="admin-page-header"><div><p class="admin-eyebrow">Environment area</p><h1>{area()?.label}</h1><p>{area()?.summary}</p></div><A href="/admin/environment">Back to Environment</A></header>
+      <McpPortalSettings onSaved={refresh} />
+    </div>
+  </Show>;
+};
+
+const ConfigurationAreaDetail: Component = () => {
+  const configuration = useAdministration();
+  const params = useParams<{ section: string }>();
+  const area = () => environmentAreas(configuration)
+    .filter((item): item is typeof item & { section: ConfigurationSection } => item.section !== 'mcpPortals')
+    .find((item) => item.section === params.section);
   const [preview, setPreview] = createSignal<ConfigurationPreview>();
   const [submittedValues, setSubmittedValues] = createSignal<unknown>();
   const [run, setRun] = createSignal<ConfigurationRun>();

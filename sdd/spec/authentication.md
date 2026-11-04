@@ -639,7 +639,7 @@ None.
 **Constraints:**
 
 - Redirect uses `location.replace`, not `href`, so the dead page is not left in history.
-- API responses declared `text/html` or beginning with an HTML document root are treated as login responses.
+- API responses declared `text/html` or beginning with an HTML document root are treated as login responses, except HTTP 5xx server errors: HTML server errors retain their original status and surface a safe non-HTML error without an auth-redirect flag or navigation. <!-- @impl: web-ui/src/api/fetch-helper.ts::baseFetch --> <!-- @test: web-ui/src/__tests__/api/fetch-helper-401-redirect.test.ts (REQ-AUTH-022 AC5 / REQ-AUTH-014 AC1: server failures on %s) -->
 - Behavior is deployment-mode agnostic (CF Access, SaaS, onboarding); resume revalidation runs only inside the authenticated app shell.
 - Resume checks are deduplicated and event listeners are removed with the app lifecycle.
 - Only fingerprinted build assets are immutable; HTML and missing-asset SPA fallbacks remain revalidating.

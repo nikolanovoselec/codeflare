@@ -1371,6 +1371,26 @@ describe('API Client', () => {
       updatedAt: '2026-08-30T00:01:00.000Z',
     };
 
+    it.each(['default', 'onboarding', 'saas', 'enterprise'])('REQ-AGENT-227 AC1: accepts the portal Environment response contract in %s', async mode => {
+      const configuration = {
+        mode, revision: 1, applicableSections: ['domain', 'mcpPortals'],
+        sections: { mcpPortals: { portals: [{ name: 'tools', url: 'https://portal.example.com/mcp' }] } },
+        activeRunId: null, latest: {},
+      };
+      mockFetch.mockResolvedValueOnce(response(configuration));
+      expect(await getAdminConfiguration()).toEqual(configuration);
+    });
+
+    it('REQ-AGENT-227 AC1: portal presentation does not widen executable configuration contracts', async () => {
+      mockFetch.mockResolvedValueOnce(response({ ...run, section: 'mcpPortals' }));
+      await expect(getConfigurationRun('run-1')).rejects.toThrow();
+      mockFetch.mockResolvedValueOnce(response({
+        mode: 'default', revision: 1, applicableSections: ['unknownSection'],
+        sections: {}, activeRunId: null, latest: {},
+      }));
+      await expect(getAdminConfiguration()).rejects.toThrow();
+    });
+
     it('requests bounded administration reads with their supplied cursors', async () => {
       mockFetch
         .mockResolvedValueOnce(response({ mode: 'default', revision: 1, applicableSections: ['domain'], sections: {}, activeRunId: null, latest: {} }))

@@ -64,7 +64,7 @@ const ConfigurationSectionSchema = z.enum([
 const AdminConfigurationResponseSchema: z.ZodType<AdminConfigurationResponse> = z.object({
   mode: z.enum(['default', 'onboarding', 'saas', 'enterprise']),
   revision: z.number().int().nonnegative(),
-  applicableSections: z.array(ConfigurationSectionSchema),
+  applicableSections: z.array(ConfigurationSectionSchema.or(z.literal('mcpPortals'))),
   sections: z.record(z.string(), z.unknown()),
   activeRunId: z.string().nullable(),
   latest: z.record(z.string(), z.record(z.string(), z.unknown())),

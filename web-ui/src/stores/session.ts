@@ -42,6 +42,8 @@ import {
 } from './preferences';
 import {
   registerPollingDeps,
+  invalidateSessionStatusReads,
+  getSessionCatalogRevision,
   sessionMissCounters,
   refreshSessionStatuses,
   refreshSessionAncillaryStatus,
@@ -361,27 +363,24 @@ let loadSessionsGeneration = 0;
 
 async function loadSessions(): Promise<void> {
   const thisGen = ++loadSessionsGeneration;
+  const requestedCatalogRevision = getSessionCatalogRevision();
 
   setState('loading', true);
   setState('error', null);
 
   let batchError: string | null = null;
   try {
-    const [sessions, batchResponse] = await Promise.all([
-      api.getSessions(),
-      api.getBatchSessionStatus().catch((err) => {
-        logger.warn('[SessionStore] getBatchSessionStatus failed:', err);
-        batchError = err instanceof Error ? err.message : 'Failed to fetch session statuses';
-        return { statuses: {} as Record<string, BatchStatusEntry> };
-      }),
-      refreshSessionAncillaryStatus().catch((err) => {
-        logger.warn('[SessionStore] ancillary status refresh failed:', err);
-      }),
-    ]);
-    if (thisGen !== loadSessionsGeneration) return;
-    if (batchError) setState('error', batchError);
-
-    const batchStatuses = batchResponse.statuses;
+    // Ancillary work owns its own values, never catalog availability.
+    void refreshSessionAncillaryStatus().catch((err) => {
+      logger.warn('[SessionStore] ancillary status refresh failed:', err);
+    });
+    const batchRequest = api.getBatchSessionStatus().catch((err) => {
+      logger.warn('[SessionStore] getBatchSessionStatus failed:', err);
+      batchError = err instanceof Error ? err.message : 'Failed to fetch session statuses';
+      return { statuses: {} as Record<string, BatchStatusEntry> };
+    });
+    const sessions = await api.getSessions();
+    if (thisGen !== loadSessionsGeneration || requestedCatalogRevision !== getSessionCatalogRevision()) return;
 
     const existingSessions = new Map(state.sessions.map(s => [s.id, s]));
     const existingStatuses = new Map(state.sessions.map(s => [s.id, s.status]));
@@ -423,7 +422,10 @@ async function loadSessions(): Promise<void> {
         sessionsWithStatus.push(existing);
       }
     }
+    invalidateSessionStatusReads();
+    sessionMissCounters.clear();
     setState('sessions', sessionsWithStatus);
+    setState('loading', false);
     for (const session of state.sessions) reconcileKillGeneration(session.id);
     // REQ-VAULT-015 AC4: sweep orphan SilverBullet IDB caches only after
     // an authoritative session-list fetch succeeds. Dashboard mount can
@@ -440,6 +442,12 @@ async function loadSessions(): Promise<void> {
       }
     }
 
+    // Publish the authoritative catalog before optional status enrichment.
+    const batchResponse = await batchRequest;
+    if (thisGen !== loadSessionsGeneration) return;
+    if (batchError) setState('error', batchError);
+    const batchStatuses = batchResponse.statuses;
+
     for (const session of sessionsWithStatus) {
       if (thisGen !== loadSessionsGeneration) return;
 
@@ -451,28 +459,6 @@ async function loadSessions(): Promise<void> {
       if (!batchStatus) {
         continue;
       }
-
-      // Propagate durable fields from batch-status. Terminal connectivity is
-      // device-local and is never overwritten by a backend projection.
-      const idx = sessionsWithStatus.findIndex(s => s.id === session.id);
-      if (idx !== -1) {
-        if (batchStatus.lastActiveAt) setState('sessions', idx, 'lastActiveAt', batchStatus.lastActiveAt);
-        if (batchStatus.lastStartedAt) setState('sessions', idx, 'lastStartedAt', batchStatus.lastStartedAt);
-        setState('sessions', idx, 'startupStage', batchStatus.startupStage);
-        if (batchStatus.editorReady !== undefined) setState('sessions', idx, 'editorReady', batchStatus.editorReady);
-        setState('sessions', idx, 'editorReadyError', batchStatus.editorReadyError === true);
-      }
-
-      // Populate sessionMetrics from batch-status metrics
-      if (batchStatus.metrics) {
-        setState(produce(s => {
-          applyMetricsUpdate(s.sessionMetrics, session.id, batchStatus.metrics!);
-        }));
-      }
-
-      const currentStatus = state.sessions.find((candidate) => candidate.id === session.id)?.status;
-      if (currentStatus === 'initializing' || isLocallyStopping(session.id)) continue;
-      if (batchStatus.status === 'stopped' && currentStatus !== 'stopping' && shouldRetainNegativeKv(session.id)) continue;
 
       const current = state.sessions.find((candidate) => candidate.id === session.id);
       const incomingProjection = {
@@ -489,6 +475,28 @@ async function loadSessions(): Promise<void> {
         incomingProjection,
       );
       if (ordered !== incomingProjection) continue;
+
+      // Propagate durable fields from batch-status. Terminal connectivity is
+      // device-local and is never overwritten by a backend projection.
+      const idx = state.sessions.findIndex(s => s.id === session.id);
+      if (idx === -1) continue;
+      if (batchStatus.lastActiveAt) setState('sessions', idx, 'lastActiveAt', batchStatus.lastActiveAt);
+      if (batchStatus.lastStartedAt) setState('sessions', idx, 'lastStartedAt', batchStatus.lastStartedAt);
+      setState('sessions', idx, 'startupStage', batchStatus.startupStage);
+      if (batchStatus.editorReady !== undefined) setState('sessions', idx, 'editorReady', batchStatus.editorReady);
+      setState('sessions', idx, 'editorReadyError', batchStatus.editorReadyError === true);
+
+      // Populate sessionMetrics from batch-status metrics
+      if (batchStatus.metrics) {
+        setState(produce(s => {
+          applyMetricsUpdate(s.sessionMetrics, session.id, batchStatus.metrics!);
+        }));
+      }
+
+      const currentStatus = state.sessions.find((candidate) => candidate.id === session.id)?.status;
+      if (currentStatus === 'initializing' || isLocallyStopping(session.id)) continue;
+      if (batchStatus.status === 'stopped' && currentStatus !== 'stopping' && shouldRetainNegativeKv(session.id)) continue;
+
       const wasRunning = existingStatuses.get(session.id) === 'running';
       updateSessionStatus(session.id, batchStatus.status);
       const latestIndex = state.sessions.findIndex((candidate) => candidate.id === session.id);
@@ -538,6 +546,7 @@ async function createSession(name: string, agentType?: AgentType, tabConfig?: Ta
       ...session,
       status: 'stopped',
     };
+    invalidateSessionStatusReads();
     setState(
       produce((s) => {
         s.sessions.push(sessionWithStatus);
@@ -593,6 +602,7 @@ async function deleteSession(id: string): Promise<void> {
       startupCleanups.delete(id);
     }
     await api.deleteSession(id);
+    invalidateSessionStatusReads();
     localKillAttempts.delete(id);
     sessionMissCounters.delete(id);
     cleanupTerminalsForSession(id);

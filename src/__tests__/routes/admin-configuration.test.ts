@@ -47,10 +47,10 @@ function createApp(envOverrides: Partial<Env> = {}) {
   return { app, kv };
 }
 
-const commonSections = ['access', 'domain', 'managedEnvironment', 'github', 'cloudflareConnection', 'usageReports'];
+const commonSections = ['access', 'domain', 'managedEnvironment', 'github', 'cloudflareConnection', 'usageReports', 'mcpPortals'];
 const enterpriseSections = [
   'access', 'domain', 'aiRouting', 'codingAgents', 'browserRendering', 'securityEgress',
-  'dataGovernance', 'managedEnvironment', 'github', 'usageReports',
+  'dataGovernance', 'managedEnvironment', 'github', 'usageReports', 'mcpPortals',
 ];
 
 describe('GET /admin/configuration (REQ-SETUP-017)', () => {
@@ -88,6 +88,22 @@ describe('GET /admin/configuration (REQ-SETUP-017)', () => {
     expect(body.sections.domain).toEqual({ customDomain: 'admin.example.com' });
     expect(body.sections.aiRouting).toBeUndefined();
     expect(body.sections.cloudflareConnection).toBeDefined();
+  });
+
+  it.each([
+    {}, { ONBOARDING_LANDING_PAGE: 'active' }, { SAAS_MODE: 'active' }, { ENTERPRISE_MODE: 'active' },
+  ])('REQ-AGENT-227 AC1: Environment projection reads empty and saved portals from the existing owner in %s', async (overrides) => {
+    const { app, kv } = createApp(overrides as Partial<Env>);
+    const empty = await app.request('/admin/configuration');
+    expect(empty.status).toBe(200);
+    expect((await empty.json() as any).sections.mcpPortals).toEqual({ portals: [] });
+    const portals = [{ name: 'tools', url: 'https://portal.example.com/mcp?codemode=search_and_execute' }];
+    await kv.put(SETUP_KEYS.MCP_PORTALS, JSON.stringify(portals));
+    const saved = await app.request('/admin/configuration');
+    expect(saved.status).toBe(200);
+    const body = await saved.json() as any;
+    expect(body.applicableSections).toContain('mcpPortals');
+    expect(body.sections.mcpPortals).toEqual({ portals });
   });
 
   it('returns administrators inside the round-trippable allowed-user set', async () => {

@@ -2,7 +2,7 @@ import { Component, Index, Show, createSignal, onMount } from 'solid-js';
 import { getMcpPortals, saveMcpPortals } from '../../api/client';
 import type { McpPortal } from '../../types';
 
-const McpPortalSettings: Component = () => {
+const McpPortalSettings: Component<{ onSaved?: () => void }> = (props) => {
   const [portals, setPortals] = createSignal<McpPortal[]>([]);
   const [loading, setLoading] = createSignal(true);
   const [loaded, setLoaded] = createSignal(false);
@@ -26,14 +26,14 @@ const McpPortalSettings: Component = () => {
     event.preventDefault();
     if (busy()) return;
     setSaving(true); setError(''); setSaved(false);
-    try { setPortals(await saveMcpPortals(portals())); setSaved(true); }
+    try { setPortals(await saveMcpPortals(portals())); setSaved(true); props.onSaved?.(); }
     catch (reason) { setError(reason instanceof Error ? reason.message : 'MCP portals could not be saved.'); }
     finally { setSaving(false); }
   };
 
   return <section class="admin-panel" aria-labelledby="mcp-portals-heading" aria-busy={loading() || saving()}>
     <div class="admin-panel-heading"><div>
-      <h2 id="mcp-portals-heading">MCP portals</h2>
+      <h2 id="mcp-portals-heading">Portal connections</h2>
       <p>Named HTTPS MCP endpoints for both Pi modes. Names identify connections, not capabilities. Saving does not create portals, connect users, start compute or restart sessions. Connect your own account in Settings.</p>
     </div></div>
     <Show when={loading()}><p role="status">Loading MCP portals…</p></Show>

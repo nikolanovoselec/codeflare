@@ -13,12 +13,20 @@ import {
   mdiWrenchOutline,
   mdiClose,
 } from '@mdi/js';
+import { createStore, reconcile } from 'solid-js/store';
 import Icon from '../Icon';
 import { getAdminConfiguration } from '../../api/client';
 import type { AdminConfigurationResponse } from '../../types';
 import '../../styles/administration.css';
 
 const AdministrationContext = createContext<AdminConfigurationResponse>();
+const AdministrationRefreshContext = createContext<() => void>();
+
+export function useAdministrationRefresh(): () => void {
+  const refresh = useContext(AdministrationRefreshContext);
+  if (!refresh) throw new Error('Administration context is unavailable');
+  return refresh;
+}
 
 export function useAdministration(): AdminConfigurationResponse {
   const value = useContext(AdministrationContext);
@@ -27,7 +35,12 @@ export function useAdministration(): AdminConfigurationResponse {
 }
 
 const AdministrationLayout: Component<{ children?: JSX.Element }> = (props) => {
-  const [configuration, { refetch }] = createResource(getAdminConfiguration);
+  const [current, setCurrent] = createStore<AdminConfigurationResponse>({} as AdminConfigurationResponse);
+  const [configuration, { refetch }] = createResource(async () => {
+    const response = await getAdminConfiguration();
+    setCurrent(reconcile(response));
+    return current;
+  });
   const [drawerOpen, setDrawerOpen] = createSignal(false);
   const location = useLocation();
 
@@ -86,7 +99,7 @@ const AdministrationLayout: Component<{ children?: JSX.Element }> = (props) => {
 
   return (
     <Show
-      when={!configuration.loading}
+      when={!configuration.loading || Boolean(configuration())}
       fallback={<div class="admin-state-page"><div class="app-loading-spinner" /><p>Loading Administration…</p></div>}
     >
       <Show
@@ -101,6 +114,7 @@ const AdministrationLayout: Component<{ children?: JSX.Element }> = (props) => {
         }
       >
         {(resolved) => (
+          <AdministrationRefreshContext.Provider value={() => { void refetch(); }}>
           <AdministrationContext.Provider value={resolved()}>
             <div class="admin-shell">
               <aside class="admin-sidebar"><Navigation /></aside>
@@ -128,6 +142,7 @@ const AdministrationLayout: Component<{ children?: JSX.Element }> = (props) => {
               <main class="admin-main">{props.children}</main>
             </div>
           </AdministrationContext.Provider>
+          </AdministrationRefreshContext.Provider>
         )}
       </Show>
     </Show>

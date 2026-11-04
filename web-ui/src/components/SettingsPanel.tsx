@@ -110,7 +110,7 @@ const ACCORDION_SUBTITLES: Record<AccordionGroup, string> = {
   appearance: 'Colors, tips & display preferences',
   session: 'Startup behavior & workspace sync',
   deploy: 'Connect GitHub & Cloudflare for one-click deploy',
-  mcp: 'Connect MCP portals & manage tool access',
+  mcp: 'Connect portals & manage tool access',
   llm: 'Connect GPT & Gemini for second opinions (optional)',
   admin: 'Environment, analytics & initialization',
 };
@@ -439,7 +439,7 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
 
           <AccordionSection
             group="mcp"
-            title="MCP"
+            title="Model Context Protocol"
             subtitle={ACCORDION_SUBTITLES.mcp}
             isOpen={openGroup() === 'mcp'}
             onToggle={() => handleAccordionClick('mcp')}

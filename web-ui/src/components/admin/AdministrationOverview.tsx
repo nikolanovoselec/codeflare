@@ -6,7 +6,7 @@ import { environmentAreas } from './environment-areas';
 
 const AdministrationOverview: Component = () => {
   const configuration = useAdministration();
-  const areas = environmentAreas(configuration);
+  const areas = () => environmentAreas(configuration);
   const [usage, { refetch }] = createResource(() => getAdminUsage({ period: 'day', start: new Date().toISOString().slice(0, 10), limit: 1 }));
   const runtime = () => {
     const seconds = usage()?.summary.runtimeSeconds ?? 0;
@@ -45,7 +45,7 @@ const AdministrationOverview: Component = () => {
       <div class="admin-overview-grid">
         <section class="admin-panel">
           <div class="admin-area-list admin-area-list-compact">
-            <For each={areas}>{(area) => (
+            <For each={areas()}>{(area) => (
               <A class="admin-area-row admin-area-link" href={`/admin/environment/${area.section}`}>
                 <div>
                   <strong>{area.label}</strong>
