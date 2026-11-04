@@ -3363,7 +3363,12 @@ None.
 3. A terminal CI result requires the same non-empty all-terminal fingerprint in two polls. <!-- @impl: preseed/agents/pi/skills/ci-monitoring/scripts/monitor-ci.mjs::monitorCi --> <!-- @test: host/__tests__/pi-ci-monitor.test.js (REQ-AGENT-068 AC2/AC3: pending checks wait for a stable pass and skipping fingerprint) --> <!-- @test: host/__tests__/pi-ci-monitor.test.js (REQ-AGENT-125 AC1: a failed check waits for all checks and a stable terminal fingerprint) -->
 4. An authoritative head mismatch reports `CI_RESULT timeout superseded`. <!-- @impl: preseed/agents/pi/skills/ci-monitoring/scripts/monitor-ci.mjs::monitorCi --> <!-- @test: host/__tests__/pi-ci-monitor.test.js (REQ-AGENT-068 AC4: a superseded head stops before checks are queried) -->
 
-**Constraints:** Empty checks time out after five minutes; provider commands are bounded; total monitoring is bounded at fifteen minutes with time reserved for reporting; the root Pi Git workflow is the sole automatic trigger.
+**Constraints:**
+
+- Monitoring deadlines are operational backstops, not CI performance targets.
+- The internal deadline remains shorter than the agent command timeout, reserving reporting time.
+- Provider operations and sleeps remain bounded by the internal deadline.
+- The root Pi Git workflow is the sole automatic trigger.
 
 **Priority:** P1
 
@@ -3431,36 +3436,40 @@ None.
 
 ### REQ-AGENT-217: Lossless Pi MCP adapter migration
 
-**Intent:** The pi-mcp-extension handoff migrates `mcp-adapter.json` to `mcp.json` without clobbering existing valid destinations or losing displaced originals.
+**Intent:** The positively selected pi-mcp-extension handoff migrates `mcp-adapter.json` to `mcp.json` without clobbering existing valid destinations or losing displaced originals; native adapter configurations are not legacy handoff inputs while the adapter is selected.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. Filename migration alone preserves valid adapter-only configuration byte-for-byte unless a known old lifecycle requires conversion to the replacement schema. <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (REQ-AGENT-217: lazy-keep-alive handoff preserves authentication and supports the replacement lifecycle) --> <!-- @impl: preseed/agents/pi/extensions/00-mcp-adapter-config.ts::migratePiMcpAdapterConfig --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (legacy adapter migration preserves exact bytes, credentials, custom servers and 600000 browser retention) -->
-2. Existing valid `mcp.json` destinations take precedence over adapter configuration; displaced originals remain recoverable without merging conflicting credentials. <!-- @impl: preseed/agents/pi/extensions/00-mcp-adapter-config.ts::migratePiMcpAdapterConfig --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (existing adapter target wins and archives legacy bytes without leaving the deprecated filename) -->
+1. Default preparation requires positively selected stock-only global configuration; other selections preserve both MCP files, reporting ambiguous or unknown selection without exposing configuration contents. <!-- @impl: preseed/agents/pi/extensions/00-mcp-adapter-config.ts::registerMcpAdapterMigration --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (REQ-AGENT-217: selected stock hands off even when the adapter is merely installed) --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (REQ-AGENT-217: configured MCP selection protects native files (adapter only)) --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (REQ-AGENT-217: configured MCP selection protects native files (dual local stock and npm adapter)) --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (REQ-AGENT-217: lazy-keep-alive handoff preserves authentication and supports the replacement lifecycle) --> <!-- @impl: preseed/agents/pi/extensions/00-mcp-adapter-config.ts::migratePiMcpAdapterConfig --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (legacy adapter migration preserves exact bytes, credentials, custom servers and 600000 browser retention) -->
+2. During stock handoff, existing valid `mcp.json` destinations take precedence over legacy adapter configuration; displaced originals remain recoverable without merging conflicting credentials. <!-- @impl: preseed/agents/pi/extensions/00-mcp-adapter-config.ts::migratePiMcpAdapterConfig --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (existing adapter target wins and archives legacy bytes without leaving the deprecated filename) -->
 3. Matching, conflicting, unreadable, symlink and directory passive archives never overwrite existing data or block recovery. <!-- @impl: preseed/agents/pi/extensions/00-mcp-adapter-config.ts::preserve --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (existing migration backup is never overwritten or used to discard legacy credentials) --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (occupied symlink archive is preserved without following it or preventing recovery) --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (occupied directory archive is preserved without following it or preventing recovery) --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (unreadable passive archive cannot block custom legacy recovery) -->
 4. Malformed regular originals are archived before valid recovery; unsafe active paths/ancestors and I/O failures still fail closed without discarding user data. <!-- @impl: preseed/agents/pi/extensions/00-mcp-adapter-config.ts::migratePiMcpAdapterConfig --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (malformed existing destination is archived and recovers exact valid legacy configuration) --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (nonregular destination blocks migration and retains legacy) -->
 5. Startup does not exclude the newly active root `.pi/agent/mcp.json` from subsequent baseline/bisync; adapter originals, recovery copies and nested files remain sync-eligible. <!-- @impl: entrypoint.sh::configure_pi_mcp_adapter --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (REQ-AGENT-217: active mcp.json and recovery objects remain baseline-sync eligible) --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (REQ-AGENT-217: failed preparation does not exclude restored legacy from baseline) -->
 6. Startup reconstructs recognizable generated consult and browser entries from current runtime inputs while preserving customized configuration. <!-- @impl: entrypoint.sh::configure_pi_mcp_adapter --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (REQ-AGENT-069: fresh startup regenerates managed consult credentials while retaining custom servers and settings) --> <!-- @test: host/__tests__/entrypoint-browser-run-mcp.test.js (REQ-BROWSER-006: startup regenerates the image-owned browser endpoint and headers while preserving custom settings) -->
-7. Displaced or transformed unknown/custom originals remain recoverable before active-file deletion, including on replacement-write failure; unchanged adapter-only bytes survive in `mcp.json`. <!-- @impl: preseed/agents/pi/extensions/00-mcp-adapter-config.ts::preserve --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (startup preserves selected custom legacy originals before regenerating owned entries) --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (replacement write failure preserves the original custom adapter for recovery) -->
+7. Displaced or transformed unknown/custom originals remain recoverable before active-file deletion, including on replacement-write failure; unchanged legacy bytes survive in `mcp.json` during stock handoff. <!-- @impl: preseed/agents/pi/extensions/00-mcp-adapter-config.ts::preserve --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (startup preserves selected custom legacy originals before regenerating owned entries) --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (replacement write failure preserves the original custom adapter for recovery) -->
 
 **Constraints:**
 
 - No bucket deletion or sync redesign.
-- Working entries survive load/reload except `lazy-keep-alive`/`lazy-keepalive` → `lazy` conversion and [timeout preparation](browser-run.md#req-browser-009-mcp-and-chrome-sdk-timeout-profile).
+- Installed packages are not selection evidence.
+- Unsupported resource filters fail closed without preparing files.
+- For positively selected stock handoff only, working entries survive load/reload except `lazy-keep-alive`/`lazy-keepalive` → `lazy` conversion and [timeout preparation](browser-run.md#req-browser-009-mcp-and-chrome-sdk-timeout-profile).
+- Registration does not choose a settings winner or disable either client.
+- Explicit startup handoff remains stock-only.
 - Transformed custom originals remain recoverable before replacement.
-- Startup and managed load decode selected legacy stdio `!!` by one `!`, never a valid destination's literal environment. <!-- @test: preseed/agents/pi/test/consult-proxy.test.mjs (REQ-AGENT-217: actual stdio server receives the selected schema's literal env (legacy=true, regenerate=false)) --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (REQ-AGENT-217: entrypoint preparation decodes selected custom consult env before preserved-entry merge) -->
+- Stock startup and positively selected stock managed load decode selected legacy stdio `!!` by one `!`, never a valid destination's literal environment. <!-- @test: preseed/agents/pi/test/consult-proxy.test.mjs (REQ-AGENT-217: actual stdio server receives the selected schema's literal env (legacy=true, regenerate=false)) --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (REQ-AGENT-217: entrypoint preparation decodes selected custom consult env before preserved-entry merge) -->
 - Selected legacy commands/interpolation fail closed without evaluation before writes, preserving originals and content-free diagnostics; unselected expressions cannot block a valid destination. <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (REQ-AGENT-217: rejected legacy env produces a content-free managed-load diagnostic) -->
 
-- Timeout preparation preserves credentials and unrelated fields; lazy connections have no adapter idle timer and remote retention remains independent.
+- Timeout preparation preserves credentials and unrelated fields; stock lazy connections have no adapter idle timer and remote retention remains independent.
 - Managed constructors and Claude behavior remain governed by [REQ-AGENT-069](#req-agent-069-pi-consult-llm-mcp-lazy-wiring).
 
 **Priority:** P1
 
 **Dependencies:** [REQ-AGENT-069](#req-agent-069-pi-consult-llm-mcp-lazy-wiring)
 
-**Verification:** New-direction guarded migration and lifecycle-conversion regressions are authored but not executed locally. Exact-head CI and deployed handoff acceptance remain required. Automated test: [pi-mcp-adapter-config.test.js](../../host/__tests__/pi-mcp-adapter-config.test.js). Current-head CI remains pending.
+**Verification:** New-direction guarded migration, configured-client selection and lifecycle-conversion regressions are authored. Focused local test execution remains unverified. Exact-head CI and deployed handoff acceptance remain required. Automated test: [pi-mcp-adapter-config.test.js](../../host/__tests__/pi-mcp-adapter-config.test.js). Current-head CI remains pending.
 
 **Status:** Implemented
 
