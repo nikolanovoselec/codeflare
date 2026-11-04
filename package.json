@@ -44,7 +44,7 @@
     "esbuild": "$esbuild"
   },
   "devDependencies": {
-    "@cloudflare/vitest-plugin": "1.4.8",
+    "@cloudflare/vitest-plugin": "1.5.1",
     "@types/node": "^26.6.4",
     "@vitest/coverage-istanbul": "5.0.5",
     "agents": "0.30.1",
