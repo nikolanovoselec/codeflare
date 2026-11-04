@@ -430,7 +430,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 4. For Terminal workspaces, backend `running` plus this device's connected terminal WebSocket renders green ACTIVE; without it, blue IDLE; neither label is persisted.
 5. `starting` and `unreachable` use yellow recovery presentation and `stopped` is gray, while D1 read failure retains the last ordered state and shows a separate status-unavailable warning.
 6. Polling is serialized, pauses while hidden, refreshes on visibility, and uses transition and stable cadences without overlapping requests.
-7. Usage, storage, entitlement, managed-release, preseed and governed-migration work has a separate initial/slower/event-driven owner and retains last good values on failure. An accepted initial session catalog and ordered status updates are published without waiting for that unrelated work. <!-- @impl: web-ui/src/stores/session.ts::loadSessions --> <!-- @impl: web-ui/src/stores/session-polling.ts::refreshSessionStatuses --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-SESSION-010 AC7: initial authoritative cards appear before pending batch and ancillary reads) --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-SESSION-010 AC7: slow ancillary work cannot hold a newer lifecycle projection) -->
+7. Usage, storage, entitlement, managed-release, preseed and governed-migration work has a separate initial/slower/event-driven owner and retains last good values on failure.
 
 **Constraints:** Dashboard polling never wakes a container. Authentication and revocation middleware may retain unrelated KV use.
 
@@ -551,6 +551,7 @@ Container creation, idle detection, auto-sleep, restart, and destroy.
 4. D1 read failure retains last good session records, metrics and ancillary values and presents a distinct status-unavailable warning.
 5. Read failure does not remove sessions, dispose terminal/editor state, or synthesize lifecycle transitions.
 6. Background polling remains serialized by a one-request-in-flight guard. <!-- @impl: web-ui/src/stores/session-polling.ts::refreshSessionStatuses --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-SESSION-029 AC6: overlapping visibility refreshes count one successful absence, not three) -->
+7. Accepted initial session catalogs and ordered status updates are published without waiting for unrelated ancillary work. <!-- @impl: web-ui/src/stores/session.ts::loadSessions --> <!-- @impl: web-ui/src/stores/session-polling.ts::refreshSessionStatuses --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-SESSION-029 AC7: initial authoritative cards appear before pending batch and ancillary reads) --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-SESSION-029 AC7: slow ancillary work cannot hold a newer lifecycle projection) -->
 
 **Constraints:** Transport unreachability and D1 status unavailability are separate notices and state machines.
 

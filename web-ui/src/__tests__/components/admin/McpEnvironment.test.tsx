@@ -79,18 +79,31 @@ describe('Model Context Protocol Environment integration', () => {
     fireEvent.submit(screen.getByRole('button', { name: 'Save portals' }).closest('form')!);
     expect(await screen.findByText(/MCP portals saved/)).toBeVisible();
     fireEvent.click(screen.getByRole('link', { name: 'Overview' }));
-    await waitFor(() => expect(screen.getByRole('link', { name: /Model Context Protocol/ })).toHaveTextContent('1 portal'));
-    expect(within(await item()).getByText('Configured')).toBeVisible();
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { level: 1, name: 'Overview' })).toBeVisible();
+      const row = screen.getByRole('link', { name: /Model Context Protocol/ });
+      expect(within(row).getByText('1 portal')).toBeVisible();
+      expect(within(row).getByText('Configured')).toBeVisible();
+    });
     fireEvent.click(await item());
     expect(await screen.findByRole('textbox', { name: 'URL 1' })).toHaveValue(portal.url);
     fireEvent.click(screen.getByRole('button', { name: 'Remove portal 1' }));
     fireEvent.submit(screen.getByRole('button', { name: 'Save portals' }).closest('form')!);
     expect(await screen.findByText(/MCP portals saved/)).toBeVisible();
     fireEvent.click(screen.getByRole('link', { name: 'Back to Environment' }));
-    expect(within(await item()).getByText('0 portals')).toBeVisible();
-    expect(within(await item()).getByText('Not configured')).toBeVisible();
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { level: 1, name: 'Environment' })).toBeVisible();
+      const row = screen.getByRole('link', { name: /Model Context Protocol/ });
+      expect(within(row).getByText('0 portals')).toBeVisible();
+      expect(within(row).getByText('Not configured')).toBeVisible();
+    });
     fireEvent.click(screen.getByRole('link', { name: 'Overview' }));
-    expect(within(await item()).getByText('0 portals')).toBeVisible();
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { level: 1, name: 'Overview' })).toBeVisible();
+      const row = screen.getByRole('link', { name: /Model Context Protocol/ });
+      expect(within(row).getByText('0 portals')).toBeVisible();
+      expect(within(row).getByText('Not configured')).toBeVisible();
+    });
   });
 
   it('REQ-AGENT-227 AC1: Overview counts all saved portals using the shared Environment item', async () => {

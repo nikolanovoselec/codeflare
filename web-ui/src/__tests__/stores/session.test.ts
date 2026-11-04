@@ -142,7 +142,7 @@ describe('Session Store', () => {
       return { promise, resolve, reject };
     }
 
-    it('REQ-SESSION-010 AC7: initial authoritative cards appear before pending batch and ancillary reads', async () => {
+    it('REQ-SESSION-029 AC7: initial authoritative cards appear before pending batch and ancillary reads', async () => {
       mockGetSessions.mockResolvedValueOnce([]);
       await sessionStore.loadSessions();
       const batch = deferred<Awaited<ReturnType<typeof api.getBatchSessionStatus>>>();
@@ -179,7 +179,7 @@ describe('Session Store', () => {
       expect(sessionStore.error).toBe('catalog unavailable');
     });
 
-    it('REQ-SESSION-010 AC7: slow ancillary work cannot hold a newer lifecycle projection', async () => {
+    it('REQ-SESSION-029 AC7: slow ancillary work cannot hold a newer lifecycle projection', async () => {
       mockGetSessions.mockResolvedValueOnce([dashboardSession]);
       await sessionStore.loadSessions();
       const ancillary = deferred<api.SessionAncillaryStatus>();
@@ -2372,7 +2372,9 @@ describe('Session Store', () => {
       });
       vi.stubGlobal('fetch', http);
       // Close any preceding episode through an authoritative public observation.
+      // Catalog/status reads publish independently; the ancillary owner applies metadata.
       await sessionStore.loadSessions();
+      await sessionStore.refreshSessionAncillaryStatus();
       http.mockClear();
       mockCreateSession.mockClear();
       mockRecreateAgentConfigs.mockClear();
@@ -2385,6 +2387,7 @@ describe('Session Store', () => {
       await vi.waitFor(() => expect(sessionStore.preseedUpgrading).toBe(false));
       batch = { maxSessions: 3, managedReleaseStatus: 'current', preseedNeedsUpgrade: false };
       await sessionStore.refreshSessionStatuses(true);
+      await sessionStore.refreshSessionAncillaryStatus();
       mockGetSessions.mockResolvedValue([]);
       mockGetBatchSessionStatus.mockResolvedValue({ statuses: {} });
       mockGetSessionAncillaryStatus.mockResolvedValue({ maxSessions: 3 });
@@ -2396,6 +2399,7 @@ describe('Session Store', () => {
     it('posts a successful upgrade once while stale true status keeps being observed', async () => {
       const finish = deferUpgrade();
       await sessionStore.loadSessions();
+      await sessionStore.refreshSessionAncillaryStatus();
       expect(sessionStore.preseedUpgrading).toBe(true);
       finish(json(completedUpgrade));
       await vi.waitFor(() => expect(sessionStore.preseedUpgrading).toBe(false));
@@ -2408,13 +2412,17 @@ describe('Session Store', () => {
       ]) {
         batch = { ...batch, managedReleaseProgress: progress };
         await sessionStore.refreshSessionStatuses(true);
+        await sessionStore.refreshSessionAncillaryStatus();
         await vi.waitFor(() => expect(sessionStore.preseedUpgrading).toBe(false));
+        expect(sessionStore.managedReleaseStatus).toBe('upgrading');
+        expect(sessionStore.managedReleaseProgress).toEqual(progress);
+        expect(mutations()).toEqual([upgradeUrl]);
       }
       await sessionStore.loadSessions();
+      await sessionStore.refreshSessionAncillaryStatus();
       await vi.waitFor(() => expect(sessionStore.preseedUpgrading).toBe(false));
 
       expect(upgradeRequests()).toHaveLength(1);
-      expect(http.mock.calls.filter(([url]) => String(url).includes('/sessions/ancillary-status'))).toHaveLength(5);
       expect(sessionStore.managedReleaseStatus).toBe('upgrading');
       expect(sessionStore.managedReleaseProgress).toEqual(batch.managedReleaseProgress);
       expect(mutations()).toEqual([upgradeUrl]);
@@ -2423,6 +2431,7 @@ describe('Session Store', () => {
     it('does not claim current from a successful POST without completion progress', async () => {
       const finish = deferUpgrade();
       await sessionStore.loadSessions();
+      await sessionStore.refreshSessionAncillaryStatus();
       finish(json({ success: true, bucketCreated: false, written: [], skipped: [] }));
       await vi.waitFor(() => expect(sessionStore.preseedUpgrading).toBe(false));
 
@@ -2430,6 +2439,7 @@ describe('Session Store', () => {
       expect(sessionStore.managedReleaseProgress).toBeNull();
       batch = { maxSessions: 3, managedReleaseStatus: 'current', preseedNeedsUpgrade: false };
       await sessionStore.refreshSessionStatuses(true);
+      await sessionStore.refreshSessionAncillaryStatus();
       expect(sessionStore.managedReleaseStatus).toBe('current');
       expect(upgradeRequests()).toHaveLength(1);
     });
@@ -2437,24 +2447,29 @@ describe('Session Store', () => {
     it('does not automatically retry a failed upgrade on repeated true polls and exposes recovery', async () => {
       const finish = deferUpgrade();
       await sessionStore.loadSessions();
+      await sessionStore.refreshSessionAncillaryStatus();
       finish(json({ error: 'Upgrade unavailable' }, 503));
       await vi.waitFor(() => expect(sessionStore.preseedUpgrading).toBe(false));
 
       for (let poll = 0; poll < 3; poll++) {
         await sessionStore.refreshSessionStatuses(true);
+        await sessionStore.refreshSessionAncillaryStatus();
         await vi.waitFor(() => expect(sessionStore.preseedUpgrading).toBe(false));
+        expect(retryStore.preseedUpgradeFailed).toBe(true);
+        expect(sessionStore.managedReleaseStatus).toBe('upgrading');
+        expect(mutations()).toEqual([upgradeUrl]);
       }
 
       expect(upgradeRequests()).toHaveLength(1);
       expect(retryStore.preseedUpgradeFailed).toBe(true);
       expect(sessionStore.managedReleaseStatus).toBe('upgrading');
-      expect(http.mock.calls.filter(([url]) => String(url).includes('/sessions/ancillary-status'))).toHaveLength(4);
     });
 
     it('REQ-AGENT-049: clears a failed baked attempt when polling reports no upgrade needed without managed status', async () => {
       batch = { maxSessions: 3, preseedNeedsUpgrade: true, preseedUpgradeTarget: 'baked-a' };
       const finish = deferUpgrade();
       await sessionStore.loadSessions();
+      await sessionStore.refreshSessionAncillaryStatus();
       finish(json({ error: 'Upgrade unavailable' }, 503));
       await vi.waitFor(() => expect(sessionStore.preseedUpgrading).toBe(false));
       expect(sessionStore.preseedUpgradeFailed).toBe(true);
@@ -2463,6 +2478,7 @@ describe('Session Store', () => {
       // Another tab completed the baked upgrade. Its status has no managed fields.
       batch = { ...batch, preseedNeedsUpgrade: false };
       await sessionStore.refreshSessionStatuses(true);
+      await sessionStore.refreshSessionAncillaryStatus();
 
       expect(sessionStore.preseedUpgradeFailed).toBe(false);
       await sessionStore.retryPreseedUpgrade();
@@ -2474,14 +2490,17 @@ describe('Session Store', () => {
       batch = { maxSessions: 3, preseedNeedsUpgrade: true, preseedUpgradeTarget: 'baked-a' };
       const first = deferUpgrade();
       await sessionStore.loadSessions();
+      await sessionStore.refreshSessionAncillaryStatus();
       first(outcome === 'success' ? json(completedBakedUpgrade) : json({ error: 'Target A failed' }, 503));
       await vi.waitFor(() => expect(sessionStore.preseedUpgrading).toBe(false));
       await sessionStore.refreshSessionStatuses(true);
+      await sessionStore.refreshSessionAncillaryStatus();
       expect(upgradeRequests()).toHaveLength(1);
 
       const finishB = deferUpgrade();
       batch = { ...batch, preseedUpgradeTarget: 'baked-b' };
       await sessionStore.refreshSessionStatuses(true);
+      await sessionStore.refreshSessionAncillaryStatus();
       expect(sessionStore.preseedUpgrading).toBe(true);
       expect(sessionStore.preseedUpgradeFailed).toBe(false);
       finishB(json(completedBakedUpgrade));
@@ -2490,6 +2509,7 @@ describe('Session Store', () => {
       for (const target of ['baked-b', 'baked-a', 'baked-b']) {
         batch = { ...batch, preseedUpgradeTarget: target };
         await sessionStore.refreshSessionStatuses(true);
+        await sessionStore.refreshSessionAncillaryStatus();
         await vi.waitFor(() => expect(sessionStore.preseedUpgrading).toBe(false));
       }
       expect(mutations()).toEqual([upgradeUrl, upgradeUrl]);
@@ -2501,13 +2521,16 @@ describe('Session Store', () => {
       batch = { ...batch, ...{ preseedUpgradeTarget: target } };
       const first = deferUpgrade();
       await sessionStore.loadSessions();
+      await sessionStore.refreshSessionAncillaryStatus();
       first(json(completedUpgrade));
       await vi.waitFor(() => expect(sessionStore.preseedUpgrading).toBe(false));
       await sessionStore.refreshSessionStatuses(true);
+      await sessionStore.refreshSessionAncillaryStatus();
       await vi.waitFor(() => expect(sessionStore.preseedUpgrading).toBe(false));
 
       batch = { maxSessions: 3, managedReleaseStatus: 'current', preseedNeedsUpgrade: false };
       await sessionStore.refreshSessionStatuses(true);
+      await sessionStore.refreshSessionAncillaryStatus();
       expect(sessionStore.managedReleaseStatus).toBe('current');
       expect(sessionStore.managedReleaseProgress).toBeNull();
 
@@ -2517,6 +2540,7 @@ describe('Session Store', () => {
         ...{ preseedUpgradeTarget: target },
       };
       await sessionStore.refreshSessionStatuses(true);
+      await sessionStore.refreshSessionAncillaryStatus();
       expect(sessionStore.preseedUpgrading).toBe(true);
       later(json(completedUpgrade));
       await vi.waitFor(() => expect(sessionStore.preseedUpgrading).toBe(false));
@@ -2530,9 +2554,11 @@ describe('Session Store', () => {
       batch = { ...batch, ...{ preseedUpgradeTarget: 'target-a' } };
       const first = deferUpgrade();
       await sessionStore.loadSessions();
+      await sessionStore.refreshSessionAncillaryStatus();
       first(outcome === 'success' ? json(completedUpgrade) : json({ error: 'Target A failed' }, 503));
       await vi.waitFor(() => expect(sessionStore.preseedUpgrading).toBe(false));
       await sessionStore.refreshSessionStatuses(true);
+      await sessionStore.refreshSessionAncillaryStatus();
       await vi.waitFor(() => expect(sessionStore.preseedUpgrading).toBe(false));
       const postsAfterStaleA = upgradeRequests().length;
 
@@ -2540,6 +2566,7 @@ describe('Session Store', () => {
       const finishB = deferUpgrade();
       batch = { ...batch, ...{ preseedUpgradeTarget: 'target-b' } };
       await sessionStore.refreshSessionStatuses(true);
+      await sessionStore.refreshSessionAncillaryStatus();
       expect(sessionStore.preseedUpgrading).toBe(true);
       expect(retryStore.preseedUpgradeFailed).toBeFalsy();
       finishB(json(completedUpgrade));
@@ -2549,6 +2576,7 @@ describe('Session Store', () => {
       for (const target of ['target-b', 'target-a', 'target-b']) {
         batch = { ...batch, ...{ preseedUpgradeTarget: target } };
         await sessionStore.refreshSessionStatuses(true);
+        await sessionStore.refreshSessionAncillaryStatus();
         await vi.waitFor(() => expect(sessionStore.preseedUpgrading).toBe(false));
       }
 
@@ -2560,8 +2588,10 @@ describe('Session Store', () => {
     it.each(['current', 'update_pending'] as const)('ignores a late success after newer %s status', async (status) => {
       const finish = deferUpgrade();
       await sessionStore.loadSessions();
+      await sessionStore.refreshSessionAncillaryStatus();
       batch = { maxSessions: 3, managedReleaseStatus: status, preseedNeedsUpgrade: false };
       await sessionStore.refreshSessionStatuses(true);
+      await sessionStore.refreshSessionAncillaryStatus();
       expect(sessionStore.managedReleaseStatus).toBe(status);
       expect(sessionStore.managedReleaseProgress).toBeNull();
 
@@ -2578,8 +2608,10 @@ describe('Session Store', () => {
     it.each(['current', 'update_pending'] as const)('ignores a late failure after newer %s status', async (status) => {
       const finish = deferUpgrade();
       await sessionStore.loadSessions();
+      await sessionStore.refreshSessionAncillaryStatus();
       batch = { maxSessions: 3, managedReleaseStatus: status, preseedNeedsUpgrade: false };
       await sessionStore.refreshSessionStatuses(true);
+      await sessionStore.refreshSessionAncillaryStatus();
       finish(json({ error: 'Old upgrade failed' }, 503));
       await vi.waitFor(() => expect(sessionStore.preseedUpgrading).toBe(false));
 
@@ -2594,6 +2626,7 @@ describe('Session Store', () => {
       const existingSessionIds = new Set(sessionStore.sessions.map((session) => session.id));
       const first = deferUpgrade();
       await sessionStore.loadSessions();
+      await sessionStore.refreshSessionAncillaryStatus();
       first(json({ error: 'Upgrade unavailable' }, 503));
       await vi.waitFor(() => expect(sessionStore.preseedUpgrading).toBe(false));
 
@@ -2604,12 +2637,14 @@ describe('Session Store', () => {
       expect(retryStore.preseedUpgradeFailed).toBeFalsy();
       // Polling and another click cannot dispatch an overlapping attempt.
       await sessionStore.refreshSessionStatuses(true);
+      await sessionStore.refreshSessionAncillaryStatus();
       const duplicateRetry = Promise.resolve(retryStore.retryPreseedUpgrade?.()).catch(() => undefined);
       expect(upgradeRequests()).toHaveLength(2);
       finishRetry(json(completedUpgrade));
       await Promise.all([retry, duplicateRetry]);
       await vi.waitFor(() => expect(sessionStore.preseedUpgrading).toBe(false));
       await sessionStore.refreshSessionStatuses(true);
+      await sessionStore.refreshSessionAncillaryStatus();
       await vi.waitFor(() => expect(sessionStore.preseedUpgrading).toBe(false));
 
       expect(mutations()).toEqual([upgradeUrl, upgradeUrl]);
@@ -2622,10 +2657,12 @@ describe('Session Store', () => {
     it.each(['current', 'update_pending'] as const)('does not retry a previous failure after newer %s status', async (status) => {
       const finish = deferUpgrade();
       await sessionStore.loadSessions();
+      await sessionStore.refreshSessionAncillaryStatus();
       finish(json({ error: 'Upgrade unavailable' }, 503));
       await vi.waitFor(() => expect(sessionStore.preseedUpgrading).toBe(false));
       batch = { maxSessions: 3, managedReleaseStatus: status, preseedNeedsUpgrade: false };
       await sessionStore.refreshSessionStatuses(true);
+      await sessionStore.refreshSessionAncillaryStatus();
 
       await Promise.resolve(retryStore.retryPreseedUpgrade?.()).catch(() => undefined);
 
