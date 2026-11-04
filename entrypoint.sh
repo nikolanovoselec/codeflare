@@ -3047,7 +3047,7 @@ const fs = require('fs');
 const path = process.argv[2];
 const required = [
   'npm:@calesennett/pi-codex-fast@0.1.13',
-  'npm:@gotgenes/pi-subagents@25.0.4',
+  'npm:@gotgenes/pi-subagents@25.0.5',
   // Pi tool extensions, always enabled (in `required`) so they are available
   // independently of the context-mode toggle — toggling /ctx never disables them.
   'npm:@juicesharp/rpiv-advisor@2.15.0',
