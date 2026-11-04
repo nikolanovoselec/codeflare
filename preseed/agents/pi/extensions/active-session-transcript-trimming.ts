@@ -3,7 +3,7 @@ import * as fs from "node:fs";
 import { createHash, randomUUID } from "node:crypto";
 import { dirname, isAbsolute, join, parse, resolve } from "node:path";
 import { isDeepStrictEqual, TextDecoder } from "node:util";
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 import { buildPublicTranscriptTrimRequest, extractionTranscriptFacts, extractionDue } from "./memory-vault-helpers";
 
@@ -13,7 +13,12 @@ const TARGET = 20_000_000;
 const COMPLETION_RESERVE = 4096;
 type Entry = Record<string, any>;
 type Identity = { sessionId: string; file: string };
-type TrimContext = Pick<ExtensionContext, "sessionManager">;
+type TrimContext = { sessionManager: {
+  getSessionId(): string;
+  getSessionFile(): string | undefined;
+  getLeafId(): string | null;
+  getBranch(): readonly Entry[];
+} };
 export type TrimResult = { status: "trimmed" | "unchanged" | "refused" | "verification-pending"; before?: number; after?: number; reason?: string };
 
 function identity(ctx: TrimContext): Identity | undefined {
@@ -343,7 +348,9 @@ function supersededTodoData(entries: Entry[], branchIds: string[]): Set<string> 
 
 function obsoleteSystemPayload(message: any): any {
   if (!message || message.role !== "system") return message;
-  return { ...message, content: [],
+  const content = Array.isArray(message.content)
+    ? message.content.filter((block: any) => !sameHistoricalBlocks([block], [])) : [];
+  return { ...message, content,
     ...(Array.isArray(message.toolsAdded) ? { toolsAdded: [] } : {}),
     ...(Array.isArray(message.toolsRemoved) ? { toolsRemoved: [] } : {}),
     ...(message.sections && typeof message.sections === "object" && !Array.isArray(message.sections)
@@ -370,6 +377,10 @@ const historicalArgumentFields: Record<string, string[]> = {
   read: ["path"], bash: ["command"], write: ["content"], edit: ["oldText", "newText"],
   ctx_execute: ["code"], ctx_execute_file: ["code"], subagent: ["prompt"], steer_subagent: ["message"], todo: ["description"],
 };
+function frozenExtractionCall(block: any): boolean {
+  return block?.type === "toolCall" && block.name === "subagent" && typeof block.arguments?.prompt === "string"
+    && block.arguments.prompt.includes("CODEFLARE_EXTRACTION_REQUEST=");
+}
 function sameHistoricalBlocks(before: any, after: any): boolean {
   // Unsupported metadata makes the entire block opaque. Only schema-shaped,
   // metadata-free payload blocks may be replaced or removed by semantic work.
@@ -390,7 +401,7 @@ function sameHistoricalBlocks(before: any, after: any): boolean {
   const original = opaque(before), candidate = opaque(after);
   if (original.length !== candidate.length) return false;
   return original.every((block: any, i: number) => {
-    const next = candidate[i], fields = block?.type === "toolCall" ? historicalArgumentFields[block.name] : undefined;
+    const next = candidate[i], fields = block?.type === "toolCall" && !frozenExtractionCall(block) ? historicalArgumentFields[block.name] : undefined;
     if (!fields || !block.arguments || !next?.arguments || typeof block.arguments !== "object" || typeof next.arguments !== "object"
       || Array.isArray(block.arguments) || Array.isArray(next.arguments)) return isDeepStrictEqual(block, next);
     const args = { ...block.arguments };
@@ -480,7 +491,7 @@ export function prepareLocalTranscriptTrim(raw: string, sessionId: string, branc
     else if (entry.type === "message") {
       const message = entry.message;
       const content = eligible.has(entry.id) ? (Array.isArray(message.content) ? message.content : []).filter((block: any) => !sameHistoricalBlocks([block], [])).map((block: any) => {
-        const fields = block?.type === "toolCall" ? historicalArgumentFields[block.name] : undefined;
+        const fields = block?.type === "toolCall" && !frozenExtractionCall(block) ? historicalArgumentFields[block.name] : undefined;
         if (!fields || !block.arguments || typeof block.arguments !== "object" || Array.isArray(block.arguments)) return block;
         const args = { ...block.arguments };
         for (const key of fields) if (typeof args[key] === "string" && args[key].length > 64) args[key] = "[Obsolete historical payload trimmed]";
@@ -492,7 +503,8 @@ export function prepareLocalTranscriptTrim(raw: string, sessionId: string, branc
         });
         return { ...block, arguments: args };
       }) : message.content;
-      const next = eligible.has(entry.id) && message.role === "system" ? obsoleteSystemPayload(message) : { ...message, content };
+      const next = eligible.has(entry.id) && message.role === "system"
+        ? { ...obsoleteSystemPayload(message), content } : { ...message, content };
       if (message.role === "toolResult" && message.toolName === "todo" && snapshot(message.details)) next.details = { ...message.details, tasks: [] };
       reduced = { ...entry, message: next };
     }
@@ -638,7 +650,8 @@ function registerTranscriptTrimTool(pi: ExtensionAPI): void {
       required: ["operation"], additionalProperties: false,
     } as any,
     async execute(_toolCallId, params: any, _signal, _onUpdate, ctx) {
-      const userText = ctx.sessionManager.getBranch().filter((e: any) => e.type === "message" && e.message?.role === "user")
+      const ownerContext = ctx as unknown as TrimContext;
+      const userText = ownerContext.sessionManager.getBranch().filter((e: any) => e.type === "message" && e.message?.role === "user")
         .map((e: any) => typeof e.message.content === "string" ? e.message.content : e.message.content?.filter((b: any) => b.type === "text").map((b: any) => b.text).join("\n"))
         .slice().reverse().find((text: string) => /^CODEFLARE_EXTRACTION_REQUEST=[0-9a-f-]+$/m.test(text ?? ""));
       const varsFile = userText?.match(/^VARS_FILE=(.+)$/m)?.[1];
@@ -669,7 +682,8 @@ function registerTranscriptTrimTool(pi: ExtensionAPI): void {
       let result: unknown;
       if (params.operation === "contract") {
         const { branchIds, ...summary } = request;
-        result = { request: { ...summary, branchEntryCount: branchIds.length }, contract: fs.readFileSync("/home/user/.pi/agent/prompts/transcript-trim-agent-prompt.md", "utf8") };
+        result = { request: { ...summary, branchEntryCount: branchIds.length },
+          contract: "Call operation trim once. It locally validates and reduces only this authorized prefix; report its compact result. Only the owning parent can verify and commit." };
       } else if (params.operation === "trim") {
         const budget = Math.max(0, request.candidateBudget - Math.max(0, fs.statSync(request.file).size - request.sourceBytes));
         const trimmed = prepareLocalTranscriptTrim(raw, request.sessionId, request.branchIds, budget);
@@ -692,11 +706,13 @@ function registerTranscriptTrimTool(pi: ExtensionAPI): void {
 
 export function registerActiveSessionTranscriptTrimming(pi: ExtensionAPI, io: typeof fs = fs) {
   let due: Identity | undefined, request: TranscriptTrimRequest | undefined;
+  const receipts = new Map<string, TranscriptTrimRequest>();
   registerTranscriptTrimTool(pi);
   const cancel = () => {
-    // A committed receipt still needs readback; cancelling must never replay it.
-    if (request?.committed) return;
-    if (request) cleanupRequest(request);
+    // Release scheduling ownership, but retain committed work for read-only
+    // verification when its own session is loaded again. Never replay a write.
+    if (request?.committed) receipts.set(request.requestId, request);
+    else if (request) cleanupRequest(request);
     request = undefined; due = undefined;
   };
   const outcome = (value: TrimResult) => {
@@ -708,9 +724,19 @@ export function registerActiveSessionTranscriptTrimming(pi: ExtensionAPI, io: ty
   };
   return {
     cancel,
-    markDue(ctx: TrimContext) { const owner = identity(ctx); if (owner && !request) due = owner; },
-    collect(ctx: ExtensionContext & { signal?: AbortSignal }): Record<string, unknown> | undefined {
+    markDue(ctx: TrimContext) {
+      const owner = identity(ctx);
+      if (owner && !request && ![...receipts.values()].some(receipt => same(owner, receipt))) due = owner;
+    },
+    collect(ctx: TrimContext & { signal?: AbortSignal }): Record<string, unknown> | undefined {
       if (ctx.signal?.aborted) { cancel(); return; }
+      for (const receipt of receipts.values()) {
+        if (!same(identity(ctx), receipt)) continue;
+        const result = commitTranscriptTrimCandidate(ctx, receipt, io);
+        if (result.status === "trimmed") receipts.delete(receipt.requestId);
+        outcome(result);
+        if (result.status !== "trimmed") return;
+      }
       if (!due || !same(identity(ctx), due)) return;
       try {
         if (request?.committed) {

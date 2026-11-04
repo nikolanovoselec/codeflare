@@ -7,7 +7,7 @@ import { join } from 'node:path';
 import { findPackageJSON, stripTypeScriptTypes } from 'node:module';
 import { pathToFileURL } from 'node:url';
 import {importPiExtension} from './fixtures/pi-extension-module.mjs';
-const { registerActiveSessionTranscriptTrimming, prepareTranscript, trimActiveSessionTranscript, parseTranscript, createTranscriptTrimRequest, commitTranscriptTrimCandidate }=await importPiExtension('active-session-transcript-trimming');
+const { registerActiveSessionTranscriptTrimming, prepareLocalTranscriptTrim, trimActiveSessionTranscript, parseTranscript, createTranscriptTrimRequest, commitTranscriptTrimCandidate }=await importPiExtension('active-session-transcript-trimming');
 
 const jsonl = entries => entries.map(e => JSON.stringify(e) + '\n').join('');
 function fixture(t, entries = oversized()) {
@@ -65,7 +65,7 @@ function oversized({ floor = false, child = false, raw = false, historicalBytes 
   return entries;
 }
 // Exercise the public controller's disk admission separately from MemoryVault's
-// shared cadence/delivery integration. Candidate generation uses the public pure API.
+// shared cadence/delivery integration. Use the scoped tool's one-pass candidate policy.
 function controllerFixture(f) {
   const outcomes = [];
   const controller = registerActiveSessionTranscriptTrimming({ sendMessage(message) { outcomes.push(message); }, registerTool() {} });
@@ -75,14 +75,16 @@ function controllerFixture(f) {
     if (!item) return;
     const req = JSON.parse(fs.readFileSync(item.request.prompt.match(/^VARS_FILE=(.+)$/m)[1]));
     const source = fs.readFileSync(f.file).subarray(0, req.sourceBytes).toString();
-    const candidate = prepareTranscript(source, 'fixture', req.branchIds);
-    assert.ok(candidate); fs.writeFileSync(req.candidateFile, candidate);
+    const trimmed = prepareLocalTranscriptTrim(source, req.sessionId, req.branchIds, req.candidateBudget);
+    assert.equal(trimmed.withinTarget, true);
+    fs.writeFileSync(req.candidateFile, trimmed.candidate);
     fs.appendFileSync(f.file, jsonl([
       { type: 'custom_message', id: `launch-${item.requestId}`, parentId: f.entries.at(-1).id, customType: 'background-extraction-launch', details: { items: [item] } },
       { type: 'message', id: `call-${item.requestId}`, parentId: `launch-${item.requestId}`, message: { role: 'assistant', content: [{ type: 'toolCall', id: item.requestId, name: 'subagent', arguments: item.request }] } },
       { type: 'custom_message', id: `done-${item.requestId}`, parentId: `call-${item.requestId}`, customType: 'subagent-notification', content: `<tool-use-id>${item.requestId}</tool-use-id><status>Done</status>` },
     ]));
     controller.collect(f.ctx);
+    assert.equal(outcomes.at(-1)?.details.status, 'trimmed', outcomes.at(-1)?.content);
   };
   return { ...controller, due, end, outcomes };
 }
