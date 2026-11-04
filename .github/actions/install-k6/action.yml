@@ -18,11 +18,11 @@ inputs:
   version:
     description: k6 release version, without the leading v
     required: false
-    default: '0.56.0'
+    default: '0.59.0'
   sha256:
     description: SHA256 of k6-v<version>-linux-amd64.tar.gz, from the release checksums.txt
     required: false
-    default: 'f90877b2721dbc607853ff785433c9a471e5aafdee788e78f6c833413541d649'
+    default: '7b32add2eb49495a641e5bdf9a392f58d2d5da1a50254f23b3e33fc02e1bfa55'
 
 runs:
   using: composite
