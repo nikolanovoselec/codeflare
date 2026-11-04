@@ -53,9 +53,46 @@ describe('Settings MCP connections', () => {
   it('REQ-AGENT-228 AC4: clean browser completion status is consumed using the existing connection pattern', async () => {
     window.history.replaceState({}, '', '?mcp=reconnect');
     render(() => <McpPortalsSection />);
-    expect(await screen.findByText(/Portal authorization could not be completed/)).toBeInTheDocument();
+    expect(await screen.findByRole('alert')).toHaveTextContent('Portal authorization could not be completed');
+    expect(screen.getByText(/Ask the portal administrator to check assigned and enabled servers/)).toBeVisible();
     expect(window.location.search).not.toContain('mcp=');
     expect(await screen.findByTestId('mcp-alpha-identity')).toHaveTextContent('alpha');
+  });
+
+  it('REQ-AGENT-228 AC4: setup guidance explains missing servers and discovery without blocking authorization or discarding connections', async () => {
+    render(() => <McpPortalsSection />);
+    const connect = await screen.findByRole('button', { name: 'Connect Model Context Protocol portal beta' });
+    fireEvent.click(screen.getByText('Portal setup and connection help'));
+    expect(screen.getByText(/Ask the portal administrator to check assigned and enabled servers/)).toBeVisible();
+    expect(screen.getByText(/Manual OAuth servers may discover tools only after the first user signs in/)).toBeVisible();
+    expect(screen.getByText(/Keep your connection while tool access is corrected/)).toBeVisible();
+    expect(screen.getByText(/Ask the instance administrator to inspect MCP transport\/interception logs/)).toBeVisible();
+    expect(connect).toBeEnabled();
+    expect(connect).toHaveAttribute('data-href', '/auth/mcp/connect/beta');
+    expect(screen.getByTestId('mcp-alpha-connected-badge')).toBeVisible();
+    expect(stored.map(portal => portal.connected)).toEqual([true, false]);
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('REQ-AGENT-228 AC4: successful authorization is not presented as a tool-discovery failure', async () => {
+    window.history.replaceState({}, '', '?mcp=connected');
+    render(() => <McpPortalsSection />);
+    expect(await screen.findByText('Authorization returned. Check the connection status below.')).toBeVisible();
+    expect(await screen.findByTestId('mcp-alpha-connected-badge')).toBeVisible();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(screen.getByText(/A connected portal does not guarantee access to every upstream tool/)).toBeVisible();
+  });
+
+  it('REQ-AGENT-228 AC4: a return marker cannot override disconnected status or remove unrelated navigation state', async () => {
+    stored = stored.map(portal => ({ ...portal, connected: false }));
+    window.history.replaceState({}, '', '?view=settings&mcp=connected#connections');
+    render(() => <McpPortalsSection />);
+    expect(await screen.findByText('Authorization returned. Check the connection status below.')).toBeVisible();
+    expect(await screen.findByRole('button', { name: 'Connect Model Context Protocol portal alpha' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Connect Model Context Protocol portal beta' })).toBeEnabled();
+    expect(screen.queryByTestId('mcp-alpha-connected-badge')).not.toBeInTheDocument();
+    expect(window.location.search).toBe('?view=settings');
+    expect(window.location.hash).toBe('#connections');
   });
 
   it('REQ-AGENT-228 AC4: empty configuration, loading errors and disconnect errors are actionable and accessible', async () => {

@@ -194,7 +194,11 @@ it('REQ-STOR-054 AC6: a stalled remote cleanup obeys its remaining deadline', t 
   const f = fixture(t);
   for (const status of [0, 7]) {
     const started = performance.now();
-    const r = f.run(`cleanup_rclone_conflicts ${quote(f.local)} r2:bucket/scope ${status} 1`, { DELETE_STALL: '1' });
+    // Unsetting SECONDS removes its Bash clock behavior. Pin local-scan elapsed
+    // time so this case reaches the remote stall; exhausted budgets are tested above.
+    // The real timeout command still enforces the one-second remote deadline.
+    const r = f.run(`unset SECONDS; SECONDS=0
+cleanup_rclone_conflicts ${quote(f.local)} r2:bucket/scope ${status} 1`, { DELETE_STALL: '1' });
     assert.equal(r.status, status || 124, r.stderr);
     assert.match(r.stderr, /Remote conflict-copy cleanup failed/);
     assert.ok(performance.now() - started < 8000, 'stalled cleanup must terminate within the bounded fixture window');
