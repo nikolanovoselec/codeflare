@@ -420,6 +420,30 @@ test('REQ-MEM-028 AC6: a later rewrite is handled at a later cadence', t => {
 // GitHub host CI already provisions the pinned preseed SDK (host-pi-inference). Never
 // resolve a global SDK or install one here. The local safe wrapper also sets CI=1,
 // so require the managed GitHub marker; local checks exercise synthetic appends only.
+test('REQ-MEM-030 AC6: provisioned SDK classifies an ancestor absent from disk but retained in its loaded branch', { skip: process.env.GITHUB_ACTIONS !== 'true' }, async t => {
+  const manifestPath = findPackageJSON('@earendil-works/pi-coding-agent', new URL('../../preseed/agents/pi/package.json', import.meta.url));
+  assert.ok(manifestPath, 'CI must provision the existing pinned preseed SDK');
+  const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+  const entry = manifest.exports?.['.']?.import;
+  assert.ok(typeof entry === 'string' && entry.startsWith('./'), 'public SDK import contract');
+  const { SessionManager } = await import(new URL(entry, pathToFileURL(manifestPath)));
+  const f = fixture(t), manager = SessionManager.open(f.file, f.root, f.root);
+  const loadedIds = manager.getBranch().map(e => e.id), removed = loadedIds[0];
+  assert.ok(removed);
+  fs.writeFileSync(f.file, jsonl(f.entries.filter(e => e.id !== removed)));
+  const before = createHash('sha256').update(fs.readFileSync(f.file)).digest('hex');
+  assert.throws(() => createTranscriptTrimRequest({ sessionManager: manager }), error => {
+    assert.ok(error.message.startsWith('foreign-branch:'));
+    const detail = JSON.parse(error.message.slice('foreign-branch:'.length));
+    assert.equal(detail.leaf, manager.getLeafId()); assert.equal(detail.leafOnDisk, true);
+    assert.equal(detail.missingCount, 1); assert.deepEqual(detail.missingSample, [removed]);
+    assert.equal(detail.edgeMismatch, null); return true;
+  });
+  assert.deepEqual(manager.getBranch().map(e => e.id), loadedIds);
+  assert.equal(createHash('sha256').update(fs.readFileSync(f.file)).digest('hex'), before);
+  assert.deepEqual(fs.readdirSync(f.root), ['session.jsonl']);
+});
+
 test('REQ-MEM-028 AC5: provisioned public SDK appends and disk reopen survive same-path trimming', { skip: process.env.GITHUB_ACTIONS !== 'true' }, async t => {
   const manifestPath = findPackageJSON('@earendil-works/pi-coding-agent', new URL('../../preseed/agents/pi/package.json', import.meta.url));
   assert.ok(manifestPath, 'CI must provision the existing pinned preseed SDK');

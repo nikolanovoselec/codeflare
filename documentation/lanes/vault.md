@@ -618,7 +618,9 @@ Each launch shows a job/delivery summary followed by pretty-printed `<extraction
 
 Generated agents and emitted requests use provider-neutral medium reasoning and Bash-only evidence. Memory capture has ten turns with a reserved final completion turn; Vault extraction has seven ([AD102](../decisions/README.md#ad102-pi-extraction-delivery-is-root-owned-visible-and-transactional), [AD103](../decisions/README.md#ad103-pi-extraction-agents-use-bounded-medium-reasoning-and-one-pass-inputs)).
 
-`memory-vault.ts` owns delivery and high-water state. `/tmp/.memory-counter/<sessionId>.vars` and `vault-extract.pi.vars` are active request-ID pointers for reload discovery.
+`memory-vault.ts` owns delivery and high-water state. Already-frozen work advances at normal completed assistant turns, with settlement as fallback; queued foreground follow-ups do not postpone handoff. Runtime-local request/reminder identities suppress duplicate launches before queued messages reach JSONL. Counting and eligibility remain unchanged. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::registerMemoryVault --> <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::sendDueExtractionMessages -->
+
+`/tmp/.memory-counter/<sessionId>.vars` and `vault-extract.pi.vars` are active request-ID pointers for reload discovery.
 
 Public prompts receive immutable home-backed cache snapshots named `memory-capture.<sessionId>.<requestId>.vars` or `vault-extract.pi.<requestId>.vars`. `memory-vault.ts` derives the request-specific home-backed path and can discover an active legacy pointer before retry; the [extraction data flow](architecture.md#pi-memory-and-vault-extraction-data-flow) shows the ownership boundary. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::memoryExecutionVarsPath --> <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::readActiveMemoryRequest -->
 

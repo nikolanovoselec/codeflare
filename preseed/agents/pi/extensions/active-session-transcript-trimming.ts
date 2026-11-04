@@ -387,8 +387,16 @@ export function createTranscriptTrimRequest(ctx: TrimContext, feedback = "", ret
   const entries = parseTranscript(decode(bytes), owner.sessionId, true);
   const branchIds = ctx.sessionManager.getBranch().map(e => e.id);
   const index = new Map(entries.slice(1).map(e => [e.id, e]));
-  if (!branchIds.length || branchIds.at(-1) !== ctx.sessionManager.getLeafId()
-    || branchIds.some((id, i) => !index.has(id) || (i > 0 && index.get(id)!.parentId !== branchIds[i - 1]))) throw new Error("foreign-branch");
+  const leaf = ctx.sessionManager.getLeafId();
+  const missing = branchIds.filter(id => !index.has(id));
+  const edgeIndex = branchIds.findIndex((id, i) => i > 0 && index.has(id) && index.get(id)!.parentId !== branchIds[i - 1]);
+  if (!branchIds.length || branchIds.at(-1) !== leaf || missing.length || edgeIndex >= 0) {
+    throw new Error(`foreign-branch:${JSON.stringify({ leaf, branchLast: branchIds.at(-1) ?? null,
+      leafOnDisk: index.has(leaf), branchLastOnDisk: index.has(branchIds.at(-1)), missingCount: missing.length,
+      missingSample: missing.slice(0, 8), edgeMismatch: edgeIndex < 0 ? null : {
+        id: branchIds[edgeIndex], diskParent: index.get(branchIds[edgeIndex])!.parentId, branchParent: branchIds[edgeIndex - 1],
+      } })}`);
+  }
   const directory = fs.mkdtempSync(join(dirname(owner.file), ".transcript-trim-"));
   const request: TranscriptTrimRequest = { version: 1, requestId: randomUUID(), ...owner,
     sourceBytes: bytes.length, sourceSha256: digest(bytes), sourcePathIdentity: stamp, branchIds,
@@ -494,15 +502,15 @@ function readWorkingCandidate(request: TranscriptTrimRequest): Buffer | undefine
 
 /** One focused native tool: no shell, arbitrary read path, or live-write operation is
  * exposed to the maintenance agent. Scope comes from its public launch, not arguments. */
-function registerTranscriptTrimTool(pi: ExtensionAPI): void {
+function registerTranscriptTrimTool(pi: ExtensionAPI, start: (ctx: ExtensionContext) => Record<string, unknown>): void {
   pi.registerTool?.({
     name: "transcript_trim",
     label: "Inspect / propose transcript maintenance",
-    description: "Read the authorized maintenance contract or source prefix, or write an explicitly chosen semantic candidate. Never writes the live transcript.",
+    description: "Schedule/resume maintenance for this loaded parent, or inspect/propose an authorized candidate. Never writes the live transcript from tool execution.",
     // Pi's public validator also accepts JSON Schema without TypeBox symbols.
     parameters: {
       type: "object", properties: {
-        operation: { type: "string", enum: ["contract", "inspect", "candidate"] },
+        operation: { type: "string", enum: ["start", "contract", "inspect", "candidate"] },
         index: { type: "integer", minimum: 0 }, offset: { type: "integer", minimum: 0 },
         replacements: { type: "array", items: { type: "object", properties: {
           id: { type: "string" }, patch: { type: "string", description: "JSON object with explicitly chosen historical content/data/summary replacements only" },
@@ -510,6 +518,10 @@ function registerTranscriptTrimTool(pi: ExtensionAPI): void {
       }, required: ["operation"], additionalProperties: false,
     } as any,
     async execute(_toolCallId, params: any, _signal, _onUpdate, ctx) {
+      if (params.operation === "start") {
+        const result = start(ctx);
+        return { content: [{ type: "text", text: JSON.stringify(result) }], details: result };
+      }
       const userText = ctx.sessionManager.getBranch().filter((e: any) => e.type === "message" && e.message?.role === "user")
         .map((e: any) => typeof e.message.content === "string" ? e.message.content : e.message.content?.filter((b: any) => b.type === "text").map((b: any) => b.text).join("\n"))
         .findLast((text: string) => /^CODEFLARE_EXTRACTION_REQUEST=[0-9a-f-]+$/m.test(text ?? ""));
@@ -604,9 +616,20 @@ function registerTranscriptTrimTool(pi: ExtensionAPI): void {
 }
 
 export function registerActiveSessionTranscriptTrimming(pi: ExtensionAPI, io: typeof fs = fs): void {
-  registerTranscriptTrimTool(pi);
   let current: TrimContext | undefined, due: Identity | undefined, request: TranscriptTrimRequest | undefined;
   let failures = 0;
+  registerTranscriptTrimTool(pi, ctx => {
+    const owner = identity(ctx), header = ctx.sessionManager.getHeader();
+    if (!owner || !current || !same(identity(current), owner) || !header || header.id !== owner.sessionId || header.parentSession) {
+      throw new Error("parent-owner-required");
+    }
+    if (due) return { status: "already-pending", committed: false };
+    due = owner; failures = 0;
+    pi.sendMessage({ customType: "transcript-trim-start", display: true,
+      content: "Explicit transcript maintenance scheduled; the parent will advance the existing native workflow at a safe turn boundary.",
+    }, { deliverAs: "followUp", triggerTurn: true });
+    return { status: "scheduled", committed: false };
+  });
   const cancel = () => { if (request) cleanupRequest(request); request = undefined; due = undefined; current = undefined; failures = 0; };
   pi.on("session_start", (_event, ctx) => { cancel(); current = ctx; });
   pi.on("session_before_switch", cancel);

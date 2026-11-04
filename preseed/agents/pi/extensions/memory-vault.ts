@@ -607,6 +607,7 @@ function sendDueExtractionMessages(
   entries: any[],
   memory: MemoryCaptureRequest | undefined,
   vault: VaultExtractRequest | undefined,
+  queued: Set<string>,
 ): void {
   const launches: Array<Record<string, unknown>> = [];
   const giveups: Array<Record<string, unknown>> = [];
@@ -624,8 +625,11 @@ function sendDueExtractionMessages(
         ? memorySuccessQualifies(paths, item.request as MemoryCaptureRequest)
         : vaultSuccessQualifies(paths, item.request as VaultExtractRequest),
     });
+    for (let reminder = 0; reminder < facts.launchCount; reminder++) queued.delete(`${item.job}:${item.request.requestId}:${reminder}`);
     const due = extractionDue(facts);
-    if (due.kind === "launch") launches.push(dueItem(paths, item.request, item.job, due.reminder));
+    if (due.kind === "launch" && !queued.has(`${item.job}:${item.request.requestId}:${due.reminder}`)) {
+      launches.push(dueItem(paths, item.request, item.job, due.reminder));
+    }
     if (due.kind === "giveup") giveups.push({ requestId: item.request.requestId, jobType: item.job });
   }
   if (launches.length > 0) {
@@ -655,6 +659,7 @@ function sendDueExtractionMessages(
       display: true,
       details: { items: launches },
     }, { deliverAs: "followUp", triggerTurn: true });
+    for (const item of launches) queued.add(`${String(item.jobType)}:${String(item.requestId)}:${String(item.reminder)}`);
   }
   if (giveups.length > 0) {
     const jobs = giveups.map((item) => (
@@ -692,9 +697,11 @@ function sendDueExtractionMessages(
 export function registerMemoryVault(pi: MemoryVaultPi, dependencies: MemoryVaultDependencies): void {
   const { paths } = dependencies;
   let lastMessages: any[] = [];
+  const queuedLaunches = new Set<string>();
 
   pi.on("session_start", (_event, ctx) => {
     if (isChildSession(ctx)) return;
+    queuedLaunches.clear();
     const vaultExisted = existsSync(paths.vaultRoot);
     ensureDirs(paths);
     bestEffortMergeGraphs(paths);
@@ -797,7 +804,7 @@ export function registerMemoryVault(pi: MemoryVaultPi, dependencies: MemoryVault
     lastMessages = Array.isArray(event?.messages) ? event.messages : lastMessages;
   });
 
-  pi.on("agent_settled", (_event, ctx) => {
+  const advanceExtraction = (ctx: any) => {
     if (isChildSession(ctx)) return;
     ensureDirs(paths);
     const entries = readSessionEntries(ctx);
@@ -809,8 +816,15 @@ export function registerMemoryVault(pi: MemoryVaultPi, dependencies: MemoryVault
     const vault = !activeVault?.ownerSessionId || activeVault.ownerSessionId === session
       ? activeVault
       : undefined;
-    sendDueExtractionMessages(pi, paths, dependencies, entries, memory, vault);
+    sendDueExtractionMessages(pi, paths, dependencies, entries, memory, vault, queuedLaunches);
+  };
+  pi.on("turn_end", (event, ctx) => {
+    const message = event.message;
+    if (event.outcome === "aborted" || ctx.signal?.aborted || message?.role !== "assistant" || message.stopReason !== "stop"
+      || !Array.isArray(message.content) || message.content.some((block: any) => block.type === "toolCall")) return;
+    advanceExtraction(ctx);
   });
+  pi.on("agent_settled", (_event, ctx) => advanceExtraction(ctx));
 }
 
 export default function memoryVault(pi: ExtensionAPI): void {

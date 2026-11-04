@@ -41,6 +41,22 @@ function lifecycle(f, io, queueLaunch = false) {
   const done = (item, status = 'Done') => append({ type: 'custom_message', customType: 'subagent-notification', content: `<tool-use-id>${item.requestId}</tool-use-id><status>${status}</status>` });
   return { emit, due, launch, sent, call, done, append, tools };
 }
+test('REQ-MEM-030 AC6: branch refusal classifies cached missing ancestry without changing disk', t => {
+  const f = fixture(t); f.rows.at(-1).parentId = 'opaque';
+  fs.writeFileSync(f.file, jsonl(f.rows.filter(e => e.id !== 'old-state')));
+  const before = fs.readFileSync(f.file);
+  assert.throws(() => createTranscriptTrimRequest(f.ctx), error => {
+    assert.ok(error.message.startsWith('foreign-branch:'));
+    const detail = JSON.parse(error.message.slice('foreign-branch:'.length));
+    assert.equal(detail.leaf, 'orphan'); assert.equal(detail.branchLast, 'orphan');
+    assert.equal(detail.leafOnDisk, true); assert.equal(detail.branchLastOnDisk, true);
+    assert.equal(detail.missingCount, 1); assert.deepEqual(detail.missingSample, ['old-state']);
+    assert.equal(detail.edgeMismatch, null);
+    return true;
+  });
+  assert.ok(fs.readFileSync(f.file).equals(before)); assert.deepEqual(fs.readdirSync(f.root), ['session.jsonl']);
+});
+
 test('REQ-MEM-030 AC1: visible scoped launch is idempotent and cancelled with the parent session', t => {
   const f = fixture(t), l = lifecycle(f); l.due(); l.emit('agent_settled');
   const item = l.launch(); assert.equal(item.request.subagent_type, 'transcript-trim');
