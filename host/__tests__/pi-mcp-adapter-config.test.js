@@ -14,11 +14,135 @@ async function fixture(t) {
   t.after(() => rmSync(home, { recursive: true, force: true }));
   const directory = join(home, '.pi', 'agent');
   mkdirSync(directory, { recursive: true });
+  writeFileSync(join(directory, 'settings.json'), JSON.stringify({ packages: ['npm:pi-mcp-extension@1.12.1'], extensions: ['-builtin:mcp'] }));
   return { home, directory, legacy: join(directory, 'mcp-adapter.json'), target: join(directory, 'mcp.json'), backup: join(directory, 'mcp-adapter.json.migrated'),
     migrate: (regenerate = false) => migratePiMcpAdapterConfig(directory, regenerate),
     prepare: (regenerate = false) => migratePiMcpAdapterConfig(directory, regenerate, true),
     load: (pi = {}) => register(pi, { HOME: home }),
   };
+}
+
+test('REQ-AGENT-217: selected stock hands off even when the adapter is merely installed', async t => {
+  const f = await fixture(t);
+  mkdirSync(join(f.directory, 'npm', 'node_modules', 'pi-mcp-adapter'), { recursive: true });
+  writeFileSync(f.legacy, legacyConfig);
+  f.load();
+  assert.equal(existsSync(f.legacy), false);
+  assert.equal(JSON.parse(readFileSync(f.target, 'utf8')).settings.requestTimeoutMs, 360000);
+});
+
+const stock = 'npm:pi-mcp-extension@1.12.1';
+const adapter = 'npm:pi-mcp-adapter@5.3.1';
+const localStock = '/home/user/.pi/agent/local-mcp-runtime/npm/node_modules/pi-mcp-extension';
+for (const [name, settings, selected] of [
+  ['adapter only', { packages: [adapter] }, 'adapter'],
+  ['dual npm owners', { packages: [stock, adapter] }, 'ambiguous'],
+  ['dual local stock and npm adapter', { packages: [localStock, adapter], extensions: ['-builtin:mcp'] }, 'ambiguous'],
+  ['disabled stock package', { packages: [{ source: stock, extensions: [] }, adapter] }, 'adapter'],
+  ['disabled adapter package', { packages: [stock, { source: adapter, extensions: [] }] }, 'stock'],
+  ['exact stock package exclusion', { packages: [{ source: stock, extensions: ['-src/index.ts'] }, adapter] }, 'adapter'],
+  ['exact adapter package exclusion', { packages: [stock, { source: adapter, extensions: ['!./index.ts'] }] }, 'stock'],
+  ['exact global stock exclusion', { packages: [localStock, adapter], extensions: [`-${localStock}/src/index.ts`] }, 'adapter'],
+  ['exact global adapter exclusion', { packages: [localStock, '/synthetic/npm/node_modules/pi-mcp-adapter'], extensions: ['-/synthetic/npm/node_modules/pi-mcp-adapter/index.ts'] }, 'stock'],
+  ['npm exclusion with uncertain install root', { packages: [stock, adapter], extensions: ['-/synthetic/npm/node_modules/pi-mcp-adapter/index.ts'] }, 'ambiguous'],
+  ['exact include overrides bang exclusion', { packages: [stock, { source: adapter, extensions: ['!index.ts', '+index.ts'] }] }, 'ambiguous'],
+  ['exact minus exclusion overrides include', { packages: [stock, { source: adapter, extensions: ['+index.ts', '-index.ts'] }] }, 'stock'],
+  ['local stock package', { packages: [localStock] }, 'stock'],
+  ['excluded retired MCP companion is not another owner', { packages: [stock], extensions: ['-/home/user/.pi/agent/extensions/mcp-portal-oauth.ts', '-builtin:mcp'] }, 'stock'],
+  ['global stock extension', { extensions: [`${localStock}/src/index.ts`, '-builtin:mcp'] }, 'stock'],
+  ['unknown stock filter', { packages: [{ source: stock, extensions: ['src/*.ts'] }] }, 'ambiguous'],
+  ['unknown adapter filter beside stock', { packages: [stock, { source: adapter, extensions: ['unknown.ts'] }] }, 'ambiguous'],
+  ['unknown local path', { packages: ['/synthetic/unknown-mcp'] }, 'ambiguous'],
+  ['missing selection', {}, 'ambiguous'],
+  ['malformed packages', { packages: stock }, 'ambiguous'],
+  ['malformed extensions', { packages: [stock], extensions: null }, 'ambiguous'],
+  ['malformed settings', '{synthetic-private-settings', 'ambiguous'],
+]) {
+  test(`REQ-AGENT-217: configured MCP selection protects native files (${name})`, async t => {
+    const f = await fixture(t);
+    writeFileSync(join(f.directory, 'settings.json'), typeof settings === 'string' ? settings : JSON.stringify(settings));
+    const native = '{"mcpServers":{"custom":{"command":"synthetic","env":{"TOKEN":"!!synthetic-private"},"lifecycle":"lazy-keep-alive"}},"settings":{"native":true}}\n';
+    const target = '{"mcpServers":{},"settings":{"custom":true}}\n';
+    writeFileSync(f.legacy, native);
+    writeFileSync(f.target, target);
+    const before = readdirSync(f.directory).sort();
+    const notifications = [];
+    const pi = { on: (event, handler) => {
+      if (event === 'session_start') handler({}, { ui: { notify: (message, level) => notifications.push({ message, level }) } });
+    } };
+    f.load(pi);
+    f.load(pi);
+    if (selected === 'stock') {
+      assert.equal(existsSync(f.legacy), false);
+      assert.equal(JSON.parse(readFileSync(f.target, 'utf8')).settings.requestTimeoutMs, 360000);
+      assertArchived(f, 'mcp-adapter.json.migrated', native);
+    } else {
+      assert.equal(readFileSync(f.legacy, 'utf8'), native);
+      assert.equal(readFileSync(f.target, 'utf8'), target);
+      assert.deepEqual(readdirSync(f.directory).sort(), before);
+      if (selected === 'ambiguous') {
+        assert.ok(notifications.some(({ message, level }) => level === 'warning' && /selection.*ambiguous|ambiguous.*selection/i.test(message)));
+        for (const { message } of notifications) {
+          assert.doesNotMatch(message, /synthetic|\/home\/|npm:|owns|owner is/);
+        }
+      } else assert.deepEqual(notifications, []);
+    }
+  });
+}
+
+for (const exclusion of [
+  '-local-mcp-runtime/npm/node_modules/pi-mcp-extension/src/index.ts',
+  '-./local-mcp-runtime/npm/node_modules/pi-mcp-extension/src/index.ts',
+  '-**/node_modules/pi-mcp-extension/src/index.ts',
+  '-local-mcp-runtime/**',
+  '-**/*.ts',
+  '-local-mcp-runtime/npm/node_modules/pi-mcp-extension',
+]) {
+  test(`REQ-AGENT-217: default loader preserves files for relative or unsupported global exclusion (${exclusion})`, async t => {
+    const f = await fixture(t);
+    const entry = join(f.directory, 'local-mcp-runtime/npm/node_modules/pi-mcp-extension/src/index.ts');
+    writeFileSync(join(f.directory, 'settings.json'), JSON.stringify({ extensions: [entry, exclusion] }));
+    writeFileSync(f.legacy, legacyConfig);
+    const target = '{"mcpServers":{},"settings":{"native":true}}\n';
+    writeFileSync(f.target, target);
+    const before = readdirSync(f.directory).sort();
+    const notifications = [];
+    f.load({ on(event, handler) {
+      if (event === 'session_start') handler({}, { ui: { notify: (message, level) => notifications.push({ message, level }) } });
+    } });
+    assert.equal(readFileSync(f.legacy, 'utf8'), legacyConfig);
+    assert.equal(readFileSync(f.target, 'utf8'), target);
+    assert.deepEqual(readdirSync(f.directory).sort(), before, 'skipped handoff must not archive or write configuration');
+    assert.ok(notifications.some(({ message, level }) => level === 'warning' && /selection.*ambiguous|ambiguous.*selection/i.test(message)));
+    for (const { message } of notifications) assert.doesNotMatch(message, /synthetic|pi-mcp-extension|local-mcp-runtime|TOKEN/);
+  });
+}
+
+test('REQ-AGENT-217: exact relative retired companion exclusion does not disable stock handoff', async t => {
+  const f = await fixture(t);
+  writeFileSync(join(f.directory, 'settings.json'), JSON.stringify({ packages: [stock], extensions: ['-extensions/mcp-portal-oauth.ts'] }));
+  writeFileSync(f.legacy, legacyConfig);
+  f.load();
+  assert.equal(existsSync(f.legacy), false);
+  assert.equal(JSON.parse(readFileSync(f.target, 'utf8')).settings.requestTimeoutMs, 360000);
+  assertArchived(f, 'mcp-adapter.json.migrated', legacyConfig);
+});
+
+for (const unsafe of ['missing', 'symlink', 'directory']) {
+  test(`REQ-AGENT-217: unsafe or absent global settings preserve MCP files (${unsafe})`, async t => {
+    const f = await fixture(t);
+    const settings = join(f.directory, 'settings.json');
+    rmSync(settings);
+    if (unsafe === 'symlink') {
+      const outside = join(f.home, 'external-settings.json');
+      writeFileSync(outside, JSON.stringify({ packages: [stock] }));
+      symlinkSync(outside, settings);
+    } else if (unsafe === 'directory') mkdirSync(settings);
+    writeFileSync(f.legacy, legacyConfig);
+    f.load();
+    assert.equal(readFileSync(f.legacy, 'utf8'), legacyConfig);
+    assert.equal(existsSync(f.target), false);
+  });
 }
 
 const legacyConfig = '{\n "mcpServers": {"custom": {"command":"custom", "env":{"TOKEN":"synthetic-secret"}}, "chrome-devtools":{"args":["--wsEndpoint=wss://example.test/?keep_alive=600000"],"lifecycle":"lazy"}}, "settings":{"custom":true}, "imports":["synthetic"]\n}\n';

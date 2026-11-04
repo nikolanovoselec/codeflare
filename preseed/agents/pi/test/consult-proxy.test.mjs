@@ -11,6 +11,7 @@ async function fixture(t, serverTimeout, environmentCase) {
   const home = mkdtempSync(join(tmpdir(), 'pi-mcp-extension-'));
   const directory = join(home, '.pi/agent');
   mkdirSync(directory, { recursive: true });
+  writeFileSync(join(directory, 'settings.json'), JSON.stringify({ packages: ['npm:pi-mcp-extension@1.12.1'], extensions: ['-builtin:mcp'] }));
   let shutdown = async () => {};
   t.after(async () => { try { await shutdown(); } finally { rmSync(home, { recursive: true, force: true }); } });
   const dependencies = join(repo, 'preseed/agents/pi/node_modules');
