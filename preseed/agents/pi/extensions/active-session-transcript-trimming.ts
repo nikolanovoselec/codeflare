@@ -5,7 +5,7 @@ import { dirname, isAbsolute, join, parse, resolve } from "node:path";
 import { isDeepStrictEqual, TextDecoder } from "node:util";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 
-import { buildPublicTranscriptTrimRequest, extractionTranscriptFacts, extractionDue } from "./memory-vault-helpers.ts";
+import { buildPublicTranscriptTrimRequest, extractionTranscriptFacts, extractionDue, transcriptTrimLaunchNeedsRecovery } from "./memory-vault-helpers.ts";
 
 export const TRANSCRIPT_TRIM_DUE = "codeflare:transcript-trim-due";
 const CAP = 50_000_000;
@@ -309,8 +309,20 @@ const historicalArgumentFields: Record<string, string[]> = {
   read: ["path"], bash: ["command"], write: ["content"], edit: ["oldText", "newText"],
 };
 function sameHistoricalBlocks(before: any, after: any): boolean {
-  const opaque = (content: any) => Array.isArray(content)
-    ? content.filter((block: any) => !["text", "thinking", "image"].includes(block?.type)) : [];
+  // Unsupported metadata makes the entire block opaque. Only schema-shaped,
+  // metadata-free payload blocks may be replaced or removed by semantic work.
+  const mutablePayload = (block: any): boolean => {
+    if (!block || typeof block !== "object" || Array.isArray(block)) return false;
+    const keys = Object.keys(block);
+    if (block.type === "text") return typeof block.text === "string" && keys.every(key => ["type", "text"].includes(key));
+    if (block.type === "thinking") return typeof block.thinking === "string"
+      && (block.thinkingSignature === undefined || typeof block.thinkingSignature === "string")
+      && keys.every(key => ["type", "thinking", "thinkingSignature"].includes(key));
+    if (block.type === "image") return typeof block.data === "string" && typeof block.mimeType === "string"
+      && keys.every(key => ["type", "data", "mimeType"].includes(key));
+    return false;
+  };
+  const opaque = (content: any) => Array.isArray(content) ? content.filter(block => !mutablePayload(block)) : [];
   const original = opaque(before), candidate = opaque(after);
   if (original.length !== candidate.length) return false;
   return original.every((block: any, i: number) => {
@@ -392,13 +404,20 @@ function ownedDirectory(request: TranscriptTrimRequest, io: typeof fs): boolean 
   return stat.isDirectory() && !stat.isSymbolicLink() && stat.uid === process.getuid?.()
     && `${stat.dev}:${stat.ino}` === request.directoryIdentity;
 }
-function cleanupRequest(request: TranscriptTrimRequest): void {
+function cleanupRequest(request: TranscriptTrimRequest, io: typeof fs = fs): boolean {
   // Only these exact parent-owned staging names; never traverse child-created paths.
   try {
-    if (!ownedDirectory(request, fs)) return;
-    for (const file of [request.candidateFile, request.varsFile]) { try { fs.unlinkSync(file); } catch {} }
-    fs.rmdirSync(request.directory);
-  } catch { /* A substituted directory is not ours to clean. */ }
+    if (!ownedDirectory(request, io)) return false;
+    for (const file of [request.candidateFile, request.varsFile]) {
+      try { io.unlinkSync(file); }
+      catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") return false; }
+    }
+    io.rmdirSync(request.directory);
+    return true;
+  } catch (error) {
+    // Already removed is success; substituted or inaccessible directories are not.
+    return (error as NodeJS.ErrnoException).code === "ENOENT";
+  }
 }
 
 /** Parent-owned synchronous commit. No await/cache mutation; all concurrent ordinary tail
@@ -416,7 +435,7 @@ export function commitTranscriptTrimCandidate(ctx: TrimContext, request: Transcr
       if (persisted.length > TARGET || persisted.length < receipt.bytes
         || digest(persisted.subarray(0, receipt.bytes)) !== receipt.sha256) throw new Error("persisted-verification-failed");
       parseTranscript(decode(persisted), request.sessionId, true);
-      cleanupRequest(request);
+      if (!cleanupRequest(request, io)) throw new Error("staging-cleanup-pending");
       return { status: "trimmed", before: receipt.before, after: persisted.length,
         ...(receipt.warning ? { reason: receipt.warning } : {}) };
     }
@@ -636,8 +655,10 @@ export function registerActiveSessionTranscriptTrimming(pi: ExtensionAPI, io: ty
           feedback = result.reason ?? "candidate-rejected";
         } else {
           const next = extractionDue(facts);
-          if (next.kind === "none") return;
-          feedback = "native-call-failed-or-expired: recompute candidate and complete the native call";
+          if (next.kind === "none") {
+            if (!facts.pendingLaunch || !transcriptTrimLaunchNeedsRecovery(entries, request.requestId, Date.now())) return;
+            feedback = "delivered-launch-missing-or-altered: submit the public native request unchanged";
+          } else feedback = "native-call-failed-or-expired: recompute candidate and complete the native call";
         }
         cleanupRequest(request); request = undefined; failures++;
         if (failures >= 6) { due = undefined; outcome({ status: "refused", reason: `retry-limit:${feedback}` }); return; }

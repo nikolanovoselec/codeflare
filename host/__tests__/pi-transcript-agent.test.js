@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import * as fs from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import register, { TRANSCRIPT_TRIM_DUE, createTranscriptTrimRequest, commitTranscriptTrimCandidate, registerActiveSessionTranscriptTrimming } from '../../preseed/agents/pi/extensions/active-session-transcript-trimming.ts';
+import register, { TRANSCRIPT_TRIM_DUE, createTranscriptTrimRequest, commitTranscriptTrimCandidate, registerActiveSessionTranscriptTrimming, validateTranscriptTrimCandidate } from '../../preseed/agents/pi/extensions/active-session-transcript-trimming.ts';
 const jsonl = rows => rows.map(row => JSON.stringify(row) + '\n').join('');
 function fixture(t) {
   const root = fs.mkdtempSync(join(tmpdir(), 'trim-agent-'));
@@ -74,7 +74,7 @@ test('REQ-MEM-030 AC3: preexisting orphan survives; new damage, accounting, user
   f.stage(req); assert.equal(commitTranscriptTrimCandidate(f.ctx, req).status, 'trimmed');
   const rows = fs.readFileSync(f.file, 'utf8').trim().split('\n').map(JSON.parse); assert.equal(rows.find(r => r.id === 'orphan').parentId, 'preexisting-missing');
 });
-test('REQ-MEM-030 AC4: append tail merges verbatim and source rewrite rebases instead of overwriting', t => {
+test('REQ-MEM-030 AC4: append tail merges verbatim and divergent history is not overwritten', t => {
   const f = fixture(t), req = createTranscriptTrimRequest(f.ctx); f.stage(req);
   const tail = jsonl([{ type: 'message', id: 'tail', parentId: 'orphan', message: { role: 'user', content: 'Concurrent user' } }]); fs.appendFileSync(f.file, tail);
   assert.equal(commitTranscriptTrimCandidate(f.ctx, req).status, 'trimmed'); assert.ok(fs.readFileSync(f.file, 'utf8').endsWith(tail));
@@ -83,7 +83,7 @@ test('REQ-MEM-030 AC4: append tail merges verbatim and source rewrite rebases in
   assert.match(commitTranscriptTrimCandidate(f.ctx, newer).reason, /source-prefix-changed/);
   assert.equal(fs.readFileSync(f.file, 'utf8').includes('Edited historical user'), true);
 });
-test('REQ-MEM-030 AC5: failed or oversized candidates produce fresh scoped automatic corrective requests', t => {
+test('REQ-MEM-030 AC6: failed or oversized candidates produce fresh scoped automatic corrective requests', t => {
   const f = fixture(t), l = lifecycle(f); l.due(); l.emit('agent_settled'); let item = l.launch();
   let req = JSON.parse(fs.readFileSync(item.request.prompt.match(/^VARS_FILE=(.+)$/m)[1])); fs.writeFileSync(req.candidateFile, jsonl(f.rows.slice(0, 8)));
   l.call(item); l.done(item); l.emit('agent_settled'); const retry = l.launch(); assert.notEqual(retry.requestId, item.requestId);
@@ -91,7 +91,7 @@ test('REQ-MEM-030 AC5: failed or oversized candidates produce fresh scoped autom
   l.call(retry); l.done(retry, 'Failed'); l.emit('agent_settled'); item = l.launch(); assert.notEqual(item.requestId, retry.requestId);
   req = JSON.parse(fs.readFileSync(item.request.prompt.match(/^VARS_FILE=(.+)$/m)[1])); assert.match(req.feedback, /native/);
 });
-test('REQ-MEM-030 AC6: verified total target, precommit IO safety, durability distinction and no backup cleanup', t => {
+test('REQ-MEM-030 AC7: verified total target, precommit IO safety, durability distinction and no backup cleanup', t => {
   const f = fixture(t), req = createTranscriptTrimRequest(f.ctx); f.stage(req);
   const originalSize = fs.statSync(f.file).size;
   const failed = commitTranscriptTrimCandidate(f.ctx, req, { ...fs, renameSync() { throw new Error('synthetic rename failure'); } });
@@ -144,7 +144,7 @@ test('REQ-MEM-030 AC3: latest Goal and Plan state, active branch and unknown con
   const activeRequest = createTranscriptTrimRequest(active); fs.writeFileSync(activeRequest.candidateFile, jsonl(f.candidate()));
   assert.match(commitTranscriptTrimCandidate(active, activeRequest).reason, /protected-entry/);
 });
-test('REQ-MEM-030 AC4: completed stale work automatically re-arms from the rewritten prefix', t => {
+test('REQ-MEM-030 AC5: completed stale work automatically re-arms from the rewritten prefix', t => {
   const f = fixture(t), l = lifecycle(f); l.due(); l.emit('agent_settled'); const item = l.launch();
   const req = JSON.parse(fs.readFileSync(item.request.prompt.match(/^VARS_FILE=(.+)$/m)[1])); f.stage(req);
   l.call(item); l.done(item); f.rows[3].message.content = 'New historical user'; fs.writeFileSync(f.file, jsonl(f.rows));
@@ -153,7 +153,7 @@ test('REQ-MEM-030 AC4: completed stale work automatically re-arms from the rewri
   assert.notEqual(next.sourceSha256, req.sourceSha256); assert.equal(fs.existsSync(req.varsFile), false);
   assert.ok(fs.readFileSync(f.file, 'utf8').includes('New historical user'));
 });
-test('REQ-MEM-030 AC6: total includes the unmodified append tail and rejects candidate and staging aliases', t => {
+test('REQ-MEM-030 AC7: total includes the unmodified append tail and rejects candidate and staging aliases', t => {
   const f = fixture(t), req = createTranscriptTrimRequest(f.ctx); f.stage(req);
   fs.appendFileSync(f.file, jsonl([{ type: 'message', id: 'huge-tail', parentId: 'orphan', message: { role: 'user', content: 't'.repeat(20_000_000) } }]));
   const original = fs.statSync(f.file).size; const over = commitTranscriptTrimCandidate(f.ctx, req);
@@ -162,7 +162,7 @@ test('REQ-MEM-030 AC6: total includes the unmodified append tail and rejects can
   assert.equal(commitTranscriptTrimCandidate(f.ctx, req).status, 'refused'); assert.equal(fs.statSync(f.file).size, original);
 });
 
-test('REQ-MEM-030 AC6: branched historical state and known argument payloads reach the total budget with an active orphan tail', async t => {
+test('REQ-MEM-030 AC7: branched historical state and known argument payloads reach the total budget with an active orphan tail', async t => {
   const f = fixture(t); f.rows.splice(1);
   const choices = [];
   let parentId = null;
@@ -241,7 +241,7 @@ test('REQ-MEM-030 AC6: branched historical state and known argument payloads rea
   assert.deepEqual(fs.readdirSync(f.root), ['session.jsonl']);
 });
 
-test('REQ-MEM-030 AC6: transient postcommit readback failure resumes verification without a second write', t => {
+test('REQ-MEM-030 AC7: transient postcommit readback failure resumes verification without a second write', t => {
   const f = fixture(t);
   let renamed = false, failReadback = true;
   const io = { ...fs,
@@ -258,6 +258,65 @@ test('REQ-MEM-030 AC6: transient postcommit readback failure resumes verificatio
   assert.ok(l.sent.some(m => m.customType === 'transcript-trim-outcome' && m.details.status === 'trimmed'));
   const final = fs.readFileSync(f.file); assert.ok(final.subarray(0, committed.length).equals(committed));
   assert.equal(l.launch().requestId, item.requestId); assert.deepEqual(fs.readdirSync(f.root), ['session.jsonl']);
+});
+
+test('REQ-MEM-030 AC6: delivered work without a native call recovers but altered running work is not duplicated', t => {
+  const f = fixture(t), l = lifecycle(f); l.due(); l.emit('agent_settled');
+  const first = l.launch(); l.emit('agent_settled'); assert.equal(l.launch().requestId, first.requestId);
+  const boundary = { message: { role: 'assistant', stopReason: 'stop', content: [] } };
+  l.append({ type: 'message', message: boundary.message }); l.emit('turn_end', boundary);
+  const corrected = l.launch(); assert.notEqual(corrected.requestId, first.requestId);
+  const request = JSON.parse(fs.readFileSync(corrected.request.prompt.match(/^VARS_FILE=(.+)$/m)[1]));
+  assert.match(request.feedback, /delivered|launch/);
+  l.append({ type: 'message', message: { role: 'assistant', content: [{ type: 'toolCall', id: corrected.requestId, name: 'subagent', arguments: { ...corrected.request, description: 'Altered request' } }] } });
+  l.append({ type: 'message', message: boundary.message }); l.emit('turn_end', boundary);
+  assert.equal(l.launch().requestId, corrected.requestId, 'a marker-associated running child must not be duplicated');
+  l.done(corrected); l.append({ type: 'message', message: boundary.message }); l.emit('turn_end', boundary);
+  assert.notEqual(l.launch().requestId, corrected.requestId);
+});
+
+test('REQ-MEM-030 AC3: recognized block metadata survives and malformed replacement blocks are rejected', () => {
+  const rows = [{ type: 'session', version: 3, id: 'blocks' },
+    { type: 'message', id: 'old', parentId: null, message: { role: 'assistant', content: [
+      { type: 'text', text: 'Ordinary historical prose.' },
+      { type: 'text', text: 'Provider prose.', extensionState: { opaque: true } },
+      { type: 'thinking', thinking: 'Historical reasoning.', thinkingSignature: 'signature', extensionState: { opaque: true } },
+      { type: 'image', data: 'AQ==', mimeType: 'image/png', extensionState: { opaque: true } },
+      { type: 'thinking', thinking: 'Ordinary reasoning.', thinkingSignature: 'obsolete' },
+    ] } },
+    { type: 'message', id: 'active', parentId: 'existing-gap', message: { role: 'user', content: 'Current user' } }];
+  const valid = structuredClone(rows); valid[1].message.content[0].text = 'Condensed prose.';
+  valid[1].message.content[4] = { type: 'thinking', thinking: 'Condensed reasoning.' };
+  assert.doesNotThrow(() => validateTranscriptTrimCandidate(jsonl(rows), jsonl(valid), 'blocks', ['active']));
+  for (const index of [1, 2, 3]) {
+    const damaged = structuredClone(valid); delete damaged[1].message.content[index].extensionState;
+    assert.throws(() => validateTranscriptTrimCandidate(jsonl(rows), jsonl(damaged), 'blocks', ['active']), /opaque/);
+  }
+  for (const block of [{ type: 'text', text: 42 }, { type: 'thinking' }, { type: 'image', data: 42, mimeType: 'image/png' }]) {
+    const malformed = structuredClone(valid); malformed[1].message.content.push(block);
+    assert.throws(() => validateTranscriptTrimCandidate(jsonl(rows), jsonl(malformed), 'blocks', ['active']), /opaque/);
+  }
+});
+
+test('REQ-MEM-030 AC7: completion waits for owned cleanup and retries without replacing committed data', t => {
+  for (const fault of ['unlink', 'rmdir']) {
+    const f = fixture(t); let renamed = false, failCleanup = true;
+    const io = { ...fs,
+      renameSync(from, to) { if (renamed) throw new Error('replacement replay forbidden'); fs.renameSync(from, to); renamed = true; },
+      unlinkSync(path) { if (failCleanup && fault === 'unlink' && String(path).endsWith('candidate.jsonl')) throw new Error('temporary unlink failure'); fs.unlinkSync(path); },
+      rmdirSync(path) { if (failCleanup && fault === 'rmdir') throw new Error('temporary directory removal failure'); fs.rmdirSync(path); },
+    };
+    const l = lifecycle(f, io); l.due(); l.emit('agent_settled'); const item = l.launch();
+    const req = JSON.parse(fs.readFileSync(item.request.prompt.match(/^VARS_FILE=(.+)$/m)[1])); f.stage(req);
+    l.call(item); l.done(item); l.emit('agent_settled');
+    const committed = fs.readFileSync(f.file); assert.ok(committed.length <= 20_000_000);
+    assert.ok(fs.existsSync(req.directory));
+    assert.equal(l.sent.some(m => m.customType === 'transcript-trim-outcome' && m.details.status === 'trimmed'), false);
+    failCleanup = false; l.emit('agent_settled');
+    assert.equal(fs.existsSync(req.directory), false);
+    assert.ok(l.sent.some(m => m.customType === 'transcript-trim-outcome' && m.details.status === 'trimmed'));
+    assert.ok(fs.readFileSync(f.file).subarray(0, committed.length).equals(committed));
+  }
 });
 
 test('REQ-MEM-030 AC1: due maintenance advances at a normal turn boundary despite queued work without settlement', t => {

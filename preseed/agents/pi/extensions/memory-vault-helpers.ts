@@ -374,6 +374,29 @@ export function extractionTranscriptFacts(input: {
   return { launchCount, giveup, attemptCount: calls.length, pendingLaunch, state };
 }
 
+/** Trim-only recovery: a later completed turn proves delivery was consumed. A
+ * marker-associated native call still in flight must never be duplicated, even
+ * when its altered arguments cannot qualify as the authorized exact request. */
+export function transcriptTrimLaunchNeedsRecovery(entries: any[], requestId: string, now: number): boolean {
+  const delivered = entries.findLastIndex(entry => launchItems(entry).some(item => item?.requestId === requestId
+    && item?.jobType === "transcript-trim" && publicRequestMatches(item.request, requestId, "transcript-trim")));
+  if (delivered < 0 || !entries.slice(delivered + 1).some(entry => entry?.type === "message"
+    && entry.message?.role === "assistant" && entry.message.stopReason === "stop"
+    && Array.isArray(entry.message.content) && !entry.message.content.some((block: any) => block?.type === "toolCall"))) return false;
+  const notifications = new Map<string, string>();
+  for (const entry of entries) {
+    const notification = notificationFacts(entry);
+    if (notification) notifications.set(notification.toolUseId, notification.status);
+  }
+  return !entries.some(entry => toolCallParts(entry).some(call => {
+    if (call.name !== "subagent" || !hasExactMarker(call.arguments?.prompt, requestId)) return false;
+    const status = notifications.get(call.id);
+    if (isCompletedNotification(status) || ["Failed", "Aborted", "Cancelled", "Canceled", "Error", "Timed out"].includes(status ?? "")) return false;
+    const timestamp = Date.parse(String(entry.timestamp ?? ""));
+    return !Number.isFinite(timestamp) || now - timestamp < EXTRACTION_RUNNING_TTL_MS;
+  }));
+}
+
 export function extractionDue(facts: ExtractionTranscriptFacts): ExtractionDue {
   if (facts.giveup || facts.pendingLaunch || facts.state === "running" || facts.state === "succeeded") return { kind: "none" };
   if (facts.attemptCount < 6) return { kind: "launch", reminder: facts.attemptCount as 0 | 1 | 2 | 3 | 4 | 5 };

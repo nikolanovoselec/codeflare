@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { findPackageJSON, stripTypeScriptTypes } from 'node:module';
 import { pathToFileURL } from 'node:url';
-import register, { TRANSCRIPT_TRIM_DUE, trimActiveSessionTranscript, parseTranscript } from '../../preseed/agents/pi/extensions/active-session-transcript-trimming.ts';
+import register, { TRANSCRIPT_TRIM_DUE, trimActiveSessionTranscript, parseTranscript, createTranscriptTrimRequest, commitTranscriptTrimCandidate } from '../../preseed/agents/pi/extensions/active-session-transcript-trimming.ts';
 
 const jsonl = entries => entries.map(e => JSON.stringify(e) + '\n').join('');
 function fixture(t, entries = oversized()) {
@@ -445,7 +445,16 @@ test('REQ-MEM-028 AC5: provisioned public SDK appends and disk reopen survive sa
   };
   append('before');
   const cacheBefore = JSON.stringify(manager.getBranch());
-  assert.equal(trimActiveSessionTranscript(ctx, { sessionId: manager.getSessionId(), file: manager.getSessionFile() }).status, 'trimmed');
+  const request = createTranscriptTrimRequest(ctx);
+  assert.ok(request);
+  const rows = fs.readFileSync(f.file, 'utf8').trimEnd().split('\n').map(JSON.parse);
+  const candidate = rows.map(e => e.message?.role === 'assistant' ? { ...e, message: { ...e.message,
+    content: e.message.content.map(block => block.type === 'thinking' && block.thinking.length > 1_000_000
+      ? { type: 'thinking', thinking: 'Historical analysis condensed; visible conclusions retained.' } : block),
+  } } : e);
+  fs.writeFileSync(request.candidateFile, jsonl(candidate));
+  assert.equal(commitTranscriptTrimCandidate(ctx, request).status, 'trimmed');
+  assert.ok(fs.statSync(f.file).size <= 20_000_000);
   assert.equal(JSON.stringify(manager.getBranch()), cacheBefore);
   append('after');
   assert.equal(manager.getSessionFile(), f.file);
