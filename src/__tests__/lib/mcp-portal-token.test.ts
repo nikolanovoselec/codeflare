@@ -95,6 +95,23 @@ describe('Worker-owned MCP portal OAuth', () => {
     expect(await getMcpPortalGrant(f.env, 'owner', portal)).toBeNull();
   });
 
+  it.each(['changed', 'removed'] as const)('REQ-AGENT-227 AC4: %s destinations invalidate a previously saved grant', async change => {
+    const f = await mcpPortalFixture();
+    await f.begin(); await f.finish();
+    expect((await getMcpPortalGrant(f.env, 'owner', portal))?.tokens.access_token).toBe(access);
+    expect(await getValidMcpPortalToken(f.env, 'owner', portal, f.send)).toBe(access);
+
+    const replacement = { ...portal, url: 'https://changed.example/mcp' };
+    await f.kv.put(SETUP_KEYS.MCP_PORTALS, JSON.stringify(change === 'changed' ? [replacement] : []));
+    const forbidden: typeof fetch = async () => { throw Error('Invalidated grants must not initiate provider I/O'); };
+    expect(await getMcpPortalGrant(f.env, 'owner', portal)).toBeNull();
+    expect(await getValidMcpPortalToken(f.env, 'owner', portal, forbidden)).toBeNull();
+    if (change === 'changed') {
+      expect(await getMcpPortalGrant(f.env, 'owner', replacement)).toBeNull();
+      expect(await getValidMcpPortalToken(f.env, 'owner', replacement, forbidden)).toBeNull();
+    }
+  });
+
   it('REQ-AGENT-226 AC5: current grant refresh rotates without interactive Pi authorization', async () => {
     const f = await mcpPortalFixture(); f.expiry(30); await f.begin(); await f.finish();
     f.expiry(3600);
