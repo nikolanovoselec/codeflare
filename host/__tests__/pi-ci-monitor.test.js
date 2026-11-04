@@ -15,8 +15,8 @@ const PR = 123;
 const HEAD = 'ef819ed35e9cc57d66209d1330bc8a87519736df';
 const NEXT_HEAD = '0123456789abcdef0123456789abcdef01234567';
 const POLL_MS = 15_000;
-const MONITOR_LIMIT_MS = 180_000;
-const AGENT_CAP_MS = 200_000;
+const MONITOR_LIMIT_MS = 14 * 60_000;
+const AGENT_CAP_MS = 15 * 60_000;
 const REQUEST_CWD = '/tmp/codeflare-request-repo';
 
 function commandResult(value, exitCode = 0) {
@@ -309,14 +309,14 @@ test('REQ-AGENT-068 AC1: unsupported, unchanged, missing, and closed PR events r
   }
 });
 
-test('REQ-AGENT-068 AC2: empty check rows retry within the shared 180-second deadline without success', async () => {
+test('REQ-AGENT-068 AC2: empty check rows retry and time out after five minutes without success', async () => {
   const { output, github, time } = await runMonitor({ fallbackChecks: [] });
 
   assertResult(output, 'timeout');
   assert.doesNotMatch(output, /^CI_RESULT success/m);
   assert.ok(github.checkCalls() > 1);
-  assert.match(output, /deadline_exceeded/);
-  assert.equal(time.elapsed(), MONITOR_LIMIT_MS);
+  assert.match(output, /no_checks_registered/);
+  assert.equal(time.elapsed(), 5 * 60_000);
 });
 
 test('REQ-AGENT-068 AC2: valid check JSON is parsed despite gh exit statuses 1 and 8', async () => {
@@ -345,6 +345,16 @@ test('REQ-AGENT-068 AC2/AC3: pending checks wait for a stable pass and skipping 
   assert.match(output, /name=license scan/);
   assert.match(output, /state=COMPLETED/);
   assert.ok(lines.length <= 8, 'result should remain concise');
+});
+
+test('REQ-AGENT-068 AC3: exact-head checks can settle after the workflow performance target', async () => {
+  const terminal = [check('unit', 'pass')];
+  const { output, time } = await runMonitor({
+    checks: [...Array.from({ length: 15 }, () => [check('unit', 'pending')]), terminal, terminal],
+  });
+
+  assertResult(output, 'success');
+  assert.equal(time.elapsed(), 240_000);
 });
 
 test('REQ-AGENT-068 AC3: a changed terminal fingerprint resets the stability requirement', async () => {
@@ -486,7 +496,7 @@ for (const phase of ['head', 'checks', 'confirmation', 'all']) {
   });
 }
 
-test('REQ-AGENT-068 constraint: final polling sleep fits the remaining 180-second budget', async () => {
+test('REQ-AGENT-068 constraint: final polling sleep fits the remaining operational budget', async () => {
   const time = fakeClock();
   const github = monitorRunner({ fallbackChecks: [check('queued', 'pending')] });
   let initialDelay = true;
@@ -511,7 +521,7 @@ test('REQ-AGENT-068 constraint: final polling sleep fits the remaining 180-secon
   assert.match(output, /deadline_exceeded/);
   assert.equal(time.elapsed(), MONITOR_LIMIT_MS);
   assert.equal(time.sleeps.at(-1), 5_000);
-  assert.equal(AGENT_CAP_MS - time.elapsed(), 20_000, 'leave twenty seconds for reporting');
+  assert.equal(AGENT_CAP_MS - time.elapsed(), 60_000, 'leave one minute for reporting');
 });
 
 test('REQ-AGENT-068 AC4: a superseded head stops before checks are queried', async () => {

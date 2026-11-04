@@ -2,8 +2,8 @@ import { execFile } from 'node:child_process';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-// Leave reporting time before the agent's 200-second command cap.
-const POLL_MS = 15_000, TOTAL_LIMIT_MS = 180_000;
+// Leave reporting time before the agent's fifteen-minute command cap.
+const POLL_MS = 15_000, EMPTY_LIMIT_MS = 5 * 60_000, TOTAL_LIMIT_MS = 14 * 60_000;
 const CHECK_FIELDS = 'bucket,link,name,state,workflow';
 const CHECK_BUCKETS = new Set(['pass', 'fail', 'pending', 'skipping', 'cancel']);
 
@@ -162,6 +162,10 @@ export async function monitorCi({
       rows = null;
     }
     if (remainingMs() === 0) break;
+
+    if (rows?.length === 0 && clock.now() - startedAt >= EMPTY_LIMIT_MS) {
+      return summary('timeout', { ...base, reason: 'no_checks_registered' });
+    }
 
     if (rows?.length) {
       const terminal = rows.every((row) => row.bucket !== 'pending');

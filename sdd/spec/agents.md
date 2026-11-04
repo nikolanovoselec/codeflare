@@ -3365,8 +3365,8 @@ None.
 
 **Constraints:**
 
-- Internal monitoring has a 180-second deadline, including empty checks.
-- The monitor command has a 200-second cap, reserving time for reporting.
+- Monitoring deadlines are operational backstops, not CI performance targets.
+- The internal deadline remains shorter than the agent command timeout, reserving reporting time.
 - Provider operations and sleeps remain bounded by the internal deadline.
 - The root Pi Git workflow is the sole automatic trigger.
 
