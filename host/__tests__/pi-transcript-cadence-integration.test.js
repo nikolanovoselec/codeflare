@@ -4,7 +4,7 @@ import * as fs from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { stripTypeScriptTypes } from 'node:module';
-import registerTrimmer, { TRANSCRIPT_TRIM_DUE } from '../../preseed/agents/pi/extensions/active-session-transcript-trimming.ts';
+import registerTrimmer, { TRANSCRIPT_TRIM_DUE, prepareTranscript } from '../../preseed/agents/pi/extensions/active-session-transcript-trimming.ts';
 
 const extensionDir = new URL('../../preseed/agents/pi/extensions/', import.meta.url);
 const modules = new Map();
@@ -71,6 +71,21 @@ test('REQ-MEM-028 AC1: actual trims preserve the next twenty-prompt cadence and 
     fs.appendFileSync(file, jsonl([append({ type: 'message', message: answer })]));
     const before = fs.statSync(file).size;
     emit('agent_end', { messages: [answer] });
+    // Deliver the real public launch and correlated native completion to the owner.
+    // The synthetic worker proposes a candidate; only the production parent commits.
+    if (promptNumber === 20 || promptNumber === 40) {
+      emit('agent_settled');
+      const item = messages.flatMap(([m]) => m.customType === 'background-extraction-launch' ? m.details.items : []).filter(i => i.jobType === 'transcript-trim').at(-1);
+      assert.ok(item);
+      const req = JSON.parse(fs.readFileSync(item.request.prompt.match(/^VARS_FILE=(.+)$/m)[1]));
+      fs.writeFileSync(req.candidateFile, prepareTranscript(fs.readFileSync(file, 'utf8').slice(0, req.sourceBytes), 'fixture', entries.slice(1).map(e => e.id)));
+      for (const payload of [
+        { type: 'custom_message', customType: 'background-extraction-launch', details: { items: [item] } },
+        { type: 'message', message: { role: 'assistant', content: [{ type: 'toolCall', id: item.requestId, name: 'subagent', arguments: item.request }] } },
+        { type: 'custom_message', customType: 'subagent-notification', content: `<tool-use-id>${item.requestId}</tool-use-id><status>Done</status>` },
+      ]) fs.appendFileSync(file, jsonl([append(payload)]));
+      emit('agent_settled');
+    }
     if (promptNumber === 20 || promptNumber === 40) {
       const after = fs.statSync(file).size;
       assert.ok(before > 50_000_000); assert.ok(after < 20_000_000);
@@ -92,5 +107,5 @@ test('REQ-MEM-028 AC1: actual trims preserve the next twenty-prompt cadence and 
   assert.deepEqual(persisted.filter(entry => entry.message?.role === 'user').map(entry => entry.message.content),
     Array.from({ length: 40 }, (_value, n) => `prompt ${n + 1}`));
   assert.equal(persisted.find(entry => entry.id === kept.id).data.payload.length, 19_000_000);
-  assert.deepEqual(messages, []);
+  assert.equal(messages.filter(([m]) => m.customType === 'transcript-trim-outcome' && m.details.status === 'trimmed').length, 2);
 });

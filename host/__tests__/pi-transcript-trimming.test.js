@@ -64,13 +64,30 @@ function oversized({ floor = false, child = false, raw = false, historicalBytes 
   return entries;
 }
 function lifecycle(f) {
-  const handlers = new Map(), listeners = new Map();
-  const pi = { on(name, handler) { const all = handlers.get(name) ?? []; all.push(handler); handlers.set(name, all); },
+  const handlers = new Map(), listeners = new Map(), launches = [];
+  const pi = { sendMessage(message) { if (message.customType === "background-extraction-launch") launches.push(message.details.items[0]); }, on(name, handler) { const all = handlers.get(name) ?? []; all.push(handler); handlers.set(name, all); },
     events: { on(name, handler) { listeners.set(name, handler); }, emit(name, data) { listeners.get(name)?.(data); } } };
   register(pi);
   const emit = (name, data = {}, ctx = f.ctx) => { for (const handler of handlers.get(name) ?? []) handler(data, ctx); };
   const due = data => pi.events.emit(TRANSCRIPT_TRIM_DUE, data ?? { ...f.expected });
-  const end = () => emit('agent_end', { messages: [{ role: 'assistant', stopReason: 'stop', content: [] }] });
+  const end = () => {
+    emit('agent_settled');
+    const item = launches.pop();
+    if (!item) return;
+    const req = JSON.parse(fs.readFileSync(item.request.prompt.match(/^VARS_FILE=(.+)$/m)[1]));
+    const rows = JSON.parse('[' + fs.readFileSync(f.file, 'utf8').trimEnd().split('\n').join(',') + ']');
+    const cut = rows.findIndex(e => e.id === rows.find(e => e.type === 'compaction')?.firstKeptEntryId);
+    for (const row of rows.slice(1, cut)) if (row.message?.role === 'assistant') row.message.content = row.message.content.map(b => b.type === 'thinking' ? { type: 'thinking', thinking: 'Historical reasoning summarized.' } : b);
+    const candidate = jsonl(rows);
+    if (!candidate) return;
+    fs.writeFileSync(req.candidateFile, candidate);
+    fs.appendFileSync(f.file, jsonl([
+      { type: 'custom_message', id: `launch-${item.requestId}`, parentId: f.entries.at(-1).id, customType: 'background-extraction-launch', details: { items: [item] } },
+      { type: 'message', id: `call-${item.requestId}`, parentId: `launch-${item.requestId}`, message: { role: 'assistant', content: [{ type: 'toolCall', id: item.requestId, name: 'subagent', arguments: item.request }] } },
+      { type: 'custom_message', id: `done-${item.requestId}`, parentId: `call-${item.requestId}`, customType: 'subagent-notification', content: `<tool-use-id>${item.requestId}</tool-use-id><status>Done</status>` },
+    ]));
+    emit('agent_settled');
+  };
   return { pi, emit, due, end };
 }
 const reopen = f => parseTranscript(fs.readFileSync(f.file, 'utf8'), 'fixture');

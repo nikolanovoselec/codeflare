@@ -31,6 +31,11 @@
       "advanced"
     ]
   },
+  "agents/transcript-trim.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
   "extensions/00-mcp-adapter-config.ts": {
     "modes": [
       "default",
@@ -272,6 +277,11 @@
     ]
   },
   "prompts/memory-agent-prompt.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "prompts/transcript-trim-agent-prompt.md": {
     "modes": [
       "advanced"
     ]

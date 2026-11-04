@@ -755,29 +755,26 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 ### REQ-MEM-028: Pi active transcript size retention
 
-**Intent:** The active Pi transcript remains small without changing the running conversation or memory capture.
+**Intent:** The active Pi transcript reaches its retention target without changing the running conversation or memory capture.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. The existing crossed-20 real-user-prompt cadence schedules one trim independently of Vault changes or an active capture; existing counters, extraction requests and receipts are unchanged. <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::registerMemoryVault --> <!-- @test: host/__tests__/pi-transcript-trimming.test.js (REQ-MEM-028 AC1: existing cadence schedules trimming without changing capture behavior) --> <!-- @test: host/__tests__/pi-transcript-cadence-integration.test.js (REQ-MEM-028 AC1: actual trims preserve the next twenty-prompt cadence and frozen extraction inputs) -->
-2. Only this instance's loaded parent-session transcript is eligible; switching, forking, shutdown and foreign identity cancel pending work. <!-- @impl: preseed/agents/pi/extensions/active-session-transcript-trimming.ts::registerActiveSessionTranscriptTrimming --> <!-- @test: host/__tests__/pi-transcript-trimming.test.js (REQ-MEM-028 AC2: lifecycle cancellation protects foreign and child transcripts) -->
-3. Files strictly above 50,000,000 UTF-8 bytes are reduced toward approximately 20,000,000 bytes when eligible savings permit; files at or below the trigger remain unchanged, and protected content is never removed to force a size. <!-- @impl: preseed/agents/pi/extensions/active-session-transcript-trimming.ts::trimActiveSessionTranscript --> <!-- @test: host/__tests__/pi-transcript-trimming.test.js (REQ-MEM-028 AC3: size policy preserves small files and protected-state floors) -->
-4. Current conversation, uncompacted branch payloads, visible text, call arguments, IDs/parents, accounting, Goal/Plan/opaque records and Todo restoration checkpoints survive; only proven duplicates or compaction-covered payloads not needed by another restorable branch are reduced. <!-- @impl: preseed/agents/pi/extensions/active-session-transcript-trimming.ts::prepareTranscript --> <!-- @test: host/__tests__/pi-transcript-trimming.test.js (REQ-MEM-028 AC4: retained conversation and branch state reopen unchanged) --> <!-- @test: host/__tests__/pi-transcript-trimming.test.js (REQ-MEM-028 AC4: uncompacted branches retain reasoning and raw tool payloads) --> <!-- @test: host/__tests__/pi-transcript-trimming.test.js (REQ-MEM-028 AC4: deeply repeated forks preserve uncompacted branch payloads) -->
-5. Normal entries continue appending exactly once at the same transcript pathname without reload, session switching or SDK/cache changes. <!-- @impl: preseed/agents/pi/extensions/active-session-transcript-trimming.ts::trimActiveSessionTranscript --> <!-- @test: host/__tests__/pi-transcript-trimming.test.js (REQ-MEM-028 AC5: ordinary appends survive replacement without reload) -->
-6. A later SDK rewrite may grow the file; a later legitimate cadence can reduce it again without a retry loop or cache mutation. <!-- @impl: preseed/agents/pi/extensions/active-session-transcript-trimming.ts::trimActiveSessionTranscript --> <!-- @test: host/__tests__/pi-transcript-trimming.test.js (REQ-MEM-028 AC6: a later rewrite is handled at a later cadence) -->
+1. The existing crossed-20 prompt cadence schedules visible maintenance independently of Vault changes or active capture; existing counters, extraction requests and receipts remain unchanged. <!-- @impl: preseed/agents/pi/extensions/active-session-transcript-trimming.ts::registerActiveSessionTranscriptTrimming --> <!-- @test: host/__tests__/pi-transcript-agent.test.js (REQ-MEM-030 AC1: visible scoped launch is idempotent and cancelled with the parent session) --> <!-- @test: host/__tests__/pi-transcript-agent.test.js (REQ-MEM-030 AC1: due maintenance advances at a normal turn boundary despite queued work without settlement) --> <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::registerMemoryVault --> <!-- @test: host/__tests__/pi-transcript-cadence-integration.test.js (REQ-MEM-028 AC1: actual trims preserve the next twenty-prompt cadence and frozen extraction inputs) -->
+2. Only this instance's loaded parent-session transcript is eligible; switching, forking, shutdown and foreign identity cancel pending work. <!-- @impl: preseed/agents/pi/extensions/active-session-transcript-trimming.ts::registerActiveSessionTranscriptTrimming --> <!-- @test: host/__tests__/pi-transcript-agent.test.js (REQ-MEM-030 AC1: visible scoped launch is idempotent and cancelled with the parent session) --> <!-- @test: host/__tests__/pi-transcript-agent.test.js (REQ-MEM-030 AC1: due maintenance advances at a normal turn boundary despite queued work without settlement) -->
+3. Files above 50,000,000 UTF-8 bytes trigger maintenance whose verified total output is at most 20,000,000 bytes; smaller files remain unchanged unless continuing the same maintenance operation. <!-- @impl: preseed/agents/pi/extensions/active-session-transcript-trimming.ts::commitTranscriptTrimCandidate --> <!-- @test: host/__tests__/pi-transcript-agent.test.js (REQ-MEM-030 AC6: verified total target, precommit IO safety, durability distinction and no backup cleanup) --> <!-- @test: host/__tests__/pi-transcript-agent.test.js (REQ-MEM-030 AC6: branched historical state and known argument payloads reach the total budget with an active orphan tail) -->
+4. User messages, ID/parent envelopes, accounting, current conversation, latest authoritative Goal/Todo/Plan state and unknown opaque records survive; the agent may condense superseded historical payloads. <!-- @impl: preseed/agents/pi/extensions/active-session-transcript-trimming.ts::validateTranscriptTrimCandidate --> <!-- @test: host/__tests__/pi-transcript-agent.test.js (REQ-MEM-030 AC3: preexisting orphan survives; new damage, accounting, users and current state are rejected) -->
+5. Ordinary entries continue appending exactly once at the same pathname; candidate application preserves new tail bytes without reload, session switching or SDK/cache changes. <!-- @impl: preseed/agents/pi/extensions/active-session-transcript-trimming.ts::commitTranscriptTrimCandidate --> <!-- @test: host/__tests__/pi-transcript-agent.test.js (REQ-MEM-030 AC4: append tail merges verbatim and source rewrite rebases instead of overwriting) --> <!-- @test: host/__tests__/pi-transcript-trimming.test.js (REQ-MEM-028 AC5: provisioned public SDK appends and disk reopen survive same-path trimming) -->
+6. A later SDK rewrite can grow the file and a later legitimate cadence can maintain it again; historical divergence during pending work requires fresh source-bound proposals. <!-- @impl: preseed/agents/pi/extensions/active-session-transcript-trimming.ts::registerActiveSessionTranscriptTrimming --> <!-- @test: host/__tests__/pi-transcript-agent.test.js (REQ-MEM-030 AC4: append tail merges verbatim and source rewrite rebases instead of overwriting) -->
 
-**Constraints:**
-- Goal, provider/authentication and dependency configuration remain unchanged.
-- npm links, frozen extraction inputs and other session files remain unchanged.
-- File retention does not reclaim loaded SDK memory or promise lossless summarized-payload replay.
+**Constraints:** Goal, provider/authentication, dependencies, npm links, frozen extraction inputs and other sessions remain unchanged. No transcript backup/archive or loaded-memory reclamation claim. Superseded historical payloads are not promised lossless replay.
 
 **Priority:** P1
 
 **Dependencies:** [REQ-MEM-002](#req-mem-002-capture-triggers-every-20-user-messages-and-on-resume), [REQ-MEM-006](#req-mem-006-memory-available-only-in-pro-advanced-mode), [REQ-MEM-029](#req-mem-029-active-transcript-replacement-safety)
 
-**Verification:** Focused filesystem and lifecycle behavior tests; exact-source managed CI and the user's deliberate reload/load receipt remain separate gates.
+**Verification:** Scoped lifecycle/filesystem behavior tests, native public-request correlation and managed SDK qualification; exact-head CI and deliberate local adoption remain separate gates.
 
 **Status:** Implemented
 
@@ -785,25 +782,50 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 
 ### REQ-MEM-029: Active transcript replacement safety
 
-**Intent:** Active transcript retention cannot leave a partially replaced file or misrepresent a committed replacement as rolled back.
+**Intent:** Active transcript retention cannot lose appended data, leave a partial file or misrepresent a committed replacement as rolled back.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. Invalid input, unsafe targets, identity/source changes and pre-commit filesystem failures preserve the original and remove only owned staging. <!-- @impl: preseed/agents/pi/extensions/active-session-transcript-trimming.ts::trimActiveSessionTranscript --> <!-- @test: host/__tests__/pi-transcript-trimming.test.js (REQ-MEM-029 AC1: invalid inputs and failed replacement leave originals intact) -->
-2. A directory-sync failure after replacement retains the committed file and reports a durability warning without claiming rollback. <!-- @impl: preseed/agents/pi/extensions/active-session-transcript-trimming.ts::trimActiveSessionTranscript --> <!-- @test: host/__tests__/pi-transcript-trimming.test.js (REQ-MEM-029 AC2: directory sync failure retains the committed replacement) -->
-3. Retention leaves no retained transcript backup or staging file. <!-- @impl: preseed/agents/pi/extensions/active-session-transcript-trimming.ts::registerActiveSessionTranscriptTrimming --> <!-- @test: host/__tests__/pi-transcript-trimming.test.js (REQ-MEM-029 AC3: registration defers filesystem work and creates no retained backup) -->
+1. Invalid candidates, unsafe targets, divergent history and precommit filesystem failures preserve the original and remove only owned staging. <!-- @impl: preseed/agents/pi/extensions/active-session-transcript-trimming.ts::commitTranscriptTrimCandidate --> <!-- @test: host/__tests__/pi-transcript-agent.test.js (REQ-MEM-030 AC6: verified total target, precommit IO safety, durability distinction and no backup cleanup) --> <!-- @test: host/__tests__/pi-transcript-agent.test.js (REQ-MEM-030 AC6: branched historical state and known argument payloads reach the total budget with an active orphan tail) -->
+2. Directory-sync failure after replacement retains the committed file and reports durability accurately without replaying the write or claiming rollback. <!-- @impl: preseed/agents/pi/extensions/active-session-transcript-trimming.ts::commitTranscriptTrimCandidate --> <!-- @test: host/__tests__/pi-transcript-agent.test.js (REQ-MEM-030 AC6: verified total target, precommit IO safety, durability distinction and no backup cleanup) --> <!-- @test: host/__tests__/pi-transcript-agent.test.js (REQ-MEM-030 AC6: branched historical state and known argument payloads reach the total budget with an active orphan tail) --> <!-- @test: host/__tests__/pi-transcript-agent.test.js (REQ-MEM-030 AC6: transient postcommit readback failure resumes verification without a second write) -->
+3. Maintenance creates no transcript backup/archive; owned candidate staging is removed after confirmed completion, retry replacement or cancellation. <!-- @impl: preseed/agents/pi/extensions/active-session-transcript-trimming.ts::registerActiveSessionTranscriptTrimming --> <!-- @test: host/__tests__/pi-transcript-agent.test.js (REQ-MEM-030 AC6: verified total target, precommit IO safety, durability distinction and no backup cleanup) --> <!-- @test: host/__tests__/pi-transcript-agent.test.js (REQ-MEM-030 AC6: branched historical state and known argument payloads reach the total budget with an active orphan tail) -->
 
-**Constraints:**
-- The advanced-only lifecycle replacement is synchronous within the owning process.
-- No watcher, model call or additional prompt counter is introduced.
+**Constraints:** Commit is synchronous inside the owning process. No watcher, hidden model invocation, SDK mutation or additional prompt counter. Semantic maintenance belongs to the separately visible agent.
 
 **Priority:** P1
 
 **Dependencies:** [REQ-MEM-006](#req-mem-006-memory-available-only-in-pro-advanced-mode)
 
-**Verification:** Isolated filesystem fault-injection and lifecycle outcome tests; managed CI and local loading require separate receipts.
+**Verification:** Isolated filesystem fault and lifecycle tests; managed CI and local loading require separate evidence.
+
+**Status:** Implemented
+
+---
+
+### REQ-MEM-030: Visible agent-owned transcript maintenance
+
+**Intent:** Oversized transcripts reach the verified retention target through semantic maintenance and automatic recovery instead of silent filter failure.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Due maintenance launches an owner-bound visible background trim agent through the existing public request and native-result correlation mechanism. <!-- @impl: preseed/agents/pi/extensions/active-session-transcript-trimming.ts::registerActiveSessionTranscriptTrimming --> <!-- @test: host/__tests__/pi-transcript-agent.test.js (REQ-MEM-030 AC1: visible scoped launch is idempotent and cancelled with the parent session) --> <!-- @test: host/__tests__/pi-transcript-agent.test.js (REQ-MEM-030 AC1: due maintenance advances at a normal turn boundary despite queued work without settlement) -->
+2. An agent completion notification alone cannot authorize commit; matching request identity and a valid scoped candidate are also required. <!-- @impl: preseed/agents/pi/extensions/active-session-transcript-trimming.ts::registerActiveSessionTranscriptTrimming --> <!-- @test: host/__tests__/pi-transcript-agent.test.js (REQ-MEM-030 AC2: semantic candidate requires exact native completion before parent admission) -->
+3. Pre-existing missing-parent boundaries remain unchanged while eligible history can be reduced; new ancestry, accounting, user-message or current-state damage is rejected. <!-- @impl: preseed/agents/pi/extensions/active-session-transcript-trimming.ts::validateTranscriptTrimCandidate --> <!-- @test: host/__tests__/pi-transcript-agent.test.js (REQ-MEM-030 AC3: preexisting orphan survives; new damage, accounting, users and current state are rejected) -->
+4. Parent-owned application merges ordinary appends verbatim and re-arms fresh source-bound agent work after historical divergence instead of overwriting. <!-- @impl: preseed/agents/pi/extensions/active-session-transcript-trimming.ts::commitTranscriptTrimCandidate --> <!-- @test: host/__tests__/pi-transcript-agent.test.js (REQ-MEM-030 AC4: append tail merges verbatim and source rewrite rebases instead of overwriting) -->
+5. Failed or oversized proposals and unsuccessful native runs automatically produce scoped corrective agent work; failed or partial work is never completion. <!-- @impl: preseed/agents/pi/extensions/active-session-transcript-trimming.ts::registerActiveSessionTranscriptTrimming --> <!-- @test: host/__tests__/pi-transcript-agent.test.js (REQ-MEM-030 AC5: failed or oversized candidates produce fresh scoped automatic corrective requests) -->
+6. Completion requires verified persisted output meeting the total target and cleanup of owned staging, without backups, archives, frozen-request changes or user-configuration mutation. <!-- @impl: preseed/agents/pi/extensions/active-session-transcript-trimming.ts::commitTranscriptTrimCandidate --> <!-- @test: host/__tests__/pi-transcript-agent.test.js (REQ-MEM-030 AC6: verified total target, precommit IO safety, durability distinction and no backup cleanup) --> <!-- @test: host/__tests__/pi-transcript-agent.test.js (REQ-MEM-030 AC6: branched historical state and known argument payloads reach the total budget with an active orphan tail) -->
+
+**Constraints:** Reuse the native subagent lifecycle, not a new orchestration framework. The agent cannot directly write live history, invent ancestry, change Goal/SDK internals or replay an uncorrelated write. No new model configuration.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-MEM-028](#req-mem-028-pi-active-transcript-size-retention), [REQ-MEM-029](#req-mem-029-active-transcript-replacement-safety)
+
+**Verification:** Public launch/correlation, protected-state, append/rebase, recovery and atomic-result behavior tests; an agent success claim is not commit proof.
 
 **Status:** Implemented
 

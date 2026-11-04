@@ -258,8 +258,23 @@ function hasExactMarker(prompt: unknown, requestId: string): boolean {
   return typeof prompt === "string" && prompt.split(/\r?\n/).includes(markerLine(requestId));
 }
 
-function publicRequestMatches(value: unknown, requestId: string, job: ExtractionJob): boolean {
+export function buildPublicTranscriptTrimRequest(input: { requestId: string; promptFile: string; varsFile: string }) {
+  return {
+    subagent_type: "transcript-trim" as const,
+    description: "Maintain active session transcript",
+    prompt: [markerLine(input.requestId), `PROMPT_FILE=${input.promptFile}`, `VARS_FILE=${input.varsFile}`,
+      "Read the scoped maintenance contract. Produce only the authorized candidate; the parent validates and commits."].join("\n"),
+    run_in_background: true as const,
+    inherit_context: false as const,
+  };
+}
+
+function publicRequestMatches(value: unknown, requestId: string, job: ExtractionJob | "transcript-trim"): boolean {
   const request = record(value);
+  if (job === "transcript-trim") return request?.subagent_type === job
+    && request.run_in_background === true && request.inherit_context === false
+    && request.model === undefined && request.thinking === undefined && request.max_turns === undefined
+    && hasExactMarker(request.prompt, requestId);
   return request?.subagent_type === job
     && request.run_in_background === true
     && request.inherit_context === false
@@ -305,7 +320,7 @@ function isCompletedNotification(status: string | undefined): boolean {
 export function extractionTranscriptFacts(input: {
   entries: any[];
   requestId: string;
-  job: ExtractionJob;
+  job: ExtractionJob | "transcript-trim";
   now: number;
   successQualifies: () => boolean;
 }): ExtractionTranscriptFacts {

@@ -2,6 +2,11 @@
 
 Semantic changes to the specification. Git history captures diffs; this file captures intent.
 
+## 2026-11-04
+
+- Replace filter-only retention with visible semantic maintenance through the existing native background-agent protocol ([REQ-MEM-030](memory.md#req-mem-030-visible-agent-owned-transcript-maintenance)). Tighten [REQ-MEM-028](memory.md#req-mem-028-pi-active-transcript-size-retention) completion to the approximately 20 MB total target rather than partial savings; preserve current state, user-message counter inputs, envelopes and accounting while allowing agent-selected historical-payload reduction. Pre-existing missing-parent boundaries must not poison eligible history or be repaired with invented ancestry.
+- Extend [REQ-MEM-029](memory.md#req-mem-029-active-transcript-replacement-safety) to parent-validated agent candidates, verbatim append-tail merge, fresh source-bound retries and automatic corrective handoff. Keep atomic precommit preservation/postcommit durability distinctions, no backups or archives, no Goal/SDK mutation, no second counter, and no deployment. Source tests, exact-head review/CI, signed delivery and deliberate local adoption remain distinct evidence.
+
 ## 2026-11-03
 
 - Apply scoped review/CI corrections without changing MCP authorization: separate owner OAuth (226), administrator registration (227), owner Pi/Settings use (228), and Worker transport (229). AC mapping: old 226 AC1 → 226 AC1–AC3; AC2 → AC4; AC3 → AC5–AC7 plus 229 AC5; AC4 → 229 AC1–AC4. Old 227 AC1–AC2 remain; AC3–AC4 → 228 AC1–AC2; AC5 → 227 AC3–AC4 and 228 AC3; AC6 → 228 AC4 (administrator feedback stays under 227 AC1); AC7 → 228 AC5–AC6. Preserve aliases, clauses, anchors, tests and manual/hosted gates. The user explicitly deferred the Disconnect publication race to [#1386](https://github.com/nikolanovoselec/codeflare/issues/1386); no storage redesign or D1 secret migration is included.

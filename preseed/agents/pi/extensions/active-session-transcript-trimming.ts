@@ -1,17 +1,21 @@
 /** File-only retention. No SessionManager/cache mutation; ordinary SDK appends reopen this pathname. */
 import * as fs from "node:fs";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { dirname, isAbsolute, join, parse, resolve } from "node:path";
 import { isDeepStrictEqual, TextDecoder } from "node:util";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 
+import { buildPublicTranscriptTrimRequest, extractionTranscriptFacts, extractionDue } from "./memory-vault-helpers.ts";
+
 export const TRANSCRIPT_TRIM_DUE = "codeflare:transcript-trim-due";
 const CAP = 50_000_000;
 const TARGET = 20_000_000;
+// Leave room for the bounded parent-verified outcome entry itself.
+const COMPLETION_RESERVE = 4096;
 type Entry = Record<string, any>;
 type Identity = { sessionId: string; file: string };
 type TrimContext = Pick<ExtensionContext, "sessionManager">;
-export type TrimResult = { status: "trimmed" | "unchanged" | "refused"; before?: number; after?: number; reason?: string };
+export type TrimResult = { status: "trimmed" | "unchanged" | "refused" | "verification-pending"; before?: number; after?: number; reason?: string };
 
 function identity(ctx: TrimContext): Identity | undefined {
   const sessionId = ctx.sessionManager.getSessionId();
@@ -30,17 +34,18 @@ function snapshot(d: any): boolean {
 function encode(e: Entry): string { return JSON.stringify(e) + "\n"; }
 
 /** Strict complete JSONL; parents must precede children. Unknown records remain opaque. */
-export function parseTranscript(raw: string, sessionId: string): Entry[] {
+export function parseTranscript(raw: string, sessionId: string, allowExistingGaps = false): Entry[] {
   if (!raw.endsWith("\n")) throw new Error("incomplete-or-invalid-jsonl");
   const entries = raw.slice(0, -1).split("\n").map(line => JSON.parse(line));
   const header = entries[0];
   if (!header || header.type !== "session" || header.id !== sessionId || header.parentSession) throw new Error("foreign-or-child-session");
   if (header.version !== 3) throw new Error("unsupported-session-version");
   const ids = new Set<string>();
+  const allIds = new Set(entries.slice(1).map(e => e?.id));
   for (const e of entries.slice(1)) {
     if (!e || typeof e !== "object" || Array.isArray(e) || e.type === "session"
       || typeof e.type !== "string" || typeof e.id !== "string" || !e.id || e.id === header.id || ids.has(e.id)
-      || !(e.parentId === null || (typeof e.parentId === "string" && ids.has(e.parentId)))) throw new Error("invalid-entry-links");
+      || !(e.parentId === null || (typeof e.parentId === "string" && (ids.has(e.parentId) || (allowExistingGaps && !allIds.has(e.parentId)))))) throw new Error("invalid-entry-links");
     ids.add(e.id);
     if (todo(e) && !snapshot(e.data)) throw new Error("invalid-todo-state");
   }
@@ -249,29 +254,430 @@ export function trimActiveSessionTranscript(ctx: TrimContext, expected: Identity
   }
 }
 
-export function registerActiveSessionTranscriptTrimming(pi: ExtensionAPI): void {
-  let current: TrimContext | undefined;
-  let pending: Identity | undefined;
-  const cancel = () => { pending = undefined; current = undefined; };
+/** Metadata only: never a copy of the original transcript. Candidate path is parent-owned. */
+export interface TranscriptTrimRequest {
+  version: 1;
+  requestId: string;
+  sessionId: string;
+  file: string;
+  sourceBytes: number;
+  sourceSha256: string;
+  sourcePathIdentity: string;
+  branchIds: string[];
+  targetBytes: number;
+  candidateBudget: number;
+  directory: string;
+  directoryIdentity: string;
+  varsFile: string;
+  candidateFile: string;
+  feedback: string;
+  committed?: { sha256: string; bytes: number; before: number; warning?: string };
+}
+const digest = (bytes: Buffer) => createHash("sha256").update(bytes).digest("hex");
+const decode = (bytes: Buffer) => new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bytes);
+const stateTypes = new Set(["rpiv-todo-state", "goal-state", "plan-mode-state"]);
+
+/** Eligibility is not lossless restoration of every historical branch checkpoint.
+ * Protect the current active conversation/frontier and latest known authority;
+ * the semantic agent may condense superseded payloads on inactive branches. */
+function historicalEligibility(entries: Entry[], activeLeaf?: string): Set<string> {
+  const index = new Map(entries.slice(1).map((e, i) => [e.id, i + 1]));
+  const leaf = activeLeaf ?? entries.at(-1)?.id;
+  if (leaf && !index.has(leaf) && entries.length > 1) throw new Error("foreign-active-leaf");
+  const active: number[] = [];
+  for (let i = index.get(leaf); i; i = index.get(entries[i].parentId)) active.push(i);
+  active.reverse();
+  const compactAt = active.findLastIndex(i => entries[i].type === "compaction");
+  const firstKept = compactAt >= 0 ? active.findIndex(i => entries[i].id === entries[active[compactAt]].firstKeptEntryId) : -1;
+  // An absent or non-ancestral frontier cannot authorize reducing current context.
+  const start = firstKept >= 0 && firstKept <= compactAt ? firstKept : 0;
+  const keep = new Set(active.slice(start));
+  for (const type of stateTypes) {
+    const global = entries.findLastIndex(e => e.type === "custom" && e.customType === type);
+    const onBranch = active.findLast(i => entries[i].type === "custom" && entries[i].customType === type);
+    if (global > 0) keep.add(global);
+    if (onBranch !== undefined) keep.add(onBranch);
+  }
+  return new Set(entries.slice(1).filter((entry, i) => !keep.has(i + 1)
+    && ((entry.type === "custom" && stateTypes.has(entry.customType)) || entry.type === "compaction"
+      || (entry.type === "message" && ["assistant", "system", "toolResult"].includes(entry.message?.role)))).map(e => e.id));
+}
+
+// These are known prose-bearing fields, not a blanket exemption for tool arguments.
+// All other argument keys and every tool-call envelope remain opaque/wire-stable.
+const historicalArgumentFields: Record<string, string[]> = {
+  read: ["path"], bash: ["command"], write: ["content"], edit: ["oldText", "newText"],
+};
+function sameHistoricalBlocks(before: any, after: any): boolean {
+  const opaque = (content: any) => Array.isArray(content)
+    ? content.filter((block: any) => !["text", "thinking", "image"].includes(block?.type)) : [];
+  const original = opaque(before), candidate = opaque(after);
+  if (original.length !== candidate.length) return false;
+  return original.every((block: any, i: number) => {
+    const next = candidate[i], fields = block?.type === "toolCall" ? historicalArgumentFields[block.name] : undefined;
+    if (!fields || !block.arguments || !next?.arguments || typeof block.arguments !== "object" || typeof next.arguments !== "object"
+      || Array.isArray(block.arguments) || Array.isArray(next.arguments)) return isDeepStrictEqual(block, next);
+    const args = { ...block.arguments };
+    for (const field of fields) {
+      if (!(field in args)) continue;
+      if (typeof args[field] !== "string" || typeof next.arguments[field] !== "string") return false;
+      args[field] = next.arguments[field];
+    }
+    return isDeepStrictEqual({ ...block, arguments: args }, next);
+  });
+}
+
+/** Only known historical payload fields may differ. Everything else is opaque, including
+ * message accounting, tool IDs, user text, and all unknown custom records. */
+export function validateTranscriptTrimCandidate(source: string, candidate: string, sessionId: string, branchIds: string[] = []): void {
+  const before = parseTranscript(source, sessionId, true), after = parseTranscript(candidate, sessionId, true);
+  if (before.length !== after.length) throw new Error("changed-entry-count");
+  const eligible = historicalEligibility(before, branchIds.at(-1));
+  const sourceLines = source.split("\n"), candidateLines = candidate.split("\n");
+  for (let i = 0; i < before.length; i++) {
+    const a = before[i], b = after[i];
+    if (isDeepStrictEqual(a, b)) {
+      if (sourceLines[i] !== candidateLines[i]) throw new Error(`changed-opaque-serialization:${a.id}`);
+      continue;
+    }
+    if (!eligible.has(a.id)) throw new Error(`protected-entry:${a.id}`);
+    let expected = a;
+    if (a.type === "custom" && stateTypes.has(a.customType)) {
+      expected = { ...a, data: b.data };
+    } else if (a.type === "compaction" && typeof b.summary === "string") {
+      expected = { ...a, summary: b.summary };
+    } else if (a.type === "message" && ["assistant", "system", "toolResult"].includes(a.message?.role)) {
+      const m = a.message, n = b.message;
+      if (!n || !Array.isArray(n.content)) throw new Error(`invalid-message:${a.id}`);
+      if (!sameHistoricalBlocks(m.content, n.content)) throw new Error(`changed-opaque-block:${a.id}`);
+      expected = { ...a, message: { ...m, content: n.content } };
+      if (m.role === "toolResult" && m.toolName === "todo" && snapshot(m.details)) {
+        // Only the recognized duplicate snapshot fields may change; any extension
+        // fields remain opaque even when attached to a historical Todo result.
+        const opaqueDetails = (details: any) => Object.fromEntries(Object.entries(details ?? {})
+          .filter(([key]) => !["tasks", "nextId", "action"].includes(key)));
+        if (!isDeepStrictEqual(opaqueDetails(m.details), opaqueDetails(n.details))) throw new Error(`changed-opaque-details:${a.id}`);
+        expected.message = { ...expected.message, details: n.details };
+        if (n.details === undefined) delete expected.message.details;
+      }
+    }
+    if (!isDeepStrictEqual(expected, b)) throw new Error(`changed-envelope-or-opaque:${a.id}`);
+  }
+}
+
+export function createTranscriptTrimRequest(ctx: TrimContext, feedback = "", retry = false): TranscriptTrimRequest | undefined {
+  const owner = identity(ctx);
+  if (!owner) throw new Error("missing-owner");
+  const stamp = pathIdentity(owner.file, fs), stat = fs.lstatSync(owner.file);
+  if (stat.uid !== process.getuid?.() || stat.nlink !== 1) throw new Error("foreign-ownership");
+  if (stat.size <= (retry ? TARGET : CAP)) return undefined;
+  const bytes = fs.readFileSync(owner.file);
+  const entries = parseTranscript(decode(bytes), owner.sessionId, true);
+  const branchIds = ctx.sessionManager.getBranch().map(e => e.id);
+  const index = new Map(entries.slice(1).map(e => [e.id, e]));
+  if (!branchIds.length || branchIds.at(-1) !== ctx.sessionManager.getLeafId()
+    || branchIds.some((id, i) => !index.has(id) || (i > 0 && index.get(id)!.parentId !== branchIds[i - 1]))) throw new Error("foreign-branch");
+  const directory = fs.mkdtempSync(join(dirname(owner.file), ".transcript-trim-"));
+  const request: TranscriptTrimRequest = { version: 1, requestId: randomUUID(), ...owner,
+    sourceBytes: bytes.length, sourceSha256: digest(bytes), sourcePathIdentity: stamp, branchIds,
+    targetBytes: TARGET, candidateBudget: TARGET - COMPLETION_RESERVE, directory,
+    directoryIdentity: `${fs.lstatSync(directory).dev}:${fs.lstatSync(directory).ino}`, varsFile: join(directory, "request.json"),
+    candidateFile: join(directory, "candidate.jsonl"), feedback: feedback.slice(0, 2000) };
+  try { fs.writeFileSync(request.varsFile, JSON.stringify(request), { flag: "wx", mode: 0o600 }); }
+  catch (error) { cleanupRequest(request); throw error; }
+  return request;
+}
+function ownedDirectory(request: TranscriptTrimRequest, io: typeof fs): boolean {
+  const stat = io.lstatSync(request.directory);
+  return stat.isDirectory() && !stat.isSymbolicLink() && stat.uid === process.getuid?.()
+    && `${stat.dev}:${stat.ino}` === request.directoryIdentity;
+}
+function cleanupRequest(request: TranscriptTrimRequest): void {
+  // Only these exact parent-owned staging names; never traverse child-created paths.
+  try {
+    if (!ownedDirectory(request, fs)) return;
+    for (const file of [request.candidateFile, request.varsFile]) { try { fs.unlinkSync(file); } catch {} }
+    fs.rmdirSync(request.directory);
+  } catch { /* A substituted directory is not ours to clean. */ }
+}
+
+/** Parent-owned synchronous commit. No await/cache mutation; all concurrent ordinary tail
+ * appends are copied verbatim, and any changed prefix/branch/path refuses the candidate. */
+export function commitTranscriptTrimCandidate(ctx: TrimContext, request: TranscriptTrimRequest, io: typeof fs = fs): TrimResult {
+  let temp: string | undefined, committed = false, before: number | undefined, after: number | undefined;
+  try {
+    if (!same(identity(ctx), request)) throw new Error("session-changed");
+    if (request.committed) {
+      const receipt = request.committed;
+      pathIdentity(request.file, io);
+      const stat = io.lstatSync(request.file);
+      if (stat.uid !== process.getuid?.() || stat.nlink !== 1) throw new Error("foreign-ownership");
+      const persisted = io.readFileSync(request.file);
+      if (persisted.length > TARGET || persisted.length < receipt.bytes
+        || digest(persisted.subarray(0, receipt.bytes)) !== receipt.sha256) throw new Error("persisted-verification-failed");
+      parseTranscript(decode(persisted), request.sessionId, true);
+      cleanupRequest(request);
+      return { status: "trimmed", before: receipt.before, after: persisted.length,
+        ...(receipt.warning ? { reason: receipt.warning } : {}) };
+    }
+    const branch = ctx.sessionManager.getBranch().map(e => e.id);
+    if (request.branchIds.some((id, i) => branch[i] !== id)) throw new Error("branch-changed");
+    if (pathIdentity(request.file, io) !== request.sourcePathIdentity) throw new Error("source-path-changed");
+    const stat = io.lstatSync(request.file);
+    if (stat.uid !== process.getuid?.() || stat.nlink !== 1) throw new Error("foreign-ownership");
+    const current = io.readFileSync(request.file); before = current.length;
+    const prefix = current.subarray(0, request.sourceBytes);
+    if (digest(prefix) !== request.sourceSha256) throw new Error("source-prefix-changed");
+    if (!ownedDirectory(request, io)) throw new Error("foreign-staging-directory");
+    pathIdentity(request.candidateFile, io);
+    const candidateStat = io.lstatSync(request.candidateFile);
+    if (candidateStat.uid !== stat.uid || candidateStat.nlink !== 1) throw new Error("foreign-candidate");
+    if (candidateStat.size > TARGET) throw new Error(`candidate-exceeds-target:${candidateStat.size}`);
+    const candidate = io.readFileSync(request.candidateFile);
+    validateTranscriptTrimCandidate(decode(prefix), decode(candidate), request.sessionId, request.branchIds);
+    const tail = current.subarray(request.sourceBytes);
+    const final = Buffer.concat([candidate, tail]); after = final.length;
+    if (after > TARGET - COMPLETION_RESERVE || after >= before) throw new Error(`total-exceeds-target:tail=${tail.length};candidate-budget=${TARGET - COMPLETION_RESERVE - tail.length}`);
+    // Validate the tail too: merging must not introduce links/IDs not present in source.
+    validateTranscriptTrimCandidate(decode(current), decode(final), request.sessionId, branch);
+    temp = join(dirname(request.file), `.transcript-trim-${randomUUID()}.tmp`);
+    const fd = io.openSync(temp, "wx", 0o600);
+    try { io.writeFileSync(fd, final); io.fchownSync(fd, stat.uid, stat.gid); io.fchmodSync(fd, stat.mode & 0o7777); io.fsyncSync(fd); }
+    finally { io.closeSync(fd); }
+    const dir = io.openSync(dirname(request.file), "r");
+    let warning: string | undefined;
+    try {
+      if (!same(identity(ctx), request) || !isDeepStrictEqual(ctx.sessionManager.getBranch().map(e => e.id), branch)
+        || pathIdentity(request.file, io) !== request.sourcePathIdentity
+        || sourceIdentity(io.lstatSync(request.file)) !== sourceIdentity(stat)) throw new Error("source-or-session-changed");
+      io.renameSync(temp, request.file); temp = undefined; committed = true;
+      request.committed = { sha256: digest(final), bytes: final.length, before };
+      try { io.fsyncSync(dir); } catch { warning = "directory-sync-failed"; request.committed.warning = warning; }
+    } finally { io.closeSync(dir); }
+    return commitTranscriptTrimCandidate(ctx, request, io);
+  } catch (error) {
+    return { status: request.committed ? "verification-pending" : "refused", before: request.committed?.before ?? before,
+      after: request.committed?.bytes ?? after, reason: `${committed || request.committed ? "postcommit:" : ""}${error instanceof Error ? error.message : "io-failure"}` };
+  } finally { if (temp) { try { io.unlinkSync(temp); } catch {} } }
+}
+
+function readWorkingCandidate(request: TranscriptTrimRequest): Buffer | undefined {
+  if (!ownedDirectory(request, fs)) throw new Error("foreign-staging-directory");
+  try { fs.lstatSync(request.candidateFile); }
+  catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined; throw error; }
+  const fd = fs.openSync(request.candidateFile, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+  try {
+    const stat = fs.fstatSync(fd);
+    if (!stat.isFile() || stat.nlink !== 1 || stat.uid !== process.getuid?.() || stat.size > request.sourceBytes) throw new Error("foreign-candidate");
+    return fs.readFileSync(fd);
+  } finally { fs.closeSync(fd); }
+}
+
+/** One focused native tool: no shell, arbitrary read path, or live-write operation is
+ * exposed to the maintenance agent. Scope comes from its public launch, not arguments. */
+function registerTranscriptTrimTool(pi: ExtensionAPI): void {
+  pi.registerTool?.({
+    name: "transcript_trim",
+    label: "Inspect / propose transcript maintenance",
+    description: "Read the authorized maintenance contract or source prefix, or write an explicitly chosen semantic candidate. Never writes the live transcript.",
+    // Pi's public validator also accepts JSON Schema without TypeBox symbols.
+    parameters: {
+      type: "object", properties: {
+        operation: { type: "string", enum: ["contract", "inspect", "candidate"] },
+        index: { type: "integer", minimum: 0 }, offset: { type: "integer", minimum: 0 },
+        replacements: { type: "array", items: { type: "object", properties: {
+          id: { type: "string" }, patch: { type: "string", description: "JSON object with explicitly chosen historical content/data/summary replacements only" },
+        }, required: ["id", "patch"], additionalProperties: false } },
+      }, required: ["operation"], additionalProperties: false,
+    } as any,
+    async execute(_toolCallId, params: any, _signal, _onUpdate, ctx) {
+      const userText = ctx.sessionManager.getBranch().filter((e: any) => e.type === "message" && e.message?.role === "user")
+        .map((e: any) => typeof e.message.content === "string" ? e.message.content : e.message.content?.filter((b: any) => b.type === "text").map((b: any) => b.text).join("\n"))
+        .findLast((text: string) => /^CODEFLARE_EXTRACTION_REQUEST=[0-9a-f-]+$/m.test(text ?? ""));
+      const varsFile = userText?.match(/^VARS_FILE=(.+)$/m)?.[1];
+      const requestId = userText?.match(/^CODEFLARE_EXTRACTION_REQUEST=([0-9a-f-]+)$/m)?.[1];
+      if (!varsFile || !isAbsolute(varsFile)) throw new Error("missing-maintenance-launch-scope");
+      pathIdentity(varsFile, fs);
+      const request = JSON.parse(fs.readFileSync(varsFile, "utf8")) as TranscriptTrimRequest;
+      const directory = dirname(varsFile);
+      if (request.version !== 1 || request.requestId !== requestId || request.varsFile !== varsFile
+        || request.directory !== directory || request.candidateFile !== join(directory, "candidate.jsonl")
+        || !directory.startsWith(join(dirname(request.file), ".transcript-trim-"))
+        || !ownedDirectory(request, fs) || !Number.isSafeInteger(request.sourceBytes) || request.sourceBytes < 1
+        || !/^[0-9a-f]{64}$/.test(request.sourceSha256)) throw new Error("invalid-maintenance-launch-scope");
+      pathIdentity(request.file, fs);
+      const fd = fs.openSync(request.file, "r");
+      const source = Buffer.alloc(request.sourceBytes);
+      try {
+        let offset = 0;
+        while (offset < source.length) {
+          const count = fs.readSync(fd, source, offset, source.length - offset, offset);
+          if (!count) throw new Error("source-prefix-short");
+          offset += count;
+        }
+      } finally { fs.closeSync(fd); }
+      if (digest(source) !== request.sourceSha256) throw new Error("source-prefix-changed");
+      const raw = decode(source), entries = parseTranscript(raw, request.sessionId, true);
+      const working = params.operation === "contract" ? undefined : readWorkingCandidate(request);
+      const baseline = working ? decode(working) : raw;
+      if (working) validateTranscriptTrimCandidate(raw, baseline, request.sessionId, request.branchIds);
+      const workingEntries = working ? parseTranscript(baseline, request.sessionId, true) : entries;
+      let result: unknown;
+      if (params.operation === "contract") {
+        result = { request, contract: fs.readFileSync("/home/user/.pi/agent/prompts/transcript-trim-agent-prompt.md", "utf8") };
+      } else if (params.operation === "inspect") {
+        if (params.index === undefined) {
+          const offset = params.offset ?? 0, eligible = historicalEligibility(entries, request.branchIds.at(-1));
+          const sizes = workingEntries.map((e, index) => ({ index, id: e.id, parentId: e.parentId,
+            type: e.type, customType: e.customType, role: e.message?.role, bytes: Buffer.byteLength(JSON.stringify(e)), eligible: eligible.has(e.id) }));
+          const categories: Record<string, number> = {};
+          for (const row of sizes) {
+            const category = row.type === "message" ? `message:${["user", "assistant", "system", "toolResult"].includes(row.role) ? row.role : "opaque"}`
+              : row.type === "custom" && stateTypes.has(row.customType) ? row.customType : row.type === "compaction" ? "compaction" : "opaque";
+            categories[category] = (categories[category] ?? 0) + row.bytes + 1;
+          }
+          const candidateBytes = working?.length ?? null;
+          result = { request, entryCount: entries.length, candidateBytes,
+            remainingBudget: request.candidateBudget - (candidateBytes ?? source.length),
+            bytesToReduce: Math.max(0, (candidateBytes ?? source.length) - request.candidateBudget), categories,
+            largestEligible: sizes.filter(e => e.eligible).sort((a, b) => b.bytes - a.bytes).slice(0, 20),
+            nextOffset: offset + 100 < entries.length ? offset + 100 : null, entries: sizes.slice(offset, offset + 100) };
+        } else {
+          const row = workingEntries[params.index];
+          if (!row) throw new Error("unknown-entry-index");
+          const text = JSON.stringify(row), offset = params.offset ?? 0;
+          result = { index: params.index, id: row.id, offset, totalCharacters: text.length, text: text.slice(offset, offset + 20000),
+            nextOffset: offset + 20000 < text.length ? offset + 20000 : null };
+        }
+      } else if (params.operation === "candidate") {
+        if (!params.replacements?.length) throw new Error("empty-candidate-batch");
+        const replacements = new Map<string, Entry>();
+        for (const replacement of params.replacements) {
+          if (replacements.has(replacement.id)) throw new Error("duplicate-replacement");
+          const patch = JSON.parse(replacement.patch);
+          if (!patch || typeof patch !== "object" || Array.isArray(patch)) throw new Error("invalid-patch");
+          replacements.set(replacement.id, patch);
+        }
+        const lines = baseline.slice(0, -1).split("\n");
+        const candidate = workingEntries.map((entry, index) => {
+          const patch = replacements.get(entry.id);
+          if (!patch) return lines[index] + "\n";
+          replacements.delete(entry.id);
+          return encode({ ...entry, ...patch });
+        }).join("");
+        if (replacements.size) throw new Error("unknown-replacement-id");
+        if (candidate === baseline || Buffer.byteLength(candidate) >= source.length) throw new Error("no-change-or-no-reduction");
+        validateTranscriptTrimCandidate(raw, candidate, request.sessionId, request.branchIds);
+        if (!ownedDirectory(request, fs)) throw new Error("foreign-staging-directory");
+        const out = fs.openSync(request.candidateFile, fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_NOFOLLOW, 0o600);
+        try {
+          const stat = fs.fstatSync(out);
+          if (!stat.isFile() || stat.nlink !== 1 || stat.uid !== process.getuid?.()) throw new Error("foreign-candidate");
+          fs.ftruncateSync(out, 0);
+          fs.writeFileSync(out, candidate);
+        } finally { fs.closeSync(out); }
+        result = { requestId, candidateBytes: Buffer.byteLength(candidate), targetBytes: TARGET,
+          withinTarget: Buffer.byteLength(candidate) <= request.candidateBudget, committed: false };
+      } else throw new Error("unknown-maintenance-operation");
+      return { content: [{ type: "text", text: JSON.stringify(result) }], details: { committed: false } };
+    },
+  });
+}
+
+export function registerActiveSessionTranscriptTrimming(pi: ExtensionAPI, io: typeof fs = fs): void {
+  registerTranscriptTrimTool(pi);
+  let current: TrimContext | undefined, due: Identity | undefined, request: TranscriptTrimRequest | undefined;
+  let failures = 0;
+  const cancel = () => { if (request) cleanupRequest(request); request = undefined; due = undefined; current = undefined; failures = 0; };
   pi.on("session_start", (_event, ctx) => { cancel(); current = ctx; });
   pi.on("session_before_switch", cancel);
   pi.on("session_before_fork", cancel);
   pi.on("session_shutdown", cancel);
   pi.events.on(TRANSCRIPT_TRIM_DUE, data => {
-    const due = data as Identity | undefined;
-    if (due && current && same(identity(current), due)) pending = { sessionId: due.sessionId, file: due.file };
+    const owner = data as Identity | undefined;
+    if (owner && current && same(identity(current), owner) && (!request || request.committed)) { due = owner; failures = 0; }
   });
-  pi.on("agent_end", (event, ctx) => {
-    const due = pending;
-    pending = undefined;
-    if (!due || !same(identity(ctx), due)) return;
-    const last = [...event.messages].reverse().find(m => m.role === "assistant");
-    // agent_end has no outcome field in 1.3/1.5. Require an explicit normal assistant stop;
-    // a toolUse/length tail may be an interrupted or unfinished run.
-    if (!last || last.stopReason !== "stop" || ctx.signal?.aborted) return;
-    const result = trimActiveSessionTranscript(ctx, due);
-    if (result.reason) console.warn(`[codeflare:transcript-trim] ${result.reason}`);
+  const outcome = (value: TrimResult) => {
+    const result = { ...value, ...(value.reason ? { reason: value.reason.slice(0, 2000) } : {}) };
+    pi.sendMessage({ customType: "transcript-trim-outcome", display: true,
+    content: result.status === "trimmed"
+      ? `Transcript maintenance verified: ${result.before} → ${result.after} bytes (target ${TARGET}).${result.reason ? ` Durability warning: ${result.reason}.` : ""}`
+      : `Transcript maintenance not completed: ${result.reason}. Source was not reported as successfully trimmed.`,
+    details: result }, { triggerTurn: false });
+  };
+  const retryVerification = (result: TrimResult) => {
+    failures++;
+    outcome(result);
+    if (failures >= 6) { due = undefined; return; }
+    pi.sendMessage({ customType: "transcript-trim-retry", display: true,
+      content: "Transcript replacement committed; retrying read-only verification. No replacement will be replayed.",
+    }, { deliverAs: "followUp", triggerTurn: true });
+  };
+  const advance = (ctx: ExtensionContext) => {
+    if (ctx.signal?.aborted || !current || !due || !same(identity(ctx), due)) return;
+    let feedback = "";
+    try {
+      if (request?.committed) {
+        const result = commitTranscriptTrimCandidate(ctx, request, io);
+        if (result.status === "trimmed") { request = undefined; due = undefined; failures = 0; outcome(result); }
+        else retryVerification(result);
+        return;
+      }
+      if (request) {
+        const entries = parseTranscript(decode(fs.readFileSync(request.file)), request.sessionId, true);
+        const facts = extractionTranscriptFacts({ entries, requestId: request.requestId, job: "transcript-trim", now: Date.now(), successQualifies: () => true });
+        // A follow-up queued at turn_end may not have entered the transcript yet.
+        // Retain this request rather than mistaking deferred delivery for failure.
+        if (facts.launchCount === 0) return;
+        if (facts.state === "succeeded") {
+          const result = commitTranscriptTrimCandidate(ctx, request, io);
+          if (result.status === "trimmed") { request = undefined; due = undefined; failures = 0; outcome(result); return; }
+          if (result.status === "verification-pending") { retryVerification(result); return; }
+          feedback = result.reason ?? "candidate-rejected";
+        } else {
+          const next = extractionDue(facts);
+          if (next.kind === "none") return;
+          feedback = "native-call-failed-or-expired: recompute candidate and complete the native call";
+        }
+        cleanupRequest(request); request = undefined; failures++;
+        if (failures >= 6) { due = undefined; outcome({ status: "refused", reason: `retry-limit:${feedback}` }); return; }
+      }
+      request = createTranscriptTrimRequest(ctx, feedback, failures > 0);
+      if (!request) {
+        due = undefined;
+        if (feedback) outcome({ status: "refused", reason: feedback });
+        return;
+      }
+      const item = { requestId: request.requestId, jobType: "transcript-trim", reminder: 0,
+        request: buildPublicTranscriptTrimRequest({ requestId: request.requestId,
+          promptFile: "/home/user/.pi/agent/prompts/transcript-trim-agent-prompt.md", varsFile: request.varsFile }) };
+      const registered = pi.getAllTools?.().some(tool => tool.name === "subagent");
+      if (registered) pi.setActiveTools([...new Set([...pi.getActiveTools(), "subagent"])]);
+      pi.sendMessage({ customType: "background-extraction-launch", display: true,
+        content: ["## Transcript maintenance ready", "Start this public background subagent request unchanged exactly once. Only the parent may commit the result.",
+          "<extraction-items-json>", JSON.stringify([item], null, 2), "</extraction-items-json>"].join("\n"), details: { items: [item] } },
+        { deliverAs: "followUp", triggerTurn: true });
+    } catch (error) {
+      if (request) cleanupRequest(request);
+      request = undefined;
+      // A subsequent ordinary settled boundary retries metadata/IO failures without claiming completion.
+      failures++;
+      outcome({ status: "refused", reason: error instanceof Error ? error.message : "request-io-failure" });
+      if (failures >= 6) due = undefined;
+      else pi.sendMessage({ customType: "transcript-trim-retry", display: true,
+        content: "Transcript maintenance request preparation failed; retrying at the next settled boundary.",
+      }, { deliverAs: "followUp", triggerTurn: true });
+    }
+  };
+  // Pi persists this assistant (and tool results) before the turn_end boundary.
+  // Follow-up delivery queues on the running agent, so queued work need not settle.
+  pi.on("turn_end", (event, ctx) => {
+    const message = event.message;
+    if (event.outcome === "aborted" || message.role !== "assistant" || message.stopReason !== "stop"
+      || message.content.some(block => block.type === "toolCall")) return;
+    advance(ctx);
   });
+  pi.on("agent_settled", (event, ctx) => { if (!event.aborted) advance(ctx); });
 }
 
 export default function (pi: ExtensionAPI): void { registerActiveSessionTranscriptTrimming(pi); }
