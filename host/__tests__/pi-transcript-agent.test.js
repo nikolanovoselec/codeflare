@@ -8,7 +8,7 @@ const extensionDir=new URL('../../preseed/agents/pi/extensions/',import.meta.url
 function fixtureModule(name){if(fixtureModules.has(name))return fixtureModules.get(name);let text=stripTypeScriptTypes(fs.readFileSync(new URL(name+'.ts',extensionDir),'utf8'));text=text.replace(/from "\.\/([a-z-]+)(?:\.ts)?"/g,(_m,key)=>`from "${fixtureModule(key)}"`);const url='data:text/javascript;base64,'+Buffer.from(text).toString('base64');fixtureModules.set(name,url);return url;}
 const {registerMemoryVault}=await import(fixtureModule('memory-vault'));
 import {importPiExtension} from './fixtures/pi-extension-module.mjs';
-const { createTranscriptTrimRequest, commitTranscriptTrimCandidate, validateTranscriptTrimCandidate }=await importPiExtension('active-session-transcript-trimming');
+const { createTranscriptTrimRequest, commitTranscriptTrimCandidate, validateTranscriptTrimCandidate, prepareLocalTranscriptTrim }=await importPiExtension('active-session-transcript-trimming');
 const jsonl = rows => rows.map(row => JSON.stringify(row) + '\n').join('');
 function fixture(t) {
   const root = fs.mkdtempSync(join(tmpdir(), 'trim-agent-'));
@@ -27,8 +27,13 @@ function fixture(t) {
   fs.writeFileSync(file, jsonl(rows));
   const ctx = { sessionManager: { getSessionId: () => 'fixture', getSessionFile: () => file, getLeafId: () => rows.at(-1).id,
     getBranch: () => { const out = []; const byId = new Map(rows.map(r => [r.id, r])); for (let e = rows.at(-1); e && e.type !== 'session'; e = byId.get(e.parentId)) out.unshift(e); return out; } } };
-  const candidate = () => rows.map((r, i) => i === 1 ? { ...r, message: { ...r.message, content: [{ type: 'text', text: 'Historical answer summarized.' }] } } : r);
-  const stage = req => { const source = fs.readFileSync(file).subarray(0, req.sourceBytes).toString().trimEnd().split('\n').map(JSON.parse); source[1].message.content = [{ type: 'text', text: 'Historical answer summarized.' }]; fs.writeFileSync(req.candidateFile, jsonl(source)); };
+  const candidate = () => prepareLocalTranscriptTrim(jsonl(rows), 'fixture', ctx.sessionManager.getBranch().map(row => row.id), 19_995_904).candidate.trimEnd().split('\n').map(JSON.parse);
+  const stage = req => {
+    const source = fs.readFileSync(file).subarray(0, req.sourceBytes).toString();
+    const trimmed = prepareLocalTranscriptTrim(source, req.sessionId, req.branchIds, req.candidateBudget);
+    assert.equal(trimmed.withinTarget, true);
+    fs.writeFileSync(req.candidateFile, trimmed.candidate);
+  };
   return { root, file, rows, ctx, candidate, stage, t };
 }
 function lifecycle(f, queueLaunch = false) {
@@ -140,10 +145,13 @@ test('REQ-MEM-030 AC6: oversized completed candidates are refused without live r
   const req = JSON.parse(fs.readFileSync(item.request.prompt.match(/^VARS_FILE=(.+)$/m)[1]));
   fs.writeFileSync(req.candidateFile, fs.readFileSync(f.file).subarray(0, req.sourceBytes));
   l.call(item); l.done(item); const before = fs.readFileSync(f.file); l.emit('agent_settled');
-  assert.ok(l.sent.some(message => message.customType === 'transcript-trim-outcome' && message.details.status === 'refused' && /candidate-exceeds-target/.test(message.details.reason)));
+  const retry = l.launch();
+  assert.equal(retry.requestId, item.requestId); assert.deepEqual(retry.request, item.request);
+  assert.equal(retry.reminder, 1); assert.equal(item.reminder, 0);
+  assert.equal(l.sent.some(message => message.customType === 'transcript-trim-outcome' && message.details.status === 'trimmed'), false);
   assert.ok(fs.readFileSync(f.file).subarray(0, before.length).equals(before));
-  assert.ok(fs.statSync(f.file).size > 50_000_000); assert.equal(fs.existsSync(req.directory), false);
-  l.emit('agent_settled'); assert.equal(l.launch(), item);
+  assert.ok(fs.statSync(f.file).size > 50_000_000); assert.equal(fs.existsSync(req.directory), true);
+  l.emit('agent_settled'); assert.equal(l.launch(), retry);
 });
 test('REQ-MEM-030 AC7: verified total target, precommit IO safety, durability distinction and no backup cleanup', t => {
   const f = fixture(t), req = createTranscriptTrimRequest(f.ctx); f.stage(req);
@@ -230,7 +238,10 @@ test('REQ-MEM-030 AC7: branched historical state and known argument payloads rea
     { ...historical.message.content[1], arguments: { ...historical.message.content[1].arguments, content: 'Historical report recorded migration completion.' } },
     historical.message.content[2],
   ] };
-  add({ type: 'message', message: { role: 'system', content: [{ type: 'text', text: 'Retired system guidance ' + 's'.repeat(4_000_000) }] } });
+  // A string system payload is reduced as a unit. The protected current payload
+  // below leaves a valid ~19 MB floor plus room for the concurrent append tail,
+  // without retaining the historical assistant text this case asserts is removed.
+  add({ type: 'message', message: { role: 'system', content: 'Retired system guidance ' + 's'.repeat(4_000_000) } });
   const oldUser = add({ type: 'message', message: { role: 'user', content: 'Migration accepted. Keep current active work and all usage/accounting.' } });
   add({ type: 'compaction', firstKeptEntryId: oldUser.id, summary: 'Earlier migration history ' + 'c'.repeat(4_000_000), tokensBefore: 999 });
   parentId = 'preexisting-missing-budget-parent';
@@ -239,7 +250,7 @@ test('REQ-MEM-030 AC7: branched historical state and known argument payloads rea
   add({ type: 'custom', customType: 'goal-state', data: { description: 'Current goal', tokensUsed: 700 } });
   add({ type: 'custom', customType: 'rpiv-todo-state', data: { tasks: [{ id: 70, subject: 'Current task', status: 'in_progress' }], nextId: 71 } });
   add({ type: 'custom', customType: 'plan-mode-state', data: { mode: 'implement', plan: 'Current plan' } });
-  add({ type: 'message', message: { role: 'assistant', content: [{ type: 'toolCall', id: 'current-write', name: 'write', arguments: { path: '/current', content: 'Current generated content ' + 'k'.repeat(7_100_000) } }], usage: { input: 55, output: 66 } } });
+  add({ type: 'message', message: { role: 'assistant', content: [{ type: 'toolCall', id: 'current-write', name: 'write', arguments: { path: '/current', content: 'Current generated content ' + 'k'.repeat(15_000_000) } }], usage: { input: 55, output: 66 } } });
   fs.writeFileSync(f.file, jsonl(f.rows)); assert.ok(fs.statSync(f.file).size > 50_000_000);
   const activeRows = structuredClone(f.rows.slice(activeStart));
   const l = lifecycle(f); l.due(); l.emit('agent_settled'); const item = l.launch();

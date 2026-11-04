@@ -21,13 +21,16 @@ test('REQ-MEM-015 AC3: frozen capture dispatch and correlated finalization progr
   const emit=(name,event={})=>handlers.get(name)?.(event,ctx);emit('session_start');
   append({type:'message',message:{role:'user',content:'prompt 1'}});emit('before_agent_start',{prompt:'prompt 1'});
   for(let n=2;n<=21;n++)append({type:'message',message:{role:'user',content:'prompt '+n}});
-  emit('before_agent_start',{prompt:'prompt 21'});
+  // These queued user prompts cross the boundary without another agent start.
+  const stop={message:{role:'assistant',stopReason:'stop',content:[]}};
+  emit('turn_end',{message:{...stop.message,stopReason:'toolUse'}});assert.equal(sent.length,0);
+  assert.equal(fs.existsSync(join(paths.memoryCounterDir,'fixture.vars')),false);
+  emit('turn_end',stop);
   const pointer=JSON.parse(fs.readFileSync(join(paths.memoryCounterDir,'fixture.vars'),'utf8'));
   const vars=join(paths.cacheDir,`memory-capture.fixture.${pointer.requestId}.vars`),frozen=fs.readFileSync(vars);
   const request=JSON.parse(frozen);assert.equal(request.promptCount,21);
-  const stop={message:{role:'assistant',stopReason:'stop',content:[]}};
-  emit('turn_end',{message:{...stop.message,stopReason:'toolUse'}});assert.equal(sent.length,0);
-  emit('turn_end',stop);const launch=sent.find(m=>m.customType==='background-extraction-launch');assert.ok(launch);
+  const launch=sent.find(m=>m.customType==='background-extraction-launch');assert.ok(launch);
+  assert.equal(fs.readFileSync(join(paths.memoryCounterDir,'fixture.vault-count'),'utf8'),'21');
   emit('turn_end',stop);emit('agent_settled');
   assert.deepEqual(sent.filter(m=>m.customType==='background-extraction-launch'),[launch]);
   assert.ok(fs.readFileSync(vars).equals(frozen));assert.equal(fs.readFileSync(join(paths.memoryCounterDir,'fixture.count'),'utf8'),'1');

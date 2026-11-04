@@ -8,7 +8,9 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { buildPublicTranscriptTrimRequest, extractionTranscriptFacts, extractionDue } from "./memory-vault-helpers";
 
 const CAP = 50_000_000;
+const MINIMUM = 15_000_000;
 const TARGET = 20_000_000;
+const MAXIMUM = 25_000_000;
 // Leave room for the bounded parent-verified outcome entry itself.
 const COMPLETION_RESERVE = 4096;
 type Entry = Record<string, any>;
@@ -18,6 +20,7 @@ type TrimContext = { sessionManager: {
   getSessionFile(): string | undefined;
   getLeafId(): string | null;
   getBranch(): readonly Entry[];
+  getHeader?(): { id: string; parentSession?: string } | null;
 } };
 export type TrimResult = { status: "trimmed" | "unchanged" | "refused" | "verification-pending"; before?: number; after?: number; reason?: string };
 
@@ -473,12 +476,43 @@ export function validateTranscriptTrimCandidate(source: string, candidate: strin
 }
 
 /** One local pass over authorized old payloads; nothing is sent to a model. */
+// Keep original, permitted historical prose rather than overshooting the size
+// goal by dropping a whole large block. Never pad or change protected content.
+function retainHistoricalProse(entry: Entry, reduced: Entry, byteLimit: number): Entry {
+  if (!Array.isArray(entry.message?.content) || !Array.isArray(reduced.message?.content)) return reduced;
+  let result = reduced;
+  for (const block of entry.message.content) {
+    const key = block?.type === "text" ? "text" : block?.type === "thinking" ? "thinking" : undefined;
+    if (!key || typeof block[key] !== "string" || !sameHistoricalBlocks([block], [])) continue;
+    const original = block[key] as string;
+    const withPrefix = (length: number) => ({ ...result, message: { ...result.message,
+      content: [...result.message.content, { ...block, [key]: original.slice(0, length) }] } });
+    let available = byteLimit - Buffer.byteLength(JSON.stringify(withPrefix(0))), length = 0;
+    // Count JSON-escaped UTF-8 bytes once; never repeatedly serialize a huge
+    // prefix or split a surrogate pair. These are original history bytes only.
+    while (length < original.length) {
+      const code = original.charCodeAt(length), next = original.charCodeAt(length + 1);
+      const pair = code >= 0xd800 && code <= 0xdbff && next >= 0xdc00 && next <= 0xdfff;
+      const bytes = pair ? 4 : code >= 0xd800 && code <= 0xdfff ? 6
+        : code === 34 || code === 92 || code === 8 || code === 9 || code === 10 || code === 12 || code === 13 ? 2
+        : code < 32 ? 6 : code < 128 ? 1 : code < 2048 ? 2 : 3;
+      if (available < bytes) break;
+      available -= bytes; length += pair ? 2 : 1;
+    }
+    if (length > 0) result = withPrefix(length);
+    if (length < original.length) break;
+  }
+  return result;
+}
+
 export function prepareLocalTranscriptTrim(raw: string, sessionId: string, branchIds: string[], budget: number): { candidate: string; remainingBytes: number; withinTarget: boolean } {
   const entries = parseTranscript(raw, sessionId, true), eligible = historicalEligibility(entries, branchIds);
   const obsoleteTasks = supersededTodoData(entries, branchIds);
   const lines = raw.slice(0, -1).split("\n");
   let size = Buffer.byteLength(raw);
-  for (let i = 1; i < entries.length && size > budget; i++) {
+  const preferred = Math.min(TARGET, budget);
+  let lastReduced = 0;
+  for (let i = 1; i < entries.length && size > preferred; i++) {
     const entry = entries[i];
     if (!eligible.has(entry.id) && !obsoleteTasks.has(entry.id)) continue;
     let reduced = entry;
@@ -509,11 +543,20 @@ export function prepareLocalTranscriptTrim(raw: string, sessionId: string, branc
       reduced = { ...entry, message: next };
     }
     const line = JSON.stringify(reduced), savings = Buffer.byteLength(lines[i]) - Buffer.byteLength(line);
-    if (savings > 0) { lines[i] = line; size -= savings; }
+    if (savings > 0) { lines[i] = line; size -= savings; lastReduced = i; }
+  }
+  // A large obsolete non-prose snapshot can cross the goal in one removal.
+  // Retain permitted original prose from reduced history rather than padding.
+  for (let i = lastReduced; i > 0 && size < preferred; i--) {
+    if (!eligible.has(entries[i].id) || entries[i].type !== "message") continue;
+    const oldBytes = Buffer.byteLength(lines[i]);
+    const retained = retainHistoricalProse(entries[i], JSON.parse(lines[i]), oldBytes + preferred - size);
+    const line = JSON.stringify(retained), growth = Buffer.byteLength(line) - oldBytes;
+    if (growth > 0) { lines[i] = line; size += growth; }
   }
   const candidate = lines.join("\n") + "\n";
   validateTranscriptTrimCandidate(raw, candidate, sessionId, branchIds);
-  return { candidate, remainingBytes: size, withinTarget: size <= budget };
+  return { candidate, remainingBytes: size, withinTarget: size >= MINIMUM && size <= Math.min(MAXIMUM, budget) };
 }
 
 export function createTranscriptTrimRequest(ctx: TrimContext, feedback = "", retry = false): TranscriptTrimRequest | undefined {
@@ -521,7 +564,7 @@ export function createTranscriptTrimRequest(ctx: TrimContext, feedback = "", ret
   if (!owner) throw new Error("missing-owner");
   const stamp = pathIdentity(owner.file, fs), stat = fs.lstatSync(owner.file);
   if (stat.uid !== process.getuid?.() || stat.nlink !== 1) throw new Error("foreign-ownership");
-  if (stat.size <= (retry ? TARGET : CAP)) return undefined;
+  if (stat.size <= (retry ? MAXIMUM : CAP)) return undefined;
   const bytes = fs.readFileSync(owner.file);
   const entries = parseTranscript(decode(bytes), owner.sessionId, true);
   const branch = ctx.sessionManager.getBranch(), branchIds = branch.map(e => e.id);
@@ -549,7 +592,7 @@ export function createTranscriptTrimRequest(ctx: TrimContext, feedback = "", ret
   const directory = fs.mkdtempSync(join(dirname(owner.file), ".transcript-trim-"));
   const request: TranscriptTrimRequest = { version: 1, requestId: randomUUID(), ...owner,
     sourceBytes: bytes.length, sourceSha256: digest(bytes), sourcePathIdentity: stamp, branchIds,
-    targetBytes: TARGET, candidateBudget: TARGET - COMPLETION_RESERVE, directory,
+    targetBytes: TARGET, candidateBudget: MAXIMUM - COMPLETION_RESERVE, directory,
     directoryIdentity: `${fs.lstatSync(directory).dev}:${fs.lstatSync(directory).ino}`, varsFile: join(directory, "request.json"),
     candidateFile: join(directory, "candidate.jsonl"), feedback: feedback.slice(0, 2000) };
   try { fs.writeFileSync(request.varsFile, JSON.stringify(request), { flag: "wx", mode: 0o600 }); }
@@ -589,7 +632,7 @@ export function commitTranscriptTrimCandidate(ctx: TrimContext, request: Transcr
       const stat = io.lstatSync(request.file);
       if (stat.uid !== process.getuid?.() || stat.nlink !== 1) throw new Error("foreign-ownership");
       const persisted = io.readFileSync(request.file);
-      if (persisted.length > TARGET || persisted.length < receipt.bytes
+      if (persisted.length < MINIMUM || persisted.length > MAXIMUM || persisted.length < receipt.bytes
         || digest(persisted.subarray(0, receipt.bytes)) !== receipt.sha256) throw new Error("persisted-verification-failed");
       parseTranscript(decode(persisted), request.sessionId, true);
       if (!cleanupRequest(request, io)) throw new Error("staging-cleanup-pending");
@@ -608,12 +651,13 @@ export function commitTranscriptTrimCandidate(ctx: TrimContext, request: Transcr
     pathIdentity(request.candidateFile, io);
     const candidateStat = io.lstatSync(request.candidateFile);
     if (candidateStat.uid !== stat.uid || candidateStat.nlink !== 1) throw new Error("foreign-candidate");
-    if (candidateStat.size > TARGET) throw new Error(`candidate-exceeds-target:${candidateStat.size}`);
+    if (candidateStat.size > MAXIMUM) throw new Error(`candidate-exceeds-target:${candidateStat.size}`);
     const candidate = io.readFileSync(request.candidateFile);
     validateTranscriptTrimCandidate(decode(prefix), decode(candidate), request.sessionId, request.branchIds);
     const tail = current.subarray(request.sourceBytes);
     const final = Buffer.concat([candidate, tail]); after = final.length;
-    if (after > TARGET - COMPLETION_RESERVE || after >= before) throw new Error(`total-exceeds-target:tail=${tail.length};candidate-budget=${TARGET - COMPLETION_RESERVE - tail.length}`);
+    if (after < MINIMUM) throw new Error(`total-below-minimum:${after}`);
+    if (after > MAXIMUM - COMPLETION_RESERVE || after >= before) throw new Error(`total-exceeds-target:tail=${tail.length};candidate-budget=${MAXIMUM - COMPLETION_RESERVE - tail.length}`);
     // Validate the tail too: merging must not introduce links/IDs not present in source.
     validateTranscriptTrimCandidate(decode(current), decode(final), request.sessionId, branch);
     temp = join(dirname(request.file), `.transcript-trim-${randomUUID()}.tmp`);
@@ -639,18 +683,22 @@ export function commitTranscriptTrimCandidate(ctx: TrimContext, request: Transcr
 
 /** One focused native tool: no shell, arbitrary read path, or live-write operation is
  * exposed to the maintenance agent. Scope comes from its public launch, not arguments. */
-function registerTranscriptTrimTool(pi: ExtensionAPI): void {
+function registerTranscriptTrimTool(pi: ExtensionAPI, requestMaintenance: (ctx: TrimContext) => Record<string, unknown>): void {
   pi.registerTool?.({
     name: "transcript_trim",
     label: "Trim authorized old transcript payloads",
-    description: "One local trim of the authorized prefix; returns compact candidate size or retained-byte budget evidence. Never writes the live transcript from tool execution.",
+    description: "Parent request schedules the existing shared extraction launch; scoped child trim reduces its authorized prefix locally. Tool execution never writes live history.",
     // Pi's public validator also accepts JSON Schema without TypeBox symbols.
     parameters: {
-      type: "object", properties: { operation: { type: "string", enum: ["trim", "contract"] } },
+      type: "object", properties: { operation: { type: "string", enum: ["request", "trim", "contract"] } },
       required: ["operation"], additionalProperties: false,
     } as any,
     async execute(_toolCallId, params: any, _signal, _onUpdate, ctx) {
       const ownerContext = ctx as unknown as TrimContext;
+      if (params.operation === "request") {
+        const result = requestMaintenance(ownerContext);
+        return { content: [{ type: "text", text: JSON.stringify(result) }], details: result };
+      }
       const userText = ownerContext.sessionManager.getBranch().filter((e: any) => e.type === "message" && e.message?.role === "user")
         .map((e: any) => typeof e.message.content === "string" ? e.message.content : e.message.content?.filter((b: any) => b.type === "text").map((b: any) => b.text).join("\n"))
         .slice().reverse().find((text: string) => /^CODEFLARE_EXTRACTION_REQUEST=[0-9a-f-]+$/m.test(text ?? ""));
@@ -685,9 +733,13 @@ function registerTranscriptTrimTool(pi: ExtensionAPI): void {
         result = { request: { ...summary, branchEntryCount: branchIds.length },
           contract: "Call operation trim once. It locally validates and reduces only this authorized prefix; report its compact result. Only the owning parent can verify and commit." };
       } else if (params.operation === "trim") {
-        const budget = Math.max(0, request.candidateBudget - Math.max(0, fs.statSync(request.file).size - request.sourceBytes));
+        const tailBytes = Math.max(0, fs.statSync(request.file).size - request.sourceBytes);
+        const budget = Math.max(0, request.candidateBudget - tailBytes);
         const trimmed = prepareLocalTranscriptTrim(raw, request.sessionId, request.branchIds, budget);
-        if (trimmed.withinTarget) {
+        const projectedTotalBytes = trimmed.remainingBytes + tailBytes;
+        const accepted = projectedTotalBytes >= MINIMUM && projectedTotalBytes <= MAXIMUM - COMPLETION_RESERVE
+          && trimmed.remainingBytes <= budget;
+        if (accepted) {
           if (!ownedDirectory(request, fs)) throw new Error("foreign-staging-directory");
           const fd = fs.openSync(request.candidateFile, fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_NOFOLLOW, 0o600);
           try {
@@ -696,18 +748,36 @@ function registerTranscriptTrimTool(pi: ExtensionAPI): void {
             fs.ftruncateSync(fd, 0); fs.writeFileSync(fd, trimmed.candidate);
           } finally { fs.closeSync(fd); }
         }
-        result = { requestId, candidateBytes: trimmed.withinTarget ? trimmed.remainingBytes : null,
-          remainingBytes: trimmed.remainingBytes, budgetBytes: budget, withinTarget: trimmed.withinTarget, committed: false };
+        result = { requestId, candidateBytes: accepted ? trimmed.remainingBytes : null,
+          remainingBytes: trimmed.remainingBytes, projectedTotalBytes, budgetBytes: budget,
+          minimumBytes: MINIMUM, targetBytes: TARGET, maximumBytes: MAXIMUM, withinTarget: accepted, committed: false };
       } else throw new Error("unknown-maintenance-operation");
       return { content: [{ type: "text", text: JSON.stringify(result) }], details: { committed: false } };
     },
   });
 }
 
+function candidateWithinWindow(request: TranscriptTrimRequest, io: typeof fs): boolean {
+  try {
+    if (!ownedDirectory(request, io)) return false;
+    const candidate = io.lstatSync(request.candidateFile);
+    if (!candidate.isFile() || candidate.isSymbolicLink() || candidate.nlink !== 1 || candidate.uid !== process.getuid?.()) return false;
+    const tail = Math.max(0, io.lstatSync(request.file).size - request.sourceBytes);
+    const total = candidate.size + tail;
+    return total >= MINIMUM && total <= MAXIMUM - COMPLETION_RESERVE;
+  } catch { return false; }
+}
+
 export function registerActiveSessionTranscriptTrimming(pi: ExtensionAPI, io: typeof fs = fs) {
   let due: Identity | undefined, request: TranscriptTrimRequest | undefined;
   const receipts = new Map<string, TranscriptTrimRequest>();
-  registerTranscriptTrimTool(pi);
+  registerTranscriptTrimTool(pi, ctx => {
+    const owner = identity(ctx), header = ctx.sessionManager.getHeader?.();
+    if (!owner || !header || header.id !== owner.sessionId || header.parentSession) throw new Error("parent-owner-required");
+    if (due || request || [...receipts.values()].some(receipt => same(owner, receipt))) return { status: "already-pending", committed: false };
+    due = owner;
+    return { status: "scheduled", committed: false };
+  });
   const cancel = () => {
     // Release scheduling ownership, but retain committed work for read-only
     // verification when its own session is loaded again. Never replay a write.
@@ -718,7 +788,7 @@ export function registerActiveSessionTranscriptTrimming(pi: ExtensionAPI, io: ty
   const outcome = (value: TrimResult) => {
     pi.sendMessage({ customType: "transcript-trim-outcome", display: true,
       content: value.status === "trimmed"
-        ? `Transcript maintenance verified: ${value.before} → ${value.after} bytes (target ${TARGET}).`
+        ? `Transcript maintenance verified: ${value.before} → ${value.after} bytes (target ${TARGET}; accepted ${MINIMUM}–${MAXIMUM}).`
         : `Transcript maintenance not completed: ${value.reason}. Source was not reported as successfully trimmed.`,
       details: value }, { triggerTurn: false });
   };
@@ -747,7 +817,8 @@ export function registerActiveSessionTranscriptTrimming(pi: ExtensionAPI, io: ty
         if (!request) request = createTranscriptTrimRequest(ctx);
         if (!request) { due = undefined; return; }
         const entries = parseTranscript(decode(fs.readFileSync(request.file)), request.sessionId, true);
-        const facts = extractionTranscriptFacts({ entries, requestId: request.requestId, job: "transcript-trim", now: Date.now(), successQualifies: () => true });
+        let facts = extractionTranscriptFacts({ entries, requestId: request.requestId, job: "transcript-trim", now: Date.now(),
+          successQualifies: attempt => !!attempt?.latest && candidateWithinWindow(request!, io) });
         if (facts.stopped) { cancel(); return; }
         if (facts.state === "succeeded") {
           const result = commitTranscriptTrimCandidate(ctx, request, io);
@@ -759,8 +830,14 @@ export function registerActiveSessionTranscriptTrimming(pi: ExtensionAPI, io: ty
               request: buildPublicTranscriptTrimRequest({ requestId: request.requestId,
                 promptFile: "/home/user/.pi/agent/prompts/transcript-trim-agent-prompt.md", varsFile: request.varsFile }) };
           }
-          if (result.status !== "verification-pending") { cleanupRequest(request); request = undefined; due = undefined; }
-          outcome(result); return;
+          if (result.status === "trimmed" || result.status === "verification-pending") {
+            if (result.status === "trimmed") { request = undefined; due = undefined; }
+            outcome(result); return;
+          }
+          // A completed child with an inadmissible candidate is a failed exact
+          // attempt, not successful maintenance. Reuse the common delivery budget.
+          outcome(result);
+          facts = extractionTranscriptFacts({ entries, requestId: request.requestId, job: "transcript-trim", now: Date.now(), successQualifies: () => false });
         }
         const next = extractionDue(facts);
         if (next.kind === "giveup") {
@@ -768,6 +845,12 @@ export function registerActiveSessionTranscriptTrimming(pi: ExtensionAPI, io: ty
           return { requestId, jobType: "transcript-trim", giveup: true };
         }
         if (next.kind !== "launch") return;
+        // A retry must produce its own candidate, never inherit a prior attempt's staging.
+        if (next.reminder > 0) {
+          if (!ownedDirectory(request, io)) throw new Error("foreign-staging-directory");
+          try { io.unlinkSync(request.candidateFile); }
+          catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
+        }
         return { requestId: request.requestId, jobType: "transcript-trim", reminder: next.reminder,
           request: buildPublicTranscriptTrimRequest({ requestId: request.requestId,
             promptFile: "/home/user/.pi/agent/prompts/transcript-trim-agent-prompt.md", varsFile: request.varsFile }) };

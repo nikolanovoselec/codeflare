@@ -723,15 +723,14 @@ export function registerMemoryVault(pi: MemoryVaultPi, dependencies: MemoryVault
     }
   });
 
-  pi.on("before_agent_start", (event, ctx) => {
+  const reconcileEligibility = (ctx: any, prompt?: string) => {
     if (isChildSession(ctx)) return;
     ensureDirs(paths);
     const entries = readSessionEntries(ctx);
     const session = sessionId(ctx);
     refreshPendingVaultRequest(paths, dependencies, entries, session);
 
-    const prompt = String(event?.prompt ?? "");
-    if (isSyntheticPrompt(prompt)) return;
+    if (prompt !== undefined && isSyntheticPrompt(prompt)) return;
 
     const countFile = counterPath(paths, session);
     const counterExists = existsSync(countFile);
@@ -741,7 +740,8 @@ export function registerMemoryVault(pi: MemoryVaultPi, dependencies: MemoryVault
       const durable = latestCapturedPromptCount(paths, session);
       progress = !counterExists || durable.promptCount === savedCount ? durable : { promptCount: savedCount };
     }
-    const messages = withCurrentPrompt(sessionMessages(entries, lastMessages), prompt);
+    const persistedMessages = sessionMessages(entries, lastMessages);
+    const messages = prompt === undefined ? persistedMessages : withCurrentPrompt(persistedMessages, prompt);
     const currentCount = realUserPromptCount(messages);
     const rebased = currentCount < progress.promptCount || (progress.transcriptFingerprint !== undefined
       && realUserPromptFingerprint(messages, progress.promptCount) !== progress.transcriptFingerprint);
@@ -802,7 +802,8 @@ export function registerMemoryVault(pi: MemoryVaultPi, dependencies: MemoryVault
       messages,
       timezone: process.env.USER_TIMEZONE || process.env.TZ || undefined,
     });
-  });
+  };
+  pi.on("before_agent_start", (event, ctx) => reconcileEligibility(ctx, String(event?.prompt ?? "")));
 
   pi.on("agent_end", (event, ctx) => {
     if (isChildSession(ctx)) return;
@@ -816,6 +817,9 @@ export function registerMemoryVault(pi: MemoryVaultPi, dependencies: MemoryVault
     const session = sessionId(ctx);
     finalizeMemorySuccess(paths, dependencies, entries, session);
     finalizeVaultSuccess(paths, dependencies, entries, session);
+    // Queued real prompts may cross a boundary inside the current agent run.
+    // Reconcile at the existing completed-turn/settlement owner, without a new wakeup.
+    reconcileEligibility(ctx);
     const memory = readActiveMemoryRequest(paths, session)?.request;
     const activeVault = readActiveVaultRequest(paths)?.request;
     const vault = !activeVault?.ownerSessionId || activeVault.ownerSessionId === session

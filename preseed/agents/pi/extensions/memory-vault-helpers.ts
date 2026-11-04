@@ -323,7 +323,7 @@ export function extractionTranscriptFacts(input: {
   requestId: string;
   job: ExtractionJob | "transcript-trim";
   now: number;
-  successQualifies: () => boolean;
+  successQualifies: (attempt?: { latest: boolean }) => boolean;
 }): ExtractionTranscriptFacts {
   const launchedRequests = input.entries.flatMap((entry) => launchItems(entry).filter((item) => (
     item?.requestId === input.requestId
@@ -358,7 +358,7 @@ export function extractionTranscriptFacts(input: {
   let running = false;
   for (const call of calls) {
     const status = notifications.get(call.id);
-    if (isCompletedNotification(status) && input.successQualifies()) succeeded = true;
+    if (isCompletedNotification(status) && input.successQualifies({ latest: call === calls.at(-1) })) succeeded = true;
     if (status === undefined) {
       const timestamp = Date.parse(String(call.timestamp ?? ""));
       if (!Number.isFinite(timestamp) || input.now - timestamp < EXTRACTION_RUNNING_TTL_MS) running = true;
