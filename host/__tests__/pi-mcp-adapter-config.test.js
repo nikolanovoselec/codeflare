@@ -90,6 +90,44 @@ for (const [name, settings, selected] of [
   });
 }
 
+for (const exclusion of [
+  '-local-mcp-runtime/npm/node_modules/pi-mcp-extension/src/index.ts',
+  '-./local-mcp-runtime/npm/node_modules/pi-mcp-extension/src/index.ts',
+  '-**/node_modules/pi-mcp-extension/src/index.ts',
+  '-local-mcp-runtime/**',
+  '-**/*.ts',
+  '-local-mcp-runtime/npm/node_modules/pi-mcp-extension',
+]) {
+  test(`REQ-AGENT-217: default loader preserves files for relative or unsupported global exclusion (${exclusion})`, async t => {
+    const f = await fixture(t);
+    const entry = join(f.directory, 'local-mcp-runtime/npm/node_modules/pi-mcp-extension/src/index.ts');
+    writeFileSync(join(f.directory, 'settings.json'), JSON.stringify({ extensions: [entry, exclusion] }));
+    writeFileSync(f.legacy, legacyConfig);
+    const target = '{"mcpServers":{},"settings":{"native":true}}\n';
+    writeFileSync(f.target, target);
+    const before = readdirSync(f.directory).sort();
+    const notifications = [];
+    f.load({ on(event, handler) {
+      if (event === 'session_start') handler({}, { ui: { notify: (message, level) => notifications.push({ message, level }) } });
+    } });
+    assert.equal(readFileSync(f.legacy, 'utf8'), legacyConfig);
+    assert.equal(readFileSync(f.target, 'utf8'), target);
+    assert.deepEqual(readdirSync(f.directory).sort(), before, 'skipped handoff must not archive or write configuration');
+    assert.ok(notifications.some(({ message, level }) => level === 'warning' && /selection.*ambiguous|ambiguous.*selection/i.test(message)));
+    for (const { message } of notifications) assert.doesNotMatch(message, /synthetic|pi-mcp-extension|local-mcp-runtime|TOKEN/);
+  });
+}
+
+test('REQ-AGENT-217: exact relative retired companion exclusion does not disable stock handoff', async t => {
+  const f = await fixture(t);
+  writeFileSync(join(f.directory, 'settings.json'), JSON.stringify({ packages: [stock], extensions: ['-extensions/mcp-portal-oauth.ts'] }));
+  writeFileSync(f.legacy, legacyConfig);
+  f.load();
+  assert.equal(existsSync(f.legacy), false);
+  assert.equal(JSON.parse(readFileSync(f.target, 'utf8')).settings.requestTimeoutMs, 360000);
+  assertArchived(f, 'mcp-adapter.json.migrated', legacyConfig);
+});
+
 for (const unsafe of ['missing', 'symlink', 'directory']) {
   test(`REQ-AGENT-217: unsafe or absent global settings preserve MCP files (${unsafe})`, async t => {
     const f = await fixture(t);

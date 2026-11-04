@@ -291,7 +291,14 @@ function configuredMcpClient(directory: string): McpClient | undefined {
       // Global glob overrides need Pi's full resolver; do not infer ownership.
       if (selection.startsWith("!")) { uncertain = true; continue; }
       const negative = selection.startsWith("-");
-      const source = selection.replace(/^[!+-]/, "");
+      const rawSource = selection.replace(/^[!+-]/, "");
+      // Pi resolves exact global exclusions relative to the agent directory.
+      // Unknown negative patterns can disable a client too: fail closed rather
+      // than treating an unsupported filter as positive selection evidence.
+      if (negative && /[*?\[\]{}]/.test(rawSource)) { uncertain = true; continue; }
+      const source = negative && !isAbsolute(rawSource) ? resolve(directory, rawSource) : rawSource;
+      if (negative && (source === join(directory, "extensions/mcp-portal-oauth.ts")
+        || source === "/home/user/.pi/agent/extensions/mcp-portal-oauth.ts")) continue;
       const known = identify(source);
       if (known) {
         const path = isAbsolute(source)
@@ -301,7 +308,7 @@ function configuredMcpClient(directory: string): McpClient | undefined {
           if (!path || path !== source) uncertain = true;
           else excluded.add(path);
         } else registrations.push({ client: known.client, path });
-      } else if (!negative && /mcp/i.test(source)) uncertain = true;
+      } else if (negative || /mcp/i.test(source)) uncertain = true;
     }
     for (const registration of registrations) {
       if (registration.path && excluded.has(registration.path)) continue;

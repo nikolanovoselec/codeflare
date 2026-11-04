@@ -15,7 +15,8 @@ const PR = 123;
 const HEAD = 'ef819ed35e9cc57d66209d1330bc8a87519736df';
 const NEXT_HEAD = '0123456789abcdef0123456789abcdef01234567';
 const POLL_MS = 15_000;
-const AGENT_CAP_MS = 15 * 60_000;
+const MONITOR_LIMIT_MS = 180_000;
+const AGENT_CAP_MS = 200_000;
 const REQUEST_CWD = '/tmp/codeflare-request-repo';
 
 function commandResult(value, exitCode = 0) {
@@ -308,14 +309,14 @@ test('REQ-AGENT-068 AC1: unsupported, unchanged, missing, and closed PR events r
   }
 });
 
-test('REQ-AGENT-068 AC2: empty check rows retry and time out after five minutes without success', async () => {
+test('REQ-AGENT-068 AC2: empty check rows retry within the shared 180-second deadline without success', async () => {
   const { output, github, time } = await runMonitor({ fallbackChecks: [] });
 
   assertResult(output, 'timeout');
   assert.doesNotMatch(output, /^CI_RESULT success/m);
   assert.ok(github.checkCalls() > 1);
-  assert.ok(time.elapsed() >= 5 * 60_000);
-  assert.ok(time.elapsed() < 5 * 60_000 + POLL_MS);
+  assert.match(output, /deadline_exceeded/);
+  assert.equal(time.elapsed(), MONITOR_LIMIT_MS);
 });
 
 test('REQ-AGENT-068 AC2: valid check JSON is parsed despite gh exit statuses 1 and 8', async () => {
@@ -432,7 +433,7 @@ test('REQ-AGENT-125 AC3: malformed and transient GitHub responses never become s
   assertResult(output, 'timeout');
   assert.doesNotMatch(output, /^CI_RESULT success/m);
   assert.match(output, /deadline_exceeded/);
-  assert.ok(time.elapsed() >= 5 * 60_000);
+  assert.equal(time.elapsed(), MONITOR_LIMIT_MS);
   assert.ok(time.elapsed() <= AGENT_CAP_MS - POLL_MS, 'timeout output needs reporting margin before the enclosing command cap');
 });
 
@@ -443,7 +444,7 @@ test('REQ-AGENT-068 constraint: pending checks return timeout before the enclosi
 
   assertResult(output, 'timeout');
   assert.match(output, /deadline_exceeded/);
-  assert.ok(time.elapsed() >= 5 * 60_000);
+  assert.equal(time.elapsed(), MONITOR_LIMIT_MS);
   assert.ok(time.elapsed() <= AGENT_CAP_MS - POLL_MS, 'timeout output needs reporting margin before the enclosing command cap');
 });
 
@@ -452,6 +453,9 @@ for (const phase of ['head', 'checks', 'confirmation', 'all']) {
     const time = fakeClock();
     let confirming = false;
     const runner = async (_command, args, options = {}) => {
+      assert.ok(options.timeout > 0 && options.timeout <= 60_000);
+      assert.ok(options.timeout <= MONITOR_LIMIT_MS - time.elapsed(),
+        'provider execution allowance must fit the remaining monitoring budget');
       if (args.includes('view')) {
         if (phase === 'all' || phase === 'confirmation' && confirming || phase === 'head' && !confirming) {
           // External command boundary: consume the execution allowance a hung
@@ -476,11 +480,39 @@ for (const phase of ['head', 'checks', 'confirmation', 'all']) {
     assertResult(output, 'timeout');
     assert.match(output, /deadline_exceeded/);
     assert.doesNotMatch(output, /^CI_RESULT (?:success|failure)/m);
-    assert.ok(time.elapsed() >= 5 * 60_000);
+    assert.equal(time.elapsed(), MONITOR_LIMIT_MS);
     assert.ok(time.elapsed() <= AGENT_CAP_MS - POLL_MS,
       'even a final slow provider must leave time to emit the structured result');
   });
 }
+
+test('REQ-AGENT-068 constraint: final polling sleep fits the remaining 180-second budget', async () => {
+  const time = fakeClock();
+  const github = monitorRunner({ fallbackChecks: [check('queued', 'pending')] });
+  let initialDelay = true;
+  const output = await monitorCi({
+    repo: REPO, pr: PR, head: HEAD,
+    runner: async (...args) => {
+      if (initialDelay) {
+        initialDelay = false;
+        await time.sleep(10_000);
+      }
+      return github.runner(...args);
+    },
+    clock: time.clock,
+    sleep: async (milliseconds) => {
+      assert.ok(milliseconds > 0 && milliseconds <= POLL_MS);
+      assert.ok(milliseconds <= MONITOR_LIMIT_MS - time.elapsed());
+      await time.sleep(milliseconds);
+    },
+  });
+
+  assertResult(output, 'timeout');
+  assert.match(output, /deadline_exceeded/);
+  assert.equal(time.elapsed(), MONITOR_LIMIT_MS);
+  assert.equal(time.sleeps.at(-1), 5_000);
+  assert.equal(AGENT_CAP_MS - time.elapsed(), 20_000, 'leave twenty seconds for reporting');
+});
 
 test('REQ-AGENT-068 AC4: a superseded head stops before checks are queried', async () => {
   const { output, github } = await runMonitor({ heads: [NEXT_HEAD] });

@@ -3363,7 +3363,12 @@ None.
 3. A terminal CI result requires the same non-empty all-terminal fingerprint in two polls. <!-- @impl: preseed/agents/pi/skills/ci-monitoring/scripts/monitor-ci.mjs::monitorCi --> <!-- @test: host/__tests__/pi-ci-monitor.test.js (REQ-AGENT-068 AC2/AC3: pending checks wait for a stable pass and skipping fingerprint) --> <!-- @test: host/__tests__/pi-ci-monitor.test.js (REQ-AGENT-125 AC1: a failed check waits for all checks and a stable terminal fingerprint) -->
 4. An authoritative head mismatch reports `CI_RESULT timeout superseded`. <!-- @impl: preseed/agents/pi/skills/ci-monitoring/scripts/monitor-ci.mjs::monitorCi --> <!-- @test: host/__tests__/pi-ci-monitor.test.js (REQ-AGENT-068 AC4: a superseded head stops before checks are queried) -->
 
-**Constraints:** Empty checks time out after five minutes; provider commands are bounded; total monitoring is bounded at fifteen minutes with time reserved for reporting; the root Pi Git workflow is the sole automatic trigger.
+**Constraints:**
+
+- Internal monitoring has a 180-second deadline, including empty checks.
+- The monitor command has a 200-second cap, reserving time for reporting.
+- Provider operations and sleeps remain bounded by the internal deadline.
+- The root Pi Git workflow is the sole automatic trigger.
 
 **Priority:** P1
 
@@ -3447,8 +3452,12 @@ None.
 
 **Constraints:**
 
-- No bucket deletion or sync redesign. Installed packages are not selection evidence; unsupported resource filters fail closed without preparing files.
-- For positively selected stock handoff only, working entries survive load/reload except `lazy-keep-alive`/`lazy-keepalive` → `lazy` conversion and [timeout preparation](browser-run.md#req-browser-009-mcp-and-chrome-sdk-timeout-profile). Registration does not choose a settings winner or disable either client; explicit startup handoff remains stock-only.
+- No bucket deletion or sync redesign.
+- Installed packages are not selection evidence.
+- Unsupported resource filters fail closed without preparing files.
+- For positively selected stock handoff only, working entries survive load/reload except `lazy-keep-alive`/`lazy-keepalive` → `lazy` conversion and [timeout preparation](browser-run.md#req-browser-009-mcp-and-chrome-sdk-timeout-profile).
+- Registration does not choose a settings winner or disable either client.
+- Explicit startup handoff remains stock-only.
 - Transformed custom originals remain recoverable before replacement.
 - Stock startup and positively selected stock managed load decode selected legacy stdio `!!` by one `!`, never a valid destination's literal environment. <!-- @test: preseed/agents/pi/test/consult-proxy.test.mjs (REQ-AGENT-217: actual stdio server receives the selected schema's literal env (legacy=true, regenerate=false)) --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (REQ-AGENT-217: entrypoint preparation decodes selected custom consult env before preserved-entry merge) -->
 - Selected legacy commands/interpolation fail closed without evaluation before writes, preserving originals and content-free diagnostics; unselected expressions cannot block a valid destination. <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (REQ-AGENT-217: rejected legacy env produces a content-free managed-load diagnostic) -->

@@ -21,13 +21,13 @@ test('REQ-MEM-028 AC3: source-prefix retention respects JSON escaped UTF8 byte b
 
 // Disposable synthetic history only. All lifecycle transitions use the public
 // controller, exact public subagent calls, and its registered scoped tool.
-function fixture(t){
+function fixture(t,userBytes=0){
  const root=fs.mkdtempSync(join(tmpdir(),'trim-window-'));t.after(()=>fs.rmSync(root,{recursive:true,force:true}));
  const file=join(root,'session.jsonl'),rows=[{type:'session',version:3,id:'window-fixture'}];
  fs.writeFileSync(file,jsonl(rows));
  const append=row=>{const entry={id:'e'+rows.length,parentId:rows.length===1?null:rows.at(-1).id,timestamp:new Date().toISOString(),...row};rows.push(entry);fs.appendFileSync(file,jsonl([entry]));return entry;};
  const historical=append({type:'message',extensionEnvelope:{keep:true},message:{role:'assistant',usage:{input:27,output:41},content:[{type:'text',text:'x'.repeat(30_000_000)},{type:'thinking',thinking:'y'.repeat(20_100_000)},{type:'opaque-native',data:{keep:true}}]}});
- const user=append({type:'message',message:{role:'user',content:'Preserve the entire current user message.'}});
+ const user=append({type:'message',message:{role:'user',content:userBytes?'u'.repeat(userBytes):'Preserve the entire current user message.'}});
  append({type:'compaction',firstKeptEntryId:user.id,summary:'Current authoritative summary'});
  append({type:'custom',customType:'unknown-extension-state',data:{keep:true}});
  const tools=new Map(),outcomes=[];let failReadback=false,committed=false;
@@ -69,6 +69,18 @@ test('REQ-MEM-028 AC3: preferred twenty MB retains only source prefixes and pres
  const bytes=assertCompletion(f);assert.ok(Math.abs(bytes-20_000_000)<100_000,`preferred goal, not maximal deletion: ${bytes}`);
  assert.ok(fs.readFileSync(f.file).subarray(-tail.length).equals(tail),'ordinary native tail bytes survive verbatim');
  const verified=fingerprint(f.file);assert.equal(f.collect(),undefined);assert.equal(fingerprint(f.file),verified);
+});
+
+for(const bytes of [24_999_000,25_000_000]){
+ test(`REQ-MEM-028 AC3: final admission accepts inclusive upper-window total ${bytes}`,t=>{
+  const f=fixture(t),id=f.call(f.first);f.done(id);const tail=fs.readFileSync(f.file).subarray(f.request.sourceBytes);f.stageBytes(bytes-tail.length);f.collect();
+  assert.equal(assertCompletion(f),bytes);assert.ok(fs.readFileSync(f.file).subarray(-tail.length).equals(tail));
+ });
+}
+
+test('REQ-MEM-028 AC3: scoped tool accepts safe protected content in the final upper-window bytes',async t=>{
+ const f=fixture(t,24_996_000),id=f.call(f.first),before=fingerprint(f.file),result=await f.stage();
+ assert.equal(result.withinTarget,true);assert.ok(result.projectedTotalBytes>24_995_904&&result.projectedTotalBytes<=25_000_000);assert.equal(fingerprint(f.file),before);f.done(id);f.collect();assertCompletion(f);
 });
 
 for(const [label,bytes] of [['below minimum',14_999_999],['above maximum',25_000_001]]){

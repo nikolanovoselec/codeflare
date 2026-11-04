@@ -10,6 +10,9 @@ const {registerMemoryVault}=await import(fixtureModule('memory-vault'));
 import {importPiExtension} from './fixtures/pi-extension-module.mjs';
 const { createTranscriptTrimRequest, commitTranscriptTrimCandidate, validateTranscriptTrimCandidate, prepareLocalTranscriptTrim }=await importPiExtension('active-session-transcript-trimming');
 const jsonl = rows => rows.map(row => JSON.stringify(row) + '\n').join('');
+function assertTrimWindow(bytes) {
+  assert.ok(bytes >= 15_000_000 && bytes <= 25_000_000, `committed bytes ${bytes} must be within the inclusive trim window`);
+}
 function fixture(t) {
   const root = fs.mkdtempSync(join(tmpdir(), 'trim-agent-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
@@ -32,6 +35,8 @@ function fixture(t) {
     const source = fs.readFileSync(file).subarray(0, req.sourceBytes).toString();
     const trimmed = prepareLocalTranscriptTrim(source, req.sessionId, req.branchIds, req.candidateBudget);
     assert.equal(trimmed.withinTarget, true);
+    assertTrimWindow(trimmed.remainingBytes);
+    assert.ok(trimmed.remainingBytes <= req.candidateBudget, 'staged prefix respects the request budget');
     fs.writeFileSync(req.candidateFile, trimmed.candidate);
   };
   return { root, file, rows, ctx, candidate, stage, t };
@@ -101,7 +106,7 @@ test('REQ-MEM-030 AC2: staged candidate requires exact native completion before 
   const req = JSON.parse(fs.readFileSync(item.request.prompt.match(/^VARS_FILE=(.+)$/m)[1])); f.stage(req);
   l.emit('agent_settled'); assert.ok(fs.statSync(f.file).size > 50_000_000);
   l.call(item); l.done({ requestId: 'foreign' }); l.emit('agent_settled'); assert.ok(fs.statSync(f.file).size > 50_000_000);
-  l.done(item); l.emit('agent_settled'); assert.ok(fs.statSync(f.file).size <= 20_000_000);
+  l.done(item); l.emit('agent_settled'); assertTrimWindow(fs.statSync(f.file).size);
   assert.ok(l.sent.some(m => m.customType === 'transcript-trim-outcome' && m.details.status === 'trimmed'));
 });
 test('REQ-MEM-030 AC3: preexisting orphan survives; new damage, accounting, users and current state are rejected', t => {
@@ -159,7 +164,7 @@ test('REQ-MEM-030 AC7: verified total target, precommit IO safety, durability di
   const failed = commitTranscriptTrimCandidate(f.ctx, req, { ...fs, renameSync() { throw new Error('synthetic rename failure'); } });
   assert.equal(failed.status, 'refused'); assert.equal(fs.statSync(f.file).size, originalSize);
   const result = commitTranscriptTrimCandidate(f.ctx, req, { ...fs, fsyncSync(fd) { if (fs.fstatSync(fd).isDirectory()) throw new Error('synthetic directory sync failure'); fs.fsyncSync(fd); } });
-  assert.equal(result.status, 'trimmed'); assert.equal(result.reason, 'directory-sync-failed'); assert.ok(result.after <= 20_000_000);
+  assert.equal(result.status, 'trimmed'); assert.equal(result.reason, 'directory-sync-failed'); assertTrimWindow(result.after);
   assert.deepEqual(fs.readdirSync(f.root), ['session.jsonl']);
 });
 
@@ -173,7 +178,10 @@ test('REQ-MEM-030 AC2: one scoped local trim stages without live-write authority
   const before = fs.readFileSync(f.file);
   const result = JSON.parse((await execute(child)).content[0].text);
   assert.equal(result.committed, false); assert.equal(result.withinTarget, true);
-  assert.ok(fs.readFileSync(f.file).equals(before)); assert.ok(fs.statSync(req.candidateFile).size < 20_000_000);
+  assert.ok(fs.readFileSync(f.file).equals(before)); assertTrimWindow(fs.statSync(req.candidateFile).size);
+  assert.ok(result.candidateBytes <= result.budgetBytes && result.budgetBytes <= req.candidateBudget, 'scoped candidate respects the tail-adjusted request budget');
+  assert.equal(fs.statSync(req.candidateFile).size, result.candidateBytes);
+  assert.equal(result.candidateBytes, 20_000_000, 'available ASCII prose reaches the separate preferred goal');
   const candidate = fs.readFileSync(req.candidateFile, 'utf8').trimEnd().split('\n').map(JSON.parse);
   const sourceRows = before.subarray(0, req.sourceBytes).toString().trimEnd().split('\n').map(JSON.parse);
   for (const row of sourceRows.filter(row => row.id !== 'old')) assert.deepEqual(candidate.find(e => e.id === row.id), row);
@@ -239,8 +247,8 @@ test('REQ-MEM-030 AC7: branched historical state and known argument payloads rea
     historical.message.content[2],
   ] };
   // A string system payload is reduced as a unit. The protected current payload
-  // below leaves a valid ~19 MB floor plus room for the concurrent append tail,
-  // without retaining the historical assistant text this case asserts is removed.
+  // below leaves a valid floor plus room for retained historical prose and the
+  // concurrent append tail within the inclusive 15–25 MB acceptance window.
   add({ type: 'message', message: { role: 'system', content: 'Retired system guidance ' + 's'.repeat(4_000_000) } });
   const oldUser = add({ type: 'message', message: { role: 'user', content: 'Migration accepted. Keep current active work and all usage/accounting.' } });
   add({ type: 'compaction', firstKeptEntryId: oldUser.id, summary: 'Earlier migration history ' + 'c'.repeat(4_000_000), tokensBefore: 999 });
@@ -279,7 +287,7 @@ test('REQ-MEM-030 AC7: branched historical state and known argument payloads rea
   l.call(item); l.done(item);
   const tail = fs.readFileSync(f.file).subarray(JSON.parse(fs.readFileSync(item.request.prompt.match(/^VARS_FILE=(.+)$/m)[1])).sourceBytes).toString();
   l.emit('agent_settled');
-  const persisted = fs.readFileSync(f.file, 'utf8'); assert.ok(Buffer.byteLength(persisted) <= 20_000_000);
+  const persisted = fs.readFileSync(f.file, 'utf8'); assertTrimWindow(Buffer.byteLength(persisted));
   assert.ok(persisted.includes(tail));
   const rows = persisted.trimEnd().split('\n').map(JSON.parse);
   for (const row of activeRows) assert.deepEqual(rows.find(e => e.id === row.id), row);
@@ -288,7 +296,9 @@ test('REQ-MEM-030 AC7: branched historical state and known argument payloads rea
   assert.deepEqual(rows.find(e => e.id === historical.id).message.usage, historical.message.usage);
   assert.deepEqual(rows.find(e => e.id === f.rows.find(row => row.customType === 'rpiv-todo-state').id).data.tasks, []);
   const historicalContent = rows.find(e => e.id === historical.id).message.content;
-  assert.equal(historicalContent.some(block => block.type === 'text'), false);
+  const retainedText = historicalContent.find(block => block.type === 'text')?.text ?? '';
+  assert.ok(historical.message.content[0].text.startsWith(retainedText), 'retained historical prose is an original prefix, not fabricated padding');
+  assert.ok(retainedText.length < historical.message.content[0].text.length, 'obsolete prose is still reduced');
   assert.deepEqual(historicalContent.find(block => block.type === 'unknown-block'), historical.message.content[2]);
   const retainedCall = historicalContent.find(block => block.type === 'toolCall');
   assert.equal(retainedCall.id, 'historical-write'); assert.equal(retainedCall.name, 'write');
@@ -310,7 +320,7 @@ test('REQ-MEM-030 AC7: transient postcommit readback failure resumes verificatio
   const first = commitTranscriptTrimCandidate(f.ctx, req, io);
   assert.equal(first.status, 'verification-pending'); assert.match(first.reason, /readback/);
   assert.equal(renamed, true); const committed = fs.readFileSync(f.file);
-  assert.ok(committed.length <= 20_000_000); assert.ok(fs.existsSync(req.directory));
+  assertTrimWindow(committed.length); assert.ok(fs.existsSync(req.directory));
   const result = commitTranscriptTrimCandidate(f.ctx, req, io);
   assert.equal(result.status, 'trimmed');
   assert.ok(fs.readFileSync(f.file).equals(committed));
@@ -363,7 +373,7 @@ test('REQ-MEM-030 AC7: completion waits for owned cleanup and retries without re
     const req = createTranscriptTrimRequest(f.ctx); f.stage(req);
     const first = commitTranscriptTrimCandidate(f.ctx, req, io);
     assert.equal(first.status, 'verification-pending'); assert.match(first.reason, /cleanup/);
-    const committed = fs.readFileSync(f.file); assert.ok(committed.length <= 20_000_000);
+    const committed = fs.readFileSync(f.file); assertTrimWindow(committed.length);
     assert.ok(fs.existsSync(req.directory));
     failCleanup = false;
     assert.equal(commitTranscriptTrimCandidate(f.ctx, req, io).status, 'trimmed');
@@ -387,7 +397,7 @@ test('REQ-MEM-030 AC1: due maintenance advances at a normal turn boundary despit
   l.append({ type: 'custom_message', customType: 'background-extraction-launch', details: { items: [item] } });
   l.call(item); l.done(item);
   l.emit('turn_end', boundary);
-  assert.ok(fs.statSync(f.file).size <= 20_000_000);
+  assertTrimWindow(fs.statSync(f.file).size);
   assert.ok(l.sent.some(m => m.customType === 'transcript-trim-outcome' && m.details.status === 'trimmed'));
   l.emit('turn_end', boundary); l.emit('agent_settled');
   assert.equal(l.sent.filter(m => m.customType === 'background-extraction-launch').length, 1);

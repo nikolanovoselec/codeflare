@@ -11,8 +11,6 @@ const CAP = 50_000_000;
 const MINIMUM = 15_000_000;
 const TARGET = 20_000_000;
 const MAXIMUM = 25_000_000;
-// Leave room for the bounded parent-verified outcome entry itself.
-const COMPLETION_RESERVE = 4096;
 type Entry = Record<string, any>;
 type Identity = { sessionId: string; file: string };
 type TrimContext = { sessionManager: {
@@ -480,14 +478,16 @@ export function validateTranscriptTrimCandidate(source: string, candidate: strin
 // goal by dropping a whole large block. Never pad or change protected content.
 function retainHistoricalProse(entry: Entry, reduced: Entry, byteLimit: number): Entry {
   if (!Array.isArray(entry.message?.content) || !Array.isArray(reduced.message?.content)) return reduced;
-  let result = reduced;
+  const content = reduced.message.content, retained: any[] = [];
+  let used = Buffer.byteLength(JSON.stringify(reduced)), count = content.length;
   for (const block of entry.message.content) {
     const key = block?.type === "text" ? "text" : block?.type === "thinking" ? "thinking" : undefined;
     if (!key || typeof block[key] !== "string" || !sameHistoricalBlocks([block], [])) continue;
     const original = block[key] as string;
-    const withPrefix = (length: number) => ({ ...result, message: { ...result.message,
-      content: [...result.message.content, { ...block, [key]: original.slice(0, length) }] } });
-    let available = byteLimit - Buffer.byteLength(JSON.stringify(withPrefix(0))), length = 0;
+    const overhead = Buffer.byteLength(JSON.stringify({ ...block, [key]: "" })) + (count > 0 ? 1 : 0);
+    let available = byteLimit - used - overhead, length = 0;
+    if (available < 0) break;
+    const initialAvailable = available;
     // Count JSON-escaped UTF-8 bytes once; never repeatedly serialize a huge
     // prefix or split a surrogate pair. These are original history bytes only.
     while (length < original.length) {
@@ -499,10 +499,13 @@ function retainHistoricalProse(entry: Entry, reduced: Entry, byteLimit: number):
       if (available < bytes) break;
       available -= bytes; length += pair ? 2 : 1;
     }
-    if (length > 0) result = withPrefix(length);
+    if (length > 0) {
+      retained.push({ ...block, [key]: original.slice(0, length) });
+      used += overhead + initialAvailable - available; count++;
+    }
     if (length < original.length) break;
   }
-  return result;
+  return retained.length ? { ...reduced, message: { ...reduced.message, content: [...content, ...retained] } } : reduced;
 }
 
 export function prepareLocalTranscriptTrim(raw: string, sessionId: string, branchIds: string[], budget: number): { candidate: string; remainingBytes: number; withinTarget: boolean } {
@@ -592,7 +595,7 @@ export function createTranscriptTrimRequest(ctx: TrimContext, feedback = "", ret
   const directory = fs.mkdtempSync(join(dirname(owner.file), ".transcript-trim-"));
   const request: TranscriptTrimRequest = { version: 1, requestId: randomUUID(), ...owner,
     sourceBytes: bytes.length, sourceSha256: digest(bytes), sourcePathIdentity: stamp, branchIds,
-    targetBytes: TARGET, candidateBudget: MAXIMUM - COMPLETION_RESERVE, directory,
+    targetBytes: TARGET, candidateBudget: MAXIMUM, directory,
     directoryIdentity: `${fs.lstatSync(directory).dev}:${fs.lstatSync(directory).ino}`, varsFile: join(directory, "request.json"),
     candidateFile: join(directory, "candidate.jsonl"), feedback: feedback.slice(0, 2000) };
   try { fs.writeFileSync(request.varsFile, JSON.stringify(request), { flag: "wx", mode: 0o600 }); }
@@ -657,7 +660,7 @@ export function commitTranscriptTrimCandidate(ctx: TrimContext, request: Transcr
     const tail = current.subarray(request.sourceBytes);
     const final = Buffer.concat([candidate, tail]); after = final.length;
     if (after < MINIMUM) throw new Error(`total-below-minimum:${after}`);
-    if (after > MAXIMUM - COMPLETION_RESERVE || after >= before) throw new Error(`total-exceeds-target:tail=${tail.length};candidate-budget=${MAXIMUM - COMPLETION_RESERVE - tail.length}`);
+    if (after > MAXIMUM || after >= before) throw new Error(`total-exceeds-target:tail=${tail.length};candidate-budget=${MAXIMUM - tail.length}`);
     // Validate the tail too: merging must not introduce links/IDs not present in source.
     validateTranscriptTrimCandidate(decode(current), decode(final), request.sessionId, branch);
     temp = join(dirname(request.file), `.transcript-trim-${randomUUID()}.tmp`);
@@ -737,7 +740,7 @@ function registerTranscriptTrimTool(pi: ExtensionAPI, requestMaintenance: (ctx: 
         const budget = Math.max(0, request.candidateBudget - tailBytes);
         const trimmed = prepareLocalTranscriptTrim(raw, request.sessionId, request.branchIds, budget);
         const projectedTotalBytes = trimmed.remainingBytes + tailBytes;
-        const accepted = projectedTotalBytes >= MINIMUM && projectedTotalBytes <= MAXIMUM - COMPLETION_RESERVE
+        const accepted = projectedTotalBytes >= MINIMUM && projectedTotalBytes <= MAXIMUM
           && trimmed.remainingBytes <= budget;
         if (accepted) {
           if (!ownedDirectory(request, fs)) throw new Error("foreign-staging-directory");
@@ -764,7 +767,7 @@ function candidateWithinWindow(request: TranscriptTrimRequest, io: typeof fs): b
     if (!candidate.isFile() || candidate.isSymbolicLink() || candidate.nlink !== 1 || candidate.uid !== process.getuid?.()) return false;
     const tail = Math.max(0, io.lstatSync(request.file).size - request.sourceBytes);
     const total = candidate.size + tail;
-    return total >= MINIMUM && total <= MAXIMUM - COMPLETION_RESERVE;
+    return total >= MINIMUM && total <= MAXIMUM;
   } catch { return false; }
 }
 
