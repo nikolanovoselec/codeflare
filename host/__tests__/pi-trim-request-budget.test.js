@@ -1,0 +1,24 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import * as fs from 'node:fs';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import {importPiExtension} from './fixtures/pi-extension-module.mjs';
+const {registerMemoryVault}=await importPiExtension('memory-vault');
+const jsonl=rows=>rows.map(e=>JSON.stringify(e)+'\n').join('');
+test('REQ-MEM-030 AC1: parent request uses shared launch before cadence and admits roughly twenty MB',async t=>{
+ const root=fs.mkdtempSync(join(tmpdir(),'trim-request-'));t.after(()=>fs.rmSync(root,{recursive:true,force:true}));const file=join(root,'session.jsonl'),rows=[{type:'session',version:3,id:'fixture'}];fs.writeFileSync(file,jsonl(rows));
+ const append=row=>{const entry={id:'e'+rows.length,parentId:rows.length===1?null:rows.at(-1).id,...row};rows.push(entry);fs.appendFileSync(file,jsonl([entry]));return entry;};
+ append({type:'message',message:{role:'assistant',content:[{type:'text',text:'x'.repeat(50_100_000)}]}});const user=append({type:'message',message:{role:'user',content:'u'.repeat(20_592_873)}});append({type:'compaction',firstKeptEntryId:user.id,summary:'Current summary'});
+ const paths={vaultRoot:join(root,'Vault'),cacheDir:join(root,'cache'),memoryCounterDir:join(root,'counters'),memoryPromptFile:join(root,'memory.md'),vaultPromptFile:join(root,'vault.md'),vaultManifestFile:join(root,'Vault/graphify-out/manifest.json'),vaultInitializationFile:join(root,'Vault/graphify-out/initialized'),vaultMarkerFile:join(root,'marker')};fs.writeFileSync(paths.memoryPromptFile,'Memory');fs.writeFileSync(paths.vaultPromptFile,'Vault');
+ const handlers=new Map(),tools=new Map(),sent=[],ctx={sessionManager:{getSessionId:()=> 'fixture',getSessionFile:()=>file,getHeader:()=>rows[0],getLeafId:()=>rows.at(-1).id,getBranch:()=>rows.slice(1)}};
+ const pi={on(name,fn){handlers.set(name,fn);},registerTool(tool){tools.set(tool.name,tool);},getActiveTools:()=>[],getAllTools:()=>[{name:'subagent'}],setActiveTools(){},sendMessage(message){sent.push(message);}};
+ registerMemoryVault(pi,{paths,now:()=>Date.now(),randomUUID:()=> '00000000-0000-4000-8000-000000000001'});const emit=(name,event={})=>handlers.get(name)?.(event,ctx);emit('session_start');emit('before_agent_start',{prompt:user.message.content});
+ const before=fs.readFileSync(file),count=fs.readFileSync(join(paths.memoryCounterDir,'fixture.count'),'utf8'),tool=tools.get('transcript_trim');
+ const child={sessionManager:{...ctx.sessionManager,getSessionId:()=> 'child',getHeader:()=>({id:'child',parentSession:file})}};await assert.rejects(()=>tool.execute('child',{operation:'request'},undefined,undefined,child),/parent-owner-required/);
+ const requested=JSON.parse((await tool.execute('parent',{operation:'request'},undefined,undefined,ctx)).content[0].text);assert.equal(requested.status,'scheduled');assert.equal(requested.committed,false);assert.ok(fs.readFileSync(file).equals(before));assert.equal(fs.readFileSync(join(paths.memoryCounterDir,'fixture.count'),'utf8'),count);
+ const duplicate=JSON.parse((await tool.execute('again',{operation:'request'},undefined,undefined,ctx)).content[0].text);assert.equal(duplicate.status,'already-pending');const stop={message:{role:'assistant',stopReason:'stop',content:[]}};emit('turn_end',stop);emit('agent_settled');const launches=sent.filter(m=>m.customType==='background-extraction-launch');assert.equal(launches.length,1);assert.match(launches[0].content,/Extraction jobs ready/);const item=launches[0].details.items.find(i=>i.jobType==='transcript-trim');assert.ok(item);
+ const scopedChild={sessionManager:{getBranch:()=>[{type:'message',message:{role:'user',content:item.request.prompt}}]}};const staged=JSON.parse((await tool.execute('trim',{operation:'trim'},undefined,undefined,scopedChild)).content[0].text);assert.equal(staged.withinTarget,true);assert.ok(staged.candidateBytes>20_000_000&&staged.candidateBytes<=25_000_000);assert.equal(staged.committed,false);assert.ok(fs.readFileSync(file).equals(before));
+ append({type:'custom_message',...launches[0]});append({type:'message',message:{role:'assistant',content:[{type:'toolCall',id:'native-trim',name:'subagent',arguments:item.request}]}});append({type:'custom_message',customType:'subagent-notification',content:'<tool-use-id>native-trim</tool-use-id><status>Done</status>'});emit('turn_end',stop);
+ assert.ok(fs.statSync(file).size>20_000_000&&fs.statSync(file).size<=25_000_000);const persisted=fs.readFileSync(file,'utf8').trimEnd().split('\n').map(JSON.parse);assert.deepEqual(persisted.find(e=>e.id===user.id),user);assert.equal(fs.readFileSync(join(paths.memoryCounterDir,'fixture.count'),'utf8'),count);assert.equal(sent.filter(m=>m.customType==='transcript-trim-outcome'&&m.details.status==='trimmed').length,1);
+});
