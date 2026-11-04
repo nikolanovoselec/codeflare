@@ -378,8 +378,14 @@ export function extractionTranscriptFacts(input: {
  * marker-associated native call still in flight must never be duplicated, even
  * when its altered arguments cannot qualify as the authorized exact request. */
 export function transcriptTrimLaunchNeedsRecovery(entries: any[], requestId: string, now: number): boolean {
-  const delivered = entries.findLastIndex(entry => launchItems(entry).some(item => item?.requestId === requestId
-    && item?.jobType === "transcript-trim" && publicRequestMatches(item.request, requestId, "transcript-trim")));
+  let delivered = -1;
+  for (let index = entries.length - 1; index >= 0; index--) {
+    if (launchItems(entries[index]).some(item => item?.requestId === requestId
+      && item?.jobType === "transcript-trim" && publicRequestMatches(item.request, requestId, "transcript-trim"))) {
+      delivered = index;
+      break;
+    }
+  }
   if (delivered < 0 || !entries.slice(delivered + 1).some(entry => entry?.type === "message"
     && entry.message?.role === "assistant" && entry.message.stopReason === "stop"
     && Array.isArray(entry.message.content) && !entry.message.content.some((block: any) => block?.type === "toolCall"))) return false;
