@@ -267,7 +267,7 @@ RUN sed -i 's|http://deb.debian.org|https://deb.debian.org|g' /etc/apt/sources.l
 # The immutable Node artifact carries vulnerable node-tar; the integrity-pinned
 # tar overlay replaces npm's copy only. code-server retains its upstream fixed
 # IDE tar 7.5.22, independently smoke-tested. The Node image's bundled npm also carries pacote
-# 21.5.0 affected by CVE-2026-9496; an integrity-pinned 21.5.1 artifact replaces
+# 21.5.0 affected by CVE-2026-9496; an integrity-pinned 21.5.2 artifact replaces
 # that runtime copy. code-server's basic-ftp 5.3.1 is replaced with 6.2.3 for
 # CVE-2026-102990, preserving its CommonJS API for the get-uri consumer.
 # follow-redirects 1.16.2 fixes CVE-2026-111755/111756/116689 in its upstream 1.x API.

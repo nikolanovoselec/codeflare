@@ -268,6 +268,11 @@ describe('REQ-OPS-038: deployment coding-agent selection', () => {
   });
 
   it('REQ-OPS-046 AC2-AC3: packaged-image smoke rejects a broken npm pacote overlay', async () => {
+    // Intentional image-owned version-pin contract: exercise the smoke default
+    // against the Dockerfile pin, so a package bump cannot leave a stale gate.
+    const imageVersion = readFileSync(join(ROOT, 'Dockerfile'), 'utf8')
+      .match(/^\s*PACOTE_VERSION="([0-9]+\.[0-9]+\.[0-9]+)"/m)?.[1];
+    assert.ok(imageVersion, 'Dockerfile must declare the qualified Pacote pin');
     const fixture = mkdtempSync(join(tmpdir(), 'pacote-runtime-smoke-'));
     try {
       const runtimePath = join(fixture, 'pacote');
@@ -276,22 +281,23 @@ describe('REQ-OPS-038: deployment coding-agent selection', () => {
         mkdirSync(path);
         writeFileSync(
           join(path, 'package.json'),
-          JSON.stringify({ name: 'pacote', version: '21.5.1', main: 'index.cjs' }),
+          JSON.stringify({ name: 'pacote', version: imageVersion, main: 'index.cjs' }),
         );
       }
       writeFileSync(join(runtimePath, 'index.cjs'), 'exports.manifest = async () => ({});\n');
       writeFileSync(join(brokenRuntime, 'index.cjs'), 'exports.tarball = async () => {};\n');
       const wrongVersionRuntime = join(fixture, 'wrong-version-pacote');
       mkdirSync(wrongVersionRuntime);
-      writeFileSync(
-        join(wrongVersionRuntime, 'package.json'),
-        JSON.stringify({ name: 'pacote', version: '21.5.0', main: 'index.cjs' }),
-      );
       writeFileSync(join(wrongVersionRuntime, 'index.cjs'), 'exports.manifest = async () => ({});\n');
 
       assert.equal(await verifyPacoteRuntime({ runtimePath }), runtimePath);
       await assert.rejects(verifyPacoteRuntime({ runtimePath: brokenRuntime }), /must load pacote manifest/);
-      await assert.rejects(verifyPacoteRuntime({ runtimePath: wrongVersionRuntime }), /must contain pacote 21\.5\.1/);
+      for (const version of ['21.5.0', '21.5.1']) {
+        writeFileSync(join(wrongVersionRuntime, 'package.json'),
+          JSON.stringify({ name: 'pacote', version, main: 'index.cjs' }));
+        await assert.rejects(verifyPacoteRuntime({ runtimePath: wrongVersionRuntime }),
+          new RegExp(`must contain pacote ${imageVersion.replaceAll('.', '\\.')}`));
+      }
     } finally {
       rmSync(fixture, { recursive: true, force: true });
     }

@@ -368,7 +368,7 @@ export async function verifyBundledSecurityRuntimes({ bracePaths, runtimeRoot = 
 
 export async function verifyPacoteRuntime({
   runtimePath = '/usr/local/lib/node_modules/npm/node_modules/pacote',
-  expectedVersion = '21.5.1',
+  expectedVersion = '21.5.2',
 } = {}) {
   const manifest = JSON.parse(await readFile(join(runtimePath, 'package.json'), 'utf8'));
   assert.equal(manifest.version, expectedVersion, `${runtimePath} must contain pacote ${expectedVersion}`);
