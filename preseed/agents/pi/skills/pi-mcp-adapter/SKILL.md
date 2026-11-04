@@ -6,7 +6,7 @@ disable-model-invocation: true
 
 # MCP Servers (Pi)
 
-`pi-mcp-extension` owns configured MCP servers. Prefer native tools when they cover the task. The historical skill path remains stable; there is no `mcp` proxy.
+When positively selected as the sole client, `pi-mcp-extension` owns configured MCP servers. Prefer native tools when they cover the task. The historical skill path remains stable; there is no `mcp` proxy.
 
 For Codeflare-managed portals, load [MCP portals](../mcp-portals/SKILL.md): bootstrap every configured approved portal before semantic selection. Managed portals use Settings-owned OAuth and eager placeholder connections; the lazy/local OAuth instructions below apply to unrelated servers.
 
@@ -29,4 +29,6 @@ For Codeflare-managed portals, load [MCP portals](../mcp-portals/SKILL.md): boot
 
 ## Configuration handoff boundary
 
-Only selected legacy stdio environment literals are translated: an old `!!` prefix loses exactly one `!`. New `mcp.json` literals are never decoded. Selected legacy command-backed values or old environment interpolation require explicit conversion; preparation fails closed without evaluating them or partially writing configuration. Do not execute a secret resolver, print the expression, or copy old expression text into the new literal schema as a workaround. A valid new destination takes precedence over unsupported expressions in the displaced adapter file.
+The instructions above describe the stock `pi-mcp-extension` client, not native `pi-mcp-adapter`. Default load preparation checks global configured package/extension selections, not installed folders. Adapter-only selection leaves its native `mcp-adapter.json` unchanged. A content-free ambiguous/unknown-selection warning means both files were preserved: inspect global package/extension selections without printing config contents. Both clients may still register handlers; this guard neither resolves ownership nor disables either client. Do not automatically edit settings, move ignored fields, or copy credentials between clients.
+
+For a positively selected stock handoff only, selected legacy stdio environment literals are translated: an old `!!` prefix loses exactly one `!`. New `mcp.json` literals are never decoded. Selected legacy command-backed values or old environment interpolation require explicit conversion; preparation fails closed without evaluating them or partially writing configuration. Do not execute a secret resolver, print the expression, or copy old expression text into the new literal schema as a workaround. A valid new destination takes precedence over unsupported expressions in the displaced adapter file.
