@@ -280,17 +280,29 @@ const stateTypes = new Set(["rpiv-todo-state", "goal-state", "plan-mode-state"])
 /** Eligibility is not lossless restoration of every historical branch checkpoint.
  * Protect the current active conversation/frontier and latest known authority;
  * the semantic agent may condense superseded payloads on inactive branches. */
-function historicalEligibility(entries: Entry[], activeLeaf?: string): Set<string> {
+function activeHistory(entries: Entry[], branchIds: string[] = []): { active: number[]; start: number; frontierId?: string } {
   const index = new Map(entries.slice(1).map((e, i) => [e.id, i + 1]));
-  const leaf = activeLeaf ?? entries.at(-1)?.id;
+  const leaf = branchIds.at(-1) ?? entries.at(-1)?.id;
   if (leaf && !index.has(leaf) && entries.length > 1) throw new Error("foreign-active-leaf");
-  const active: number[] = [];
-  for (let i = index.get(leaf); i; i = index.get(entries[i].parentId)) active.push(i);
-  active.reverse();
+  let active: number[];
+  if (branchIds.length) {
+    if (new Set(branchIds).size !== branchIds.length || branchIds.some((id, i) => i > 0 && index.has(id)
+      && entries[index.get(id)!].parentId !== branchIds[i - 1])) throw new Error("foreign-branch-projection");
+    // Keep the full loaded ancestry as authority; project only persisted records.
+    // Missing records are never restored, and a disk gap cannot hide current context.
+    active = branchIds.map(id => index.get(id)).filter((i): i is number => i !== undefined);
+  } else {
+    active = [];
+    for (let i = index.get(leaf); i; i = index.get(entries[i].parentId)) active.push(i);
+    active.reverse();
+  }
   const compactAt = active.findLastIndex(i => entries[i].type === "compaction");
   const firstKept = compactAt >= 0 ? active.findIndex(i => entries[i].id === entries[active[compactAt]].firstKeptEntryId) : -1;
-  // An absent or non-ancestral frontier cannot authorize reducing current context.
-  const start = firstKept >= 0 && firstKept <= compactAt ? firstKept : 0;
+  const valid = firstKept >= 0 && firstKept <= compactAt;
+  return { active, start: valid ? firstKept : 0, ...(valid ? { frontierId: entries[active[firstKept]].id } : {}) };
+}
+function historicalEligibility(entries: Entry[], branchIds: string[] = []): Set<string> {
+  const { active, start } = activeHistory(entries, branchIds);
   const keep = new Set(active.slice(start));
   for (const type of stateTypes) {
     const global = entries.findLastIndex(e => e.type === "custom" && e.customType === type);
@@ -344,7 +356,7 @@ function sameHistoricalBlocks(before: any, after: any): boolean {
 export function validateTranscriptTrimCandidate(source: string, candidate: string, sessionId: string, branchIds: string[] = []): void {
   const before = parseTranscript(source, sessionId, true), after = parseTranscript(candidate, sessionId, true);
   if (before.length !== after.length) throw new Error("changed-entry-count");
-  const eligible = historicalEligibility(before, branchIds.at(-1));
+  const eligible = historicalEligibility(before, branchIds);
   const sourceLines = source.split("\n"), candidateLines = candidate.split("\n");
   for (let i = 0; i < before.length; i++) {
     const a = before[i], b = after[i];
@@ -385,15 +397,25 @@ export function createTranscriptTrimRequest(ctx: TrimContext, feedback = "", ret
   if (stat.size <= (retry ? TARGET : CAP)) return undefined;
   const bytes = fs.readFileSync(owner.file);
   const entries = parseTranscript(decode(bytes), owner.sessionId, true);
-  const branchIds = ctx.sessionManager.getBranch().map(e => e.id);
+  const branch = ctx.sessionManager.getBranch(), branchIds = branch.map(e => e.id);
   const index = new Map(entries.slice(1).map(e => [e.id, e]));
   const leaf = ctx.sessionManager.getLeafId();
   const missing = branchIds.filter(id => !index.has(id));
   const edgeIndex = branchIds.findIndex((id, i) => i > 0 && index.has(id) && index.get(id)!.parentId !== branchIds[i - 1]);
-  if (!branchIds.length || branchIds.at(-1) !== leaf || missing.length || edgeIndex >= 0) {
+  const cachedMismatch = branch.some((entry, i) => (i > 0 && entry.parentId !== branchIds[i - 1])
+    || (index.has(entry.id) && (entry.parentId !== index.get(entry.id)!.parentId || entry.type !== index.get(entry.id)!.type)));
+  const invalidBranch = !branchIds.length || branchIds.at(-1) !== leaf || !index.has(leaf)
+    || new Set(branchIds).size !== branchIds.length || edgeIndex >= 0 || cachedMismatch
+    || (branch[0]?.parentId != null && index.has(branch[0].parentId));
+  const projection = invalidBranch ? undefined : activeHistory(entries, branchIds);
+  const frontier = projection?.frontierId ? branchIds.indexOf(projection.frontierId) : -1;
+  // A missing SDK segment is explained only by its unchanged persisted child gap,
+  // coherent loaded ancestry, and a later valid current-context frontier.
+  const unsafeMissing = missing.length > 0 && (frontier < 0 || branchIds.some((id, i) => !index.has(id) && i >= frontier));
+  if (invalidBranch || unsafeMissing) {
     throw new Error(`foreign-branch:${JSON.stringify({ leaf, branchLast: branchIds.at(-1) ?? null,
       leafOnDisk: index.has(leaf), branchLastOnDisk: index.has(branchIds.at(-1)), missingCount: missing.length,
-      missingSample: missing.slice(0, 8), edgeMismatch: edgeIndex < 0 ? null : {
+      missingSample: missing.slice(0, 8), cachedMismatch, unsafeMissing, edgeMismatch: edgeIndex < 0 ? null : {
         id: branchIds[edgeIndex], diskParent: index.get(branchIds[edgeIndex])!.parentId, branchParent: branchIds[edgeIndex - 1],
       } })}`);
   }
@@ -558,7 +580,7 @@ function registerTranscriptTrimTool(pi: ExtensionAPI, start: (ctx: ExtensionCont
         result = { request, contract: fs.readFileSync("/home/user/.pi/agent/prompts/transcript-trim-agent-prompt.md", "utf8") };
       } else if (params.operation === "inspect") {
         if (params.index === undefined) {
-          const offset = params.offset ?? 0, eligible = historicalEligibility(entries, request.branchIds.at(-1));
+          const offset = params.offset ?? 0, eligible = historicalEligibility(entries, request.branchIds);
           const sizes = workingEntries.map((e, index) => ({ index, id: e.id, parentId: e.parentId,
             type: e.type, customType: e.customType, role: e.message?.role, bytes: Buffer.byteLength(JSON.stringify(e)), eligible: eligible.has(e.id) }));
           const categories: Record<string, number> = {};
