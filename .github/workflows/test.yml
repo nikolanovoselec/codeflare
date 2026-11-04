@@ -421,29 +421,29 @@ jobs:
     timeout-minutes: 10
     strategy:
       fail-fast: false
-      max-parallel: 12
+      max-parallel: 13
       matrix:
-        # The twelve completed Workers artifacts from run 35723895426 supply the
-        # current per-file durations. Longest-first assignment uses their measured
-        # timings plus the calibrated per-file startup cost; the Node runtime is
-        # separate from this Workers-only weighted population.
+        # The twelve completed Workers artifacts from run 41877010056 supply
+        # collection and execution costs for thirteen longest-first groups.
+        # The Node runtime remains separate from this Workers-only population.
         include:
           # Generated seed files are committed and drift-checked in Quality. Running
-          # npm's `test` lifecycle here would regenerate them in all twelve isolated
+          # npm's `test` lifecycle here would regenerate them in all thirteen isolated
           # runners before every weighted group, adding duplicated startup work but
           # no coverage. `test:worker` runs the same Workers suite without that hook.
-          - { balance-group: '1/12', slug: shard-1, script: 'test:worker', tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
-          - { balance-group: '2/12', slug: shard-2, script: 'test:worker', tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
-          - { balance-group: '3/12', slug: shard-3, script: 'test:worker', tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
-          - { balance-group: '4/12', slug: shard-4, script: 'test:worker', tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
-          - { balance-group: '5/12', slug: shard-5, script: 'test:worker', tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
-          - { balance-group: '6/12', slug: shard-6, script: 'test:worker', tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
-          - { balance-group: '7/12', slug: shard-7, script: 'test:worker', tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
-          - { balance-group: '8/12', slug: shard-8, script: 'test:worker', tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
-          - { balance-group: '9/12', slug: shard-9, script: 'test:worker', tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
-          - { balance-group: '10/12', slug: shard-10, script: 'test:worker', tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
-          - { balance-group: '11/12', slug: shard-11, script: 'test:worker', tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
-          - { balance-group: '12/12', slug: shard-12, script: 'test:worker', tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
+          - { balance-group: '1/13', slug: shard-1, script: 'test:worker', tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
+          - { balance-group: '2/13', slug: shard-2, script: 'test:worker', tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
+          - { balance-group: '3/13', slug: shard-3, script: 'test:worker', tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
+          - { balance-group: '4/13', slug: shard-4, script: 'test:worker', tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
+          - { balance-group: '5/13', slug: shard-5, script: 'test:worker', tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
+          - { balance-group: '6/13', slug: shard-6, script: 'test:worker', tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
+          - { balance-group: '7/13', slug: shard-7, script: 'test:worker', tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
+          - { balance-group: '8/13', slug: shard-8, script: 'test:worker', tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
+          - { balance-group: '9/13', slug: shard-9, script: 'test:worker', tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
+          - { balance-group: '10/13', slug: shard-10, script: 'test:worker', tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
+          - { balance-group: '11/13', slug: shard-11, script: 'test:worker', tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
+          - { balance-group: '12/13', slug: shard-12, script: 'test:worker', tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
+          - { balance-group: '13/13', slug: shard-13, script: 'test:worker', tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -762,7 +762,7 @@ jobs:
         with:
           artifact-pattern: 'backend-shard-*'
           artifact-prefix: 'backend-shard'
-          expected-shards: '12'
+          expected-shards: '13'
           slug: backend
           package-root: .
           changed-base: ${{ github.event.pull_request.base.sha }}
@@ -792,7 +792,7 @@ jobs:
         with:
           artifact-pattern: 'frontend-shard-*'
           artifact-prefix: 'frontend-shard'
-          expected-shards: '4'
+          expected-shards: '3'
           slug: frontend
           package-root: web-ui
           changed-base: ${{ github.event.pull_request.base.sha }}
@@ -848,20 +848,18 @@ jobs:
     timeout-minutes: 10
     strategy:
       fail-fast: false
-      max-parallel: 4
-      # Measured file groups from run 35197159794 isolate the long-running
-      # frontend files and balance the remaining work across four runners so
-      # the full matrix completes in about one minute.
+      max-parallel: 3
+      # Fresh per-file durations from all four artifacts of run 41877010056
+      # redistribute the complete frontend population across three runners;
+      # the released matrix slot goes to the Workers backend.
       matrix:
         include:
-          - group: '1/4'
+          - group: '1/3'
             slug: shard-1
-          - group: '2/4'
+          - group: '2/3'
             slug: shard-2
-          - group: '3/4'
+          - group: '3/3'
             slug: shard-3
-          - group: '4/4'
-            slug: shard-4
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

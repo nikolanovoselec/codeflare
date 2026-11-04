@@ -1,7 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -523,12 +523,18 @@ describe('entrypoint production helpers', () => {
     } finally { rmSync(directory, { recursive: true, force: true }); }
   });
 
-  it('REQ-AGENT-206: restores a real locked installation and reports unrecoverable repair', () => {
+  for (const separateSdk of [false, true]) {
+  it('REQ-AGENT-206: restores a real locked installation and reports unrecoverable repair', (t) => {
+    t.diagnostic(`SDK layout: ${separateSdk ? 'separate' : 'shared'}`);
     const fixture = mkdtempSync(join(tmpdir(), 'pi-locked-repair-'));
     const tools = join(fixture, 'tools');
     const source = join(fixture, 'package');
+    const home = join(fixture, 'home');
+    const agentDir = join(home, '.pi/agent');
+    const agentNpm = separateSdk ? join(agentDir, 'npm') : tools;
+    const agentSdk = join(agentNpm, 'node_modules/@earendil-works/pi-coding-agent');
     const scripts = resolve(__dirname, '../../scripts');
-    const env = runtimeEnv({ CODEFLARE_RUNTIME_ROOT: fixture, CODEFLARE_NPM_TOOLS_DIR: tools, PI_NPM_DIR: tools, CODEFLARE_CODING_AGENTS: 'pi', npm_config_cache: join(fixture, 'cache') });
+    const env = runtimeEnv({ CODEFLARE_RUNTIME_ROOT: fixture, USER_HOME: home, CODEFLARE_NPM_TOOLS_DIR: tools, PI_NPM_DIR: agentNpm, CODEFLARE_CODING_AGENTS: 'pi', npm_config_cache: join(fixture, 'cache') });
     const npm = (args, cwd) => {
       const result = spawnSync('npm', args, { cwd, env, encoding: 'utf8', timeout: 60_000 });
       assert.equal(result.status, 0, result.stderr);
@@ -536,7 +542,18 @@ describe('entrypoint production helpers', () => {
     };
     try {
       mkdirSync(join(source, 'dist/utils'), { recursive: true }); mkdirSync(tools);
-      writeFileSync(join(source, 'package.json'), JSON.stringify({ name: '@earendil-works/pi-coding-agent', version: '1.0.0', type: 'module' }));
+      writeFileSync(join(source, 'package.json'), JSON.stringify({ name: '@earendil-works/pi-coding-agent', version: '1.5.0', type: 'module' }));
+      // Host CI installs the pinned preseed with scripts disabled. Copy only the
+      // authentic display assets: the production patch retains its full hash guards.
+      const qualifiedSdk = resolve(__dirname, '../../preseed/agents/pi/node_modules/@earendil-works/pi-coding-agent');
+      assert.equal(JSON.parse(readFileSync(join(qualifiedSdk, 'package.json'))).version, '1.5.0', 'qualified display admission contract');
+      const displayPaths = ['dist/modes/interactive/components/model-selector.js',
+        'dist/modes/interactive/components/settings-selector.js', 'dist/modes/interactive/interactive-mode.js',
+        'dist/bundle/chunks/chunk-44DLKSKE.js'];
+      for (const path of displayPaths) {
+        mkdirSync(dirname(join(source, path)), { recursive: true });
+        cpSync(join(qualifiedSdk, path), join(source, path));
+      }
       writeFileSync(join(source, 'dist/utils/photon.js'), 'export async function loadPhoton() { return { PhotonImage: class { get_bytes() { return new Uint8Array([1]); } free() {} } }; }');
       writeFileSync(join(source, 'dist/utils/image-process.js'), 'export async function processImage() { return { ok: true }; }');
       const packed = JSON.parse(npm(['pack', '--json', '--ignore-scripts', '--offline'], source).stdout)[0].filename;
@@ -561,6 +578,35 @@ describe('entrypoint production helpers', () => {
       writeFileSync(join(tools, 'package.json'), JSON.stringify({ private: true, dependencies }));
       npm(['install', '--ignore-scripts', '--no-audit', '--no-fund', '--offline'], tools);
       const installed = join(tools, 'node_modules/@earendil-works/pi-coding-agent');
+      if (separateSdk) {
+        mkdirSync(agentNpm, { recursive: true });
+        cpSync(join(tools, 'node_modules'), join(agentNpm, 'node_modules'), { recursive: true });
+      }
+      mkdirSync(agentDir, { recursive: true });
+      const protectedFiles = new Map([
+        [join(agentDir, 'auth.json'), '{"fixture":"retain credentials"}\n'],
+        [join(agentDir, 'settings.json'), '{"defaultProvider":"codeflare-gateway","defaultModel":"opaque-native-id"}\n'],
+        [join(agentDir, 'history.json'), '[{"provider":"codeflare-gateway","modelId":"opaque-native-id"}]\n'],
+        [join(agentDir, 'models.json'), '{"providers":{"codeflare-gateway":{"models":[{"id":"opaque-native-id","name":"Native Route - fixture"}]}}}\n'],
+      ]);
+      for (const [path, bytes] of protectedFiles) writeFileSync(path, bytes);
+      const assertProtected = () => {
+        for (const [path, bytes] of protectedFiles) assert.equal(readFileSync(path, 'utf8'), bytes);
+      };
+      // The expected generated bytes are the existing strict patch's admission
+      // contract, not a snapshot of entrypoint implementation or private calls.
+      const originalDisplay = displayPaths.map(path => readFileSync(join(source, path), 'utf8'));
+      const prepare = spawnSync(process.execPath, [join(scripts, 'patch-pi-native-model-display.mjs'), source], { encoding: 'utf8' });
+      assert.equal(prepare.status, 0, prepare.stderr);
+      const expectedDisplay = displayPaths.map(path => readFileSync(join(source, path), 'utf8'));
+      assert.notDeepEqual(expectedDisplay, originalDisplay, 'locked archive must restore unprepared display admission bytes');
+      const assertDisplay = () => {
+        for (const sdk of new Set([installed, agentSdk])) {
+          assert.deepEqual(displayPaths.map(path => readFileSync(join(sdk, path), 'utf8')), expectedDisplay,
+            'qualified display admission bytes must survive npm reinstallation in both SDKs');
+        }
+        assertProtected();
+      };
       const processor = join(installed, 'dist/utils/image-process.js');
       const verify = () => spawnSync(process.execPath, [join(scripts, 'verify-pi-lockstep.mjs'), '--verify-runtime', join(installed, 'package.json')], { encoding: 'utf8' });
       const body = extractFunction('update_pi_and_codex_when_fast_start_disabled')
@@ -568,16 +614,42 @@ describe('entrypoint production helpers', () => {
         .replaceAll('/opt/codeflare/scripts/prune-npm-platform-artifacts.mjs', join(scripts, 'ci/prune-npm-platform-artifacts.mjs'))
         .replaceAll('/opt/codeflare/scripts', scripts);
       // Suppress latest-version network updates; execute the production repair commands with real npm.
-      const run = () => spawnSync('bash', ['-c', `${body}\npi() { echo fixture-pi; }\ncodex() { echo fixture-codex; }\nnpm() { if [ "$1" = view ]; then echo 1.0.0; elif [[ " $* " == *" --save-exact "* ]]; then return 0; else command npm "$@" --offline; fi; }\nFAST_CLI_START=false\nupdate_pi_and_codex_when_fast_start_disabled`], { env, encoding: 'utf8', timeout: 120_000 });
+      const run = () => spawnSync('bash', ['-c', `${body}\npi() { echo fixture-pi; }\ncodex() { echo fixture-codex; }\nnpm() { if [ "$1" = view ]; then echo 1.5.0; elif [[ " $* " == *" --save-exact "* ]]; then return 0; else command npm "$@" --offline; fi; }\nFAST_CLI_START=false\nupdate_pi_and_codex_when_fast_start_disabled`], { env, encoding: 'utf8', timeout: 120_000 });
       rmSync(processor);
       assert.notEqual(verify().status, 0);
       const repaired = run(); assert.equal(repaired.status, 0, repaired.stdout + repaired.stderr);
       assert.equal(readFileSync(processor, 'utf8'), readFileSync(join(source, 'dist/utils/image-process.js'), 'utf8'));
       const healthy = verify(); assert.equal(healthy.status, 0, healthy.stderr);
       assert.match(repaired.stdout, /repairing Pi dependencies from the lockfile/);
+      assertDisplay();
+      // A second locked reinstall restores the archive's upstream UI again.
+      rmSync(processor);
+      const reinstalled = run(); assert.equal(reinstalled.status, 0, reinstalled.stdout + reinstalled.stderr);
+      assert.match(reinstalled.stdout, /Pi version after update/);
+      assertDisplay();
+      for (const sdk of new Set([installed, agentSdk])) {
+        for (const damage of ['source bytes', 'bundle bytes', 'version']) {
+          const path = join(sdk, damage === 'version' ? 'package.json' : damage === 'source bytes' ? displayPaths[0] : displayPaths[3]);
+          const before = readFileSync(path, 'utf8');
+          writeFileSync(path, damage === 'version' ? JSON.stringify({ ...JSON.parse(before), version: '1.5.1' }) : before + '\n// unexpected fixture drift\n');
+          const refusedDisplay = run();
+          assert.notEqual(refusedDisplay.status, 0);
+          assert.match(refusedDisplay.stdout, /Pi native model display preparation failed/);
+          assert.doesNotMatch(refusedDisplay.stdout, /Pi version after update/);
+          assert.equal(readFileSync(path, 'utf8'), damage === 'version' ? JSON.stringify({ ...JSON.parse(before), version: '1.5.1' }) : before + '\n// unexpected fixture drift\n');
+          assertProtected();
+          writeFileSync(path, before);
+        }
+      }
+      assertDisplay();
+      for (const name of ['rpiv-advisor', 'rpiv-ask-user-question', 'rpiv-todo']) {
+        const manifest = JSON.parse(readFileSync(join(agentNpm, 'node_modules/@juicesharp', name, 'package.json')));
+        assert.equal(manifest.dependencies?.typebox, undefined);
+        assert.equal(manifest.peerDependencies.typebox, '*');
+      }
       // REQ-AGENT-220 AC5: supported repair must prepare the real questionnaire,
       // while unexpected source drift must remain an observable preparation error.
-      const questionnaire = join(tools, 'node_modules/@juicesharp/rpiv-ask-user-question/ask-user-question.ts');
+      const questionnaire = join(agentNpm, 'node_modules/@juicesharp/rpiv-ask-user-question/ask-user-question.ts');
       const prepared = readFileSync(questionnaire, 'utf8');
       writeFileSync(questionnaire, prepared + '\n// unexpected fixture drift\n');
       const refused = run();
@@ -590,6 +662,7 @@ describe('entrypoint production helpers', () => {
       assert.doesNotMatch(failed.stdout, /Pi version after update/);
     } finally { rmSync(fixture, { recursive: true, force: true }); }
   });
+  }
 
   it('REQ-AGENT-206: Fast Start OFF surfaces Pi package and agent runtime update failures', () => {
     const script = `${extractFunction('update_pi_and_codex_when_fast_start_disabled')}\n` +

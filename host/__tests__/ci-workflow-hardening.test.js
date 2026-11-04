@@ -108,25 +108,24 @@ describe('PR lane selection', () => {
     assert.ok(filters.landing.flat(Infinity).some(matchesSource));
   });
 
-  it('balances frontend coverage across four parallel measured groups', () => {
+  it('balances frontend coverage across three parallel measured groups', () => {
     const frontend = prChecks.jobs['frontend-tests'];
-    assert.equal(frontend.strategy['max-parallel'], 4);
+    assert.equal(frontend.strategy['max-parallel'], 3);
     assert.deepEqual(frontend.strategy.matrix.include, [
-      { group: '1/4', slug: 'shard-1' },
-      { group: '2/4', slug: 'shard-2' },
-      { group: '3/4', slug: 'shard-3' },
-      { group: '4/4', slug: 'shard-4' },
+      { group: '1/3', slug: 'shard-1' },
+      { group: '2/3', slug: 'shard-2' },
+      { group: '3/3', slug: 'shard-3' },
     ]);
     const suiteStep = step(frontend, 'Run suite (fail-closed gate)');
     assert.equal(suiteStep.with['balance-group'], '${{ matrix.group }}');
     assert.equal(suiteStep.with['balance-suite'], 'frontend');
 
-    const assigned = Array.from({ length: 4 }, (_, index) => selectFrontendGroup(`${index + 1}/4`)).flat();
+    const assigned = Array.from({ length: 3 }, (_, index) => selectFrontendGroup(`${index + 1}/3`)).flat();
     assert.deepEqual([...assigned].sort(), listFrontendTests());
     assert.equal(new Set(assigned).size, assigned.length);
 
     const merge = prChecks.jobs['coverage-frontend'].steps.find((candidate) => candidate.uses === '$/.github/actions/merge-coverage');
-    assert.equal(merge.with['expected-shards'], '4');
+    assert.equal(merge.with['expected-shards'], '3');
   });
 });
 
@@ -657,7 +656,7 @@ describe('REQ-OPS-022 AC6: bounded changed-production-line LCOV gate', () => {
       ['coverage-frontend', 'frontend-tests', {
         'artifact-pattern': 'frontend-shard-*',
         'artifact-prefix': 'frontend-shard',
-        'expected-shards': '4',
+        'expected-shards': '3',
         slug: 'frontend',
         'package-root': 'web-ui',
         'changed-base': '${{ github.event.pull_request.base.sha }}',

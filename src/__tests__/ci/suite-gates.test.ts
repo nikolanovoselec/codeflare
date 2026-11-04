@@ -420,7 +420,7 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
 
   it('REQ-OPS-045 AC3: exposes every backend, frontend, and host matrix leg concurrently', () => {
     const { testWorkflow } = readCacheWorkflowContract();
-    for (const [name, expectedLegs] of [['backend-tests', 12], ['backend-node-tests', 3], ['frontend-tests', 4], ['host-tests', 5]] as const) {
+    for (const [name, expectedLegs] of [['backend-tests', 13], ['backend-node-tests', 3], ['frontend-tests', 3], ['host-tests', 5]] as const) {
       const strategy = (testWorkflow.jobs[name] as {
         strategy?: { 'max-parallel'?: number; matrix?: { include?: unknown[] } };
       }).strategy;
@@ -473,8 +473,8 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
     };
     const nodeFiles = new Set(NODE_SUITE_FILES);
     const expectedWorkers = collect(join(REPO, 'src')).filter((file) => !nodeFiles.has(file)).sort();
-    const groups = Array.from({ length: 12 }, (_, index) => {
-      const selected = spawnSync(process.execPath, [WEIGHTED_SELECTOR, `${index + 1}/12`], {
+    const groups = Array.from({ length: 13 }, (_, index) => {
+      const selected = spawnSync(process.execPath, [WEIGHTED_SELECTOR, `${index + 1}/13`], {
         cwd: REPO,
         encoding: 'utf8',
       });
@@ -493,8 +493,8 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
       strategy: { matrix: { include: Array<Record<string, string>> } };
     };
     expect(backend.strategy.matrix.include.map((leg) => leg['balance-group'])).toEqual([
-      '1/12', '2/12', '3/12', '4/12', '5/12', '6/12',
-      '7/12', '8/12', '9/12', '10/12', '11/12', '12/12',
+      '1/13', '2/13', '3/13', '4/13', '5/13', '6/13',
+      '7/13', '8/13', '9/13', '10/13', '11/13', '12/13', '13/13',
     ]);
     expect(backend.strategy.matrix.include.every((leg) => leg.script === 'test:worker' && leg['pre-run'] === '')).toBe(true);
     const node = testWorkflow.jobs['backend-node-tests'] as {
@@ -546,11 +546,11 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
         DIR: '.',
         SCRIPT: 'test:worker',
         SHARD: '',
-        BALANCE_GROUP: '1/12',
+        BALANCE_GROUP: '1/13',
       },
     });
     expect(rendered.status, rendered.stderr).toBe(0);
-    expect(rendered.stdout).toContain('select-weighted-backend-tests.mjs 1/12');
+    expect(rendered.stdout).toContain('select-weighted-backend-tests.mjs 1/13');
     expect(rendered.stdout).toContain('npm run test:worker -- "${tests[@]}"');
 
     const frontend = testWorkflow.jobs['frontend-tests'] as { steps: CacheStep[] };

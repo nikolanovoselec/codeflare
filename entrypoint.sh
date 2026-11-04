@@ -3186,6 +3186,8 @@ update_pi_and_codex_when_fast_start_disabled() {
     fi
 
     local npm_tools_dir before_pi before_codex after_pi after_codex update_failed=0
+    local agent_npm_dir pi_display_root pi_display_prepared=true
+    local pi_display_roots=()
     local update_cache
     update_cache="$(mktemp -d "${CODEFLARE_RUNTIME_ROOT:-${TMPDIR:-/tmp}}/npm-update.XXXXXX")" || return 1
     local pi_installed=false codex_installed=false runtime_update_succeeded=false versions_resolved=true
@@ -3283,9 +3285,25 @@ update_pi_and_codex_when_fast_start_disabled() {
             update_failed=1
         fi
     fi
+    if [ "$pi_installed" = true ]; then
+        # Reinstallation can restore upstream UI bytes in either SDK copy.
+        # Reuse the image-build admission guard only after every npm repair.
+        agent_npm_dir="${PI_NPM_DIR:-$USER_HOME/.pi/agent/npm}"
+        pi_display_roots=("$npm_tools_dir")
+        if [ "$agent_npm_dir" != "$npm_tools_dir" ] && ! [ "$agent_npm_dir" -ef "$npm_tools_dir" ]; then
+            pi_display_roots+=("$agent_npm_dir")
+        fi
+        for pi_display_root in "${pi_display_roots[@]}"; do
+            if ! node /opt/codeflare/scripts/patch-pi-native-model-display.mjs "$pi_display_root/node_modules/@earendil-works/pi-coding-agent"; then
+                echo "[entrypoint] ERROR: Pi native model display preparation failed"
+                pi_display_prepared=false
+                update_failed=1
+            fi
+        done
+    fi
     rm -rf -- "$update_cache"
 
-    if [ "$runtime_update_succeeded" = true ] && [ "$pi_installed" = true ]; then
+    if [ "$runtime_update_succeeded" = true ] && [ "$pi_installed" = true ] && [ "$pi_display_prepared" = true ]; then
         if after_pi="$(PI_OFFLINE= PI_SKIP_VERSION_CHECK= pi --version 2>&1)"; then
             echo "[entrypoint] Fast Start disabled; Pi version after update: $after_pi"
         else

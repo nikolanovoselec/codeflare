@@ -1,65 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as fs from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { stripTypeScriptTypes } from 'node:module';
-const extensionDir=new URL('../../preseed/agents/pi/extensions/',import.meta.url),fixtureModules=new Map();
-function fixtureModule(name){if(fixtureModules.has(name))return fixtureModules.get(name);let text=stripTypeScriptTypes(fs.readFileSync(new URL(name+'.ts',extensionDir),'utf8'));text=text.replace(/from "\.\/([a-z-]+)(?:\.ts)?"/g,(_m,key)=>`from "${fixtureModule(key)}"`);const url='data:text/javascript;base64,'+Buffer.from(text).toString('base64');fixtureModules.set(name,url);return url;}
-const {registerMemoryVault}=await import(fixtureModule('memory-vault'));
-import {importPiExtension} from './fixtures/pi-extension-module.mjs';
-const { createTranscriptTrimRequest, commitTranscriptTrimCandidate, validateTranscriptTrimCandidate, prepareLocalTranscriptTrim }=await importPiExtension('active-session-transcript-trimming');
-const jsonl = rows => rows.map(row => JSON.stringify(row) + '\n').join('');
-function assertTrimWindow(bytes) {
-  assert.ok(bytes >= 15_000_000 && bytes <= 25_000_000, `committed bytes ${bytes} must be within the inclusive trim window`);
-}
-function fixture(t) {
-  const root = fs.mkdtempSync(join(tmpdir(), 'trim-agent-'));
-  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
-  const file = join(root, 'session.jsonl');
-  const rows = [
-    { type: 'session', version: 3, id: 'fixture' },
-    { type: 'message', id: 'old', parentId: null, message: { role: 'assistant', content: [{ type: 'text', text: 'x'.repeat(50_100_000) }], usage: { input: 100, output: 30 } } },
-    { type: 'custom', id: 'old-state', parentId: 'old', customType: 'rpiv-todo-state', data: { tasks: [], nextId: 1 } },
-    { type: 'message', id: 'user', parentId: 'old-state', message: { role: 'user', content: 'Keep me verbatim' } },
-    { type: 'compaction', id: 'compact', parentId: 'user', firstKeptEntryId: 'user', summary: 'Authoritative summary', tokensBefore: 900 },
-    { type: 'custom', id: 'state', parentId: 'compact', customType: 'rpiv-todo-state', data: { tasks: [], nextId: 9 } },
-    { type: 'custom', id: 'opaque', parentId: 'state', customType: 'unrecognized', data: { secretMeaning: true } },
-    { type: 'message', id: 'orphan', parentId: 'preexisting-missing', message: { role: 'user', content: 'Orphan active user' } },
-  ];
-  fs.writeFileSync(file, jsonl(rows));
-  const ctx = { sessionManager: { getSessionId: () => 'fixture', getSessionFile: () => file, getLeafId: () => rows.at(-1).id,
-    getBranch: () => { const out = []; const byId = new Map(rows.map(r => [r.id, r])); for (let e = rows.at(-1); e && e.type !== 'session'; e = byId.get(e.parentId)) out.unshift(e); return out; } } };
-  const candidate = () => prepareLocalTranscriptTrim(jsonl(rows), 'fixture', ctx.sessionManager.getBranch().map(row => row.id), 19_995_904).candidate.trimEnd().split('\n').map(JSON.parse);
-  const stage = req => {
-    const source = fs.readFileSync(file).subarray(0, req.sourceBytes).toString();
-    const trimmed = prepareLocalTranscriptTrim(source, req.sessionId, req.branchIds, req.candidateBudget);
-    assert.equal(trimmed.withinTarget, true);
-    assertTrimWindow(trimmed.remainingBytes);
-    assert.ok(trimmed.remainingBytes <= req.candidateBudget, 'staged prefix respects the request budget');
-    fs.writeFileSync(req.candidateFile, trimmed.candidate);
-  };
-  return { root, file, rows, ctx, candidate, stage, t };
-}
-function lifecycle(f, queueLaunch = false) {
-  const handlers = new Map(), sent = [], tools = new Map(), calls=new Map();
-  const auxiliary=fs.mkdtempSync(join(tmpdir(),'trim-shared-owner-'));f.t.after(()=>fs.rmSync(auxiliary,{recursive:true,force:true}));
-  const paths={vaultRoot:join(auxiliary,'Vault'),cacheDir:join(auxiliary,'cache'),memoryCounterDir:join(auxiliary,'counters'),memoryPromptFile:join(auxiliary,'memory.md'),vaultPromptFile:join(auxiliary,'vault.md'),vaultManifestFile:join(auxiliary,'Vault/graphify-out/manifest.json'),vaultInitializationFile:join(auxiliary,'Vault/graphify-out/initialized'),vaultMarkerFile:join(auxiliary,'marker')};
-  fs.writeFileSync(paths.memoryPromptFile,'Capture scope');fs.writeFileSync(paths.vaultPromptFile,'Vault scope');
-  const pi = { registerTool(tool) { tools.set(tool.name, tool); }, on(n, fn) { const list=handlers.get(n)||[];list.push(fn);handlers.set(n,list); },
-    getAllTools: () => [{ name: 'subagent' }], getActiveTools: () => [], setActiveTools() {},
-    sendMessage(message) { sent.push(message); if (queueLaunch && message.customType === 'background-extraction-launch') return; const row = { type: 'custom_message', id: `sent-${f.rows.length}`, parentId: f.rows.at(-1).id, ...message }; f.rows.push(row); fs.appendFileSync(f.file, jsonl([row])); } };
-  let sequence=0;
-  registerMemoryVault(pi,{paths,now:()=>Date.now(),randomUUID:()=>`00000000-0000-4000-8000-${String(++sequence).padStart(12,'0')}`});
-  const emit = (n, e = {}) => {for(const handler of handlers.get(n)||[])handler(e,f.ctx);};
-  const append = row => { const e = { id: `native-${f.rows.length}`, parentId: f.rows.at(-1).id, ...row }; f.rows.push(e); fs.appendFileSync(f.file, jsonl([e])); };
-  emit('session_start');
-  const due = () => {for(let n=0;n<21;n++){const prompt='Cadence user '+f.rows.length;append({type:'message',message:{role:'user',content:prompt}});emit('before_agent_start',{prompt});}};
-  const launch = () => sent.filter(m => m.customType === 'background-extraction-launch').flatMap(m=>m.details.items).filter(i=>i.jobType==='transcript-trim').at(-1);
-  const call = item => {const id='call-'+f.rows.length;calls.set(item.requestId,id);append({ type: 'message', message: { role: 'assistant', content: [{ type: 'toolCall', id, name: 'subagent', arguments: item.request }] } });};
-  const done = (item, status = 'Done') => append({ type: 'custom_message', customType: 'subagent-notification', content: `<tool-use-id>${calls.get(item.requestId)||item.requestId}</tool-use-id><status>${status}</status>` });
-  return { emit, due, launch, sent, call, done, append, tools };
-}
+import { fixture, lifecycle, jsonl, assertTrimWindow, createTranscriptTrimRequest, commitTranscriptTrimCandidate, validateTranscriptTrimCandidate } from './fixtures/pi-transcript-agent-fixture.mjs';
+
 test('REQ-MEM-030 AC6: branch refusal classifies missing current ancestry without changing disk', t => {
   const f = fixture(t); f.rows.at(-1).parentId = 'opaque';
   fs.writeFileSync(f.file, jsonl(f.rows.filter(e => e.id !== 'state')));
@@ -76,39 +19,6 @@ test('REQ-MEM-030 AC6: branch refusal classifies missing current ancestry withou
   assert.ok(fs.readFileSync(f.file).equals(before)); assert.deepEqual(fs.readdirSync(f.root), ['session.jsonl']);
 });
 
-test('REQ-MEM-030 AC1: visible scoped launch is idempotent and cancelled with the parent session', t => {
-  const f = fixture(t), l = lifecycle(f); l.due(); l.emit('agent_settled');
-  const item = l.launch(); assert.equal(item.request.subagent_type, 'transcript-trim');
-  for (const key of ['model', 'thinking', 'max_turns']) assert.equal(item.request[key], undefined);
-  l.emit('agent_settled'); assert.equal(l.sent.length, 1);
-  const varsFile = item.request.prompt.match(/^VARS_FILE=(.+)$/m)[1]; assert.ok(fs.existsSync(varsFile));
-  l.emit('session_before_switch'); assert.equal(fs.existsSync(varsFile), false);
-  assert.ok(fs.statSync(f.file).size > 50_000_000);
-  f.rows.splice(1); fs.writeFileSync(f.file, jsonl(f.rows));
-  l.emit('session_start'); l.due(); l.emit('agent_settled');
-  assert.equal(l.sent.filter(m => m.customType === 'background-extraction-launch').flatMap(m => m.details.items).filter(i => i.jobType === 'transcript-trim').length, 1);
-  assert.ok(fs.statSync(f.file).size < 50_000_000);
-});
-test('REQ-MEM-030 AC1: shared owner cancels staged work on fork shutdown restart and aborted boundaries', t => {
-  for (const event of ['session_before_fork', 'session_shutdown', 'session_start', 'turn_end', 'agent_settled']) {
-    const f = fixture(t), l = lifecycle(f); l.due(); l.emit('agent_settled'); const item = l.launch();
-    const req = JSON.parse(fs.readFileSync(item.request.prompt.match(/^VARS_FILE=(.+)$/m)[1])); f.stage(req);
-    const before = fs.readFileSync(f.file);
-    l.emit(event, event === 'turn_end' ? { outcome: 'aborted' } : { aborted: true });
-    assert.equal(fs.existsSync(req.directory), false, event);
-    l.emit('agent_settled'); assert.equal(l.launch(), item, event);
-    assert.ok(fs.readFileSync(f.file).subarray(0, before.length).equals(before), event);
-    assert.ok(fs.statSync(f.file).size > 50_000_000);
-  }
-});
-test('REQ-MEM-030 AC2: staged candidate requires exact native completion before parent admission', t => {
-  const f = fixture(t), l = lifecycle(f); l.due(); l.emit('agent_settled'); const item = l.launch();
-  const req = JSON.parse(fs.readFileSync(item.request.prompt.match(/^VARS_FILE=(.+)$/m)[1])); f.stage(req);
-  l.emit('agent_settled'); assert.ok(fs.statSync(f.file).size > 50_000_000);
-  l.call(item); l.done({ requestId: 'foreign' }); l.emit('agent_settled'); assert.ok(fs.statSync(f.file).size > 50_000_000);
-  l.done(item); l.emit('agent_settled'); assertTrimWindow(fs.statSync(f.file).size);
-  assert.ok(l.sent.some(m => m.customType === 'transcript-trim-outcome' && m.details.status === 'trimmed'));
-});
 test('REQ-MEM-030 AC3: preexisting orphan survives; new damage, accounting, users and current state are rejected', t => {
   const f = fixture(t);
   f.rows.push({ type: 'compaction', id: 'active-compaction', parentId: 'orphan', firstKeptEntryId: 'orphan', summary: 'Current active summary', tokensBefore: 100 },
@@ -132,18 +42,6 @@ test('REQ-MEM-030 AC4: append tail merges verbatim and divergent history is not 
   f.rows[3].message.content = 'Edited historical user'; fs.writeFileSync(f.file, jsonl(f.rows));
   assert.match(commitTranscriptTrimCandidate(f.ctx, newer).reason, /source-prefix-changed/);
   assert.equal(fs.readFileSync(f.file, 'utf8').includes('Edited historical user'), true);
-});
-test('REQ-MEM-030 AC6: native failures reuse scoped requests through common extraction reminders', t => {
-  const f = fixture(t), l = lifecycle(f); l.due(); l.emit('agent_settled'); const item = l.launch();
-  l.call(item); l.done(item, 'Failed'); l.emit('agent_settled'); const retry = l.launch();
-  assert.equal(retry.requestId, item.requestId); assert.deepEqual(retry.request, item.request);
-  assert.equal(retry.reminder, 1); assert.equal(item.reminder, 0);
-  l.emit('agent_settled'); assert.equal(l.launch(), retry);
-  l.call(retry); l.done(retry, 'Stopped'); l.emit('agent_settled');
-  const reqPath = item.request.prompt.match(/^VARS_FILE=(.+)$/m)[1];
-  assert.equal(fs.existsSync(reqPath), false);
-  l.emit('agent_settled'); assert.equal(l.launch(), retry);
-  assert.ok(fs.statSync(f.file).size > 50_000_000);
 });
 test('REQ-MEM-030 AC6: oversized completed candidates are refused without live replacement or fresh request spam', t => {
   const f = fixture(t), l = lifecycle(f); l.due(); l.emit('agent_settled'); const item = l.launch();
@@ -381,26 +279,6 @@ test('REQ-MEM-030 AC7: completion waits for owned cleanup and retries without re
     assert.ok(fs.readFileSync(f.file).equals(committed));
     assert.deepEqual(fs.readdirSync(f.root), ['session.jsonl']);
   }
-});
-
-test('REQ-MEM-030 AC1: due maintenance advances at a normal turn boundary despite queued work without settlement', t => {
-  const f = fixture(t), l = lifecycle(f, true); l.due();
-  for (const stopReason of ['toolUse', 'length', 'aborted', 'error']) l.emit('turn_end', { message: { role: 'assistant', stopReason, content: [] } });
-  l.emit('turn_end', { message: { role: 'assistant', stopReason: 'stop', content: [{ type: 'toolCall', id: 'unfinished', name: 'read', arguments: {} }] } });
-  assert.equal(l.launch(), undefined);
-  const boundary = { message: { role: 'assistant', stopReason: 'stop', content: [{ type: 'text', text: 'Ordinary turn completed; more user or Goal work is queued.' }] } };
-  l.emit('turn_end', boundary); const item = l.launch(); assert.ok(item);
-  const req = JSON.parse(fs.readFileSync(item.request.prompt.match(/^VARS_FILE=(.+)$/m)[1])); f.stage(req);
-  // Native follow-up delivery can remain queued across further boundaries. It must not duplicate.
-  l.emit('turn_end', boundary); l.emit('agent_settled');
-  assert.equal(l.sent.filter(m => m.customType === 'background-extraction-launch').length, 1);
-  l.append({ type: 'custom_message', customType: 'background-extraction-launch', details: { items: [item] } });
-  l.call(item); l.done(item);
-  l.emit('turn_end', boundary);
-  assertTrimWindow(fs.statSync(f.file).size);
-  assert.ok(l.sent.some(m => m.customType === 'transcript-trim-outcome' && m.details.status === 'trimmed'));
-  l.emit('turn_end', boundary); l.emit('agent_settled');
-  assert.equal(l.sent.filter(m => m.customType === 'background-extraction-launch').length, 1);
 });
 
 test('REQ-MEM-015 AC7: six failed trim calls emit one shared terminal notice without replacement request spam', t => {
