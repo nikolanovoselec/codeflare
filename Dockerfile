@@ -87,7 +87,7 @@ done
 IMPECCABLE
 
 # ---- Codeflare native Pi Chat extension builder (OpenVSCode Node 22) ----
-FROM mirror.gcr.io/library/node:22.21.1-bookworm-slim@sha256:25b3eb23a00590b7499f2a2ce939322727fcce1b15fdd69754fcd09536a3ae2c AS openvscode-agent-sidebar-builder
+FROM mirror.gcr.io/library/node:26.12.0-bookworm-slim@sha256:742a0fe7320e09e0321222b68165e6ac731d30470e7ea7f98f9bfc3a6e1034fe AS openvscode-agent-sidebar-builder
 
 WORKDIR /app/openvscode/agent-sidebar
 COPY openvscode/agent-sidebar/package.json openvscode/agent-sidebar/package-lock.json ./
@@ -111,7 +111,7 @@ COPY openvscode/agent-sidebar/media/ /out/welcome/media/
 # ---- Official Claude Code Open VSX extension ----
 # Owner-accepted license risk: install Anthropic's exact unmodified linux-x64
 # package into the image, configured externally at runtime. Never serve the VSIX.
-FROM mirror.gcr.io/library/node:22.21.1-bookworm-slim@sha256:25b3eb23a00590b7499f2a2ce939322727fcce1b15fdd69754fcd09536a3ae2c AS openvscode-official-claude-extension
+FROM mirror.gcr.io/library/node:26.12.0-bookworm-slim@sha256:742a0fe7320e09e0321222b68165e6ac731d30470e7ea7f98f9bfc3a6e1034fe AS openvscode-official-claude-extension
 
 COPY openvscode/agent-sidebar/official-claude.json /tmp/official-claude.json
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl unzip && rm -rf /var/lib/apt/lists/*
@@ -138,7 +138,7 @@ RUN node -e 'require("node:assert/strict").equal(process.versions.node, "22.21.1
     rm -rf /tmp/anthropic.claude-code.vsix /tmp/anthropic-claude
 
 # ---- Assemble immutable agent inventories once, before the runtime image ----
-FROM mirror.gcr.io/library/node:22.21.1-bookworm-slim@sha256:25b3eb23a00590b7499f2a2ce939322727fcce1b15fdd69754fcd09536a3ae2c AS openvscode-agent-inventories
+FROM mirror.gcr.io/library/node:26.12.0-bookworm-slim@sha256:742a0fe7320e09e0321222b68165e6ac731d30470e7ea7f98f9bfc3a6e1034fe AS openvscode-agent-inventories
 
 COPY --from=openvscode-agent-sidebar-builder /out/extension /tmp/codeflare-sidebar-extension
 COPY --from=openvscode-official-claude-extension /out /tmp/official-claude-extension
