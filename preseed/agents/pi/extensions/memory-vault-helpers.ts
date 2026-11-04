@@ -64,6 +64,7 @@ export interface PublicExtractionRequest {
 }
 
 export interface ExtractionTranscriptFacts {
+  stopped?: true;
   launchCount: number;
   giveup: boolean;
   attemptCount: number;
@@ -371,7 +372,8 @@ export function extractionTranscriptFacts(input: {
       : calls.length > 0
         ? "failed"
         : "missing";
-  return { launchCount, giveup, attemptCount: calls.length, pendingLaunch, state };
+  const stopped = calls.some(call => /^(Stopped(?: \\(user request\\))?|Aborted|Cancelled|Canceled)$/i.test(notifications.get(call.id) ?? ""));
+  return { launchCount, giveup, attemptCount: calls.length, pendingLaunch, state, ...(stopped ? { stopped: true as const } : {}) };
 }
 
 /** Trim-only recovery: a later completed turn proves delivery was consumed. A

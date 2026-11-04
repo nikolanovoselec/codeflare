@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import * as fs from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createTranscriptTrimRequest, commitTranscriptTrimCandidate, validateTranscriptTrimCandidate } from '../../preseed/agents/pi/extensions/active-session-transcript-trimming.ts';
+import {importPiExtension} from './fixtures/pi-extension-module.mjs';
+const { createTranscriptTrimRequest, commitTranscriptTrimCandidate, validateTranscriptTrimCandidate }=await importPiExtension('active-session-transcript-trimming');
 const jsonl=rows=>rows.map(e=>JSON.stringify(e)+'\n').join('');
 function fixture(t,bytes=50_100_000){
  const root=fs.mkdtempSync(join(tmpdir(),'trim-cache-gap-'));t.after(()=>fs.rmSync(root,{recursive:true,force:true}));const file=join(root,'session.jsonl');

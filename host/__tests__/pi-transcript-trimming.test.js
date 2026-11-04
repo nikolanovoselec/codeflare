@@ -6,7 +6,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { findPackageJSON, stripTypeScriptTypes } from 'node:module';
 import { pathToFileURL } from 'node:url';
-import register, { TRANSCRIPT_TRIM_DUE, trimActiveSessionTranscript, parseTranscript, createTranscriptTrimRequest, commitTranscriptTrimCandidate } from '../../preseed/agents/pi/extensions/active-session-transcript-trimming.ts';
+import {importPiExtension} from './fixtures/pi-extension-module.mjs';
+const { registerActiveSessionTranscriptTrimming, prepareTranscript, trimActiveSessionTranscript, parseTranscript, createTranscriptTrimRequest, commitTranscriptTrimCandidate }=await importPiExtension('active-session-transcript-trimming');
 
 const jsonl = entries => entries.map(e => JSON.stringify(e) + '\n').join('');
 function fixture(t, entries = oversized()) {
@@ -63,32 +64,27 @@ function oversized({ floor = false, child = false, raw = false, historicalBytes 
   assert.ok(oldLeaf);
   return entries;
 }
-function lifecycle(f) {
-  const handlers = new Map(), listeners = new Map(), launches = [];
-  const pi = { sendMessage(message) { if (message.customType === "background-extraction-launch") launches.push(message.details.items[0]); }, on(name, handler) { const all = handlers.get(name) ?? []; all.push(handler); handlers.set(name, all); },
-    events: { on(name, handler) { listeners.set(name, handler); }, emit(name, data) { listeners.get(name)?.(data); } } };
-  register(pi);
-  const emit = (name, data = {}, ctx = f.ctx) => { for (const handler of handlers.get(name) ?? []) handler(data, ctx); };
-  const due = data => pi.events.emit(TRANSCRIPT_TRIM_DUE, data ?? { ...f.expected });
+// Exercise the public controller's disk admission separately from MemoryVault's
+// shared cadence/delivery integration. Candidate generation uses the public pure API.
+function controllerFixture(f) {
+  const outcomes = [];
+  const controller = registerActiveSessionTranscriptTrimming({ sendMessage(message) { outcomes.push(message); }, registerTool() {} });
+  const due = (ctx = f.ctx) => controller.markDue(ctx);
   const end = () => {
-    emit('agent_settled');
-    const item = launches.pop();
+    const item = controller.collect(f.ctx);
     if (!item) return;
     const req = JSON.parse(fs.readFileSync(item.request.prompt.match(/^VARS_FILE=(.+)$/m)[1]));
-    const rows = JSON.parse('[' + fs.readFileSync(f.file, 'utf8').trimEnd().split('\n').join(',') + ']');
-    const cut = rows.findIndex(e => e.id === rows.find(e => e.type === 'compaction')?.firstKeptEntryId);
-    for (const row of rows.slice(1, cut)) if (row.message?.role === 'assistant') row.message.content = row.message.content.map(b => b.type === 'thinking' ? { type: 'thinking', thinking: 'Historical reasoning summarized.' } : b);
-    const candidate = jsonl(rows);
-    if (!candidate) return;
-    fs.writeFileSync(req.candidateFile, candidate);
+    const source = fs.readFileSync(f.file).subarray(0, req.sourceBytes).toString();
+    const candidate = prepareTranscript(source, 'fixture', req.branchIds);
+    assert.ok(candidate); fs.writeFileSync(req.candidateFile, candidate);
     fs.appendFileSync(f.file, jsonl([
       { type: 'custom_message', id: `launch-${item.requestId}`, parentId: f.entries.at(-1).id, customType: 'background-extraction-launch', details: { items: [item] } },
       { type: 'message', id: `call-${item.requestId}`, parentId: `launch-${item.requestId}`, message: { role: 'assistant', content: [{ type: 'toolCall', id: item.requestId, name: 'subagent', arguments: item.request }] } },
       { type: 'custom_message', id: `done-${item.requestId}`, parentId: `call-${item.requestId}`, customType: 'subagent-notification', content: `<tool-use-id>${item.requestId}</tool-use-id><status>Done</status>` },
     ]));
-    emit('agent_settled');
+    controller.collect(f.ctx);
   };
-  return { pi, emit, due, end };
+  return { ...controller, due, end, outcomes };
 }
 const reopen = f => parseTranscript(fs.readFileSync(f.file, 'utf8'), 'fixture');
 const replay = branch => {
@@ -108,34 +104,33 @@ const fixtureModules = new Map();
 function fixtureModule(name) {
   if (fixtureModules.has(name)) return fixtureModules.get(name);
   let source = stripTypeScriptTypes(fs.readFileSync(new URL(name + '.ts', extensionDir), 'utf8'));
-  source = source.replace(/from "\.\/([a-z-]+)"/g, (_match, dependency) => `from "${fixtureModule(dependency)}"`);
+  source = source.replace(/from "\.\/([a-z-]+)(?:\.ts)?"/g, (_match, dependency) => `from "${fixtureModule(dependency)}"`);
   const url = 'data:text/javascript;base64,' + Buffer.from(source).toString('base64');
   fixtureModules.set(name, url);
   return url;
 }
 
-test('REQ-MEM-028 AC1: existing cadence schedules trimming without changing capture behavior', async t => {
+test('REQ-MEM-028 AC1: shared cadence preserves frozen capture inputs without eager delivery', async t => {
   const { registerMemoryVault } = await import(fixtureModule('memory-vault'));
   const f = fixture(t, [{ type: 'session', id: 'fixture' }]);
   const paths = { vaultRoot: join(f.root, 'Vault'), cacheDir: join(f.root, 'cache'), memoryCounterDir: join(f.root, 'counters'),
     memoryPromptFile: join(f.root, 'memory.md'), vaultPromptFile: join(f.root, 'vault.md'),
     vaultManifestFile: join(f.root, 'Vault/graphify-out/manifest.json'), vaultInitializationFile: join(f.root, 'Vault/graphify-out/initialized'), vaultMarkerFile: join(f.root, 'marker') };
   fs.writeFileSync(paths.memoryPromptFile, '# capture'); fs.writeFileSync(paths.vaultPromptFile, '# vault');
-  const handlers = new Map(), signals = [], sent = [];
-  const pi = { on(name, handler) { handlers.set(name, handler); }, events: { emit(name, data) { signals.push({ name, data }); } },
+  const handlers = new Map(), sent = [];
+  const pi = { on(name, handler) { handlers.set(name, handler); }, registerTool() {},
     getActiveTools: () => [], getAllTools: () => [], setActiveTools() {}, sendMessage(...args) { sent.push(args); } };
   registerMemoryVault(pi, { paths, now: () => Date.parse('2026-11-03T00:00:00Z'), randomUUID: () => '00000000-0000-4000-8000-000000000001' });
   handlers.get('session_start')({}, f.ctx);
   const appendPrompt = n => fs.appendFileSync(f.file, jsonl([{ type: 'message', id: `u${n}`, parentId: null, message: { role: 'user', content: `prompt ${n}` } }]));
   for (let n = 1; n <= 20; n++) { appendPrompt(n); handlers.get('before_agent_start')({ prompt: `prompt ${n}` }, f.ctx); }
-  assert.deepEqual(signals, [{ name: TRANSCRIPT_TRIM_DUE, data: f.expected }]);
+  assert.equal(sent.length, 0);
   appendPrompt(21); handlers.get('before_agent_start')({ prompt: 'prompt 21' }, f.ctx);
   const frozen = fs.readFileSync(join(paths.memoryCounterDir, 'fixture.vars'), 'utf8');
   const filesBefore = fs.readdirSync(paths.memoryCounterDir).sort();
   const frozenCache = fs.readdirSync(paths.cacheDir).map(name => [name, fs.readFileSync(join(paths.cacheDir, name), 'utf8')]);
   for (let n = 22; n <= 40; n++) { appendPrompt(n); handlers.get('before_agent_start')({ prompt: `prompt ${n}` }, f.ctx); }
-  assert.equal(signals.length, 2);
-  assert.deepEqual(signals[1], signals[0]);
+  assert.equal(sent.length, 0);
   assert.equal(fs.readFileSync(join(paths.memoryCounterDir, 'fixture.vars'), 'utf8'), frozen);
   assert.deepEqual(fs.readdirSync(paths.memoryCounterDir).sort(), filesBefore);
   assert.equal(fs.readFileSync(join(paths.memoryCounterDir, 'fixture.vault-count'), 'utf8'), '40');
@@ -144,19 +139,16 @@ test('REQ-MEM-028 AC1: existing cadence schedules trimming without changing capt
   assert.equal(sent.length, 0); // Scheduling never launches extraction or a model turn.
 });
 
-test('REQ-MEM-028 AC2: lifecycle cancellation protects foreign and child transcripts', t => {
-  const f = fixture(t);
-  const l = lifecycle(f); l.emit('session_start');
-  const original = fs.readFileSync(f.file);
-  for (const event of ['session_before_switch', 'session_before_fork', 'session_shutdown', 'session_start']) {
-    l.emit('session_start'); l.due(); l.emit(event); l.end(); assert.deepEqual(fs.readFileSync(f.file), original);
-  }
-  l.emit('session_start'); l.due({ ...f.expected, sessionId: 'foreign' }); l.end();
+test('REQ-MEM-028 AC2: public controller cancellation and foreign ownership protect transcripts', t => {
+  const f = fixture(t), original = fs.readFileSync(f.file);
+  const controller = controllerFixture(f);
+  controller.due(); const item = controller.collect(f.ctx); assert.ok(item);
+  const varsFile = item.request.prompt.match(/^VARS_FILE=(.+)$/m)[1]; assert.ok(fs.existsSync(varsFile));
+  const otherCtx = { sessionManager: { ...f.ctx.sessionManager, getSessionFile: () => join(f.root, 'foreign.jsonl') } };
+  assert.equal(controller.collect(otherCtx), undefined);
   assert.deepEqual(fs.readFileSync(f.file), original);
-  l.due(); const otherCtx = { sessionManager: { ...f.ctx.sessionManager, getSessionFile: () => join(f.root, 'foreign.jsonl') } };
-  l.emit('agent_end', { messages: [{ role: 'assistant', stopReason: 'stop' }] }, otherCtx);
-  assert.deepEqual(fs.readFileSync(f.file), original);
-  for (const stopReason of ['aborted', 'error']) { l.due(); l.emit('agent_end', { messages: [{ role: 'assistant', stopReason }] }); }
+  controller.cancel(); assert.equal(fs.existsSync(varsFile), false);
+  assert.equal(controller.collect(f.ctx), undefined);
   assert.deepEqual(fs.readFileSync(f.file), original);
   const child = fixture(t, oversized({ child: true }));
   const childBytes = fs.readFileSync(child.file); assert.equal(trimActiveSessionTranscript(child.ctx, child.expected).status, 'refused');
@@ -399,19 +391,19 @@ test('REQ-MEM-029 AC2: directory sync failure retains the committed replacement'
   assert.deepEqual(fs.readdirSync(f.root), ['session.jsonl']);
 });
 
-test('REQ-MEM-029 AC3: registration defers filesystem work and creates no retained backup', t => {
+test('REQ-MEM-029 AC3: public controller defers disk mutation until native completion and leaves no backup', t => {
   const f = fixture(t), original = fs.readFileSync(f.file);
-  const l = lifecycle(f);
+  const l = controllerFixture(f);
+  assert.deepEqual(fs.readFileSync(f.file), original);
   l.due(); assert.deepEqual(fs.readFileSync(f.file), original);
-  l.emit('session_start'); l.due(); assert.deepEqual(fs.readFileSync(f.file), original);
   l.end(); assert.ok(fs.statSync(f.file).size < 50_000_000);
   assert.deepEqual(fs.readdirSync(f.root), ['session.jsonl']);
   const after = fs.readFileSync(f.file); l.end(); assert.deepEqual(fs.readFileSync(f.file), after);
 });
 
-test('REQ-MEM-028 AC6: a later rewrite is handled at a later cadence', t => {
-  const f = fixture(t), original = fs.readFileSync(f.file), l = lifecycle(f);
-  l.emit('session_start'); l.due(); l.end(); assert.ok(fs.statSync(f.file).size < 50_000_000);
+test('REQ-MEM-028 AC6: a later rewrite waits for the next public due mark', t => {
+  const f = fixture(t), original = fs.readFileSync(f.file), l = controllerFixture(f);
+  l.due(); l.end(); assert.ok(fs.statSync(f.file).size < 50_000_000);
   fs.writeFileSync(f.file, original); l.end(); assert.deepEqual(fs.readFileSync(f.file), original);
   l.due(); l.end(); assert.ok(fs.statSync(f.file).size < 50_000_000);
   assert.deepEqual(fs.readdirSync(f.root), ['session.jsonl']);

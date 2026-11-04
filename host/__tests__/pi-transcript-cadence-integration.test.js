@@ -4,14 +4,15 @@ import * as fs from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { stripTypeScriptTypes } from 'node:module';
-import registerTrimmer, { TRANSCRIPT_TRIM_DUE, prepareTranscript } from '../../preseed/agents/pi/extensions/active-session-transcript-trimming.ts';
+import {importPiExtension} from './fixtures/pi-extension-module.mjs';
+const { prepareTranscript }=await importPiExtension('active-session-transcript-trimming');
 
 const extensionDir = new URL('../../preseed/agents/pi/extensions/', import.meta.url);
 const modules = new Map();
 function fixtureModule(name) {
   if (modules.has(name)) return modules.get(name);
   let source = stripTypeScriptTypes(fs.readFileSync(new URL(`${name}.ts`, extensionDir), 'utf8'));
-  source = source.replace(/from "\.\/([a-z-]+)"/g, (_match, dependency) => `from "${fixtureModule(dependency)}"`);
+  source = source.replace(/from "\.\/([a-z-]+)(?:\.ts)?"/g, (_match, dependency) => `from "${fixtureModule(dependency)}"`);
   const url = 'data:text/javascript;base64,' + Buffer.from(source).toString('base64');
   modules.set(name, url);
   return url;
@@ -43,27 +44,24 @@ test('REQ-MEM-028 AC1: actual trims preserve the next twenty-prompt cadence and 
     vaultManifestFile: join(root, 'Vault/graphify-out/manifest.json'), vaultInitializationFile: join(root, 'Vault/graphify-out/initialized'),
     vaultMarkerFile: join(root, 'marker') };
   fs.writeFileSync(paths.memoryPromptFile, '# capture'); fs.writeFileSync(paths.vaultPromptFile, '# vault');
-  const handlers = new Map(), listeners = new Map(), due = [], messages = [];
+  const handlers = new Map(), messages = [];
   let promptNumber = 0;
   const pi = {
     on(name, handler) { const rows = handlers.get(name) ?? []; rows.push(handler); handlers.set(name, rows); },
-    events: { on(name, handler) { listeners.set(name, handler); }, emit(name, data) {
-      if (name === TRANSCRIPT_TRIM_DUE) due.push({ prompt: promptNumber, data });
-      listeners.get(name)?.(data);
-    } },
+    registerTool() {},
     getActiveTools: () => [], getAllTools: () => [], setActiveTools() {}, sendMessage(...args) { messages.push(args); },
   };
-  registerTrimmer(pi);
-  registerMemoryVault(pi, { paths, now: () => Date.parse('2026-11-03T00:00:00Z'), randomUUID: () => '00000000-0000-4000-8000-000000000001' });
+  let sequence = 0;
+  registerMemoryVault(pi, { paths, now: () => Date.parse('2026-11-03T00:00:00Z'), randomUUID: () => `00000000-0000-4000-8000-${String(++sequence).padStart(12, '0')}` });
   const emit = (name, event = {}) => { for (const handler of handlers.get(name) ?? []) handler(event, ctx); };
   const snapshot = directory => fs.readdirSync(directory).sort().map(name => [name, fs.readFileSync(join(directory, name), 'utf8')]);
   emit('session_start');
   let frozenCache, frozenVars;
   const reductions = [];
-  for (promptNumber = 1; promptNumber <= 40; promptNumber++) {
+  for (promptNumber = 1; promptNumber <= 41; promptNumber++) {
     // Model a later public-SDK rewrite from loaded entries, without changing them:
     // the second actual trim must also preserve the already-frozen capture request.
-    if (promptNumber === 40) fs.writeFileSync(file, jsonl(entries));
+    if (promptNumber === 41) fs.writeFileSync(file, jsonl(entries));
     const user = append({ type: 'message', message: { role: 'user', content: `prompt ${promptNumber}` } });
     fs.appendFileSync(file, jsonl([user]));
     emit('before_agent_start', { prompt: user.message.content });
@@ -73,12 +71,17 @@ test('REQ-MEM-028 AC1: actual trims preserve the next twenty-prompt cadence and 
     emit('agent_end', { messages: [answer] });
     // Deliver the real public launch and correlated native completion to the owner.
     // The synthetic worker proposes a candidate; only the production parent commits.
-    if (promptNumber === 20 || promptNumber === 40) {
+    if (promptNumber === 21 || promptNumber === 41) {
       emit('agent_settled');
       const item = messages.flatMap(([m]) => m.customType === 'background-extraction-launch' ? m.details.items : []).filter(i => i.jobType === 'transcript-trim').at(-1);
       assert.ok(item);
+      if (promptNumber === 21) {
+        const launch = messages.find(([message]) => message.customType === 'background-extraction-launch')[0];
+        assert.ok(launch.details.items.some(job => job.jobType === 'memory-capture'));
+        assert.ok(launch.details.items.some(job => job.jobType === 'transcript-trim'));
+      }
       const req = JSON.parse(fs.readFileSync(item.request.prompt.match(/^VARS_FILE=(.+)$/m)[1]));
-      fs.writeFileSync(req.candidateFile, prepareTranscript(fs.readFileSync(file, 'utf8').slice(0, req.sourceBytes), 'fixture', entries.slice(1).map(e => e.id)));
+      fs.writeFileSync(req.candidateFile, prepareTranscript(fs.readFileSync(file).subarray(0, req.sourceBytes).toString(), 'fixture', entries.slice(1).map(e => e.id)));
       for (const payload of [
         { type: 'custom_message', customType: 'background-extraction-launch', details: { items: [item] } },
         { type: 'message', message: { role: 'assistant', content: [{ type: 'toolCall', id: item.requestId, name: 'subagent', arguments: item.request }] } },
@@ -86,7 +89,7 @@ test('REQ-MEM-028 AC1: actual trims preserve the next twenty-prompt cadence and 
       ]) fs.appendFileSync(file, jsonl([append(payload)]));
       emit('agent_settled');
     }
-    if (promptNumber === 20 || promptNumber === 40) {
+    if (promptNumber === 21 || promptNumber === 41) {
       const after = fs.statSync(file).size;
       assert.ok(before > 50_000_000); assert.ok(after < 20_000_000);
       reductions.push({ prompt: promptNumber, before, after });
@@ -96,7 +99,9 @@ test('REQ-MEM-028 AC1: actual trims preserve the next twenty-prompt cadence and 
       frozenVars = fs.readFileSync(join(paths.memoryCounterDir, 'fixture.vars'), 'utf8');
     }
   }
-  assert.deepEqual(due, [20, 40].map(prompt => ({ prompt, data: { sessionId: 'fixture', file } })));
+  assert.deepEqual(reductions.map(item => item.prompt), [21, 41]);
+  const trims = messages.flatMap(([message]) => message.customType === 'background-extraction-launch' ? message.details.items.filter(item => item.jobType === 'transcript-trim') : []);
+  assert.equal(trims.length, 2); assert.notEqual(trims[0].requestId, trims[1].requestId);
   assert.equal(reductions.length, 2);
   assert.ok(frozenCache.length > 0); assert.ok(frozenVars.length > 0);
   assert.deepEqual(snapshot(paths.cacheDir), frozenCache);
@@ -105,7 +110,7 @@ test('REQ-MEM-028 AC1: actual trims preserve the next twenty-prompt cadence and 
   assert.equal(fs.readFileSync(join(paths.memoryCounterDir, 'fixture.count'), 'utf8'), '1');
   const persisted = fs.readFileSync(file, 'utf8').trimEnd().split('\n').map(line => JSON.parse(line));
   assert.deepEqual(persisted.filter(entry => entry.message?.role === 'user').map(entry => entry.message.content),
-    Array.from({ length: 40 }, (_value, n) => `prompt ${n + 1}`));
+    Array.from({ length: 41 }, (_value, n) => `prompt ${n + 1}`));
   assert.equal(persisted.find(entry => entry.id === kept.id).data.payload.length, 19_000_000);
   assert.equal(messages.filter(([m]) => m.customType === 'transcript-trim-outcome' && m.details.status === 'trimmed').length, 2);
 });
