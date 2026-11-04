@@ -1036,9 +1036,9 @@ jobs:
       fail-fast: false
       max-parallel: 5
       matrix:
-        # Run every native partition once in parallel. The slowest measured
-        # partition is 41 seconds; setup plus one partition stays inside the
-        # three-minute CI completion ceiling without reducing test coverage.
+        # Run every native partition once in parallel without reducing coverage.
+        # Overlap independent host setup below to target roughly 200-second CI
+        # completion; runner and suite timings still determine actual completion.
         include:
           - { shards: '1/5', slug: shard-1 }
           - { shards: '2/5', slug: shard-2 }
@@ -1075,25 +1075,22 @@ jobs:
           key-prefix: host-pi-inference
           ignore-scripts: 'true'
 
-      - name: Install authentic Graphify MCP compatibility runtime
+      - name: Install and verify Graphify runtime and approved-packet sandbox in parallel
+        env:
+          RUNNER_ENVIRONMENT: ${{ runner.environment }}
         run: |
+          set -euo pipefail
+          # Keep errexit active inside each child; only wait handles failures.
+          (
           set -euo pipefail
           python3 -m venv "$RUNNER_TEMP/graphify-compat"
           package=$(python3 -c 'import json; p=json.load(open("host/__fixtures__/graphify-compatibility.json")); print("graphifyy[mcp] @ " + p["wheel"] + "#sha256=" + p["sha256"])')
           "$RUNNER_TEMP/graphify-compat/bin/python" -m pip install --disable-pip-version-check "$package"
           "$RUNNER_TEMP/graphify-compat/bin/python" -c 'import importlib.metadata,json; p=json.load(open("host/__fixtures__/graphify-compatibility.json")); assert importlib.metadata.version("graphifyy") == p["version"]'
           echo "GRAPHIFY_TEST_PYTHON=$RUNNER_TEMP/graphify-compat/bin/python" >> "$GITHUB_ENV"
-
-      - name: Create assets directory (wrangler.toml requires web-ui/dist)
-        # wrangler-static-assets.test.js reads wrangler.toml via unstable_readConfig,
-        # which resolves the [assets] directory; without the dir the config loads
-        # without assets and the test fails.
-        run: mkdir -p web-ui/dist
-
-      - name: Install and verify approved-packet sandbox
-        env:
-          RUNNER_ENVIRONMENT: ${{ runner.environment }}
-        run: |
+          ) &
+          graphify_pid=$!
+          (
           set -euo pipefail
           bash scripts/ci/install-approved-packet-packages.sh
           /usr/bin/bwrap --version
@@ -1134,6 +1131,28 @@ jobs:
           fi
           # The identical user/PID/network-isolated probe must succeed after setup.
           probe_sandbox
+          ) &
+          sandbox_pid=$!
+
+          # Collect BOTH statuses: a successful final wait must not mask failure.
+          graphify_status=0
+          sandbox_status=0
+          wait "$graphify_pid" || graphify_status=$?
+          wait "$sandbox_pid" || sandbox_status=$?
+          echo "Graphify runtime setup exit status: $graphify_status"
+          echo "Approved-packet sandbox setup exit status: $sandbox_status"
+          if [ "$graphify_status" -ne 0 ]; then
+            exit "$graphify_status"
+          fi
+          if [ "$sandbox_status" -ne 0 ]; then
+            exit "$sandbox_status"
+          fi
+
+      - name: Create assets directory (wrangler.toml requires web-ui/dist)
+        # wrangler-static-assets.test.js reads wrangler.toml via unstable_readConfig,
+        # which resolves the [assets] directory; without the dir the config loads
+        # without assets and the test fails.
+        run: mkdir -p web-ui/dist
 
       - name: Build host (TypeScript)
         run: npm run build
