@@ -1,6 +1,6 @@
 {
   "dependencies": {
-    "@anthropic-ai/claude-code": "2.1.311",
+    "@anthropic-ai/claude-code": "2.1.312",
     "@earendil-works/pi-coding-agent": "1.5.0",
     "@github/copilot": "1.0.104",
     "@openai/codex": "0.165.0",
