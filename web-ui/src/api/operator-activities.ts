@@ -5,6 +5,24 @@ import { diagnosticBindingSchema, diagnosticCursorSchema, diagnosticRecordIdSche
   diagnosticSummarySchema, diagnosticHistorySchema, diagnosticDetailSchema, diagnosticExportSchema,
   sameDiagnosticBinding, type DiagnosticSnapshot } from './operator-diagnostics-wire';
 
+// Functional recovery is independent of optional execution diagnostics. Never classify SDK text or HTTP status here.
+const providerId = z.string().min(1).max(512).refine(value => [...value].every(character =>
+  character.charCodeAt(0) >= 0x20 && character.charCodeAt(0) !== 0x7f));
+export const safePiAuthFailureSchema = z.strictObject({ code: z.literal('PI_LOGIN_REQUIRED'),
+  reason: z.enum(['missing', 'expired', 'rejected']), provider: providerId });
+export const piLoginRecoveryCopy = 'Check the saved provider login or API key used by this run. If credentials were updated, wait for successful synchronization to R2, then explicitly retry. No automatic retry or provider fallback occurs.';
+const piReasoningLevel = z.enum(['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']);
+export const inferenceSelectionSchema = z.union([
+  z.strictObject({ source: z.literal('managed').optional(), routeId: z.string().min(1).max(256),
+    reasoningLevel: piReasoningLevel.nullable() }),
+  z.strictObject({ source: z.literal('pi-native'), provider: providerId,
+    model: z.string().min(1).max(512).refine(value => [...value].every(character =>
+      character.charCodeAt(0) >= 0x20 && character.charCodeAt(0) !== 0x7f)),
+    api: providerId, reasoningLevel: piReasoningLevel.nullable(),
+    profileDigest: z.string().regex(/^[a-f0-9]{64}$/).optional(),
+    reasoningSource: z.enum(['installation', 'model', 'global', 'default', 'inherited']).optional() }),
+]);
+
 const status = z.enum(['queued', 'running', 'waiting', 'completed', 'failed', 'cancel-requested', 'unknown']);
 const cleanup = z.enum(['pending', 'stopping', 'stopped', 'released', 'unknown']);
 const collection = z.enum(['unavailable', 'ready', 'consumed', 'unknown']);
@@ -18,6 +36,8 @@ export const operatorActivitySummarySchema = z.strictObject({
     deferred: z.number().int().nonnegative(), unknown: z.number().int().nonnegative() })
     .refine(value => value.assessed === value.merged + value.notMerged + value.deferred + value.unknown,
       'Contradictory outcome quantities').optional(),
+  inferenceSelection: inferenceSelectionSchema.optional(),
+  authFailure: safePiAuthFailureSchema.optional(),
   context: z.string().max(256).nullable().optional(),
   progress: z.string().max(128).nullable().optional(),
   executionStatus: status,
@@ -85,6 +105,7 @@ const selectedReceipts = z.strictObject({ ...receiptHeader, generation: receiptI
   'Contradictory receipt completeness');
 const effectReceiptsSchema = z.union([unavailableReceipts, selectedReceipts]);
 const detailSchema = operatorActivitySummarySchema.extend({ checkpoint: z.unknown(), result: z.unknown(),
+  authFailure: safePiAuthFailureSchema.optional(), inferenceSelection: inferenceSelectionSchema.optional(),
   sdkCleanupReleased: z.boolean().optional(), effectReceipts: effectReceiptsSchema.optional() })
   .refine(value => !value.effectReceipts || value.effectReceipts.activityId === value.activityId, 'Foreign receipt activity')
   .refine(value => value.cleanupStatus !== 'released' || value.sdkCleanupReleased === true, 'Unconfirmed SDK release');
@@ -100,11 +121,11 @@ export function cancelOperatorActivity(activityId: string): Promise<OperatorActi
 
 /** Read-only v2 boundary. Neither response text nor schema errors are user copy. */
 async function diagnosticRead<T extends DiagnosticSnapshot>(activityId: string, suffix: string, schema: z.ZodType<T>,
-  snapshot?: DiagnosticSnapshot, resumed = false): Promise<T> {
+  snapshot?: DiagnosticSnapshot, resumed = false, signal?: AbortSignal): Promise<T> {
   operatorActivitySummarySchema.shape.activityId.parse(activityId);
   if (snapshot) diagnosticBindingSchema.parse(snapshot.binding);
   const value = await baseFetch<T>(new URL(`/api/operator-activities/${encodeURIComponent(activityId)}/diagnostics/v2${suffix}`,
-    window.location.origin).href, { method: 'GET', cache: 'no-store' }, { credentials: 'same-origin', schema });
+    window.location.origin).href, { method: 'GET', cache: 'no-store', ...(signal ? { signal } : {}) }, { credentials: 'same-origin', schema });
   if (value.activityId !== activityId) throw new Error('Invalid diagnostics activity');
   if (snapshot && (snapshot.activityId !== activityId || !sameDiagnosticBinding(value.binding, snapshot.binding)))
     throw new ApiError('Diagnostic snapshot binding changed.', 409, 'Conflict');
@@ -123,5 +144,5 @@ export const getOperatorActivityDiagnosticHistory = (activityId: string, cursor:
 export const getOperatorActivityDiagnosticRecord = (activityId: string, recordId: string, snapshot: DiagnosticSnapshot) =>
   diagnosticRead(activityId, `/records/${encodeURIComponent(diagnosticRecordIdSchema.parse(recordId))}`, diagnosticDetailSchema, snapshot)
     .then(value => { if (value.record.id !== recordId) throw new Error('Invalid diagnostic record'); return value; });
-export const exportOperatorActivityDiagnostics = (activityId: string, cursor: string | null, snapshot: DiagnosticSnapshot) =>
-  diagnosticRead(activityId, `/export${diagnosticCursorQuery(cursor)}`, diagnosticExportSchema, snapshot, cursor !== null);
+export const exportOperatorActivityDiagnostics = (activityId: string, cursor: string | null, snapshot: DiagnosticSnapshot, signal?: AbortSignal) =>
+  diagnosticRead(activityId, `/export${diagnosticCursorQuery(cursor)}`, diagnosticExportSchema, snapshot, cursor !== null, signal);

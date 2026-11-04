@@ -370,7 +370,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 1. The default sync scope (`none`) syncs only settings and config directories and excludes the workspace directory entirely. <!-- @impl: entrypoint.sh::SYNC_MODE --> <!-- @test: host/__tests__/entrypoint-hooks-merge.test.js (workspaceSyncEnabled scope (REQ-STOR-011)) -->
 2. The full sync scope (`full`) syncs the entire workspace directory, excluding dependency-install directories. <!-- @impl: entrypoint.sh::SYNC_MODE --> <!-- @test: host/__tests__/entrypoint-hooks-merge.test.js (workspaceSyncEnabled scope (REQ-STOR-011)) -->
 3. The metadata sync scope (`metadata`) syncs only the agent-config files (per-repo agent instruction files and the per-repo agent rule directory). <!-- @impl: entrypoint.sh::SYNC_MODE --> <!-- @test: host/__tests__/entrypoint-hooks-merge.test.js (workspaceSyncEnabled scope (REQ-STOR-011)) -->
-4. All sync scopes exclude package-manager and sync-tool caches, agent logs and ephemeral data, root Pi work-evidence, build artifacts, regenerable tool state, and on-demand vendor credential caches; the path inventory is documented in [Storage & Sync](../../documentation/lanes/storage-and-sync.md#whats-synced-vs-excluded-req-stor-011). <!-- @impl: entrypoint.sh::RCLONE_FILTERS_COMMON --> <!-- @test: host/__tests__/entrypoint-hooks-merge.test.js (workspaceSyncEnabled scope (REQ-STOR-011)) --> <!-- @test: host/__tests__/entrypoint-rclone-filters.test.js (REQ-STOR-011 AC4: excludes only root Pi work-evidence in every sync scope) -->
+4. Every sync scope excludes the [documented caches, logs, ephemeral data, root Pi work-evidence, build artifacts, regenerable state, vendor credential caches and disposable Temporary checkout/download paths](../../documentation/lanes/storage-and-sync.md#whats-synced-vs-excluded-req-stor-011). Ordinary Temporary and Uploads content remains persistent. <!-- @impl: entrypoint.sh::RCLONE_FILTERS_COMMON --> <!-- @test: host/__tests__/entrypoint-hooks-merge.test.js (workspaceSyncEnabled scope (REQ-STOR-011)) --> <!-- @test: host/__tests__/entrypoint-rclone-filters.test.js (REQ-STOR-011 AC4: excludes only root Pi work-evidence in every sync scope) --> <!-- @test: host/__tests__/entrypoint-rclone-filters.test.js (REQ-STOR-011 AC4: disposable agent checkouts never sync while user trays remain persistent) -->
 5. Recovery archives in the home cache remain outside normal restoration and synchronization in every session and workspace mode, regardless of their contents. <!-- @impl: entrypoint.sh::RCLONE_FILTERS_COMMON --> <!-- @test: scripts/ci/rclone-bisync-s3.py (test_recovery_archive_filters) -->
 6. Normal restoration and synchronization leave existing local and remote recovery archives in the home cache unchanged. <!-- @impl: entrypoint.sh::RCLONE_FILTERS_COMMON --> <!-- @test: scripts/ci/rclone-bisync-s3.py (test_recovery_archive_filters) -->
 7. Excluding recovery archives does not change which live files outside the home cache are restored or synchronized under the selected session and workspace modes. <!-- @impl: entrypoint.sh::RCLONE_FILTERS_COMMON --> <!-- @test: scripts/ci/rclone-bisync-s3.py (test_recovery_archive_filters) -->
@@ -384,7 +384,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 
 **Dependencies:** [REQ-STOR-003](#req-stor-003-bidirectional-sync-every-15-minutes-with-manual-triggers)
 
-**Verification:** Automated test ([entrypoint-hooks-merge](../../host/__tests__/entrypoint-hooks-merge.test.js))
+**Verification:** Automated test ([entrypoint-hooks-merge](../../host/__tests__/entrypoint-hooks-merge.test.js), [behavioral rclone filters](../../host/__tests__/entrypoint-rclone-filters.test.js))
 
 **Status:** Implemented
 
@@ -675,8 +675,8 @@ R2 persistence, rclone bisync, quotas, and file browser.
 **Acceptance Criteria:**
 
 1. A release mismatch performs no bucket mutation while any persisted Container SDK state owns the bucket; stale running or stopped KV projections do not decide ownership. <!-- @impl: src/lib/session-helpers.ts::hasOwningSessionContainer --> <!-- @impl: src/routes/storage/seed.ts::assertNoOwningSession --> <!-- @test: src/__tests__/lib/session-helpers.test.ts (hasOwningSessionContainer) --> <!-- @test: src/__tests__/routes/storage-seed-managed.test.ts (retries automatic reconciliation when stale running metadata points to persisted stopped state) -->
-2. A release mismatch reports pending status while persisted container state owns the bucket and reports upgrading after the last container stops. <!-- @impl: src/routes/session/lifecycle.ts::app --> <!-- @impl: src/lib/session-helpers.ts::hasOwningSessionContainer --> <!-- @test: src/__tests__/routes/session-batch-status.test.ts (REQ-STOR-022 AC1+AC2: a running session defers mutation and reports pending status) --> <!-- @test: src/__tests__/routes/session-batch-status.test.ts (REQ-STOR-022: stale running metadata does not strand reconciliation after persisted stop) --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-STOR-022 AC2: maps update_pending without invoking reconciliation) -->
-3. The backend rejects another start until release mismatch or pending-target reconciliation succeeds. <!-- @impl: src/routes/container/lifecycle.ts::startOrRestartContainer --> <!-- @test: src/__tests__/routes/container-r2-start.test.ts (returns a typed 409 before user-bucket or container work when the active release is not applied) --> <!-- @test: src/__tests__/routes/container-r2-start.test.ts (REQ-STOR-022 AC3: blocks container start while interrupted targets remain pending) -->
+2. A reconcilable mismatch or pending target reports pending status while a container owns the bucket and upgrading after the last owner stops. Journal-only targets remain visible. <!-- @test: src/__tests__/routes/session-ancillary-status.test.ts (REQ-STOR-023 AC4: journal-only reconciliation remains visible with bucket ownership %s) --> <!-- @impl: src/routes/session/lifecycle.ts::app --> <!-- @impl: src/lib/session-helpers.ts::hasOwningSessionContainer --> <!-- @test: src/__tests__/routes/session-batch-status.test.ts (REQ-STOR-022 AC1+AC2: a running session defers mutation and reports pending status) --> <!-- @test: src/__tests__/routes/session-batch-status.test.ts (REQ-STOR-022: stale running metadata does not strand reconciliation after persisted stop) --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-STOR-022 AC2: maps update_pending without invoking reconciliation) -->
+3. The backend rejects another start until mismatch or pending-target reconciliation succeeds. <!-- @impl: src/routes/container/lifecycle.ts::startOrRestartContainer --> <!-- @test: src/__tests__/routes/container-r2-start.test.ts (returns a typed 409 before user-bucket or container work when the active release is not applied) --> <!-- @test: src/__tests__/routes/container-r2-start.test.ts (REQ-STOR-022 AC3: blocks container start while interrupted targets remain pending) -->
 4. Disabling curation restores baked reconciliation expectations. <!-- @impl: src/routes/storage/seed.ts::default --> <!-- @test: src/__tests__/routes/storage-seed-managed.test.ts (REQ-STOR-022 AC4+AC5+AC6: disable restores baked state and preserves personal intent) -->
 5. Disabling curation clears company applied state. <!-- @impl: src/routes/storage/seed.ts::default --> <!-- @test: src/__tests__/routes/storage-seed-managed.test.ts (REQ-STOR-022 AC4+AC5+AC6: disable restores baked state and preserves personal intent) -->
 6. Disabling curation preserves personal extension intent. <!-- @impl: src/routes/storage/seed.ts::default --> <!-- @test: src/__tests__/routes/storage-seed-managed.test.ts (REQ-STOR-022 AC4+AC5+AC6: disable restores baked state and preserves personal intent) -->
@@ -705,9 +705,10 @@ R2 persistence, rclone bisync, quotas, and file browser.
 1. Initial status compares the verified active descriptor, resolved mode, managed-resource policy, and canonical agent-projection identity with applied user state. <!-- @test: src/__tests__/routes/session-batch-status.test.ts (REQ-STOR-023 AC1: matching managed release with %s projection is not current) --> <!-- @impl: src/lib/managed-release-active.ts::getActiveManagedRelease --> <!-- @impl: src/lib/session-mode.ts::resolveEffectiveSessionMode --> <!-- @impl: src/routes/session/lifecycle.ts::default --> <!-- @test: src/__tests__/lib/managed-release-active.test.ts (REQ-STOR-023 AC1: returns configured managed resource policy with the active descriptor) --> <!-- @test: src/__tests__/routes/session-batch-status.test.ts (REQ-STOR-023 AC1+AC2: initial status compares descriptor and mode without payload bytes) --> <!-- @test: src/__tests__/routes/session-batch-status.test.ts (reports upgrading when a downgraded SaaS user has advanced managed content applied) --> <!-- @test: src/__tests__/routes/session-batch-status.test.ts (REQ-STOR-023 AC1: a pre-upgrade applied stamp without a manifest digest requires reconciliation) --> <!-- @test: src/__tests__/routes/session-batch-status.test.ts (REQ-STOR-023 AC1: reports upgrading when managed resource %s) -->
 2. An unchanged release status check does not load payload bytes. <!-- @impl: src/lib/managed-release-active.ts::getActiveManagedRelease --> <!-- @test: src/__tests__/routes/session-batch-status.test.ts (REQ-STOR-023 AC1+AC2: initial status compares descriptor and mode without payload bytes) -->
 3. During cache failure, last-known-good startup is allowed only when its applied mode and projection identity match the deployment. <!-- @test: src/__tests__/routes/container-r2-start.test.ts (REQ-STOR-023 AC3: blocks container start when applied projection identity is %s) --> <!-- @impl: src/lib/managed-release-active.ts::getActiveManagedRelease --> <!-- @impl: src/lib/session-mode.ts::resolveEffectiveSessionMode --> <!-- @test: src/__tests__/routes/session-batch-status.test.ts (REQ-STOR-023 AC3: an outage rejects last-known-good state for another mode) -->
-4. Pending target identities report upgrading even when applied identity matches the active release. <!-- @impl: src/routes/session/lifecycle.ts::default --> <!-- @test: src/__tests__/routes/session-batch-status.test.ts (REQ-STOR-023 AC4: pending target state retries even when applied identity matches active) -->
-5. Status reports update-pending without a compatible verified active descriptor. <!-- @impl: src/routes/session/lifecycle.ts::default --> <!-- @test: src/__tests__/routes/session-batch-status.test.ts (REQ-STOR-023 AC5: reports update pending when no compatible verified active release is available) -->
+4. Pending targets remain visible even when applied identity matches the active release or neither active nor applied identity is available. <!-- @test: src/__tests__/routes/session-ancillary-status.test.ts (REQ-STOR-023 AC4: journal-only reconciliation remains visible with bucket ownership %s) --> <!-- @impl: src/routes/session/lifecycle.ts::default --> <!-- @test: src/__tests__/routes/session-batch-status.test.ts (REQ-STOR-023 AC4: pending target state retries even when applied identity matches active) -->
+5. Without a compatible descriptor, status remains pending without attributing unknown lookup failure to runtime incompatibility. <!-- @impl: src/lib/remote-curation.ts::readManagedEnvironmentSnapshot --> <!-- @test: src/__tests__/routes/session-ancillary-status.test.ts (REQ-STOR-023 AC5: an unavailable descriptor does not invent a runtime incompatibility) --> <!-- @impl: src/routes/session/lifecycle.ts::default --> <!-- @test: src/__tests__/routes/session-batch-status.test.ts (REQ-STOR-023 AC5: reports update pending when no compatible verified active release is available) -->
 6. Requested status exposes a stable target identity covering release or baked hash, sequence, mode, policy, and projection, independent of progress. <!-- @impl: src/routes/session/lifecycle.ts::default --> <!-- @test: src/__tests__/routes/session-batch-status.test.ts (REQ-STOR-023: exposes a stable desired target for retry suppression without confusing progress with identity) --> <!-- @test: web-ui/src/__tests__/api/client.test.ts (REQ-AGENT-049: carries the authoritative upgrade target through batch status parsing) --> <!-- @test: web-ui/src/__tests__/api/client.test.ts (REQ-AGENT-049: rejects an invalid upgrade target from batch status (%s)) -->
+7. Proven runtime incompatibility explains the block without claiming or scheduling reconciliation. <!-- @impl: src/lib/remote-curation.ts::readManagedEnvironmentSnapshot --> <!-- @test: src/__tests__/routes/session-ancillary-status.test.ts (REQ-STOR-023 AC5: an incompatible published runtime is blocked, not upgrading, without scheduling reconciliation) --> <!-- @impl: src/routes/session/lifecycle.ts::default -->
 
 **Constraints:**
 
@@ -733,23 +734,24 @@ R2 persistence, rclone bisync, quotas, and file browser.
 **Acceptance Criteria:**
 
 1. After the five-minute freshness window, the resolver rechecks the latest release. <!-- @impl: src/lib/remote-curation.ts::resolveManagedEnvironmentRelease --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (uses the stored ETag after five minutes and treats 304 as a fresh no-op) --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-STOR-040 AC1: checks for a later managed release while status is current) --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-STOR-040 AC1: an overlapping poll does not duplicate the managed-release check) -->
-2. A compatible latest release becomes active only after its immutable assets and signature verify. <!-- @impl: src/lib/remote-curation.ts::resolveManagedEnvironmentRelease --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-STOR-040 AC2: activates only a GitHub immutable release whose two immutable asset digests and signature verify) -->
+2. The newest runtime-compatible release becomes active only after its immutable assets and signature verify. <!-- @impl: src/lib/remote-curation.ts::resolveManagedEnvironmentRelease --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-STOR-040 AC2: activates only a GitHub immutable release whose two immutable asset digests and signature verify) -->
 3. A failed initial managed-release check remains retryable. <!-- @impl: web-ui/src/stores/session.ts::loadSessions --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-STOR-040 AC3: retries the managed-release check after the initial batch request fails) -->
 4. A failed background managed-release check remains retryable. <!-- @impl: web-ui/src/stores/session-polling.ts::refreshSessionStatuses --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-STOR-040 AC4: a failed batch-status call does not consume the managed-release check window) -->
-5. A degraded background attempt is cached for the five-minute freshness window. <!-- @impl: src/lib/remote-curation.ts::resolveManagedEnvironmentRelease --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-STOR-040 AC5: status refresh bounds incompatible discovery to latest and caches the failed attempt) -->
+5. A degraded background attempt is cached for the five-minute freshness window. <!-- @impl: src/lib/remote-curation.ts::resolveManagedEnvironmentRelease --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-STOR-040 AC5: status refresh caches failed compatible discovery for five minutes) -->
 
 **Constraints:**
 
-- Background refresh validates only the latest release after a runtime mismatch.
-- Explicit fresh-required validation owns bounded release-history traversal.
+- Background refresh and explicit fresh-required validation share [REQ-AGENT-154](agents.md#req-agent-154-build-compatible-managed-release-discovery)'s ten-page, 1,000-record compatible-history traversal past newer incompatible releases. <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-AGENT-154 AC2+AC3+AC4 + REQ-STOR-040 AC2: skips mismatches and unrelated releases then activates the newest compatible seed (fresh-required=%s)) -->
+- Traversal preserves signature, immutable-asset, runtime-hash and activation monotonicity checks.
+- A degraded attempt remains cached for five minutes; session startup remains snapshot-only.
 
 **Priority:** P1
 
 **Dependencies:** [REQ-STOR-020](#req-stor-020-managed-environment-reconciliation), [REQ-AGENT-147](agents.md#req-agent-147-signed-managed-agent-configuration-releases)
 
-**Verification:** Automated resolver and session-polling tests
+**Verification:** Automated resolver and session-polling tests; the compatible-background-discovery correction is pending behavioral RED/GREEN verification.
 
-**Status:** Implemented
+**Status:** Planned
 
 ---
 
@@ -1181,7 +1183,7 @@ R2 persistence, rclone bisync, quotas, and file browser.
 1. A local append after an upload does not create a false conflict. <!-- @impl: scripts/patch-rclone-bisync.py::patch --> <!-- @test: scripts/ci/rclone-bisync-s3.py (test_server_modtime_sync) -->
 2. Same-size remote edits remain detectable. <!-- @impl: scripts/patch-rclone-bisync.py::patch --> <!-- @test: scripts/ci/rclone-bisync-s3.py (test_server_modtime_sync) -->
 3. Completed transfers retain independent source and destination timestamps. <!-- @impl: scripts/patch-rclone-bisync.py::patch --> <!-- @test: scripts/ci/rclone-bookkeeping_test.go (TestCodeflareCompletedCopyKeepsIndependentMetadata) -->
-4. Genuine conflicting contents are retained. <!-- @impl: scripts/patch-rclone-bisync.py::patch --> <!-- @impl: entrypoint.sh::bisync_with_r2 --> <!-- @test: scripts/ci/rclone-bisync-s3.py (test_server_modtime_sync) -->
+4. Genuine divergence preserves the newer canonical content; eligible loser copies follow the post-sync cleanup policy. <!-- @impl: entrypoint.sh::bisync_with_r2 --> <!-- @impl: scripts/rclone-conflict-cleanup.sh::cleanup_rclone_conflicts --> <!-- @test: host/__tests__/rclone-conflict-cleanup.test.js (REQ-STOR-054 AC1: a genuine divergence preserves the winner and discards eligible loser copies) -->
 5. Unchanged sync cycles do not multiply conflict copies. <!-- @impl: scripts/patch-rclone-bisync.py::patch --> <!-- @impl: entrypoint.sh::bisync_with_r2 --> <!-- @test: scripts/ci/rclone-bisync-s3.py (test_server_modtime_sync) -->
 6. Change detection avoids an all-object metadata-request scan. <!-- @impl: entrypoint.sh::bisync_with_r2 --> <!-- @test: scripts/ci/rclone-bisync-s3.py (test_server_modtime_sync) -->
 
@@ -1645,6 +1647,37 @@ R2 persistence, rclone bisync, quotas, and file browser.
 **Dependencies:** [REQ-ENTERPRISE-027](security.md#req-enterprise-027-managed-resource-admission-and-transport), [REQ-STOR-030](storage.md#req-stor-030-managed-resource-policy-loading)
 
 **Verification:** Automated migration, identity, policy, protected-target, ordinary-target, and uncertainty tests. AC6 guidance is verified by direct review of the storage-specific message in `ManagedEnvironmentUpdatePendingError`; its anchored tests verify conflict behavior, not wording.
+
+**Status:** Implemented
+
+---
+
+### REQ-STOR-054: Post-sync rclone conflict-copy cleanup
+
+**Intent:** Conflict-copy files do not accumulate in synchronized local storage or its R2 destination.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. After each existing user-storage sync attempt, including initial restore, baseline attempts and periodic/final bisync, eligible files whose basenames contain the case-sensitive `.conflict` marker are removed from the same local and remote roots. <!-- @impl: scripts/rclone-conflict-cleanup.sh::cleanup_rclone_conflicts --> <!-- @test: host/__tests__/rclone-conflict-cleanup.test.js (REQ-STOR-054 AC1: post-sync cleanup removes local and remote conflict copies) -->
+2. Nonmatching originals, directories, symlinks, protected `Operators/**` and `.codeflare/operators/**` roots, and other buckets/prefixes remain unchanged. <!-- @impl: scripts/rclone-conflict-cleanup.sh::cleanup_rclone_conflicts --> <!-- @test: host/__tests__/rclone-conflict-cleanup.test.js (REQ-STOR-054 AC2: cleanup preserves originals and scopes deletion to the sync roots) -->
+3. Cleanup runs after the transfer attempt and cannot turn an existing sync failure into success. <!-- @impl: entrypoint.sh::bisync_with_r2 --> <!-- @test: host/__tests__/rclone-conflict-cleanup.test.js (REQ-STOR-054 AC3: cleanup follows the sync attempt without masking its failure) -->
+4. Cleanup failures remain visible through existing sync diagnostics. <!-- @impl: scripts/rclone-conflict-cleanup.sh::cleanup_rclone_conflicts --> <!-- @test: host/__tests__/rclone-conflict-cleanup.test.js (REQ-STOR-054 AC4: cleanup errors remain visible and empty repeats are harmless) -->
+5. Repeated cleanup with no matches preserves ordinary files unchanged. <!-- @impl: scripts/rclone-conflict-cleanup.sh::cleanup_rclone_conflicts --> <!-- @test: host/__tests__/rclone-conflict-cleanup.test.js (REQ-STOR-054 AC5: empty repeats preserve ordinary files) -->
+6. Remote cleanup uses the remaining startup/baseline attempt deadline and the existing network-timeout bound for ordinary cycles. <!-- @impl: scripts/rclone-conflict-cleanup.sh::cleanup_rclone_conflicts --> <!-- @impl: entrypoint.sh::initial_sync_from_r2 --> <!-- @impl: entrypoint.sh::establish_bisync_baseline --> <!-- @test: host/__tests__/rclone-conflict-cleanup.test.js (REQ-STOR-054 AC6: startup and baseline share their existing transfer deadline with cleanup) --> <!-- @test: host/__tests__/rclone-conflict-cleanup.test.js (REQ-STOR-054 AC6: a stalled remote cleanup obeys its remaining deadline) --> <!-- @test: host/__tests__/rclone-conflict-cleanup.test.js (REQ-STOR-054 AC6: ordinary cleanup uses the existing thirty-second network bound) -->
+
+**Constraints:**
+- Use only the configured user sync roots and existing rclone credentials.
+- Restricted Operator upload roots remain outside cleanup scope.
+- No global binary wrapper, timer, UI, secret store or merge/archive workflow is introduced.
+- No protected-workload replay is authorized.
+
+**Priority:** P1
+
+**Dependencies:** None.
+
+**Verification:** Isolated composed sync/local-backend behavior, deadline and failure tests. Historical current-user cleanup receipts do not establish activation of the revised runtime helper.
 
 **Status:** Implemented
 

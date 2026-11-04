@@ -109,7 +109,7 @@ vi.mock('../../stores/session', async () => {
   const [_preseedUpgrading, setPreseedUpgrading] = createSignal(false);
   let _bucketMigrating = false;
   let _bucketMigrationPercent: number | null = null;
-  let _managedReleaseStatus: 'current' | 'upgrading' | 'update_pending' | null = null;
+  const [_managedReleaseStatus, setManagedReleaseStatus] = createSignal<'current' | 'upgrading' | 'update_pending' | null>(null);
   let _managedReleaseProgress: { phase: 'planning' | 'writing' | 'finalizing'; completed: number; total: number } | null = null;
   let _enterpriseMode = false;
   let _sessionMode = 'advanced';
@@ -120,16 +120,19 @@ vi.mock('../../stores/session', async () => {
       get r2Ready() { return r2Ready(); },
       get preseedUpgrading() { return _preseedUpgrading(); },
       preseedUpgradeFailed: false,
+      managedReleaseBlockedReason: null,
       retryPreseedUpgrade: vi.fn().mockResolvedValue(undefined),
+      refreshSessionAncillaryStatus: vi.fn().mockResolvedValue(undefined),
       runPreseedUpdate: vi.fn(async (operation: () => Promise<unknown>) => operation()),
       get bucketMigrating() { return _bucketMigrating; },
       get bucketMigrationPercent() { return _bucketMigrationPercent; },
-      get managedReleaseStatus() { return _managedReleaseStatus; },
+      get managedReleaseStatus() { return _managedReleaseStatus(); },
       get managedReleaseProgress() { return _managedReleaseProgress; },
       get enterpriseMode() { return _enterpriseMode; },
       get preferences() { return { sessionMode: _sessionMode }; },
       isAtSessionLimit: () => _isAtLimit,
       startR2Polling: vi.fn(),
+      killSession: vi.fn().mockResolvedValue(undefined),
       _setSessionMode: (v: string) => { _sessionMode = v; },
       _setTestLimit: (atLimit: boolean, max?: number) => {
         _isAtLimit = atLimit;
@@ -139,7 +142,7 @@ vi.mock('../../stores/session', async () => {
       _setPreseedUpgrading: (upgrading: boolean) => { setPreseedUpgrading(upgrading); },
       _setBucketMigrating: (v: boolean) => { _bucketMigrating = v; },
       _setBucketMigrationPercent: (v: number | null) => { _bucketMigrationPercent = v; },
-      _setManagedReleaseStatus: (v: 'current' | 'upgrading' | 'update_pending' | null) => { _managedReleaseStatus = v; },
+      _setManagedReleaseStatus: setManagedReleaseStatus,
       _setManagedReleaseProgress: (v: typeof _managedReleaseProgress) => { _managedReleaseProgress = v; },
       _setEnterpriseMode: (v: boolean) => { _enterpriseMode = v; },
     },
@@ -251,8 +254,11 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
     vi.mocked(githubStore.loadStatus).mockReset();
     vi.mocked(storageStore.fetchStats).mockReset();
     vi.mocked(sessionStore.startR2Polling).mockReset();
+    vi.mocked(sessionStore.killSession).mockReset().mockResolvedValue(undefined);
     vi.mocked(upgradeRecovery.retryPreseedUpgrade).mockReset().mockResolvedValue(undefined);
     upgradeRecovery.preseedUpgradeFailed = false;
+    (sessionStore as { managedReleaseBlockedReason: 'runtime_incompatible' | null }).managedReleaseBlockedReason = null;
+    vi.mocked(sessionStore.refreshSessionAncillaryStatus).mockReset().mockResolvedValue(undefined);
     vi.mocked(storageApi.recreateAgentConfigs).mockReset();
     (sessionStore as any)._setBucketMigrating(false);
     (sessionStore as any)._setManagedReleaseStatus(null);
@@ -310,6 +316,42 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
       expect(screen.queryByTestId('session-context-menu')).not.toBeInTheDocument();
     },
   );
+
+  it.each(['running', 'starting', 'unreachable', 'stopping'] as const)(
+    'REQ-SESSION-038: dashboard KILL remains accessible for %s without entering the session', async status => {
+      const killed: string[] = [];
+      vi.mocked(sessionStore.killSession).mockImplementationOnce(async id => { killed.push(id); });
+      render(() => <Dashboard {...defaultProps} sessions={[{
+        id: 'recover', name: 'Recover', status, workspace: 'terminal',
+        createdAt: '2024-01-01', lastAccessedAt: '2024-01-01',
+      }, { id: 'untouched', name: 'Untouched', status: 'running', workspace: 'terminal',
+        createdAt: '2024-01-01', lastAccessedAt: '2024-01-01' }]}
+        onStartSession={() => { throw Error('KILL must not start a session'); }}
+        onDeleteSession={() => { throw Error('KILL must not delete a session'); }} />);
+      await fireEvent.click(screen.getByTestId('menu-recover'));
+      // Intentional user action-order contract, shared with the in-session menu.
+      expect([...screen.getByTestId('session-context-menu').querySelectorAll('button')]
+        .map(button => button.textContent?.trim())).toEqual([
+        'Rename', status === 'stopping' ? 'Retry Stop' : 'Stop', 'Kill', 'Delete',
+      ]);
+      await fireEvent.click(screen.getByRole('button', { name: 'Kill' }));
+      expect(killed).toEqual(['recover']);
+      expect(screen.getByTestId('session-card-recover')).toBeInTheDocument();
+      expect(screen.getByTestId('session-card-untouched')).toBeInTheDocument();
+      expect(screen.queryByTestId('session-context-menu')).not.toBeInTheDocument();
+    },
+  );
+
+  it('REQ-SESSION-038: dashboard does not offer KILL for a confirmed-stopped session', async () => {
+    render(() => <Dashboard {...defaultProps} sessions={[{
+      id: 'stopped', name: 'Stopped', status: 'stopped', workspace: 'terminal',
+      createdAt: '2024-01-01', lastAccessedAt: '2024-01-01',
+    }]} />);
+    await fireEvent.click(screen.getByTestId('menu-stopped'));
+    expect(screen.queryByRole('button', { name: 'Kill' })).not.toBeInTheDocument();
+    expect(screen.getByTestId('context-menu-rename')).toBeInTheDocument();
+    expect(screen.getByTestId('context-menu-delete')).toBeInTheDocument();
+  });
 
   // === Initialization Tests ===
 
@@ -1183,6 +1225,38 @@ describe('Dashboard / REQ-SUB-019 (session limit popup in frontend)', () => {
     expect(button).toBeDisabled();
     expect(button.textContent).toBe('Update pending');
     expect(button).toHaveAttribute('aria-label', 'Session environment update pending until session stops');
+  });
+
+  it.each([null, 'runtime_incompatible'] as const)('REQ-STOR-023 AC5 / REQ-AGENT-175: preserves the existing pending state without a separate recovery panel (%s)', (reason) => {
+    (sessionStore as any)._setManagedReleaseStatus('update_pending');
+    (sessionStore as { managedReleaseBlockedReason: 'runtime_incompatible' | null }).managedReleaseBlockedReason = reason;
+    render(() => <Dashboard {...defaultProps} sessions={[]} />);
+
+    const button = screen.getByTestId('dashboard-new-session');
+    expect(button).toBeDisabled();
+    expect(button).toHaveTextContent('Update pending');
+    expect(button).toHaveAttribute('aria-label', 'Session environment update pending until session stops');
+    expect(screen.queryByText('Update blocked')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Check update status' })).not.toBeInTheDocument();
+    expect(screen.queryByText(/Stop any sessions/)).not.toBeInTheDocument();
+    fireEvent.click(button);
+    expect(screen.getByTestId('create-session-dialog')).toHaveAttribute('data-open', 'false');
+  });
+
+  it('REQ-AGENT-175: the existing pending control advances through managed updating to ready', async () => {
+    (sessionStore as any)._setManagedReleaseStatus('update_pending');
+    render(() => <Dashboard {...defaultProps} sessions={[]} />);
+    expect(screen.getByTestId('dashboard-new-session')).toBeDisabled();
+    expect(screen.getByTestId('dashboard-new-session')).toHaveTextContent('Update pending');
+
+    (sessionStore as any)._setManagedReleaseStatus('upgrading');
+    await waitFor(() => expect(screen.getByTestId('dashboard-new-session')).toHaveTextContent('Upgrading'));
+    expect(screen.getByTestId('dashboard-new-session')).toBeDisabled();
+
+    (sessionStore as any)._setManagedReleaseStatus('current');
+    await waitFor(() => expect(screen.getByTestId('dashboard-new-session')).toBeEnabled());
+    expect(screen.getByTestId('dashboard-new-session')).toHaveTextContent('+ New Session');
+    expect(screen.getByTestId('create-session-dialog')).toHaveAttribute('data-open', 'false');
   });
 
   it('REQ-AGENT-049: offers an actionable Retry upgrade after failure without creating a session or full Recreate', () => {

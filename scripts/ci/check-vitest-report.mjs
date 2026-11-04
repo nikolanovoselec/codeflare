@@ -38,6 +38,12 @@ if (!Number.isInteger(status) || !reportPath || !logPath) {
   fail(`invalid arguments: status=${exitStatus} report=${reportPath} log=${logPath}`);
 }
 
+// A deadline or forced kill is not the tolerated post-test workerd crash.
+// Even a passing report plus its fingerprint cannot establish clean completion.
+if (status === 124 || status === 137) {
+  fail(`suite interrupted or forcibly terminated (${status}); teardown tolerance cannot accept an incomplete shutdown`);
+}
+
 let report;
 try {
   report = JSON.parse(readFileSync(reportPath, 'utf8'));

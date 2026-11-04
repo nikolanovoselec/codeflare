@@ -124,8 +124,8 @@ describe('REQ-ENTERPRISE-001 AC4: resolveEffectiveSleepAfter enterprise override
     expect(resolveEffectiveSleepAfter('free', '2h', enterpriseEnv)).toBe('2h');
   });
 
-  it("defaults to '30m' when no preference and enterprise (no 15m lock)", () => {
-    expect(resolveEffectiveSleepAfter('free', undefined, enterpriseEnv)).toBe('30m');
+  it("defaults to '1h' when no preference and enterprise (no 15m lock)", () => {
+    expect(resolveEffectiveSleepAfter('free', undefined, enterpriseEnv)).toBe('1h');
   });
 
   // ── flag-off regression: free tier stays locked to 15m ──
@@ -137,6 +137,6 @@ describe('REQ-ENTERPRISE-001 AC4: resolveEffectiveSleepAfter enterprise override
     expect(resolveEffectiveSleepAfter('free', '2h')).toBe('15m');
     expect(resolveEffectiveSleepAfter('free', undefined)).toBe('15m');
     expect(resolveEffectiveSleepAfter('standard', '1h')).toBe('1h');
-    expect(resolveEffectiveSleepAfter('standard', undefined)).toBe('30m');
+    expect(resolveEffectiveSleepAfter('standard', undefined)).toBe('1h');
   });
 });

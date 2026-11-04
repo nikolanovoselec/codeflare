@@ -340,17 +340,77 @@ function isDirectManagedCheck(words: string[]): boolean {
   return /^(?:biome|@biomejs\/biome)(?:@|$)/u.test(args[packageIndex] ?? "");
 }
 
+const LOCAL_CHECK_RUNNER = /^(?:pytest|vitest|tsc|eslint|oxlint|prettier)(?:\.(?:[cm]?js|py))?$/u;
+
 export function isLocalBuildCommand(command: string): boolean {
-  const commands = executableShellCommands(command);
-  // Git staging arguments can name test tools without executing them. Chained
-  // commands and command substitutions are parsed separately and remain guarded.
-  if (commands.length > 0 && commands.every((words) => operationAfterGlobalOptions(words, "git") === "add")) {
-    return false;
-  }
-  const executableCommand = withoutHeredocBodies(command);
-  return /\b(npm|pnpm|yarn|bun)\s+(run\s+)?(build|test|lint|typecheck|dev)\b/.test(executableCommand)
-    || /\b(pytest|vitest|go\s+test|swift\s+test|cargo\s+test|tsc|eslint|oxlint|prettier|wrangler\s+dev)\b/.test(executableCommand)
-    || executableShellCommands(command).some(isDirectManagedCheck);
+  // Non-shell ctx_* programs can launch subprocesses too. Preserve conservative
+  // runner detection for process-launch source, without treating package-name
+  // arrays used for metadata fetches as shell execution.
+  if (/\b(?:exec|execSync|execFile|execFileSync|spawn|spawnSync|system|Popen)\s*\(/u.test(command)
+    && (/\b(npm|pnpm|yarn|bun)\s+(run\s+)?(build|test|lint|typecheck|dev)\b/u.test(command)
+      || /\b(pytest|vitest|go\s+test|swift\s+test|cargo\s+test|tsc|eslint|oxlint|prettier|wrangler\s+dev)\b/u.test(command))) return true;
+  return executableShellCommands(command).some((words) => {
+    if (isDirectManagedCheck(words)) return true;
+    const executable = shellCommandExecutable(words);
+    if (!executable) return false;
+    const index = words.indexOf(executable);
+    const args = words.slice(index + 1);
+    const binary = executable.split("/").at(-1) ?? executable;
+    if (["pytest", "vitest", "tsc", "eslint", "oxlint", "prettier"].includes(binary)) return true;
+    if (["npm", "pnpm", "yarn", "bun"].includes(binary)) {
+      const operation = args[0] === "run" ? args[1] : args[0];
+      return /^(?:build|test|lint|typecheck|dev)\b/u.test(operation ?? "")
+        || LOCAL_CHECK_RUNNER.test(operation ?? "")
+        || (["exec", "dlx", "x"].includes(args[0] ?? "") && isLocalBuildCommand(args.slice(1).join(" ")));
+    }
+    if (["go", "swift", "cargo"].includes(binary)) return args[0] === "test";
+    if (binary === "wrangler") return args[0] === "dev";
+    if (binary === "npx") {
+      // npx can place package-selection flags before the executable. Keep the
+      // runner allowlist guarded even when those options precede it.
+      const call = args.findIndex((arg) => arg === "-c" || arg === "--call");
+      const assigned = args.find((arg) => arg.startsWith("--call="));
+      return (call >= 0 && isLocalBuildCommand(args[call + 1] ?? ""))
+        || Boolean(assigned && isLocalBuildCommand(assigned.slice("--call=".length)))
+        || args.some((arg) => /^(?:pytest|vitest|tsc|eslint|oxlint|prettier|wrangler)(?:@[^/\s]+)?$/u.test(arg))
+        || isLocalBuildCommand(args.join(" "));
+    }
+    // Shell/interpreter source is executable, unlike ordinary command arguments
+    // (Git pathspecs, cd targets, package-name arrays, or echoed documentation).
+    if (["sh", "bash", "dash", "zsh"].includes(binary)) {
+      const script = args.findIndex((arg) => /^-[^-]*c/u.test(arg));
+      return script >= 0 && isLocalBuildCommand(args[script + 1] ?? "");
+    }
+    if (["node", "python", "python3"].includes(binary)) {
+      const script = args.findIndex((arg) => ["-e", "--eval", "-c"].includes(arg));
+      if (script >= 0) return isLocalBuildCommand(args[script + 1] ?? "");
+      // Known runner entrypoints remain execution when launched by an interpreter;
+      // do not scan ordinary script arguments as if they were shell commands.
+      if (binary !== "node" && args[0] === "-m") return args[1] === "pytest";
+      let entrypointIndex = 0;
+      const valueOptions = binary === "node"
+        ? ["-r", "--require", "--import", "--loader", "--experimental-loader", "--env-file", "--env-file-if-exists"]
+        : ["-W", "-X"];
+      while ((args[entrypointIndex] ?? "").startsWith("-")) {
+        const option = args[entrypointIndex++];
+        if (valueOptions.includes(option ?? "")) entrypointIndex += 1;
+      }
+      return LOCAL_CHECK_RUNNER.test(args[entrypointIndex]?.split("/").at(-1) ?? "");
+    }
+    // Metadata/data arguments are inert; substitutions were already parsed as
+    // their own commands. Do not grant the same exemption to unknown wrappers.
+    if (binary === "git") {
+      // Inline shell aliases execute source; ordinary Git pathspecs remain data.
+      return args.some((arg) => /^(?:-c)?alias\.[^=]+=!/u.test(arg)
+        && isLocalBuildCommand(arg.slice(arg.indexOf("=!") + 2)));
+    }
+    if (["cd", "printf", "echo", "cat", "const", "let", "var"].includes(binary)) return false;
+    // Quoted shell source passed to exec()/execSync()/system() is emitted by
+    // the boundary parser as one executable word, not separate argv tokens.
+    return (/\s/u.test(executable) && isLocalBuildCommand(executable))
+      || args.some((arg) => isLocalBuildCommand(arg))
+      || (args.length > 1 && isLocalBuildCommand(args.join(" ")));
+  });
 }
 
 export interface BypassFs {

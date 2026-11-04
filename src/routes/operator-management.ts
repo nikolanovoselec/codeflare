@@ -3,13 +3,18 @@ import { bodyLimit } from 'hono/body-limit';
 import { z } from 'zod';
 import type { Env } from '../types';
 import { authMiddleware, type AuthVariables } from '../middleware/auth';
-import { authenticateRequest, requireOperatorHumanContext, canManageOperator, hasOperatorManagementEligibility, parseAccessGroups } from '../lib/access';
+import { authenticateRequest, requireOperatorHumanContext, canManageOperator, hasOperatorManagementEligibility, parseAccessGroups, loadEnterpriseRouteConfig, canInvokeOperator } from '../lib/access';
 import { getAllUsers } from '../lib/access-policy';
 import { SETUP_KEYS } from '../lib/kv-keys';
 import { operatorCapabilityChoices } from '../operators/distribution';
+import { inferencePolicySchema } from '../operators/policy';
+import { OperatorInferenceSelectionError, resolveOperatorInference } from '../operators/inference-selection';
+import { DispatcherSdkSettingsUnconfiguredError, readDispatcherSdkFiles } from '../operators/dispatcher-sdk-storage';
+import { provisionDispatcherDeployment, verifyDispatcherDeployment, type DispatcherDeploymentVerification } from '../operators/dispatcher-deployment';
 import { MAX_SOURCE_RESPONSE_BYTES, sourceResponseBytes } from '../operators/dispatcher-source-limits';
 import { MAX_INFERENCE_REQUEST_BYTES } from '../operators/dispatcher-inference-limits';
 import { pickDispatcherCapacities } from '../operators/dispatcher-capacity-limits';
+import { submissionAttemptLimit } from '../operators/dispatcher-submission-limits';
 import { dispatcherCapacityShape } from '../operators/dispatcher-capacity-schema';
 import { isEnterpriseMode } from '../lib/subscription';
 import { AppError, ValidationError } from '../lib/error-types';
@@ -33,23 +38,34 @@ const policy = z.strictObject({
   capabilities: z.array(z.string().trim().min(1).max(128)).max(32).refine(values => new Set(values).size === values.length),
   resourceProfileId: z.string().regex(ID).nullable(),
   sourceResponseBytes: z.number().int().min(1).max(MAX_SOURCE_RESPONSE_BYTES).optional(),
+  inference: inferencePolicySchema.optional(),
 });
 const githubPat = z.string().min(1).max(16384).refine(value => !!value.trim() && !/[\r\n\0]/.test(value));
 const repositoryUrl = z.string().min(1).max(2048);
 const registrationBody = z.strictObject({ repositoryUrl, githubPat, profile: z.enum(['conductor', 'dispatcher']), realm: z.enum(['internal', 'external']).default('internal'), managers: grant, invokers: grant, policy });
 const configuration = z.record(z.string().max(256), z.json());
-const installationBody = z.strictObject({ name: z.string().trim().min(1).max(256), policy, revision, configuration: configuration.default({}) });
+const piReasoningOverride = z.enum(['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']).optional();
+const installationBody = z.strictObject({ name: z.string().trim().min(1).max(256), policy, revision, configuration: configuration.default({}), piReasoningOverride });
 const revisionBody = z.strictObject({ revision });
 const sourceBody = z.strictObject({ repositoryUrl, githubPat, revision });
 const promoteBody = z.strictObject({ releaseId: z.string().regex(ID), revision });
+const dispatcherConnectionBody = z.strictObject({ revision, connectionSecret: githubPat.max(4096),
+  workerName: z.string().regex(/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/),
+  workerVersionId: z.string().uuid(), releaseId: z.string().regex(ID),
+  sourceCommit: z.string().regex(/^[a-f0-9]{40}$/), compilerCommit: z.string().regex(/^[a-f0-9]{40}$/),
+  manifestDigest: z.string().regex(/^[a-f0-9]{64}$/), bundleDigest: z.string().regex(/^[a-f0-9]{64}$/) });
 const enableBody = z.strictObject({ revision, enabled: z.boolean() });
 const grantsBody = z.strictObject({ managers: grant, invokers: grant, revision });
 const capabilitiesBody = z.strictObject({ ...dispatcherCapacityShape, revision, capabilities: policy.shape.capabilities, sourceResponseBytes: policy.shape.sourceResponseBytes,
+  inference: policy.shape.inference,
   inferenceRequestBytes: z.number().int().positive().max(MAX_INFERENCE_REQUEST_BYTES).optional(),
   operationLimit: z.number().int().positive().safe().optional(), loggingEnabled: z.boolean().optional(),
   inferenceAttemptLimit: z.number().int().positive().safe().optional(),
   submissionAttemptLimit: z.number().int().positive().safe().optional() });
-const configureBody = z.strictObject({ policy, configuration, revision });
+const gatewaySelection = z.strictObject({ operatorRevision: revision,
+  routeId: z.string().min(1).max(128).refine(value => value.trim() === value).nullable(),
+  reasoningLevel: z.enum(['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']).nullable() });
+const configureBody = z.strictObject({ policy, configuration, revision, piReasoningOverride, gatewaySelection: gatewaySelection.optional() });
 const boundaryEnrollmentBody = z.strictObject({
   repositoryUrl: z.string().min(1).max(2048),
   protectedRef: z.enum(['refs/heads/main', 'refs/heads/develop', 'refs/heads/master']),
@@ -73,6 +89,10 @@ type Variables = AuthVariables & { operatorHuman: HumanContext; registry: Durabl
 type RouteEnv = { Bindings: Env; Variables: Variables };
 const app = new Hono<RouteEnv>();
 
+app.use('*', async (c, next) => {
+  if (new URL(c.req.url).pathname.endsWith('/options')) c.header('Cache-Control', 'no-store');
+  return next();
+});
 app.use('*', async (c, next) => isEnterpriseMode(c.env) ? next() : c.notFound());
 app.use('*', authMiddleware);
 app.use('*', async (c, next) => {
@@ -174,7 +194,92 @@ function query(c: Context<RouteEnv>) {
   return { limit, cursor, profile, realm, state, search: search?.trim().toLowerCase() };
 }
 
+type ManualInference = {
+  source: 'pi-native' | 'managed'; status: 'profile' | 'selected' | 'blocked' | 'unconfigured' | 'unavailable';
+  reason?: 'invocation-denied' | 'installation-unavailable' | 'installation-disabled' | 'policy-denied';
+  provider?: string; model?: string; routeId?: string; reasoningLevel?: string | null;
+};
+/** Selection preview only: no admission, credential read, SDK auth or inference. */
+async function manualInference(c: Context<RouteEnv>, routes: Awaited<ReturnType<typeof loadEnterpriseRouteConfig>>,
+  installationId?: string): Promise<ManualInference> {
+  const initial = c.get('operatorHuman');
+  // Same source decision as normal Dispatcher SDK configuration, not account defaults.
+  const source = routes.piDefaultSource === 'pi-native' && routes.allowPersonalPiProviders === true ? 'pi-native' : 'managed';
+  const registry = c.get('registry');
+  const installation = installationId ? result(await registry.getManagementInstallation(installationId)) : undefined;
+  const operator = installation ? await managed(c, installation.operatorId) : undefined;
+  if (operator && !canInvokeOperator(initial.human, operator)) return { source, status: 'blocked', reason: 'invocation-denied' };
+  const configured = installation ? await registry.resolveManagementConfiguration(installation.id) : undefined;
+  if (configured && (!configured.ok || configured.value.operator.profile !== 'dispatcher')) {
+    return { source, status: 'blocked', reason: 'installation-unavailable' };
+  }
+  const selection = configured?.ok ? configured.value : undefined;
+  const routeSnapshot = JSON.stringify(routes);
+  const current = async () => {
+    const fresh = await managementContext(c, true);
+    if (fresh.human.subject !== initial.human.subject || fresh.human.email !== initial.human.email
+      || fresh.human.issuer !== initial.human.issuer || fresh.controls.revision !== initial.controls.revision
+      || fresh.human.expiresAt * 1000 <= Date.now() || c.req.raw.signal.aborted) return false;
+    const configuredGroups = parseAccessGroups(await c.env.KV.get(SETUP_KEYS.ENTERPRISE_ACCESS_GROUP));
+    const latestRoutes = await loadEnterpriseRouteConfig(c.env, configuredGroups.filter(group => fresh.human.groups?.includes(group)));
+    if (JSON.stringify(latestRoutes) !== routeSnapshot) return false;
+    if (selection) {
+      const latest = await registry.resolveManagementConfiguration(selection.installation.id);
+      if (!latest.ok || !scopedManager(fresh, latest.value.operator) || !canInvokeOperator(fresh.human, latest.value.operator)
+        || latest.value.installation.revision !== selection.installation.revision
+        || latest.value.operator.revision !== selection.operator.revision
+        || latest.value.controlsRevision !== selection.controlsRevision
+        || latest.value.release.id !== selection.release.id || latest.value.release.bundleDigest !== selection.release.bundleDigest) return false;
+    }
+    return true;
+  };
+  let value: ManualInference = { source, status: selection ? 'selected' : 'profile' };
+  try {
+    if (source === 'pi-native') {
+      const files = await readDispatcherSdkFiles({ env: c.env, bucket: c.get('bucketName'),
+        email: initial.human.email.trim().toLowerCase(), deadline: Math.min(initial.human.expiresAt * 1000, Date.now() + 15_000),
+        signal: c.req.raw.signal, current });
+      value = { ...value, provider: files.settings.defaultProvider, model: files.settings.defaultModel,
+        reasoningLevel: files.reasoningOverride ?? null };
+    } else if (selection) {
+      const inference = selection.installation.policy.inference;
+      if (!inference?.defaultRouteId) return { source, status: 'unconfigured' };
+      const selected = resolveOperatorInference({ policy: { inference }, trusted: {
+        routeId: inference.defaultRouteId, reasoningLevel: inference.defaultReasoningLevel },
+        eligible: { routeIds: routes.routeCatalog, defaultRouteId: '', defaultReasoningLevel: '' } });
+      const supported = routes.routeReasoningLevels[selected.routeId];
+      if (selected.reasoningLevel !== null && supported && !supported.includes(selected.reasoningLevel as typeof supported[number])) {
+        return { source, status: 'blocked', reason: 'policy-denied' };
+      }
+      value = { ...value, provider: 'codeflare-gateway', model: selected.routeId, ...selected };
+    }
+    if (selection) {
+      for (const policy of [selection.operator.policy, selection.installation.policy]) {
+        const inference = policy.inference;
+        if (!policy.capabilities.includes('inference') || source === 'pi-native' && (!inference?.allowedSources?.includes('pi-native')
+          || value.reasoningLevel != null && !inference.reasoningLevels.includes(value.reasoningLevel as typeof inference.reasoningLevels[number]))) {
+          return { ...value, status: 'blocked', reason: 'policy-denied' };
+        }
+        if (source === 'managed' && inference) resolveOperatorInference({ policy: { inference }, trusted: {
+          routeId: value.routeId, reasoningLevel: value.reasoningLevel },
+          eligible: { routeIds: routes.routeCatalog, defaultRouteId: '', defaultReasoningLevel: '' } });
+      }
+      if (!selection.installation.enabled) value = { ...value, status: 'blocked', reason: 'installation-disabled' };
+    }
+    if (!await current()) return { source, status: 'unavailable' };
+    return value;
+  } catch (error) {
+    if (error instanceof DispatcherSdkSettingsUnconfiguredError) return { source, status: 'unconfigured' };
+    return error instanceof OperatorInferenceSelectionError
+      ? { source, status: 'blocked', reason: 'policy-denied' } : { source, status: 'unavailable' };
+  }
+}
+
 app.get('/options', async c => {
+  c.header('Cache-Control', 'no-store');
+  const params = new URL(c.req.url).searchParams;
+  if ([...params.keys()].some(key => key !== 'installationId') || params.getAll('installationId').length > 1
+    || params.has('installationId') && !ID.test(params.get('installationId')!)) throw new ValidationError('Invalid operator options context');
   const context = c.get('operatorHuman');
   const [users, userGroups, adminGroups] = await Promise.all([
     context.platformAdmin ? getAllUsers(c.env.KV).then(entries => entries.map(entry => entry.email)) : Promise.resolve([context.human.email]),
@@ -184,7 +289,19 @@ app.get('/options', async c => {
   // Environment may contain display names. Only IDs actually observed in this
   // human's verified Access membership are safe to use in an issuer-bound ACL.
   const verifiedGroups = new Set(context.human.groups ?? []);
-  const value = { users: [...new Set(users.map(user => user.toLowerCase()))].sort(),
+  // Reuse this request's current verified human membership, in configured user-group order.
+  const routes = await loadEnterpriseRouteConfig(c.env,
+    parseAccessGroups(userGroups).filter(group => verifiedGroups.has(group)));
+  const managedRoutes = routes.routeCatalog.map(id => ({ id, label: routes.modelDisplayNames[id] || id,
+    reasoningLevels: routes.routeReasoningLevels[id] ?? [] }));
+  // Keep the public projection compatible with the bounded browser contract.
+  // Never include provider coordinates, credentials, or internal target bindings.
+  if (managedRoutes.length > 128 || managedRoutes.some(route => !route.id.length || route.id.length > 128
+    || route.id.trim() !== route.id || route.label.length > 256 || route.reasoningLevels.length > 7)) {
+    throw new AppError('UNAVAILABLE', 503, 'Operator choices unavailable');
+  }
+  const inference = await manualInference(c, routes, params.get('installationId') ?? undefined);
+  const value = { managedRoutes, inference, users: [...new Set(users.map(user => user.toLowerCase()))].sort(),
     groups: configuredGroups.filter(id => verifiedGroups.has(id)).map(id => ({ issuer: context.human.issuer, id })),
     unresolvedGroups: context.platformAdmin ? configuredGroups.filter(group => !verifiedGroups.has(group)) : [],
     capabilities: operatorCapabilityChoices, resourceProfileIds: context.controls.ceiling.resourceProfileIds,
@@ -282,7 +399,8 @@ app.post('/operators/:operatorId/installations', async c => {
   const input = await parseJsonBody(c, installationBody);
   const operator = await managed(c, c.req.param('operatorId'));
   withinCeiling(c.get('operatorHuman'), input.policy);
-  return c.json(presentInstallation(result(await c.get('registry').createManagementInstallation(operator.id, input.name, input.policy, authority(c, operator, input.revision), JSON.stringify(input.configuration)))), 201);
+  if (operator.profile === 'dispatcher' && input.piReasoningOverride !== undefined) throw new ValidationError('Dispatcher reasoning inherits the owner profile');
+  return c.json(presentInstallation(result(await c.get('registry').createManagementInstallation(operator.id, input.name, input.policy, authority(c, operator, input.revision), JSON.stringify(input.configuration), input.piReasoningOverride))), 201);
 });
 
 app.post('/operators/:operatorId/capabilities', async c => {
@@ -297,7 +415,7 @@ app.post('/operators/:operatorId/capabilities', async c => {
   if (Object.keys(capacityPolicy).length > 0 && operator.profile !== 'dispatcher') throw new ValidationError('Capacity limits require a Dispatcher operator');
   withinCeiling(c.get('operatorHuman'), { ...operator.policy, capabilities: input.capabilities,
     ...(input.sourceResponseBytes === undefined ? {} : { sourceResponseBytes: input.sourceResponseBytes }) });
-  const updated = result(await c.get('registry').setManagementCapabilities(operator.id, input.capabilities, authority(c, operator, input.revision), input.sourceResponseBytes, input.inferenceRequestBytes, input.operationLimit, input.loggingEnabled, input.inferenceAttemptLimit, input.submissionAttemptLimit, capacityPolicy));
+  const updated = result(await c.get('registry').setManagementCapabilities(operator.id, input.capabilities, authority(c, operator, input.revision), input.sourceResponseBytes, input.inferenceRequestBytes, input.operationLimit, input.loggingEnabled, input.inferenceAttemptLimit, input.submissionAttemptLimit, capacityPolicy, input.inference));
   logger.info('Operator capabilities changed', { actor: c.get('operatorHuman').human.email, operatorId: operator.id, revision: updated.revision });
   return c.json(updated);
 });
@@ -327,11 +445,80 @@ app.post('/installations/:installationId/promote', async c => {
   return c.json(presentInstallation(promoted));
 });
 
+app.post('/installations/:installationId/dispatcher-connection', async c => {
+  const input = await parseJsonBody(c, dispatcherConnectionBody);
+  const { installation, operator } = await managedInstallation(c);
+  const configured = result(await c.get('registry').configureManagementDispatcherConnection(installation.id, input, authority(c, operator)));
+  return c.json(presentInstallation(configured));
+});
+
 app.post('/installations/:installationId/enable', async c => {
   const input = await parseJsonBody(c, enableBody);
   const { installation, operator } = await managedInstallation(c);
   if (input.enabled) withinCeiling(c.get('operatorHuman'), installation.policy);
-  const enabled = result(await c.get('registry').setManagementInstallationEnabled(installation.id, input.enabled, input.revision, authority(c, operator)));
+  let verification: DispatcherDeploymentVerification | undefined;
+  let expectedRevision = input.revision;
+  if (input.enabled && operator.profile === 'dispatcher') {
+    const registry = c.get('registry');
+    const conflict = (): never => { throw new AppError('CONFLICT', 409, 'Dispatcher activation state changed or unavailable'); };
+    const selection = result(await registry.resolveManagementConfiguration(installation.id));
+    if (selection.installation.revision !== expectedRevision || selection.operator.revision !== operator.revision) conflict();
+    const bytes = await registry.getManagementBundle(selection.release.bundleDigest);
+    if (!bytes) throw new AppError('CONFLICT', 409, 'Dispatcher artifact unavailable');
+    const digest = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', Uint8Array.from(bytes))))
+      .map(byte => byte.toString(16).padStart(2, '0')).join('');
+    if (digest !== selection.release.bundleDigest) return conflict();
+    // Match the Registry's historical approval boundary only after integrity has been established.
+    let schema: unknown;
+    try { schema = JSON.parse(new TextDecoder().decode(bytes)); } catch { /* opaque historical approval */ }
+    if (schema && typeof schema === 'object' && 'schemaVersion' in schema && schema.schemaVersion === 2) {
+      const compilerCommit = selection.release.provenance.compilerCommit;
+      if (typeof compilerCommit !== 'string' || !/^[0-9a-f]{40}$/.test(compilerCommit)) return conflict();
+      const pin = { releaseId: selection.release.id, sourceCommit: selection.release.sourceCommit,
+        compilerCommit, manifestDigest: selection.release.manifestDigest, bundleDigest: selection.release.bundleDigest };
+      const originalExpiry = c.get('operatorHuman').human.expiresAt * 1000;
+      const controlsRevision = c.get('operatorHuman').controls.revision;
+      const refreshHuman = acquisitionContext(c).reauthorize;
+      const reauthorize = async () => {
+        const human = await refreshHuman();
+        if (Date.now() >= originalExpiry || Date.now() >= human.expiresAt * 1000) denied();
+        const freshOperator = await managed(c, operator.id);
+        const fresh = result(await registry.resolveManagementConfiguration(installation.id));
+        if (freshOperator.revision !== operator.revision || fresh.operator.revision !== operator.revision
+          || fresh.controlsRevision !== controlsRevision || fresh.installation.revision !== expectedRevision
+          || fresh.release.id !== pin.releaseId || fresh.release.sourceCommit !== pin.sourceCommit
+          || fresh.release.provenance.compilerCommit !== pin.compilerCommit
+          || fresh.release.manifestDigest !== pin.manifestDigest || fresh.release.bundleDigest !== pin.bundleDigest) conflict();
+        withinCeiling(c.get('operatorHuman'), fresh.installation.policy);
+        if (!fresh.release.requestedCapabilities.every(capability => fresh.installation.policy.capabilities.includes(capability)
+          && c.get('operatorHuman').controls.ceiling.capabilities.includes(capability))) conflict();
+      };
+      await reauthorize();
+      const connection = selection.installation.dispatcherConnection;
+      if (connection?.releaseId === pin.releaseId) {
+        if (connection.sourceCommit !== pin.sourceCommit || connection.compilerCommit !== pin.compilerCommit
+          || connection.manifestDigest !== pin.manifestDigest || connection.bundleDigest !== pin.bundleDigest) conflict();
+        try { verification = await verifyDispatcherDeployment(c.env, connection, bytes, submissionAttemptLimit(operator.policy), reauthorize); }
+        catch { throw new AppError('CONFLICT', 409, 'Dispatcher deployment verification failed'); }
+      } else {
+        // Independent verification precedes Registry selection; losing/uncertain candidates never replace old SDK storage.
+        let candidate: Awaited<ReturnType<typeof provisionDispatcherDeployment>>;
+        try {
+          candidate = await provisionDispatcherDeployment(c.env, { ...pin, installationId: installation.id,
+            connectionRevision: (connection?.connectionRevision ?? 0) + 1 }, bytes, submissionAttemptLimit(operator.policy), reauthorize);
+        } catch { throw new AppError('CONFLICT', 409, 'Dispatcher deployment could not be established'); }
+        await reauthorize();
+        const configured = result(await registry.configureManagementDispatcherConnection(installation.id, {
+          ...pin, revision: expectedRevision, connectionSecret: candidate.connectionSecret,
+          workerName: candidate.connection.workerName, workerVersionId: candidate.connection.workerVersionId,
+        }, authority(c, operator)));
+        expectedRevision = configured.revision;
+        verification = candidate.verification;
+      }
+      await reauthorize();
+    }
+  }
+  const enabled = result(await c.get('registry').setManagementInstallationEnabled(installation.id, input.enabled, expectedRevision, authority(c, operator), verification));
   return c.json(presentInstallation(enabled));
 });
 
@@ -339,9 +526,28 @@ app.post('/installations/:installationId/configure', async c => {
   const input = await parseJsonBody(c, configureBody);
   const { installation, operator } = await managedInstallation(c);
   withinCeiling(c.get('operatorHuman'), input.policy);
+  if (operator.profile === 'dispatcher' && input.piReasoningOverride !== undefined) throw new ValidationError('Dispatcher reasoning inherits the owner profile');
+  if (input.gatewaySelection) {
+    if (operator.profile !== 'dispatcher') throw new ValidationError('Gateway approval requires a Dispatcher operator');
+    const reauthorize = acquisitionContext(c, operator).reauthorize;
+    await reauthorize();
+    const human = c.get('operatorHuman').human;
+    const groups = [...(human.groups ?? [])].sort();
+    const configuredGroups = parseAccessGroups(await c.env.KV.get(SETUP_KEYS.ENTERPRISE_ACCESS_GROUP));
+    const catalog = await loadEnterpriseRouteConfig(c.env, configuredGroups.filter(group => groups.includes(group)));
+    const { routeId, reasoningLevel } = input.gatewaySelection;
+    if ((routeId !== null && !catalog.routeCatalog.includes(routeId))
+      || (reasoningLevel !== null && (routeId === null || !(catalog.routeReasoningLevels[routeId] ?? []).includes(reasoningLevel)))) {
+      throw new ValidationError('Gateway selection is unavailable');
+    }
+    const current = await reauthorize();
+    if (JSON.stringify([...(current.groups ?? [])].sort()) !== JSON.stringify(groups)) denied();
+  }
   const configured = result(await c.get('registry').configureManagementInstallation(installation.id, {
     policy: input.policy, configurationJson: JSON.stringify(input.configuration), revision: input.revision,
-  }, authority(c, operator)));
+    ...(input.piReasoningOverride !== undefined && { piReasoningOverride: input.piReasoningOverride }),
+    ...(input.gatewaySelection && { gatewaySelection: input.gatewaySelection }),
+  }, authority(c, operator, input.gatewaySelection?.operatorRevision ?? operator.revision)));
   return c.json(presentInstallation(configured));
 });
 

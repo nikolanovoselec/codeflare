@@ -77,7 +77,7 @@ function runStartup(remoteCurationActive, codingAgents = 'claude-code,codex,copi
     "ENTERPRISE_MODE=''",
     "SYNC_ERROR='null'",
     "SESSION_MODE='default'",
-    remoteCurationActive ? "REMOTE_CURATION_ACTIVE='true'" : '',
+    `REMOTE_CURATION_ACTIVE='${remoteCurationActive ? 'true' : 'false'}'`,
     'cp() {',
     '  case "$*" in',
     '    *"$AGENT_SEED_BAKE_DIR"/*) echo laydown >> "$EVENTS" ;;',
@@ -135,14 +135,14 @@ describe('managed curation entrypoint behavior', () => {
     for (const companion of run.companionFiles) {
       assert.equal(readFileSync(companion.destination, 'utf8'), companion.content);
     }
-    assert.deepEqual(readFileSync(run.events, 'utf8').trim().split('\n'), [
-      'initial',
-      'post-restore',
-      'prepare-filter',
-      'relay',
-      'cleanup',
-      'baseline',
+    // Relay is a phase, not a fixed number of file-copy calls. Every declared
+    // companion's bytes are checked above; all relay writes must precede cleanup.
+    const events = readFileSync(run.events, 'utf8').trim().split('\n');
+    assert.deepEqual(events.filter(event => event !== 'relay'), [
+      'initial', 'post-restore', 'prepare-filter', 'cleanup', 'baseline',
     ]);
+    assert.ok(events.indexOf('relay') > events.indexOf('prepare-filter'));
+    assert.ok(events.lastIndexOf('relay') < events.indexOf('cleanup'));
   });
 
   it('executes the reachable baked restore, relay, cleanup, and baseline in order when curation is disabled', () => {

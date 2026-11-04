@@ -30,7 +30,11 @@ function extractFunction(name) {
     return lines[index + 2] === 'update_pi_and_codex_when_fast_start_disabled() {';
   });
   if (end === -1) throw new Error(`Could not locate the end of ${name}()`);
-  return lines.slice(start, end + 1).join('\n');
+  const body = lines.slice(start, end + 1).join('\n');
+  if (['initial_sync_from_r2', 'establish_bisync_baseline', 'bisync_with_r2'].includes(name)) {
+    return `source ${JSON.stringify(resolve(__dirname, '../../scripts/rclone-conflict-cleanup.sh'))}\n${body}`;
+  }
+  return body;
 }
 
 function runFunction(name, setup, invocation, env = {}) {
@@ -440,7 +444,8 @@ describe('entrypoint production helpers', () => {
     const result = runFunction(
       'establish_bisync_baseline',
       [
-        `timeout() { shift; printf '%s\\n' "$*" > '${calls}'; return 0; }`,
+        `timeout() { shift; printf '%s\\n' "$*" >> '${calls}'; return 0; }`,
+        'rclone() { case "$1" in delete) return 0;; *) return 1;; esac; }',
         'record_sync_disk_failure() { :; }',
         'recover_vanished_files() { return 1; }',
         'RCLONE_FILTERS=()',
@@ -456,7 +461,8 @@ describe('entrypoint production helpers', () => {
     );
 
     assert.equal(result.status, 0, result.stderr);
-    const args = readFileSync(calls, 'utf8');
+    const args = readFileSync(calls, 'utf8').split('\n').find(line => line.startsWith('rclone bisync '));
+    assert.ok(args, 'baseline transfer invocation must be recorded');
     assert.match(args, /--workdir .*\/sync\/rclone(?: |$)/);
     assert.match(args, /--resync --resync-mode newer/);
   });
@@ -471,9 +477,9 @@ describe('entrypoint production helpers', () => {
       assert.ok(start >= 0 && end > start);
       const startup = source.slice(start, end) + '\nstart_sync_daemon';
       const code = `${extractFunction('update_sync_status')}\n${extractFunction('record_sync_disk_failure')}\n${extractFunction('establish_bisync_baseline')}\n` +
-        'timeout() { shift; "$@"; }\nrclone() { echo "preallocate: file too big for remaining disk space"; return 7; }\n' +
+        'timeout() { shift; "$@"; }\nrclone() { case "$1" in delete) return 0;; esac; echo "preallocate: file too big for remaining disk space"; return 7; }\n' +
         'init_user_vault() { :; }\nstart_sync_daemon() { echo recovery-daemon-reachable; }\n' + startup;
-      const result = spawnSync('bash', ['-c', code], { encoding: 'utf8', env: runtimeEnv({ CODEFLARE_RUNTIME_ROOT: directory }) });
+      const result = spawnSync('bash', ['-c', code], { encoding: 'utf8', env: runtimeEnv({ CODEFLARE_RUNTIME_ROOT: directory, USER_HOME: directory, R2_BUCKET_NAME: 'fixture-bucket' }) });
       assert.equal(result.status, 0, result.stderr);
       assert.match(result.stdout, /recovery-daemon-reachable/);
       const status = JSON.parse(readFileSync(join(directory, 'sync/sync-status.json'), 'utf8'));
@@ -491,7 +497,7 @@ describe('entrypoint production helpers', () => {
       writeFileSync(log, 'No space left on device');
       const code = `${extractFunction('record_sync_disk_failure')}\n${extractFunction('establish_bisync_baseline')}\n` +
         `touch() { return 1; }\nupdate_sync_status() { :; }\nrclone() { echo unexpected-transfer; }\nrecord_sync_disk_failure '${log}'\nestablish_bisync_baseline`;
-      const result = spawnSync('bash', ['-c', code], { encoding: 'utf8', env: runtimeEnv({ CODEFLARE_RUNTIME_ROOT: directory }) });
+      const result = spawnSync('bash', ['-c', code], { encoding: 'utf8', env: runtimeEnv({ CODEFLARE_RUNTIME_ROOT: directory, USER_HOME: directory, R2_BUCKET_NAME: 'fixture-bucket' }) });
       assert.equal(result.status, 1, result.stderr);
       assert.equal(existsSync(join(directory, 'sync/disk-space-blocked')), false);
       assert.doesNotMatch(result.stdout, /unexpected-transfer/);
@@ -509,7 +515,7 @@ describe('entrypoint production helpers', () => {
       const code = `${extractFunction('update_sync_status')}\n${extractFunction('record_sync_disk_failure')}\n${extractFunction('establish_bisync_baseline')}\n` +
         `record_sync_disk_failure '${log}'\nprintf 'cannot find prior Path1 or Path2 listings' > '${log}'\nrecord_sync_disk_failure '${log}'\n` +
         'rclone() { echo unexpected-transfer; return 0; }\nestablish_bisync_baseline\n';
-      const result = spawnSync('bash', ['-c', code], { encoding: 'utf8', env: runtimeEnv({ CODEFLARE_RUNTIME_ROOT: directory }) });
+      const result = spawnSync('bash', ['-c', code], { encoding: 'utf8', env: runtimeEnv({ CODEFLARE_RUNTIME_ROOT: directory, USER_HOME: directory, R2_BUCKET_NAME: 'fixture-bucket' }) });
       assert.notEqual(result.status, 0);
       assert.equal(existsSync(join(directory, 'sync/disk-space-blocked')), true);
       assert.doesNotMatch(result.stdout, /unexpected-transfer/);

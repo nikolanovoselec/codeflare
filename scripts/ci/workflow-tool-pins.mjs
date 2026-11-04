@@ -3,7 +3,9 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const TOOLS = Object.freeze(['zizmor', 'actionlint']);
+const REQUIRED_TOOLS = Object.freeze(['zizmor', 'actionlint']);
+const VERSION_ONLY_TOOLS = Object.freeze(['trivy', 'ci-node-26', 'ci-node-22']);
+const TOOLS = Object.freeze([...REQUIRED_TOOLS, 'rclone', ...VERSION_ONLY_TOOLS]);
 const VERSION = /^\d+\.\d+\.\d+$/;
 const SHA256 = /^[0-9a-f]{64}$/;
 const DEFAULT_PATH = '.github/workflow-tool-pins.json';
@@ -13,16 +15,17 @@ function validatePins(value) {
     throw new Error('workflow tool pins must be an object');
   }
   const keys = Object.keys(value);
-  if (keys.length !== TOOLS.length || TOOLS.some((tool) => !keys.includes(tool))) {
-    throw new Error(`workflow tool pins must contain exactly: ${TOOLS.join(', ')}`);
+  if (keys.some(tool => !TOOLS.includes(tool)) || REQUIRED_TOOLS.some(tool => !keys.includes(tool))) {
+    throw new Error(`workflow tool pins require ${REQUIRED_TOOLS.join(', ')} and only supported tool keys`);
   }
-  for (const tool of TOOLS) {
+  for (const tool of keys) {
     const pin = value[tool];
-    if (!pin || typeof pin !== 'object' || Array.isArray(pin) || Object.keys(pin).sort().join(',') !== 'sha256,version') {
-      throw new Error(`${tool} pin must contain exactly version and sha256`);
+    const fields = VERSION_ONLY_TOOLS.includes(tool) ? 'version' : 'sha256,version';
+    if (!pin || typeof pin !== 'object' || Array.isArray(pin) || Object.keys(pin).sort().join(',') !== fields) {
+      throw new Error(`${tool} pin must contain exactly ${fields}`);
     }
     if (!VERSION.test(pin.version)) throw new Error(`invalid version for ${tool}: ${pin.version}`);
-    if (!SHA256.test(pin.sha256)) throw new Error(`invalid sha256 for ${tool}`);
+    if (!VERSION_ONLY_TOOLS.includes(tool) && !SHA256.test(pin.sha256)) throw new Error(`invalid sha256 for ${tool}`);
   }
   return value;
 }
@@ -39,14 +42,16 @@ function readPins(path) {
 
 export function readWorkflowToolPin(path, tool) {
   if (!TOOLS.includes(tool)) throw new Error(`unsupported workflow tool: ${tool}`);
-  return { ...readPins(path)[tool] };
+  const pin = readPins(path)[tool];
+  if (!pin) throw new Error(`missing workflow tool pin: ${tool}`);
+  return { ...pin };
 }
 
 export function updateWorkflowToolPin(path, tool, expectedVersion, nextVersion, nextSha256) {
   const pins = readPins(path);
-  if (!TOOLS.includes(tool)) throw new Error(`unsupported workflow tool: ${tool}`);
-  if (pins[tool].version !== expectedVersion) {
-    throw new Error(`expected ${tool} ${expectedVersion}, found ${pins[tool].version}`);
+  if (!TOOLS.includes(tool) || VERSION_ONLY_TOOLS.includes(tool)) throw new Error(`unsupported checksum update tool: ${tool}`);
+  if (pins[tool]?.version !== expectedVersion) {
+    throw new Error(`expected ${tool} ${expectedVersion}, found ${pins[tool]?.version ?? 'missing'}`);
   }
   if (!VERSION.test(nextVersion)) throw new Error(`invalid version for ${tool}: ${nextVersion}`);
   if (!SHA256.test(nextSha256)) throw new Error(`invalid sha256 for ${tool}`);
@@ -78,13 +83,15 @@ function main(argv) {
   if (command === 'get' && args.length >= 1 && args.length <= 2) {
     const [field, path = DEFAULT_PATH] = args;
     if (field !== 'version' && field !== 'sha256') throw new Error(usage());
-    process.stdout.write(`${readWorkflowToolPin(resolve(path), tool)[field]}\n`);
+    const value = readWorkflowToolPin(resolve(path), tool)[field];
+    if (!value) throw new Error(`${tool} has no ${field} pin`);
+    process.stdout.write(`${value}\n`);
     return;
   }
   if (command === 'github-output' && args.length <= 1) {
     const [path = DEFAULT_PATH] = args;
     const pin = readWorkflowToolPin(resolve(path), tool);
-    process.stdout.write(`version=${pin.version}\nsha256=${pin.sha256}\n`);
+    process.stdout.write(`version=${pin.version}\n${pin.sha256 ? `sha256=${pin.sha256}\n` : ''}`);
     return;
   }
   if (command === 'update' && args.length >= 3 && args.length <= 4) {

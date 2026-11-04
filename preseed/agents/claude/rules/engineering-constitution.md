@@ -4,6 +4,8 @@
 
 - Solve only the requested problem. Make the smallest coherent change.
 - Read the relevant code, configuration, specifications, tests, and documentation first. Evidence and explicit constraints outrank preference.
+- **Resolve uncertainty before asking:** If unsure what to do or missing information, check the existing Graphify graph and relevant session captures first. Ask a question only if the needed information remains unclear.
+- **Managed service access:** Codeflare automatically injects real credentials into supported requests. Use `gh api` for GitHub, `curl -H 'Authorization: Bearer CF_TOKEN' https://api.cloudflare.com/...` for Cloudflare, and the configured Gateway client/URL for AI Gateway. Placeholder tokens are intentional. Test the required operation, not a token-verification endpoint. If it fails, check the relevant service skill and transport coverage before searching for secrets, requesting replacement credentials, or bypassing the configured access path.
 - Preserve unrelated work and behavior. Add no speculative abstraction, setting, fallback, or cleanup.
 - Functional behavior changes need observable behavioral tests.
 - **TDD:** In repositories with `sdd/`, use plan-batched TDD only for implementing or changing functional behavior specified by actual SDD requirements: add the complete RED suite in one test-only phase, then implement to GREEN; run CI once at RED and once at final GREEN. Do not apply TDD/RED/GREEN to CI or workflow maintenance, dependency/version bumps, documentation, wording, formatting, or other non-functional changes; use appropriate existing checks, security gates, and CI instead. Do not invent requirements, manufacture failures, or expand scope to satisfy the process. Ban test theatre: no assertions on source, comments, files, function names, private calls, mock counts, or implementation snapshots. Exact text or structure is allowed only for intentional contracts—such as user copy, error codes, wire formats, migrations/version pins, security allowlists, generated artifacts, or SDD integrity rules; name the contract and assert its related outcome.
@@ -41,3 +43,8 @@
 - Acknowledge and retain new user input.
 - Apply related corrections within the active task.
 - For unrelated requests, continue to the next safe stopping point unless the user stops, pauses, or reprioritizes the work.
+
+## Goal retry policy
+
+- While Goal mode is active, do not call `goal_blocked` until the same evidenced external blocker has recurred in at least five separate attempts, at least five minutes apart. Count actual attempts to resolve that blocker, not continuation messages or time spent waiting.
+- Between attempts, keep Goal active and use existing asynchronous continuation or external-event mechanisms. Never busy-wait, duplicate in-flight work, or repeat protected operations without authorization.

@@ -45,6 +45,7 @@ export const SetBucketNameBodySchema = z.object({
   /** REQ-ENTERPRISE-005 (revised): dynamic-route catalog + resolved default route:reasoning for entrypoint.sh. */
   routeCatalog: z.array(z.string()).optional(),
   allowPersonalPiProviders: z.boolean().optional(),
+  piDefaultSource: z.enum(['managed', 'pi-native']).optional(),
   defaultRoute: z.string().optional(),
   defaultReasoning: z.string().optional(),
   /** REQ-ENTERPRISE-012: per-route context window map (route name -> positive token count). */

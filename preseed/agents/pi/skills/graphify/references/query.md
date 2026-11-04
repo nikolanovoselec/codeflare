@@ -11,6 +11,8 @@ Use the first-party native Pi tools for every graphify query - repo, Vault, and 
 
 Treat graph output as navigation evidence, not proof against current source. Quote `source_location` when citing a graph fact and preserve every edge direction. Verify relevant source before explaining implementation; discard paths contradicted by current source, even after a graph refresh. If evidence is insufficient, say so—do not invent edges.
 
+Graphify 0.9.98+ preserves weaker evidence from collapsed same-relation edges in `also_seen`; do not treat the surviving edge's stronger tag as the only evidence or discard the alternatives. Path confidence uses the weakest evidence across each hop's parallel relations and `also_seen`, ordered by confidence tier then score, not an average or probability of correctness. From 0.9.99, equal-length routes select the one with the weakest such confidence; retain the reported tie count and weakest-hop qualification when explaining it. Missing/non-finite scores do not justify inventing a numeric confidence. Older stored graphs may lack these fields; absence is not proof of strong evidence.
+
 A “no path” result is not a tool failure. Do not substitute an undirected BFS/DFS neighborhood as proof of a directed path; label exploratory connectivity explicitly.
 
 For an unavailable native tool, activate its exact name through `capability` and use the exposed schema. Before any CLI fallback for a remaining execution error, read `graphify <command> --help` rather than guessing arguments, and supply an explicit `--graph`:

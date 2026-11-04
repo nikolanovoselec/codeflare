@@ -3,7 +3,7 @@
 #
 # Mirrors Codeflare's Claude wrapper: no custom extraction, no custom graph
 # rewriting, no post-build normalization. The only local behavior is bounding
-# worker count and virtual memory so upstream Graphify can fail cleanly in the
+# worker count, virtual memory and runtime so upstream Graphify can fail cleanly in the
 # resource-constrained Codeflare container.
 #
 # Upstream `graphify update` writes the official unlabeled graph/report/HTML.
@@ -21,6 +21,6 @@ export GRAPHIFY_NO_TIPS=1
 export GRAPHIFY_NO_AUTO_REFRESH=1
 export GRAPHIFY_VIZ_NODE_LIMIT="${GRAPHIFY_VIZ_NODE_LIMIT:-100000}"
 
-graphify update "$@"
+timeout "${GRAPHIFY_BUILD_TIMEOUT:-600}" graphify update "$@"
 
 echo "safe-graphify-update: official unlabeled graph/report/HTML generated; export callflow.html directly or optionally apply local community labels"

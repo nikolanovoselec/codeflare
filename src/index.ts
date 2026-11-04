@@ -54,6 +54,7 @@ import authApiRoutes from './routes/auth';
 import authRedirectRoutes from './routes/auth-redirects';
 import githubAuthRoutes from './routes/github-auth';
 import cloudflareAuthRoutes from './routes/cloudflare-auth';
+import mcpOAuthRoutes, { createMcpPortalApiRoutes } from './routes/mcp-oauth';
 
 // Type for app context with request ID
 type AppVariables = {
@@ -146,8 +147,9 @@ app.use('*', async (c, next) => {
   await next();
   const duration = Date.now() - start;
 
+  const mcpOAuthReturn = c.req.path === '/auth/mcp/callback';
   for (const [key, value] of Object.entries(SECURITY_HEADERS)) {
-    c.header(key, value);
+    c.header(key, key === 'Referrer-Policy' && mcpOAuthReturn ? 'no-referrer' : value);
   }
 
   logger.info('Request completed', {
@@ -243,6 +245,8 @@ app.get('/api/health', (c) => c.json({ status: 'ok', timestamp: new Date().toISO
 app.route('/api/auth', authApiRoutes);
 app.route('/auth/github', githubAuthRoutes);
 app.route('/auth/cloudflare', cloudflareAuthRoutes);
+app.route('/auth/mcp', mcpOAuthRoutes);
+app.route('/api/mcp-portals', createMcpPortalApiRoutes());
 app.route('/auth', authRedirectRoutes);
 
 // Public auth providers endpoint (outside /api/* to bypass CF Access).
@@ -565,8 +569,9 @@ export default {
 export { container } from './container';
 export { Timekeeper as timekeeper } from './timekeeper/index';
 export { OperatorRegistry } from './operators/registry';
-export { OperatorActivity, OperatorDispatcherCapability, OperatorDispatcherTail } from './operators/activity';
+export { OperatorActivity, OperatorDispatcherCapability, OperatorInstalledDispatcherCapability, OperatorDispatcherTail } from './operators/activity';
 export { OperatorRuntimeCapability } from './operators/operator-runtime-capability';
+export { OperatorOwnerInferenceAuthority } from './operators/dispatcher-owner-inference';
 
 // Enterprise-mode LLM interceptor (REQ-ENTERPRISE-004). A WorkerEntrypoint the
 // container DO wires into container egress via ctx.exports.LlmInterceptor +
@@ -605,3 +610,5 @@ export { CloudflareBrowserInterceptor } from './cloudflare-browser-interceptor';
 // interception will not work" — i.e. intercepted requests black-hole. Inert unless the
 // container DO actually registers an interceptor (enterprise mode).
 export { ContainerProxy } from '@cloudflare/containers';
+
+export { McpPortalInterceptor } from './mcp-portal-interceptor';

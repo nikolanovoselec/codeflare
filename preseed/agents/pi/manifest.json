@@ -31,6 +31,11 @@
       "advanced"
     ]
   },
+  "agents/transcript-trim.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
   "extensions/00-mcp-adapter-config.ts": {
     "modes": [
       "default",
@@ -98,6 +103,12 @@
       "advanced"
     ]
   },
+  "extensions/questionnaire-timeout-authorization.ts": {
+    "modes": [
+      "default",
+      "advanced"
+    ]
+  },
   "extensions/ctx-command.ts": {
     "modes": [
       "default",
@@ -144,6 +155,11 @@
     ]
   },
   "extensions/memory-vault-helpers.ts": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "extensions/active-session-transcript-trimming.ts": {
     "modes": [
       "advanced"
     ]
@@ -261,6 +277,11 @@
     ]
   },
   "prompts/memory-agent-prompt.md": {
+    "modes": [
+      "advanced"
+    ]
+  },
+  "prompts/transcript-trim-agent-prompt.md": {
     "modes": [
       "advanced"
     ]
@@ -640,6 +661,11 @@
       "advanced"
     ]
   },
+  "skills/impeccable/scripts/engine-checksums.txt": {
+    "modes": [
+      "advanced"
+    ]
+  },
   "skills/impeccable/scripts/impeccable": {
     "modes": [
       "advanced"
@@ -676,6 +702,12 @@
     ]
   },
   "skills/librarian/SKILL.md": {
+    "modes": [
+      "default",
+      "advanced"
+    ]
+  },
+  "skills/pi-codex-fast/SKILL.md": {
     "modes": [
       "default",
       "advanced"
@@ -738,6 +770,30 @@
     ]
   },
   "rules/codeflare-capabilities.md": {
+    "modes": [
+      "default",
+      "advanced"
+    ]
+  },
+  "skills/mcp-portals/SKILL.md": {
+    "modes": [
+      "default",
+      "advanced"
+    ]
+  },
+  "skills/mcp-portal-connect/SKILL.md": {
+    "modes": [
+      "default",
+      "advanced"
+    ]
+  },
+  "skills/mcp-portal-discovery/SKILL.md": {
+    "modes": [
+      "default",
+      "advanced"
+    ]
+  },
+  "skills/mcp-portal-execution/SKILL.md": {
     "modes": [
       "default",
       "advanced"

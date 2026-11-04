@@ -11,6 +11,8 @@ For graph queries, prefer the MCP tools directly - they are always available whe
 
 Answer using **only** what the tool output contains. Quote `source_location` when citing a specific fact. If the graph lacks enough information, say so - do not hallucinate edges.
 
+Graphify 0.9.98+ preserves weaker evidence from collapsed same-relation edges in `also_seen`; do not treat the surviving edge's stronger tag as the only evidence or discard the alternatives. Path confidence uses the weakest evidence across each hop's parallel relations and `also_seen`, ordered by confidence tier then score, not an average or probability of correctness. From 0.9.99, equal-length routes select the one with the weakest such confidence; retain the reported tie count and weakest-hop qualification when explaining it. Missing/non-finite scores do not justify inventing a numeric confidence. Older stored graphs may lack these fields; absence is not proof of strong evidence.
+
 CLI fallback (only if the MCP tools are unavailable): `graphify query "<question>"`, optionally `--dfs` for chain-tracing and `--budget 3000` to cap traversal size. If the `graphify` CLI is also unavailable, run an inline NetworkX traversal of `graphify-out/graph.json`.
 
 ## Save the answer back (feedback loop)

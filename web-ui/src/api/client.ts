@@ -1,5 +1,5 @@
 import type {
-  Session, UserInfo, InitProgress, StartupStatusResponse, AgentType, TabConfig, UserPreferences,
+  Session, UserInfo, InitProgress, StartupStatusResponse, AgentType, TabConfig, UserPreferences, McpPortal,
   AuthStatus, AuthProvider, AdminConfigurationResponse, ConfigurationSection, ReasoningCatalog,
   NativeAiTargetDraft, NativeTargetCheckResult, ReasoningDiscoveryRequest, ReasoningDiscoveryResult, ReasoningRouteInventory, ReasoningGatewayDraft, ReasoningManagementContext,
 } from '../types';
@@ -69,6 +69,16 @@ const AdminConfigurationResponseSchema: z.ZodType<AdminConfigurationResponse> = 
   activeRunId: z.string().nullable(),
   latest: z.record(z.string(), z.record(z.string(), z.unknown())),
 });
+
+const McpPortalsSchema = z.array(z.object({ name: z.string(), url: z.string() }));
+
+export async function getMcpPortals(): Promise<McpPortal[]> {
+  return fetchApi('/admin/configuration/mcp-portals', {}, McpPortalsSchema);
+}
+
+export async function saveMcpPortals(portals: McpPortal[]): Promise<McpPortal[]> {
+  return fetchApi('/admin/configuration/mcp-portals', { method: 'PUT', body: JSON.stringify(portals) }, McpPortalsSchema);
+}
 
 export async function getAdminConfiguration(): Promise<AdminConfigurationResponse> {
   return fetchApi('/admin/configuration', {}, AdminConfigurationResponseSchema);
@@ -403,6 +413,7 @@ export type SessionAncillaryStatus = {
   preseedNeedsUpgrade?: boolean;
   preseedUpgradeTarget?: string;
   managedReleaseStatus?: 'current' | 'upgrading' | 'update_pending';
+  managedReleaseBlockedReason?: 'runtime_incompatible';
   managedReleaseProgress?: ManagedReleaseProgress;
   bucketMigrating?: boolean;
   bucketMigrationPending?: boolean;
@@ -529,6 +540,15 @@ export async function stopSession(id: string): Promise<void> {
     throw new ApiError('Invalid session ID format', 400, 'Bad Request');
   }
   await fetchApi(`/sessions/${id}/stop`, {
+    method: 'POST',
+  });
+}
+
+export async function killSession(id: string): Promise<void> {
+  if (!SESSION_ID_RE.test(id)) {
+    throw new ApiError('Invalid session ID format', 400, 'Bad Request');
+  }
+  await fetchApi(`/sessions/${id}/kill`, {
     method: 'POST',
   });
 }

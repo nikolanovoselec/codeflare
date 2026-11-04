@@ -6,6 +6,11 @@ import { SETUP_KEYS } from './kv-keys';
 import { isEnterpriseMode } from './subscription';
 import { isPersonalPiCloudFamily, isPersonalPiDestination } from './personal-pi-destinations';
 import { jsonError, STRIPPED_REQUEST_HOP_BY_HOP } from './controller-egress';
+import { classifyCloudflareCredentials } from './cloudflare-credentials';
+import { ENTERPRISE_BROWSER_TOKEN_PLACEHOLDER } from './constants';
+import { validateNativePiEgress } from '../operators/native-pi-profile';
+import { nativePiAuthFailure, type OperatorPiAuthDescriptor, type SafePiAuthFailure } from '../operators/pi-auth-failure';
+import { parseNativeOperatorInference } from '../operators/inference-selection';
 
 interface PersonalPiReference { bucket: string; sessionId: string; user: string; generation?: number }
 export interface PersonalPiProps {
@@ -13,6 +18,10 @@ export interface PersonalPiProps {
   strict?: boolean;
   operatorPolicy?: unknown;
   operatorInference?: unknown;
+  /** Trusted parent profile only; never populated from request headers/body. */
+  operatorNative?: { provider: string; model: string; api?: string; reasoningLevel: string; binding: OperatorPiAuthDescriptor };
+  /** Activity-owned Dispatcher scope; no container session or request-supplied authority. */
+  operatorDispatcherNative?: { activityId: string; generation: number; profileDigest: string };
   token?: string;
 }
 
@@ -36,6 +45,16 @@ async function authorizePersonalPi(env: Env, ref: PersonalPiReference): Promise<
   } catch { return false; }
 }
 
+async function authorizeDispatcherNative(env: Env, scope: NonNullable<PersonalPiProps['operatorDispatcherNative']>): Promise<boolean> {
+  try {
+    if (!/^[A-Za-z0-9_-]{1,128}$/.test(scope.activityId) || !Number.isSafeInteger(scope.generation)
+      || scope.generation <= 0 || !/^[a-f0-9]{64}$/.test(scope.profileDigest) || !env.OPERATOR_ACTIVITY) return false;
+    const selected = await env.OPERATOR_ACTIVITY.getByName(scope.activityId)
+      .dispatcherNativeEgressCurrent(scope.generation, scope.profileDigest);
+    return selected !== null && parseNativeOperatorInference(selected).profileDigest === scope.profileDigest;
+  } catch { return false; }
+}
+
 async function personalTransportStrict(env: Env, hint?: boolean): Promise<boolean> {
   const value = await env.KV.get(SETUP_KEYS.STRICT_EGRESS);
   if (value !== null && value !== 'active' && value !== 'inactive') throw new Error('Invalid transport policy');
@@ -45,30 +64,54 @@ async function personalTransportStrict(env: Env, hint?: boolean): Promise<boolea
 /** A per-host interceptor may delegate only native provider paths, never platform routing. */
 export async function forwardPersonalPi(request: Request, env: Env, props?: PersonalPiProps): Promise<Response | null> {
   const url = new URL(request.url);
-  if (!isEnterpriseMode(env)) return null;
-  const native = isPersonalPiDestination(url, env);
-  if (!native && !isPersonalPiCloudFamily(url)) return null;
   const denied = () => jsonError(403, 'PERSONAL_PI_DENIED', 'Native Pi provider access is not permitted');
-  if (url.hostname === 'api.openai.com' && (!props?.personalPi || request.headers.get('authorization') === 'Bearer codeflare-enterprise')) return null;
-  if (props?.operatorPolicy || props?.operatorInference) return native ? denied() : null;
-  if (native) try {
+  const dispatcherNative = props?.operatorDispatcherNative;
+  if (!isEnterpriseMode(env)) return dispatcherNative ? denied() : null;
+  const native = isPersonalPiDestination(url, env);
+  if (dispatcherNative && (!native || props?.strict !== true || props.personalPi || props.operatorNative
+    || props.operatorPolicy || props.operatorInference || request.method !== 'POST' || request.headers.has('upgrade')
+    || request.signal.aborted || !await authorizeDispatcherNative(env, dispatcherNative))) return denied();
+  if (!native && !isPersonalPiCloudFamily(url)) return null;
+  const operatorNative = props?.operatorNative;
+  const signal = operatorNative ? AbortSignal.any([request.signal,
+    AbortSignal.timeout(Math.max(1, operatorNative.binding.deadline - Date.now()))]) : request.signal;
+  if (operatorNative && (props?.personalPi?.generation !== operatorNative.binding.generation
+    || operatorNative.binding.deadline <= Date.now() || !native)) return denied();
+  if (url.hostname === 'api.openai.com' && (!props?.personalPi || request.headers.get('authorization') === 'Bearer codeflare-enterprise')) {
+    if (!dispatcherNative || request.headers.get('authorization') === 'Bearer codeflare-enterprise') {
+      return operatorNative || dispatcherNative ? denied() : null;
+    }
+  }
+  if (props?.operatorPolicy || props?.operatorInference) {
+    if (!operatorNative) return native ? denied() : null;
+    if (!await validateNativePiEgress(request, operatorNative, 8 * 1024 * 1024, signal)) return denied();
+  }
+  if (native && !dispatcherNative) try {
     // Gateway names/opaque native handles remain authoritative even when personal
     // credentials are supplied. A revoked handle cannot become a direct request.
     if (url.hostname === 'api.openai.com' && request.body) {
-      const bytes = await readBoundedResponse(new Response(request.clone().body), 8 * 1024 * 1024, 'Native request');
+      const bytes = await readBoundedResponse(new Response(request.clone().body), 8 * 1024 * 1024, 'Native request', signal);
       const payload = JSON.parse(new TextDecoder().decode(bytes)) as { model?: unknown };
       const rawModel = payload?.model;
       const model = typeof rawModel === 'string' && rawModel.startsWith('dynamic/') ? rawModel.slice(8) : rawModel;
       const routes: unknown = JSON.parse(await env.KV.get(SETUP_KEYS.DYNAMIC_ROUTES) ?? '[]');
       if (typeof model === 'string' && (model.startsWith('cf-native-') || model === 'codeflare-enterprise'
-        || (Array.isArray(routes) && routes.includes(model)))) return null;
+        || (Array.isArray(routes) && routes.includes(model)))) return operatorNative ? denied() : null;
     }
     if (!props?.personalPi || !await authorizePersonalPi(env, props.personalPi)) return denied();
   } catch { return denied(); }
   const headers = new Headers(request.headers);
+  const cloudflare = url.hostname === 'api.cloudflare.com' || url.hostname === 'gateway.ai.cloudflare.com';
+  if (cloudflare) {
+    const credentials = classifyCloudflareCredentials(headers, url.hostname === 'gateway.ai.cloudflare.com',
+      ENTERPRISE_BROWSER_TOKEN_PLACEHOLDER);
+    if (credentials === 'invalid') return jsonError(400, 'CF_CREDENTIALS_INVALID', 'Cloudflare credentials are invalid');
+    if (credentials === 'key-email') headers.delete('authorization');
+  }
   for (const name of ['authorization', 'x-api-key', 'cf-aig-authorization']) {
     const credential = headers.get(name)?.replace(/^Bearer\s+/i, '');
-    if (native && credential && (credential.startsWith('codeflare-enterprise') || credential === props?.token || credential === env.AIG_TOKEN)) return denied();
+    const placeholder = cloudflare ? credential === ENTERPRISE_BROWSER_TOKEN_PLACEHOLDER : credential?.startsWith('codeflare-enterprise');
+    if (native && credential && (placeholder || credential === props?.token || credential === env.AIG_TOKEN)) return denied();
   }
   for (const name of [...STRIPPED_REQUEST_HOP_BY_HOP, 'host', 'content-length', 'cf-access-jwt-assertion', 'cf-aig-metadata', 'cf-aig-gateway-id']) headers.delete(name);
   if (url.hostname !== 'gateway.ai.cloudflare.com') headers.delete('cf-aig-authorization');
@@ -78,12 +121,49 @@ export async function forwardPersonalPi(request: Request, env: Env, props?: Pers
   for (const name of platformHeaders) headers.delete(name);
   const websocket = request.headers.get('upgrade')?.toLowerCase() === 'websocket';
   if (websocket) { headers.set('upgrade', 'websocket'); headers.set('connection', 'Upgrade'); }
-  const upstream = new Request(request, { headers, redirect: 'manual' });
+  const upstream = new Request(request, { headers, redirect: 'manual', signal });
   let strict: boolean;
   try { strict = await personalTransportStrict(env, props?.strict); }
   catch { return jsonError(503, 'EGRESS_UNAVAILABLE', 'Transport policy unavailable'); }
   if (strict && !env.EGRESS) return jsonError(503, 'EGRESS_UNAVAILABLE', 'Strict Gateway egress binding unavailable');
+  if (operatorNative && (!props?.personalPi || !await authorizePersonalPi(env, props.personalPi)
+    || operatorNative.binding.deadline <= Date.now() || signal.aborted)) return denied();
+  if (dispatcherNative && (!strict || signal.aborted || !await authorizeDispatcherNative(env, dispatcherNative))) return denied();
   const response = strict ? await env.EGRESS!.fetch(upstream) : await fetch(upstream);
+  if (dispatcherNative) {
+    if (signal.aborted || !await authorizeDispatcherNative(env, dispatcherNative)) {
+      void response.body?.cancel().catch(() => undefined);
+      return denied();
+    }
+    // The Activity already inspected the original bounded request and exclusively
+    // owns error sanitization, raw commitment and replay before SDK delivery.
+    return response;
+  }
+  if (operatorNative) {
+    if (!props?.personalPi || !await authorizePersonalPi(env, props.personalPi)
+      || operatorNative.binding.deadline <= Date.now() || signal.aborted) {
+      void response.body?.cancel().catch(() => undefined);
+      return denied();
+    }
+    if (!response.ok) {
+      // Upstream error text is never allowed into SDK-persisted assistant content.
+      // A bare 403/429/5xx is deliberately not authentication evidence.
+      let authFailure: SafePiAuthFailure | undefined;
+      if (response.status === 401 || response.status === 403) try {
+        // Retain only closed evidence under the existing Host error-inspection
+        // allowance, never provider text or a new model/output limit.
+        const bytes = await readBoundedResponse(response, 16 * 1024, 'Native Pi error', signal);
+        authFailure = nativePiAuthFailure(response.status,
+          JSON.parse(new TextDecoder('utf-8', { fatal: true, ignoreBOM: false }).decode(bytes)), operatorNative.provider, operatorNative.api);
+      } catch { /* Malformed/oversized errors remain ordinary sanitized failures. */ }
+      void response.body?.cancel().catch(() => undefined);
+      if (!props?.personalPi || !await authorizePersonalPi(env, props.personalPi)
+        || operatorNative.binding.deadline <= Date.now() || signal.aborted) return denied();
+      return Response.json({ error: { message: 'Native Pi request failed', type: 'request_error' },
+        ...(authFailure ? { authFailure } : {}) },
+        { status: response.status >= 300 && response.status < 400 ? 502 : response.status });
+    }
+  }
   const location = response.headers.get('location');
   if (native && response.status >= 300 && response.status < 400 && location) {
     try { if (new URL(location, url).origin !== url.origin) return jsonError(502, 'PERSONAL_PI_REDIRECT_DENIED', 'Native provider redirect is not permitted'); }

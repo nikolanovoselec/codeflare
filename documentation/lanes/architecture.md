@@ -146,13 +146,13 @@ Authorized native Bedrock dispatch has a 120-second first-byte allowance; Dynami
 <a id="cloudflarebrowserinterceptor-non-enterprise-oauth-mode"></a>
 ### CloudflareBrowserInterceptor
 
-**Responsibility:** Refreshes/injects user-scoped OAuth or enterprise Browser Rendering credentials at the Worker boundary for REST/CDP HTTP and WebSocket traffic. Identity is bound at wiring time, not chosen by a caller header. Missing valid credentials fail closed. Token storage belongs to the authentication/provider layer, not the interceptor.
+**Responsibility:** Separates caller-owned Cloudflare credentials from managed OAuth and enterprise Browser credentials for HTTP/WebSocket traffic. Caller identity bypasses managed lookup, not native/Operator authorization or strict inspection. Managed OAuth identity stays session-bound; administrator Browser injection stays account/path-scoped. Token storage remains owned by authentication/provider services.
 
-**Inputs:** Intercepted REST/CDP traffic, session-bound identity and Worker-held token state.
+**Inputs:** Intercepted REST/CDP traffic, caller credentials, session-bound identity, strict-egress policy and Worker-held token state.
 
 **Outputs:** Authenticated HTTP/WebSocket traffic or fail-closed authentication responses.
 
-**Source:** `src/cloudflare-browser-interceptor.ts`, `src/container/container-interception.ts`.
+**Source:** `src/cloudflare-browser-interceptor.ts`, `src/container/container-interception.ts`, `src/lib/cloudflare-credentials.ts`, `src/lib/personal-pi-forwarding.ts`.
 
 **Contracts:** [REQ-BROWSER-008](../../sdd/spec/browser-run.md#req-browser-008-browser-rendering-token-interception-never-in-the-container), [REQ-AGENT-078](../../sdd/spec/agents.md#req-agent-078-cloudflare-oauth-token-refreshed-at-the-apicloudflarecom-boundary), [AD93](../decisions/README.md#ad93-refresh-the-non-enterprise-cloudflare-oauth-token-at-the-apicloudflarecom-boundary-reusing-the-browser-interceptor).
 

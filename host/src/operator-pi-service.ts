@@ -12,6 +12,7 @@ import { OperatorPiHttpController } from './operator-pi-http.js';
 import { createProvisionedOperatorPiFactory, type OperatorPiSdkProfile } from './operator-pi-sdk.js';
 import type { OperatorPiReviewConfig } from './operator-pi-review.js';
 import { parseIsolatedPiInitialization, type IsolatedPiInitialization } from './operator-pi-isolated.js';
+import { OperatorPiAuthBinding, parsePiAuthDescriptor, safePiAuthFailure } from './operator-pi-auth.js';
 
 const MAX_METADATA = 256 * 1024;
 const ID = /^[A-Za-z0-9_-]{1,128}$/;
@@ -32,9 +33,12 @@ function parseMetadata(value: unknown): OperatorPiMetadata {
   for (const [taskId, task] of Object.entries(tasks)) {
     if (!ID.test(taskId) || !task || typeof task !== 'object' || Array.isArray(task)) throw new Error('Invalid Pi metadata');
     const item = task as Record<string, unknown>;
-    if (Object.keys(item).length !== 3 || typeof item.digest !== 'string' || !DIGEST.test(item.digest)
+    if (Object.keys(item).some(key => !['digest', 'mode', 'status', 'authFailure'].includes(key))
+      || typeof item.digest !== 'string' || !DIGEST.test(item.digest)
       || (item.mode !== 'prompt' && item.mode !== 'follow-up' && item.mode !== 'steer' && item.mode !== 'tool')
-      || typeof item.status !== 'string' || !TASK_STATUS.has(item.status)) throw new Error('Invalid Pi metadata');
+      || typeof item.status !== 'string' || !TASK_STATUS.has(item.status)
+      || (item.authFailure !== undefined && (!safePiAuthFailure(item.authFailure)
+        || Object.keys(item.authFailure as object).length !== 3))) throw new Error('Invalid Pi metadata');
   }
   return structuredClone(record) as unknown as OperatorPiMetadata;
 }
@@ -124,18 +128,30 @@ function parseConfig(serialized: string, allowedRoot: string): SerializedConfig 
     throw new Error('Invalid operator Pi configuration');
   }
   const p = profile as Record<string, unknown>;
-  if (Object.keys(p).some(key => !['provider', 'model', 'thinkingLevel', 'systemPrompt', 'tools'].includes(key))
+  const native = p.source === 'pi-native';
+  const nativeDescriptor = native ? parsePiAuthDescriptor(p.authBinding) : undefined;
+  if ((p.source !== undefined && p.source !== 'managed' && !native)
+    || (!native && (p.authBinding !== undefined || p.api !== undefined))
+    || (nativeDescriptor && (nativeDescriptor.activityId !== record.activityId
+      || nativeDescriptor.sessionId !== record.sessionId || nativeDescriptor.deadline <= Date.now()
+      || (isolatedMode && nativeDescriptor.deadline !== record.deadline)
+      || (reviewMode && nativeDescriptor.generation !== parseReviewConfig(record.review).generation)))
+    || (native && (typeof p.api !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(p.api)))
+    || Object.keys(p).some(key => !['provider', 'model', 'thinkingLevel', 'systemPrompt', 'tools', 'source', 'api', 'authBinding'].includes(key))
     || typeof p.provider !== 'string' || typeof p.model !== 'string' || typeof p.thinkingLevel !== 'string'
     || typeof p.systemPrompt !== 'string' || !Array.isArray(p.tools) || p.tools.some(tool => typeof tool !== 'string')) {
     throw new Error('Invalid operator Pi configuration');
   }
-  if (isolatedMode && (Object.keys(p).length !== 5 || p.tools.join(',') !== 'read,write'
+  if (isolatedMode && (p.tools.join(',') !== 'read,write'
     || !Number.isSafeInteger(record.deadline) || (record.deadline as number) <= Date.now())) {
     throw new Error('Invalid isolated Pi configuration');
   }
   return { schemaVersion: 1, activityId: record.activityId, sessionId: record.sessionId, root,
     profile: { provider: p.provider, model: p.model, thinkingLevel: p.thinkingLevel,
-      systemPrompt: p.systemPrompt, tools: p.tools as string[] },
+      systemPrompt: p.systemPrompt, tools: p.tools as string[],
+      ...(p.source !== undefined ? { source: p.source as 'managed' | 'pi-native' } : {}),
+      ...(nativeDescriptor ? { authBinding: nativeDescriptor } : {}),
+      ...(typeof p.api === 'string' ? { api: p.api } : {}) },
     ...(reviewMode ? { mode: 'review' as const, review: parseReviewConfig(record.review) } : {}),
     ...(isolatedMode ? { mode: 'isolated' as const,
       initialization: parseIsolatedPiInitialization(record.initialization), deadline: record.deadline as number } : {}) };
@@ -150,6 +166,8 @@ export function createOperatorPiService(options: {
 }): OperatorPiHttpController | undefined {
   if (!options.serializedConfig) return undefined;
   const config = parseConfig(options.serializedConfig, options.allowedRoot);
+  const authBinding = config.profile.authBinding
+    ? new OperatorPiAuthBinding(config.profile.authBinding, config.profile.provider) : undefined;
   const conversation = new OperatorPiConversation({
     activityId: config.activityId,
     sessionId: config.sessionId,
@@ -157,6 +175,7 @@ export function createOperatorPiService(options: {
     factory: createProvisionedOperatorPiFactory({
       cwd: path.join(config.root, 'work'), agentDir: path.join(config.root, 'agent'),
       sessionDir: path.join(config.root, 'sessions'), profile: config.profile,
+      ...(authBinding ? { authBinding } : {}),
       ...(config.review ? { review: config.review } : {}),
       ...(config.initialization && config.deadline
         ? { isolated: { initialization: config.initialization, deadline: config.deadline,
@@ -165,5 +184,5 @@ export function createOperatorPiService(options: {
       ...(options.importPiAi ? { importPiAi: options.importPiAi } : {}),
     }),
   });
-  return new OperatorPiHttpController(conversation);
+  return new OperatorPiHttpController(conversation, authBinding);
 }

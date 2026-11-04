@@ -7,7 +7,7 @@
 // thing" — if a branch is gutted or a flag renamed in entrypoint.sh, these fail.
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync, mkdtempSync, writeFileSync, mkdirSync, existsSync, statSync, utimesSync } from 'node:fs';
+import { readFileSync, mkdtempSync, writeFileSync, mkdirSync, existsSync, statSync, utimesSync, rmSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
@@ -37,7 +37,10 @@ function extractBefore(startMarker, nextMarker, label) {
   if (start === -1) throw new Error(`${label}: start marker not found in entrypoint.sh`);
   const end = entrypoint.indexOf(nextMarker, start);
   if (end === -1) throw new Error(`${label}: next marker not found in entrypoint.sh`);
-  return entrypoint.slice(start, end);
+  const fragment = entrypoint.slice(start, end);
+  return ['initial_sync_from_r2() {', 'establish_bisync_baseline() {', 'bisync_with_r2() {'].includes(startMarker)
+    ? `source ${JSON.stringify(resolve(__dirname, '../../scripts/rclone-conflict-cleanup.sh'))}\n${fragment}`
+    : fragment;
 }
 
 const createRcloneConfig = () =>
@@ -130,6 +133,7 @@ function runLayDown({ r2SseDisabled, sessionMode = 'default', seedModes = ['defa
   const script = [
     'set -euo pipefail',
     `USER_HOME='${home}'`,
+    "REMOTE_CURATION_ACTIVE='false'",
     `AGENT_SEED_BAKE_DIR='${bakeRoot}'`,
     `SESSION_MODE='${sessionMode}'`,
     r2SseDisabled ? "R2_SSE_DISABLED='true'" : '',
@@ -212,9 +216,10 @@ function runRelay({ warmFiles, destFiles, bakeFiles, sessionMode, warmPresent = 
   const script = [
     'set -euo pipefail',
     `USER_HOME='${home}'`,
+    "REMOTE_CURATION_ACTIVE='false'",
     `PI_WARM_EXTENSIONS_DIR='${warmSrc}'`,
     ...(bakeFiles ? [`AGENT_SEED_BAKE_DIR='${bakeRoot}'`] : []),
-    ...(sessionMode ? [`SESSION_MODE='${sessionMode}'`] : []),
+    `SESSION_MODE='${sessionMode ?? 'default'}'`,
     "CODEFLARE_CODING_AGENTS='claude-code,codex,copilot,antigravity,opencode,pi'",
     'coding_agent_is_selected() { case ",${CODEFLARE_CODING_AGENTS}," in *,"$1",*) return 0 ;; *) return 1 ;; esac; }',
     relayFn(),
@@ -362,10 +367,12 @@ describe('REQ-STOR-017 / AD90: initial-sync compare flag (entrypoint.sh initial_
     assert.equal(out, 'size+modtime');
   });
 
-  it('materializes exact remote bytes for added, removed, same-size changed, and different-size changed files', () => {
+  it('materializes exact remote bytes for added, removed, same-size changed, and different-size changed files', t => {
     const home = mkdtempSync(join(tmpdir(), 'managed-delta-home-'));
     const remote = mkdtempSync(join(tmpdir(), 'managed-delta-r2-'));
-    const config = join(home, 'rclone.conf');
+    const support = mkdtempSync(join(tmpdir(), 'managed-delta-runtime-'));
+    t.after(() => { for (const dir of [home, remote, support]) rmSync(dir, { recursive: true, force: true }); });
+    const config = join(support, 'rclone.conf');
     writeFileSync(config, '[r2]\ntype = local\n');
     for (const [relative, content] of Object.entries({
       '.claude/unchanged.md': 'unchanged',
@@ -405,7 +412,7 @@ describe('REQ-STOR-017 / AD90: initial-sync compare flag (entrypoint.sh initial_
       initialSync,
       'initial_sync_from_r2',
     ].join('\n');
-    const result = spawnSync('bash', ['-c', script], { encoding: 'utf8', env: runtimeEnv(home) });
+    const result = spawnSync('bash', ['-c', script], { encoding: 'utf8', env: runtimeEnv(support) });
 
     assert.equal(result.status, 0, `initial sync exited non-zero: ${result.stderr}`);
     assert.equal(readFileSync(join(home, '.claude/unchanged.md'), 'utf8'), 'unchanged');

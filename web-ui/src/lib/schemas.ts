@@ -346,6 +346,7 @@ export const SessionAncillaryStatusResponseSchema = z.object({
   preseedNeedsUpgrade: z.boolean().optional(),
   preseedUpgradeTarget: z.string().min(1).optional(),
   managedReleaseStatus: z.enum(['current', 'upgrading', 'update_pending']).optional(),
+  managedReleaseBlockedReason: z.literal('runtime_incompatible').optional(),
   managedReleaseProgress: z.object({
     phase: z.enum(['planning', 'writing', 'finalizing']),
     completed: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),

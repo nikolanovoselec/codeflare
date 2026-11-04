@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { PiAuthRequiredError, PI_LOGIN_RECOVERY, type SafePiAuthFailure } from './pi-auth-failure';
 
 const ID = z.string().regex(/^[A-Za-z0-9_-]{1,128}$/);
 const DIGEST = z.string().regex(/^[0-9a-f]{64}$/);
@@ -24,7 +25,7 @@ export interface ConductorCapabilityOperations {
     ensure(): Promise<{ ready: true; conversationId: string }>;
     task(input: { taskId: string; digest: string; mode: 'prompt'; text: string }
       | { taskId: string; digest: string; mode: 'tool'; toolName: 'run_approved_tasks';
-        arguments: { initializationDigest: string } }): Promise<{ taskId: string; status: string }>;
+        arguments: { initializationDigest: string } }): Promise<{ taskId: string; status: string; authFailure?: SafePiAuthFailure }>;
   };
   sync: {
     seal(input: { operationId: string; paths: string[] }): Promise<{
@@ -131,7 +132,10 @@ export class OperatorConductorCapability {
         }
         default: return response(404, { error: 'Not found' });
       }
-    } catch {
+    } catch (error) {
+      if (error instanceof PiAuthRequiredError) {
+        return response(401, { error: PI_LOGIN_RECOVERY, authFailure: error.authFailure });
+      }
       return response(403, { error: 'Capability denied' });
     }
   }

@@ -13,7 +13,7 @@ describe('REQ-OPS-011 AC5: approved immutable Node base source', () => {
   it('resolves every build and runtime stage to the same verified Node 26 and Node 22 indices', () => {
     const stages = [...dockerfile.matchAll(/^FROM\s+(\S+)(?:\s+AS\s+(\S+))?\s*$/gm)]
       .map(([, reference, stage]) => [stage ?? 'runtime', reference]);
-    const node26 = 'mirror.gcr.io/library/node:26-bookworm-slim@sha256:86f07bc9c5dce4578cf37e5a418b7bfc7f817cda25cde66e2b66e95ed86c4567';
+    const node26 = 'mirror.gcr.io/library/node:26-bookworm-slim@sha256:bc0a2afd3b74ce12222fc8bab99271e66257f021078f5f4a5d687a77d280c1d9';
     const node22 = 'mirror.gcr.io/library/node:22.21.1-bookworm-slim@sha256:25b3eb23a00590b7499f2a2ce939322727fcce1b15fdd69754fcd09536a3ae2c';
 
     assert.deepEqual(stages, [

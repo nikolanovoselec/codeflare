@@ -1,5 +1,52 @@
 import { z } from 'zod';
 
+/** Closed parent-journal evidence, independent of SDK-origin capture/phase association. */
+export interface DispatcherOperationEvidence {
+  operationKind: 'sdk-model-http' | 'host-inference' | 'source-read' | 'source-mutation' | 'unknown';
+  sdkHttp: null | { state: 'ready' | 'sending' | 'completed' | 'unknown' | 'not-sent'; attempts: number };
+  terminalOutcome: 'not-sent' | null;
+}
+/** Own data only: never invoke getters; inaccessible descriptors/Proxy failures stay unknown. */
+export function projectDispatcherOperationEvidence(raw: unknown): DispatcherOperationEvidence {
+  const unknown: DispatcherOperationEvidence = { operationKind: 'unknown', sdkHttp: null, terminalOutcome: null };
+  const own = (value: unknown, key: string): unknown => {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    if (descriptor && !('value' in descriptor)) throw new Error('Inaccessible operation metadata');
+    return descriptor?.value;
+  };
+  try {
+    const permit = own(raw, 'sdkHttp');
+    const method = own(own(raw, 'request'), 'method');
+    const inference = own(raw, 'inference');
+    const native = own(raw, 'native');
+    if ([permit !== undefined, method !== undefined, inference !== undefined, native !== undefined].filter(Boolean).length !== 1) return unknown;
+    if (permit !== undefined) {
+      const state = own(permit, 'phase');
+      const attempts = own(permit, 'attempts');
+      if (!['ready', 'sending', 'completed', 'unknown', 'not-sent'].includes(state as string)
+        || typeof attempts !== 'number' || !Number.isSafeInteger(attempts) || attempts < 0 || attempts > 1
+        || state === 'ready' && attempts !== 0 || ['sending', 'completed', 'unknown'].includes(state as string) && attempts !== 1) return unknown;
+      const notSent = state === 'not-sent' && attempts === 0 && own(raw, 'phase') === 'completed'
+        && own(raw, 'terminalOutcome') === 'not-sent' && own(raw, 'responseDigest') === undefined && own(raw, 'response') === undefined
+        && own(permit, 'requestDigest') === undefined && own(permit, 'responseKey') === undefined;
+      if (state === 'not-sent' && !notSent) return unknown;
+      return { operationKind: 'sdk-model-http', sdkHttp: { state: state as NonNullable<DispatcherOperationEvidence['sdkHttp']>['state'], attempts },
+        terminalOutcome: notSent ? 'not-sent' : null };
+    }
+    if (method === 'GET') return { ...unknown, operationKind: 'source-read' };
+    if (method === 'POST' || method === 'PUT') return { ...unknown, operationKind: 'source-mutation' };
+    const nativeAttempt = own(native, 'attempt');
+    const nativeProfile = own(native, 'profileDigest');
+    if (own(inference, 'version') === 1 || typeof nativeAttempt === 'number' && Number.isSafeInteger(nativeAttempt) && nativeAttempt >= 0
+      && typeof nativeProfile === 'string' && /^[a-f0-9]{64}$/.test(nativeProfile)
+      && ['admitted', 'in-flight', 'committed', 'unknown'].includes(own(native, 'phase') as string)) {
+      return { ...unknown, operationKind: 'host-inference' };
+    }
+    return unknown;
+  } catch { return unknown; }
+}
+
 /** Owner-only lifecycle metadata. This interface is separate from result collection. */
 export interface DispatcherActivityDiagnostics {
   version: 1;
@@ -38,7 +85,7 @@ export interface DispatcherOperationDiagnostics {
   scan: 'complete' | 'bounded' | 'unavailable';
   inspectedEntries: number;
   omittedEntries: boolean;
-  records: Array<{
+  records: Array<Partial<DispatcherOperationEvidence> & {
     operationDigest: string; ordinal: number | null; status: 'reserved' | 'completed' | 'unknown';
     requestDigest: string | null; responseDigest: string | null;
     binding: null | {

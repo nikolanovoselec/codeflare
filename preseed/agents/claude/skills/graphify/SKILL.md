@@ -16,9 +16,17 @@ Verify the installed CLI version independently of plugin metadata. The 0.9.73 en
 
 Graphify 0.9.74 prefers authored workspace sources, filters Rust builtins and reclassifies Rust constructor edges as `references` with `context: "constructor"`. Callflow, hubs and counts can change on an explicitly authorized refresh; this is not permission to rebuild, normalize graphs or replace managed skills.
 
-## Graphify 0.9.92 compatibility
+## Graphify 0.9.92–0.9.101 compatibility
 
 The [reviewed release](https://github.com/Graphify-Labs/graphify/blob/86c57be8204673c2a1b9849a3292a7dd3ab373d8/CHANGELOG.md) changes stable IDs and grammar-versioned AST caches; an authorized update may re-extract code and change counts or callflow. Preserve optional `schema_version`/`graphify_version` metadata and parallel relations; do not normalize existing graphs. Qualify ambiguous path endpoints rather than guessing. `.graphify_labels.pending.json` is a regenerable worklist, not the curated labels file. Upstream hook installation now adds post-merge/post-rewrite rebuilds: do not install these hooks or refresh graphs without explicit authorization. Retain `GRAPHIFY_NO_AUTO_REFRESH=1`, local optional labels and the external-provider prohibition; no extra Pi guard or backend setting is required.
+
+The [0.9.101 release notes](https://github.com/Graphify-Labs/graphify/blob/v0.9.101/CHANGELOG.md) extend these changes: file/declaration collisions and case-distinct symbols can receive different IDs, and AST cache schema 36 plus case-preserving cache keys can cause re-extraction on the next explicitly authorized refresh. Do not rewrite stored IDs or clear caches manually. Preserve weaker same-relation provenance in `also_seen` as well as parallel relations. Path confidence reflects the weakest evidence on the weakest hop; equal-length routes select the most conservative such confidence, not the strongest route. See `references/query.md` for interpretation. Retain `GRAPHIFY_NO_AUTO_REFRESH=1`, explicit refresh consent and the external-provider prohibition.
+
+## Graphify 0.9.102 compatibility
+
+The [0.9.102 release notes](https://github.com/Graphify-Labs/graphify/releases/tag/v0.9.102) bump the AST cache schema to 37 and make incremental AST extraction content-based. The next explicitly authorized update may re-extract affected files; do not clear caches or refresh a graph merely to adopt this version. Query answers now rank source files ahead of tests/docs without excluding either, and CLI query depth can come from `.graphifyrc`; do not treat ranking as completeness or silently change project query settings.
+
+For semantic updates, a partly read document is incomplete: keep it queued until its remaining content has been read and extracted, and never stamp it complete in the incremental manifest. Preserve the existing refresh consent, selected input root, scan options, and provider prohibition. Forward `--force` through the managed update wrapper only when the user explicitly selected a forced refresh; a cache-version change alone does not authorize it. Keep Codeflare's managed hooks and `GRAPHIFY_NO_AUTO_REFRESH=1`; upstream skill/hook installation is not part of this package bump.
 
 ## Quick Reference
 

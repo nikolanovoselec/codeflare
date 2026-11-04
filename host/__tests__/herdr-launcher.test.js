@@ -9,7 +9,7 @@ import { describe, it } from 'node:test';
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const launcher = join(root, 'image/herdr/codeflare-herdr-terminal');
 
-function harness(command, tabConfig, fastStart = undefined) {
+function harness(command, tabConfig, fastStart = undefined, mcpEnv = {}) {
   const dir = mkdtempSync(join(tmpdir(), 'codeflare-herdr-launcher-'));
   const bin = join(dir, 'bin');
   const runtime = join(dir, 'runtime');
@@ -52,6 +52,7 @@ fi
                 : command.startsWith('agy') ? 'agy' : '',
       HERDR_TEST_PROCESS: ['htop', 'yazi', 'lazygit'].includes(command) ? command : '',
       ...(tabConfig === undefined ? {} : { TAB_CONFIG: JSON.stringify(tabConfig) }),
+      ...mcpEnv,
     },
   });
   return {
@@ -65,6 +66,14 @@ fi
 }
 
 describe('Codeflare Herdr launcher', () => {
+  it('REQ-AGENT-228: both Pi modes launch the stock client without a credential companion', () => {
+    for (const mode of ['default', 'advanced']) {
+      const { result, calls } = harness('pi', undefined, undefined, { SESSION_MODE: mode,
+        CODEFLARE_MCP_PORTALS_JSON: JSON.stringify([{ name: 'fixture', url: 'https://portal.example/mcp' }]) });
+      assert.equal(result.status, 0, result.stderr);
+      assert.equal(calls.find(call => call.startsWith('pane run ')), 'pane run w1:p1 pi --tui-mode fullscreen');
+    }
+  });
   it('REQ-AGENT-012: Herdr Codex launch honors Fast Start without changing tab configuration', () => {
     for (const fastStart of [undefined, 'true', 'false']) {
       const { result, calls } = harness('codex', undefined, fastStart);

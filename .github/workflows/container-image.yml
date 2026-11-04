@@ -113,7 +113,7 @@ jobs:
           # hashed, so deleting a suppression left the tag identical, the reuse
           # probe hit, and build+scan+push were skipped — the image shipped with
           # the CVE and the scan that would now fail never ran.
-          HASHED_PATHS=".github/workflows/container-image.yml Dockerfile .dockerignore .trivyignore entrypoint.sh transcript-retention.mjs scripts/compact-session-captures.mjs host/package.json host/package-lock.json host/tsconfig.json host/src image openvscode preseed scripts/browser-ide-ui-state.py scripts/browser-ide-extensions.py scripts/materialize-agent-seed.mjs scripts/restore-operator-attachments.mjs scripts/materialize-operator-inputs.mjs scripts/patch-impeccable-engine.py scripts/ci/impeccable-engine.py scripts/patch-rclone-bisync.py scripts/ci/rclone-bookkeeping_test.go scripts/patch-context-mode-bundles.mjs scripts/patch-chrome-devtools-timeouts.mjs scripts/patch-pi-goal-review-control.mjs scripts/patch-pi-plan-mode-tool-policy.mjs scripts/patch-pi-native-model-display.mjs scripts/patch-rpiv-host-peers.mjs scripts/patch-rpiv-question-timeout.mjs scripts/rpiv-question-timeout.mjs scripts/verify-pi-lockstep.mjs scripts/verify-pi-prompt.mjs scripts/pi-prompt-contract.mjs scripts/ci/coding-agent-selection-core.mjs scripts/ci/coding-agent-selection.mjs scripts/ci/prune-npm-platform-artifacts.mjs scripts/ci/prune-selected-npm-tools.sh scripts/ci/smoke-openvscode-sidebar-image.mjs scripts/ci/validate-trivy-result.mjs src/lib/agent-seed.generated.ts"
+          HASHED_PATHS=".github/workflows/container-image.yml .github/workflow-tool-pins.json scripts/ci/workflow-tool-pins.mjs Dockerfile .dockerignore .trivyignore entrypoint.sh transcript-retention.mjs scripts/compact-session-captures.mjs scripts/rclone-conflict-cleanup.sh scripts/merge-pi-mcp-portals.mjs scripts/qualify-pi-mcp.mjs host/__tests__/pi-mcp-stock.test.js host/__fixtures__/pi-mcp-extension-server.mjs host/package.json host/package-lock.json host/tsconfig.json host/src image openvscode preseed scripts/browser-ide-ui-state.py scripts/browser-ide-extensions.py scripts/materialize-agent-seed.mjs scripts/restore-operator-attachments.mjs scripts/materialize-operator-inputs.mjs scripts/patch-impeccable-engine.py scripts/ci/impeccable-engine.py scripts/patch-rclone-bisync.py scripts/prepare-rclone-s3-fixture.py scripts/ci/rclone-bookkeeping_test.go scripts/patch-context-mode-bundles.mjs scripts/patch-chrome-devtools-timeouts.mjs scripts/patch-pi-goal-review-control.mjs scripts/patch-pi-plan-mode-tool-policy.mjs scripts/patch-pi-native-model-display.mjs scripts/patch-rpiv-host-peers.mjs scripts/patch-rpiv-question-timeout.mjs scripts/rpiv-question-timeout.mjs scripts/verify-pi-lockstep.mjs scripts/verify-pi-prompt.mjs scripts/pi-prompt-contract.mjs scripts/ci/coding-agent-selection-core.mjs scripts/ci/coding-agent-selection.mjs scripts/ci/prune-npm-platform-artifacts.mjs scripts/ci/prune-selected-npm-tools.sh scripts/ci/smoke-openvscode-sidebar-image.mjs scripts/ci/validate-trivy-result.mjs src/lib/agent-seed.generated.ts"
           CODING_AGENTS=$(node scripts/ci/coding-agent-selection.mjs resolve "$RAW_CODING_AGENTS")
 
           # Guard: every COPY source in the Dockerfile must be covered by
@@ -123,7 +123,7 @@ jobs:
           while read -r src; do
             case "$src" in
               .cache-bust) ;; # represented by the cache-bust input
-              Dockerfile|entrypoint.sh|transcript-retention.mjs|scripts/compact-session-captures.mjs|host/package.json|host/package-lock.json|host/tsconfig.json|host/src/*|image/*|openvscode/*|preseed/*|scripts/browser-ide-ui-state.py|scripts/browser-ide-extensions.py|scripts/materialize-agent-seed.mjs|scripts/restore-operator-attachments.mjs|scripts/materialize-operator-inputs.mjs|scripts/patch-impeccable-engine.py|scripts/ci/impeccable-engine.py|scripts/patch-rclone-bisync.py|scripts/ci/rclone-bookkeeping_test.go|scripts/patch-context-mode-bundles.mjs|scripts/patch-chrome-devtools-timeouts.mjs|scripts/patch-pi-goal-review-control.mjs|scripts/patch-pi-plan-mode-tool-policy.mjs|scripts/patch-pi-native-model-display.mjs|scripts/patch-rpiv-host-peers.mjs|scripts/patch-rpiv-question-timeout.mjs|scripts/rpiv-question-timeout.mjs|scripts/verify-pi-lockstep.mjs|scripts/verify-pi-prompt.mjs|scripts/pi-prompt-contract.mjs|scripts/ci/coding-agent-selection-core.mjs|scripts/ci/coding-agent-selection.mjs|scripts/ci/prune-npm-platform-artifacts.mjs|scripts/ci/prune-selected-npm-tools.sh|scripts/ci/smoke-openvscode-sidebar-image.mjs|src/lib/agent-seed.generated.ts) ;;
+              Dockerfile|entrypoint.sh|transcript-retention.mjs|scripts/compact-session-captures.mjs|scripts/rclone-conflict-cleanup.sh|scripts/merge-pi-mcp-portals.mjs|scripts/qualify-pi-mcp.mjs|host/__tests__/pi-mcp-stock.test.js|host/__fixtures__/pi-mcp-extension-server.mjs|host/package.json|host/package-lock.json|host/tsconfig.json|host/src/*|image/*|openvscode/*|preseed/*|scripts/browser-ide-ui-state.py|scripts/browser-ide-extensions.py|scripts/materialize-agent-seed.mjs|scripts/restore-operator-attachments.mjs|scripts/materialize-operator-inputs.mjs|scripts/patch-impeccable-engine.py|scripts/ci/impeccable-engine.py|scripts/patch-rclone-bisync.py|scripts/prepare-rclone-s3-fixture.py|scripts/ci/rclone-bookkeeping_test.go|scripts/patch-context-mode-bundles.mjs|scripts/patch-chrome-devtools-timeouts.mjs|scripts/patch-pi-goal-review-control.mjs|scripts/patch-pi-plan-mode-tool-policy.mjs|scripts/patch-pi-native-model-display.mjs|scripts/patch-rpiv-host-peers.mjs|scripts/patch-rpiv-question-timeout.mjs|scripts/rpiv-question-timeout.mjs|scripts/verify-pi-lockstep.mjs|scripts/verify-pi-prompt.mjs|scripts/pi-prompt-contract.mjs|scripts/ci/coding-agent-selection-core.mjs|scripts/ci/coding-agent-selection.mjs|scripts/ci/prune-npm-platform-artifacts.mjs|scripts/ci/prune-selected-npm-tools.sh|scripts/ci/smoke-openvscode-sidebar-image.mjs|src/lib/agent-seed.generated.ts) ;;
               *)
                 echo "::warning::COPY source '$src' not covered by the image input hash — disabling reuse for this run. Add it to HASHED_PATHS in container-image.yml."
                 NO_REUSE=1
@@ -803,11 +803,16 @@ jobs:
           key: trivy-db-v2-${{ steps.hash.outputs.trivy_db_key }}
           restore-keys: trivy-db-v2-
 
+      - name: Read Trivy tool pin
+        if: steps.reuse.outputs.reused != 'true'
+        id: trivy-pin
+        run: node scripts/ci/workflow-tool-pins.mjs github-output trivy >> "$GITHUB_OUTPUT"
+
       - name: Install locked Trivy
         if: steps.reuse.outputs.reused != 'true'
         uses: aquasecurity/setup-trivy@81e514348e19b6112ce2a7e3ecbafe19c1e1f567 # v0.3.1
         with:
-          version: v0.70.0
+          version: v${{ steps.trivy-pin.outputs.version }}
           cache: true
 
       - name: Scan image, generate SBOM, and prepare push tooling

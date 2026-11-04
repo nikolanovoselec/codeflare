@@ -82,8 +82,12 @@ export async function main() {
   try {
     await session.prompt('Reply ok.');
     const response = [...session.messages].reverse().find((message) => message.role === 'assistant');
-    const inputTokens = response?.usage?.input;
-    if (!Number.isFinite(inputTokens)) throw new Error('Faux provider did not report input usage.');
+    const inputUsage = [response?.usage?.input, response?.usage?.cacheRead, response?.usage?.cacheWrite];
+    if (inputUsage.some((tokens) => !Number.isFinite(tokens) || tokens < 0)) {
+      throw new Error('Faux provider did not report valid input usage.');
+    }
+    // Faux usage partitions prompt tokens into uncached input and cache reads/writes.
+    const inputTokens = inputUsage.reduce((total, tokens) => total + tokens, 0);
     const activeToolNames = session.getActiveToolNames();
     const active = new Set(activeToolNames);
     const toolSchemas = session.getAllTools()

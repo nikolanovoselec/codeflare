@@ -76,6 +76,7 @@ function runStartupClones({ targets, existingDirs = [], gitStatus = 0, gitSleep,
   const root = mkdtempSync(join(tmpdir(), 'entrypoint-clone-targets-'));
   const workspace = join(root, 'workspace');
   const fake = createFakeGit(root);
+  writeFileSync(fake.log, '');
   mkdirSync(workspace, { recursive: true });
   for (const dir of existingDirs) mkdirSync(join(workspace, dir), { recursive: true });
   const env = {
@@ -459,8 +460,11 @@ describe('REQ-GITHUB-015: bounded multi-repository restore (real shell behavior)
     });
 
     assert.equal(result.status, 0, result.stderr);
-    assert.deepEqual(clonedDirs(fake, workspace), ['slow']);
+    // The wall-clock deadline may expire before even the first Git process starts.
+    const attempted = clonedDirs(fake, workspace);
+    assert.deepEqual(attempted, ['slow'].slice(0, attempted.length));
     assert.match(result.stdout, /clone budget exhausted/);
+    assert.equal(readFileSync(fake.events, 'utf8').trim().split('\n').at(-1), 'autostart');
   });
 
   it('REQ-GITHUB-015 AC6+AC7: never prompts for credentials, logs failures, and always reaches autostart', () => {

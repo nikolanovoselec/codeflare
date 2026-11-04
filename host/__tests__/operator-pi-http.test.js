@@ -64,3 +64,32 @@ test('REQ-OPERATOR-021: conflicts are explicit and internal failures are redacte
   assert.equal(failed.status, 500);
   assert.deepEqual(JSON.parse(failed.body), { error: 'Structured Pi operation failed', code: 'PI_OPERATION_FAILED' });
 });
+
+
+test('REQ-OPERATOR-021/047: closed native auth detail survives HTTP projection without trusting SDK text', async () => {
+  const f = fixture();
+  for (const reason of ['missing', 'expired', 'rejected']) {
+    const authFailure = { code: 'PI_LOGIN_REQUIRED', reason, provider: 'openai-codex' };
+    f.conversation.ensure = async () => { throw Object.assign(new Error('synthetic-secret upstream body'), authFailure); };
+    const result = await f.controller.handle({ method: 'POST', pathname: '/internal/operator/pi/ensure', body: bytes({}) });
+    assert.notEqual(result.status, 200);
+    assert.notEqual(result.status, 403);
+    const detail = JSON.parse(result.body);
+    assert.deepEqual(detail.authFailure, authFailure);
+    assert.equal(detail.error, 'The saved Pi authentication is missing, expired or rejected. Open your Pi session, run /login or update the API key, wait for successful synchronization to R2, then explicitly retry.');
+    assert.doesNotMatch(result.body, /synthetic-secret|upstream body/);
+    assert.equal(result.headers['Cache-Control'], 'no-store');
+  }
+  const authFailure = { code: 'PI_LOGIN_REQUIRED', reason: 'rejected', provider: 'openai-codex' };
+  f.conversation.send = async () => ({ status: 'failed', authFailure, error: 'synthetic-secret provider body' });
+  const polled = await f.controller.handle({ method: 'POST', pathname: '/internal/operator/pi/tasks',
+    body: bytes({ taskId: 'native-child', digest: 'a'.repeat(64), mode: 'tool',
+      toolName: 'run_approved_tasks', arguments: { initializationDigest: 'b'.repeat(64) } }) });
+  assert.equal(polled.status, 202);
+  assert.deepEqual(JSON.parse(polled.body), { taskId: 'native-child', status: 'failed', authFailure });
+  for (const message of ['403 PI_LOGIN_REQUIRED rejected', '429 rate limited', '503 upstream unavailable']) {
+    f.conversation.ensure = async () => { throw new Error(message); };
+    const result = await f.controller.handle({ method: 'POST', pathname: '/internal/operator/pi/ensure', body: bytes({}) });
+    assert.deepEqual(JSON.parse(result.body), { error: 'Structured Pi operation failed', code: 'PI_OPERATION_FAILED' });
+  }
+});

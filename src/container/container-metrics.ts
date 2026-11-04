@@ -50,19 +50,19 @@ export interface MetricsCallbacks {
 // parseSleepAfterMs
 // ---------------------------------------------------------------------------
 
-/** Parse sleepAfter string ('15m', '30m', '1h', '2h', '4h') to milliseconds.
+/** Parse configured hour durations and retained legacy minute durations to milliseconds.
  *
  * Fail-safe direction: an unrecognized or malformed string returns the maximum
- * supported timeout (4h) rather than the minimum. A short fallback would cause
+ * supported timeout (12h) rather than the minimum. A short fallback would cause
  * the container to die early when the pref is missing/corrupted; a long
  * fallback only causes the container to live slightly longer than the user
  * expected. Errs on the side of preserving user work over saving compute.
  *
- * The validated regex `/^(5m|15m|30m|1h|2h|4h)$/` at the storage write site means
+ * The validated regex `/^(5m|15m|30m|1h|2h|4h|8h|12h)$/` at the storage write site means
  * this fallback should only ever fire on truly broken input. Log it loudly
  * (caller logs). NOTE: '5m' is retired from the settable picker
  * (REQ-SESSION-014) but stays in the accept-set so a pre-existing 5m pref keeps
- * its short timeout instead of resetting to the 2h fallback.
+ * its original timeout instead of resetting to the fail-safe.
  *
  */
 // DO-storage key holding the wall-clock ms at which the container first read
@@ -181,7 +181,7 @@ export async function openNotRunningConfirmation(ctx: DurableObjectState): Promi
   }
 }
 
-export const SLEEP_AFTER_FALLBACK_MS = 14_400_000; // 4h (the maximum supported sleepAfter option)
+export const SLEEP_AFTER_FALLBACK_MS = 43_200_000; // 12h (the maximum supported sleepAfter option)
 export function parseSleepAfterMs(s: string): number {
   if (s.endsWith('h')) {
     const h = parseInt(s, 10);
@@ -191,7 +191,7 @@ export function parseSleepAfterMs(s: string): number {
     const m = parseInt(s, 10);
     if (!Number.isNaN(m) && m > 0) return m * 60_000;
   }
-  logger.warn('parseSleepAfterMs: unrecognized value, falling back to 4h', { input: s });
+  logger.warn('parseSleepAfterMs: unrecognized value, falling back to 12h', { input: s });
   return SLEEP_AFTER_FALLBACK_MS;
 }
 
@@ -1233,16 +1233,16 @@ export async function collectMetrics(
   // and the construction's storage read raced with a setBucketName write, or
   // (b) some code path wrote 'sleepAfter' to storage without updating the
   // cache. Storage is the authoritative source.
-  let idleTimeoutPref = '4h';
+  let idleTimeoutPref = '12h';
   try {
     const stored = await ctx.storage.get<string>('sleepAfter');
-    if (stored && /^(5m|15m|30m|1h|2h|4h)$/.test(stored)) {
+    if (stored && /^(5m|15m|30m|1h|2h|4h|8h|12h)$/.test(stored)) {
       idleTimeoutPref = stored;
     } else {
-      logger.warn('collectMetrics: sleepAfter missing or invalid; selecting fail-safe 4h', { stored });
+      logger.warn('collectMetrics: sleepAfter missing or invalid; selecting fail-safe 12h', { stored });
     }
   } catch (err) {
-    logger.warn('collectMetrics: failed to read sleepAfter; selecting fail-safe 4h', {
+    logger.warn('collectMetrics: failed to read sleepAfter; selecting fail-safe 12h', {
       error: err instanceof Error ? err.message : String(err),
     });
   }

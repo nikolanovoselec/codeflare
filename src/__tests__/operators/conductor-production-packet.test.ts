@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { createConductorProductionCapability } from '../../operators/conductor-production';
+import { bindClaimedConductorInvocation, createConductorProductionCapability } from '../../operators/conductor-production';
+import { operatorOwnerKey } from '../../operators/browser-activity';
 import { createOperatorExecutionContext } from '../../operators/execution-context';
 import { storeGithubConnection } from '../../lib/github-token';
 import { createMockKV } from '../helpers/mock-kv';
@@ -11,7 +12,8 @@ const state = vi.hoisted(() => ({ current: true, stopAfterHost: false, stopAfter
   hostCancelled: false, hostStarted: null as null | (() => void),
   hostRequests: [] as Array<{ path: string; authorization: string | null; body: Uint8Array }>,
   objects: new Map<string, Uint8Array>(), files: [] as unknown[], checkpoint: null as string | null,
-  resources: null as unknown }));
+  resources: null as unknown,
+  identity: 'valid' as 'valid' | 'no-groups' | 'revoked' | 'unavailable' | 'malformed' | 'transport-error' }));
 const packet = new TextEncoder().encode(JSON.stringify({ scope: 'all', workSet: 'whole-requested-tree',
   lane: 'code-reviewer', files: [], changedInputs: [], patch: '',
   evidence: { lane: 'code-reviewer', callSites: [], anchorsCitingChanged: [] } }));
@@ -94,7 +96,9 @@ vi.mock('../../operators/owned-session-production', () => ({
   operatorActivitySessionStore: () => ({}), createOperatorSyncReader: async () => async () => null,
 }));
 
-async function capability(driveDeadline = Date.now() + 25_000, evidence?: unknown) {
+async function capability(driveDeadline = Date.now() + 25_000, evidence?: unknown, emailGrant = false) {
+  const admittedSelection = emailGrant ? { ...selection, operator: { ...selection.operator,
+    invokers: { users: [human.email], groups: [] } } } : selection;
   const invocation = { schemaVersion: 1, interfaceVersion: 1, consumerId: 'boundary-reviews',
     activityId, operatorId: 'review-operator', runId: activityId,
     source: { kind: 'session', reference: 'owner/repo' },
@@ -118,7 +122,7 @@ async function capability(driveDeadline = Date.now() + 25_000, evidence?: unknow
   };
   const env = { ENCRYPTION_KEY: btoa('p'.repeat(32)), KV: createMockKV(),
     OPERATOR_REGISTRY: { getByName: () => ({
-    resolveManagementExecution: async () => ({ ok: true, value: selection }),
+    resolveManagementExecution: async () => ({ ok: true, value: admittedSelection }),
     getBoundaryStartGuard: async () => state.current ? guard : { ...guard, claimed: false },
   }) }, CONTAINER: {} };
   await storeGithubConnection(env as never, 'owner-bucket', { accessToken: 'parent-github-token', source: 'pat' });
@@ -126,7 +130,7 @@ async function capability(driveDeadline = Date.now() + 25_000, evidence?: unknow
     artifactDigest: selection.release.bundleDigest, policyDigest: 'e'.repeat(64), human,
     accessJwt: 'sealed-access' }, env);
   const plan = { activityId, deadline: Date.now() + 300_000, invocationJson: JSON.stringify(invocation),
-    receipt: { selection }, executionContext };
+    receipt: { selection: admittedSelection }, executionContext };
   return (await createConductorProductionCapability({ env: env as never, plan: plan as never,
     activity: activity as never, generation: 1, driveDeadline })).capability;
 }
@@ -139,19 +143,101 @@ beforeEach(() => {
   state.current = true; state.stopAfterHost = false; state.stopAfterR2 = false;
   state.ownedSession = false; state.reserveDuringHost = false; state.hostStalled = false;
   state.hostCancelled = false; state.hostStarted = null; state.hostRequests = [];
-  state.files = []; state.objects.clear(); state.checkpoint = null; state.resources = null;
+  state.files = []; state.objects.clear(); state.checkpoint = null; state.resources = null; state.identity = 'valid';
   priorPublication = publicationFixture();
   vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
     const request = new Request(input, init);
     if (request.url === `${human.issuer}/cdn-cgi/access/get-identity`) {
       if (request.headers.get('cookie') !== 'CF_Authorization=sealed-access')
         return new Response(null, { status: 401 });
-      return Response.json({ id: human.subject, email: human.email, groups: [{ id: 'reviewers' }] });
+      if (state.identity === 'revoked') return new Response(null, { status: 401 });
+      if (state.identity === 'unavailable') return new Response(null, { status: 503 });
+      if (state.identity === 'transport-error') throw new Error('Identity transport unavailable');
+      if (state.identity === 'malformed') return Response.json({ id: human.subject, email: human.email, groups: null });
+      return Response.json({ id: human.subject, email: human.email,
+        ...(state.identity === 'no-groups' ? {} : { groups: [{ id: 'reviewers' }] }) });
     }
     return priorPublication.fetcher(request);
   });
 });
 afterEach(() => vi.restoreAllMocks());
+
+describe('REQ-OPERATOR-047: live Conductor email authority', () => {
+  it.each(['revoked', 'unavailable', 'malformed', 'transport-error'] as const)(
+    'REQ-OPERATOR-047: %s identity denies ordinary Conductor admission despite an explicit email grant', async fault => {
+      state.identity = fault;
+      await expect(capability(Date.now() + 25_000, undefined, true)).rejects.toThrow();
+      expect(state.hostRequests).toEqual([]);
+      expect(state.files).toEqual([]);
+      expect(state.objects.size).toBe(0);
+      state.identity = 'no-groups';
+      const owner = await capability(Date.now() + 25_000, undefined, true);
+      const response = await owner.fetch(new Request('https://operator.internal/v1/session/ensure', {
+        method: 'POST', headers: { 'content-type': 'application/json' }, body: '{"schemaVersion":1}',
+      }));
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({ status: 'ready' });
+    });
+
+  it.each(['revoked', 'unavailable', 'malformed', 'transport-error'] as const)(
+    'REQ-OPERATOR-050: warmed email-granted Conductor denies packet effects for %s identity and recovers only after verification', async fault => {
+      state.identity = 'no-groups';
+      const owner = await capability(Date.now() + 25_000, undefined, true);
+      state.identity = fault;
+      const response = await prepare(owner);
+      expect(response.status).toBe(403);
+      expect(state.hostRequests).toEqual([]);
+      expect(state.files).toEqual([]);
+      expect(state.objects.size).toBe(0);
+      state.identity = 'no-groups';
+      expect((await prepare(owner)).status).toBe(200);
+      expect(state.files).toEqual([expect.objectContaining({ name: 'packet-code-reviewer.json' })]);
+    });
+
+  it.each(['revoked', 'unavailable', 'malformed', 'transport-error'] as const)(
+    'REQ-OPERATOR-047: claimed Conductor binding rejects %s live identity rather than accepting its email grant', async fault => {
+      const policy = selection.installation.policy;
+      const input = { context: { repositoryId: guard.repositoryId, pullRequest: guard.pullRequest,
+        head: guard.head, base: guard.base, mergeBase: guard.mergeBase } };
+      const resources = { schemaVersion: 1 as const, artifactDigest: selection.release.bundleDigest, files: [] };
+      const admittedSelection = { ...selection, operator: { ...selection.operator,
+        invokers: { users: [human.email], groups: [] } } };
+      const env = { ENCRYPTION_KEY: btoa('p'.repeat(32)), KV: createMockKV(),
+        OPERATOR_REGISTRY: { getByName: () => ({
+          resolveManagementExecution: async () => ({ ok: true, value: admittedSelection }),
+          getBoundaryStartGuard: async () => guard,
+          getBoundaryPreparation: async () => ({ activityId, phase: 'claimed', roundGeneration: 1,
+            contextDigest, claimedWorkflowSha: guard.workflowSha, ownerKey: await operatorOwnerKey(human) }),
+        }) } };
+      await storeGithubConnection(env as never, 'owner-bucket', { accessToken: 'parent-github-token', source: 'pat' });
+      const executionContext = await createOperatorExecutionContext({ activityId, operatorId: 'review-operator',
+        artifactDigest: selection.release.bundleDigest, policyDigest: createHash('sha256').update(JSON.stringify(policy)).digest('hex'),
+        human, accessJwt: 'sealed-access' }, env);
+      const invocation = { schemaVersion: 1, interfaceVersion: 1, consumerId: 'boundary-reviews',
+        activityId, operatorId: 'review-operator', runId: activityId,
+        source: { kind: 'session', reference: 'owner/repo' },
+        revision: { reference: head, digest: contextDigest }, input,
+        inputDigest: createHash('sha256').update(JSON.stringify(input)).digest('hex'), attachments: [],
+        resources: { inference: { routeId: 'provider-default', reasoningLevel: null },
+          session: { profileId: 'review-profile' }, storage: { scopeId: 'review-profile' } } };
+      const bind = () => bindClaimedConductorInvocation({ env: env as never,
+        plan: { activityId, deadline: Date.now() + 300_000, receipt: { selection: admittedSelection },
+          executionContext, invocationJson: JSON.stringify(invocation) } as never,
+        activity: { operatorGenerationCurrent: async () => state.current,
+          getBoundaryStartBinding: async () => ({ ...guard, session: guard.session }) } as never,
+        resources, generation: 1, driveDeadline: Date.now() + 25_000 });
+      state.identity = fault;
+      await expect(bind()).rejects.toThrow();
+      state.identity = 'no-groups';
+      const bound = await bind();
+      expect(bound).toMatchObject({ activityId, input: { context: input.context, boundary: {
+        activityId, generation: 1, inputDigest: invocation.inputDigest,
+        packageDigest: selection.release.bundleDigest, policyDigest: executionContext.policyDigest,
+      } } });
+      expect(state.hostRequests).toEqual([]);
+      expect(state.files).toEqual([]);
+    });
+});
 
 // Q14 maps to REQ-OPERATOR-065 AC1/3/4: real publisher authentication,
 // exact prior tuple and bounded originals before packet sealing (OPERATOR-050 AC3).
@@ -281,8 +367,8 @@ describe('REQ-OPERATOR-050/053: claimed parent packet crosses only the ordinary 
   it('denies a stale captured drive deadline before transport even when human authority remains live', async () => {
     state.current = true; state.stopAfterHost = false; state.stopAfterR2 = false; state.ownedSession = false;
     state.reserveDuringHost = false; state.hostRequests = []; state.files = []; state.objects.clear();
-    const owner = await capability(Date.now() - 1);
-    expect((await prepare(owner)).status).toBe(403);
+    // The initial generation/deadline guard refuses before a capability or bootstrap exists.
+    await expect(capability(Date.now() - 1)).rejects.toThrow('Conductor generation changed');
     expect(state.hostRequests).toEqual([]);
     expect(state.objects.size).toBe(0);
   });

@@ -129,6 +129,7 @@ export interface SessionState {
   preseedUpgradeFailed: boolean;
   managedReleaseStatus: 'current' | 'upgrading' | 'update_pending' | null;
   managedReleaseProgress: ManagedReleaseProgress | null;
+  managedReleaseBlockedReason: 'runtime_incompatible' | null;
   /** REQ-ENTERPRISE-020: the bucket's encryption regime is migrating (Governed Mode flip). Reuses the Upgrading affordance to disable New Session. */
   bucketMigrating: boolean;
   /** REQ-ENTERPRISE-020: a Governed Mode flip is wanted but deferred until the user's running sessions stop (D1: no force-kill). */
@@ -157,6 +158,7 @@ const [state, setState] = createStore<SessionState>({
   preseedUpgradeFailed: false,
   managedReleaseStatus: null,
   managedReleaseProgress: null,
+  managedReleaseBlockedReason: null,
   bucketMigrating: false,
   bucketMigrationPending: false,
   bucketMigrationPercent: null,
@@ -190,6 +192,8 @@ registerProcessNameCallback((sessionId, terminalId, processName) => {
   updateTerminalLabel(sessionId, terminalId, processName);
 });
 terminalStore.registerSessionStoppedCallback?.((sessionId) => {
+  // A transport notification is not generation-fenced KILL exit evidence.
+  if (localKillAttempts.has(sessionId)) return;
   updateSessionStatus(sessionId, 'stopped');
   terminalStore.disposeSession(sessionId);
 });
@@ -205,6 +209,13 @@ registerR2ReadinessDeps({
 function updateSessionStatus(id: string, status: SessionStatus): void {
   const index = state.sessions.findIndex((sess) => sess.id === id);
   if (index !== -1) {
+    if (status === 'stopped') {
+      localKillAttempts.delete(id);
+    } else if (localKillAttempts.has(id)) {
+      // Keep the local termination intent through an older live observation;
+      // otherwise the mounted-runtime guard would mask the eventual exit.
+      status = 'stopping';
+    }
     setState('sessions', index, 'status', status);
     if (status === 'running') markSessionStarted(id);
     if (status === 'stopped' || status === 'stopping') clearSessionStartedGuard(id);
@@ -217,7 +228,8 @@ function isSessionInitializing(sessionId: string): boolean {
 
 /** One gate for every stopped/missing observation from eventually-consistent KV. */
 function shouldRetainNegativeKv(sessionId: string): boolean {
-  return isSessionInitializing(sessionId)
+  return localKillAttempts.has(sessionId)
+    || isSessionInitializing(sessionId)
     || isWithinStartupGuard(sessionId)
     || terminalStore.ownsSession?.(sessionId) === true;
 }
@@ -295,15 +307,41 @@ function applyManagedReleaseBatch(
 
 // A local Stop owns its own confirmation poll; persisted stopping does not.
 const localStopAttempts = new Set<string>();
+const supersededStopAttempts = new Set<string>();
+// Keep successful commands deduplicated until authoritative polling confirms exit.
+const localKillAttempts = new Map<string, { request: Promise<void> | null; generation?: number }>();
+
+function reconcileKillGeneration(id: string): void {
+  const attempt = localKillAttempts.get(id);
+  const session = state.sessions.find((candidate) => candidate.id === id);
+  if (!attempt || !session) return;
+  if (session.generation !== attempt.generation) {
+    // A command for the old runtime must not pin a replacement as stopping.
+    localKillAttempts.delete(id);
+    if (session.lifecycle) updateSessionStatus(id, session.lifecycle);
+  } else if (session.status === 'stopped') {
+    localKillAttempts.delete(id);
+  }
+}
+
+function isLocallyStopping(id: string): boolean {
+  return localStopAttempts.has(id) && !supersededStopAttempts.has(id);
+}
 
 // Register polling dependencies (extracted to session-polling.ts)
 registerPollingDeps({
   getState: () => state,
   setStateProduce: (fn) => setState(produce(fn)),
-  setStateRaw: (...args: any[]) => (setState as any)(...args),
+  setStateRaw: (...args: any[]) => {
+    (setState as any)(...args);
+    if (args[0] === 'sessions' && args[2] === 'generation') {
+      const session = state.sessions[args[1]];
+      if (session) reconcileKillGeneration(session.id);
+    }
+  },
   updateSessionStatus,
   isSessionInitializing,
-  isLocallyStopping: (id) => localStopAttempts.has(id),
+  isLocallyStopping,
   shouldRetainNegativeKv,
   setAuthExpired,
   applyMetricsUpdate,
@@ -364,8 +402,10 @@ async function loadSessions(): Promise<void> {
         generation: local.generation,
         revision: local.revision,
       }, listed) !== listed;
+      const kill = localKillAttempts.get(s.id);
       const keepLocalStatus = local && (localNewer || local.status === 'initializing'
-        || localStopAttempts.has(s.id) || isSessionInitializing(s.id));
+        || (kill && kill.generation === s.generation && listedStatus !== 'stopped')
+        || isLocallyStopping(s.id) || isSessionInitializing(s.id));
       return {
         ...s,
         ...(localNewer && {
@@ -384,6 +424,7 @@ async function loadSessions(): Promise<void> {
       }
     }
     setState('sessions', sessionsWithStatus);
+    for (const session of state.sessions) reconcileKillGeneration(session.id);
     // REQ-VAULT-015 AC4: sweep orphan SilverBullet IDB caches only after
     // an authoritative session-list fetch succeeds. Dashboard mount can
     // see the initial empty store before loadSessions resolves; sweeping
@@ -430,7 +471,7 @@ async function loadSessions(): Promise<void> {
       }
 
       const currentStatus = state.sessions.find((candidate) => candidate.id === session.id)?.status;
-      if (currentStatus === 'initializing' || localStopAttempts.has(session.id)) continue;
+      if (currentStatus === 'initializing' || isLocallyStopping(session.id)) continue;
       if (batchStatus.status === 'stopped' && currentStatus !== 'stopping' && shouldRetainNegativeKv(session.id)) continue;
 
       const current = state.sessions.find((candidate) => candidate.id === session.id);
@@ -472,6 +513,7 @@ async function loadSessions(): Promise<void> {
     // transport: a newer running batch must retain the surviving connection.
     if (thisGen !== loadSessionsGeneration) return;
     for (const session of state.sessions) {
+      reconcileKillGeneration(session.id);
       if (existingStatuses.get(session.id) === 'stopping' && session.status === 'stopped') {
         terminalStore.disposeSession(session.id);
       }
@@ -551,6 +593,7 @@ async function deleteSession(id: string): Promise<void> {
       startupCleanups.delete(id);
     }
     await api.deleteSession(id);
+    localKillAttempts.delete(id);
     sessionMissCounters.delete(id);
     cleanupTerminalsForSession(id);
     // REQ-VAULT-015 AC3: drop the per-session SilverBullet IDB cache,
@@ -622,7 +665,13 @@ function startSession(id: string): Promise<void> {
         updateSessionStatus(id, 'error');
         setState('error', error);
         if (code === 'MANAGED_ENVIRONMENT_UPDATE_PENDING') {
-          void refreshSessionStatuses(true);
+          // The rejection itself is evidence of a blocked start, not of why it
+          // is blocked. Show it immediately, then ask the managed-status owner
+          // directly; an unrelated batch-status failure must not hide the gate.
+          setState('managedReleaseStatus', 'update_pending');
+          setState('managedReleaseProgress', null);
+          // Keep the observed block visible if the follow-up read is unavailable.
+          void refreshSessionAncillaryStatus().catch(() => undefined);
         }
         reject(new Error(error));
       },
@@ -649,8 +698,11 @@ async function stopSession(id: string): Promise<void> {
       })
     );
     localStopAttempts.add(id);
+    if (localKillAttempts.has(id)) supersededStopAttempts.add(id);
     updateSessionStatus(id, 'stopping');
     await api.stopSession(id);
+    // KILL takes confirmation ownership even if this HTTP caller was hung.
+    if (supersededStopAttempts.has(id)) return;
 
     // Poll batch-status until session reaches 'stopped' (sync may still be running)
     const pollForStopped = (): Promise<void> => {
@@ -662,6 +714,7 @@ async function stopSession(id: string): Promise<void> {
         // Undefined confirmation is neutral cancellation, not a failed Stop.
         const finishStopPolling = (confirmed?: boolean) => {
           if (finished) return;
+          if (supersededStopAttempts.has(id)) confirmed = undefined;
           finished = true;
           clearInterval(interval);
           startupCleanups.delete(id);
@@ -675,6 +728,10 @@ async function stopSession(id: string): Promise<void> {
         };
 
         const interval = setInterval(async () => {
+          if (supersededStopAttempts.has(id)) {
+            finishStopPolling();
+            return;
+          }
           pollCount++;
 
           if (pollCount >= MAX_STOP_POLL_ATTEMPTS) {
@@ -704,10 +761,41 @@ async function stopSession(id: string): Promise<void> {
 
     await pollForStopped();
   } catch (err) {
-    setState('error', err instanceof Error ? err.message : 'Failed to stop session');
+    if (!supersededStopAttempts.has(id)) {
+      setState('error', err instanceof Error ? err.message : 'Failed to stop session');
+    }
   } finally {
     localStopAttempts.delete(id);
+    supersededStopAttempts.delete(id);
   }
+}
+
+function killSession(id: string): Promise<void> {
+  reconcileKillGeneration(id);
+  const pending = localKillAttempts.get(id);
+  if (pending?.request) return pending.request;
+
+  if (localStopAttempts.has(id)) supersededStopAttempts.add(id);
+  startupCleanups.get(id)?.();
+  startupCleanups.delete(id);
+  setState(produce((s) => {
+    delete s.initializingSessionIds[id];
+    delete s.initProgressBySession[id];
+  }));
+  // This is local command intent, not exit evidence. Existing ordered status
+  // polling remains responsible for confirming stopped and disposing transport.
+  updateSessionStatus(id, 'stopping');
+
+  const generation = state.sessions.find((session) => session.id === id)?.generation;
+  const request: Promise<void> = api.killSession(id).catch((err) => {
+    if (localKillAttempts.get(id)?.request === request) {
+      // Uncertainty releases submission deduplication, not runtime ownership.
+      localKillAttempts.set(id, { request: null, generation });
+      setState('error', err instanceof Error ? err.message : 'Failed to kill session');
+    }
+  });
+  localKillAttempts.set(id, { request, generation });
+  return request;
 }
 
 function setActiveSession(id: string | null): void {
@@ -788,6 +876,7 @@ export const sessionStore = {
   deleteSession,
   startSession,
   stopSession,
+  killSession,
   setActiveSession,
   clearError,
   dismissInitProgressForSession,
@@ -807,6 +896,7 @@ export const sessionStore = {
   updatePreferences: updateUserPreferences,
   runPreseedUpdate,
   retryPreseedUpgrade,
+  refreshSessionAncillaryStatus,
   get maxSessions() { return state.maxSessions; },
   isAtSessionLimit,
   hasRecentContext,
@@ -814,6 +904,7 @@ export const sessionStore = {
   get preseedUpgradeFailed() { return state.preseedUpgradeFailed; },
   get managedReleaseStatus() { return state.managedReleaseStatus; },
   get managedReleaseProgress() { return state.managedReleaseProgress; },
+  get managedReleaseBlockedReason() { return state.managedReleaseBlockedReason; },
   get bucketMigrating() { return state.bucketMigrating; },
   get bucketMigrationPending() { return state.bucketMigrationPending; },
   get bucketMigrationPercent() { return state.bucketMigrationPercent; },

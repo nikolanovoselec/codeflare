@@ -165,6 +165,8 @@ export function refreshSessionAncillaryStatus(): Promise<void> {
       setStateRaw('managedReleaseStatus', null);
       setStateRaw('managedReleaseProgress', null);
     }
+    setStateRaw('managedReleaseBlockedReason', response.managedReleaseStatus === 'update_pending'
+      ? response.managedReleaseBlockedReason ?? null : null);
     applyManagedReleaseBatchFn(response.managedReleaseStatus, response.preseedNeedsUpgrade, response.managedReleaseProgress, response.preseedUpgradeTarget);
     setStateRaw('bucketMigrating', response.bucketMigrating === true);
     setStateRaw('bucketMigrationPending', response.bucketMigrationPending === true);

@@ -86,12 +86,16 @@ These compatibility anchors resolve dated changelog references to retired review
 1. One five-minute deadline, starting at the first rendered questionnaire or native dialog, completes the invocation with only the first authored option for each unanswered single- or multi-select question and releases its TUI/native-dialog wait. <!-- @impl: scripts/rpiv-question-timeout.mjs::withQuestionnaireDeadline --> <!-- @impl: scripts/rpiv-question-timeout.mjs::defaultQuestionnaireAnswers --> <!-- @test: preseed/agents/pi/test/questionnaire-timeout.test.mjs (selects option one only after five unanswered minutes) --> <!-- @test: preseed/agents/pi/test/questionnaire-timeout.test.mjs (retains completed answers and defaults only unanswered questions on one deadline) -->
 2. An option or custom answer submitted before expiry completes normally without waiting for the deadline. <!-- @impl: scripts/rpiv-question-timeout.mjs::withQuestionnaireDeadline --> <!-- @test: preseed/agents/pi/test/questionnaire-timeout.test.mjs (preserves) -->
 3. Timeout preserves completed answers, manual multiple selections, and saved or currently edited notes. <!-- @impl: scripts/rpiv-question-timeout.mjs::defaultQuestionnaireAnswers --> <!-- @impl: scripts/patch-rpiv-question-timeout.mjs::patchQuestionnaireTimeout --> <!-- @test: preseed/agents/pi/test/questionnaire-timeout.test.mjs (retains completed answers and defaults only unanswered questions on one deadline) --> <!-- @test: preseed/agents/pi/test/questionnaire-timeout.test.mjs (TUI timeout preserves completed and currently edited notes) --> <!-- @test: preseed/agents/pi/test/questionnaire-timeout.test.mjs (preserves manual multiple selections while defaulting another question) -->
-4. Automatic answers are identified individually and at result level in the tool details and model-facing content, not represented as a user response or explicit authorization. <!-- @impl: scripts/rpiv-question-timeout.mjs::withQuestionnaireDeadline --> <!-- @test: preseed/agents/pi/test/questionnaire-timeout.test.mjs (selects option one only after five unanswered minutes) -->
+4. Automatic answers remain identified individually and at result level and are never represented as manual responses. <!-- @impl: preseed/agents/pi/extensions/questionnaire-timeout-authorization.ts::questionnaireTimeoutAuthorization -->
+5. The managed public `tool_result` policy treats successful, non-cancelled `ask_user_question` timeout selections as standing user-delegated authorization without routine re-confirmation only when the actual automatic recommended selection matches the original question and options. <!-- @impl: preseed/agents/pi/extensions/questionnaire-timeout-authorization.ts::questionnaireTimeoutAuthorization -->
+6. Non-recommended defaults, cancellation, errors and invalid or unrecognized results gain no authorization. <!-- @impl: preseed/agents/pi/extensions/questionnaire-timeout-authorization.ts::questionnaireTimeoutAuthorization -->
 
 **Constraints:**
 
-- The first option is the recommended default.
-- Automatic selection never authorizes protected operations that require explicit user approval.
+- Keep the first authored option as the timeout default; never reorder options to find a recommendation.
+- Timeout delegation applies only to verified automatic recommended selections; preserve all manual answers, previews, notes, global notes and tool details.
+- Delegation does not bypass protected server grants, security boundaries or platform constraints.
+- Deliver this policy as manifest-listed managed TypeScript content in both Pi modes using the installed public `tool_result` hook; keep image-owned deadlines/helpers, upstream bytes, SDK, dependencies, pins and user configuration unchanged.
 - Scope is the managed Pi questionnaire only, not Claude native questions, Plan questions, Impeccable, or unrelated UI dialogs.
 - Keep dependency pins and archive integrity unchanged; do not modify restored user configuration.
 - RPC wait release does not prove visual dialog dismissal in every external client.
@@ -100,7 +104,7 @@ These compatibility anchors resolve dated changelog references to retired review
 
 **Dependencies:** [REQ-AGENT-210](#req-agent-210-managed-extension-startup-preparation)
 
-**Verification:** Actual pinned package through the SDK-wrapped tool, real TUI component input and native-dialog host responses with a platform clock; final exact-head CI and deployed acceptance remain separate gates.
+**Verification:** Existing actual-package tests cover questionnaire deadlines and automatic-answer provenance, not the managed authorization handler. Handler behavioral coverage is absent under the user-authorized no-new-questionnaire-tests exception; source/seed consistency is not behavioral proof. Signed publication and runtime adoption remain separate gates.
 
 **Status:** Implemented
 
@@ -204,7 +208,7 @@ These compatibility anchors resolve dated changelog references to retired review
 
 **Acceptance Criteria:**
 
-1. Startup includes `@narumitw/pi-goal` in Pi's required package set. <!-- @impl: entrypoint.sh::required --> <!-- @impl: preseed/agents/pi/package.json::dependencies --> <!-- @test: host/__tests__/pi-settings-packages.test.js (REQ-AGENT-076 AC1 / REQ-AGENT-133 AC1: fresh container assembles required packages with context-mode enabled) -->
+1. Startup includes `@narumitw/pi-goal` in Pi's required package set. <!-- @impl: entrypoint.sh::required --> <!-- @impl: preseed/agents/pi/package.json::dependencies --> <!-- @test: host/__tests__/pi-settings-packages.test.js (REQ-AGENT-076 AC1 / REQ-AGENT-133 AC1: fresh container assembles required packages with context-mode disabled) -->
 2. Image construction makes Goal's declared Pi entrypoint resolve to the reviewed transformed source and warms that same installed path, so a new session uses the control/cadence patch and its path-correct transpile cache. <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchPiGoalDirectory --> <!-- @impl: Dockerfile::goal_source --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-111 AC2/AC6 / REQ-AGENT-178 AC1/AC2: declared pinned Goal entrypoint carries review control and workflow ownership) --> <!-- @manual: Start a new Pi session from the complete image and confirm Goal's installed extension loads from the baked jiti cache. -->
 3. The image build fails if Goal's path-correct transpile-cache artifact is absent. <!-- @impl: Dockerfile::goal_hit --> <!-- @impl: scripts/verify-pi-lockstep.mjs::verifyJitiCacheArtifact --> <!-- @test: host/__tests__/pi-lockstep.test.js (REQ-AGENT-111 AC3: Goal jiti cache path and fail-closed artifact verification) --> <!-- @manual: Run the deployment image build; in a controlled build omit or replace Goal's expected cache file and confirm the jiti warm-cache layer exits non-zero before image publication. -->
 4. Startup supplies `toolVisibility: "after-first-goal"` only when the Goal visibility preference is missing. <!-- @impl: entrypoint.sh::configure_pi_goal_defaults --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-111 AC4 / REQ-AGENT-129 AC1: creates every Codeflare-owned Goal startup default when config is absent) -->
@@ -330,8 +334,8 @@ The former REQ-AGENT-131 Usage installation and warming workflow is retired. [Re
 
 **Acceptance Criteria:**
 
-1. Startup assembles `pi-evaluate` into Pi's required package set. <!-- @impl: entrypoint.sh::required --> <!-- @test: host/__tests__/pi-settings-packages.test.js (REQ-AGENT-076 AC1 / REQ-AGENT-133 AC1: fresh container assembles required packages with context-mode enabled) -->
-2. Evaluate remains in Pi's required package set when Context-mode is disabled. <!-- @impl: entrypoint.sh::required --> <!-- @test: host/__tests__/pi-settings-packages.test.js (REQ-AGENT-076 AC1 / REQ-AGENT-133 AC1: fresh container assembles required packages with context-mode enabled) -->
+1. Startup assembles `pi-evaluate` into Pi's required package set. <!-- @impl: entrypoint.sh::required --> <!-- @test: host/__tests__/pi-settings-packages.test.js (REQ-AGENT-076 AC1 / REQ-AGENT-133 AC1: fresh container assembles required packages with context-mode disabled) -->
+2. Evaluate remains in Pi's required package set when Context-mode is disabled. <!-- @impl: entrypoint.sh::required --> <!-- @test: host/__tests__/pi-settings-packages.test.js (REQ-AGENT-076 AC1 / REQ-AGENT-133 AC1: fresh container assembles required packages with context-mode disabled) -->
 3. Image construction explicitly loads the declared Evaluate entrypoint into the path-correct JITI cache. <!-- @impl: Dockerfile::evaluate_source --> <!-- @impl: scripts/verify-pi-lockstep.mjs::warmAndVerifyJitiEntrypoints --> <!-- @test: host/__tests__/pi-lockstep.test.js (declares, warms, and re-verifies each locked package entrypoint) --> <!-- @test: host/__tests__/pi-lockstep.test.js (REQ-AGENT-210: managed extension JITI warm-cache contract) -->
 4. Image construction fails when Evaluate's path-correct JITI artifact is absent. <!-- @impl: Dockerfile::evaluate_hit --> <!-- @impl: scripts/verify-pi-lockstep.mjs::verifyJitiCacheArtifact --> <!-- @test: host/__tests__/pi-lockstep.test.js (declares, warms, and re-verifies each locked package entrypoint) -->
 
@@ -432,25 +436,19 @@ The former REQ-AGENT-131 Usage installation and warming workflow is retired. [Re
 
 ---
 
-### REQ-AGENT-112: Goal Pause Ownership Across PR Heads
+<a id="req-agent-112-goal-pause-ownership-across-pr-heads"></a>
+### REQ-AGENT-112: Goal-independent PR review
 
-**Intent:** Reviewer-bearing PR boundaries must not pause a Pi Goal unless its release ownership is recoverable.
+**Intent:** PR review must not own or change Goal's lifecycle.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. A reviewer-bearing boundary records ownership before pausing one active Goal. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::pauseGoalForReview --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (preserves review-owned Goal pause and releases it only after acknowledged FIX handoff) -->
-2. Ownership persistence failure leaves the Goal active while review proceeds. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::pauseGoalForReview --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (preserves review-owned Goal pause and releases it only after acknowledged FIX handoff) -->
-3. Repeated handling of one boundary does not issue another pause request. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::pauseGoalForReview --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (preserves review-owned Goal pause and releases it only after acknowledged FIX handoff) -->
-4. A replacement PR head transfers existing pause ownership without pausing again. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::pauseGoalForReview --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::releaseReviewGoalPause --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (preserves review-owned Goal pause and releases it only after acknowledged FIX handoff) -->
-5. Failure to persist replacement-head ownership requests rollback resume. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::pauseGoalForReview --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::releaseReviewGoalPause --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (preserves review-owned Goal pause and releases it only after acknowledged FIX handoff) -->
-6. Successful rollback clears stale review ownership. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::pauseGoalForReview --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::releaseReviewGoalPause --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (preserves review-owned Goal pause and releases it only after acknowledged FIX handoff) -->
-7. Failed rollback retains recoverable ownership for the replacement review's release. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::pauseGoalForReview --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::releaseReviewGoalPause --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (preserves review-owned Goal pause and releases it only after acknowledged FIX handoff) -->
+1. Launching a reviewer-bearing boundary preserves the current Goal identity and state, including an active Goal. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-112/113: preserves %s Goal state through review and FIX) -->
+2. Review launch and FIX delivery work without Goal installed or available. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-112/113: delivers review and FIX without Goal installed) -->
 
-**Constraints:**
-
-- Once ownership is recorded, the exact persisted paused Goal confirms it even when the bridge response is unavailable. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::pauseGoalForReview -->
+**Constraints:** Existing reviewer, exact-head CI, triage and completion gates remain independent of Goal.
 
 **Priority:** P1
 
@@ -462,25 +460,19 @@ The former REQ-AGENT-131 Usage installation and warming workflow is retired. [Re
 
 ---
 
-### REQ-AGENT-113: Review-owned Goal Release
+<a id="req-agent-113-review-owned-goal-release"></a>
+### REQ-AGENT-113: Goal-independent review completion
 
-**Intent:** Review completion must release only the Goal pause owned by the applicable PR boundary.
+**Intent:** Review completion and cleanup must not resume or replace a Goal.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. The matching acknowledged FIX follow-up resumes a review-owned Goal. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::releaseReviewGoalPause --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::sendFixFollowUp --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (preserves review-owned Goal pause and releases it only after acknowledged FIX handoff) --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (keeps launch and FIX fail-open while clearing unavailable or manually resumed Goal ownership) -->
-2. CI notifications do not resume a review-owned Goal. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::releaseReviewGoalPause --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (preserves review-owned Goal pause and releases it only after acknowledged FIX handoff) --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (keeps launch and FIX fail-open while clearing unavailable or manually resumed Goal ownership) -->
-3. Individual reviewer notifications do not resume a review-owned Goal. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::releaseReviewGoalPause --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (preserves review-owned Goal pause and releases it only after acknowledged FIX handoff) --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (keeps launch and FIX fail-open while clearing unavailable or manually resumed Goal ownership) -->
-4. Goal-control unavailability never blocks review launch or FIX delivery. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::requestGoalControl --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::pauseGoalForReview --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::releaseReviewGoalPause --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (preserves review-owned Goal pause and releases it only after acknowledged FIX handoff) --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (keeps launch and FIX fail-open while clearing unavailable or manually resumed Goal ownership) -->
-5. A replacement Goal is not resumed from stale review ownership. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::releaseReviewGoalPause --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (preserves review-owned Goal pause and releases it only after acknowledged FIX handoff) --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (keeps launch and FIX fail-open while clearing unavailable or manually resumed Goal ownership) -->
-6. An independently reactivated owned Goal is not resumed again. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::releaseReviewGoalPause --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (preserves review-owned Goal pause and releases it only after acknowledged FIX handoff) --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (keeps launch and FIX fail-open while clearing unavailable or manually resumed Goal ownership) -->
-7. PR closure releases a matching review-owned pause without blocking closure handling. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::releaseReviewGoalPause --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (preserves review-owned Goal pause and releases it only after acknowledged FIX handoff) --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (keeps launch and FIX fail-open while clearing unavailable or manually resumed Goal ownership) -->
+1. Acknowledged FIX delivery preserves the current Goal identity and state. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::sendFixFollowUp --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-112/113: preserves %s Goal state through review and FIX) -->
+2. FIX, abandoned review work and PR closure preserve an explicit user pause. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-113: preserves a user-paused Goal during review %s cleanup) -->
 
-**Constraints:**
-
-- PR enforcement never depends on Goal availability.
+**Constraints:** Review completion does not invoke Goal control or depend on Goal availability.
 
 **Priority:** P1
 
@@ -492,49 +484,43 @@ The former REQ-AGENT-131 Usage installation and warming workflow is retired. [Re
 
 ---
 
-### REQ-AGENT-114: Review-owned Goal Continuation
+<a id="req-agent-114-review-owned-goal-continuation"></a>
+### REQ-AGENT-114: Review and Goal continuation separation
 
-**Intent:** Releasing a review-owned Goal must produce exactly the continuation appropriate to the release trigger.
+**Intent:** Review's FIX follow-up and explicit Goal-control continuations remain separate.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. Bridge-controlled resume suppresses Goal's separate continuation prompt. <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchPiGoalSource --> <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchPiGoalLifecycleSource --> <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchPiGoalCommandsSource --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-114: suppresses only the bridge-owned resume prompt) -->
-2. The FIX follow-up owns the continuation turn after FIX-triggered resume. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::sendFixFollowUp --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::releaseReviewGoalPause --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (preserves review-owned Goal pause and releases it only after acknowledged FIX handoff) -->
-3. FIX-triggered continuation does not populate user input. <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchPiGoalSource --> <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchPiGoalLifecycleSource --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::sendFixFollowUp --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-114: suppresses only the bridge-owned resume prompt) -->
-4. Closure-triggered release schedules no continuation turn. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::releaseReviewGoalPause --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (preserves review-owned Goal pause and releases it only after acknowledged FIX handoff) -->
+1. Explicit bridge-controlled resume retains its existing suppression of a separate Goal continuation prompt. <!-- @impl: scripts/patch-pi-goal-review-control.mjs::patchPiGoalCommandsSource --> <!-- @test: host/__tests__/pi-goal-review-control-patch.test.js (REQ-AGENT-114: suppresses only the bridge-owned resume prompt) -->
+2. Review completion delivers its FIX follow-up without resuming Goal. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::sendFixFollowUp --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-112/113: preserves %s Goal state through review and FIX) -->
+3. Review cleanup does not schedule a Goal continuation. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-113: preserves a user-paused Goal during review %s cleanup) -->
 
-**Constraints:**
-
-- Managed Run RPC remains disabled for review-owned Goal control.
+**Constraints:** Native Goal commands and their compatibility transform remain unchanged; PR review no longer invokes that control channel.
 
 **Priority:** P1
 
 **Dependencies:** [REQ-AGENT-113](#req-agent-113-review-owned-goal-release)
 
-**Verification:** Patched-controller and review-enforcement behavioral tests
+**Verification:** Existing patched-controller and review-enforcement behavioral tests
 
 **Status:** Implemented
 
 ---
 
-### REQ-AGENT-117: Non-disruptive review-owned Goal control
+<a id="req-agent-117-non-disruptive-review-owned-goal-control"></a>
+### REQ-AGENT-117: Goal-independent review restoration
 
-**Intent:** Optional Goal pause and release must not interrupt the PR-boundary turn or its background review work.
+**Intent:** Restoring review state must not change Goal state.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. A reviewer-bearing boundary emits its launch plan before any Goal pause request. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::sendLaunchMessage --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::pauseGoalForReview --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (preserves review-owned Goal pause and releases it only after acknowledged FIX handoff) -->
-2. The successful boundary operation completes before any Goal pause request. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::sendLaunchMessage --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::pauseGoalForReview --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (preserves review-owned Goal pause and releases it only after acknowledged FIX handoff) -->
-3. Exactly one owned Goal pause settles before the queued launch-plan turn begins. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::sendLaunchMessage --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::pauseGoalForReview --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (preserves review-owned Goal pause and releases it only after acknowledged FIX handoff) -->
-4. Missing Goal control does not block review launch. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::requestGoalControl --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::pauseGoalForReview --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::releaseReviewGoalPause --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (preserves review-owned Goal pause and releases it only after acknowledged FIX handoff) -->
-5. Missing Goal control after review does not block FIX delivery. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::requestGoalControl --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::pauseGoalForReview --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::releaseReviewGoalPause --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (preserves review-owned Goal pause and releases it only after acknowledged FIX handoff) -->
-6. A manual resume that wins a release request clears stale ownership without reporting failure. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::releaseReviewGoalPause --> <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::pauseGoalForReview --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (preserves review-owned Goal pause and releases it only after acknowledged FIX handoff) -->
+1. Session startup ignores legacy review-owned pause records for Goal control and preserves both active and explicitly paused Goals. <!-- @impl: preseed/agents/pi/extensions/review-enforcement.ts::registerReviewEnforcement --> <!-- @test: src/__tests__/lib/review-enforcement.test.ts (REQ-AGENT-117: leaves %s Goal untouched when restoring legacy review pause data) -->
 
-**Constraints:** A failure in review-owned Goal pause control cannot block review or CI work.
+**Constraints:** Historical session records are not rewritten and no automatic Goal resume is introduced.
 
 **Priority:** P1
 
@@ -1547,6 +1533,7 @@ None.
 - Ambient MCP/native query capability is all-mode; conditional routing, build/update skills, Pi workflow assets, clone triage, active-repo tracking, graph summaries, and soft search nudges are advanced-only.
 - Per-branch graphs are unsupported; users refresh after checkout.
 - Existing graph refreshes use the bounded update wrapper, never bare `graphify update`.
+- Pi AST build and refresh default to 600 seconds; `GRAPHIFY_BUILD_TIMEOUT` overrides that limit. <!-- @impl: preseed/agents/pi/scripts/safe-graphify-update.sh::GRAPHIFY_BUILD_TIMEOUT --> <!-- @impl: preseed/agents/pi/scripts/build-graphify-ast.sh::GRAPHIFY_BUILD_TIMEOUT --> <!-- @test: host/__tests__/safe-graphify-update.test.js (REQ-AGENT-023: ${name} defaults to the 600-second timeout CLI contract) --> <!-- @test: host/__tests__/safe-graphify-update.test.js (REQ-AGENT-023: ${name} terminates overdue work and propagates timeout failure) -->
 - Pi first-build scripts own AST and architecture graph creation.
 - Entrypoint mounts tmpfs `/dev/shm` for Graphify AST multiprocessing, memory capture, and vault extraction.
 
@@ -2458,12 +2445,147 @@ None.
 
 - Update states reuse existing dashboard polling and add no independent poller.
 - Failed-upgrade recovery follows [REQ-AGENT-049](#req-agent-049-auto-upgrade-preseed-on-release) AC6.
+- Pending updates, including an unavailable compatible seed, retain “Update pending” in both creation controls without a separate blocked/recovery panel. Existing session ownership still defers reconciliation until the last owner stops. <!-- @impl: web-ui/src/components/Dashboard.tsx::Dashboard --> <!-- @impl: web-ui/src/components/SessionDropdown.tsx::SessionDropdown --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-STOR-023 AC5 / REQ-AGENT-175: preserves the existing pending state without a separate recovery panel (%s)) --> <!-- @test: web-ui/src/__tests__/components/Dashboard.test.tsx (REQ-AGENT-175: the existing pending control advances through managed updating to ready) --> <!-- @test: web-ui/src/__tests__/components/SessionDropdown.test.tsx (REQ-STOR-023 AC5 / REQ-AGENT-175: runtime incompatibility preserves the existing pending control) -->
 
 **Priority:** P1
 
 **Dependencies:** [REQ-STOR-022](storage.md#req-stor-022-managed-reconciliation-admission)
 
 **Verification:** Automated dashboard and session-menu component tests
+
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-225: Environment update recovery
+
+**Intent:** Managed-start rejections remain visibly blocking while status recovery is unavailable.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. A typed managed-start rejection remains visibly blocking while ancillary status reads are pending or failed. <!-- @impl: web-ui/src/stores/session.ts::sessionStore --> <!-- @test: web-ui/src/__tests__/stores/session.test.ts (REQ-STOR-022 AC3 / REQ-AGENT-175: a typed start gate stays visible while ancillary status is %s, independently of batch status) -->
+
+**Constraints:**
+
+- Recovery retains existing admission and reconciliation fences.
+- Status checks change neither browsing authority nor session ownership.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-175](#req-agent-175-environment-update-ui-lockdown), [REQ-STOR-023](storage.md#req-stor-023-managed-release-status-projection)
+
+**Verification:** Automated session-store tests; deployed reconciliation and hosted acceptance require separate evidence.
+
+**Status:** Implemented
+
+---
+
+<a id="req-agent-226-hosted-owner-initiated-pi-mcp-oauth"></a>
+### REQ-AGENT-226: Worker-owned MCP portal authorization
+
+**Intent:** Owners authorize portal grants without delivering credentials to Pi.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Owner browser OAuth starts PKCE with expiring state bound to owner, instance, configured portal/resource, issuer and fixed HTTPS callback. <!-- @impl: src/lib/mcp-portal-token.ts::beginMcpPortalConnect --> <!-- @test: src/__tests__/lib/mcp-portal-token.test.ts (REQ-AGENT-226 AC1: standard OAuth PKCE exchange stores only encrypted owner/portal grants) --> <!-- @test: src/__tests__/lib/mcp-portal-token.test.ts (REQ-AGENT-226 AC1: OAuth rejects issuer/resource mismatch, unsafe URLs and redirects before credential exchange) -->
+2. Invalid, expired, cancelled, wrong-owner, replayed or mismatched returns cannot save grants. <!-- @impl: src/lib/mcp-portal-token.ts::finishMcpPortalConnect --> <!-- @test: src/__tests__/lib/mcp-portal-token.test.ts (REQ-AGENT-226 AC2: callback rejects owner, instance, state, issuer, configuration and replay mismatches) --> <!-- @test: src/__tests__/lib/mcp-portal-token.test.ts (REQ-AGENT-226 AC2: disconnect %s cancels the older flow before token issuance) -->
+3. Completion and status artifacts expose no authorization code, verifier or token. <!-- @impl: src/routes/mcp-oauth.ts::createMcpOAuthRoutes --> <!-- @test: src/__tests__/routes/mcp-oauth.test.ts (REQ-AGENT-226 AC3: %s uses browser OAuth and clean owner-bound completion without compute startup) --> <!-- @test: src/__tests__/security/security-headers.test.ts (REQ-AGENT-226 AC3: full app preserves no-referrer and routes MCP returns before auth fallback) -->
+4. Dedicated owner-and-portal KV records require AES-GCM encryption with key-bound associated data; unavailable encryption and moved/plaintext records are unusable independently of GitHub/Cloudflare deploy-key records. <!-- @impl: src/lib/mcp-portal-token.ts::getMcpPortalGrant --> <!-- @test: src/__tests__/lib/mcp-portal-token.test.ts (REQ-AGENT-226 AC4: encryption is mandatory and ciphertext cannot move between owner records) -->
+5. The Worker reuses valid grants and silently refreshes expiring grants without Pi-owned credential entry. <!-- @impl: src/lib/mcp-portal-token.ts::getValidMcpPortalToken --> <!-- @test: src/__tests__/lib/mcp-portal-token.test.ts (REQ-AGENT-226 AC5: current grant refresh rotates without interactive Pi authorization) --> <!-- @test: src/__tests__/lib/mcp-portal-token.test.ts (REQ-AGENT-226 AC5: refresh token omission still permits the next silent renewal) --> <!-- @test: src/__tests__/lib/mcp-portal-token.test.ts (REQ-AGENT-226 AC5: racing rotating refreshes reuse only the current generation with lifetime=%s (disconnect=%s)) -->
+6. Missing, unrefreshable or observed disconnected/configuration-changed grants require reconnect. <!-- @impl: src/lib/mcp-portal-token.ts::getValidMcpPortalToken --> <!-- @test: src/__tests__/lib/mcp-portal-token.test.ts (REQ-AGENT-226 AC6: refresh failure and observed disconnect during refresh fail closed) -->
+7. Disconnect clears only the selected owner/portal connection while preserving unrelated credentials, including when provider revocation fails. <!-- @impl: src/lib/mcp-portal-token.ts::disconnectMcpPortal --> <!-- @test: src/__tests__/lib/mcp-portal-token.test.ts (REQ-AGENT-226 AC7: disconnect affects only selected owner/portal and never restores failed revocation) --> <!-- @test: src/__tests__/routes/mcp-oauth.test.ts (REQ-AGENT-226 AC7: same-origin disconnect clears only the authenticated owner portal) -->
+
+**Constraints:** Secrets stay Worker-only. No shared/admin grants, Access-JWT substitution, cookie copying or new issuer/channel. TLS remains verified. KV publication is non-atomic; the in-flight Disconnect race is explicitly deferred in [#1386](https://github.com/nikolanovoselec/codeflare/issues/1386).
+
+**Priority:** P1
+
+**Dependencies:** None.
+
+**Verification:** Synthetic OAuth/KV/route tests and managed CI; hosted owner SSO, downstream OAuth, refresh/revocation, CIMD-only metadata reachability and platform-log confidentiality require separate evidence.
+
+**Status:** Implemented
+
+---
+
+<a id="req-agent-227-instance-administration-of-pi-mcp-portals"></a>
+<a id="req-agent-227-instance-administration-and-pi-use-of-mcp-portals"></a>
+### REQ-AGENT-227: Instance administration of MCP portals
+
+**Intent:** Administrators register portal destinations without provisioning or changing running sessions.
+
+**Applies To:** Admin
+
+**Acceptance Criteria:**
+
+1. Administration Environment lets authorized administrators read, add, edit, remove and save portal registrations; unauthorized users cannot read or change instance configuration. <!-- @impl: web-ui/src/components/admin/McpPortalSettings.tsx::McpPortalSettings --> <!-- @test: web-ui/src/__tests__/components/admin/McpPortalSettings.test.tsx (REQ-AGENT-227 AC1: administrators manage multiple named portal URLs) --> <!-- @test: src/__tests__/routes/admin-mcp-portals.test.ts (REQ-AGENT-227 AC1: denies %s read and write) -->
+2. Registration accepts unique names and public standard-port HTTPS destinations without credentials or fragments, optionally carrying only `?codemode=search_and_execute`, and returns saved values. <!-- @impl: src/lib/mcp-portals.ts::validateMcpPortals --> <!-- @test: src/__tests__/routes/admin-mcp-portals.test.ts (REQ-AGENT-227 AC2: authorized validated configuration persists without secrets or external actions) --> <!-- @test: src/__tests__/routes/admin-mcp-portals.test.ts (REQ-AGENT-227 AC2: rejects invalid or credential-bearing configuration %#) -->
+3. Saved registration persists without provisioning resources, authenticating users, warming compute or restarting sessions. <!-- @impl: src/routes/admin/configuration.ts::app --> <!-- @test: src/__tests__/routes/admin-mcp-portals.test.ts (REQ-AGENT-227 AC3: saving does not mutate running sessions or grants) -->
+4. Removed or changed destinations cannot use mismatched stored grants. <!-- @impl: src/lib/mcp-portal-token.ts::getMcpPortalGrant --> <!-- @test: src/__tests__/lib/mcp-portal-token.test.ts (REQ-AGENT-227 AC4: %s destinations invalidate a previously saved grant) -->
+
+**Constraints:** Names identify connections, not tool relevance. Registration contains no secret/API-key field. Preserve existing administrator authorization and unrelated settings.
+
+**Priority:** P1
+
+**Dependencies:** None.
+
+**Verification:** Administration API/UI tests and managed CI; saving is not authentication, deployment or hosted acceptance.
+
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-228: Owner Pi MCP configuration and discovery
+
+**Intent:** Owners connect and discover approved portal tools across deployment and supported Pi modes.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Both default/basic and advanced startup expose configured Code Mode wrappers through eager stock pi-mcp-extension registrations containing only a public placeholder, with no second client or Pi-owned portal OAuth provider. <!-- @impl: scripts/merge-pi-mcp-portals.mjs::mergePiMcpPortals --> <!-- @impl: src/container/container-env.ts::buildEnvVars --> <!-- @test: host/__tests__/pi-mcp-portals.test.js (REQ-AGENT-228 AC1: startup produces multiple eager non-secret placeholder portal connections) --> <!-- @test: host/__tests__/pi-mcp-stock.test.js (REQ-AGENT-228: stock eager placeholder connections register live Code Mode wrappers with explicit partial coverage) -->
+2. Idempotent reconciliation changes only proven managed registrations and preserves unrelated MCP configuration, stdio/local OAuth grants and stock lifecycle behavior. <!-- @impl: scripts/merge-pi-mcp-portals.mjs::mergePiMcpPortals --> <!-- @test: host/__tests__/pi-mcp-portals.test.js (REQ-AGENT-228 AC2: reconciliation preserves unrelated servers and grants) --> <!-- @test: host/__tests__/pi-mcp-stock.test.js (REQ-AGENT-228: unmanaged local OAuth retains real PKCE grant persistence, refresh and shutdown lifecycle) -->
+3. Registration changes apply on subsequent startup without rewriting running Pi configuration. <!-- @impl: src/container/container-config.ts::refreshMcpPortalConfiguration --> <!-- @test: src/__tests__/container/container-env.test.ts (REQ-AGENT-228 AC3: startup rereads changed instance portal configuration and clears removals) -->
+4. Settings MCP accordion offers owner Connect/status/Disconnect for multiple portal IDs across deployment/subscription and Pi modes through existing cards, requested icon, distinct palette, short description and accessible loading/error/empty states. <!-- @impl: web-ui/src/components/settings/McpPortalsSection.tsx::McpPortalsSection --> <!-- @test: web-ui/src/__tests__/components/McpPortalsSection.test.tsx (REQ-AGENT-228 AC4: multiple portal identities connect through existing browser navigation and disconnect independently) --> <!-- @test: web-ui/src/__tests__/components/SettingsPanel.test.tsx (REQ-AGENT-228 AC4: MCP Settings is available in both Pi modes and all subscription modes (enterprise=%s)) -->
+5. An auto-discoverable native router progressively loads connection, discovery and execution topics in both Pi modes. <!-- @impl: preseed/agents/pi/skills/mcp-portals/SKILL.md --> <!-- @manual: In each Pi mode discover the router and follow its links to load only the required topic; verify the managed artifact identity separately. -->
+6. Portal guidance requires approved-set bootstrap before selection, wrapper/inner-method distinction, live schemas, originating-portal methods, explicit partial coverage and readback before considering retries of uncertain writes. <!-- @impl: preseed/agents/pi/skills/mcp-portal-discovery/SKILL.md --> <!-- @impl: preseed/agents/pi/skills/mcp-portal-execution/SKILL.md --> <!-- @manual: Bootstrap approved synthetic portals, activate exact search/execute wrappers, inspect live schemas and originating-portal results, report missing coverage, and read back an uncertain operation before considering retry. -->
+
+**Constraints:** Availability never bypasses owner, tenant or Operator authorization. Builtin MCP remains disabled; stock pi-mcp-extension is the sole MCP owner. Preserve unrelated user/project MCP and OAuth state. Deliver skills through existing seed/Curation.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-226](#req-agent-226-worker-owned-mcp-portal-authorization), [REQ-AGENT-227](#req-agent-227-instance-administration-of-mcp-portals)
+
+**Verification:** Startup/stock-client and Settings tests plus native progressive-use inspection. CI, signed delivery, deliberate local reload and hosted acceptance are separate gates.
+
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-229: Worker-mediated MCP portal transport
+
+**Intent:** Owners use portal tools without exposing their real credentials to Pi.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Only a trusted parent-bound owner grant replaces agent credentials at the exact currently approved HTTPS portal destination. <!-- @impl: src/mcp-portal-interceptor.ts::forwardMcpPortal --> <!-- @test: src/__tests__/container/mcp-portal-interception.test.ts (REQ-AGENT-229 AC1: registered portal boundary is available in all deployment modes and refuses missing owner grants (enterprise=%s)) --> <!-- @test: src/__tests__/mcp-portal-interceptor.test.ts (REQ-AGENT-229 AC4: stamps the trusted owner grant and preserves functional response streams and downstream URL context) -->
+2. Wrong owner/resource/instance/configuration bindings, Operators and redirected destinations fail closed without credential forwarding. <!-- @impl: src/mcp-portal-interceptor.ts::forwardMcpPortal --> <!-- @test: src/__tests__/mcp-portal-interceptor.test.ts (REQ-AGENT-229 AC2: rejects wrong resource, owner, Operator, instance, configuration, missing grant and strict-egress absence before sending) --> <!-- @test: src/__tests__/container/mcp-portal-interception.test.ts (REQ-AGENT-229 AC2: parent-bound Operators cannot inherit ordinary owner portal grants) -->
+3. Unavailable mandatory interception or colliding outbound transports prevents startup. <!-- @impl: src/container/container-interception.ts::wireContainerInterception --> <!-- @test: src/__tests__/container/mcp-portal-interception.test.ts (REQ-AGENT-229 AC3: portal host collisions and unavailable interception fail startup rather than bypassing credential isolation) -->
+4. Upstream streams, cancellation, statuses and portal-issued downstream authorization context remain intact. <!-- @impl: src/mcp-portal-interceptor.ts::forwardMcpPortal --> <!-- @test: src/__tests__/mcp-portal-interceptor.test.ts (REQ-AGENT-229 AC4: stamps the trusted owner grant and preserves functional response streams and downstream URL context) --> <!-- @test: src/__tests__/mcp-portal-interceptor.test.ts (REQ-AGENT-229 AC4: response cancellation reaches the original upstream stream) --> <!-- @test: src/__tests__/mcp-portal-interceptor.test.ts (REQ-AGENT-229 AC4: rejects redirects without credential leakage and preserves actual upstream failure status) -->
+5. Credential maintenance never replays MCP requests after uncertain write outcomes. <!-- @impl: src/mcp-portal-interceptor.ts::forwardMcpPortal --> <!-- @test: src/__tests__/mcp-portal-interceptor.test.ts (REQ-AGENT-229 AC5: uncertain MCP writes are never replayed after response loss) -->
+
+**Constraints:** TLS verification and strict egress remain enforced. No shared service/admin identity or agent-selected owner. GitHub upstream requires per-user authentication. Exposed write schemas are not authorization for arbitrary mutations.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-226](#req-agent-226-worker-owned-mcp-portal-authorization)
+
+**Verification:** Synthetic boundary, startup, stream and no-replay tests; hosted upstream/downstream authorization and revocation require separate evidence.
 
 **Status:** Implemented
 
@@ -2540,9 +2662,9 @@ None.
 1. The attribution guard fires not only on `git commit` and `gh pr create` but across `git merge`, `git tag`, `git notes`, and the `gh pr`, `gh issue`, and `gh release` subcommand families, including accepted global-option forms. <!-- @impl: preseed/agents/pi/extensions/guard-helpers.ts::attributionBlockReason --> <!-- @manual -->
 2. The attribution detection set matches genuine attribution signatures only - the canonical commit-attribution-block set plus the brain emoji and `ChatGPT` as a deliberate Pi-guard superset since a Pi session may run a non-Claude model. <!-- @impl: preseed/agents/pi/extensions/guard-helpers.ts::attributionBlockReason --> <!-- @manual -->
 3. The attribution guard does not match a bare `Claude`, so `git`/`gh` commands that name `preseed/agents/claude/` paths are not false-positives. <!-- @impl: preseed/agents/pi/extensions/guard-helpers.ts::attributionBlockReason --> <!-- @manual -->
-4. The guard rejects local build, test, lint, typecheck and development execution, including chained or nested runners; staging similarly named files remains allowed. <!-- @impl: preseed/agents/pi/extensions/guard-helpers.ts::isLocalBuildCommand --> <!-- @test: src/__tests__/lib/pi-local-build-guard.test.ts (REQ-AGENT-052 AC4: Pi local-build guard classifies execution, not staged filenames) -->
-5. The local-build guard honors a user-only consume-on-use sentinel at `/tmp/local-build-bypass`: when present, the guard deletes it and allows the one command through; the block message names the override path. <!-- @impl: preseed/agents/pi/extensions/guard-helpers.ts::localBuildBlockReason --> <!-- @manual -->
-6. The seeded safe-local-check wrapper runs approved read-only analyzers, Node syntax checks, or explicitly named Node test files from any repository through local binaries at low priority with one bounded deadline and no file-count limit. <!-- @impl: preseed/agents/claude/skills/safe-local-checks/scripts/safe-local-check.mjs::FORBIDDEN_ARGUMENTS --> <!-- @impl: preseed/agents/claude/skills/safe-local-checks/scripts/safe-local-check.mjs::repositoryBinary --> <!-- @impl: preseed/agents/claude/skills/safe-local-checks/scripts/safe-local-check.mjs::managedTimeout --> <!-- @impl: preseed/agents/claude/skills/safe-local-checks/scripts/safe-local-check.mjs::runBounded --> <!-- @impl: preseed/agents/claude/skills/safe-local-checks/scripts/safe-local-check.mjs::main --> <!-- @test: host/__tests__/safe-local-check.test.js (REQ-AGENT-052 AC6: managed safe local checks) -->
+4. The guard rejects local build, test, lint, typecheck and development execution, including chained or nested runners; runner names in metadata-only Git pathspecs, directory paths and package-name arrays do not count as execution or consume the user override. <!-- @impl: preseed/agents/pi/extensions/guard-helpers.ts::isLocalBuildCommand --> <!-- @test: src/__tests__/lib/pi-local-build-guard.test.ts (REQ-AGENT-052 AC4: Pi local-build guard classifies execution, not staged filenames) -->
+5. The local-build guard honors a user-only consume-on-use sentinel at `/tmp/local-build-bypass`: when present, the guard deletes it and allows the one guarded command through; failed consumption keeps blocking, and the block message names the override path. <!-- @impl: preseed/agents/pi/extensions/guard-helpers.ts::localBuildBlockReason --> <!-- @test: src/__tests__/lib/pi-local-build-guard.test.ts (REQ-AGENT-052 AC5: user-only consume-on-use build override) -->
+6. The seeded safe-local-check wrapper runs approved read-only analyzers, Node syntax checks, or explicitly named Node test files from any repository through existing binaries at low priority with one bounded deadline and no file-count limit. <!-- @impl: preseed/agents/claude/skills/safe-local-checks/scripts/safe-local-check.mjs::FORBIDDEN_ARGUMENTS --> <!-- @impl: preseed/agents/claude/skills/safe-local-checks/scripts/safe-local-check.mjs::repositoryBinary --> <!-- @impl: preseed/agents/claude/skills/safe-local-checks/scripts/safe-local-check.mjs::managedTimeout --> <!-- @impl: preseed/agents/claude/skills/safe-local-checks/scripts/safe-local-check.mjs::runBounded --> <!-- @impl: preseed/agents/claude/skills/safe-local-checks/scripts/safe-local-check.mjs::main --> <!-- @test: host/__tests__/safe-local-check.test.js (REQ-AGENT-052 AC6: managed safe local checks) -->
 7. Checked paths whose canonical targets leave the current repository directly or through symlinks are rejected. <!-- @impl: preseed/agents/claude/skills/safe-local-checks/scripts/safe-local-check.mjs::repositoryFiles --> <!-- @test: host/__tests__/safe-local-check.test.js (REQ-AGENT-052 AC6: managed safe local checks) -->
 
 **Constraints:**
@@ -2555,15 +2677,17 @@ None.
 
 **Dependencies:** [REQ-AGENT-005](#req-agent-005-pro-mode-includes-additional-skills-rules-agents-and-mcp-servers)
 
-**Verification:** Automated tests and manual verification ([safe local check](../../host/__tests__/safe-local-check.test.js))
+**Verification:** Focused wrapper tests cover managed checks; shared-analyzer coverage is authored, with exact-head CI, consuming-image checks and managed delivery still required. <!-- @test: host/__tests__/safe-local-check-image.test.js (uses image-baked Oxlint without dependencies, ignores ancestor/PATH tools, and stays read-only) -->
 
-**Status:** Implemented
+**Status:** Planned
 
 ---
 
-### REQ-AGENT-192: Image-baked TypeScript syntax parser
+<a id="req-agent-192-image-baked-typescript-syntax-parser"></a>
 
-**Intent:** Managed sessions can run bounded TypeScript syntax checks without installing project dependencies.
+### REQ-AGENT-192: Image-baked managed-check dependencies
+
+**Intent:** Managed sessions can run image-supported checks without project dependencies while retaining repository-only ESLint.
 
 **Applies To:** Agent
 
@@ -2573,15 +2697,26 @@ None.
 2. Managed sessions can parse valid TypeScript when the project provides no parser, without installing dependencies. <!-- @impl: preseed/agents/claude/skills/safe-local-checks/scripts/safe-local-check.mjs::syntaxParserRequire --> <!-- @test: host/__tests__/safe-local-check-image.test.js (REQ-AGENT-192 AC2-AC3: parses TypeScript without project dependencies or repository writes) -->
 3. A TypeScript syntax check leaves the checked repository unchanged. <!-- @impl: preseed/agents/claude/skills/safe-local-checks/scripts/safe-local-check.mjs::checkTsSyntax --> <!-- @test: host/__tests__/safe-local-check-image.test.js (REQ-AGENT-192 AC2-AC3: parses TypeScript without project dependencies or repository writes) -->
 
-**Constraints:** The fallback is fixed to `/opt/codeflare/npm-tools` with exact `esbuild` and lockfile pins; checked paths remain inside the current repository, and the parser never runs a build, typecheck, install, or output write.
+4. Oxlint, Biome and Prettier are preinstalled and usable without project dependencies. <!-- @impl: image/oxlint/package.json::dependencies --> <!-- @impl: Dockerfile::oxlint --> <!-- @test: host/__tests__/safe-local-check-image.test.js (REQ-AGENT-192 AC4: supported image analyzers work without project dependencies) -->
+5. For image-supported analyzers, repository-installed copies take precedence. <!-- @impl: preseed/agents/claude/skills/safe-local-checks/scripts/safe-local-check.mjs::repositoryBinary --> <!-- @impl: preseed/agents/claude/skills/safe-local-checks/scripts/safe-local-check.mjs::main --> <!-- @test: host/__tests__/safe-local-check.test.js (prefers the nearest repository-local copy for every supported analyzer) -->
+6. Managed sessions can parse YAML without installing project dependencies. <!-- @impl: preseed/agents/claude/skills/safe-local-checks/scripts/safe-local-check.mjs::checkYaml --> <!-- @impl: preseed/agents/claude/skills/safe-local-checks/scripts/safe-local-check.mjs::syntaxParserRequire --> <!-- @test: host/__tests__/safe-local-check-image.test.js (parses YAML using the image library without dependencies or repository mutation) -->
+
+7. ESLint runs only from an existing repository installation; without one, the wrapper refuses rather than using an image copy or another analyzer. <!-- @impl: preseed/agents/claude/skills/safe-local-checks/scripts/safe-local-check.mjs::main --> <!-- @test: host/__tests__/safe-local-check-image.test.js (requires repository-installed ESLint without substituting an image analyzer) -->
+
+**Constraints:**
+
+- Image fallbacks use exact manifests/locks: `/opt/codeflare/npm-tools` for esbuild and `/opt/codeflare/oxlint` for analyzers/YAML.
+- Installed project versions take precedence.
+- Checked paths remain repository-contained.
+- Syntax parsing never builds, typechecks, installs, or writes output.
 
 **Priority:** P1
 
 **Dependencies:** [REQ-AGENT-052](#req-agent-052-pi-commit-attribution-and-local-build-hook-hardening), [REQ-OPS-033](operations.md#req-ops-033-build-dependencies-have-committed-integrity)
 
-**Verification:** Dependency-integrity contract and built-image syntax-parser smoke check
+**Verification:** Dependency-integrity, repository-precedence and built-image analyzer/parser coverage is authored; exact-head CI, consuming-image execution and managed delivery remain required.
 
-**Status:** Implemented
+**Status:** Planned
 
 ---
 
@@ -3020,22 +3155,28 @@ None.
 
 ### REQ-AGENT-078: Cloudflare OAuth token refreshed at the `api.cloudflare.com` boundary
 
-**Intent:** A Cloudflare-dashboard OAuth **access token** is short-lived by design (expires in hours), so baking it into the container as `CLOUDFLARE_API_TOKEN` at start left a running non-enterprise session broken after expiry — `wrangler` and browser-run both got `9109 Invalid access token`, with nothing refreshing the container's env var. Instead of baking the real token, inject a non-secret placeholder and intercept `api.cloudflare.com` at the container-egress boundary, stamping a **freshly refreshed** token per request. This reuses the enterprise Browser Rendering interceptor's transport ([REQ-BROWSER-008](browser-run.md#req-browser-008-browser-rendering-token-interception-never-in-the-container)) — one interceptor per host, serving two modes — rather than adding a new class, a container-side refresher, or new storage.
+**Intent:** Refresh managed Cloudflare OAuth credentials at the Worker boundary without replacing an explicitly supplied caller identity. Reuse the existing API/Gateway interceptor rather than introducing another credential store or refresher.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
 1. When the session's Cloudflare token source is `'oauth'`, the container receives only a non-secret placeholder (`CLOUDFLARE_OAUTH_TOKEN_PLACEHOLDER`) as `CLOUDFLARE_API_TOKEN` — the real access token never enters the container env. A non-oauth source (PAT / enterprise) is passed through untouched. <!-- @impl: src/lib/cloudflare-token.ts::applyCloudflareOAuthToken --> <!-- @impl: src/lib/constants.ts::CLOUDFLARE_OAUTH_TOKEN_PLACEHOLDER --> <!-- @impl: src/container/container-env.ts::buildEnvVars --> <!-- @test: src/__tests__/lib/cloudflare-token.test.ts (applyCloudflareOAuthToken (REQ-AGENT-078: injects the placeholder, real token never in the container)) -->
-2. In OAuth sessions (non-enterprise, oauth source only) `api.cloudflare.com` is intercepted and every request — on every path — is re-stamped with a token refreshed within the skew window, so the forwarded credential is the refreshed token, not the baked placeholder. <!-- @impl: src/cloudflare-browser-interceptor.ts::fetchOAuth --> <!-- @impl: src/container/container-interception.ts::cloudflareOauthApi --> <!-- @test: src/__tests__/cloudflare-browser-interceptor.test.ts (stamps a FRESH refreshed token on ANY api.cloudflare.com path (e.g. wrangler), egress DIRECT) -->
-3. Both the REST surface and the CDP WebSocket upgrade (browser-run) are stamped and forwarded via the shared transport, so a session survives past the access-token lifetime for wrangler **and** interactive browser-run. <!-- @impl: src/cloudflare-browser-interceptor.ts::bridge --> <!-- @test: src/__tests__/cloudflare-browser-interceptor.test.ts (bridges the CDP upgrade with the fresh token, returning a FRESH client socket, direct not Gateway) -->
-4. The token is resolved **solely** from the session-bound bucket, never from any request-supplied header — no cross-user token spoofing — and the interceptor fails closed with `401` and no upstream call when no valid token can be minted. <!-- @impl: src/cloudflare-browser-interceptor.ts::fetchOAuth --> <!-- @test: src/__tests__/cloudflare-browser-interceptor.test.ts (REQ-AGENT-078: CloudflareBrowserInterceptor OAuth mode (non-enterprise) — REST) -->
-5. OAuth-mode AI Gateway requests receive the refreshed `cf-aig-authorization` token without changing the caller's `Authorization`. <!-- @impl: src/cloudflare-browser-interceptor.ts::fetchOAuth --> <!-- @impl: src/cloudflare-browser-interceptor.ts::INTERCEPTED_CF_OAUTH_HOSTS --> <!-- @test: src/__tests__/cloudflare-browser-interceptor.test.ts (REQ-AGENT-078: OAuth mode — AI Gateway data-plane (gateway.ai.cloudflare.com)) -->
+2. OAuth sessions forward `api.cloudflare.com` requests with absent credentials or the exact OAuth placeholder using the bound owner token refreshed within its skew window. <!-- @impl: src/cloudflare-browser-interceptor.ts::fetchOAuth --> <!-- @impl: src/container/container-interception.ts::cloudflareOauthApi --> <!-- @test: src/__tests__/cloudflare-browser-interceptor.test.ts (stamps a FRESH refreshed token on ANY api.cloudflare.com path (e.g. wrangler), egress DIRECT) -->
+3. Both the REST surface and the CDP WebSocket upgrade (browser-run) are stamped and forwarded via the shared transport, so a session survives past the access-token lifetime for wrangler **and** interactive browser-run. <!-- @impl: src/cloudflare-browser-interceptor.ts::bridge --> <!-- @test: src/__tests__/container/browser-interception.test.ts (REQ-AGENT-078: registered OAuth CDP relays bidirectional text and binary frames with the bound owner token) -->
+4. Managed OAuth requests without valid authorization from their bound session bucket fail closed with `401` before any upstream call. <!-- @impl: src/cloudflare-browser-interceptor.ts::fetchOAuth --> <!-- @test: src/__tests__/cloudflare-browser-interceptor.test.ts (REQ-AGENT-078: CloudflareBrowserInterceptor OAuth mode (non-enterprise) — REST) -->
+5. Managed OAuth Gateway requests with absent Cloudflare credentials or the exact OAuth placeholder receive refreshed `cf-aig-authorization`. <!-- @impl: src/cloudflare-browser-interceptor.ts::fetchOAuth --> <!-- @impl: src/cloudflare-browser-interceptor.ts::INTERCEPTED_CF_OAUTH_HOSTS --> <!-- @test: src/__tests__/cloudflare-browser-interceptor.test.ts (REQ-AGENT-078: OAuth mode — AI Gateway data-plane (gateway.ai.cloudflare.com)) -->
 6. In an OAuth session the container trusts the platform-mounted intercept CA (`/etc/cloudflare/certs/cloudflare-containers-ca.crt`) so the intercepted `api.cloudflare.com` / `gateway.ai.cloudflare.com` TLS validates in agent runtimes instead of failing `SELF_SIGNED_CERT_IN_CHAIN`. <!-- @impl: entrypoint.sh::CF_OAUTH_CA_SRC --> <!-- @test: host/__tests__/entrypoint-oauth-ca-trust.test.js (REQ-AGENT-078 AC6: non-enterprise OAuth intercept-CA trust (entrypoint.sh)) -->
+7. Explicit API Bearer, complete key/email and Gateway credentials retain their caller identity regardless of managed credential availability or upstream `401`/`403`. <!-- @impl: src/cloudflare-browser-interceptor.ts::CloudflareBrowserInterceptor --> <!-- @impl: src/lib/cloudflare-credentials.ts::classifyCloudflareCredentials --> <!-- @impl: src/lib/personal-pi-forwarding.ts::forwardPersonalPi --> <!-- @test: src/__tests__/personal-pi-interception.test.ts (REQ-AGENT-078: native Cloudflare Gateway preserves caller roles under strict inspection and revocation) --> <!-- @test: src/__tests__/cloudflare-browser-interceptor.test.ts (REQ-AGENT-078: caller Cloudflare credential precedence) --> <!-- @test: src/__tests__/container/browser-interception.test.ts (REQ-BROWSER-008/REQ-AGENT-078: caller identity through registered $mode transport) -->
 
 **Constraints:**
 
-- Enterprise is untouched: the OAuth CF-API interception-registry entry (`cloudflareOauthApi`) is double-guarded (`!isEnterpriseMode` **and** placeholder-value match), so it can never wire or collide on `api.cloudflare.com` in enterprise; the enterprise branch is unchanged.
+- OAuth registration remains non-enterprise-only and placeholder-guarded.
+- Caller precedence applies across OAuth, PAT/plain and Enterprise.
+- PAT/plain sessions retain their transparent transport.
+- Managed OAuth identity uses only the bound session bucket, never request-supplied identity.
+- Explicit caller credentials bypass managed lookup, refresh and fallback.
+- Gateway provider `Authorization` is never selected or rewritten as Cloudflare authentication.
 - The AI Gateway host lives only in `INTERCEPTED_CF_OAUTH_HOSTS` (never the enterprise browser list), so enterprise never intercepts its own `LlmInterceptor` gateway rewrites.
 - `CLOUDFLARE_OAUTH_TOKEN_PLACEHOLDER` must stay distinct from `ENTERPRISE_BROWSER_TOKEN_PLACEHOLDER` — the placeholder value is itself the DO's OAuth-mode wiring signal.
 - The GitHub interceptor is not touched — non-enterprise git stays direct (GitHub tokens are long-lived); `api.cloudflare.com` and `gateway.ai.cloudflare.com` are the only hosts newly intercepted (OAuth-mode only).
@@ -3045,7 +3186,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-064](#req-agent-064-connect-to-cloudflare-via-oauth), [REQ-BROWSER-008](browser-run.md#req-browser-008-browser-rendering-token-interception-never-in-the-container), [REQ-SEC-002](security.md#req-sec-002-api-tokens-never-enter-containers)
 
-**Verification:** Automated test ([Interceptor test](../../src/__tests__/cloudflare-browser-interceptor.test.ts) + [Lib test](../../src/__tests__/lib/cloudflare-token.test.ts) + [OAuth CA-trust test](../../host/__tests__/entrypoint-oauth-ca-trust.test.js))
+**Verification:** Automated test ([Interceptor test](../../src/__tests__/cloudflare-browser-interceptor.test.ts) + [registered REST/CDP transport](../../src/__tests__/container/browser-interception.test.ts) + [Lib test](../../src/__tests__/lib/cloudflare-token.test.ts) + [OAuth CA-trust test](../../host/__tests__/entrypoint-oauth-ca-trust.test.js))
 
 **Status:** Implemented
 
@@ -3222,7 +3363,12 @@ None.
 3. A terminal CI result requires the same non-empty all-terminal fingerprint in two polls. <!-- @impl: preseed/agents/pi/skills/ci-monitoring/scripts/monitor-ci.mjs::monitorCi --> <!-- @test: host/__tests__/pi-ci-monitor.test.js (REQ-AGENT-068 AC2/AC3: pending checks wait for a stable pass and skipping fingerprint) --> <!-- @test: host/__tests__/pi-ci-monitor.test.js (REQ-AGENT-125 AC1: a failed check waits for all checks and a stable terminal fingerprint) -->
 4. An authoritative head mismatch reports `CI_RESULT timeout superseded`. <!-- @impl: preseed/agents/pi/skills/ci-monitoring/scripts/monitor-ci.mjs::monitorCi --> <!-- @test: host/__tests__/pi-ci-monitor.test.js (REQ-AGENT-068 AC4: a superseded head stops before checks are queried) -->
 
-**Constraints:** Empty checks time out after five minutes; provider commands are bounded; total monitoring is bounded at fifteen minutes with time reserved for reporting; the root Pi Git workflow is the sole automatic trigger.
+**Constraints:**
+
+- Monitoring deadlines are operational backstops, not CI performance targets.
+- The internal deadline remains shorter than the agent command timeout, reserving reporting time.
+- Provider operations and sleeps remain bounded by the internal deadline.
+- The root Pi Git workflow is the sole automatic trigger.
 
 **Priority:** P1
 
@@ -3259,14 +3405,14 @@ None.
 ---
 ### REQ-AGENT-069: Pi consult-llm MCP lazy wiring
 
-**Intent:** Pi must reach consult-llm through the MCP adapter without starting `consult-llm-mcp` until the user explicitly asks for external LLM input.
+**Intent:** Pi must reach consult-llm through pi-mcp-extension without starting `consult-llm-mcp` until the user explicitly asks for external LLM input.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. Pi exposes consult-llm through its managed MCP proxy. <!-- @impl: entrypoint.sh::configure_consult_llm --> <!-- @impl: entrypoint.sh::_merge_consult_llm_mcp --> <!-- @test: preseed/agents/pi/test/consult-proxy.test.mjs (REQ-AGENT-069 AC1/AC2: locked adapter exposes consult through mcp and starts its process only on proxy use) -->
-2. Fresh managed Pi configuration defers missing-metadata startup and starts its `lifecycle:"lazy"` consult entry only on proxy use; existing user entries and startup-setting precedence remain preserved except for [REQ-BROWSER-009](browser-run.md#req-browser-009-mcp-and-chrome-sdk-timeout-profile) timeout preparation. <!-- @impl: entrypoint.sh::configure_consult_llm --> <!-- @test: preseed/agents/pi/test/consult-proxy.test.mjs (REQ-AGENT-069 AC1/AC2: locked adapter exposes consult through mcp and starts its process only on proxy use) --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (REQ-AGENT-069: adding consult preserves existing user startup settings and unrelated servers) -->
+1. Pi exposes consult-llm through pi-mcp-extension direct tools after explicit `mcp_connect`, followed by discovery and exact-name activation through `capability`. <!-- @impl: entrypoint.sh::configure_consult_llm --> <!-- @impl: entrypoint.sh::_merge_consult_llm_mcp --> <!-- @test: preseed/agents/pi/test/consult-proxy.test.mjs (REQ-AGENT-069 AC1/AC2: direct consult starts only on explicit connect and supports exact capability activation) -->
+2. Fresh managed Pi configuration starts its `lifecycle:"lazy"` consult entry only on explicit connection; existing user entries and startup-setting precedence remain preserved except for [REQ-BROWSER-009](browser-run.md#req-browser-009-mcp-and-chrome-sdk-timeout-profile) timeout preparation. <!-- @impl: entrypoint.sh::configure_consult_llm --> <!-- @test: preseed/agents/pi/test/consult-proxy.test.mjs (REQ-AGENT-069 AC1/AC2: direct consult starts only on explicit connect and supports exact capability activation) --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (REQ-AGENT-069: adding consult preserves existing user startup settings and unrelated servers) -->
 3. Startup regenerates standard managed consult credentials with the existing lazy constructor; customized entries, user settings and unrelated servers remain preserved except for [REQ-BROWSER-009](browser-run.md#req-browser-009-mcp-and-chrome-sdk-timeout-profile) timeout preparation. <!-- @impl: entrypoint.sh::configure_pi_mcp_adapter --> <!-- @impl: entrypoint.sh::_merge_consult_llm_mcp --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (REQ-AGENT-069: fresh startup regenerates managed consult credentials while retaining custom servers and settings) --> <!-- @impl: entrypoint.sh::_remove_disabled_consult_llm --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (REQ-AGENT-069: no-provider startup preserves customized Pi consult while retaining Claude cleanup) --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (REQ-AGENT-069: enterprise startup preserves customized Pi consult while retaining Claude cleanup) -->
 4. The replacement preserves unrelated user MCP servers in the same file. <!-- @impl: entrypoint.sh::_merge_consult_llm_mcp --> <!-- @manual -->
 
@@ -3275,13 +3421,14 @@ None.
 **Constraints:**
 
 - The Claude server carries no Pi-only `lifecycle` field.
-- Pi's native consult skill must call through `mcp`, not through a promoted direct tool.
+- Transport recovery must not replay an uncertain mutating call; cancellation reaches the server and session shutdown releases its child processes. <!-- @test: preseed/agents/pi/test/consult-proxy.test.mjs (REQ-AGENT-069: transport recovery never replays an uncertain mutation and shutdown releases child processes) -->
+- Consult requires an explicit user request, `mcp_connect`, discovery and exact direct-tool activation.
 
 **Priority:** P1
 
 **Dependencies:** [REQ-AGENT-031](#req-agent-031-consult-llm-key-isolation-subscription-backend-and-multi-agent-parity), [REQ-AGENT-067](#req-agent-067-consult-llm-invocation-and-model-selection-behavior)
 
-**Verification:** Automated bootstrap and actual locked-adapter proxy/start-on-use regressions cover AC1–2, with existing-user startup-setting preservation. Their execution remains subject to exact-head CI; migration evidence belongs to REQ-AGENT-217. Startup regeneration has anchored host regressions; manual verification remains on AC4–5.
+**Verification:** Automated bootstrap and actual locked-extension direct-tool/start-on-connect regressions cover AC1–2, with existing-user startup-setting preservation. Their execution remains subject to exact-head CI; migration evidence belongs to REQ-AGENT-217. Startup regeneration has anchored host regressions; manual verification remains on AC4–5.
 
 **Status:** Implemented
 
@@ -3289,33 +3436,40 @@ None.
 
 ### REQ-AGENT-217: Lossless Pi MCP adapter migration
 
-**Intent:** Adapter filename migration preserves user configuration without clobbering existing destinations.
+**Intent:** The positively selected pi-mcp-extension handoff migrates `mcp-adapter.json` to `mcp.json` without clobbering existing valid destinations or losing displaced originals; native adapter configurations are not legacy handoff inputs while the adapter is selected.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. Filename migration alone preserves valid legacy-only configuration byte-for-byte. <!-- @impl: preseed/agents/pi/extensions/00-mcp-adapter-config.ts::migratePiMcpAdapterConfig --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (legacy adapter migration preserves exact bytes, credentials, custom servers and 600000 browser retention) -->
-2. Existing valid adapters take precedence over legacy configuration. <!-- @impl: preseed/agents/pi/extensions/00-mcp-adapter-config.ts::migratePiMcpAdapterConfig --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (existing adapter target wins and archives legacy bytes without leaving the deprecated filename) -->
+1. Default preparation requires positively selected stock-only global configuration; other selections preserve both MCP files, reporting ambiguous or unknown selection without exposing configuration contents. <!-- @impl: preseed/agents/pi/extensions/00-mcp-adapter-config.ts::registerMcpAdapterMigration --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (REQ-AGENT-217: selected stock hands off even when the adapter is merely installed) --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (REQ-AGENT-217: configured MCP selection protects native files (adapter only)) --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (REQ-AGENT-217: configured MCP selection protects native files (dual local stock and npm adapter)) --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (REQ-AGENT-217: lazy-keep-alive handoff preserves authentication and supports the replacement lifecycle) --> <!-- @impl: preseed/agents/pi/extensions/00-mcp-adapter-config.ts::migratePiMcpAdapterConfig --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (legacy adapter migration preserves exact bytes, credentials, custom servers and 600000 browser retention) -->
+2. During stock handoff, existing valid `mcp.json` destinations take precedence over legacy adapter configuration; displaced originals remain recoverable without merging conflicting credentials. <!-- @impl: preseed/agents/pi/extensions/00-mcp-adapter-config.ts::migratePiMcpAdapterConfig --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (existing adapter target wins and archives legacy bytes without leaving the deprecated filename) -->
 3. Matching, conflicting, unreadable, symlink and directory passive archives never overwrite existing data or block recovery. <!-- @impl: preseed/agents/pi/extensions/00-mcp-adapter-config.ts::preserve --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (existing migration backup is never overwritten or used to discard legacy credentials) --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (occupied symlink archive is preserved without following it or preventing recovery) --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (occupied directory archive is preserved without following it or preventing recovery) --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (unreadable passive archive cannot block custom legacy recovery) -->
 4. Malformed regular originals are archived before valid recovery; unsafe active paths/ancestors and I/O failures still fail closed without discarding user data. <!-- @impl: preseed/agents/pi/extensions/00-mcp-adapter-config.ts::migratePiMcpAdapterConfig --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (malformed existing destination is archived and recovers exact valid legacy configuration) --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (nonregular destination blocks migration and retains legacy) -->
-5. Only successful startup preparation excludes root `.pi/agent/mcp.json` from subsequent baseline/bisync; initial restore remains unchanged, while active adapter, recovery copies and nested files continue syncing. <!-- @impl: entrypoint.sh::configure_pi_mcp_adapter --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (REQ-AGENT-217: fresh startup prevents baseline from restoring the obsolete MCP filename) --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (REQ-AGENT-217: failed preparation does not exclude restored legacy from baseline) -->
+5. Startup does not exclude the newly active root `.pi/agent/mcp.json` from subsequent baseline/bisync; adapter originals, recovery copies and nested files remain sync-eligible. <!-- @impl: entrypoint.sh::configure_pi_mcp_adapter --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (REQ-AGENT-217: active mcp.json and recovery objects remain baseline-sync eligible) --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (REQ-AGENT-217: failed preparation does not exclude restored legacy from baseline) -->
 6. Startup reconstructs recognizable generated consult and browser entries from current runtime inputs while preserving customized configuration. <!-- @impl: entrypoint.sh::configure_pi_mcp_adapter --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (REQ-AGENT-069: fresh startup regenerates managed consult credentials while retaining custom servers and settings) --> <!-- @test: host/__tests__/entrypoint-browser-run-mcp.test.js (REQ-BROWSER-006: startup regenerates the image-owned browser endpoint and headers while preserving custom settings) -->
-7. Displaced or transformed unknown/custom originals remain recoverable before active-file deletion, including on replacement-write failure; unchanged legacy-only bytes survive in the adapter. <!-- @impl: preseed/agents/pi/extensions/00-mcp-adapter-config.ts::preserve --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (startup preserves selected custom legacy originals before regenerating owned entries) --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (replacement write failure preserves the original custom adapter for recovery) -->
+7. Displaced or transformed unknown/custom originals remain recoverable before active-file deletion, including on replacement-write failure; unchanged legacy bytes survive in `mcp.json` during stock handoff. <!-- @impl: preseed/agents/pi/extensions/00-mcp-adapter-config.ts::preserve --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (startup preserves selected custom legacy originals before regenerating owned entries) --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (replacement write failure preserves the original custom adapter for recovery) -->
 
 **Constraints:**
 
 - No bucket deletion or sync redesign.
-- Pi load/reload preserves working entries except for explicit timeout preparation under [REQ-BROWSER-009](browser-run.md#req-browser-009-mcp-and-chrome-sdk-timeout-profile).
+- Installed packages are not selection evidence.
+- Unsupported resource filters fail closed without preparing files.
+- For positively selected stock handoff only, working entries survive load/reload except `lazy-keep-alive`/`lazy-keepalive` → `lazy` conversion and [timeout preparation](browser-run.md#req-browser-009-mcp-and-chrome-sdk-timeout-profile).
+- Registration does not choose a settings winner or disable either client.
+- Explicit startup handoff remains stock-only.
 - Transformed custom originals remain recoverable before replacement.
-- Timeout preparation preserves credentials, lifecycle and unrelated fields.
+- Stock startup and positively selected stock managed load decode selected legacy stdio `!!` by one `!`, never a valid destination's literal environment. <!-- @test: preseed/agents/pi/test/consult-proxy.test.mjs (REQ-AGENT-217: actual stdio server receives the selected schema's literal env (legacy=true, regenerate=false)) --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (REQ-AGENT-217: entrypoint preparation decodes selected custom consult env before preserved-entry merge) -->
+- Selected legacy commands/interpolation fail closed without evaluation before writes, preserving originals and content-free diagnostics; unselected expressions cannot block a valid destination. <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (REQ-AGENT-217: rejected legacy env produces a content-free managed-load diagnostic) -->
+
+- Timeout preparation preserves credentials and unrelated fields; stock lazy connections have no adapter idle timer and remote retention remains independent.
 - Managed constructors and Claude behavior remain governed by [REQ-AGENT-069](#req-agent-069-pi-consult-llm-mcp-lazy-wiring).
 
 **Priority:** P1
 
 **Dependencies:** [REQ-AGENT-069](#req-agent-069-pi-consult-llm-mcp-lazy-wiring)
 
-**Verification:** Automated test: [pi-mcp-adapter-config.test.js](../../host/__tests__/pi-mcp-adapter-config.test.js). Current-head CI remains pending.
+**Verification:** New-direction guarded migration, configured-client selection and lifecycle-conversion regressions are authored. Focused local test execution remains unverified. Exact-head CI and deployed handoff acceptance remain required. Automated test: [pi-mcp-adapter-config.test.js](../../host/__tests__/pi-mcp-adapter-config.test.js). Current-head CI remains pending.
 
 **Status:** Implemented
 
@@ -4009,14 +4163,14 @@ None.
 
 ### REQ-AGENT-076: Pi Context-Mode Enablement and Tool-Extension Defaults
 
-**Intent:** Pi's own default runtime behavior — independent of which Pro/Standard content [REQ-AGENT-005](#req-agent-005-pro-mode-includes-additional-skills-rules-agents-and-mcp-servers) delivers — must stay predictable out of the box: context-mode is enabled on fresh container startup while explicit `/ctx on` and `/ctx off` remain available, the five always-on Pi tool extensions install without duplication, context-mode's own npm update-check probe is neutralized at build time, and `web_search` defaults to the headless-safe non-interactive workflow.
+**Intent:** Pi's own default runtime behavior — independent of which Pro/Standard content [REQ-AGENT-005](#req-agent-005-pro-mode-includes-additional-skills-rules-agents-and-mcp-servers) delivers — must stay predictable out of the box: context-mode is disabled on fresh container startup while explicit `/ctx on` and `/ctx off` remain available, the five always-on Pi tool extensions install without duplication, context-mode's own npm update-check probe is neutralized at build time, and `web_search` defaults to the headless-safe non-interactive workflow.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. On a fresh container, startup installs context-mode and writes its enabled package marker with package-extension discovery suppressed; the managed foreground owner initializes its bridge and tools without an opt-in command. <!-- @impl: entrypoint.sh::warm_pi_npm_dependencies --> <!-- @impl: preseed/agents/pi/extensions/context-mode-runtime.ts::attachConfiguredContextMode --> <!-- @test: host/__tests__/pi-settings-packages.test.js (REQ-AGENT-076 AC1 / REQ-AGENT-133 AC1: fresh container assembles required packages with context-mode enabled) --> <!-- @test: host/__tests__/pi-settings-packages.test.js (REQ-AGENT-076 AC1/AC2: next container boot restores the enabled default after /ctx off while preserving managed and unrelated settings) -->
-2. Standard and Advanced Pi expose a state-changing `/ctx` command that reloads Pi into the selected enabled or disabled state. <!-- @impl: preseed/agents/pi/extensions/ctx-command.ts::handleContextModeCommand --> <!-- @manual: Start fresh Standard and Advanced sessions and confirm `/ctx` reports enabled; activate one context tool through `capability` and confirm it works; run `/ctx off` and confirm reload removes the bridge; run `/ctx on` and confirm it returns. -->
+1. On each container startup, context-mode remains installed but its package marker suppresses extensions and skills; the managed foreground owner initializes no bridge or tools until explicit `/ctx on`. <!-- @impl: entrypoint.sh::warm_pi_npm_dependencies --> <!-- @impl: preseed/agents/pi/extensions/context-mode-runtime.ts::attachConfiguredContextMode --> <!-- @test: host/__tests__/pi-settings-packages.test.js (REQ-AGENT-076 AC1 / REQ-AGENT-133 AC1: fresh container assembles required packages with context-mode disabled) --> <!-- @test: host/__tests__/pi-settings-packages.test.js (REQ-AGENT-076 AC1/AC2: next container boot restores the disabled default after /ctx on while preserving managed and unrelated settings) -->
+2. Standard and Advanced Pi expose a state-changing `/ctx` command that reloads Pi into the selected enabled or disabled state. <!-- @impl: preseed/agents/pi/extensions/ctx-command.ts::handleContextModeCommand --> <!-- @manual: Start fresh Standard and Advanced sessions and confirm `/ctx` reports disabled and no bridge is initialized; run `/ctx on`, activate one context tool through `capability` and confirm it works; run `/ctx off` and confirm reload removes the bridge. -->
 3. Custom-tier Claude may receive automatic context-window reduction only while its tier remains eligible. <!-- @impl: src/lib/r2-seed.ts::getConfigsForMode --> <!-- @test: host/__tests__/entrypoint-context-mode.test.js (entrypoint context-mode preseed gate / REQ-AGENT-005 + REQ-AGENT-076 (context-mode MCP registration)) -->
 4. The Pi settings required set installs the five always-on tool extensions independently of context-mode state. <!-- @impl: entrypoint.sh::warm_pi_npm_dependencies --> <!-- @test: host/__tests__/pi-settings-packages.test.js (Pi settings.json packages assembly (entrypoint.sh)) -->
 5. Build-time patching neutralizes context-mode's npm update probe in both installed copies. <!-- @impl: scripts/patch-context-mode-bundles.mjs::patchContextModeInstallations --> <!-- @test: host/__tests__/dockerfile-context-mode-patch.test.js (Context-mode installation patch (createRequire shim + REQ-AGENT-076 AC5 update-check disable)) -->
@@ -4032,8 +4186,8 @@ None.
 - Tool extensions require no per-user API key.
 - The update probe patch is build-owned, not a self-upgrade path.
 - Every Pi workflow retains an equivalent non-context fallback.
-- Container startup restores the enabled context-mode package marker.
-- `/ctx off` remains effective across Pi reloads until the next container start.
+- Container startup restores the disabled context-mode package marker.
+- Explicit `/ctx on` and `/ctx off` remain effective across Pi reloads until the next container start.
 - Foreground ownership and in-process subagent isolation while context-mode is enabled are owned by [REQ-AGENT-089](#req-agent-089-pi-context-mode-foreground-ownership).
 
 **Priority:** P1
@@ -5127,33 +5281,35 @@ None.
 
 ### REQ-AGENT-154: Build-compatible managed-release discovery
 
-**Intent:** Fresh-required discovery selects the newest signed managed release matching the deployment's exact managed npm lockfile identity within a fixed history bound.
+**Intent:** Explicit fresh-required validation and background refresh select the newest signed managed release matching the deployment's exact managed npm lockfile identity within the same fixed history bound.
 
 **Applies To:** Admin
 
 **Acceptance Criteria:**
 
-1. Discovery examines at most the 1,000 most recent published release records. <!-- @impl: src/lib/remote-curation.ts::resolveManagedEnvironmentRelease --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-AGENT-154 AC1+AC6: bounds compatible-release discovery to the 1,000 most recent records) -->
-2. A runtime-hash mismatch continues discovery. <!-- @impl: src/lib/remote-curation.ts::resolveManagedEnvironmentRelease --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-AGENT-154 AC2+AC3+AC4: skips mismatches and unrelated releases then activates the newest compatible seed) -->
-3. The newest matching signed release activates. <!-- @impl: src/lib/remote-curation.ts::resolveManagedEnvironmentRelease --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-AGENT-154 AC2+AC3+AC4: skips mismatches and unrelated releases then activates the newest compatible seed) -->
-4. Unrelated published releases are ignored. <!-- @impl: src/lib/remote-curation.ts::publishedReleasePage --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-AGENT-154 AC2+AC3+AC4: skips mismatches and unrelated releases then activates the newest compatible seed) -->
-5. An advertised managed release that fails validation stops discovery. <!-- @impl: src/lib/remote-curation.ts::publishedReleasePage --> <!-- @impl: src/lib/remote-curation.ts::resolveManagedEnvironmentRelease --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-AGENT-154 AC5: stops when an advertised history release fails validation) -->
-6. Discovery fails when the bounded history contains no matching runtime hash. <!-- @impl: src/lib/remote-curation.ts::resolveManagedEnvironmentRelease --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-AGENT-154 AC1+AC6: bounds compatible-release discovery to the 1,000 most recent records) -->
+1. Discovery examines at most the 1,000 most recent published release records. <!-- @impl: src/lib/remote-curation.ts::resolveManagedEnvironmentRelease --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-AGENT-154 AC1+AC6: bounds compatible-release discovery to the 1,000 most recent records (fresh-required=%s)) -->
+2. A runtime-hash mismatch continues discovery. <!-- @impl: src/lib/remote-curation.ts::resolveManagedEnvironmentRelease --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-AGENT-154 AC2+AC3+AC4 + REQ-STOR-040 AC2: skips mismatches and unrelated releases then activates the newest compatible seed (fresh-required=%s)) -->
+3. The newest matching signed release activates. <!-- @impl: src/lib/remote-curation.ts::resolveManagedEnvironmentRelease --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-AGENT-154 AC2+AC3+AC4 + REQ-STOR-040 AC2: skips mismatches and unrelated releases then activates the newest compatible seed (fresh-required=%s)) -->
+4. Unrelated published releases are ignored. <!-- @impl: src/lib/remote-curation.ts::publishedReleasePage --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-AGENT-154 AC2+AC3+AC4 + REQ-STOR-040 AC2: skips mismatches and unrelated releases then activates the newest compatible seed (fresh-required=%s)) -->
+5. An advertised managed release that fails validation stops discovery. <!-- @impl: src/lib/remote-curation.ts::publishedReleasePage --> <!-- @impl: src/lib/remote-curation.ts::resolveManagedEnvironmentRelease --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-AGENT-154 AC5: stops when an advertised history release fails validation (fresh-required=%s)) -->
+6. Discovery fails when the bounded history contains no matching runtime hash. <!-- @impl: src/lib/remote-curation.ts::resolveManagedEnvironmentRelease --> <!-- @test: src/__tests__/lib/remote-curation.test.ts (REQ-AGENT-154 AC1+AC6: bounds compatible-release discovery to the 1,000 most recent records (fresh-required=%s)) -->
 
 **Constraints:**
 
 - GitHub history uses at most ten 100-record pages.
 - Validation remains memory-bounded and fail closed.
-- Background refresh checks only the latest release.
+- Background refresh reuses bounded compatible-history lookup after a verified runtime mismatch.
+- Background refresh retains the five-minute attempt cache.
+- Session startup does not perform discovery.
 - Hash selection excludes native-engine differences outside the three managed npm lockfiles.
 
 **Priority:** P1
 
 **Dependencies:** [REQ-AGENT-147](#req-agent-147-signed-managed-agent-configuration-releases), [REQ-AGENT-150](#req-agent-150-independent-managed-release-activation-validation)
 
-**Verification:** Automated Worker release-discovery tests
+**Verification:** Automated Worker release-discovery tests; the shared background-lookup correction is pending behavioral RED/GREEN verification.
 
-**Status:** Implemented
+**Status:** Planned
 
 ---
 
@@ -5188,7 +5344,7 @@ None.
 
 **Acceptance Criteria:**
 
-1. Startup removes explicitly retired response and Usage package identities from persisted Pi settings. <!-- @impl: entrypoint.sh::removedPackageIds --> <!-- @test: host/__tests__/pi-settings-packages.test.js (REQ-AGENT-076 AC1/AC2: next container boot restores the enabled default after /ctx off while preserving managed and unrelated settings) --> <!-- @test: host/__tests__/pi-settings-packages.test.js (REQ-AGENT-209 AC1/AC2) -->
+1. Startup removes explicitly retired response and Usage package identities from persisted Pi settings. <!-- @impl: entrypoint.sh::removedPackageIds --> <!-- @test: host/__tests__/pi-settings-packages.test.js (REQ-AGENT-076 AC1/AC2: next container boot restores the disabled default after /ctx on while preserving managed and unrelated settings) --> <!-- @test: host/__tests__/pi-settings-packages.test.js (REQ-AGENT-209 AC1/AC2) -->
 2. Startup preserves unrelated user-added packages, credentials and history during retirement migration. <!-- @impl: entrypoint.sh::removedPackageIds --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-001 AC5 / REQ-AGENT-209: real restored boot migrates packages while preserving user npm metadata and credential/history bytes) -->
 
 **Constraints:** Only explicitly retired package identities are removed.
@@ -5893,6 +6049,36 @@ None.
 **Dependencies:** None.
 
 **Verification:** Packaged-image smoke and image build
+
+**Status:** Implemented
+
+---
+
+### REQ-AGENT-224: Pi Fast and Ultrafast Controls
+
+**Intent:** Users can use the upstream service-tier controls without installing into Codeflare's managed dependency link.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Both Pi modes register the image-pinned `@calesennett/pi-codex-fast` once before discovery. <!-- @impl: entrypoint.sh::required --> <!-- @test: host/__tests__/pi-settings-packages.test.js (REQ-AGENT-224: fresh startup registers the pinned extension once) -->
+2. Startup preserves mode, provider/model, credentials and unrelated settings while replacing only the known recovery registration with the managed package; custom paths and files remain untouched. <!-- @impl: entrypoint.sh::identity --> <!-- @test: host/__tests__/pi-settings-packages.test.js (REQ-AGENT-224: recovery registration converges without changing user state) -->
+3. Image construction loads the upstream entrypoint into its path-correct warm cache. <!-- @impl: Dockerfile::codex_fast_source --> <!-- @test: host/__tests__/pi-lockstep.test.js (declares, warms, and re-verifies each locked package entrypoint) -->
+4. Image construction rejects a missing warm cache for the pinned extension. <!-- @impl: scripts/verify-pi-lockstep.mjs::verifyJitiCacheArtifact --> <!-- @test: host/__tests__/pi-lockstep.test.js (REQ-AGENT-152/REQ-AGENT-210: rejects missing managed startup caches) -->
+5. Native `/codex-fast` and `/codex-ultrafast` commands select the supported request tier without changing authentication or model selection. <!-- @manual: In a deployed Pi session, verify native commands, preserved preferences, and supported-model tier acceptance. -->
+6. New profiles leave Fast and Ultrafast Off until a user enables a mode. <!-- @manual: In a fresh deployed Pi profile, verify speed mode is Off before issuing either speed command. -->
+
+**Constraints:**
+
+- No provider, credential or SDK-internal patch; separately hosted Operator inference is unchanged.
+- New dependency bytes ship in the image before dependent curation publication.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-AGENT-210](#req-agent-210-managed-extension-startup-preparation)
+
+**Verification:** Startup behavior tests, image warm-cache checks and deployed native-command acceptance
 
 **Status:** Implemented
 

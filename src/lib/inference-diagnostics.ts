@@ -1,10 +1,12 @@
 import { createLogger } from './logger';
+import { emitRaw } from '../../host/src/operator-raw-logging';
 
 /** Parent-owned correlation; never populated from model input or operation IDs. */
 export interface InferenceDiagnosticContext {
   activityId: string;
   generation: number;
   loggingEnabled?: boolean;
+  credentials?: readonly string[];
   operationOrdinal?: number;
   requestDigest?: string;
 }
@@ -44,7 +46,9 @@ const roleNames: Record<string, string> = { discover_renovate: 'discover', resea
 
 /** Closed logging wire. Logging failures cannot change execution or response outcomes. */
 export function inferenceDiagnostic(context: InferenceDiagnosticContext | undefined,
-  observation: { stage: string; outcome: string } & Record<string, unknown>): void {
+  observation: { stage: string; outcome: string } & Record<string, unknown>, raw?: () => unknown): void {
+  // Separate protected application channel; never expand the bounded metadata wire.
+  if (raw) emitRaw(context, observation.stage, raw);
   try {
     if (context?.loggingEnabled === false) return;
     if (!categories.stage.has(observation.stage) || !categories.outcome.has(observation.outcome)) return;

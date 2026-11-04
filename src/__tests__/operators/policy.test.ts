@@ -46,3 +46,22 @@ describe('REQ-OPERATOR-014: bounded restrictive registration policy', () => {
     expect(() => parseOperatorPolicy({ ...restricted(), inference: { ...restricted().inference, ...patch } })).toThrow(ValidationError);
   });
 });
+
+
+describe('REQ-OPERATOR-014: explicit native source restriction', () => {
+  it('accepts an approved native source without inventing a managed route or changing other restrictions', () => {
+    const declared = { ...restricted(), inference: { routeIds: [], defaultRouteId: null,
+      reasoningLevels: ['low', 'high'], defaultReasoningLevel: null, inheritUserDefaults: false,
+      allowedSources: ['pi-native'] } };
+    expect(parseOperatorPolicy(declared)).toEqual(declared);
+  });
+
+  it('preserves separate managed and native source approval without granting credential or owner authority', () => {
+    const declared = { ...restricted(), inference: { ...restricted().inference,
+      allowedSources: ['managed', 'pi-native'] } };
+    expect(parseOperatorPolicy(declared)).toEqual(declared);
+    expect(() => parseOperatorPolicy({ ...declared, owner: 'another-user' })).toThrow(ValidationError);
+    expect(() => parseOperatorPolicy({ ...declared, inference: { ...declared.inference,
+      allowedSources: ['pi-native', 'arbitrary-provider'] } })).toThrow(ValidationError);
+  });
+});

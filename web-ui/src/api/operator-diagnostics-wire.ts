@@ -23,7 +23,7 @@ export const diagnosticBoundarySchema = z.enum(['artifact', 'admission', 'constr
 const reason = z.enum(['none', 'unclassified', 'artifact-unavailable', 'artifact-mismatch', 'admission-denied',
   'authority-expired', 'authority-denied', 'stale-drive', 'startup-failed', 'submission-failed', 'sse-json-invalid',
   'provider-failed', 'stream-failed', 'response-unusable', 'canonical-append-failed', 'tool-failed', 'effect-unknown',
-  'settlement-failed', 'continuation-not-ready', 'cancelled', 'deadline-expired', 'cleanup-failed', 'capacity-exhausted',
+  'settlement-failed', 'journal-unaccounted', 'continuation-not-ready', 'cancelled', 'deadline-expired', 'cleanup-failed', 'capacity-exhausted',
   'recorder-unavailable', 'platform-evidence-required']);
 const gap = z.enum(['legacy-uncaptured', 'sdk-import-incomplete', 'platform-evidence-required', 'routine-evicted',
   'failure-overflow', 'terminal-overflow', 'oversized-record', 'invalid-record', 'error-truncated',
@@ -38,11 +38,35 @@ const publicCode = z.enum(['none', 'unknown', 'schema-validation', 'target-admis
   'source-transport', 'source-format', 'source-secret', 'source-provenance', 'decision-missing', 'decision-conflict',
   'already-sealed', 'not-sealed', 'citation-provenance', 'upgrade-evidence', 'decisions-incomplete', 'receipt-unavailable',
   'capacity', 'result-size', 'merge-decision', 'comment-receipt', 'results-incomplete', 'effect-unknown',
-  'effect-denied', 'provider-token-bound', 'provider-fetch', 'provider-http', 'runtime-shape']);
+  'journal-unaccounted', 'effect-denied', 'provider-token-bound', 'provider-fetch', 'provider-http', 'runtime-shape']);
+export const sdkServiceFailureSchema = z.strictObject({
+  sdkCode: z.enum(['model_source', 'model_validation', 'provider', 'stream', 'auth', 'oauth']).nullable(),
+  sdkStage: z.enum(['refresh', 'derivation']).nullable(),
+  httpStatus: z.number().int().min(400).max(599).nullable(),
+  oauthError: z.enum(['invalid_request', 'invalid_client', 'invalid_grant', 'unauthorized_client',
+    'unsupported_grant_type', 'invalid_scope']).nullable(),
+  exceptionCategory: z.enum(['unknown', 'error', 'timeout', 'abort']), requestAborted: z.boolean(),
+  wrapperStatus: z.union([z.literal(403), z.literal(409), z.literal(413)]),
+}).refine(value => (!value.sdkStage || value.sdkCode === 'oauth')
+  && (!value.oauthError || value.sdkStage === 'refresh' && value.httpStatus !== null));
+export type SdkServiceFailure = z.infer<typeof sdkServiceFailureSchema>;
 export const diagnosticErrorSchema = z.strictObject({ kind: errorKind, publicCode: publicCode.nullable(),
   messageDigest: digest.nullable(), stackDigest: digest.nullable(),
   causes: z.array(z.strictObject({ kind: errorKind, messageDigest: digest.nullable(), stackDigest: digest.nullable() })).max(3),
-  loss: z.array(errorLoss).max(6), fingerprintScope: z.enum(['full', 'bounded', 'unavailable']) });
+  loss: z.array(errorLoss).max(6), fingerprintScope: z.enum(['full', 'bounded', 'unavailable']),
+  transportStatus: z.number().int().min(300).max(599).optional(),
+  transportReason: z.enum(['execution-inactive', 'authority-unverified', 'request-invalid', 'policy-denied',
+    'receipt-unavailable', 'operation-conflict', 'operation-limit', 'effect-uncertain', 'upstream-unavailable', 'operation-failed']).optional(),
+  transportDisposition: z.enum(['authority-denied', 'operation-local', 'effect-uncertain', 'retryable']).optional(),
+  admissionType: z.enum(['invalid_request', 'invalid_json', 'unsupported_media_type', 'agent_instance_not_found',
+    'agent_instance_exists', 'submission_conflict', 'conversation_record_invariant', 'attachment_integrity',
+    'persisted_format_version_unsupported', 'internal_error', 'conversation_stream_store_failure', 'runtime_unavailable']).optional(),
+  sdkService: sdkServiceFailureSchema.optional(), journal: z.strictObject({
+    gate: z.enum(['final-binding', 'operation-binding', 'terminal-binding', 'disposition-coverage',
+      'read-coverage', 'mutation-kind', 'mutation-coverage', 'unresolved-count']),
+    operationDigest: digest.optional(), unresolved: integer, inspectedUnresolved: integer,
+    phase: z.enum(['discovery', 'target', 'final', 'single']), phaseIndex: integer.nullable(),
+  }).optional() });
 export const diagnosticBindingSchema = z.strictObject({ generation: integer, artifactDigest: digest, inputDigest: digest });
 const repository = z.enum(['nikolanovoselec/codeflare', 'nikolanovoselec/codeflare-operator-dispatcher',
   'withastro/flue', 'cloudflare/agents']);
@@ -73,16 +97,34 @@ const correlation = z.strictObject({
   sdkBatchSequence: integer.nullable().optional(), sdkProducerEpoch: integer.nullable().optional(),
   sdkProducerSequence: integer.nullable().optional(), sdkRecordIndex: integer.nullable().optional(),
 });
+const preparationSchema = z.strictObject({ step: z.enum(['parse', 'capability']),
+  failureClass: z.enum(['body-limit', 'invalid-json', 'invalid-wire', 'request-denied', 'authority-denied']),
+  route: z.enum(['inference', 'source', 'github-read', 'github-comment', 'github-merge', 'receipt', 'resolve', 'unknown']),
+  byteLimit: integer.positive().optional(), observedBytesLowerBound: integer.positive().optional(),
+}).refine(value => (value.step === 'capability') === (value.failureClass === 'authority-denied')
+  && (value.failureClass === 'body-limit'
+    ? value.byteLimit !== undefined && value.observedBytesLowerBound !== undefined && value.observedBytesLowerBound > value.byteLimit
+    : value.byteLimit === undefined && value.observedBytesLowerBound === undefined));
 const event = z.strictObject({ kind: z.literal('event'), id: eventId, sequence: positive, generation: integer,
   timestamp, owner: z.enum(['host', 'sdk', 'producer', 'platform', 'recorder']), boundary: diagnosticBoundarySchema,
   outcome: z.enum(['started', 'accepted', 'applied', 'committed', 'completed', 'failed', 'recovered', 'unknown', 'released', 'suppressed']),
   code: reason, evidence: z.enum(['observed', 'unavailable']), origin: z.enum(['originating', 'catching', 'state-transition']),
-  correlation, source, error: diagnosticErrorSchema.optional(), capsuleId: capsuleId.optional(),
-}).refine(value => withinBytes(value, 4096) && value.id === `e-${value.sequence}` && value.source.boundary === value.boundary,
+  correlation, source, error: diagnosticErrorSchema.optional(), preparation: preparationSchema.optional(), capsuleId: capsuleId.optional(),
+}).refine(value => withinBytes(value, 4096) && value.id === `e-${value.sequence}` && value.source.boundary === value.boundary
+  && (value.code !== 'journal-unaccounted' || value.owner === 'host' && value.boundary === 'settlement')
+  && (!value.error?.journal || value.owner === 'host' && value.boundary === 'settlement' && value.code === 'journal-unaccounted'
+    && value.error.publicCode === 'journal-unaccounted')
+  && (!value.error?.sdkService || value.owner === 'host' && value.boundary === 'model' && value.outcome === 'failed')
+  && (!value.preparation || value.owner === 'host' && value.outcome === 'failed'
+    && (value.preparation.step === 'parse' ? value.boundary === 'tool' && value.code === 'tool-failed'
+      : value.boundary === 'admission' && value.code === 'authority-denied')),
   'Contradictory event identity');
 const operation = z.strictObject({ kind: z.literal('operation'), id: operationId,
   generation: integer, operationDigest: digest, ordinal: integer.nullable(), status: z.enum(['reserved', 'completed', 'unknown']),
   requestDigest: digest.nullable(), responseDigest: digest.nullable(),
+  operationKind: z.enum(['sdk-model-http', 'host-inference', 'source-read', 'source-mutation', 'unknown']).optional(),
+  sdkHttp: z.strictObject({ state: z.enum(['ready', 'sending', 'completed', 'unknown', 'not-sent']), attempts: integer.max(1) }).nullable().optional(),
+  terminalOutcome: z.literal('not-sent').nullable().optional(),
   binding: z.strictObject({ scope: z.enum(['requested', 'other']), submissionDigest: digest, deliveryDigest: digest,
     phase: z.enum(['discovery', 'target', 'final']), phaseIndex: integer.nullable(),
     resource: z.enum(['inference', 'source', 'comment', 'merge', 'pull-request', 'files', 'checks', 'release-notes',
@@ -90,7 +132,11 @@ const operation = z.strictObject({ kind: z.literal('operation'), id: operationId
   hostInference: z.strictObject({ index: integer, ordinal: integer, status: z.enum(['ready', 'in-flight', 'completed', 'unknown']),
     classification: z.enum(['usable', 'final-error', 'retryable', 'permanent', 'transport', 'unknown']), responseDigest: digest.nullable() }).nullable(),
   availability: z.enum(['retained', 'unavailable']), association: z.enum(['verified', 'unassociated', 'changed-binding', 'legacy', 'unavailable']),
-}).refine(value => withinBytes(value, 4096) && value.id === `o-${value.generation}-${value.operationDigest}`, 'Contradictory operation identity');
+}).refine(value => withinBytes(value, 4096) && value.id === `o-${value.generation}-${value.operationDigest}`
+  && (!value.sdkHttp || value.operationKind === 'sdk-model-http'
+    && (value.sdkHttp.state === 'ready' || value.sdkHttp.state === 'not-sent' ? value.sdkHttp.attempts === 0 : value.sdkHttp.attempts === 1))
+  && ((value.terminalOutcome === 'not-sent') === (value.sdkHttp?.state === 'not-sent'))
+  && (value.terminalOutcome !== 'not-sent' || value.status === 'completed' && value.responseDigest === null), 'Contradictory operation identity');
 export const diagnosticRecordSchema = z.discriminatedUnion('kind', [event, operation]);
 const capsule = z.strictObject({ id: capsuleId, kind: z.enum(['failure', 'terminal']), binding: diagnosticBindingSchema,
   eventId: eventId.nullable(), code: reason, error: diagnosticErrorSchema.nullable(), lastHostPersistedId: eventId.nullable(),
@@ -127,6 +173,11 @@ export const diagnosticSummarySchema = z.strictObject({ ...common,
   fence: z.strictObject({ generation: integer, timestamp, boundary: diagnosticBoundarySchema, code: reason, uncertain: z.boolean() }).nullable(),
   diagnosis: z.strictObject({ state: z.enum(['observed-failure', 'evidence-incomplete', 'no-failure-observed', 'recovered-failure']),
     code: reason, lastConfirmedId: diagnosticRecordIdSchema.nullable(), failedId: diagnosticRecordIdSchema.nullable(),
+    executionStatus: z.enum(['queued', 'running', 'waiting', 'completed', 'failed', 'cancel-requested', 'unknown']).optional(),
+    publicCode: publicCode.optional(), sdkService: sdkServiceFailureSchema.optional(), journal: diagnosticErrorSchema.shape.journal, continuedId: eventId.optional(),
+    transportStatus: diagnosticErrorSchema.shape.transportStatus,
+    transportReason: diagnosticErrorSchema.shape.transportReason,
+    transportDisposition: diagnosticErrorSchema.shape.transportDisposition,
     nextCheck: z.enum(['inspect-failure', 'inspect-sdk-import', 'inspect-platform-events', 'inspect-retention-gap',
       'inspect-original-binding', 'inspect-pending-handoff', 'none']) }),
 }).refine(value => withinBytes(value, 65536) && new Set(value.capabilities.map(row => row.boundary)).size === value.capabilities.length

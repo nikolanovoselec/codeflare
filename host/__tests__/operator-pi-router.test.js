@@ -25,6 +25,7 @@ test('REQ-OPERATOR-021: router authenticates then forwards fixed Pi request byte
   process.env.CONTAINER_AUTH_TOKEN = 'operator-host-token';
   t.after(() => { if (previous === undefined) delete process.env.CONTAINER_AUTH_TOKEN; else process.env.CONTAINER_AUTH_TOKEN = previous; });
   const calls = [];
+  const logs = [];
   const operatorPi = { async handle(input) {
     calls.push(input);
     return { status: 202, headers: { 'Content-Type': 'text/html', 'X-Untrusted': '<script>alert(1)</script>' },
@@ -32,7 +33,7 @@ test('REQ-OPERATOR-021: router authenticates then forwards fixed Pi request byte
   } };
   const handler = createRequestHandler({
     sessionManager: { size: 0, list: () => [] }, wsEventLog: [],
-    activityTracker: { recordHeartbeat() {}, recordInput() {}, getActivityInfo: () => ({}) }, log() {},
+    activityTracker: { recordHeartbeat() {}, recordInput() {}, getActivityInfo: () => ({}) }, log: (...args) => logs.push(args),
     serverStartTime: Date.now(), readiness: () => ({ prewarmReady: true, initFlagObserved: true,
       terminalServiceReady: true, editorReady: false, editorReadyTimedOut: false }),
     silverbullet: { host: '127.0.0.1', port: 1 }, openvscode: { host: '127.0.0.1', port: 1 }, operatorPi,
@@ -58,6 +59,18 @@ test('REQ-OPERATOR-021: router authenticates then forwards fixed Pi request byte
   assert.equal(calls[0].pathname, '/internal/operator/pi/tasks');
   assert.equal(calls[0].query.get('cursor'), '3');
   assert.deepEqual(JSON.parse(new TextDecoder().decode(calls[0].body)), { taskId: 'task-1' });
+
+  // The private pre-session bind uses the same outer authentication boundary;
+  // its derived auth bytes must never enter ordinary request logging.
+  const binding = { descriptor: { activityId: 'activity-1', generation: 1 },
+    auth: { apiKey: 'synthetic-private-bind-secret' } };
+  assert.equal((await request(port, 'POST', '/internal/operator/pi/auth-bind', binding)).status, 401);
+  assert.deepEqual(calls.map(call => call.pathname), ['/internal/operator/pi/tasks']);
+  assert.equal((await request(port, 'POST', '/internal/operator/pi/auth-bind', binding,
+    'Bearer operator-host-token')).status, 202);
+  assert.equal(calls[1].pathname, '/internal/operator/pi/auth-bind');
+  assert.deepEqual(JSON.parse(new TextDecoder().decode(calls[1].body)), binding);
+  assert.doesNotMatch(JSON.stringify(logs), /synthetic-private-bind-secret/);
 });
 
 test('REQ-OPERATOR-021: ordinary host without operator composition keeps the private route unavailable', async t => {

@@ -5,12 +5,35 @@
 // tools to ordinary provider turns, so the image patch resolves Plan policy from
 // registered tools while the late exposure finalizer activates only the frozen
 // Plan policy and helper tools for Plan turns.
-import { readFileSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { lstatSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 export const EXPECTED_PI_PLAN_MODE_VERSION = '0.55.3';
-const SUPPORTED_VERSIONS = [EXPECTED_PI_PLAN_MODE_VERSION, '0.56.0', '0.58.3', '0.59.2'];
+const SUPPORTED_VERSIONS = [EXPECTED_PI_PLAN_MODE_VERSION, '0.56.0', '0.58.3', '0.59.2', '0.59.4'];
+// Integrity-verified 0.59.4 source profile; native custom-turn boundary is
+// already correct (and covered behaviorally), so do not patch it a second time.
+const REVIEWED_0594 = {
+  'src/plan-mode.ts': '276c1b2981d7df2dccbe1e276f8c8d53d84006d66235f7a5682646535d32787a',
+  'dist/index.ts': '2ea9150cc6615ce7d5dffbca1c9f7f305c140d2935da0ee3c62a7932072ddd69',
+  'src/tool-policy.ts': '5f807c5c9c21afa9bd15b4a028828c33a6c3c4109fd90965d55590bde7ff6a19',
+  'dist/chunks/chunk-MJV6WNHK.ts': '9f9f0b598741d2d7da001fb1912d12d658e48dd21e68cd3743a213a07b810548',
+};
+function validate0594(root) {
+  for (const [path, expected] of Object.entries(REVIEWED_0594)) {
+    const info = lstatSync(join(root, path));
+    if (!info.isFile() || info.isSymbolicLink()) throw new Error(`Unsafe Plan Mode source path: ${path}`);
+    let source = readFileSync(join(root, path), 'utf8');
+    // Reverse only our exact owned edits before checking the full pristine identity.
+    source = source.replaceAll(REGISTERED_HELPERS, ACTIVE_HELPERS)
+      .replace(REGISTERED_AVAILABLE_POLICY, AVAILABLE_POLICY)
+      .replaceAll(`// ${PARSED_POLICY_MARKER}`, 'if (matchesConfiguredSafeSubcommand(segment, safeSubcommands)) return true;');
+    if (createHash('sha256').update(source).digest('hex') !== expected) {
+      throw new Error(`Plan Mode source digest changed: ${path}`);
+    }
+  }
+}
 const PARSED_POLICY_MARKER = 'CODEFLARE_PLAN_PARSED_COMMAND_POLICY';
 const USER_PROMPT_MARKER = 'CODEFLARE_PLAN_USER_PROMPT_BOUNDARY';
 export const REGISTERED_HELPERS_MARKER = 'CODEFLARE_PLAN_REGISTERED_HELPERS';
@@ -57,8 +80,8 @@ export function patchPiPlanModeSource(source, kind, version) {
     throw new Error(`Plan Mode ${kind} helper anchor count ${count(source, ACTIVE_HELPERS)}; expected 2`);
   }
   const usesTabs = kind === 'source' && source.includes(SOURCE_ACTIVE_POLICY);
-  const activePolicy = version === '0.59.2' ? AVAILABLE_POLICY : usesTabs ? SOURCE_ACTIVE_POLICY : DIST_ACTIVE_POLICY;
-  const registeredPolicy = version === '0.59.2' ? REGISTERED_AVAILABLE_POLICY : usesTabs ? SOURCE_REGISTERED_POLICY : DIST_REGISTERED_POLICY;
+  const activePolicy = (version === '0.59.2' || version === '0.59.4') ? AVAILABLE_POLICY : usesTabs ? SOURCE_ACTIVE_POLICY : DIST_ACTIVE_POLICY;
+  const registeredPolicy = (version === '0.59.2' || version === '0.59.4') ? REGISTERED_AVAILABLE_POLICY : usesTabs ? SOURCE_REGISTERED_POLICY : DIST_REGISTERED_POLICY;
   if (count(source, activePolicy) !== 1) {
     throw new Error(`Plan Mode ${kind} policy anchor count ${count(source, activePolicy)}; expected 1`);
   }
@@ -98,6 +121,10 @@ export function patchPiPlanModeDirectory(version, root) {
   const manifest = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
   if (manifest.version !== version) throw new Error('Plan Mode package version does not match requested patch version');
 
+  if (version === '0.59.4') {
+    if (manifest.name !== '@narumitw/pi-plan-mode') throw new Error('Plan Mode package identity mismatch');
+    validate0594(root);
+  }
   const paths = [
     { path: join(root, 'src', 'plan-mode.ts'), kind: 'source' },
     { path: join(root, 'dist', 'index.ts'), kind: 'dist' },
@@ -106,8 +133,8 @@ export function patchPiPlanModeDirectory(version, root) {
     const source = patchPiPlanModeSource(readFileSync(path, 'utf8'), kind, version);
     return { path, source: version === '0.59.2' ? patchUserPromptBoundary(source, kind) : source };
   });
-  if (version === '0.56.0' || version === '0.58.3' || version === '0.59.2') {
-    const current = version === '0.59.2';
+  if (version === '0.56.0' || version === '0.58.3' || version === '0.59.2' || version === '0.59.4') {
+    const current = version === '0.59.2' || version === '0.59.4';
     const path = join(root, 'src', 'tool-policy.ts');
     patched.push({ path, source: patchParsedCommandPolicy(readFileSync(path, 'utf8'), current ? 'true' : 'undefined', current ? 'segment' : 'command') });
     const chunk = join(root, 'dist', 'chunks', current ? 'chunk-MJV6WNHK.ts' : version === '0.58.3' ? 'chunk-L2CXUWCH.ts' : 'chunk-57OBPS7P.js');

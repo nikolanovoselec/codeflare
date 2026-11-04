@@ -1,10 +1,23 @@
 {
   "zizmor": {
-    "version": "1.29.0",
-    "sha256": "dd96df044a6e8538d5f423790f453bdd03d49e5b2bcc38214acc41a2f1297839"
+    "version": "1.31.1",
+    "sha256": "d185f726bdaf92df78273217dfdd24ebcd6b0ef48cf3ce776ff5762b6e138c99"
   },
   "actionlint": {
     "version": "1.7.12",
     "sha256": "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8"
+  },
+  "rclone": {
+    "version": "1.75.2",
+    "sha256": "349ac8fba6ff65d6247043f1750cdcb518ec5d500ef91463a10d37c0ccdf3702"
+  },
+  "trivy": {
+    "version": "0.76.1"
+  },
+  "ci-node-26": {
+    "version": "26.8.2"
+  },
+  "ci-node-22": {
+    "version": "22.23.4"
   }
 }

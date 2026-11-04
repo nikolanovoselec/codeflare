@@ -34,7 +34,7 @@ export const capsuleSchema = z.strictObject({ id: z.string().regex(/^(f-[1-9][0-
   binding: bindingSchema, eventId: eventId.nullable(), code: z.enum(['none', 'unclassified', 'artifact-unavailable', 'artifact-mismatch',
     'admission-denied', 'authority-expired', 'authority-denied', 'stale-drive', 'startup-failed', 'submission-failed',
     'sse-json-invalid', 'provider-failed', 'stream-failed', 'response-unusable', 'canonical-append-failed', 'tool-failed',
-    'effect-unknown', 'settlement-failed', 'continuation-not-ready', 'cancelled', 'deadline-expired', 'cleanup-failed',
+    'effect-unknown', 'settlement-failed', 'journal-unaccounted', 'continuation-not-ready', 'cancelled', 'deadline-expired', 'cleanup-failed',
     'capacity-exhausted', 'recorder-unavailable', 'platform-evidence-required']), error: errorSchema.nullable(),
   lastHostPersistedId: eventId.nullable(), sdk: capsuleSdkSchema.nullable(), affectedOperations: z.array(z.strictObject({
     operationDigest: digestSchema, effect: z.enum(['read', 'write', 'none', 'unknown']), status: z.enum(['completed', 'unknown', 'unavailable']) })).max(8),
@@ -148,7 +148,8 @@ export async function appendDiagnostic(tx: DiagnosticTx, binding: DiagnosticBind
         capsule = { id, kind: terminal ? 'terminal' : 'failure',
           binding: { generation: binding.generation, artifactDigest: binding.artifactDigest, inputDigest: binding.inputDigest }, eventId: record.id,
           code: record.code, error: record.error ?? null, lastHostPersistedId: lastRetainedId(index),
-          sdk: options.runtime?.sdk ? sdkCoordinates(correlation, options.runtime.sdk.settlement ?? 'unknown') : null,
+          sdk: options.runtime?.sdk ? sdkCoordinates(correlation, options.runtime.sdk.settlement ?? 'unknown')
+            : observation.error?.journal && correlation.submissionDigest ? sdkCoordinates(correlation, 'unknown') : null,
           affectedOperations: options.affectedOperations ?? [], affectedOperationsOmitted: options.affectedOperationsOmitted ?? null,
           loss: options.runtime?.local.status === 'loss' || options.runtime?.local.dropped ? ['sdk-import-incomplete'] : [],
           uncertainty: record.code === 'effect-unknown' ? 'prior-effect-uncertain' : 'evidence-incomplete' };
@@ -223,4 +224,5 @@ export async function readDiagnosticHealth(storage: Pick<DurableObjectStorage, '
   return [...loss];
 }
 export interface FenceReason { generation: number; timestamp: number; boundary: DiagnosticEvent['boundary']; code: ReasonCode; uncertain: boolean }
-export interface FailureObservation { boundary: DiagnosticEvent['boundary']; code: ReasonCode; error?: ErrorMetadata }
+export interface FailureObservation { boundary: DiagnosticEvent['boundary']; code: ReasonCode; error?: ErrorMetadata;
+  correlation?: Correlation; affectedOperations?: DiagnosticCapsule['affectedOperations']; origin?: DiagnosticEvent['origin'] }

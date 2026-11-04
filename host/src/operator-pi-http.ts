@@ -4,6 +4,7 @@
  * only fixed methods/paths, bounded JSON and projection-safe responses.
  */
 import type { OperatorPiConversation } from './operator-pi.js';
+import { safePiAuthFailure, PI_LOGIN_RECOVERY, type OperatorPiAuthBinding } from './operator-pi-auth.js';
 
 export interface OperatorPiHttpResult {
   status: number;
@@ -32,15 +33,33 @@ function parseBody(body: Uint8Array | undefined): Record<string, unknown> {
 function isEmpty(value: Record<string, unknown>): boolean { return Object.keys(value).length === 0; }
 
 export class OperatorPiHttpController {
-  constructor(private readonly conversation: OperatorPiConversation) {}
+  constructor(private readonly conversation: OperatorPiConversation, private readonly binding?: OperatorPiAuthBinding) {}
+
+  async stop(): Promise<void> {
+    this.binding?.clear();
+    await this.conversation.stop();
+  }
+
+  dispose(): void {
+    this.binding?.clear();
+    this.conversation.dispose();
+  }
 
   async handle(input: { method: string; pathname: string; query?: URLSearchParams; body?: Uint8Array }): Promise<OperatorPiHttpResult | null> {
     if (!input.pathname.startsWith(PREFIX)) return null;
     if (input.body && input.body.byteLength > MAX_BODY) return result(413, { error: 'Request body too large', code: 'REQUEST_TOO_LARGE' });
     try {
+      if (input.pathname === `${PREFIX}auth-bind`) {
+        if (input.method !== 'POST') return this.methodNotAllowed();
+        if (input.query && [...input.query.keys()].length) return this.invalid();
+        if (!this.binding) return this.invalid();
+        this.binding.bind(parseBody(input.body));
+        return result(200, { bound: true });
+      }
       if (input.pathname === `${PREFIX}ensure`) {
         if (input.method !== 'POST') return this.methodNotAllowed();
         if (!isEmpty(parseBody(input.body))) return this.invalid();
+        this.binding?.resolve();
         const identity = await this.conversation.ensure();
         return result(200, { conversationId: identity.conversationId, ready: true });
       }
@@ -69,7 +88,8 @@ export class OperatorPiHttpController {
             toolName: body.toolName as string, arguments: body.arguments as Record<string, unknown> })
           : await this.conversation.send({ taskId, digest: body.digest as string,
             text: body.text as string, mode: body.mode as 'prompt' | 'follow-up' | 'steer' });
-        return result(202, { taskId, status: task.status });
+        const authFailure = safePiAuthFailure(task.authFailure);
+        return result(202, { taskId, status: task.status, ...(authFailure ? { authFailure } : {}) });
       }
       if (input.pathname === `${PREFIX}events`) {
         if (input.method !== 'GET') return this.methodNotAllowed();
@@ -86,11 +106,14 @@ export class OperatorPiHttpController {
         if (input.method !== 'POST') return this.methodNotAllowed();
         if (!isEmpty(parseBody(input.body))) return this.invalid();
         const taskId = abortMatch[1];
+        this.binding?.clear();
         const task = await this.conversation.abort(taskId);
         return result(200, { taskId, status: task.status });
       }
       return result(404, { error: 'Unknown structured Pi operation', code: 'PI_ROUTE_NOT_FOUND' });
     } catch (error) {
+      const authFailure = safePiAuthFailure(error);
+      if (authFailure) return result(409, { error: PI_LOGIN_RECOVERY, authFailure });
       if (error instanceof Error && error.message === 'oversized') return result(413, { error: 'Request body too large', code: 'REQUEST_TOO_LARGE' });
       if (error instanceof Error && error.message === 'invalid') return this.invalid();
       const message = error instanceof Error ? error.message.toLowerCase() : '';

@@ -5,6 +5,7 @@
  * agents only produce notes/graphs and report native completion.
  */
 import { randomUUID } from "node:crypto";
+import { registerActiveSessionTranscriptTrimming } from "./active-session-transcript-trimming";
 import { execFileSync } from "node:child_process";
 import {
   existsSync,
@@ -76,6 +77,7 @@ export interface MemoryVaultDependencies {
 }
 
 export interface MemoryVaultPi extends ToolActivationPi {
+  events?: { emit(event: string, data: any): void };
   on(event: string, handler: (event: any, ctx: any) => void | Promise<void>): void;
   sendMessage(
     message: {
@@ -606,6 +608,8 @@ function sendDueExtractionMessages(
   entries: any[],
   memory: MemoryCaptureRequest | undefined,
   vault: VaultExtractRequest | undefined,
+  queued: Set<string>,
+  trim: Record<string, unknown> | undefined,
 ): void {
   const launches: Array<Record<string, unknown>> = [];
   const giveups: Array<Record<string, unknown>> = [];
@@ -623,10 +627,15 @@ function sendDueExtractionMessages(
         ? memorySuccessQualifies(paths, item.request as MemoryCaptureRequest)
         : vaultSuccessQualifies(paths, item.request as VaultExtractRequest),
     });
+    for (let reminder = 0; reminder < facts.launchCount; reminder++) queued.delete(`${item.job}:${item.request.requestId}:${reminder}`);
     const due = extractionDue(facts);
-    if (due.kind === "launch") launches.push(dueItem(paths, item.request, item.job, due.reminder));
+    if (due.kind === "launch" && !queued.has(`${item.job}:${item.request.requestId}:${due.reminder}`)) {
+      launches.push(dueItem(paths, item.request, item.job, due.reminder));
+    }
     if (due.kind === "giveup") giveups.push({ requestId: item.request.requestId, jobType: item.job });
   }
+  if (trim?.giveup === true) giveups.push({ requestId: trim.requestId, jobType: "transcript-trim" });
+  else if (trim && !queued.has(`${String(trim.jobType)}:${String(trim.requestId)}:${String(trim.reminder)}`)) launches.push(trim);
   if (launches.length > 0) {
     activateRegisteredTools(pi, ["subagent"]);
     const jobs = launches.map((item) => (
@@ -654,6 +663,7 @@ function sendDueExtractionMessages(
       display: true,
       details: { items: launches },
     }, { deliverAs: "followUp", triggerTurn: true });
+    for (const item of launches) queued.add(`${String(item.jobType)}:${String(item.requestId)}:${String(item.reminder)}`);
   }
   if (giveups.length > 0) {
     const jobs = giveups.map((item) => (
@@ -661,7 +671,9 @@ function sendDueExtractionMessages(
     ));
     const next = giveups.flatMap((item) => item.jobType === "memory-capture"
       ? [`- \`memory-capture\`: a new request may re-arm after ${MEMORY_EVERY_N_PROMPTS} later real user prompts`]
-      : ["- `vault-extract`: a new Vault edit may re-arm delivery"]);
+      : item.jobType === "transcript-trim"
+        ? ["- `transcript-trim`: the next legitimate extraction cadence may re-arm maintenance"]
+        : ["- `vault-extract`: a new Vault edit may re-arm delivery"]);
     pi.sendMessage({
       customType: "background-extraction-giveup",
       content: [
@@ -691,9 +703,14 @@ function sendDueExtractionMessages(
 export function registerMemoryVault(pi: MemoryVaultPi, dependencies: MemoryVaultDependencies): void {
   const { paths } = dependencies;
   let lastMessages: any[] = [];
+  const queuedLaunches = new Set<string>();
+  const trimming = registerActiveSessionTranscriptTrimming(pi as unknown as ExtensionAPI);
+  for (const event of ["session_before_switch", "session_before_fork", "session_shutdown"]) pi.on(event, trimming.cancel);
 
   pi.on("session_start", (_event, ctx) => {
+    trimming.cancel();
     if (isChildSession(ctx)) return;
+    queuedLaunches.clear();
     const vaultExisted = existsSync(paths.vaultRoot);
     ensureDirs(paths);
     bestEffortMergeGraphs(paths);
@@ -706,15 +723,14 @@ export function registerMemoryVault(pi: MemoryVaultPi, dependencies: MemoryVault
     }
   });
 
-  pi.on("before_agent_start", (event, ctx) => {
+  const reconcileEligibility = (ctx: any, prompt?: string) => {
     if (isChildSession(ctx)) return;
     ensureDirs(paths);
     const entries = readSessionEntries(ctx);
     const session = sessionId(ctx);
     refreshPendingVaultRequest(paths, dependencies, entries, session);
 
-    const prompt = String(event?.prompt ?? "");
-    if (isSyntheticPrompt(prompt)) return;
+    if (prompt !== undefined && isSyntheticPrompt(prompt)) return;
 
     const countFile = counterPath(paths, session);
     const counterExists = existsSync(countFile);
@@ -724,7 +740,8 @@ export function registerMemoryVault(pi: MemoryVaultPi, dependencies: MemoryVault
       const durable = latestCapturedPromptCount(paths, session);
       progress = !counterExists || durable.promptCount === savedCount ? durable : { promptCount: savedCount };
     }
-    const messages = withCurrentPrompt(sessionMessages(entries, lastMessages), prompt);
+    const persistedMessages = sessionMessages(entries, lastMessages);
+    const messages = prompt === undefined ? persistedMessages : withCurrentPrompt(persistedMessages, prompt);
     const currentCount = realUserPromptCount(messages);
     const rebased = currentCount < progress.promptCount || (progress.transcriptFingerprint !== undefined
       && realUserPromptFingerprint(messages, progress.promptCount) !== progress.transcriptFingerprint);
@@ -732,7 +749,9 @@ export function registerMemoryVault(pi: MemoryVaultPi, dependencies: MemoryVault
     const vaultCountFile = vaultCheckCounterPath(paths, session);
     const resumed = isResumedSession(counterExists, currentCount);
     const previousVaultCount = readCount(vaultCountFile);
-    if ((resumed && !existsSync(vaultCountFile)) || shouldCheckVault(previousVaultCount, currentCount)) {
+    const crossedVaultCadence = shouldCheckVault(previousVaultCount, currentCount);
+    if (crossedVaultCadence) trimming.markDue(ctx);
+    if ((resumed && !existsSync(vaultCountFile)) || crossedVaultCadence) {
       detectNewVaultRequestWhenNoneExists(paths, dependencies, session);
       writeFileSync(vaultCountFile, String(currentCount), "utf8");
     }
@@ -783,27 +802,39 @@ export function registerMemoryVault(pi: MemoryVaultPi, dependencies: MemoryVault
       messages,
       timezone: process.env.USER_TIMEZONE || process.env.TZ || undefined,
     });
-  });
+  };
+  pi.on("before_agent_start", (event, ctx) => reconcileEligibility(ctx, String(event?.prompt ?? "")));
 
   pi.on("agent_end", (event, ctx) => {
     if (isChildSession(ctx)) return;
     lastMessages = Array.isArray(event?.messages) ? event.messages : lastMessages;
   });
 
-  pi.on("agent_settled", (_event, ctx) => {
+  const advanceExtraction = (ctx: any) => {
     if (isChildSession(ctx)) return;
     ensureDirs(paths);
     const entries = readSessionEntries(ctx);
     const session = sessionId(ctx);
     finalizeMemorySuccess(paths, dependencies, entries, session);
     finalizeVaultSuccess(paths, dependencies, entries, session);
+    // Queued real prompts may cross a boundary inside the current agent run.
+    // Reconcile at the existing completed-turn/settlement owner, without a new wakeup.
+    reconcileEligibility(ctx);
     const memory = readActiveMemoryRequest(paths, session)?.request;
     const activeVault = readActiveVaultRequest(paths)?.request;
     const vault = !activeVault?.ownerSessionId || activeVault.ownerSessionId === session
       ? activeVault
       : undefined;
-    sendDueExtractionMessages(pi, paths, dependencies, entries, memory, vault);
+    sendDueExtractionMessages(pi, paths, dependencies, entries, memory, vault, queuedLaunches, trimming.collect(ctx));
+  };
+  pi.on("turn_end", (event, ctx) => {
+    const message = event.message;
+    if (event.outcome === "aborted" || ctx.signal?.aborted) { trimming.cancel(); return; }
+    if (message?.role !== "assistant" || message.stopReason !== "stop"
+      || !Array.isArray(message.content) || message.content.some((block: any) => block.type === "toolCall")) return;
+    advanceExtraction(ctx);
   });
+  pi.on("agent_settled", (event, ctx) => { if (event?.aborted || ctx.signal?.aborted) trimming.cancel(); else advanceExtraction(ctx); });
 }
 
 export default function memoryVault(pi: ExtensionAPI): void {

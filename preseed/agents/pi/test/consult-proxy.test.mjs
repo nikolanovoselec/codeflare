@@ -1,150 +1,144 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { execFileSync, spawnSync } from 'node:child_process';
-import { createHash } from 'node:crypto';
+import { setTimeout as delay } from 'node:timers/promises';
 
-function startConsult(home) {
-  const repo = fileURLToPath(new URL('../../../../', import.meta.url));
-  const lines = readFileSync(join(repo, 'entrypoint.sh'), 'utf8').split('\n');
-  function functionSource(name) {
-    const start = lines.findIndex((line) => line === `${name}() {`);
-    const end = lines.findIndex((line, index) => index > start && line === '}');
-    if (start < 0 || end < 0) throw new Error(`missing production helper ${name}`);
-    return lines.slice(start, end + 1).join('\n');
-  }
-  const functions = ['configure_pi_mcp_adapter', '_merge_consult_llm_mcp', '_remove_consult_llm_mcp', '_remove_disabled_consult_llm', 'configure_consult_llm'].map(functionSource).join('\n');
-  return spawnSync('bash', ['-c', `${functions}\nconfigure_pi_mcp_adapter "$MIGRATION_MODULE"\nconfigure_consult_llm`], {
-    encoding: 'utf8',
-    env: { ...process.env, USER_HOME: home, USER_CLAUDE_JSON: join(home, '.claude.json'),
-      MIGRATION_MODULE: join(repo, 'preseed/agents/pi/extensions/00-mcp-adapter-config.ts'),
-      CODEFLARE_OPENAI_API_KEY: 'synthetic-openai', CODEFLARE_GEMINI_API_KEY: '', ENTERPRISE_MODE: '',
-    },
-  });
-}
-
-
-test('REQ-AGENT-069 AC1/AC2: locked adapter exposes consult through mcp and starts its process only on proxy use', { timeout: 30_000 }, async (t) => {
-  const home = mkdtempSync(join(tmpdir(), 'pi-consult-proxy-'));
+const repo = fileURLToPath(new URL('../../../../', import.meta.url));
+async function fixture(t, serverTimeout, environmentCase) {
+  const home = mkdtempSync(join(tmpdir(), 'pi-mcp-extension-'));
   const directory = join(home, '.pi/agent');
   mkdirSync(directory, { recursive: true });
-  const f = { home, directory, target: join(directory, 'mcp-adapter.json') };
-  let previous;
+  writeFileSync(join(directory, 'settings.json'), JSON.stringify({ packages: ['npm:pi-mcp-extension@1.12.1'], extensions: ['-builtin:mcp'] }));
   let shutdown = async () => {};
-  t.after(async () => {
-    try {
-      await shutdown();
-    } finally {
-      for (const [name, value] of Object.entries(previous ?? {})) {
-        if (value === undefined) delete process.env[name]; else process.env[name] = value;
-      }
-      rmSync(home, { recursive: true, force: true });
-    }
-  });
-  const repo = fileURLToPath(new URL('../../../../', import.meta.url));
-  const archivePath = join(repo, 'host/__fixtures__/pi-mcp-adapter-5.3.1.tgz');
+  t.after(async () => { try { await shutdown(); } finally { rmSync(home, { recursive: true, force: true }); } });
+  const dependencies = join(repo, 'preseed/agents/pi/node_modules');
+  const packageRoot = join(dependencies, 'pi-mcp-extension');
+  const manifest = JSON.parse(readFileSync(join(packageRoot, 'package.json'), 'utf8'));
   const lock = JSON.parse(readFileSync(join(repo, 'preseed/agents/pi/package-lock.json'), 'utf8'));
-  const pinned = lock.packages['node_modules/pi-mcp-adapter'];
-  // Exact locked artifact contract, not the agent's differently pinned install.
-  assert.equal(pinned.version, '5.3.1');
-  assert.equal(`sha512-${createHash('sha512').update(readFileSync(archivePath)).digest('base64')}`, pinned.integrity);
-  const vendor = join(f.home, 'vendor');
-  mkdirSync(vendor);
-  execFileSync('tar', ['-xzf', archivePath, '-C', vendor], { stdio: 'ignore' });
-  const manifest = JSON.parse(readFileSync(join(vendor, 'package/package.json'), 'utf8'));
-  assert.deepEqual(manifest.pi.extensions, ['./index.ts']);
-
-  // Transpile the complete declared artifact for Node's host test runner. No
-  // vendor function, SDK client, process transport or lifecycle is substituted.
-  // CI must provide the real dependencies installed from the preseed lock;
-  // missing dependencies are a setup failure, never a skipped behavioral pass.
-  symlinkSync(join(repo, 'preseed/agents/pi/node_modules'), join(vendor, 'node_modules'), 'dir');
+  // Installed artifact identity is the intentional managed dependency contract.
+  assert.equal(manifest.version, lock.packages['node_modules/pi-mcp-extension'].version);
+  const selected = JSON.parse(readFileSync(join(repo, 'preseed/agents/pi/package.json'), 'utf8'));
+  assert.equal(manifest.version, selected.dependencies['pi-mcp-extension']);
+  symlinkSync(dependencies, join(home, 'node_modules'), 'dir');
   const { build } = await import('esbuild');
-  const output = join(vendor, 'adapter.mjs');
-  await build({ entryPoints: [join(vendor, 'package', manifest.pi.extensions[0])], outfile: output,
-    bundle: true, packages: 'external', platform: 'node', format: 'esm', logLevel: 'silent' });
-
-  const bin = join(f.home, 'bin');
-  mkdirSync(bin);
-  const service = join(bin, 'consult-llm-mcp');
-  copyFileSync(join(repo, 'host/__fixtures__/consult-llm-mcp.mjs'), service);
-  chmodSync(service, 0o755);
-  const receipt = join(f.home, 'consult-service.jsonl');
-  const environment = ['HOME', 'PATH', 'XDG_CONFIG_HOME', 'PI_CODING_AGENT_DIR', 'PI_PACKAGE_DIR',
-    'MCP_DIRECT_TOOLS', 'PI_MCP_CONFIG_MODE', 'CODEFLARE_Q17_RECEIPT', 'CODEFLARE_Q17_PHASE'];
-  previous = Object.fromEntries(environment.map(name => [name, process.env[name]]));
-  for (const name of environment) delete process.env[name];
-  process.env.HOME = f.home;
-  process.env.PATH = `${bin}:${previous.PATH}`;
-  process.env.XDG_CONFIG_HOME = join(f.home, '.config');
-  process.env.PI_CODING_AGENT_DIR = f.directory;
-  process.env.CODEFLARE_Q17_RECEIPT = receipt;
-  process.env.CODEFLARE_Q17_PHASE = 'session-start';
-  const configured = startConsult(f.home);
-  assert.equal(configured.status, 0, configured.stderr);
-  assert.equal(existsSync(join(f.directory, 'mcp-cache.json')), false, 'fresh bootstrap must not borrow a warmed catalog');
-
-  const handlers = new Map();
-  const listeners = new Map();
-  const tools = new Map();
-  const commands = new Map();
-  const entries = [];
-  let activeTools = ['read', 'bash'];
+  await build({ entryPoints: { extension: join(packageRoot, manifest.pi.extensions[0]), capability: join(repo, 'preseed/agents/pi/extensions/capability.ts') }, outdir: home,
+    bundle: true, packages: 'external', platform: 'node', format: 'esm', outExtension: { '.js': '.mjs' }, logLevel: 'silent' });
+  const receipt = join(home, 'receipt.jsonl');
+  const configPath = join(directory, 'mcp.json');
+  const selectedPath = environmentCase?.legacy ? join(directory, 'mcp-adapter.json') : configPath;
+  writeFileSync(selectedPath, JSON.stringify({ settings: { requestTimeoutMs: 360000 }, mcpServers: {
+    'consult-llm': { command: process.execPath, args: [join(repo, 'host/__fixtures__/pi-mcp-extension-server.mjs'), receipt, ...(environmentCase ? [environmentCase.expected] : [])], lifecycle: 'lazy',
+      ...(environmentCase ? { env: { CODEFLARE_SYNTHETIC_LITERAL: environmentCase.input } } : {}),
+      ...(serverTimeout ? { requestTimeoutMs: serverTimeout } : {}) },
+  } }));
+  if (environmentCase) {
+    const { default: prepareLoad, migratePiMcpAdapterConfig } = await import(pathToFileURL(join(repo, 'preseed/agents/pi/extensions/00-mcp-adapter-config.ts')).href);
+    if (environmentCase.regenerate) assert.equal(migratePiMcpAdapterConfig(directory, true, true), true);
+    else prepareLoad({}, { HOME: home });
+    assert.equal(existsSync(configPath), true);
+  }
+  const handlers = new Map(), tools = new Map();
+  let active = ['read', 'bash', 'edit', 'write', 'capability'];
   const pi = {
     on(name, handler) { handlers.set(name, [...(handlers.get(name) ?? []), handler]); },
-    events: {
-      on(name, handler) {
-        listeners.set(name, [...(listeners.get(name) ?? []), handler]);
-        return () => listeners.set(name, listeners.get(name).filter(candidate => candidate !== handler));
-      },
-      emit(name, payload) { for (const listener of listeners.get(name) ?? []) listener(payload); },
-    },
-    registerFlag() {}, getFlag: () => undefined,
-    registerCommand: (name, command) => commands.set(name, command),
-    getCommands: () => [...commands.keys()].map(name => ({ name, sourceInfo: { path: 'adapter-fixture' } })),
-    registerTool(tool) {
-      tools.set(tool.name, tool);
-      if (!activeTools.includes(tool.name)) activeTools.push(tool.name);
-    },
-    getAllTools: () => [...tools.values()],
-    getActiveTools: () => [...activeTools],
-    setActiveTools: names => { activeTools = [...names]; },
-    appendEntry: (customType, data) => entries.push({ type: 'custom', customType, data }),
-    sendMessage: message => entries.push({ type: 'custom_message', ...message }),
+    registerCommand() {}, getMcpServers: () => [],
+    registerTool(tool) { tools.set(tool.name, tool); if (!active.includes(tool.name)) active.push(tool.name); },
+    getAllTools: () => [...tools.values()], getActiveTools: () => [...active], setActiveTools: names => { active = [...names]; },
   };
-  const ctx = { cwd: f.home, mode: 'print', hasUI: false,
-    sessionManager: { getBranch: () => entries, getEntries: () => entries },
-    ui: { setStatus() {}, notify() {} }, modelRegistry: undefined, signal: undefined };
-  const emit = async (name, event = {}) => {
-    for (const handler of handlers.get(name) ?? []) await handler(event, ctx);
-  };
-  const { createMcpAdapter } = await import(pathToFileURL(output).href);
-  createMcpAdapter({ configPath: f.target })(pi);
+  const ctx = { cwd: home, hasUI: false, mode: 'print', isProjectTrusted: () => false,
+    ui: { notify() {}, setStatus() {}, setWidget() {} } };
+  const emit = async name => { for (const handler of handlers.get(name) ?? []) await handler({}, ctx); };
+  const { default: register } = await import(pathToFileURL(join(home, 'extension.mjs')).href);
+  const { capabilityExtension } = await import(pathToFileURL(join(home, 'capability.mjs')).href);
+  capabilityExtension(pi);
+  await register(pi, { bootstrapCwd: home, globalConfigPath: configPath, authStorageDir: join(home, 'auth') });
   shutdown = () => emit('session_shutdown');
   await emit('session_start');
-  assert.ok(activeTools.includes('mcp'), 'consult must be reachable through the actual registered proxy');
-  const hasDirectConsult = () => activeTools.some(name => {
-    const parameters = tools.get(name)?.parameters?.properties;
-    return parameters && Object.hasOwn(parameters, 'prompt') && Object.hasOwn(parameters, 'model');
-  });
-  assert.equal(hasDirectConsult(), false, 'consult must not expose its direct prompt/model tool schema');
-  const startedBeforeUse = existsSync(receipt);
-  process.env.CODEFLARE_Q17_PHASE = 'proxy-use';
-  const args = { model: 'openai', prompt: 'Compare the stated alternatives.', task_mode: 'general' };
-  const result = await tools.get('mcp').execute('explicit-consult', { server: 'consult-llm', tool: 'consult_llm', args }, undefined, undefined, ctx);
-  assert.equal(result.details.error, undefined);
-  assert.equal(result.details.server, 'consult-llm');
-  assert.equal(result.details.tool, 'consult_llm');
-  assert.match(result.content.filter(block => block.type === 'text').map(block => block.text).join('\n'), /Fixture external answer/);
-  const observations = readFileSync(receipt, 'utf8').trim().split('\n').map(line => JSON.parse(line));
-  assert.deepEqual(observations.find(event => event.event === 'consulted'), { event: 'consulted', arguments: args, configuredCredential: true });
-  // External process receipts distinguish real start-on-use from merely setting
-  // lifecycle:"lazy". The child inherits the phase at the actual launch boundary.
-  assert.equal(startedBeforeUse, false, 'session startup must not launch consult');
-  assert.equal(observations.find(event => event.event === 'started').phase, 'proxy-use');
-  assert.ok(activeTools.includes('mcp'), 'proxy use must retain the registered mcp surface');
-  assert.equal(hasDirectConsult(), false, 'proxy use must not expose the direct consult prompt/model tool schema');
+  const call = (name, args = {}, signal) => tools.get(name).execute('synthetic', args, signal, undefined, ctx);
+  const observations = () => existsSync(receipt) ? readFileSync(receipt, 'utf8').trim().split('\n').filter(Boolean).map(line => JSON.parse(line)) : [];
+  const activate = name => call('capability', { name });
+  const connect = () => call('mcp_connect', { name: 'consult-llm' });
+  const consult = () => [...tools.keys()].find(name => name !== 'capability' && tools.get(name).parameters?.properties?.operation);
+  return { pi, call, observations, activate, connect, consult, shutdown };
+}
+
+async function until(predicate, milliseconds = 10000) {
+  const deadline = Date.now() + milliseconds;
+  while (!predicate()) {
+    if (Date.now() >= deadline) throw new Error('Synthetic server outcome did not arrive');
+    await delay(20);
+  }
+}
+
+// This test uses the installed locked extension, real SDK and external stdio process.
+test('REQ-AGENT-069 AC1/AC2: direct consult starts only on explicit connect and supports exact capability activation', { timeout: 20000 }, async t => {
+  const f = await fixture(t);
+  await f.activate('mcp_status');
+  await f.call('mcp_status');
+  assert.deepEqual(f.observations(), [], 'status/discovery must not launch consult');
+  assert.equal(f.consult(), undefined);
+  await f.activate('mcp_connect');
+  await f.connect();
+  const discovery = await f.call('capability', { query: 'tool:synthetic consult' });
+  const name = discovery.details.recommended?.name;
+  assert.equal(name, f.consult(), 'capability must find the newly registered callable tool');
+  f.pi.setActiveTools(['capability']);
+  await assert.rejects(f.connect(), /inactive/i, 'ready must not imply tools are active');
+  await f.activate(name);
+  assert.ok(f.pi.getActiveTools().includes(name));
+  const result = await f.call(name, { operation: 'answer' });
+  assert.match(JSON.stringify(result.content), /Fixture external answer/);
+  assert.equal(f.observations().filter(row => row.event === 'called').length, 1);
 });
+
+test('REQ-BROWSER-009: configured six-minute call budget permits a response beyond thirty seconds', { timeout: 60000 }, async t => {
+  const f = await fixture(t);
+  await f.connect();
+  const result = await f.call(f.consult(), { operation: 'answer', delayMs: 31000 });
+  assert.match(JSON.stringify(result.content), /Fixture external answer/);
+});
+
+test('REQ-BROWSER-009: request deadline is fixed and cancellation reaches the real server', { timeout: 20000 }, async t => {
+  const f = await fixture(t, 1000);
+  await f.connect();
+  await assert.rejects(f.call(f.consult(), { operation: 'progress', delayMs: 4000 }), error => error.code === 'timeout');
+  const controller = new AbortController();
+  const request = f.call(f.consult(), { operation: 'answer', delayMs: 4000 }, controller.signal);
+  await until(() => f.observations().some(row => row.event === 'called' && row.operation === 'answer'));
+  controller.abort();
+  await assert.rejects(request, /cancel/i);
+  await until(() => f.observations().some(row => row.event === 'cancelled' && row.operation === 'answer'));
+});
+
+test('REQ-AGENT-069: transport recovery never replays an uncertain mutation and shutdown releases child processes', { timeout: 25000 }, async t => {
+  const f = await fixture(t);
+  await f.connect();
+  await assert.rejects(f.call(f.consult(), { operation: 'uncertain-mutation' }));
+  await until(() => f.observations().filter(row => row.event === 'started').length >= 2);
+  // Explicit connect joins recovery and waits for discovery; it must not replay tools/call.
+  await f.connect();
+  const result = await f.call(f.consult(), { operation: 'answer' });
+  assert.match(JSON.stringify(result.content), /Fixture external answer/);
+  assert.equal(f.observations().filter(row => row.event === 'mutated').length, 1, 'the uncertain effect must happen only once across reconnect');
+  const pids = f.observations().filter(row => row.event === 'started').map(row => row.pid);
+  await f.shutdown();
+  await until(() => pids.every(pid => { try { process.kill(pid, 0); return false; } catch (error) { if (error.code === 'ESRCH') return true; throw error; } }));
+});
+
+
+for (const regenerate of [false, true]) {
+  for (const legacy of [false, true]) {
+    test(`REQ-AGENT-217: actual stdio server receives the selected schema's literal env (legacy=${legacy}, regenerate=${regenerate})`, { timeout: 20000 }, async t => {
+      const f = await fixture(t, undefined, { legacy, regenerate, input: '!!synthetic-runtime', expected: legacy ? '!synthetic-runtime' : '!!synthetic-runtime' });
+      assert.deepEqual(f.observations(), [], 'migration must never evaluate a command or start the server');
+      await f.connect();
+      assert.equal(f.observations().find(row => row.event === 'started')?.literalMatches, true,
+        'the real subprocess must receive the intended literal without exposing its value');
+      const result = await f.call(f.consult(), { operation: 'answer' });
+      assert.match(JSON.stringify(result.content), /Fixture external answer/);
+    });
+  }
+}

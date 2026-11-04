@@ -1,10 +1,28 @@
 import { For, Show, createEffect, createSignal, onCleanup, type Component } from 'solid-js';
 import * as api from '../api/operator-management';
-import type { OperatorActivitySummary } from '../api/operator-activities';
+import { getSessions } from '../api/client';
+import type { Session } from '../types';
+import { SESSION_ID_RE } from '../lib/constants';
+import { piLoginRecoveryCopy, type OperatorActivitySummary, type OperatorActivityDetail } from '../api/operator-activities';
 import { ApiError } from '../api/fetch-helper';
 import OperatorActivityDiagnostics from './OperatorActivityDiagnostics';
 
 const working = new Set(['queued', 'running', 'waiting', 'cancel-requested', 'unknown']);
+const nativeSelection = (selection: OperatorActivityDetail['inferenceSelection']) => selection?.source === 'pi-native' ? selection : undefined;
+function nativeReasoningLabel(selection: NonNullable<ReturnType<typeof nativeSelection>>): string {
+  const level = selection.reasoningLevel;
+  if (level === null) return 'Provider default';
+  const origin = selection.reasoningSource === 'installation' ? 'installation override'
+    : selection.reasoningSource === 'default' ? 'Medium default'
+      : selection.reasoningSource ? 'inherited Pi default' : 'reasoning origin unavailable';
+  return `${level.charAt(0).toUpperCase() + level.slice(1)} (${origin})`;
+}
+type SourceHost = Session & { generation: number };
+function isSourceHost(session: Session): session is SourceHost {
+  const lifecycle = session.lifecycle ?? session.status;
+  return (lifecycle === 'running' || lifecycle === 'starting') && SESSION_ID_RE.test(session.id)
+    && typeof session.generation === 'number' && Number.isSafeInteger(session.generation) && session.generation > 0;
+}
 function message(error: unknown) {
   if (error instanceof ApiError && [401, 403, 404].includes(error.status)) return 'Access denied. Invocation requires its own grant; management is not invocation.';
   if (error instanceof ApiError && error.status === 409) return 'Activity or installation state changed. Refresh and review before acting again.';
@@ -27,12 +45,17 @@ const OperatorManagementActivity: Component<{ installationId?: string; onBackToC
   const [preview, setPreview] = createSignal<Awaited<ReturnType<typeof api.getInstallationActivityPreview>>>();
   const [previewLoading, setPreviewLoading] = createSignal(false);
   const [previewError, setPreviewError] = createSignal(false);
+  const [sourceHosts, setSourceHosts] = createSignal<SourceHost[]>([]);
+  const [sourceSession, setSourceSession] = createSignal<{ sessionId: string; sessionGeneration: number }>();
+  const [sourceLoading, setSourceLoading] = createSignal(false);
+  const [sourceError, setSourceError] = createSignal(false);
   const [preparedId, setPreparedId] = createSignal('');
   const [selected, setSelected] = createSignal('');
   const [detail, setDetail] = createSignal<Awaited<ReturnType<typeof api.getOwnedActivity>>>();
   const [detailLoading, setDetailLoading] = createSignal(false);
   let active = true;
   let detailSequence = 0;
+  let sourceSequence = 0;
   onCleanup(() => { active = false; });
   createEffect(() => {
     const id = props.installationId;
@@ -45,6 +68,33 @@ const OperatorManagementActivity: Component<{ installationId?: string; onBackToC
       .finally(() => { if (current) setPreviewLoading(false); });
     onCleanup(() => { current = false; });
   });
+  createEffect(() => {
+    const requiresSource = preview()?.guidedAssessment && preview()?.requiresSourceHost;
+    sourceSequence++;
+    setSourceHosts([]); setSourceSession(undefined); setSourceLoading(false); setSourceError(false);
+    if (requiresSource) void refreshSources();
+  });
+  async function refreshSources() {
+    const sequence = ++sourceSequence;
+    setSourceLoading(true); setSourceError(false);
+    try {
+      const hosts = (await getSessions()).filter(isSourceHost);
+      if (active && sequence === sourceSequence) {
+        setSourceHosts(hosts);
+        setSourceSession(previous => previous && hosts.some(host => host.id === previous.sessionId
+          && host.generation === previous.sessionGeneration) ? previous : undefined);
+      }
+    } catch {
+      if (active && sequence === sourceSequence) {
+        setSourceHosts([]); setSourceSession(undefined); setSourceError(true);
+      }
+    } finally { if (active && sequence === sourceSequence) setSourceLoading(false); }
+  }
+  function sourceReady() {
+    const source = sourceSession();
+    return !preview()?.requiresSourceHost || source !== undefined && !sourceLoading() && !sourceError()
+      && sourceHosts().some(host => host.id === source.sessionId && host.generation === source.sessionGeneration);
+  }
   async function refresh() {
     setLoading(true); setError('');
     try { const result = await api.getOwnedActivities(); if (active) {
@@ -84,10 +134,12 @@ const OperatorManagementActivity: Component<{ installationId?: string; onBackToC
     if (mode === 'legacy-pull-request' && (!/^[1-9]\d*$/.test(pullRequest()) || !Number.isSafeInteger(number))) {
       setError('Enter a positive pull request number.'); return;
     }
+    if (!sourceReady()) { setError('Select an available existing source Host before starting.'); return; }
+    const source = preview()?.requiresSourceHost ? sourceSession() : undefined;
     let attemptedStartId = '';
     void perform(async () => {
       const input = mode === 'repository' ? { repository: target } : { repository: target, pullRequest: number };
-      const prepared = await api.prepareInstallationActivity(props.installationId!, input);
+      const prepared = await api.prepareInstallationActivity(props.installationId!, input, source);
       if (!active) return;
       attemptedStartId = prepared.activityId;
       setPreparedId(attemptedStartId);
@@ -117,8 +169,22 @@ const OperatorManagementActivity: Component<{ installationId?: string; onBackToC
             <div class="admin-form-grid">
               <label class="admin-form-field"><span>Repository</span><input aria-label="Repository" type="text" required maxlength={value().guidedMode === 'repository' ? 201 : 256} autocomplete="off" placeholder="owner/repository" readonly={value().guidedMode === 'repository'} value={value().guidedMode === 'repository' ? value().configuredRepository ?? '' : repository()} onInput={event => { if (value().guidedMode !== 'repository') setRepository(event.currentTarget.value); }} /><small>{value().guidedMode === 'repository' ? 'Uses the saved target; this form cannot override it.' : 'Enter a repository you can read, in owner/repository format.'}</small></label>
               <Show when={value().guidedMode === 'legacy-pull-request'}><label class="admin-form-field"><span>Pull request number</span><input aria-label="Pull request number" type="number" required min="1" step="1" max="9007199254740991" value={pullRequest()} onInput={event => setPullRequest(event.currentTarget.value)} /><small>Choose a Renovate pull request in that repository.</small></label></Show>
+              <Show when={value().requiresSourceHost}>
+                <label class="admin-form-field"><span>Source host</span><select aria-label="Source host" required disabled={sourceLoading()} onChange={event => {
+                  const host = sourceHosts().find(candidate => candidate.id === event.currentTarget.value);
+                  setSourceSession(host ? { sessionId: host.id, sessionGeneration: host.generation } : undefined);
+                }}><option value="" selected={!sourceSession()}>Select an existing host</option><For each={sourceHosts()}>{host => <option value={host.id} selected={sourceSession()?.sessionId === host.id && sourceSession()?.sessionGeneration === host.generation}>{host.name} · {host.id} · generation {host.generation}</option>}</For></select>
+                  <small>Uses that existing Host's configured Pi services. This does not start or resume a session, open Pi, or change saved settings.</small>
+                </label>
+                <div class="admin-form-field">
+                  <Show when={sourceLoading()}><p role="status">Reading existing source hosts…</p></Show>
+                  <Show when={sourceError()}><p role="alert">Source hosts could not be read. Refresh before selecting a Host.</p></Show>
+                  <Show when={!sourceLoading() && !sourceError() && sourceHosts().length === 0}><p role="status">No eligible existing source hosts are available.</p></Show>
+                  <button type="button" class="admin-secondary-button" disabled={sourceLoading() || busy()} onClick={() => void refreshSources()}>Refresh source hosts</button>
+                </div>
+              </Show>
             </div>
-            <div class="operator-actions"><button type="submit" class="admin-primary-button" disabled={value().guidedMode === 'repository' && !value().configuredRepository}>Start assessment</button><a href="/operators" onClick={props.onBackToCatalog}>Back to operators</a></div></fieldset></form>
+            <div class="operator-actions"><button type="submit" class="admin-primary-button" disabled={!sourceReady() || value().guidedMode === 'repository' && !value().configuredRepository}>Start assessment</button><a href="/operators" onClick={props.onBackToCatalog}>Back to operators</a></div></fieldset></form>
         </Show>}</Show>
         <Show when={preparedId()}><p>Prepared activity: <button class="admin-secondary-button" disabled={busy()} onClick={() => void read(preparedId())}>{preparedId()}</button>. If submission was interrupted, inspect its state before preparing more work.</p></Show>
       </section>
@@ -141,6 +207,8 @@ const OperatorManagementActivity: Component<{ installationId?: string; onBackToC
     <Show when={detailLoading()}><p role="status">Loading activity detail…</p></Show>
     <Show when={detail()}>{value => <section class="admin-panel operator-panel"><h2>Activity detail</h2><p>Activity ID: {value().activityId}</p>
       <p>Execution: {value().executionStatus} · Cleanup: {value().cleanupStatus}</p>
+      <Show when={nativeSelection(value().inferenceSelection)}>{selection => <p>Inference: Pi built-in providers · {selection().provider} / {selection().model} · {nativeReasoningLabel(selection())}</p>}</Show>
+      <Show when={value().authFailure}>{failure => <div role="alert"><p>Pi login required · {failure().provider}</p><p>{piLoginRecoveryCopy}</p></div>}</Show>
       <Show when={value().checkpoint != null}><h3>Progress</h3><pre class="operator-result">{JSON.stringify(value().checkpoint, null, 2)}</pre></Show>
       <Show when={value().result != null} fallback={<p>No result available.</p>}><h3>Result</h3><pre class="operator-result">{JSON.stringify(value().result, null, 2)}</pre></Show>
       <Show when={value().sessionId}><a href={`/app?session=${encodeURIComponent(value().sessionId!)}`}>Open owned session</a></Show>

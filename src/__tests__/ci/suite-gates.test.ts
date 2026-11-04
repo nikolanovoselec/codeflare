@@ -285,7 +285,7 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
       jobs: { 'pi-prompt': { steps: Array<{ uses?: string; with?: Record<string, string> }> } };
     };
     const install = workflow.jobs['pi-prompt'].steps.find(
-      (step) => step.uses === './.github/actions/install-deps' && step.with?.directory === 'preseed/agents/pi',
+      (step) => step.uses === '$/.github/actions/install-deps' && step.with?.directory === 'preseed/agents/pi',
     );
     expect(install?.with).toEqual({
       directory: 'preseed/agents/pi',
@@ -434,7 +434,7 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
     const { default: BackendTimingReporter } = await import(reporterUrl);
     const output = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
     try {
-      new BackendTimingReporter().onTestRunEnd([{
+      await new BackendTimingReporter().onTestRunEnd([{
         moduleId: join(REPO, 'src/__tests__/example.test.ts'),
         diagnostic: () => ({ environmentSetupDuration: 2, prepareDuration: 3,
           collectDuration: 17, setupDuration: 4, duration: 9 }),
@@ -520,7 +520,7 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
     const coverageBackend = testWorkflow.jobs['coverage-backend'] as {
       steps: Array<{ uses?: string; with?: Record<string, string> }>;
     };
-    const coverageMerge = coverageBackend.steps.find((step) => step.uses === './.github/actions/merge-coverage');
+    const coverageMerge = coverageBackend.steps.find((step) => step.uses === '$/.github/actions/merge-coverage');
     expect(coverageMerge?.with?.['expected-shards']).toBe(String(backendCoverageLegs));
 
     const host = testWorkflow.jobs['host-tests'] as {
@@ -565,7 +565,7 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
     for (const [name, matrix] of [['coverage-backend', 'backend-tests'], ['coverage-frontend', 'frontend-tests']] as const) {
       const job = testWorkflow.jobs[name] as { needs?: string[]; steps?: Array<{ uses?: string }> };
       expect(job.needs).toEqual(['changes', matrix]);
-      expect(job.steps?.some((step) => step.uses === './.github/actions/merge-coverage')).toBe(true);
+      expect(job.steps?.some((step) => step.uses === '$/.github/actions/merge-coverage')).toBe(true);
     }
   });
 
@@ -687,6 +687,68 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
     expect(merged.stdout).toContain('Merged 2 shard coverage reports');
     expect(readFileSync(join(output, 'lcov.info'), 'utf8')).toContain('DA:2,1');
 
+    // Same function identity, different bundler label: merge complementary hits
+    // without counting the uncalled alias as a second, uncovered function.
+    for (const [firstName, secondName] of [['covered', 'covered_2'], ['covered_2', 'covered']] as const) {
+      const first = coverage(1, 0);
+      const second = coverage(0, 1);
+      first[source].fnMap[0].name = firstName;
+      second[source].fnMap[0].name = secondName;
+      first[source].f[0] = 0;
+      second[source].f[0] = 1;
+      writeFileSync(join(artifacts, 'shard-1', 'coverage', 'coverage-final.json'), JSON.stringify(first));
+      writeFileSync(join(artifacts, 'shard-2', 'coverage', 'coverage-final.json'), JSON.stringify(second));
+      const aliased = spawnSync(process.execPath, [
+        COVERAGE_MERGER, artifacts, output, '2', 'shard', '80', '80', '80', '80',
+      ], { encoding: 'utf8' });
+      expect(aliased.status, aliased.stderr).toBe(0);
+      expect(aliased.stdout).toContain('All files | 100 | 100 | 100 | 100 |');
+      expect(readFileSync(join(output, 'lcov.info'), 'utf8')).toContain('DA:1,1');
+      expect(readFileSync(join(output, 'lcov.info'), 'utf8')).toContain('DA:2,1');
+    }
+
+    const uncalledFirst = coverage(1, 0);
+    const uncalledSecond = coverage(0, 1);
+    uncalledFirst[source].f[0] = 0;
+    uncalledSecond[source].f[0] = 0;
+    uncalledSecond[source].fnMap[0].name = 'covered_2';
+    writeFileSync(join(artifacts, 'shard-1', 'coverage', 'coverage-final.json'), JSON.stringify(uncalledFirst));
+    writeFileSync(join(artifacts, 'shard-2', 'coverage', 'coverage-final.json'), JSON.stringify(uncalledSecond));
+    const uncalled = spawnSync(process.execPath, [
+      COVERAGE_MERGER, artifacts, output, '2', 'shard', '80', '80', '80', '80',
+    ], { encoding: 'utf8' });
+    expect(uncalled.status).toBe(1);
+    expect(uncalled.stderr).toContain('Coverage for functions (0%) does not meet global threshold (80%)');
+
+    type CoverageFixture = ReturnType<typeof coverage>[string];
+    const incompatibleMaps: Array<[string, (record: CoverageFixture) => void, string]> = [
+      ['function declaration', (record) => { record.fnMap[0].decl.end.column = 2; }, 'fnMap'],
+      ['function body', (record) => { record.fnMap[0].loc.end.line = 3; }, 'fnMap'],
+      ['function metadata', (record) => { record.fnMap[0].line = 2; }, 'fnMap'],
+      ['function counter identity', (record) => {
+        const functions: Record<string, typeof record.fnMap[0]> = record.fnMap;
+        const hits: Record<string, number> = record.f;
+        functions['1'] = record.fnMap[0];
+        hits['1'] = record.f[0];
+        delete functions['0'];
+        delete hits['0'];
+      }, 'fnMap'],
+      ['statement', (record) => { record.statementMap[1].end.column = 2; }, 'statementMap'],
+      ['branch', (record) => { record.branchMap[0].locations[0].end.column = 2; }, 'branchMap'],
+    ];
+    for (const [name, mutate, map] of incompatibleMaps) {
+      const different = coverage(0, 1);
+      different[source].fnMap[0].name = 'covered_2';
+      mutate(different[source]);
+      writeFileSync(join(artifacts, 'shard-1', 'coverage', 'coverage-final.json'), JSON.stringify(coverage(1, 0)));
+      writeFileSync(join(artifacts, 'shard-2', 'coverage', 'coverage-final.json'), JSON.stringify(different));
+      const incompatible = spawnSync(process.execPath, [
+        COVERAGE_MERGER, artifacts, output, '2', 'shard', '80', '80', '80', '80',
+      ], { encoding: 'utf8' });
+      expect(incompatible.status, name).toBe(1);
+      expect(incompatible.stderr, name).toContain(`${map} differs between shards`);
+    }
+
     const incomplete = spawnSync(process.execPath, [
       COVERAGE_MERGER, artifacts, join(work, 'incomplete'), '3', 'shard', '0', '0', '0', '0',
     ], { encoding: 'utf8' });
@@ -761,8 +823,8 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
     expect(workflow.jobs.coverage).toBeUndefined();
     expect(backend.if).toContain("needs.changes.outputs.backend == 'true'");
     expect(frontend.if).toContain("needs.changes.outputs.webui == 'true'");
-    expect(backend.steps?.some((step) => step.uses === './.github/actions/merge-coverage')).toBe(true);
-    expect(frontend.steps?.some((step) => step.uses === './.github/actions/merge-coverage')).toBe(true);
+    expect(backend.steps?.some((step) => step.uses === '$/.github/actions/merge-coverage')).toBe(true);
+    expect(frontend.steps?.some((step) => step.uses === '$/.github/actions/merge-coverage')).toBe(true);
   });
 
 });
@@ -922,12 +984,16 @@ describe('REQ-OPS-027: code-server coupled-pin automation', () => {
     const archiveRoot = join(fixture, 'archive', 'code-server-4.2.0-linux-amd64');
     const output = join(fixture, 'github-output');
     mkdirSync(join(archiveRoot, 'lib/vscode'), { recursive: true });
+    mkdirSync(join(archiveRoot, 'node_modules/js-yaml'), { recursive: true });
+    mkdirSync(join(archiveRoot, 'lib/vscode/node_modules/tar'), { recursive: true });
     mkdirSync(fakeBin);
     writeFileSync(join(fixture, 'Dockerfile'), [
       'CODE_SERVER_VERSION="4.1.0"',
       'CODE_SERVER_COMMIT="1111111111111111111111111111111111111111"',
       'CODE_SERVER_CODE_VERSION="1.1.0"',
       'CODE_SERVER_VSCODE_COMMIT="2222222222222222222222222222222222222222"',
+      'CODE_SERVER_JS_YAML_VERSION="5.4.1"',
+      'CODE_SERVER_IDE_TAR_VERSION="7.5.21"',
     ].join('\n'));
     const packageCommit = '3'.repeat(40);
     const tagCommit = '4'.repeat(40);
@@ -935,6 +1001,8 @@ describe('REQ-OPS-027: code-server coupled-pin automation', () => {
     const vscodeCommit = '6'.repeat(40);
     writeFileSync(join(archiveRoot, 'package.json'), JSON.stringify({ version: '4.2.0', commit: packageCommit }));
     writeFileSync(join(archiveRoot, 'lib/vscode/package.json'), JSON.stringify({ version: '1.2.0' }));
+    writeFileSync(join(archiveRoot, 'node_modules/js-yaml/package.json'), JSON.stringify({ version: '5.4.3' }));
+    writeFileSync(join(archiveRoot, 'lib/vscode/node_modules/tar/package.json'), JSON.stringify({ version: '7.5.22' }));
     writeFileSync(join(archiveRoot, 'lib/vscode/product.json'), JSON.stringify({
       version: '1.2.0',
       commit: packageCommit,
@@ -985,6 +1053,8 @@ esac
       `commit=${packageCommit}`,
       'code_version=1.2.0',
       `vscode_commit=${vscodeCommit}`,
+      'js_yaml_version=5.4.3',
+      'ide_tar_version=7.5.22',
     ]);
 
     writeFileSync(join(archiveRoot, 'lib/vscode/product.json'), JSON.stringify({
@@ -1121,6 +1191,7 @@ esac
     mkdirSync(join(fixture, 'scripts/ci'), { recursive: true });
     mkdirSync(fakeBin);
     copyFileSync(CODE_SERVER_PIN_UPDATER, join(fixture, 'scripts/ci/update-code-server-pins.mjs'));
+    copyFileSync(join(REPO, 'scripts/ci/semver-forward.mjs'), join(fixture, 'scripts/ci/semver-forward.mjs'));
     writeFileSync(join(fakeBin, 'git'), '#!/bin/sh\n[ "$1" = "diff" ] && exit 1\nexit 0\n');
     chmodSync(join(fakeBin, 'git'), 0o755);
     writeFileSync(join(fixture, 'Dockerfile'), [
@@ -1129,6 +1200,8 @@ esac
       'CODE_SERVER_COMMIT="1111111111111111111111111111111111111111"',
       'CODE_SERVER_CODE_VERSION="1.1.0"',
       'CODE_SERVER_VSCODE_COMMIT="2222222222222222222222222222222222222222"',
+      'CODE_SERVER_JS_YAML_VERSION="5.4.1"',
+      'CODE_SERVER_IDE_TAR_VERSION="7.5.21"',
     ].join('\n'));
 
     const result = spawnSync('bash', ['-c', applyStep?.run ?? ''], {
@@ -1146,6 +1219,8 @@ esac
         CODE_SERVER_COMMIT: '3333333333333333333333333333333333333333',
         CODE_SERVER_CODE_VERSION: '1.130.0',
         CODE_SERVER_VSCODE_COMMIT: '4444444444444444444444444444444444444444',
+        CODE_SERVER_JS_YAML_VERSION: '5.4.3',
+        CODE_SERVER_IDE_TAR_VERSION: '7.5.22',
       },
     });
 
@@ -1162,6 +1237,8 @@ esac
       'CODE_SERVER_COMMIT="1111111111111111111111111111111111111111"',
       'CODE_SERVER_CODE_VERSION="1.1.0"',
       'CODE_SERVER_VSCODE_COMMIT="2222222222222222222222222222222222222222"',
+      'CODE_SERVER_JS_YAML_VERSION="5.4.1"',
+      'CODE_SERVER_IDE_TAR_VERSION="7.5.21"',
     ].join('\n'));
 
     const result = spawnSync(process.execPath, [CODE_SERVER_PIN_UPDATER, dockerfile], {
@@ -1172,6 +1249,8 @@ esac
         CODE_SERVER_COMMIT: '3333333333333333333333333333333333333333',
         CODE_SERVER_CODE_VERSION: '1.130.0',
         CODE_SERVER_VSCODE_COMMIT: '4444444444444444444444444444444444444444',
+        CODE_SERVER_JS_YAML_VERSION: '5.4.3',
+        CODE_SERVER_IDE_TAR_VERSION: '7.5.22',
       },
     });
 
@@ -1187,6 +1266,8 @@ esac
       'CODE_SERVER_COMMIT="1111111111111111111111111111111111111111"',
       'CODE_SERVER_CODE_VERSION="1.1.0"',
       'CODE_SERVER_VSCODE_COMMIT="2222222222222222222222222222222222222222"',
+      'CODE_SERVER_JS_YAML_VERSION="5.4.1"',
+      'CODE_SERVER_IDE_TAR_VERSION="7.5.21"',
     ].join('\n');
 
     expect(updateCodeServerPins(source, {
@@ -1194,12 +1275,16 @@ esac
       codeServerCommit: '3333333333333333333333333333333333333333',
       codeVersion: '1.130.0',
       vscodeCommit: '4444444444444444444444444444444444444444',
+      jsYamlVersion: '5.4.3',
+      ideTarVersion: '7.5.22',
     })).toBe([
       'CODE_SERVER_VERSION="4.130.0"',
       'CODE_SERVER_SHA256="NEEDS_UPDATE_SEE_PR_BODY"',
       'CODE_SERVER_COMMIT="3333333333333333333333333333333333333333"',
       'CODE_SERVER_CODE_VERSION="1.130.0"',
       'CODE_SERVER_VSCODE_COMMIT="4444444444444444444444444444444444444444"',
+      'CODE_SERVER_JS_YAML_VERSION="5.4.3"',
+      'CODE_SERVER_IDE_TAR_VERSION="7.5.22"',
     ].join('\n'));
   });
 
@@ -1209,6 +1294,8 @@ esac
       codeServerCommit: '3'.repeat(40),
       codeVersion: '1.130.0',
       vscodeCommit: '4'.repeat(40),
+      jsYamlVersion: '5.4.3',
+      ideTarVersion: '7.5.22',
     };
     expect(() => updateCodeServerPins('CODE_SERVER_VERSION="4.1.0"', pins)).toThrow(/exactly one Dockerfile match/);
     expect(() => updateCodeServerPins([
@@ -1220,6 +1307,7 @@ esac
     ].join('\n'), { ...pins, codeVersion: 'release prose' })).toThrow(/valid release versions/);
   });
 });
+
 
 function flattenPatterns(values: unknown[]): string[] {
   const patterns: string[] = [];

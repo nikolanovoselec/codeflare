@@ -10,13 +10,20 @@ type ContainerVariables = {
   bucketName: string;
 };
 
-/** Narrow authenticated DO RPC to an already-existing container port. */
-interface ContainerStubWithState extends DurableObjectStub {
-  forwardExisting(request: Request): Promise<Response>;
+/** Passive logging proof composed by admitted parent work, never HTTP input. */
+export interface OperatorLoggingContext {
+  activityId: string;
+  generation: number;
+  loggingEnabled: boolean;
 }
 
-export function forwardExisting(container: DurableObjectStub, request: Request): Promise<Response> {
-  return (container as ContainerStubWithState).forwardExisting(request);
+/** Narrow authenticated DO RPC to an already-existing container port. */
+interface ContainerStubWithState extends DurableObjectStub {
+  forwardExisting(request: Request, loggingContext?: OperatorLoggingContext): Promise<Response>;
+}
+
+export function forwardExisting(container: DurableObjectStub, request: Request, loggingContext?: OperatorLoggingContext): Promise<Response> {
+  return (container as ContainerStubWithState).forwardExisting(request, loggingContext);
 }
 
 /** Extracts sessionId from query param (?sessionId=). Used by container routes. Session CRUD routes use Hono path params (c.req.param('id')) instead. */

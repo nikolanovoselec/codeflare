@@ -81,3 +81,28 @@ describe('REQ-OPS-041: least-privilege workflow-tool pin updates', () => {
     }
   });
 });
+
+
+it('REQ-OPS-020: version-only CI consumers omit invented hashes and reject unknown pin data', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'codeflare-ci-pins-'));
+  try {
+    const path = join(directory, 'pins.json');
+    writePins(path);
+    const pins = JSON.parse(readFileSync(path, 'utf8'));
+    pins.trivy = { version: '0.70.0' };
+    pins['ci-node-22'] = { version: '22.21.1' };
+    pins['ci-node-26'] = { version: '26.8.1' };
+    pins.rclone = { version: '1.73.5', sha256: 'c'.repeat(64) };
+    writeFileSync(path, JSON.stringify(pins));
+    const output = run(['github-output', 'trivy', path], directory);
+    assert.equal(output.status, 0, output.stderr);
+    assert.equal(output.stdout, 'version=0.70.0\n');
+    const missingHash = run(['get', 'trivy', 'sha256', path], directory);
+    assert.notEqual(missingHash.status, 0);
+    assert.match(missingHash.stderr, /has no sha256/);
+    assert.deepEqual(readWorkflowToolPin(path, 'rclone'), pins.rclone);
+    pins.unrecognized = { version: '1.0.0' };
+    writeFileSync(path, JSON.stringify(pins));
+    assert.throws(() => readWorkflowToolPin(path, 'trivy'), /supported tool keys/);
+  } finally { rmSync(directory, { recursive: true, force: true }); }
+});

@@ -24,7 +24,8 @@ interface Props {
   onReadyChange?: (ready: boolean) => void;
   onDirtyChange?: (dirty: boolean) => void;
 }
-interface GroupDraft { allowPersonalPiProviders?: boolean; accessGroup: string; routes: string[]; defaultRoute: string; reasoning: PiReasoningLevel }
+type PiDefaultSource = 'managed' | 'pi-native';
+interface GroupDraft { piDefaultSource?: PiDefaultSource; allowPersonalPiProviders?: boolean; accessGroup: string; routes: string[]; defaultRoute: string; reasoning: PiReasoningLevel }
 interface AssignmentDraft extends Omit<ReasoningRouteAssignment, 'activeProfile'> { activeProfile?: ProfileRevisionRef }
 interface RouteDraft {
   name: string;
@@ -68,9 +69,9 @@ function routeAssignment(value: unknown): AssignmentDraft {
 }
 function groupDrafts(value: unknown): GroupDraft[] {
   const source = Array.isArray(value) ? value : Object.entries(record(value)).map(([accessGroup, routing]) => ({ accessGroup, ...record(routing) }));
-  return source.map((item) => {
+  return source.map((item): GroupDraft => {
     const group = record(item);
-    return { ...(group.allowPersonalPiProviders === true && { allowPersonalPiProviders: true }), accessGroup: text(group.accessGroup), routes: stringList(group.routes), defaultRoute: text(group.defaultRoute), reasoning: isLevel(group.reasoning) ? group.reasoning : 'off' as PiReasoningLevel };
+    return { ...(group.piDefaultSource === 'pi-native' || group.piDefaultSource === 'managed' ? { piDefaultSource: group.piDefaultSource } : {}), ...(group.allowPersonalPiProviders === true && { allowPersonalPiProviders: true }), accessGroup: text(group.accessGroup), routes: stringList(group.routes), defaultRoute: text(group.defaultRoute), reasoning: isLevel(group.reasoning) ? group.reasoning : 'off' as PiReasoningLevel };
   }).filter((group) => group.accessGroup);
 }
 function completeVerification(result: ReasoningDiscoveryResult): boolean {
@@ -87,9 +88,10 @@ interface PolicyOption { name: string; label?: string; administratorConfirmed?: 
 interface PolicyFieldsProps {
   label: string;
   options: PolicyOption[];
-  policy: Pick<GroupDraft, 'routes' | 'defaultRoute' | 'reasoning' | 'allowPersonalPiProviders'>;
+  policy: Pick<GroupDraft, 'routes' | 'defaultRoute' | 'reasoning' | 'allowPersonalPiProviders' | 'piDefaultSource'>;
   levels: PiReasoningLevel[];
   onPersonalProviders: (enabled: boolean) => void;
+  onSource: (source: PiDefaultSource) => void;
   onToggle: (route: string) => void;
   onDefault: (route: string) => void;
   onReasoning: (level: PiReasoningLevel) => void;
@@ -99,6 +101,9 @@ const PolicyFields: Component<PolicyFieldsProps> = (props) => {
   return <div class="admin-policy-fields">
   <label class="admin-toggle-field"><input type="checkbox" aria-label={`${props.label} allow Pi built-in providers and models`} checked={props.policy.allowPersonalPiProviders === true} onChange={event => props.onPersonalProviders(event.currentTarget.checked)} /><span>Allow Pi built-in providers and models</span></label>
   <p class="admin-field-help">Users can sign in or provide their own API keys alongside these routes. Current session authority and network policy still apply.</p>
+  <label class="admin-form-field"><span>Pi default source</span><select aria-label={`${props.label} Pi default source`} value={props.policy.piDefaultSource ?? 'managed'} onChange={event => props.onSource(event.currentTarget.value as PiDefaultSource)}>
+    <option value="managed">Managed routes</option><option value="pi-native">Pi built-in providers</option>
+  </select><small>The native default inherits the execution owner's saved Pi provider and model. It requires separate personal-provider permission and operator approval; it does not grant access or replace managed route defaults.</small></label>
   <fieldset class="admin-fieldset" aria-label={`${props.label} allowed routes`}>
     <legend>Available routes</legend>
     <p class="admin-field-help">Live-verified and administrator-confirmed routes are available here.</p>
@@ -114,7 +119,7 @@ const PolicyFields: Component<PolicyFieldsProps> = (props) => {
     <label class="admin-form-field"><span>Default route</span><select aria-label={`${props.label} default route`} value={props.policy.defaultRoute} disabled={!props.policy.routes.length} onChange={(event) => props.onDefault(event.currentTarget.value)}>
       <Show when={!props.policy.routes.length}><option value="">Select an available route</option></Show>
       <For each={props.policy.routes}>{(route) => <option value={route} selected={route === props.policy.defaultRoute}>{optionLabel(route)}</option>}</For>
-    </select><small>The route Pi starts with for this policy.</small></label>
+    </select><small>The managed route default for this policy; unchanged by the Pi default source.</small></label>
     <label class="admin-form-field"><span>Default reasoning</span><select aria-label={`${props.label} default reasoning`} aria-describedby={`${encodeURIComponent(props.label)}-reasoning-help`} value={props.policy.reasoning} disabled={!props.policy.defaultRoute || (props.levels.length === 1 && props.levels[0] !== 'off')} onChange={(event) => props.onReasoning(event.currentTarget.value as PiReasoningLevel)}>
       <For each={props.levels.length ? props.levels : props.policy.defaultRoute ? LEVELS : []}>{(level) => <option value={level} selected={level === props.policy.reasoning}>{level === 'off' && props.levels.length === 0 ? 'Off (preference)' : levelLabel(level)}</option>}</For>
     </select><small id={`${encodeURIComponent(props.label)}-reasoning-help`}>{!props.policy.defaultRoute ? 'Choose an available route first.' : props.levels.length === 0 ? 'All seven preferences use Provider default: no explicit override is sent. Reasoning remains provider-controlled; Off is not guaranteed or verified.' : props.levels.length === 1 ? `This profile supports only ${levelLabel(props.levels[0])}.` : `Only options supported by this route's Pi compatibility profile are available.${props.levels.includes('off') ? '' : ' Off is not supported.'}`}</small></label>
@@ -193,7 +198,7 @@ const AiRoutingFields: Component<Props> = (props) => {
   const [groupToAdd, setGroupToAdd] = createSignal(unconfiguredGroups()[0] ?? '');
   const fallback = record(current.fallbackRouting ?? configuration.fallbackRouting);
   const [fallbackEnabled, setFallbackEnabled] = createSignal(fallback.enabled === true);
-  const [fallbackPolicy, setFallbackPolicy] = createSignal({ ...(fallback.allowPersonalPiProviders === true && { allowPersonalPiProviders: true }), routes: stringList(fallback.routes), defaultRoute: text(fallback.defaultRoute), reasoning: isLevel(fallback.reasoning) ? fallback.reasoning : 'off' as PiReasoningLevel });
+  const [fallbackPolicy, setFallbackPolicy] = createSignal({ piDefaultSource: (fallback.piDefaultSource === 'pi-native' || fallback.piDefaultSource === 'managed' ? fallback.piDefaultSource : undefined) as PiDefaultSource | undefined, ...(fallback.allowPersonalPiProviders === true && { allowPersonalPiProviders: true }), routes: stringList(fallback.routes), defaultRoute: text(fallback.defaultRoute), reasoning: isLevel(fallback.reasoning) ? fallback.reasoning : 'off' as PiReasoningLevel });
   const [customRevisions, setCustomRevisions] = createSignal<Array<Record<string, unknown>>>(Array.isArray(configuration.customProfileRevisions) ? configuration.customProfileRevisions.map(record) : []);
   const [routeChecks, setRouteChecks] = createSignal<Record<string, string | null>>(Object.fromEntries(Object.entries(record(current.routeChecks)).filter((entry): entry is [string, string | null] => typeof entry[1] === 'string' || entry[1] === null)));
   const [profileEditorRoute, setProfileEditorRoute] = createSignal<string>();
@@ -317,11 +322,13 @@ const AiRoutingFields: Component<Props> = (props) => {
     && (Boolean(findProfile(target.profileRef)) || preservesDisabledNativeTarget(target, initialNativeDrafts.find((prior) => prior.id === target.id))));
   const verifiedRouteConfigurationReady = () => eligibleRoutes().some((route) => JSON.stringify(routeDraftEntry(route)) !== initialRouteDraftKeys.get(route.name))
     && (!nativeDirty() || nativeConfigurationReady());
+  const personalPolicy = (policy: Pick<GroupDraft, 'allowPersonalPiProviders' | 'piDefaultSource'>) => policy.allowPersonalPiProviders === true || policy.piDefaultSource === 'pi-native';
+  const fallbackReady = () => normalizedFallback().routes.length > 0 || personalPolicy(normalizedFallback());
   const canSave = () => connectionReady() && !policyInventoryPending() && !checksBusy()
-    && (!fallbackEnabled() || normalizedFallback().routes.length > 0)
-    && (activeGroups().length > 0 || normalizedFallback().routes.length > 0 || gatewayDraft() !== undefined || nativeConfigurationReady()
+    && (!fallbackEnabled() || fallbackReady())
+    && (activeGroups().length > 0 || groups().some(personalPolicy) || fallbackEnabled() && fallbackReady() || normalizedFallback().routes.length > 0 || gatewayDraft() !== undefined || nativeConfigurationReady()
       || verifiedRouteConfigurationReady());
-  const saveHelp = () => !connectionReady() ? 'Check the AI Gateway connection before saving.' : policyInventoryPending() ? 'Wait for selected route models to finish loading.' : checksBusy() ? 'Wait for the current profile check to finish.' : fallbackEnabled() && !normalizedFallback().routes.length ? 'Choose an available route for fallback access, or turn fallback off.' : '';
+  const saveHelp = () => !connectionReady() ? 'Check the AI Gateway connection before saving.' : policyInventoryPending() ? 'Wait for selected route models to finish loading.' : checksBusy() ? 'Wait for the current profile check to finish.' : fallbackEnabled() && !fallbackReady() ? 'Choose an available route or Pi built-in providers for fallback access, or turn fallback off.' : '';
   createEffect(() => props.onReadyChange?.(canSave()));
 
   const clearRouteVerification = (name: string) => {
@@ -377,7 +384,7 @@ const AiRoutingFields: Component<Props> = (props) => {
     const pruneFallback = (policy: FallbackRouting): FallbackRouting => {
       if (!policy.enabled) return policy;
       const next = prunePolicy(policy);
-      return policy.routes.length > 0 && next.routes.length === 0 ? { enabled: false } : next;
+      return policy.routes.length > 0 && next.routes.length === 0 && !personalPolicy(next) ? { enabled: false } : next;
     };
     batch(() => {
       for (const name of removedRoutes) { removedSavedRoutes.add(name); initialRouteDraftKeys.delete(name); }
@@ -609,7 +616,7 @@ const AiRoutingFields: Component<Props> = (props) => {
   };
   const copyGroupToAll = () => {
     const source = groups().find((group) => group.accessGroup === applyGroupSource());
-    if (source) { const clean = normalizedPolicy(source); setGroups((items) => items.map((group) => personalPermission({ ...group, routes: [...clean.routes], defaultRoute: clean.defaultRoute, reasoning: clean.reasoning }, clean.allowPersonalPiProviders === true))); }
+    if (source) { const clean = normalizedPolicy(source); setGroups((items) => items.map((group) => personalPermission({ ...group, piDefaultSource: clean.piDefaultSource, routes: [...clean.routes], defaultRoute: clean.defaultRoute, reasoning: clean.reasoning }, clean.allowPersonalPiProviders === true))); }
     setApplyGroupsOpen(false);
   };
   const confirmRemove = (name: string) => {
@@ -820,14 +827,14 @@ const AiRoutingFields: Component<Props> = (props) => {
         <div class="admin-policy-heading"><button type="button" class="admin-policy-toggle" aria-label={`${group.accessGroup} policy`} aria-expanded={expandedGroup() === group.accessGroup} onClick={() => setExpandedGroup(expandedGroup() === group.accessGroup ? undefined : group.accessGroup)}><strong>{group.accessGroup}</strong><span>{normalizedPolicy(group).routes.length} available routes</span></button><button type="button" class="admin-link-button admin-danger-link" aria-label={`Remove ${group.accessGroup} policy`} onClick={() => setGroups((items) => items.filter((item) => item.accessGroup !== group.accessGroup))}>Remove policy</button></div>
         <div hidden={expandedGroup() !== group.accessGroup}>
           <Show when={group.routes.some((name) => !eligibleNames().includes(name))}><p class="admin-route-scope-warning">Unconfirmed or unavailable routes are inactive and will not be included when you Save.</p></Show>
-          <PolicyFields onPersonalProviders={enabled => setGroups(items => items.map(item => item.accessGroup === group.accessGroup ? personalPermission(item, enabled) : item))} label={group.accessGroup} options={eligiblePolicyOptions()} policy={normalizedPolicy(group)} levels={supportedLevels(normalizedPolicy(group).defaultRoute)} onToggle={(name) => setGroups((items) => items.map((item) => item.accessGroup === group.accessGroup ? togglePolicyRoute(item, name) : item))} onDefault={(name) => setGroups((items) => items.map((item) => item.accessGroup === group.accessGroup ? { ...normalizedPolicy(item), defaultRoute: name, reasoning: preferredLevel(name) } : item))} onReasoning={(level) => setGroups((items) => items.map((item) => item.accessGroup === group.accessGroup ? { ...normalizedPolicy(item), reasoning: level } : item))} />
+          <PolicyFields onSource={source => setGroups(items => items.map(item => item.accessGroup === group.accessGroup ? { ...item, piDefaultSource: source } : item))} onPersonalProviders={enabled => setGroups(items => items.map(item => item.accessGroup === group.accessGroup ? personalPermission(item, enabled) : item))} label={group.accessGroup} options={eligiblePolicyOptions()} policy={normalizedPolicy(group)} levels={supportedLevels(normalizedPolicy(group).defaultRoute)} onToggle={(name) => setGroups((items) => items.map((item) => item.accessGroup === group.accessGroup ? togglePolicyRoute(item, name) : item))} onDefault={(name) => setGroups((items) => items.map((item) => item.accessGroup === group.accessGroup ? { ...normalizedPolicy(item), defaultRoute: name, reasoning: preferredLevel(name) } : item))} onReasoning={(level) => setGroups((items) => items.map((item) => item.accessGroup === group.accessGroup ? { ...normalizedPolicy(item), reasoning: level } : item))} />
         </div>
       </section>}</For>
       <Show when={groups().length > 1}><div class="admin-policy-copy"><label class="admin-form-field"><span>Copy from group</span><select aria-label="Policy source" value={applyGroupSource()} onChange={(event) => setApplyGroupSource(event.currentTarget.value)}><For each={groups()}>{(group) => <option value={group.accessGroup}>{group.accessGroup}</option>}</For></select></label><button type="button" class="admin-secondary-button" onClick={() => setApplyGroupsOpen(true)}>Apply to all groups</button></div></Show>
       <Show when={applyGroupsOpen()}><div class="admin-confirmation" role="alert"><strong>Copy one group policy</strong><p>{applyGroupSource()} will be copied to {groups().map((group) => group.accessGroup).join(', ')}.</p><button type="button" class="admin-secondary-button" onClick={() => setApplyGroupsOpen(false)}>Cancel</button><button type="button" class="admin-primary-button" onClick={copyGroupToAll}>Confirm group changes</button></div></Show>
       <section class="admin-fallback-policy" aria-labelledby="fallback-heading"><h3 id="fallback-heading">Users without a group policy</h3><p>Fallback access is for users without a matching configured group, including manually added users. When disabled, those users get no routes.</p>
         <label class="admin-toggle-field"><input type="checkbox" aria-label="Enable fallback access" checked={fallbackEnabled()} onChange={(event) => setFallbackEnabled(event.currentTarget.checked)} /><span>Enable fallback access</span></label>
-        <Show when={fallbackEnabled()} fallback={<p class="admin-status-text">No fallback access</p>}><PolicyFields onPersonalProviders={enabled => setFallbackPolicy(policy => personalPermission(policy, enabled))} label="Fallback" options={eligiblePolicyOptions()} policy={normalizedFallback()} levels={supportedLevels(normalizedFallback().defaultRoute)} onToggle={(name) => setFallbackPolicy((policy) => togglePolicyRoute(policy, name))} onDefault={(name) => setFallbackPolicy((policy) => ({ ...normalizedPolicy(policy), defaultRoute: name, reasoning: preferredLevel(name) }))} onReasoning={(level) => setFallbackPolicy((policy) => ({ ...normalizedPolicy(policy), reasoning: level }))} /></Show>
+        <Show when={fallbackEnabled()} fallback={<p class="admin-status-text">No fallback access</p>}><PolicyFields onSource={source => setFallbackPolicy(policy => ({ ...policy, piDefaultSource: source }))} onPersonalProviders={enabled => setFallbackPolicy(policy => personalPermission(policy, enabled))} label="Fallback" options={eligiblePolicyOptions()} policy={normalizedFallback()} levels={supportedLevels(normalizedFallback().defaultRoute)} onToggle={(name) => setFallbackPolicy((policy) => togglePolicyRoute(policy, name))} onDefault={(name) => setFallbackPolicy((policy) => ({ ...normalizedPolicy(policy), defaultRoute: name, reasoning: preferredLevel(name) }))} onReasoning={(level) => setFallbackPolicy((policy) => ({ ...normalizedPolicy(policy), reasoning: level }))} /></Show>
       </section>
     </section>
     <Show when={pendingProfileName()}><div class="admin-unsaved-banner" role="status"><strong>{pendingProfileName()} is a draft</strong><span>Verify or confirm it, assign a group, then confirm Save to keep the profile and assignment.</span></div></Show>

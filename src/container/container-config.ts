@@ -10,6 +10,7 @@
 import type { Env } from '../types';
 import { toErrorMessage } from '../lib/error-types';
 import { createLogger } from '../lib/logger';
+import { getConfiguredMcpPortals } from '../lib/mcp-portals';
 import {
   buildEnvVars,
   applyBucketName,
@@ -69,6 +70,11 @@ export function updateEnvVars(host: ContainerHost): void {
   host.envVars = buildEnvVars(host, host.env);
 }
 
+/** Refresh non-secret instance configuration for the next managed Pi start. */
+export async function refreshMcpPortalConfiguration(host: ContainerHost): Promise<void> {
+  host._mcpPortals = host._operatorContainerProfile ? [] : await getConfiguredMcpPortals(host.env.KV);
+}
+
 /** Set the bucket name for this container (called by worker on first access). */
 export async function setBucketName(
   host: ContainerHost,
@@ -76,6 +82,7 @@ export async function setBucketName(
   r2Creds?: SetBucketNameCreds,
 ): Promise<void> {
   await applyBucketName(host, name, host.env, host.ctx.storage, r2Creds);
+  await refreshMcpPortalConfiguration(host);
   updateEnvVars(host);
 }
 

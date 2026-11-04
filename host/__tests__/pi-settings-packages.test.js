@@ -1,7 +1,7 @@
 // Runs the real embedded Node program from entrypoint.sh that assembles Pi's
 // ~/.pi/agent/settings.json `packages` array, against fixture settings files.
 // This is the "run the real thing" coverage (per tdd-discipline.md) for:
-//   - context-mode being enabled at container boot while /ctx off remains a session opt-out,
+//   - context-mode being disabled at container boot while /ctx on remains a session opt-in,
 //   - the managed extension packages, including Goal, Open TUI, and Evaluate, being present in
 //     `required` so they are
 //     available WITH AND WITHOUT context-mode — toggling /ctx never removes them,
@@ -76,7 +76,7 @@ const REQUIRED = Object.entries(piPackage.dependencies)
   .map(([name, version]) => `npm:${name}@${version}`);
 
 describe('Pi settings.json packages assembly (entrypoint.sh)', () => {
-  it('REQ-AGENT-076 AC1 / REQ-AGENT-133 AC1: fresh container assembles required packages with context-mode enabled', () => {
+  it('REQ-AGENT-076 AC1 / REQ-AGENT-133 AC1: fresh container assembles required packages with context-mode disabled', () => {
     const settings = runAssembly('{}');
     const sources = settings.packages.map(sourceOf);
     assert.ok(REQUIRED.length > 0, 'the derived required set must not be empty');
@@ -84,15 +84,15 @@ describe('Pi settings.json packages assembly (entrypoint.sh)', () => {
       assert.ok(sources.includes(spec), `assembled packages must include ${spec}`);
     }
     assert.deepEqual(settings.packages.filter((entry) => /^npm:context-mode(?:@|$)/.test(sourceOf(entry))),
-      [{ source: 'npm:context-mode@1.0.169', extensions: [] }]);
+      [{ source: 'npm:context-mode@1.0.169', extensions: [], skills: [] }]);
   });
 
-  it('REQ-AGENT-076 AC1/AC2: next container boot restores the enabled default after /ctx off while preserving managed and unrelated settings', () => {
+  it('REQ-AGENT-076 AC1/AC2: next container boot restores the disabled default after /ctx on while preserving managed and unrelated settings', () => {
     const initial = JSON.stringify({
       theme: 'user-theme', defaultProvider: 'user-provider', defaultModel: 'user-model',
       customPreference: { keep: true },
       packages: [
-        { source: 'npm:context-mode@1.0.169', extensions: [], skills: [] },
+        { source: 'npm:context-mode@1.0.169', extensions: [] },
         'npm:pi-goal-list-loop-audit@0.34.16',
         'npm:pi-caveman@1.0.8',
         'npm:some-user-package@1.0.0', // an unrelated package the user added
@@ -101,7 +101,7 @@ describe('Pi settings.json packages assembly (entrypoint.sh)', () => {
     const settings = runAssembly(initial);
     const sources = settings.packages.map(sourceOf);
     const cm = settings.packages.find((e) => sourceOf(e) === 'npm:context-mode@1.0.169');
-    assert.deepEqual(cm, { source: 'npm:context-mode@1.0.169', extensions: [] });
+    assert.deepEqual(cm, { source: 'npm:context-mode@1.0.169', extensions: [], skills: [] });
     for (const key of ['theme', 'defaultProvider', 'defaultModel', 'customPreference']) {
       assert.deepEqual(settings[key], JSON.parse(initial)[key]);
     }
@@ -154,19 +154,19 @@ describe('Pi settings.json packages assembly (entrypoint.sh)', () => {
 // Its provider-neutral configuration is exercised against real settings files in
 // src/__tests__/lib/pi-smart-compact-config.test.ts.
 describe('REQ-AGENT-222 AC1: managed Smart Compact package assembly', () => {
-  it('REQ-AGENT-222 AC1: fresh boot installs exactly npm:pi-smart-compact@10.6.2', () => {
+  it('REQ-AGENT-222 AC1: fresh boot installs exactly npm:pi-smart-compact@10.7.2', () => {
     const settings = runAssembly('{}');
     assert.deepEqual(settings.packages.filter(entry => /^npm:pi-smart-compact(?:@|$)/.test(sourceOf(entry))),
-      ['npm:pi-smart-compact@10.6.2']);
-    assert.equal(piPackage.dependencies['pi-smart-compact'], '10.6.2', 'the baked package matches the startup pin');
+      ['npm:pi-smart-compact@10.7.2']);
+    assert.equal(piPackage.dependencies['pi-smart-compact'], '10.7.2', 'the baked package matches the startup pin');
   });
 
   for (const stale of ['npm:pi-smart-compact', 'npm:pi-smart-compact@9.0.0',
-    { source: 'npm:pi-smart-compact@10.6.2', extensions: [], skills: [] }]) {
+    { source: 'npm:pi-smart-compact@10.7.2', extensions: [], skills: [] }]) {
     it(`REQ-AGENT-222 AC1: restored ${JSON.stringify(stale)} converges once without changing user settings or similarly named packages`, () => {
       const user = { source: 'npm:user-extension@1.0.0', extensions: ['keep.ts'], userField: true };
       const initial = {
-        packages: [stale, 'npm:pi-smart-compact@10.6.2', 'npm:pi-smart-compact@8.0.0',
+        packages: [stale, 'npm:pi-smart-compact@10.7.2', 'npm:pi-smart-compact@8.0.0',
           'npm:pi-smart-compact-extra@1.0.0', user],
         theme: 'user-theme', defaultProvider: 'user-provider', defaultModel: 'user-model',
         auth: { 'user-provider': { type: 'oauth', access: 'fixture-only' } },
@@ -176,7 +176,7 @@ describe('REQ-AGENT-222 AC1: managed Smart Compact package assembly', () => {
       const first = runAssembly(JSON.stringify(initial));
       const second = runAssembly(JSON.stringify(first));
       assert.deepEqual(first.packages.filter(entry => /^npm:pi-smart-compact(?:@|$)/.test(sourceOf(entry))),
-        ['npm:pi-smart-compact@10.6.2']);
+        ['npm:pi-smart-compact@10.7.2']);
       assert.deepEqual(second, first, 'repeat startup neither duplicates the package nor changes settings');
       assert.deepEqual(first.packages.find(entry => sourceOf(entry) === user.source), user);
       assert.ok(first.packages.includes('npm:pi-smart-compact-extra@1.0.0'));
@@ -199,7 +199,7 @@ describe('REQ-AGENT-222 AC1: restored local Smart Compact registration migration
           : './packages/pi-smart-compact-10.6.2';
         original = {
           packages: [shape.startsWith('filtered') ? { source, extensions: ['dist/index.js'] } : source,
-            'npm:pi-smart-compact@10.6.2', 'npm:pi-smart-compact-extra@1.0.0',
+            'npm:pi-smart-compact@10.7.2', 'npm:pi-smart-compact-extra@1.0.0',
             './custom/pi-smart-compact-10.6.2', './packages/pi-smart-compact-10.6.2-extra'],
           smartCompact: { mode: 'fast', autoTrigger: false },
           semanticCompact: { futureOption: false }, theme: 'keep-theme',
@@ -216,7 +216,7 @@ describe('REQ-AGENT-222 AC1: restored local Smart Compact registration migration
     const sources = settings.packages.map(sourceOf);
     assert.equal(sources.includes(sourceOf(original.packages[0])), false, 'the duplicate local registration is removed');
     assert.deepEqual(settings.packages.filter(entry => /^npm:pi-smart-compact(?:@|$)/.test(sourceOf(entry))),
-      ['npm:pi-smart-compact@10.6.2']);
+      ['npm:pi-smart-compact@10.7.2']);
     for (const source of original.packages.slice(2)) assert.ok(sources.includes(source), source);
     for (const spec of REQUIRED) assert.ok(sources.includes(spec), spec);
     for (const key of ['smartCompact', 'semanticCompact', 'theme', 'customPreference']) {
@@ -239,7 +239,7 @@ describe('REQ-AGENT-056 / REQ-AGENT-209: Open TUI adoption and managed Usage ret
   });
 
   for (const stale of ['npm:pi-open-tui', 'npm:pi-open-tui@0.2.0',
-    { source: 'npm:pi-open-tui@0.3.11', extensions: ['extensions/open-tui/index.ts'], skills: [] }]) {
+    { source: 'npm:pi-open-tui@0.3.12', extensions: ['extensions/open-tui/index.ts'], skills: [] }]) {
     it(`REQ-AGENT-209 AC1/AC2 / REQ-AGENT-056: restored ${JSON.stringify(stale)} converges without deleting similarly named user packages`, () => {
       const user = { source: 'npm:user-extension@1.0.0', extensions: ['keep.ts'], userField: true };
       const initial = {
@@ -263,8 +263,76 @@ describe('REQ-AGENT-056 / REQ-AGENT-209: Open TUI adoption and managed Usage ret
       for (const key of ['defaultModel', 'defaultThinkingLevel', 'customPreference']) assert.deepEqual(first[key], initial[key]);
       assert.deepEqual(first.extensions, ['user-extension.ts', '-builtin:mcp']);
       assert.deepEqual(first.packages.find(entry => /^npm:context-mode@/.test(sourceOf(entry))),
-        { source: 'npm:context-mode@1.0.169', extensions: [] });
+        { source: 'npm:context-mode@1.0.169', extensions: [], skills: [] });
       for (const required of REQUIRED) assert.ok(first.packages.some(entry => sourceOf(entry) === required), required);
     });
   }
+});
+
+// Exact package identity and settings preservation are the managed migration contract.
+describe('REQ-AGENT-224: managed Fast/Ultrafast startup', () => {
+  const expected = 'npm:@calesennett/pi-codex-fast@0.1.13';
+  it('REQ-AGENT-224: fresh startup registers the pinned extension once', () => {
+    const settings = runAssembly('{}', 2);
+    assert.deepEqual(settings.packages.filter(entry => sourceOf(entry).startsWith('npm:@calesennett/pi-codex-fast@')), [expected]);
+    assert.equal(settings['pi-codex-fast'], undefined, 'startup does not enable a mode for the owner');
+  });
+
+  for (const shape of ['relative', 'absolute', 'filtered-relative', 'filtered-absolute']) {
+    it(`REQ-AGENT-224: recovery registration converges without changing user state (${shape})`, () => {
+      let original;
+      let recoveryFile;
+      const settings = runAssembly(agentDir => {
+        const recovery = join(agentDir, 'packages/pi-codex-fast-0.1.13');
+        mkdirSync(recovery, { recursive: true });
+        recoveryFile = join(recovery, 'owner-note.txt');
+        writeFileSync(recoveryFile, 'preserve recovery files');
+        const source = shape.includes('absolute') ? recovery : './packages/pi-codex-fast-0.1.13';
+        original = {
+          packages: [shape.startsWith('filtered') ? { source, extensions: [] } : source,
+            'npm:@calesennett/pi-codex-fast@0.1.12', expected,
+            './custom/pi-codex-fast-0.1.13', './packages/pi-codex-fast-0.1.13-extra'],
+          'pi-codex-fast': { mode: 'ultrafast' },
+          defaultProvider: 'owner-provider', defaultModel: 'owner-model',
+          auth: { owner: { type: 'oauth', access: 'fixture-only' } },
+          customPreference: { keep: true }, extensions: ['owner-extension.ts'],
+        };
+        return JSON.stringify(original);
+      }, 2);
+      try {
+        assert.deepEqual(settings.packages.filter(entry => sourceOf(entry).startsWith('npm:@calesennett/pi-codex-fast@')), [expected]);
+        assert.ok(!settings.packages.some(entry => /^(?:\.\/)?packages\/pi-codex-fast-0\.1\.13$/.test(sourceOf(entry))));
+        assert.ok(!settings.packages.some(entry => sourceOf(entry) === recoveryFile.replace('/owner-note.txt', '')));
+        for (const path of ['./custom/pi-codex-fast-0.1.13', './packages/pi-codex-fast-0.1.13-extra']) assert.ok(settings.packages.includes(path));
+        for (const key of ['pi-codex-fast', 'defaultProvider', 'defaultModel', 'auth', 'customPreference']) assert.deepEqual(settings[key], original[key]);
+        assert.deepEqual(settings.extensions, ['owner-extension.ts', '-builtin:mcp']);
+        assert.equal(readFileSync(recoveryFile, 'utf8'), 'preserve recovery files');
+      } finally { rmSync(dirname(dirname(dirname(recoveryFile))), { recursive: true, force: true }); }
+    });
+  }
+});
+
+
+it('REQ-AGENT-069 / REQ-AGENT-217: restored managed MCP registrations converge to one replacement owner', () => {
+  const custom = { source: 'npm:owner-mcp-tools@1.0.0', extensions: ['keep.ts'], ownerSetting: true };
+  const initial = {
+    packages: ['npm:pi-mcp-adapter', 'npm:pi-mcp-adapter@5.3.1',
+      { source: 'npm:pi-mcp-adapter@5.2.0', extensions: ['index.ts'], skills: [] },
+      'npm:pi-mcp-extension@1.0.0', { source: 'npm:pi-mcp-extension@1.12.1', extensions: [] },
+      'npm:pi-mcp-adapter-extra@1.0.0', './custom/pi-mcp-adapter', custom],
+    extensions: ['builtin:mcp', '+builtin:mcp', '-builtin:mcp', 'owner-mcp-extension.ts'],
+    auth: { provider: 'opaque-restored-value' }, customPreference: { keep: true },
+  };
+  const first = runAssembly(JSON.stringify(initial));
+  const second = runAssembly(JSON.stringify(first));
+  assert.deepEqual(second, first, 'restored package ownership remains idempotent');
+  assert.deepEqual(first.packages.filter(entry => /^npm:pi-mcp-extension(?:@|$)/.test(sourceOf(entry))),
+    [`npm:pi-mcp-extension@${piPackage.dependencies['pi-mcp-extension']}`]);
+  assert.ok(!first.packages.some(entry => /^npm:pi-mcp-adapter(?:@|$)/.test(sourceOf(entry))));
+  assert.deepEqual(first.extensions, ['owner-mcp-extension.ts', '-builtin:mcp']);
+  assert.ok(first.packages.includes('npm:pi-mcp-adapter-extra@1.0.0'));
+  assert.ok(first.packages.includes('./custom/pi-mcp-adapter'));
+  assert.deepEqual(first.packages.find(entry => sourceOf(entry) === custom.source), custom);
+  assert.deepEqual(first.auth, initial.auth);
+  assert.deepEqual(first.customPreference, initial.customPreference);
 });
