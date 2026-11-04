@@ -13,6 +13,7 @@ export type ToolActivationPi = {
 type SessionEntry = { type?: string; customType?: string; data?: unknown };
 type SessionContext = {
   sessionManager?: {
+    getHeader?(): { parentSession?: unknown } | null | undefined;
     getBranch?(): SessionEntry[];
     getEntries?(): SessionEntry[];
   };
@@ -172,6 +173,11 @@ export function registerInitialToolFilter(
     // Inline Chat deliberately narrows the provider to one host-owned result tool.
     // The final exposure filter runs later and must not replace that exclusive mode.
     if (isExclusiveActiveTool(activeBeforeFilter, INLINE_EDIT_RESULT_TOOL)) return;
+    const parentSession = ctx.sessionManager?.getHeader?.()?.parentSession;
+    // The native child allowlist already admitted this exclusive scoped tool.
+    // Preserve it and existing parent channels; never activate an absent tool.
+    if (typeof parentSession === "string" && parentSession.length > 0 && activeBeforeFilter.has("transcript_trim")
+      && [...activeBeforeFilter].every(name => ["transcript_trim", "ask_parent", "notify_parent"].includes(name))) return;
     if (!applyOwnedTools(ctx)) pi.setActiveTools(initialActiveTools(pi));
   });
 }
