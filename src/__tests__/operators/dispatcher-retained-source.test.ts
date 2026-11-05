@@ -12,6 +12,41 @@ const request = (receipt: Receipt, patch: Record<string, unknown> = {}) => gener
 });
 
 describe('REQ-OPERATOR-097: cached-only source receipt wire', () => {
+  it.each([
+    { name: 'uppercase host and dot segments', originalUrl: 'https://API.GITHUB.COM/repos/another/../another/service', sourceUrlChars: 200 },
+    { name: 'implicit root slash', originalUrl: 'https://api.github.com', sourceUrlChars: 200 },
+    { name: 'above-default admitted URL', originalUrl: `${url}?q=${'x'.repeat(17000)}`, sourceUrlChars: 20000 },
+    { name: 'canonical encoding expands beyond raw input capacity', originalUrl: `${url}?q=${'é'.repeat(8)}`, sourceUrlChars: 80 },
+  ])('recovers $name without changing the original URL proof or envelope digest', ({ originalUrl, sourceUrlChars }) => fixture(async f => {
+    await start(f);
+    const originalResponse = await f.capability.fetch(genericWire('source', { operationId, url: originalUrl }));
+    expect(originalResponse.status).toBe(200);
+    const original = await originalResponse.json() as { url: string };
+    expect(original.url).toBe(new URL(originalUrl).href);
+    const receipt = await (await f.capability.fetch(genericWire('receipt', { operationId }))).json() as Receipt;
+    expect(receipt.url).toBe(originalUrl);
+    const effects = [...f.sent];
+    const recovered = await f.capability.fetch(request(receipt, { url: originalUrl }));
+    expect(recovered.status).toBe(200);
+    const wire = await recovered.json() as Receipt & { sourceResponse: unknown };
+    expect(wire).toEqual({ ...receipt, sourceResponse: original });
+    expect(await digest(JSON.stringify(wire.sourceResponse))).toBe(receipt.responseDigest);
+    expect(f.sent).toEqual(effects);
+    expect(await (await f.capability.fetch(genericWire('receipt', { operationId }))).json()).toEqual(receipt);
+  }, { repositoryOnly: true, capacityPolicy: { sourceUrlChars } }));
+
+  it('rejects proof URLs beyond the admitted capacity before reading archived bytes', () => fixture(async f => {
+    await start(f);
+    expect((await f.capability.fetch(source())).status).toBe(200);
+    const receipt = await (await f.capability.fetch(genericWire('receipt', { operationId }))).json() as Receipt;
+    const effects = [...f.sent];
+    const denied = await f.capability.fetch(request(receipt, { url: `${url}x` }));
+    expect(denied.status).toBe(403);
+    expect(await denied.json()).toMatchObject({ code: 'OPERATOR_CAPABILITY_DENIED', reason: 'request-invalid' });
+    expect(f.sent).toEqual(effects);
+    expect(await (await f.capability.fetch(genericWire('receipt', { operationId }))).json()).toEqual(receipt);
+  }, { repositoryOnly: true, capacityPolicy: { sourceUrlChars: url.length } }));
+
   it('recovers the original envelope after reconstruction without new source effects or budget consumption', () => fixture(async f => {
     await start(f);
     const response = await f.capability.fetch(source());
