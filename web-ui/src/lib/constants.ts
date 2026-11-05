@@ -135,6 +135,7 @@ export const ACTIONABLE_URL_PATTERNS: RegExp[] = [
   /accounts\.google\.com\/o\/oauth2/i,
   /github\.com\/login\/device/i,
   /console\.anthropic\.com/i,
+  /^https?:\/\/auth\.openai\.com(?::[0-9]+)?(?:[/?#]|$)/i,
 ];
 
 // =============================================================================

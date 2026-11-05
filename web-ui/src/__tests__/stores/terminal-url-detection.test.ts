@@ -36,6 +36,36 @@ describe('terminal-url-detection / REQ-AGENT-013 / REQ-TERM-015 (browser shim fo
     vi.useRealTimers();
   });
 
+  it.each([
+    { url: 'https://auth.openai.com', auth: true },
+    { url: 'https://auth.openai.com/choose-an-account', auth: true },
+    { url: 'https://auth.openai.com/any-login-step', auth: true },
+    { url: 'https://auth.openai.com/any-login-step?state=(one)', auth: true },
+    { url: 'https://auth.openai.com/any-login-step?state=%28one%29#continue', auth: true },
+    { url: 'https://AUTH.OPENAI.COM/another-step', auth: true },
+    { url: 'https://auth.openai.com:443/another-step', auth: true },
+    { url: 'https://console.anthropic.com/login', auth: true },
+    { url: 'https://claude.ai/oauth/authorize?state=original', auth: true },
+    { url: 'https://github.com/login/device', auth: true },
+    { url: 'https://auth.openai.com.evil.invalid/sign-in', auth: false },
+    { url: 'https://evil-auth.openai.com/sign-in', auth: false },
+    { url: 'https://evil.invalid/?next=https://auth.openai.com/sign-in', auth: false },
+    { url: 'https://auth.openai.com:password@evil.invalid/sign-in', auth: false },
+    { url: 'https://example.com', auth: false },
+  ])('REQ-TERM-042 AC6/AC7: classifies parenthesized $url without changing the destination', ({ url, auth }) => {
+    const mockTerminal = { cols: 160, rows: 24, buffer: { active: {
+      length: 1, viewportY: 0,
+      getLine: (index: number) => index === 0 ? { isWrapped: false, translateToString: () => `(${url})` } : undefined,
+    } } } as unknown as Terminal;
+    let authUrl: string | null = null;
+    let normalUrl: string | null = null;
+    registerUrlDetectionDeps(() => mockTerminal, value => { authUrl = value; }, value => { normalUrl = value; });
+    expect(getLastUrlFromBuffer(mockTerminal)).toBe(url);
+    startUrlDetection('test-session', '1');
+    vi.advanceTimersByTime(60);
+    expect({ authUrl, normalUrl }).toEqual(auth ? { authUrl: url, normalUrl: null } : { authUrl: null, normalUrl: url });
+  });
+
   it('startUrlDetection detects auth URLs via periodic buffer scan', () => {
     // Create a mock terminal with a buffer containing an auth URL
     const mockBuffer = {

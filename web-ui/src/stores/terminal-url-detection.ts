@@ -1,6 +1,7 @@
 import type { Terminal } from '@xterm/xterm';
 import { ACTIONABLE_URL_PATTERNS, URL_CHECK_INTERVAL_MS, MAX_URL_CONTINUATION_ROWS } from '../lib/constants';
 import { getBufferActive } from '../lib/xterm-internals';
+import { trimTerminalUrlParentheses } from '../lib/terminal-url-delimiters';
 
 /**
  * URL Detection module — extracted from terminal.ts (L26).
@@ -130,7 +131,7 @@ export function getLastUrlFromBuffer(term: Terminal): string | null {
 
     const matches = fullText.match(urlRegex);
     if (matches) {
-      lastUrl = matches[matches.length - 1];
+      lastUrl = trimTerminalUrlParentheses(matches[matches.length - 1]);
     }
     i = j;
   }
