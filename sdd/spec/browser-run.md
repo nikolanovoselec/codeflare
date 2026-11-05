@@ -370,11 +370,10 @@ Task #114 implementation candidate follows [RED CI40255590866](https://github.co
 
 1. Interactive connections lazily acquire one owned browser and reuse its exact ID across concurrent connections and same-generation reconstruction. <!-- @impl: src/container/container-browser.ts::ownedBrowser --> <!-- @test: src/__tests__/container/browser-continuity.test.ts (REQ-BROWSER-001/006/008/009: lazy managed connections acquire once and reuse exact ID through required transport strict=%s) --> <!-- @test: src/__tests__/container/browser-continuity.test.ts (REQ-BROWSER-008: concurrent interactive connections share acquisition and same-generation reconstruction retains identity) -->
 2. References bind owner, session, generation and relevant authorization configuration; unrelated settings changes leave valid identity intact. <!-- @impl: src/container/container-browser.ts::ownedBrowser --> <!-- @test: src/__tests__/container/browser-continuity.test.ts (REQ-BROWSER-008: changed %s authority cannot use retained browser or acquire a replacement) --> <!-- @test: src/__tests__/container/browser-continuity.test.ts (REQ-BROWSER-008: unrelated settings saves do not invalidate identity) -->
-3. Acquisition and attachment revalidate authority after provider I/O; stale authority or a changed reference cannot be handed to the caller. <!-- @impl: src/container/container-browser.ts::ownedBrowser --> <!-- @impl: src/cloudflare-browser-interceptor.ts::CloudflareBrowserInterceptor --> <!-- @test: src/__tests__/container/browser-continuity.test.ts (REQ-BROWSER-008: acquisition racing %s cannot commit a usable ID) --> <!-- @test: src/__tests__/container/browser-continuity.test.ts (REQ-BROWSER-011: attachment racing %s refuses and closes the stale provider socket) -->
+3. Acquisition revalidates current authority after provider I/O before committing a usable provider reference. <!-- @impl: src/container/container-browser.ts::ownedBrowser --> <!-- @test: src/__tests__/container/browser-continuity.test.ts (REQ-BROWSER-008: acquisition racing %s cannot commit a usable ID) -->
 4. Uncertain acquisition never retries automatically, including after reconstruction. <!-- @impl: src/container/container-browser.ts::ownedBrowser --> <!-- @test: src/__tests__/container/browser-continuity.test.ts (REQ-BROWSER-008: %s acquisition outcome is never automatically retried, including reconstruction) -->
 5. Attachment failures retain the reference without asserting expiry; automatic reconnect does not replace browser state. <!-- @impl: src/cloudflare-browser-interceptor.ts::CloudflareBrowserInterceptor --> <!-- @test: src/__tests__/container/browser-continuity.test.ts (REQ-BROWSER-008: attachment failure retains reference without inventing expiry or a replacement) -->
 6. Only deliberate explicit creation replaces an owned reference; reconnect never implies that fresh creation or replay of uncertain browser mutations. <!-- @impl: src/cloudflare-browser-interceptor.ts::CloudflareBrowserInterceptor --> <!-- @test: src/__tests__/container/browser-continuity.test.ts (REQ-BROWSER-008: documented explicit POST creates a fresh owned reference; automatic reconnect never resets it) -->
-7. Managed foreign identifiers and enumeration cannot borrow administrator credentials; caller-owned credentials retain their independent lane. <!-- @impl: src/cloudflare-browser-interceptor.ts::CloudflareBrowserInterceptor --> <!-- @test: src/__tests__/container/browser-continuity.test.ts (REQ-BROWSER-008: managed foreign IDs/listing cannot borrow admin credentials; caller-owned exact-ID lane is unchanged) -->
 
 **Constraints:**
 
@@ -388,6 +387,33 @@ Task #114 implementation candidate follows [RED CI40255590866](https://github.co
 **Dependencies:** [REQ-BROWSER-008](#req-browser-008-browser-rendering-token-interception-never-in-the-container), [REQ-BROWSER-009](#req-browser-009-mcp-and-chrome-sdk-timeout-profile)
 
 **Verification:** Behavioral regressions cover reference reuse, authority changes, uncertainty and failure recovery. Exact-head CI and legitimate-owner hosted reconnect acceptance remain required.
+
+**Status:** Implemented
+
+---
+
+### REQ-BROWSER-012: Managed browser attachment authorization
+
+**Intent:** Hand a browser connection only to its currently authorized owner, without widening shared administrator credentials.
+
+**Applies To:** System
+
+**Acceptance Criteria:**
+
+1. Attachment revalidates authority and the exact reference after provider I/O; stale responses are refused and upgraded sockets closed before handoff. <!-- @impl: src/cloudflare-browser-interceptor.ts::CloudflareBrowserInterceptor --> <!-- @test: src/__tests__/container/browser-continuity.test.ts (REQ-BROWSER-011: attachment racing %s refuses and closes the stale provider socket) -->
+2. Managed foreign browser identifiers and account-wide enumeration cannot borrow administrator credentials. <!-- @impl: src/cloudflare-browser-interceptor.ts::CloudflareBrowserInterceptor --> <!-- @test: src/__tests__/container/browser-continuity.test.ts (REQ-BROWSER-008: managed foreign IDs/listing cannot borrow admin credentials; caller-owned exact-ID lane is unchanged) -->
+3. Caller-owned credentials retain their independent authorized transport lane. <!-- @impl: src/cloudflare-browser-interceptor.ts::CloudflareBrowserInterceptor --> <!-- @test: src/__tests__/container/browser-continuity.test.ts (REQ-BROWSER-008: managed foreign IDs/listing cannot borrow admin credentials; caller-owned exact-ID lane is unchanged) -->
+
+**Constraints:**
+
+- Reuse existing reference and authority checks; no new lease, identity, provider lookup or mutation replay.
+- Strict transport remains mandatory when enabled.
+
+**Priority:** P2
+
+**Dependencies:** [REQ-BROWSER-011](#req-browser-011-owner-bound-interactive-browser-continuity), [REQ-BROWSER-008](#req-browser-008-browser-rendering-token-interception-never-in-the-container)
+
+**Verification:** Delayed-attachment races and credential-lane regressions; exact-head CI and hosted acceptance remain separate.
 
 **Status:** Implemented
 

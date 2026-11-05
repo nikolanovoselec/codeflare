@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { loadEnterpriseRouteConfig } from '../../lib/access';
 import { parseFallbackRouting } from '../../lib/reasoning-configuration';
+import { resolvePersonalPiPolicy } from '../../lib/personal-pi-policy';
 import { SETUP_KEYS } from '../../lib/kv-keys';
 import { createMockKV } from '../helpers/mock-kv';
 import type { Env } from '../../types';
@@ -51,6 +52,27 @@ describe('REQ-ENTERPRISE-088: native Pi policy selection', () => {
 
 
 describe('REQ-ENTERPRISE-088: saved-profile default source', () => {
+  it('REQ-ENTERPRISE-088 AC5: omitted group and fallback sources resolve to managed', async () => {
+    const kv = createMockKV();
+    const policy = { routes: [], defaultRoute: '', reasoning: 'off', allowPersonalPiProviders: true };
+    kv._set(SETUP_KEYS.GROUP_ROUTING, { group: policy });
+    kv._set(SETUP_KEYS.REASONING_CONFIGURATION, { schemaVersion: 1, customProfileRevisions: [],
+      routeAssignments: {}, fallbackRouting: { enabled: true, ...policy } });
+    expect(await resolvePersonalPiPolicy(kv, ['group'])).toEqual({ piDefaultSource: 'managed', allowPersonalPiProviders: true });
+    expect(await resolvePersonalPiPolicy(kv, [])).toEqual({ piDefaultSource: 'managed', allowPersonalPiProviders: true });
+  });
+
+  it.each([false, undefined])('REQ-ENTERPRISE-088 AC6: a native default never grants permission when permission is %s', async permission => {
+    const kv = createMockKV();
+    const policy = { routes: [], defaultRoute: '', reasoning: 'off', piDefaultSource: 'pi-native',
+      ...(permission === undefined ? {} : { allowPersonalPiProviders: permission }) };
+    kv._set(SETUP_KEYS.GROUP_ROUTING, { group: policy });
+    kv._set(SETUP_KEYS.REASONING_CONFIGURATION, { schemaVersion: 1, customProfileRevisions: [],
+      routeAssignments: {}, fallbackRouting: { enabled: true, ...policy } });
+    expect(await resolvePersonalPiPolicy(kv, ['group'])).toEqual({ piDefaultSource: 'pi-native', allowPersonalPiProviders: false });
+    expect(await resolvePersonalPiPolicy(kv, [])).toEqual({ piDefaultSource: 'pi-native', allowPersonalPiProviders: false });
+  });
+
   it('preserves an explicit native default separately from personal-provider permission', () => {
     expect(parseFallbackRouting({ enabled: true, routes: [], defaultRoute: '', reasoning: 'off',
       allowPersonalPiProviders: true, piDefaultSource: 'pi-native' })).toMatchObject({
