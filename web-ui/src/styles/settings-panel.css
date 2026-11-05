@@ -660,122 +660,63 @@
   padding: var(--space-1) 0;
 }
 
-/* Full-width branded Connect button — like "Sign in with GitHub" */
-.provider-row-connect-btn {
-  width: 100%;
+/* Provider identity and status stay separate from the compact action. */
+.provider-row-summary {
   display: flex;
   align-items: center;
-  justify-content: center;
-  gap: 10px;
-  padding: 14px 24px;
-  min-height: 52px;
-  border: none;
-  border-radius: var(--radius-xl);
-  color: white;
-  text-decoration: none;
-  font-size: var(--text-base);
-  font-weight: var(--font-semibold);
-  cursor: pointer;
-  transition: filter var(--transition-fast);
-  letter-spacing: -0.01em;
-}
-
-.provider-row-connect-btn:hover {
-  filter: brightness(1.15);
-}
-
-.provider-row-connect-btn:active {
-  transform: scale(0.98);
-}
-
-.provider-row-connect-btn:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-  filter: none;
-}
-
-/* Connected state row */
-.provider-row-connected {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  padding: var(--space-2) 0;
-  min-height: 48px;
+  gap: var(--space-2);
+  padding: var(--space-3) 0;
 }
 
 .provider-row-icon {
-  flex-shrink: 0;
   display: flex;
   align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-tertiary);
+}
+
+.provider-row-info {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-1);
 }
 
 .provider-row-name {
-  flex: 1;
-  font-size: var(--text-base);
+  font-size: var(--text-sm);
   font-weight: var(--font-medium);
   color: var(--color-text-primary);
 }
 
+.provider-row-status,
 .provider-row-badge {
   font-size: var(--text-xs);
-  padding: 3px 10px;
-  border-radius: var(--radius-full);
-  background: var(--color-success-bg);
-  color: var(--color-success);
-  border: 1px solid rgb(var(--color-success-rgb) / 0.3);
-  font-weight: var(--font-medium);
-}
-
-.provider-row-disconnect {
-  background: none;
-  border: none;
   color: var(--color-text-muted);
-  font-size: var(--text-sm);
-  cursor: pointer;
-  padding: var(--space-1) var(--space-2);
-  border-radius: var(--radius-md);
-  transition: color var(--transition-fast);
 }
 
-.provider-row-disconnect:hover {
-  color: var(--color-error);
+.provider-row-badge {
+  color: var(--color-success);
 }
 
-.provider-row-disconnect:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
+/* Inline expand — existing credential flow below the identity row */
+.provider-row-expand > .provider-row-connect-btn {
+  align-self: flex-end;
+  max-width: 100%;
 }
 
-/* Inline expand — connect flow below the button */
 .provider-row-expand {
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
   padding: var(--space-2) 0;
   animation: fadeIn 150ms ease-out;
-}
-
-.provider-row-external-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  width: 100%;
-  padding: 12px 20px;
-  min-height: 48px;
-  border: none;
-  border-radius: var(--radius-xl);
-  color: white;
-  font-size: var(--text-sm);
-  font-weight: var(--font-semibold);
-  text-decoration: none;
-  cursor: pointer;
-  transition: filter var(--transition-fast);
-}
-
-.provider-row-external-btn:hover {
-  filter: brightness(1.15);
-  color: white;
 }
 
 .provider-row-input-group {
@@ -785,13 +726,15 @@
 
 .provider-row-token-input {
   flex: 1;
-  padding: 10px 14px;
-  min-height: 44px;
+  min-width: 0;
+  padding: 7px 12px;
+  min-height: 36px;
   background: var(--color-bg-surface);
   border: 1px solid var(--color-border-subtle);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-md);
   color: var(--color-text-primary);
   font-size: 16px;
+  line-height: 20px;
   transition: border-color var(--transition-fast);
 }
 
@@ -802,29 +745,6 @@
 
 .provider-row-token-input::placeholder {
   color: var(--color-text-dimmed);
-}
-
-.provider-row-save-btn {
-  padding: 10px 20px;
-  min-height: 44px;
-  background: var(--color-accent);
-  border: none;
-  border-radius: var(--radius-lg);
-  color: var(--color-accent-contrast);
-  font-size: var(--text-sm);
-  font-weight: var(--font-semibold);
-  cursor: pointer;
-  white-space: nowrap;
-  transition: background var(--transition-fast);
-}
-
-.provider-row-save-btn:hover:not(:disabled) {
-  background: var(--color-accent-hover);
-}
-
-.provider-row-save-btn:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
 }
 
 .provider-row-expand-footer {
@@ -849,17 +769,7 @@
 }
 
 .provider-row-cancel {
-  background: none;
-  border: none;
-  color: var(--color-text-muted);
-  font-size: var(--text-xs);
-  cursor: pointer;
-  padding: var(--space-1) var(--space-2);
   margin-left: auto;
-}
-
-.provider-row-cancel:hover {
-  color: var(--color-text-secondary);
 }
 
 .provider-row-hint {
@@ -937,7 +847,7 @@
   }
 }
 
-/* Full-width admin action buttons */
+/* Full-width admin navigation and maintenance rows */
 .settings-admin-actions {
   display: flex;
   flex-direction: column;
@@ -948,4 +858,162 @@
 
 .settings-admin-actions .button {
   width: 100%;
+}
+
+/* Settings actions only: shared Button / OAuth surfaces elsewhere are unchanged. */
+.settings-panel :is(button.settings-action, a.settings-action, button.button, button.oauth-connect-btn, button.oauth-connect-disconnect) {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  gap: var(--space-2);
+  min-height: 36px;
+  padding: 7px 12px;
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-tertiary);
+  color: var(--color-text-primary);
+  font-family: inherit;
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
+  line-height: 20px;
+  text-decoration: none;
+  white-space: normal;
+  cursor: pointer;
+  transition: background var(--transition-fast), border-color var(--transition-fast), color var(--transition-fast);
+}
+
+.settings-panel :is(.settings-action, .button, .oauth-connect-btn, .oauth-connect-disconnect):hover:not(:disabled) {
+  background: var(--color-bg-elevated);
+  border-color: var(--color-border-strong);
+}
+
+.settings-panel :is(.settings-action, .button, .oauth-connect-btn, .oauth-connect-disconnect):active:not(:disabled) {
+  background: var(--color-bg-muted);
+  transform: none;
+}
+
+.settings-panel :is(.settings-action, .button, .oauth-connect-btn, .oauth-connect-disconnect):focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+.settings-panel :is(.settings-action, .button, .oauth-connect-btn, .oauth-connect-disconnect):disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.settings-panel .settings-action.provider-row-save-btn {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+  color: var(--color-accent-contrast);
+}
+
+.settings-panel .settings-action.provider-row-save-btn:hover:not(:disabled) {
+  background: var(--color-accent-hover);
+  border-color: var(--color-accent-hover);
+}
+
+.settings-panel :is(button.settings-action--destructive, button.provider-row-disconnect, button.oauth-connect-disconnect) {
+  color: var(--color-error);
+}
+
+.settings-panel :is(.settings-action--destructive, .provider-row-disconnect, .oauth-connect-disconnect):hover:not(:disabled) {
+  border-color: var(--color-error);
+  background: var(--color-error-bg);
+  color: var(--color-error);
+}
+
+.settings-panel .settings-action.settings-admin-action {
+  width: 100%;
+  justify-content: flex-start;
+  text-align: left;
+}
+
+.settings-admin-action > svg {
+  flex-shrink: 0;
+  color: var(--color-text-secondary);
+}
+
+.settings-admin-action > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.settings-action-chevron {
+  margin-left: auto;
+}
+
+.settings-panel .settings-action.settings-close-button {
+  width: 36px;
+  height: 36px;
+  padding: 0;
+}
+
+/* Deploy cards keep their shared markup, scope selectors and OAuth handlers. */
+.settings-panel .oauth-connect-card {
+  margin-bottom: var(--space-3);
+  padding: var(--space-3);
+  border-radius: var(--radius-md);
+  background: transparent;
+}
+
+.settings-panel .oauth-connect-head {
+  flex-wrap: wrap;
+}
+
+.settings-panel .oauth-connect-icon {
+  width: 18px;
+  height: 18px;
+}
+
+.settings-panel .oauth-connect-name {
+  min-width: 0;
+  font-size: var(--text-sm);
+}
+
+.settings-panel .oauth-connect-badge {
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+.settings-panel .oauth-connect-btn {
+  margin-left: auto;
+}
+
+/* MCP alone borrows the Terminal Experience section title scale and alignment.
+   Its chevron is still the functional accordion affordance, not an action icon. */
+.settings-panel .accordion-header--section {
+  align-items: center;
+  padding: 0;
+}
+
+.accordion-header--section .accordion-chevron {
+  width: 16px;
+  height: 16px;
+}
+
+@media (max-width: 640px), (pointer: coarse) {
+  .settings-panel :is(button.settings-action, a.settings-action, button.button, button.oauth-connect-btn, button.oauth-connect-disconnect) {
+    min-height: 44px;
+  }
+
+  .settings-panel .settings-action.settings-close-button {
+    width: 44px;
+    height: 44px;
+  }
+
+  .provider-row-token-input {
+    min-height: 44px;
+  }
+
+  .provider-row-summary {
+    flex-wrap: wrap;
+  }
+
+  .provider-row-summary > .settings-action {
+    margin-left: auto;
+    max-width: 100%;
+  }
 }

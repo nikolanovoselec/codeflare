@@ -1,6 +1,6 @@
 // Implements REQ-AGENT-010
 import { Component, Show, For, createSignal, JSX } from 'solid-js';
-import { mdiAlertCircleOutline } from '@mdi/js';
+import { mdiAlertCircleOutline, mdiOpenInNew } from '@mdi/js';
 import Icon from '../Icon';
 import type { ScopeTier, TierConfig } from '../../lib/token-scopes';
 
@@ -72,41 +72,39 @@ const ProviderRow: Component<ProviderRowProps> = (props) => {
 
   return (
     <div class="provider-row" data-testid={props.testId}>
-      {/* Connected state */}
-      <Show when={props.connected}>
-        <div class="provider-row-connected">
-          <span class="provider-row-icon">
-            <ProviderIcon size={28} />
-          </span>
+      <div class="provider-row-summary">
+        <span class="provider-row-icon" style={{ color: props.brandColor }} aria-hidden="true">
+          <ProviderIcon size={18} />
+        </span>
+        <div class="provider-row-info">
           <span class="provider-row-name">{props.name}</span>
-          <span class="provider-row-badge" data-testid={props.testId ? `${props.testId}-badge` : undefined}>
-            Connected
-          </span>
+          <Show when={props.connected} fallback={<span class="provider-row-status">Not connected</span>}>
+            <span class="provider-row-badge" data-testid={props.testId ? `${props.testId}-badge` : undefined}>
+              Connected
+            </span>
+          </Show>
+        </div>
+        <Show when={props.connected}>
           <button
             type="button"
-            class="provider-row-disconnect"
+            class="settings-action provider-row-disconnect"
             onClick={() => props.onDisconnect()}
             disabled={props.disconnecting}
           >
             {props.disconnecting ? 'Disconnecting...' : 'Disconnect'}
           </button>
-        </div>
-        <Show when={props.message}>
-          <span class="provider-row-message">{props.message}</span>
         </Show>
-      </Show>
-
-      {/* Disconnected — collapsed: branded Connect button */}
-      <Show when={!props.connected && !expanded()}>
-        <button
-          type="button"
-          class="provider-row-connect-btn"
-          style={{ background: props.brandColor || 'var(--color-bg-tertiary)' }}
-          onClick={handleConnect}
-        >
-          <ProviderIcon size={24} fill="white" />
-          <span>Connect to {props.name}</span>
-        </button>
+        <Show when={!props.connected && !expanded()}>
+          <button type="button" class="settings-action provider-row-connect-btn" onClick={handleConnect}>
+            Connect to {props.name}
+            <Show when={props.externalUrl && !hasTiers() && !hasInstructions()}>
+              <Icon path={mdiOpenInNew} size={16} aria-hidden="true" />
+            </Show>
+          </button>
+        </Show>
+      </div>
+      <Show when={props.connected && props.message}>
+        <span class="provider-row-message">{props.message}</span>
       </Show>
 
       {/* Disconnected — expanded: inline connect flow */}
@@ -144,15 +142,14 @@ const ProviderRow: Component<ProviderRowProps> = (props) => {
                   {opts().tiers[selectedTier()].description}
                 </p>
                 <a
-                  class="provider-row-connect-btn"
-                  style={{ background: props.brandColor || 'var(--color-bg-tertiary)', "text-decoration": "none", "text-align": "center" }}
+                  class="settings-action provider-row-connect-btn"
                   href={resolvedUrl()}
                   target="_blank"
                   rel="noopener noreferrer"
                   data-testid={props.testId ? `${props.testId}-create-token` : undefined}
                 >
-                  <ProviderIcon size={20} fill="white" />
                   <span>Create Token on {props.name}</span>
+                  <Icon path={mdiOpenInNew} size={16} aria-hidden="true" />
                 </a>
               </>
             )}
@@ -163,15 +160,14 @@ const ProviderRow: Component<ProviderRowProps> = (props) => {
             <div class="provider-row-instructions">{props.instructions}</div>
             <Show when={props.externalUrl}>
               <a
-                class="provider-row-connect-btn"
-                style={{ background: props.brandColor || 'var(--color-bg-tertiary)', "text-decoration": "none", "text-align": "center" }}
+                class="settings-action provider-row-connect-btn"
                 href={props.externalUrl}
                 target="_blank"
                 rel="noopener noreferrer"
                 data-testid={props.testId ? `${props.testId}-open-provider` : undefined}
               >
-                <ProviderIcon size={20} fill="white" />
                 <span>Open {props.name}</span>
+                <Icon path={mdiOpenInNew} size={16} aria-hidden="true" />
               </a>
             </Show>
           </Show>
@@ -202,7 +198,7 @@ const ProviderRow: Component<ProviderRowProps> = (props) => {
             />
             <button
               type="button"
-              class="provider-row-save-btn"
+              class="settings-action provider-row-save-btn"
               disabled={props.saving || !tokenValue().trim()}
               onClick={handleSave}
               data-testid={props.testId ? `${props.testId}-save` : undefined}
@@ -238,7 +234,7 @@ const ProviderRow: Component<ProviderRowProps> = (props) => {
             </Show>
             <button
               type="button"
-              class="provider-row-cancel"
+              class="settings-action provider-row-cancel"
               onClick={() => setExpanded(false)}
             >
               Cancel

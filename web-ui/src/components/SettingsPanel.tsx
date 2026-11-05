@@ -70,7 +70,7 @@ const AccordionSection: Component<AccordionSectionProps> = (props) => {
       <h3 class="settings-group-heading">
         <button
           type="button"
-          class="accordion-header"
+          class={`accordion-header ${props.group === 'mcp' ? 'accordion-header--section' : ''}`}
           aria-expanded={props.isOpen}
           aria-controls={panelId()}
           id={headerId()}
@@ -78,10 +78,10 @@ const AccordionSection: Component<AccordionSectionProps> = (props) => {
           onClick={() => props.onToggle()}
         >
           <span class={`accordion-chevron ${props.isOpen ? 'accordion-chevron--open' : ''}`}>
-            <Icon path={mdiChevronDown} size={20} />
+            <Icon path={mdiChevronDown} size={props.group === 'mcp' ? 16 : 20} />
           </span>
           <span class="accordion-header-text">
-            <span class="settings-group-title type-group-header">{props.title}</span>
+            <span class={`settings-group-title ${props.group === 'mcp' ? 'type-section-header' : 'type-group-header'}`}>{props.title}</span>
             <Show when={!props.isOpen}>
               <span class="accordion-subtitle type-hint" data-testid={`accordion-subtitle-${props.group}`}>
                 {props.subtitle}
@@ -349,7 +349,7 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
           <h2 class="settings-title">Settings</h2>
           <button
             type="button"
-            class="settings-close-button"
+            class="settings-close-button settings-action"
             onClick={() => props.onClose()}
             title="Close settings"
             data-testid="settings-close-button"
@@ -479,7 +479,6 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
                 </p>
                 <div class="settings-admin-actions" data-testid="settings-administration-actions">
                   <AdminActionButton
-                    tone="--color-action-setup"
                     icon={mdiViewDashboardOutline}
                     label="Open Administration"
                     href="/admin"
@@ -503,9 +502,9 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
                   </p>
                   <div class="settings-admin-actions">
                     <AdminActionButton
-                      tone="--color-action-subscriptions"
                       icon={mdiCogOutline}
                       label="Manage Subscriptions"
+                      navigation
                       onClick={() => { window.location.href = '/admin/subscriptions'; }}
                     />
                   </div>

@@ -293,7 +293,6 @@ const SessionSection: Component<SessionSectionProps> = (props) => {
         </div>
         <div class="settings-admin-actions">
           <AdminActionButton
-            tone="--color-action-docs"
             icon={mdiFileDocumentRefreshOutline}
             label={props.recreateDocsLoading() ? 'Recreating...' : 'Recreate Docs & Examples'}
             disabled={props.recreateDocsLoading()}
@@ -311,7 +310,6 @@ const SessionSection: Component<SessionSectionProps> = (props) => {
             )}
           </Show>
           <AdminActionButton
-            tone="--color-action-agents"
             icon={mdiRobotOutline}
             label={props.recreateAgentLoading() ? 'Recreating...' : 'Recreate Agent Skills & Rules'}
             disabled={props.recreateAgentLoading() || props.seedUpdateActive()}

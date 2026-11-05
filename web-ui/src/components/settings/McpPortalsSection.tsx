@@ -51,7 +51,7 @@ const McpPortalsSection: Component = () => {
           data-testid={portal.connected ? `mcp-${portal.name}-connected-badge` : undefined}>
           {busy().includes(portal.name) ? 'Disconnecting…' : portal.connected ? 'Connected' : 'Not connected'}
         </span>
-        <button type="button" class="button" data-variant="secondary" data-size="sm"
+        <button type="button" class="button settings-action" classList={{ 'settings-action--destructive': portal.connected }} data-variant="secondary" data-size="sm"
           disabled={busy().includes(portal.name)} aria-busy={busy().includes(portal.name)}
           aria-label={`${portal.connected ? 'Disconnect' : 'Connect'} Model Context Protocol portal ${portal.name}`}
           data-testid={`mcp-${portal.name}-${portal.connected ? 'disconnect' : 'connect'}-btn`}
