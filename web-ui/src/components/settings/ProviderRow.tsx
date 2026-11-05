@@ -95,7 +95,7 @@ const ProviderRow: Component<ProviderRowProps> = (props) => {
           </button>
         </Show>
         <Show when={!props.connected && !expanded()}>
-          <button type="button" class="settings-action provider-row-connect-btn" onClick={handleConnect}>
+          <button type="button" class="settings-action settings-action--accent provider-row-connect-btn" onClick={handleConnect}>
             Connect to {props.name}
             <Show when={props.externalUrl && !hasTiers() && !hasInstructions()}>
               <Icon path={mdiOpenInNew} size={16} aria-hidden="true" />
@@ -142,7 +142,7 @@ const ProviderRow: Component<ProviderRowProps> = (props) => {
                   {opts().tiers[selectedTier()].description}
                 </p>
                 <a
-                  class="settings-action provider-row-connect-btn"
+                  class="settings-action settings-action--accent provider-row-connect-btn"
                   href={resolvedUrl()}
                   target="_blank"
                   rel="noopener noreferrer"
@@ -160,7 +160,7 @@ const ProviderRow: Component<ProviderRowProps> = (props) => {
             <div class="provider-row-instructions">{props.instructions}</div>
             <Show when={props.externalUrl}>
               <a
-                class="settings-action provider-row-connect-btn"
+                class="settings-action settings-action--accent provider-row-connect-btn"
                 href={props.externalUrl}
                 target="_blank"
                 rel="noopener noreferrer"
@@ -198,7 +198,7 @@ const ProviderRow: Component<ProviderRowProps> = (props) => {
             />
             <button
               type="button"
-              class="settings-action provider-row-save-btn"
+              class="settings-action settings-action--accent provider-row-save-btn"
               disabled={props.saving || !tokenValue().trim()}
               onClick={handleSave}
               data-testid={props.testId ? `${props.testId}-save` : undefined}

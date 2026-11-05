@@ -70,7 +70,7 @@ const AccordionSection: Component<AccordionSectionProps> = (props) => {
       <h3 class="settings-group-heading">
         <button
           type="button"
-          class={`accordion-header ${props.group === 'mcp' ? 'accordion-header--section' : ''}`}
+          class="accordion-header"
           aria-expanded={props.isOpen}
           aria-controls={panelId()}
           id={headerId()}
@@ -78,10 +78,10 @@ const AccordionSection: Component<AccordionSectionProps> = (props) => {
           onClick={() => props.onToggle()}
         >
           <span class={`accordion-chevron ${props.isOpen ? 'accordion-chevron--open' : ''}`}>
-            <Icon path={mdiChevronDown} size={props.group === 'mcp' ? 16 : 20} />
+            <Icon path={mdiChevronDown} size={20} />
           </span>
           <span class="accordion-header-text">
-            <span class={`settings-group-title ${props.group === 'mcp' ? 'type-section-header' : 'type-group-header'}`}>{props.title}</span>
+            <span class="settings-group-title type-group-header">{props.title}</span>
             <Show when={!props.isOpen}>
               <span class="accordion-subtitle type-hint" data-testid={`accordion-subtitle-${props.group}`}>
                 {props.subtitle}

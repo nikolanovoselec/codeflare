@@ -14,14 +14,14 @@ interface AdminActionButtonProps {
   testId?: string;
 }
 
-// Settings-only neutral navigation and maintenance actions.
+// Settings-only accent-coloured navigation and maintenance actions.
 const AdminActionButton: Component<AdminActionButtonProps> = (props) => (
   <Show
     when={props.href}
     fallback={
       <button
         type="button"
-        class="settings-action settings-admin-action"
+        class="settings-action settings-action--accent settings-admin-action"
         disabled={props.disabled}
         onClick={props.onClick}
         data-testid={props.testId}
@@ -36,7 +36,7 @@ const AdminActionButton: Component<AdminActionButtonProps> = (props) => (
   >
     {(href) => (
       <a
-        class="settings-action settings-admin-action"
+        class="settings-action settings-action--accent settings-admin-action"
         href={href()}
         data-testid={props.testId}
       >

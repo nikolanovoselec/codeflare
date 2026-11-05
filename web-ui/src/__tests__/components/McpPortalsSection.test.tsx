@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen } from '@solidjs/testing-library';
+import { cleanup, fireEvent, render, screen, within } from '@solidjs/testing-library';
 import McpPortalsSection from '../../components/settings/McpPortalsSection';
 import type { McpPortalStatus } from '../../api/mcp-portals';
 
@@ -22,9 +22,11 @@ describe('Settings MCP connections', () => {
     render(() => <McpPortalsSection />);
     expect(screen.getByRole('status')).toHaveTextContent('Loading portals');
     await screen.findByText('alpha');
-    expect(screen.getByText('Available tools depend on portal permissions. Restart Pi after adding a portal.')).toBeVisible();
-    expect(screen.getByRole('heading', { name: 'alpha' })).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'beta' })).toBeInTheDocument();
+    expect(screen.getByText('MCP portals bring tools and authentication together in a unified, governed surface. Restart Pi after adding or connecting a portal to load its tools.')).toBeVisible();
+    const connections = screen.getByRole('group', { name: 'MCP portals' });
+    expect(within(connections).getByText('alpha')).toBeVisible();
+    expect(within(connections).getByText('beta')).toBeVisible();
+    expect(screen.getByText('Connect MCP portals to use their tools in your sessions.')).toBeVisible();
     expect(screen.getByTestId('mcp-alpha-identity')).toHaveTextContent('alpha');
     expect(screen.getByTestId('mcp-alpha-connected-badge')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Connect Model Context Protocol portal beta' })).toHaveAttribute('data-href', '/auth/mcp/connect/beta');
@@ -47,7 +49,7 @@ describe('Settings MCP connections', () => {
     stored = stored.map(portal => portal.name === 'alpha' ? { ...portal, connected: false } : portal);
     finish();
     expect(await screen.findByRole('button', { name: 'Connect Model Context Protocol portal alpha' })).toBeEnabled();
-    expect(screen.getByRole('heading', { name: 'beta' })).toBeInTheDocument();
+    expect(screen.getByText('beta')).toBeVisible();
   });
 
   it('REQ-AGENT-228 AC4: clean browser completion status is consumed using the existing connection pattern', async () => {
@@ -62,7 +64,7 @@ describe('Settings MCP connections', () => {
   it('REQ-AGENT-228 AC4: concise permission guidance keeps connection actions available without a troubleshooting disclosure', async () => {
     render(() => <McpPortalsSection />);
     const connect = await screen.findByRole('button', { name: 'Connect Model Context Protocol portal beta' });
-    expect(screen.getByText('Available tools depend on portal permissions. Restart Pi after adding a portal.')).toBeVisible();
+    expect(screen.getByText('MCP portals bring tools and authentication together in a unified, governed surface. Restart Pi after adding or connecting a portal to load its tools.')).toBeVisible();
     expect(screen.queryByText('Portal setup and connection help')).not.toBeInTheDocument();
     expect(connect).toBeEnabled();
     expect(connect).toHaveAttribute('data-href', '/auth/mcp/connect/beta');
@@ -77,7 +79,7 @@ describe('Settings MCP connections', () => {
     expect(await screen.findByText('Authorization returned. Check the connection status below.')).toBeVisible();
     expect(await screen.findByTestId('mcp-alpha-connected-badge')).toBeVisible();
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
-    expect(screen.getByText('Available tools depend on portal permissions. Restart Pi after adding a portal.')).toBeVisible();
+    expect(screen.getByText('MCP portals bring tools and authentication together in a unified, governed surface. Restart Pi after adding or connecting a portal to load its tools.')).toBeVisible();
   });
 
   it('REQ-AGENT-228 AC4: a return marker cannot override disconnected status or remove unrelated navigation state', async () => {

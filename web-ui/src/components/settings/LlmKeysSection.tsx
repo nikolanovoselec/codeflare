@@ -124,7 +124,7 @@ const LlmKeysSection: Component = () => {
       <Show when={loadState() === 'error'}>
         <div data-testid="llm-keys-load-error" role="alert">
           Saved keys could not be loaded.
-          <button type="button" class="settings-action" data-testid="llm-keys-retry" onClick={() => { void loadKeys(); }}>Retry</button>
+          <button type="button" class="settings-action settings-action--accent" data-testid="llm-keys-retry" onClick={() => { void loadKeys(); }}>Retry</button>
         </div>
       </Show>
       <Show when={loadState() === 'success'}>

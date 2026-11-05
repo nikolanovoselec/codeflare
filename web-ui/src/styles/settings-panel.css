@@ -861,7 +861,7 @@
 }
 
 /* Settings actions only: shared Button / OAuth surfaces elsewhere are unchanged. */
-.settings-panel :is(button.settings-action, a.settings-action, button.button, button.oauth-connect-btn, button.oauth-connect-disconnect) {
+.settings-panel :is(button.settings-action, a.settings-action, button.button, button.oauth-connect-btn) {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -883,42 +883,42 @@
   transition: background var(--transition-fast), border-color var(--transition-fast), color var(--transition-fast);
 }
 
-.settings-panel :is(.settings-action, .button, .oauth-connect-btn, .oauth-connect-disconnect):hover:not(:disabled) {
+.settings-panel :is(.settings-action, .button, .oauth-connect-btn):hover:not(:disabled) {
   background: var(--color-bg-elevated);
   border-color: var(--color-border-strong);
 }
 
-.settings-panel :is(.settings-action, .button, .oauth-connect-btn, .oauth-connect-disconnect):active:not(:disabled) {
+.settings-panel :is(.settings-action, .button, .oauth-connect-btn):active:not(:disabled) {
   background: var(--color-bg-muted);
   transform: none;
 }
 
-.settings-panel :is(.settings-action, .button, .oauth-connect-btn, .oauth-connect-disconnect):focus-visible {
+.settings-panel :is(.settings-action, .button, .oauth-connect-btn):focus-visible {
   outline: 2px solid var(--color-accent);
   outline-offset: 2px;
 }
 
-.settings-panel :is(.settings-action, .button, .oauth-connect-btn, .oauth-connect-disconnect):disabled {
+.settings-panel :is(.settings-action, .button, .oauth-connect-btn):disabled {
   opacity: 0.5;
   cursor: not-allowed;
 }
 
-.settings-panel .settings-action.provider-row-save-btn {
+.settings-panel :is(.settings-action--accent, .button[data-variant="primary"], .oauth-connect-btn--connect) {
   background: var(--color-accent);
   border-color: var(--color-accent);
   color: var(--color-accent-contrast);
 }
 
-.settings-panel .settings-action.provider-row-save-btn:hover:not(:disabled) {
+.settings-panel :is(.settings-action--accent, .button[data-variant="primary"], .oauth-connect-btn--connect):hover:not(:disabled) {
   background: var(--color-accent-hover);
   border-color: var(--color-accent-hover);
 }
 
-.settings-panel :is(button.settings-action--destructive, button.provider-row-disconnect, button.oauth-connect-disconnect) {
+.settings-panel :is(button.settings-action--destructive, button.provider-row-disconnect) {
   color: var(--color-error);
 }
 
-.settings-panel :is(.settings-action--destructive, .provider-row-disconnect, .oauth-connect-disconnect):hover:not(:disabled) {
+.settings-panel :is(.settings-action--destructive, .provider-row-disconnect):hover:not(:disabled) {
   border-color: var(--color-error);
   background: var(--color-error-bg);
   color: var(--color-error);
@@ -932,7 +932,7 @@
 
 .settings-admin-action > svg {
   flex-shrink: 0;
-  color: var(--color-text-secondary);
+  color: inherit;
 }
 
 .settings-admin-action > span {
@@ -953,9 +953,6 @@
 /* Deploy cards keep their shared markup, scope selectors and OAuth handlers. */
 .settings-panel .oauth-connect-card {
   margin-bottom: var(--space-3);
-  padding: var(--space-3);
-  border-radius: var(--radius-md);
-  background: transparent;
 }
 
 .settings-panel .oauth-connect-head {
@@ -972,30 +969,37 @@
   font-size: var(--text-sm);
 }
 
-.settings-panel .oauth-connect-badge {
-  padding: 0;
-  border: 0;
-  background: transparent;
-}
-
 .settings-panel .oauth-connect-btn {
   margin-left: auto;
 }
 
-/* MCP alone borrows the Terminal Experience section title scale and alignment.
-   Its chevron is still the functional accordion affordance, not an action icon. */
-.settings-panel .accordion-header--section {
-  align-items: center;
-  padding: 0;
+.mcp-portal-row .oauth-connect-name {
+  flex-basis: 9rem;
+  overflow-wrap: anywhere;
 }
 
-.accordion-header--section .accordion-chevron {
-  width: 16px;
-  height: 16px;
+.mcp-portal-row .oauth-connect-disconnect {
+  margin-left: auto;
+}
+
+.settings-panel .oauth-connect-disconnect {
+  min-height: 36px;
+  font-family: inherit;
+}
+
+.settings-panel .oauth-connect-disconnect:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+.settings-panel .oauth-connect-disconnect:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 @media (max-width: 640px), (pointer: coarse) {
-  .settings-panel :is(button.settings-action, a.settings-action, button.button, button.oauth-connect-btn, button.oauth-connect-disconnect) {
+  .settings-panel .oauth-connect-disconnect,
+  .settings-panel :is(button.settings-action, a.settings-action, button.button, button.oauth-connect-btn) {
     min-height: 44px;
   }
 

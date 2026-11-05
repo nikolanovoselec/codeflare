@@ -4,6 +4,7 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-11-05
 
+- Restore the shared Settings accordion header for MCP, group portal names and connection actions in one brighter surface without portal icons, and explain unified tool/authentication governance; redesigned positive actions use the selected accent while Disconnect stays quiet ([REQ-AGENT-228](agents.md#req-agent-228-owner-pi-mcp-configuration-and-discovery)).
 - Make the scoped transcript-trim operation activate and verify its result before returning, using a revocable same-process owner capability rather than native Done or parent turn-end handover; retain cancellation, append safety and read-only committed recovery ([REQ-MEM-029](memory.md#req-mem-029-active-transcript-replacement-safety), [REQ-MEM-030](memory.md#req-mem-030-visible-agent-owned-transcript-maintenance)).
 - Include known obsolete edit-result text, expanded Smart Compact prose/repair arrays and settled subagent result prose in oldest-first transcript reduction toward 20 MB; preserve current context, identities, ancestry scopes, scores and unknown fields rather than using the 25 MB acceptance ceiling as the target ([REQ-MEM-028](memory.md#req-mem-028-pi-active-transcript-size-retention)).
 - Exclude unmatched trailing parentheses from terminal-link destinations and clickable ranges while preserving balanced/encoded content; offer the existing auth-link controls for `auth.openai.com` without a path restriction ([REQ-TERM-042](terminal.md#req-term-042-browser-terminal-link-activation)).
