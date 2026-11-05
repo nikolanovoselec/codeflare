@@ -14,6 +14,9 @@ import { createHash } from 'node:crypto';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { Env } from '../types';
 import type { PersonalPiProps } from '../lib/personal-pi-forwarding';
+import type { McpPortalInterceptorProps } from '../mcp-portal-interceptor';
+import { mcpPortalFixture, portal, access } from './helpers/mcp-portal-fixture';
+import { disconnectMcpPortal } from '../lib/mcp-portal-token';
 import { SETUP_KEYS } from '../lib/kv-keys';
 import { EgressController } from '../egress-controller';
 import type { OperatorPolicy } from '../operators/policy';
@@ -43,6 +46,7 @@ function makeController(
   envOverrides: Partial<Env> & { __kv?: Record<string, string> } = {},
   props: {
     accountId?: string;
+    mcpPortal?: McpPortalInterceptorProps;
     bucket?: string;
     r2AccessKeyId?: string;
     r2SecretAccessKey?: string;
@@ -96,6 +100,142 @@ beforeEach(() => {
   policyLogs.info.mockClear();
   policyLogs.warn.mockClear();
   policyLogs.error.mockClear();
+});
+
+describe('REQ-AGENT-229: strict catch-all portal credential dispatch', () => {
+  const portalProps = { bucket: 'owner', portals: [portal] };
+  const message = JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'synthetic-write' } });
+  const request = (url = portal.url) => new Request(url, { method: 'POST', body: message, headers: {
+    authorization: 'Bearer codeflare-mcp-portal', accept: 'application/json, text/event-stream',
+    'content-type': 'application/json', 'mcp-session-id': 'session', 'mcp-protocol-version': '2025-03-26',
+    'last-event-id': 'resume', cookie: 'agent-cookie', 'cf-access-jwt-assertion': 'forged-access',
+    'x-codeflare-owner': 'foreign', 'x-api-key': 'agent-key', host: 'foreign.example',
+  } });
+
+  it('REQ-AGENT-229 AC1: catch-all stamps only the parent owner grant and preserves MCP wire outcomes', async () => {
+    const f = await mcpPortalFixture(); await f.begin(); await f.finish();
+    const destinations: string[] = [];
+    const { controller } = makeController({ ...f.env, EGRESS: { fetch: async (outgoing: Request) => {
+      destinations.push(outgoing.url);
+      expect(outgoing.headers.get('authorization')).toBe(`Bearer ${access}`);
+      for (const header of ['cookie', 'cf-access-jwt-assertion', 'x-codeflare-owner', 'x-api-key', 'host']) {
+        expect(outgoing.headers.has(header)).toBe(false);
+      }
+      expect(outgoing.method).toBe('POST'); expect(await outgoing.text()).toBe(message);
+      expect(outgoing.redirect).toBe('manual');
+      expect(outgoing.headers.get('accept')).toBe('application/json, text/event-stream');
+      expect(outgoing.headers.get('content-type')).toBe('application/json');
+      expect(outgoing.headers.get('mcp-session-id')).toBe('session');
+      expect(outgoing.headers.get('mcp-protocol-version')).toBe('2025-03-26');
+      expect(outgoing.headers.get('last-event-id')).toBe('resume');
+      return new Response('original upstream denial', { status: 401, headers: {
+        'WWW-Authenticate': 'Bearer resource_metadata="https://portal.example/.well-known/oauth-protected-resource"',
+        'Set-Cookie': 'must-not-enter-container=true',
+      } });
+    } } as unknown as Fetcher }, { mcpPortal: portalProps, bucket: 'different-r2-bucket' });
+    const response = await controller.fetch(request());
+    expect(destinations).toEqual([portal.url]); expect(response.status).toBe(401);
+    expect(await response.text()).toBe('original upstream denial');
+    expect(response.headers.get('WWW-Authenticate')).toContain('portal.example');
+    expect(response.headers.has('Set-Cookie')).toBe(false);
+  });
+
+  it.each(['path', 'query', 'port', 'removed', 'changed', 'missing', 'disconnected', 'expired',
+    'wrong-owner', 'operator-flag', 'operator-policy', 'operator-sync', 'no-gateway', 'not-strict', 'ssrf', 'native-dispatcher', 'jwt', 'r2'] as const)(
+    'REQ-AGENT-229 AC2: catch-all denies %s without a protected send', async kind => {
+      const f = await mcpPortalFixture();
+      if (kind === 'expired') { f.expiry(1); f.rejectRefresh(); }
+      if (kind !== 'missing') { await f.begin(); await f.finish(); }
+      if (kind === 'disconnected') await disconnectMcpPortal(f.env, 'owner', portal, f.send);
+      if (kind === 'removed') await f.kv.put(SETUP_KEYS.MCP_PORTALS, '[]');
+      if (kind === 'changed') await f.kv.put(SETUP_KEYS.MCP_PORTALS, JSON.stringify([{ ...portal, url: 'https://portal.example/new' }]));
+      const expiredAt = Date.now() + 120_000;
+      const clock = kind === 'expired' ? vi.spyOn(Date, 'now').mockReturnValue(expiredAt) : undefined;
+      const destinations: string[] = [];
+      const direct = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+        // Expired grants may attempt existing OAuth maintenance, never MCP replay.
+        const outgoing = new Request(input, init);
+        if (kind === 'expired' && new URL(outgoing.url).pathname === '/token') return f.send(outgoing);
+        destinations.push(outgoing.url); return new Response('unexpected direct send');
+      });
+      try {
+        const url = kind === 'path' ? 'https://portal.example/other'
+          : kind === 'query' ? `${portal.url}&unexpected=1`
+          : kind === 'port' ? portal.url.replace('portal.example', 'portal.example:8443')
+          : kind === 'ssrf' ? 'https://127.0.0.1/mcp'
+          : kind === 'r2' ? 'https://acc.r2.cloudflarestorage.com/foreign-bucket/mcp' : portal.url;
+        const { controller } = makeController({ ...f.env,
+          EGRESS: kind === 'no-gateway' ? undefined : { fetch: async (outgoing: Request) => {
+            destinations.push(outgoing.url); return new Response('unexpected Gateway send');
+          } } as unknown as Fetcher,
+        }, { mcpPortal: { ...portalProps, bucket: kind === 'wrong-owner' ? 'other' : 'owner',
+          ...(kind === 'operator-flag' ? { operator: true } : {}),
+          ...(['ssrf', 'r2'].includes(kind) ? { portals: [{ ...portal, url }] } : {}),
+        }, ...(kind === 'operator-policy' ? { operatorPolicy: { ...operatorPolicy, networkHosts: ['portal.example'] } } : {}),
+        ...(kind === 'operator-sync' ? { operatorSync: { activityId: 'activity', outputPrefix: 'outputs/', manifestPrefix: 'manifest/' } } : {}),
+        ...(kind === 'not-strict' ? { strict: false } : {}),
+        ...(kind === 'r2' ? { accountId: 'acc' } : {}),
+        ...(kind === 'jwt' ? { jwtStamping: { mode: 'list' as const, destinations: ['portal.example'] } } : {}),
+        ...(kind === 'native-dispatcher' ? { operatorDispatcherNative: {
+          activityId: 'activity', generation: 1, profileDigest: 'a'.repeat(64),
+        } } : {}) });
+        expect((await controller.fetch(request(url))).status).toBe(
+          ['no-gateway', 'not-strict'].includes(kind) ? 503
+            : ['missing', 'disconnected', 'expired', 'wrong-owner'].includes(kind) ? 401 : 403);
+        expect(destinations).toEqual([]);
+      } finally { direct.mockRestore(); clock?.mockRestore(); }
+    });
+
+  it('REQ-AGENT-229 AC4: catch-all streams downstream authorization context and preserves cancellation', async () => {
+    const f = await mcpPortalFixture(); await f.begin(); await f.finish();
+    let cancellation: unknown;
+    const chunk = 'data: {"authorization_url":"https://portal.example/downstream?context=same-grant"}\n\n';
+    const { controller } = makeController({ ...f.env, EGRESS: { fetch: async () => new Response(new ReadableStream({
+      start(stream) { stream.enqueue(new TextEncoder().encode(chunk)); },
+      cancel(reason) { cancellation = reason; },
+    }), { status: 202, headers: { 'Content-Type': 'text/event-stream', 'Mcp-Session-Id': 'session' } }) } as unknown as Fetcher },
+    { mcpPortal: portalProps });
+    const response = await controller.fetch(request());
+    expect(response.status).toBe(202); expect(response.headers.get('Content-Type')).toBe('text/event-stream');
+    expect(response.headers.get('Mcp-Session-Id')).toBe('session');
+    const reader = response.body!.getReader();
+    expect(new TextDecoder().decode((await reader.read()).value)).toBe(chunk);
+    await reader.cancel('owner-cancelled'); expect(cancellation).toBe('owner-cancelled');
+  });
+
+  it('REQ-AGENT-229 AC5: catch-all never replays uncertain MCP writes or follows redirects', async () => {
+    const f = await mcpPortalFixture(); await f.begin(); await f.finish();
+    const effects: string[] = [];
+    const { controller } = makeController({ ...f.env, EGRESS: { fetch: async (outgoing: Request) => {
+      expect(outgoing.redirect).toBe('manual');
+      effects.push((await outgoing.json() as { method: string }).method);
+      throw Error('response lost after mutation');
+    } } as unknown as Fetcher }, { mcpPortal: portalProps });
+    expect((await controller.fetch(request())).status).toBe(502);
+    expect(effects).toEqual(['tools/call']);
+    const redirecting = makeController({ ...f.env, EGRESS: { fetch: async () => new Response(null, {
+      status: 307, headers: { Location: 'https://foreign.example/mcp' },
+    }) } as unknown as Fetcher }, { mcpPortal: portalProps });
+    const response = await redirecting.controller.fetch(request());
+    expect(response.status).toBe(502); expect(response.headers.has('Location')).toBe(false);
+  });
+
+  it('REQ-AGENT-229 AC2: unrelated URL and forged Host retain ordinary auth without owner lookup', async () => {
+    const f = await mcpPortalFixture(); await f.begin(); await f.finish();
+    const { controller } = makeController({ ...f.env, KV: { get: async () => {
+      throw Error('Unrelated egress must not read MCP configuration or grants');
+    } } as unknown as KVNamespace, EGRESS: { fetch: async (outgoing: Request) => {
+      expect(outgoing.url).toBe('https://unrelated.example/mcp');
+      expect(outgoing.headers.get('authorization')).toBe('Bearer ordinary-caller');
+      expect(outgoing.headers.get('cookie')).toBe('ordinary-cookie');
+      expect(await outgoing.text()).toBe('ordinary-body');
+      return new Response('ordinary-response', { status: 201, headers: { 'Set-Cookie': 'ordinary-upstream' } });
+    } } as unknown as Fetcher }, { mcpPortal: portalProps });
+    const response = await controller.fetch(new Request('https://unrelated.example/mcp', { method: 'POST',
+      body: 'ordinary-body', headers: { host: 'portal.example', authorization: 'Bearer ordinary-caller', cookie: 'ordinary-cookie' } }));
+    expect(response.status).toBe(201); expect(await response.text()).toBe('ordinary-response');
+    expect(response.headers.get('Set-Cookie')).toBe('ordinary-upstream');
+  });
 });
 
 describe('REQ-OPERATOR-007/047: Activity-bound Dispatcher native egress', () => {

@@ -58,6 +58,7 @@ import {
 import { createLogger } from './lib/logger';
 import { forwardPersonalPi, type PersonalPiProps } from './lib/personal-pi-forwarding';
 import { interceptedGithubHosts } from './github-interceptor';
+import { forwardMcpPortal, type McpPortalInterceptorProps } from './mcp-portal-interceptor';
 import { decideOperatorNetwork, decideOperatorStorage, type OperatorStorageOperation } from './operators/interception-policy';
 import type { OperatorPolicy } from './operators/policy';
 import { prepareJwtStampedRequest, type JwtStampingAuthority, type JwtStampingPolicy } from './operators/jwt-stamping';
@@ -69,6 +70,8 @@ const OPERATOR_SYNC_OPERATION_HEADER = 'x-codeflare-operator-sync-operation';
 interface EgressProps extends PersonalPiProps {
   /** This deployment's own Cloudflare account id; selects the account-scoped exemption. */
   accountId?: string;
+  /** Parent-bound portal owner/configuration, independent of R2 security overrides. */
+  mcpPortal?: McpPortalInterceptorProps;
   /** User bucket bound to this container session. */
   bucket?: string;
   /** Bucket-scoped credentials held by the DO and passed only to this Worker entrypoint. */
@@ -310,6 +313,17 @@ export class EgressController extends WorkerEntrypoint<Env> {
     if (props.jwtStamping) {
       try { effectiveRequest = prepareJwtStampedRequest(effectiveRequest, props.jwtStamping, props.jwtAuthority); }
       catch { return jsonError(403, 'JWT_STAMPING_AUTHORITY_UNAVAILABLE', 'Current human Access authority is required'); }
+    }
+
+    // A configured portal can reach the strict catch-all. Delegate the entire host
+    // (including wrong paths/queries) after existing admission gates to the exact/
+    // current-config owner boundary; caller headers and R2 credentials grant nothing.
+    if (props.mcpPortal?.portals.some(portal => new URL(portal.url).hostname === url.hostname)) {
+      return forwardMcpPortal(effectiveRequest, this.env, {
+        ...props.mcpPortal,
+        strict: true,
+        operator: !!(props.mcpPortal.operator || props.operatorPolicy || props.operatorSync),
+      });
     }
 
     // WebSocket upgrades through the catch-all: bridge a fresh WebSocketPair to the upstream
