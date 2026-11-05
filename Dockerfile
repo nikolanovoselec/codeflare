@@ -86,17 +86,22 @@ for PIN in /tmp/impeccable-engine-legacy.json /tmp/impeccable-engine-4.4.0.json 
 done
 IMPECCABLE
 
-# ---- Codeflare native Pi Chat extension builder (OpenVSCode Node 22) ----
-FROM mirror.gcr.io/library/node:22.21.1-bookworm-slim@sha256:25b3eb23a00590b7499f2a2ce939322727fcce1b15fdd69754fcd09536a3ae2c AS openvscode-agent-sidebar-builder
-
+# ---- Extension dependency installation honors its exact Node 22 engine ----
+FROM mirror.gcr.io/library/node:22.21.1-bookworm-slim@sha256:25b3eb23a00590b7499f2a2ce939322727fcce1b15fdd69754fcd09536a3ae2c AS openvscode-agent-sidebar-dependencies
 WORKDIR /app/openvscode/agent-sidebar
 COPY openvscode/agent-sidebar/package.json openvscode/agent-sidebar/package-lock.json ./
-RUN npm ci
+RUN node -e 'require("node:assert/strict").equal(process.versions.node, "22.21.1")' && npm ci
+
+# ---- Node 26 compiler host; emitted extensions still target Node 22 ----
+# Only build tools cross this boundary. No node_modules ship with the extension.
+FROM mirror.gcr.io/library/node:26.12.0-bookworm-slim@sha256:742a0fe7320e09e0321222b68165e6ac731d30470e7ea7f98f9bfc3a6e1034fe AS openvscode-agent-sidebar-builder
+WORKDIR /app/openvscode/agent-sidebar
+COPY --from=openvscode-agent-sidebar-dependencies /app/openvscode/agent-sidebar/ ./
 COPY openvscode/agent-sidebar/tsconfig.json openvscode/agent-sidebar/esbuild.mjs openvscode/agent-sidebar/official-claude.json openvscode/agent-sidebar/welcome-package.json ./
 COPY openvscode/extension-persistence-policy.json ../extension-persistence-policy.json
 COPY openvscode/claude/managed-settings.mjs openvscode/claude/managed-settings.d.mts ../claude/
 COPY openvscode/agent-sidebar/src/ ./src/
-RUN node -e 'require("node:assert/strict").equal(process.versions.node, "22.21.1", "Browser IDE build requires Node 22.21.1")' && \
+RUN node -e 'require("node:assert/strict").equal(process.versions.node, "26.12.0", "Browser IDE artifact tooling requires Node 26.12.0")' && \
     npm run typecheck && NODE_ENV=production npm run build
 
 RUN mkdir -p /out/extension /out/welcome/dist && \
@@ -111,11 +116,11 @@ COPY openvscode/agent-sidebar/media/ /out/welcome/media/
 # ---- Official Claude Code Open VSX extension ----
 # Owner-accepted license risk: install Anthropic's exact unmodified linux-x64
 # package into the image, configured externally at runtime. Never serve the VSIX.
-FROM mirror.gcr.io/library/node:22.21.1-bookworm-slim@sha256:25b3eb23a00590b7499f2a2ce939322727fcce1b15fdd69754fcd09536a3ae2c AS openvscode-official-claude-extension
+FROM mirror.gcr.io/library/node:26.12.0-bookworm-slim@sha256:742a0fe7320e09e0321222b68165e6ac731d30470e7ea7f98f9bfc3a6e1034fe AS openvscode-official-claude-extension
 
 COPY openvscode/agent-sidebar/official-claude.json /tmp/official-claude.json
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl unzip && rm -rf /var/lib/apt/lists/*
-RUN node -e 'require("node:assert/strict").equal(process.versions.node, "22.21.1", "Browser IDE build requires Node 22.21.1")' && \
+RUN node -e 'require("node:assert/strict").equal(process.versions.node, "26.12.0", "Browser IDE artifact tooling requires Node 26.12.0")' && \
     CLAUDE_VSCODE_NAMESPACE="$(node -p 'require("/tmp/official-claude.json").namespace')" && \
     CLAUDE_VSCODE_NAME="$(node -p 'require("/tmp/official-claude.json").name')" && \
     CLAUDE_VSCODE_VERSION="$(node -p 'require("/tmp/official-claude.json").version')" && \
@@ -138,11 +143,11 @@ RUN node -e 'require("node:assert/strict").equal(process.versions.node, "22.21.1
     rm -rf /tmp/anthropic.claude-code.vsix /tmp/anthropic-claude
 
 # ---- Assemble immutable agent inventories once, before the runtime image ----
-FROM mirror.gcr.io/library/node:22.21.1-bookworm-slim@sha256:25b3eb23a00590b7499f2a2ce939322727fcce1b15fdd69754fcd09536a3ae2c AS openvscode-agent-inventories
+FROM mirror.gcr.io/library/node:26.12.0-bookworm-slim@sha256:742a0fe7320e09e0321222b68165e6ac731d30470e7ea7f98f9bfc3a6e1034fe AS openvscode-agent-inventories
 
 COPY --from=openvscode-agent-sidebar-builder /out/extension /tmp/codeflare-sidebar-extension
 COPY --from=openvscode-official-claude-extension /out /tmp/official-claude-extension
-RUN /usr/local/bin/node -e 'require("node:assert/strict").equal(process.versions.node, "22.21.1", "Browser IDE build requires Node 22.21.1")' && \
+RUN /usr/local/bin/node -e 'require("node:assert/strict").equal(process.versions.node, "26.12.0", "Browser IDE artifact tooling requires Node 26.12.0")' && \
     /usr/local/bin/node --input-type=module -e \
       'const { stageSidebarExtension } = await import("file:///tmp/codeflare-sidebar-extension/dist/package-extension.mjs"); await stageSidebarExtension({ sourceDirectory: "/tmp/codeflare-sidebar-extension", claudeSourceDirectory: "/tmp/official-claude-extension", rootDirectory: "/out/openvscode" });' && \
     rm -rf /tmp/codeflare-sidebar-extension /tmp/official-claude-extension && \
@@ -986,6 +991,11 @@ COPY transcript-retention.mjs /transcript-retention.mjs
 COPY --chmod=0755 scripts/compact-session-captures.mjs /opt/codeflare/scripts/compact-session-captures.mjs
 COPY --chmod=0555 preseed/agents/pi/scripts/merge-vault-graph.py /opt/codeflare/scripts/merge-vault-graph.py
 RUN chmod +x /entrypoint.sh /transcript-retention.mjs && echo "Build timestamp $(date)" > /build-timestamp.txt
+
+# Qualify the Node 26-produced bundle on its declared Node 22 baseline.
+# The mounted interpreter is not installed into or shipped by the runtime image.
+RUN --mount=from=openvscode-agent-sidebar-dependencies,source=/usr/local/bin/node,target=/tmp/codeflare-sidebar-node22,ro \
+    /tmp/codeflare-sidebar-node22 /opt/codeflare/openvscode/smoke-openvscode-sidebar-image.mjs --verify-sidebar-runtime
 
 # Reset working directory
 WORKDIR /

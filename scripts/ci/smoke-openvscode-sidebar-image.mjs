@@ -465,6 +465,13 @@ async function main() {
   const extensionHash = createHash('sha256').update(await readFile(piMain)).digest('hex');
   assert.equal((await collect(ROOT)).some((path) => path.toLowerCase().endsWith('.vsix')), false);
   const nativeChat = await verifyPackagedNativeChat(piRoot);
+  // Qualify the compiled artifact on the actual IDE interpreter, not merely
+  // the ordinary container Node that runs this orchestration script.
+  const sidebarRuntime = JSON.parse(execFileSync(join(CODE_SERVER_ROOT, 'lib', 'node'), [
+    process.argv[1], '--verify-sidebar-runtime',
+  ], { encoding: 'utf8', timeout: 30_000 }));
+  assert.equal(sidebarRuntime.result, 'SIDEBAR_RUNTIME_SMOKE_OK');
+  assert.equal(sidebarRuntime.nativeChat, 'DEFAULT_NATIVE_PI_OK');
   const officialClaude = verifyOfficialClaudeExtension(claudeRoot, officialPin);
 
   const managedModule = await import(pathToFileURL(join(ROOT, 'claude', 'managed-settings.mjs')).href);
@@ -505,6 +512,7 @@ async function main() {
     developerTools,
     extensionHash,
     nativeChat,
+    sidebarRuntime,
     officialClaude,
     welcomeExtension: WELCOME_EXTENSION_NAME,
     userExtensionPersistence,
@@ -1352,7 +1360,15 @@ async function collect(root, output = []) {
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  main().catch((error) => {
+  const run = process.argv[2] === '--verify-sidebar-runtime'
+    ? async () => {
+      const nativeChat = await verifyPackagedNativeChat(join(ROOT, 'extensions', 'pi', EXTENSION_NAME));
+      process.stdout.write(`${JSON.stringify({
+        result: 'SIDEBAR_RUNTIME_SMOKE_OK', nodeVersion: process.versions.node, nativeChat,
+      })}\n`);
+    }
+    : main;
+  run().catch((error) => {
     process.stderr.write(`SIDEBAR_IMAGE_SMOKE_FAILED: ${error instanceof Error ? error.message : String(error)}\n`);
     process.exitCode = 1;
   });
