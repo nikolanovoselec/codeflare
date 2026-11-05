@@ -67,24 +67,22 @@ function oversized({ floor = false, child = false, raw = false, historicalBytes 
 // Exercise the public controller's disk admission separately from MemoryVault's
 // shared cadence/delivery integration. Use the scoped tool's one-pass candidate policy.
 function controllerFixture(f) {
-  const outcomes = [];
-  const controller = registerActiveSessionTranscriptTrimming({ sendMessage(message) { outcomes.push(message); }, registerTool() {} });
+  const outcomes = [], tools = new Map();
+  const controller = registerActiveSessionTranscriptTrimming({ sendMessage(message) { outcomes.push(message); }, registerTool(tool) { tools.set(tool.name, tool); } });
   const due = (ctx = f.ctx) => controller.markDue(ctx);
-  const end = () => {
+  const end = async () => {
     const item = controller.collect(f.ctx);
     if (!item) return;
-    const req = JSON.parse(fs.readFileSync(item.request.prompt.match(/^VARS_FILE=(.+)$/m)[1]));
-    const source = fs.readFileSync(f.file).subarray(0, req.sourceBytes).toString();
-    const trimmed = prepareLocalTranscriptTrim(source, req.sessionId, req.branchIds, req.candidateBudget);
-    assert.equal(trimmed.withinTarget, true);
-    fs.writeFileSync(req.candidateFile, trimmed.candidate);
     fs.appendFileSync(f.file, jsonl([
       { type: 'custom_message', id: `launch-${item.requestId}`, parentId: f.entries.at(-1).id, customType: 'background-extraction-launch', details: { items: [item] } },
       { type: 'message', id: `call-${item.requestId}`, parentId: `launch-${item.requestId}`, message: { role: 'assistant', content: [{ type: 'toolCall', id: item.requestId, name: 'subagent', arguments: item.request }] } },
-      { type: 'custom_message', id: `done-${item.requestId}`, parentId: `call-${item.requestId}`, customType: 'subagent-notification', content: `<tool-use-id>${item.requestId}</tool-use-id><status>Done</status>` },
     ]));
-    controller.collect(f.ctx);
-    assert.equal(outcomes.at(-1)?.details.status, 'trimmed', outcomes.at(-1)?.content);
+    const child = { sessionManager: { getBranch: () => [{ type: 'message', message: { role: 'user', content: item.request.prompt } }] } };
+    const result = JSON.parse((await tools.get('transcript_trim').execute('scoped-trim', { operation: 'trim' }, undefined, undefined, child)).content[0].text);
+    assert.equal(result.committed, true); assert.equal(result.status, 'trimmed');
+    assert.equal(outcomes.at(-1)?.details.status, 'trimmed', outcomes.at(-1)?.content ?? 'Missing verified activation outcome');
+    const verified = fs.readFileSync(f.file);
+    controller.collect(f.ctx); assert.deepEqual(fs.readFileSync(f.file), verified);
   };
   return { ...controller, due, end, outcomes };
 }
@@ -393,21 +391,21 @@ test('REQ-MEM-029 AC2: directory sync failure retains the committed replacement'
   assert.deepEqual(fs.readdirSync(f.root), ['session.jsonl']);
 });
 
-test('REQ-MEM-029 AC3: public controller defers disk mutation until native completion and leaves no backup', t => {
+test('REQ-MEM-029 AC3: public scoped operation activates before return and leaves no backup', async t => {
   const f = fixture(t), original = fs.readFileSync(f.file);
   const l = controllerFixture(f);
   assert.deepEqual(fs.readFileSync(f.file), original);
   l.due(); assert.deepEqual(fs.readFileSync(f.file), original);
-  l.end(); assert.ok(fs.statSync(f.file).size < 50_000_000);
+  await l.end(); assert.ok(fs.statSync(f.file).size < 50_000_000);
   assert.deepEqual(fs.readdirSync(f.root), ['session.jsonl']);
-  const after = fs.readFileSync(f.file); l.end(); assert.deepEqual(fs.readFileSync(f.file), after);
+  const after = fs.readFileSync(f.file); await l.end(); assert.deepEqual(fs.readFileSync(f.file), after);
 });
 
-test('REQ-MEM-028 AC6: a later rewrite waits for the next public due mark', t => {
+test('REQ-MEM-028 AC6: a later rewrite waits for the next public due mark', async t => {
   const f = fixture(t), original = fs.readFileSync(f.file), l = controllerFixture(f);
-  l.due(); l.end(); assert.ok(fs.statSync(f.file).size < 50_000_000);
-  fs.writeFileSync(f.file, original); l.end(); assert.deepEqual(fs.readFileSync(f.file), original);
-  l.due(); l.end(); assert.ok(fs.statSync(f.file).size < 50_000_000);
+  l.due(); await l.end(); assert.ok(fs.statSync(f.file).size < 50_000_000);
+  fs.writeFileSync(f.file, original); await l.end(); assert.deepEqual(fs.readFileSync(f.file), original);
+  l.due(); await l.end(); assert.ok(fs.statSync(f.file).size < 50_000_000);
   assert.deepEqual(fs.readdirSync(f.root), ['session.jsonl']);
 });
 

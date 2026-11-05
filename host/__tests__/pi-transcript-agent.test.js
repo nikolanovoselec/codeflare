@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as fs from 'node:fs';
+import {createHash} from 'node:crypto';
 import { fixture, lifecycle, jsonl, assertTrimWindow, createTranscriptTrimRequest, commitTranscriptTrimCandidate, validateTranscriptTrimCandidate } from './fixtures/pi-transcript-agent-fixture.mjs';
 
 test('REQ-MEM-030 AC6: branch refusal classifies missing current ancestry without changing disk', t => {
@@ -117,7 +118,16 @@ test('REQ-MEM-030 AC5: stale scoped work refuses rewritten history without repla
   assert.ok(fs.readFileSync(f.file).equals(before));
   l.call(item); l.done(item); l.emit('agent_settled');
   assert.ok(fs.readFileSync(f.file).subarray(0, before.length).equals(before));
-
+  const refreshed=l.launch();assert.ok(refreshed);assert.notEqual(refreshed.requestId,item.requestId);
+  const rebound=JSON.parse(fs.readFileSync(refreshed.request.prompt.match(/^VARS_FILE=(.+)$/m)[1]));
+  assert.notEqual(rebound.sourceSha256,req.sourceSha256);
+  const prefix=fs.readFileSync(f.file).subarray(0,rebound.sourceBytes);
+  assert.equal(rebound.sourceSha256,createHash('sha256').update(prefix).digest('hex'));
+  const freshChild={sessionManager:{getBranch:()=>[{type:'message',message:{role:'user',content:refreshed.request.prompt}}]}};
+  const result=JSON.parse((await l.tools.get('transcript_trim').execute('refreshed',{operation:'trim'},undefined,undefined,freshChild)).content[0].text);
+  assert.equal(result.committed,true);assert.equal(result.status,'trimmed');assertTrimWindow(fs.statSync(f.file).size);
+  const persisted=fs.readFileSync(f.file,'utf8').trimEnd().split('\n').map(JSON.parse);
+  assert.deepEqual(persisted.find(row=>row.id===f.rows[3].id),f.rows[3]);
 });
 test('REQ-MEM-030 AC7: total includes the unmodified append tail and rejects candidate and staging aliases', t => {
   const f = fixture(t), req = createTranscriptTrimRequest(f.ctx); f.stage(req);
