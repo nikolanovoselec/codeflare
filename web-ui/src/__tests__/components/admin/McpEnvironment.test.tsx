@@ -47,6 +47,35 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe('Model Context Protocol Environment integration', () => {
+  it.each(['/admin', '/admin/environment'])('REQ-SETUP-023 AC3: %s presents area links in displayed-label order and preserves portal status', async (path) => {
+    api.configuration.mockResolvedValue({
+      mode, revision: 3, applicableSections: ['securityEgress', 'mcpPortals', 'domain', 'aiRouting', 'access'],
+      sections: {
+        securityEgress: { strictGatewayEgress: true },
+        mcpPortals: { portals: [portal] },
+        domain: { customDomain: 'example.com' },
+        aiRouting: { tokenState: 'administration', dynamicRoutes: [] },
+        access: { adminUsers: ['admin@example.com'] },
+      },
+      latest: {}, activeRunId: null,
+    });
+    window.history.replaceState({}, '', path);
+    mount();
+    const portalRow = await item();
+    const links = screen.getAllByRole('link').filter(link => /^\/admin\/environment\/[^/]+$/.test(link.getAttribute('href') ?? ''));
+    expect(links.map(link => link.getAttribute('href'))).toEqual([
+      '/admin/environment/access', '/admin/environment/aiRouting', '/admin/environment/domain',
+      '/admin/environment/mcpPortals', '/admin/environment/securityEgress',
+    ]);
+    expect(within(portalRow).getByText('1 portal')).toBeVisible();
+    expect(within(portalRow).getByText('Configured')).toBeVisible();
+    if (path === '/admin/environment') {
+      fireEvent.input(screen.getByRole('searchbox', { name: 'Find an area' }), { target: { value: 'Gateway' } });
+      const filtered = screen.getAllByRole('link').filter(link => /^\/admin\/environment\/[^/]+$/.test(link.getAttribute('href') ?? ''));
+      expect(filtered.map(link => link.getAttribute('href'))).toEqual(['/admin/environment/aiRouting', '/admin/environment/securityEgress']);
+    }
+  });
+
   it.each(['default', 'onboarding', 'saas', 'enterprise'] as const)('REQ-AGENT-227 AC1: normal Environment item and subsection are available in %s', async (deployment) => {
     mode = deployment;
     window.history.replaceState({}, '', '/admin/environment');

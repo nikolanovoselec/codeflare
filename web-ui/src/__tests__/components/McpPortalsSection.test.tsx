@@ -22,7 +22,7 @@ describe('Settings MCP connections', () => {
     render(() => <McpPortalsSection />);
     expect(screen.getByRole('status')).toHaveTextContent('Loading portals');
     await screen.findByText('alpha');
-    expect(screen.getByText('Connect Model Context Protocol portals and manage access to their tools.')).toBeInTheDocument();
+    expect(screen.getByText('Available tools depend on portal permissions. Restart Pi after adding a portal.')).toBeVisible();
     expect(screen.getByRole('heading', { name: 'alpha' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'beta' })).toBeInTheDocument();
     expect(screen.getByTestId('mcp-alpha-identity')).toHaveTextContent('alpha');
@@ -54,19 +54,16 @@ describe('Settings MCP connections', () => {
     window.history.replaceState({}, '', '?mcp=reconnect');
     render(() => <McpPortalsSection />);
     expect(await screen.findByRole('alert')).toHaveTextContent('Portal authorization could not be completed');
-    expect(screen.getByText(/Ask the portal administrator to check assigned and enabled servers/)).toBeVisible();
+    expect(screen.getByRole('alert')).toHaveTextContent('Ask your administrator to check the portal, then try Connect again.');
     expect(window.location.search).not.toContain('mcp=');
     expect(await screen.findByTestId('mcp-alpha-identity')).toHaveTextContent('alpha');
   });
 
-  it('REQ-AGENT-228 AC4: setup guidance explains missing servers and discovery without blocking authorization or discarding connections', async () => {
+  it('REQ-AGENT-228 AC4: concise permission guidance keeps connection actions available without a troubleshooting disclosure', async () => {
     render(() => <McpPortalsSection />);
     const connect = await screen.findByRole('button', { name: 'Connect Model Context Protocol portal beta' });
-    fireEvent.click(screen.getByText('Portal setup and connection help'));
-    expect(screen.getByText(/Ask the portal administrator to check assigned and enabled servers/)).toBeVisible();
-    expect(screen.getByText(/Manual OAuth servers may discover tools only after the first user signs in/)).toBeVisible();
-    expect(screen.getByText(/Keep your connection while tool access is corrected/)).toBeVisible();
-    expect(screen.getByText(/Ask the instance administrator to inspect MCP transport\/interception logs/)).toBeVisible();
+    expect(screen.getByText('Available tools depend on portal permissions. Restart Pi after adding a portal.')).toBeVisible();
+    expect(screen.queryByText('Portal setup and connection help')).not.toBeInTheDocument();
     expect(connect).toBeEnabled();
     expect(connect).toHaveAttribute('data-href', '/auth/mcp/connect/beta');
     expect(screen.getByTestId('mcp-alpha-connected-badge')).toBeVisible();
@@ -80,7 +77,7 @@ describe('Settings MCP connections', () => {
     expect(await screen.findByText('Authorization returned. Check the connection status below.')).toBeVisible();
     expect(await screen.findByTestId('mcp-alpha-connected-badge')).toBeVisible();
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
-    expect(screen.getByText(/A connected portal does not guarantee access to every upstream tool/)).toBeVisible();
+    expect(screen.getByText('Available tools depend on portal permissions. Restart Pi after adding a portal.')).toBeVisible();
   });
 
   it('REQ-AGENT-228 AC4: a return marker cannot override disconnected status or remove unrelated navigation state', async () => {

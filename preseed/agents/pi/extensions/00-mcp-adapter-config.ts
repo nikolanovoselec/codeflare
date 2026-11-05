@@ -155,8 +155,9 @@ function prepareBrowserTimeouts(value: Config): boolean {
       if (url.protocol !== "wss:" || url.hostname !== "api.cloudflare.com"
         || url.port || url.username || url.password
         || !/^\/client\/v4\/accounts\/[^/]+\/browser-rendering\/devtools\/browser$/.test(url.pathname)) return arg;
-      if (url.searchParams.getAll("keep_alive").length === 1 && url.searchParams.get("keep_alive") === "360000") return arg;
-      url.searchParams.set("keep_alive", "360000"); changed = true;
+      // Browser inactivity is independent of the fixed six-minute RPC budget.
+      if (url.searchParams.getAll("keep_alive").length === 1 && url.searchParams.get("keep_alive") === "1200000") return arg;
+      url.searchParams.set("keep_alive", "1200000"); changed = true;
       return "--wsEndpoint=" + url.toString();
     } catch { return arg; }
   });
@@ -297,8 +298,12 @@ function configuredMcpClient(directory: string): McpClient | undefined {
       // than treating an unsupported filter as positive selection evidence.
       if (negative && /[*?\[\]{}]/.test(rawSource)) { uncertain = true; continue; }
       const source = negative && !isAbsolute(rawSource) ? resolve(directory, rawSource) : rawSource;
-      if (negative && (source === join(directory, "extensions/mcp-portal-oauth.ts")
-        || source === "/home/user/.pi/agent/extensions/mcp-portal-oauth.ts")) continue;
+      // These exact managed exclusions disable non-client extensions only.
+      // Settled startup adds the Review pair after curation delivery; neither
+      // can exclude a client's package entrypoint. Keep other negatives closed.
+      if (negative && ["mcp-portal-oauth.ts", "review-enforcement.ts", "operator-review-remote.ts"]
+        .some(name => source === join(directory, "extensions", name)
+          || source === join("/home/user/.pi/agent/extensions", name))) continue;
       const known = identify(source);
       if (known) {
         const path = isAbsolute(source)

@@ -51,6 +51,7 @@ const policySchema = z.object({
   defaultRoute: z.union([dynamicRouteSchema, z.literal('')]),
   reasoning: levelSchema,
   allowPersonalPiProviders: z.boolean().optional(),
+  piDefaultSource: z.enum(['managed', 'pi-native']).optional(),
   targets: z.array(targetSchema).max(256).optional(),
   defaultTarget: targetSchema.optional(),
 }).strict();
@@ -112,14 +113,18 @@ export async function prepareSavedRoutingReconciliation(env: Env) {
         : profile.supportedLevels.includes('off') ? 'off' : profile.supportedLevels[0];
     } catch { return undefined; }
   };
-  const emptyPolicy = (): Policy => ({ routes: [], defaultRoute: '', reasoning: 'off', targets: [] });
+  const emptyPolicy = (policy: Policy): Policy => ({
+    routes: [], defaultRoute: '', reasoning: 'off', targets: [],
+    ...(policy.allowPersonalPiProviders !== undefined && { allowPersonalPiProviders: policy.allowPersonalPiProviders }),
+    ...(policy.piDefaultSource !== undefined && { piDefaultSource: policy.piDefaultSource }),
+  });
   const prunePolicy = (policy: Policy): Policy => {
     if (!policy.routes.some(removed) && !removed(policy.defaultRoute)
       && !policy.targets?.some(removedTarget) && !(policy.defaultTarget && removedTarget(policy.defaultTarget))) return policy;
     const routes = policy.routes.filter((route) => !removed(route));
     const targets = policy.targets?.filter((target) => !removedTarget(target));
     const effective = targets ? targets.map(handle) : routes;
-    if (effective.length === 0) return { ...emptyPolicy(), ...(policy.allowPersonalPiProviders !== undefined && { allowPersonalPiProviders: policy.allowPersonalPiProviders }) };
+    if (effective.length === 0) return emptyPolicy(policy);
     const priorDefault = policy.defaultTarget ? handle(policy.defaultTarget) : policy.defaultRoute;
     if (effective.includes(priorDefault) && !removed(policy.defaultRoute)) {
       return { ...policy, routes, ...(targets && { targets }) };
@@ -127,13 +132,14 @@ export async function prepareSavedRoutingReconciliation(env: Env) {
     const defaultRoute = effective[0];
     const reasoning = preference(defaultRoute);
     // No new grants or borrowed levels when the first survivor has no usable profile.
-    if (reasoning === undefined) return emptyPolicy();
+    if (reasoning === undefined) return emptyPolicy(policy);
     const { defaultTarget: _previous, ...rest } = policy;
     return { ...rest, routes, defaultRoute, reasoning, ...(targets && { targets, defaultTarget: targets[0] }) };
   };
   const fallback = configuration.fallbackRouting;
   const prunedFallback = fallback?.enabled ? prunePolicy({ routes: fallback.routes, defaultRoute: fallback.defaultRoute,
-    reasoning: fallback.reasoning, ...(fallback.allowPersonalPiProviders !== undefined && { allowPersonalPiProviders: fallback.allowPersonalPiProviders }), ...(fallback.targets && { targets: fallback.targets }), ...(fallback.defaultTarget && { defaultTarget: fallback.defaultTarget }) }) : undefined;
+    reasoning: fallback.reasoning, ...(fallback.piDefaultSource !== undefined && { piDefaultSource: fallback.piDefaultSource }),
+    ...(fallback.allowPersonalPiProviders !== undefined && { allowPersonalPiProviders: fallback.allowPersonalPiProviders }), ...(fallback.targets && { targets: fallback.targets }), ...(fallback.defaultTarget && { defaultTarget: fallback.defaultTarget }) }) : undefined;
   const nextReasoning: ReasoningConfiguration = {
     ...configuration,
     routeAssignments: Object.fromEntries(Object.entries(configuration.routeAssignments).filter(([route]) => !removedDynamic.has(route))),

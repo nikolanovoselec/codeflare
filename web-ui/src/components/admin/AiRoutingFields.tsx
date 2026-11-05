@@ -448,8 +448,8 @@ const AiRoutingFields: Component<Props> = (props) => {
         });
         setUnavailableRouteProfiles(unavailable);
       } else setCheckedConnection(undefined);
-    } catch {
-      if (!disposed) { setCheckedConnection(undefined); setCatalogError('The connection could not be checked. Try again.'); }
+    } catch (error) {
+      if (!disposed) { setCheckedConnection(undefined); setCatalogError(apiErrorMessage(error, 'The connection could not be checked. Try again.')); }
     } finally { if (!disposed) setCatalogBusy(false); }
     if (connectionReady()) for (const name of gatewayRoutes()) { if (disposed) break; await inspect(name); }
   };

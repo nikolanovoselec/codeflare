@@ -38,6 +38,7 @@ import { toErrorMessage } from '../lib/error-types';
 import { createLogger } from '../lib/logger';
 import { hasStrictGatewayEgress } from '../lib/controller-egress';
 import { getPersonalPiSession, wireContainerInterception, type InterceptionHost } from './container-interception';
+import { ownedBrowser, type BrowserOwnerReference, type BrowserOperation } from './container-browser';
 import type { OperatorPolicy } from '../operators/policy';
 import { parseOperatorPackageResourceProjection, verifyOperatorPackageResourceProjection,
   type OperatorPackageResourceProjection } from '../operators/package-resources';
@@ -1006,6 +1007,12 @@ export class container extends Container<Env> implements ContainerEnvState {
     human: VerifiedHumanAccessClaims; accessJwt: string;
   } | null, expected?: Parameters<typeof bindReviewSessionHuman>[2]): Promise<void> {
     await bindReviewSessionHuman(this as unknown as Parameters<typeof bindReviewSessionHuman>[0], input, expected);
+  }
+
+  _browserAcquisition?: Promise<string>;
+
+  async getOwnedBrowser(ref: BrowserOwnerReference, operation: BrowserOperation): Promise<string> {
+    return ownedBrowser(this.interceptionHost, ref, operation);
   }
 
   async getPersonalPiSession(ref: { bucket: string; sessionId: string; email: string }, ordinaryOnly = false): Promise<{

@@ -126,7 +126,7 @@ export function environmentAreas(configuration: AdminConfigurationResponse): Env
     label: LABELS[section],
     description: DESCRIPTIONS[section],
     ...describe(section, configuration.sections[section]),
-  }));
+  })).sort((left, right) => left.label.localeCompare(right.label, 'en'));
 }
 
 export function filterEnvironmentAreas(areas: EnvironmentArea[], query: string): EnvironmentArea[] {

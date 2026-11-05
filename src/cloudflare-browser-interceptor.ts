@@ -59,6 +59,9 @@ import { CLOUDFLARE_OAUTH_TOKEN_PLACEHOLDER, ENTERPRISE_BROWSER_TOKEN_PLACEHOLDE
 import { STRIPPED_REQUEST_HOP_BY_HOP, RESPONSE_HOP_BY_HOP } from './lib/controller-egress';
 import { prepareJwtStampedRequest, type JwtStampingAuthority, type JwtStampingPolicy } from './operators/jwt-stamping';
 import type { OperatorPolicy } from './operators/policy';
+import { getContainerId } from './lib/container-helpers';
+import { readBoundedStream } from './lib/bounded-stream';
+import { browserPath, type BrowserOwnerReference, type BrowserOperation } from './container/container-browser';
 
 const logger = createLogger('cf-browser-interceptor');
 
@@ -83,6 +86,8 @@ interface BrowserInterceptorProps extends PersonalPiProps {
   browserAccountId?: string;
   /** The real admin "Browser Rendering - Edit" token, resolved worker-side at wiring. */
   browserToken?: string;
+  /** Ordinary owning container's parent-bound reference; never taken from HTTP input. */
+  browserOwner?: BrowserOwnerReference;
   /** Strict egress requires env.EGRESS for managed Browser and other CF API traffic. */
   strict?: boolean;
   jwtStamping?: JwtStampingPolicy;
@@ -190,6 +195,53 @@ export class CloudflareBrowserInterceptor extends WorkerEntrypoint<Env> {
     if (!browserToken) {
       logger.warn('no admin Browser Rendering token configured; failing closed');
       return jsonError(401, 'BROWSER_NO_TOKEN', 'Browser Rendering token not configured');
+    }
+
+    if (url.protocol !== 'https:' || url.username || url.password || url.port || url.pathname.includes('%')) {
+      return jsonError(403, 'CF_API_BLOCKED', 'Cloudflare API access is not permitted');
+    }
+    if (strict && !this.env.EGRESS) return jsonError(503, 'EGRESS_UNAVAILABLE', 'Strict gateway egress unavailable');
+    const base = browserPath(browserAccountId!);
+    const browserRoot = base.slice(0, -'/devtools/browser'.length);
+    if (url.pathname.startsWith(`${browserRoot}/sessions`)
+      || (url.pathname.startsWith(`${browserRoot}/devtools`) && url.pathname !== base && !url.pathname.startsWith(`${base}/`))) {
+      return jsonError(403, 'BROWSER_REFERENCE_DENIED', 'Only the owned browser is available');
+    }
+    if (url.pathname === base || url.pathname.startsWith(`${base}/`)) {
+      const owner = props?.browserOwner;
+      if (!owner || !this.env.CONTAINER) return jsonError(403, 'BROWSER_REFERENCE_DENIED', 'Browser owner authority unavailable');
+      const generic = url.pathname === base;
+      const explicitCreate = generic && request.method === 'POST' && !isWs;
+      if ((generic && !explicitCreate && (!isWs || request.method !== 'GET'))
+        || request.headers.has('cf-brapi-guardrails')
+        || [...url.searchParams.keys()].some(key => key !== 'keep_alive')
+        || (url.searchParams.has('keep_alive') && (!/^\d+$/.test(url.searchParams.get('keep_alive')!)
+          || Number(url.searchParams.get('keep_alive')) < 10_000 || Number(url.searchParams.get('keep_alive')) > 1_200_000))) {
+        return jsonError(400, 'BROWSER_REQUEST_UNSUPPORTED', 'Unsupported owned-browser acquisition or attachment options');
+      }
+      if (explicitCreate) {
+        try {
+          const body: unknown = JSON.parse(new TextDecoder().decode(await readBoundedStream(request.body, 1024, 'Browser create', request.signal)));
+          if (!body || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).length) throw new Error('Invalid create');
+        } catch { return jsonError(400, 'BROWSER_REQUEST_UNSUPPORTED', 'Owned-browser creation requires an empty JSON object'); }
+      }
+      try {
+        const container = this.env.CONTAINER.getByName(getContainerId(owner.bucket, owner.sessionId)) as unknown as {
+          getOwnedBrowser(ref: BrowserOwnerReference, operation: BrowserOperation): Promise<string>;
+        };
+        const id = await container.getOwnedBrowser(owner, explicitCreate ? 'replace' : generic ? 'acquire' : 'attach');
+        if (!/^[A-Za-z0-9_-]{1,128}$/.test(id)) throw new Error('Invalid reference');
+        if (explicitCreate) return new Response(JSON.stringify({ sessionId: id,
+          webSocketDebuggerUrl: `wss://api.cloudflare.com${base}/${id}` }), { headers: { 'content-type': 'application/json' } });
+        if (!generic && url.pathname.slice(base.length + 1).split('/')[0] !== id) {
+          return jsonError(403, 'BROWSER_REFERENCE_DENIED', 'Only the owned browser is available');
+        }
+        if (generic) url.pathname = `${base}/${id}`;
+        // keep_alive belongs to acquisition, not reconnect; never imply extension on attach.
+        url.search = '';
+      } catch {
+        return jsonError(503, 'BROWSER_UNAVAILABLE', 'Owned browser unavailable; no automatic fresh-browser replay');
+      }
     }
 
     // Strip the container placeholder + recomputed headers, then stamp the real token.

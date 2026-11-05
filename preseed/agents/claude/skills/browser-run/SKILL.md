@@ -39,7 +39,9 @@ Managed Browser Run is Advanced-only and requires configured Browser Rendering a
 
 Finish long non-browser build and release prerequisites before requesting an OTP. Perform consecutive authorized owner actions in the same live browser context. After an idle interval, obtain live page inventory and verify protected access again; do not assume a cached page ID or prior login still works. Do not use blind keep-alive pings or export sessions to avoid reauthentication.
 
-The observed configuration used `keep_alive=360000` and `requestTimeoutMs: 360000`. After intervening non-browser work, the authenticated tab was unavailable and reconnecting yielded a fresh blank page. This does not prove owner-credential expiry or the underlying abort cause. Preserve configured lifetime settings; request a fresh authorized login only when current access requires it.
+The managed continuity profile uses `keep_alive=1200000` (twenty-minute provider inactivity), separately from fixed six-minute browser MCP/RPC budgets. Reconnect reuses the retained owner/session/generation/configuration-bound provider reference and existing browser context, not another account session or a fresh isolated context. Real browser activity may keep that provider session alive; acquisition time alone does not prove expiry. Do not add health pings or export cookies/profiles.
+
+Unavailable retained state is reported honestly; a new blank browser is not recovered login. Reconnection never authorizes replay of uncertain mutations or bypass of website expiry/revocation. Verify deployment and client adoption before assuming this profile is active. Historical six-minute context loss did not prove credential expiry or its underlying cause; request fresh authorized login only when current access requires it.
 
 ## Authorized public owner login
 
@@ -54,4 +56,4 @@ In the observed Pi session, `new_page` repeatedly aborted at 120000 ms and cache
 ## Notes
 
 - Extract just what you need (markdown, scoped selectors, targeted snapshot) over dumping whole pages — protect the context window. Output is capped (~120k chars).
-- The browser is remote (Cloudflare's edge), so it bypasses container egress limits but is still subject to the target site's own access controls.
+- Strict Gateway routing covers the configured Browser Run API/CDP transport. Verify remote-browser website networking independently; a Gateway CDP connection proves neither full website-egress coverage nor bypass. Preserve the operator's TLS inspection settings and the target site's access controls.

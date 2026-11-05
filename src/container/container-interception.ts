@@ -29,6 +29,7 @@ import { interceptedGithubHosts } from '../github-interceptor';
 import { INTERCEPTED_CF_BROWSER_HOSTS, INTERCEPTED_CF_OAUTH_HOSTS } from '../cloudflare-browser-interceptor';
 import { CLOUDFLARE_OAUTH_TOKEN_PLACEHOLDER } from '../lib/constants';
 import { getEnterpriseBrowserCreds } from '../lib/browser-render-token';
+import { browserOwnerReference } from './container-browser';
 import { getOrImportKey } from '../lib/kv-crypto';
 import type { OperatorPolicy } from '../operators/policy';
 import type { OperatorContainerProfile } from './operator-context';
@@ -104,6 +105,13 @@ export async function getPersonalPiSession(host: InterceptionHost, ref: {
   if (!ordinaryOnly && host._operatorContainerProfile?.piProfile.source === 'pi-native') {
     return getNativeOperatorPiSession(host, ref);
   }
+  return getOrdinarySessionAuthority(host, ref);
+}
+
+/** Ordinary owner/lifecycle authority, independent of native-provider and Review grants. */
+export async function getOrdinarySessionAuthority(host: InterceptionHost, ref: {
+  bucket: string; sessionId: string; email: string;
+}): Promise<{ generation: number; groups: string[] }> {
   const owned = () => host._bucketName === ref.bucket && host._sessionId === ref.sessionId
     && host._userEmail?.toLowerCase() === ref.email.toLowerCase()
     && !host._operatorPolicy && !host._operatorContainerProfile;
@@ -364,7 +372,7 @@ const browserRendering: InterceptorSpec = {
     return {
       entrypoint: 'CloudflareBrowserInterceptor',
       props: { ...await personalPiProps(host), ...(accountId ? { browserAccountId: accountId } : {}),
-        ...(token ? { browserToken: token } : {}), strict: host._strictEgress,
+        ...(token ? { browserToken: token } : {}), strict: host._strictEgress, ...await browserOwnerReference(host),
         ...(host._operatorPolicy ? { operatorPolicy: host._operatorPolicy } : {}), ...jwtProps(host) },
       hosts: INTERCEPTED_CF_BROWSER_HOSTS,
       wiredLog: 'Enterprise Browser Rendering interception wired',

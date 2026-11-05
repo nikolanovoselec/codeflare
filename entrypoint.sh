@@ -4293,7 +4293,7 @@ remove_owned_browser_mcp_servers() {
 if [ "${SESSION_MODE:-default}" = "advanced" ] \
    && [ -n "${CLOUDFLARE_API_TOKEN:-}" ] \
    && [ -n "${CLOUDFLARE_ACCOUNT_ID:-}" ]; then
-    CDP_WS_ENDPOINT="wss://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/browser-rendering/devtools/browser?keep_alive=360000"
+    CDP_WS_ENDPOINT="wss://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/browser-rendering/devtools/browser?keep_alive=1200000"
     # --wsHeaders takes a JSON string; build it with jq so the bearer token is
     # safely encoded, then pass it as a single --wsHeaders=<json> arg.
     CDP_WS_HEADERS=$(jq -nc --arg auth "Bearer $CLOUDFLARE_API_TOKEN" '{Authorization:$auth}')
@@ -4327,10 +4327,10 @@ if [ "${SESSION_MODE:-default}" = "advanced" ] \
     if [ "${PI_MCP_CONFIG_READY:-0}" = "1" ]; then
         mkdir -p "$USER_HOME/.pi/agent"
         if [ -f "$PI_MCP_JSON" ] && jq -e '.mcpServers | has("chrome-devtools")' "$PI_MCP_JSON" >/dev/null 2>&1; then
-            # Keep custom server settings and credentials, but cap Codeflare's
-            # Cloudflare Browser Run inactivity window at SIX MINUTES. This
-            # also repairs restored/migrated ten-minute endpoints without
-            # rewriting unrelated browser services or authorization headers.
+            # Keep custom settings and credentials; use the documented bounded
+            # twenty-minute Browser Run inactivity window for session reuse.
+            # RPC/navigation budgets stay separate and unchanged. Do not rewrite
+            # unrelated browser services or authorization headers.
             node - "$PI_MCP_JSON" <<'NODE'
 const fs = require('node:fs');
 const path = process.argv[2];
@@ -4345,8 +4345,8 @@ if (Array.isArray(browser?.args)) {
       if (url.protocol !== 'wss:' || url.hostname !== 'api.cloudflare.com'
         || url.port || url.username || url.password
         || !/^\/client\/v4\/accounts\/[^/]+\/browser-rendering\/devtools\/browser$/.test(url.pathname)) return arg;
-      if (url.searchParams.getAll('keep_alive').length === 1 && url.searchParams.get('keep_alive') === '360000') return arg;
-      url.searchParams.set('keep_alive', '360000');
+      if (url.searchParams.getAll('keep_alive').length === 1 && url.searchParams.get('keep_alive') === '1200000') return arg;
+      url.searchParams.set('keep_alive', '1200000');
       changed = true;
       return '--wsEndpoint=' + url.toString();
     } catch { return arg; }

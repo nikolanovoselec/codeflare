@@ -2,6 +2,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@solidjs/te
 import { Route, Router } from '@solidjs/router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ConfigurationRequestError, type ConfigurationPreview } from '../../api/client';
+import { ApiError } from '../../api/fetch-helper';
 import type { FallbackRouting, PiReasoningLevel, ProfileRevisionRef, ReasoningConfiguration, ReasoningDiscoveryResult, ReasoningRouteVerification } from '../../types';
 
 const RequestError = vi.hoisted(() => class ConfigurationRequestError extends Error {
@@ -142,6 +143,27 @@ beforeEach(() => {
 afterEach(() => { vi.unstubAllGlobals(); cleanup(); });
 
 describe('REQ-ENTERPRISE-031 explicit routing activation', () => {
+  it('REQ-ENTERPRISE-034 AC8: saved connection failures show safe recovery guidance and preserve the connection for retry', async () => {
+    const recovery = 'Saved routing reconciliation failed. Reload Environment settings before retrying.';
+    api.catalog.mockRejectedValueOnce(new ApiError(recovery, 503, 'Service Unavailable'));
+    mount();
+    expect(await screen.findByRole('alert')).toHaveTextContent(recovery);
+    await section('Connection');
+    expect(screen.getByLabelText('AI Gateway URL')).toHaveValue(aiRouting().gatewayUrl);
+    expect(screen.getByLabelText('Replacement API token')).toHaveValue('');
+    await fireEvent.click(screen.getByRole('button', { name: 'Check connection' }));
+    expect(await screen.findByText('Connected · 1 routes readable')).toBeVisible();
+    expect(screen.getByLabelText('AI Gateway URL')).toHaveValue(aiRouting().gatewayUrl);
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('REQ-ENTERPRISE-034 AC8: unexpected connection exceptions retain a safe fallback without exposing raw error details', async () => {
+    api.catalog.mockRejectedValueOnce(new Error('private-provider-detail'));
+    mount();
+    expect(await screen.findByRole('alert')).toHaveTextContent('The connection could not be checked. Try again.');
+    expect(screen.queryByText(/private-provider-detail/)).not.toBeInTheDocument();
+  });
+
   it('REQ-ENTERPRISE-044: automatic inventory cleanup advances the review revision without saving unrelated edits', async () => {
     const live = aiRouting();
     api.configuration.mockResolvedValueOnce(configuration({ ...live,

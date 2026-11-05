@@ -30,6 +30,7 @@ import {
 } from './container-metrics';
 
 import { discardReviewSessionHuman } from './review-session-human';
+import { BROWSER_REFERENCE_KEY } from './container-browser';
 
 const SESSION_ID_KEY = '_sessionId';
 
@@ -65,7 +66,7 @@ const OPERATIONAL_STORAGE_KEYS = [
   SESSION_ID_KEY, 'bucketName', 'workspaceSyncEnabled', 'fastStartEnabled',
   'tabConfig', 'sessionWorkspace', 'sleepAfter', TRANSPORT_FAILURE_STREAK_KEY,
   'containerAuthToken', 'vaultKey', 'review:session-human', 'review:session-principal',
-  'review:boundary-input', 'review:push-evidence', 'review:pr-creation',
+  'review:boundary-input', 'review:push-evidence', 'review:pr-creation', BROWSER_REFERENCE_KEY,
 ];
 
 function clearOperationalMemory(host: LifecycleHost): void {
@@ -185,6 +186,7 @@ export async function onStart(host: LifecycleHost): Promise<void> {
       if (previous !== undefined && (!Number.isSafeInteger(previous) || previous < 0
         || previous > session.lifecycleGeneration)) throw new Error('D1 start generation handoff unavailable');
       if (previous !== session.lifecycleGeneration) {
+        await txn.delete(BROWSER_REFERENCE_KEY);
         await discardReviewSessionHuman({ ctx: { storage: txn } });
       }
       await txn.delete(SHUTDOWN_REQUESTED_KEY);

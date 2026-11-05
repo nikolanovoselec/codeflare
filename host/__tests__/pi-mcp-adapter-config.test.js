@@ -213,7 +213,7 @@ for (const regenerate of [false, true]) {
     assert.equal(prepared.mcpServers['chrome-devtools'].lifecycle, 'lazy');
     assert.deepEqual(prepared.mcpServers['chrome-devtools'].args.slice(1), browser.args.slice(1));
     const endpoint = new URL(prepared.mcpServers['chrome-devtools'].args[0].slice('--wsEndpoint='.length));
-    assert.deepEqual(endpoint.searchParams.getAll('keep_alive'), ['360000']);
+    assert.deepEqual(endpoint.searchParams.getAll('keep_alive'), ['1200000']);
     assert.equal(endpoint.searchParams.get('custom'), 'keep');
     assertArchived(f, 'mcp.json.migrated', original);
     if (regenerate) assert.equal(f.prepare(true), true);
@@ -769,5 +769,123 @@ for (const expression of ['!synthetic-command', '${SYNTHETIC_VAR}', '$env:SYNTHE
     assert.equal(result.status, 0, result.stderr);
     assert.equal(readFileSync(f.legacy, 'utf8'), bytes);
     assert.equal(existsSync(f.target), false, 'failed semantic preparation must block active Pi config creation');
+  });
+}
+
+// Exact managed non-client exclusions must not change MCP client selection.
+for (const form of ['absolute', 'relative', 'dot-relative', 'canonical']) {
+  for (const owner of ['stock', 'adapter', 'ambiguous', 'unknown']) {
+    test(`REQ-AGENT-217 AC1/AC2/AC7: Review exclusions preserve selected client behavior (${form}, ${owner})`, async t => {
+      const f = await fixture(t);
+      const prefix = form === 'absolute' ? `${f.directory}/extensions/`
+        : form === 'canonical' ? '/home/user/.pi/agent/extensions/'
+        : form === 'dot-relative' ? './extensions/' : 'extensions/';
+      const stockSource = 'npm:pi-mcp-extension@1.12.1';
+      const adapterSource = 'npm:pi-mcp-adapter@5.3.1';
+      const packages = owner === 'stock' ? [stockSource] : owner === 'adapter' ? [adapterSource]
+        : owner === 'ambiguous' ? [stockSource, adapterSource] : [];
+      writeFileSync(join(f.directory, 'settings.json'), JSON.stringify({ packages,
+        extensions: ['-builtin:mcp', ...['review-enforcement.ts', 'operator-review-remote.ts']
+          .map(name => `-${prefix}${name}`)],
+      }));
+      const target = '{"mcpServers":{"preferred":{"command":"user-command"}},"settings":{"custom":true}}\n';
+      writeFileSync(f.legacy, legacyConfig);
+      writeFileSync(f.target, target);
+      const before = readdirSync(f.directory).sort();
+      const notifications = [];
+      const pi = { on(event, handler) {
+        if (event === 'session_start') handler({}, { ui: { notify(message, level) {
+          notifications.push({ message, level });
+        } } });
+      } };
+      f.load(pi);
+      f.load(pi);
+      if (owner === 'stock') {
+        assert.equal(existsSync(f.legacy), false);
+        assert.deepEqual(JSON.parse(readFileSync(f.target, 'utf8')), {
+          mcpServers: { preferred: { command: 'user-command' } },
+          settings: { custom: true, requestTimeoutMs: 360000 },
+        });
+        assertArchived(f, 'mcp-adapter.json.migrated', legacyConfig);
+        assertArchived(f, 'mcp.json.migrated', target);
+        assert.deepEqual(notifications, []);
+      } else {
+        assert.equal(readFileSync(f.legacy, 'utf8'), legacyConfig);
+        assert.equal(readFileSync(f.target, 'utf8'), target);
+        assert.deepEqual(readdirSync(f.directory).sort(), before);
+        if (owner === 'adapter') assert.deepEqual(notifications, []);
+        else assert.ok(notifications.some(({ message, level }) =>
+          level === 'warning' && /selection.*ambiguous|ambiguous.*selection/i.test(message)));
+      }
+    });
+  }
+}
+
+for (const exclusion of ['-custom/review-enforcement.ts', '-extensions/operator-review-remote.ts.extra',
+  '-extensions/*review*.ts']) {
+  test(`REQ-AGENT-217 AC1: Review exception does not authorize other exclusions (${exclusion})`, async t => {
+    const f = await fixture(t);
+    writeFileSync(join(f.directory, 'settings.json'), JSON.stringify({
+      packages: ['npm:pi-mcp-extension@1.12.1'], extensions: [exclusion],
+    }));
+    writeFileSync(f.legacy, legacyConfig);
+    const before = readdirSync(f.directory).sort();
+    const notifications = [];
+    f.load({ on(event, handler) {
+      if (event === 'session_start') handler({}, { ui: { notify(message, level) {
+        notifications.push({ message, level });
+      } } });
+    } });
+    assert.equal(readFileSync(f.legacy, 'utf8'), legacyConfig);
+    assert.deepEqual(readdirSync(f.directory).sort(), before);
+    assert.ok(notifications.some(({ message, level }) =>
+      level === 'warning' && /selection.*ambiguous|ambiguous.*selection/i.test(message)));
+  });
+}
+
+for (const inventory of ['local-only', 'settled-review']) {
+  test(`REQ-AGENT-217 AC1: real startup package assembly permits stock handoff (${inventory})`, async t => {
+    const f = await fixture(t);
+    const stockPath = join(f.directory, 'local-mcp-runtime/npm/node_modules/pi-mcp-extension');
+    writeFileSync(join(f.directory, 'settings.json'), JSON.stringify({
+      packages: [stockPath, 'npm:pi-mcp-adapter@5.3.1'],
+      extensions: ['-extensions/mcp-portal-oauth.ts', '-builtin:mcp'],
+      customPreference: { keep: true },
+    }));
+    if (inventory === 'settled-review') {
+      mkdirSync(join(f.directory, 'extensions'));
+      for (const name of ['operator-review-selector.ts', 'operator-review-remote.ts']) {
+        writeFileSync(join(f.directory, 'extensions', name), 'export default () => {}');
+      }
+    }
+    // Reuse the real settings assembly program, never a duplicated resolver.
+    const entrypoint = readFileSync(new URL('../../entrypoint.sh', import.meta.url), 'utf8');
+    const marker = `node - "$pi_settings" <<'NODE'`;
+    const start = entrypoint.indexOf(marker);
+    if (start === -1) throw new Error('Pi settings assembly heredoc not found');
+    const bodyStart = entrypoint.indexOf('\n', start) + 1;
+    const end = entrypoint.indexOf('\nNODE', bodyStart);
+    if (end === -1) throw new Error('Pi settings assembly terminator not found');
+    const script = join(f.home, 'assembly.cjs');
+    writeFileSync(script, entrypoint.slice(bodyStart, end));
+    const notifications = [];
+    for (let boot = 0; boot < 2; boot++) {
+      const result = spawnSync('node', [script, join(f.directory, 'settings.json')], { encoding: 'utf8' });
+      assert.equal(result.status, 0, result.stderr);
+      const settings = JSON.parse(readFileSync(join(f.directory, 'settings.json'), 'utf8'));
+      assert.deepEqual(settings.customPreference, { keep: true });
+      assert.ok(settings.packages.includes('npm:pi-mcp-extension@1.12.1'));
+      assert.ok(!settings.packages.includes('npm:pi-mcp-adapter@5.3.1'));
+      writeFileSync(f.legacy, legacyConfig);
+      f.load({ on(event, handler) {
+        if (event === 'session_start') handler({}, { ui: { notify(message, level) {
+          notifications.push({ message, level });
+        } } });
+      } });
+      assert.equal(existsSync(f.legacy), false);
+      assert.equal(JSON.parse(readFileSync(f.target, 'utf8')).settings.requestTimeoutMs, 360000);
+      assertArchived(f, 'mcp-adapter.json.migrated', legacyConfig);
+    }
+    assert.deepEqual(notifications, []);
   });
 }

@@ -3,6 +3,7 @@ import type { Env } from '../../types';
 import { D1SessionRepository } from '../../lib/session-repository';
 import { createMockKV } from '../helpers/mock-kv';
 import { createMockSessionD1 } from '../helpers/mock-session-d1';
+import { BROWSER_REFERENCE_KEY } from '../../container/container-browser';
 
 // Only the platform/SDK boundary is doubled. In SDK 0.3.7 public destroy()
 // awaits container.destroy(); stop() signals the native program. Do not replace
@@ -285,6 +286,16 @@ afterEach(async () => {
 });
 
 describe('REQ-SESSION-039 / REQ-SESSION-040: DO-owned native force termination', () => {
+  it('REQ-BROWSER-008: KILL retires the owned provider reference with operational authority', async () => {
+    const f = await fixture();
+    f.storage.set(BROWSER_REFERENCE_KEY, { bucket: ref.bucket, sessionId: ref.sessionId, generation: ref.generation,
+      email: 'owner@example.test', configuration: 'browser-config', providerId: 'owned-provider' });
+    const instance = await f.coordinator();
+    await completed(observe(() => (instance as unknown as KillContainer).killSession(ref)));
+    expect(f.program().running).toBe(false);
+    expect(f.storage.get(BROWSER_REFERENCE_KEY)).toBeUndefined();
+  });
+
   it.each(['starting', 'running', 'unreachable', 'stopping'])(
     'force-kills %s without graceful drain, sync or SIGTERM and retains row and R2 files (REQ-SESSION-039 AC5-AC7 / REQ-SESSION-040 AC1)', async status => {
       const f = await fixture({ status });
@@ -551,8 +562,12 @@ describe('REQ-SESSION-039 / REQ-SESSION-040: DO-owned native force termination',
       expect(await f.repository.start(ref.bucket, ref.sessionId, new Date().toISOString()))
         .toMatchObject({ lifecycleState: 'starting', lifecycleGeneration: 8 });
       f.replacement();
+      // Even a stale record left by interrupted cleanup cannot cross the generation handoff.
+      f.storage.set(BROWSER_REFERENCE_KEY, { bucket: ref.bucket, sessionId: ref.sessionId, generation: 7,
+        email: 'owner@example.test', configuration: 'browser-config', providerId: 'old-provider' });
       await instance.setBucketName(ref.bucket, { sessionId: ref.sessionId, workspaceSyncEnabled: true });
       await instance.onStart();
+      expect(f.storage.get(BROWSER_REFERENCE_KEY)).toBeUndefined();
       const replacementKeys = new Map(['bucketName', '_sessionId', 'containerAuthToken',
         'workspaceSyncEnabled', 'lifecycleGeneration', 'containerStartedAt'].map(key => [key, f.storage.get(key)]));
       expect(replacementKeys.get('lifecycleGeneration')).toBe(8);

@@ -48,11 +48,14 @@ function makeInterceptor(
   const egressFetch = vi.fn(async (_req: Request) => new Response('gateway', { status: 200 }));
   const env = {
     ENTERPRISE_MODE: 'active',
+    CONTAINER: { getByName: () => ({ getOwnedBrowser: async () => 'owned-browser' }) },
     EGRESS: { fetch: egressFetch },
     ...envOverrides,
   } as unknown as Env;
   const ctx = {
-    props: { browserAccountId: 'acc', browserToken: REAL_TOKEN, strict: true, ...props },
+    props: { browserAccountId: 'acc', browserToken: REAL_TOKEN, strict: true,
+      browserOwner: { bucket: 'owner', sessionId: 'session1234', email: 'owner@example.test', generation: 1, configuration: 'bound-config' },
+      ...props },
   } as unknown as ExecutionContext;
   return { interceptor: new CloudflareBrowserInterceptor(ctx, env), egressFetch };
 }
@@ -181,7 +184,7 @@ describe('REQ-BROWSER-008: CloudflareBrowserInterceptor REST path', () => {
       expect(direct).toEqual([]);
       expect(inspected.map(request => ({ url: request.url, authorization: request.headers.get('authorization'),
         redirect: request.redirect, upgrade: request.headers.get('upgrade') }))).toEqual(failure === 'missing binding' ? [] : [{
-        url, authorization: `Bearer ${REAL_TOKEN}`, redirect: 'manual', upgrade: upgrade ? 'websocket' : null,
+        url: upgrade ? `${url}/owned-browser` : url, authorization: `Bearer ${REAL_TOKEN}`, redirect: 'manual', upgrade: upgrade ? 'websocket' : null,
       }]);
     } finally { fetchSpy.mockRestore(); }
   });
@@ -328,7 +331,7 @@ describe('REQ-BROWSER-008: CloudflareBrowserInterceptor CDP WebSocket', () => {
       expect(outgoing.map(request => ({ url: request.url, authorization: request.headers.get('authorization'),
         access: request.headers.get('cf-access-jwt-assertion'), upgrade: request.headers.get('upgrade'),
         redirect: request.redirect }))).toEqual([{
-        url, authorization: `Bearer ${REAL_TOKEN}`, access: 'verified.jwt', upgrade: 'websocket', redirect: 'manual',
+        url: `${url}/owned-browser`, authorization: `Bearer ${REAL_TOKEN}`, access: 'verified.jwt', upgrade: 'websocket', redirect: 'manual',
       }]);
       expect(strict ? direct : inspected).toEqual([]);
       // Exercise actual close/error propagation at the socket boundary, not listener wiring.
