@@ -58,7 +58,26 @@ const dispatcherInferenceSchema = (limits = dispatcherCapacities()) => z.strictO
     stream_options: z.strictObject({ include_usage: z.literal(true) }).optional(),
   }) });
 
-const dispatcherReceiptSchema = z.strictObject({ operationId: dispatcherOperationId });
+const dispatcherReceiptSchema = z.strictObject({ operationId: dispatcherOperationId,
+  sourceResponse: z.strictObject({ generation: z.number().safe().int().positive(),
+    requestDigest: z.string().regex(/^[0-9a-f]{64}$/), responseDigest: z.string().regex(/^[0-9a-f]{64}$/),
+    url: dispatcherSourceSchema().shape.url }).optional(),
+});
+const retainedSourceEnvelopeSchema = z.strictObject({ url: dispatcherSourceSchema().shape.url,
+  status: z.number().int().min(100).max(599), headers: z.record(z.string(), z.string()).refine(headers =>
+    Object.keys(headers).every(key => ['content-type', 'etag', 'last-modified', 'date', 'link', 'location'].includes(key))),
+  body: z.string(),
+});
+
+/** Validate archived wire bytes, never a reason to fetch or repair missing evidence. */
+export function parseRetainedDispatcherSource(body: string, url: string, byteLimit: number) {
+  if (new TextEncoder().encode(body).byteLength > byteLimit) throw new Error('Retained source exceeds limit');
+  const raw: unknown = JSON.parse(body);
+  const value = retainedSourceEnvelopeSchema.parse(raw);
+  if (value.url !== url) throw new Error('Retained source identity mismatch');
+  // Preserve the original serialized envelope's field order for its receipt digest.
+  return raw as typeof value;
+}
 // Structural inference-only guard while the canonical optional management field
 // crosses the registry/RPC boundary. Never manufacture network/storage authority.
 const dispatcherPolicyInferenceSchema = z.strictObject({

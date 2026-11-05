@@ -3,7 +3,7 @@
 # Operators
 
 <a id="domain-dependencies"></a>
-Enterprise-only Operator identity, installation, admission, execution, confinement, persistence, webhook and user-surface contracts. This is the single owner of REQ-OPERATOR-001–095. Existing authentication, enterprise authorization, session admission/lifecycle, storage, setup and provider routing remain their own authorities: Operator restrictions can narrow but never extend those permissions. Root sessions and existing human/local-review behavior remain unchanged. Required merge-check activation remains out of scope.
+Enterprise-only Operator identity, installation, admission, execution, confinement, persistence, webhook and user-surface contracts. This is the single owner of REQ-OPERATOR-001–097. Existing authentication, enterprise authorization, session admission/lifecycle, storage, setup and provider routing remain their own authorities: Operator restrictions can narrow but never extend those permissions. Root sessions and existing human/local-review behavior remain unchanged. Required merge-check activation remains out of scope.
 
 **Domain owner:** Backend (Worker), container host and enterprise frontend
 
@@ -3302,3 +3302,33 @@ Child receives scoped parent transport/inference and required scheduler bridge o
 
 
 <a id="task127-actionable-bounded-diagnostics-amendment"></a>
+
+### REQ-OPERATOR-097: Retained Dispatcher source evidence reads
+
+**Intent:** Packages recover archived original evidence without retaining duplicate bodies in their working state or causing another upstream operation.
+
+**Applies To:** System
+
+**Acceptance Criteria:**
+
+1. An authenticated receipt read returns retained source bytes only for an original completed GET matching generation, URL and request/response digests. <!-- @impl: src/operators/activity.ts::OperatorActivity.dispatcherOperation --> <!-- @test: src/__tests__/operators/dispatcher-retained-source.test.ts (recovers the original envelope after reconstruction without new source effects or budget consumption) -->
+2. Missing or corrupt retained bytes refuse without upstream fallback or altering the original operation. <!-- @impl: src/operators/activity.ts::OperatorActivity.dispatcherOperation --> <!-- @test: src/__tests__/operators/dispatcher-retained-source.test.ts (refuses %s retained bytes without falling through to an upstream GET) -->
+3. Mismatched evidence identity refuses without reserving or executing another operation. <!-- @impl: src/operators/operator-runtime-capability.ts::parseDispatcherOperation --> <!-- @impl: src/operators/activity.ts::OperatorActivity.dispatcherOperation --> <!-- @test: src/__tests__/operators/dispatcher-retained-source.test.ts (refuses a mismatched %s without issuing another source operation) -->
+4. Existing session, lease, generation and deadline fences govern release of retained bytes. <!-- @impl: src/operators/activity.ts::OperatorActivity.dispatcherOperation --> <!-- @test: src/__tests__/operators/dispatcher-retained-source.test.ts (retains the existing %s authority fence before releasing source bytes) -->
+5. Reads preserve original uncertainty, operation consumption and settlement; they never turn a mutation into readable GET evidence. <!-- @impl: src/operators/activity.ts::OperatorActivity.dispatcherOperation --> <!-- @test: src/__tests__/operators/dispatcher-retained-source.test.ts (cannot release or replay an uncertain mutation as retained GET evidence) --> <!-- @test: src/__tests__/operators/dispatcher-retained-source.test.ts (recovers the original envelope after reconstruction without new source effects or budget consumption) -->
+
+**Constraints:**
+
+- Optional source proof extends the existing receipt wire; metadata-only receipts remain unchanged.
+- Existing source-envelope byte and header restrictions remain mandatory.
+- No new storage service, execution authority, retry, SDK modification or credential exposure.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-OPERATOR-062](#req-operator-062-repository-only-dispatcher-transport), [REQ-OPERATOR-048](#req-operator-048-dispatcher-execution)
+
+**Verification:** Authored parent-boundary regressions require exact-head CI; package qualification and hosted acceptance remain separate.
+
+**Status:** Implemented
+
+---

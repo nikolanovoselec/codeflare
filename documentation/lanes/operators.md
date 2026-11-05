@@ -430,7 +430,21 @@ Private GenericTransport additionally preserves its exact legacy `{code:'OPERATO
   operationCount: number, operationLimit: number }
 ```
 
-Request digest is SHA-256 of parsed immutable `JSON.stringify({path, body})`; use returned digest. Response digest covers exact persisted envelope, not inner body. Projection exposes no remote body, secret or journal internals. Count covers all journal entries including inference/earlier generations, only point-in-time observation, no reservation.
+Request digest is SHA-256 of parsed immutable `JSON.stringify({path, body})`; use returned digest. Response digest covers exact persisted envelope, not inner body. The metadata-only projection exposes no remote body, secret or journal internals. Count covers all journal entries including inference/earlier generations, only point-in-time observation, no reservation.
+
+Packages can explicitly recover an archived source envelope through the same receipt endpoint:
+
+```ts
+// POST /v1/dispatcher/receipt — cached-only, no source execution
+{ operationId: string,
+  sourceResponse: { generation: number, requestDigest: string,
+    responseDigest: string, url: string } }
+// HTTP 200: ordinary receipt fields plus
+{ sourceResponse: { url: string, status: number,
+    headers: Record<string, string>, body: string } }
+```
+
+This opt-in requires the original completed GET, matching proof and intact retained bytes under current authority. Missing/corrupt evidence refuses with `receipt-unavailable`; it never fetches upstream, reserves an operation or resolves uncertainty. The existing source-envelope byte/header restrictions remain. Packages can therefore retain compact evidence references rather than duplicate full bodies in working state. No diagnostic/browser API gains this private-body response ([REQ-OPERATOR-097](../../sdd/spec/operators.md#req-operator-097-retained-dispatcher-source-evidence-reads)). <!-- @impl: src/operators/activity.ts::OperatorActivity.dispatcherOperation -->
 
 Approved package deterministic code must first validate unique positive domain evidence for original target/head/text/publisher/outcome. Model claim, absent receipt or generic merged flag is not proof. Then:
 

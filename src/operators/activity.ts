@@ -34,7 +34,7 @@ import { classifyDispatcherInference, inferenceAttemptKey, inferenceRetryDelay,
   type DispatcherInferenceAttempt, type DispatcherInferenceChain, type DispatcherInferenceResponse } from './dispatcher-inference-recovery';
 import { DEFAULT_DISPATCHER_OPERATION_LIMIT, dispatcherOperationLimit } from './dispatcher-operation-limits';
 import { authorizeDispatcherPlan, createDispatcherOperation, parseDispatcherOperation,
-  readDispatcherBody, dispatcherGithubApiOrigin, dispatcherWireRules, prepareDispatcherNative, type DispatcherAdmittedTarget,
+  readDispatcherBody, dispatcherGithubApiOrigin, dispatcherWireRules, prepareDispatcherNative, parseRetainedDispatcherSource, type DispatcherAdmittedTarget,
   type DispatcherInferenceCountObservation, type DispatcherBodyOverflowObservation } from './operator-runtime-capability';
 import { z } from 'zod';
 import { readDispatcherUpdates, type DispatcherResultProjection } from './dispatcher-result';
@@ -4059,7 +4059,7 @@ export class OperatorActivity extends Agent {
       }
       preparationStep = 'capability';
       if (trace) trace.requestDigest = hashDiagnostic(JSON.stringify({ path: operation.path, body: operation.body }));
-      if (operation.path === '/v1/dispatcher/source' && isManagementReceipt(plan.receipt)) {
+      if ((operation.path === '/v1/dispatcher/source' || operation.path === '/v1/dispatcher/receipt') && isManagementReceipt(plan.receipt)) {
         sourceBytes = sourceResponseBytes(plan.receipt.selection.installation.policy);
       }
       if (operation.path === '/v1/dispatcher/receipt' || operation.path === '/v1/dispatcher/resolve') {
@@ -4068,6 +4068,7 @@ export class OperatorActivity extends Agent {
         if (!await operatorAccessSessionCurrent(authority.human, authority.accessJwt)) return denied('authority-unverified');
         if (JSON.parse(plan.invocationJson).pullRequest !== undefined) return denied('request-invalid');
         const value = operation.body as { operationId: string; requestDigest?: string;
+          sourceResponse?: { generation: number; requestDigest: string; responseDigest: string; url: string };
           readbacks?: Array<{ operationId: string; requestDigest: string; responseDigest: string }> };
         return await this.ctx.storage.transaction(async tx => {
           const record = await tx.get<AdmissionState>('admission');
@@ -4076,10 +4077,26 @@ export class OperatorActivity extends Agent {
           const journal = await loadDispatcherJournal(tx, generation);
           const original = await tx.get<DispatcherOperationRecord>(dispatcherEntryKey(journal, value.operationId));
           if (!original?.request || original.generation !== generation) return denied('receipt-unavailable');
-          if (operation.path.endsWith('/receipt')) return Response.json({ operationId: value.operationId,
-            generation, requestDigest: original.requestDigest, ...original.request, phase: original.phase,
-            operationCount: journal.count, operationLimit,
-            ...(original.responseDigest ? { responseDigest: original.responseDigest } : {}) });
+          if (operation.path.endsWith('/receipt')) {
+            let sourceResponse: ReturnType<typeof parseRetainedDispatcherSource> | undefined;
+            if (value.sourceResponse) {
+              const proof = value.sourceResponse;
+              if (proof.generation !== generation || original.phase !== 'completed' || original.request.method !== 'GET'
+                || original.request.url !== proof.url || original.requestDigest !== proof.requestDigest
+                || original.responseDigest !== proof.responseDigest) return denied('receipt-unavailable');
+              const retained = await tx.get<NonNullable<DispatcherOperationRecord['response']>>(`dispatcher:response:${value.operationId}`);
+              if (!retained || retained.status !== 200 || retained.contentType !== 'application/json'
+                || typeof retained.body !== 'string' || new TextEncoder().encode(retained.body).byteLength > sourceBytes
+                || await sha256(retained.body) !== proof.responseDigest) return denied('receipt-unavailable');
+              try { sourceResponse = parseRetainedDispatcherSource(retained.body, proof.url, sourceBytes); }
+              catch { return denied('receipt-unavailable'); }
+            }
+            return Response.json({ operationId: value.operationId,
+              generation, requestDigest: original.requestDigest, ...original.request, phase: original.phase,
+              operationCount: journal.count, operationLimit,
+              ...(original.responseDigest ? { responseDigest: original.responseDigest } : {}),
+              ...(sourceResponse === undefined ? {} : { sourceResponse }) });
+          }
           if (original.requestDigest !== value.requestDigest) return dispatcherRefusal('operation-conflict', 409, 'OPERATOR_OPERATION_CONFLICT');
           const readbacks = value.readbacks!;
           if (original.request.method === 'GET' || new Set(readbacks.map(item => item.operationId)).size !== readbacks.length) return denied('request-invalid');
