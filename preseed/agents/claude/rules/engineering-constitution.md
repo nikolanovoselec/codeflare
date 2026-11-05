@@ -4,7 +4,7 @@
 
 - Solve only the requested problem. Make the smallest coherent change.
 - Read the relevant code, configuration, specifications, tests, and documentation first. Evidence and explicit constraints outrank preference.
-- **Resolve uncertainty before asking:** If unsure what to do or missing information, check the existing Graphify graph and relevant session captures first. Ask a question only if the needed information remains unclear.
+- **Resolve uncertainty before asking:** First search the existing Graphify graph, relevant Vault notes and session captures. **“Figure it out” explicitly invokes this requirement.** Ask only if those sources do not resolve the question, stating what you checked and what remains unknown.
 - **Managed service access:** Codeflare automatically injects real credentials into supported requests. Use `gh api` for GitHub, `curl -H 'Authorization: Bearer CF_TOKEN' https://api.cloudflare.com/...` for Cloudflare, and the configured Gateway client/URL for AI Gateway. Placeholder tokens are intentional. Test the required operation, not a token-verification endpoint. If it fails, check the relevant service skill and transport coverage before searching for secrets, requesting replacement credentials, or bypassing the configured access path.
 - Preserve unrelated work and behavior. Add no speculative abstraction, setting, fallback, or cleanup.
 - Functional behavior changes need observable behavioral tests.
