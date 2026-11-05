@@ -105,7 +105,7 @@ export async function getPersonalPiSession(host: InterceptionHost, ref: {
   if (!ordinaryOnly && host._operatorContainerProfile?.piProfile.source === 'pi-native') {
     return getNativeOperatorPiSession(host, ref);
   }
-  return getOrdinarySessionAuthority(host, ref);
+  return await getOrdinarySessionAuthority(host, ref);
 }
 
 /** Ordinary owner/lifecycle authority, independent of native-provider and Review grants. */

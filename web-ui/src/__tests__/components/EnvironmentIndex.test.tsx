@@ -143,7 +143,7 @@ beforeEach(() => {
 afterEach(() => { vi.unstubAllGlobals(); cleanup(); });
 
 describe('REQ-ENTERPRISE-031 explicit routing activation', () => {
-  it('REQ-ENTERPRISE-034 AC8: saved connection failures show safe recovery guidance and preserve the connection for retry', async () => {
+  it('REQ-ENTERPRISE-093 AC1/AC2: saved connection failures show safe recovery guidance and preserve the connection for retry', async () => {
     const recovery = 'Saved routing reconciliation failed. Reload Environment settings before retrying.';
     api.catalog.mockRejectedValueOnce(new ApiError(recovery, 503, 'Service Unavailable'));
     mount();
@@ -157,7 +157,7 @@ describe('REQ-ENTERPRISE-031 explicit routing activation', () => {
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 
-  it('REQ-ENTERPRISE-034 AC8: unexpected connection exceptions retain a safe fallback without exposing raw error details', async () => {
+  it('REQ-ENTERPRISE-093 AC3: unexpected connection exceptions retain a safe fallback without exposing raw error details', async () => {
     api.catalog.mockRejectedValueOnce(new Error('private-provider-detail'));
     mount();
     expect(await screen.findByRole('alert')).toHaveTextContent('The connection could not be checked. Try again.');

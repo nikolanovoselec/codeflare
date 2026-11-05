@@ -188,10 +188,12 @@ describe('live saved-connection routing reconciliation', () => {
   it.each([
     { piDefaultSource: 'managed', allowPersonalPiProviders: true },
     { piDefaultSource: 'pi-native', allowPersonalPiProviders: false },
-  ] as const)('REQ-ENTERPRISE-088 AC1: saved $piDefaultSource source and independent permission survive saved reconciliation', async (personalPolicy) => {
+  ] as const)('REQ-ENTERPRISE-088 AC4: saved $piDefaultSource source and independent permission survive saved reconciliation', async (personalPolicy) => {
     const f = await setup();
     const credentialBefore = await f.kv.get(SETUP_KEYS.AIG_TOKEN);
     f.kv._set(SETUP_KEYS.NATIVE_AI_TARGETS, { schemaVersion: 1, targets: [] });
+    // Preview/save checks the complete live inventory before accepting either route.
+    routesReply = () => dynamicPage(['gone', 'live']);
     const values = {
       gatewayUrl: routingGatewayUrl, replacementToken: '', dynamicRoutes: ['gone', 'live'],
       defaultRoute: { route: 'gone', reasoning: 'high' }, routeContextWindows: { gone: 10000, live: 20000 },
@@ -215,7 +217,6 @@ describe('live saved-connection routing reconciliation', () => {
     expect(saved.sections.aiRouting.fallbackRouting).toMatchObject(personalPolicy);
 
     // The same persisted settings must pass the saved-connection path, not only a draft check.
-    routesReply = () => dynamicPage(['gone', 'live']);
     const before = await routingSnapshot(f.kv);
     const unchanged = await reconcile(f, 8);
     expect(unchanged.status).toBe(200);
@@ -252,7 +253,7 @@ describe('live saved-connection routing reconciliation', () => {
     expect(await repeated.json()).toMatchObject({ reconciliation: { status: 'unchanged', revision: 10 } });
   });
 
-  it('REQ-ENTERPRISE-088 AC1: an unusable surviving profile retains source and permission without granting routes', async () => {
+  it('REQ-ENTERPRISE-088 AC4: an unusable surviving profile retains source and permission without granting routes', async () => {
     const f = await setup();
     const personalPolicy = { piDefaultSource: 'pi-native', allowPersonalPiProviders: false };
     f.kv._set(SETUP_KEYS.GROUP_ROUTING, { engineering: {

@@ -207,6 +207,7 @@ export class CloudflareBrowserInterceptor extends WorkerEntrypoint<Env> {
       || (url.pathname.startsWith(`${browserRoot}/devtools`) && url.pathname !== base && !url.pathname.startsWith(`${base}/`))) {
       return jsonError(403, 'BROWSER_REFERENCE_DENIED', 'Only the owned browser is available');
     }
+    let revalidateAttachment: (() => Promise<void>) | undefined;
     if (url.pathname === base || url.pathname.startsWith(`${base}/`)) {
       const owner = props?.browserOwner;
       if (!owner || !this.env.CONTAINER) return jsonError(403, 'BROWSER_REFERENCE_DENIED', 'Browser owner authority unavailable');
@@ -237,6 +238,10 @@ export class CloudflareBrowserInterceptor extends WorkerEntrypoint<Env> {
           return jsonError(403, 'BROWSER_REFERENCE_DENIED', 'Only the owned browser is available');
         }
         if (generic) url.pathname = `${base}/${id}`;
+        // Recheck the same reference after attachment I/O, before exposing any response/socket.
+        revalidateAttachment = async () => {
+          if (await container.getOwnedBrowser(owner, 'attach') !== id) throw new Error('Browser reference changed');
+        };
         // keep_alive belongs to acquisition, not reconnect; never imply extension on attach.
         url.search = '';
       } catch {
@@ -269,6 +274,19 @@ export class CloudflareBrowserInterceptor extends WorkerEntrypoint<Env> {
         error: err instanceof Error ? err.message : String(err),
       });
       return jsonError(502, 'BROWSER_FETCH_FAILED', 'Failed to reach Browser Rendering');
+    }
+    if (revalidateAttachment) {
+      try { await revalidateAttachment(); }
+      catch {
+        // A successful provider upgrade must not outlive its owning authority or reference.
+        const socket = upstream.webSocket;
+        if (socket) {
+          try { socket.accept(); } catch { /* already accepted */ }
+          try { socket.close(1008, 'Browser authority changed'); } catch { /* already closed */ }
+        }
+        void upstream.body?.cancel().catch(() => undefined);
+        return jsonError(503, 'BROWSER_UNAVAILABLE', 'Owned browser unavailable; no automatic fresh-browser replay');
+      }
     }
     return isWs ? this.bridge(upstream) : this.relay(upstream);
   }

@@ -41,13 +41,15 @@ async function fixture(strict = true) {
   const wire: Array<{ transport: string; url: string; method: string; auth: string | null; redirect: string; body: string }> = [];
   let createResponse: (() => Promise<Response>) | undefined;
   let attachmentFailure = false;
+  let beforeAttachmentReply: (() => Promise<void>) | undefined;
+  const attachmentClosed: Array<Promise<CloseEvent>> = [];
   const provider = async (request: Request, transport: string): Promise<Response> => {
     wire.push({ transport, url: request.url, method: request.method, auth: request.headers.get('authorization'),
       redirect: request.redirect, body: request.method === 'POST' ? await request.text() : '' });
     if (request.method === 'POST') {
       const id = `provider-${created.length + 1}`;
       created.push(id);
-      if (createResponse) return createResponse();
+      if (createResponse) return await createResponse();
       // A returned URL is metadata, never an authorized destination.
       return Response.json({ sessionId: id, webSocketDebuggerUrl: 'wss://foreign.example/never-follow' });
     }
@@ -58,6 +60,8 @@ async function fixture(strict = true) {
     const pair = new WebSocketPair();
     pair[1].accept();
     sockets.push(pair[1]);
+    attachmentClosed.push(new Promise(resolve => pair[1].addEventListener('close', resolve, { once: true })));
+    await beforeAttachmentReply?.();
     return new Response(null, { status: 101, webSocket: pair[0] });
   };
   const direct: string[] = [];
@@ -90,7 +94,8 @@ async function fixture(strict = true) {
   return { env, kv, owner, endpoint, records, created, attached, direct, wire, names, send, interceptor, session, sessionKey,
     get host() { return host; }, reconstruct: () => { host = reconstruct(); },
     setCreateResponse: (value: () => Promise<Response>) => { createResponse = value; },
-    failAttachments: () => { attachmentFailure = true; } };
+    failAttachments: () => { attachmentFailure = true; }, attachmentClosed,
+    delayAttachment: (value: () => Promise<void>) => { beforeAttachmentReply = value; } };
 }
 
 it.each([false, true])('REQ-BROWSER-001/006/008/009: lazy managed connections acquire once and reuse exact ID through required transport strict=%s', async strict => {
@@ -140,7 +145,9 @@ it.each(['owner', 'session', 'generation', 'token', 'account', 'strict', 'groups
     if (change === 'strict') f.kv._store.set(SETUP_KEYS.STRICT_EGRESS, 'inactive');
     if (change === 'groups') f.host._userGroups = ['different-policy-scope'];
     if (change === 'policy') f.host._jwtStamping = { mode: 'all', destinations: [] };
-    if (change === 'operator') f.host._operatorPolicy = { schemaVersion: 1, networkHosts: ['api.cloudflare.com'], tools: [], writablePaths: [] } as BrowserHost['_operatorPolicy'];
+    if (change === 'operator') f.host._operatorPolicy = { schemaVersion: 1, networkHosts: ['api.cloudflare.com'],
+      github: { repositories: [], methods: [] }, storage: { readPrefixes: [], writePrefixes: [] },
+      inference: { routeIds: [], defaultRouteId: null, reasoningLevels: [], defaultReasoningLevel: null, inheritUserDefaults: false } };
     if (change === 'termination') f.kv._set(f.sessionKey, { ...f.session, status: 'stopping', terminationIntentId: 'stop-intent' });
     expect((await f.send()).status).toBe(503);
     expect(f.created).toEqual(['provider-1']);
@@ -154,6 +161,33 @@ it('REQ-BROWSER-008: unrelated settings saves do not invalidate identity', async
   expect((await f.send()).status).toBe(101);
   expect(f.created).toEqual(['provider-1']);
 });
+
+it.each(['owner', 'shutdown', 'generation', 'configuration', 'replacement'])(
+  'REQ-BROWSER-011: attachment racing %s refuses and closes the stale provider socket', async change => {
+    const f = await fixture();
+    expect(await ownedBrowser(f.host, f.owner, 'acquire')).toBe('provider-1');
+    const started = gate(), release = gate();
+    f.delayAttachment(async () => { started.resolve(); await release.promise; });
+    const connection = f.send();
+    await started.promise;
+    if (change === 'owner') f.host._userEmail = 'other@example.test';
+    if (change === 'shutdown') { f.host._shutdownStartedAt = Date.now(); f.records.set(SHUTDOWN_REQUESTED_KEY, Date.now()); }
+    if (change === 'generation') { f.records.set('lifecycleGeneration', 8); f.kv._set(f.sessionKey, { ...f.session, lifecycleGeneration: 8 }); }
+    if (change === 'configuration') f.kv._set(SETUP_KEYS.BROWSER_RENDER_TOKEN, { token: 'rotated-token' });
+    if (change === 'replacement') {
+      const fresh = await f.interceptor.fetch(new Request(f.endpoint, { method: 'POST',
+        headers: { 'content-type': 'application/json' }, body: '{}' }));
+      expect(fresh.status).toBe(200);
+      expect(await fresh.json()).toMatchObject({ sessionId: 'provider-2' });
+    }
+    release.resolve();
+    const response = await connection;
+    expect(response.status).toBe(503);
+    expect(response.webSocket).toBeFalsy();
+    expect(await response.json()).toMatchObject({ code: 'BROWSER_UNAVAILABLE' });
+    expect((await f.attachmentClosed[0]).code).toBe(1008);
+    expect(f.created).toEqual(change === 'replacement' ? ['provider-1', 'provider-2'] : ['provider-1']);
+  });
 
 it.each(['shutdown', 'generation', 'configuration'])('REQ-BROWSER-008: acquisition racing %s cannot commit a usable ID', async change => {
   const f = await fixture();

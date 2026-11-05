@@ -799,6 +799,12 @@ Update the deploy to the build with the WebSocket-**bridge** path (`src/egress-c
 
 **If browser-run still `canceled`s after this deploy** (the open point on whether an *outbound* interceptor propagates a returned `101`): the per-host `CloudflareBrowserInterceptor` already claims `api.cloudflare.com` ahead of the `'*'` catch-all and bridges the CDP WS itself, injecting the real token at that boundary while the container carries only the placeholder ([REQ-BROWSER-008](../../sdd/spec/browser-run.md#req-browser-008-browser-rendering-token-interception-never-in-the-container)).
 
+#### Managed interactive browser returns `503 BROWSER_UNAVAILABLE`
+
+This differs from a Gateway or WebSocket bridge failure. The managed browser reference must still match its owner, session, lifecycle generation and relevant configuration; authority is checked again after provider attachment. An acquisition with an unknown outcome leaves a durable uncertainty marker, so reconnect cannot blindly create another browser. A transport error retains the known reference and is not proof of provider expiry ([REQ-BROWSER-011](../../sdd/spec/browser-run.md#req-browser-011-owner-bound-interactive-browser-continuity)).
+
+Check current session authority and the separate transport error first. Do not loop reconnect/reset, export cookies, or replay a timed-out browser mutation. If the user deliberately authorizes a fresh browser after resolving any uncertain operation, the documented empty-object `POST` to the configured Browser Run acquisition endpoint performs explicit replacement through the same owner boundary. It creates new browser state, not recovered authentication; use the site's normal authorized login when needed. No account-wide session listing or alternate identity is a recovery path. <!-- @impl: src/cloudflare-browser-interceptor.ts::CloudflareBrowserInterceptor -->
+
 #### Caller-owned Cloudflare credentials
 
 - `400 CF_CREDENTIALS_INVALID` is a local selection refusal: check malformed Bearer syntax, incomplete key/email pairs, conflicting identities or the wrong mode's reserved placeholder. Do not substitute a managed token.
