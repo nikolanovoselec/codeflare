@@ -3,24 +3,11 @@ import assert from 'node:assert/strict';
 import * as fs from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { stripTypeScriptTypes } from 'node:module';
 import {importPiExtension} from './fixtures/pi-extension-module.mjs';
-const { prepareTranscript }=await importPiExtension('active-session-transcript-trimming');
-
-const extensionDir = new URL('../../preseed/agents/pi/extensions/', import.meta.url);
-const modules = new Map();
-function fixtureModule(name) {
-  if (modules.has(name)) return modules.get(name);
-  let source = stripTypeScriptTypes(fs.readFileSync(new URL(`${name}.ts`, extensionDir), 'utf8'));
-  source = source.replace(/from "\.\/([a-z-]+)(?:\.ts)?"/g, (_match, dependency) => `from "${fixtureModule(dependency)}"`);
-  const url = 'data:text/javascript;base64,' + Buffer.from(source).toString('base64');
-  modules.set(name, url);
-  return url;
-}
 const jsonl = entries => entries.map(entry => JSON.stringify(entry) + '\n').join('');
 
 test('REQ-MEM-028 AC1: actual trims preserve the next twenty-prompt cadence and frozen extraction inputs', async t => {
-  const { registerMemoryVault } = await import(fixtureModule('memory-vault'));
+  const { registerMemoryVault } = await importPiExtension('memory-vault');
   const root = fs.mkdtempSync(join(tmpdir(), 'pi-trim-cadence-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const file = join(root, 'session.jsonl');
@@ -44,11 +31,11 @@ test('REQ-MEM-028 AC1: actual trims preserve the next twenty-prompt cadence and 
     vaultManifestFile: join(root, 'Vault/graphify-out/manifest.json'), vaultInitializationFile: join(root, 'Vault/graphify-out/initialized'),
     vaultMarkerFile: join(root, 'marker') };
   fs.writeFileSync(paths.memoryPromptFile, '# capture'); fs.writeFileSync(paths.vaultPromptFile, '# vault');
-  const handlers = new Map(), messages = [];
+  const handlers = new Map(), messages = [], tools = new Map();
   let promptNumber = 0;
   const pi = {
     on(name, handler) { const rows = handlers.get(name) ?? []; rows.push(handler); handlers.set(name, rows); },
-    registerTool() {},
+    registerTool(tool) { tools.set(tool.name, tool); },
     getActiveTools: () => [], getAllTools: () => [], setActiveTools() {}, sendMessage(...args) { messages.push(args); },
   };
   let sequence = 0;
@@ -69,8 +56,8 @@ test('REQ-MEM-028 AC1: actual trims preserve the next twenty-prompt cadence and 
     fs.appendFileSync(file, jsonl([append({ type: 'message', message: answer })]));
     const before = fs.statSync(file).size;
     emit('agent_end', { messages: [answer] });
-    // Deliver the real public launch and correlated native completion to the owner.
-    // The synthetic worker proposes a candidate; only the production parent commits.
+    // The scoped operation activates while the native child is still running;
+    // native completion and the next owner boundary cannot authorize another write.
     if (promptNumber === 21 || promptNumber === 41) {
       emit('agent_settled');
       const item = messages.flatMap(([m]) => m.customType === 'background-extraction-launch' ? m.details.items : []).filter(i => i.jobType === 'transcript-trim').at(-1);
@@ -80,18 +67,19 @@ test('REQ-MEM-028 AC1: actual trims preserve the next twenty-prompt cadence and 
         assert.ok(launch.details.items.some(job => job.jobType === 'memory-capture'));
         assert.ok(launch.details.items.some(job => job.jobType === 'transcript-trim'));
       }
-      const req = JSON.parse(fs.readFileSync(item.request.prompt.match(/^VARS_FILE=(.+)$/m)[1]));
-      fs.writeFileSync(req.candidateFile, prepareTranscript(fs.readFileSync(file).subarray(0, req.sourceBytes).toString(), 'fixture', entries.slice(1).map(e => e.id)));
       for (const payload of [
         { type: 'custom_message', customType: 'background-extraction-launch', details: { items: [item] } },
         { type: 'message', message: { role: 'assistant', content: [{ type: 'toolCall', id: item.requestId, name: 'subagent', arguments: item.request }] } },
-        { type: 'custom_message', customType: 'subagent-notification', content: `<tool-use-id>${item.requestId}</tool-use-id><status>Done</status>` },
       ]) fs.appendFileSync(file, jsonl([append(payload)]));
+      const child = { sessionManager: { getBranch: () => [{ type: 'message', message: { role: 'user', content: item.request.prompt } }] } };
+      const result = JSON.parse((await tools.get('transcript_trim').execute('scoped-trim', { operation: 'trim' }, undefined, undefined, child)).content[0].text);
+      assert.equal(result.committed, true); assert.equal(result.status, 'trimmed');
+      fs.appendFileSync(file, jsonl([append({ type: 'custom_message', customType: 'subagent-notification', content: `<tool-use-id>${item.requestId}</tool-use-id><status>Done</status>` })]));
       emit('agent_settled');
     }
     if (promptNumber === 21 || promptNumber === 41) {
       const after = fs.statSync(file).size;
-      assert.ok(before > 50_000_000); assert.ok(after < 20_000_000);
+      assert.ok(before > 50_000_000); assert.ok(Math.abs(after - 20_000_000) < 100_000);
       reductions.push({ prompt: promptNumber, before, after });
     }
     if (promptNumber === 21) {

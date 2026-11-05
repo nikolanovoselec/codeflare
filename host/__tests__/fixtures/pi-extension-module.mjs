@@ -8,4 +8,4 @@ function moduleUrl(name){
  const url='data:text/javascript;base64,'+Buffer.from(source).toString('base64');modules.set(name,url);return url;
 }
 // Test-only module resolution: production Pi/Jiti and bundler use extensionless imports.
-export const importPiExtension=name=>import(moduleUrl(name));
+export const importPiExtension=(name,instance='')=>import(moduleUrl(name)+(instance?'#'+encodeURIComponent(instance):''));

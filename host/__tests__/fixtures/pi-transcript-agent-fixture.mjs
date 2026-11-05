@@ -2,11 +2,8 @@ import assert from 'node:assert/strict';
 import * as fs from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { stripTypeScriptTypes } from 'node:module';
-const extensionDir=new URL('../../../preseed/agents/pi/extensions/',import.meta.url),fixtureModules=new Map();
-function fixtureModule(name){if(fixtureModules.has(name))return fixtureModules.get(name);let text=stripTypeScriptTypes(fs.readFileSync(new URL(name+'.ts',extensionDir),'utf8'));text=text.replace(/from "\.\/([a-z-]+)(?:\.ts)?"/g,(_m,key)=>`from "${fixtureModule(key)}"`);const url='data:text/javascript;base64,'+Buffer.from(text).toString('base64');fixtureModules.set(name,url);return url;}
-const {registerMemoryVault}=await import(fixtureModule('memory-vault'));
 import {importPiExtension} from './pi-extension-module.mjs';
+const {registerMemoryVault}=await importPiExtension('memory-vault');
 const { createTranscriptTrimRequest, commitTranscriptTrimCandidate, validateTranscriptTrimCandidate, prepareLocalTranscriptTrim }=await importPiExtension('active-session-transcript-trimming');
 const jsonl = rows => rows.map(row => JSON.stringify(row) + '\n').join('');
 function assertTrimWindow(bytes) {

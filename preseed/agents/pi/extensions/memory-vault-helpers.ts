@@ -264,7 +264,7 @@ export function buildPublicTranscriptTrimRequest(input: { requestId: string; pro
     subagent_type: "transcript-trim" as const,
     description: "Maintain active session transcript",
     prompt: [markerLine(input.requestId), `PROMPT_FILE=${input.promptFile}`, `VARS_FILE=${input.varsFile}`,
-      "Read the scoped maintenance contract. Produce only the authorized candidate; the parent validates and commits."].join("\n"),
+      "Read the scoped maintenance contract. Run the authorized trim through activation and verified readback; report its persisted result."].join("\n"),
     run_in_background: true as const,
     inherit_context: false as const,
   };

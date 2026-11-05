@@ -66,7 +66,7 @@ test('REQ-MEM-030 AC7: verified total target, precommit IO safety, durability di
   assert.deepEqual(fs.readdirSync(f.root), ['session.jsonl']);
 });
 
-test('REQ-MEM-030 AC2: one scoped local trim stages without live-write authority and rejects aliases', async t => {
+test('REQ-MEM-030 AC2: one scoped local trim verifies live history before return and rejects aliases', async t => {
   const f = fixture(t), l = lifecycle(f); l.due(); l.emit('agent_settled'); const item = l.launch();
   const req = JSON.parse(fs.readFileSync(item.request.prompt.match(/^VARS_FILE=(.+)$/m)[1]));
   const tool = l.tools.get('transcript_trim'); assert.ok(tool);
@@ -74,20 +74,22 @@ test('REQ-MEM-030 AC2: one scoped local trim stages without live-write authority
   const execute = context => tool.execute('tool-call', { operation: 'trim' }, undefined, undefined, context);
   await assert.rejects(execute(f.ctx), /missing-maintenance-launch-scope/);
   const before = fs.readFileSync(f.file);
-  const result = JSON.parse((await execute(child)).content[0].text);
-  assert.equal(result.committed, false); assert.equal(result.withinTarget, true);
-  assert.ok(fs.readFileSync(f.file).equals(before)); assertTrimWindow(fs.statSync(req.candidateFile).size);
-  assert.ok(result.candidateBytes <= result.budgetBytes && result.budgetBytes <= req.candidateBudget, 'scoped candidate respects the tail-adjusted request budget');
-  assert.equal(fs.statSync(req.candidateFile).size, result.candidateBytes);
-  assert.equal(result.candidateBytes, 20_000_000, 'available ASCII prose reaches the separate preferred goal');
-  const candidate = fs.readFileSync(req.candidateFile, 'utf8').trimEnd().split('\n').map(JSON.parse);
-  const sourceRows = before.subarray(0, req.sourceBytes).toString().trimEnd().split('\n').map(JSON.parse);
-  for (const row of sourceRows.filter(row => row.id !== 'old')) assert.deepEqual(candidate.find(e => e.id === row.id), row);
-  assert.deepEqual(candidate.find(e => e.id === 'old').message.usage, f.rows[1].message.usage);
-  fs.unlinkSync(req.candidateFile); fs.symlinkSync(f.file, req.candidateFile);
+  // Refuse aliases before reduction/activation; the owner capability remains usable.
+  fs.symlinkSync(f.file, req.candidateFile);
   await assert.rejects(execute(child)); assert.ok(fs.readFileSync(f.file).equals(before));
   fs.unlinkSync(req.candidateFile); fs.linkSync(f.file, req.candidateFile);
   await assert.rejects(execute(child), /foreign-candidate/); assert.ok(fs.readFileSync(f.file).equals(before));
+  fs.unlinkSync(req.candidateFile);
+  const result = JSON.parse((await execute(child)).content[0].text);
+  assert.equal(result.committed, true); assert.equal(result.withinTarget, true);
+  assertTrimWindow(fs.statSync(f.file).size); assert.equal(fs.existsSync(req.directory), false);
+  assert.ok(result.candidateBytes <= result.budgetBytes && result.budgetBytes <= req.candidateBudget, 'scoped candidate respects the tail-adjusted request budget');
+  const candidate = fs.readFileSync(f.file, 'utf8').trimEnd().split('\n').map(JSON.parse);
+  const sourceRows = before.toString().trimEnd().split('\n').map(JSON.parse);
+  for (const row of sourceRows.filter(row => row.id !== 'old')) assert.deepEqual(candidate.find(e => e.id === row.id), row);
+  assert.deepEqual(candidate.find(e => e.id === 'old').message.usage, f.rows[1].message.usage);
+  assert.ok(f.rows[1].message.content[0].text.startsWith(candidate.find(e => e.id === 'old').message.content[0].text));
+
 });
 test('REQ-MEM-030 AC3: latest Goal and Plan state, active branch and unknown content remain protected', t => {
   const f = fixture(t);
@@ -105,14 +107,17 @@ test('REQ-MEM-030 AC3: latest Goal and Plan state, active branch and unknown con
   const activeRequest = createTranscriptTrimRequest(active); fs.writeFileSync(activeRequest.candidateFile, jsonl(f.candidate()));
   assert.match(commitTranscriptTrimCandidate(active, activeRequest).reason, /protected-entry/);
 });
-test('REQ-MEM-030 AC5: completed stale work automatically re-arms from the rewritten prefix', t => {
+test('REQ-MEM-030 AC5: stale scoped work refuses rewritten history without replacing it', async t => {
   const f = fixture(t), l = lifecycle(f); l.due(); l.emit('agent_settled'); const item = l.launch();
   const req = JSON.parse(fs.readFileSync(item.request.prompt.match(/^VARS_FILE=(.+)$/m)[1])); f.stage(req);
-  l.call(item); l.done(item); f.rows[3].message.content = 'New historical user'; fs.writeFileSync(f.file, jsonl(f.rows));
-  l.emit('agent_settled'); const retry = l.launch(); assert.notEqual(retry.requestId, item.requestId);
-  const next = JSON.parse(fs.readFileSync(retry.request.prompt.match(/^VARS_FILE=(.+)$/m)[1])); assert.match(next.feedback, /source-prefix-changed/);
-  assert.notEqual(next.sourceSha256, req.sourceSha256); assert.equal(fs.existsSync(req.varsFile), false);
-  assert.ok(fs.readFileSync(f.file, 'utf8').includes('New historical user'));
+  f.rows[3].message.content = 'New historical user'; fs.writeFileSync(f.file, jsonl(f.rows));
+  const before = fs.readFileSync(f.file);
+  const child = { sessionManager: { getBranch: () => [{ type: 'message', message: { role: 'user', content: item.request.prompt } }] } };
+  await assert.rejects(l.tools.get('transcript_trim').execute('stale', { operation: 'trim' }, undefined, undefined, child), /source-prefix-changed/);
+  assert.ok(fs.readFileSync(f.file).equals(before));
+  l.call(item); l.done(item); l.emit('agent_settled');
+  assert.ok(fs.readFileSync(f.file).subarray(0, before.length).equals(before));
+
 });
 test('REQ-MEM-030 AC7: total includes the unmodified append tail and rejects candidate and staging aliases', t => {
   const f = fixture(t), req = createTranscriptTrimRequest(f.ctx); f.stage(req);
@@ -179,12 +184,10 @@ test('REQ-MEM-030 AC7: branched historical state and known argument payloads rea
   const current = activeRows.at(-1); const currentMessage = structuredClone(current.message);
   currentMessage.content[0].arguments.content = 'Not authorized';
   assert.throws(() => validateMessage(current.id, currentMessage), /protected/);
-  const result = JSON.parse((await tool.execute('trim', { operation: 'trim' }, undefined, undefined, child)).content[0].text);
-  assert.equal(result.withinTarget, true); assert.equal(result.committed, false);
   l.append({ type: 'message', message: { role: 'user', content: 'Concurrent tail ' + 't'.repeat(500_000) } });
-  l.call(item); l.done(item);
-  const tail = fs.readFileSync(f.file).subarray(JSON.parse(fs.readFileSync(item.request.prompt.match(/^VARS_FILE=(.+)$/m)[1])).sourceBytes).toString();
-  l.emit('agent_settled');
+  const tail = fs.readFileSync(f.file).subarray(request.sourceBytes).toString();
+  const result = JSON.parse((await tool.execute('trim', { operation: 'trim' }, undefined, undefined, child)).content[0].text);
+  assert.equal(result.withinTarget, true); assert.equal(result.committed, true);
   const persisted = fs.readFileSync(f.file, 'utf8'); assertTrimWindow(Buffer.byteLength(persisted));
   assert.ok(persisted.includes(tail));
   const rows = persisted.trimEnd().split('\n').map(JSON.parse);

@@ -5,7 +5,7 @@ import {createHash} from 'node:crypto';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {importPiExtension} from './fixtures/pi-extension-module.mjs';
-const {registerActiveSessionTranscriptTrimming,prepareLocalTranscriptTrim}=await importPiExtension('active-session-transcript-trimming');
+const {registerActiveSessionTranscriptTrimming,prepareLocalTranscriptTrim,commitTranscriptTrimCandidate}=await importPiExtension('active-session-transcript-trimming');
 const jsonl=rows=>rows.map(row=>JSON.stringify(row)+'\n').join('');
 const fingerprint=file=>createHash('sha256').update(fs.readFileSync(file)).digest('hex');
 
@@ -31,7 +31,7 @@ function fixture(t,userBytes=0){
  append({type:'compaction',firstKeptEntryId:user.id,summary:'Current authoritative summary'});
  append({type:'custom',customType:'unknown-extension-state',data:{keep:true}});
  const tools=new Map(),outcomes=[];let failReadback=false,committed=false;
- const io={...fs,renameSync(from,to){fs.renameSync(from,to);if(to===file)committed=true;},readFileSync(path,...args){if(path===file&&committed&&failReadback){failReadback=false;throw Error('synthetic transient readback');}return fs.readFileSync(path,...args);}};
+ const io={...fs,renameSync(from,to){fs.renameSync(from,to);if(to===file)committed=true;},readFileSync(path,...args){if(path===file&&committed&&failReadback){throw Error('synthetic transient readback');}return fs.readFileSync(path,...args);}};
  const controller=registerActiveSessionTranscriptTrimming({registerTool(tool){tools.set(tool.name,tool);},sendMessage(message){outcomes.push(message);}},io);
  t.after(()=>controller.cancel());
  const ctx={sessionManager:{getSessionId:()=> 'window-fixture',getSessionFile:()=>file,getLeafId:()=>rows.at(-1).id,getBranch:()=>rows.slice(1)}};
@@ -45,7 +45,7 @@ function fixture(t,userBytes=0){
  // Intentionally invalid sizes still preserve all protected source records.
  const stageBytes=bytes=>{const source=fs.readFileSync(file).subarray(0,request.sourceBytes).toString().trimEnd().split('\n').map(JSON.parse);source[1].message.content=source[1].message.content.filter(block=>block.type==='opaque-native');source[1].message.content.unshift({type:'text',text:''});const overhead=Buffer.byteLength(jsonl(source));source[1].message.content[0].text='x'.repeat(bytes-overhead);const candidate=jsonl(source);assert.equal(Buffer.byteLength(candidate),bytes);fs.writeFileSync(request.candidateFile,candidate);};
  const unchanged=action=>{const before=fingerprint(file);const value=action();assert.equal(fingerprint(file),before,'parent must not replace source for an unqualified attempt');return value;};
- return{root,file,rows,historical,user,controller,ctx,first,request,deliver,call,done,collect,stage,stageBytes,unchanged,outcomes,failNextReadback(){failReadback=true;}};
+ return{root,file,rows,historical,user,controller,ctx,first,request,deliver,call,done,collect,stage,stageBytes,unchanged,outcomes,failNextReadback(){failReadback=true;},restoreReadback(){failReadback=false;}};
 }
 
 function assertCompletion(f){
@@ -64,23 +64,32 @@ function assertCompletion(f){
 }
 
 test('REQ-MEM-028 AC3: preferred twenty MB retains only source prefixes and preserves users envelopes and appended tail',async t=>{
- const f=fixture(t),before=fingerprint(f.file),staged=await f.stage();assert.equal(staged.withinTarget,true);assert.equal(fingerprint(f.file),before,'child staging is not a commit');
- const id=f.call(f.first);f.done(id);const tail=fs.readFileSync(f.file).subarray(f.request.sourceBytes);f.collect();
+ const f=fixture(t),id=f.call(f.first),tail=fs.readFileSync(f.file).subarray(f.request.sourceBytes);
+ const staged=await f.stage();assert.equal(staged.withinTarget,true);assert.equal(staged.committed,true);
  const bytes=assertCompletion(f);assert.ok(Math.abs(bytes-20_000_000)<100_000,`preferred goal, not maximal deletion: ${bytes}`);
  assert.ok(fs.readFileSync(f.file).subarray(-tail.length).equals(tail),'ordinary native tail bytes survive verbatim');
  const verified=fingerprint(f.file);assert.equal(f.collect(),undefined);assert.equal(fingerprint(f.file),verified);
 });
 
+test('REQ-MEM-028 AC3: appended tail is included in the preferred twenty MB total',async t=>{
+ const f=fixture(t),tail={type:'message',id:'large-live-tail',parentId:f.rows.at(-1).id,message:{role:'assistant',content:[{type:'text',text:'live'.repeat(1_000_000)}]}};
+ f.rows.push(tail);fs.appendFileSync(f.file,jsonl([tail]));
+ const result=await f.stage();assert.equal(result.withinTarget,true);assert.ok(Math.abs(result.projectedTotalBytes-20_000_000)<1000,`preferred total includes tail: ${result.projectedTotalBytes}`);
+ assert.equal(result.committed,true);const bytes=assertCompletion(f);
+ assert.ok(Math.abs(bytes-20_000_000)<10_000);assert.deepEqual(fs.readFileSync(f.file,'utf8').trimEnd().split('\n').map(JSON.parse).find(row=>row.id===tail.id),tail);
+});
+
 for(const bytes of [24_999_000,25_000_000]){
- test(`REQ-MEM-028 AC3: final admission accepts inclusive upper-window total ${bytes}`,t=>{
-  const f=fixture(t),id=f.call(f.first);f.done(id);const tail=fs.readFileSync(f.file).subarray(f.request.sourceBytes);f.stageBytes(bytes-tail.length);f.collect();
-  assert.equal(assertCompletion(f),bytes);assert.ok(fs.readFileSync(f.file).subarray(-tail.length).equals(tail));
+ test(`REQ-MEM-028 AC3: primitive final admission accepts inclusive upper-window total ${bytes}`,t=>{
+  const f=fixture(t),id=f.call(f.first);f.done(id);const tail=fs.readFileSync(f.file).subarray(f.request.sourceBytes);f.stageBytes(bytes-tail.length);
+  const result=commitTranscriptTrimCandidate(f.ctx,f.request);assert.equal(result.status,'trimmed');assert.equal(result.after,bytes);
+  assert.equal(fs.statSync(f.file).size,bytes);assert.ok(fs.readFileSync(f.file).subarray(-tail.length).equals(tail));
  });
 }
 
 test('REQ-MEM-028 AC3: scoped tool accepts safe protected content in the final upper-window bytes',async t=>{
- const f=fixture(t,24_996_000),id=f.call(f.first),before=fingerprint(f.file),result=await f.stage();
- assert.equal(result.withinTarget,true);assert.ok(result.projectedTotalBytes>24_995_904&&result.projectedTotalBytes<=25_000_000);assert.equal(fingerprint(f.file),before);f.done(id);f.collect();assertCompletion(f);
+ const f=fixture(t,24_996_000),result=await f.stage();
+ assert.equal(result.withinTarget,true);assert.ok(result.projectedTotalBytes>24_995_904&&result.projectedTotalBytes<=25_000_000);assert.equal(result.committed,true);assertCompletion(f);
 });
 
 for(const [label,bytes] of [['below minimum',14_999_999],['above maximum',25_000_001]]){
@@ -96,18 +105,19 @@ for(const [label,bytes] of [['below minimum',14_999_999],['above maximum',25_000
  });
 }
 
-test('REQ-MEM-030 AC6: retry two valid staging cannot reuse old Done while its own native call is running',async t=>{
+test('REQ-MEM-030 AC6: retry two scoped trim activates immediately while its own native call is running',async t=>{
  const f=fixture(t);const old=f.call(f.first);f.done(old);f.stageBytes(14_999_999-(fs.statSync(f.file).size-f.request.sourceBytes));const retry=f.unchanged(f.collect);
  assert.equal(retry.reminder,1);assert.deepEqual(retry.request,f.first.request);f.deliver(retry);const current=f.call(retry);
- assert.equal((await f.stage()).withinTarget,true);assert.equal(f.unchanged(f.collect),undefined,'old native Done cannot authorize a later running attempt');
- assert.equal(fs.existsSync(f.request.directory),true);assert.equal(f.outcomes.some(message=>message.details?.status==='trimmed'),false);
- f.done(current);f.collect();assertCompletion(f);
+ const result=await f.stage();assert.equal(result.withinTarget,true);assert.equal(result.committed,true);assertCompletion(f);
+ const verified=fingerprint(f.file);assert.equal(f.collect(),undefined);assert.equal(fingerprint(f.file),verified);
+ f.done(current);const before=fingerprint(f.file);assert.equal(f.collect(),undefined);assert.equal(fingerprint(f.file),before);
 });
 
 test('REQ-MEM-030 AC6: invalid in-window candidate retries without replacing live history',t=>{
  const f=fixture(t),id=f.call(f.first);f.done(id);fs.writeFileSync(f.request.candidateFile,Buffer.alloc(20_000_000,32));
+ const refused=f.unchanged(()=>commitTranscriptTrimCandidate(f.ctx,f.request));assert.equal(refused.status,'refused');
  const retry=f.unchanged(f.collect);assert.equal(retry.reminder,1);assert.equal(retry.requestId,f.first.requestId);assert.deepEqual(retry.request,f.first.request);
- assert.equal(fs.existsSync(f.request.candidateFile),false);assert.equal(f.outcomes.some(m=>m.details?.status==='refused'),true);assert.equal(f.outcomes.some(m=>m.details?.status==='trimmed'),false);
+ assert.equal(fs.existsSync(f.request.candidateFile),false);assert.equal(refused.status,'refused');assert.equal(f.outcomes.some(m=>m.details?.status==='trimmed'),false);
 });
 
 test('REQ-MEM-030 AC6: native failure advances the same reminder and native stop cancels rather than retries',t=>{
@@ -118,9 +128,9 @@ test('REQ-MEM-030 AC6: native failure advances the same reminder and native stop
 });
 
 test('REQ-MEM-030 AC7: postcommit readback resumes only receipt verification without native-agent replay',async t=>{
- const f=fixture(t);await f.stage();const id=f.call(f.first);f.done(id);f.failNextReadback();assert.equal(f.collect(),undefined);
+ const f=fixture(t);f.failNextReadback();const result=await f.stage();assert.equal(result.committed,true);
  assert.equal(f.outcomes.at(-1).details.status,'verification-pending');assert.equal(fs.existsSync(f.request.directory),true);
- const inode=fs.statSync(f.file).ino,committed=fingerprint(f.file);assert.equal(f.collect(),undefined,'read-only receipt is not an extraction launch');
+ const inode=fs.statSync(f.file).ino,committed=fingerprint(f.file);f.restoreReadback();assert.equal(f.collect(),undefined,'read-only receipt is not an extraction launch');
  assert.equal(fs.statSync(f.file).ino,inode,'receipt must not atomically replace the committed file again');assert.equal(fingerprint(f.file),committed);assertCompletion(f);
  assert.equal(f.collect(),undefined);assert.equal(f.outcomes.filter(message=>message.details?.status==='trimmed').length,1);
 });

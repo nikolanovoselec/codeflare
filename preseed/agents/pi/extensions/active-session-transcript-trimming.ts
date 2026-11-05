@@ -286,6 +286,26 @@ const digest = (bytes: Buffer) => createHash("sha256").update(bytes).digest("hex
 const decode = (bytes: Buffer) => new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bytes);
 const stateTypes = new Set(["rpiv-todo-state", "goal-state", "plan-mode-state"]);
 
+// SDK subagents run in this Node process. Independent extension evaluations share
+// only this revocable capability; no child-process filesystem writer is allowed.
+type TrimActivation = { request: TranscriptTrimRequest; activate(signal?: AbortSignal): TrimResult };
+const activationKey = Symbol.for("codeflare.transcript-trim.activation.v1");
+const activationHost = globalThis as any;
+const trimActivations: Map<string, TrimActivation> = activationHost[activationKey] ??= new Map();
+
+function historicalSubagentResult(entry: Entry): boolean {
+  const data = entry.data;
+  return entry.type === "custom" && entry.customType === "subagents:record" && data
+    && typeof data.id === "string" && typeof data.type === "string" && typeof data.description === "string"
+    && ["completed", "error", "aborted"].includes(data.status) && Number.isFinite(data.completedAt)
+    && typeof data.outputFile === "string" && typeof data.result === "string" && Number.isFinite(data.toolUses);
+}
+
+function obsoleteEditDetails(details: any): any {
+  return details && typeof details.diff === "string" && typeof details.patch === "string"
+    && Number.isFinite(details.firstChangedLine) ? { ...details, diff: "", patch: "" } : details;
+}
+
 /** Eligibility is not lossless restoration of every historical branch checkpoint.
  * Protect the current active conversation/frontier and latest known authority;
  * the semantic agent may condense superseded payloads on inactive branches. */
@@ -330,7 +350,7 @@ function historicalEligibility(entries: Entry[], branchIds: string[] = []): Set<
     if (onBranch !== undefined) keep.add(onBranch);
   }
   return new Set(entries.slice(1).filter((entry, i) => !keep.has(i + 1)
-    && ((entry.type === "custom" && stateTypes.has(entry.customType)) || entry.type === "compaction"
+    && ((entry.type === "custom" && stateTypes.has(entry.customType)) || historicalSubagentResult(entry) || entry.type === "compaction"
       || (entry.type === "message" && ["assistant", "system", "toolResult"].includes(entry.message?.role)))).map(e => e.id));
 }
 
@@ -363,13 +383,22 @@ function obsoleteCompactionDetails(details: any): any {
   const state = details?.compactionState;
   // pi-smart-compact's documented structured state is a superseded checkpoint,
   // not provider-native opaque state. Preserve every other detail/native field.
-  const arrays = ["decisions", "constraints", "modifiedFiles", "readFiles", "deletedFiles", "unresolvedErrors", "resolvedErrors"];
-  if (!details || typeof details.version !== "string" || !state || typeof state !== "object"
-    || !(state.goal === null || typeof state.goal === "string")
+  const arrays = ["decisions", "constraints", "modifiedFiles", "readFiles", "deletedFiles", "unresolvedErrors", "resolvedErrors",
+    "openLoops", "loopOverrides", "factOverrides", "topics", "criticalContext", "nextActions"];
+  if (!details || typeof details.version !== "string" || !/^10\.\d+\.\d+$/.test(details.version)
+    || !state || typeof state !== "object" || !(state.goal === null || typeof state.goal === "string")
     || !["decisions", "constraints", "modifiedFiles", "readFiles"].every(key => Array.isArray(state[key]))) return details;
-  return { ...details, compactionState: { ...state,
-    ...Object.fromEntries(arrays.filter(key => Array.isArray(state[key])).map(key => [key, []])),
-  } };
+  const provenance = details.provenance;
+  const knownProvenance = provenance && Number.isFinite(provenance.initialScore) && Number.isFinite(provenance.finalScore)
+    && typeof provenance.llmPatched === "boolean" && Array.isArray(provenance.deterministicPatched)
+    && Array.isArray(provenance.remainingGaps);
+  return { ...details,
+    ...Object.fromEntries(arrays.filter(key => Array.isArray(details[key])).map(key => [key, []])),
+    ...(knownProvenance ? { provenance: { ...provenance, deterministicPatched: [] } } : {}),
+    compactionState: { ...state,
+      ...Object.fromEntries(arrays.filter(key => Array.isArray(state[key])).map(key => [key, []])),
+    },
+  };
 }
 
 // These are known prose-bearing fields, not a blanket exemption for tool arguments.
@@ -447,6 +476,8 @@ export function validateTranscriptTrimCandidate(source: string, candidate: strin
     let expected = a;
     if (a.type === "custom" && stateTypes.has(a.customType)) {
       expected = { ...a, data: b.data };
+    } else if (historicalSubagentResult(a)) {
+      expected = { ...a, data: { ...a.data, result: "" } };
     } else if (a.type === "compaction" && typeof b.summary === "string") {
       expected = { ...a, summary: b.summary,
         ...(a.systemMessage?.role === "system" && !isDeepStrictEqual(a.systemMessage, b.systemMessage)
@@ -459,6 +490,9 @@ export function validateTranscriptTrimCandidate(source: string, candidate: strin
       if (!sameHistoricalBlocks(m.content, n.content)) throw new Error(`changed-opaque-block:${a.id}`);
       expected = { ...a, message: m.role === "system"
         ? { ...obsoleteSystemPayload(m), content: n.content } : { ...m, content: n.content } };
+      if (m.role === "toolResult" && m.toolName === "edit" && !isDeepStrictEqual(m.details, n.details)) {
+        expected.message = { ...expected.message, details: obsoleteEditDetails(m.details) };
+      }
       if (m.role === "toolResult" && m.toolName === "todo" && snapshot(m.details)) {
         // Only the recognized duplicate snapshot fields may change; any extension
         // fields remain opaque even when attached to a historical Todo result.
@@ -521,6 +555,7 @@ export function prepareLocalTranscriptTrim(raw: string, sessionId: string, branc
     let reduced = entry;
     if (todo(entry)) reduced = { ...entry, data: { ...entry.data, tasks: [] } };
     else if (entry.type === "custom" && stateTypes.has(entry.customType)) reduced = { ...entry, data: {} };
+    else if (historicalSubagentResult(entry)) reduced = { ...entry, data: { ...entry.data, result: "" } };
     else if (entry.type === "compaction") reduced = { ...entry, summary: "[Obsolete historical summary trimmed]",
       ...(entry.systemMessage?.role === "system" ? { systemMessage: obsoleteSystemPayload(entry.systemMessage) } : {}),
       ...(entry.details !== undefined ? { details: obsoleteCompactionDetails(entry.details) } : {}),
@@ -542,6 +577,7 @@ export function prepareLocalTranscriptTrim(raw: string, sessionId: string, branc
       }) : message.content;
       const next = eligible.has(entry.id) && message.role === "system"
         ? { ...obsoleteSystemPayload(message), content } : { ...message, content };
+      if (eligible.has(entry.id) && message.role === "toolResult" && message.toolName === "edit") next.details = obsoleteEditDetails(message.details);
       if (message.role === "toolResult" && message.toolName === "todo" && snapshot(message.details)) next.details = { ...message.details, tasks: [] };
       reduced = { ...entry, message: next };
     }
@@ -623,7 +659,7 @@ function cleanupRequest(request: TranscriptTrimRequest, io: typeof fs = fs): boo
   }
 }
 
-/** Parent-owned synchronous commit. No await/cache mutation; all concurrent ordinary tail
+/** Owner-runtime synchronous activation. No await/cache mutation; all concurrent ordinary tail
  * appends are copied verbatim, and any changed prefix/branch/path refuses the candidate. */
 export function commitTranscriptTrimCandidate(ctx: TrimContext, request: TranscriptTrimRequest, io: typeof fs = fs): TrimResult {
   let temp: string | undefined, committed = false, before: number | undefined, after: number | undefined;
@@ -684,13 +720,13 @@ export function commitTranscriptTrimCandidate(ctx: TrimContext, request: Transcr
   } finally { if (temp) { try { io.unlinkSync(temp); } catch {} } }
 }
 
-/** One focused native tool: no shell, arbitrary read path, or live-write operation is
- * exposed to the maintenance agent. Scope comes from its public launch, not arguments. */
+/** One scoped native operation activates only through its live, revocable owner
+ * capability. No shell, arbitrary path, or independent-process writer is exposed. */
 function registerTranscriptTrimTool(pi: ExtensionAPI, requestMaintenance: (ctx: TrimContext) => Record<string, unknown>): void {
   pi.registerTool?.({
     name: "transcript_trim",
     label: "Trim authorized old transcript payloads",
-    description: "Parent request schedules the existing shared extraction launch; scoped child trim reduces its authorized prefix locally. Tool execution never writes live history.",
+    description: "Request schedules shared maintenance. The scoped agent trims, atomically activates and verifies its authorized transcript before returning; no parent handover or turn-end gate.",
     // Pi's public validator also accepts JSON Schema without TypeBox symbols.
     parameters: {
       type: "object", properties: { operation: { type: "string", enum: ["request", "trim", "contract"] } },
@@ -707,6 +743,7 @@ function registerTranscriptTrimTool(pi: ExtensionAPI, requestMaintenance: (ctx: 
         .slice().reverse().find((text: string) => /^CODEFLARE_EXTRACTION_REQUEST=[0-9a-f-]+$/m.test(text ?? ""));
       const varsFile = userText?.match(/^VARS_FILE=(.+)$/m)?.[1];
       const requestId = userText?.match(/^CODEFLARE_EXTRACTION_REQUEST=([0-9a-f-]+)$/m)?.[1];
+      if (_signal?.aborted) throw new Error("maintenance-canceled");
       if (!varsFile || !isAbsolute(varsFile)) throw new Error("missing-maintenance-launch-scope");
       pathIdentity(varsFile, fs);
       const request = JSON.parse(fs.readFileSync(varsFile, "utf8")) as TranscriptTrimRequest;
@@ -716,6 +753,8 @@ function registerTranscriptTrimTool(pi: ExtensionAPI, requestMaintenance: (ctx: 
         || !directory.startsWith(join(dirname(request.file), ".transcript-trim-"))
         || !ownedDirectory(request, fs) || !Number.isSafeInteger(request.sourceBytes) || request.sourceBytes < 1
         || !/^[0-9a-f]{64}$/.test(request.sourceSha256)) throw new Error("invalid-maintenance-launch-scope");
+      const activation = trimActivations.get(request.requestId);
+      if (!activation || !isDeepStrictEqual(activation.request, request)) throw new Error("missing-or-stale-activation-scope");
       pathIdentity(request.file, fs);
       const fd = fs.openSync(request.file, "r");
       const source = Buffer.alloc(request.sourceBytes);
@@ -734,11 +773,12 @@ function registerTranscriptTrimTool(pi: ExtensionAPI, requestMaintenance: (ctx: 
       if (params.operation === "contract") {
         const { branchIds, ...summary } = request;
         result = { request: { ...summary, branchEntryCount: branchIds.length },
-          contract: "Call operation trim once. It locally validates and reduces only this authorized prefix; report its compact result. Only the owning parent can verify and commit." };
+          contract: "Call operation trim once. It validates, reduces, activates and reads back this authorized transcript before returning. Report the persisted result; no parent handover or Done gate." };
       } else if (params.operation === "trim") {
         const tailBytes = Math.max(0, fs.statSync(request.file).size - request.sourceBytes);
         const budget = Math.max(0, request.candidateBudget - tailBytes);
-        const trimmed = prepareLocalTranscriptTrim(raw, request.sessionId, request.branchIds, budget);
+        const preferredBudget = Math.min(budget, Math.max(0, request.targetBytes - tailBytes));
+        const trimmed = prepareLocalTranscriptTrim(raw, request.sessionId, request.branchIds, preferredBudget);
         const projectedTotalBytes = trimmed.remainingBytes + tailBytes;
         const accepted = projectedTotalBytes >= MINIMUM && projectedTotalBytes <= MAXIMUM
           && trimmed.remainingBytes <= budget;
@@ -751,24 +791,15 @@ function registerTranscriptTrimTool(pi: ExtensionAPI, requestMaintenance: (ctx: 
             fs.ftruncateSync(fd, 0); fs.writeFileSync(fd, trimmed.candidate);
           } finally { fs.closeSync(fd); }
         }
+        const activated = accepted ? activation.activate(_signal) : undefined;
         result = { requestId, candidateBytes: accepted ? trimmed.remainingBytes : null,
           remainingBytes: trimmed.remainingBytes, projectedTotalBytes, budgetBytes: budget,
-          minimumBytes: MINIMUM, targetBytes: TARGET, maximumBytes: MAXIMUM, withinTarget: accepted, committed: false };
+          minimumBytes: MINIMUM, targetBytes: TARGET, maximumBytes: MAXIMUM, withinTarget: accepted,
+          ...activated, committed: activated?.status === "trimmed" || activated?.status === "verification-pending" };
       } else throw new Error("unknown-maintenance-operation");
-      return { content: [{ type: "text", text: JSON.stringify(result) }], details: { committed: false } };
+      return { content: [{ type: "text", text: JSON.stringify(result) }], details: result as Record<string, unknown> };
     },
   });
-}
-
-function candidateWithinWindow(request: TranscriptTrimRequest, io: typeof fs): boolean {
-  try {
-    if (!ownedDirectory(request, io)) return false;
-    const candidate = io.lstatSync(request.candidateFile);
-    if (!candidate.isFile() || candidate.isSymbolicLink() || candidate.nlink !== 1 || candidate.uid !== process.getuid?.()) return false;
-    const tail = Math.max(0, io.lstatSync(request.file).size - request.sourceBytes);
-    const total = candidate.size + tail;
-    return total >= MINIMUM && total <= MAXIMUM;
-  } catch { return false; }
 }
 
 export function registerActiveSessionTranscriptTrimming(pi: ExtensionAPI, io: typeof fs = fs) {
@@ -784,6 +815,7 @@ export function registerActiveSessionTranscriptTrimming(pi: ExtensionAPI, io: ty
   const cancel = () => {
     // Release scheduling ownership, but retain committed work for read-only
     // verification when its own session is loaded again. Never replay a write.
+    if (request) trimActivations.delete(request.requestId);
     if (request?.committed) receipts.set(request.requestId, request);
     else if (request) cleanupRequest(request);
     request = undefined; due = undefined;
@@ -794,6 +826,28 @@ export function registerActiveSessionTranscriptTrimming(pi: ExtensionAPI, io: ty
         ? `Transcript maintenance verified: ${value.before} → ${value.after} bytes (target ${TARGET}; accepted ${MINIMUM}–${MAXIMUM}).`
         : `Transcript maintenance not completed: ${value.reason}. Source was not reported as successfully trimmed.`,
       details: value }, { triggerTurn: false });
+  };
+  const bindActivation = (ctx: TrimContext & { signal?: AbortSignal }) => {
+    const authorized = request!;
+    trimActivations.set(authorized.requestId, { request: authorized, activate(signal) {
+      if (signal?.aborted || ctx.signal?.aborted || request !== authorized
+        || trimActivations.get(authorized.requestId)?.request !== authorized || !same(identity(ctx), authorized)) {
+        cancel();
+        return { status: "refused", reason: "activation-canceled-or-session-changed" };
+      }
+      trimActivations.delete(authorized.requestId);
+      let result = commitTranscriptTrimCandidate(ctx, authorized, io);
+      // A committed receipt permits readback only, never another replacement.
+      if (result.status === "verification-pending") result = commitTranscriptTrimCandidate(ctx, authorized, io);
+      if (authorized.committed) {
+        if (result.status !== "trimmed") receipts.set(authorized.requestId, authorized);
+        request = undefined; due = undefined;
+      }
+      // UI delivery is not activation authority and cannot turn a verified
+      // replacement into a failed operation that might be replayed.
+      try { outcome(result); } catch { /* The scoped tool still returns the persisted receipt. */ }
+      return result;
+    } });
   };
   return {
     cancel,
@@ -820,28 +874,19 @@ export function registerActiveSessionTranscriptTrimming(pi: ExtensionAPI, io: ty
         if (!request) request = createTranscriptTrimRequest(ctx);
         if (!request) { due = undefined; return; }
         const entries = parseTranscript(decode(fs.readFileSync(request.file)), request.sessionId, true);
-        let facts = extractionTranscriptFacts({ entries, requestId: request.requestId, job: "transcript-trim", now: Date.now(),
-          successQualifies: attempt => !!attempt?.latest && candidateWithinWindow(request!, io) });
-        if (facts.stopped) { cancel(); return; }
-        if (facts.state === "succeeded") {
-          const result = commitTranscriptTrimCandidate(ctx, request, io);
-          if (result.status === "refused" && ["source-prefix-changed", "branch-changed", "source-path-changed"].includes(result.reason ?? "")) {
-            cleanupRequest(request);
-            request = createTranscriptTrimRequest(ctx, result.reason, true);
-            if (!request) { due = undefined; return; }
-            return { requestId: request.requestId, jobType: "transcript-trim", reminder: 0,
-              request: buildPublicTranscriptTrimRequest({ requestId: request.requestId,
-                promptFile: "/home/user/.pi/agent/prompts/transcript-trim-agent-prompt.md", varsFile: request.varsFile }) };
-          }
-          if (result.status === "trimmed" || result.status === "verification-pending") {
-            if (result.status === "trimmed") { request = undefined; due = undefined; }
-            outcome(result); return;
-          }
-          // A completed child with an inadmissible candidate is a failed exact
-          // attempt, not successful maintenance. Reuse the common delivery budget.
-          outcome(result);
-          facts = extractionTranscriptFacts({ entries, requestId: request.requestId, job: "transcript-trim", now: Date.now(), successQualifies: () => false });
+        if (digest(io.readFileSync(request.file).subarray(0, request.sourceBytes)) !== request.sourceSha256
+          || request.branchIds.some((id, i) => ctx.sessionManager.getBranch()[i]?.id !== id)) {
+          trimActivations.delete(request.requestId); cleanupRequest(request);
+          request = createTranscriptTrimRequest(ctx, "source-or-branch-changed", true);
+          if (!request) { due = undefined; return; }
+          bindActivation(ctx);
+          return { requestId: request.requestId, jobType: "transcript-trim", reminder: 0,
+            request: buildPublicTranscriptTrimRequest({ requestId: request.requestId,
+              promptFile: "/home/user/.pi/agent/prompts/transcript-trim-agent-prompt.md", varsFile: request.varsFile }) };
         }
+        const facts = extractionTranscriptFacts({ entries, requestId: request.requestId, job: "transcript-trim", now: Date.now(),
+          successQualifies: () => false });
+        if (facts.stopped) { cancel(); return; }
         const next = extractionDue(facts);
         if (next.kind === "giveup") {
           const requestId = request.requestId; cancel();
@@ -854,6 +899,7 @@ export function registerActiveSessionTranscriptTrimming(pi: ExtensionAPI, io: ty
           try { io.unlinkSync(request.candidateFile); }
           catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
         }
+        bindActivation(ctx);
         return { requestId: request.requestId, jobType: "transcript-trim", reminder: next.reminder,
           request: buildPublicTranscriptTrimRequest({ requestId: request.requestId,
             promptFile: "/home/user/.pi/agent/prompts/transcript-trim-agent-prompt.md", varsFile: request.varsFile }) };
