@@ -49,6 +49,21 @@ RUN mkdir -p /out \
     && go test ./cmd/bisync -run '^TestCodeflare' -count=1 \
     && go build -trimpath -ldflags '-s -w -X github.com/rclone/rclone/fs.Version=v1.75.2-codeflare-bisync1' -o /out/rclone .
 
+# ---- Unchanged lazygit release rebuilt with the pinned, fixed Go toolchain ----
+FROM rclone-builder AS lazygit-builder
+WORKDIR /src/lazygit
+RUN LAZYGIT_VERSION="0.66.2" && \
+    LAZYGIT_COMMIT="63ab89fff478854deb4a35ef8902676b3cc5ca72" && \
+    LAZYGIT_SHA256="0522f103eef4fda056562c1509a465ed19ba112192b3db9fbfde7eb9e2180c94" && \
+    curl -fsSL "https://codeload.github.com/jesseduffield/lazygit/tar.gz/${LAZYGIT_COMMIT}" -o /tmp/lazygit-src.tar.gz && \
+    echo "${LAZYGIT_SHA256}  /tmp/lazygit-src.tar.gz" | sha256sum -c - && \
+    tar --strip-components=1 -xzf /tmp/lazygit-src.tar.gz && rm /tmp/lazygit-src.tar.gz && \
+    go build -mod=vendor -trimpath \
+      -ldflags "-s -w -X main.version=${LAZYGIT_VERSION} -X main.commit=${LAZYGIT_COMMIT} -X main.buildSource=codeflare" \
+      -o /out/lazygit . && \
+    go version -m /out/lazygit | grep -E '^/out/lazygit: go1\.27\.3$' && \
+    /out/lazygit --version
+
 # ---- Image-owned Impeccable engine with configured question idle grace ----
 FROM mirror.gcr.io/library/node:26-bookworm-slim@sha256:bc0a2afd3b74ce12222fc8bab99271e66257f021078f5f4a5d687a77d280c1d9 AS impeccable-builder
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl xz-utils build-essential pkg-config libssl-dev python3 && rm -rf /var/lib/apt/lists/*
@@ -417,7 +432,7 @@ RUN ZOXIDE_VERSION="0.10.0" && \
     chmod +x /usr/local/bin/zoxide && \
     rm /tmp/zoxide.tar.gz
 
-# Install yazi and lazygit from GitHub releases (pinned versions)
+# Install the pinned yazi release and source-built lazygit.
 RUN YAZI_VERSION="26.9.1" && \
     YAZI_SHA256="9b9c39decccf8cb0ff53a7d637d38f8a79d93bbd0099f4ea9c619ef6bb392f5d" && \
     curl -fsSL --retry 3 --retry-delay 5 --connect-timeout 30 "https://github.com/sxyazi/yazi/releases/download/v${YAZI_VERSION}/yazi-x86_64-unknown-linux-musl.zip" -o /tmp/yazi.zip && \
@@ -426,13 +441,8 @@ RUN YAZI_VERSION="26.9.1" && \
     mv /tmp/yazi/yazi-x86_64-unknown-linux-musl/yazi /usr/local/bin/yazi && \
     chmod +x /usr/local/bin/yazi && \
     rm -rf /tmp/yazi /tmp/yazi.zip
-RUN LAZYGIT_VERSION="0.66.2" && \
-    LAZYGIT_SHA256="158efc9ddfa1241fab5fb3526bb442c8dc6c4b1904d73213b9e4e93e03c52034" && \
-    curl -fsSL --retry 3 --retry-delay 5 --connect-timeout 30 "https://github.com/jesseduffield/lazygit/releases/download/v${LAZYGIT_VERSION}/lazygit_${LAZYGIT_VERSION}_linux_x86_64.tar.gz" -o /tmp/lazygit.tar.gz && \
-    echo "${LAZYGIT_SHA256}  /tmp/lazygit.tar.gz" | sha256sum -c - && \
-    tar xzf /tmp/lazygit.tar.gz -C /usr/local/bin lazygit && \
-    chmod +x /usr/local/bin/lazygit && \
-    rm /tmp/lazygit.tar.gz
+COPY --from=lazygit-builder /out/lazygit /usr/local/bin/lazygit
+COPY --from=lazygit-builder /src/lazygit/LICENSE /usr/share/licenses/lazygit/LICENSE
 
 # Install SilverBullet server (Deno-compiled single binary). Used by the
 # codeflare-vault plugin as the in-browser markdown editor for the persistent

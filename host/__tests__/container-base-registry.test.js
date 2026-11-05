@@ -21,6 +21,7 @@ describe('REQ-OPS-011 AC5: approved immutable Node base source', () => {
     assert.deepEqual(stages, [
       ['builder', node26],
       ['rclone-builder', node26],
+      ['lazygit-builder', 'rclone-builder'],
       ['impeccable-builder', node26],
       ['openvscode-agent-sidebar-dependencies', node22],
       ['openvscode-agent-sidebar-builder', sidebarTooling],
