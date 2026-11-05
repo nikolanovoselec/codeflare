@@ -182,8 +182,12 @@ ENV DISABLE_INSTALLATION_CHECKS=1
 ENV DISABLE_AUTOUPDATER=1
 ENV NODE_COMPILE_CACHE=/root/.cache/node-compile-cache
 
-# Upgrade base packages + install runtime packages (single apt-get update layer)
-RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-recommends \
+# Upgrade base packages + install runtime packages (single apt-get update layer).
+# Disable download retries only while bootstrapping the CVE-2026-109518-fixed APT.
+RUN apt-get -o Acquire::Retries=0 update && apt-get -o Acquire::Retries=0 upgrade -y \
+    && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' apt)" ge '2.6.2' \
+    && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' libapt-pkg6.0)" ge '2.6.2' \
+    && apt-get install -y --no-install-recommends \
     # System essentials
     ca-certificates \
     bash \
