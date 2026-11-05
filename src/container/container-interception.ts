@@ -407,6 +407,7 @@ async function resolveStrictEgress(
   },
 ): Promise<InterceptorRegistration | null> {
   if (!host._strictEgress && !host._operatorPolicy) return null;
+  const portals = await getConfiguredMcpPortals(host.env.KV);
   return {
     entrypoint: 'EgressController',
     props: {
@@ -415,8 +416,8 @@ async function resolveStrictEgress(
       ...security,
       // Keep portal ownership tied to the parent, not a refreshed R2 bucket.
       // Resolve only at wiring/refresh; generic catch-all requests need no MCP KV read.
-      mcpPortal: { bucket: host._bucketName ?? '', portals: await getConfiguredMcpPortals(host.env.KV),
-        operator: !!(host._operatorPolicy || host._operatorContainerProfile) },
+      ...(portals.length ? { mcpPortal: { bucket: host._bucketName ?? '', portals,
+        operator: !!(host._operatorPolicy || host._operatorContainerProfile) } } : {}),
       strict: true,
       ...(host._operatorPolicy ? { operatorPolicy: host._operatorPolicy } : {}),
       ...(host._operatorContainerProfile ? { operatorSync: {

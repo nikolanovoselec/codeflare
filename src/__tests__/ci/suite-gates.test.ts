@@ -574,7 +574,7 @@ describe('REQ-OPS-003 AC6: Browser IDE extension suite ownership', () => {
     expect(JSON.stringify(testWorkflow)).not.toContain('container-build-cache:linux-amd64');
     expect(JSON.stringify(testWorkflow)).not.toContain('Log in to GHCR for shared BuildKit cache');
     expect(sharedCacheLogin(imageJob.steps)).toMatchObject({
-      uses: 'docker/login-action@dbcb813823bdd20940b903addbd779551569679f',
+      uses: 'docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6',
       with: {
         registry: 'ghcr.io',
         username: '${{ github.actor }}',

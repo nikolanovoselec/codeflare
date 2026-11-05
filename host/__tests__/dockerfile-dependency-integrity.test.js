@@ -126,7 +126,7 @@ describe('REQ-OPS-033: build dependencies have committed integrity', () => {
   });
 
   it('image-owned Oxlint has an exact pin and complete committed integrity tree', () => {
-    assert.equal(oxlintPackage.dependencies.oxlint, '1.89.0');
+    assert.equal(oxlintPackage.dependencies.oxlint, '1.90.0');
     assert.deepEqual(oxlintLock.packages[''].dependencies, oxlintPackage.dependencies);
     assertCompleteIntegrityTree(oxlintLock);
   });
