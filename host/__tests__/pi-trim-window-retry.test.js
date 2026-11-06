@@ -31,7 +31,7 @@ function fixture(t,userBytes=0){
  append({type:'compaction',firstKeptEntryId:user.id,summary:'Current authoritative summary'});
  append({type:'custom',customType:'unknown-extension-state',data:{keep:true}});
  const tools=new Map(),outcomes=[];let failReadback=false,committed=false;
- const io={...fs,renameSync(from,to){fs.renameSync(from,to);if(to===file)committed=true;},readFileSync(path,...args){if(path===file&&committed&&failReadback){throw Error('synthetic transient readback');}return fs.readFileSync(path,...args);}};
+ const io={...fs,renameSync(from,to){fs.renameSync(from,to);if(to===file){committed=true;if(failReadback)fs.renameSync(file,file+'.unavailable');}},readFileSync(path,...args){if(path===file&&committed&&failReadback){throw Error('synthetic transient readback');}return fs.readFileSync(path,...args);}};
  const controller=registerActiveSessionTranscriptTrimming({registerTool(tool){tools.set(tool.name,tool);},sendMessage(message){outcomes.push(message);}},io);
  t.after(()=>controller.cancel());
  const ctx={sessionManager:{getSessionId:()=> 'window-fixture',getSessionFile:()=>file,getLeafId:()=>rows.at(-1).id,getBranch:()=>rows.slice(1)}};
@@ -41,7 +41,7 @@ function fixture(t,userBytes=0){
  const call=item=>{const id='native-'+rows.length;append({type:'message',message:{role:'assistant',content:[{type:'toolCall',id,name:'subagent',arguments:item.request}]}});return id;};
  const done=(id,status='Done')=>append({type:'custom_message',customType:'subagent-notification',content:`<tool-use-id>${id}</tool-use-id><status>${status}</status>`});
  const collect=()=>controller.collect(ctx);
- const stage=async()=>JSON.parse((await tools.get('transcript_trim').execute('scoped-trim',{operation:'trim'},undefined,undefined,{sessionManager:{getBranch:()=>[{type:'message',message:{role:'user',content:first.request.prompt}}]}})).content[0].text);
+ const stage=async()=>{try{return JSON.parse((await tools.get('transcript_trim').execute('scoped-trim',{operation:'trim'},undefined,undefined,{sessionManager:{getBranch:()=>[{type:'message',message:{role:'user',content:first.request.prompt}}]}})).content[0].text);}finally{if(fs.existsSync(file+'.unavailable'))fs.renameSync(file+'.unavailable',file);}};
  // Intentionally invalid sizes still preserve all protected source records.
  const stageBytes=bytes=>{const source=fs.readFileSync(file).subarray(0,request.sourceBytes).toString().trimEnd().split('\n').map(JSON.parse);source[1].message.content=source[1].message.content.filter(block=>block.type==='opaque-native');source[1].message.content.unshift({type:'text',text:''});const overhead=Buffer.byteLength(jsonl(source));source[1].message.content[0].text='x'.repeat(bytes-overhead);const candidate=jsonl(source);assert.equal(Buffer.byteLength(candidate),bytes);fs.writeFileSync(request.candidateFile,candidate);};
  const unchanged=action=>{const before=fingerprint(file);const value=action();assert.equal(fingerprint(file),before,'parent must not replace source for an unqualified attempt');return value;};

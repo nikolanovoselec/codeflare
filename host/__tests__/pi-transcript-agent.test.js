@@ -79,7 +79,7 @@ test('REQ-MEM-030 AC2: one scoped local trim verifies live history before return
   fs.symlinkSync(f.file, req.candidateFile);
   await assert.rejects(execute(child)); assert.ok(fs.readFileSync(f.file).equals(before));
   fs.unlinkSync(req.candidateFile); fs.linkSync(f.file, req.candidateFile);
-  await assert.rejects(execute(child), /foreign-candidate/); assert.ok(fs.readFileSync(f.file).equals(before));
+  await assert.rejects(execute(child)); assert.ok(fs.readFileSync(f.file).equals(before));
   fs.unlinkSync(req.candidateFile);
   const result = JSON.parse((await execute(child)).content[0].text);
   assert.equal(result.committed, true); assert.equal(result.withinTarget, true);

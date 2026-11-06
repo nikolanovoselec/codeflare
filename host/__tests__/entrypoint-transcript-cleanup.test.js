@@ -21,6 +21,9 @@ import { tmpdir } from 'node:os';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
+// Isolate unmanaged lifecycle behavior; real policy composition is covered by the rclone matrix.
+const unmanagedPolicyFixture = "prepare_managed_resource_filter() { :; }\ncompose_rclone_filters() { RCLONE_EFFECTIVE_FILTERS=(\"${RCLONE_FILTERS[@]}\"); }";
+
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = join(__dirname, '..', '..');
 const ENTRYPOINT = join(REPO_ROOT, 'entrypoint.sh');
@@ -181,6 +184,7 @@ TRANSCRIPT_RETENTION_SCRIPT="$3"
 R2_BUCKET_NAME=test
 RCLONE_CONFIG=/dev/null
 RECOVERY_FILTER_FILE=/dev/null
+${unmanagedPolicyFixture}
 RCLONE_FILTERS=()
 repair_hook_exec_bits() { :; }
 pgrep() { return 1; }
@@ -229,6 +233,7 @@ REMOTE="$2"
 R2_BUCKET_NAME=test
 RCLONE_CONFIG=/dev/null
 RECOVERY_FILTER_FILE=/dev/null
+${unmanagedPolicyFixture}
 RCLONE_FILTERS=(--filter "- .pi/agent/sessions/**.conflict*")
 cleanup_main_transcripts() { find "$USER_HOME/.pi/agent/sessions" -type f -name '*.conflict*' -delete; }
 repair_hook_exec_bits() { :; }
@@ -281,6 +286,7 @@ R2_BUCKET_NAME=test
 RCLONE_CONFIG=/dev/null
 RECOVERY_FILTER_FILE=/dev/null
 ${extractShellArray('RCLONE_FILTERS_COMMON')}
+${unmanagedPolicyFixture}
 RCLONE_FILTERS=("\${RCLONE_FILTERS_COMMON[@]}")
 cleanup_main_transcripts() { find "$USER_HOME/.pi/agent/sessions" -type f -name '*.conflict*' -delete; }
 repair_hook_exec_bits() { :; }
@@ -353,6 +359,7 @@ EVENTS="$2"
 R2_BUCKET_NAME=test
 RCLONE_CONFIG=/dev/null
 RECOVERY_FILTER_FILE=/dev/null
+${unmanagedPolicyFixture}
 RCLONE_FILTERS=()
 cleanup_old_transcripts() { printf '%s\\n' cleanup-claude >> "$EVENTS"; return 7; }
 cleanup_old_pi_transcripts() { printf '%s\\n' cleanup-pi >> "$EVENTS"; return 8; }

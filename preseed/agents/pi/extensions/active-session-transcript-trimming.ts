@@ -138,15 +138,16 @@ export function createTranscriptTrimRequest(ctx: TrimContext, feedback = "", ret
   if (stat.uid !== process.getuid?.() || stat.nlink !== 1) throw new Error("foreign-ownership");
   if (stat.size <= (retry ? MAXIMUM : CAP)) return undefined;
   const bytes = fs.readFileSync(owner.file);
-  const entries = parseTranscript(decode(bytes), owner.sessionId, true);
+  const entries: Entry[] = parseTranscript(decode(bytes), owner.sessionId, true);
   const branch = ctx.sessionManager.getBranch(), branchIds = branch.map(e => e.id);
-  const index = new Map(entries.slice(1).map(e => [e.id, e]));
+  const index = new Map<string, Entry>(entries.slice(1).map(e => [e.id, e]));
   const leaf = ctx.sessionManager.getLeafId();
+  const leafOnDisk = leaf !== null && index.has(leaf);
   const missing = branchIds.filter(id => !index.has(id));
   const edgeIndex = branchIds.findIndex((id, i) => i > 0 && index.has(id) && index.get(id)!.parentId !== branchIds[i - 1]);
   const cachedMismatch = branch.some((entry, i) => (i > 0 && entry.parentId !== branchIds[i - 1])
     || (index.has(entry.id) && (entry.parentId !== index.get(entry.id)!.parentId || entry.type !== index.get(entry.id)!.type)));
-  const invalidBranch = !branchIds.length || branchIds.at(-1) !== leaf || !index.has(leaf)
+  const invalidBranch = !branchIds.length || branchIds.at(-1) !== leaf || !leafOnDisk
     || new Set(branchIds).size !== branchIds.length || edgeIndex >= 0 || cachedMismatch
     || (branch[0]?.parentId != null && index.has(branch[0].parentId));
   const projection = invalidBranch ? undefined : activeHistory(entries, branchIds);
@@ -156,7 +157,7 @@ export function createTranscriptTrimRequest(ctx: TrimContext, feedback = "", ret
   const unsafeMissing = missing.length > 0 && (frontier < 0 || branchIds.some((id, i) => !index.has(id) && i >= frontier));
   if (invalidBranch || unsafeMissing) {
     throw new Error(`foreign-branch:${JSON.stringify({ leaf, branchLast: branchIds.at(-1) ?? null,
-      leafOnDisk: index.has(leaf), branchLastOnDisk: index.has(branchIds.at(-1)), missingCount: missing.length,
+      leafOnDisk, branchLastOnDisk: index.has(branchIds.at(-1)), missingCount: missing.length,
       missingSample: missing.slice(0, 8), cachedMismatch, unsafeMissing, edgeMismatch: edgeIndex < 0 ? null : {
         id: branchIds[edgeIndex], diskParent: index.get(branchIds[edgeIndex])!.parentId, branchParent: branchIds[edgeIndex - 1],
       } })}`);

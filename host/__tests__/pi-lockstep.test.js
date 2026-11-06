@@ -275,6 +275,10 @@ function runImageWarmFixture(omitPackage = '', wrongLocalPath = false) {
     writeFileSync(localSource, 'export const name: string = "local";\n');
     const secondLocalSource = join(dirname(localSource), 'second.ts');
     writeFileSync(secondLocalSource, 'export const name: string = "second";\n');
+    const helperSource = join(dirname(localSource), 'transcript-trim/engine.mjs');
+    mkdirSync(dirname(helperSource), { recursive: true });
+    writeFileSync(helperSource, 'export const helper = true;\n');
+    writeFileSync(localSource, "import './transcript-trim/engine.mjs'; export const name: string = 'local';\n");
     mkdirSync(join(imageRoot, 'scripts'), { recursive: true });
     symlinkSync(script, join(imageRoot, 'scripts/verify-pi-lockstep.mjs'));
     const sources = WARMED_NPM_ENTRYPOINTS.map(({ package: name, entrypoint }) => {
@@ -308,6 +312,11 @@ for (let source of sources) {
   const artifact = execFileSync(process.execPath, [${JSON.stringify(script)}, '--jiti-cache-path', source, join(process.env.TMPDIR, 'jiti')], { encoding: 'utf8' }).trim();
   mkdirSync(dirname(artifact), { recursive: true });
   writeFileSync(artifact, stripTypeScriptTypes(readFileSync(source, 'utf8')));
+  if (source === process.env.FIXTURE_LOCAL_SOURCE) {
+    const helper = join(dirname(source), 'transcript-trim/engine.mjs');
+    await import((await import('node:url')).pathToFileURL(helper).href);
+    if (process.env.JITI_DEBUG === '1') console.log('[jiti] [native] [import] ' + helper.replace(process.cwd(), '.'));
+  }
   if (process.env.JITI_DEBUG === '1') {
     const displayedSource = source.replace(process.cwd(), '.');
     console.log(source.endsWith('.js') ? '[jiti] [native] [import] ' + displayedSource : '[jiti] [cache] [hit] ' + displayedSource + ' ~> ' + artifact.replace(process.cwd(), '.'));
