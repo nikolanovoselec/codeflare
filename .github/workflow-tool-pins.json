@@ -12,7 +12,7 @@
     "sha256": "349ac8fba6ff65d6247043f1750cdcb518ec5d500ef91463a10d37c0ccdf3702"
   },
   "trivy": {
-    "version": "0.76.1"
+    "version": "0.76.2"
   },
   "ci-node-26": {
     "version": "26.8.2"
