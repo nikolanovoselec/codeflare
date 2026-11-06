@@ -30,7 +30,9 @@ The authoritative inventory is [`preseed/agents/pi/package.json`](../../preseed/
 
 Image construction warms RPIV, Subagents, MCP Extension, web-access, Evaluate, Open TUI, Codex Fast, Smart Compact, Goal/Plan, and every local TypeScript extension through the exact installed path. Required JITI artifacts must exist. A second fresh Pi process must report cache hits without misses, including imported dependencies. JavaScript entrypoints use native import checks rather than nonexistent JITI artifacts. This is a transpilation-cache gate, not V8-cache evidence or a startup-latency guarantee for restored user content. Runtime updates invalidate only runtime-owned caches.
 
-Every file scanned as a Pi extension exports a default factory; pure helpers retain a no-op default beside named exports. Package-presence checks cannot replace actual extension loading.
+Every file scanned as a Pi extension exports a default factory; pure helpers retain a no-op default beside named exports. Package-presence checks cannot replace actual extension loading. Warming loads resources without requesting model completions. Extension-load errors in either warm-up process fail qualification even when Pi exits zero; genuine cache hits do not excuse a failed factory.
+
+Changed restored or managed-release bytes safely invalidate old transpiles and can require first-load compilation. Fast Start Off deliberately isolates caches after runtime updates. Preserve authoritative restored content rather than overwriting it to obtain image-cache hits; these paths are not an unchanged-image startup-latency guarantee.
 
 ### Pi 1.5 and operator compatibility
 

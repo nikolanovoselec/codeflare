@@ -273,6 +273,8 @@ function runImageWarmFixture(omitPackage = '', wrongLocalPath = false) {
     const localSource = join(imageRoot, 'pi-agent/extensions/local.ts');
     mkdirSync(dirname(localSource), { recursive: true });
     writeFileSync(localSource, 'export const name: string = "local";\n');
+    const secondLocalSource = join(dirname(localSource), 'second.ts');
+    writeFileSync(secondLocalSource, 'export const name: string = "second";\n');
     mkdirSync(join(imageRoot, 'scripts'), { recursive: true });
     symlinkSync(script, join(imageRoot, 'scripts/verify-pi-lockstep.mjs'));
     const sources = WARMED_NPM_ENTRYPOINTS.map(({ package: name, entrypoint }) => {
@@ -294,9 +296,12 @@ import { dirname, join } from 'node:path';
 import { stripTypeScriptTypes } from 'node:module';
 import { execFileSync } from 'node:child_process';
 const args = process.argv.slice(2);
-const sources = args.includes('--list-models')
-  ? args.flatMap((arg, i) => arg === '--extension' ? [args[i + 1]] : [])
-  : [process.env.FIXTURE_LOCAL_SOURCE];
+// Fail on any completion route, even with a configured provider key.
+if (!args.includes('--list-models') || args.includes('-p') || args.includes('--print')) {
+  console.error('fixture provider completion attempted');
+  process.exit(9);
+}
+const sources = args.flatMap((arg, i) => arg === '--extension' ? [args[i + 1]] : []);
 for (let source of sources) {
   if (process.env.WRONG_LOCAL_PATH === '1' && source === process.env.FIXTURE_LOCAL_SOURCE) source = process.env.WRONG_LOCAL_SOURCE;
   if (process.env.OMIT_PACKAGE && source.includes('/node_modules/' + process.env.OMIT_PACKAGE + '/')) continue;
@@ -317,9 +322,9 @@ for (let source of sources) {
       .replaceAll('/opt/codeflare', imageRoot).replaceAll('/home/user', home);
     const result = spawnSync('bash', ['-e', '-c', command], {
       encoding: 'utf8', timeout: 30_000,
-      env: { ...process.env, FIXTURE_LOCAL_SOURCE: join(home, '.pi/agent/extensions/local.ts'), OMIT_PACKAGE: omitPackage, WRONG_LOCAL_PATH: wrongLocalPath ? '1' : '0', WRONG_LOCAL_SOURCE: localSource },
+      env: { ...process.env, OPENAI_API_KEY: 'fixture-not-a-real-key', FIXTURE_LOCAL_SOURCE: join(home, '.pi/agent/extensions/local.ts'), OMIT_PACKAGE: omitPackage, WRONG_LOCAL_PATH: wrongLocalPath ? '1' : '0', WRONG_LOCAL_SOURCE: localSource },
     });
-    return { directory, imageRoot, result, localRuntimeSource: join(home, '.pi/agent/extensions/local.ts'), sources: [...sources, { source: localSource, name: 'local' }] };
+    return { directory, imageRoot, result, localRuntimeSource: join(home, '.pi/agent/extensions/local.ts'), sources: [...sources, { source: localSource, name: 'local' }, { source: secondLocalSource, name: 'second' }] };
   } catch (error) {
     rmSync(directory, { recursive: true, force: true });
     throw error;
@@ -333,8 +338,8 @@ describe('REQ-AGENT-111/REQ-AGENT-056/REQ-AGENT-133/REQ-AGENT-152/REQ-AGENT-210:
       assert.equal(fixture.result.status, 0, fixture.result.stderr);
       for (const { source, name } of fixture.sources) {
         const algorithm = getFips?.() ? 'sha256' : 'md5';
-        const artifact = name === 'local'
-          ? join(fixture.imageRoot, 'jiti-cache', `extensions-local.${createHash(algorithm).update(fixture.localRuntimeSource).digest('hex').slice(0, 8)}.mjs`)
+        const artifact = ['local', 'second'].includes(name)
+          ? join(fixture.imageRoot, 'jiti-cache', `extensions-${name}.${createHash(algorithm).update(join(dirname(fixture.localRuntimeSource), `${name}.ts`)).digest('hex').slice(0, 8)}.mjs`)
           : resolveCachePath(source, join(fixture.imageRoot, 'jiti-cache'));
         const compiled = await import(pathToFileURL(artifact).href);
         assert.equal(compiled.name, name);

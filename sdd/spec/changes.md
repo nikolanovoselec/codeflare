@@ -4,6 +4,8 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-11-06
 
+- Make Pi image warming resource-only and reject extension-load errors from either cache-warming process even when the CLI exits zero; preserve exact-path fresh-process cache evidence and the legitimate recompilation of changed restored content ([REQ-AGENT-210](agents.md#req-agent-210-managed-extension-startup-preparation)).
+
 - Establish [Model Context Protocol](mcp.md) as the owner of portal authorization, administration, client discovery/configuration, transport and lossless client migration. Relocate REQ-AGENT-226–229 and REQ-AGENT-217 without changing behavior, identifiers, evidence or verification status; preserve former Agents fragment links.
 
 - Adapt context-mode 2.1.4's in-process Pi entrypoint, explicit Claude server command and `ctx_batch`/`ctx_index` interfaces while preserving disabled startup defaults, foreground ownership, native fallbacks and command-policy guards ([REQ-AGENT-076](agents.md#req-agent-076-pi-context-mode-enablement-and-tool-extension-defaults), [REQ-AGENT-089](agents.md#req-agent-089-pi-context-mode-foreground-ownership)).

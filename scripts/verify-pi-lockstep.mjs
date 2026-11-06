@@ -80,6 +80,11 @@ export function warmAndVerifyJitiEntrypoints(piBinary, cacheDirectory, sourcePat
     if (result.error) throw new Error(`Pi JITI warm failed: ${result.error.message}`);
     if (result.signal) throw new Error(`Pi JITI warm terminated by ${result.signal}`);
     if (result.status !== 0) throw new Error(`Pi JITI warm exited ${result.status}`);
+    // Pi --list-models reports loader errors but still exits zero. Its CLI
+    // diagnostic covers module imports, invalid exports, and awaited factories.
+    const diagnostics = stripVTControlCharacters(`${result.stdout}\n${result.stderr}`).split(/\r?\n/);
+    const failures = diagnostics.filter((line) => line.startsWith('Error: Failed to load extension '));
+    if (failures.length) throw new Error(`Pi JITI extension loading failed: ${failures.join('\n')}`);
     return result;
   };
   run(process.env);

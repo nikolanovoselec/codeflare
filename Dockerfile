@@ -862,10 +862,10 @@ COPY scripts/merge-pi-mcp-portals.mjs /opt/codeflare/merge-pi-mcp-portals.mjs
 #   preseed package.json so a version bump there warms the right set automatically.
 #   The warm artifacts under /home/user/.pi are removed after the cache is moved
 #   out, so nothing is baked into /home/user.
-# - The pi run exits non-zero on the missing-LLM-key model call AFTER
-#   extensions load (|| true); the mv + final test fail the build if the cache
-#   came out empty, so a pi CLI change that breaks the warm-up is caught at
-#   build, not as a silent startup regression in production.
+# - Use only --list-models resource loading, never a completion prompt. The
+#   explicit pass below includes every local TS file as well as npm entrypoints;
+#   no preliminary discovery/prompt pass is needed. Loader errors fail the build
+#   even when Pi itself exits zero.
 # - Fail-closed completeness check: explicitly load all managed entrypoints and
 #   local files at their runtime paths, then require actual cache hits and no
 #   misses (including dependencies) in a second fresh Pi process. Native JS uses
@@ -889,7 +889,6 @@ RUN mkdir -p /opt/codeflare/jiti-warm-tmp /home/user/.pi/agent && \
     web_source="/opt/codeflare/pi-agent/npm/node_modules/pi-web-access/dist/index.js" && \
     smart_compact_source="/opt/codeflare/pi-agent/npm/node_modules/pi-smart-compact/dist/index.js" && \
     context_source="/opt/codeflare/pi-agent/npm/node_modules/context-mode/pi/index.js" && \
-    (TMPDIR=/opt/codeflare/jiti-warm-tmp HOME=/home/user PI_CODING_AGENT_DIR=/home/user/.pi/agent PI_OFFLINE=1 PI_SKIP_VERSION_CHECK=1 timeout 240 /opt/codeflare/pi-agent/npm/node_modules/.bin/pi -p "warm" || true) && \
     TMPDIR=/opt/codeflare/jiti-warm-tmp HOME=/home/user PI_CODING_AGENT_DIR=/home/user/.pi/agent PI_OFFLINE=1 PI_SKIP_VERSION_CHECK=1 \
       node /opt/codeflare/scripts/verify-pi-lockstep.mjs --warm-jiti-entrypoints \
       /opt/codeflare/pi-agent/npm/node_modules/.bin/pi /opt/codeflare/jiti-warm-tmp/jiti "$goal_source" "$plan_source" "$open_tui_source" "$evaluate_source" "$codex_fast_source" "$subagents_source" "$mcp_source" \
