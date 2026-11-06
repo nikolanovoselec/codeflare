@@ -2,6 +2,10 @@
 
 Semantic changes to the specification. Git history captures diffs; this file captures intent.
 
+## 2026-11-06
+
+- Require finishing and verifying the active task before starting an unrelated request, while retaining acknowledgment, related corrections and explicit user stop/pause/priority overrides ([REQ-AGENT-200](agents.md#req-agent-200-engineering-constitution-work-continuity)).
+
 ## 2026-11-05
 
 - Collect a newly admitted owner Dispatcher's original result atomically with verified successful normal-host completion, without another browser action or a completed-uncollected attention warning. Preserve historical read-only behavior, failed/unknown states and all original settlement/receipt/journal fences ([REQ-OPERATOR-098](operators.md#req-operator-098-automatic-owned-dispatcher-result-collection), [REQ-OPERATOR-041](operators.md#req-operator-041-owned-activity-browser-reads)).
