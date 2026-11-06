@@ -297,12 +297,12 @@ RUN sed -i 's|http://deb.debian.org|https://deb.debian.org|g' /etc/apt/sources.l
 # follow-redirects 1.16.2 fixes CVE-2026-111755/111756/116689 in its upstream 1.x API.
 # Drop each overlay after its upstream artifact contains at least the pinned
 # fixed version.
-RUN CODE_SERVER_VERSION="4.144.0" && \
-    CODE_SERVER_SHA256="710f749c40a0f3d0ab3be09c0de65314e5c2907cc50646f5fbc0f24c0e8fba2d" && \
-    CODE_SERVER_COMMIT="ee31cdbe02c07b3ba718007f221d14c890696c61" && \
-    CODE_SERVER_CODE_VERSION="1.144.0" && \
-    CODE_SERVER_VSCODE_COMMIT="2c33b50b16c472efe58357d1d2a8a5414bc23fbf" && \
-    CODE_SERVER_JS_YAML_VERSION="5.4.3" && \
+RUN CODE_SERVER_VERSION="4.145.0" && \
+    CODE_SERVER_SHA256="NEEDS_UPDATE_SEE_PR_BODY" && \
+    CODE_SERVER_COMMIT="2cb3ad3e258891fbb51001ba465c2348d5021644" && \
+    CODE_SERVER_CODE_VERSION="1.145.0" && \
+    CODE_SERVER_VSCODE_COMMIT="a717861c07586a53d83b80d742cd3f59b20a6273" && \
+    CODE_SERVER_JS_YAML_VERSION="5.5.0" && \
     CODE_SERVER_IDE_TAR_VERSION="7.5.22" && \
     NODE_TAR_VERSION="7.5.22" && \
     NODE_TAR_SHA512="3053bf433bed00e9896e484e6824ef6c670537d2fd6fe26e9c8b03c1a2a58d239d70b31e6b7349d64f54b33feb8dd7d25d3ab875fcdf792ed6e29e1838000778" && \
