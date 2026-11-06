@@ -15,6 +15,7 @@ import { authorizeDispatcherPlan, type createDispatcherOperation } from './opera
 import { DispatcherRefusal } from './dispatcher-refusal';
 import { sdkServiceFailureSchema, type SdkServiceFailure } from './dispatcher-diagnostics-wire';
 import { emitRaw } from '../../host/src/operator-raw-logging';
+import { PiAuthRequiredError, safePiAuthFailure } from './pi-auth-failure';
 
 export interface SdkInput {
   generation: number;
@@ -145,6 +146,8 @@ export async function dispatcherSdkCredentials(input: SdkInput, body: unknown): 
     try { result = await metadata(input, scope).dispatcherSdkCredentials(scope, body, authority); }
     finally { authority.close(); }
     if (!result.ok) {
+      const failure = safePiAuthFailure(result.authFailure);
+      if (failure && failure.provider === body.providerId) throw new PiAuthRequiredError(failure.provider, failure.reason);
       const error = new DispatcherSdkStorageError(result.status, result.message,
         Object.hasOwn(result, 'cause') ? { cause: result.cause } : undefined);
       if (result.stack) error.stack = result.stack;

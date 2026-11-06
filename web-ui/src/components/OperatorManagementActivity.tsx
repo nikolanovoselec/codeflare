@@ -3,7 +3,7 @@ import * as api from '../api/operator-management';
 import { getSessions } from '../api/client';
 import type { Session } from '../types';
 import { SESSION_ID_RE } from '../lib/constants';
-import { piLoginRecoveryCopy, type OperatorActivitySummary, type OperatorActivityDetail } from '../api/operator-activities';
+import { piAuthFailureTitle, piLoginRecoveryCopy, type OperatorActivitySummary, type OperatorActivityDetail } from '../api/operator-activities';
 import { ApiError } from '../api/fetch-helper';
 import OperatorActivityDiagnostics from './OperatorActivityDiagnostics';
 
@@ -196,7 +196,8 @@ const OperatorManagementActivity: Component<{ installationId?: string; onBackToC
         <ul class="operator-list"><For each={items()}>{item => <li><strong>{item.operatorId}</strong><p>{item.activityId}</p>
           <p>Execution: {item.executionStatus} · Cleanup: {item.cleanupStatus} · Collection: {item.collectionStatus}</p>
           <p>Updated {new Date(item.updatedAt).toLocaleString()}{Date.now() - new Date(item.updatedAt).getTime() > 120000 ? ' · Stale observation — refresh before acting' : ''}</p>
-          <Show when={item.attention}><p>Needs attention</p></Show>
+          <Show when={item.authFailure}>{failure => <p>{piAuthFailureTitle(failure())}</p>}</Show>
+          <Show when={item.attention && !item.authFailure}><p>Needs attention</p></Show>
           <div class="operator-actions"><button class="admin-secondary-button" disabled={busy()} onClick={() => void read(item.activityId)}>View {item.activityId}</button>
             <Show when={working.has(item.executionStatus)}><button class="admin-secondary-button" disabled={busy() || uncertain() || item.executionStatus === 'cancel-requested'} aria-label={`Cancel ${item.activityId}`} onClick={() => void perform(() => api.cancelOwnedActivity(item.activityId), 'Cancellation requested. Already-admitted effects cannot be undone.')}>Cancel activity</button></Show>
             <Show when={item.executionStatus === 'waiting'}><button class="admin-secondary-button" disabled={busy() || uncertain()} aria-label={`Continue ${item.activityId}`} onClick={() => void perform(() => api.continueOwnedActivity(item.activityId), 'Continuation requested with current authorization.')}>Continue activity</button></Show>
@@ -208,7 +209,7 @@ const OperatorManagementActivity: Component<{ installationId?: string; onBackToC
     <Show when={detail()}>{value => <section class="admin-panel operator-panel"><h2>Activity detail</h2><p>Activity ID: {value().activityId}</p>
       <p>Execution: {value().executionStatus} · Cleanup: {value().cleanupStatus}</p>
       <Show when={nativeSelection(value().inferenceSelection)}>{selection => <p>Inference: Pi built-in providers · {selection().provider} / {selection().model} · {nativeReasoningLabel(selection())}</p>}</Show>
-      <Show when={value().authFailure}>{failure => <div role="alert"><p>Pi login required · {failure().provider}</p><p>{piLoginRecoveryCopy}</p></div>}</Show>
+      <Show when={value().authFailure}>{failure => <div role="alert"><p>{piAuthFailureTitle(failure())}</p><p>{piLoginRecoveryCopy}</p></div>}</Show>
       <Show when={value().checkpoint != null}><h3>Progress</h3><pre class="operator-result">{JSON.stringify(value().checkpoint, null, 2)}</pre></Show>
       <Show when={value().result != null} fallback={<p>No result available.</p>}><h3>Result</h3><pre class="operator-result">{JSON.stringify(value().result, null, 2)}</pre></Show>
       <Show when={value().sessionId}><a href={`/app?session=${encodeURIComponent(value().sessionId!)}`}>Open owned session</a></Show>

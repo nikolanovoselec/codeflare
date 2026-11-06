@@ -527,6 +527,16 @@ const OperatorDetail: Component<{ detail: api.ManagementDetail; choices?: api.Ma
     if (value.status === 'unconfigured') return value.source === 'pi-native'
       ? 'Not configured — save a provider and model in your R2 Pi profile.' : 'Not configured — choose a Gateway route for this installation.';
     if (value.status === 'profile') return 'Saved profile only — next-run eligibility is not established.';
+    if (value.status === 'blocked' && value.reason === 'policy-denied' && value.source === 'pi-native') {
+      const policies = [operator().policy, installation()?.policy];
+      if (policies.some(policy => !policy?.inference?.allowedSources?.includes('pi-native'))) {
+        return 'Blocked — Native Pi is not approved in both operator and installation restrictions.';
+      }
+      const level = value.reasoningLevel;
+      if (level != null && policies.some(policy => !policy?.inference?.reasoningLevels.includes(level as api.PiReasoningLevel))) {
+        return `Blocked — ${level.charAt(0).toUpperCase() + level.slice(1)} reasoning is not approved in both operator and installation restrictions.`;
+      }
+    }
     if (value.status === 'blocked') return value.reason === 'invocation-denied'
       ? 'Blocked — your account does not have invocation permission.'
       : value.reason === 'installation-disabled' ? 'Blocked — this installation is not enabled for new runs.'
@@ -536,7 +546,7 @@ const OperatorDetail: Component<{ detail: api.ManagementDetail; choices?: api.Ma
   };
   const guidedAssessment = () => operator().profile === 'dispatcher' && currentRelease()?.name === 'Renovate Dispatcher'
     && operator().repositoryUrl.replace(/\.git$/i, '').toLowerCase() === 'https://github.com/nikolanovoselec/codeflare-operator-dispatcher';
-  const configuredRuns = () => guidedAssessment() && currentRelease()?.intentVersion === '3'
+  const configuredRuns = () => guidedAssessment() && ['3', '4'].includes(currentRelease()?.intentVersion ?? '')
     && operator().source.repositoryId === operator().repositoryId
     && operator().source.repositoryUrl.replace(/\.git$/i, '').toLowerCase() === operator().repositoryUrl.replace(/\.git$/i, '').toLowerCase();
   const [runRepository, setRunRepository] = createSignal('');

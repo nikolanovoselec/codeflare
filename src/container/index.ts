@@ -737,7 +737,8 @@ export class container extends Container<Env> implements ContainerEnvState {
       // RPC requires ordinary objects, not the safe snapshot's null-prototype dictionaries.
       const cause = captured && typeof captured === 'object' && Object.hasOwn(captured, 'cause')
         ? { cause: JSON.parse(JSON.stringify((captured as Record<string, unknown>).cause)) } : {};
-      return { ok: false, status, message: error.message, stack: error.stack, ...cause };
+      return { ok: false, status, message: error.message, stack: error.stack, ...cause,
+        ...(error.authFailure ? { authFailure: error.authFailure } : {}) };
     }
   }
 

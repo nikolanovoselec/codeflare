@@ -45,6 +45,26 @@ const status = () => screen.getByRole('status', { name: 'Effective inference' })
 const gatewayDetails = () => screen.getByText(/Gateway settings — inactive/, { selector: 'summary' }).parentElement as HTMLDetailsElement;
 
 describe('REQ-OPERATOR-096 AC4/5/6/7: effective inference for your next manual run', () => {
+  it('REQ-OPERATOR-096: an unapproved Native source is distinguished from a provider restriction', async () => {
+    installations = [{ ...installation, policy: { ...policy, inference: { ...inference, allowedSources: ['managed'] } } }];
+    context = async () => ({ ...native, status: 'blocked', reason: 'policy-denied' });
+    render(() => <OperatorManagement />);
+    await waitFor(() => expect(status()).toHaveTextContent('Native Pi is not approved in both operator and installation restrictions'));
+    expect(status()).toHaveTextContent('saved-provider');
+    expect(writes).toEqual([]);
+  });
+  it('REQ-OPERATOR-096: blocked Native Medium names the approval gap without changing inference or approvals', async () => {
+    context = async () => ({ ...native, provider: 'openai-codex', model: 'gpt-6.1-sol', reasoningLevel: 'medium',
+      status: 'blocked', reason: 'policy-denied' });
+    render(() => <OperatorManagement />);
+    await waitFor(() => expect(status()).toHaveTextContent('Medium reasoning is not approved'));
+    expect(status()).toHaveTextContent('openai-codex');
+    expect(status()).toHaveTextContent('Reasoning: medium');
+    expect(screen.getByText(/Gateway settings — inactive/, { selector: 'summary' })).toBeInTheDocument();
+    expect(status()).toHaveTextContent('Reasoning: medium');
+    expect(writes).toEqual([]);
+  });
+
   it('labels saved Native provider/model/reasoning as selection, not OAuth success, and preserves one collapsed inactive Gateway pair', async () => {
     render(() => <OperatorManagement userEmail="viewer@example.test" />);
     await waitFor(() => expect(status()).toHaveTextContent('saved-provider'));

@@ -752,6 +752,23 @@ describe('REQ-OPERATOR-027: repository-only Dispatcher result presentation', () 
 
 
 describe('REQ-OPERATOR-057: functional Pi login recovery', () => {
+  it.each(['openai', 'anthropic', 'xai', 'kimi-coding'])('REQ-OPERATOR-057 AC5: missing %s credentials replace generic attention in run row and detail', async provider => {
+    const missing = { ...active, executionStatus: 'unknown' as const, attention: true,
+      authFailure: { code: 'PI_LOGIN_REQUIRED' as const, reason: 'missing' as const, provider } };
+    listMock.mockResolvedValue({ items: [missing] });
+    detailMock.mockResolvedValue({ ...missing, checkpoint: null, result: null, loggingEnabled: false });
+    render(() => <OperatorActivityButton enabled />);
+    await fireEvent.click(screen.getByRole('button', { name: /operator activity/i }));
+    const view = await screen.findByRole('button', { name: 'View activity-1' });
+    expect(within(view.closest('article')!).getByText(`Native Pi credentials required for ${provider}`)).toBeTruthy();
+    expect(screen.queryByText('Needs attention')).toBeNull();
+    await fireEvent.click(view);
+    expect(await screen.findByText(`Native Pi credentials required for ${provider}`)).toBeTruthy();
+    expect(screen.getByText(piLoginRecoveryCopy)).toBeTruthy();
+    expect(screen.getByText('Execution: unknown')).toBeTruthy();
+    expect(screen.queryByText('Needs attention')).toBeNull();
+  });
+
   it('shows safe provider recovery with logging OFF while retaining failed execution state', async () => {
     const failed = { ...active, executionStatus: 'failed' as const, cleanupStatus: 'stopped' as const,
       collectionStatus: 'unavailable' as const, attention: true,

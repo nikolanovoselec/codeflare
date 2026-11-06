@@ -6,6 +6,7 @@ import { createR2Client, getR2Url } from '../lib/r2-client';
 import { getRegimeState } from '../lib/r2-regime-state';
 import { computeKeyMd5, getSseHeaders } from '../lib/r2-sse';
 import { SETUP_KEYS } from '../lib/kv-keys';
+import type { SafePiAuthFailure } from './pi-auth-failure';
 
 // The SDK's opaque OAuth imports are not discovered by Worker bundling.
 // Its public static-flow registration preserves SDK-owned resolution and refresh.
@@ -20,6 +21,7 @@ export interface SdkStorageScope {
   model?: string;
 }
 export class DispatcherSdkStorageError extends Error {
+  declare authFailure?: SafePiAuthFailure;
   constructor(public readonly status: number, message = 'Private SDK storage unavailable', options?: ErrorOptions) { super(message, options); }
 }
 /** A missing saved selection is distinct from a denied or unavailable storage read. */
@@ -27,7 +29,7 @@ export class DispatcherSdkSettingsUnconfiguredError extends DispatcherSdkStorage
   constructor() { super(403, 'Saved Dispatcher selection is not configured'); }
 }
 export type DispatcherSdkCredentialResult = { ok: true; value: unknown | null }
-  | { ok: false; status: 403 | 409 | 413; message: string; stack?: string; cause?: unknown };
+  | { ok: false; status: 403 | 409 | 413; message: string; stack?: string; cause?: unknown; authFailure?: SafePiAuthFailure };
 type JsonObject = Record<string, unknown>;
 const LIMIT = 1024 * 1024;
 const AUTH = '.pi/agent/auth.json';
@@ -318,7 +320,11 @@ export async function handleDispatcherSdkCredentials(storage: DurableObjectStora
       const file = await io.read(AUTH);
       const auth = file.bytes ? json(file.bytes) : {};
       const raw = Object.hasOwn(auth, selected.defaultProvider) ? auth[selected.defaultProvider] : undefined;
-      if (!object(raw)) deny();
+      if (!object(raw)) {
+        const error = new DispatcherSdkStorageError(403);
+        error.authFailure = { code: 'PI_LOGIN_REQUIRED', reason: 'missing', provider: selected.defaultProvider };
+        throw error;
+      }
       return { ...file, auth, raw };
     };
     let saved = await snapshot();

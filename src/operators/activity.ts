@@ -2648,6 +2648,13 @@ export class OperatorActivity extends Agent {
         this.#sdkHttpControllers.delete(controller); controller.abort();
       }
     } catch (error) {
+      if (error instanceof PiAuthRequiredError) {
+        try {
+          if (!request.signal.aborted && await this.#dispatcherSdkCurrent(generation, lease, modelScope)) {
+            await this.#nativeLoginStop(generation, error.authFailure);
+          }
+        } catch { /* Preserve the original private refusal if authority or projection is unavailable. */ }
+      }
       if (error instanceof DispatcherRefusal) return dispatcherRefusal(error.reason, error.reason === 'operation-conflict' ? 409 : 403);
       return dispatcherRefusal(error instanceof z.ZodError || error instanceof SyntaxError ? 'request-invalid' : 'execution-inactive');
     }

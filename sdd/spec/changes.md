@@ -4,6 +4,10 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-11-06
 
+- Restore configured Renovate repository readback and explicit Save for both supported package contracts, and name a known Native reasoning approval gap without changing saved defaults or restrictions ([REQ-OPERATOR-061](operators.md#req-operator-061-prospective-admin-session-renovate-scan), [REQ-OPERATOR-096](operators.md#req-operator-096-next-manual-dispatcher-inference-preview)).
+
+- Preserve the existing provider-specific native credential-missing recovery across the private SDK boundary and replace generic activity attention with actionable recovery on both owner surfaces, without changing execution uncertainty or retry authority ([REQ-OPERATOR-057](operators.md#req-operator-057-readable-owned-activity-results)).
+
 - Preserve the current Pi session display name inside the atomic streamed transcript replacement, including its bytes in retention admission and readback, without scanning history ([REQ-MEM-033](memory.md#req-mem-033-preserved-session-display-name)).
 
 - Replace semantic transcript reduction with a streamed oldest-prefix cut: preserve the header, calculate one cutoff targeting 20 MB, align to a newline, and accept 15–25 MB. Discarded old history is intentionally lost; owner activation, appended tail, readback and the 1 GiB worker cap remain ([REQ-MEM-028](memory.md#req-mem-028-pi-active-transcript-size-retention), [REQ-MEM-030](memory.md#req-mem-030-visible-agent-owned-transcript-maintenance)).

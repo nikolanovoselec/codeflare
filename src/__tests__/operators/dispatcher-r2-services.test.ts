@@ -941,6 +941,38 @@ describe('REQ-OPERATOR-007/047/048/058: owner R2 configured-service HTTP contrac
     expect(exchanges).toEqual([]);
   }));
 
+  it.each([
+    { selection: logical, credential: undefined, loggingEnabled: false },
+    { selection: { provider: 'anthropic', model: 'claude-sonnet-4-5', api: 'anthropic-messages', reasoningLevel: 'low' }, credential: undefined, loggingEnabled: true },
+    { selection: { provider: 'xai', model: 'grok-4', api: 'openai-completions', reasoningLevel: 'low' }, credential: 'not-a-credential-record', loggingEnabled: false },
+    { selection: { provider: 'kimi-coding', model: 'kimi-k2.5', api: 'anthropic-messages', reasoningLevel: 'low' }, credential: undefined, loggingEnabled: false },
+  ])('REQ-OPERATOR-057 AC5/6: missing $selection.provider credential reaches owner recovery without settling a reserved operation', ({ selection, credential, loggingEnabled }) => lane(async (f, store) => {
+    const saved = { ...(credential === undefined ? {} : { [selection.provider]: credential }), other };
+    store.put(settingsKey, { defaultProvider: selection.provider, defaultModel: selection.model, defaultThinkingLevel: 'low' });
+    store.put(authKey, saved);
+    await admitted(f);
+    await json(await modelAdmission(f));
+    await denied(await credentials(f, { operation: 'read', providerId: selection.provider }));
+    const authFailure = { code: 'PI_LOGIN_REQUIRED', reason: 'missing', provider: selection.provider };
+    expect(await f.activity.getBrowserSummary(f.proof.ownerKey)).toMatchObject({ authFailure });
+    expect(await f.activity.getBrowserDetail()).toMatchObject({ authFailure, result: null, collectionStatus: 'unavailable' });
+    await denied(await modelAdmission(f, 'later-inference'), [403, 404, 409]);
+    f.normalTransport!.settle('failed');
+    await f.activity.reconcileDispatcherLease();
+    expect(await f.activity.getBrowserSummary(f.proof.ownerKey)).toMatchObject({ authFailure, executionStatus: 'unknown' });
+    expect(await f.activity.getBrowserDetail()).toMatchObject({ result: null, collectionStatus: 'unavailable' });
+    expect(store.value(authKey)).toEqual(saved);
+    expect(JSON.stringify(await f.activity.getBrowserDetail())).not.toContain(canary);
+  }, true, false, { loggingEnabled, nativeSelection: selection }));
+
+  it('REQ-OPERATOR-057 AC6: an unavailable auth-file read is not diagnosed as missing native credentials', () => lane(async (f, store) => {
+    await admitted(f);
+    store.override(path => path.endsWith(authKey) ? new Response(null, { status: 403 }) : undefined);
+    await denied(await read(f));
+    expect(await f.activity.getBrowserSummary(f.proof.ownerKey)).not.toHaveProperty('authFailure');
+    expect(await f.activity.getBrowserDetail()).not.toHaveProperty('authFailure');
+  }));
+
   it('returns only the selected saved API key, without evaluating or exporting provider metadata', () => lane(async (f, store) => {
     const saved = { type: 'api_key', key: `${canary}_selected_api_key`, env: { PRIVATE: `${canary}_private_env` } };
     store.put(authKey, { [providerId]: saved, other });
