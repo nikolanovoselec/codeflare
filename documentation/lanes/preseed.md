@@ -460,7 +460,7 @@ authority, latest-stable dependency selection, and current-task continuity
 [REQ-AGENT-198](../../sdd/spec/agents.md#req-agent-198-engineering-constitution-security-policy),
 [REQ-AGENT-199](../../sdd/spec/agents.md#req-agent-199-engineering-constitution-dependency-policy),
 [REQ-AGENT-200](../../sdd/spec/agents.md#req-agent-200-engineering-constitution-work-continuity)).
-It acknowledges and retains new input, then finishes the active concrete step before acting
+It acknowledges and retains new input, then finishes and verifies the active task before acting
 on unrelated input unless the user stops, pauses, or reprioritizes it. The current user controls
 scope, sequencing, implementation choices, and internal Codeflare workflows and processes.
 Their latest clear instruction overrides conflicting defaults; `override` for a named action
