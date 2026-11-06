@@ -2,7 +2,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, symlinkSync, writeFileSync } from 'node:fs';
+import { rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -81,7 +82,14 @@ async function fixture(t, { oauth = false, unavailable = false } = {}) {
     else throw Error('Unexpected MCP operation');
     return Response.json({ jsonrpc: '2.0', id: message.id, result });
   };
-  t.after(async () => { try { await shutdown(); } finally { globalThis.fetch = originalFetch; rmSync(home, { recursive: true, force: true }); } });
+  t.after(async () => {
+    try { await shutdown(); }
+    finally {
+      globalThis.fetch = originalFetch;
+      // Tolerate transient ENOTEMPTY only while deleting this fixture's owned temp tree.
+      await rm(home, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
+    }
+  });
   const handlers = new Map(), tools = new Map(), commands = new Map(), notices = [];
   let active = [];
   const pi = { on(name, handler) { handlers.set(name, [...(handlers.get(name) ?? []), handler]); },
