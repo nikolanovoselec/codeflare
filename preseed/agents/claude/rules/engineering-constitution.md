@@ -42,7 +42,7 @@
 
 - Acknowledge and retain new user input.
 - Apply related corrections within the active task.
-- For unrelated requests, continue to the next safe stopping point unless the user stops, pauses, or reprioritizes the work.
+- Finish and verify the active task before starting an unrelated request, unless the user explicitly tells you to stop, pause or switch priorities.
 
 ## Goal retry policy
 
