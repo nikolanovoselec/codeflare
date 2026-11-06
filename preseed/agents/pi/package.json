@@ -11,7 +11,7 @@
     "@juicesharp/rpiv-todo": "2.15.0",
     "@narumitw/pi-goal": "0.54.13",
     "@narumitw/pi-plan-mode": "0.59.4",
-    "context-mode": "1.0.169",
+    "context-mode": "2.1.4",
     "pi-evaluate": "0.1.5",
     "pi-open-tui": "0.3.12",
     "pi-smart-compact": "10.7.2",
