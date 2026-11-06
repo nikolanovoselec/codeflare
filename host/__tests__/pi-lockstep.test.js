@@ -306,12 +306,15 @@ if (!args.includes('--list-models') || args.includes('-p') || args.includes('--p
   process.exit(9);
 }
 const sources = args.flatMap((arg, i) => arg === '--extension' ? [args[i + 1]] : []);
+const retainedHelperUrl = ${JSON.stringify(pathToFileURL(helperSource).href)};
 for (let source of sources) {
   if (process.env.WRONG_LOCAL_PATH === '1' && source === process.env.FIXTURE_LOCAL_SOURCE) source = process.env.WRONG_LOCAL_SOURCE;
   if (process.env.OMIT_PACKAGE && source.includes('/node_modules/' + process.env.OMIT_PACKAGE + '/')) continue;
   const artifact = execFileSync(process.execPath, [${JSON.stringify(script)}, '--jiti-cache-path', source, join(process.env.TMPDIR, 'jiti')], { encoding: 'utf8' }).trim();
   mkdirSync(dirname(artifact), { recursive: true });
-  writeFileSync(artifact, stripTypeScriptTypes(readFileSync(source, 'utf8')));
+  // The cache execution assertion runs after the synthetic warm home is removed.
+  const compiled = stripTypeScriptTypes(readFileSync(source, 'utf8')).replaceAll("'./transcript-trim/engine.mjs'", JSON.stringify(retainedHelperUrl));
+  writeFileSync(artifact, compiled);
   if (source === process.env.FIXTURE_LOCAL_SOURCE) {
     const helper = join(dirname(source), 'transcript-trim/engine.mjs');
     await import((await import('node:url')).pathToFileURL(helper).href);

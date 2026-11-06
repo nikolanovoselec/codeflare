@@ -173,6 +173,8 @@ All bisync commands use `--ignore-checksum` to skip post-transfer MD5 verificati
 
 ### What's Synced vs Excluded (REQ-STOR-011)
 
+Home-policy admission and scope transitions follow [REQ-STOR-055](../../sdd/spec/storage.md#req-stor-055-home-persistence-admission-and-scope-transitions); the Administration choice follows [REQ-SETUP-028](../../sdd/spec/setup.md#req-setup-028-administration-persistence-policy-selection). Workspace scope remains governed by REQ-STOR-011.
+
 **Administration → Data governance → Save only approved locations** chooses how file locations become eligible for sync. Sync copies eligible files to R2, the persistent storage bucket used to restore them when a session container is recreated.
 
 - **Off: Exclude mode (default).** Files in locations covered by sync are saved unless explicitly excluded. This supports new tools without enrolling each new location, but temporary downloads and caches can accidentally end up in R2 when placed within sync scope.
