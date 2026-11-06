@@ -16,3 +16,5 @@ Only `committed: true` with verified `status: "trimmed"` proves success. Other s
 The original live owner alone activates the staged file, preserves appended tail and verifies persisted bytes. The worker retains its 1 GiB kernel limit and lower CPU priority. Do not read transcript files, use shell/network/other agents, alter SDK/Goal/settings/counters, invent ancestry or create backups.
 
 The parent validates only bounded first-line session metadata for ownership; history records are never parsed.
+
+The owner preserves current session naming metadata after the header, within the same budget and atomic commit, so the resume-selector name survives. No extra on-disk history scan is performed.

@@ -4,6 +4,8 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-11-06
 
+- Preserve the current Pi session display name inside the atomic streamed transcript replacement, including its bytes in retention admission and readback, without scanning history ([REQ-MEM-033](memory.md#req-mem-033-preserved-session-display-name)).
+
 - Replace semantic transcript reduction with a streamed oldest-prefix cut: preserve the header, calculate one cutoff targeting 20 MB, align to a newline, and accept 15–25 MB. Discarded old history is intentionally lost; owner activation, appended tail, readback and the 1 GiB worker cap remain ([REQ-MEM-028](memory.md#req-mem-028-pi-active-transcript-size-retention), [REQ-MEM-030](memory.md#req-mem-030-visible-agent-owned-transcript-maintenance)).
 
 - Bound each transcript CPU worker to 1 GiB of kernel-accounted memory without swap. Gate Node startup on verified isolation, refuse unavailable enforcement and classify kernel memory-limit termination without placing Pi or the terminal host inside the worker budget ([REQ-MEM-032](memory.md#req-mem-032-bounded-transcript-worker-memory)).

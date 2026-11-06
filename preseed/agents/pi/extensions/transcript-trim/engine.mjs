@@ -586,11 +586,11 @@ function newlineAfter(fd,start,end) {
   }
   throw Error('incomplete-jsonl');
 }
-function rawCut(fd,length,tailBytes=0) {
+function rawCut(fd,length,tailBytes=0,metadataBytes=0) {
   const header=newlineAfter(fd,0,length);
-  const position=Math.min(length,Math.max(header,header+length+tailBytes-TARGET));
+  const position=Math.min(length,Math.max(header,header+length+tailBytes+metadataBytes-TARGET));
   const cut=position===length?length:newlineAfter(fd,position,length);
-  const projectedBytes=header+length-cut+tailBytes;
+  const projectedBytes=header+length-cut+tailBytes+metadataBytes;
   if(projectedBytes<MINIMUM)throw Error('retained-output-below-minimum');
   if(projectedBytes>MAXIMUM)throw Error('retained-output-above-maximum');
   return {header,cut,cutPercent:100*(cut-header)/(length+tailBytes-header),projectedBytes};
@@ -600,12 +600,13 @@ function stageRanges(r,target,ranges,stat) {
   try{const s=fs.lstatSync(target);if(!s.isFile()||s.isSymbolicLink()||s.nlink!==1||s.uid!==process.getuid?.())throw Error('foreign-candidate');fs.unlinkSync(target);}catch(e){if(e.code!=='ENOENT')throw e;}
   const out=fs.openSync(target,fs.constants.O_WRONLY|fs.constants.O_CREAT|fs.constants.O_EXCL|fs.constants.O_NOFOLLOW,0o600),hash=createHash('sha256');let bytes=0;
   try {
-    for(const [fd,start,end]of ranges)copyRange(fd,start,end,chunk=>{for(let at=0;at<chunk.length;){const written=fs.writeSync(out,chunk,at,chunk.length-at);if(!written)throw Error('staging-short-write');at+=written;}hash.update(chunk);bytes+=chunk.length;});
+    const write=chunk=>{for(let at=0;at<chunk.length;){const written=fs.writeSync(out,chunk,at,chunk.length-at);if(!written)throw Error('staging-short-write');at+=written;}hash.update(chunk);bytes+=chunk.length;};
+    for(const range of ranges)if(Buffer.isBuffer(range))write(range);else copyRange(...range,write);
     if(stat){fs.fchownSync(out,stat.uid,stat.gid);fs.fchmodSync(out,stat.mode&0o7777);}fs.fsyncSync(out);
   }finally{fs.closeSync(out);}
   return {bytes,sha256:hash.digest('hex')};
 }
-function workerJob({action,request:r}) {
+function workerJob({action,request:r,sessionInfo}) {
   directoryOwned(r);const stamp=pathIdentity(r.file),stat=fs.lstatSync(r.file);
   if(stat.uid!==process.getuid?.()||stat.nlink!==1)throw Error('foreign-ownership');
   if(action==='readback') {
@@ -619,12 +620,13 @@ function workerJob({action,request:r}) {
   try {
     const ending=Buffer.allocUnsafe(1);
     for(const end of [r.sourceBytes,stat.size])if(fs.readSync(fd,ending,0,1,end-1)!==1||ending[0]!==10)throw Error('incomplete-jsonl');
-    const {header,cut,cutPercent,projectedBytes}=rawCut(fd,r.sourceBytes,stat.size-r.sourceBytes);
+    const metadata=sessionInfo?Buffer.from(encode(sessionInfo)):Buffer.alloc(0);
+    const {header,cut,cutPercent,projectedBytes}=rawCut(fd,r.sourceBytes,stat.size-r.sourceBytes,metadata.length);
     if(action==='prepare')return {requestId:r.requestId,status:'prepared',policy:r.policy,withinTarget:true,committed:false,
       candidateBytes:header+r.sourceBytes-cut,remainingBytes:projectedBytes,projectedTotalBytes:projectedBytes,budgetBytes:MAXIMUM-(stat.size-r.sourceBytes),cutPercent,removedBytes:cut-header};
     if(action!=='activation')throw Error('unknown-worker-action');
     const finalFile=join(r.directory,'activation.jsonl');
-    const final=stageRanges(r,finalFile,[[fd,0,header],[fd,cut,stat.size]],stat);
+    const final=stageRanges(r,finalFile,[[fd,0,header],metadata,[fd,cut,stat.size]],stat);
     if(trimSourceIdentity(fs.lstatSync(r.file))!==trimSourceIdentity(stat)||pathIdentity(r.file)!==stamp)throw Error('source-or-session-changed');
     return {finalFile,sourceIdentity:trimSourceIdentity(stat),pathIdentity:stamp,before:stat.size,bytes:final.bytes,cutPercent,sha256:final.sha256,finalIdentity:trimSourceIdentity(fs.lstatSync(finalFile))};
   }finally{fs.closeSync(fd);}

@@ -884,3 +884,27 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 **Verification:** Controlled kernel-boundary fixtures; memory-exhaustion stress runs in CI only, never the active session.
 
 **Status:** Implemented
+
+---
+
+### REQ-MEM-033: Preserved session display name
+
+**Intent:** Transcript retention does not make a named session disappear from Pi's resume selector.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. A named session keeps its current display name after trimming and disk reopen. <!-- @impl: preseed/agents/pi/extensions/active-session-transcript-trimming.ts::registerActiveSessionTranscriptTrimming --> <!-- @impl: preseed/agents/pi/extensions/transcript-trim/engine.mjs::workerJob --> <!-- @test: host/__tests__/pi-trim-byte-cut.test.js (REQ-MEM-033: trim preserves latest display name Named fixture) --> <!-- @test: host/__tests__/pi-transcript-trimming.test.js (REQ-MEM-028 AC5: streamed cut preserves loaded SDK state, same-path append and disk reopen) -->
+2. A rename or explicit name clear before activation is not replaced by an older name. <!-- @impl: preseed/agents/pi/extensions/active-session-transcript-trimming.ts::registerActiveSessionTranscriptTrimming --> <!-- @test: host/__tests__/pi-trim-byte-cut.test.js (REQ-MEM-033: trim preserves latest display name Renamed fixture) --> <!-- @test: host/__tests__/pi-trim-byte-cut.test.js (REQ-MEM-033: trim preserves latest display name cleared) -->
+3. Preserved naming metadata is included in the retained-output budget and committed-prefix verification. <!-- @impl: preseed/agents/pi/extensions/transcript-trim/engine.mjs::rawCut --> <!-- @impl: preseed/agents/pi/extensions/transcript-trim/engine.mjs::workerJob --> <!-- @test: host/__tests__/pi-trim-byte-cut.test.js (REQ-MEM-033: trim preserves latest display name Named fixture) -->
+
+**Constraints:** Read only current naming metadata from the owner's public SDK state. Do not parse history records, rewrite cached history or invent a title. Stage naming metadata after the header within the existing atomic replacement; leave the retained suffix and its final entry unchanged.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-MEM-028](#req-mem-028-pi-active-transcript-size-retention), [REQ-MEM-029](#req-mem-029-active-transcript-replacement-safety)
+
+**Verification:** Name persistence, rename/clear, exact retained-suffix bytes, budget checks and pinned-SDK resume-list/reopen outcomes.
+
+**Status:** Implemented

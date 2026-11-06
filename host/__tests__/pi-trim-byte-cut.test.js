@@ -8,17 +8,17 @@ import {importPiExtension} from './fixtures/pi-extension-module.mjs';
 const {registerActiveSessionTranscriptTrimming}=await importPiExtension('active-session-transcript-trimming');
 const header=Buffer.from('{"type":"session","version":3,"id":"byte-cut"}\n');
 function expectedHash(file,start,end){const h=createHash('sha256'),fd=fs.openSync(file,'r'),b=Buffer.alloc(65536);h.update(header);try{for(let p=start;p<end;){const n=fs.readSync(fd,b,0,Math.min(b.length,end-p),p);h.update(b.subarray(0,n));p+=n;}}finally{fs.closeSync(fd);}return h.digest('hex');}
-function fixture(t,megabytes=60){
+function fixture(t,megabytes=60,sessionName){
  const root=fs.mkdtempSync(join(tmpdir(),'trim-byte-cut-'));t.after(()=>fs.rmSync(root,{recursive:true,force:true}));const file=join(root,'session.jsonl');
  // Opaque lines deliberately need no JSON decoding. Copy their bytes, not values.
  const line=Buffer.from('opaque UTF-8 é '+ 'x'.repeat(1007)+'\n');assert.equal(line.length,1024);
- const fd=fs.openSync(file,'w');fs.writeSync(fd,header);const block=Buffer.concat(Array(1024).fill(line));
+ const fd=fs.openSync(file,'w');fs.writeSync(fd,header);const oldInfo=sessionName?Buffer.from(JSON.stringify({type:'session_info',id:'old-session-name',parentId:null,timestamp:'2026-01-01T00:00:00Z',name:sessionName})+'\n'):Buffer.alloc(0);fs.writeSync(fd,oldInfo);const block=Buffer.concat(Array(1024).fill(line));
  for(let i=0;i<megabytes;i++)fs.writeSync(fd,block);fs.closeSync(fd);
- let selected=true;const tools=new Map(),ctx={sessionManager:{getSessionId:()=> selected?'byte-cut':'switched',getSessionFile:()=>file,getHeader:()=>({id:'byte-cut'}),getLeafId:()=> 'leaf',getBranch:()=>[{id:'leaf',parentId:null,type:'message',message:{role:'user',content:'current'}}]}};
+ let selected=true;const tools=new Map(),ctx={sessionManager:{getSessionId:()=> selected?'byte-cut':'switched',getSessionFile:()=>file,getSessionName:()=>sessionName,getHeader:()=>({id:'byte-cut'}),getLeafId:()=> 'leaf',getBranch:()=>[{id:'leaf',parentId:null,type:'message',message:{role:'user',content:'current'}}]}};
  const owner=registerActiveSessionTranscriptTrimming({registerTool:x=>tools.set(x.name,x),sendMessage(){}});t.after(()=>owner.cancel());owner.markDue(ctx);let item=owner.collect(ctx);assert.ok(item?.request);
  const child={sessionManager:{getBranch:()=>[{type:'message',message:{role:'user',content:item.request.prompt}}]}};
  const call=async operation=>JSON.parse((await tools.get('transcript_trim').execute('call',{operation},undefined,undefined,child)).content[0].text);
- return{file,owner,ctx,call,switchOwner(){selected=false;},rearm(){owner.cancel();owner.markDue(ctx);item=owner.collect(ctx);assert.ok(item?.request);}};
+ return{file,owner,ctx,call,bodyOffset:header.length+oldInfo.length,rename(name){sessionName=name;fs.appendFileSync(file,JSON.stringify({type:'session_info',id:'renamed',parentId:'leaf',timestamp:new Date().toISOString(),name:name??''})+'\n');},switchOwner(){selected=false;},rearm(){owner.cancel();owner.markDue(ctx);item=owner.collect(ctx);assert.ok(item?.request);}};
 }
 for(const size of [60,80,120])test(`REQ-MEM-028 AC3/4: one byte cutoff for ${size} MiB copies the exact header and suffix into the size window`,async t=>{
  const f=fixture(t,size),before=fs.statSync(f.file).size,body=before-header.length;
@@ -75,4 +75,19 @@ for(const [name,diskHeader,reason]of [
  const owner=registerActiveSessionTranscriptTrimming({registerTool(){},sendMessage(m){outcomes.push(m);}});t.after(()=>owner.cancel());owner.markDue(ctx);
  assert.equal(owner.collect(ctx),undefined);assert.equal(outcomes.at(-1).details.status,'refused');assert.equal(outcomes.at(-1).details.reason,reason);
  assert.equal(fs.statSync(file).ino,inode);assert.equal(createHash('sha256').update(fs.readFileSync(file)).digest('hex'),before);assert.deepEqual(fs.readdirSync(root),['session.jsonl']);
+});
+
+for(const latestName of ['Named fixture','Renamed fixture',undefined])test(`REQ-MEM-033: trim preserves latest display name ${latestName??'cleared'}`,async t=>{
+ const f=fixture(t,60,'Named fixture');await f.call('prepare');if(latestName!=='Named fixture')f.rename(latestName);
+ const before=fs.statSync(f.file).size,old=fs.openSync(f.file,'r');t.after(()=>fs.closeSync(old));
+ const result=await f.call('activate');assert.equal(result.status,'trimmed');assert.equal(result.committed,true);assert.ok(result.after>=15_000_000&&result.after<=20_000_000);
+ const output=fs.readFileSync(f.file);assert.deepEqual(output.subarray(0,header.length),header);
+ let suffixStart=header.length,metadata=Buffer.alloc(0);
+ if(latestName){const end=output.indexOf(10,header.length)+1;metadata=output.subarray(header.length,end);const info=JSON.parse(metadata);assert.equal(info.type,'session_info');assert.equal(info.name,latestName);assert.notEqual(info.id,'old-session-name');suffixStart=end;}
+ let persistedName;for(const line of output.toString().split('\n')){if(!line.startsWith('{'))continue;const e=JSON.parse(line);if(e.type==='session_info')persistedName=e.name||undefined;}assert.equal(persistedName,latestName);
+ const position=header.length+before+metadata.length-20_000_000;
+ let cut=f.bodyOffset+(Math.floor((position-f.bodyOffset)/1024)+1)*1024;
+ // This cutoff is within the fixed-size original opaque rows; later rename bytes remain in the admitted tail.
+ const expected=createHash('sha256'),buffer=Buffer.alloc(65536);for(let at=cut;at<before;){const n=fs.readSync(old,buffer,0,Math.min(buffer.length,before-at),at);expected.update(buffer.subarray(0,n));at+=n;}
+ assert.equal(createHash('sha256').update(output.subarray(suffixStart)).digest('hex'),expected.digest('hex'));
 });

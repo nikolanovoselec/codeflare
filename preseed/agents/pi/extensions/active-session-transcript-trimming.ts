@@ -19,6 +19,7 @@ type Identity = { sessionId: string; file: string };
 type TrimContext = { sessionManager: {
   getSessionId(): string;
   getSessionFile(): string | undefined;
+  getSessionName?(): string | undefined;
   getLeafId(): string | null;
   getBranch(): readonly Entry[];
   getEntries?(): readonly Entry[];
@@ -429,7 +430,9 @@ export function registerActiveSessionTranscriptTrimming(pi: ExtensionAPI, io: ty
           if (!valid() || signal?.aborted) throw new Error("activation-canceled-or-session-changed");
           const branch=ctx.sessionManager.getBranch().map(e=>e.id);
           if(authorized.branchIds.some((id,i)=>branch[i]!==id))throw new Error("branch-changed");
-          const prepared:any=await runTrimWorker({action:"activation",request:authorized,branchIds:branch},signal);
+          const name=ctx.sessionManager.getSessionName?.();
+          const sessionInfo=name?{type:"session_info",id:randomUUID(),parentId:null,timestamp:new Date().toISOString(),name}:undefined;
+          const prepared:any=await runTrimWorker({action:"activation",request:authorized,branchIds:branch,sessionInfo},signal);
           // Short owner-only commit fence: no transcript parse/reduction/copy here.
           if(!valid() || signal?.aborted || !isDeepStrictEqual(branch,ctx.sessionManager.getBranch().map(e=>e.id))
             || pathIdentity(authorized.file,io)!==prepared.pathIdentity

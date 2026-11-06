@@ -9,3 +9,5 @@ The retained header, suffix and new tail are copied byte-for-byte using bounded 
 Report success only for `committed: true` and verified `status: "trimmed"`. A committed `verification-pending` receipt permits read-only recovery, never another replacement. Later appends are separate file growth. Do not read transcript files, shell, network, other agents, credentials, settings, Vault, SDK/Goal internals or unrelated files. Do not create backups or trigger native compaction.
 
 The parent validates only bounded first-line session metadata for ownership; history records are never parsed.
+
+The owner preserves current session naming metadata after the header, within the same budget and atomic commit, so the resume-selector name survives. No extra on-disk history scan is performed.
