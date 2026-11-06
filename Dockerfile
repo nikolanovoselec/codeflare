@@ -631,15 +631,12 @@ RUN cd /opt/codeflare/pi-agent/npm && \
     npm cache clean --force && \
     rm -rf /root/.npm /var/lib/apt/lists/*
 
-# Patch the lock-installed context-mode esbuild bundles in place via
-# scripts/patch-context-mode-bundles.mjs (the SAME module host/__tests__ imports,
-# so the patch logic and its test cannot drift). Implements REQ-AGENT-005 AC5
-# (createRequire shim, codeflare#309) + AC8 (npm update-check notice disable); the
-# full rationale lives in that script's header. Done at build time so the patched
-# bundles ship in the image — no runtime extraction, no per-session bunx download,
-# no first-call delay. License posture (ELv2): we do NOT redistribute context-mode
-# source; npm pulls it from the public registry at build time through the
-# committed lock, and we only edit the installed bundle in place.
+# Validate both lock-installed context-mode v2 copies against the plugin pin,
+# retain ESM compatibility / update-probe suppression (REQ-AGENT-076 AC5),
+# then exercise the published CLI/MCP and built-in SQLite without setup/upgrade.
+# Node 26 satisfies upstream's >=24.15.0 floor; Pi v2 is in-process, not a bridge.
+# npm registry bytes are installed through committed locks; only installed bundles
+# are transformed, never redistributed as preseed source (AD49 / ELv2).
 COPY preseed/agents/claude/plugins/context-mode/.claude-plugin/plugin.json /tmp/context-mode-plugin.json
 # Pi's published shrinkwrap can retain nested dependencies despite outer overrides.
 # Replace both nested runtime copies from the already integrity-verified archive.
@@ -653,6 +650,7 @@ RUN for BRACE_DIR in \
     done && rm -f /usr/local/share/codeflare-brace-expansion.tgz /tmp/undici-npm.tgz /tmp/undici-ide.tgz
 
 COPY scripts/patch-context-mode-bundles.mjs /tmp/patch-context-mode-bundles.mjs
+COPY scripts/qualify-context-mode.mjs /tmp/qualify-context-mode.mjs
 RUN <<'EOF'
 set -e
 VER=$(jq -r '.version // empty' /tmp/context-mode-plugin.json)
@@ -665,12 +663,14 @@ fi
 CTX_DIR="/opt/codeflare/npm-tools/node_modules/context-mode"
 PI_CTX_DIR="/opt/codeflare/pi-agent/npm/node_modules/context-mode"
 node /tmp/patch-context-mode-bundles.mjs "$VER" "$CTX_DIR" "$PI_CTX_DIR"
-# Smoke-test BOTH bundles in BOTH installs so a regression in server.bundle.mjs surfaces
-# at build time. cli.bundle.mjs is exercised by `--version`.
+# Smoke-test BOTH bundles in BOTH installs so a regression in server.mjs surfaces
+# at build time. cli.mjs is exercised by `--version`.
 context-mode --version
-node -e "import('/opt/codeflare/npm-tools/node_modules/context-mode/server.bundle.mjs').catch(e => { console.error('[Dockerfile] FATAL: server.bundle.mjs import failed:', e.message); process.exit(1); }).then(() => console.log('[Dockerfile] server.bundle.mjs imports cleanly'))"
-node -e "import('/opt/codeflare/pi-agent/npm/node_modules/context-mode/server.bundle.mjs').catch(e => { console.error('[Dockerfile] FATAL: Pi server.bundle.mjs import failed:', e.message); process.exit(1); }).then(() => console.log('[Dockerfile] Pi server.bundle.mjs imports cleanly'))"
-rm -f /tmp/context-mode-plugin.json /tmp/patch-context-mode-bundles.mjs
+node -e "import('/opt/codeflare/npm-tools/node_modules/context-mode/server.mjs').catch(e => { console.error('[Dockerfile] FATAL: server.mjs import failed:', e.message); process.exit(1); }).then(() => console.log('[Dockerfile] server.mjs imports cleanly'))"
+node -e "import('/opt/codeflare/pi-agent/npm/node_modules/context-mode/server.mjs').catch(e => { console.error('[Dockerfile] FATAL: Pi server.mjs import failed:', e.message); process.exit(1); }).then(() => console.log('[Dockerfile] Pi server.mjs imports cleanly'))"
+node /tmp/qualify-context-mode.mjs "$CTX_DIR"
+node /tmp/qualify-context-mode.mjs "$PI_CTX_DIR"
+rm -f /tmp/context-mode-plugin.json /tmp/patch-context-mode-bundles.mjs /tmp/qualify-context-mode.mjs
 npm cache clean --force
 rm -rf /root/.npm
 EOF
@@ -888,7 +888,7 @@ RUN mkdir -p /opt/codeflare/jiti-warm-tmp /home/user/.pi/agent && \
     todo_source="/opt/codeflare/pi-agent/npm/node_modules/@juicesharp/rpiv-todo/index.ts" && \
     web_source="/opt/codeflare/pi-agent/npm/node_modules/pi-web-access/dist/index.js" && \
     smart_compact_source="/opt/codeflare/pi-agent/npm/node_modules/pi-smart-compact/dist/index.js" && \
-    context_source="/opt/codeflare/pi-agent/npm/node_modules/context-mode/build/adapters/pi/extension.js" && \
+    context_source="/opt/codeflare/pi-agent/npm/node_modules/context-mode/pi/index.js" && \
     (TMPDIR=/opt/codeflare/jiti-warm-tmp HOME=/home/user PI_CODING_AGENT_DIR=/home/user/.pi/agent PI_OFFLINE=1 PI_SKIP_VERSION_CHECK=1 timeout 240 /opt/codeflare/pi-agent/npm/node_modules/.bin/pi -p "warm" || true) && \
     TMPDIR=/opt/codeflare/jiti-warm-tmp HOME=/home/user PI_CODING_AGENT_DIR=/home/user/.pi/agent PI_OFFLINE=1 PI_SKIP_VERSION_CHECK=1 \
       node /opt/codeflare/scripts/verify-pi-lockstep.mjs --warm-jiti-entrypoints \

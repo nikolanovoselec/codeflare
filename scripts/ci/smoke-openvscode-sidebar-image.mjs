@@ -567,7 +567,7 @@ async function verifyCodeServerRuntime() {
   const requireFromCodeServer = createRequire(join(CODE_SERVER_ROOT, 'package.json'));
   const requireFromGetUri = createRequire(requireFromCodeServer.resolve('get-uri'));
   const basicFtp = requireFromGetUri('basic-ftp');
-  assert.equal(requireFromGetUri('basic-ftp/package.json').version, '6.2.3');
+  assert.equal(requireFromGetUri('basic-ftp/package.json').version, '6.2.4');
   assert.deepEqual(
     basicFtp.parseList('-rw-r--r-- 1 ftp ftp 5 Jan 01 2026 smoke.txt\r\n')
       .map(({ name, size }) => ({ name, size })),

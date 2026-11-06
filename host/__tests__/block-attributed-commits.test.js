@@ -247,3 +247,27 @@ describe('block-attributed-commits.sh — unrelated tools exit 0', () => {
     assert.equal(r.stdout, '');
   });
 });
+
+// Published context-mode v2 wire contracts (legacy cases above remain supported).
+describe('context-mode v2 attribution protection', () => {
+  for (const language of ['shell', 'sh', 'bash', 'zsh', 'dash', 'ksh', 'fish']) {
+    it(`denies attributed commits through ctx_execute ${language}`, () => {
+      const result = runHook({ tool_name: 'mcp__context-mode__ctx_execute',
+        tool_input: { language, code: `git commit -m "${ATTRIBUTED_MESSAGE}"` } });
+      assert.equal(result.status, 0);
+      assert.match(result.stdout, /"permissionDecision"\s*:\s*"deny"/);
+    });
+  }
+  it('denies attribution inside a v2 string command batch', () => {
+    const result = runHook({ tool_name: 'mcp__context-mode__ctx_batch',
+      tool_input: { commands: ['git status', `git commit -m "${ATTRIBUTED_MESSAGE}"`], queries: ['status'] } });
+    assert.equal(result.status, 0);
+    assert.match(result.stdout, /"permissionDecision"\s*:\s*"deny"/);
+  });
+  it('allows clean v2 string batches', () => {
+    const result = runHook({ tool_name: 'mcp__context-mode__ctx_batch',
+      tool_input: { commands: ['git status', `git commit -m "${CLEAN_MESSAGE}"`], queries: ['status'] } });
+    assert.equal(result.status, 0);
+    assert.equal(result.stdout, '');
+  });
+});

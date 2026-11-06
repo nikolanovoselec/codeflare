@@ -106,6 +106,24 @@ describe('graph-first-nudge.sh', () => {
     );
   });
 
+  it('custom tier: ctx_batch with graph present -> inject uses hedged phrasing (may bundle non-grep commands)', () => {
+    const cwd = makeRepoWithGraph(baseTmp);
+    const { json } = runHook({
+      tool_name: 'mcp__context-mode__ctx_batch',
+      tool_input: {
+        commands: ['grep -r auth src/'],
+        queries: ['auth'],
+      },
+      cwd,
+    });
+    assert.ok(json, 'ctx_batch must trigger nudge');
+    const ctx = json.hookSpecificOutput.additionalContext;
+    assert.ok(
+      /any of these searches/i.test(ctx),
+      'ctx_batch inject must hedge with "any of these searches" because the call may bundle unrelated commands'
+    );
+  });
+
   it('no graph: Grep silently exits without inject', () => {
     const cwd = makeRepoNoGraph(baseTmp);
     const { stdout, status } = runHook({

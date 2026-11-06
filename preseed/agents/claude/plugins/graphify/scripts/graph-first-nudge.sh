@@ -39,7 +39,7 @@ CWD=$(echo "$INPUT" | jq -r '.cwd // empty' 2>/dev/null)
 TOOL=$(echo "$INPUT" | jq -r '.tool_name // empty' 2>/dev/null)
 
 case "$TOOL" in
-  mcp__context-mode__ctx_batch_execute)
+  mcp__context-mode__ctx_batch|mcp__context-mode__ctx_batch_execute)
     MSG="A graphify knowledge graph exists at \`graphify-out/graph.json\`. If any of these searches are structural (\"how does X connect\", \"what depends on Y\", \"locate definition of Z\"), prefer \`mcp__graphify__query_graph\` / \`get_node\` / \`get_neighbors\` / \`shortest_path\` instead. Content searches inside known files are fine to keep as-is."
     ;;
   mcp__context-mode__ctx_search|Grep|Glob)

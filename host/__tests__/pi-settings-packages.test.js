@@ -84,7 +84,7 @@ describe('Pi settings.json packages assembly (entrypoint.sh)', () => {
       assert.ok(sources.includes(spec), `assembled packages must include ${spec}`);
     }
     assert.deepEqual(settings.packages.filter((entry) => /^npm:context-mode(?:@|$)/.test(sourceOf(entry))),
-      [{ source: 'npm:context-mode@1.0.169', extensions: [], skills: [] }]);
+      [{ source: 'npm:context-mode@2.1.4', extensions: [], skills: [] }]);
   });
 
   it('REQ-AGENT-076 AC1/AC2: next container boot restores the disabled default after /ctx on while preserving managed and unrelated settings', () => {
@@ -92,7 +92,7 @@ describe('Pi settings.json packages assembly (entrypoint.sh)', () => {
       theme: 'user-theme', defaultProvider: 'user-provider', defaultModel: 'user-model',
       customPreference: { keep: true },
       packages: [
-        { source: 'npm:context-mode@1.0.169', extensions: [] },
+        { source: 'npm:context-mode@2.1.4', extensions: [] },
         'npm:pi-goal-list-loop-audit@0.34.16',
         'npm:pi-caveman@1.0.8',
         'npm:some-user-package@1.0.0', // an unrelated package the user added
@@ -100,8 +100,8 @@ describe('Pi settings.json packages assembly (entrypoint.sh)', () => {
     });
     const settings = runAssembly(initial);
     const sources = settings.packages.map(sourceOf);
-    const cm = settings.packages.find((e) => sourceOf(e) === 'npm:context-mode@1.0.169');
-    assert.deepEqual(cm, { source: 'npm:context-mode@1.0.169', extensions: [], skills: [] });
+    const cm = settings.packages.find((e) => sourceOf(e) === 'npm:context-mode@2.1.4');
+    assert.deepEqual(cm, { source: 'npm:context-mode@2.1.4', extensions: [], skills: [] });
     for (const key of ['theme', 'defaultProvider', 'defaultModel', 'customPreference']) {
       assert.deepEqual(settings[key], JSON.parse(initial)[key]);
     }
@@ -263,7 +263,7 @@ describe('REQ-AGENT-056 / REQ-AGENT-209: Open TUI adoption and managed Usage ret
       for (const key of ['defaultModel', 'defaultThinkingLevel', 'customPreference']) assert.deepEqual(first[key], initial[key]);
       assert.deepEqual(first.extensions, ['user-extension.ts', '-builtin:mcp']);
       assert.deepEqual(first.packages.find(entry => /^npm:context-mode@/.test(sourceOf(entry))),
-        { source: 'npm:context-mode@1.0.169', extensions: [], skills: [] });
+        { source: 'npm:context-mode@2.1.4', extensions: [], skills: [] });
       for (const required of REQUIRED) assert.ok(first.packages.some(entry => sourceOf(entry) === required), required);
     });
   }

@@ -108,7 +108,7 @@ describe('entrypoint graphify hooks (advanced session mode)', () => {
     assert.ok(bashGf, 'PostToolUse hook for Bash pointing at graphify-clone-prompt.sh must be present');
 
     const mcpGf = ptu.find(h =>
-      h.matcher === 'mcp__context-mode__ctx_execute|mcp__context-mode__ctx_batch_execute' &&
+      h.matcher === 'mcp__context-mode__ctx_execute|mcp__context-mode__ctx_batch' &&
       h.hooks.some(x => x.command.includes('graphify-clone-prompt.sh'))
     );
     assert.ok(mcpGf, 'PostToolUse hook for MCP shell tools must also point at graphify-clone-prompt.sh (issue #317 multi-shape coverage)');
@@ -171,15 +171,15 @@ describe('entrypoint graphify hooks (advanced session mode)', () => {
       'PreToolUse hook for Grep|Glob pointing at graph-first-nudge.sh must be present (non-custom-tier matcher path)'
     );
 
-    // Custom-tier matcher path: ctx_search + ctx_batch_execute are what
+    // Custom-tier matcher path: ctx_search + ctx_batch are what
     // the agent uses when enforce-ctx-mode denies Grep/Glob.
     const ctxGrep = preToolUse.find(h =>
-      h.matcher === 'mcp__context-mode__ctx_search|mcp__context-mode__ctx_batch_execute' &&
+      h.matcher === 'mcp__context-mode__ctx_search|mcp__context-mode__ctx_batch' &&
       h.hooks.some(x => x.command.includes('graph-first-nudge.sh'))
     );
     assert.ok(
       ctxGrep,
-      'PreToolUse hook for ctx_search|ctx_batch_execute pointing at graph-first-nudge.sh must be present (custom-tier matcher path)'
+      'PreToolUse hook for ctx_search|ctx_batch pointing at graph-first-nudge.sh must be present (custom-tier matcher path)'
     );
   });
 

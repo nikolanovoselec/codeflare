@@ -3,7 +3,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 
-export const CONTEXT_MODE_PACKAGE = "npm:context-mode@1.0.169";
+export const CONTEXT_MODE_PACKAGE = "npm:context-mode@2.1.4";
 export const CONTEXT_MODE_PACKAGE_ID = "npm:context-mode";
 export const CONTEXT_MODE_ENABLED_PACKAGE = { source: CONTEXT_MODE_PACKAGE, extensions: [] } as const;
 export const CONTEXT_MODE_DISABLED_PACKAGE = { source: CONTEXT_MODE_PACKAGE, extensions: [], skills: [] } as const;
@@ -113,7 +113,7 @@ export default async function (pi: ContextModeLifecycleApi): Promise<void> {
 
   const agentDir = process.env.PI_AGENT_DIR || DEFAULT_AGENT_DIR;
   await attachConfiguredContextMode(readContextModeSettings(agentDir), processOwnerRegistry(), pi, async (api) => {
-    const extensionPath = join(agentDir, "npm", "node_modules", "context-mode", "build", "adapters", "pi", "extension.js");
+    const extensionPath = join(agentDir, "npm", "node_modules", "context-mode", "pi", "index.js");
     const contextMode = await import(pathToFileURL(extensionPath).href) as { default?: ContextModeInitializer };
     if (typeof contextMode.default !== "function") {
       throw new Error(`context-mode Pi extension is unavailable at ${extensionPath}`);

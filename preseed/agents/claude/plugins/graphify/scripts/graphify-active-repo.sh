@@ -125,8 +125,8 @@ case "$TOOL" in
             esac
         fi
         ;;
-    mcp__context-mode__ctx_batch_execute)
-        CMDS=$(printf '%s' "$INPUT" | jq -r '.tool_input.commands // [] | map(.command) | join("\n")' 2>/dev/null || true)
+    mcp__context-mode__ctx_batch|mcp__context-mode__ctx_batch_execute)
+        CMDS=$(printf '%s' "$INPUT" | jq -r '.tool_input.commands // [] | map(if type == "string" then . else .command end) | join("\n")' 2>/dev/null || true)
         TARGET=$(extract_last_cd "$CMDS")
         if [ -n "$TARGET" ]; then
             case "$TARGET" in

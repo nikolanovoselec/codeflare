@@ -189,6 +189,7 @@ All bisync commands use `--ignore-checksum` to skip post-transfer MD5 verificati
 | `~/.wrangler/`, `~/.config/**` | **NO** | Wrangler state (root location) + all XDG tool configs (configstore, fish, opencode, uv, rclone, wrangler-XDG) - all regenerable on first use. No codeflare-managed state lives under `~/.config/`. |
 | `~/.local/share/claude/**` | **NO** | Native installer version binaries (leftover data, removed from build) |
 | `~/.local/share/uv/**`, `~/.local/bin/uv`, `~/.local/bin/uvx` | **NO** | uv tool venvs and binaries (graphifyy venv ~275MB lives at `/root/.local/share/uv` baked into the image; the user-side mirror is duplicate cruft, regenerable). |
+| `~/.context-mode/**` | **NO** | v2 shared per-project SQLite index and session cache; regenerated locally, never restored as live SQLite state. |
 | `~/.claude/context-mode/**` | **NO** | context-mode plugin FTS5 store and per-session SQLite DBs (~255MB on an active session, pure cache, regenerable by re-indexing). |
 | `~/.copilot/logs/**`, `~/.copilot/pkg/**`, `~/.copilot/*.db-{wal,shm}` | **NO** | Copilot logs, auto-update binary, and ephemeral SQLite companions |
 | `~/.codex/sessions/**`, `~/.codex/plugins/cache/**`, `~/.codex/cache/**`, `~/.codex/logs*.sqlite*`, `~/.codex/log/**`, `~/.codex/tmp/**`, etc. | **NO** | Codex session data, regenerated plugin/app caches, and log databases |

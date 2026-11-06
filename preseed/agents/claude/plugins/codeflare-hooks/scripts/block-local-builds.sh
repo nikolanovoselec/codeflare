@@ -39,15 +39,13 @@ case "$TOOL_NAME" in
     # Only shell invocations can be local builds. JavaScript / Python
     # / etc. payloads can mention these strings in inert ways.
     LANG=$(echo "$INPUT" | jq -r '.tool_input.language // empty' 2>/dev/null)
-    if [ "$LANG" != "shell" ]; then
-      exit 0
-    fi
+    case "$LANG" in shell|sh|bash|zsh|dash|ksh|fish) ;; *) exit 0 ;; esac
     CMD=$(echo "$INPUT" | jq -r '.tool_input.code // empty' 2>/dev/null)
     ;;
-  mcp__context-mode__ctx_batch_execute)
+  mcp__context-mode__ctx_batch|mcp__context-mode__ctx_batch_execute)
     # Each entry has its own .command; concatenate so a single batch
     # cannot smuggle a build by hiding it among other commands.
-    CMD=$(echo "$INPUT" | jq -r '.tool_input.commands[]?.command // empty' 2>/dev/null)
+    CMD=$(echo "$INPUT" | jq -r '.tool_input.commands[]? | if type == "string" then . else .command // empty end' 2>/dev/null)
     ;;
   *)
     exit 0

@@ -535,6 +535,7 @@ RCLONE_FILTERS_COMMON=(
     # DBs + WAL/SHM (ephemeral, corrupt on restore). 255MB+ on a working
     # session; pure cache, no codeflare-managed state.
     --filter "- .claude/context-mode/**"
+    --filter "- .context-mode/**"           # v2 shared per-project SQLite cache
 
     # Claude Code — subagent transcripts (results captured in main transcript, never re-read)
     --filter "- .claude/projects/**/subagents/**"
@@ -3017,8 +3018,6 @@ const settings = {
     'get_search_content',
     'source_check',
     'web_search',
-    'ctx_execute_file',
-    'ctx_fetch_and_index',
     'ctx_index',
     'ctx_search',
     'graphify_explain',
@@ -3066,7 +3065,7 @@ const required = [
 // Suppress package discovery; the managed foreground owner remains the only bridge owner.
 const defaultPackageIds = new Set(['npm:context-mode']);
 const defaultPackages = [
-  { source: 'npm:context-mode@1.0.169', extensions: [], skills: [] },
+  { source: 'npm:context-mode@2.1.4', extensions: [], skills: [] },
 ];
 // Migration: hard-remove retired managed packages from existing settings.
 // The graphify wrapper conflicts with first-party graphify-native tools. The glla package is
@@ -3401,7 +3400,7 @@ try {
     thinkingPeek: { ...settings.thinkingPeek, lines: 2 },
     footerSegments: { ...settings.footerSegments, cwd: false, hostname: false, sessionName: true,
       gitBranch: false, gitStatus: false, gitCommit: false, runtime: false, context: true,
-      tokens: false, cost: false, extensionStatuses: true, capitalizeProviderName: false },
+      tokens: false, cost: false, liveTps: false, extensionStatuses: true, capitalizeProviderName: false },
     telemetry: { ...settings.telemetry, enabled: false, tps: true, ttft: true, duration: true,
       tokens: true, stalls: true, cost: true },
   };
@@ -4109,19 +4108,16 @@ claude_context_mode_is_selected() {
 #   1. MCP server (ctx_* tools) - registered for ALL users on every session
 #      so the agent always has the helper tools available. The package is
 #      installed globally at Docker build time and lives at
-#      /usr/local/bin/context-mode. Build time also patches the esbuild
-#      ESM bundles with a createRequire shim (see codeflare#309) so
-#      ctx_execute / ctx_batch_execute work; without the patch the bundles
-#      throw `Dynamic require of "node:fs" is not supported` on first
-#      execute call under both Node and Bun ESM loaders.
+#      /usr/local/bin/context-mode. The v2 package bundles its dependencies
+#      and uses Node built-in SQLite (Node >=24.15.0).
 #   2. Plugin folder (hooks + any plugin-bound rules) - ONLY delivered to
 #      unlimited (Custom) tier in Pro session mode via the R2 seed filter
 #      at src/lib/r2-seed.ts. The hooks auto-route tool calls and are the
 #      premium behavior change; the MCP tools are always available manually.
 # The MCP and hook commands invoke `context-mode` directly (no version
 # arg) - the global install IS the pinned version. Version bumps land
-# as a Dependabot PR that updates plugin.json AND triggers a Docker
-# rebuild (the Dockerfile reads plugin.json at build time).
+# through the context-mode Shadow Pins job, which updates both image
+# installs and the plugin pin atomically before rebuilding the image.
 #
 # License posture (ELv2): context-mode is licensed under Elastic License
 # 2.0, which prohibits providing the software as a hosted/managed service.
@@ -4138,7 +4134,7 @@ claude_context_mode_is_selected() {
 # A future contributor who adds a SessionStart-style ctx_* nudge for
 # commercial users would push us over the ELv2 line. Don't do that
 # without revisiting AD49 first.
-CONTEXT_MODE_VERSION="1.0.169"
+CONTEXT_MODE_VERSION="2.1.4"
 CONTEXT_MODE_MANIFEST="$USER_HOME/.claude/plugins/context-mode/.claude-plugin/plugin.json"
 if claude_context_mode_is_selected; then
 if [ -f "$CONTEXT_MODE_MANIFEST" ]; then
@@ -4146,7 +4142,7 @@ if [ -f "$CONTEXT_MODE_MANIFEST" ]; then
     # against the build-time-installed binary (= /usr/local/bin/context-mode
     # --version output) is visible. Bumping plugin.json without a Docker
     # rebuild is a deploy ordering issue caught by this log line.
-    CONTEXT_MODE_VERSION=$(jq -r '.version // "1.0.169"' "$CONTEXT_MODE_MANIFEST" 2>/dev/null || echo "1.0.169")
+    CONTEXT_MODE_VERSION=$(jq -r '.version // "2.1.4"' "$CONTEXT_MODE_MANIFEST" 2>/dev/null || echo "2.1.4")
 fi
 # MCP server registration: always register the context-mode MCP server in
 # ~/.claude.json (mirrors how codeflare-memory's `memory` MCP server is wired).
@@ -4155,7 +4151,7 @@ fi
 # hook wiring is in ~/.claude/settings.json. This matches the pattern used
 # by codeflare-memory and codeflare-hooks (both have bare plugin.json with
 # no mcpServers / no hooks blocks).
-CONTEXT_MODE_MCP_CONFIG=$(jq -n '{mcpServers:{"context-mode":{command:"context-mode",args:[]}}}')
+CONTEXT_MODE_MCP_CONFIG=$(jq -n '{mcpServers:{"context-mode":{command:"context-mode",args:["server","--agent","claude-code"]}}}')
 if [ -f "$USER_CLAUDE_JSON" ]; then
     TMP_JSON=$(mktemp)
     if jq --argjson mcp "$CONTEXT_MODE_MCP_CONFIG" '. * $mcp' "$USER_CLAUDE_JSON" > "$TMP_JSON" 2>/dev/null; then
@@ -4419,7 +4415,7 @@ if [ "${SESSION_MODE:-default}" = "advanced" ]; then
     # Issue #317 / #319: both review-reminder (PostToolUse) AND
     # block-attributed-commits (PreToolUse) are registered on BOTH the Bash
     # matcher AND the MCP shell-tool matcher (mcp__context-mode__ctx_execute,
-    # mcp__context-mode__ctx_batch_execute). The MCP entries are added
+    # mcp__context-mode__ctx_batch). The MCP entries are added
     # unconditionally — not gated on context-mode plugin presence — so the
     # configuration is uniform across users with and without context-mode:
     #
@@ -4444,7 +4440,7 @@ if [ "${SESSION_MODE:-default}" = "advanced" ]; then
     # setting on and watching background subagents spawn and complete. The
     # capture hooks depend on that half, and it fails silently if it breaks,
     # so re-check it when the pinned CLI version moves.
-    SETTINGS_CONFIG='{"skipDangerousModePermissionPrompt":true,"disableAgentView":true,"preferredNotifChannel":"ghostty","hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"if":"Bash(git *)","type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-hooks/scripts/block-attributed-commits.sh"},{"if":"Bash(gh *)","type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-hooks/scripts/block-attributed-commits.sh"},{"type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-hooks/scripts/block-local-builds.sh"},{"type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-hooks/scripts/git-push-review-reminder.sh"}]},{"matcher":"mcp__context-mode__ctx_execute|mcp__context-mode__ctx_batch_execute","hooks":[{"type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-hooks/scripts/block-attributed-commits.sh"},{"type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-hooks/scripts/git-push-review-reminder.sh"}]},{"matcher":"mcp__context-mode__ctx_execute|mcp__context-mode__ctx_execute_file|mcp__context-mode__ctx_batch_execute","hooks":[{"type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-hooks/scripts/block-local-builds.sh"}]}],"PostToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-hooks/scripts/git-push-review-reminder.sh"}]},{"matcher":"mcp__context-mode__ctx_execute|mcp__context-mode__ctx_batch_execute","hooks":[{"type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-hooks/scripts/git-push-review-reminder.sh"}]}],"PostToolUseFailure":[{"matcher":"Bash","hooks":[{"type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-hooks/scripts/git-push-review-reminder.sh"}]},{"matcher":"mcp__context-mode__ctx_execute|mcp__context-mode__ctx_batch_execute","hooks":[{"type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-hooks/scripts/git-push-review-reminder.sh"}]}],"Stop":[{"matcher":"","hooks":[{"type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-hooks/scripts/enforce-review-spawn.sh","asyncRewake":true,"rewakeSummary":"Review directive","rewakeMessage":"Review directive from the SDD review gate (working as designed):"}]}],"SessionStart":[{"matcher":"","hooks":[{"type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-hooks/scripts/git-push-review-reminder.sh"}]},{"matcher":"compact","hooks":[{"type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-memory/scripts/post-compaction-recall.sh"}]}],"UserPromptSubmit":[{"matcher":"","hooks":[{"type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-memory/scripts/memory-context-inject.sh"},{"type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-memory/scripts/memory-capture.sh"},{"type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-vault/scripts/vault-monitor-hook.sh"}]}]}}'
+    SETTINGS_CONFIG='{"skipDangerousModePermissionPrompt":true,"disableAgentView":true,"preferredNotifChannel":"ghostty","hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"if":"Bash(git *)","type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-hooks/scripts/block-attributed-commits.sh"},{"if":"Bash(gh *)","type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-hooks/scripts/block-attributed-commits.sh"},{"type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-hooks/scripts/block-local-builds.sh"},{"type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-hooks/scripts/git-push-review-reminder.sh"}]},{"matcher":"mcp__context-mode__ctx_execute|mcp__context-mode__ctx_batch","hooks":[{"type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-hooks/scripts/block-attributed-commits.sh"},{"type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-hooks/scripts/git-push-review-reminder.sh"}]},{"matcher":"mcp__context-mode__ctx_execute|mcp__context-mode__ctx_batch","hooks":[{"type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-hooks/scripts/block-local-builds.sh"}]}],"PostToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-hooks/scripts/git-push-review-reminder.sh"}]},{"matcher":"mcp__context-mode__ctx_execute|mcp__context-mode__ctx_batch","hooks":[{"type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-hooks/scripts/git-push-review-reminder.sh"}]}],"PostToolUseFailure":[{"matcher":"Bash","hooks":[{"type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-hooks/scripts/git-push-review-reminder.sh"}]},{"matcher":"mcp__context-mode__ctx_execute|mcp__context-mode__ctx_batch","hooks":[{"type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-hooks/scripts/git-push-review-reminder.sh"}]}],"Stop":[{"matcher":"","hooks":[{"type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-hooks/scripts/enforce-review-spawn.sh","asyncRewake":true,"rewakeSummary":"Review directive","rewakeMessage":"Review directive from the SDD review gate (working as designed):"}]}],"SessionStart":[{"matcher":"","hooks":[{"type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-hooks/scripts/git-push-review-reminder.sh"}]},{"matcher":"compact","hooks":[{"type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-memory/scripts/post-compaction-recall.sh"}]}],"UserPromptSubmit":[{"matcher":"","hooks":[{"type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-memory/scripts/memory-context-inject.sh"},{"type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-memory/scripts/memory-capture.sh"},{"type":"command","command":"bash '"$PLUGIN_DIR"'/codeflare-vault/scripts/vault-monitor-hook.sh"}]}]}}'
     # context-mode hooks (Custom tier only, gated on plugin manifest presence).
     # Implements REQ-AGENT-005. Same four hooks the upstream context-mode
     # plugin would self-register via hooks.json — we wire them through
@@ -4481,7 +4477,7 @@ if [ "${SESSION_MODE:-default}" = "advanced" ]; then
     #     `git clone` / `gh repo clone` and injects an AskUserQuestion
     #     triage directive. Idempotent per cloned dir.
     #   - PreToolUse on Grep|Glob (non-custom tier) and on the two ctx
-    #     grep-equivalents ctx_search|ctx_batch_execute (custom tier)
+    #     grep-equivalents ctx_search|ctx_batch (custom tier)
     #     injects a soft nudge to use mcp__graphify__* when a graph
     #     exists in cwd. Never blocks - the use/don't-use call requires
     #     semantic judgment a hook can't reliably make.
@@ -4498,13 +4494,13 @@ if [ "${SESSION_MODE:-default}" = "advanced" ]; then
         GRAPHIFY_HOOKS=$(jq -n --arg dir "$PLUGIN_DIR" '{
           PostToolUse: [
             {matcher:"Bash",hooks:[{type:"command",command:("bash " + $dir + "/graphify/scripts/graphify-clone-prompt.sh")}]},
-            {matcher:"mcp__context-mode__ctx_execute|mcp__context-mode__ctx_batch_execute",hooks:[{type:"command",command:("bash " + $dir + "/graphify/scripts/graphify-clone-prompt.sh")}]},
+            {matcher:"mcp__context-mode__ctx_execute|mcp__context-mode__ctx_batch",hooks:[{type:"command",command:("bash " + $dir + "/graphify/scripts/graphify-clone-prompt.sh")}]},
             {matcher:"Bash|Edit|Write|Read|NotebookEdit",hooks:[{type:"command",command:("bash " + $dir + "/graphify/scripts/graphify-active-repo.sh")}]},
-            {matcher:"mcp__context-mode__ctx_execute|mcp__context-mode__ctx_execute_file|mcp__context-mode__ctx_batch_execute",hooks:[{type:"command",command:("bash " + $dir + "/graphify/scripts/graphify-active-repo.sh")}]}
+            {matcher:"mcp__context-mode__ctx_execute|mcp__context-mode__ctx_batch",hooks:[{type:"command",command:("bash " + $dir + "/graphify/scripts/graphify-active-repo.sh")}]}
           ],
           PreToolUse: [
             {matcher:"Grep|Glob",hooks:[{type:"command",command:("bash " + $dir + "/graphify/scripts/graph-first-nudge.sh")}]},
-            {matcher:"mcp__context-mode__ctx_search|mcp__context-mode__ctx_batch_execute",hooks:[{type:"command",command:("bash " + $dir + "/graphify/scripts/graph-first-nudge.sh")}]}
+            {matcher:"mcp__context-mode__ctx_search|mcp__context-mode__ctx_batch",hooks:[{type:"command",command:("bash " + $dir + "/graphify/scripts/graph-first-nudge.sh")}]}
           ]
         }')
         SETTINGS_CONFIG=$(echo "$SETTINGS_CONFIG" | jq --argjson gf "$GRAPHIFY_HOOKS" '

@@ -70,8 +70,6 @@ const EXPECTED_PLAN_MODE_SETTINGS = {
     'get_search_content',
     'source_check',
     'web_search',
-    'ctx_execute_file',
-    'ctx_fetch_and_index',
     'ctx_index',
     'ctx_search',
     'graphify_explain',
@@ -90,7 +88,7 @@ describe('entrypoint production helpers', () => {
       icons: { mode: 'ascii' }, thinkingPeek: { lines: 2 },
       footerSegments: { cwd: false, hostname: false, sessionName: true, gitBranch: false,
         gitStatus: false, gitCommit: false, runtime: false, context: true, tokens: false,
-        cost: false, extensionStatuses: true, capitalizeProviderName: false },
+        cost: false, liveTps: false, extensionStatuses: true, capitalizeProviderName: false },
       telemetry: { enabled: false, tps: true, ttft: true, duration: true, tokens: true, stalls: true, cost: true },
     };
     const env = { USER_HOME: home };

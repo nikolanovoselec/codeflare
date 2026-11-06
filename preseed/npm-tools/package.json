@@ -7,7 +7,7 @@
     "bun": "1.4.4",
     "chrome-devtools-mcp": "1.12.0",
     "consult-llm-mcp": "2.13.4",
-    "context-mode": "1.0.169",
+    "context-mode": "2.1.4",
     "esbuild": "0.28.2",
     "opencode-ai": "1.19.5"
   },

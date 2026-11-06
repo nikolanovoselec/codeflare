@@ -562,9 +562,9 @@ function shellCommands(call: Record<string, any>): string[] {
   const name = String(call.name ?? "");
   const args = call.arguments ?? {};
   if ((name === "bash" || name === "Bash") && typeof args.command === "string") return [args.command];
-  if (name.endsWith("ctx_execute") && args.language === "shell" && typeof args.code === "string") return [args.code];
-  if (name.endsWith("ctx_batch_execute") && Array.isArray(args.commands)) {
-    return args.commands.map((item: Record<string, any>) => item?.command).filter((value: unknown): value is string => typeof value === "string");
+  if (name.endsWith("ctx_execute") && ["shell", "sh", "bash", "zsh", "dash", "ksh", "fish"].includes(args.language) && typeof args.code === "string") return [args.code];
+  if ((name.endsWith("ctx_batch") || name.endsWith("ctx_batch_execute")) && Array.isArray(args.commands)) {
+    return args.commands.map((item: string | Record<string, any>) => typeof item === "string" ? item : item?.command).filter((value: unknown): value is string => typeof value === "string");
   }
   return [];
 }
