@@ -124,14 +124,28 @@ describe('REQ-OPERATOR-096 AC1/2/3/6: current caller next-manual-run inference o
     expect(state.reads).toEqual([]);
     expect((await f.request('?installationId=foreign')).status).toBe(404);
   });
-  it.each(['disabled', 'native-not-approved', 'reasoning-not-approved'] as const)('truthfully reports %s without fallback', async condition => {
+  it.each(['medium', 'high', null])('REQ-OPERATOR-007/096: Native inherits R2 reasoning %s independently of Gateway configuration', async level => {
+    state.settings = { defaultProvider: 'owner-provider', defaultModel: 'owner-model',
+      ...(level === null ? {} : { defaultThinkingLevel: level }) };
     const f = fixture();
-    if (condition === 'disabled') f.installation.enabled = false;
-    if (condition === 'native-not-approved') f.operator.policy.inference.allowedSources = ['managed'];
-    if (condition === 'reasoning-not-approved') f.operator.policy.inference.reasoningLevels = ['low'];
-    expect((await readOptions(await f.request())).inference).toMatchObject({ source: 'pi-native', status: 'blocked',
-      reason: condition === 'disabled' ? 'installation-disabled' : 'policy-denied' });
+    f.operator.policy.inference.reasoningLevels = ['low'];
+    f.installation.policy.inference.reasoningLevels = ['low'];
+    const before = structuredClone({ operator: f.operator, installation: f.installation, settings: state.settings });
+    expect((await readOptions(await f.request())).inference).toMatchObject({ source: 'pi-native', status: 'selected',
+      provider: 'owner-provider', model: 'owner-model', reasoningLevel: level });
+    expect({ operator: f.operator, installation: f.installation, settings: state.settings }).toEqual(before);
   });
+  it.each(['disabled', 'operator-source', 'installation-source', 'operator-capability', 'installation-capability'] as const)(
+    'truthfully reports %s without fallback', async condition => {
+      const f = fixture();
+      if (condition === 'disabled') f.installation.enabled = false;
+      if (condition === 'operator-source') f.operator.policy.inference.allowedSources = ['managed'];
+      if (condition === 'installation-source') f.installation.policy.inference.allowedSources = ['managed'];
+      if (condition === 'operator-capability') f.operator.policy.capabilities = [];
+      if (condition === 'installation-capability') f.installation.policy.capabilities = [];
+      expect((await readOptions(await f.request())).inference).toMatchObject({ source: 'pi-native', status: 'blocked',
+        reason: condition === 'disabled' ? 'installation-disabled' : 'policy-denied' });
+    });
   it.each(['missing-settings', 'missing-model'] as const)('reports %s as unconfigured, not a storage or authentication failure', async failure => {
     state.settings = failure === 'missing-settings' ? null : { defaultProvider: 'owner-provider' };
     expect((await readOptions(await fixture().request())).inference).toEqual({ source: 'pi-native', status: 'unconfigured' });

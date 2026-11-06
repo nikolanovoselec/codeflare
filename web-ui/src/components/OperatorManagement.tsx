@@ -532,10 +532,6 @@ const OperatorDetail: Component<{ detail: api.ManagementDetail; choices?: api.Ma
       if (policies.some(policy => !policy?.inference?.allowedSources?.includes('pi-native'))) {
         return 'Blocked: Native Pi is not approved in both operator and installation restrictions.';
       }
-      const level = value.reasoningLevel;
-      if (level != null && policies.some(policy => !policy?.inference?.reasoningLevels.includes(level as api.PiReasoningLevel))) {
-        return `Blocked: ${level.charAt(0).toUpperCase() + level.slice(1)} reasoning is not approved in both operator and installation restrictions.`;
-      }
     }
     if (value.status === 'blocked') return value.reason === 'invocation-denied'
       ? 'Blocked: your account does not have invocation permission.'
@@ -797,7 +793,7 @@ const OperatorDetail: Component<{ detail: api.ManagementDetail; choices?: api.Ma
             </label>
           </div>
           <Show when={!validManagedSelection()}><p class="admin-status-text" role="status">The saved Gateway route or reasoning is unavailable in the current verified catalog. Retained without substitution; {managedSelectionEdited() ? 'choose a compatible reasoning level and route, or clear them, before saving.' : 'unchanged choices can be retained when saving unrelated fields.'}</p></Show>
-        <p class="admin-help-text">Save approves only the selected route and explicit reasoning at operator and installation scope. Reasoning approvals are shared with an already-approved Native source. Existing approvals are retained; changed operator permissions disable installed runs. Saving never starts a run.</p>
+        <p class="admin-help-text">Save stores the selected Gateway route and reasoning. Gateway configuration does not restrict Native Pi reasoning, which comes from R2. Existing unrelated configuration is retained. Saving disables new runs and never starts a run.</p>
         <button class="admin-secondary-button" type="submit" disabled={!canChoose() || !managedSelectionEdited() || !validManagedSelection() || !operator().policy.capabilities.includes('inference')}>Save model settings</button>
       </fieldset>{props.feedback('gateway-settings')}</form></details></>}</Show>
       <details class="admin-route-details"><summary>Advanced settings</summary>

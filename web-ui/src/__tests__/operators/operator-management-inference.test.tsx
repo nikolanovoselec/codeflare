@@ -53,11 +53,12 @@ describe('REQ-OPERATOR-096 AC4/5/6/7: effective inference for your next manual r
     expect(status()).toHaveTextContent('saved-provider');
     expect(writes).toEqual([]);
   });
-  it('REQ-OPERATOR-096: blocked Native Medium names the approval gap without changing inference or approvals', async () => {
+  it('REQ-OPERATOR-096: Native Medium uses R2 reasoning without Gateway configuration or a separate selector', async () => {
     context = async () => ({ ...native, provider: 'openai-codex', model: 'gpt-6.1-sol', reasoningLevel: 'medium',
-      status: 'blocked', reason: 'policy-denied' });
+      status: 'selected' });
     render(() => <OperatorManagement />);
-    await waitFor(() => expect(status()).toHaveTextContent('Blocked: Medium reasoning is not approved in both operator and installation restrictions.'));
+    await waitFor(() => expect(status()).toHaveTextContent('Native selection'));
+    expect(screen.queryByRole('combobox', { name: /Pi reasoning|Native reasoning/ })).not.toBeInTheDocument();
     expect(status()).toHaveTextContent('openai-codex');
     expect(status()).toHaveTextContent('Reasoning: medium');
     expect(screen.getByText(/Gateway settings — inactive/, { selector: 'summary' })).toBeInTheDocument();

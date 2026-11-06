@@ -454,14 +454,45 @@ describe('REQ-OPERATOR-007/047/048/058: owner R2 configured-service HTTP contrac
     expect(store.value(settingsKey)).toEqual(saved);
   }));
 
-  it('denies unapproved saved R2 High rather than substituting approved legacy installation Low', () => lane(async (f, store) => {
-    store.put(settingsKey, { defaultProvider: providerId, defaultModel: logical.model, defaultThinkingLevel: 'high' });
+  it.each(['medium', 'high'])('REQ-OPERATOR-007: normal Native admits saved R2 %s independently of Gateway Low', level => lane(async (f, store) => {
+    store.put(settingsKey, { defaultProvider: providerId, defaultModel: logical.model, defaultThinkingLevel: level });
     const saved = store.value(settingsKey);
-    expect(await start(f)).toMatchObject({ ok: true, state: { status: 'unknown' } });
-    expect((await f.activity.getRuntimePlan())?.configuredSelection).toBeUndefined();
-    expect(f.normalTransport!.requests.filter(request => request.path === '/control/dispatch')).toEqual([]);
+    const original = (await f.activity.getRuntimePlan())!.receipt;
+    if (!('selection' in original)) throw new Error('Expected management receipt');
+    const policies = structuredClone([original.selection.operator.policy, original.selection.installation.policy]);
+    expect(policies.map(policy => policy.inference?.reasoningLevels)).toEqual([['low'], ['low']]);
+    await admitted(f);
+    expect((await f.activity.getRuntimePlan())?.configuredSelection).toMatchObject({ source: 'pi-native', reasoningLevel: level });
+    expect((await f.activity.getBrowserDetail())?.inferenceSelection).toMatchObject({ reasoningLevel: level, reasoningSource: 'inherited' });
+    expect((await modelAdmission(f)).status).toBe(200);
+    const retained = (await f.activity.getRuntimePlan())!.receipt;
+    if (!('selection' in retained)) throw new Error('Expected management receipt');
+    expect([retained.selection.operator.policy, retained.selection.installation.policy]).toEqual(policies);
     expect(store.value(settingsKey)).toEqual(saved);
   }));
+
+  it.each((['original-operator', 'original-installation', 'current-operator', 'current-installation'] as const)
+    .flatMap(scope => (['source', 'inference'] as const).map(check => ({ scope, check }))))(
+    'REQ-OPERATOR-007/047: normal Native retains $scope $check authorization', ({ scope, check }) => lane(async f => {
+      await admitted(f);
+      const plan = (await f.activity.getRuntimePlan())!;
+      if (!('selection' in plan.receipt)) throw new Error('Expected management receipt');
+      const current = await f.environment.OPERATOR_REGISTRY!.getByName('registry')
+        .resolveManagementExecution(plan.receipt.selection.installation.id);
+      if (!current.ok) throw new Error('Expected current grants');
+      if (scope.startsWith('current-')) {
+        const policy = scope === 'current-operator' ? current.value.operator.policy : current.value.installation.policy;
+        if (check === 'source') policy.inference!.allowedSources = ['managed'];
+        else policy.capabilities = policy.capabilities.filter(value => value !== 'inference');
+      } else await f.mutateEvidence(async storage => {
+        const state = (await storage.get<any>('admission'))!;
+        const policy = scope === 'original-operator' ? state.receipt.selection.operator.policy : state.receipt.selection.installation.policy;
+        if (check === 'source') policy.inference.allowedSources = ['managed'];
+        else policy.capabilities = policy.capabilities.filter((value: string) => value !== 'inference');
+        await storage.put('admission', state);
+      });
+      await denied(await modelAdmission(f));
+    }));
 
   it('later owner R2 reasoning changes do not replace the original admitted identity across reconstruction', () => lane(async (f, store) => {
     await admitted(f);
