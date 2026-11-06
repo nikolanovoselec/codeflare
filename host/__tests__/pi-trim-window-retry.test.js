@@ -30,9 +30,10 @@ function fixture(t,userBytes=0){
  const user=append({type:'message',message:{role:'user',content:userBytes?'u'.repeat(userBytes):'Preserve the entire current user message.'}});
  append({type:'compaction',firstKeptEntryId:user.id,summary:'Current authoritative summary'});
  append({type:'custom',customType:'unknown-extension-state',data:{keep:true}});
+ let recovered;const recoveryDone=new Promise(resolve=>recovered=resolve);
  const tools=new Map(),outcomes=[];let failReadback=false,committed=false;
  const io={...fs,renameSync(from,to){fs.renameSync(from,to);if(to===file){committed=true;if(failReadback)fs.renameSync(file,file+'.unavailable');}},readFileSync(path,...args){if(path===file&&committed&&failReadback){throw Error('synthetic transient readback');}return fs.readFileSync(path,...args);}};
- const controller=registerActiveSessionTranscriptTrimming({registerTool(tool){tools.set(tool.name,tool);},sendMessage(message){outcomes.push(message);}},io);
+ const controller=registerActiveSessionTranscriptTrimming({registerTool(tool){tools.set(tool.name,tool);},sendMessage(message){outcomes.push(message);if(message.details?.status==='trimmed')recovered(message);}},io);
  t.after(()=>controller.cancel());
  const ctx={sessionManager:{getSessionId:()=> 'window-fixture',getSessionFile:()=>file,getLeafId:()=>rows.at(-1).id,getBranch:()=>rows.slice(1)}};
  const deliver=item=>{assert.equal(item.jobType,'transcript-trim');append({type:'custom_message',customType:'background-extraction-launch',details:{items:[item]}});return item;};
@@ -45,7 +46,7 @@ function fixture(t,userBytes=0){
  // Intentionally invalid sizes still preserve all protected source records.
  const stageBytes=bytes=>fs.writeFileSync(request.candidateFile,Buffer.alloc(bytes,32));
  const unchanged=action=>{const before=fingerprint(file);const value=action();assert.equal(fingerprint(file),before,'parent must not replace source for an unqualified attempt');return value;};
- return{root,file,rows,historical,user,controller,ctx,first,request,deliver,call,done,collect,stage,stageBytes,unchanged,outcomes,failNextReadback(){failReadback=true;},restoreReadback(){failReadback=false;}};
+ return{root,file,rows,recoveryDone,historical,user,controller,ctx,first,request,deliver,call,done,collect,stage,stageBytes,unchanged,outcomes,failNextReadback(){failReadback=true;},restoreReadback(){failReadback=false;}};
 }
 
 function assertCompletion(f){
@@ -103,6 +104,6 @@ test('REQ-MEM-030 AC7: postcommit readback resumes only receipt verification wit
  const f=fixture(t);f.failNextReadback();const result=await f.stage();assert.equal(result.committed,true);
  assert.equal(f.outcomes.at(-1).details.status,'verification-pending');assert.equal(fs.existsSync(f.request.directory),true);
  const inode=fs.statSync(f.file).ino,committed=fingerprint(f.file);f.restoreReadback();assert.equal(f.collect(),undefined,'read-only receipt is not an extraction launch');
- assert.equal(fs.statSync(f.file).ino,inode,'receipt must not atomically replace the committed file again');assert.equal(fingerprint(f.file),committed);assertCompletion(f);
+ await f.recoveryDone;assert.equal(fs.statSync(f.file).ino,inode,'receipt must not atomically replace the committed file again');assert.equal(fingerprint(f.file),committed);assertCompletion(f);
  assert.equal(f.collect(),undefined);assert.equal(f.outcomes.filter(message=>message.details?.status==='trimmed').length,1);
 });

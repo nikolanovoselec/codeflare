@@ -14,11 +14,12 @@ function fixture(t,{readbackUnavailable=false}={}){
  const rows=[{type:'session',version:3,id:'adaptive'}, {id:'a',parentId:null,type:'message',message:{role:'assistant',content:[{type:'text',text:'x'.repeat(50_100_000)}]}},notification('n','a','r'.repeat(800_000)),{id:'u',parentId:'n',type:'message',message:{role:'user',content:'u'.repeat(20_000_000)}},{id:'c',parentId:'u',type:'compaction',firstKeptEntryId:'u',summary:'Current'}];fs.writeFileSync(file,jsonl(rows));
  let selected=true;const ownerAbort=new AbortController();const ctx={signal:ownerAbort.signal,sessionManager:{getSessionId:()=>selected?'adaptive':'changed',getSessionFile:()=>file,getLeafId:()=>rows.at(-1).id,getBranch:()=>rows.slice(1)}};
  let parked=false;const recovery=join(dir,'committed.jsonl');const io={...fs,renameSync(from,to){if(parked)throw Error('replacement replay');fs.renameSync(from,to);if(readbackUnavailable&&to===file){fs.renameSync(file,recovery);parked=true;}}};
- const tools=new Map(),owner=mod.registerActiveSessionTranscriptTrimming({registerTool:x=>tools.set(x.name,x),sendMessage(){}},io);t.after(()=>owner.cancel());owner.markDue(ctx);const item=owner.collect(ctx);
+ let recovered;const recoveryDone=new Promise(resolve=>recovered=resolve);
+ const tools=new Map(),owner=mod.registerActiveSessionTranscriptTrimming({registerTool:x=>tools.set(x.name,x),sendMessage(m){if(m.details?.status==='trimmed')recovered(m);}},io);t.after(()=>owner.cancel());owner.markDue(ctx);const item=owner.collect(ctx);
  const child={sessionManager:{getBranch:()=>[{type:'message',message:{role:'user',content:item.request.prompt}}]}};
  const call=async(operation,extra={},signal)=>JSON.parse((await tools.get('transcript_trim').execute('call',{operation,...extra},signal,undefined,child)).content[0].text);
  const append=row=>{const e={id:'tail'+rows.length,parentId:rows.at(-1).id,timestamp:new Date().toISOString(),...row};rows.push(e);fs.appendFileSync(file,jsonl([e]));return e;};
- return {file,rows,owner,ctx,item,append,call,abortOwner(){ownerAbort.abort();},restoreReadback(){fs.renameSync(recovery,file);},switchOwner(){selected=false;}};
+ return {file,rows,owner,ctx,item,append,call,recoveryDone,abortOwner(){ownerAbort.abort();},restoreReadback(){fs.renameSync(recovery,file);},switchOwner(){selected=false;}};
 }
 test('REQ-MEM-030 AC2: abort and owner revocation during asynchronous planning never replace the source',async t=>{
  const f=fixture(t),before=hash(f.file),abort=new AbortController();const work=f.call('prepare',{},abort.signal);setTimeout(()=>{f.owner.cancel();abort.abort();},10);await assert.rejects(work,/abort|cancel|scope|ENOENT/);assert.equal(hash(f.file),before);
@@ -46,7 +47,9 @@ test('REQ-MEM-030 AC2: owner abort promptly stops asynchronous CPU work without 
 test('REQ-MEM-030 AC7: unavailable asynchronous readback keeps a committed receipt and recovers without a second replacement',async t=>{
  const f=fixture(t,{readbackUnavailable:true});await f.call('prepare');
  const result=await f.call('activate');assert.equal(result.committed,true);assert.equal(result.status,'verification-pending');
- f.restoreReadback();const committed=hash(f.file);f.owner.collect(f.ctx);f.owner.collect(f.ctx);assert.equal(hash(f.file),committed);
+ f.restoreReadback();const committed=hash(f.file),inode=fs.statSync(f.file).ino;f.owner.collect(f.ctx);f.owner.collect(f.ctx);
+ assert.equal(await Promise.race([f.recoveryDone.then(()=> 'verified'),new Promise(resolve=>setTimeout(()=>resolve('heartbeat'),0))]),'heartbeat');
+ await f.recoveryDone;assert.equal(fs.statSync(f.file).ino,inode);assert.equal(hash(f.file),committed);
  await assert.rejects(f.call('activate'),/scope|ENOENT|stale/);
 });
 test('REQ-MEM-030 AC3: batch execution refinement changes recognized command payloads only, never labels, opaque arguments or malformed commands',()=>{

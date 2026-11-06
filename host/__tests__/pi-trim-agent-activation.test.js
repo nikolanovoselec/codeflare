@@ -19,12 +19,13 @@ function fixture(t,{readbackFailure=false,publicationFailure=false}={}){
  let selected=true,replaced=false,failRead=readbackFailure;
  const io={...fs,renameSync(from,to){if(to===file&&replaced)throw Error('replacement replay refused');fs.renameSync(from,to);if(to===file){replaced=true;if(readbackFailure)fs.renameSync(file,file+'.unavailable');}},readFileSync(path,...args){if(path===file&&replaced&&failRead){failRead=false;throw Error('transient readback');}return fs.readFileSync(path,...args);}};
  const context={sessionManager:{getSessionId:()=>selected?'activation-parent':'other-session',getSessionFile:()=>selected?file:join(root,'other.jsonl'),getLeafId:()=>rows.at(-1).id,getBranch:()=>rows.slice(1)}};
- const outcomes=[],owner=ownerModule.registerActiveSessionTranscriptTrimming({registerTool(){},sendMessage:message=>{if(publicationFailure)throw Error('synthetic UI delivery failure');outcomes.push(message);}},io);t.after(()=>owner.cancel());owner.markDue(context);const item=owner.collect(context);
+ let recovered;const recoveryDone=new Promise(resolve=>recovered=resolve);
+ const outcomes=[],owner=ownerModule.registerActiveSessionTranscriptTrimming({registerTool(){},sendMessage:message=>{if(publicationFailure)throw Error('synthetic UI delivery failure');outcomes.push(message);if(message.details?.status==='trimmed')recovered(message);}},io);t.after(()=>owner.cancel());owner.markDue(context);const item=owner.collect(context);
  const request=JSON.parse(fs.readFileSync(item.request.prompt.match(/^VARS_FILE=(.+)$/m)[1]));
  const tools=new Map();const child=childModule.registerActiveSessionTranscriptTrimming({registerTool:tool=>tools.set(tool.name,tool),sendMessage(){} });t.after(()=>child.cancel());
  const childContext={sessionManager:{getBranch:()=>[{type:'message',message:{role:'user',content:item.request.prompt}}]}};
  const trim=signal=>tools.get('transcript_trim').execute('child-trim',{operation:'trim'},signal,undefined,childContext);
- return{file,rows,append,user,owner,context,item,request,outcomes,trim,restoreReadback(){fs.renameSync(file+'.unavailable',file);},switchOwner(){selected=false;}};
+ return{file,rows,append,user,recoveryDone,owner,context,item,request,outcomes,trim,restoreReadback(){fs.renameSync(file+'.unavailable',file);},switchOwner(){selected=false;}};
 }
 test('REQ-MEM-030 AC2: scoped agent activates and verifies before return without Done or parent turn completion',async t=>{
  const f=fixture(t),tail=f.append({type:'message',message:{role:'assistant',content:[{type:'text',text:'Live appended tail'}]}}),before=hash(f.file);
@@ -57,7 +58,7 @@ test('REQ-MEM-030 AC7: failed UI delivery cannot undo or obscure verified agent 
  assert.equal(result.committed,true);assert.equal(result.status,'trimmed');assert.notEqual(hash(f.file),before);assert.equal(fs.existsSync(f.request.directory),false);
 });
 test('REQ-MEM-030 AC7: activation readback recovery and duplicate Done never replay replacement',async t=>{
- const f=fixture(t,{readbackFailure:true});const result=JSON.parse((await f.trim()).content[0].text);assert.equal(result.committed,true);assert.equal(result.status,'verification-pending');f.restoreReadback();f.owner.collect(f.context);
+ const f=fixture(t,{readbackFailure:true});const result=JSON.parse((await f.trim()).content[0].text);assert.equal(result.committed,true);assert.equal(result.status,'verification-pending');f.restoreReadback();f.owner.collect(f.context);await f.recoveryDone;
  f.append({type:'custom_message',customType:'subagent-notification',content:'<tool-use-id>duplicate</tool-use-id><status>Done</status>'});const verified=hash(f.file);
  f.owner.collect(f.context);f.owner.collect(f.context);assert.equal(hash(f.file),verified);assert.equal(fs.existsSync(f.request.directory),false);
 });

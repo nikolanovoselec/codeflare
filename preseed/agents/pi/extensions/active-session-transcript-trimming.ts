@@ -173,12 +173,25 @@ export function createTranscriptTrimRequest(ctx: TrimContext, feedback = "", ret
   catch (error) { cleanupRequest(request); throw error; }
   return request;
 }
+function validateSessionHeader(file: string, sessionId: string): void {
+  const fd=fs.openSync(file,fs.constants.O_RDONLY|fs.constants.O_NOFOLLOW),buffer=Buffer.alloc(64*1024);
+  let header: any;
+  try {
+    const count=fs.readSync(fd,buffer,0,buffer.length,0),end=buffer.subarray(0,count).indexOf(10);
+    if(end<0)throw new Error("session-header-too-large-or-incomplete");
+    try{header=JSON.parse(decode(buffer.subarray(0,end)));}catch{throw new Error("invalid-session-header");}
+  } finally { fs.closeSync(fd); }
+  if(!header||header.type!=="session"||header.id!==sessionId||header.parentSession)throw new Error("foreign-or-child-session");
+  if(header.version!==3)throw new Error("unsupported-session-version");
+}
 function createSimpleTrimRequest(ctx: TrimContext, feedback = ""): TranscriptTrimRequest | undefined {
   const owner=identity(ctx);if(!owner)throw new Error("missing-owner");
   const stamp=pathIdentity(owner.file,fs),stat=fs.lstatSync(owner.file);
   if(stat.uid!==process.getuid?.()||stat.nlink!==1)throw new Error("foreign-ownership");
   if(stat.size<=CAP)return undefined;
+  validateSessionHeader(owner.file,owner.sessionId);
   const sourceSha256=hashTranscriptPrefix(owner.file,stat.size);
+  validateSessionHeader(owner.file,owner.sessionId);
   const directory=fs.mkdtempSync(join(dirname(owner.file),".transcript-trim-"));
   const request: TranscriptTrimRequest={version:1,requestId:randomUUID(),...owner,policy:"oldest-prefix-percent",
     sourceBytes:stat.size,sourceSha256,sourcePathIdentity:stamp,branchIds:ctx.sessionManager.getBranch().map(e=>e.id),
@@ -283,7 +296,7 @@ function registerTranscriptTrimTool(pi: ExtensionAPI, requestMaintenance: (ctx: 
   pi.registerTool?.({
     name: "transcript_trim",
     label: "Trim authorized old transcript payloads",
-    description: "Parent/manual use: call operation request ONLY, then forward the controller-issued background subagent request unchanged. Scheduled is not launched or completed. All other operations require that scoped worker; never probe contract or trim from the parent or invent a launch payload. The scoped worker calls trim once: keep the header, calculate one byte cutoff to leave at most 25 MB, align forward to a newline, require at least 15 MB, and stream/verify the suffix without transcript parsing.",
+    description: "Parent/manual use: call operation request ONLY, then forward the controller-issued background subagent request unchanged. Scheduled is not launched or completed. All other operations require that scoped worker; never probe contract or trim from the parent or invent a launch payload. The scoped worker calls trim once: keep the header, calculate one byte cutoff to leave at most 25 MB, align forward to a newline, require at least 15 MB, and stream/verify the suffix without history-record parsing.",
     // Pi's public validator also accepts JSON Schema without TypeBox symbols.
     parameters: {
       type: "object", properties: { operation: { type: "string", enum: ["request", "trim", "contract", "prepare", "inspect", "activate"] } },
@@ -322,7 +335,7 @@ function registerTranscriptTrimTool(pi: ExtensionAPI, requestMaintenance: (ctx: 
         if (params.operation === "contract") {
           const {branchIds,...summary}=request;
           result = {request:{...summary,branchEntryCount:branchIds.length},requestId,
-            contract:"Call trim once. Keep the header; calculate one cutoff to leave at most 25 MB, align to the next newline and require at least 15 MB. Below-minimum output refuses unchanged. Stream bytes without transcript parsing or refinement."};
+            contract:"Call trim once. Keep the header; calculate one cutoff to leave at most 25 MB, align to the next newline and require at least 15 MB. Below-minimum output refuses unchanged. Stream bytes without history-record parsing or refinement."};
         } else if (params.operation === "inspect") {
           result = scope.feedback ?? {status:"not-prepared",committed:false};
         } else if (["prepare","trim"].includes(params.operation)) {
@@ -351,6 +364,7 @@ function registerTranscriptTrimTool(pi: ExtensionAPI, requestMaintenance: (ctx: 
 export function registerActiveSessionTranscriptTrimming(pi: ExtensionAPI, io: typeof fs = fs) {
   let due: Identity | undefined, request: TranscriptTrimRequest | undefined;
   const receipts = new Map<string, TranscriptTrimRequest>();
+  const receiptWorkers = new Map<string, AbortController>();
   registerTranscriptTrimTool(pi, ctx => {
     const owner = identity(ctx), header = ctx.sessionManager.getHeader?.();
     if (!owner || !header || header.id !== owner.sessionId || header.parentSession) throw new Error("parent-owner-required");
@@ -359,6 +373,7 @@ export function registerActiveSessionTranscriptTrimming(pi: ExtensionAPI, io: ty
     return { status: "scheduled", committed: false };
   });
   const cancel = () => {
+    for(const worker of receiptWorkers.values())worker.abort();
     // Release scheduling ownership, but retain committed work for read-only
     // verification when its own session is loaded again. Never replay a write.
     if (request) { const scope = trimActivations.get(request.requestId); scope?.controller?.abort(); trimActivations.delete(request.requestId); }
@@ -372,6 +387,22 @@ export function registerActiveSessionTranscriptTrimming(pi: ExtensionAPI, io: ty
         ? `Transcript maintenance verified: ${value.before} → ${value.after} bytes.${value.appendedAfterCommitBytes ? ` Current file: ${value.currentBytes} bytes (${value.appendedAfterCommitBytes} appended after commit).` : ""}`
         : `Transcript maintenance not completed: ${value.reason}. Source was not reported as successfully trimmed.`,
       details: value }, { triggerTurn: false });
+  };
+  const recoverReceipt = (ctx: TrimContext & {signal?: AbortSignal}, receipt: TranscriptTrimRequest) => {
+    if(receiptWorkers.has(receipt.requestId))return;
+    const controller=new AbortController(),signal=ctx.signal?AbortSignal.any([controller.signal,ctx.signal]):controller.signal;
+    const valid=()=>!signal.aborted&&same(identity(ctx),receipt);
+    const report=(result: TrimResult)=>{try{if(valid())outcome(result);}catch{/* UI failure never replays a committed replacement. */}};
+    receiptWorkers.set(receipt.requestId,controller);
+    void runTrimWorker({action:"readback",request:receipt},signal).then((verified:any)=>{
+      if(!valid())return;
+      if(!cleanupRequest(receipt,io))throw new Error("staging-cleanup-pending");
+      receipts.delete(receipt.requestId);
+      if(request===receipt){request=undefined;due=undefined;}
+      report({status:"trimmed",before:receipt.committed!.before,after:verified.after,currentBytes:verified.currentBytes,
+        appendedAfterCommitBytes:verified.appendedAfterCommitBytes,...(receipt.committed!.warning?{reason:receipt.committed!.warning}:{})});
+    }).catch(error=>report({status:"verification-pending",before:receipt.committed!.before,after:receipt.committed!.bytes,
+      reason:error instanceof Error?error.message:"readback-worker-failed"})).finally(()=>receiptWorkers.delete(receipt.requestId));
   };
   const bindActivation = (ctx: TrimContext & { signal?: AbortSignal }) => {
     const authorized = request!;
@@ -414,7 +445,11 @@ export function registerActiveSessionTranscriptTrimming(pi: ExtensionAPI, io: ty
             try{io.fsyncSync(dir);}catch{authorized.committed.warning="directory-sync-failed";}
           }finally{io.closeSync(dir);}
           // Readback runs off-thread too. After rename cancellation never replays it.
-          const verified:any=await runTrimWorker({action:"readback",request:authorized});
+          const verification=new AbortController();
+          receiptWorkers.set(authorized.requestId,verification);
+          let verified:any;
+          try{verified=await runTrimWorker({action:"readback",request:authorized},AbortSignal.any([verification.signal,ownerSignal,...(signal?[signal]:[])]));}
+          finally{receiptWorkers.delete(authorized.requestId);}
           if(!cleanupRequest(authorized,io))throw new Error("staging-cleanup-pending");
           result={status:"trimmed",before:prepared.before,after:verified.after,
             currentBytes:verified.currentBytes,appendedAfterCommitBytes:verified.appendedAfterCommitBytes,cutPercent:prepared.cutPercent,
@@ -436,18 +471,11 @@ export function registerActiveSessionTranscriptTrimming(pi: ExtensionAPI, io: ty
       if (ctx.signal?.aborted) { cancel(); return; }
       for (const receipt of receipts.values()) {
         if (!same(identity(ctx), receipt)) continue;
-        const result = commitTranscriptTrimCandidate(ctx, receipt, io);
-        if (result.status === "trimmed") receipts.delete(receipt.requestId);
-        outcome(result);
-        if (result.status !== "trimmed") return;
+        recoverReceipt(ctx,receipt);return;
       }
       if (!due || !same(identity(ctx), due)) return;
       try {
-        if (request?.committed) {
-          const result = commitTranscriptTrimCandidate(ctx, request, io);
-          if (result.status === "trimmed") { request = undefined; due = undefined; }
-          outcome(result); return;
-        }
+        if (request?.committed) { recoverReceipt(ctx,request);return; }
         if (!request) request = createSimpleTrimRequest(ctx);
         if (!request) { due = undefined; return; }
         if (trimActivations.get(request.requestId)?.busy) return;

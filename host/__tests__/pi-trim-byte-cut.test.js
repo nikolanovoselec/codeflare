@@ -61,3 +61,18 @@ test('REQ-MEM-029 AC4: an append tail above the ceiling refuses without replacin
  assert.equal(result.status,'refused');assert.equal(result.committed,false);assert.match(result.reason,/retained-output-above-maximum/);
  assert.equal(createHash('sha256').update(fs.readFileSync(f.file)).digest('hex'),before);
 });
+
+for(const [name,diskHeader,reason]of [
+ ['foreign session',JSON.stringify({type:'session',version:3,id:'another-session'})+'\n','foreign-or-child-session'],
+ ['child session',JSON.stringify({type:'session',version:3,id:'byte-cut',parentSession:'/another/session.jsonl'})+'\n','foreign-or-child-session'],
+ ['unsupported version',JSON.stringify({type:'session',version:2,id:'byte-cut'})+'\n','unsupported-session-version'],
+ ['oversized header','x'.repeat(65536)+'\n','session-header-too-large-or-incomplete'],
+ ['malformed header','not-json\n','invalid-session-header'],
+])test(`REQ-MEM-028 AC2: automatic admission refuses ${name} without changing its file`,t=>{
+ const root=fs.mkdtempSync(join(tmpdir(),'trim-header-fence-'));t.after(()=>fs.rmSync(root,{recursive:true,force:true}));const file=join(root,'session.jsonl'),fd=fs.openSync(file,'w');fs.writeSync(fd,diskHeader);fs.ftruncateSync(fd,51_000_000);fs.closeSync(fd);
+ const before=createHash('sha256').update(fs.readFileSync(file)).digest('hex'),inode=fs.statSync(file).ino,outcomes=[];
+ const ctx={sessionManager:{getSessionId:()=> 'byte-cut',getSessionFile:()=>file,getHeader:()=>({id:'byte-cut'}),getLeafId:()=> 'cached-leaf',getBranch:()=>[{id:'cached-leaf'}]}};
+ const owner=registerActiveSessionTranscriptTrimming({registerTool(){},sendMessage(m){outcomes.push(m);}});t.after(()=>owner.cancel());owner.markDue(ctx);
+ assert.equal(owner.collect(ctx),undefined);assert.equal(outcomes.at(-1).details.status,'refused');assert.equal(outcomes.at(-1).details.reason,reason);
+ assert.equal(fs.statSync(file).ino,inode);assert.equal(createHash('sha256').update(fs.readFileSync(file)).digest('hex'),before);assert.deepEqual(fs.readdirSync(root),['session.jsonl']);
+});
