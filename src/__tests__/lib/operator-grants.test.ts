@@ -36,9 +36,16 @@ describe('REQ-OPERATOR-045: independent, current operator grants', () => {
     () => identity([{ id: 'group-1' }], { user_uuid: 'other-human' }),
     () => new Response('unavailable', { status: 503 }),
     () => new Response(null, { status: 302, headers: { location: 'https://untrusted.example.test' } }),
-    () => identity(['group-1']),
-  ])('denies group authority on uncertain identity without losing an explicit user grant', async response => {
-    vi.stubGlobal('fetch', vi.fn(async () => response()));
+  ])('rejects unverified identity despite an email grant and permits later verified recovery', async response => {
+    const responses = [response(), identity([])];
+    vi.stubGlobal('fetch', vi.fn(async () => responses.shift()!));
+    await expect(resolveOperatorGroupIdentity(human, 'fixture-access-token')).rejects.toThrow();
+    const recovered = await resolveOperatorGroupIdentity(human, 'fixture-access-token');
+    expect(canInvokeOperator(recovered, { invokers: group })).toBe(false);
+    expect(canInvokeOperator(recovered, { invokers: user })).toBe(true);
+  });
+  it('preserves an email grant for verified identity without usable membership IDs', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => identity(['group-1'])));
     const current = await resolveOperatorGroupIdentity(human, 'fixture-access-token');
     expect(canInvokeOperator(current, { invokers: group })).toBe(false);
     expect(canInvokeOperator(current, { invokers: user })).toBe(true);
@@ -49,8 +56,8 @@ describe('REQ-OPERATOR-045: independent, current operator grants', () => {
       exposedCredential = new Headers(init?.headers).get('cookie');
       return identity([{ id: 'group-1' }]);
     }));
-    const current = await resolveOperatorGroupIdentity({ ...human, issuer: 'https://untrusted.example.test' }, 'fixture-access-token');
-    expect(current.groups).toEqual([]);
+    await expect(resolveOperatorGroupIdentity({ ...human, issuer: 'https://untrusted.example.test' }, 'fixture-access-token'))
+      .rejects.toThrow();
     // Security wire contract: the untrusted issuer must never receive the bearer cookie.
     expect(exposedCredential).toBeNull();
     expect(canManageOperator({ ...human, expiresAt: 1 }, { managers: user }, user)).toBe(false);

@@ -1,18 +1,10 @@
 import { Component, JSX, Show } from 'solid-js';
 import Icon from '../Icon';
-
-// The button's identity colour, as a token name rather than a colour: a literal
-// would interpolate to `var(#2563eb)`, which is invalid and paints nothing.
-// Keep this union in step with the --color-action-* block in design-tokens.css.
-type ActionTone =
-  | '--color-action-setup'
-  | '--color-action-users'
-  | '--color-action-subscriptions'
-  | '--color-action-docs'
-  | '--color-action-agents';
+import { mdiChevronRight } from '@mdi/js';
 
 interface AdminActionButtonProps {
-  tone: ActionTone;
+  /** Destination actions include a trailing chevron; maintenance actions do not. */
+  navigation?: boolean;
   /** MDI path. */
   icon: string;
   label: JSX.Element;
@@ -22,35 +14,35 @@ interface AdminActionButtonProps {
   testId?: string;
 }
 
-// The full-width coloured action buttons in the Settings admin sections. Five
-// copies of this markup existed across SettingsPanel and SessionSection, each
-// with its own inline hex, so retuning one meant finding all of them.
+// Settings-only accent-coloured navigation and maintenance actions.
 const AdminActionButton: Component<AdminActionButtonProps> = (props) => (
   <Show
     when={props.href}
     fallback={
       <button
         type="button"
-        class="provider-row-connect-btn"
-        style={{ background: `var(${props.tone})` }}
+        class="settings-action settings-action--accent settings-admin-action"
         disabled={props.disabled}
         onClick={props.onClick}
         data-testid={props.testId}
       >
-        <Icon path={props.icon} size={24} />
+        <Icon path={props.icon} size={16} aria-hidden="true" />
         <span>{props.label}</span>
+        <Show when={props.href || props.navigation}>
+          <Icon path={mdiChevronRight} size={16} class="settings-action-chevron" aria-hidden="true" />
+        </Show>
       </button>
     }
   >
     {(href) => (
       <a
-        class="provider-row-connect-btn"
-        style={{ background: `var(${props.tone})` }}
+        class="settings-action settings-action--accent settings-admin-action"
         href={href()}
         data-testid={props.testId}
       >
-        <Icon path={props.icon} size={24} />
+        <Icon path={props.icon} size={16} aria-hidden="true" />
         <span>{props.label}</span>
+        <Icon path={mdiChevronRight} size={16} class="settings-action-chevron" aria-hidden="true" />
       </a>
     )}
   </Show>

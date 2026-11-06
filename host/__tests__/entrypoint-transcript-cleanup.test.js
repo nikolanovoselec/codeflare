@@ -39,7 +39,11 @@ function extractShellFunction(name) {
   const rest = body.slice(start);
   const close = rest.search(/\n\}\n/);
   assert.notEqual(close, -1, `${name} must have a closing brace`);
-  return rest.slice(0, close + 3);
+  const fn = rest.slice(0, close + 3);
+  if (['initial_sync_from_r2', 'establish_bisync_baseline', 'bisync_with_r2'].includes(name)) {
+    return `source ${JSON.stringify(join(REPO_ROOT, 'scripts/rclone-conflict-cleanup.sh'))}\ntimeout() { shift; "$@"; }\n${fn}`;
+  }
+  return fn;
 }
 
 function extractShellFragment(startMarker, endMarker) {
@@ -208,9 +212,10 @@ bisync_with_r2 '' || true
 
   test('REQ-STOR-051 AC2: regular bisync removes remote Pi conflicts while preserving canonical transcripts', () => {
     const scratch = makeScratch();
+    const remoteRoot = mkdtempSync(join(tmpdir(), 'remote-transcript-cleanup-'));
     try {
       const local = join(scratch.dir, '.pi', 'agent', 'sessions', 'workspace');
-      const remote = join(scratch.dir, 'remote', '.pi', 'agent', 'sessions', 'workspace');
+      const remote = join(remoteRoot, '.pi', 'agent', 'sessions', 'workspace');
       mkdirSync(local, { recursive: true });
       mkdirSync(remote, { recursive: true });
       const canonicalName = `2026-08-18T10-00-01Z_${uuid(1)}.jsonl`;
@@ -230,7 +235,9 @@ repair_hook_exec_bits() { :; }
 pgrep() { return 1; }
 rclone() {
   if [ "$1" = "delete" ]; then
-    printf '%s\\n' "$*" | grep -F -- '--include **/*.conflict*' >/dev/null || return 9
+    if ! printf '%s\\n' "$*" | grep -F -- '--include **/*.conflict*' >/dev/null; then
+      printf '%s\\n' "$*" | grep -F -- '--filter + *.conflict*' >/dev/null || return 9
+    fi
     find "$REMOTE/.pi/agent/sessions" -type f -name '*.conflict*' -delete
     return 0
   fi
@@ -242,7 +249,7 @@ ${extractShellFunction('bisync_with_r2')}
 bisync_with_r2 ''
 `;
 
-      execFileSync('bash', ['-c', shell, 'remote-conflict-cleanup', scratch.dir, join(scratch.dir, 'remote')], {
+      execFileSync('bash', ['-c', shell, 'remote-conflict-cleanup', scratch.dir, remoteRoot], {
         stdio: ['ignore', 'pipe', 'pipe'],
         env: shellEnv(scratch.runtimeRoot),
       });
@@ -252,14 +259,16 @@ bisync_with_r2 ''
       assert.equal(readFileSync(join(local, canonicalName), 'utf8'), 'canonical');
     } finally {
       scratch.cleanup();
+      rmSync(remoteRoot, { recursive: true, force: true });
     }
   });
 
   test('REQ-STOR-051 AC3: a failed remote cleanup cannot restore conflict copies through bisync', () => {
     const scratch = makeScratch();
+    const remoteRoot = mkdtempSync(join(tmpdir(), 'failed-remote-transcript-cleanup-'));
     try {
       const local = join(scratch.dir, '.pi', 'agent', 'sessions', 'workspace');
-      const remote = join(scratch.dir, 'remote', '.pi', 'agent', 'sessions', 'workspace');
+      const remote = join(remoteRoot, '.pi', 'agent', 'sessions', 'workspace');
       mkdirSync(local, { recursive: true });
       mkdirSync(remote, { recursive: true });
       const conflictName = `2026-08-18T10-00-01Z_${uuid(1)}.jsonl.conflict1`;
@@ -284,18 +293,21 @@ rclone() {
 ${extractShellFunction('cleanup_remote_pi_transcript_conflicts')}
 ${extractShellFunction('record_sync_disk_failure')}
 ${extractShellFunction('bisync_with_r2')}
-bisync_with_r2 ''
+if bisync_with_r2 ''; then SYNC_EXIT=0; else SYNC_EXIT=$?; fi
+printf '%s' "$SYNC_EXIT" > "$USER_HOME/bisync-exit"
 `;
 
-      execFileSync('bash', ['-c', shell, 'remote-conflict-filter', scratch.dir, join(scratch.dir, 'remote')], {
+      execFileSync('bash', ['-c', shell, 'remote-conflict-filter', scratch.dir, remoteRoot], {
         stdio: ['ignore', 'pipe', 'pipe'],
         env: shellEnv(scratch.runtimeRoot),
       });
 
+      assert.equal(readFileSync(join(scratch.dir, 'bisync-exit'), 'utf8'), '9');
       assert.equal(existsSync(join(local, conflictName)), false);
       assert.equal(existsSync(join(remote, conflictName)), true, 'failed cleanup leaves remote evidence for a later retry');
     } finally {
       scratch.cleanup();
+      rmSync(remoteRoot, { recursive: true, force: true });
     }
   });
 

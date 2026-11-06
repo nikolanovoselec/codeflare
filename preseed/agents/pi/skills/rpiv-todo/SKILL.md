@@ -16,6 +16,18 @@ Provides the **`todo`** tool: create / update / list / get / delete / clear task
 
 Mark exactly one task `in_progress` at a time; flip it to `completed` the moment it's done (don't batch completions). Use `blockedBy` when one step genuinely gates another.
 
+## 2.15 atomic creation and dependency ordering
+
+Create independent tasks together with the public `tasks` array:
+
+```json
+{"action":"create","tasks":[{"subject":"Inspect published API"},{"subject":"Read managed guidance"}]}
+```
+
+Use either a single `subject` or a nonempty `tasks` array, never both. Batch fields such as `description`, `activeForm`, `blockedBy`, `owner` and `metadata` belong on each item, not at the top level. The entire batch is validated before committing: one invalid item leaves the task list unchanged.
+
+A batch item's `blockedBy` may name only already-existing tasks, not siblings in that batch. Create a prerequisite first, read its returned ID, then create the dependent with `blockedBy: [<returned ID>]`; do not guess future IDs. Keep dependency chains ordered across calls. Batch creation does **not** change the one-`in_progress` rule or authorize batching completions. To change status, use `{"action":"update","id":3,"status":"completed"}` with the actual task ID.
+
 ## When NOT to use
 
 - Single-step or trivial tasks — a todo list is overhead, just do it.

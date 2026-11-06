@@ -8,7 +8,7 @@ import { patchPiNativeModelDisplay } from '../../../../scripts/patch-pi-native-m
 
 const installed = dirname(dirname(fileURLToPath(import.meta.resolve('@earendil-works/pi-coding-agent'))));
 const paths = ['package.json', 'dist/modes/interactive/components/model-selector.js',
-  'dist/modes/interactive/components/settings-selector.js', 'dist/bundle/chunks/chunk-66G7ITPS.js',
+  'dist/modes/interactive/components/settings-selector.js', 'dist/bundle/chunks/chunk-44DLKSKE.js',
   'dist/modes/interactive/interactive-mode.js'];
 function copyPackage(t) {
   const root = mkdtempSync(join(tmpdir(), 'pi-display-patch-'));
@@ -28,15 +28,16 @@ it('REQ-ENTERPRISE-082: packaged display patch is idempotent', (t) => {
   patchPiNativeModelDisplay(root);
   assert.deepEqual(snapshot(root), once);
 });
-for (const damage of ['version', 'source anchor', 'bundle anchor']) {
+for (const damage of ['version', 'source anchor', 'bundle anchor', 'source bytes', 'bundle bytes']) {
   it(`REQ-ENTERPRISE-082: display patch rejects ${damage} drift before any writes`, (t) => {
     const root = copyPackage(t);
     if (damage === 'version') {
       const manifest = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
       writeFileSync(join(root, 'package.json'), JSON.stringify({ ...manifest, version: '0.0.0' }));
     } else {
-      const path = join(root, damage === 'source anchor' ? paths[1] : paths[3]);
-      writeFileSync(path, readFileSync(path, 'utf8').replaceAll('modelText', 'changedModelText'));
+      const path = join(root, damage.startsWith('source') ? paths[1] : paths[3]);
+      const source = readFileSync(path, 'utf8');
+      writeFileSync(path, damage.endsWith('bytes') ? `${source}\n` : source.replaceAll('modelText', 'changedModelText'));
     }
     const before = snapshot(root);
     assert.throws(() => patchPiNativeModelDisplay(root));

@@ -17,7 +17,7 @@ import {
   writeFile,
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 const ROOT = '/opt/codeflare/openvscode';
@@ -172,7 +172,7 @@ export async function verifyPiClassicSessionStartup({
 
 export function verifyOxlintRuntime({
   path = '/usr/local/bin/oxlint',
-  expectedVersion = '1.87.0',
+  expectedVersion = '1.90.0',
   run = execFileSync,
 } = {}) {
   const output = run(path, ['--version'], { encoding: 'utf8', timeout: 10_000 }).trim();
@@ -257,7 +257,7 @@ export function verifyDeveloperTools({ exec = execFileSync } = {}) {
 
 export async function verifyJsYamlRuntime({
   runtimePath = '/opt/code-server/node_modules/js-yaml',
-  expectedVersion = '5.4.1',
+  expectedVersion = '5.4.3',
 } = {}) {
   const manifest = JSON.parse(await readFile(join(runtimePath, 'package.json'), 'utf8'));
   assert.equal(manifest.version, expectedVersion, `${runtimePath} must contain js-yaml ${expectedVersion}`);
@@ -287,7 +287,7 @@ export async function verifyNodeTarRuntimes({
     '/usr/local/lib/node_modules/npm/node_modules/tar',
     '/opt/code-server/lib/vscode/node_modules/tar',
   ],
-  expectedVersion = '7.5.21',
+  expectedVersion = '7.5.22',
   expectedVersions = runtimePaths.map(path => path === '/opt/code-server/lib/vscode/node_modules/tar' ? '7.5.22' : expectedVersion),
   temporaryRoot = tmpdir(),
 } = {}) {
@@ -331,7 +331,9 @@ export async function verifyBundledSecurityRuntimes({ bracePaths, runtimeRoot = 
         if (error.code === 'ENOENT') continue;
         throw error;
       }
-      bracePaths.push(join(agent, 'node_modules/brace-expansion'));
+      bracePaths.push(dirname(
+        createRequire(join(agent, 'package.json')).resolve('brace-expansion/package.json'),
+      ));
     }
   }
   const require = createRequire(import.meta.url);
@@ -366,7 +368,7 @@ export async function verifyBundledSecurityRuntimes({ bracePaths, runtimeRoot = 
 
 export async function verifyPacoteRuntime({
   runtimePath = '/usr/local/lib/node_modules/npm/node_modules/pacote',
-  expectedVersion = '21.5.1',
+  expectedVersion = '21.5.2',
 } = {}) {
   const manifest = JSON.parse(await readFile(join(runtimePath, 'package.json'), 'utf8'));
   assert.equal(manifest.version, expectedVersion, `${runtimePath} must contain pacote ${expectedVersion}`);
@@ -463,6 +465,13 @@ async function main() {
   const extensionHash = createHash('sha256').update(await readFile(piMain)).digest('hex');
   assert.equal((await collect(ROOT)).some((path) => path.toLowerCase().endsWith('.vsix')), false);
   const nativeChat = await verifyPackagedNativeChat(piRoot);
+  // Qualify the compiled artifact on the actual IDE interpreter, not merely
+  // the ordinary container Node that runs this orchestration script.
+  const sidebarRuntime = JSON.parse(execFileSync(join(CODE_SERVER_ROOT, 'lib', 'node'), [
+    process.argv[1], '--verify-sidebar-runtime',
+  ], { encoding: 'utf8', timeout: 30_000 }));
+  assert.equal(sidebarRuntime.result, 'SIDEBAR_RUNTIME_SMOKE_OK');
+  assert.equal(sidebarRuntime.nativeChat, 'DEFAULT_NATIVE_PI_OK');
   const officialClaude = verifyOfficialClaudeExtension(claudeRoot, officialPin);
 
   const managedModule = await import(pathToFileURL(join(ROOT, 'claude', 'managed-settings.mjs')).href);
@@ -503,6 +512,7 @@ async function main() {
     developerTools,
     extensionHash,
     nativeChat,
+    sidebarRuntime,
     officialClaude,
     welcomeExtension: WELCOME_EXTENSION_NAME,
     userExtensionPersistence,
@@ -566,7 +576,37 @@ async function verifyCodeServerRuntime() {
   const ftpClient = new basicFtp.Client();
   ftpClient.close();
   assert.equal(ftpClient.closed, true);
+
+  // Dependency pin contract: exercise the installed redirect overlay, not a runner copy.
+  assert.equal(requireFromCodeServer('follow-redirects/package.json').version, '1.16.2');
+  const redirectServer = createServer((request, response) => {
+    if (request.url === '/redirect') response.writeHead(302, { Location: '/complete' }).end();
+    else response.end('follow-redirects-smoke');
+  });
+  await new Promise((resolve, reject) => {
+    redirectServer.once('error', reject);
+    redirectServer.listen(0, '127.0.0.1', resolve);
+  });
+  try {
+    const body = await new Promise((resolve, reject) => {
+      const request = requireFromCodeServer('follow-redirects').http.get(
+        `http://127.0.0.1:${redirectServer.address().port}/redirect`, { timeout: 5_000 }, response => {
+          let result = '';
+          response.setEncoding('utf8');
+          response.on('data', chunk => { result += chunk; });
+          response.once('error', reject);
+          response.once('end', () => resolve(result));
+        });
+      request.once('error', reject);
+      request.once('timeout', () => request.destroy(new Error('redirect overlay smoke timed out')));
+    });
+    assert.equal(body, 'follow-redirects-smoke');
+  } finally {
+    redirectServer.closeAllConnections();
+    await new Promise(resolve => redirectServer.close(resolve));
+  }
   for (const [packageName, minimumVersion] of [
+    ['libexpat1', '2.5.0-1+deb12u5'],
     ['libde265-0', '1.0.11-1+deb12u3'],
     ['libevent-core-2.1-7', '2.1.12-stable-8+deb12u1'],
   ]) {
@@ -1320,7 +1360,15 @@ async function collect(root, output = []) {
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  main().catch((error) => {
+  const run = process.argv[2] === '--verify-sidebar-runtime'
+    ? async () => {
+      const nativeChat = await verifyPackagedNativeChat(join(ROOT, 'extensions', 'pi', EXTENSION_NAME));
+      process.stdout.write(`${JSON.stringify({
+        result: 'SIDEBAR_RUNTIME_SMOKE_OK', nodeVersion: process.versions.node, nativeChat,
+      })}\n`);
+    }
+    : main;
+  run().catch((error) => {
     process.stderr.write(`SIDEBAR_IMAGE_SMOKE_FAILED: ${error instanceof Error ? error.message : String(error)}\n`);
     process.exitCode = 1;
   });

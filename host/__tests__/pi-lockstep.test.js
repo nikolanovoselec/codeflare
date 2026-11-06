@@ -252,9 +252,10 @@ const WARMED_NPM_ENTRYPOINTS = [
   { variable: 'goal', package: '@narumitw/pi-goal', entrypoint: 'src/index.ts' },
   { variable: 'open_tui', package: 'pi-open-tui', entrypoint: 'extensions/open-tui/index.ts' },
   { variable: 'evaluate', package: 'pi-evaluate', entrypoint: 'extensions/evaluate.ts' },
+  { variable: 'codex_fast', package: '@calesennett/pi-codex-fast', entrypoint: 'extensions/codex-fast.ts' },
   { variable: 'plan', package: '@narumitw/pi-plan-mode', entrypoint: 'dist/index.ts' },
   { variable: 'subagents', package: '@gotgenes/pi-subagents', entrypoint: 'src/index.ts' },
-  { variable: 'mcp', package: 'pi-mcp-adapter', entrypoint: 'index.ts' },
+  { variable: 'mcp', package: 'pi-mcp-extension', entrypoint: 'src/index.ts' },
   { variable: 'advisor', package: '@juicesharp/rpiv-advisor', entrypoint: 'index.ts' },
   { variable: 'ask_user', package: '@juicesharp/rpiv-ask-user-question', entrypoint: 'index.ts' },
   { variable: 'todo', package: '@juicesharp/rpiv-todo', entrypoint: 'index.ts' },
@@ -350,7 +351,7 @@ describe('REQ-AGENT-111/REQ-AGENT-056/REQ-AGENT-133/REQ-AGENT-152/REQ-AGENT-210:
   });
 
   it('REQ-AGENT-152/REQ-AGENT-210: rejects missing managed startup caches', () => {
-    for (const name of ['pi-open-tui', '@gotgenes/pi-subagents', 'pi-mcp-adapter', '@narumitw/pi-plan-mode', '@juicesharp/rpiv-advisor', '@juicesharp/rpiv-ask-user-question', '@juicesharp/rpiv-todo', 'pi-web-access', 'pi-smart-compact']) {
+    for (const name of ['@calesennett/pi-codex-fast', 'pi-open-tui', '@gotgenes/pi-subagents', 'pi-mcp-extension', '@narumitw/pi-plan-mode', '@juicesharp/rpiv-advisor', '@juicesharp/rpiv-ask-user-question', '@juicesharp/rpiv-todo', 'pi-web-access', 'pi-smart-compact']) {
       const fixture = runImageWarmFixture(name);
       try {
         assert.notEqual(fixture.result.status, 0);

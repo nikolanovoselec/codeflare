@@ -71,20 +71,29 @@ const bundleSchema = z.strictObject({
 }).refine(bundle => Object.hasOwn(bundle.modules, bundle.mainModule)
   && 'js' in bundle.modules[bundle.mainModule]);
 
-/** Exact profile-CI output accepted by the production Dispatcher facet host. */
+/** Approved generated modules; normal deployment metadata grants no resource authority. */
 const dispatcherBundleSchema = z.strictObject({
-  schemaVersion: z.literal(1),
+  schemaVersion: z.union([z.literal(1), z.literal(2)]),
+  hosting: z.strictObject({
+    kind: z.literal('normal'),
+    binding: z.literal('FLUE_DISPATCHER_AGENT'),
+    className: z.literal('FlueDispatcherAgent'),
+    migrationTag: z.literal('v1'),
+  }).optional(),
   sourceCommit: z.string().regex(/^[0-9a-f]{40}$/),
   versions: z.union([
     z.strictObject({ runtime: z.literal('2.1.0'), vitePlugin: z.literal('2.1.0'), agents: z.literal('0.20.1') }),
     z.strictObject({ runtime: z.literal('2.2.2'), vitePlugin: z.literal('2.2.2'), agents: z.literal('0.20.1') }),
+    z.strictObject({ runtime: z.literal('2.3.0'), vitePlugin: z.literal('2.3.0'), agents: z.literal('0.20.1') }),
+    z.strictObject({ runtime: z.literal('2.3.0'), vitePlugin: z.literal('2.3.0'), agents: z.literal('0.30.1') }),
   ]),
   className: z.literal('FlueDispatcherAgent'),
   compatibilityDate: z.literal('2026-09-10'),
   compatibilityFlags: z.tuple([z.literal('nodejs_compat')]),
   mainModule: relativePath,
   modules: modulesSchema,
-}).refine(bundle => Object.hasOwn(bundle.modules, bundle.mainModule)
+}).refine(bundle => (bundle.schemaVersion === 2) === (bundle.hosting !== undefined)
+  && Object.hasOwn(bundle.modules, bundle.mainModule)
   && 'js' in bundle.modules[bundle.mainModule]);
 
 /** Validated discovery data; artifact URL is derived, never supplied as authority. */

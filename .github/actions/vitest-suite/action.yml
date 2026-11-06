@@ -125,14 +125,41 @@ runs:
           false) ;;
           *) echo "::error::unsupported timing reporter: $TIMING_REPORTER"; exit 1 ;;
         esac
+        # Weighted assignment changes when files are added. Keep diagnostics
+        # with every Workers shard rather than a previously cancelled number.
+        sampler_pid=''
+        stop_sampler() {
+          if [ -n "$sampler_pid" ]; then
+            kill "$sampler_pid" 2>/dev/null || true
+            wait "$sampler_pid" 2>/dev/null || true
+            sampler_pid=''
+          fi
+        }
+        trap stop_sampler EXIT
+        if [[ "$NAME" == backend-shard-* ]]; then
+          node "$GITHUB_WORKSPACE/scripts/ci/sample-suite-processes.mjs" "$$" &
+          sampler_pid=$!
+        fi
+        # Retain complete Workers logs without duplicating their raw payloads
+        # into the runner's live stream, regardless of weighted shard assignment.
+        console_output=/dev/stdout
+        if [[ "$NAME" == backend-shard-* ]]; then
+          console_output=/dev/null
+        fi
         set +e
-        # CLI reporters replace the config one; JSON remains mandatory for the gate.
-        npm run "$SCRIPT" -- "${test_args[@]}" ${SHARD:+--shard="$SHARD"} \
+        # Workers collection and coverage need headroom beyond the observed
+        # 150s interruption; four minutes remains inside the 10-minute job budget.
+        suite_timeout=150s
+        if [[ "$NAME" == backend-shard-* ]]; then suite_timeout=240s; fi
+        # Bound the entire process group/pipeline; completed JSON remains mandatory.
+        bash "$GITHUB_WORKSPACE/scripts/ci/run-bounded-suite.sh" \
+          "$suite_timeout" "$RUNNER_TEMP/${NAME}.log" "$console_output" \
+          npm run "$SCRIPT" -- "${test_args[@]}" ${SHARD:+--shard="$SHARD"} \
           "${coverage_args[@]}" \
-          --reporter="$HUMAN_REPORTER" --reporter=json "${timing_args[@]}" --outputFile.json="$RUNNER_TEMP/${NAME}.json" \
-          2>&1 | tee "$RUNNER_TEMP/${NAME}.log"
-        status=${PIPESTATUS[0]}
+          --reporter="$HUMAN_REPORTER" --reporter=json "${timing_args[@]}" --outputFile.json="$RUNNER_TEMP/${NAME}.json"
+        status=$?
         set -e
+        stop_sampler
         node "$GITHUB_WORKSPACE/scripts/ci/check-vitest-report.mjs" \
           "$status" "$RUNNER_TEMP/${NAME}.json" "$RUNNER_TEMP/${NAME}.log" "$TOLERATE"
 

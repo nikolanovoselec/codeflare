@@ -33,7 +33,7 @@ const SourceResponseField: Component<{ label: string; value?: number; max: numbe
   return <div class="admin-form-field"><label for={id}>{props.label}</label><div class="operator-value-input"><input id={id} aria-label={props.label} aria-describedby={id + '-help'} type="number" required min="1" step="1" max={props.max}
     value={Number.isFinite(sourceBytes(props.value)) ? sourceBytes(props.value) : ''} onInput={event => props.onChange(event.currentTarget.valueAsNumber)} />
     <DefaultReset label={props.label} onReset={() => props.onChange(api.DEFAULT_SOURCE_RESPONSE_BYTES)} /></div>
-    <small id={id + '-help'}>{props.help ?? sourceResponseHelp} Current ceiling: {props.max} bytes.
+    <small class="admin-help-text" id={id + '-help'}>{props.help ?? sourceResponseHelp} Current ceiling: {props.max} bytes.
       <Show when={props.recommended !== undefined}> Recommended: {props.recommended} bytes (1 MiB).
         <Show when={props.recommended! > props.max}> {props.blockedRecommendationHelp}</Show>
       </Show>
@@ -62,7 +62,7 @@ const catalogInstallation = (operator: api.ManagementSummary) => ({
 const ReleaseChoices: Component<{ label: string; releases: api.ManagementRelease[]; selected: string; onSelect: (id: string) => void }> = props =>
   <fieldset class="admin-area-list-compact"><legend>{props.label}</legend><For each={props.releases}>{item =>
     <label class="admin-toggle-field"><input type="radio" name={props.label} value={item.id} checked={props.selected === item.id} onChange={() => props.onSelect(item.id)} />
-      <span class="admin-form-field"><strong>{releaseLabel(item)}</strong><small>{!item.tagName && !item.version ? 'Version unavailable · ' : ''}{item.publishedAt ? `Published ${published(item.publishedAt)}` : 'Publication time unavailable'} · {item.approved ? 'Approved' : 'Requires approval'}</small><Show when={item.description}><small>{item.description}</small></Show></span>
+      <span class="admin-form-field"><strong>{releaseLabel(item)}</strong><small class="admin-help-text">{!item.tagName && !item.version ? 'Version unavailable · ' : ''}{item.publishedAt ? `Published ${published(item.publishedAt)}` : 'Publication time unavailable'} · {item.approved ? 'Approved' : 'Requires approval'}</small><Show when={item.description}><small class="admin-help-text">{item.description}</small></Show></span>
     </label>
   }</For></fieldset>;
 const denied = (error: unknown) => error instanceof ApiError && [401, 403, 404].includes(error.status);
@@ -200,7 +200,7 @@ const OperatorManagement: Component<OperatorManagementProps> = (props) => {
   }
   const feedback = (section: string): JSX.Element => <Show when={feedbackSection() === section}>
     <Show when={busy()}><p role="status" class="operator-message">Saving and reconciling current state…</p></Show>
-    <Show when={error()}><div class="operator-message" role="alert" aria-atomic="true"><p>{error()}</p>
+    <Show when={error()}><div class="operator-message" role="alert" aria-atomic="true"><p class="admin-help-text">{error()}</p>
       <button class="admin-secondary-button" disabled={busy()} onClick={() => void refresh()}>Refresh current state</button></div></Show>
     <Show when={notice()}><p role="status" class="operator-message" data-state="saved">{notice()}</p></Show>
   </Show>;
@@ -240,7 +240,7 @@ const OperatorManagement: Component<OperatorManagementProps> = (props) => {
   return <div class="operator-management" classList={{ 'is-embedded': props.isAdmin }} role={props.isAdmin ? undefined : 'main'}>
     <div class="admin-page">
       <header class="admin-page-header"><div><h1 ref={heading} tabindex="-1">Operators</h1>
-        <p>Choose a verified operator. Installing a version does not enable new runs.</p></div>
+        <p class="admin-help-text">Choose a verified operator. Installing a version does not enable new runs.</p></div>
         <nav class="operator-actions" aria-label="Operators navigation"><Show when={!props.isAdmin}><a href="/app">Back to workspace</a></Show><a href="/operators" aria-current={!activityView() ? 'page' : undefined} onClick={event => showSection(event, false)}>Catalog</a><a href="/operators?view=activity" aria-current={activityView() ? 'page' : undefined} onClick={event => showSection(event, true)}>My activity</a></nav>
       </header>
       <Show when={!activityView()} fallback={<OperatorManagementActivity installationId={invocationId() || undefined} onBackToCatalog={event => showSection(event, false)} />}>
@@ -248,8 +248,8 @@ const OperatorManagement: Component<OperatorManagementProps> = (props) => {
       <Show when={choicesError() && !catalogError()}><p role="alert" class="operator-message">Identity choices and limits are unavailable. <a href="/admin/environment/access">Manage identities in Environment</a> or <button type="button" class="admin-secondary-button" onClick={() => void loadChoices()}>Retry choices</button>.</p></Show>
       <Show when={!selected()} fallback={<>
         <button class="admin-secondary-button" disabled={busy()} onClick={() => navigate('')}>Back to catalog</button>
-        <Show when={detailLoading()}><p role="status">Loading operator details…</p></Show>
-        <Show when={detailError()}><div role="alert" class="operator-message"><p>{failure(detailError())}</p>
+        <Show when={detailLoading()}><p class="admin-status-text" role="status">Loading operator details…</p></Show>
+        <Show when={detailError()}><div role="alert" class="operator-message"><p class="admin-help-text">{failure(detailError())}</p>
           <button class="admin-secondary-button" disabled={busy()} onClick={() => void refresh()}>Retry details</button></div></Show>
         <Show when={detail()}>{value => <OperatorDetail detail={value()} choices={choices()} isAdmin={props.isAdmin} locked={locked()} perform={perform} feedback={feedback} onInvoke={showInvocation} />}</Show>
       </>}>
@@ -266,14 +266,14 @@ const OperatorManagement: Component<OperatorManagementProps> = (props) => {
             <label class="admin-form-field"><span>Status</span><select value={query().state ?? ''} onChange={event => filter('state', event.currentTarget.value)}>
               <option value="">All statuses</option><option value="enabled">Enabled</option><option value="disabled">Disabled</option></select></label>
           </div></Show>
-          <Show when={loading()}><p role="status">Loading operators…</p></Show>
-          <Show when={catalogError()}><div role="alert" class="operator-message"><p>{failure(catalogError())}</p>
+          <Show when={loading()}><p class="admin-status-text" role="status">Loading operators…</p></Show>
+          <Show when={catalogError()}><div role="alert" class="operator-message"><p class="admin-help-text">{failure(catalogError())}</p>
             <button class="admin-secondary-button" onClick={() => void refresh()}>Retry catalog</button>
             <Show when={denied(catalogError())}><a href="/auth/logout" rel="external">Sign in again</a></Show></div></Show>
           <Show when={!loading() && !catalogError()}>
-            <Show when={items().length} fallback={<p>No operators match this catalog view.</p>}>
+            <Show when={items().length} fallback={<p class="admin-help-text">No operators match this catalog view.</p>}>
               <ul class="operator-list"><For each={items()}>{operator => <li class="admin-area-row">
-                <div><div class="operator-identity"><strong>{name(operator)}</strong><span class="settings-beta-badge operator-type-pill">{category(operator)}</span></div><p>{operator.description || 'Open this operator to review its verified versions and purpose.'}</p>
+                <div><div class="operator-identity"><strong>{name(operator)}</strong><span class="settings-beta-badge operator-type-pill">{category(operator)}</span></div><p class="admin-help-text">{operator.description || 'Open this operator to review its verified versions and purpose.'}</p>
                   <div class="operator-catalog-meta"><Show when={catalogInstallation(operator).count}><span>{catalogInstallation(operator).count}</span></Show>
                     <Show when={operator.installedGithubReleaseId} fallback={<span>{operator.installationCount ? 'Configuration registered' : 'No version installed'}</span>}>
                       <span class="operator-catalog-version">Installed <b>{catalogInstallation(operator).pin}</b></span>
@@ -292,7 +292,7 @@ const OperatorManagement: Component<OperatorManagementProps> = (props) => {
         </section>
         <Show when={registering() && !denied(catalogError())}>
           <section class="admin-panel operator-panel" aria-label="Register operator"><h2>Register an operator</h2>
-            <p>Use a canonical GitHub repository URL and a repository-read PAT. The credential is acquisition-only and never returned. Registration does not approve or enable a release.</p>
+            <p class="admin-help-text">Use a canonical GitHub repository URL and a repository-read PAT. The credential is acquisition-only and never returned. Registration does not approve or enable a release.</p>
             <form onSubmit={event => { event.preventDefault(); if (!canRegister()) return; void perform(async () => {
               const credential = pat(); setPat('');
               const created = await api.registerManagedOperator({ repositoryUrl: repositoryUrl().trim(), githubPat: credential,
@@ -304,11 +304,11 @@ const OperatorManagement: Component<OperatorManagementProps> = (props) => {
                 <label class="admin-form-field"><span>Repository-read PAT</span><input type="password" required maxlength="16384" autocomplete="new-password" value={pat()} onInput={event => setPat(event.currentTarget.value)} /></label>
                 <label class="admin-form-field"><span>Operator profile</span><select value={profile()} onChange={event => { setProfile(event.currentTarget.value as 'conductor' | 'dispatcher'); setRegistrationPolicy(emptyPolicy()); }}><option value="conductor">Conductor</option><option value="dispatcher">Dispatcher</option></select></label>
               </div>
-              <Show when={choices()?.unresolvedGroups.length}><p role="status">Unverified configured groups cannot be assigned: {choices()!.unresolvedGroups.join(', ')}. Saved assignments remain until removed.</p></Show>
+              <Show when={choices()?.unresolvedGroups.length}><p class="admin-status-text" role="status">Unverified configured groups cannot be assigned: {choices()!.unresolvedGroups.join(', ')}. Saved assignments remain until removed.</p></Show>
               <GrantFields title="Initial manager" value={registrationManagers()} choices={choices()} onChange={setRegistrationManagers} />
               <GrantFields title="Initial invoker" value={registrationInvokers()} choices={choices()} onChange={setRegistrationInvokers} />
               <PolicyFields title="Operator" profile={profile()} value={registrationPolicy()} sourceResponseMax={sourceBytes(choices()?.ceiling.sourceResponseBytes)} capabilities={choices()?.ceiling.capabilities ?? []} profiles={profile() === 'dispatcher' ? [] : choices()?.ceiling.resourceProfileIds ?? []} onChange={setRegistrationPolicy} />
-              <p>Select initial capabilities and scope within Environment limits. Operator capabilities can be edited later; changing them disables enabled installations until explicitly re-enabled.</p>
+              <p class="admin-help-text">Select initial capabilities and scope within Environment limits. Operator capabilities can be edited later; changing them disables enabled installations until explicitly re-enabled.</p>
               <div class="operator-actions"><button class="admin-primary-button" type="submit" disabled={!canRegister()}>Register source</button></div>
               </fieldset>
               <button class="admin-secondary-button" type="button" disabled={busy()} onClick={closeRegistration}>Cancel registration</button>
@@ -332,7 +332,7 @@ const LineField: Component<{ label: string; values: string[]; onChange: (values:
     const value = event.currentTarget.value; setDraft(value);
     const entries = lines(value);
     props.onChange(entries);
-  }} /><small>{props.hint}</small></label>;
+  }} /><small class="admin-help-text">{props.hint}</small></label>;
 };
 const sameGroup = (a: api.ManagementGrant['groups'][number], b: api.ManagementGrant['groups'][number]) => a.issuer === b.issuer && a.id === b.id;
 function hasUnavailablePolicy(value: api.ManagementPolicy, capabilities: string[], profiles: string[]): boolean {
@@ -351,15 +351,15 @@ const GrantFields: Component<{ title: string; value: api.ManagementGrant; choice
   const unavailableUsers = () => props.value.users.filter(user => !props.choices?.users.includes(user));
   const unavailableGroups = () => props.value.groups.filter(group => !props.choices?.groups.some(choice => sameGroup(group, choice)));
   return <fieldset class="operator-fields"><legend>{props.title}</legend>
-    <p>{props.title === 'Managers' ? 'Can install versions and change settings. Cannot run the operator without a separate runner grant.' : props.title === 'Runners' ? 'Can start this operator with their own authorization. Cannot change its settings.' : 'Select an eligible identity; assignments not listed in this session remain saved until removed.'}</p>
+    <p class="admin-help-text">{props.title === 'Managers' ? 'Can install versions and change settings. Cannot run the operator without a separate runner grant.' : props.title === 'Runners' ? 'Can start this operator with their own authorization. Cannot change its settings.' : 'Select an eligible identity; assignments not listed in this session remain saved until removed.'}</p>
     <div class="admin-form-grid"><div class="admin-form-field"><span>Users</span><div class="admin-checkbox-list">
-      <Show when={!props.choices?.users.length && !unavailableUsers().length}><p>No eligible users available.</p></Show><For each={props.choices?.users ?? []}>{user =>
+      <Show when={!props.choices?.users.length && !unavailableUsers().length}><p class="admin-help-text">No eligible users available.</p></Show><For each={props.choices?.users ?? []}>{user =>
       <label class="admin-toggle-field"><input type="checkbox" checked={props.value.users.includes(user)} onChange={event => props.onChange({ ...props.value,
         users: event.currentTarget.checked ? [...props.value.users, user] : props.value.users.filter(value => value !== user) })} /><span>{user}</span></label>
     }</For><For each={unavailableUsers()}>{user => <label class="admin-toggle-field"><input type="checkbox" checked onChange={() => props.onChange({ ...props.value, users: props.value.users.filter(value => value !== user) })} />
       <span>{user} · not listed in this session, retained until removed</span></label>}</For></div></div>
     <div class="admin-form-field"><span>Groups</span><div class="admin-checkbox-list">
-      <Show when={!props.choices?.groups.length && !unavailableGroups().length}><p>No verified groups available.</p></Show>
+      <Show when={!props.choices?.groups.length && !unavailableGroups().length}><p class="admin-help-text">No verified groups available.</p></Show>
       <For each={props.choices?.groups ?? []}>{group =>
       <label class="admin-toggle-field"><input type="checkbox" checked={props.value.groups.some(value => sameGroup(value, group))} onChange={event => props.onChange({ ...props.value,
         groups: event.currentTarget.checked ? [...props.value.groups, group] : props.value.groups.filter(value => !sameGroup(value, group)) })} /><span>{group.id}</span></label>
@@ -367,12 +367,57 @@ const GrantFields: Component<{ title: string; value: api.ManagementGrant; choice
       <span>{group.id} · not listed in this session, retained until removed</span></label>}</For></div></div></div>
   </fieldset>;
 };
+const InferencePolicyFields: Component<{ title: string; value: api.ManagementPolicy['inference']; ceiling?: api.ManagementPolicy; sourcesOnly?: boolean;
+  routes?: api.ManagementChoices['managedRoutes']; onChange: (value: NonNullable<api.ManagementPolicy['inference']>) => void }> = props => {
+  const current = (): NonNullable<api.ManagementPolicy['inference']> => props.value ?? {
+    allowedSources: ['managed'], routeIds: [], defaultRouteId: null, reasoningLevels: [], defaultReasoningLevel: null, inheritUserDefaults: false,
+  };
+  const sources = (): Array<'managed' | 'pi-native'> => current().allowedSources ?? ['managed'];
+  const allowedSources = () => props.ceiling ? props.ceiling.inference?.allowedSources ?? ['managed'] : ['managed', 'pi-native'];
+  return <fieldset class="operator-fields"><legend>{props.title} inference restrictions</legend>
+    <p class="admin-help-text">Native Pi requires explicit approval in both the operator and installation policies, plus the execution owner's current personal-provider permission. A human default or reasoning override is not approval. Saving a change disables new runs until explicitly re-enabled.</p>
+    <div class="admin-checkbox-list"><For each={['managed', 'pi-native'] as const}>{source =>
+      <label class="admin-toggle-field"><input type="checkbox" aria-label={`${props.title} ${source === 'pi-native' ? 'approve Pi-native source' : 'allow managed source'}`}
+        checked={sources().includes(source)} disabled={!allowedSources().includes(source) && !sources().includes(source)}
+        onChange={event => props.onChange({ ...current(), allowedSources: event.currentTarget.checked
+          ? [...sources(), source] : sources().filter(value => value !== source) })} />
+        <span>{source === 'pi-native' ? 'Approve Pi-native owner profile' : 'Allow managed inference'}</span></label>
+    }</For></div>
+    <Show when={!props.sourcesOnly && sources().includes('managed')}><div class="admin-form-field"><span>Allowed Gateway routes</span>
+      <small class="admin-help-text">Approve routes explicitly before choosing an installation default. Approval alone does not select a model or enable runs.</small>
+      <div class="admin-checkbox-list"><For each={props.routes ?? []}>{route => <label class="admin-toggle-field">
+        <input type="checkbox" aria-label={`${props.title} allow Gateway route ${route.label}`} checked={current().routeIds.includes(route.id)}
+          disabled={!!props.ceiling && !props.ceiling.inference?.routeIds.includes(route.id) && !current().routeIds.includes(route.id)}
+          onChange={event => props.onChange({ ...current(), routeIds: event.currentTarget.checked
+            ? [...current().routeIds, route.id] : current().routeIds.filter(id => id !== route.id),
+            defaultRouteId: !event.currentTarget.checked && current().defaultRouteId === route.id ? null : current().defaultRouteId })} />
+        <span>{route.label}</span>
+      </label>}</For><For each={current().routeIds.filter(id => !props.routes?.some(route => route.id === id))}>{id =>
+        <label class="admin-toggle-field"><input type="checkbox" checked aria-label={`${props.title} remove unavailable Gateway route ${id}`}
+          onChange={() => props.onChange({ ...current(), routeIds: current().routeIds.filter(value => value !== id),
+            defaultRouteId: current().defaultRouteId === id ? null : current().defaultRouteId })} />
+          <span>{id} · unavailable, retained</span></label>
+      }</For></div>
+    </div></Show>
+    <Show when={!props.sourcesOnly && props.value}><div class="admin-form-field"><span>Allowed reasoning levels</span>
+      <small class="admin-help-text">Choose explicitly; an empty list permits no native reasoning level. Provider/model support is checked before execution. Existing managed routes, defaults and inheritance are retained.</small>
+      <div class="admin-checkbox-list"><For each={api.piReasoningLevels}>{level => <label class="admin-toggle-field">
+        <input type="checkbox" aria-label={`${props.title} allow ${level} reasoning`} checked={current().reasoningLevels.includes(level)}
+          disabled={!!props.ceiling?.inference && !props.ceiling.inference.reasoningLevels.includes(level) && !current().reasoningLevels.includes(level)}
+          onChange={event => props.onChange({ ...current(), reasoningLevels: event.currentTarget.checked
+            ? [...current().reasoningLevels, level] : current().reasoningLevels.filter(value => value !== level),
+            defaultReasoningLevel: !event.currentTarget.checked && current().defaultReasoningLevel === level ? null : current().defaultReasoningLevel })} />
+        <span>{level.charAt(0).toUpperCase() + level.slice(1)}</span>
+      </label>}</For></div>
+    </div></Show>
+  </fieldset>;
+};
 const PolicyFields: Component<{ title: string; profile: 'conductor' | 'dispatcher'; value: api.ManagementPolicy; capabilities: string[]; profiles: string[]; sourceResponseMax: number;
-  onChange: (value: api.ManagementPolicy) => void }> = props => <fieldset class="operator-fields"><legend>{props.title === 'Operator' ? 'Operator actions and scope' : 'Installation restrictions'}</legend>
+  inferenceCeiling?: api.ManagementPolicy; routes?: api.ManagementChoices['managedRoutes']; inferenceSourcesOnly?: boolean; onChange: (value: api.ManagementPolicy) => void }> = props => <fieldset class="operator-fields"><legend>{props.title === 'Operator' ? 'Operator actions and scope' : 'Installation restrictions'}</legend>
   <div class="admin-form-grid"><div class="admin-form-field"><span>Allowed actions</span><div class="admin-checkbox-list"><For each={props.capabilities}>{capability =>
     <label class="admin-toggle-field"><input type="checkbox" checked={props.value.capabilities.includes(capability)} onChange={event => props.onChange({ ...props.value,
       capabilities: event.currentTarget.checked ? [...props.value.capabilities, capability] : props.value.capabilities.filter(value => value !== capability) })} />
-      <span class="admin-form-field"><strong>{capabilityTitle[capability] ?? capability}</strong><small>{capabilityHelp[capability] ?? 'Restricted operator action'}</small></span></label>
+      <span class="admin-form-field"><strong>{capabilityTitle[capability] ?? capability}</strong><small class="admin-help-text">{capabilityHelp[capability] ?? 'Restricted operator action'}</small></span></label>
   }</For><For each={props.value.capabilities.filter(item => !props.capabilities.includes(item))}>{item =>
     <label class="admin-toggle-field"><input type="checkbox" checked onChange={() => props.onChange({ ...props.value,
       capabilities: props.value.capabilities.filter(value => value !== item) })} /><span>{item} · unavailable — deselect to remove</span></label>
@@ -390,9 +435,11 @@ const PolicyFields: Component<{ title: string; profile: 'conductor' | 'dispatche
       <label class="admin-form-field"><span>Session and storage scope</span><select aria-label={`${props.title} resource profile`} value={props.value.resourceProfileId ?? ''} onChange={event => props.onChange({ ...props.value, resourceProfileId: event.currentTarget.value || null })}>
         <option value="">None</option><For each={props.profiles}>{id => <option value={id}>{id}</option>}</For>
         <Show when={props.value.resourceProfileId && !props.profiles.includes(props.value.resourceProfileId)}><option value={props.value.resourceProfileId ?? ''} disabled>{props.value.resourceProfileId} · unavailable, retained</option></Show>
-      </select><small>The <a href="/admin/environment/access">Environment allowlist</a> permits scope IDs; this installation narrows access to the selected ID. Runtime constructs the restricted session. Adding an ID does not provision a profile.</small>
-      <Show when={!props.profiles.length}><small>No scope ID is eligible under current Environment and operator limits. A saved unavailable value is retained unless explicitly changed.</small></Show></label>
+      </select><small class="admin-help-text">The <a href="/admin/environment/access">Environment allowlist</a> permits scope IDs; this installation narrows access to the selected ID. Runtime constructs the restricted session. Adding an ID does not provision a profile.</small>
+      <Show when={!props.profiles.length}><small class="admin-help-text">No scope ID is eligible under current Environment and operator limits. A saved unavailable value is retained unless explicitly changed.</small></Show></label>
     </Show></div>
+  <InferencePolicyFields title={props.title} value={props.value.inference} ceiling={props.inferenceCeiling} routes={props.routes} sourcesOnly={props.inferenceSourcesOnly}
+    onChange={inference => props.onChange({ ...props.value, inference })} />
 </fieldset>;
 
 const OperatorDetail: Component<{ detail: api.ManagementDetail; choices?: api.ManagementChoices; isAdmin?: boolean; locked: boolean;
@@ -405,7 +452,15 @@ const OperatorDetail: Component<{ detail: api.ManagementDetail; choices?: api.Ma
   const [releaseId, setReleaseId] = createSignal('');
   const [installOpen, setInstallOpen] = createSignal(false);
   const [policy, setPolicy] = createSignal(emptyPolicy());
+  const [manualInference, setManualInference] = createSignal<api.ManualInference>();
+  const [inferenceLoading, setInferenceLoading] = createSignal(false);
+  let inferenceRequest = 0;
+  let inferenceActive = true;
+  onCleanup(() => { inferenceActive = false; });
+  const [managedSelectionEdited, setManagedSelectionEdited] = createSignal(false);
+  const [gatewayPolicy, setGatewayPolicy] = createSignal(emptyPolicy());
   const [operatorCapabilities, setOperatorCapabilities] = createSignal<string[]>([]);
+  const [operatorInference, setOperatorInference] = createSignal<api.ManagementPolicy['inference']>();
   const [operatorSourceResponseBytes, setOperatorSourceResponseBytes] = createSignal<number>();
   const [operatorInferenceRequestBytes, setOperatorInferenceRequestBytes] = createSignal<number>();
   const [operatorOperationLimit, setOperatorOperationLimit] = createSignal<number>();
@@ -413,6 +468,7 @@ const OperatorDetail: Component<{ detail: api.ManagementDetail; choices?: api.Ma
   const [operatorSubmissionAttemptLimit, setOperatorSubmissionAttemptLimit] = createSignal<number>();
   const [operatorCapacities, setOperatorCapacities] = createSignal<api.DispatcherCapacityPolicy>({});
   const [operatorLoggingEnabled, setOperatorLoggingEnabled] = createSignal(true);
+  const [piReasoningOverride, setPiReasoningOverride] = createSignal<api.PiReasoningLevel | undefined>();
   const inferenceFieldId = createUniqueId();
   const operationFieldId = createUniqueId();
   const inferenceAttemptFieldId = createUniqueId();
@@ -430,6 +486,7 @@ const OperatorDetail: Component<{ detail: api.ManagementDetail; choices?: api.Ma
   createEffect(() => {
     setManagers(props.detail.grants.managers); setInvokers(props.detail.grants.invokers);
     setOperatorCapabilities(props.detail.operator.policy.capabilities);
+    setOperatorInference(props.detail.operator.policy.inference);
     setOperatorSourceResponseBytes(props.detail.operator.policy.sourceResponseBytes);
     setOperatorInferenceRequestBytes(props.detail.operator.policy.inferenceRequestBytes);
     setOperatorOperationLimit(props.detail.operator.policy.operationLimit);
@@ -448,6 +505,35 @@ const OperatorDetail: Component<{ detail: api.ManagementDetail; choices?: api.Ma
   const operator = () => props.detail.operator;
   const installation = () => props.detail.installations.find(item => item.id === installationId());
   const currentRelease = () => props.detail.releases.find(release => release.id === installation()?.releaseId);
+  createEffect(() => {
+    const item = installation();
+    const dispatcher = operator().profile === 'dispatcher';
+    const request = ++inferenceRequest;
+    setManualInference(undefined);
+    setInferenceLoading(dispatcher && !!item);
+    if (!dispatcher || !item) return;
+    // Only saved detail/installation changes reload status. Options and local drafts are not dependencies.
+    void api.getManagementChoices(item.id).then(value => {
+      if (inferenceActive && request === inferenceRequest) setManualInference(value.inference);
+    }, () => {}).finally(() => {
+      if (inferenceActive && request === inferenceRequest) setInferenceLoading(false);
+    });
+  });
+  const nativeInference = () => manualInference()?.source === 'pi-native';
+  const inferenceStatus = () => {
+    if (inferenceLoading()) return 'Loading your saved inference selection…';
+    const value = manualInference();
+    if (!value || value.status === 'unavailable') return 'Selection unavailable — no fallback assumed.';
+    if (value.status === 'unconfigured') return value.source === 'pi-native'
+      ? 'Not configured — save a provider and model in your R2 Pi profile.' : 'Not configured — choose a Gateway route for this installation.';
+    if (value.status === 'profile') return 'Saved profile only — next-run eligibility is not established.';
+    if (value.status === 'blocked') return value.reason === 'invocation-denied'
+      ? 'Blocked — your account does not have invocation permission.'
+      : value.reason === 'installation-disabled' ? 'Blocked — this installation is not enabled for new runs.'
+      : value.reason === 'policy-denied' ? 'Blocked — the saved selection is not approved by current restrictions.'
+      : 'Blocked — the installed configuration is unavailable for execution.';
+    return nativeInference() ? 'Native selection' : 'Managed selection';
+  };
   const guidedAssessment = () => operator().profile === 'dispatcher' && currentRelease()?.name === 'Renovate Dispatcher'
     && operator().repositoryUrl.replace(/\.git$/i, '').toLowerCase() === 'https://github.com/nikolanovoselec/codeflare-operator-dispatcher';
   const configuredRuns = () => guidedAssessment() && currentRelease()?.intentVersion === '3'
@@ -480,11 +566,47 @@ const OperatorDetail: Component<{ detail: api.ManagementDetail; choices?: api.Ma
     || (validSourceBytes(operatorSourceResponseBytes(), environmentSourceMax()) && validInferenceBytes(operatorInferenceRequestBytes())
       && validOperationLimit(operatorOperationLimit()) && validInferenceAttemptLimit(operatorInferenceAttemptLimit())
       && validSubmissionAttemptLimit(operatorSubmissionAttemptLimit()) && api.validDispatcherCapacities(operatorCapacities()));
-  const validInstallationSource = () => operator().profile !== 'dispatcher' || validSourceBytes(policy().sourceResponseBytes, installationSourceMax());
+  const managedPolicy = () => operator().profile === 'dispatcher' ? gatewayPolicy() : policy();
+  const managedRoutes = () => (props.choices?.managedRoutes ?? []).filter(route => operator().profile === 'dispatcher'
+    || (managedPolicy().inference?.routeIds.includes(route.id) && operator().policy.inference?.routeIds.includes(route.id)));
+  const managedRoute = () => managedRoutes().find(route => route.id === managedPolicy().inference?.defaultRouteId);
+  const managedLevels = () => (managedRoute()?.reasoningLevels ?? []).filter(level => operator().profile === 'dispatcher'
+    || (managedPolicy().inference?.reasoningLevels.includes(level) && operator().policy.inference?.reasoningLevels.includes(level)));
+  const validManagedSelection = () => (!managedPolicy().inference?.defaultRouteId || !!managedRoute())
+    && (managedPolicy().inference?.defaultReasoningLevel == null || managedLevels().includes(managedPolicy().inference!.defaultReasoningLevel!));
+  const changeManagedSelection = (selection: { defaultRouteId?: string | null; defaultReasoningLevel?: api.PiReasoningLevel | null }) => {
+    const current = managedPolicy();
+    const inference = current.inference ?? { allowedSources: ['managed'] as Array<'managed' | 'pi-native'>,
+      routeIds: [], defaultRouteId: null, reasoningLevels: [], defaultReasoningLevel: null, inheritUserDefaults: false };
+    setManagedSelectionEdited(true);
+    const next = { ...current, inference: { ...inference, ...selection, inheritUserDefaults: false } };
+    if (operator().profile === 'dispatcher') setGatewayPolicy(next);
+    else setPolicy(next);
+  };
+  const gatewaySavePolicy = (): api.ManagementPolicy => {
+    const saved = installation()?.policy ?? emptyPolicy();
+    const selected = gatewayPolicy().inference;
+    if (!selected) return saved;
+    const previous = saved.inference;
+    return { ...saved, inference: { ...selected,
+      allowedSources: [...new Set([...(previous?.allowedSources ?? ['managed'] as const), ...(selected.defaultRouteId ? ['managed'] as const : [])])],
+      routeIds: [...new Set([...(previous?.routeIds ?? []), ...(selected.defaultRouteId ? [selected.defaultRouteId] : [])])],
+      reasoningLevels: [...new Set([...(previous?.reasoningLevels ?? []), ...(selected.defaultReasoningLevel == null ? [] : [selected.defaultReasoningLevel])])],
+      inheritUserDefaults: false,
+    } };
+  };
+  const validInstallationSource = () => operator().profile === 'dispatcher'
+    ? validSourceBytes(policy().sourceResponseBytes, installationSourceMax())
+    : !managedSelectionEdited() || validManagedSelection();
   const allowedCapabilities = () => operator().policy.capabilities.filter(item => props.choices?.ceiling.capabilities.includes(item));
   const allowedProfiles = () => operator().profile !== 'dispatcher' && operator().policy.resourceProfileId && props.choices?.ceiling.resourceProfileIds.includes(operator().policy.resourceProfileId!)
     ? [operator().policy.resourceProfileId!] : [];
-  createEffect(() => { setPolicy(installation()?.policy ?? emptyPolicy()); });
+  createEffect(() => {
+    setPolicy(installation()?.policy ?? emptyPolicy());
+    setGatewayPolicy(installation()?.policy ?? emptyPolicy());
+    setManagedSelectionEdited(false);
+    setPiReasoningOverride(installation()?.piReasoningOverride);
+  });
   onCleanup(() => setSourcePat(''));
   const otherReleases = () => props.detail.releases.filter(item => item.id !== installation()?.releaseId);
   const selectedRelease = () => props.detail.releases.find(item => item.id === releaseId());
@@ -515,7 +637,7 @@ const OperatorDetail: Component<{ detail: api.ManagementDetail; choices?: api.Ma
     <section class="admin-panel operator-panel operator-overview" aria-label="Operator overview">
       <div class="admin-panel-heading"><div><div class="operator-identity"><h2>{name(operator())}</h2><span class="settings-beta-badge operator-type-pill">{category(operator())}</span></div>
         <p class="operator-state">{installation()?.enabled ? 'Enabled for new runs' : installation()?.releaseId ? 'Installed — not enabled' : props.detail.installations.length > 1 && !installation() ? 'Choose an installed configuration' : 'No version installed'}</p></div></div>
-      <div class="admin-routing-intro"><p>{purpose()}</p></div>
+      <div class="admin-routing-intro"><p class="admin-help-text">{purpose()}</p></div>
     </section>
     <nav class="admin-routing-nav operator-section-nav" aria-label="Operator sections">
       <button type="button" aria-pressed={section() === 'installed'} onClick={() => openSection('installed')}>Installed version</button>
@@ -527,13 +649,13 @@ const OperatorDetail: Component<{ detail: api.ManagementDetail; choices?: api.Ma
       <Show when={props.detail.installations.length > 1}><label class="admin-form-field"><span>Installed configuration</span><select aria-label="Installed configuration" value={installation()?.id ?? ''} onChange={event => setInstallationId(event.currentTarget.value)}>
         <option value="">Choose an installed configuration</option>
         <For each={props.detail.installations}>{item => <option value={item.id}>{item.name} · {item.enabled ? 'enabled for new runs' : item.releaseId ? 'installed, not enabled' : 'no version installed'}</option>}</For>
-      </select><small>Each configuration has its own pinned release and enablement.</small></label></Show>
-      <Show when={props.detail.installations.filter(item => item.enabled).length > 1}><p>Enabled configurations: {props.detail.installations.filter(item => item.enabled).map(item => item.name).join(', ')}. Choose one before changing it.</p></Show>
-      <Show when={currentRelease()} fallback={<p>{installation()?.releaseId ? 'Installed version details unavailable' : props.detail.installations.length > 1 && !installation() ? 'Choose a configuration to view its pinned version.' : 'No version installed'}</p>}>{release => <>
+      </select><small class="admin-help-text">Each configuration has its own pinned release and enablement.</small></label></Show>
+      <Show when={props.detail.installations.filter(item => item.enabled).length > 1}><p class="admin-help-text">Enabled configurations: {props.detail.installations.filter(item => item.enabled).map(item => item.name).join(', ')}. Choose one before changing it.</p></Show>
+      <Show when={currentRelease()} fallback={<p class="admin-help-text">{installation()?.releaseId ? 'Installed version details unavailable' : props.detail.installations.length > 1 && !installation() ? 'Choose a configuration to view its pinned version.' : 'No version installed'}</p>}>{release => <>
         <div class="admin-connection-status" data-state={installation()?.enabled ? 'passed' : 'unclear'}>
           <div><strong>{releaseDisplay(release())}</strong><span role="status">{installation()?.enabled ? 'Enabled for new runs' : 'Installed — not enabled'}</span></div>
         </div>
-        <Show when={!release().tagName || !release().publishedAt}><div class="operator-release-recovery"><p>{release().publishedAt ? 'Version label unavailable for this release.' : 'Publication time unavailable for this release.'} Refresh to check GitHub for verified version and publication details.</p>
+        <Show when={!release().tagName || !release().publishedAt}><div class="operator-release-recovery"><p class="admin-help-text">{release().publishedAt ? 'Version label unavailable for this release.' : 'Publication time unavailable for this release.'} Refresh to check GitHub for verified version and publication details.</p>
           <button type="button" class="admin-secondary-button" disabled={props.locked} onClick={() => void props.perform(
             () => api.refreshManagedReleases(operator().id, operator().revision), 'Release details refreshed; the installed version and enablement are unchanged.', 'installed-metadata')}>Refresh release details</button>
           {props.feedback('installed-metadata')}</div></Show>
@@ -556,18 +678,18 @@ const OperatorDetail: Component<{ detail: api.ManagementDetail; choices?: api.Ma
         <Show when={installation()?.enabled && guidedAssessment() && !configuredRuns()}><div class="admin-form-grid">
           <label class="admin-form-field"><span>Repository to assess</span><input type="text" maxlength="256" autocomplete="off" placeholder="owner/repository" value={assessmentRepository()} onInput={event => setAssessmentRepository(event.currentTarget.value)} /></label>
           <label class="admin-form-field"><span>Pull request to assess</span><input type="number" min="1" step="1" max="9007199254740991" value={assessmentPullRequest()} onInput={event => setAssessmentPullRequest(event.currentTarget.value)} /></label>
-        </div><p>Choose a repository and pull request you can read, or enter them in the guided form. Opening the form creates no activity; assessment starts only after you submit with your own invocation grant.</p>
+        </div><p class="admin-help-text">Choose a repository and pull request you can read, or enter them in the guided form. Opening the form creates no activity; assessment starts only after you submit with your own invocation grant.</p>
           <div class="operator-actions"><a href={assessmentUrl()} onClick={event => props.onInvoke(event, installation()!.id)}>Assess a pull request</a></div></Show>
-        <Show when={installation()?.enabled && configuredRuns()}><p>Run the configured repository using your invocation grant. Opening the form creates no activity.</p>
+        <Show when={installation()?.enabled && configuredRuns()}><p class="admin-help-text">Run the configured repository using your invocation grant. Opening the form creates no activity.</p>
           <div class="operator-actions"><a href={assessmentUrl()} onClick={event => props.onInvoke(event, installation()!.id)}>Assess recent Renovate pull requests</a></div></Show>
-        <Show when={operator().profile === 'conductor' && operator().name === 'Conductor Review'}><p>Review preparation requires a protected pull request boundary. This package cannot start an ad hoc Review here; inspect your own work in My activity.</p></Show>
+        <Show when={operator().profile === 'conductor' && operator().name === 'Conductor Review'}><p class="admin-help-text">Review preparation requires a protected pull request boundary. This package cannot start an ad hoc Review here; inspect your own work in My activity.</p></Show>
         {props.feedback('installed-enable')}
       </>}</Show>
       <Show when={!installation()?.releaseId && (!props.detail.installations.length || !!installation())}><button type="button" class="admin-primary-button" disabled={props.locked || !props.detail.releases.length} onClick={() => setInstallOpen(true)}>Install operator</button></Show>
-      <Show when={installOpen() && !installation()?.releaseId}><div class="operator-install-setup"><h3>Choose an exact version</h3>
-        <p>Installation pins this verified release but does not enable new runs. The operator’s existing limits apply; review them in Permissions.</p>
+      <Show when={installOpen() && !installation()?.releaseId}><div class="operator-install-setup"><h3 class="type-label">Choose an exact version</h3>
+        <p class="admin-help-text">Installation pins this verified release but does not enable new runs. The operator’s existing limits apply; review them in Permissions.</p>
         <ReleaseChoices label="Version to install" releases={props.detail.releases} selected={releaseId()} onSelect={setReleaseId} />
-        <Show when={selectedRelease()}>{item => <p>You selected {releaseDisplay(item())}. Existing activities keep their original version. Enabling new runs is a separate step.</p>}</Show>
+        <Show when={selectedRelease()}>{item => <p class="admin-help-text">You selected {releaseDisplay(item())}. Existing activities keep their original version. Enabling new runs is a separate step.</p>}</Show>
         <div class="operator-actions"><button type="button" class="admin-primary-button" disabled={!canChoose() || !releaseId()} onClick={() => void installSelected()}>Install selected version</button>
           <button type="button" class="admin-secondary-button" onClick={() => { setInstallOpen(false); setReleaseId(''); }}>Cancel</button></div>
       </div></Show>
@@ -578,32 +700,102 @@ const OperatorDetail: Component<{ detail: api.ManagementDetail; choices?: api.Ma
   if (!selected || !validRunSettings()) return;
   void props.perform(() => api.configureInstallation(selected.id, {
     revision: selected.revision, policy: selected.policy,
+    ...(operator().profile === 'conductor' && selected.piReasoningOverride !== undefined ? { piReasoningOverride: selected.piReasoningOverride } : {}),
     configuration: { ...selected.configuration, renovate: {
       repository: runRepository(), automaticRuns: runAutomatic(), repetitionIntervalSeconds: runInterval(),
     } },
   }), 'Run settings saved. New runs are disabled; enable them separately when ready. Automatic activation is separate.', 'run-settings');
 }}><fieldset disabled={props.locked}>
   <legend>Run settings</legend>
-  <p id={runIntervalId + '-toggle-help'}>Manual and automatic runs use this repository. Use Save run settings to apply the repeat toggle; saving does not start work or activate a schedule.</p>
+  <p class="admin-help-text" id={runIntervalId + '-toggle-help'}>Manual and automatic runs use this repository. Use Save run settings to apply the repeat toggle; saving does not start work or activate a schedule.</p>
   <label class="admin-form-field"><span>Repository</span><input aria-label="Repository" type="text" required maxlength="201"
     autocomplete="off" placeholder="owner/repository" value={runRepository()}
     onInput={event => setRunRepository(event.currentTarget.value)} />
-    <small>The work repository, not the operator package source. No default or manual override.</small>
+    <small class="admin-help-text">The work repository, not the operator package source. No default or manual override.</small>
   </label>
   <Show when={runAutomatic()}><div class="admin-form-field"><label for={runIntervalId}>Repeat interval (seconds)</label>
     <div class="operator-value-input"><input id={runIntervalId} type="number" required min="1" step="1"
       aria-describedby={runIntervalId + '-help'} value={Number.isFinite(runInterval()) ? runInterval() : ''}
       onInput={event => setRunInterval(event.currentTarget.valueAsNumber)} />
       <DefaultReset label="Repeat interval (seconds)" onReset={() => setRunInterval(3600)} />
-    </div><small id={runIntervalId + '-help'}>Default: 3,600 seconds (1 hour). Turning automatic runs off retains this interval and leaves manual runs available.</small>
+    </div><small class="admin-help-text" id={runIntervalId + '-help'}>Default: 3,600 seconds (1 hour). Turning automatic runs off retains this interval and leaves manual runs available.</small>
   </div></Show>
   <button class="admin-secondary-button" type="submit" disabled={!props.choices || !validRunSettings()}>Save run settings</button>
 </fieldset>{props.feedback('run-settings')}</form></Show>
 
+      <Show when={operator().profile === 'dispatcher' && installation()}>{item => <>
+      <section class="operator-inference-status" aria-label="Your next manual run">
+        <h3 class="type-label">Your next manual run</h3>
+        <div class="admin-connection-status" data-state={manualInference()?.status === 'selected' ? 'passed' : 'unclear'}>
+          <div class="operator-inference-card" role="status" aria-label="Effective inference" aria-atomic="true"
+            data-state={manualInference()?.status === 'selected' ? nativeInference() ? 'native' : 'managed' : 'unclear'}>
+            <div class="operator-inference-heading">
+              <strong>{inferenceStatus()}</strong>
+              <Show when={manualInference()?.status === 'selected'}>
+                <span class="operator-selection-pill">{nativeInference() ? 'Saved in your R2 profile' : 'Saved for this installation'}</span>
+              </Show>
+            </div>
+            <Show when={manualInference()?.provider && manualInference()?.model}>
+              <span class="operator-inference-model">{nativeInference() ? 'Native Pi' : 'Managed Gateway'} · {manualInference()!.provider} · {manualInference()!.model} · Reasoning: {manualInference()!.reasoningLevel ?? 'Provider default'}</span>
+            </Show>
+          </div>
+        </div>
+        <p class="admin-help-text">For you as the invoking execution owner, not the operator creator or another account. Saved settings only; this is not proof of OAuth, credentials or a successful model request. Execution rechecks authority and SDK model support.</p>
+        <Show when={nativeInference()}><p class="admin-help-text">Native uses your saved R2 provider, model and reasoning. Gateway settings below are not used for your next manual run and are not an automatic fallback.</p></Show>
+      </section>
+      <details class="admin-route-details" open={!nativeInference()}>
+        <summary>{nativeInference() ? 'Gateway settings — inactive, not used for your run' : 'Gateway model settings'}</summary>
+      <form aria-label="Gateway model settings" onSubmit={event => {
+        event.preventDefault();
+        if (!canChoose() || !managedSelectionEdited() || !validManagedSelection() || !operator().policy.capabilities.includes('inference')) return;
+        void props.perform(() => api.configureInstallation(item().id, {
+          revision: item().revision, policy: gatewaySavePolicy(), configuration: item().configuration ?? {},
+          gatewaySelection: { operatorRevision: operator().revision, routeId: gatewayPolicy().inference?.defaultRouteId ?? null,
+            reasoningLevel: gatewayPolicy().inference?.defaultReasoningLevel ?? null },
+        }), 'Gateway settings saved. New runs are disabled; enable them separately when ready.', 'gateway-settings');
+      }}><fieldset disabled={props.locked || nativeInference()}><legend>Gateway model</legend>
+          <div class="admin-form-grid">
+            <label class="admin-form-field"><span>Gateway route</span>
+              <select aria-label={`${item().name} Managed Gateway route`} value={gatewayPolicy().inference?.defaultRouteId ?? ''}
+                ref={element => createEffect(() => {
+                  const value = gatewayPolicy().inference?.defaultRouteId ?? '';
+                  managedRoutes(); // Reapply after available/retained options reconcile.
+                  queueMicrotask(() => { if (element.isConnected) element.value = value; });
+                })}
+                disabled={!canChoose() || !operator().policy.capabilities.includes('inference')} onChange={event => changeManagedSelection({ defaultRouteId: event.currentTarget.value || null })}>
+                <option value="" selected={!gatewayPolicy().inference?.defaultRouteId}>Not configured</option><For each={managedRoutes()}>{route => <option value={route.id} selected={gatewayPolicy().inference?.defaultRouteId === route.id}>{route.label}</option>}</For>
+                <Show when={gatewayPolicy().inference?.defaultRouteId && !managedRoute()}>
+                  <option value={gatewayPolicy().inference?.defaultRouteId ?? ''} selected disabled>{gatewayPolicy().inference?.defaultRouteId} · unavailable, retained</option>
+                </Show>
+              </select>
+              <small class="admin-help-text">Choose a verified Gateway route for this installation, independent of account defaults. Saving explicitly approves the selection; execution still checks the invoking owner's authority.</small>
+            </label>
+            <label class="admin-form-field"><span>Gateway reasoning</span>
+              <select aria-label={`${item().name} Managed reasoning`} value={gatewayPolicy().inference?.defaultReasoningLevel ?? ''}
+                ref={element => createEffect(() => {
+                  const value = gatewayPolicy().inference?.defaultReasoningLevel ?? '';
+                  managedLevels();
+                  queueMicrotask(() => { if (element.isConnected) element.value = value; });
+                })}
+                disabled={!canChoose() || !operator().policy.capabilities.includes('inference')} onChange={event => changeManagedSelection({ defaultReasoningLevel: event.currentTarget.value ? event.currentTarget.value as api.PiReasoningLevel : null })}>
+                <option value="" selected={gatewayPolicy().inference?.defaultReasoningLevel == null}>Provider default</option><For each={managedLevels()}>{level => <option value={level} selected={gatewayPolicy().inference?.defaultReasoningLevel === level}>{level.charAt(0).toUpperCase() + level.slice(1)}</option>}</For>
+                <Show when={gatewayPolicy().inference?.defaultReasoningLevel != null && !managedLevels().includes(gatewayPolicy().inference!.defaultReasoningLevel!)}>
+                  <option value={gatewayPolicy().inference?.defaultReasoningLevel ?? ''} selected disabled>{gatewayPolicy().inference?.defaultReasoningLevel} · unavailable, retained</option>
+                </Show>
+              </select>
+              <small class="admin-help-text">Provider default is distinct from Off. Changing routes never substitutes reasoning. Native Pi uses the provider, model and reasoning saved by the execution owner in R2; these Gateway settings do not override it.</small>
+            </label>
+          </div>
+          <Show when={!validManagedSelection()}><p class="admin-status-text" role="status">The saved Gateway route or reasoning is unavailable in the current verified catalog. Retained without substitution; {managedSelectionEdited() ? 'choose a compatible reasoning level and route, or clear them, before saving.' : 'unchanged choices can be retained when saving unrelated fields.'}</p></Show>
+        <p class="admin-help-text">Save approves only the selected route and explicit reasoning at operator and installation scope. Reasoning approvals are shared with an already-approved Native source. Existing approvals are retained; changed operator permissions disable installed runs. Saving never starts a run.</p>
+        <button class="admin-secondary-button" type="submit" disabled={!canChoose() || !managedSelectionEdited() || !validManagedSelection() || !operator().policy.capabilities.includes('inference')}>Save model settings</button>
+      </fieldset>{props.feedback('gateway-settings')}</form></details></>}</Show>
+      <details class="admin-route-details"><summary>Advanced settings</summary>
       <section class="admin-profile-editor" aria-label="Runtime permissions">
-        <h3>Runtime permissions</h3>
+        <h3 class="type-label">Runtime permissions</h3>
         <form onSubmit={event => { event.preventDefault(); if (!validOperatorSource()) return; void props.perform(() => api.saveOperatorCapabilities(operator().id, {
           revision: operator().revision, capabilities: operatorCapabilities(), loggingEnabled: operatorLoggingEnabled(),
+          ...(operatorInference() === undefined ? {} : { inference: operatorInference() }),
           ...(operator().profile === 'dispatcher' && operatorSourceResponseBytes() !== undefined ? { sourceResponseBytes: operatorSourceResponseBytes() } : {}),
           ...(operator().profile === 'dispatcher' && operatorInferenceRequestBytes() !== undefined ? { inferenceRequestBytes: operatorInferenceRequestBytes() } : {}),
           ...(operator().profile === 'dispatcher' && operatorOperationLimit() !== undefined ? { operationLimit: operatorOperationLimit() } : {}),
@@ -611,11 +803,11 @@ const OperatorDetail: Component<{ detail: api.ManagementDetail; choices?: api.Ma
           ...(operator().profile === 'dispatcher' && operatorSubmissionAttemptLimit() !== undefined ? { submissionAttemptLimit: operatorSubmissionAttemptLimit() } : {}),
           ...(operator().profile === 'dispatcher' ? api.pickDispatcherCapacities(operatorCapacities()) : {}),
         }), 'Operator capabilities saved. A change disables installed runs until you explicitly re-enable them.', 'operator-capabilities'); }}><fieldset disabled={props.locked}>
-          <legend>Operator capabilities</legend><p>Allowed actions remain bounded by Environment. Changing these settings disables enabled installations; review each installation before re-enabling.</p>
-          <Show when={operator().profile === 'dispatcher'}><p>Source-response limits form a hierarchy: Environment maximum → operator ceiling → installation allowance. Inference size is separate: the same operator limit applies to requests sent to the model and responses received. Final-output and parent-projection controls are separate below; SDK persistence limits remain independent.</p></Show>
+          <legend>Operator capabilities</legend><p class="admin-help-text">Allowed actions remain bounded by Environment. Changing these settings disables enabled installations; review each installation before re-enabling.</p>
+          <Show when={operator().profile === 'dispatcher'}><p class="admin-help-text">Source-response limits form a hierarchy: Environment maximum → operator ceiling → installation allowance. Inference size is separate: the same operator limit applies to requests sent to the model and responses received. Final-output and parent-projection controls are separate below; SDK persistence limits remain independent.</p></Show>
           <div class="admin-checkbox-list"><For each={props.choices?.ceiling.capabilities ?? []}>{capability =>
             <label class="admin-toggle-field"><input type="checkbox" checked={operatorCapabilities().includes(capability)} onChange={event => setOperatorCapabilities(values => event.currentTarget.checked ? [...values, capability] : values.filter(value => value !== capability))} />
-              <span class="admin-form-field"><strong>{capabilityTitle[capability] ?? capability}</strong><small>{capabilityHelp[capability] ?? 'Restricted operator action'}</small></span></label>
+              <span class="admin-form-field"><strong>{capabilityTitle[capability] ?? capability}</strong><small class="admin-help-text">{capabilityHelp[capability] ?? 'Restricted operator action'}</small></span></label>
           }</For><For each={operatorCapabilities().filter(value => !props.choices?.ceiling.capabilities.includes(value))}>{capability =>
             <label class="admin-toggle-field"><input type="checkbox" checked onChange={() => setOperatorCapabilities(values => values.filter(value => value !== capability))} />
               <span>{capability} · unavailable under current Environment limit; remove before saving</span></label>
@@ -627,28 +819,28 @@ const OperatorDetail: Component<{ detail: api.ManagementDetail; choices?: api.Ma
               value={Number.isFinite(inferenceBytes(operatorInferenceRequestBytes())) ? inferenceBytes(operatorInferenceRequestBytes()) : ''}
               onInput={event => setOperatorInferenceRequestBytes(event.currentTarget.valueAsNumber)} />
               <DefaultReset label="Inference limit (bytes)" onReset={() => setOperatorInferenceRequestBytes(api.DEFAULT_INFERENCE_REQUEST_BYTES)} /></div>
-              <small id={inferenceFieldId + '-help'}>Maximum request and response body size for model inference. Operator-wide; no installation override. Does not increase model context or SDK-history limits. Recommended: {RECOMMENDED_INFERENCE_REQUEST_BYTES} bytes (1 MiB). Platform limits still apply.</small>
+              <small class="admin-help-text" id={inferenceFieldId + '-help'}>Maximum request and response body size for model inference. Operator-wide; no installation override. Does not increase model context or SDK-history limits. Recommended: {RECOMMENDED_INFERENCE_REQUEST_BYTES} bytes (1 MiB). Platform limits still apply.</small>
             </div>
             <div class="admin-form-field"><label for={operationFieldId}>Operation limit per run</label><div class="operator-value-input">
               <input id={operationFieldId} aria-describedby={operationFieldId + '-help'} type="number" required min="1" step="1" max={api.MAX_DISPATCHER_OPERATION_LIMIT}
                 value={Number.isFinite(operationLimit(operatorOperationLimit())) ? operationLimit(operatorOperationLimit()) : ''}
                 onInput={event => setOperatorOperationLimit(event.currentTarget.valueAsNumber)} />
               <DefaultReset label="Operation limit per run" onReset={() => setOperatorOperationLimit(api.DEFAULT_DISPATCHER_OPERATION_LIMIT)} /></div>
-              <small id={operationFieldId + '-help'}>Maximum charged operations per run, shared by discovery, research, inference attempts and repository effects. Cached responses and receipt checks add no charge. Default: 1,024. Exhaustion blocks new work; authority and deadlines still apply.</small>
+              <small class="admin-help-text" id={operationFieldId + '-help'}>Maximum charged operations per run, shared by discovery, research, inference attempts and repository effects. Cached responses and receipt checks add no charge. Default: 1,024. Exhaustion blocks new work; authority and deadlines still apply.</small>
             </div>
             <div class="admin-form-field"><label for={inferenceAttemptFieldId}>Max inference attempts</label><div class="operator-value-input">
               <input id={inferenceAttemptFieldId} aria-describedby={inferenceAttemptFieldId + '-help'} type="number" required min="1" step="1" max={Number.MAX_SAFE_INTEGER}
                 value={Number.isFinite(inferenceAttemptLimit(operatorInferenceAttemptLimit())) ? inferenceAttemptLimit(operatorInferenceAttemptLimit()) : ''}
                 onInput={event => setOperatorInferenceAttemptLimit(event.currentTarget.valueAsNumber)} />
               <DefaultReset label="Max inference attempts" onReset={() => setOperatorInferenceAttemptLimit(api.DEFAULT_INFERENCE_ATTEMPT_LIMIT)} /></div>
-              <small id={inferenceAttemptFieldId + '-help'}>Maximum attempts for one inference, including the initial request. Default: 4; use 1 to disable retries. Each attempt consumes the run's operation budget and may incur model cost. Repository writes are never retried.</small>
+              <small class="admin-help-text" id={inferenceAttemptFieldId + '-help'}>Maximum attempts for one inference, including the initial request. Default: 4; use 1 to disable retries. Each attempt consumes the run's operation budget and may incur model cost. Repository writes are never retried.</small>
             </div>
             <div class="admin-form-field"><label for={submissionAttemptFieldId}>Submission attempt limit</label><div class="operator-value-input">
               <input id={submissionAttemptFieldId} aria-describedby={submissionAttemptFieldId + '-help'} type="number" required min="1" step="1" max={Number.MAX_SAFE_INTEGER}
                 value={Number.isFinite(submissionAttemptLimit(operatorSubmissionAttemptLimit())) ? submissionAttemptLimit(operatorSubmissionAttemptLimit()) : ''}
                 onInput={event => setOperatorSubmissionAttemptLimit(event.currentTarget.valueAsNumber)} />
               <DefaultReset label="Submission attempt limit" onReset={() => setOperatorSubmissionAttemptLimit(api.DEFAULT_SUBMISSION_ATTEMPT_LIMIT)} /></div>
-              <small id={submissionAttemptFieldId + '-help'}>Maximum SDK submission attempts, including the initial submission. Default: 1,024; use 1 to disable retries. Separate from inference retries; the original operation budget and deadline still apply. Uncertain repository writes are not replayed.</small>
+              <small class="admin-help-text" id={submissionAttemptFieldId + '-help'}>Maximum SDK submission attempts, including the initial submission. Default: 1,024; use 1 to disable retries. Separate from inference retries; the original operation budget and deadline still apply. Uncertain repository writes are not replayed.</small>
             </div>
             <For each={api.dispatcherCapacityKeys}>{key => {
               const field = api.dispatcherCapacityFields[key];
@@ -660,22 +852,64 @@ const OperatorDetail: Component<{ detail: api.ManagementDetail; choices?: api.Ma
                   value={Number.isFinite(value()) ? value() : ''}
                   onInput={event => setOperatorCapacities(values => ({ ...values, [key]: event.currentTarget.valueAsNumber }))} />
                 <DefaultReset label={field.label} onReset={() => setOperatorCapacities(values => ({ ...values, [key]: field.default }))} /></div>
-                <small id={id + '-help'}>{field.help} Default: {field.default}. Operator-wide; no installation override.</small>
+                <small class="admin-help-text" id={id + '-help'}>{field.help} Default: {field.default}. Operator-wide; no installation override.</small>
               </div>;
             }}</For></div>
           </Show>
-          <label class="admin-toggle-field operator-logging-toggle"><input type="checkbox" checked={operatorLoggingEnabled()} onChange={event => setOperatorLoggingEnabled(event.currentTarget.checked)} /><span class="admin-form-field"><strong>Enable logging</strong><small>Operator execution diagnostics only. Privacy and security audits remain unchanged.</small></span></label>
+          <InferencePolicyFields title="Operator" value={operatorInference()} routes={props.choices?.managedRoutes} sourcesOnly={operator().profile === 'dispatcher'} onChange={setOperatorInference} />
+          <label class="admin-toggle-field operator-logging-toggle"><input type="checkbox" checked={operatorLoggingEnabled()} onChange={event => setOperatorLoggingEnabled(event.currentTarget.checked)} /><span class="admin-form-field"><strong>Enable logging</strong><small class="admin-help-text">Operator execution diagnostics only. Privacy and security audits remain unchanged.</small></span></label>
           <button class="admin-secondary-button" type="submit" disabled={!props.choices || !validOperatorSource() || operatorCapabilities().some(value => !props.choices?.ceiling.capabilities.includes(value))}>Save operator capabilities</button>
         </fieldset>{props.feedback('operator-capabilities')}</form>
         <Show when={installation()}>{item => <form onSubmit={event => { event.preventDefault(); if (!validInstallationSource()) return; void props.perform(() => api.configureInstallation(item().id, {
           revision: item().revision, policy: policy(), configuration: item().configuration ?? {},
+          ...(operator().profile === 'conductor' && piReasoningOverride() !== undefined ? { piReasoningOverride: piReasoningOverride() } : {}),
         }), 'Restrictions saved. Enable new runs separately when ready.', 'installed-restrictions'); }}><fieldset disabled={props.locked}>
-          <PolicyFields title={item().name} profile={operator().profile} value={policy()} sourceResponseMax={installationSourceMax()} capabilities={allowedCapabilities()} profiles={allowedProfiles()} onChange={setPolicy} />
+          <PolicyFields title={item().name} profile={operator().profile} value={policy()} sourceResponseMax={installationSourceMax()} capabilities={allowedCapabilities()} profiles={allowedProfiles()} inferenceCeiling={operator().policy} routes={props.choices?.managedRoutes} inferenceSourcesOnly={operator().profile === 'dispatcher'} onChange={setPolicy} />
+          <Show when={operator().profile === 'conductor'}>
+          <div class="admin-form-grid">
+            <label class="admin-form-field"><span>Managed Gateway route</span>
+              <select aria-label={`${item().name} Managed Gateway route`} value={policy().inference?.defaultRouteId ?? ''}
+                ref={element => createEffect(() => {
+                  const value = policy().inference?.defaultRouteId ?? '';
+                  managedRoutes(); // Reapply after available/retained options reconcile.
+                  queueMicrotask(() => { if (element.isConnected) element.value = value; });
+                })}
+                disabled={!policy().inference} onChange={event => changeManagedSelection({ defaultRouteId: event.currentTarget.value || null })}>
+                <option value="" selected={!policy().inference?.defaultRouteId}>Not configured</option><For each={managedRoutes()}>{route => <option value={route.id} selected={policy().inference?.defaultRouteId === route.id}>{route.label}</option>}</For>
+                <Show when={policy().inference?.defaultRouteId && !managedRoute()}>
+                  <option value={policy().inference?.defaultRouteId ?? ''} selected disabled>{policy().inference?.defaultRouteId} · unavailable, retained</option>
+                </Show>
+              </select>
+              <small class="admin-help-text">Installation-only Gateway choice, not an account default. Choices intersect this manager's verified catalog and both policies; they do not guarantee eligibility for every execution owner. Missing choices never grant permission.</small>
+            </label>
+            <label class="admin-form-field"><span>Managed reasoning</span>
+              <select aria-label={`${item().name} Managed reasoning`} value={policy().inference?.defaultReasoningLevel ?? ''}
+                ref={element => createEffect(() => {
+                  const value = policy().inference?.defaultReasoningLevel ?? '';
+                  managedLevels();
+                  queueMicrotask(() => { if (element.isConnected) element.value = value; });
+                })}
+                disabled={!policy().inference} onChange={event => changeManagedSelection({ defaultReasoningLevel: event.currentTarget.value ? event.currentTarget.value as api.PiReasoningLevel : null })}>
+                <option value="" selected={policy().inference?.defaultReasoningLevel == null}>Provider default</option><For each={managedLevels()}>{level => <option value={level} selected={policy().inference?.defaultReasoningLevel === level}>{level.charAt(0).toUpperCase() + level.slice(1)}</option>}</For>
+                <Show when={policy().inference?.defaultReasoningLevel != null && !managedLevels().includes(policy().inference!.defaultReasoningLevel!)}>
+                  <option value={policy().inference?.defaultReasoningLevel ?? ''} selected disabled>{policy().inference?.defaultReasoningLevel} · unavailable, retained</option>
+                </Show>
+              </select>
+              <small class="admin-help-text">Provider default is distinct from Off. Changing the route never substitutes a reasoning level. Gateway choices are inactive when Native Pi is on; the separate Pi reasoning override below still applies.</small>
+            </label>
+          </div>
+          <Show when={!validManagedSelection()}><p class="admin-status-text" role="status">The saved Gateway route or reasoning is unavailable under the current catalog and restrictions. Retained without substitution; {managedSelectionEdited() ? 'choose a compatible reasoning level and route, or clear them, before saving.' : 'unchanged choices can be retained when saving unrelated fields.'}</p></Show>
+          <Show when={!policy().inference}><p class="admin-help-text">Gateway choices require explicit existing inference permissions. Saving Native settings does not require a managed default.</p></Show>
+          <label class="admin-form-field"><span>Pi reasoning</span><select aria-label={`${item().name} Pi reasoning`} value={piReasoningOverride() ?? ''} onChange={event => setPiReasoningOverride(event.currentTarget.value ? event.currentTarget.value as api.PiReasoningLevel : undefined)}>
+            <option value="">Inherit Pi default</option><For each={api.piReasoningLevels}>{level => <option value={level}>{level.charAt(0).toUpperCase() + level.slice(1)}</option>}</For>
+          </select><small class="admin-help-text">Native Pi inference keeps the execution owner's saved provider and model. An override must be supported by that model and the approved operator restrictions; unsupported levels, including Off, are rejected before execution. Saving disables new runs until explicitly re-enabled.</small></label>
+          </Show>
           <button class="admin-secondary-button" type="submit" aria-label={`Save restrictions for ${item().name}`} disabled={!props.choices || !validInstallationSource() || hasUnavailablePolicy(policy(), allowedCapabilities(), allowedProfiles())}>Save restrictions</button>
         </fieldset>{props.feedback('installed-restrictions')}</form>}</Show>
       </section>
+      </details>
       <details class="admin-route-details"><summary>Technical details</summary>
-        <p>Core, Intent and Interface are package compatibility contract versions, not the installed release version.</p>
+        <p class="admin-help-text">Core, Intent and Interface are package compatibility contract versions, not the installed release version.</p>
         <dl class="operator-facts"><dt>Package name</dt><dd>{operator().name ?? operator().repositoryUrl ?? operator().id}</dd><dt>Source repository</dt><dd>{operator().repositoryUrl}</dd><dt>Repository ID</dt><dd>{operator().repositoryId}</dd>
           <dt>Source credential</dt><dd>{operator().source.credentialConfigured ? 'Configured (write-only)' : 'Not configured'}</dd>
           <dt>Approved workflow</dt><dd>{operator().source.approvedWorkflow ? `${operator().source.approvedWorkflow!.id} · ${operator().source.approvedWorkflow!.ref}` : 'Not selected'}</dd>
@@ -684,7 +918,7 @@ const OperatorDetail: Component<{ detail: api.ManagementDetail; choices?: api.Ma
           <Show when={currentRelease()}>{item => <><dt>Core contract version</dt><dd>{item().coreVersion ?? 'Not reported'}</dd><dt>Intent contract version</dt><dd>{item().intentVersion ?? 'Not reported'}</dd><dt>Interface version</dt><dd>{item().interfaceVersion}</dd><dt>GitHub release ID</dt><dd>{item().githubReleaseId}</dd><dt>Release record</dt><dd>{item().id}</dd><dt>Source commit</dt><dd>{item().sourceCommit}</dd><dt>Bundle SHA-256</dt><dd>{item().bundleDigest}</dd><dt>Manifest SHA-256</dt><dd>{item().manifestDigest}</dd></>}</Show>
         </dl>
       </details>
-      <details class="admin-route-details"><summary>Change source</summary><p>Replacing the repository invalidates approval and stops new runs. Discover and approve an exact release afterward. Existing activities retain their pinned release.</p>
+      <details class="admin-route-details"><summary>Change source</summary><p class="admin-help-text">Replacing the repository invalidates approval and stops new runs. Discover and approve an exact release afterward. Existing activities retain their pinned release.</p>
         <form onSubmit={event => { event.preventDefault(); void props.perform(async () => {
           const credential = sourcePat(); setSourcePat('');
           await api.replaceOperatorSource(operator().id, { revision: operator().revision, repositoryUrl: sourceUrl().trim(), githubPat: credential });
@@ -699,13 +933,13 @@ const OperatorDetail: Component<{ detail: api.ManagementDetail; choices?: api.Ma
       <div class="operator-section-heading"><h2>Versions &amp; updates</h2><button class="admin-secondary-button" disabled={props.locked} onClick={() => void props.perform(
         () => api.refreshManagedReleases(operator().id, operator().revision), 'Release discovery refreshed; no version changed.', 'versions-refresh')}>Refresh releases</button></div>
       {props.feedback('versions-refresh')}
-      <p>Review the verified versions below. A lower or higher GitHub release number does not establish which version is newer; switching disables new runs until you re-enable them.</p>
-      <h3>Other available versions</h3>
-      <Show when={otherReleases().length} fallback={<p>No other verified versions are available.</p>}>
-        <Show when={installation()?.releaseId} fallback={<ul class="operator-list"><For each={otherReleases()}>{item => <li><strong>{releaseDisplay(item)}</strong><p>{item.description || 'Package description unavailable.'}</p></li>}</For></ul>}>
+      <p class="admin-help-text">Review the verified versions below. A lower or higher GitHub release number does not establish which version is newer; switching disables new runs until you re-enable them.</p>
+      <h3 class="type-label">Other available versions</h3>
+      <Show when={otherReleases().length} fallback={<p class="admin-help-text">No other verified versions are available.</p>}>
+        <Show when={installation()?.releaseId} fallback={<ul class="operator-list"><For each={otherReleases()}>{item => <li><strong>{releaseDisplay(item)}</strong><p class="admin-help-text">{item.description || 'Package description unavailable.'}</p></li>}</For></ul>}>
           <div class="operator-install-setup">
             <ReleaseChoices label="Exact version" releases={otherReleases()} selected={releaseId()} onSelect={setReleaseId} />
-            <Show when={selectedRelease()}>{item => <p>Switch {installation()?.name} to {releaseDisplay(item())}? New runs will remain disabled until you re-enable them; running activities keep their pinned version.</p>}</Show>
+            <Show when={selectedRelease()}>{item => <p class="admin-help-text">Switch {installation()?.name} to {releaseDisplay(item())}? New runs will remain disabled until you re-enable them; running activities keep their pinned version.</p>}</Show>
             <div class="operator-actions"><button type="button" class="admin-primary-button" disabled={!canChoose() || !releaseId()} onClick={() => void installSelected()}>Install selected version</button></div>
             {props.feedback('versions-install')}
           </div>
@@ -713,8 +947,8 @@ const OperatorDetail: Component<{ detail: api.ManagementDetail; choices?: api.Ma
       </Show>
     </section>
     <section id="operator-permissions" hidden={section() !== 'permissions'} class="admin-panel operator-panel admin-routing-pane" aria-label="Access grants">
-      <h2>Permissions</h2><p>Choose from identities configured in <a href="/admin/environment/access">Environment · Access &amp; Identity</a>. Management never grants execution or access to another person’s activity.</p>
-      <Show when={props.choices?.unresolvedGroups.length}><p role="status">Unverified configured groups cannot be assigned: {props.choices!.unresolvedGroups.join(', ')}. Saved assignments not listed below remain until you remove them.</p></Show>
+      <h2>Permissions</h2><p class="admin-help-text">Choose from identities configured in <a href="/admin/environment/access">Environment · Access &amp; Identity</a>. Management never grants execution or access to another person’s activity.</p>
+      <Show when={props.choices?.unresolvedGroups.length}><p class="admin-status-text" role="status">Unverified configured groups cannot be assigned: {props.choices!.unresolvedGroups.join(', ')}. Saved assignments not listed below remain until you remove them.</p></Show>
       <form onSubmit={event => { event.preventDefault(); void props.perform(() => api.saveOperatorGrants(operator().id, {
         managers: managers(), invokers: invokers(), revision: operator().revision,
       }), 'Permissions saved. Management does not grant execution.', 'permissions'); }}><fieldset disabled={props.locked}>
@@ -766,19 +1000,19 @@ export const ManagementAccessPanel: Component = () => {
     finally { if (active) setBusy(false); }
   }
   return <section class="operator-access-content" aria-label="Operator eligibility and limits">
-    <p>Select existing Environment identities who may be eligible to manage operators. An operator must also grant them management; neither permission lets them run it.</p>
-    <Show when={loading()}><p role="status">Loading management access…</p></Show>
-    <Show when={error()}><div role="alert" class="operator-message"><p>{error()}</p><button class="admin-secondary-button" disabled={busy()} onClick={() => void load()}>Refresh management access</button></div></Show>
-    <Show when={notice()}><p role="status">{notice()}</p></Show>
+    <p class="admin-help-text">Select existing Environment identities who may be eligible to manage operators. An operator must also grant them management; neither permission lets them run it.</p>
+    <Show when={loading()}><p class="admin-status-text" role="status">Loading management access…</p></Show>
+    <Show when={error()}><div role="alert" class="operator-message"><p class="admin-help-text">{error()}</p><button class="admin-secondary-button" disabled={busy()} onClick={() => void load()}>Refresh management access</button></div></Show>
+    <Show when={notice()}><p class="admin-status-text" role="status">{notice()}</p></Show>
     <Show when={current()}><form onSubmit={event => { event.preventDefault(); void save(); }}><fieldset disabled={busy() || loading() || stale()}>
       <GrantFields title="Eligible manager" value={managers()} choices={choices()} onChange={setManagers} />
-      <fieldset class="operator-fields"><legend>Maximum allowed actions</legend><p>These are upper limits, not permission to run an operator. Each operator and installation may narrow them; the person starting a run must also be authorized.</p>
-        <div class="admin-checkbox-list operator-choice-list"><For each={choices()?.capabilities ?? []}>{capability => <label class="admin-toggle-field"><input type="checkbox" checked={capabilities().includes(capability)} onChange={event => setCapabilities(values => event.currentTarget.checked ? [...values, capability] : values.filter(value => value !== capability))} /><span class="admin-form-field"><strong>{capabilityTitle[capability] ?? capability}</strong><small>{capabilityHelp[capability] ?? 'Restricted operator action'}</small></span></label>}</For>
+      <fieldset class="operator-fields"><legend>Maximum allowed actions</legend><p class="admin-help-text">These are upper limits, not permission to run an operator. Each operator and installation may narrow them; the person starting a run must also be authorized.</p>
+        <div class="admin-checkbox-list operator-choice-list"><For each={choices()?.capabilities ?? []}>{capability => <label class="admin-toggle-field"><input type="checkbox" checked={capabilities().includes(capability)} onChange={event => setCapabilities(values => event.currentTarget.checked ? [...values, capability] : values.filter(value => value !== capability))} /><span class="admin-form-field"><strong>{capabilityTitle[capability] ?? capability}</strong><small class="admin-help-text">{capabilityHelp[capability] ?? 'Restricted operator action'}</small></span></label>}</For>
           <For each={capabilities().filter(value => !choices()?.capabilities.includes(value))}>{item => <label class="admin-toggle-field"><input type="checkbox" checked onChange={() => setCapabilities(values => values.filter(value => value !== item))} /><span>{item} · unavailable — deselect to remove</span></label>}</For></div>
       </fieldset>
       <SourceResponseField label="Largest Dispatcher source response (bytes)" value={sourceResponseBytes()} max={api.MAX_SOURCE_RESPONSE_BYTES} onChange={setSourceResponseBytes} />
       <details class="operator-scope-details"><summary>Conductor request IDs (advanced)</summary>
-        <p>These are allowed names for Conductor requests, not profiles you create. At installation, an administrator selects one allowed ID. On every run, the requested session and storage must both name that same allowed ID or the run is denied. This does not create a session or configure storage; Codeflare builds those resources under its existing permissions. Dispatcher does not use these IDs.</p>
+        <p class="admin-help-text">These are allowed names for Conductor requests, not profiles you create. At installation, an administrator selects one allowed ID. On every run, the requested session and storage must both name that same allowed ID or the run is denied. This does not create a session or configure storage; Codeflare builds those resources under its existing permissions. Dispatcher does not use these IDs.</p>
         <LineField label="Allowed request IDs" values={lines(resources())} onChange={values => setResources(values.join('\n'))} hint="One ID per line. Keep review-profile unless the package contract requires a different name; removing an ID can prevent installed runs." />
       </details>
       <div class="operator-actions"><button type="submit" class="admin-primary-button" disabled={!choices() || !validSourceBytes(sourceResponseBytes(), api.MAX_SOURCE_RESPONSE_BYTES) || capabilities().some(value => !choices()?.capabilities.includes(value))}>Save management access</button></div>

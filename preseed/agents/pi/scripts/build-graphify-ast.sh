@@ -35,7 +35,7 @@ fi
 # Keep this Python block deliberately boring: all extraction/build behavior comes
 # from graphify itself. Do not add Codeflare-specific suffix allowlists, import
 # target rewrites, or edge normalization here.
-timeout "${GRAPHIFY_BUILD_TIMEOUT:-240}" "$GRAPHIFY_PYTHON" - <<'PY'
+timeout "${GRAPHIFY_BUILD_TIMEOUT:-600}" "$GRAPHIFY_PYTHON" - <<'PY'
 import json
 import os
 from pathlib import Path

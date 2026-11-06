@@ -11,8 +11,8 @@ import { pathToFileURL } from 'node:url';
 const profiles = [
   {
     file: 'McpPage.js',
-    original: 'd49b2666cb9c6c5b4d7b9130235c476cb8a3af580363ff224796d9dbde99538d',
-    prepared: '12fc567d3cf0d36eb16b8e9e072ac2fdbd8355ddc235bbb6a5b49c7410d081bf',
+    original: '70f22c6f6d4e721e001de5167d4dab7b012b4c024d5e5d89b480c85c1c2a163a',
+    prepared: 'e31627fb524b3b7726708fc0ebbec40cbe9e40bc89a32f5e19cfb650a9a9f147',
     replacements: [
       ['const DEFAULT_TIMEOUT = 5_000;', 'const DEFAULT_TIMEOUT = 360_000;'],
       ['const NAVIGATION_TIMEOUT = 10_000;', 'const NAVIGATION_TIMEOUT = 360_000;'],
@@ -20,8 +20,8 @@ const profiles = [
   },
   {
     file: 'BrowserManager.js',
-    original: 'e8ad9ae18a6836a0e56771afbf453b4b9ea1d384b4b0db9fccca04300a9fa222',
-    prepared: 'cce0a5a0edea5ef8a1264c881c4577d34bb273ac4ebf90f3849aa0fda05a93eb',
+    original: '1a38e1b5a5476fcef947633076b401e74a14d873e1927078d011d250b03bb87f',
+    prepared: 'cb7900ac438bb3c96a778835c1c3312ea02a9e9b966ec582630f15f2e4fb8d3a',
     replacements: [[
       '        if (wsEndpoint) {\n            connectOptions.browserWSEndpoint = wsEndpoint;',
       '        if (wsEndpoint) {\n            connectOptions.protocolTimeout = 360_000;\n            connectOptions.browserWSEndpoint = wsEndpoint;',
@@ -37,7 +37,7 @@ export function prepareChromeTimeouts(directory) {
   const info = lstatSync(manifestPath);
   if (!info.isFile() || info.isSymbolicLink()) throw Error('Unsafe Chrome SDK file');
   const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
-  if (manifest.name !== 'chrome-devtools-mcp' || manifest.version !== '1.10.1') throw Error('Unreviewed Chrome SDK version');
+  if (manifest.name !== 'chrome-devtools-mcp' || manifest.version !== '1.12.0') throw Error('Unreviewed Chrome SDK version');
   for (const profile of profiles) {
     const path = join(root, 'build/src', profile.file);
     const info = lstatSync(path);

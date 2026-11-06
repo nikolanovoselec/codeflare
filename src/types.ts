@@ -3,6 +3,7 @@ import type { OperatorRegistry } from './operators/registry';
 import type { OperatorActivity } from './operators/activity';
 import type { OperatorDispatcherLoaderBinding, OperatorLoaderBinding } from './operators/loader';
 import { z } from 'zod';
+import type { PiDefaultSource } from './lib/personal-pi-policy';
 
 /**
  * Cloudflare environment bindings, grouped by deploy mode (ARCH: the flat
@@ -322,8 +323,9 @@ export interface TabConfig {
 /**
  * User preferences persisted across sessions
  */
-export type SleepAfterOption = '15m' | '30m' | '1h' | '2h' | '4h';
-export const SleepAfterOptions: SleepAfterOption[] = ['15m', '30m', '1h', '2h', '4h'];
+/** Legacy minute values remain readable; new selections use SleepAfterOptions. */
+export type SleepAfterOption = '15m' | '30m' | '1h' | '2h' | '4h' | '8h' | '12h';
+export const SleepAfterOptions: SleepAfterOption[] = ['1h', '2h', '4h', '8h', '12h'];
 
 export interface UserPreferences {
   lastAgentType?: AgentType;
@@ -484,6 +486,7 @@ export interface ContainerConfigPayload {
   /** REQ-ENTERPRISE-005 (revised): the full dynamic-route catalog (Pi models.json lists all). */
   routeCatalog?: string[];
   allowPersonalPiProviders?: boolean;
+  piDefaultSource?: PiDefaultSource;
   /** REQ-ENTERPRISE-005 (revised): the resolved default route (Copilot model + Pi default model). */
   defaultRoute?: string;
   /** REQ-ENTERPRISE-005 (revised): the default route's reasoning grade (Pi defaultThinkingLevel). */

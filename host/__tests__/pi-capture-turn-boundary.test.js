@@ -1,0 +1,50 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import * as fs from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { stripTypeScriptTypes } from 'node:module';
+const directory=new URL('../../preseed/agents/pi/extensions/',import.meta.url),modules=new Map();
+function moduleUrl(name){if(modules.has(name))return modules.get(name);let text=stripTypeScriptTypes(fs.readFileSync(new URL(name+'.ts',directory),'utf8'));text=text.replace(/from "\.\/([a-z-]+)"/g,(_m,key)=>`from "${moduleUrl(key)}"`);const url='data:text/javascript;base64,'+Buffer.from(text).toString('base64');modules.set(name,url);return url;}
+const jsonl=rows=>rows.map(r=>JSON.stringify(r)+'\n').join('');
+
+test('REQ-MEM-015 AC3: frozen capture dispatch and correlated finalization progress without settlement or duplicate queued launches',async t=>{
+  const {registerMemoryVault}=await import(moduleUrl('memory-vault'));
+  const root=fs.mkdtempSync(join(tmpdir(),'capture-boundary-'));t.after(()=>fs.rmSync(root,{recursive:true,force:true}));
+  const file=join(root,'session.jsonl'),rows=[{type:'session',version:3,id:'fixture'}];fs.writeFileSync(file,jsonl(rows));
+  const paths={vaultRoot:join(root,'Vault'),cacheDir:join(root,'cache'),memoryCounterDir:join(root,'counters'),memoryPromptFile:join(root,'memory.md'),vaultPromptFile:join(root,'vault.md'),vaultManifestFile:join(root,'Vault/graphify-out/manifest.json'),vaultInitializationFile:join(root,'Vault/graphify-out/initialized'),vaultMarkerFile:join(root,'marker')};
+  fs.writeFileSync(paths.memoryPromptFile,'Capture frozen scope');fs.writeFileSync(paths.vaultPromptFile,'Extract scope');
+  const handlers=new Map(),sent=[];const ctx={sessionManager:{getSessionId:()=> 'fixture',getSessionFile:()=>file,getHeader:()=>rows[0]}};
+  const append=row=>{const e={id:'e'+rows.length,parentId:rows.length===1?null:rows.at(-1).id,timestamp:'2026-11-04T00:00:00Z',...row};rows.push(e);fs.appendFileSync(file,jsonl([e]));};
+  const pi={on(name,fn){handlers.set(name,fn);},events:{emit(){}},getActiveTools:()=>[],getAllTools:()=>[],setActiveTools(){},sendMessage(message){sent.push(message);}};
+  registerMemoryVault(pi,{paths,now:()=>Date.parse('2026-11-04T00:00:00Z'),randomUUID:()=> '00000000-0000-4000-8000-000000000001'});
+  const emit=(name,event={})=>handlers.get(name)?.(event,ctx);emit('session_start');
+  append({type:'message',message:{role:'user',content:'prompt 1'}});emit('before_agent_start',{prompt:'prompt 1'});
+  for(let n=2;n<=21;n++)append({type:'message',message:{role:'user',content:'prompt '+n}});
+  // These queued user prompts cross the boundary without another agent start.
+  const stop={message:{role:'assistant',stopReason:'stop',content:[]}};
+  emit('turn_end',{message:{...stop.message,stopReason:'toolUse'}});assert.equal(sent.length,0);
+  assert.equal(fs.existsSync(join(paths.memoryCounterDir,'fixture.vars')),false);
+  emit('turn_end',stop);
+  const pointer=JSON.parse(fs.readFileSync(join(paths.memoryCounterDir,'fixture.vars'),'utf8'));
+  const vars=join(paths.cacheDir,`memory-capture.fixture.${pointer.requestId}.vars`),frozen=fs.readFileSync(vars);
+  const request=JSON.parse(frozen);assert.equal(request.promptCount,21);
+  const launch=sent.find(m=>m.customType==='background-extraction-launch');assert.ok(launch);
+  assert.equal(fs.readFileSync(join(paths.memoryCounterDir,'fixture.vault-count'),'utf8'),'21');
+  emit('turn_end',stop);emit('agent_settled');
+  assert.deepEqual(sent.filter(m=>m.customType==='background-extraction-launch'),[launch]);
+  assert.ok(fs.readFileSync(vars).equals(frozen));assert.equal(fs.readFileSync(join(paths.memoryCounterDir,'fixture.count'),'utf8'),'1');
+  append({type:'custom_message',...launch});
+  const item=launch.details.items.find(i=>i.jobType==='memory-capture');assert.ok(item);
+  append({type:'message',message:{role:'assistant',content:[{type:'toolCall',id:'native-capture',name:'subagent',arguments:item.request}]}});
+  append({type:'custom_message',customType:'subagent-notification',content:'<tool-use-id>native-capture</tool-use-id><status>Done</status>'});
+  fs.writeFileSync(join(paths.vaultRoot,'Raw/Sessions',request.captureFilename),'# Captured session\nFrozen decisions retained.\n');
+  fs.writeFileSync(join(paths.vaultRoot,'graphify-out',`.graphify_chunk_${request.requestId}.json`),JSON.stringify({nodes:[{id:'n',label:'Frozen decision',file_type:'concept',source_file:null,source_location:null,source_url:null,captured_at:null,author:null,contributor:null}],edges:[],hyperedges:[],input_tokens:1,output_tokens:1}));
+  emit('turn_end',stop);
+  assert.equal(fs.readFileSync(join(paths.memoryCounterDir,'fixture.count'),'utf8'),'21');
+  const note=fs.readFileSync(join(paths.vaultRoot,'Raw/Sessions',request.captureFilename),'utf8');assert.match(note,/captured_prompt_count: 21/);
+  assert.equal(fs.existsSync(vars),false);assert.equal(fs.existsSync(join(paths.memoryCounterDir,'fixture.vars')),false);
+  emit('turn_end',stop);emit('agent_settled');
+  assert.equal(fs.readFileSync(join(paths.vaultRoot,'Raw/Sessions',request.captureFilename),'utf8'),note);
+  assert.deepEqual(sent.filter(m=>m.customType==='background-extraction-launch'),[launch]);
+});

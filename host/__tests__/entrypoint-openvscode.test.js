@@ -1049,33 +1049,21 @@ kill -KILL "$managed" "$supervisor" 2>/dev/null || true`, {
   });
 });
 
-// @types/node is published on DefinitelyTyped's own cadence, so only its major
-// is required to match the pinned builder Node. The extension API floor is
-// checked against the installed Code runtime by the complete-image smoke.
+// Intentional extension compatibility pins, independent of the compiler host.
+// The complete-image gate exercises the emitted bundle on Node 22 and on the
+// IDE's own bundled interpreter; neither is inferred from a Docker FROM line.
 const sidebarPkg = () =>
   JSON.parse(readFileSync(resolve(__dirname, '../../openvscode/agent-sidebar/package.json'), 'utf8'));
 const versionMajor = (version) => version.replace(/^[^\d]*/, '').split('.')[0];
 
-describe('agent-sidebar type pins track the runtime they describe', () => {
-  it('pins @types/node to the Node the image builds the extension with', () => {
-    const dockerfile = readFileSync(resolve(__dirname, '../../Dockerfile'), 'utf8');
+describe('agent-sidebar Node 22 compatibility contract', () => {
+  it('retains the declared Node 22 baseline and matching API types', () => {
     const pkg = sidebarPkg();
-    // Anchored to the builder stage, not to engines.node: comparing the manifest
-    // against itself would stay green while engines.node drifted away from the
-    // Node the extension is actually compiled and run with.
-    const builder = dockerfile.match(
-      /FROM \S+node:([\d.]+)-\S+ AS openvscode-agent-sidebar-builder/
-    );
-    assert.ok(builder, 'Dockerfile must pin an explicit Node for the sidebar builder stage');
-    assert.equal(
-      pkg.engines.node,
-      builder[1],
-      'engines.node must match the Node the sidebar builder stage runs'
-    );
+    assert.equal(pkg.engines.node, '22.21.1', 'the compiler upgrade must not upgrade the extension engine');
     assert.equal(
       versionMajor(pkg.devDependencies['@types/node']),
-      versionMajor(builder[1]),
-      '@types/node major must match the Node the sidebar builder stage runs'
+      '22',
+      '@types/node must not expose compiler-host-only APIs to the extension'
     );
   });
 });

@@ -14,7 +14,7 @@ You are the bounded session-memory worker. Convert the immutable prefiltered con
 
 ## Request variables
 
-Read and validate `VARS_FILE` in the first Bash call. It contains exactly:
+Read `VARS_FILE` in the first Bash call. Its version-1 field contract is:
 
 - `version`: `1`.
 - `requestId`: this request UUID.
@@ -23,6 +23,9 @@ Read and validate `VARS_FILE` in the first Bash call. It contains exactly:
 - `captureTimestamp`: precomputed user-timezone timestamp; use verbatim.
 - `captureFilename`: precomputed `.md` basename; use verbatim.
 - `transcript`: user/assistant text already reduced to the uncaptured interval and bounded by the root.
+- `transcriptFingerprint`: optional lowercase 64-hex prompt-prefix fingerprint; use verbatim when present. Legacy requests may omit it.
+
+All other listed fields are required; unknown or invalid fields fail closed. The deployed recovery helper below validates this required/optional schema. Do not recompute the fingerprint from the bounded transcript: it identifies the root's real-user prompt prefix, not the transcript text.
 
 `VARS_FILE` is self-contained: `transcript` is the sole conversation input. There is no `INPUT_FILE`, separate transcript path, or additional frozen-input file. Do not search for or derive one.
 
@@ -50,7 +53,7 @@ python3 /home/user/.pi/agent/scripts/recover-memory-capture.py \
 - `NOT_PUBLISHED` means neither post-commit artifact exists. Continue with fresh capture below.
 - Any nonzero exit is a conflict or invalid receipt. Fail without overwriting, deleting, or inventing a replacement capture.
 
-For fresh capture only, validate the request fields listed above and emit the decoded `transcript` once, not the raw JSON-escaped snapshot. Do not derive another input path or reread live inputs. If output is truncated, page only the tool's reported saved output.
+For fresh capture only, use the validated request and emit the decoded `transcript` once, not the raw JSON-escaped snapshot. Do not derive another input path or reread live inputs. If output is truncated, page only the tool's reported saved output.
 
 From that one pass, retain:
 
@@ -91,6 +94,8 @@ captured_chunks: 1
 
 - <path, URL, PR, SHA, ADR, or REQ>
 ```
+
+When `transcriptFingerprint` is present, add `captured_prompt_fingerprint: <transcriptFingerprint>` to the frontmatter verbatim. For legacy requests without it, omit that field. The receipt must match the frozen request's fingerprint as well as its other identity fields.
 
 Use `captureTimestamp` and `captureFilename` byte-for-byte. Wikilink reusable concepts only; keep paths, symbols, and PR/issues as prose.
 

@@ -100,7 +100,7 @@ describe('REQ-OPS-021: workflow-file static analysis', () => {
     assert.deepEqual(
       { uses: sarifAudit?.uses, with: sarifAudit?.with },
       {
-        uses: 'zizmorcore/zizmor-action@cc914d7f3750a2d13d75c7f184a1060aa0e9d482',
+        uses: 'zizmorcore/zizmor-action@53290badfa369cb0bf7ad16342cb62c2fa47ac7b',
         with: {
           'online-audits': false,
           version: '${{ steps.zizmor-pin.outputs.version }}',

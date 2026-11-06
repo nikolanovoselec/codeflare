@@ -97,6 +97,70 @@ function rejectUnchanged(f) {
   assert.deepEqual(snapshot(f.root), before, 'rejection must not modify, create, or delete any fixture artifact');
 }
 
+test('REQ-MEM-014: worker contract declares the fingerprinted execution-snapshot wire fields', (t) => {
+  const f = fixture(t);
+  const prompt = fs.readFileSync(path.join(scripts, '../prompts/memory-agent-prompt.md'), 'utf8');
+  const declaredFields = [...prompt.matchAll(/^- `([^`]+)`:/gm)].map((match) => match[1]);
+  const request = { ...f.request, transcriptFingerprint: 'a'.repeat(64) };
+  assert.deepEqual(declaredFields.sort(), Object.keys(request).sort(), 'the delivered worker contract must accept every frozen snapshot field');
+});
+
+test('REQ-MEM-014: accepts a fingerprinted fresh request without modifying root-owned state', (t) => {
+  const f = fixture(t);
+  fs.writeFileSync(f.varsFile, JSON.stringify({ ...f.request, transcriptFingerprint: 'a'.repeat(64) }));
+  const before = snapshot(f.root);
+  const result = recover(f);
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stdout, 'NOT_PUBLISHED\n');
+  assert.deepEqual(snapshot(f.root), before);
+});
+
+test('REQ-MEM-021: recovers a fingerprint-bound receipt read-only and idempotently', (t) => {
+  const f = fixture(t);
+  const fingerprint = 'a'.repeat(64);
+  fs.writeFileSync(f.varsFile, JSON.stringify({ ...f.request, transcriptFingerprint: fingerprint }));
+  publishPair(f, f.note.replace('captured_chunks: 1', `captured_chunks: 1\ncaptured_prompt_fingerprint: ${fingerprint}`));
+  const before = snapshot(f.root);
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const result = recover(f);
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.stdout, `RECOVERED ${f.target}\n`);
+    assert.deepEqual(snapshot(f.root), before);
+  }
+});
+
+for (const fingerprint of [null, '', 'a'.repeat(63), 'A'.repeat(64), 123]) {
+  test(`REQ-MEM-014: rejects invalid snapshot fingerprint ${JSON.stringify(fingerprint)} before publication`, (t) => {
+    const f = fixture(t);
+    fs.writeFileSync(f.varsFile, JSON.stringify({ ...f.request, transcriptFingerprint: fingerprint }));
+    rejectUnchanged(f);
+  });
+}
+
+for (const variant of ['missing', 'mismatched', 'duplicate']) {
+  test(`REQ-MEM-021: rejects a receipt with ${variant} prompt fingerprint`, (t) => {
+    const f = fixture(t);
+    fs.writeFileSync(f.varsFile, JSON.stringify({ ...f.request, transcriptFingerprint: 'a'.repeat(64) }));
+    const identity = variant === 'missing' ? '' : variant === 'mismatched'
+      ? `\ncaptured_prompt_fingerprint: ${'b'.repeat(64)}`
+      : `\ncaptured_prompt_fingerprint: ${'a'.repeat(64)}\ncaptured_prompt_fingerprint: ${'a'.repeat(64)}`;
+    publishPair(f, f.note.replace('captured_chunks: 1', `captured_chunks: 1${identity}`));
+    rejectUnchanged(f);
+  });
+}
+
+for (const variant of ['unknown field', 'missing transcript', 'non-string transcript']) {
+  test(`REQ-MEM-014: rejects ${variant} in the execution-snapshot wire format`, (t) => {
+    const f = fixture(t);
+    const request = { ...f.request };
+    if (variant === 'unknown field') request.untrustedField = true;
+    if (variant === 'missing transcript') delete request.transcript;
+    if (variant === 'non-string transcript') request.transcript = 123;
+    fs.writeFileSync(f.varsFile, JSON.stringify(request));
+    rejectUnchanged(f);
+  });
+}
+
 test('REQ-MEM-021: recovers an exact published note and real deterministic chunk read-only and idempotently', (t) => {
   const f = fixture(t);
   publishPair(f);

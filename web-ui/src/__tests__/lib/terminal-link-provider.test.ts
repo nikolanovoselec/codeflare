@@ -89,6 +89,49 @@ describe('terminal-link-provider', () => {
       expect(controller.hasLinkAt(5, 2)).toBe(true);
     });
 
+    it.each([
+      ['(https://example.com)', 'https://example.com'],
+      ['((https://example.com/path))', 'https://example.com/path'],
+      ['(https://example.com/wiki/Function_(mathematics))', 'https://example.com/wiki/Function_(mathematics)'],
+      ['https://example.com/a(b(c))', 'https://example.com/a(b(c))'],
+      ['(https://example.com/a%28b%29)', 'https://example.com/a%28b%29'],
+      ['https://example.com/a)b(c)', 'https://example.com/a)b(c)'],
+      ['https://example.com/a(', 'https://example.com/a('],
+      ['https://example.com/a?value=(x)', 'https://example.com/a?value=(x)'],
+    ])('REQ-TERM-042 AC6: opens only the URL and excludes unmatched closing cells in %s', (text, expected) => {
+      const open = vi.spyOn(window, 'open').mockImplementation(() => null);
+      try {
+        const terminal = createMockTerminal([createMockLine(text)], 120);
+        const controller = registerMultiLineLinkProvider(terminal as any);
+        let links: any;
+        terminal.getProvider().provideLinks(1, (value: any) => { links = value; });
+        expect(links?.map((link: any) => link.text)).toEqual([expected]);
+        const start = text.indexOf('https://');
+        expect(links[0].range).toEqual({ start: { x: start + 1, y: 1 }, end: { x: start + expected.length, y: 1 } });
+        expect(controller.hasLinkAt(start + 1, 1)).toBe(true);
+        expect(controller.hasLinkAt(start + expected.length + 1, 1)).toBe(false);
+        expect(controller.activateLinkAt(start + expected.length + 1, 1)).toBe(false);
+        links[0].activate(new MouseEvent('click', { ctrlKey: true }), links[0].text);
+        expect(open).toHaveBeenCalledWith(expected, '_blank', 'noopener');
+      } finally { open.mockRestore(); }
+    });
+
+    it('REQ-TERM-042 AC6: excludes a wrapped closing parenthesis from controller activation', () => {
+      const expected = 'https://example.com/path_(a)';
+      const text = `(${expected})`;
+      const cols = 16;
+      const open = vi.spyOn(window, 'open').mockImplementation(() => null);
+      try {
+        const terminal = createMockTerminal([createMockLine(text.slice(0, cols)), createMockLine(text.slice(cols), true)], cols);
+        const controller = registerMultiLineLinkProvider(terminal as any);
+        const closingColumn = 1 + expected.length - cols + 1;
+        expect(controller.hasLinkAt(closingColumn, 2)).toBe(false);
+        expect(controller.activateLinkAt(closingColumn, 2)).toBe(false);
+        expect(controller.activateLinkAt(2, 2)).toBe(true);
+        expect(open).toHaveBeenCalledWith(expected, '_blank', 'noopener');
+      } finally { open.mockRestore(); }
+    });
+
     it('detects a simple URL on a single line', () => {
       const terminal = createMockTerminal(
         [createMockLine('Visit https://example.com for details')],

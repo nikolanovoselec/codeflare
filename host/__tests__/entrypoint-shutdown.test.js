@@ -33,7 +33,11 @@ function extractFunction(name) {
   if (start === -1) throw new Error(`Could not locate ${name}() in entrypoint.sh`);
   const end = lines.findIndex((line, index) => index > start && line === '}');
   if (end === -1) throw new Error(`Could not locate the end of ${name}()`);
-  return lines.slice(start, end + 1).join('\n');
+  const body = lines.slice(start, end + 1).join('\n');
+  if (['initial_sync_from_r2', 'establish_bisync_baseline', 'bisync_with_r2'].includes(name)) {
+    return `source ${JSON.stringify(resolve(repoRoot, 'scripts/rclone-conflict-cleanup.sh'))}\n${body}`;
+  }
+  return body;
 }
 
 /** Execute a real sync function with rclone stubbed to record its argv. */
@@ -56,7 +60,7 @@ function runRcloneArgs(functionName) {
     `SYNC_RUNTIME_DIR='${syncRuntimeDir}'`,
     `RCLONE_ARGS_FILE='${argsFile}'`,
     'RCLONE_FILTERS=()',
-    'rclone() { printf "%s\\n" "$@" > "$RCLONE_ARGS_FILE"; }',
+    'rclone() { case "$1" in sync|bisync) printf "%s\\n" "$@" > "$RCLONE_ARGS_FILE";; delete|deletefile) return 0;; *) return 1;; esac; }',
     'timeout() { shift; "$@"; }',
     'pgrep() { return 1; }',
     'cleanup_main_transcripts() { :; }',
@@ -94,6 +98,7 @@ function runBaselineTimeout() {
     `SYNC_RUNTIME_DIR='${syncRuntimeDir}'`,
     'RCLONE_FILTERS=()',
     'timeout() { return 124; }',
+    'rclone() { case "$1" in delete) return 0;; *) return 1;; esac; }',
     'recover_vanished_files() { return 1; }',
     extractFunction('record_sync_disk_failure'),
     extractFunction('establish_bisync_baseline'),

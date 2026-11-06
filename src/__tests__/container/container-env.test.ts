@@ -8,6 +8,10 @@ import { describe, it, expect } from 'vitest';
 import { buildEnvVars, applyBucketName, applyPrefsOnRestart, type ContainerEnvState } from '../../container/container-env';
 import type { Env } from '../../types';
 import { ENTERPRISE_GH_TOKEN_PLACEHOLDER, ENTERPRISE_R2_KEY_PLACEHOLDER } from '../../lib/constants';
+import { setBucketName, type ContainerHost } from '../../container/container-config';
+import { createMockKV } from '../helpers/mock-kv';
+import { SETUP_KEYS } from '../../lib/kv-keys';
+import { createLogger } from '../../lib/logger';
 
 function baseState(): ContainerEnvState {
   return {
@@ -70,6 +74,58 @@ describe('buildEnvVars (REQ-SESSION-016 AC3) / REQ-MEM-010 AC4 (USER_TIMEZONE fe
     (state as unknown as { _userTimezone: string | null })._userTimezone = '';
     const vars = buildEnvVars(state, baseEnv);
     expect(vars.USER_TIMEZONE).toBeUndefined();
+  });
+
+  it.each(['default', 'advanced'] as const)('REQ-AGENT-228 AC1: %s startup receives only non-secret portal registration', (mode) => {
+    const state = baseState();
+    state._sessionMode = mode;
+    state._mcpPortals = [
+      { name: 'codeflare_enterprise', url: 'https://mcp.example.com/mcp?codemode=search_and_execute' },
+      { name: 'second', url: 'https://second.example.com/mcp' },
+    ];
+    const vars = buildEnvVars(state, baseEnv);
+    expect(JSON.parse(vars.CODEFLARE_MCP_PORTALS_JSON)).toEqual(state._mcpPortals);
+    expect(vars.CODEFLARE_MCP_CALLBACK_ORIGIN).toBeUndefined();
+    expect(vars.CODEFLARE_MCP_LIFECYCLE_GENERATION).toBeUndefined();
+    expect(vars.R2_BUCKET_NAME).toBe('codeflare-test');
+    expect(vars.CONTAINER_AUTH_TOKEN).toBe('tok');
+  });
+
+  it('REQ-AGENT-228 AC1: empty portal lists do not introduce MCP environment configuration', () => {
+    expect(buildEnvVars(baseState(), baseEnv).CODEFLARE_MCP_PORTALS_JSON).toBeUndefined();
+  });
+
+  it('REQ-AGENT-228 AC3: startup rereads changed instance portal configuration and clears removals', async () => {
+    const kv = createMockKV();
+    const host = {
+      ...baseState(),
+      _sessionMode: 'advanced',
+      env: { KV: kv },
+      ctx: { storage: { put: async () => undefined } },
+      logger: createLogger('mcp-startup-test'),
+      envVars: {},
+      idleTimeoutPref: '12h',
+      _vaultKey: null,
+    } as unknown as ContainerHost;
+    const first = [{ name: 'enterprise', url: 'https://mcp.example.com/mcp' }];
+    await kv.put(SETUP_KEYS.MCP_PORTALS, JSON.stringify(first));
+    await kv.put(SETUP_KEYS.CUSTOM_DOMAIN, 'codeflare.example.com');
+    await setBucketName(host, 'codeflare-test');
+    expect(JSON.parse(host.envVars.CODEFLARE_MCP_PORTALS_JSON)).toEqual(first);
+    expect(host.envVars.CODEFLARE_MCP_CALLBACK_ORIGIN).toBeUndefined();
+
+    const next = [{ name: 'second', url: 'https://second.example.com/mcp' }];
+    await kv.put(SETUP_KEYS.MCP_PORTALS, JSON.stringify(next));
+    await setBucketName(host, 'codeflare-test');
+    expect(JSON.parse(host.envVars.CODEFLARE_MCP_PORTALS_JSON)).toEqual(next);
+
+    await kv.put(SETUP_KEYS.CUSTOM_DOMAIN, 'invalid.example/path');
+    await setBucketName(host, 'codeflare-test');
+    expect(host.envVars.CODEFLARE_MCP_CALLBACK_ORIGIN).toBeUndefined();
+
+    await kv.put(SETUP_KEYS.MCP_PORTALS, '[]');
+    await setBucketName(host, 'codeflare-test');
+    expect(host.envVars.CODEFLARE_MCP_PORTALS_JSON).toBeUndefined();
   });
 
   it('emits the immutable terminal mode', () => {
@@ -324,6 +380,34 @@ describe('applyBucketName / applyPrefsOnRestart propagate userTimezone (REQ-SESS
       },
     };
   }
+
+  it('REQ-ENTERPRISE-089: bucket configuration persists native source and warm source-only changes regenerate startup hints', async () => {
+    const state = baseState();
+    const { writes, storage } = makeStorage();
+    const env = { ENTERPRISE_MODE: 'active' } as Env;
+    await applyBucketName(state, 'codeflare-test', env, storage, {
+      routeCatalog: ['development'], defaultRoute: 'development', defaultReasoning: 'medium',
+      allowPersonalPiProviders: true, piDefaultSource: 'pi-native',
+    });
+    expect(writes.piDefaultSource).toBe('pi-native');
+    expect(buildEnvVars(state, env).ENTERPRISE_PI_DEFAULT_SOURCE).toBe('pi-native');
+    expect(buildEnvVars(state, {} as Env)).not.toHaveProperty('ENTERPRISE_PI_DEFAULT_SOURCE');
+    expect(await applyPrefsOnRestart(state, storage, { piDefaultSource: 'managed' })).toBe(true);
+    expect(writes.piDefaultSource).toBe('managed');
+    expect(buildEnvVars(state, env)).not.toHaveProperty('ENTERPRISE_PI_DEFAULT_SOURCE');
+    expect(buildEnvVars(state, env).ENTERPRISE_PI_PERSONAL_PROVIDERS).toBe('true');
+    expect(buildEnvVars(state, env).ENTERPRISE_DEFAULT_ROUTE).toBe('development');
+    expect(buildEnvVars(state, env).ENTERPRISE_DEFAULT_REASONING).toBe('medium');
+    expect(await applyPrefsOnRestart(state, storage, { piDefaultSource: 'pi-native' })).toBe(true);
+    expect(await applyPrefsOnRestart(state, storage, { allowPersonalPiProviders: false })).toBe(true);
+    expect(writes.piDefaultSource).toBe('pi-native');
+    expect(buildEnvVars(state, env).ENTERPRISE_PI_DEFAULT_SOURCE).toBe('pi-native');
+    expect(buildEnvVars(state, env)).not.toHaveProperty('ENTERPRISE_PI_PERSONAL_PROVIDERS');
+    // A legacy authoritative catalog snapshot resets source to managed, not stale native.
+    await applyBucketName(state, 'codeflare-test', env, storage, { routeCatalog: ['development'] });
+    expect(writes.piDefaultSource).toBe('managed');
+    expect(buildEnvVars(state, env)).not.toHaveProperty('ENTERPRISE_PI_DEFAULT_SOURCE');
+  });
 
   it('REQ-ENTERPRISE-083: publishes and revokes opaque native cache capabilities on restart', async () => {
     const state = baseState();

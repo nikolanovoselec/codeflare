@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@solidjs/testing-library';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import OperatorActivityButton from '../../components/OperatorActivityButton';
-import type { OperatorActivityDetail } from '../../api/operator-activities';
+import { piLoginRecoveryCopy, type OperatorActivityDetail } from '../../api/operator-activities';
 
 const { listMock, cancelMock, detailMock, readMock } = vi.hoisted(() => ({
   listMock: vi.fn(), cancelMock: vi.fn(), detailMock: vi.fn(), readMock: vi.fn(async (_through: number) => ({ unreadCount: 0 })) }));
@@ -25,6 +25,20 @@ const active = { activityId: 'activity-1', operatorId: 'reviewer', executionStat
   attention: false, sessionId: 'session-1', source: 'Repository dispatch', updatedAt: new Date().toISOString() };
 
 describe('REQ-OPERATOR-027: operator activity header control', () => {
+  it('REQ-OPERATOR-007: shows provider-default in the existing run dropdown without Off or Medium', async () => {
+    listMock.mockResolvedValue({ items: [active] });
+    detailMock.mockResolvedValue({ ...active, checkpoint: null, result: null,
+      inferenceSelection: { source: 'pi-native', provider: 'groq', model: 'openai/gpt-oss-20b',
+        api: 'openai-completions', reasoningLevel: null, reasoningSource: 'inherited' } });
+    render(() => <OperatorActivityButton enabled />);
+    await fireEvent.click(screen.getByRole('button', { name: /operator activity/i }));
+    await fireEvent.click(await screen.findByRole('button', { name: 'View activity-1' }));
+    const inference = await screen.findByText(/Inference:.*groq.*openai\/gpt-oss-20b/);
+    expect(inference.textContent).toContain('Provider default');
+    expect(inference.textContent).not.toMatch(/Off|Medium|inherited Pi default|installation override/);
+    expect(screen.getByText('Execution: running')).toBeTruthy();
+  });
+
   it('renders nothing and issues no request outside enterprise', () => {
     render(() => <OperatorActivityButton enabled={false} />);
     expect(screen.queryByRole('button', { name: /operator activity/i })).toBeNull();
@@ -733,5 +747,42 @@ describe('REQ-OPERATOR-027: repository-only Dispatcher result presentation', () 
     }
     expect(screen.queryByText('do-not-render')).toBeNull();
     expect(screen.queryByText(/Result format unavailable/)).toBeNull();
+  });
+});
+
+
+describe('REQ-OPERATOR-057: functional Pi login recovery', () => {
+  it('shows safe provider recovery with logging OFF while retaining failed execution state', async () => {
+    const failed = { ...active, executionStatus: 'failed' as const, cleanupStatus: 'stopped' as const,
+      collectionStatus: 'unavailable' as const, attention: true,
+      authFailure: { code: 'PI_LOGIN_REQUIRED' as const, reason: 'rejected' as const, provider: 'openai-codex' } };
+    listMock.mockResolvedValue({ items: [failed] });
+    detailMock.mockResolvedValue({ ...failed, checkpoint: null, result: null, loggingEnabled: false,
+      authFailure: failed.authFailure,
+      inferenceSelection: { source: 'pi-native', provider: 'openai-codex', model: 'gpt-6.1-sol',
+        api: 'openai-codex-responses', reasoningLevel: 'low', reasoningSource: 'installation' } });
+    render(() => <OperatorActivityButton enabled />);
+    await fireEvent.click(screen.getByRole('button', { name: /operator activity/i }));
+    const view = await screen.findByRole('button', { name: 'View activity-1' });
+    const row = within(view.closest('article')!);
+    // Intentional visible outcome contract in both the run row and detail.
+    expect(row.getByText(/Provider authentication rejected/)).toBeTruthy();
+    expect(row.getByText(/openai-codex/)).toBeTruthy();
+    expect(row.getByText('failed')).toBeTruthy();
+    await fireEvent.click(view);
+    expect(await screen.findByText(/Provider authentication rejected/)).toBeTruthy();
+    // Named recovery-copy contract: actionable advice, not a diagnosis of an expired account.
+    const advice = await screen.findByText(piLoginRecoveryCopy);
+    expect(advice.textContent).toMatch(/explicit.*retry/i);
+    expect(advice.textContent).toMatch(/R2|synchron/i);
+    expect(advice.textContent).not.toMatch(/Open your Pi session|(?:token|account|authentication) (?:has |is )(?:definitely )?expired/i);
+    expect(screen.getAllByText(/openai-codex/).length).toBeGreaterThan(0);
+    expect(screen.getByText(/gpt-6\.1-sol/)).toBeTruthy();
+    expect(screen.getByText(/Low/)).toBeTruthy();
+    expect(screen.getByText(/override/i)).toBeTruthy();
+    expect(screen.getByText('Execution: failed')).toBeTruthy();
+    expect(screen.getByText('Cleanup: stopped')).toBeTruthy();
+    expect(screen.getByText('Collection: unavailable')).toBeTruthy();
+    expect(screen.queryByText(/No eligible pull requests discovered|merged successfully/i)).toBeNull();
   });
 });

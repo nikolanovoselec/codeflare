@@ -293,7 +293,6 @@ const SessionSection: Component<SessionSectionProps> = (props) => {
         </div>
         <div class="settings-admin-actions">
           <AdminActionButton
-            tone="--color-action-docs"
             icon={mdiFileDocumentRefreshOutline}
             label={props.recreateDocsLoading() ? 'Recreating...' : 'Recreate Docs & Examples'}
             disabled={props.recreateDocsLoading()}
@@ -311,7 +310,6 @@ const SessionSection: Component<SessionSectionProps> = (props) => {
             )}
           </Show>
           <AdminActionButton
-            tone="--color-action-agents"
             icon={mdiRobotOutline}
             label={props.recreateAgentLoading() ? 'Recreating...' : 'Recreate Agent Skills & Rules'}
             disabled={props.recreateAgentLoading() || props.seedUpdateActive()}
@@ -347,11 +345,14 @@ const SessionSection: Component<SessionSectionProps> = (props) => {
             onChange={(e) => props.onSleepAfterChange(e.currentTarget.value)}
             data-testid="settings-sleep-after-select"
           >
-            <option value="15m">15 minutes</option>
-            <option value="30m">30 minutes</option>
+            <Show when={['5m', '15m', '30m'].includes(props.sleepAfter())}>
+              <option value={props.sleepAfter()} disabled>Current {props.sleepAfter().replace('m', ' minutes')}</option>
+            </Show>
             <option value="1h">1 hour</option>
             <option value="2h">2 hours</option>
             <option value="4h">4 hours</option>
+            <option value="8h">8 hours</option>
+            <option value="12h">12 hours</option>
           </select>
         </div>
         <div class="setting-row setting-row--column-gap">

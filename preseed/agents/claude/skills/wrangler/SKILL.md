@@ -17,6 +17,15 @@ Fetch the **latest** information before writing or reviewing Wrangler commands a
 | Wrangler config schema | `node_modules/wrangler/config-schema.json` | Config fields, binding shapes, allowed values |
 | Cloudflare docs | Search tool or `https://developers.cloudflare.com/workers/` | API reference, compatibility dates/flags |
 
+## Wrangler 4.153–4.155 compatibility
+
+Read the [version-matched changelog](https://github.com/cloudflare/workers-sdk/blob/wrangler%404.155.0/packages/wrangler/CHANGELOG.md) before upgrading an existing project.
+
+- Since 4.153, dotenv `--secrets-file` input for `deploy`, `versions upload` and `preview` expands `$VAR` / `${VAR}` using process and earlier file values; process values win, including empty values. Treat these files as trusted input because they can read and upload CI credentials. Escape literal dollar signs or use JSON to preserve literal values. JSON and bulk-secret stdin parsing remain literal. Do not inspect or copy secrets as part of migration research.
+- Miniflare v5 uses `CLOUDFLARE_DEV_REGISTRY_PATH`, not `MINIFLARE_REGISTRY_PATH`. Vite v2 beta and Wrangler keep different default registry locations; set the same explicit path for both only when authorized local development requires discovery. Shared storage requires an enabled registry. Do not reintroduce retired Codeflare Miniflare workloads.
+- In 4.155, `remote: true` on Analytics Engine bindings sends real dataset writes from local development. Never enable it as a harmless local fallback; obtain authorization for remote writes.
+- `.assetsignore` must be UTF-8 without null characters; invalid encoding now fails instead of silently losing patterns. Pretty tail output escapes terminal control characters; JSON retains structured values. Do not suppress the resulting warnings or validation failures.
+
 ## FIRST: Check if Wrangler is installed, and if not, install it
 
 Check if Wrangler is installed by running:

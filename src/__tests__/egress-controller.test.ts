@@ -13,9 +13,15 @@
 import { createHash } from 'node:crypto';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { Env } from '../types';
+import type { PersonalPiProps } from '../lib/personal-pi-forwarding';
+import type { McpPortalInterceptorProps } from '../mcp-portal-interceptor';
+import { mcpPortalFixture, portal, access } from './helpers/mcp-portal-fixture';
+import { disconnectMcpPortal } from '../lib/mcp-portal-token';
+import { SETUP_KEYS } from '../lib/kv-keys';
 import { EgressController } from '../egress-controller';
 import type { OperatorPolicy } from '../operators/policy';
 import type { JwtStampingAuthority, JwtStampingPolicy } from '../operators/jwt-stamping';
+import { pendingRecipient, within } from './helpers/pending-recipient';
 
 const policyLogs = vi.hoisted(() => ({
   debug: vi.fn(),
@@ -40,6 +46,7 @@ function makeController(
   envOverrides: Partial<Env> & { __kv?: Record<string, string> } = {},
   props: {
     accountId?: string;
+    mcpPortal?: McpPortalInterceptorProps;
     bucket?: string;
     r2AccessKeyId?: string;
     r2SecretAccessKey?: string;
@@ -49,6 +56,9 @@ function makeController(
     r2SseDisabled?: boolean;
     strict?: boolean;
     operatorPolicy?: OperatorPolicy;
+    operatorDispatcherNative?: { activityId: string; generation: number; profileDigest: string };
+    operatorNative?: PersonalPiProps['operatorNative'];
+    personalPi?: PersonalPiProps['personalPi'];
     operatorSync?: { activityId: string; outputPrefix: string; manifestPrefix: string };
     ownedMultipart?: boolean;
     jwtStamping?: JwtStampingPolicy;
@@ -90,6 +100,280 @@ beforeEach(() => {
   policyLogs.info.mockClear();
   policyLogs.warn.mockClear();
   policyLogs.error.mockClear();
+});
+
+describe('REQ-AGENT-229: strict catch-all portal credential dispatch', () => {
+  const portalProps = { bucket: 'owner', portals: [portal] };
+  const message = JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'synthetic-write' } });
+  const request = (url = portal.url) => new Request(url, { method: 'POST', body: message, headers: {
+    authorization: 'Bearer codeflare-mcp-portal', accept: 'application/json, text/event-stream',
+    'content-type': 'application/json', 'mcp-session-id': 'session', 'mcp-protocol-version': '2025-03-26',
+    'last-event-id': 'resume', cookie: 'agent-cookie', 'cf-access-jwt-assertion': 'forged-access',
+    'x-codeflare-owner': 'foreign', 'x-api-key': 'agent-key', host: 'foreign.example',
+  } });
+
+  it('REQ-AGENT-229 AC1: catch-all stamps only the parent owner grant and preserves MCP wire outcomes', async () => {
+    const f = await mcpPortalFixture(); await f.begin(); await f.finish();
+    const destinations: string[] = [];
+    const { controller } = makeController({ ...f.env, EGRESS: { fetch: async (outgoing: Request) => {
+      destinations.push(outgoing.url);
+      expect(outgoing.headers.get('authorization')).toBe(`Bearer ${access}`);
+      for (const header of ['cookie', 'cf-access-jwt-assertion', 'x-codeflare-owner', 'x-api-key', 'host']) {
+        expect(outgoing.headers.has(header)).toBe(false);
+      }
+      expect(outgoing.method).toBe('POST'); expect(await outgoing.text()).toBe(message);
+      expect(outgoing.redirect).toBe('manual');
+      expect(outgoing.headers.get('accept')).toBe('application/json, text/event-stream');
+      expect(outgoing.headers.get('content-type')).toBe('application/json');
+      expect(outgoing.headers.get('mcp-session-id')).toBe('session');
+      expect(outgoing.headers.get('mcp-protocol-version')).toBe('2025-03-26');
+      expect(outgoing.headers.get('last-event-id')).toBe('resume');
+      return new Response('original upstream denial', { status: 401, headers: {
+        'WWW-Authenticate': 'Bearer resource_metadata="https://portal.example/.well-known/oauth-protected-resource"',
+        'Set-Cookie': 'must-not-enter-container=true',
+      } });
+    } } as unknown as Fetcher }, { mcpPortal: portalProps, bucket: 'different-r2-bucket' });
+    const response = await controller.fetch(request());
+    expect(destinations).toEqual([portal.url]); expect(response.status).toBe(401);
+    expect(await response.text()).toBe('original upstream denial');
+    expect(response.headers.get('WWW-Authenticate')).toContain('portal.example');
+    expect(response.headers.has('Set-Cookie')).toBe(false);
+  });
+
+  it.each(['path', 'query', 'port', 'removed', 'changed', 'missing', 'disconnected', 'expired',
+    'wrong-owner', 'operator-flag', 'operator-policy', 'operator-sync', 'no-gateway', 'not-strict', 'ssrf', 'native-dispatcher', 'jwt', 'r2'] as const)(
+    'REQ-AGENT-229 AC2: catch-all denies %s without a protected send', async kind => {
+      const f = await mcpPortalFixture();
+      if (kind === 'expired') { f.expiry(1); f.rejectRefresh(); }
+      if (kind !== 'missing') { await f.begin(); await f.finish(); }
+      if (kind === 'disconnected') await disconnectMcpPortal(f.env, 'owner', portal, f.send);
+      if (kind === 'removed') await f.kv.put(SETUP_KEYS.MCP_PORTALS, '[]');
+      if (kind === 'changed') await f.kv.put(SETUP_KEYS.MCP_PORTALS, JSON.stringify([{ ...portal, url: 'https://portal.example/new' }]));
+      const expiredAt = Date.now() + 120_000;
+      const clock = kind === 'expired' ? vi.spyOn(Date, 'now').mockReturnValue(expiredAt) : undefined;
+      const destinations: string[] = [];
+      const direct = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+        // Expired grants may attempt existing OAuth maintenance, never MCP replay.
+        const outgoing = new Request(input, init);
+        if (kind === 'expired' && new URL(outgoing.url).pathname === '/token') return f.send(outgoing);
+        destinations.push(outgoing.url); return new Response('unexpected direct send');
+      });
+      try {
+        const url = kind === 'path' ? 'https://portal.example/other'
+          : kind === 'query' ? `${portal.url}&unexpected=1`
+          : kind === 'port' ? portal.url.replace('portal.example', 'portal.example:8443')
+          : kind === 'ssrf' ? 'https://127.0.0.1/mcp'
+          : kind === 'r2' ? 'https://acc.r2.cloudflarestorage.com/foreign-bucket/mcp' : portal.url;
+        const { controller } = makeController({ ...f.env,
+          EGRESS: kind === 'no-gateway' ? undefined : { fetch: async (outgoing: Request) => {
+            destinations.push(outgoing.url); return new Response('unexpected Gateway send');
+          } } as unknown as Fetcher,
+        }, { mcpPortal: { ...portalProps, bucket: kind === 'wrong-owner' ? 'other' : 'owner',
+          ...(kind === 'operator-flag' ? { operator: true } : {}),
+          ...(['ssrf', 'r2'].includes(kind) ? { portals: [{ ...portal, url }] } : {}),
+        }, ...(kind === 'operator-policy' ? { operatorPolicy: { ...operatorPolicy, networkHosts: ['portal.example'] } } : {}),
+        ...(kind === 'operator-sync' ? { operatorSync: { activityId: 'activity', outputPrefix: 'outputs/', manifestPrefix: 'manifest/' } } : {}),
+        ...(kind === 'not-strict' ? { strict: false } : {}),
+        ...(kind === 'r2' ? { accountId: 'acc' } : {}),
+        ...(kind === 'jwt' ? { jwtStamping: { mode: 'list' as const, destinations: ['portal.example'] } } : {}),
+        ...(kind === 'native-dispatcher' ? { operatorDispatcherNative: {
+          activityId: 'activity', generation: 1, profileDigest: 'a'.repeat(64),
+        } } : {}) });
+        expect((await controller.fetch(request(url))).status).toBe(
+          ['no-gateway', 'not-strict'].includes(kind) ? 503
+            : ['missing', 'disconnected', 'expired', 'wrong-owner'].includes(kind) ? 401 : 403);
+        expect(destinations).toEqual([]);
+      } finally { direct.mockRestore(); clock?.mockRestore(); }
+    });
+
+  it('REQ-AGENT-229 AC4: catch-all streams downstream authorization context and preserves cancellation', async () => {
+    const f = await mcpPortalFixture(); await f.begin(); await f.finish();
+    let cancellation: unknown;
+    const chunk = 'data: {"authorization_url":"https://portal.example/downstream?context=same-grant"}\n\n';
+    const { controller } = makeController({ ...f.env, EGRESS: { fetch: async () => new Response(new ReadableStream({
+      start(stream) { stream.enqueue(new TextEncoder().encode(chunk)); },
+      cancel(reason) { cancellation = reason; },
+    }), { status: 202, headers: { 'Content-Type': 'text/event-stream', 'Mcp-Session-Id': 'session' } }) } as unknown as Fetcher },
+    { mcpPortal: portalProps });
+    const response = await controller.fetch(request());
+    expect(response.status).toBe(202); expect(response.headers.get('Content-Type')).toBe('text/event-stream');
+    expect(response.headers.get('Mcp-Session-Id')).toBe('session');
+    const reader = response.body!.getReader();
+    expect(new TextDecoder().decode((await reader.read()).value)).toBe(chunk);
+    await reader.cancel('owner-cancelled'); expect(cancellation).toBe('owner-cancelled');
+  });
+
+  it('REQ-AGENT-229 AC5: catch-all never replays uncertain MCP writes or follows redirects', async () => {
+    const f = await mcpPortalFixture(); await f.begin(); await f.finish();
+    const effects: string[] = [];
+    const { controller } = makeController({ ...f.env, EGRESS: { fetch: async (outgoing: Request) => {
+      expect(outgoing.redirect).toBe('manual');
+      effects.push((await outgoing.json() as { method: string }).method);
+      throw Error('response lost after mutation');
+    } } as unknown as Fetcher }, { mcpPortal: portalProps });
+    expect((await controller.fetch(request())).status).toBe(502);
+    expect(effects).toEqual(['tools/call']);
+    const redirecting = makeController({ ...f.env, EGRESS: { fetch: async () => new Response(null, {
+      status: 307, headers: { Location: 'https://foreign.example/mcp' },
+    }) } as unknown as Fetcher }, { mcpPortal: portalProps });
+    const response = await redirecting.controller.fetch(request());
+    expect(response.status).toBe(502); expect(response.headers.has('Location')).toBe(false);
+  });
+
+  it('REQ-AGENT-229 AC2: unrelated URL and forged Host retain ordinary auth without owner lookup', async () => {
+    const f = await mcpPortalFixture(); await f.begin(); await f.finish();
+    const { controller } = makeController({ ...f.env, KV: { get: async () => {
+      throw Error('Unrelated egress must not read MCP configuration or grants');
+    } } as unknown as KVNamespace, EGRESS: { fetch: async (outgoing: Request) => {
+      expect(outgoing.url).toBe('https://unrelated.example/mcp');
+      expect(outgoing.headers.get('authorization')).toBe('Bearer ordinary-caller');
+      expect(outgoing.headers.get('cookie')).toBe('ordinary-cookie');
+      expect(await outgoing.text()).toBe('ordinary-body');
+      return new Response('ordinary-response', { status: 201, headers: { 'Set-Cookie': 'ordinary-upstream' } });
+    } } as unknown as Fetcher }, { mcpPortal: portalProps });
+    const response = await controller.fetch(new Request('https://unrelated.example/mcp', { method: 'POST',
+      body: 'ordinary-body', headers: { host: 'portal.example', authorization: 'Bearer ordinary-caller', cookie: 'ordinary-cookie' } }));
+    expect(response.status).toBe(201); expect(await response.text()).toBe('ordinary-response');
+    expect(response.headers.get('Set-Cookie')).toBe('ordinary-upstream');
+  });
+});
+
+describe('REQ-OPERATOR-007/047: Activity-bound Dispatcher native egress', () => {
+  const scope = { activityId: 'native-activity', generation: 4, profileDigest: 'a'.repeat(64) };
+  const selection = { source: 'pi-native', provider: 'openai-codex', model: 'gpt-6.1-sol',
+    api: 'openai-codex-responses', reasoningLevel: 'low', profileDigest: scope.profileDigest };
+  const url = 'https://chatgpt.com/backend-api/codex/responses';
+  it('uses strict Gateway without a container and preserves private error bytes for Activity commitment', async () => {
+    const destinations: string[] = [];
+    const privateError = JSON.stringify({ error: { code: 'invalid_api_key', message: 'private-provider-detail' } });
+    let forwarded: Request | undefined;
+    const { controller } = makeController({
+      OPERATOR_ACTIVITY: { getByName: () => ({ dispatcherNativeEgressCurrent: async () => selection }) } as never,
+      EGRESS: { fetch: async (request: Request) => { destinations.push(request.url); forwarded = request;
+        return new Response(privateError, { status: 401 }); } } as unknown as Fetcher,
+    }, { operatorDispatcherNative: scope });
+    const response = await controller.fetch(new Request(url, { method: 'POST', body: 'opaque actor-inspected bytes',
+      headers: { authorization: 'Bearer private-native-auth', 'chatgpt-account-id': 'private-account',
+        'x-codeflare-native-inference': 'private-handle', 'cf-access-jwt-assertion': 'must-strip' } }));
+    expect(response.status).toBe(401);
+    expect(await response.text()).toBe(privateError);
+    expect(destinations).toEqual([url]);
+    expect(forwarded?.headers.get('authorization')).toBe('Bearer private-native-auth');
+    expect(forwarded?.headers.get('chatgpt-account-id')).toBe('private-account');
+    expect(forwarded?.headers.get('x-codeflare-native-inference')).toBeNull();
+    expect(forwarded?.headers.get('cf-access-jwt-assertion')).toBeNull();
+    expect(await forwarded?.text()).toBe('opaque actor-inspected bytes');
+    expect(forwarded?.redirect).toBe('manual');
+  });
+  it.each(['revoked', 'foreign-profile', 'unrelated-destination', 'websocket', 'missing-gateway'] as const)(
+    'denies %s without a protected send or global-fetch fallback', async denied => {
+      const destinations: string[] = [];
+      const direct = vi.spyOn(globalThis, 'fetch').mockImplementation(async input => {
+        destinations.push(String(input)); return new Response('unexpected direct send');
+      });
+      try {
+        const { controller } = makeController({
+          OPERATOR_ACTIVITY: { getByName: () => ({ dispatcherNativeEgressCurrent: async () => denied === 'revoked'
+            ? null : { ...selection, profileDigest: denied === 'foreign-profile' ? 'b'.repeat(64) : scope.profileDigest } }) } as never,
+          EGRESS: denied === 'missing-gateway' ? undefined : { fetch: async (request: Request) => {
+            destinations.push(request.url); return new Response('unexpected send'); } } as unknown as Fetcher,
+        }, { operatorDispatcherNative: scope });
+        const response = await controller.fetch(new Request(denied === 'unrelated-destination'
+          ? 'https://example.test/unrelated' : url, { method: 'POST', body: '{}',
+          ...(denied === 'websocket' ? { headers: { upgrade: 'websocket' } } : {}) }));
+        expect(response.status).toBe(denied === 'missing-gateway' ? 503 : 403);
+        expect(destinations).toEqual([]);
+      } finally { direct.mockRestore(); }
+    });
+  it('discards a private upstream response when Activity authority changes during the send', async () => {
+    let active = true;
+    let cancelled = false;
+    const { controller } = makeController({
+      OPERATOR_ACTIVITY: { getByName: () => ({ dispatcherNativeEgressCurrent: async () => active ? selection : null }) } as never,
+      EGRESS: { fetch: async () => { active = false;
+        return new Response(new ReadableStream({ cancel() { cancelled = true; } })); } } as unknown as Fetcher,
+    }, { operatorDispatcherNative: scope });
+    const response = await controller.fetch(new Request(url, { method: 'POST', body: '{}' }));
+    expect(response.status).toBe(403);
+    expect(cancelled).toBe(true);
+  });
+});
+
+describe('REQ-OPERATOR-047: Conductor native egress retains only structured safe auth evidence', () => {
+  it.each([{ status: 401, coded: true }, { status: 403, coded: true },
+    { status: 401, coded: false }, { status: 403, coded: false }])(
+    'HTTP $status coded=$coded never exposes private provider errors or infers login from status', async ({ status, coded }) => {
+      const kv = { [STRICT_KEY]: 'active', [SETUP_KEYS.ENTERPRISE_ACCESS_GROUP]: 'native-group',
+        [SETUP_KEYS.GROUP_ROUTING]: JSON.stringify({ 'native-group': { routes: [], defaultRoute: '', reasoning: 'off',
+          allowPersonalPiProviders: true, piDefaultSource: 'pi-native' } }),
+        [SETUP_KEYS.REASONING_CONFIGURATION]: JSON.stringify({ schemaVersion: 1, customProfileRevisions: [], routeAssignments: {},
+          fallbackRouting: { enabled: false } }) };
+      const destinations: string[] = [];
+      const { controller } = makeController({ __kv: kv,
+        CONTAINER: { getByName: () => ({ getPersonalPiSession: async () => ({ generation: 1, groups: ['native-group'] }) }) } as never,
+        EGRESS: { fetch: async (request: Request) => { destinations.push(request.url);
+          return Response.json({ error: { code: coded ? 'invalid_api_key' : 'unrelated_failure',
+            message: 'private-upstream-detail synthetic-native-access' } }, { status }); } } as unknown as Fetcher,
+      }, { personalPi: { bucket: 'owner-bucket', sessionId: 'nativesession', user: 'owner@example.test', generation: 1 },
+        operatorPolicy: { ...operatorPolicy, inference: { ...operatorPolicy.inference,
+          allowedSources: ['pi-native'], reasoningLevels: ['low'] } },
+        operatorNative: { provider: 'openai-codex', model: 'gpt-6.1-sol', api: 'openai-codex-responses', reasoningLevel: 'low', binding: {
+          ownerKey: 'a'.repeat(64), activityId: 'native-activity', sessionId: 'nativesession', generation: 1,
+          profileDigest: 'b'.repeat(64), selectionDigest: 'c'.repeat(64), deadline: Date.now() + 60_000 } } });
+      // The SDK's Codex endpoint, not the generic Responses suffix, is allowed.
+      const wrongPath = await controller.fetch(new Request('https://chatgpt.com/backend-api/responses', {
+        method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer synthetic-native-access' },
+        body: JSON.stringify({ model: 'gpt-6.1-sol', reasoning: { effort: 'low' } }),
+      }));
+      expect(wrongPath.status).toBe(403);
+      expect(await wrongPath.json()).not.toHaveProperty('authFailure');
+      expect(destinations).toEqual([]);
+      const response = await controller.fetch(new Request('https://chatgpt.com/backend-api/codex/responses', {
+        method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer synthetic-native-access' },
+        body: JSON.stringify({ model: 'gpt-6.1-sol', reasoning: { effort: 'low' } }),
+      }));
+      expect(response.status).toBe(status);
+      expect(destinations).toEqual(['https://chatgpt.com/backend-api/codex/responses']);
+      const value = await response.json() as { authFailure?: unknown };
+      expect(value.authFailure).toEqual(coded ? { code: 'PI_LOGIN_REQUIRED', reason: 'rejected', provider: 'openai-codex' } : undefined);
+      expect(JSON.stringify(value)).not.toMatch(/private-upstream-detail|synthetic-native-access/);
+    });
+});
+
+describe('REQ-OPERATOR-047: protected egress cancellation continuity', () => {
+  it.each(['EGRESS', 'JWT EGRESS', 'account-scoped direct'])(
+    'REQ-OPERATOR-047: AC2 %s egress preserves effective cancellation without changing transport policy', async path => {
+      const recipient = pendingRecipient(); const controller = new AbortController();
+      const direct = path === 'account-scoped direct'; const stamped = path === 'JWT EGRESS';
+      const gatewayUrls: string[] = []; const directUrls: string[] = [];
+      const directFetch = vi.spyOn(globalThis, 'fetch').mockImplementation(input => {
+        const request = input as Request; directUrls.push(request.url); return recipient.fetch(request);
+      });
+      const egress = { fetch: (request: Request) => { gatewayUrls.push(request.url); return recipient.fetch(request); } };
+      const { controller: transport } = makeController({ EGRESS: egress as Fetcher }, { accountId: 'acc',
+        ...(!direct ? { operatorPolicy } : {}),
+        ...(stamped ? { jwtStamping: { mode: 'list' as const, destinations: ['allowed.example.test'] }, jwtAuthority } : {}),
+      });
+      const url = direct ? 'https://api.cloudflare.com/client/v4/accounts/acc/workers/scripts' : 'https://allowed.example.test/path';
+      const result = transport.fetch(new Request(url, { method: 'POST', body: 'streamed input', signal: controller.signal,
+        headers: { authorization: 'Bearer specialized', connection: 'keep-alive',
+          ...(stamped ? { 'cf-access-jwt-assertion': 'spoof' } : {}) } }));
+      try {
+        const forwarded = await within(recipient.entered, 'egress recipient entry'); controller.abort();
+        await expect.poll(recipient.aborted, { timeout: 300 }).toBe(true);
+        const response = await within(result, 'egress abort response');
+        expect(response.status).toBe(502);
+        expect(await response.json()).toMatchObject({ code: 'EGRESS_FETCH_FAILED' });
+        expect(forwarded.headers.get('authorization')).toBe('Bearer specialized');
+        expect(forwarded.headers.get('cf-access-jwt-assertion')).toBe(stamped ? 'verified.jwt' : null);
+        expect(forwarded.headers.has('connection')).toBe(false);
+        expect(forwarded.redirect).toBe('manual');
+        // Observable transport isolation, paired with the refusal: no Gateway bypass or replacement.
+        expect({ gatewayUrls, directUrls }).toEqual(direct ? { gatewayUrls: [], directUrls: [url] } : { gatewayUrls: [url], directUrls: [] });
+      } finally {
+        controller.abort(); recipient.release(); await within(result, 'egress cleanup').catch(() => undefined); directFetch.mockRestore();
+      }
+    });
 });
 
 describe('REQ-OPERATOR-019: verified Access stamping in generic egress', () => {
@@ -457,20 +741,48 @@ describe('REQ-ENTERPRISE-016 / AD86: EgressController account-scoped exemption (
     fetchSpy.mockRestore();
   });
 
-  it('forwards THIS account CF API (browser-rendering path) DIRECT and transparent — never env.EGRESS, no re-sign', async () => {
-    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('cf', { status: 200 }));
-    const { controller, egressFetch } = makeController({}, { accountId: 'acc' });
-    await controller.fetch(
-      new Request('https://api.cloudflare.com/client/v4/accounts/acc/browser-rendering/snapshot', {
-        headers: { authorization: 'Bearer caller-cf-token' },
-      }),
-    );
-    expect(fetchSpy).toHaveBeenCalled();
-    expect(egressFetch).not.toHaveBeenCalled();
-    // CF API is a transparent passthrough (REQ-BROWSER-007): caller token preserved, not re-signed.
-    const fwd = fetchSpy.mock.calls[0][0] as Request;
-    expect(fwd.headers.get('authorization')).toBe('Bearer caller-cf-token');
-    fetchSpy.mockRestore();
+  it('routes own-account Browser REST through Gateway transparently without re-signing or admin injection', async () => {
+    const direct: Request[] = [];
+    const inspected: Request[] = [];
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async input => {
+      direct.push(input as Request); return new Response('unsafe direct result');
+    });
+    try {
+      const { controller } = makeController({ EGRESS: { fetch: async (request: Request) => {
+        inspected.push(request); return new Response('inspected Browser result');
+      } } as Fetcher }, { accountId: 'acc' });
+      const url = 'https://api.cloudflare.com/client/v4/accounts/acc/browser-rendering/snapshot';
+      const response = await controller.fetch(new Request(url, { method: 'POST', body: '{"url":"https://example.com/"}',
+        headers: { authorization: 'Bearer caller-cf-token', cookie: 'caller=session', connection: 'keep-alive' } }));
+      expect(response.status).toBe(200);
+      expect(await response.text()).toBe('inspected Browser result');
+      expect(inspected.map(request => ({ url: request.url, authorization: request.headers.get('authorization'),
+        cookie: request.headers.get('cookie'), connection: request.headers.get('connection'),
+        method: request.method, redirect: request.redirect }))).toEqual([{
+        url, authorization: 'Bearer caller-cf-token', cookie: 'caller=session', connection: null,
+        method: 'POST', redirect: 'manual',
+      }]);
+      expect(await inspected[0]?.text()).toBe('{"url":"https://example.com/"}');
+      expect(direct).toEqual([]);
+    } finally { fetchSpy.mockRestore(); }
+  });
+
+  it.each([false, true])('own-account Browser fallback upgrade=%s refuses missing Gateway without a direct send', async upgrade => {
+    const direct: Request[] = [];
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async input => {
+      direct.push(input as Request); return new Response('unsafe direct result');
+    });
+    try {
+      const { controller } = makeController({ EGRESS: undefined }, { accountId: 'acc' });
+      const response = await controller.fetch(new Request(
+        `https://api.cloudflare.com/client/v4/accounts/acc/browser-rendering/${upgrade ? 'devtools/browser' : 'markdown'}`,
+        { headers: { authorization: 'Bearer codeflare-enterprise', ...(upgrade ? { upgrade: 'websocket' } : {}) } },
+      ));
+      expect(response.status).toBe(503);
+      expect(await response.json()).toMatchObject({ code: 'EGRESS_UNAVAILABLE' });
+      expect(response.webSocket).toBeNull();
+      expect(direct).toEqual([]);
+    } finally { fetchSpy.mockRestore(); }
   });
 
   it('routes ANOTHER account R2 through env.EGRESS (Gateway) — NOT direct (closes cross-account exfil)', async () => {
@@ -535,39 +847,72 @@ describe('REQ-ENTERPRISE-016: EgressController bridges WebSocket upgrades (catch
     vi.unstubAllGlobals();
   });
 
-  it('bridges a THIS-account CDP upgrade: accepts the upstream, returns a 101 with a FRESH client webSocket (not as-is), direct not env.EGRESS', async () => {
-    const upstreamWs = makeUpstreamWs();
-    const ws101 = { status: 101, webSocket: upstreamWs, headers: new Headers() } as unknown as Response;
-    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ws101);
-    const { controller, egressFetch } = makeController({}, { accountId: 'acc' });
-    const res = await controller.fetch(
-      new Request('https://api.cloudflare.com/client/v4/accounts/acc/browser-rendering/devtools/browser', {
-        headers: { Upgrade: 'websocket' },
-      }),
-    );
-    expect(res.status).toBe(101);
-    const clientWs = (res as unknown as { webSocket?: unknown }).webSocket;
-    expect(clientWs).toBeTruthy();
-    expect(clientWs).not.toBe(upstreamWs); // bridged, NOT returned as-is
-    expect(upstreamWs.accept).toHaveBeenCalled(); // upstream socket taken up
-    // upstream→client frame + close forwarding is wired (fails if the bridge reverts to return-as-is)
-    expect(upstreamWs.addEventListener).toHaveBeenCalledWith('message', expect.any(Function));
-    expect(upstreamWs.addEventListener).toHaveBeenCalledWith('close', expect.any(Function));
-    expect(fetchSpy).toHaveBeenCalled();
-    expect(egressFetch).not.toHaveBeenCalled();
-    fetchSpy.mockRestore();
+  it('bridges own-account CDP through Gateway with a fresh client and bidirectional text/binary', async () => {
+    const upstream = new WebSocketPair();
+    const browser = upstream[1];
+    browser.accept();
+    const direct: Request[] = [];
+    const inspected: Request[] = [];
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async input => {
+      direct.push(input as Request); return new Response('unsafe direct result');
+    });
+    let client: WebSocket | undefined;
+    const next = (socket: WebSocket) => new Promise<string | ArrayBuffer>(resolve => {
+      socket.addEventListener('message', event => resolve(event.data), { once: true });
+    });
+    try {
+      const { controller } = makeController({ EGRESS: { fetch: async (request: Request) => {
+        inspected.push(request); return new Response(null, { status: 101, webSocket: upstream[0] });
+      } } as Fetcher }, { accountId: 'acc' });
+      const url = 'https://api.cloudflare.com/client/v4/accounts/acc/browser-rendering/devtools/browser';
+      const response = await controller.fetch(new Request(url, {
+        headers: { Upgrade: 'websocket', authorization: 'Bearer caller-cf-token' },
+      }));
+      expect(response.status).toBe(101);
+      client = response.webSocket!;
+      expect(client).not.toBe(upstream[0]);
+      client.accept();
+      for (const [sender, receiver] of [[client, browser], [browser, client]]) {
+        const text = next(receiver);
+        sender.send('cdp-frame');
+        expect(await text).toBe('cdp-frame');
+        const binary = next(receiver);
+        sender.send(new Uint8Array([0, 127, 255]).buffer);
+        expect(new Uint8Array(await binary as ArrayBuffer)).toEqual(new Uint8Array([0, 127, 255]));
+      }
+      expect(inspected.map(request => ({ url: request.url, authorization: request.headers.get('authorization'),
+        upgrade: request.headers.get('upgrade') }))).toEqual([{
+        url, authorization: 'Bearer caller-cf-token', upgrade: 'websocket',
+      }]);
+      expect(direct).toEqual([]);
+      const closed = new Promise<CloseEvent>(resolve => client!.addEventListener('close', resolve, { once: true }));
+      browser.close(1000, 'browser done');
+      const event = await closed;
+      expect(event.code).toBe(1000);
+      expect(event.reason).toBe('browser done');
+    } finally { client?.close(); browser.close(); fetchSpy.mockRestore(); }
   });
 
-  it('surfaces a non-101 upstream (e.g. an error response) unchanged', async () => {
-    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('denied', { status: 403 }));
-    const { controller } = makeController({}, { accountId: 'acc' });
-    const res = await controller.fetch(
-      new Request('https://api.cloudflare.com/client/v4/accounts/acc/browser-rendering/devtools/browser', {
-        headers: { Upgrade: 'websocket' },
-      }),
-    );
-    expect(res.status).toBe(403);
-    fetchSpy.mockRestore();
+  it('surfaces a non-101 Gateway CDP refusal unchanged without direct retry', async () => {
+    const direct: Request[] = [];
+    const inspected: Request[] = [];
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async input => {
+      direct.push(input as Request); return new Response('unsafe direct result');
+    });
+    try {
+      const { controller } = makeController({ EGRESS: { fetch: async (request: Request) => {
+        inspected.push(request); return new Response('Gateway policy refusal', { status: 403 });
+      } } as Fetcher }, { accountId: 'acc' });
+      const url = 'https://api.cloudflare.com/client/v4/accounts/acc/browser-rendering/devtools/browser';
+      const res = await controller.fetch(new Request(url, { headers: { Upgrade: 'websocket', authorization: 'Bearer caller-cf-token' } }));
+      expect(res.status).toBe(403);
+      expect(await res.text()).toBe('Gateway policy refusal');
+      expect(res.webSocket).toBeNull();
+      expect(inspected.map(request => ({ url: request.url, authorization: request.headers.get('authorization') }))).toEqual([
+        { url, authorization: 'Bearer caller-cf-token' },
+      ]);
+      expect(direct).toEqual([]);
+    } finally { fetchSpy.mockRestore(); }
   });
 
   it('bridges a non-account-scoped WS upgrade through env.EGRESS with the Upgrade header preserved (not stripped)', async () => {

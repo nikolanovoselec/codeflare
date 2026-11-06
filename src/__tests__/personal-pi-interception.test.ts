@@ -5,6 +5,10 @@ import { createMockKV } from './helpers/mock-kv';
 import { SETUP_KEYS } from '../lib/kv-keys';
 import { createMockSessionD1 } from './helpers/mock-session-d1';
 import type { Env } from '../types';
+import * as access from '../lib/access';
+import * as execution from '../operators/execution-context';
+import { operatorOwnerKey } from '../operators/browser-activity';
+import { prepareOperatorActivity } from '../operators/orchestrator';
 
 const owner = { bucket: 'owner-bucket', sessionId: 'ownersession1', user: 'owner@example.test', generation: 1 };
 const issuer = 'https://personal-pi.cloudflareaccess.com';
@@ -175,6 +179,30 @@ it('REQ-ENTERPRISE-088 AC5: OAuth Codex and native cloud destinations retain aut
   }
 });
 
+it('REQ-AGENT-078: native Cloudflare Gateway preserves caller roles under strict inspection and revocation', async () => {
+  const f = fixture(true);
+  const interceptor = new LlmInterceptor({ props: { user: owner.user, personalPi: owner, strict: true } } as unknown as ExecutionContext, f.env);
+  const url = 'https://gateway.ai.cloudflare.com/v1/other/gateway/compat/chat/completions';
+  const body = JSON.stringify({ model: 'caller-model', messages: [] });
+  const send = () => interceptor.fetch(new Request(url, { method: 'POST', body, headers: {
+    authorization: 'Bearer codeflare-enterprise-caller-provider',
+    'cf-aig-authorization': 'Bearer caller-gateway-token', 'content-type': 'application/json',
+  } }));
+  expect((await send()).status).toBe(200);
+  expect(f.requests).toEqual([]);
+  expect(f.egressRequests.map(request => request.url)).toEqual([url]);
+  const received = f.egressRequests[0];
+  expect(received.method).toBe('POST');
+  expect(received.redirect).toBe('manual');
+  expect(received.headers.get('authorization')).toBe('Bearer codeflare-enterprise-caller-provider');
+  expect(received.headers.get('cf-aig-authorization')).toBe('Bearer caller-gateway-token');
+  expect(await received.text()).toBe(body);
+  f.policy(false);
+  expect((await send()).status).toBe(403);
+  expect(f.egressRequests.map(request => request.url)).toEqual([url]);
+  expect(f.requests).toEqual([]);
+});
+
 it('REQ-ENTERPRISE-088 AC5: reused native WebSockets deny frames after warm policy revocation', async () => {
   const f = fixture();
   const provider = new WebSocketPair();
@@ -270,6 +298,97 @@ it('REQ-ENTERPRISE-088 AC5: an unbound native request cannot borrow the legacy g
   expect(f.requests).toEqual([]);
 });
 
+
+it.each(['already-stopped', 'during-authorization', 'dispatcher-source'] as const)(
+  'REQ-OPERATOR-058/047: actual Conductor parent grant refuses %s without broadening or retiring original authority', async when => {
+    const f = fixture();
+    const deadline = Date.now() + 60_000;
+    const selection = { source: 'pi-native' as const, provider: 'openai-codex', model: 'gpt-6.1-sol',
+      api: 'openai-codex-responses', reasoningLevel: 'low', profileDigest: 'c'.repeat(64) };
+    const binding = { ownerKey: await operatorOwnerKey(f.human), activityId: 'operator-activity', sessionId: owner.sessionId,
+      generation: 1, selectionDigest: Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',
+        new TextEncoder().encode(JSON.stringify(selection))))).map(byte => byte.toString(16).padStart(2, '0')).join(''),
+      profileDigest: selection.profileDigest, deadline };
+    const inference = { allowedSources: ['pi-native'], routeIds: [], defaultRouteId: null,
+      reasoningLevels: ['low'], defaultReasoningLevel: 'low', inheritUserDefaults: false };
+    const managementPolicy = { capabilities: ['session', 'pi', 'storage'], inference };
+    const pinned = { controlsRevision: 1, operator: { operatorId: 'operator', profile: 'conductor', revision: 1, policy: managementPolicy },
+      installation: { id: 'installation', revision: 1, policy: managementPolicy }, release: { bundleDigest: 'a'.repeat(64) } };
+    const invocation = { schemaVersion: 1, interfaceVersion: 1, consumerId: 'boundary-reviews', activityId: binding.activityId,
+      operatorId: 'operator', runId: binding.activityId, source: { kind: 'session', reference: 'owner/repo' },
+      revision: { reference: 'a'.repeat(40), digest: 'b'.repeat(64) }, inputDigest: 'c'.repeat(64), input: {}, attachments: [],
+      resources: { inference: selection, session: { profileId: 'review-profile' }, storage: { scopeId: 'review-profile' } } };
+    const plan = { activityId: binding.activityId, deadline, receipt: { selection: pinned }, invocationJson: JSON.stringify(invocation),
+      executionContext: { policyDigest: 'e'.repeat(64) }, authFailure: undefined as unknown };
+    const failure = { code: 'PI_LOGIN_REQUIRED', provider: selection.provider, reason: 'rejected' };
+    let stopDuringAuthorization = false;
+    vi.spyOn(execution, 'openOperatorExecutionAccess').mockResolvedValue({ human: f.human, accessJwt: 'synthetic-sealed-assertion' });
+    vi.spyOn(access, 'resolveOperatorGroupIdentity').mockResolvedValue(f.human);
+    vi.spyOn(access, 'resolveBucketName').mockResolvedValue(owner.bucket);
+    vi.spyOn(access, 'canInvokeOperator').mockReturnValue(true);
+    vi.spyOn(access, 'resolveSessionAccessGroup').mockImplementation(async () => {
+      if (stopDuringAuthorization) plan.authFailure = failure;
+      return ['Engineering'];
+    });
+    vi.spyOn(access, 'loadEnterpriseRouteConfig').mockResolvedValue({ routeCatalog: [], defaultRoute: '', defaultReasoning: '',
+      allowPersonalPiProviders: true } as never);
+    f.env.OPERATOR_ACTIVITY = { getByName: () => ({ operatorGenerationCurrent: async () => true, getRuntimePlan: async () => structuredClone(plan) }) } as never;
+    f.env.OPERATOR_REGISTRY = { getByName: () => ({ resolveManagementExecution: async () => ({ ok: true, value: pinned }) }) } as never;
+    const host = { ...f.host, _jwtAuthority: { human: f.human, accessJwt: 'synthetic-sealed-assertion' },
+      _operatorContainerProfile: { schemaVersion: 1, activityId: binding.activityId, operatorId: 'operator', sessionId: owner.sessionId,
+        ownerBucket: owner.bucket, policyDigest: plan.executionContext.policyDigest, deadline, outputPrefix: 'Operators/',
+        human: f.human, policy: { schemaVersion: 1, networkHosts: [], github: { repositories: [], methods: [] },
+          storage: { readPrefixes: [], writePrefixes: [] }, inference }, jwtPolicy: { mode: 'off', destinations: [] },
+        piProfile: { source: 'pi-native', provider: selection.provider, model: selection.model, api: selection.api,
+          thinkingLevel: 'low', systemPrompt: 'Bound native work', tools: ['read', 'write'], authBinding: binding } } } as unknown as InterceptionHost;
+    const ref = { bucket: owner.bucket, sessionId: owner.sessionId, email: owner.user };
+    expect(await getPersonalPiSession(host, ref)).toEqual({ generation: 1, groups: ['Engineering'] });
+    if (when === 'dispatcher-source') {
+      const source = dispatcherSourcePreparation(f, host);
+      await expect(getPersonalPiSession(host, ref, true)).rejects.toMatchObject({ statusCode: 403 });
+      const result = await source.prepare();
+      expect(source.prepared).toEqual([{ activityId: result.activityId,
+        invocation: { repository: 'owner/repo', pullRequest: 17 } }]);
+      // This is a valid restricted native Host, not a broken/missing auth binding.
+      // Its legacy ordinary-Host guard still refuses; independent preparation neither
+      // imports that authority nor revokes the original Conductor grant.
+      expect(await getPersonalPiSession(host, ref)).toEqual({ generation: 1, groups: ['Engineering'] });
+      expect(plan.authFailure).toBeUndefined();
+      expect(f.requests).toEqual([]);
+      expect(f.egressRequests).toEqual([]);
+      return;
+    }
+    if (when === 'already-stopped') plan.authFailure = failure;
+    else stopDuringAuthorization = true;
+    await expect(getPersonalPiSession(host, ref)).rejects.toThrow();
+    expect(f.requests).toEqual([]);
+  });
+
+it('REQ-OPERATOR-007/047: interceptor trusted native wire carries the admitted API, not a request override', async () => {
+  const f = fixture();
+  const handlers = new Map<string, Fetcher>();
+  const binding = { ownerKey: 'a'.repeat(64), activityId: 'operator-activity', sessionId: owner.sessionId,
+    generation: 1, selectionDigest: 'b'.repeat(64), profileDigest: 'c'.repeat(64), deadline: Date.now() + 60_000 };
+  // Intentional Worker-entrypoint wire contract. The receiver exposes only its
+  // trusted nonsecret selection so request content cannot supply the API.
+  const host = { ...f.host, logger: { info() {}, warn() {}, error() {} }, _strictEgress: false,
+    _operatorContainerProfile: { activityId: 'operator-activity', operatorId: 'operator',
+      policy: { capabilities: ['inference'] }, piProfile: { source: 'pi-native', provider: 'openai-codex',
+        model: 'gpt-6.1-sol', api: 'openai-codex-responses', thinkingLevel: 'low', authBinding: binding } },
+    ctx: { exports: { LlmInterceptor: ({ props }: { props: { operatorNative: unknown } }) => ({
+      fetch: async () => Response.json(props.operatorNative),
+    }) }, container: { interceptOutboundHttps: (name: string, handler: Fetcher) => { handlers.set(name, handler); } } },
+  } as unknown as InterceptionHost;
+  await wireContainerInterception(host);
+  const handler = handlers.get('chatgpt.com');
+  expect(handler).toBeDefined();
+  const response = await handler!.fetch(new Request('https://chatgpt.com/backend-api/codex/responses', {
+    method: 'POST', body: JSON.stringify({ api: 'openai-responses' }),
+  }));
+  expect(await response.json()).toEqual({ provider: 'openai-codex', model: 'gpt-6.1-sol',
+    api: 'openai-codex-responses', reasoningLevel: 'low', binding });
+  expect(f.requests).toEqual([]);
+});
 
 it('REQ-ENTERPRISE-088 AC5: real registry wiring binds human requests and denies unbound and Operator paths', async () => {
   for (const mode of ['human', 'unbound', 'operator']) {
@@ -491,4 +610,103 @@ it('REQ-ENTERPRISE-090 AC2: credential-free parent RPC wire contract contains on
   const f = fixture();
   expect(await getPersonalPiSession(f.host, { bucket: owner.bucket, sessionId: owner.sessionId, email: owner.user }))
     .toEqual({ generation: 1, groups: ['Engineering'] });
+});
+
+
+// Public session-independent preparation plus historical D1-backed Host guards.
+// Legacy Host RPC coverage below is not evidence of the new SDK profile transport.
+function dispatcherSourcePreparation(f: ReturnType<typeof fixture>, host = f.host) {
+  const previousRegistry = f.env.OPERATOR_REGISTRY;
+  const previousActivities = f.env.OPERATOR_ACTIVITY;
+  const prepared: Array<{ activityId: string; invocation: unknown }> = [];
+  const selection = { controlsRevision: 1,
+    operator: { operatorId: 'renovate-dispatcher', revision: 1, profile: 'dispatcher',
+      invokers: { users: [owner.user], groups: [] }, policy: { capabilities: ['fetch', 'inference'] } },
+    installation: { id: 'source-install', revision: 1, enabled: true, releaseId: 'source-release',
+      configurationJson: '{}', policy: { capabilities: ['fetch', 'inference'], resourceProfileId: null } },
+    release: { id: 'source-release', bundleDigest: 'a'.repeat(64) },
+    manifestJson: JSON.stringify({ id: 'renovate-dispatcher', profile: 'dispatcher', intentVersion: '2' }) };
+  f.env.ENCRYPTION_KEY = btoa('s'.repeat(32));
+  vi.spyOn(access, 'resolveBucketName').mockResolvedValue(owner.bucket);
+  f.env.CONTAINER = { getByName: () => ({
+    // Existing Host API remains available, but preparation must not need it.
+    getPersonalPiSession: getPersonalPiSession.bind(null, host),
+  }) } as unknown as Env['CONTAINER'];
+  f.env.OPERATOR_REGISTRY = { getByName: () => ({ resolveManagementExecution: async (id: string) => id === 'source-install'
+    ? { ok: true, value: selection } : previousRegistry!.getByName('registry').resolveManagementExecution(id) }) } as never;
+  f.env.OPERATOR_ACTIVITY = { getByName: (id: string) => id === 'operator-activity' && previousActivities
+    ? previousActivities.getByName(id) : {
+      prepareAuthorized: async (intent: { activityId: string }, _context: unknown, invocation: string) => {
+        prepared.push({ activityId: intent.activityId, invocation: JSON.parse(invocation) }); return { ok: true };
+      },
+    } } as unknown as NonNullable<Env['OPERATOR_ACTIVITY']>;
+  const sourceSession = { sessionId: owner.sessionId, sessionGeneration: 1 };
+  const prepare = () => prepareOperatorActivity({ installationId: 'source-install',
+    invocation: { repository: 'owner/repo', pullRequest: 17 }, sourceSession },
+  { human: f.human, accessJwt: 'synthetic-sealed-assertion' }, f.env);
+  return { prepare, prepared, sourceSession };
+}
+
+it.each(['running', 'starting'] as const)(
+  'REQ-OPERATOR-058/047: AC1 %s legacy Host remains readable while independent Dispatcher preparation preserves child input without a Pi process', async status => {
+    const f = fixture();
+    f.setSession({ status });
+    const source = dispatcherSourcePreparation(f);
+    expect(await getPersonalPiSession(f.host, { bucket: owner.bucket, sessionId: owner.sessionId, email: owner.user }, true))
+      .toEqual({ generation: 1, groups: ['Engineering'] });
+    const result = await source.prepare();
+    source.sourceSession.sessionGeneration = 99;
+    expect(source.prepared).toEqual([{ activityId: result.activityId,
+      invocation: { repository: 'owner/repo', pullRequest: 17 } }]);
+    expect(f.requests).toEqual([]);
+    expect(f.egressRequests).toEqual([]);
+  });
+
+it.each(['foreign-owner', 'foreign-session', 'foreign-bucket', 'missing', 'stopped', 'stopping', 'unreachable',
+  'termination', 'generation', 'memory-shutdown', 'durable-shutdown', 'restricted', 'unavailable'] as const)(
+  'REQ-OPERATOR-058/047: AC1 legacy ordinary Host refuses %s without gating session-independent Dispatcher preparation', async fault => {
+    const f = fixture();
+    const source = dispatcherSourcePreparation(f);
+    if (fault === 'foreign-owner') f.host._userEmail = 'another@example.test';
+    if (fault === 'foreign-session') source.sourceSession.sessionId = 'foreignsession1';
+    if (fault === 'foreign-bucket') f.host._bucketName = 'another-tenant';
+    if (fault === 'missing') f.setSession(null);
+    if (fault === 'stopped' || fault === 'stopping' || fault === 'unreachable') f.setSession({ status: fault });
+    if (fault === 'termination') f.setSession({ terminationIntentId: 'stop-intent' });
+    if (fault === 'generation') f.setSession({ lifecycleGeneration: 2 });
+    if (fault === 'memory-shutdown') f.host._shutdownStartedAt = Date.now();
+    if (fault === 'durable-shutdown') f.records.set('shutdownRequested', Date.now());
+    if (fault === 'restricted') f.host._operatorPolicy = { schemaVersion: 1, networkHosts: [],
+      github: { repositories: [], methods: [] }, storage: { readPrefixes: [], writePrefixes: [] },
+      inference: { routeIds: [], defaultRouteId: null, reasoningLevels: [], defaultReasoningLevel: null, inheritUserDefaults: false } };
+    if (fault === 'unavailable') f.env.USAGE_DB = { prepare: () => { throw Error('Session catalog unavailable'); } } as unknown as D1Database;
+    await expect(getPersonalPiSession(f.host, { bucket: owner.bucket, sessionId: source.sourceSession.sessionId, email: owner.user }, true))
+      .rejects.toThrow();
+    const result = await source.prepare();
+    expect(source.prepared).toEqual([{ activityId: result.activityId,
+      invocation: { repository: 'owner/repo', pullRequest: 17 } }]);
+    expect(f.requests).toEqual([]);
+    expect(f.egressRequests).toEqual([]);
+  });
+
+it.each([0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1])(
+  'REQ-OPERATOR-058/047: AC1 invalid source generation %s refuses before Activity preparation', async generation => {
+    const f = fixture();
+    const source = dispatcherSourcePreparation(f);
+    source.sourceSession.sessionGeneration = generation;
+    await expect(source.prepare()).rejects.toMatchObject({ statusCode: 400 });
+    expect(source.prepared).toEqual([]);
+  });
+
+it('REQ-OPERATOR-058/047: AC1 caller source generation cannot bind or broaden independent Dispatcher preparation', async () => {
+  const f = fixture();
+  const source = dispatcherSourcePreparation(f);
+  source.sourceSession.sessionGeneration = 2;
+  expect(await getPersonalPiSession(f.host, { bucket: owner.bucket, sessionId: owner.sessionId, email: owner.user }, true))
+    .toEqual({ generation: 1, groups: ['Engineering'] });
+  const result = await source.prepare();
+  expect(source.prepared).toEqual([{ activityId: result.activityId,
+    invocation: { repository: 'owner/repo', pullRequest: 17 } }]);
+  expect(f.requests).toEqual([]);
+  expect(f.egressRequests).toEqual([]);
 });

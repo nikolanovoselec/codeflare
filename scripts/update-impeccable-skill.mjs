@@ -7,7 +7,21 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const BUNDLE_URL = 'https://impeccable.style/api/download/bundle/universal';
+const REVIEWED_IMPECCABLE_BUNDLES = Object.freeze({
+  '4.6.0': { sha256: 'c537beca343b69f8da98ee1c1ad9534b9c7c3883225b060ad36a4466075d73d1', commit: '8a0e198da34ebc5b936a9d5975fb7a3b1cf353b7' },
+  '4.7.0': { sha256: '358c8b6bbc2113e9910bf4adbdba4523612453ec58d56a5c1b14654416a13fe3', commit: 'aeeb3d8c30b5f95aeeb3e893b0f1a308af8fdb8f' },
+  '4.8.0': { sha256: '82e6f6ff3a2b18f46f0f2fc388c1ab7abf3ccc52bbfc522456396d13011d6706', commit: '414603bf14c7a344edb466bb1f85690c77ce8b7d',
+    url: 'https://github.com/pbakaus/impeccable/releases/download/skill-v4.8.0/universal.zip' },
+});
+
+export function verifyReviewedImpeccableBundle(bundle, version) {
+  if (!Object.hasOwn(REVIEWED_IMPECCABLE_BUNDLES, version)) throw new Error(`Impeccable ${version} bundle is not reviewed`);
+  const reviewed = REVIEWED_IMPECCABLE_BUNDLES[version];
+  if (createHash('sha256').update(bundle).digest('hex') !== reviewed.sha256) {
+    throw new Error(`Impeccable ${version} bundle differs from the reviewed release`);
+  }
+}
+
 const repoRoot = dirname(fileURLToPath(new URL('../package.json', import.meta.url)));
 const CODEFLARE_IMPECCABLE_DESCRIPTION = 'Critique, audit, harden, adapt, animate, or apply bounded polish to an existing interface whose direction remains intact. Use for accessibility, responsive behavior, performance, UX copy, interaction detail, visual finishing, and explicit impeccable commands. For greenfield creation or any change to the visual thesis, the applicable platform design owner controls art direction; use Impeccable afterward for critique or finishing. Not for backend-only or non-UI tasks.';
 const CODEFLARE_IMPECCABLE_BOUNDARY = `## Codeflare routing boundary
@@ -74,7 +88,7 @@ export function applyCodeflareImpeccableOverlay(source, { allowAlreadyApplied = 
     const file = join(source, relativePath);
     let text = readFileSync(file, 'utf8');
     for (const [search, replacement] of replacements) {
-      const anchor = skillVersion === '4.7.0' && relativePath === 'SKILL.md'
+      const anchor = ['4.7.0', '4.8.0'].includes(skillVersion) && relativePath === 'SKILL.md'
         ? 'This skill gives you the tools and permission to make design that earns the name out-of-distribution craft. Work as an award-winning design director would: production-grade code, a clear POV, a deep grasp of what the client and its users need, and exceptional craft.\n\n'
         : search;
       text = replaceOverlayAnchor(text, anchor, replacement, relativePath, allowAlreadyApplied);
@@ -107,14 +121,21 @@ export function applyCodeflareImpeccableOverlay(source, { allowAlreadyApplied = 
   for (const [file, text] of transformed) writeFileSync(file, text);
 }
 
-export async function updateImpeccableSkill() {
+export async function updateImpeccableSkill(expectedVersion = process.env.LAT) {
+  if (!Object.hasOwn(REVIEWED_IMPECCABLE_BUNDLES, expectedVersion)) {
+    throw new Error(`Impeccable ${expectedVersion ?? 'missing version'} bundle is not reviewed`);
+  }
+  const reviewedCandidate = REVIEWED_IMPECCABLE_BUNDLES[expectedVersion];
   const tempRoot = mkdtempSync(join(tmpdir(), 'impeccable-skill-'));
   const bundlePath = join(tempRoot, 'bundle.zip');
   const outDir = join(tempRoot, 'out');
   try {
-    const response = await fetch(BUNDLE_URL, { headers: { 'user-agent': 'codeflare-shadow-pin-bot' } });
+    const url = reviewedCandidate.url ?? `https://github.com/pbakaus/impeccable/releases/download/skill-v${expectedVersion}/universal.zip`;
+    const response = await fetch(url, { headers: { 'user-agent': 'codeflare-shadow-pin-bot' } });
     if (!response.ok) throw new Error(`download failed: ${response.status} ${response.statusText}`);
     const bundle = Buffer.from(await response.arrayBuffer());
+    // Establish reviewed immutable bytes before writing or extracting the ZIP.
+    verifyReviewedImpeccableBundle(bundle, expectedVersion);
     writeFileSync(bundlePath, bundle);
     execFileSync('unzip', ['-q', bundlePath, '-d', outDir]);
 
@@ -122,16 +143,12 @@ export async function updateImpeccableSkill() {
     const sourceSkill = join(source, 'SKILL.md');
     const version = readFileSync(sourceSkill, 'utf8').match(/^version:\s*(.+)$/m)?.[1];
     if (!version) throw new Error('downloaded Impeccable skill has no version frontmatter');
-    const reviewedBundle = {
-      '4.6.0': { sha256: 'c537beca343b69f8da98ee1c1ad9534b9c7c3883225b060ad36a4466075d73d1', commit: '8a0e198da34ebc5b936a9d5975fb7a3b1cf353b7' },
-      '4.7.0': { sha256: '358c8b6bbc2113e9910bf4adbdba4523612453ec58d56a5c1b14654416a13fe3', commit: 'aeeb3d8c30b5f95aeeb3e893b0f1a308af8fdb8f' },
-    }[version];
+    if (version !== expectedVersion) throw new Error(`Impeccable bundle version ${version} != expected ${expectedVersion}`);
+    const reviewedBundle = REVIEWED_IMPECCABLE_BUNDLES[version];
     if (reviewedBundle) {
       // The released ZIP omits the source's redistribution license/notices.
       // Verify reviewed immutable bytes before copying either agent's target.
-      if (createHash('sha256').update(bundle).digest('hex') !== reviewedBundle.sha256) {
-        throw new Error(`Impeccable ${version} bundle differs from the reviewed release`);
-      }
+      verifyReviewedImpeccableBundle(bundle, version);
       for (const [name, digest] of [
         ['LICENSE', '02bb8c3b4e70190e3986c0404ad2fd8d639b4f534252d82379cc1b502b6d1812'],
         ['NOTICE.md', 'c60a093c2845fd9fb82f9c6f742ece31f379f8190b535309d32d66c45ccffdcb'],
@@ -244,5 +261,5 @@ function* walkFiles(dir) {
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  await updateImpeccableSkill();
+  await updateImpeccableSkill(process.argv[2]);
 }

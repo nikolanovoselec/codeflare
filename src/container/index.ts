@@ -27,13 +27,18 @@
  * pre-start).
  */
 import { Container } from '@cloudflare/containers';
+import { captureRawValue } from '../../host/src/operator-raw-logging';
+import { DispatcherSdkStorageError, handleDispatcherSdkCredentials, type DispatcherSdkCredentialResult, type SdkStorageScope, type SdkCredentialAuthority } from '../operators/dispatcher-sdk-storage';
 import type { Env, ManagedResourcePolicy, SessionWorkspace, TabConfig, TerminalMode } from '../types';
+import type { PiDefaultSource } from '../lib/personal-pi-policy';
+import type { OperatorLoggingContext } from '../lib/container-helpers';
 import { getR2Config } from '../lib/r2-config';
 import { D1SessionRepository } from '../lib/session-repository';
 import { toErrorMessage } from '../lib/error-types';
 import { createLogger } from '../lib/logger';
 import { hasStrictGatewayEgress } from '../lib/controller-egress';
 import { getPersonalPiSession, wireContainerInterception, type InterceptionHost } from './container-interception';
+import { ownedBrowser, type BrowserOwnerReference, type BrowserOperation } from './container-browser';
 import type { OperatorPolicy } from '../operators/policy';
 import { parseOperatorPackageResourceProjection, verifyOperatorPackageResourceProjection,
   type OperatorPackageResourceProjection } from '../operators/package-resources';
@@ -55,6 +60,7 @@ import {
   setBucketName as configSetBucketName,
   getBucketName as configGetBucketName,
   updateEnvVars as configUpdateEnvVars,
+  refreshMcpPortalConfiguration,
   ensureVaultKey as configEnsureVaultKey,
   type ContainerHost,
 } from './container-config';
@@ -70,6 +76,7 @@ import {
   collectMetrics as lifecycleCollectMetrics,
   destroy as lifecycleDestroy,
   stopSession as lifecycleStopSession,
+  killSession as lifecycleKillSession,
   type SessionStopRequest,
   onStop as lifecycleOnStop,
   onError as lifecycleOnError,
@@ -104,9 +111,11 @@ const sameScanPin = (a: RenovateScanPin | undefined, b: RenovateScanPin | undefi
 type ExitEvidence = { owner: string; session: string; generation: number };
 
 export class container extends Container<Env> implements ContainerEnvState {
+  #sdkCredentialQueues = new Map<string, Promise<void>>();
   logger = createLogger('container');
   private renovateScheduling: Promise<void> = Promise.resolve();
   private sessionStopInFlight?: SessionStopRequest & { completion: Promise<void> };
+  private sessionKillInFlight?: SessionStopRequest & { completion: Promise<void> };
 
   private async ensureRenovateSchedule(pin: RenovateScanPin, activate = false, rearm = false): Promise<boolean> {
     const previous = this.renovateScheduling;
@@ -155,11 +164,11 @@ export class container extends Container<Env> implements ContainerEnvState {
   // none of our timeouts having fired.
   override sleepAfter = '24h';
 
-  // User-configured idle timeout (15m/30m/1h/2h/4h; legacy 5m tolerated). Enforced by collectMetrics,
+  // User-configured idle timeout (1h/2h/4h/8h/12h; legacy minute values tolerated). Enforced by collectMetrics,
   // NOT by the SDK. Stored in DO storage under the 'sleepAfter' key for
   // backwards compat with existing sessions created before this refactor.
   //
-  // Default is the MAX supported value (4h), not the min. Rationale: this
+  // Default is the MAX supported value (12h), not the min. Rationale: this
   // class field is the fallback that wins when (a) the DO is freshly
   // constructed and storage hasn't been populated yet, or (b) a code path
   // skipped the setBucketName flow that writes the user pref. In either
@@ -168,11 +177,12 @@ export class container extends Container<Env> implements ContainerEnvState {
   // live longer than expected, which is a strictly safer failure mode. The
   // collectMetrics tick re-reads storage as the authoritative source on
   // every fire (60s cadence) so any drift is corrected within one tick.
-  idleTimeoutPref: string = '4h';
+  idleTimeoutPref: string = '12h';
 
   // Environment variables - set via property assignment in updateEnvVars()
   // These satisfy the ContainerEnvState interface, so they are not `private`.
   _bucketName: string | null = null;
+  _mcpPortals: Array<{ name: string; url: string }> = [];
   _r2AccountId: string | null = null;
   _r2Endpoint: string | null = null;
   /** REQ-ENTERPRISE-016: strict Gateway egress active (enterprise + KV toggle); resolved once in the constructor. */
@@ -230,6 +240,7 @@ export class container extends Container<Env> implements ContainerEnvState {
    */
   _routeCatalog: string[] = [];
   _allowPersonalPiProviders = false;
+  _piDefaultSource: PiDefaultSource = 'managed';
   _defaultRoute: string | null = null;
   _defaultReasoning: string | null = null;
   _routeContextWindows: Record<string, number> = {};
@@ -261,6 +272,7 @@ export class container extends Container<Env> implements ContainerEnvState {
    * Public so container-lifecycle.ts can read/write it via LifecycleHost.
    */
   _shutdownStartedAt = 0;
+  _teardownEpoch = 0;
   /** Monotonic usage counter (seconds) - sent to Timekeeper for delta computation */
   _usageSeconds = 0;
   containerStartedAt = 0;
@@ -407,6 +419,7 @@ export class container extends Container<Env> implements ContainerEnvState {
       // re-emits the entrypoint env (matches the userGroups / userEmail pattern).
       this._routeCatalog = await this.ctx.storage.get<string[]>('routeCatalog') || [];
       this._allowPersonalPiProviders = await this.ctx.storage.get<boolean>('allowPersonalPiProviders') === true;
+      this._piDefaultSource = await this.ctx.storage.get<string>('piDefaultSource') === 'pi-native' ? 'pi-native' : 'managed';
       this._defaultRoute = await this.ctx.storage.get<string>('defaultRoute') || null;
       this._defaultReasoning = await this.ctx.storage.get<string>('defaultReasoning') || null;
       this._routeContextWindows = await this.ctx.storage.get<Record<string, number>>('routeContextWindows') || {};
@@ -434,7 +447,7 @@ export class container extends Container<Env> implements ContainerEnvState {
       // Restore user-configured idle timeout (survives DO resets).
       // Storage key remains 'sleepAfter' for backwards compat with existing sessions.
       const storedIdleTimeout = await this.ctx.storage.get<string>('sleepAfter');
-      if (storedIdleTimeout && /^(5m|15m|30m|1h|2h|4h)$/.test(storedIdleTimeout)) {
+      if (storedIdleTimeout && /^(5m|15m|30m|1h|2h|4h|8h|12h)$/.test(storedIdleTimeout)) {
         this.idleTimeoutPref = storedIdleTimeout;
       }
 
@@ -449,9 +462,10 @@ export class container extends Container<Env> implements ContainerEnvState {
         });
       }
 
-      // Resolve the strict Gateway egress toggle once (REQ-ENTERPRISE-016 AC3) so buildEnvVars
-      // emits placeholder R2 creds and the interception registry wires the catch-all — both
-      // without a per-request KV read. hasStrictGatewayEgress fails closed (false) on error.
+      // Resolve strict Gateway egress once (REQ-ENTERPRISE-016 AC4) so buildEnvVars emits
+      // placeholder R2 creds and the interception registry wires the catch-all without
+      // a per-request KV read. Enterprise unreadable/invalid policy resolves true, keeping
+      // strict transport and raw-network denial even if Browser owner-reference lookup fails.
       this._strictEgress = await hasStrictGatewayEgress(this.env);
       // REQ-ENTERPRISE-016: when strict Gateway egress is active, also deny the container
       // raw (non-HTTP) egress at the platform. enableInternet=false leaves only ports
@@ -477,6 +491,7 @@ export class container extends Container<Env> implements ContainerEnvState {
 
       if (this._bucketName) {
         this.logger.info('Loaded bucket name from storage', { bucketName: this._bucketName });
+        await refreshMcpPortalConfiguration(this.host);
         this.updateEnvVars();
       }
       try {
@@ -622,7 +637,8 @@ export class container extends Container<Env> implements ContainerEnvState {
           let prepared;
           try {
             prepared = await prepareOperatorActivity({ installationId: pin.installationId,
-              invocation: { repository: winner.repository } },
+              invocation: { repository: winner.repository },
+              sourceSession: { sessionId: proof.actor.sessionId, sessionGeneration: proof.actor.sessionGeneration } },
             { human: winner.human, accessJwt: winner.accessJwt }, this.env,
             { activityId: reserved.activityId, expectedManagement: { controlsRevision: winner.controlsRevision,
               installationRevision: winner.installationRevision, operatorRevision: winner.operatorRevision,
@@ -681,6 +697,47 @@ export class container extends Container<Env> implements ContainerEnvState {
     });
   }
 
+  /** Owner metadata only: request-owned Root authority; never starts a container. */
+  async dispatcherSdkCredentials(scope: SdkStorageScope, body: unknown,
+    authority: SdkCredentialAuthority): Promise<DispatcherSdkCredentialResult> {
+    try {
+      if (!scope || typeof scope.bucket !== 'string' || !/^[a-z0-9][a-z0-9.-]{1,62}$/.test(scope.bucket)
+        || typeof scope.email !== 'string' || !scope.email || scope.email !== scope.email.trim().toLowerCase()
+        || !this.ctx.id.equals(this.env.CONTAINER.idFromName(`bucket-owner:${scope.bucket}`))
+        || await this.ctx.storage.get<string>('bucketOwnerEmail') !== scope.email) {
+        throw new DispatcherSdkStorageError(403);
+      }
+      const provider = body && typeof body === 'object' && 'providerId' in body ? String(body.providerId) : '';
+      const prior = this.#sdkCredentialQueues.get(provider) ?? Promise.resolve();
+      let release!: () => void;
+      const pending = new Promise<void>(resolve => { release = resolve; });
+      this.#sdkCredentialQueues.set(provider, pending);
+      let modification: Promise<unknown> = Promise.resolve();
+      try {
+        await prior;
+        return { ok: true, value: await handleDispatcherSdkCredentials(this.ctx.storage, this.env, scope, body, authority,
+          pending => { modification = pending; }) };
+      } finally {
+        // getAuth may return on abort while SDK's 15s refresh still runs.
+        // Keep serialization until it settles, without retaining write authority.
+        this.ctx.waitUntil(modification.catch(() => undefined).then(() => {
+          release();
+          if (this.#sdkCredentialQueues.get(provider) === pending) this.#sdkCredentialQueues.delete(provider);
+        }));
+      }
+    } catch (error) {
+      if (!(error instanceof DispatcherSdkStorageError)) throw error;
+      // Custom exception properties do not survive RPC propagation. Keep the
+      // intentional status and existing private error detail in plain data.
+      const status = error.status === 409 || error.status === 413 ? error.status : 403;
+      const captured = captureRawValue(error);
+      // RPC requires ordinary objects, not the safe snapshot's null-prototype dictionaries.
+      const cause = captured && typeof captured === 'object' && Object.hasOwn(captured, 'cause')
+        ? { cause: JSON.parse(JSON.stringify((captured as Record<string, unknown>).cause)) } : {};
+      return { ok: false, status, message: error.message, stack: error.stack, ...cause };
+    }
+  }
+
   /** Update envVars with current bucket name and credentials. */
   private updateEnvVars(): void {
     configUpdateEnvVars(this.host);
@@ -703,7 +760,7 @@ export class container extends Container<Env> implements ContainerEnvState {
   }
 
   /** Low-level port forwarding cannot start a replacement or trust stale SDK state. */
-  async forwardExisting(request: Request): Promise<Response> {
+  async forwardExisting(request: Request, loggingContext?: OperatorLoggingContext): Promise<Response> {
     const token = await this.ctx.storage.get<string>('containerAuthToken');
     if (!this.ctx.container || !token) return new Response('Existing container unavailable', { status: 503 });
     try {
@@ -714,6 +771,19 @@ export class container extends Container<Env> implements ContainerEnvState {
       privateUrl.pathname = url.pathname;
       privateUrl.search = url.search;
       const forwarded = new Request(privateUrl, request);
+      forwarded.headers.delete('x-codeflare-operator-logging');
+      if (loggingContext && typeof loggingContext === 'object'
+        && Object.keys(loggingContext).length === 3
+        && Object.keys(loggingContext).every(key => ['activityId', 'generation', 'loggingEnabled'].includes(key))
+        && typeof loggingContext.activityId === 'string' && /^[A-Za-z0-9_-]{1,128}$/.test(loggingContext.activityId)
+        && Number.isSafeInteger(loggingContext.generation) && loggingContext.generation > 0
+        && typeof loggingContext.loggingEnabled === 'boolean' && request.method === 'POST'
+        && (url.pathname === '/operator-inference' || url.pathname === '/operator-inference/profile')
+        && !url.search && !url.hash
+        && request.headers.get('x-codeflare-operator-activity') === loggingContext.activityId
+        && request.headers.get('x-codeflare-operator-generation') === String(loggingContext.generation)) {
+        forwarded.headers.set('x-codeflare-operator-logging', loggingContext.loggingEnabled ? 'on' : 'off');
+      }
       forwarded.headers.set('Authorization', `Bearer ${token}`);
       // `running` can itself transiently read false after DO reconstruction.
       // Only an answer from the existing private port proves it survived.
@@ -734,6 +804,12 @@ export class container extends Container<Env> implements ContainerEnvState {
 
   /** Override fetch to handle internal routes via typed dispatch (CF-016). */
   override async fetch(request: Request): Promise<Response> {
+    // Ordinary ingress cannot manufacture the separate admitted RPC context.
+    if (request.headers.has('x-codeflare-operator-logging')) {
+      const headers = new Headers(request.headers);
+      headers.delete('x-codeflare-operator-logging');
+      request = new Request(request, { headers });
+    }
     // WebSocket responses cannot cross the DO RPC serialization boundary.
     // Stub.fetch has native WebSocket response transport; keep terminal and IDE
     // sockets on the same no-start private-port forwarding used for health probes.
@@ -826,6 +902,8 @@ export class container extends Container<Env> implements ContainerEnvState {
   override async startAndWaitForPorts(
     ...args: Parameters<Container<Env>['startAndWaitForPorts']>
   ): Promise<void> {
+    await refreshMcpPortalConfiguration(this.host);
+    this.updateEnvVars();
     await wireContainerInterception(this.interceptionHost);
     await super.startAndWaitForPorts(...args);
   }
@@ -860,6 +938,10 @@ export class container extends Container<Env> implements ContainerEnvState {
    * full rationale.
    */
   override async destroy(): Promise<void> {
+    if (this.sessionKillInFlight) {
+      await this.sessionKillInFlight.completion;
+      return;
+    }
     await lifecycleDestroy(this.lifecycleHost);
   }
 
@@ -876,14 +958,46 @@ export class container extends Container<Env> implements ContainerEnvState {
       await pending.completion;
       return;
     }
-    // Defer I/O until the whole operation has been registered, not only its
-    // teardown. Cleanup belongs to that protected promise too, so failure can retry.
+    // Capture authority before ownership I/O: even a delayed old D1 reply
+    // cannot authorize teardown after KILL or a replacement start supersedes it.
+    const epoch = this._teardownEpoch;
+    // Register the entire operation before any I/O, including its claim.
     const completion: Promise<void> = Promise.resolve().then(() =>
-      lifecycleStopSession(this.env, input, () => this.destroy())
+      lifecycleStopSession(this.env, input, () => {
+        if (this._teardownEpoch !== epoch) throw new Error('Session stop superseded');
+        return this.destroy();
+      })
     ).finally(() => {
       if (this.sessionStopInFlight?.completion === completion) this.sessionStopInFlight = undefined;
     });
     this.sessionStopInFlight = { ...input, completion };
+    this.ctx.waitUntil(completion);
+    await completion;
+  }
+
+  /** A caller-independent force lane, separate from any blocked graceful Stop. */
+  async killSession(input: SessionStopRequest): Promise<void> {
+    if (this.env.CONTAINER.idFromName(`${input.bucket}-${input.sessionId}`).toString() !== this.ctx.id.toString()) {
+      throw new Error('Session KILL address mismatch');
+    }
+    const pending = this.sessionKillInFlight;
+    if (pending) {
+      if (pending.bucket !== input.bucket || pending.sessionId !== input.sessionId || pending.generation !== input.generation) {
+        throw new Error('Another session KILL generation is in progress');
+      }
+      await pending.completion;
+      return;
+    }
+    const completion: Promise<void> = Promise.resolve().then(() => lifecycleKillSession(this.lifecycleHost, input))
+      .then(() => {
+        const stop = this.sessionStopInFlight;
+        if (stop?.bucket === input.bucket && stop.sessionId === input.sessionId && stop.generation === input.generation) {
+          this.sessionStopInFlight = undefined;
+        }
+      }).finally(() => {
+        if (this.sessionKillInFlight?.completion === completion) this.sessionKillInFlight = undefined;
+      });
+    this.sessionKillInFlight = { ...input, completion };
     this.ctx.waitUntil(completion);
     await completion;
   }
@@ -896,10 +1010,16 @@ export class container extends Container<Env> implements ContainerEnvState {
     await bindReviewSessionHuman(this as unknown as Parameters<typeof bindReviewSessionHuman>[0], input, expected);
   }
 
-  async getPersonalPiSession(ref: { bucket: string; sessionId: string; email: string }): Promise<{
+  _browserAcquisition?: Promise<string>;
+
+  async getOwnedBrowser(ref: BrowserOwnerReference, operation: BrowserOperation): Promise<string> {
+    return ownedBrowser(this.interceptionHost, ref, operation);
+  }
+
+  async getPersonalPiSession(ref: { bucket: string; sessionId: string; email: string }, ordinaryOnly = false): Promise<{
     generation: number; groups: string[];
   }> {
-    return await getPersonalPiSession(this.interceptionHost, ref);
+    return await getPersonalPiSession(this.interceptionHost, ref, ordinaryOnly);
   }
 
   async openReviewHuman(ref: { bucket: string; sessionId: string; email: string }): Promise<{

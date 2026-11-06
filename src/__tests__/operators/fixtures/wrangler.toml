@@ -49,6 +49,15 @@ class_name = "RecoveryServices"
 tag = "fixture-v3"
 new_sqlite_classes = ["OperatorActivity", "RecoveryServices"]
 
+# Owner/send RPC recipient and control barriers only; no application/SDK startup.
+[[durable_objects.bindings]]
+name = "OWNER_RPC"
+class_name = "FixtureOwnerRpc"
+
+[[migrations]]
+tag = "fixture-v4"
+new_sqlite_classes = ["FixtureOwnerRpc"]
+
 [[kv_namespaces]]
 binding = "KV"
 id = "00000000000000000000000000000000"

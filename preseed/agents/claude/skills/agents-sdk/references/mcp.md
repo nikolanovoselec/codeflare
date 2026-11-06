@@ -8,6 +8,10 @@ For standalone Lifecycle hosts, install MCPClientManager as a lifecycle capabili
 
 With SDK v1.31+, preserve stored OAuth tokens/client information's `issuer` and configure the trusted expected issuer for credential providers. SDK v1.32+ HTTP/SSE clients restrict redirects to the same origin (with a same-host default-port HTTP-to-HTTPS exception); configure the final trusted endpoint rather than globally following redirects. These notes do not require converting an existing stdio server to HTTP/OAuth or SDK v2.
 
+## Agents 0.31 peer and import migration
+
+The [0.31.0 upgrade guide](https://github.com/cloudflare/agents/blob/agents%400.31.0/docs/agents/mcp-servers.md#upgrading-an-existing-mcpagent-server) makes MCP packages optional peers. Install the exact peers required by the selected entry point: `agents/mcp` and `agents/x402` require SDK `1.32.1` plus server `2.3.1`; `agents/mcp/server` requires server `2.3.1`; `agents/experimental/webmcp` requires SDK `1.32.1`. Import client-only helpers such as `RPCClientTransport` from `agents/mcp/client`. A root SDK `1.32.2` pin conflicts with 0.31.0's exact peer, even though it is a patch release; do not force the install. These changes do not authorize changing portal transport, credential ownership or issuer checks.
+
 ## Add an MCP Server
 
 ```typescript

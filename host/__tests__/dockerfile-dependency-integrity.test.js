@@ -126,7 +126,7 @@ describe('REQ-OPS-033: build dependencies have committed integrity', () => {
   });
 
   it('image-owned Oxlint has an exact pin and complete committed integrity tree', () => {
-    assert.equal(oxlintPackage.dependencies.oxlint, '1.87.0');
+    assert.equal(oxlintPackage.dependencies.oxlint, '1.90.0');
     assert.deepEqual(oxlintLock.packages[''].dependencies, oxlintPackage.dependencies);
     assertCompleteIntegrityTree(oxlintLock);
   });
@@ -178,7 +178,7 @@ describe('REQ-OPS-033: build dependencies have committed integrity', () => {
       npmToolsPackage.dependencies['@earendil-works/pi-coding-agent'],
     );
     assert.deepEqual(browserRunLock.packages[''].dependencies, browserRunPackage.dependencies);
-    assert.equal(browserRunPackage.overrides['@hono/node-server'], '2.0.12');
+    assert.equal(browserRunPackage.overrides['@hono/node-server'], '2.1.5');
     assert.deepEqual(wranglerLock.packages[''].dependencies, wranglerPackage.dependencies);
     assertCompleteIntegrityTree(piLock);
     assertCompleteIntegrityTree(browserRunLock);
@@ -245,7 +245,7 @@ describe('REQ-OPS-033: build dependencies have committed integrity', () => {
         versions.every((version) => version.startsWith('10.') && atLeast(version, '10.5.1')),
         `ip-address versions ${versions.join(', ')} must all be patched for NAT64 local-use classification`,
       );
-      assert.equal(manifest.overrides['ip-address'], '10.7.3',
+      assert.equal(manifest.overrides['ip-address'], '10.7.5',
         'the reviewed runtime version pin must survive lock regeneration');
       assert.ok(versions.every(version => version === manifest.overrides['ip-address']),
         'committed runtime packages must agree with the regeneration override');

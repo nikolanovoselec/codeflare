@@ -31,6 +31,35 @@ function fixture(stored?: OperatorContainerProfile) {
 }
 
 describe('operator container context', () => {
+  const nativeProfile = (): OperatorContainerProfile => ({ ...profile,
+    policy: { ...policy, inference: { ...policy.inference, allowedSources: ['pi-native'] } },
+    piProfile: { ...profile.piProfile, source: 'pi-native', provider: 'openai-codex', model: 'gpt-6.1-sol',
+      api: 'openai-codex-responses', authBinding: { ownerKey: 'a'.repeat(64), activityId: profile.activityId,
+        sessionId: profile.sessionId, generation: 1, selectionDigest: 'c'.repeat(64),
+        profileDigest: 'd'.repeat(64), deadline: profile.deadline } } });
+
+  it('REQ-OPERATOR-007/047: persists and restores the admitted native API identity', async () => {
+    const admitted = nativeProfile();
+    const f = fixture();
+    await configureOperatorContext(f.host, admitted, authority);
+    const restored = fixture(f.values.get('operatorContainerProfile') as OperatorContainerProfile);
+    await restoreOperatorContext(restored.host);
+    expect(restored.host._operatorContainerProfile?.piProfile.api).toBe('openai-codex-responses');
+    expect(restored.host._jwtAuthority).toBeUndefined();
+  });
+
+  it.each([undefined, '', ' ', 'openai/responses', 42])(
+    'REQ-OPERATOR-007/047: invalid native API %s cannot enable or persist a container', async api => {
+      const admitted = nativeProfile();
+      const piProfile = { ...admitted.piProfile, api };
+      if (api === undefined) delete piProfile.api;
+      const f = fixture();
+      await expect(configureOperatorContext(f.host, { ...admitted, piProfile }, authority)).rejects.toThrow();
+      expect(f.values.size).toBe(0);
+      expect(f.host._operatorContainerProfile).toBeUndefined();
+      expect(f.order).toEqual([]);
+    });
+
   it('persists the validated owner/activity/profile before enabling restricted startup', async () => {
     const f = fixture();
     await configureOperatorContext(f.host, profile, authority);

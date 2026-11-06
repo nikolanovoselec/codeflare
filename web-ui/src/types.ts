@@ -32,11 +32,14 @@ export type ConfigurationSection =
   | 'cloudflareConnection'
   | 'usageReports';
 
+// Environment also includes settings with their own existing Save owner.
+export type EnvironmentSection = ConfigurationSection | 'mcpPortals';
+
 export interface AdminConfigurationResponse {
   mode: AdministrationMode;
   revision: number;
-  applicableSections: ConfigurationSection[];
-  sections: Partial<Record<ConfigurationSection, unknown>>;
+  applicableSections: EnvironmentSection[];
+  sections: Partial<Record<EnvironmentSection, unknown>>;
   activeRunId: string | null;
   latest: Partial<Record<ConfigurationSection, Record<string, unknown>>>;
 }
@@ -159,6 +162,7 @@ export interface ReasoningRouteVerification {
 export type FallbackRouting = { enabled: false } | {
   enabled: true;
   allowPersonalPiProviders?: boolean;
+  piDefaultSource?: 'managed' | 'pi-native';
   routes: string[];
   defaultRoute: string;
   reasoning: PiReasoningLevel;
@@ -262,7 +266,8 @@ export function resolveTerminalMode(value: unknown): TerminalMode {
   return value === 'herdr' ? 'herdr' : 'classic';
 }
 
-export type SleepAfterOption = '15m' | '30m' | '1h' | '2h' | '4h';
+/** Legacy minute values remain readable but are no longer selectable. */
+export type SleepAfterOption = '15m' | '30m' | '1h' | '2h' | '4h' | '8h' | '12h';
 
 export interface UserPreferences {
   lastAgentType?: AgentType;
@@ -471,6 +476,11 @@ export interface MultiViewWorkspace {
   memberSessionIds: string[];
   focusedSessionId: string | null;
   layout: Exclude<TileLayout, 'tabbed'>;
+}
+
+export interface McpPortal {
+  name: string;
+  url: string;
 }
 
 export type TerminalWorkspaceMode = 'dashboard' | 'single-session' | 'multiview';

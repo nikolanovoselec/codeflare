@@ -76,6 +76,7 @@ function runSuccessfulBisync(home) {
   const claudeDir = join(home, '.claude');
   const recoveryFile = join(home, 'recovery-filters.txt');
   writeFileSync(recoveryFile, '');
+  writeFileSync(join(home, 'rclone.conf'), '');
   const script = [
     'set -euo pipefail',
     `USER_HOME=${JSON.stringify(home)}`,
@@ -84,10 +85,12 @@ function runSuccessfulBisync(home) {
     `RCLONE_CONFIG=${JSON.stringify(join(home, 'rclone.conf'))}`,
     `RECOVERY_FILTER_FILE=${JSON.stringify(recoveryFile)}`,
     'RCLONE_FILTERS=()',
+    `source ${JSON.stringify(resolve(__dirname, '../../scripts/rclone-conflict-cleanup.sh'))}`,
     'pgrep() { return 1; }',
     'cleanup_main_transcripts() { :; }',
     'cleanup_remote_pi_transcript_conflicts() { :; }',
     'rclone() { return 0; }',
+    'timeout() { shift; "$@"; }',
     'find() { if [ "${1:-}" = "/home/user" ]; then return 0; fi; command find "$@"; }',
     extractFunction('repair_hook_exec_bits'),
     extractFunction('record_sync_disk_failure'),

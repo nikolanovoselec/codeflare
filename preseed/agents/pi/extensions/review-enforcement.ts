@@ -77,8 +77,6 @@ type ReviewContext = {
 
 type ReviewPi = ToolActivationPi & {
   on(event: "session_start" | "tool_call" | "tool_execution_start" | "tool_result" | "agent_end" | "agent_settled", handler: (event: any, ctx: ReviewContext) => void | Promise<void>): void;
-  events: { emit(channel: string, payload: unknown): void };
-  appendEntry(customType: string, data: unknown): void;
   sendMessage(
     message: { customType: string; content?: string; details?: Record<string, unknown>; display?: boolean },
     options?: { triggerTurn?: boolean; deliverAs?: "steer" | "followUp" | "nextTurn" },
@@ -92,105 +90,9 @@ type QueryRunner = (
 ) => Promise<{ stdout: string | Buffer }>;
 
 const execFileAsync = promisify(execFile) as unknown as QueryRunner;
-const GOAL_STATE_ENTRY_TYPE = "goal-state";
-const REVIEW_GOAL_PAUSE_ENTRY_TYPE = "pr-boundary-goal-pause";
-const GOAL_CONTROL_CHANNEL = "codeflare:pi-goal:control";
 const MARK_COMPLETE = "Mark review complete";
 const LAUNCH_REVIEW = "Launch review";
 let globalPrunePerformed = false;
-
-type GoalSnapshot = { id: string; status: string };
-type ReviewGoalPause = { head: string; goalId: string };
-type GoalControlResult = { ok: boolean; goalId: string; status: string };
-
-function readableSessionEntries(ctx: ReviewContext): Record<string, any>[] | undefined {
-  try {
-    return ctx.sessionManager.getBranch?.() ?? ctx.sessionManager.getEntries?.() ?? [];
-  } catch {
-    return undefined;
-  }
-}
-
-function sessionEntries(ctx: ReviewContext): Record<string, any>[] {
-  return readableSessionEntries(ctx) ?? [];
-}
-
-function currentGoal(ctx: ReviewContext): GoalSnapshot | undefined {
-  const goal = sessionEntries(ctx)
-    .filter((entry) => entry?.type === "custom" && entry.customType === GOAL_STATE_ENTRY_TYPE)
-    .at(-1)?.data?.goal;
-  return goal && typeof goal.id === "string" && typeof goal.status === "string"
-    ? { id: goal.id, status: goal.status }
-    : undefined;
-}
-
-function reviewGoalPause(ctx: ReviewContext): ReviewGoalPause | undefined {
-  const data = sessionEntries(ctx)
-    .filter((entry) => entry?.type === "custom" && entry.customType === REVIEW_GOAL_PAUSE_ENTRY_TYPE)
-    .at(-1)?.data;
-  return data && fullSha(data.head) && typeof data.goalId === "string"
-    ? data as ReviewGoalPause
-    : undefined;
-}
-
-function clearReviewGoalPause(pi: ReviewPi): void {
-  try {
-    pi.appendEntry(REVIEW_GOAL_PAUSE_ENTRY_TYPE, null);
-  } catch {
-    // Goal integration is optional.
-  }
-}
-
-async function requestGoalControl(
-  pi: ReviewPi,
-  action: "pause" | "resume",
-  goalId: string,
-): Promise<GoalControlResult | undefined> {
-  let accepted = false;
-  let resolveResponse: (result: GoalControlResult | undefined) => void = () => {};
-  const response = new Promise<GoalControlResult | undefined>((resolve) => { resolveResponse = resolve; });
-  try {
-    pi.events.emit(GOAL_CONTROL_CHANNEL, {
-      action,
-      goalId,
-      accepted: () => { accepted = true; },
-      respond: (result: GoalControlResult) => {
-        resolveResponse(result && typeof result.ok === "boolean"
-          && typeof result.goalId === "string"
-          && typeof result.status === "string" ? result : undefined);
-      },
-    });
-  } catch {
-    return undefined;
-  }
-  return accepted ? response : undefined;
-}
-
-async function pauseGoalForReview(pi: ReviewPi, ctx: ReviewContext, head: string): Promise<void> {
-  const goal = currentGoal(ctx);
-  if (!goal || goal.status !== "active") return;
-  try {
-    pi.appendEntry(REVIEW_GOAL_PAUSE_ENTRY_TYPE, { head, goalId: goal.id } satisfies ReviewGoalPause);
-  } catch {
-    return;
-  }
-  const result = await requestGoalControl(pi, "pause", goal.id);
-  if (!result?.ok || result.status !== "paused") clearReviewGoalPause(pi);
-}
-
-async function releaseReviewGoalPause(pi: ReviewPi, ctx: ReviewContext, head?: string): Promise<boolean> {
-  const owned = reviewGoalPause(ctx);
-  if (!owned || (head && owned.head !== head)) return true;
-  const goal = currentGoal(ctx);
-  if (!goal || goal.id !== owned.goalId || goal.status !== "paused") {
-    clearReviewGoalPause(pi);
-    return true;
-  }
-  const result = await requestGoalControl(pi, "resume", goal.id);
-  if (!result?.ok || result.status !== "active") return false;
-  clearReviewGoalPause(pi);
-  return true;
-}
 
 function fullSha(value: string | undefined): value is string {
   return Boolean(value && /^[0-9a-f]{40}$/.test(value));
@@ -568,12 +470,10 @@ function sendLaunchRejectionFollowUp(
   }, { deliverAs: "followUp", triggerTurn: true });
 }
 
-async function sendFixFollowUp(
+function sendFixFollowUp(
   pi: ReviewPi,
-  ctx: ReviewContext,
   round: ActiveRound,
-): Promise<void> {
-  await releaseReviewGoalPause(pi, ctx, round.identity.head);
+): void {
   pi.sendMessage({
     customType: "pr-boundary-fix-follow-up",
     content: [
@@ -645,7 +545,6 @@ export type ReviewEnforcementController = {
 export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependencies): ReviewEnforcementController {
   let activeRound: ActiveRound | undefined;
   let dialogIdentity: string | undefined;
-  let pendingGoalPauseHead: string | undefined;
   const mergeBefore = new Map<string, Promise<{
     repo: string;
     branch?: string;
@@ -653,10 +552,8 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
     command: string;
   }>>();
 
-  const clearRound = async (ctx: ReviewContext): Promise<void> => {
-    const head = activeRound?.identity.head;
+  const clearRound = (): void => {
     activeRound = undefined;
-    if (head) await releaseReviewGoalPause(pi, ctx, head);
   };
 
   const evaluate = async (
@@ -748,7 +645,6 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
       ciEvent,
     });
     activeRound = round;
-    if (reviewers.length > 0) pendingGoalPauseHead = round.identity.head;
   };
 
   const recordCloneTargetState = (event: any, ctx: ReviewContext): void => {
@@ -783,10 +679,8 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
   pi.on("tool_execution_start", recordMergeState);
 
   pi.on("session_start", async (_event, ctx) => {
-    await releaseReviewGoalPause(pi, ctx);
     activeRound = undefined;
     dialogIdentity = undefined;
-    pendingGoalPauseHead = undefined;
     if (!globalPrunePerformed) {
       globalPrunePerformed = true;
       pruneCompletionState();
@@ -858,7 +752,7 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
     const laneStates = round.reviewers.map((lane) => facts.lanes[lane].state);
     if (laneStates.includes("in-flight")) return;
     if (laneStates.includes("missing") || (facts.ciRequired && !facts.ciLaunched)) {
-      if (endOfTurn) await clearRound(ctx);
+      if (endOfTurn) clearRound();
       return;
     }
     if (facts.ciRequired && !facts.ciTerminal) return;
@@ -879,7 +773,7 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
     const refreshed = await currentReview(ctx, dependencies, round.repo, undefined, undefined, round.createdPr);
     if (activeRound !== round) return;
     if (!refreshed || !sameIdentity(refreshed.identity, round.identity)) {
-      await clearRound(ctx);
+      clearRound();
       return;
     }
     try {
@@ -889,13 +783,10 @@ export function registerReviewEnforcement(pi: ReviewPi, dependencies: Dependenci
       return;
     }
     activeRound = undefined;
-    await sendFixFollowUp(pi, ctx, round);
+    sendFixFollowUp(pi, round);
   };
 
   pi.on("agent_end", async (_event, ctx) => {
-    const pauseHead = pendingGoalPauseHead;
-    pendingGoalPauseHead = undefined;
-    if (pauseHead) await pauseGoalForReview(pi, ctx, pauseHead);
     await settleRound(ctx, true);
   });
 

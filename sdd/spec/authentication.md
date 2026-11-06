@@ -124,7 +124,7 @@ None. Authentication is foundational; other domains depend on it.
 
 1. The service-token header is checked first, before any other authentication method, regardless of deployment mode. <!-- @impl: src/lib/access.ts::getUserFromRequest --> <!-- @test: src/__tests__/lib/auth-gaps.test.ts (REQ-AUTH-004: Service token authentication (X-Service-Auth)) -->
 2. The header value is compared against the configured service-auth secret using constant-time comparison. <!-- @impl: src/lib/access.ts::getUserFromRequest --> <!-- @test: src/__tests__/lib/service-token-auth.test.ts (Service Token Authentication / REQ-AUTH-004 AC1/AC2/AC3/AC5 (X-Service-Auth header checked first, constant-time compare, admin role, disabled when secret unset)) -->
-3. Successful service-token auth returns an admin user with a preconfigured test identity. <!-- @impl: src/lib/access.ts::getUserFromRequest --> <!-- @test: src/__tests__/lib/auth-gaps.test.ts (REQ-AUTH-004 AC3: successful X-Service-Auth returns admin role and SERVICE_TOKEN_EMAIL) -->
+3. Successful service-token auth returns an active-tier admin user with a preconfigured test identity. <!-- @impl: src/lib/access.ts::getUserFromRequest --> <!-- @test: src/__tests__/lib/auth-gaps.test.ts (REQ-AUTH-004 AC3: successful X-Service-Auth returns admin role and SERVICE_TOKEN_EMAIL) --> <!-- @test: src/__tests__/middleware/service-token-active-user.test.ts (REQ-AUTH-004: service automation reaches active-user APIs) -->
 4. The secret source varies by deployment mode but is unified under a single shared secret name at runtime. <!-- @impl: src/lib/access.ts::getUserFromRequest --> <!-- @test: src/__tests__/lib/access.test.ts (REQ-AUTH-004 AC4: service-auth secret unified under one runtime name across modes) -->
 5. When no service-token secret is configured, service auth is disabled (no fallback). <!-- @impl: src/lib/access.ts::getUserFromRequest --> <!-- @test: src/__tests__/lib/service-token-auth.test.ts (Service Token Authentication / REQ-AUTH-004 AC1/AC2/AC3/AC5 (X-Service-Auth header checked first, constant-time compare, admin role, disabled when secret unset)) -->
 
@@ -639,7 +639,7 @@ None.
 **Constraints:**
 
 - Redirect uses `location.replace`, not `href`, so the dead page is not left in history.
-- API responses declared `text/html` or beginning with an HTML document root are treated as login responses.
+- API responses declared `text/html` or beginning with an HTML document root are treated as login responses, except HTTP 5xx server errors: HTML server errors retain their original status and surface a safe non-HTML error without an auth-redirect flag or navigation. <!-- @impl: web-ui/src/api/fetch-helper.ts::baseFetch --> <!-- @test: web-ui/src/__tests__/api/fetch-helper-401-redirect.test.ts (REQ-AUTH-022 AC5 / REQ-AUTH-014 AC1: server failures on %s) -->
 - Behavior is deployment-mode agnostic (CF Access, SaaS, onboarding); resume revalidation runs only inside the authenticated app shell.
 - Resume checks are deduplicated and event listeners are removed with the app lifecycle.
 - Only fingerprinted build assets are immutable; HTML and missing-asset SPA fallbacks remain revalidating.

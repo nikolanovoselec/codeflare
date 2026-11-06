@@ -290,6 +290,62 @@ describe('REQ-OPERATOR-061: configured Renovate run settings', () => {
     expect(created.status).toBe(201);
     expect(await created.json()).toMatchObject({ configuration, enabled: false });
   }));
+  it('REQ-OPERATOR-007: rejects new Dispatcher reasoning overrides without changing configuration or grants', () => withManagementApi(async (request, ctx) => {
+    const operator = await setup(request);
+    const configuration = { unrelated: { keep: true } };
+    const path = `/operators/${operator.operatorId}`;
+    const created = await request(`${path}/installations`, 'POST', {
+      name: 'native-profile', revision: operator.revision, policy, configuration });
+    expect(created.status).toBe(201);
+    const installation = await created.json() as { id: string; revision: number };
+    const before = await (await request(path)).json();
+    expect((await request(`${path}/installations`, 'POST', {
+      name: 'override', revision: operator.revision, policy, configuration, piReasoningOverride: 'low' })).status).toBe(400);
+    expect((await request(`/installations/${installation.id}/configure`, 'POST', {
+      revision: installation.revision, policy, configuration, piReasoningOverride: 'low' })).status).toBe(400);
+    const registry = new OperatorRegistry(ctx, { ENCRYPTION_KEY: btoa('k'.repeat(32)) });
+    const authority = { operatorRevision: operator.revision, controlsRevision: 1, expiresAt: Date.now() + 60000 };
+    await expect(registry.createManagementInstallation(operator.operatorId, 'rpc-override', policy, authority, '{}', 'low')).rejects.toBeDefined();
+    await expect(registry.configureManagementInstallation(installation.id, {
+      revision: installation.revision, policy, configurationJson: '{}', piReasoningOverride: 'low' }, authority)).rejects.toBeDefined();
+    expect(await (await request(path)).json()).toEqual(before);
+  }));
+
+  it('REQ-OPERATOR-007: persists installation Gateway defaults through configure CAS without changing grants or another installation', () => withManagementApi(async request => {
+    const operator = await setup(request);
+    const configuration = { unrelated: { keep: ['labels', 'nested'] }, renovate: {
+      repository: 'acme/updates', automaticRuns: false, repetitionIntervalSeconds: 900 } };
+    const initialPolicy = { ...policy, inference: { allowedSources: ['managed'],
+      routeIds: ['approved', 'other-route'], defaultRouteId: 'other-route',
+      reasoningLevels: ['off', 'low', 'medium'], defaultReasoningLevel: 'medium', inheritUserDefaults: false } };
+    const created = await request(`/operators/${operator.operatorId}/installations`, 'POST', {
+      name: 'gateway-profile', revision: operator.revision, policy: initialPolicy, configuration });
+    expect(created.status).toBe(201);
+    const installation = await created.json() as { id: string; revision: number };
+    const current = await (await request(`/operators/${operator.operatorId}`)).json() as { operator: { revision: number } };
+    const otherResponse = await request(`/operators/${operator.operatorId}/installations`, 'POST', {
+      name: 'independent', revision: current.operator.revision, policy: initialPolicy,
+      configuration: { unrelated: { other: true } } });
+    expect(otherResponse.status).toBe(201);
+    const other = await otherResponse.json();
+    const before = await (await request(`/operators/${operator.operatorId}`)).json() as { operator: unknown };
+    const selectedPolicy = { ...initialPolicy, inference: { ...initialPolicy.inference,
+      defaultRouteId: 'approved', defaultReasoningLevel: 'low' } };
+    const saved = await request(`/installations/${installation.id}/configure`, 'POST', {
+      revision: installation.revision, policy: selectedPolicy, configuration });
+    expect(saved.status).toBe(200);
+    expect(await saved.json()).toMatchObject({ id: installation.id, revision: installation.revision + 1,
+      policy: selectedPolicy, configuration, enabled: false });
+    expect((await request(`/installations/${installation.id}/configure`, 'POST', {
+      revision: installation.revision, policy: initialPolicy, configuration })).status).toBe(409);
+    expect(await (await request(`/operators/${operator.operatorId}`)).json()).toMatchObject({
+      operator: before.operator, installations: expect.arrayContaining([
+        expect.objectContaining({ id: installation.id, revision: installation.revision + 1,
+          policy: selectedPolicy, configuration, enabled: false }), other,
+      ]),
+    });
+  }));
+
   it('validates reserved settings at the Registry RPC boundary and retains state on rejection', () => withManagementApi(async (request, ctx) => {
     const operator = await setup(request);
     const configuration = { renovate: { repository: 'acme/updates', automaticRuns: false, repetitionIntervalSeconds: 900 } };

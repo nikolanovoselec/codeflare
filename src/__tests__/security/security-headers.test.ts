@@ -96,6 +96,22 @@ describe('REQ-SEC-008: Security headers on every worker response', () => {
     expect(res.headers.get('Referrer-Policy')).toBe('strict-origin-when-cross-origin');
   });
 
+  it('REQ-AGENT-226 AC3: full app preserves no-referrer and routes MCP returns before auth fallback', async () => {
+    const { env, ctx } = createBaseEnv();
+    const code = 'synthetic-never-retained-callback-code';
+    const callback = await worker.fetch(new Request(`https://example.com/auth/mcp/callback?state=${'a'.repeat(64)}&code=${code}`, {
+      // Explicitly rejected service credential fixture: no real auth, D1 or compute.
+      headers: { 'X-Service-Auth': 'synthetic-not-owner-authority' },
+    }), env, ctx);
+    expect(callback.status).toBe(401);
+    expect(callback.headers.get('Referrer-Policy')).toBe('no-referrer');
+    expect(callback.headers.get('Cache-Control')).toBe('no-store');
+    expect(callback.headers.get('Location')).toBeNull();
+    expect(await callback.text()).not.toContain(code);
+    // The narrow exception must not change ordinary app header policy.
+    expect((await fetchHealth()).headers.get('Referrer-Policy')).toBe('strict-origin-when-cross-origin');
+  });
+
   it('Permissions-Policy denies microphone outside the SPA', async () => {
     const res = await fetchHealth();
     expect(res.headers.get('Permissions-Policy')).toBe('camera=(), microphone=(), geolocation=()');

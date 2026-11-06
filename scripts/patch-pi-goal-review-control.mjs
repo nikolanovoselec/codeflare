@@ -16,6 +16,7 @@ export const SUPPORTED_PI_GOAL_VERSIONS = Object.freeze([
   '0.54.4',
   '0.54.8',
   '0.54.11',
+  '0.54.13',
 ]);
 export const PATCH_MARKER = 'CODEFLARE_GOAL_CONTROL_CHANNEL';
 export const GOAL_ENTRYPOINT_PATCH_MARKER = 'CODEFLARE_GOAL_LIFECYCLE_COMMANDS';
@@ -958,7 +959,7 @@ export function patchPiGoalDirectory(expectedVersion, directory) {
   };
   // These reviewed releases use two-space indentation. Round-trip only
   // leading indentation through the existing exact, fail-closed patch anchors.
-  if (expectedVersion === '0.54.8' || expectedVersion === '0.54.11') {
+  if (expectedVersion === '0.54.8' || expectedVersion === '0.54.11' || expectedVersion === '0.54.13') {
     for (const name of Object.keys(originals)) {
       originals[name] = originals[name].replace(/^(?:  )+/gm, (indent) => '\t'.repeat(indent.length / 2));
     }
@@ -992,7 +993,7 @@ export function patchPiGoalDirectory(expectedVersion, directory) {
 
   writeFileSync(paths.packageJson, patchedPackageManifest);
   for (const name of ['commands', 'goal', sessionSourceName, 'prompts', 'runtime', 'settings', 'toolPolicy']) {
-    const source = expectedVersion === '0.54.8' || expectedVersion === '0.54.11'
+    const source = expectedVersion === '0.54.8' || expectedVersion === '0.54.11' || expectedVersion === '0.54.13'
       ? patched[name].replace(/^\t+/gm, (indent) => '  '.repeat(indent.length))
       : patched[name];
     writeFileSync(paths[name], source);

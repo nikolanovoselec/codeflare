@@ -26,6 +26,9 @@ function renderSection(overrides: {
   defaultWorkspace?: 'terminal' | 'vscode';
   canUseAdvanced?: boolean;
   canChangeSleepAfter?: boolean;
+  sleepAfter?: string;
+  isFreeUser?: boolean;
+  onSleepAfterChange?: (value: string) => void;
   seedUpdateActive?: boolean;
   onSessionModeChange?: ModeChange;
   onDefaultWorkspaceChange?: (workspace: 'terminal' | 'vscode') => void;
@@ -44,9 +47,9 @@ function renderSection(overrides: {
     clipboardAccess: () => false,
     notificationPermission: () => 'default' as const,
     notificationAvailable: () => true,
-    sleepAfter: () => '30m',
+    sleepAfter: () => overrides.sleepAfter ?? '1h',
     canChangeSleepAfter: () => overrides.canChangeSleepAfter ?? true,
-    isFreeUser: () => false,
+    isFreeUser: () => overrides.isFreeUser ?? false,
     recreateDocsLoading: () => false,
     recreateDocsMessage: () => null,
     recreateDocsError: () => null,
@@ -60,7 +63,7 @@ function renderSection(overrides: {
     onHerdrToggle: overrides.onHerdrToggle ?? (() => {}),
     onWorkspaceSyncToggle: () => {},
     onEnableAgentNotifications: () => {},
-    onSleepAfterChange: () => {},
+    onSleepAfterChange: overrides.onSleepAfterChange ?? (() => {}),
     onRecreateDocs: () => {},
     onRecreateAgentConfigs: () => {},
     updateSetting: () => {},
@@ -68,6 +71,38 @@ function renderSection(overrides: {
   // Cast: the typed Accessor<...> props are satisfied by these zero-arg getters.
   render(() => <SessionSection {...(props as unknown as Parameters<typeof SessionSection>[0])} />);
 }
+
+describe('REQ-SESSION-014: supported idle presets and preserved legacy values', () => {
+  afterEach(() => cleanup());
+
+  it('offers exactly five enabled presets and submits the selected 12h value', () => {
+    let saved = '';
+    renderSection({ sleepAfter: '4h', onSleepAfterChange: value => { saved = value; } });
+    const select = screen.getByLabelText('Sleep after inactivity') as HTMLSelectElement;
+    expect(Array.from(select.options).filter(option => !option.disabled).map(option => option.value))
+      .toEqual(['1h', '2h', '4h', '8h', '12h']);
+    expect(select.value).toBe('4h');
+    fireEvent.change(select, { target: { value: '12h' } });
+    expect(saved).toBe('12h');
+  });
+
+  it.each(['5m', '15m', '30m'])('displays legacy %s honestly without offering it as a new selection', sleepAfter => {
+    renderSection({ sleepAfter });
+    const select = screen.getByLabelText('Sleep after inactivity') as HTMLSelectElement;
+    expect(select.value).toBe(sleepAfter);
+    const current = Array.from(select.options).find(option => option.value === sleepAfter)!;
+    expect(current.disabled).toBe(true);
+    expect(current.textContent).toBe(`Current ${sleepAfter.replace('m', ' minutes')}`);
+    expect(Array.from(select.options).filter(option => !option.disabled).map(option => option.value))
+      .toEqual(['1h', '2h', '4h', '8h', '12h']);
+  });
+
+  it('keeps the free-plan fixed 15-minute timeout and disabled control', () => {
+    renderSection({ sleepAfter: '15m', isFreeUser: true, canChangeSleepAfter: false });
+    expect(screen.getByLabelText('Sleep after inactivity')).toBeDisabled();
+    expect(screen.getByTestId('settings-sleep-after-hint')).toHaveTextContent('Fixed at 15 minutes on the Free plan.');
+  });
+});
 
 describe('terminal experience preference', () => {
   afterEach(() => cleanup());

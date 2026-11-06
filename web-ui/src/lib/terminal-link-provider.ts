@@ -1,6 +1,7 @@
 import type { Terminal as XTerm, ILink, IDisposable } from '@xterm/xterm';
 import { isTouchDevice } from './mobile';
 import { MAX_URL_CONTINUATION_ROWS } from './constants';
+import { trimTerminalUrlParentheses } from './terminal-url-delimiters';
 
 /** Minimal interface for xterm's buffer line */
 export interface XTermLine {
@@ -174,15 +175,16 @@ function linksForBufferLine(terminal: XTerm, y: number): ILink[] | undefined {
   const urlRegex = /https?:\/\/[^\s"'<>]+/g;
   let match: RegExpExecArray | null;
   while ((match = urlRegex.exec(fullText)) !== null) {
+    const text = trimTerminalUrlParentheses(match[0]);
     const startPos = mapStringToBuffer(buffer, joinedLines, match.index);
-    const endPos = mapStringToBuffer(buffer, joinedLines, match.index + match[0].length);
+    const endPos = mapStringToBuffer(buffer, joinedLines, match.index + text.length);
     if (!startPos || !endPos || lineIndex < startPos.y || lineIndex > endPos.y) continue;
     links.push({
       range: {
         start: { x: startPos.x + 1, y: startPos.y + 1 },
         end: { x: endPos.x, y: endPos.y + 1 },
       },
-      text: match[0],
+      text,
       activate: (event: MouseEvent, text: string) => {
         if (isTouchDevice() || event.ctrlKey || event.metaKey) {
           window.open(text, '_blank', 'noopener');

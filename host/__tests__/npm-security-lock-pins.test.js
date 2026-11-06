@@ -73,24 +73,24 @@ describe('REQ-OPS-003 AC5: bounded npm security lock pins', () => {
         'sha512-YovQ3rzhaLMIrDjNDMkNS01tea93qhEhG5xy8f6+R0l+dw3Ki+5sCoIoI942iuLZTHWogWktgwVDhU09iNEimQ==',
       );
       assert.deepEqual(lock.packages['node_modules/vendor-7/node_modules/undici'], {
-        version: '7.30.0',
-        resolved: 'https://registry.npmjs.org/undici/-/undici-7.30.0.tgz',
-        integrity: 'sha512-dkrQXeHSaoamnItlYbmzG0wFYrM0ZwDxCIg0A7aKjTyyhh9svRzCNFEzV+Vm05/yehjCzjDZ31KXfGEjYSztDQ==',
+        version: '7.30.1',
+        resolved: 'https://registry.npmjs.org/undici/-/undici-7.30.1.tgz',
+        integrity: 'sha512-03KrMbjIFDWQR5RNPrSw3bd1r12JpyFQl9/yxjUbJtqkjmllqC5lFjZh6ujeuJCKr8EOQvRW872Oy/az+nLYxg==',
         license: 'MIT',
         engines: { node: '>=20.18.1' },
       });
       assert.deepEqual(lock.packages['node_modules/vendor-8/node_modules/undici'], {
-        version: '8.11.2',
-        resolved: 'https://registry.npmjs.org/undici/-/undici-8.11.2.tgz',
-        integrity: 'sha512-u4UB2/IrKdU6lFxumHmmo1a3fCQO5tzQllRorfoRS63txhrB7xTpSn1PftwC4qEHkOaqP95fCWW4lJzwErwzhQ==',
+        version: '8.12.3',
+        resolved: 'https://registry.npmjs.org/undici/-/undici-8.12.3.tgz',
+        integrity: 'sha512-+fdndUTwBP86cVjihTp21hZHo7d6oj1c/47XPA3lL8mM0XHs+C4EkcjmgRsFnFk2f/UONGDy9ItBItmXsLOQHw==',
         license: 'MIT',
         engines: { node: '>=22.19.0' },
         dev: true,
       });
       assert.deepEqual(lock.packages['node_modules/vendor/node_modules/ip-address'], {
-        version: '10.7.3',
-        resolved: 'https://registry.npmjs.org/ip-address/-/ip-address-10.7.3.tgz',
-        integrity: 'sha512-A1kdq/tSb5QjvKvAMgIoEvDBIgL7qaqVP/jkvSwYYRZ9iEzvPpopxp2wQfu3SuZRHtpHNxMn8Fs0bS+gf5Xmwg==',
+        version: '10.7.5',
+        resolved: 'https://registry.npmjs.org/ip-address/-/ip-address-10.7.5.tgz',
+        integrity: 'sha512-t2v0rkILYv9WXmSL7TpAaU3HXgaFYOPUcH3QHgwQ++gpJuH3bqyMy4Fvt/DJCTKwzH3Cf+bAp5W/mFL39KPLzA==',
         license: 'MIT',
         engines: { node: '>= 12' },
       });

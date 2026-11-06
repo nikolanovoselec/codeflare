@@ -186,6 +186,110 @@ afterEach(() => {
 
 describe('live saved-connection routing reconciliation', () => {
   it.each([
+    { piDefaultSource: 'managed', allowPersonalPiProviders: true },
+    { piDefaultSource: 'pi-native', allowPersonalPiProviders: false },
+  ] as const)('REQ-ENTERPRISE-088 AC4: saved $piDefaultSource source and independent permission survive saved reconciliation', async (personalPolicy) => {
+    const f = await setup();
+    const credentialBefore = await f.kv.get(SETUP_KEYS.AIG_TOKEN);
+    f.kv._set(SETUP_KEYS.NATIVE_AI_TARGETS, { schemaVersion: 1, targets: [] });
+    // Preview/save checks the complete live inventory before accepting either route.
+    routesReply = () => dynamicPage(['gone', 'live']);
+    const values = {
+      gatewayUrl: routingGatewayUrl, replacementToken: '', dynamicRoutes: ['gone', 'live'],
+      defaultRoute: { route: 'gone', reasoning: 'high' }, routeContextWindows: { gone: 10000, live: 20000 },
+      reasoningConfiguration: { ...f.reasoning, routeAssignments: {
+        gone: f.reasoning.routeAssignments.gone, live: f.reasoning.routeAssignments.live,
+      } },
+      groupRouting: [{ accessGroup: 'engineering', routes: ['gone', 'live'], defaultRoute: 'gone', reasoning: 'high', ...personalPolicy }],
+      fallbackRouting: { enabled: true, routes: ['gone', 'live'], defaultRoute: 'gone', reasoning: 'high', ...personalPolicy },
+    };
+    const previewResponse = await post(f, '/admin/configuration-previews', { section: 'aiRouting', baseRevision: 7, values });
+    expect(previewResponse.status).toBe(200);
+    const preview = await previewResponse.json() as { warnings: { code: string }[] };
+    const save = await post(f, '/admin/configuration-runs', { section: 'aiRouting', baseRevision: 7, values,
+      confirmedWarnings: preview.warnings.map(warning => warning.code) });
+    expect(save.status).toBe(200);
+    const events = (await save.text()).trim().split('\n').map(line => JSON.parse(line));
+    expect(events.at(-1).run.state).toBe('succeeded');
+    const saved = await reload(f);
+    expect(saved.revision).toBe(8);
+    expect(saved.sections.aiRouting.groupRouting.engineering).toMatchObject(personalPolicy);
+    expect(saved.sections.aiRouting.fallbackRouting).toMatchObject(personalPolicy);
+
+    // The same persisted settings must pass the saved-connection path, not only a draft check.
+    const before = await routingSnapshot(f.kv);
+    const unchanged = await reconcile(f, 8);
+    expect(unchanged.status).toBe(200);
+    expect(await unchanged.json()).toMatchObject({ routeCatalogStatus: 'ready',
+      reconciliation: { status: 'unchanged', revision: 8 } });
+    expect(await routingSnapshot(f.kv)).toEqual(before);
+
+    routesReply = () => dynamicPage(['live']);
+    const pruned = await reconcile(f, 8);
+    expect(pruned.status).toBe(200);
+    expect(await pruned.json()).toMatchObject({ routeCatalogStatus: 'ready',
+      reconciliation: { status: 'applied', revision: 9, removedDynamicRoutes: ['gone'] } });
+    const surviving = await reload(f);
+    expect(surviving.sections.aiRouting.groupRouting.engineering).toMatchObject({
+      ...personalPolicy, routes: ['live'], defaultRoute: 'live', reasoning: 'medium',
+    });
+    expect(surviving.sections.aiRouting.fallbackRouting).toMatchObject({
+      ...personalPolicy, enabled: true, routes: ['live'], defaultRoute: 'live', reasoning: 'medium',
+    });
+
+    routesReply = () => dynamicPage([]);
+    const emptied = await reconcile(f, 9);
+    expect(emptied.status).toBe(200);
+    expect(await emptied.json()).toMatchObject({ reconciliation: { status: 'applied', revision: 10 } });
+    const exhausted = await reload(f);
+    expect(exhausted.sections.aiRouting.groupRouting.engineering).toMatchObject({
+      ...personalPolicy, routes: [], defaultRoute: '', reasoning: 'off',
+    });
+    expect(exhausted.sections.aiRouting.fallbackRouting).toEqual({ enabled: false });
+    expect((await loadEnterpriseRouteConfig(f.env, ['engineering'])).routeCatalog).toEqual([]);
+    expect(await f.kv.get(SETUP_KEYS.AIG_TOKEN)).toBe(credentialBefore);
+    const repeated = await reconcile(f, 10);
+    expect(repeated.status).toBe(200);
+    expect(await repeated.json()).toMatchObject({ reconciliation: { status: 'unchanged', revision: 10 } });
+  });
+
+  it('REQ-ENTERPRISE-088 AC4: an unusable surviving profile retains source and permission without granting routes', async () => {
+    const f = await setup();
+    const personalPolicy = { piDefaultSource: 'pi-native', allowPersonalPiProviders: false };
+    f.kv._set(SETUP_KEYS.GROUP_ROUTING, { engineering: {
+      routes: ['gone', 'unprofiled'], defaultRoute: 'gone', reasoning: 'high', ...personalPolicy,
+    } });
+    routesReply = () => dynamicPage(['live', nativeShapedDynamic, 'unprofiled']);
+    const response = await reconcile(f);
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ reconciliation: { status: 'applied', revision: 8 } });
+    expect(await f.kv.get(SETUP_KEYS.GROUP_ROUTING, 'json')).toEqual({ engineering: {
+      routes: [], defaultRoute: '', reasoning: 'off', targets: [], ...personalPolicy,
+    } });
+    expect((await loadEnterpriseRouteConfig(f.env, ['engineering'])).routeCatalog).toEqual([]);
+  });
+
+  it.each([
+    { piDefaultSource: 'unknown' },
+    { piDefaultSource: true },
+    { piDefaultSource: 'pi-native', unexpectedPolicyField: true },
+    { piDefaultSource: 'managed', allowPersonalPiProviders: 'true' },
+  ])('REQ-ENTERPRISE-034/088: malformed saved policy fails closed before inventory (%j)', async (invalid) => {
+    const f = await setup();
+    f.kv._set(SETUP_KEYS.GROUP_ROUTING, { engineering: {
+      routes: ['live'], defaultRoute: 'live', reasoning: 'high', ...invalid,
+    } });
+    const before = await routingSnapshot(f.kv);
+    const response = await reconcile(f);
+    expect(response.status).toBe(503);
+    expect(await response.json()).toMatchObject({ code: 'configuration_task_failed' });
+    expect(observedConnections).toEqual([]);
+    expect(await routingSnapshot(f.kv)).toEqual(before);
+    expect(await f.kv.get(ADMIN_CONFIGURATION_KEYS.REVISION)).toBe('7');
+    expect(await f.kv.get(ADMIN_CONFIGURATION_KEYS.ACTIVE_RUN)).toBeNull();
+  });
+
+  it.each([
     { label: 'empty first page', pages: [[]] },
     { label: 'short first page', pages: [['live']] },
     { label: 'full page followed by empty page', pages: [['live', nativeShapedDynamic], []] },

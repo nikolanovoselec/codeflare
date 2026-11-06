@@ -124,7 +124,7 @@ const LlmKeysSection: Component = () => {
       <Show when={loadState() === 'error'}>
         <div data-testid="llm-keys-load-error" role="alert">
           Saved keys could not be loaded.
-          <button type="button" data-testid="llm-keys-retry" onClick={() => { void loadKeys(); }}>Retry</button>
+          <button type="button" class="settings-action settings-action--accent" data-testid="llm-keys-retry" onClick={() => { void loadKeys(); }}>Retry</button>
         </div>
       </Show>
       <Show when={loadState() === 'success'}>
@@ -143,10 +143,9 @@ const LlmKeysSection: Component = () => {
           message={openaiMessage()}
           error={openaiError()}
           testId="llm-openai-row"
-        />
-        <Show when={openaiConnected()}>
-          <code data-testid="llm-openai-mask">{openaiKey()}</code>
-        </Show>
+        >
+          <Show when={openaiConnected()}><code data-testid="llm-openai-mask">{openaiKey()}</code></Show>
+        </ProviderRow>
 
         <ProviderRow
           icon={GeminiIcon}
@@ -163,23 +162,25 @@ const LlmKeysSection: Component = () => {
           message={geminiMessage()}
           error={geminiError()}
           testId="llm-gemini-row"
-        />
-        <Show when={geminiConnected()}>
-          <code data-testid="llm-gemini-mask">{geminiKey()}</code>
-        </Show>
+        >
+          <Show when={geminiConnected()}><code data-testid="llm-gemini-mask">{geminiKey()}</code></Show>
+        </ProviderRow>
 
         <Show when={openaiConnected() || geminiConnected()}>
-          <button
-            type="button"
-            data-testid="llm-keys-clear-all"
-            disabled={clearAllSaving()}
-            onClick={() => { void handleClearAll(); }}
-          >
-            {clearAllSaving() ? 'Clearing...' : 'Clear all keys'}
-          </button>
-          <Show when={clearAllError()}>
-            <span role="alert">{clearAllError()}</span>
-          </Show>
+          <div class="llm-keys-actions">
+            <button
+              type="button"
+              class="settings-action settings-action--destructive"
+              data-testid="llm-keys-clear-all"
+              disabled={clearAllSaving()}
+              onClick={() => { void handleClearAll(); }}
+            >
+              {clearAllSaving() ? 'Clearing...' : 'Clear all keys'}
+            </button>
+            <Show when={clearAllError()}>
+              <span class="provider-row-error" role="alert">{clearAllError()}</span>
+            </Show>
+          </div>
         </Show>
       </Show>
 

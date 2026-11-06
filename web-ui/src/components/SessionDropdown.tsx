@@ -45,6 +45,7 @@ const SessionDropdown: Component<SessionDropdownProps> = (props) => {
     position: { x: 0, y: 0 },
     session: null,
   });
+  const menuSession = createMemo(() => props.sessions.find((session) => session.id === menuState().session?.id));
   const [showCreateDialog, setShowCreateDialog] = createSignal(false);
   const [createBtnRef, setCreateBtnRef] = createSignal<HTMLButtonElement>();
   const [selectingMultiView, setSelectingMultiView] = createSignal(false);
@@ -222,6 +223,8 @@ const SessionDropdown: Component<SessionDropdownProps> = (props) => {
         isOpen={menuState().isOpen}
         position={menuState().position}
         canStop={['running', 'initializing', 'starting', 'unreachable', 'stopping'].includes(menuState().session?.status ?? '')}
+        canKill={['starting', 'running', 'unreachable', 'stopping'].includes(menuSession()?.status ?? '')}
+        onKill={() => { const session = menuSession(); if (session) void sessionStore.killSession(session.id); }}
         stopLabel={menuState().session?.status === 'stopping' ? 'Retry Stop' : 'Stop'}
         sessionName={menuState().session?.name || ''}
         onStop={() => { if (menuState().session) props.onStopSession(menuState().session!.id); }}

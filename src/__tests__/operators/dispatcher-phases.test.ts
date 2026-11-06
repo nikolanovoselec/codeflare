@@ -144,18 +144,37 @@ describe('intent4 exact serial phase contract candidate', () => {
     expect(finish(state, [])).toEqual({ repository: 'owner/repo', results: [] });
     expect(() => step(initial(), reply(initial(), 'failed'), 1)).toThrow();
     expect(() => step(initial(), reply(initial(), 'failed', { 'dispatcher-progress': [progress(initial(), [])] }), 1)).toThrow();
-    expect(() => advanceDispatcherPhase(initial(), authority, 'token_0', reply(initial(), 'completed', {
+    const restricted = advanceDispatcherPhase(initial(), authority, 'token_0', reply(initial(), 'completed', {
       'dispatcher-progress': [progress(initial(), [])],
-    }), delivery(1), targets(1)[0])).toThrow();
+    }), delivery(1), targets(1)[0]);
+    expect(finish(bind(restricted, 1), [])).toEqual({ repository: 'owner/repo', results: [] });
   });
 
-  it('enforces supplied admitted singleton without widening or omitting it', () => {
+  it('REQ-OPERATOR-048/062 Task132: admitted singleton may freeze empty but never widen or substitute its head', () => {
     const admitted = targets(1)[0];
     const accept = (frozen: DispatcherTarget[]) => advanceDispatcherPhase(initial(), authority, 'token_0', reply(initial(), 'completed', {
       'dispatcher-progress': [progress(initial(), frozen)],
     }), delivery(1), admitted);
     expect(accept([admitted]).targets).toEqual([admitted]);
-    for (const frozen of [[], targets(2), [{ ...admitted, headSha: 'f'.repeat(40) }]]) expect(() => accept(frozen)).toThrow();
+    expect(accept([]).targets).toEqual([]);
+    for (const frozen of [targets(2), [{ ...admitted, pullRequest: 99 }], [{ ...admitted, headSha: 'f'.repeat(40) }]]) expect(() => accept(frozen)).toThrow();
+  });
+
+  it('REQ-OPERATOR-048 Task132: admitted empty discovery still requires its exact final receipt and repository', () => {
+    const state = initial();
+    const empty = advanceDispatcherPhase(state, authority, state.current.deliveryToken, reply(state, 'completed', {
+      'dispatcher-progress': [progress(state, [])],
+    }), delivery(1), targets(1)[0]);
+    expect(() => finish(empty, [])).toThrow(); // no actual final admission receipt
+    const final = bind(empty, 1);
+    for (const changed of [
+      { submissionId: 'foreign-submission' }, { upToDate: false }, { outcome: 'failed' as const },
+      { data: { assessment: [{ repository: 'foreign/repo', results: [] }] } },
+      { data: { assessment: [{ repository: 'owner/repo', results: [ordinary(targets(1)[0])] }] } },
+    ]) expect(() => collectDispatcherFinal(final, authority, final.current.deliveryToken, {
+      ...reply(final, 'completed', { assessment: [{ repository: 'owner/repo', results: [] }] }), ...changed,
+    })).toThrow();
+    expect(finish(final, [])).toEqual({ repository: 'owner/repo', results: [] });
   });
 
   it.each(['missing-terminal', 'not-current', 'not-up-to-date', 'aborted', 'missing-progress', 'duplicate-progress', 'assessment'])('denies discovery %s', mode => {

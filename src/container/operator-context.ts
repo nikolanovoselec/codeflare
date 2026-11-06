@@ -6,8 +6,13 @@
 import { parseJwtStampingPolicy, type JwtStampingAuthority, type JwtStampingPolicy } from '../operators/jwt-stamping';
 import { parseOperatorPolicy, type OperatorPolicy } from '../operators/policy';
 import { parseOperatorPiInitializationShape, type OperatorPiInitialization } from '../operators/session-initialization';
+import { parseOperatorPiAuthDescriptor, type OperatorPiAuthDescriptor } from '../operators/pi-auth-failure';
 
 interface OperatorPiProfile {
+  source?: 'managed' | 'pi-native';
+  /** Required for pi-native; preserves the admitted public provider API identity. */
+  api?: string;
+  authBinding?: OperatorPiAuthDescriptor;
   provider: string;
   model: string;
   thinkingLevel: string;
@@ -65,8 +70,15 @@ function bounded(value: unknown, max: number): value is string {
 function parsePiProfile(value: unknown): OperatorPiProfile {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Invalid operator Pi profile');
   const profile = value as Record<string, unknown>;
-  if (Object.keys(profile).length !== (Object.hasOwn(profile, 'initialization') ? 6 : 5)
-    || Object.keys(profile).some(key => !['provider', 'model', 'thinkingLevel', 'systemPrompt', 'tools', 'initialization'].includes(key))
+  const native = profile.source === 'pi-native';
+  if (Object.keys(profile).length !== 5 + Number(Object.hasOwn(profile, 'initialization'))
+      + Number(Object.hasOwn(profile, 'source')) + Number(Object.hasOwn(profile, 'authBinding'))
+      + Number(Object.hasOwn(profile, 'api'))
+    || Object.keys(profile).some(key => !['provider', 'model', 'thinkingLevel', 'systemPrompt', 'tools', 'initialization', 'source', 'api', 'authBinding'].includes(key))
+    || (profile.source !== undefined && profile.source !== 'managed' && !native)
+    || (native !== Object.hasOwn(profile, 'authBinding'))
+    || (native !== Object.hasOwn(profile, 'api'))
+    || (native && (typeof profile.api !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(profile.api)))
     || !bounded(profile.provider, 128) || !bounded(profile.model, 256)
     || !bounded(profile.thinkingLevel, 32) || !bounded(profile.systemPrompt, 64 * 1024)
     || !Array.isArray(profile.tools) || profile.tools.length > 64
@@ -75,6 +87,8 @@ function parsePiProfile(value: unknown): OperatorPiProfile {
     throw new Error('Invalid operator Pi profile');
   }
   return { provider: profile.provider, model: profile.model, thinkingLevel: profile.thinkingLevel,
+    ...(profile.source !== undefined ? { source: profile.source as 'managed' | 'pi-native' } : {}),
+    ...(native ? { api: profile.api as string, authBinding: parseOperatorPiAuthDescriptor(profile.authBinding) } : {}),
     systemPrompt: profile.systemPrompt, tools: [...profile.tools] as string[],
     ...(Object.hasOwn(profile, 'initialization')
       ? { initialization: parseOperatorPiInitializationShape(profile.initialization) } : {}) };
@@ -107,11 +121,18 @@ export function parseOperatorContainerProfile(value: unknown): OperatorContainer
     || profile.outputPrefix !== 'Operators/' || !canonicalPrefix(profile.outputPrefix)) {
     throw new Error('Invalid operator container profile');
   }
+  const piProfile = parsePiProfile(profile.piProfile);
+  const policy = parseOperatorPolicy(profile.policy);
+  if (piProfile.source === 'pi-native' && (!policy.inference.allowedSources?.includes('pi-native')
+    || !policy.inference.reasoningLevels.includes(piProfile.thinkingLevel)
+    || piProfile.authBinding?.activityId !== profile.activityId
+    || piProfile.authBinding.sessionId !== profile.sessionId || piProfile.authBinding.deadline !== profile.deadline)) {
+    throw new Error('Invalid native operator profile binding');
+  }
   return { schemaVersion: 1, activityId: profile.activityId, operatorId: profile.operatorId,
     sessionId: profile.sessionId, ownerBucket: profile.ownerBucket, policyDigest: profile.policyDigest, deadline: profile.deadline,
     outputPrefix: profile.outputPrefix, human: parseHuman(profile.human),
-    policy: parseOperatorPolicy(profile.policy), jwtPolicy: parseJwtStampingPolicy(profile.jwtPolicy),
-    piProfile: parsePiProfile(profile.piProfile) };
+    policy, jwtPolicy: parseJwtStampingPolicy(profile.jwtPolicy), piProfile };
 }
 
 function requireOwnership(host: OperatorContextHost, profile: OperatorContainerProfile): void {

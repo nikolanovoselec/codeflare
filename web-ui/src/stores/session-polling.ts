@@ -139,6 +139,17 @@ let sessionListPollTimeout: ReturnType<typeof setTimeout> | null = null;
 let pollingActive = false;
 let visibilityListenerInstalled = false;
 let pollInFlight: Promise<void> | null = null;
+let catalogRevision = 0;
+
+/** Page-local request ordering, not a cached session list. */
+export function getSessionCatalogRevision(): number {
+  return catalogRevision;
+}
+
+/** An accepted catalog mutation supersedes older batch absence evidence. */
+export function invalidateSessionStatusReads(): void {
+  catalogRevision++;
+}
 
 // ============================================================================
 // refreshSessionStatuses
@@ -165,6 +176,8 @@ export function refreshSessionAncillaryStatus(): Promise<void> {
       setStateRaw('managedReleaseStatus', null);
       setStateRaw('managedReleaseProgress', null);
     }
+    setStateRaw('managedReleaseBlockedReason', response.managedReleaseStatus === 'update_pending'
+      ? response.managedReleaseBlockedReason ?? null : null);
     applyManagedReleaseBatchFn(response.managedReleaseStatus, response.preseedNeedsUpgrade, response.managedReleaseProgress, response.preseedUpgradeTarget);
     setStateRaw('bucketMigrating', response.bucketMigrating === true);
     setStateRaw('bucketMigrationPending', response.bucketMigrationPending === true);
@@ -179,7 +192,17 @@ export function refreshSessionAncillaryStatus(): Promise<void> {
  * array or set loading state, so the dashboard doesn't flicker.
  * Also updates storage stats when storageStats is present in the batch response.
  */
-export async function refreshSessionStatuses(forceManagedReleaseCheck = false): Promise<void> {
+export function refreshSessionStatuses(forceManagedReleaseCheck = false): Promise<void> {
+  if (pollInFlight) {
+    if (forceManagedReleaseCheck) void refreshSessionAncillaryStatus().catch(() => undefined);
+    return pollInFlight;
+  }
+  pollInFlight = refreshSessionStatusesOnce(forceManagedReleaseCheck).finally(() => { pollInFlight = null; });
+  return pollInFlight;
+}
+
+async function refreshSessionStatusesOnce(forceManagedReleaseCheck: boolean): Promise<void> {
+  const requestedCatalogRevision = catalogRevision;
   try {
     const state = getState();
     const batchResponse = await api.getBatchSessionStatus();
@@ -190,7 +213,8 @@ export async function refreshSessionStatuses(forceManagedReleaseCheck = false): 
       || state.bucketMigrating
       || state.bucketMigrationPending
       || Date.now() - lastAncillaryCheckAt >= ANCILLARY_CHECK_INTERVAL_MS;
-    if (ancillaryDue) await refreshSessionAncillaryStatus().catch(() => undefined);
+    if (ancillaryDue) void refreshSessionAncillaryStatus().catch(() => undefined);
+    if (requestedCatalogRevision !== catalogRevision) return;
 
     // Consecutive-miss tracking: only remove sessions after REMOVAL_THRESHOLD misses.
     // Skip initializing sessions - they may not appear in batch status yet.
@@ -211,6 +235,7 @@ export async function refreshSessionStatuses(forceManagedReleaseCheck = false): 
       }
     }
     if (removedIds.length > 0) {
+      invalidateSessionStatusReads();
       for (const id of removedIds) {
         sessionMissCounters.delete(id);
       }
@@ -221,6 +246,19 @@ export async function refreshSessionStatuses(forceManagedReleaseCheck = false): 
     for (const session of getState().sessions) {
       const remote = batchStatuses[session.id];
       if (!remote) continue;
+
+      const currentProjection = {
+        lifecycle: (session.lifecycle ?? (session.status === 'error' ? 'running' : session.status)) as BackendLifecycle,
+        generation: session.generation,
+        revision: session.revision,
+      };
+      const incomingProjection = {
+        lifecycle: remote.status as BackendLifecycle,
+        generation: remote.generation,
+        revision: remote.revision,
+      };
+      const ordered = applyOrderedProjection(currentProjection, incomingProjection);
+      if (ordered !== incomingProjection) continue;
 
       // Propagate durable fields from batch-status. Terminal connectivity is
       // device-local and is never overwritten by a backend projection.
@@ -256,17 +294,6 @@ export async function refreshSessionStatuses(forceManagedReleaseCheck = false): 
 
       // Apply the ordered D1 lifecycle projection. Transport ownership remains
       // local, so uncertainty never disposes mounted terminal/editor state.
-      const currentProjection = {
-        lifecycle: (session.lifecycle ?? (session.status === 'error' ? 'running' : session.status)) as BackendLifecycle,
-        generation: session.generation,
-        revision: session.revision,
-      };
-      const incomingProjection = {
-        lifecycle: remote.status as BackendLifecycle,
-        generation: remote.generation,
-        revision: remote.revision,
-      };
-      const ordered = applyOrderedProjection(currentProjection, incomingProjection);
       const statusChanged = remote.status !== session.status;
       if (ordered === incomingProjection) {
         if (statusChanged) updateSessionStatusFn(session.id, remote.status);
@@ -310,9 +337,7 @@ function clearPollTimeout(): void {
 }
 
 function pollWithoutOverlap(): Promise<void> {
-  if (pollInFlight) return pollInFlight;
-  pollInFlight = refreshSessionStatuses().finally(() => { pollInFlight = null; });
-  return pollInFlight;
+  return refreshSessionStatuses();
 }
 
 function scheduleNextPoll(): void {

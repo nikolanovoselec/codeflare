@@ -19,14 +19,15 @@ const input = (overrides: Record<string, unknown> = {}) => ({ activityId: 'activ
 
 describe('REQ-OPERATOR-003: protected verified execution context', () => {
   it('encrypts Access authority for one activity and exposes only a safe immutable projection', async () => {
-    const context = await createOperatorExecutionContext(input(), env);
+    const request = input();
+    const context = await createOperatorExecutionContext(request, env);
     expect(context).toMatchObject({ schemaVersion: 1, activityId: 'activity_1', operatorId: 'operator_1',
       principal: 'operator', artifactDigest: 'a'.repeat(64), policyDigest: 'b'.repeat(64),
       owner: { subject: 'human-subject', email: 'human@example.test' } });
     expect(context.protectedAccessCiphertext).toMatch(/^v1:/);
     expect(JSON.stringify(context)).not.toContain('signed.jwt.assertion');
     expect(projectOperatorExecution(context)).not.toHaveProperty('protectedAccessCiphertext');
-    expect(await openOperatorExecutionAccess(context, env)).toEqual({ human: human(), accessJwt: 'signed.jwt.assertion' });
+    expect(await openOperatorExecutionAccess(context, env)).toEqual({ human: request.human, accessJwt: request.accessJwt });
   });
 
   it('binds ciphertext to the exact activity and fails closed without protected storage', async () => {

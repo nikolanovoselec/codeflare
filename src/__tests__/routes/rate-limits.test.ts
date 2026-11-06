@@ -31,7 +31,7 @@ vi.mock('../../middleware/auth', () => ({
 }));
 
 vi.mock('../../lib/r2-config', () => ({
-  getR2Config: vi.fn().mockResolvedValue(createMockR2Config({ accountId: 'test' })),
+  getR2Config: vi.fn(async () => createMockR2Config({ accountId: 'test' })),
 }));
 
 vi.mock('../../lib/r2-admin', () => ({

@@ -1,7 +1,8 @@
+import { gunzipSync } from 'node:zlib';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { describe, it } from 'node:test';
@@ -27,6 +28,29 @@ import {
   EXPECTED_PI_PLAN_MODE_VERSION,
   patchPiPlanModeDirectory,
 } from '../../scripts/patch-pi-plan-mode-tool-policy.mjs';
+
+// Candidate capture: @narumitw/pi-plan-mode@0.59.4
+// https://registry.npmjs.org/@narumitw%2Fpi-plan-mode/0.59.4
+// Verified archive: sha512-ISq9YB3+4PWqL4JSxJCBASb844NcnKH/RuGuIJwdNk8xmtGKDYOnjSrkfl+MBiSTImV56m7WX0TBBcG/0FuGYA==
+// Upstream: narumiruna/pi-extensions@ed242b63dd40bacc276b6b9fc66440eaaf1bf57b
+const CANDIDATE_SOURCE_DELTA = 'H4sIAAAAAAACA91VyZLaSBT8F67D2LUvhzk0GiMENB7oRhLq8KEWSSwSKMxm9dfPE7gdjolZYk7jGC4V8VBV5cvMl/Xy0muM25kyf7c9Hva9fk8KonWBsCxyyp0tNMaOCGwLQpUyhSSOSWQVy3PrHNPS5sg6TS1FzChXcDiikM5jnyujCkqMFQ5pypgnTBbOUk5lTijVglssPfJMcs2Jk85JKyyyjPX6Ly9U9Qnt96LgYePruHWkuthNJKIguk63Sz7dzjfTh8MvvU/9F0VxX8nbt2UUjB+yZNhmCd+Z5HryRLeGPl5cuDutiIYa30+T4R7+R9H2UEbbD+fHll2jzXXyT/v9KG7+uKf36RMg6PnN8fR+s/f5l3enIzDgEYWeRY6VIUJZSRCRnnHMJc6ZVt7BAgzCojwlSOWIEcYKYYmX0lgHR5DcaMyRc0Jg7nLpuS8K6wx2upAFRdxhhgAe5d6gPKdOECM1HCaJ917oG4lCYtZXpN8zCb5aOkbR6Fg6umhNOlhm6fgEfKztcFa5NK5sDWs70FGYtZagMtoNqlU6hvqisQEGicefXauv5gkjn+w2H69NY9PBxe3nZd4OhllYIfjm2YdD5NNZapLFPkvnZfE0qF2tTx23th62PsGNH7lvnE6TU+MDXd33RyfAt4b66zT1TRb6ygeRDMpfblpTsCfrE8H7vWwfn1cUoBFWrugYoC6qZfhlbXf4koXx2/UHG1bnLH08RqPFIUtwNXkayGDzULo6BpjjcxTyyv81/AO0hkwYn7Kna7fnDGe381rv8udDOQl25W/PrPx6x9kmw+tkNFvbukImbf4Ez+IRKO8w6MnzcdK1xBABp2NBOgcPtn5UnoHdsyMxikm1y2CdDAeP8yUvYlR9WKB4maLTMAE4k6HulPiutQf922awBZhrH8ZzGw7Pz4neZfEbk+tXUODqyPrig2vpw3Vlk2XzBkVIjWif6RsS0JnDzJWbVR3XQEyVkvvcpHSGwBcI/F9Owph0tekdeRP9in4Cj91nKazqKFhXML9nH/BTls5eV4mv4lF1zTqkz+CxeoZB74t9ippoNK5A99Zuj29zdfzs3jeV2f9cH3x+Hy2US5JLrAmGiHLMc2Wp5hRLJxFlmHCnc+IVzj1HTDspKKGaYcuJLrBCshstKRy2RCvspS+Id87mOIdqoZzynHrFEBJeCEJ5IQ0XiggmOEwaJVJJ040W1kyJvkZvsaMuURgzIP18jyqMXF3tQTyIkjn4M371oT5NQSRHZ+uMLMtbq/vHcrWvriug5ibi0wDSNm6nSXV2oxhFoe+EfJ2W96ijiIBPfjSBPufHfH8yp81hf9dIG+oh7DTRkOZIgS6UCy0LIh2W8GRQBNQTSL8c3hOui8JDzSONveVFrrs3xFBJDaECO+Mp9lg4kAgV1jNDCcG5BPoNksryvOhSEHklkVOSQDZZY0inkf5/ZR8mjPahv5v4LUQJdvW/jT5+e9myNDp4yBYflg10ooOyqX3Ctz7srPu3+XHs4su9HrooXGehPtvR7s4qvKwJRt/u+rgZLO+xuRPRh3hn0sXFVZ0xATd+O+8exdNWlU+kArvzi6vxGnALwF1m+/H6HvGgVDCAWJ2XcA9ZJV+aLBhQ6BOZEYzQ1wGIwtkR1L12WKLvYhi+3Viy4GDgi6eP5x8r/oXsY67+6/SH3+8IuovqDQoAAA==';
+
+// Unmodified npm runtime-source capture as byte deltas from the retained prior
+// archive. No network or rewritten tarball integrity; every reconstructed file
+// is verified before use. See the candidate compatibility report for provenance.
+function restoreCandidateSources(root) {
+  const records = JSON.parse(gunzipSync(Buffer.from(CANDIDATE_SOURCE_DELTA, 'base64')));
+  for (const [path, beforeHash, afterHash, edits] of records) {
+    let source = existsSync(join(root, path)) ? readFileSync(join(root, path)) : Buffer.alloc(0);
+    assert.equal(createHash('sha256').update(source).digest('hex'), beforeHash, path);
+    for (const [offset, length, bytes] of edits.toReversed()) {
+      source = Buffer.concat([source.subarray(0, offset), Buffer.from(bytes, 'base64'), source.subarray(offset + length)]);
+    }
+    assert.equal(createHash('sha256').update(source).digest('hex'), afterHash, path);
+    mkdirSync(dirname(join(root, path)), { recursive: true });
+    writeFileSync(join(root, path), source);
+  }
+}
 
 const fixtureCommandsSource = `export class GoalCommandController {
 \tconstructor(runtime) {
@@ -541,6 +565,22 @@ const PINNED_PLAN_INTEGRITY = 'sha512-pBLJdDWsANbMmRkTtTUcEJO95WY3tRmbWbS57uKIHs
 function extractPackage(archivePath, integrity, root) {
   const archive = readFileSync(archivePath);
   assert.equal(`sha512-${createHash('sha512').update(archive).digest('base64')}`, integrity);
+  if (archivePath.endsWith('-source.json')) {
+    // Small immutable raw-source capture, not a fabricated npm archive. Every
+    // source file was compared with the tagged commit before capture.
+    const fixture = JSON.parse(archive);
+    assert.equal(fixture.commit, '42738907182c43eb99e5134652fd37e7d06b5e3a');
+    extractPackage(join(FIXTURES_DIRECTORY, fixture.baseArchive), fixture.baseIntegrity, root);
+    for (const [path, source] of Object.entries(fixture.files)) {
+      assert.ok(path === 'package.json' || /^src\/[a-z-]+\.ts$/.test(path));
+      mkdirSync(dirname(join(root, path)), { recursive: true });
+      writeFileSync(join(root, path), source);
+    }
+    for (const [path, sha256] of Object.entries(fixture.sourceSha256)) {
+      assert.equal(createHash('sha256').update(readFileSync(join(root, path))).digest('hex'), sha256, path);
+    }
+    return;
+  }
   execFileSync('tar', ['-xzf', archivePath, '-C', root, '--strip-components=1'], { stdio: 'ignore' });
 }
 
@@ -552,7 +592,7 @@ const PINNED_RUNTIME_STUBS = {
   name: 'pinned-runtime-stubs',
   setup(bundle) {
     bundle.onResolve(
-      { filter: /^@(?:earendil-works\/pi-(?:ai|coding-agent|tui)|narumitw\/pi-tui-kit)$/ },
+      { filter: /^@(?:earendil-works\/pi-(?:ai|coding-agent|tui)|narumitw\/pi-tui-kit(?:\/editor-status-widget)?)$/ },
       ({ path }) => ({ path, namespace: 'pinned-runtime-stub' }),
     );
     bundle.onLoad({ filter: /.*/, namespace: 'pinned-runtime-stub' }, () => ({
@@ -575,6 +615,7 @@ const PINNED_RUNTIME_STUBS = {
         export const truncateToWidth = (value) => value;
         export const withFileMutationQueue = async (_path, operation) => operation();
         export class Markdown {}
+        export class EditorStatusWidget {}
       `,
     }));
   },
@@ -696,6 +737,43 @@ function createExtensionHarness() {
 }
 
 describe('REQ-AGENT-111: pi-goal review control and continuation patch', () => {
+  it('REQ-AGENT-111 / REQ-OPS-020: 0.54.13 retains queued contract order and custom startup ownership', async (t) => {
+    const root = mkdtempSync(join(tmpdir(), 'pi-goal-contract-queue-'));
+    t.after(() => rmSync(root, { recursive: true, force: true }));
+    extractPackage(join(FIXTURES_DIRECTORY, 'pi-goal-0.54.13-source.json'),
+      'sha512-g770YeTpnO6MPNpldrBA+MQXNE1hXEeSPmdgBS1wqTZKAMhd3emrPFSmivg7wa3ABcfmfE24plrSvzVgfnez5w==', root);
+    patchPiGoalDirectory('0.54.13', root);
+    const { GoalRuntime } = await bundleFixture(join(root, 'src/runtime.ts'), join(root, 'runtime.mjs'), 'namespace');
+    const harness = createExtensionHarness();
+    const deferred = [];
+    harness.api.sendMessage = (message) => deferred.push(message);
+    const runtime = new GoalRuntime(harness.api);
+    const goal = { id: 'queued-goal', text: 'Retain the full objective', status: 'active', iteration: 0,
+      tokensUsed: 0, startedAt: 0, updatedAt: 0, timeUsedSeconds: 0, baselineTokens: 0, automaticModelTurns: 0 };
+    runtime.ensureGoalContextContract(harness.ctx, goal);
+    runtime.ensureGoalContextContract(harness.ctx, goal);
+    assert.deepEqual(deferred.map(message => message.details.state), ['active'], 'identical queued contracts coalesce');
+    harness.entries.push({ type: 'custom_message', ...deferred.shift() });
+    runtime.ensureInactiveGoalContextContract(harness.ctx);
+    runtime.ensureGoalContextContract(harness.ctx, goal);
+    assert.deepEqual(deferred.map(message => message.details.state), ['inactive', 'active'], 'queued inactive tail cannot suppress a new active contract');
+    assert.equal(deferred.at(-1).details.goalId, goal.id);
+    harness.entries.push(...deferred.splice(0).map(message => ({ type: 'custom_message', ...message })));
+    runtime.ensureGoalContextContract(harness.ctx, goal);
+    assert.deepEqual(deferred, [], 'saved publication retires pending state without duplicate output');
+
+    const extension = await bundleFixture(join(root, 'src/index.ts'), join(root, 'goal.mjs'));
+    const session = createExtensionHarness();
+    extension(session.api, { settingsPath: join(root, 'settings.json') });
+    await session.startSession();
+    await session.commands.get('goal').handler('Preserve custom-run ownership', session.ctx);
+    const before = session.entries.filter(entry => entry.customType === 'goal-contract');
+    const result = await session.dispatch('before_agent_start', { messageType: 'custom',
+      message: { customType: 'ci-notification', content: 'CI finished', display: true }, systemPrompt: '' });
+    assert.equal(result, undefined, 'custom startup does not inject a Goal boundary');
+    assert.deepEqual(session.entries.filter(entry => entry.customType === 'goal-contract'), before);
+  });
+
   it('REQ-AGENT-178: unreviewed Plan command layout fails without partial writes', (t) => {
     const root = mkdtempSync(join(tmpdir(), 'pi-plan-policy-drift-'));
     t.after(() => rmSync(root, { recursive: true, force: true }));
@@ -741,12 +819,99 @@ describe('REQ-AGENT-111: pi-goal review control and continuation patch', () => {
     await harness.dispatch('session_shutdown');
   });
 
-  it('REQ-AGENT-152 AC5 / REQ-AGENT-178: candidate Plan retains published user intent through custom turns but invalidates it on a user prompt', async (t) => {
+  it('REQ-AGENT-178: Plan 0.59.4 prepares both entrypoints with registered-tool policy and parsed shell authorization', async t => {
+    const root = mkdtempSync(join(tmpdir(), 'pi-plan-0594-'));
+    t.after(() => rmSync(root, { recursive: true, force: true }));
+    extractPackage(join(FIXTURES_DIRECTORY, 'narumitw-pi-plan-mode-0.59.2.tgz'),
+      'sha512-M91Q8doVHnpXziOnoYV9npEmGghQ0rzAPIGrqwR7SP7L2z6ydGH7Xh3nEoowbZ8DqNCKAluptfQvhHAirtkTyw==', root);
+    restoreCandidateSources(root);
+    const paths = ['src/plan-mode.ts', 'dist/index.ts', 'src/tool-policy.ts', 'dist/chunks/chunk-MJV6WNHK.ts'];
+    // Qualify the native no-op before applying any compatibility preparation.
+    for (const [index, entry] of paths.slice(0, 2).entries()) {
+      const native = await bundleFixture(join(root, entry), join(root, `native-${index}.mjs`));
+      const harness = createExtensionHarness();
+      native(harness.api, { settingsPath: join(root, `native-settings-${index}.json`) });
+      await harness.startSession();
+      harness.api.setActiveTools(harness.tools.map(tool => tool.name));
+      await harness.commands.get('plan').handler('start', harness.ctx);
+      await harness.runContext();
+      const plan = '# Upstream intent\n\nThe native boundary preserves this plan.';
+      await harness.tools.find(tool => tool.name === 'plan_mode_complete')
+        .execute('native-publish', { plan }, undefined, undefined, harness.ctx);
+      const current = () => harness.entries.filter(entry => entry.customType === 'plan-mode-state').at(-1).data;
+      await harness.dispatch('before_agent_start', { messageType: 'custom',
+        message: { customType: 'ci-notification', content: 'CI finished', display: true }, systemPrompt: '' });
+      assert.equal(current().latestPlan, plan);
+      assert.equal(current().awaitingAction, true);
+      await harness.dispatch('before_agent_start', { messageType: 'user', prompt: 'Revise the plan', systemPrompt: '' });
+      assert.equal(current().latestPlan, undefined);
+      assert.equal(current().awaitingAction, false);
+      await harness.commands.get('plan').handler('exit', harness.ctx);
+      await harness.dispatch('session_shutdown');
+    }
+    patchPiPlanModeDirectory('0.59.4', root);
+    const prepared = paths.map(path => readFileSync(join(root, path)));
+    patchPiPlanModeDirectory('0.59.4', root);
+    assert.deepEqual(paths.map(path => readFileSync(join(root, path))), prepared,
+      'repeat preparation preserves all generated artifacts');
+    for (const [index, entry] of ['src/plan-mode.ts', 'dist/index.ts'].entries()) {
+      const extension = await bundleFixture(join(root, entry), join(root, `plan-${index}.mjs`));
+      const harness = createExtensionHarness();
+      extension(harness.api, { settingsPath: join(root, `settings-${index}.json`) });
+      await harness.startSession();
+      harness.api.setActiveTools(['read']);
+      await harness.commands.get('plan').handler('start', harness.ctx);
+      await harness.runContext();
+      const state = harness.entries.filter(entry => entry.customType === 'plan-mode-state').at(-1).data;
+      assert.equal(state.enabled, true);
+      assert.deepEqual(state.workflowToolPolicy.allowedNames, ['bash', 'read']);
+      assert.deepEqual(harness.activeTools(), ['read'], 'policy capture does not expand ordinary provider exposure');
+      assert.equal(await harness.dispatch('tool_call', { toolName: 'read', input: { path: 'README.md' } }), undefined);
+      assert.equal((await harness.dispatch('tool_call', { toolName: 'edit', input: {} }))?.block, true);
+      for (const plan of ['', '   ', 42]) {
+        await assert.rejects(() => harness.tools.find(tool => tool.name === 'plan_mode_complete')
+          .execute('invalid', { plan }, undefined, undefined, harness.ctx));
+      }
+      const plan = '# Native custom-turn boundary\n\nRetain the published user intent.';
+      const complete = harness.tools.find(tool => tool.name === 'plan_mode_complete');
+      await complete.execute('publish', { plan }, undefined, undefined, harness.ctx);
+      const current = () => harness.entries.filter(entry => entry.customType === 'plan-mode-state').at(-1).data;
+      await harness.dispatch('before_agent_start', { messageType: 'custom',
+        message: { customType: 'ci-notification', content: 'CI finished', display: true }, systemPrompt: '' });
+      assert.equal(current().latestPlan, plan, 'upstream custom-turn boundary needs no second patch');
+      assert.equal(current().awaitingAction, true);
+      await harness.dispatch('before_agent_start', { messageType: 'user', prompt: 'Revise the plan', systemPrompt: '' });
+      assert.equal(current().latestPlan, undefined);
+      assert.equal(current().awaitingAction, false);
+      await harness.commands.get('plan').handler('exit', harness.ctx);
+      await harness.dispatch('session_shutdown');
+    }
+    for (const [index, path] of paths.slice(2).entries()) {
+      const policy = await bundleFixture(join(root, path), join(root, `parsed-${index}.mjs`), 'namespace');
+      for (const check of [policy.findBlockedCommandSegment, policy.findBlockedPowerShellCommandSegment]) {
+        const configured = { git: ['status', 'diff'], gh: ['pr view'] };
+        assert.equal(check('git status', configured), undefined);
+        for (const command of ['git status; touch sentinel', 'git status && rm sentinel', 'git status > sentinel',
+          'git status $(touch sentinel)', 'git status | sh', 'git diff --output=sentinel', 'gh pr view --json title --web']) {
+          assert.notEqual(check(command, configured), undefined, command);
+        }
+      }
+    }
+    writeFileSync(join(root, paths[0]), Buffer.concat([prepared[0], Buffer.from('\n// drift after preparation\n')]));
+    const drifted = paths.map(path => readFileSync(join(root, path)));
+    assert.throws(() => patchPiPlanModeDirectory('0.59.4', root), /source digest/);
+    assert.deepEqual(paths.map(path => readFileSync(join(root, path))), drifted,
+      'repeat preparation rejects drift before any artifact write');
+  });
+
+  for (const version of ['0.59.2', '0.59.4']) {
+  it(`REQ-AGENT-152 AC5 / REQ-AGENT-178: candidate Plan ${version} retains published user intent through custom turns but invalidates it on a user prompt`, async (t) => {
     const root = mkdtempSync(join(tmpdir(), 'pi-plan-custom-turn-'));
     t.after(() => rmSync(root, { recursive: true, force: true }));
     extractPackage(join(FIXTURES_DIRECTORY, 'narumitw-pi-plan-mode-0.59.2.tgz'),
       'sha512-M91Q8doVHnpXziOnoYV9npEmGghQ0rzAPIGrqwR7SP7L2z6ydGH7Xh3nEoowbZ8DqNCKAluptfQvhHAirtkTyw==', root);
-    patchPiPlanModeDirectory('0.59.2', root);
+    if (version === '0.59.4') restoreCandidateSources(root);
+    patchPiPlanModeDirectory(version, root);
     const extension = await bundleFixture(join(root, 'dist/index.ts'), join(root, 'plan.mjs'));
     const harness = createExtensionHarness();
     extension(harness.api, { settingsPath: join(root, 'settings.json') });
@@ -771,18 +936,21 @@ describe('REQ-AGENT-111: pi-goal review control and continuation patch', () => {
     await harness.dispatch('session_shutdown');
   });
 
-  it('REQ-AGENT-178: candidate Plan chunk drift rejects the complete transform without partial writes', (t) => {
+  it(`REQ-AGENT-178: candidate Plan ${version} chunk drift rejects the complete transform without partial writes`, (t) => {
     const root = mkdtempSync(join(tmpdir(), 'pi-plan-candidate-drift-'));
     t.after(() => rmSync(root, { recursive: true, force: true }));
     extractPackage(join(FIXTURES_DIRECTORY, 'narumitw-pi-plan-mode-0.59.2.tgz'),
       'sha512-M91Q8doVHnpXziOnoYV9npEmGghQ0rzAPIGrqwR7SP7L2z6ydGH7Xh3nEoowbZ8DqNCKAluptfQvhHAirtkTyw==', root);
+    if (version === '0.59.4') restoreCandidateSources(root);
     const paths = ['package.json', 'src/plan-mode.ts', 'dist/index.ts', 'src/tool-policy.ts', 'dist/chunks/chunk-MJV6WNHK.ts'];
     const chunk = join(root, paths.at(-1));
     writeFileSync(chunk, readFileSync(chunk, 'utf8').replace('if (matchesConfiguredSafeSubcommand(segment, safeSubcommands)) return true;', 'return true;'));
     const before = paths.map(path => readFileSync(join(root, path), 'utf8'));
-    assert.throws(() => patchPiPlanModeDirectory('0.59.2', root), /command policy anchors/);
+    assert.throws(() => patchPiPlanModeDirectory(version, root), /command policy anchors|source digest/);
     assert.deepEqual(paths.map(path => readFileSync(join(root, path), 'utf8')), before);
   });
+
+  }
 
   it('REQ-AGENT-111: latest Goal drift fails before writing any candidate package file', (t) => {
     for (const kind of ['version', 'entrypoint', 'runtime']) {
@@ -821,6 +989,11 @@ describe('REQ-AGENT-111: pi-goal review control and continuation patch', () => {
       goalIntegrity: 'sha512-ba165WkOdBEQNYgjTa2MHgRtOh/hTLveObPzdoE29FOrfktymcBlayEHoXd9Jjw44VQ8bX7cq6V57zp0rJLVgQ==',
       planArchive: join(FIXTURES_DIRECTORY, 'narumitw-pi-plan-mode-0.58.3.tgz'),
       planIntegrity: 'sha512-mC2dOLXrsLedLH4VrX0t3wwdXrr9AccoI8SgvYYn0KewaR6hZ0a6fIyLnReVlnJ4zNcjhdwBKWujrM49EW4zsg==' },
+    { goal: '0.54.13', plan: '0.59.2',
+      goalArchive: join(FIXTURES_DIRECTORY, 'pi-goal-0.54.13-source.json'),
+      goalIntegrity: 'sha512-g770YeTpnO6MPNpldrBA+MQXNE1hXEeSPmdgBS1wqTZKAMhd3emrPFSmivg7wa3ABcfmfE24plrSvzVgfnez5w==',
+      planArchive: join(FIXTURES_DIRECTORY, 'narumitw-pi-plan-mode-0.59.2.tgz'),
+      planIntegrity: 'sha512-M91Q8doVHnpXziOnoYV9npEmGghQ0rzAPIGrqwR7SP7L2z6ydGH7Xh3nEoowbZ8DqNCKAluptfQvhHAirtkTyw==' },
     { goal: '0.54.11', plan: '0.59.2',
       goalArchive: join(FIXTURES_DIRECTORY, 'pi-goal-0.54.11.tgz'),
       goalIntegrity: 'sha512-dq19XrMMUYto1q6FDFGxXVbLIu3ZLNpPCw+/Oe1XxIXRVx7FGTp8iVT/jPT5egXjrb6e7jSiJGw5Z77ZGtw3YA==',
@@ -969,7 +1142,7 @@ describe('REQ-AGENT-111: pi-goal review control and continuation patch', () => {
     assert.equal(response?.ok, true);
     assert.equal(response?.status, 'active');
     assert.notEqual(response?.goalId, pausedGoalId);
-    if (versions.goal === '0.54.8' || versions.goal === '0.54.11') {
+    if (versions.goal === '0.54.8' || versions.goal === '0.54.11' || versions.goal === '0.54.13') {
       const complete = harness.tools.find((tool) => tool.name === 'goal_complete');
       await harness.dispatch('before_agent_start', { prompt: 'Continue the resumed objective', systemPrompt: '' });
       await harness.dispatch('agent_start');

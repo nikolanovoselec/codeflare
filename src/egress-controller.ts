@@ -1,6 +1,7 @@
 /**
  * EgressController — enterprise-mode strict Gateway egress for non-LLM/non-GitHub
- * hosts (REQ-ENTERPRISE-016).
+ * hosts (REQ-ENTERPRISE-016). Activity-bound native Dispatcher inference also uses
+ * this strict transport; its parent owns admission, private auth and raw receipts.
  *
  * A WorkerEntrypoint the container DO wires as a catch-all (`interceptOutboundHttps('*',
  * controller)`) when strict Gateway egress is ON; the DO passes the account, bound bucket,
@@ -17,10 +18,10 @@
  *     that bucket's Worker-held scoped R2 key (aws4fetch,
  *     reusing the request's `x-amz-content-sha256` so the body streams through unbuffered
  *     while trusted SSE-C headers are applied) — so neither R2 nor encryption keys enter the container.
- *   - own account-scoped CF API: direct passthrough (dormant fallback — `api.cloudflare.com`
- *     Browser Rendering is normally claimed by the per-host CloudflareBrowserInterceptor
- *     (REQ-BROWSER-008), which strips the placeholder + injects the real token and TAKES
- *     PRECEDENCE over this catch-all, so it does not reach here).
+ *   - own non-Browser account-scoped CF API: direct transparent passthrough.
+ * Browser REST/CDP uses Gateway even in this fallback; namespace recognition never injects
+ * administrator credentials. The per-host CloudflareBrowserInterceptor normally takes
+ * precedence and owns configured-account Browser token injection (REQ-BROWSER-008).
  *
  * WebSocket upgrades are proxied by BRIDGING a fresh `WebSocketPair` to
  * the upstream socket (accept both ends, forward frames/close/error) and returning a 101
@@ -57,6 +58,7 @@ import {
 import { createLogger } from './lib/logger';
 import { forwardPersonalPi, type PersonalPiProps } from './lib/personal-pi-forwarding';
 import { interceptedGithubHosts } from './github-interceptor';
+import { forwardMcpPortal, type McpPortalInterceptorProps } from './mcp-portal-interceptor';
 import { decideOperatorNetwork, decideOperatorStorage, type OperatorStorageOperation } from './operators/interception-policy';
 import type { OperatorPolicy } from './operators/policy';
 import { prepareJwtStampedRequest, type JwtStampingAuthority, type JwtStampingPolicy } from './operators/jwt-stamping';
@@ -64,10 +66,12 @@ import { prepareJwtStampedRequest, type JwtStampingAuthority, type JwtStampingPo
 const logger = createLogger('egress-controller');
 const OPERATOR_SYNC_OPERATION_HEADER = 'x-codeflare-operator-sync-operation';
 
-/** Props the container DO passes at wiring time (resolved once, never per-request). */
+/** Trusted props the container DO or Activity passes when binding this entrypoint. */
 interface EgressProps extends PersonalPiProps {
   /** This deployment's own Cloudflare account id; selects the account-scoped exemption. */
   accountId?: string;
+  /** Parent-bound portal owner/configuration, independent of R2 security overrides. */
+  mcpPortal?: McpPortalInterceptorProps;
   /** User bucket bound to this container session. */
   bucket?: string;
   /** Bucket-scoped credentials held by the DO and passed only to this Worker entrypoint. */
@@ -192,6 +196,9 @@ export class EgressController extends WorkerEntrypoint<Env> {
 
     const personal = await forwardPersonalPi(request, this.env, props);
     if (personal) return personal;
+    if (props.operatorDispatcherNative) {
+      return jsonError(403, 'PERSONAL_PI_DENIED', 'Native Pi provider access is not permitted');
+    }
     const url = new URL(request.url);
     if (isDisallowedEgressHost(url.hostname)) {
       // Reject SSRF targets BEFORE any upstream send.
@@ -308,11 +315,21 @@ export class EgressController extends WorkerEntrypoint<Env> {
       catch { return jsonError(403, 'JWT_STAMPING_AUTHORITY_UNAVAILABLE', 'Current human Access authority is required'); }
     }
 
+    // A configured portal can reach the strict catch-all. Delegate the entire host
+    // (including wrong paths/queries) after existing admission gates to the exact/
+    // current-config owner boundary; caller headers and R2 credentials grant nothing.
+    if (props.mcpPortal?.portals.some(portal => new URL(portal.url).hostname === url.hostname)) {
+      return forwardMcpPortal(effectiveRequest, this.env, {
+        ...props.mcpPortal,
+        strict: true,
+        operator: !!(props.mcpPortal.operator || props.operatorPolicy || props.operatorSync),
+      });
+    }
+
     // WebSocket upgrades through the catch-all: bridge a fresh WebSocketPair to the upstream
-    // socket. Forward the original request VERBATIM (transparent proxy). Browser-run's CDP WS
-    // (api.cloudflare.com /browser-rendering/devtools/...) does NOT arrive here — it is claimed
-    // by the per-host CloudflareBrowserInterceptor (REQ-BROWSER-008). Returning the upstream
-    // response as-is does not hand the socket back to the container, so we accept+forward both ends.
+    // socket. Browser CDP normally uses the per-host handler, but if it reaches this fallback
+    // the same selector still requires Gateway. Returning the upstream response as-is does
+    // not hand the socket back to the container, so we accept+forward both ends.
     if (effectiveRequest.headers.get('Upgrade')?.toLowerCase() === 'websocket') {
       const t0 = Date.now();
       try {
@@ -369,6 +386,7 @@ export class EgressController extends WorkerEntrypoint<Env> {
       method: effectiveRequest.method,
       headers,
       body: hasBody ? effectiveRequest.body : undefined,
+      signal: effectiveRequest.signal,
       redirect: 'manual',
     });
 
@@ -395,7 +413,7 @@ export class EgressController extends WorkerEntrypoint<Env> {
         upstream = await fetch(signed);
         resigned = true;
       } else {
-        // Transparent: account-scoped CF API → direct (caller auth preserved);
+        // Transparent: non-Browser account-scoped CF API → direct (caller auth preserved);
         // everything else → env.EGRESS (fail-closed 503 when the binding is unbound).
         upstream = await controllerFetch(this.env, forward, accountId);
       }

@@ -64,6 +64,7 @@ export interface PublicExtractionRequest {
 }
 
 export interface ExtractionTranscriptFacts {
+  stopped?: true;
   launchCount: number;
   giveup: boolean;
   attemptCount: number;
@@ -258,8 +259,23 @@ function hasExactMarker(prompt: unknown, requestId: string): boolean {
   return typeof prompt === "string" && prompt.split(/\r?\n/).includes(markerLine(requestId));
 }
 
-function publicRequestMatches(value: unknown, requestId: string, job: ExtractionJob): boolean {
+export function buildPublicTranscriptTrimRequest(input: { requestId: string; promptFile: string; varsFile: string }) {
+  return {
+    subagent_type: "transcript-trim" as const,
+    description: "Maintain active session transcript",
+    prompt: [markerLine(input.requestId), `PROMPT_FILE=${input.promptFile}`, `VARS_FILE=${input.varsFile}`,
+      "Read the scoped maintenance contract. Run the authorized trim through activation and verified readback; report its persisted result."].join("\n"),
+    run_in_background: true as const,
+    inherit_context: false as const,
+  };
+}
+
+function publicRequestMatches(value: unknown, requestId: string, job: ExtractionJob | "transcript-trim"): boolean {
   const request = record(value);
+  if (job === "transcript-trim") return request?.subagent_type === job
+    && request.run_in_background === true && request.inherit_context === false
+    && request.model === undefined && request.thinking === undefined && request.max_turns === undefined
+    && hasExactMarker(request.prompt, requestId);
   return request?.subagent_type === job
     && request.run_in_background === true
     && request.inherit_context === false
@@ -305,9 +321,9 @@ function isCompletedNotification(status: string | undefined): boolean {
 export function extractionTranscriptFacts(input: {
   entries: any[];
   requestId: string;
-  job: ExtractionJob;
+  job: ExtractionJob | "transcript-trim";
   now: number;
-  successQualifies: () => boolean;
+  successQualifies: (attempt?: { latest: boolean }) => boolean;
 }): ExtractionTranscriptFacts {
   const launchedRequests = input.entries.flatMap((entry) => launchItems(entry).filter((item) => (
     item?.requestId === input.requestId
@@ -342,7 +358,7 @@ export function extractionTranscriptFacts(input: {
   let running = false;
   for (const call of calls) {
     const status = notifications.get(call.id);
-    if (isCompletedNotification(status) && input.successQualifies()) succeeded = true;
+    if (isCompletedNotification(status) && input.successQualifies({ latest: call === calls.at(-1) })) succeeded = true;
     if (status === undefined) {
       const timestamp = Date.parse(String(call.timestamp ?? ""));
       if (!Number.isFinite(timestamp) || input.now - timestamp < EXTRACTION_RUNNING_TTL_MS) running = true;
@@ -356,7 +372,37 @@ export function extractionTranscriptFacts(input: {
       : calls.length > 0
         ? "failed"
         : "missing";
-  return { launchCount, giveup, attemptCount: calls.length, pendingLaunch, state };
+  const stopped = calls.some(call => /^(Stopped(?: \\(user request\\))?|Aborted|Cancelled|Canceled)$/i.test(notifications.get(call.id) ?? ""));
+  return { launchCount, giveup, attemptCount: calls.length, pendingLaunch, state, ...(stopped ? { stopped: true as const } : {}) };
+}
+
+/** Trim-only recovery: a later completed turn proves delivery was consumed. A
+ * marker-associated native call still in flight must never be duplicated, even
+ * when its altered arguments cannot qualify as the authorized exact request. */
+export function transcriptTrimLaunchNeedsRecovery(entries: any[], requestId: string, now: number): boolean {
+  let delivered = -1;
+  for (let index = entries.length - 1; index >= 0; index--) {
+    if (launchItems(entries[index]).some(item => item?.requestId === requestId
+      && item?.jobType === "transcript-trim" && publicRequestMatches(item.request, requestId, "transcript-trim"))) {
+      delivered = index;
+      break;
+    }
+  }
+  if (delivered < 0 || !entries.slice(delivered + 1).some(entry => entry?.type === "message"
+    && entry.message?.role === "assistant" && entry.message.stopReason === "stop"
+    && Array.isArray(entry.message.content) && !entry.message.content.some((block: any) => block?.type === "toolCall"))) return false;
+  const notifications = new Map<string, string>();
+  for (const entry of entries) {
+    const notification = notificationFacts(entry);
+    if (notification) notifications.set(notification.toolUseId, notification.status);
+  }
+  return !entries.some(entry => toolCallParts(entry).some(call => {
+    if (call.name !== "subagent" || !hasExactMarker(call.arguments?.prompt, requestId)) return false;
+    const status = notifications.get(call.id);
+    if (isCompletedNotification(status) || ["Failed", "Aborted", "Cancelled", "Canceled", "Error", "Timed out"].includes(status ?? "")) return false;
+    const timestamp = Date.parse(String(entry.timestamp ?? ""));
+    return !Number.isFinite(timestamp) || now - timestamp < EXTRACTION_RUNNING_TTL_MS;
+  }));
 }
 
 export function extractionDue(facts: ExtractionTranscriptFacts): ExtractionDue {

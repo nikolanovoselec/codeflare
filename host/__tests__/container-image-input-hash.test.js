@@ -79,16 +79,26 @@ describe('deployment container image input hash', () => {
       'COPY entrypoint.sh /entrypoint.sh',
       'COPY transcript-retention.mjs /transcript-retention.mjs',
       'COPY scripts/compact-session-captures.mjs /opt/codeflare/scripts/compact-session-captures.mjs',
+      'COPY scripts/rclone-conflict-cleanup.sh scripts/merge-pi-mcp-portals.mjs scripts/qualify-pi-mcp.mjs /opt/codeflare/scripts/',
+      'COPY host/__tests__/pi-mcp-stock.test.js /opt/codeflare/qualification/',
+      'COPY host/__fixtures__/pi-mcp-extension-server.mjs /opt/codeflare/qualification/',
       'COPY --chmod=0555 scripts/restore-operator-attachments.mjs scripts/materialize-operator-inputs.mjs /opt/codeflare/scripts/',
       '',
     ].join('\n'));
     for (const path of [
       '.github/workflows/container-image.yml',
+      '.github/workflow-tool-pins.json',
+      'scripts/ci/workflow-tool-pins.mjs',
       '.dockerignore',
       '.trivyignore',
       'entrypoint.sh',
       'transcript-retention.mjs',
       'scripts/compact-session-captures.mjs',
+      'scripts/rclone-conflict-cleanup.sh',
+      'scripts/merge-pi-mcp-portals.mjs',
+      'scripts/qualify-pi-mcp.mjs',
+      'host/__tests__/pi-mcp-stock.test.js',
+      'host/__fixtures__/pi-mcp-extension-server.mjs',
       'host/package.json',
       'host/package-lock.json',
       'host/tsconfig.json',
@@ -104,6 +114,7 @@ describe('deployment container image input hash', () => {
       'scripts/patch-impeccable-engine.py',
       'scripts/ci/impeccable-engine.py',
       'scripts/patch-rclone-bisync.py',
+      'scripts/prepare-rclone-s3-fixture.py',
       'scripts/ci/rclone-bookkeeping_test.go',
       'scripts/patch-context-mode-bundles.mjs',
       'scripts/patch-chrome-devtools-timeouts.mjs',
@@ -130,6 +141,7 @@ describe('deployment container image input hash', () => {
         readFileSync(join(ROOT, 'scripts/ci', file), 'utf8'),
       );
     }
+    write('.github/workflow-tool-pins.json', JSON.stringify({ trivy: { version: '0.70.0' } }));
     commit('fixture');
     const baseline = imageHashResult();
     assert.match(baseline.tag ?? '', /^in-[a-f0-9]{16}$/);
@@ -170,13 +182,32 @@ describe('deployment container image input hash', () => {
     const materializerTag = imageHashResult().tag;
     assert.notEqual(materializerTag, compactorTag);
 
+    write('scripts/rclone-conflict-cleanup.sh', 'bounded cleanup change\n');
+    commit('conflict cleanup change');
+    const cleanupTag = imageHashResult().tag;
+    assert.notEqual(cleanupTag, materializerTag);
+
+    write('scripts/merge-pi-mcp-portals.mjs', 'portal configuration change\n');
+    commit('portal configuration change');
+    const portalTag = imageHashResult().tag;
+    assert.notEqual(portalTag, cleanupTag);
+
+    let qualifierTag = portalTag;
+    for (const file of ['scripts/qualify-pi-mcp.mjs', 'host/__tests__/pi-mcp-stock.test.js', 'host/__fixtures__/pi-mcp-extension-server.mjs']) {
+      write(file, 'image qualification change\n');
+      commit('image qualification change');
+      const changed = imageHashResult().tag;
+      assert.notEqual(changed, qualifierTag, `copied qualification input ${file} must invalidate reuse`);
+      qualifierTag = changed;
+    }
+
     write(
       'scripts/ci/coding-agent-selection-core.mjs',
       `${readFileSync(join(root, 'scripts/ci/coding-agent-selection-core.mjs'), 'utf8')}\n// selection core change\n`,
     );
     commit('selection core change');
     const selectionCoreTag = imageHashResult().tag;
-    assert.notEqual(selectionCoreTag, materializerTag);
+    assert.notEqual(selectionCoreTag, qualifierTag);
 
     write('scripts/verify-pi-lockstep.mjs', 'image script change\n');
     commit('image script change');
@@ -212,7 +243,7 @@ describe('deployment container image input hash', () => {
     commit('deployment workflow change');
     assert.notEqual(imageHashResult().tag, selectedPruningTag);
 
-    for (const path of ['scripts/patch-impeccable-engine.py', 'scripts/ci/impeccable-engine.py']) {
+    for (const path of ['scripts/patch-impeccable-engine.py', 'scripts/ci/impeccable-engine.py', 'scripts/prepare-rclone-s3-fixture.py']) {
       const before = imageHashResult().tag;
       write(path, 'native engine input change\n');
       commit(`change ${path}`);
@@ -232,6 +263,17 @@ describe('deployment container image input hash', () => {
       assert.notEqual(imageHashResult().tag, before,
         'changing either questionnaire policy input must invalidate image reuse');
     }
+
+    // Scanner selection and its interpretation are part of the retained qualification identity.
+    const beforeScanner = imageHashResult().tag;
+    write('.github/workflow-tool-pins.json', JSON.stringify({ trivy: { version: '0.70.1' } }));
+    commit('scanner pin change');
+    const scannerTag = imageHashResult().tag;
+    assert.notEqual(scannerTag, beforeScanner, 'a new scanner cannot reuse qualification from the previous scanner');
+    assert.equal(imageHashResult().noReuse, '0', 'known scanner changes use the normal qualified image path');
+    write('scripts/ci/workflow-tool-pins.mjs', 'export const scannerPinContract = 2;\n');
+    commit('scanner interpretation change');
+    assert.notEqual(imageHashResult().tag, scannerTag, 'scanner interpretation changes invalidate retained qualification');
 
     write('Dockerfile', `${readFileSync(join(root, 'Dockerfile'), 'utf8')}COPY host/__tests__/ /tmp/tests/\n`);
     commit('uncovered copy source');

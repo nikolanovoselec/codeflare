@@ -100,7 +100,7 @@ beforeEach(() => {
     result: { repository: 'acme/updates', results: [{ pullRequest: 42, decision: 'DO_NOT_MERGE', outcome: 'NOT_MERGED',
       comment: 'Compatibility evidence is unavailable.\n\n' + 'Readable assessment. '.repeat(90) }] } };
   server.preview = { name: 'Renovate Dispatcher', version: 'v0.1.27', guidedAssessment: true,
-    guidedMode: 'repository', configuredRepository: 'acme/updates' };
+    guidedMode: 'repository', requiresSourceHost: false, configuredRepository: 'acme/updates' };
   server.configuration = { renovate: { repository: 'acme/updates', automaticRuns: false, repetitionIntervalSeconds: 3600 }, retained: 'unchanged' };
   server.management = { installations: [{ id: 'install-1', revision: 7, enabled: true,
     policy: { capabilities: ['fetch', 'inference'], resourceProfileId: null }, configuration: server.configuration }] };
@@ -492,7 +492,7 @@ describe('REQ-OPERATOR-086: dropdown Runs and Installed workspace', () => {
 
   it('AC8: preserves the supported legacy read-only PR form instead of applying a repository journey schema', async () => {
     server.installations = [installation({ guidedMode: 'legacy-pull-request', automaticRuns: null })];
-    server.preview = { name: 'Renovate Dispatcher', version: 'legacy', guidedAssessment: true, guidedMode: 'legacy-pull-request' };
+    server.preview = { name: 'Renovate Dispatcher', version: 'legacy', guidedAssessment: true, guidedMode: 'legacy-pull-request', requiresSourceHost: false };
     await review();
     expect(screen.getByText(/read.only.*will not merge/i)).toBeTruthy();
     await fireEvent.input(screen.getByRole('textbox', { name: 'Repository' }), { target: { value: 'acme/legacy' } });

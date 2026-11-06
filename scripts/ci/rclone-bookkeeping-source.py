@@ -12,9 +12,9 @@ import tarfile
 import tempfile
 import urllib.request
 
-VERSION = "1.73.5"
+VERSION = "1.75.2"
 ARCHIVE_URL = f"https://codeload.github.com/rclone/rclone/tar.gz/refs/tags/v{VERSION}"
-ARCHIVE_SHA256 = "e52541bc238dd434a0335f467697d7d9575529698a74aab534ad39b8649f8a49"
+ARCHIVE_SHA256 = "68afd7f68c84bd978966feae2116339aa7bf454b39c573910c462e87c3774d5a"
 MAX_ARCHIVE_BYTES = 64 * 1024 * 1024
 SOURCE_PATHS = (
     "VERSION",

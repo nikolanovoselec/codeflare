@@ -12,6 +12,9 @@ import { parse as parseUrl } from 'node:url';
 import fs from 'node:fs';
 import { spawn } from 'node:child_process';
 import { checkContainerAuth } from './auth-check.js';
+import { ownerInference, OperatorInferenceRefusal, type OperatorInferenceOwner,
+  type OperatorInferenceOwnerResolver } from './operator-inference.js';
+import { emitRaw, type RawLogContext } from './operator-raw-logging.js';
 import { getSyncStatus, getSystemMetrics, collectWorkspaceRepos, isWorkspaceInventoryReady } from './metrics.js';
 import { evaluateFinalSync } from './final-sync.js';
 import { AGENT_EVENT_LIMITS, type AgentEventDrainResult, type AgentEventKind } from './agent-events.js';
@@ -88,6 +91,8 @@ export interface RequestRouterDeps {
   openvscode: ProxyTarget;
   /** Present only for a parent-configured restricted operator session; container auth remains outermost. */
   operatorPi?: OperatorPiHttpController;
+  /** Configured owner SDK services; never supplied by an HTTP caller or a restricted Conductor profile. */
+  operatorInference?: OperatorInferenceOwner | OperatorInferenceOwnerResolver;
   /** Fixed explicit-upload service; presence also disables ordinary bisync endpoints. */
   operatorSync?: OperatorSyncHttpController;
   /** Installed only by a trusted parent configuration; no credential, command, URL or script in the request. */
@@ -200,19 +205,33 @@ function rewriteVscodeResponseHeaders(
   };
 }
 
-async function readBoundedBody(req: http.IncomingMessage, limit: number): Promise<Uint8Array> {
+async function readBoundedBody(req: http.IncomingMessage, limit: number, signal?: AbortSignal): Promise<Uint8Array> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
     let size = 0;
     let oversized = false;
-    req.on('data', (chunk: Buffer) => {
+    const cleanup = () => {
+      req.removeListener('data', data);
+      req.removeListener('end', end);
+      req.removeListener('aborted', aborted);
+      // Keep the one-shot error listener: an aborted IncomingMessage can emit
+      // its connection error after 'aborted', even when this read has settled.
+      signal?.removeEventListener('abort', aborted);
+    };
+    const data = (chunk: Buffer) => {
       size += chunk.length;
       if (size > limit) { oversized = true; chunks.length = 0; }
       else if (!oversized) chunks.push(chunk);
-    });
-    req.on('end', () => resolve(oversized ? new Uint8Array(limit + 1) : Buffer.concat(chunks)));
-    req.on('aborted', () => reject(new Error('Request aborted')));
-    req.on('error', reject);
+    };
+    const end = () => { cleanup(); resolve(oversized ? new Uint8Array(limit + 1) : Buffer.concat(chunks)); };
+    const error = (cause: Error) => { cleanup(); reject(cause); };
+    const aborted = () => { error(new Error('Request aborted')); req.resume(); };
+    req.on('data', data);
+    req.once('end', end);
+    req.once('aborted', aborted);
+    req.once('error', error);
+    signal?.addEventListener('abort', aborted, { once: true });
+    if (signal?.aborted) aborted();
   });
 }
 
@@ -269,6 +288,67 @@ export function createRequestHandler(deps: RequestRouterDeps): (req: http.Incomi
     if (!authOutcome.allowed) {
       res.writeHead(authOutcome.status, { 'Content-Type': 'application/json' });
       res.end(authOutcome.body);
+      return;
+    }
+
+    if (deps.operatorInference && (pathname === '/operator-inference' || pathname === '/operator-inference/profile')) {
+      const controller = new AbortController();
+      const cancelled = () => controller.abort();
+      req.once('aborted', cancelled);
+      res.once('close', cancelled);
+      let loggingContext: RawLogContext | undefined;
+      try {
+        let response: { status: number; body: string };
+        if (method !== 'POST') {
+          req.resume();
+          response = { status: 405, body: JSON.stringify({ error: 'Method not allowed' }) };
+        } else {
+          const configured = deps.operatorInference;
+          const activity = req.headers['x-codeflare-operator-activity'];
+          const generation = req.headers['x-codeflare-operator-generation'];
+          let owner: OperatorInferenceOwner;
+          let bytes: Uint8Array;
+          if (typeof configured === 'function' && (activity !== undefined || generation !== undefined)) {
+            // The parent sends lookup identifiers separately so a finite configured
+            // transcript allowance is not reduced to the metadata admission limit.
+            if (typeof activity !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(activity)
+              || typeof generation !== 'string' || !/^[1-9][0-9]{0,15}$/.test(generation)
+              || !Number.isSafeInteger(Number(generation))) throw new OperatorInferenceRefusal(400);
+            const decision = req.headers['x-codeflare-operator-logging'];
+            if (decision === 'on' || decision === 'off') loggingContext = {
+              activityId: activity, generation: Number(generation), loggingEnabled: decision === 'on',
+              credentials: process.env.CONTAINER_AUTH_TOKEN ? [process.env.CONTAINER_AUTH_TOKEN] : [],
+            };
+            owner = await configured(Buffer.from(JSON.stringify({ activityId: activity, generation: Number(generation) })), controller.signal, loggingContext);
+            bytes = await readBoundedBody(req, owner.maxRequestBytes, AbortSignal.any([controller.signal,
+              AbortSignal.timeout(Math.max(1, Math.min(2_147_483_647, owner.deadline - Date.now())))]));
+          } else {
+            const dynamic = typeof configured === 'function';
+            const limit = dynamic ? 64 * 1024 : configured.maxRequestBytes;
+            const readMs = dynamic ? 10_000 : Math.max(1, Math.min(2_147_483_647, configured.deadline - Date.now()));
+            bytes = await readBoundedBody(req, limit, AbortSignal.any([controller.signal, AbortSignal.timeout(readMs)]));
+            if (bytes.byteLength > limit) throw new OperatorInferenceRefusal(413);
+            owner = dynamic ? await configured(bytes, controller.signal) : configured;
+          }
+          emitRaw(loggingContext, 'owner-inference-request', () => ({ profile: pathname.endsWith('/profile'),
+            body: new TextDecoder().decode(bytes) }));
+          response = await ownerInference(owner, pathname.endsWith('/profile'), bytes, controller.signal, loggingContext);
+        }
+        if (!res.destroyed) {
+          res.writeHead(response.status, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+          res.end(response.body);
+        }
+      } catch (error) {
+        emitRaw(loggingContext, 'owner-inference-failed', () => error);
+        if (!res.destroyed) {
+          res.writeHead(error instanceof OperatorInferenceRefusal ? error.status : 503,
+            { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+          res.end(JSON.stringify({ error: 'Configured inference unavailable' }));
+        }
+      } finally {
+        req.removeListener('aborted', cancelled);
+        res.removeListener('close', cancelled);
+      }
       return;
     }
 

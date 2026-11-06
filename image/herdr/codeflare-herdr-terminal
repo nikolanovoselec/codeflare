@@ -212,7 +212,10 @@ bootstrap() {
             run_agent "$pane" "$command" codex codex ;;
         'opencode') run_agent "$pane" "$command" opencode opencode ;;
         'copilot'|'copilot --yolo') run_agent "$pane" "$command" copilot copilot ;;
-        'pi') run_agent "$pane" 'pi --tui-mode fullscreen' pi pi ;;
+        'pi')
+            local pi_command='pi --tui-mode fullscreen'
+            run_agent "$pane" "$pi_command" pi pi
+            ;;
         'agy'|'agy --dangerously-skip-permissions') run_agent "$pane" "$command" antigravity-cli agy ;;
         'htop'|'yazi'|'lazygit') run_process "$pane" "$command" ;;
         *) fail "unsupported terminal command" ;;

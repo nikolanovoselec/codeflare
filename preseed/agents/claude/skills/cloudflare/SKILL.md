@@ -24,6 +24,12 @@ Fetch the **latest** information before citing specific numbers, API signatures,
 
 When a reference file and the docs disagree, **trust the docs**. This is especially important for: numeric limits, pricing tiers, type signatures, and configuration options.
 
+## CLI and access routing
+
+Preserve the project's existing CLI and pinned versions. **Existing Codeflare Wrangler projects stay on Wrangler**; do not migrate, install another CLI, or add `cloudflare.config.ts` during unrelated work. Upstream now documents Cloudflare CLI (`cf`) for new or already-`cf` projects: consult [cf agent guidance](https://developers.cloudflare.com/cf/agents/index.md) and the [Wrangler-to-cf reference](https://developers.cloudflare.com/cf/wrangler/reference/index.md) rather than translating commands from memory. This is product guidance, not authorization to install, migrate, or deploy; keep `cloudflare-stack` and `ship` as the project/deployment entry points.
+
+CLI guidance never overrides Codeflare's managed access: use `curl -H 'Authorization: Bearer CF_TOKEN' https://api.cloudflare.com/...` for Cloudflare API requests and the configured Gateway client/URL for AI Gateway. Placeholder tokens are intentional; do not search for real secrets, run login flows, or bypass managed authentication. Preserve least privilege, tenant isolation, and explicit user authorization for destructive, production, billing, credential, and user-data actions. Recommending a product does not authorize provisioning it or switching a backend.
+
 ## Quick Decision Trees
 
 ### "I need feature flags"
@@ -41,11 +47,16 @@ Need feature flags?
 ```
 Need to run code?
 ├─ Serverless functions at the edge → workers/
-├─ Full-stack web app with Git deploys → pages/
+├─ New static site, SPA, or full-stack app → workers/ + static-assets/
+├─ Maintain an existing Pages deployment → pages/ (preserve unless migration requested)
+├─ Git-triggered Worker builds → Workers Builds (see live routes below)
 ├─ Stateful coordination/real-time → durable-objects/
 ├─ Long-running multi-step jobs → workflows/
 ├─ Run containers → containers/
+├─ Isolated runtime-loaded/generated code → dynamic-workers/ (check egress/bindings/limits)
+├─ Agent shell, filesystem, or Linux tools → sandbox/ (inspect existing SDK line first)
 ├─ Multi-tenant (customers deploy code) → workers-for-platforms/
+├─ Customer domains, TLS, and origin routing → Cloudflare for SaaS (see live routes below)
 ├─ Scheduled tasks (cron) → cron-triggers/
 ├─ Lightweight edge logic (modify HTTP) → snippets/
 ├─ Process Worker execution events (logs/observability) → tail-workers/
@@ -59,14 +70,16 @@ Need storage?
 ├─ Key-value (config, sessions, cache) → kv/
 ├─ Relational SQL → d1/ (SQLite) or hyperdrive/ (existing Postgres/MySQL)
 ├─ Object/file storage (S3-compatible) → r2/
-├─ Versioned file trees (repos, build outputs, checkpoints) → artifacts/
+├─ Versioned file trees (repos, build outputs, checkpoints) → artifacts/ (confirm beta access)
 ├─ Message queue (async processing) → queues/
 ├─ Vector embeddings (AI/semantic search) → vectorize/
 ├─ Strongly-consistent per-entity state → durable-objects/ (DO storage)
 ├─ Secrets management → secrets-store/
-├─ Streaming ETL to R2 → pipelines/
-├─ Managed Apache Iceberg catalog on R2 → r2-data-catalog/
-├─ Serverless SQL analytics over Iceberg tables → r2-sql/
+├─ Streaming ETL to R2 → basin-pipelines/ (formerly Pipelines)
+├─ Managed Apache Iceberg catalog on R2 → basin-catalog/ (formerly R2 Data Catalog)
+├─ Serverless SQL analytics over Iceberg tables → basin-sql/ (formerly R2 SQL)
+├─ Durable event log with independent readers → k2/
+├─ Application response caching → Workers Cache (see live routes below)
 └─ Persistent cache (long-term retention) → cache-reserve/
 ```
 
@@ -78,7 +91,7 @@ Need AI?
 ├─ Vector database for RAG/search → vectorize/
 ├─ Build stateful AI agents → agents-sdk/
 ├─ Gateway for any AI provider (caching, routing) → ai-gateway/
-└─ AI-powered search widget → ai-search/
+└─ Managed search/answers over your content (RAG) → ai-search/
 ```
 
 ### "I need networking/connectivity"
@@ -89,6 +102,10 @@ Need networking?
 ├─ TCP/UDP proxy (non-HTTP) → spectrum/
 ├─ WebRTC TURN server → turn/
 ├─ Private network connectivity → network-interconnect/
+├─ Worker access to private services → workers-vpc/
+├─ Domain records/resolution → dns/
+├─ HTTPS/certificates → ssl/
+├─ Origin health checks/failover → load-balancing/
 ├─ Optimize routing → argo-smart-routing/
 ├─ Optimize latency to backend (not user) → smart-placement/
 └─ Real-time video/audio → realtimekit/ or realtime-sfu/
@@ -102,7 +119,9 @@ Need security?
 ├─ DDoS protection → ddos/
 ├─ Bot detection/management → bot-management/
 ├─ API protection → api-shield/
-├─ CAPTCHA alternative → turnstile/
+├─ CAPTCHA alternative → turnstile/ (validate tokens server-side)
+├─ Identity-based internal app access → Cloudflare Access (see live routes below)
+├─ Admission control during traffic spikes → waiting-room/
 └─ Credential leak detection → waf/ (managed ruleset)
 ```
 
@@ -112,7 +131,7 @@ Need security?
 Need media?
 ├─ Image optimization/transformation → images/
 ├─ Video streaming/encoding → stream/
-├─ Browser automation/screenshots → browser-rendering/
+├─ Browser automation/screenshots/rendered extraction → browser-rendering/ (Browser Run)
 └─ Third-party script management → zaraz/
 ```
 
@@ -124,7 +143,7 @@ Need analytics?
 ├─ Custom high-cardinality metrics from Workers → analytics-engine/
 ├─ Client-side (RUM) performance data → web-analytics/
 ├─ Workers Logs and real-time debugging → observability/
-├─ SQL over Iceberg data lake (logs, events) → r2-sql/ (+ pipelines/, r2-data-catalog/)
+├─ SQL over Iceberg data lake (logs, events) → basin-sql/ (+ basin-pipelines/, basin-catalog/)
 └─ Raw logs (Logpush to external tools) → Cloudflare docs
 ```
 
@@ -133,6 +152,23 @@ Need analytics?
 ```
 Need IaC? → pulumi/ (Pulumi), terraform/ (Terraform), or api/ (REST API)
 ```
+
+### Additional live-doc routes
+
+These are live documentation links, not bundled references. Use the [product directory](https://developers.cloudflare.com/directory/index.md) for needs not listed; recommend only products that meet a concrete requirement and confirm current availability, limits, and pricing.
+
+| Need | Live docs / deciding guidance |
+|------|------------------------------|
+| New websites/apps | [Workers Static Assets](https://developers.cloudflare.com/workers/static-assets/index.md); preserve existing Pages deployments |
+| Next.js on Workers | [Current Next.js guide](https://developers.cloudflare.com/workers/framework-guides/web-apps/nextjs/index.md); upstream recommends vinext for new projects, not incidental migration of existing apps |
+| Customer code / customer domains | [Workers for Platforms](https://developers.cloudflare.com/cloudflare-for-platforms/workers-for-platforms/index.md) / [Cloudflare for SaaS](https://developers.cloudflare.com/cloudflare-for-platforms/cloudflare-for-saas/index.md) |
+| Worker-to-backend latency | [Workers placement](https://developers.cloudflare.com/workers/configuration/placement/index.md): explicit region hints or traffic-based Smart Placement |
+| Application caching | [Workers Cache](https://developers.cloudflare.com/workers/cache/index.md); check [patterns](https://developers.cloudflare.com/workers/cache/examples/index.md) and [limitations](https://developers.cloudflare.com/workers/cache/limitations/index.md) before choosing Cache API or KV instead |
+| Internal app access | [Cloudflare Access](https://developers.cloudflare.com/cloudflare-one/access-controls/index.md); preserve authentication and authorization boundaries |
+| Build / preview / release | [Workers Builds](https://developers.cloudflare.com/workers/ci-cd/builds/index.md), [Previews](https://developers.cloudflare.com/workers/previews/index.md), [versions and deployments](https://developers.cloudflare.com/workers/versions-and-deployments/index.md); check resource sharing/isolation, and remember rollback does not restore connected data |
+| Send / forward / process email | [Email Service](https://developers.cloudflare.com/email-service/index.md), [routing](https://developers.cloudflare.com/email-service/get-started/route-emails/index.md), [email handler](https://developers.cloudflare.com/email-service/api/route-emails/email-handler/index.md) |
+
+Browser Run is the current product name for Browser Rendering; the `browser-rendering/` doc slug below is retained, as in upstream's reference route. This rename is not an instruction to change Codeflare's browser backend. For Sandbox, preserve the existing stable/preview SDK line; consult live migration guidance only when migration is requested.
 
 ## Product Index
 
@@ -150,11 +186,12 @@ Need IaC? → pulumi/ (Pulumi), terraform/ (Terraform), or api/ (REST API)
 | Durable Objects | `references/durable-objects/` |
 | Workflows | `references/workflows/` |
 | Containers | `references/containers/` |
-| Workers for Platforms | `references/workers-for-platforms/` |
+| Dynamic Workers | `references/dynamic-workers/` |
+| Workers for Platforms | [Live docs](https://developers.cloudflare.com/cloudflare-for-platforms/workers-for-platforms/index.md) |
 | Cron Triggers | `references/cron-triggers/` |
 | Tail Workers | `references/tail-workers/` |
 | Snippets | `references/snippets/` |
-| Smart Placement | `references/smart-placement/` |
+| Workers placement / Smart Placement | [Live docs](https://developers.cloudflare.com/workers/configuration/placement/index.md) |
 
 ### Storage & Data
 | Product | Reference |
@@ -167,9 +204,10 @@ Need IaC? → pulumi/ (Pulumi), terraform/ (Terraform), or api/ (REST API)
 | Hyperdrive | `references/hyperdrive/` |
 | DO Storage | `references/do-storage/` |
 | Secrets Store | `references/secrets-store/` |
-| Pipelines | `references/pipelines/` |
-| R2 Data Catalog | `references/r2-data-catalog/` |
-| R2 SQL | `references/r2-sql/` |
+| Basin Pipelines | `references/basin-pipelines/` |
+| Basin Catalog | `references/basin-catalog/` |
+| Basin SQL | `references/basin-sql/` |
+| K2 Streams | `references/k2/` |
 
 ### AI & Machine Learning
 | Product | Reference |
@@ -189,6 +227,9 @@ Need IaC? → pulumi/ (Pulumi), terraform/ (Terraform), or api/ (REST API)
 | Network Interconnect | `references/network-interconnect/` |
 | Argo Smart Routing | `references/argo-smart-routing/` |
 | Workers VPC | `references/workers-vpc/` |
+| DNS | `references/dns/` |
+| SSL/TLS | `references/ssl/` |
+| Load Balancing | `references/load-balancing/` |
 
 ### Security
 | Product | Reference |
@@ -198,13 +239,14 @@ Need IaC? → pulumi/ (Pulumi), terraform/ (Terraform), or api/ (REST API)
 | Bot Management | `references/bot-management/` |
 | API Shield | `references/api-shield/` |
 | Turnstile | `references/turnstile/` |
+| Waiting Room | `references/waiting-room/` |
 
 ### Media & Content
 | Product | Reference |
 |---------|-----------|
 | Images | `references/images/` |
 | Stream | `references/stream/` |
-| Browser Rendering | `references/browser-rendering/` |
+| Browser Run (formerly Browser Rendering) | `references/browser-rendering/` |
 | Zaraz | `references/zaraz/` |
 
 ### Real-Time Communication
@@ -216,7 +258,8 @@ Need IaC? → pulumi/ (Pulumi), terraform/ (Terraform), or api/ (REST API)
 ### Developer Tools
 | Product | Reference |
 |---------|-----------|
-| Wrangler | `references/wrangler/` |
+| Wrangler (existing Wrangler projects) | `references/wrangler/` |
+| Cloudflare CLI (`cf`, see CLI routing) | `references/cf/` |
 | Miniflare | `references/miniflare/` |
 | C3 | `references/c3/` |
 | Observability | `references/observability/` |
@@ -237,8 +280,11 @@ Need IaC? → pulumi/ (Pulumi), terraform/ (Terraform), or api/ (REST API)
 ### Other Services
 | Product | Reference |
 |---------|-----------|
-| Email Routing | `references/email-routing/` |
-| Email Workers | `references/email-workers/` |
+| Email Service (sending, routing, Workers) | `references/email-service/` |
 | Static Assets | `references/static-assets/` |
 | Bindings | `references/bindings/` |
 | Cache Reserve | `references/cache-reserve/` |
+
+## Upstream provenance
+
+Selectively adapted from Cloudflare's Apache-2.0 [platform skill at commit `1f2cd0a19588e2c6197c91dd7c71729df1fb6156`](https://github.com/cloudflare/skills/blob/1f2cd0a19588e2c6197c91dd7c71729df1fb6156/skills/cloudflare/SKILL.md). The adjacent `LICENSE` is retained. This is a Codeflare-specific live-doc router, not a verbatim upstream copy or a bundled upstream skill/reference suite; local routing, managed-access, and authorization policies remain in force.

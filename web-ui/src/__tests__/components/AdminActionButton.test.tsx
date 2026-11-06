@@ -1,20 +1,15 @@
-import { describe, it, expect, afterEach, vi } from 'vitest';
-import type { ComponentProps } from 'solid-js';
-import { render, cleanup, fireEvent } from '@solidjs/testing-library';
+import { describe, it, expect, afterEach } from 'vitest';
+import { createSignal, type ComponentProps } from 'solid-js';
+import { render, cleanup, fireEvent, screen } from '@solidjs/testing-library';
 import { mdiCogOutline } from '@mdi/js';
 import AdminActionButton from '../../components/settings/AdminActionButton';
 
 afterEach(cleanup);
 
-// AdminActionButton was extracted from five copies of the same markup across
-// SettingsPanel and SessionSection, each carrying its own inline hex. These
-// assertions are the migration oracle: structure and contract values only
-// (class, tone token, disabled, testid, click), never the label copy.
 describe('AdminActionButton', () => {
   const renderButton = (overrides: Partial<ComponentProps<typeof AdminActionButton>> = {}) =>
     render(() => (
       <AdminActionButton
-        tone="--color-action-setup"
         icon={mdiCogOutline}
         label="Do the thing"
         onClick={() => {}}
@@ -22,37 +17,36 @@ describe('AdminActionButton', () => {
       />
     ));
 
-  it('renders one styled button carrying the icon and the label', () => {
-    const { container } = renderButton();
-
-    const buttons = container.querySelectorAll('button.provider-row-connect-btn');
-    expect(buttons.length).toBe(1);
-    expect(buttons[0].getAttribute('type')).toBe('button');
-    expect(buttons[0].querySelectorAll('svg').length).toBe(1);
-    expect(buttons[0].querySelectorAll('span').length).toBe(1);
+  it('exposes maintenance actions as named buttons without submitting a form', () => {
+    renderButton();
+    expect(screen.getByRole('button', { name: 'Do the thing' })).toHaveAttribute('type', 'button');
   });
 
-  it('takes its background from the tone token rather than a literal colour', () => {
-    const { container } = renderButton({ tone: '--color-action-users' });
-
-    const style = container.querySelector('button')?.getAttribute('style') ?? '';
-    expect(style).toContain('var(--color-action-users)');
-    expect(style).not.toMatch(/#[0-9a-fA-F]{3,8}/);
+  it('preserves the destination and accessible name for navigation rows', () => {
+    renderButton({ href: '/admin', label: 'Open Administration' });
+    expect(screen.getByRole('link', { name: 'Open Administration' })).toHaveAttribute('href', '/admin');
+    expect(screen.queryByRole('button')).not.toBeInTheDocument();
   });
 
-  it('fires onClick when enabled and stays inert when disabled', () => {
-    const onClick = vi.fn();
-    const { container, unmount } = renderButton({ onClick });
+  it('activates the enabled action and leaves disabled actions inert', () => {
+    const controls = (disabled: boolean) => {
+      const [result, setResult] = createSignal('Ready');
+      return render(() => <>
+        <AdminActionButton icon={mdiCogOutline} label="Do the thing" disabled={disabled}
+          onClick={() => setResult('Activated')} />
+        <output aria-label="Action result">{result()}</output>
+      </>);
+    };
+    const enabled = controls(false);
+    fireEvent.click(screen.getByRole('button', { name: 'Do the thing' }));
+    expect(screen.getByRole('status', { name: 'Action result' })).toHaveTextContent('Activated');
+    enabled.unmount();
 
-    fireEvent.click(container.querySelector('button')!);
-    expect(onClick).toHaveBeenCalledTimes(1);
-    unmount();
-
-    const disabled = renderButton({ onClick, disabled: true });
-    const button = disabled.container.querySelector<HTMLButtonElement>('button')!;
-    expect(button.disabled).toBe(true);
+    controls(true);
+    const button = screen.getByRole('button', { name: 'Do the thing' });
+    expect(button).toBeDisabled();
     fireEvent.click(button);
-    expect(onClick).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole('status', { name: 'Action result' })).toHaveTextContent('Ready');
   });
 
   it('omits data-testid unless one is supplied', () => {

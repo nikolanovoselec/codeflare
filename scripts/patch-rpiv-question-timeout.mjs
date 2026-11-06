@@ -86,6 +86,34 @@ const reviewedLayouts = new Map([
       }),
   }))],
 ]);
+// 2.15 introduces a first-answer-wins channel shared by terminal and inbound
+// answers. Keep that gate: timeout/cancel go through the real session done path.
+reviewedLayouts.set('2.15.0', [
+  {
+    path: 'ask-user-question.ts',
+    sha256: 'f9c13238db876203522b28a4a392976b7775e326424f93f6fd62ec7fdf13deb9',
+    replacements: [
+      layouts[0].replacements[0],
+      ['\tsessionRef: SessionRef;\n\topen: OpenQuestionnaire;\n\tSession: SessionModule["QuestionnaireSession"];',
+        '\tsessionRef: SessionRef;\n\topen: OpenQuestionnaire;\n\tSession: SessionModule["QuestionnaireSession"];\n\tdeadline: { start(expire: () => void, cancel: () => void): void };'],
+      ['\tpresentation: Presentation;\n\topen: OpenQuestionnaire;\n\tSession: SessionModule["QuestionnaireSession"];',
+        '\tpresentation: Presentation;\n\topen: OpenQuestionnaire;\n\tSession: SessionModule["QuestionnaireSession"];\n\tdeadline: { start(expire: () => void, cancel: () => void): void };'],
+      ['\t\tSession,\n\t} = config;', '\t\tSession,\n\t\tdeadline,\n\t} = config;'],
+      layouts[0].replacements[3],
+      layouts[0].replacements[4],
+      layouts[0].replacements[5],
+      ['async function runTuiPath(pi: ExtensionAPI, ctx: ExtensionContext, typed: QuestionParams, open: OpenQuestionnaire)',
+        'async function runTuiPath(pi: ExtensionAPI, ctx: ExtensionContext, typed: QuestionParams, open: OpenQuestionnaire, deadline: { start(expire: () => void, cancel: () => void): void; dialogs(ui: unknown): DialogUI })'],
+      ['\t\t\t\t\tSession: QuestionnaireSession,', '\t\t\t\t\tSession: QuestionnaireSession,\n\t\t\t\t\tdeadline,'],
+      ['return await resolveUndefinedResult(ctx, typed);', 'return await resolveUndefinedResult(ctx, typed, deadline);'],
+      ['\t\t\tconst viaRpc =', '\t\t\treturn withQuestionnaireDeadline(typed, _signal, async (deadline) => {\n\t\t\tconst viaRpc ='],
+      ['return await runRpcPath(pi, ctx.ui, typed, toolCallId);', 'return await runRpcPath(pi, deadline.dialogs(ctx.ui), typed, toolCallId);'],
+      ['return await runTuiPath(pi, ctx, typed, open);', 'return await runTuiPath(pi, ctx, typed, open, deadline);'],
+      ['\t\t\t\tanswers.close(open);\n\t\t\t}\n\t\t},', '\t\t\t\tanswers.close(open);\n\t\t\t}\n\t\t\t});\n\t\t},'],
+    ],
+  },
+  { ...layouts[1], sha256: '0b452327088858ac04cd1c7000f45a9301ae48a6b4a3b18d147d8068804bcccd' },
+]);
 const digest = source => createHash('sha256').update(source).digest('hex');
 function replaceOnce(source, before, after, path) {
   if (source.split(before).length !== 2) throw new Error(`Questionnaire source layout changed: ${path}`);
@@ -109,7 +137,7 @@ export function patchQuestionnaireTimeout(root) {
   const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
   const selectedLayouts = reviewedLayouts.get(manifest.version);
   if (manifest.name !== '@juicesharp/rpiv-ask-user-question' || !selectedLayouts) {
-    throw new Error('Unsupported questionnaire package identity/version; expected @juicesharp/rpiv-ask-user-question 2.12.0 or 2.13.8');
+    throw new Error('Unsupported questionnaire package identity/version; expected @juicesharp/rpiv-ask-user-question 2.12.0 or 2.13.8 or 2.15.0');
   }
   for (const path of [...selectedLayouts.map(layout => join(root, layout.path)), destination]) {
     const info = lstatSync(path, { throwIfNoEntry: false });

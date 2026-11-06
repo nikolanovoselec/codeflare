@@ -1,14 +1,14 @@
-import type { AdminConfigurationResponse, ConfigurationSection } from '../../types';
+import type { AdminConfigurationResponse, EnvironmentSection } from '../../types';
 
 export interface EnvironmentArea {
-  section: ConfigurationSection;
+  section: EnvironmentSection;
   label: string;
   description: string;
   summary: string;
   status: 'Configured' | 'Enabled' | 'Disabled' | 'Not configured';
 }
 
-const LABELS: Record<ConfigurationSection, string> = {
+const LABELS: Record<EnvironmentSection, string> = {
   access: 'Access and identity',
   domain: 'Domain and DNS',
   aiRouting: 'AI Gateway and routing',
@@ -20,9 +20,10 @@ const LABELS: Record<ConfigurationSection, string> = {
   github: 'GitHub',
   cloudflareConnection: 'Cloudflare connection',
   usageReports: 'Monthly usage reports',
+  mcpPortals: 'Model Context Protocol',
 };
 
-const DESCRIPTIONS: Record<ConfigurationSection, string> = {
+const DESCRIPTIONS: Record<EnvironmentSection, string> = {
   access: 'Administrators, users, and Access groups',
   domain: 'Custom hostname and DNS ownership',
   aiRouting: 'Gateway credentials, routes, and model defaults',
@@ -34,6 +35,7 @@ const DESCRIPTIONS: Record<ConfigurationSection, string> = {
   github: 'GitHub App or OAuth provider',
   cloudflareConnection: 'Cloudflare OAuth client',
   usageReports: 'Recipients and monthly delivery schedule',
+  mcpPortals: 'Named HTTPS portal connections for Pi sessions',
 };
 
 function countLabel(count: number, singular: string, plural = `${singular}s`): string {
@@ -54,7 +56,7 @@ function list(value: unknown): unknown[] {
   return Array.isArray(value) ? value : [];
 }
 
-function describe(section: ConfigurationSection, raw: unknown): Pick<EnvironmentArea, 'summary' | 'status'> {
+function describe(section: EnvironmentSection, raw: unknown): Pick<EnvironmentArea, 'summary' | 'status'> {
   const value = record(raw);
   switch (section) {
     case 'access': {
@@ -107,6 +109,10 @@ function describe(section: ConfigurationSection, raw: unknown): Pick<Environment
       const clientId = text(value.clientId);
       return { summary: clientId ? 'OAuth client configured' : 'OAuth client not configured', status: clientId ? 'Configured' : 'Not configured' };
     }
+    case 'mcpPortals': {
+      const count = list(value.portals).length;
+      return { summary: countLabel(count, 'portal'), status: count ? 'Configured' : 'Not configured' };
+    }
     case 'usageReports': {
       const configured = value.enabled === true;
       return { summary: configured ? 'Monthly delivery enabled' : 'Disabled by default', status: configured ? 'Enabled' : 'Disabled' };
@@ -120,7 +126,7 @@ export function environmentAreas(configuration: AdminConfigurationResponse): Env
     label: LABELS[section],
     description: DESCRIPTIONS[section],
     ...describe(section, configuration.sections[section]),
-  }));
+  })).sort((left, right) => left.label.localeCompare(right.label, 'en'));
 }
 
 export function filterEnvironmentAreas(areas: EnvironmentArea[], query: string): EnvironmentArea[] {

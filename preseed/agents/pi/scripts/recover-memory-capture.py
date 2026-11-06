@@ -46,6 +46,16 @@ def main() -> None:
     request = json.loads(read_regular(variables, variables.parent) or "")
     if not isinstance(request, dict) or type(request.get("version")) is not int or request["version"] != 1:
         raise ValueError("unsupported request")
+    required_fields = {"version", "requestId", "sessionId", "promptCount", "captureTimestamp", "captureFilename", "transcript"}
+    if not required_fields.issubset(request) or set(request) - required_fields - {"transcriptFingerprint"}:
+        raise ValueError("invalid request fields")
+    if not isinstance(request["transcript"], str):
+        raise ValueError("invalid transcript")
+    fingerprint = request.get("transcriptFingerprint")
+    if "transcriptFingerprint" in request and (
+        not isinstance(fingerprint, str) or not re.fullmatch(r"[0-9a-f]{64}", fingerprint)
+    ):
+        raise ValueError("invalid prompt fingerprint")
     request_id = request.get("requestId")
     session_id = request.get("sessionId")
     timestamp = request.get("captureTimestamp")
@@ -83,6 +93,8 @@ def main() -> None:
         "captured_prompt_count": str(count),
         "captured_chunks": "1",
     }
+    if fingerprint is not None:
+        expected["captured_prompt_fingerprint"] = fingerprint
     found = {}
     for line in frontmatter[1].splitlines():
         key, separator, value = line.partition(":")

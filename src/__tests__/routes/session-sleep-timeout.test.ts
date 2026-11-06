@@ -1,6 +1,6 @@
 /**
  * REQ-SESSION-014: User-configurable auto-sleep timeout in Settings
- * AC coverage: AC1 (5 valid sleep options: 15m, 30m, 1h, 2h, 4h),
+ * AC coverage: AC1 (5 valid sleep options: 1h, 2h, 4h, 8h, 12h),
  *              AC2 (free tier locked to 15m - structural/route),
  *              AC3 (admins and paying users can change sleepAfter),
  *              AC4 (value saved to KV preferences and applied on next session start)
@@ -12,7 +12,6 @@ import type { Env } from '../../types';
 import type { AuthVariables } from '../../middleware/auth';
 import { AppError } from '../../lib/error-types';
 import { createMockKV } from '../helpers/mock-kv';
-import { SleepAfterOptions } from '../../types';
 
 vi.mock('../../middleware/auth', () => ({
   authMiddleware: vi.fn(async (c: any, next: any) => {
@@ -58,14 +57,9 @@ describe('REQ-SESSION-014: User-configurable auto-sleep timeout in Settings', ()
     return app;
   }
 
-  // AC1: Settings dropdown with 5 options (15m, 30m, 1h, 2h, 4h)
+  // AC1: Settings dropdown with 5 selectable options (1h, 2h, 4h, 8h, 12h)
   describe('REQ-SESSION-014 AC1: 5 valid sleep options accepted', () => {
-    it('SleepAfterOptions exports exactly 5 valid sleep values', () => {
-      expect(SleepAfterOptions).toEqual(['15m', '30m', '1h', '2h', '4h']);
-      expect(SleepAfterOptions).toHaveLength(5);
-    });
-
-    it.each(['15m', '30m', '1h', '2h', '4h'] as const)(
+    it.each(['1h', '2h', '4h', '8h', '12h'] as const)(
       'accepts sleepAfter="%s" via PATCH /preferences',
       async (sleepAfter) => {
         const app = createApp();
@@ -77,6 +71,7 @@ describe('REQ-SESSION-014: User-configurable auto-sleep timeout in Settings', ()
         expect(res.status, `expected 200 for sleepAfter=${sleepAfter}`).toBe(200);
         const body = await res.json() as { sleepAfter?: string };
         expect(body.sleepAfter).toBe(sleepAfter);
+        expect(await mockKV.get('user-prefs:test-bucket', 'json')).toMatchObject({ sleepAfter });
       }
     );
 
@@ -120,14 +115,26 @@ describe('REQ-SESSION-014: User-configurable auto-sleep timeout in Settings', ()
       expect(res.status).toBe(400);
     });
 
-    it('rejects sleepAfter "8h" (above the 4h maximum)', async () => {
+    it.each(['15m', '30m', '24h'])('rejects removed or unsupported new selection %s without rewriting saved preferences', async sleepAfter => {
+      mockKV._set('user-prefs:test-bucket', { sleepAfter: '4h' });
       const app = createApp();
       const res = await app.request('/preferences', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sleepAfter: '8h' }),
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sleepAfter }),
       });
       expect(res.status).toBe(400);
+      expect(await mockKV.get('user-prefs:test-bucket', 'json')).toMatchObject({ sleepAfter: '4h' });
+    });
+
+    it.each(['15m', '30m'])('keeps saved legacy %s readable until explicitly changed', async sleepAfter => {
+      mockKV._set('user-prefs:test-bucket', { sleepAfter });
+      const app = createApp();
+      expect(await (await app.request('/preferences')).json()).toMatchObject({ sleepAfter });
+      expect(await mockKV.get('user-prefs:test-bucket', 'json')).toMatchObject({ sleepAfter });
+      const changed = await app.request('/preferences', {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sleepAfter: '12h' }),
+      });
+      expect(changed.status).toBe(200);
+      expect(await changed.json()).toMatchObject({ sleepAfter: '12h' });
     });
   });
 
@@ -149,10 +156,12 @@ describe('REQ-SESSION-014: User-configurable auto-sleep timeout in Settings', ()
       expect(resolveEffectiveSleepAfter('unlimited', '4h')).toBe('4h');
     });
 
-    it('defaults to 30m for non-free tiers without stored preference', async () => {
+    it('defaults to 1h for non-free tiers without stored preference', async () => {
       const { resolveEffectiveSleepAfter } = await import('../../routes/container/lifecycle');
-      expect(resolveEffectiveSleepAfter('paid', undefined)).toBe('30m');
-      expect(resolveEffectiveSleepAfter('unlimited', undefined)).toBe('30m');
+      expect(resolveEffectiveSleepAfter('paid', undefined)).toBe('1h');
+      expect(resolveEffectiveSleepAfter('unlimited', undefined)).toBe('1h');
+      expect(resolveEffectiveSleepAfter('paid', '30m')).toBe('30m');
+      expect(resolveEffectiveSleepAfter('paid', '12h')).toBe('12h');
     });
   });
 

@@ -43,6 +43,8 @@ function captureRcloneArgs(functionName) {
     `CODEFLARE_RUNTIME_ROOT='${runtimeRoot}'`,
     `SYNC_RUNTIME_DIR='${syncDir}'`,
     `USER_HOME='${fixture}/home'`,
+    'mkdir -p "$USER_HOME"',
+    `source ${JSON.stringify(resolve(__dirname, '../../scripts/rclone-conflict-cleanup.sh'))}`,
     "R2_BUCKET_NAME='bucket'",
     "RCLONE_CONFIG='/dev/null'",
     'RCLONE_FILTERS=()',

@@ -35,7 +35,7 @@ The user can always pick "Other" and type a custom answer. Use the answers to sh
 
 - User: "I want a social media site with millions of users" → "Let's start with a clean, fast site where people can share posts. We can add features as you grow." (Steer toward static + Workers API + D1, not a massive database-heavy backend.)
 - User: "I want real-time video chat" → "Video chat needs specialized services. I can build a site with text chat and messaging — would that work for now?" (WebRTC is possible but complex; steer toward achievable scope.)
-- User: "I want to run Python scripts on my site" → "I'll build the same functionality using JavaScript, which will make it run super fast and be easy to put online." (Don't mention Cloudflare limitations — just redirect.)
+- User: "I want to run Python scripts on my site" → Check current Python Workers package/runtime support and explain any constraints. Preserve a requested Python implementation; propose an explicitly approved container only when a full runtime is needed. Do not silently replace the user's language or features.
 - User: "I want an online store with payments" → "I can build a product showcase with a checkout flow. For payments, we'll connect to Stripe which handles all the money stuff securely." (Stripe works great with Workers.)
 
 **Summarize back before building:**
@@ -85,6 +85,8 @@ Use these for new projects:
 
 ### Cloudflare cohort pinning
 
+This Codeflare scaffold/ship playbook remains Wrangler-based. Preserve existing project tooling and pinned versions. The `cloudflare` reference documents upstream's newer `cf` CLI guidance; it does not authorize migrating this scaffold, installing another CLI, or changing deployment configuration during unrelated work.
+
 Four npm packages in the Cloudflare Workers stack drift together and break together — pin them as one cohort resolved at scaffold time:
 
 - `wrangler`
@@ -106,22 +108,20 @@ Record the resolved cohort in `documentation/decisions/` as an ADR so future upg
 
 The generic version-resolution flow (registry queries, peer-dep cross-check, scaffold-only lockfile carveout) lives in the `spec-driven-development` SKILL → § Dependency version resolution — the cohort pinning above is the Cloudflare-specific addendum.
 
-### NOT Supported — Do Not Use
+### Runtime compatibility — check before choosing
 
-Never use these technologies for new projects:
+Keep the simple Workers/JavaScript default above, but do not describe the entire Cloudflare platform as limited to it:
 
-- **Python backends** (Django, Flask, FastAPI) — cannot run on Workers
-- **Go servers** — cannot run on Workers
-- **Ruby/Rails** — cannot run on Workers
-- **Java/Spring** — cannot run on Workers
-- **PHP** — cannot run on Workers
-- **Docker-based deployments** — Workers does not run containers
-- **Database servers** (PostgreSQL, MySQL, MongoDB, Redis as server) — use Cloudflare D1/KV/R2 instead
-- **Node.js-specific APIs** (fs, child_process, net) — Workers uses a web-standard runtime, not Node.js. Use Workers-compatible alternatives.
+- **Python:** [Python Workers](https://developers.cloudflare.com/workers/languages/python/) supports Python and a documented package ecosystem, including FastAPI. Check current package, standard-library and runtime support before promising compatibility; a traditional Python server is not automatically a drop-in Worker.
+- **Full server runtimes and images:** [Cloudflare Containers](https://developers.cloudflare.com/containers/) can run existing container images and code written in other languages. They are a separate paid capability, not the default static-site deployment. Use only when the requested workload needs it and provisioning/billing is explicitly authorized; do not silently add Containers or replace an existing backend.
+- **Databases:** D1/KV/R2 remain straightforward defaults. Preserve a requested or existing database; consult current platform/Hyperdrive documentation rather than claiming PostgreSQL/MySQL are categorically unavailable or silently migrating data.
+- **Node.js APIs:** [Workers Node.js compatibility](https://developers.cloudflare.com/workers/runtime-apis/nodejs/) is API-, method-, compatibility-date- and flag-specific. An import may be a non-functional stub. Verify required methods; do not assume either full Node support or blanket absence of `fs`/`net`. Full process/filesystem requirements may need an explicitly approved container or Sandbox.
 
-### What to Do When the User's Idea Needs Unsupported Tech
+Read current official documentation before selecting a runtime or quoting limits. Do not install tools, change compatibility flags, provision resources, or expand scope merely because a product exists.
 
-If the user describes something that would typically require an unsupported technology, **find the Cloudflare-compatible equivalent**:
+### What to Do When the User's Idea Needs Another Runtime
+
+Check the user's requested stack first. For preference-less new projects, propose the simplest suitable Cloudflare option; explain trade-offs and obtain agreement before changing requested language, framework, database or features:
 
 | User wants | Instead of | Use |
 |---|---|---|
@@ -129,10 +129,10 @@ If the user describes something that would typically require an unsupported tech
 | "A website with a database" | PostgreSQL/MySQL | Cloudflare D1 (SQLite) |
 | "File uploads" | S3/local storage | Cloudflare R2 |
 | "User sessions / real-time" | Redis | Cloudflare KV or Durable Objects |
-| "An API" | Express/Django/Flask | Hono on Workers |
+| "An API" | An unverified server/runtime assumption | Hono on Workers by default; verify a requested framework's current runtime support |
 | "A full-stack app" | Next.js (Node) | SolidStart or Astro with CF adapter |
 | "A simple blog" | WordPress | Static HTML or Astro |
-| "A web scraper" | Python scripts | Workers with fetch API |
+| "A web scraper" | An unnecessary full server runtime | Workers fetch for simple HTTP; preserve requested Python after checking package/runtime support |
 | "AI/chatbot features" | Python ML libs | Workers AI or external API calls |
 
 ## Project Structure Conventions

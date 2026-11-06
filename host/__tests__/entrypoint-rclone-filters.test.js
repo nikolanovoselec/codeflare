@@ -320,6 +320,33 @@ describe('entrypoint.sh rclone filter behavior (real) / REQ-MEM-004 (vault in R2
     }
   });
 
+  it('REQ-STOR-011 AC4: disposable agent checkouts never sync while user trays remain persistent', () => {
+    const disposable = [
+      'Temporary/.agent-work/sdk-research/source.ts',
+      'Temporary/codeflare-sdk-audit/src/lib/agent-seed.generated.ts',
+      'Temporary/codeflare-sdk-audit-lock-prep/.github/workflows/prepare-sdk-audit-lock.yml',
+      'Temporary/codeflare-questionnaire-timeout/graphify-out/graph.json',
+      'Temporary/native-promise-proof-20261025/worker.mjs',
+      'Temporary/operator-native-release-20261025/native-worker.mjs',
+      'Temporary/dispatcher-v0.1.32-4034621/operator-package.tar.gz',
+    ];
+    const persistent = [
+      'Temporary/codeflare-sdk-audit-notes.md',
+      'Temporary/.agent-work-notes.md',
+      'Temporary/personal-project/src/index.ts',
+      'Temporary/Review/recovery-20261027/questionnaire-current.patch',
+      'Uploads/a.txt',
+    ];
+    const extraFixtures = Object.fromEntries([...disposable, ...persistent].map(path => [path, 'fixture']));
+    for (const sessionMode of ['advanced', 'default']) {
+      for (const syncMode of ['none', 'metadata', 'full']) {
+        const v = verdictUnder({ sessionMode, syncMode, defaultDeny: false, extraFixtures });
+        for (const path of disposable) assert.equal(v[path], 'EXCLUDED', `${path} must stay local in ${sessionMode}/${syncMode}`);
+        for (const path of persistent) assert.equal(v[path], 'INCLUDED', `${path} must persist in ${sessionMode}/${syncMode}`);
+      }
+    }
+  });
+
   it('REQ-STOR-011 AC4: excludes only root Pi work-evidence in every sync scope', () => {
     const evidence = '.pi/agent/work-evidence/investigation/report.json';
     const adjacent = '.pi/agent/work-evidence.json';

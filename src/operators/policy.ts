@@ -16,6 +16,8 @@ export interface OperatorPolicy {
   github: { repositories: string[]; methods: string[] };
   storage: { readPrefixes: string[]; writePrefixes: string[] };
   inference: {
+    /** Omission permits managed inference only; native owner-profile use requires explicit approval. */
+    allowedSources?: Array<'managed' | 'pi-native'>;
     routeIds: string[];
     defaultRouteId: string | null;
     reasoningLevels: string[];
@@ -36,6 +38,15 @@ const unique = <T extends z.ZodType<string>>(item: T, max = 128) => z.array(item
   .refine(values => new Set(values).size === values.length);
 const reasoning = z.custom<PiReasoningLevel>(isPiReasoningLevel);
 const routeId = z.string().min(1).max(128).refine(value => value.trim() === value);
+/** Canonical inference restrictions shared by registration and management boundaries. */
+export const inferencePolicySchema = z.strictObject({
+  allowedSources: unique(z.enum(['managed', 'pi-native']), 2).optional(),
+  routeIds: unique(routeId), defaultRouteId: routeId.nullable(),
+  reasoningLevels: unique(reasoning, 7), defaultReasoningLevel: reasoning.nullable(),
+  inheritUserDefaults: z.boolean(),
+}).refine(value => (value.defaultRouteId === null || value.routeIds.includes(value.defaultRouteId))
+  && (value.defaultReasoningLevel === null || value.reasoningLevels.includes(value.defaultReasoningLevel)));
+
 const policySchema = z.strictObject({
   schemaVersion: z.literal(1),
   networkHosts: unique(hostname),
@@ -44,12 +55,7 @@ const policySchema = z.strictObject({
     methods: unique(z.enum(['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS']), 7),
   }),
   storage: z.strictObject({ readPrefixes: unique(prefix), writePrefixes: unique(prefix) }),
-  inference: z.strictObject({
-    routeIds: unique(routeId), defaultRouteId: routeId.nullable(),
-    reasoningLevels: unique(reasoning, 7), defaultReasoningLevel: reasoning.nullable(),
-    inheritUserDefaults: z.boolean(),
-  }).refine(value => (value.defaultRouteId === null || value.routeIds.includes(value.defaultRouteId))
-    && (value.defaultReasoningLevel === null || value.reasoningLevels.includes(value.defaultReasoningLevel))),
+  inference: inferencePolicySchema,
 });
 
 /**

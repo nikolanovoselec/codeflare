@@ -1,0 +1,11 @@
+# Shared extraction: one-call transcript trimming and activation
+
+Invoke the scoped `transcript_trim` tool once with `operation: "trim"`. The operation must reduce, activate and verify the authorized transcript before returning. Report its persisted result. Do not hand a candidate back to the parent agent or wait for a native Done notification, `agent_end` or the parent turn to end. Do not read transcript content into model context or submit replacement batches.
+
+The tool validates the owner-issued request, live activation capability, session identity, path, exact source-prefix length and SHA. It locally removes permitted obsolete historical payloads oldest-first toward 20,000,000 total bytes, counting appended tail. User messages, IDs, parents, envelopes, accounting, unknown opaque fields, current conversation and latest authoritative state remain protected. Existing ancestry gaps are not repaired. Full SDK branch IDs remain internal ownership metadata.
+
+Activation runs synchronously in the same SDK process through that request's revocable owner capability. It rechecks the live owner and branch, merges the latest tail verbatim, atomically replaces the source, reads back and cleans its staging. Missing, stale, canceled, switched-session or unavailable owner authority fails closed. There is no fallback to an independent-process filesystem writer. Stop, fork and shutdown revoke uncommitted authority.
+
+Only `committed: true` with a verified `trimmed` status establishes completion. Successful persisted total output is 15,000,000 through 25,000,000 bytes inclusive, with 20,000,000 preferred; never pad, raise limits or sacrifice protected state. A replacement whose readback remains unavailable is reported as committed but verification-pending, never rolled back or replayed. Its receipt permits read-only recovery only.
+
+If activation did not occur, report the measured refusal truthfully. The existing shared controller owns bounded failure retries through six attempts; do not loop inside this child. A staged candidate or native Done alone never authorizes activation. Do not alter SDK/Goal internals, counters, credentials, settings, Vault data or unrelated files. No backups, archives, network access or other agents.

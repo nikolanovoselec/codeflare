@@ -689,6 +689,7 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 1. Loaded Environment areas filter case-insensitively by label, area description, and current summary. <!-- @impl: web-ui/src/components/admin/environment-areas.ts::filterEnvironmentAreas --> <!-- @test: web-ui/src/__tests__/components/environment-areas.test.ts (REQ-SETUP-023 AC1: filters loaded areas by label, description, and current summary) -->
 2. A query with no matching loaded area shows an empty result. <!-- @impl: web-ui/src/components/admin/EnvironmentIndex.tsx::EnvironmentIndex --> <!-- @manual -->
+3. Overview and Environment present areas alphabetically by displayed label using the shared loaded projection; filtering preserves that order, current summaries, status and destination links. <!-- @impl: web-ui/src/components/admin/environment-areas.ts::environmentAreas --> <!-- @test: web-ui/src/__tests__/components/environment-areas.test.ts (REQ-SETUP-023 AC3: orders areas by displayed label without changing their summaries or authoritative input) --> <!-- @test: web-ui/src/__tests__/components/admin/McpEnvironment.test.tsx (REQ-SETUP-023 AC3: %s presents area links in displayed-label order and preserves portal status) -->
 
 **Constraints:** Filtering remains client-side over the authoritative loaded response without requests, indexes, or persisted search state.
 
@@ -972,16 +973,16 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 **Acceptance Criteria:**
 
 1. Administration lists live gateway routes. Explicit saved-connection reconciliation permanently removes authoritatively absent Dynamic settings and owned Native policy references without widening access. <!-- @impl: src/routes/admin/reasoning.ts::reasoningRoutes --> <!-- @test: src/__tests__/routes/admin-reasoning.test.ts (accepts documented data.routes and returns the exact sanitized catalog schema) --> <!-- @test: src/__tests__/routes/admin-reasoning.test.ts (reuses the saved gateway credential and accepts the compatible result.routes envelope) --> <!-- @test: src/__tests__/routes/admin-reasoning.test.ts (returns exact active-version leg/path summaries and only administrator-owned custom-provider identity) --> <!-- @test: src/__tests__/routes/live-routing-reconciliation.test.ts (REQ-ENTERPRISE-034: permanently prunes absent Dynamic settings and owned Native policy references without widening access) -->
-2. Normal Discover automatically adopts a qualified shared contract and server receipt, without a profile chooser, naming step or separate Verify. Manual controls remain under Advanced. <!-- @impl: web-ui/src/components/admin/TargetCapabilityDiscovery.tsx::TargetCapabilityDiscovery --> <!-- @test: web-ui/src/__tests__/components/TargetCapabilityDiscovery.test.tsx -->
+2. Normal Discover automatically adopts a qualified shared contract and server receipt, without a profile chooser, naming step or separate Verify. Manual controls remain under Advanced. <!-- @impl: web-ui/src/components/admin/TargetCapabilityDiscovery.tsx::TargetCapabilityDiscovery --> <!-- @test: web-ui/src/__tests__/components/TargetCapabilityDiscovery.test.tsx (automatically adopts the generated contract and receipt without choosing, naming or verifying a profile) -->
 3. Detected models load automatically through read-only inventory and appear inside the selected route, outside advanced technical details. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/AiRoutingWorkspace.test.tsx (REQ-ENTERPRISE-041: starts with a compact route overview and expands only the selected route) -->
-4. Group, default, preview, and Apply controls require neither editable JSON nor manual route duplication. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/AiRoutingFields.test.tsx (REQ-ENTERPRISE-034: adds a discovered route only after verification and policy assignment and preserves apply-to-all) -->
-5. In the retained Advanced matcher, explicit administrator selection places the exact revision in the draft; normal Discover performs that selection automatically after qualification. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/AiRoutingFields.test.tsx (uses the exact matched $name catalog revision only in the route draft) -->
-6. Historical Advanced mapping and selected-profile checks retain their fixed 4,096-token budget. Normal capability discovery and generated-Native verification use the bounded campaign in REQ-ENTERPRISE-035/075. <!-- @impl: web-ui/src/components/admin/ReasoningProfileEditor.tsx::ReasoningProfileEditor --> <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/ReasoningProfileEditor.test.tsx (starts on mount with fixed 4096 and offers no second start or token input, including after incomplete results) --> <!-- @test: web-ui/src/__tests__/components/AiRoutingFields.test.tsx (REQ-ENTERPRISE-038: Verify Profile uses fixed 4096 and attaches the server receipt only to the exact route draft) -->
+4. Group, default, preview, and Apply controls require neither editable JSON nor manual route duplication. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/ai-routing-fields-suite.tsx (REQ-ENTERPRISE-034: adds a discovered route only after verification and policy assignment and preserves apply-to-all) -->
+5. In the retained Advanced matcher, explicit administrator selection places the exact revision in the draft; normal Discover performs that selection automatically after qualification. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/ai-routing-fields-suite.tsx (uses the exact matched $name catalog revision only in the route draft until verification) -->
+6. Historical Advanced mapping and selected-profile checks retain their fixed 4,096-token budget. Normal capability discovery and generated-Native verification use the bounded campaign in REQ-ENTERPRISE-035/075. <!-- @impl: web-ui/src/components/admin/ReasoningProfileEditor.tsx::ReasoningProfileEditor --> <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/ReasoningProfileEditor.test.tsx (starts on mount with fixed 4096 and offers no second start or token input, including after incomplete results) --> <!-- @test: web-ui/src/__tests__/components/ai-routing-fields-suite.tsx (REQ-ENTERPRISE-038: Verify Profile uses fixed 4096 and attaches the server receipt only to the exact route draft) -->
 7. A verified existing-profile assignment can be saved independently of unfinished gateway routes. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/AiRoutingWorkspace.test.tsx (REQ-ENTERPRISE-044: one working group route permits Save despite incomplete inactive routes) -->
 
 **Constraints:**
 
-- Prune absent Dynamic assignments, contexts, defaults and policies; retain shared revisions/receipts. Native-looking names remain Dynamic without a saved Native owner. <!-- @impl: src/routes/admin/reasoning.ts::reasoningRoutes --> <!-- @test: src/__tests__/routes/live-routing-reconciliation.test.ts (REQ-ENTERPRISE-034: permanently prunes absent Dynamic settings and owned Native policy references without widening access) -->
+- Prune absent Dynamic assignments, contexts, defaults and policies; retain shared revisions/receipts and valid independent source/permission preferences. Native-looking names remain Dynamic without a saved Native owner. <!-- @impl: src/routes/admin/reasoning.ts::reasoningRoutes --> <!-- @impl: src/lib/live-routing-reconciliation.ts::prepareSavedRoutingReconciliation --> <!-- @test: src/__tests__/routes/live-routing-reconciliation.test.ts (REQ-ENTERPRISE-034: permanently prunes absent Dynamic settings and owned Native policy references without widening access) -->
 
 - Use existing admission/revision ownership. Revision, connection, Setup or ownership drift aborts writes; applied cleanup advances revision and invalidates previews. <!-- @impl: src/routes/admin/configuration-runs.ts::reconcileSavedAiRoutingConfiguration --> <!-- @test: src/__tests__/routes/live-routing-reconciliation.test.ts (REQ-SETUP-018: reconciliation shares admission and invalidates a previously reviewed configuration revision) --> <!-- @test: src/__tests__/routes/live-routing-reconciliation.test.ts (REQ-SETUP-018: revision, connection, setup and run-ownership drift during management I/O abort before routing writes) -->
 
@@ -998,9 +999,9 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 **Dependencies:** [REQ-ENTERPRISE-012](#req-enterprise-012-setup-configured-dynamic-route-catalog-and-access-group-list), [REQ-ENTERPRISE-013](models-and-routing.md#req-enterprise-013-per-group-dynamic-routing), [REQ-ENTERPRISE-031](models-and-routing.md#req-enterprise-031-enterprise-pi-capability-profile-administration), [REQ-ENTERPRISE-033](models-and-routing.md#req-enterprise-033-enterprise-pi-discovery-and-multi-model-evidence)
 
-**Verification:** Regression checkpoint `bef54164` failed in CI `34770156766`. Updated implementation and behavioral fixtures await exact-head CI; no deployed acceptance is claimed.
+**Verification:** Route administration and saved-policy reconciliation have automated behavioral coverage, including saved-source compatibility and safe check failure recovery. The current gap fixes await exact-head CI and deployed acceptance; historical qualification is not evidence for the new diff.
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
@@ -1541,18 +1542,23 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 **Acceptance Criteria:**
 
-1. Administration strictly validates and preserves the default-off permission per group and enabled fallback, including checkbox-only changes and explicit revocation. <!-- @impl: src/lib/admin-configuration.ts::aiRoutingComparison --> <!-- @test: src/__tests__/routes/admin-configuration-preview.test.ts (REQ-ENTERPRISE-088 AC1: checkbox-only group grants and revocations survive preview save and reload) --> <!-- @test: src/__tests__/lib/personal-pi-policy.test.ts (REQ-ENTERPRISE-088 AC1: fallback preserves exact booleans and rejects coercion) -->
-2. Accessible group/fallback controls preserve independent submitted permissions without changing sanctioned defaults. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::PolicyFields --> <!-- @test: web-ui/src/__tests__/components/ai-routing-fields-suite.tsx (REQ-ENTERPRISE-088 AC2: group and fallback checkboxes retain independent submitted permissions) -->
-3. Review changes communicate personal-provider grants and revocations separately from unchanged sanctioned defaults. <!-- @impl: web-ui/src/components/admin/AiRoutingReview.tsx::AiRoutingReview --> <!-- @test: web-ui/src/__tests__/components/AiRoutingReview.test.tsx (REQ-ENTERPRISE-088 AC3: Review renders $action for $scope without changing sanctioned defaults) -->
+1. Administration preserves independent Pi source and personal-provider permission per group and enabled fallback. <!-- @impl: src/lib/admin-configuration.ts::aiRoutingComparison -->  <!-- @test: src/__tests__/routes/admin-configuration-preview.test.ts (REQ-ENTERPRISE-088 AC1: checkbox-only group grants and revocations survive preview save and reload) --> <!-- @test: src/__tests__/lib/personal-pi-policy.test.ts (REQ-ENTERPRISE-088 AC1: fallback preserves exact booleans and rejects coercion) --> <!-- @test: src/__tests__/routes/admin-configuration-preview.test.ts (REQ-ENTERPRISE-088: native default survives preview save and reload without replacing managed defaults) -->
+2. Accessible group/fallback controls submit source and permission independently without changing sanctioned route defaults. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::PolicyFields --> <!-- @test: web-ui/src/__tests__/components/ai-routing-fields-suite.tsx (REQ-ENTERPRISE-088 AC2: group and fallback checkboxes retain independent submitted permissions) --> <!-- @test: web-ui/src/__tests__/components/ai-routing-fields-suite.tsx (REQ-ENTERPRISE-088: group and fallback native defaults submit independently of managed routes) -->
+3. Review communicates source changes and personal-provider grants or revocations separately from unchanged sanctioned defaults. <!-- @impl: web-ui/src/components/admin/AiRoutingReview.tsx::AiRoutingReview --> <!-- @test: web-ui/src/__tests__/components/AiRoutingReview.test.tsx (REQ-ENTERPRISE-088 AC3: Review renders $action for $scope without changing sanctioned defaults) --> <!-- @test: web-ui/src/__tests__/components/AiRoutingReview.test.tsx (REQ-ENTERPRISE-088: Review shows the native default change without implying a permission grant or managed-route change) -->
+
+4. Saved reconciliation preserves group and enabled-fallback source/permission preferences after route cleanup, including denied groups, without granting routes. <!-- @impl: src/lib/live-routing-reconciliation.ts::prepareSavedRoutingReconciliation --> <!-- @test: src/__tests__/routes/live-routing-reconciliation.test.ts (REQ-ENTERPRISE-088 AC4: saved $piDefaultSource source and independent permission survive saved reconciliation) --> <!-- @test: src/__tests__/routes/live-routing-reconciliation.test.ts (REQ-ENTERPRISE-088 AC4: an unusable surviving profile retains source and permission without granting routes) -->
+
+5. An omitted Pi source resolves to managed for both group and enabled-fallback policies. <!-- @impl: src/lib/personal-pi-policy.ts::resolvePersonalPiPolicy --> <!-- @test: src/__tests__/lib/personal-pi-policy.test.ts (REQ-ENTERPRISE-088 AC5: omitted group and fallback sources resolve to managed) -->
+6. Choosing a Native default never grants personal-provider permission when that permission is false or omitted. <!-- @impl: src/lib/personal-pi-policy.ts::resolvePersonalPiPolicy --> <!-- @test: src/__tests__/lib/personal-pi-policy.test.ts (REQ-ENTERPRISE-088 AC6: a native default never grants permission when permission is %s) -->
 
 **Constraints:**
 
 - Additive `allowPersonalPiProviders`, default off.
 - Preserve existing fallback route validation and configured group matching.
-- Enterprise human Pi sessions only.
+- Human startup and explicitly approved owner-bound Operator native inference; permission alone never authorizes an Operator.
 - Fixed native destinations derive from pinned Pi; cloud resource/region families retain network policy, not an arbitrary custom-origin exception.
 - Native OpenAI JSON requests are bounded at eight MiB.
-- No production deployment, Operator activation or parallel OAuth service.
+- Configuration alone implies no deployment, Operator activation or OAuth service.
 - Startup permission changes take effect on container restart; request-time policy checks do not rely on picker state.
 - Owner authentication follows the deployment's existing storage/governance regime.
 
@@ -1560,7 +1566,34 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 
 **Dependencies:** [REQ-ENTERPRISE-005](models-and-routing.md#req-enterprise-005-container-side-enterprise-routing-ca-trust--constant-base-urls), [REQ-ENTERPRISE-013](models-and-routing.md#req-enterprise-013-per-group-dynamic-routing), [REQ-ENTERPRISE-016](security.md#req-enterprise-016-strict-gateway-egress), [REQ-ENTERPRISE-058](models-and-routing.md#req-enterprise-058-native-model-container-publication)
 
-**Verification:** Administration and shared editor tests cover persistence/payloads; separate actual Review component regressions cover grant/revocation rendering without changing sanctioned defaults. Test execution and exact-head CI remain unverified; startup/provider/Operator evidence belongs to the siblings below.
+**Verification:** Administration, saved-reconciliation and shared editor tests cover persistence/payloads; separate actual Review component regressions cover grant/revocation rendering without changing sanctioned defaults. Current gap-fix test execution and exact-head CI remain unverified; startup/provider/Operator evidence belongs to the siblings below.
+
+**Status:** Implemented
+
+---
+
+### REQ-ENTERPRISE-093: Saved connection check recovery
+
+**Intent:** Administrators can distinguish configuration failures from credential rejection and retry without losing the saved connection.
+
+**Applies To:** Admin
+
+**Acceptance Criteria:**
+
+1. Saved checks present safe authoritative configuration errors rather than misclassifying them as credential failures. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/EnvironmentIndex.test.tsx (REQ-ENTERPRISE-093 AC1/AC2: saved connection failures show safe recovery guidance and preserve the connection for retry) -->
+2. A failed check preserves the connection for an explicit retry. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/EnvironmentIndex.test.tsx (REQ-ENTERPRISE-093 AC1/AC2: saved connection failures show safe recovery guidance and preserve the connection for retry) -->
+3. Unexpected exceptions retain generic recovery guidance without exposing raw private error details. <!-- @impl: web-ui/src/components/admin/AiRoutingFields.tsx::AiRoutingFields --> <!-- @test: web-ui/src/__tests__/components/EnvironmentIndex.test.tsx (REQ-ENTERPRISE-093 AC3: unexpected connection exceptions retain a safe fallback without exposing raw error details) -->
+
+**Constraints:**
+
+- No automatic retry or escalation.
+- Checking never replaces saved credentials or starts inference.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-ENTERPRISE-034](#req-enterprise-034-enterprise-pi-route-administration)
+
+**Verification:** Existing component recovery regressions cover safe errors, retained connection and explicit retry; exact-head CI and hosted acceptance remain required.
 
 **Status:** Implemented
 

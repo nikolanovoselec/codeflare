@@ -96,6 +96,44 @@ function managedOnly(value: Config): boolean {
     && Object.entries(value.mcpServers || {}).every(([name, server]) => ownedServer(name, server));
 }
 
+// The replacement supports eager/lazy, not the old idle-disconnecting variants.
+// Convert only known old values; unknown custom values are not silently reinterpreted.
+function prepareLifecycles(value: Config): boolean {
+  let changed = false;
+  for (const candidate of Object.values(value.mcpServers || {})) {
+    if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) continue;
+    const server = candidate as Record<string, unknown>;
+    if (server.lifecycle === "lazy-keep-alive" || server.lifecycle === "lazy-keepalive") {
+      server.lifecycle = "lazy"; changed = true;
+    }
+  }
+  return changed;
+}
+
+// Old adapter utils.ts interpolates exactly these three forms and reserves a
+// single leading ! for commands. The replacement's stdio env is literal. Never
+// evaluate expressions during handoff; validate the entire selection before I/O.
+function prepareLegacyStdioEnvironment(value: Config): boolean {
+  let changed = false;
+  for (const candidate of Object.values(value.mcpServers || {})) {
+    if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) continue;
+    const server = candidate as Record<string, unknown>;
+    const transport = server.transport ?? server.type ?? (server.command ? "stdio" : undefined);
+    if (transport !== "stdio" || !server.env || typeof server.env !== "object" || Array.isArray(server.env)) continue;
+    const env = server.env as Record<string, unknown>;
+    for (const [name, entry] of Object.entries(env)) {
+      if (typeof entry !== "string") continue;
+      const literal = entry.startsWith("!!") ? entry.slice(1) : entry;
+      if ((entry.startsWith("!") && !entry.startsWith("!!"))
+        || /\$\{\w+\}|\$env:\w+|\{env:\w+\}/.test(literal)) {
+        throw Error("Unsupported legacy MCP environment expression");
+      }
+      if (literal !== entry) { env[name] = literal; changed = true; }
+    }
+  }
+  return changed;
+}
+
 // Explicit timeout preparation follows config selection, never filename migration alone.
 function prepareBrowserTimeouts(value: Config): boolean {
   if (value.settings !== undefined && (!value.settings || typeof value.settings !== "object"
@@ -117,8 +155,9 @@ function prepareBrowserTimeouts(value: Config): boolean {
       if (url.protocol !== "wss:" || url.hostname !== "api.cloudflare.com"
         || url.port || url.username || url.password
         || !/^\/client\/v4\/accounts\/[^/]+\/browser-rendering\/devtools\/browser$/.test(url.pathname)) return arg;
-      if (url.searchParams.getAll("keep_alive").length === 1 && url.searchParams.get("keep_alive") === "360000") return arg;
-      url.searchParams.set("keep_alive", "360000"); changed = true;
+      // Browser inactivity is independent of the fixed six-minute RPC budget.
+      if (url.searchParams.getAll("keep_alive").length === 1 && url.searchParams.get("keep_alive") === "1200000") return arg;
+      url.searchParams.set("keep_alive", "1200000"); changed = true;
       return "--wsEndpoint=" + url.toString();
     } catch { return arg; }
   });
@@ -134,14 +173,21 @@ export function migratePiMcpAdapterConfig(directory: string, regenerateManaged =
       if (info && (!info.isDirectory() || info.isSymbolicLink())) return false;
       if (dirname(path) === path) break;
     }
-    const legacyPath = join(directory, "mcp.json");
-    const targetPath = join(directory, "mcp-adapter.json");
+    const legacyPath = join(directory, "mcp-adapter.json");
+    const targetPath = join(directory, "mcp.json");
     const target = read(targetPath);
     const legacy = read(legacyPath);
     if (!target && !legacy && !regenerateManaged && !prepareTimeouts) return true;
     const targetConfig = target && config(target.bytes);
     const legacyConfig = legacy && config(legacy.bytes);
     let bytes = targetConfig ? target!.bytes : legacyConfig ? legacy!.bytes : Buffer.from("{}\n");
+    const selected = config(bytes)!;
+    // Destination literals are already in the new schema: never decode them.
+    // Reject unsupported selected legacy expressions before even archiving a
+    // malformed destination, so a failed handoff cannot partially change files.
+    const envChanged = !targetConfig && !!legacyConfig && prepareLegacyStdioEnvironment(selected);
+    const lifecycleChanged = prepareLifecycles(selected);
+    if (envChanged || lifecycleChanged) bytes = Buffer.from(`${JSON.stringify(selected, null, 2)}\n`);
     if (target && !targetConfig) preserve(target, `${targetPath}.invalid`);
     if (regenerateManaged) {
       const value = config(bytes)!;
@@ -152,7 +198,7 @@ export function migratePiMcpAdapterConfig(directory: string, regenerateManaged =
         }
       }
       if (!targetConfig && !legacyConfig) {
-        value.settings = { deferWithMissingMetadata: true }; changed = true;
+        value.settings = {}; changed = true;
       }
       if (changed) bytes = Buffer.from(`${JSON.stringify(value, null, 2)}\n`);
     }
@@ -186,14 +232,116 @@ export function migratePiMcpAdapterConfig(directory: string, regenerateManaged =
   }
 }
 
+type McpClient = "stock" | "adapter";
+// This is deliberately not Pi's glob resolver. Only known client entrypoints
+// and exact resource filters qualify a destructive stock-schema handoff.
+function configuredMcpClient(directory: string): McpClient | undefined {
+  try {
+    if (!isAbsolute(directory)) return undefined;
+    for (let path = resolve(directory); ; path = dirname(path)) {
+      const info = stat(path);
+      if (info && (!info.isDirectory() || info.isSymbolicLink())) return undefined;
+      if (dirname(path) === path) break;
+    }
+    const snapshot = read(join(directory, "settings.json"));
+    const settings = snapshot && config(snapshot.bytes);
+    if (!settings) return undefined;
+    const packages = settings.packages === undefined ? [] : settings.packages;
+    const extensions = settings.extensions === undefined ? [] : settings.extensions;
+    if (!Array.isArray(packages) || !Array.isArray(extensions)
+      || !extensions.every(entry => typeof entry === "string")) return undefined;
+    const selected = new Set<McpClient>();
+    const excluded = new Set<string>();
+    const registrations: { client: McpClient; path?: string }[] = [];
+    let uncertain = false;
+    function identify(source: string): { client: McpClient; entry: string } | undefined {
+      const npm = /^npm:(pi-mcp-extension|pi-mcp-adapter)(?:@\d+\.\d+\.\d+)?$/.exec(source);
+      // No filesystem probing: installation is not evidence of selection.
+      const local = isAbsolute(source) && resolve(source) === source
+        ? /\/node_modules\/(pi-mcp-extension|pi-mcp-adapter)(?:\/(src\/index\.ts|index\.ts))?$/.exec(source) : null;
+      const name = npm?.[1] || local?.[1];
+      if (!name) return undefined;
+      const entry = name === "pi-mcp-extension" ? "src/index.ts" : "index.ts";
+      if (local?.[2] && local[2] !== entry) return undefined;
+      return { client: name === "pi-mcp-extension" ? "stock" : "adapter", entry };
+    }
+    for (const candidate of packages) {
+      const value = typeof candidate === "string" ? { source: candidate } : candidate;
+      if (!value || typeof value !== "object" || Array.isArray(value)
+        || typeof value.source !== "string") return undefined;
+      const known = identify(value.source);
+      if (!known) {
+        if (/mcp/i.test(value.source)) uncertain = true;
+        continue;
+      }
+      // Project filtering deltas and unknown selection semantics are not proof.
+      if (value.autoload !== undefined) { uncertain = true; continue; }
+      const path = isAbsolute(value.source)
+        ? (value.source.endsWith(`/${known.entry}`) ? value.source : `${value.source}/${known.entry}`) : undefined;
+      const filters = value.extensions;
+      if (filters === undefined) { registrations.push({ client: known.client, path }); continue; }
+      if (!Array.isArray(filters) || !filters.every(filter => typeof filter === "string")) return undefined;
+      if (filters.length === 0) continue;
+      const exact = (filter: string) => filter.replace(/^[!+-]/, "").replace(/^\.\//, "") === known.entry;
+      if (!filters.every(exact)) { uncertain = true; continue; }
+      if (!filters.some(filter => filter.startsWith("-"))
+        && (!filters.some(filter => filter.startsWith("!")) || filters.some(filter => filter.startsWith("+")))) registrations.push({ client: known.client, path });
+    }
+    for (const selection of extensions as string[]) {
+      if (selection === "-builtin:mcp") continue;
+      // Global glob overrides need Pi's full resolver; do not infer ownership.
+      if (selection.startsWith("!")) { uncertain = true; continue; }
+      const negative = selection.startsWith("-");
+      const rawSource = selection.replace(/^[!+-]/, "");
+      // Pi resolves exact global exclusions relative to the agent directory.
+      // Unknown negative patterns can disable a client too: fail closed rather
+      // than treating an unsupported filter as positive selection evidence.
+      if (negative && /[*?\[\]{}]/.test(rawSource)) { uncertain = true; continue; }
+      const source = negative && !isAbsolute(rawSource) ? resolve(directory, rawSource) : rawSource;
+      // These exact managed exclusions disable non-client extensions only.
+      // Settled startup adds the Review pair after curation delivery; neither
+      // can exclude a client's package entrypoint. Keep other negatives closed.
+      if (negative && ["mcp-portal-oauth.ts", "review-enforcement.ts", "operator-review-remote.ts"]
+        .some(name => source === join(directory, "extensions", name)
+          || source === join("/home/user/.pi/agent/extensions", name))) continue;
+      const known = identify(source);
+      if (known) {
+        const path = isAbsolute(source)
+          ? (source.endsWith(`/${known.entry}`) ? source : `${source}/${known.entry}`) : undefined;
+        if (negative) {
+          // A root/directory or npm exclusion is not an exact extension path.
+          if (!path || path !== source) uncertain = true;
+          else excluded.add(path);
+        } else registrations.push({ client: known.client, path });
+      } else if (negative || /mcp/i.test(source)) uncertain = true;
+    }
+    for (const registration of registrations) {
+      if (registration.path && excluded.has(registration.path)) continue;
+      // npm installation roots may differ across images. A path exclusion is
+      // not proof that an npm registration was disabled.
+      if (!registration.path && [...excluded].some(path => identify(path)?.client === registration.client)) uncertain = true;
+      selected.add(registration.client);
+    }
+    return !uncertain && selected.size === 1 ? [...selected][0] : undefined;
+  } catch { return undefined; }
+}
+
 type ExtensionAPI = {
   on?(event: "session_start", handler: (event: unknown, ctx: { ui: { notify(message: string, level: "warning"): void } }) => void): void;
 };
 export default function registerMcpAdapterMigration(pi: ExtensionAPI, env = process.env): void {
   const directory = env.PI_CODING_AGENT_DIR || join(env.HOME || homedir(), ".pi", "agent");
+  const client = configuredMcpClient(directory);
+  if (client === "adapter") return;
+  if (!client) {
+    pi.on?.("session_start", (_event, ctx) => {
+      ctx.ui.notify("MCP config handoff skipped: client selection is ambiguous or unknown; configuration files were preserved. Inspect global package and extension selections.", "warning");
+    });
+    return;
+  }
   if (!migratePiMcpAdapterConfig(directory, false, true)) {
     pi.on?.("session_start", (_event, ctx) => {
-      ctx.ui.notify("MCP adapter config migration skipped: inspect legacy and adapter files; user data was preserved.", "warning");
+      ctx.ui.notify("MCP config handoff skipped: inspect legacy environment expressions and configuration paths; user data was preserved.", "warning");
     });
   }
 }

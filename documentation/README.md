@@ -34,7 +34,7 @@ When public workflows or consumers change, update the owning document in the [pr
 
 ## Pending delivery
 
-[Dispatcher serial execution and retry](pending.md) distinguishes delivered intent4 lifecycle repairs and retired-response receipts from pending retry, diagnostics hosted acceptance and whole-run acceptance. Receipt delivery and Enterprise retained-receipt read acceptance are complete; v0.1.24 is installed/enabled in Enterprise Integration. Dispatcher failure attribution, completion and cleanup remain unverified. Current operational behavior remains in the Operator lane.
+[Operator verification boundaries](lanes/operators.md#verification-boundaries) distinguish historical delivery receipts from current runtime qualification and hosted acceptance. The [Operator requirements](../sdd/spec/operators.md#req-operator-048-dispatcher-execution) own the trusted normal-host contract; no separate pending-work document is maintained.
 
 ## Audience Guide
 

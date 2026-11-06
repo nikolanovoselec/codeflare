@@ -255,7 +255,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Acceptance Criteria:**
 
-1. Containers stop after a configurable idle period of no user input (default 30 minutes, settable range 15 minutes to 4 hours; a legacy `5m` value is still accepted for a pre-existing stored preference but is no longer offered in the picker). <!-- @impl: src/container/container-metrics.ts::parseSleepAfterMs --> <!-- @test: src/__tests__/container-metrics.test.ts (idle timeout resolution (REQ-OPS-006 AC1) / REQ-OPS-017 (sleepAfter fail-safe invariants)) -->
+1. Containers stop after their effective configured idle period without user input. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @impl: src/container/container-metrics.ts::parseSleepAfterMs --> <!-- @test: src/__tests__/container-metrics.test.ts (REQ-SESSION-004: %s stays alive until its configured idle deadline and then requests SIGTERM) --> <!-- @test: src/__tests__/container-metrics.test.ts (idle timeout resolution (REQ-OPS-006 AC1) / REQ-OPS-017 (sleepAfter fail-safe invariants)) -->
 2. After Codeflare stops a Container and it sleeps, its vCPU, provisioned-memory, and local-disk metering stops. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @manual: Record the Container's vCPU, provisioned-memory, and local-disk usage in Cloudflare analytics; let Codeflare idle-stop it; confirm it is sleeping and all three usage totals stop increasing while it remains stopped. -->
 3. Local disk is ephemeral and restart restores durable files from R2. <!-- @manual -->
 4. Workers, Durable Objects, R2, requests, logs, storage, and network may still incur charges. <!-- @manual -->
@@ -266,6 +266,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 - CPU is billed on active usage only; Memory and disk are billed on provisioned resources during active time.
 - R2 storage is billed by GB-month, with a free tier covering small workspaces.
 - Cost scales per active session, not per user.
+- Idle defaults, selectable presets and legacy/free-tier policies live in [REQ-SESSION-004](session-lifecycle.md#req-session-004-idle-containers-sleep-after-configurable-timeout) and [REQ-SESSION-014](session-lifecycle.md#req-session-014-user-configurable-auto-sleep-timeout-in-settings).
 - Idle-timeout persistence + lifecycle mechanics live in [REQ-OPS-016](#req-ops-016-sleepafter-preference-persistence-and-lifecycle).
 - Idle-timeout fail-safe invariants live in [REQ-OPS-017](#req-ops-017-sleepafter-fail-safe-invariants).
 
@@ -497,9 +498,9 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Acceptance Criteria:**
 
-1. The idle-timeout preference is persisted durably so it survives container-orchestration resets. <!-- @impl: src/container/container-router.ts::dispatchInternalRoute --> <!-- @test: src/__tests__/container/lifecycle.test.ts (persists to DO storage on initial setBucketName) --> <!-- @test: src/__tests__/container/lifecycle.test.ts (loads from DO storage on construction (storage key: sleepAfter)) -->
+1. The idle-timeout preference is persisted durably so it survives container-orchestration resets. <!-- @impl: src/container/container-router.ts::dispatchInternalRoute --> <!-- @test: src/__tests__/container/lifecycle.test.ts (persists to DO storage on initial setBucketName) --> <!-- @test: src/__tests__/container/lifecycle.test.ts (loads %s from DO storage on construction (storage key: sleepAfter)) -->
 2. The preference is persisted on both initial bucket configuration and any subsequent updates. <!-- @impl: src/container/container-router.ts::dispatchInternalRoute --> <!-- @test: src/__tests__/container/lifecycle.test.ts (persists to DO storage on initial setBucketName) --> <!-- @test: src/__tests__/container/lifecycle.test.ts (persists to DO storage on restart (409 path)) -->
-3. On startup, the stored preference is loaded and validated. <!-- @impl: src/container/index.ts::container --> <!-- @test: src/__tests__/container/lifecycle.test.ts (loads from DO storage on construction (storage key: sleepAfter)) --> <!-- @test: src/__tests__/container/lifecycle.test.ts (rejects invalid values from storage and falls back to fail-safe 4h default) -->
+3. On startup, the stored preference is loaded and validated. <!-- @impl: src/container/index.ts::container --> <!-- @test: src/__tests__/container/lifecycle.test.ts (loads %s from DO storage on construction (storage key: sleepAfter)) --> <!-- @test: src/__tests__/container/lifecycle.test.ts (rejects invalid values from storage and falls back to fail-safe 12h default) -->
 4. On session destruction, the persisted preference is removed. <!-- @impl: src/container/index.ts::destroy --> <!-- @test: src/__tests__/container/lifecycle.test.ts (REQ-SESSION-032 AC1/AC4-AC5: destroy preserves credentials, drains before sync, and clears storage) -->
 
 **Constraints:**
@@ -524,10 +525,10 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Acceptance Criteria:**
 
-1. An unresolved idle-timeout preference falls back to the maximum supported four hours, preserving user work. <!-- @impl: src/container/container-metrics.ts::parseSleepAfterMs --> <!-- @impl: src/container/container-metrics.ts::SLEEP_AFTER_FALLBACK_MS = 14_400_000 --> <!-- @test: src/__tests__/lib/sleep-timer-defaults.test.ts (parseSleepAfterMs - fail-safe direction) -->
+1. An unresolved idle-timeout preference falls back to the maximum supported twelve hours, preserving user work. <!-- @impl: src/container/container-metrics.ts::parseSleepAfterMs --> <!-- @impl: src/container/container-metrics.ts::SLEEP_AFTER_FALLBACK_MS = 43_200_000 --> <!-- @test: src/__tests__/lib/sleep-timer-defaults.test.ts (parseSleepAfterMs - fail-safe direction) -->
 2. Every idle-check tick resolves the persisted preference afresh; a valid change takes effect within that cycle regardless of which code path wrote it. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @test: src/__tests__/routes/session-sleep-timeout.test.ts (REQ-SESSION-014: User-configurable auto-sleep timeout in Settings) -->
 3. In-memory copies of the preference do not outlive a single idle-check cycle. <!-- @impl: src/container/index.ts::collectMetrics --> <!-- @test: src/__tests__/container-metrics.test.ts (refreshes idleTimeoutPref from storage on every tick) -->
-4. On any missing, unsupported, malformed, or failed idle-timeout read, resolution substitutes the maximum supported value (4h), replaces stale cached state, and logs the fallback, never a shorter default — so a resolution failure can only lengthen, never shorten, the user's effective timeout. <!-- @impl: src/container/container-metrics.ts::parseSleepAfterMs --> <!-- @test: src/__tests__/lib/sleep-timer-defaults.test.ts (parseSleepAfterMs - fail-safe direction) -->
+4. On any missing, unsupported, malformed, or failed idle-timeout read, resolution substitutes the maximum supported value (12h), replaces stale cached state, and logs the fallback, never a shorter default — so a resolution failure can only lengthen, never shorten, the user's effective timeout. <!-- @impl: src/container/container-metrics.ts::parseSleepAfterMs --> <!-- @test: src/__tests__/lib/sleep-timer-defaults.test.ts (parseSleepAfterMs - fail-safe direction) -->
 
 **Constraints:**
 
@@ -617,7 +618,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 4. A binary bump without an authoritative upstream checksum invalidates its pinned artifact checksum for operator verification. <!-- @impl: .github/workflows/bump-shadow-pins.yml::lazygit --> <!-- @manual -->
 5. Actionlint resolves its release-manifest checksum and re-verifies the artifact. <!-- @impl: .github/workflows/bump-shadow-pins.yml::actionlint --> <!-- @manual -->
 6. A bump branch is skipped when that tool and version already have one. <!-- @manual -->
-7. Graphify, Bun, Pi extensions, Impeccable, consult-llm-mcp, chrome-devtools-mcp, browser-run-mcp, and uv each have a dedicated release-check job or matrix. <!-- @impl: .github/workflows/bump-shadow-pins.yml::graphify --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::bun --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::pi-extensions --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::impeccable --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::consult-llm-mcp --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::chrome-devtools-mcp --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::browser-run-mcp --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::uv --> <!-- @manual -->
+7. Graphify, Bun, Pi extensions, Impeccable, consult-llm-mcp, chrome-devtools-mcp, browser-run-mcp, uv, Go, Rust, GitHub CLI, rclone/gRPC/compress, image security overlays, k6, Trivy, security floors and governed CI Node patches each have a release-check job or matrix. <!-- @impl: scripts/ci/update-shadow-image-pins.mjs::updateShadowImagePins --> <!-- @impl: scripts/ci/update-npm-security-pins.mjs::updateNpmSecurityPins --> <!-- @test: host/__tests__/shadow-image-pin-update.test.js (REQ-OPS-020 AC4: rclone source checksum invalidates while matching CI archive remains authenticated) --> <!-- @test: host/__tests__/npm-security-pin-update.test.js (REQ-OPS-020: atomic Undici 7 overlay/floor/override candidate preserves separate major and unrelated packages) --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::graphify --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::bun --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::pi-extensions --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::impeccable --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::consult-llm-mcp --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::chrome-devtools-mcp --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::browser-run-mcp --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::uv --> <!-- @manual -->
 
 **Notes:** Third-party release execution is verified manually per the [CI/CD lane](../../documentation/lanes/ci-cd.md); owned updater boundaries are automated where listed.
 
@@ -667,7 +668,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Acceptance Criteria:**
 
-1. Zizmor and actionlint bumps update only their validated non-workflow pin manifest, allowing the least-privilege GitHub Actions token to push their branches without workflow-write permission. <!-- @impl: scripts/ci/workflow-tool-pins.mjs::updateWorkflowToolPin --> <!-- @impl: scripts/ci/workflow-tool-pins.mjs::stageDefaultManifest --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::zizmor --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::actionlint --> <!-- @test: host/__tests__/workflow-tool-pins.test.js (REQ-OPS-041: least-privilege workflow-tool pin updates) -->
+1. Zizmor, actionlint, governed CI Node/Trivy pins and rclone CI artifact pins update only validated non-workflow data, allowing the least-privilege GitHub Actions token to push their branches without workflow-write permission. <!-- @impl: scripts/ci/workflow-tool-pins.mjs::updateWorkflowToolPin --> <!-- @impl: scripts/ci/workflow-tool-pins.mjs::stageDefaultManifest --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::zizmor --> <!-- @impl: .github/workflows/bump-shadow-pins.yml::actionlint --> <!-- @test: host/__tests__/workflow-tool-pins.test.js (REQ-OPS-041: least-privilege workflow-tool pin updates) -->
 
 **Constraints:** GitHub Actions referenced through `uses:` remain pinned directly to immutable commits in workflow files.
 
@@ -718,9 +719,9 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 **Acceptance Criteria:**
 
-1. Committed runtime locks and overrides cannot reinstall versions below the reviewed security floors. <!-- @impl: preseed/npm-tools/package-lock.json::node_modules/ip-address --> <!-- @impl: preseed/agents/pi/package-lock.json::node_modules/ip-address --> <!-- @impl: preseed/agents/claude/browser-run-mcp/package-lock.json::node_modules/ip-address --> <!-- @impl: preseed/npm-tools/package.json::overrides --> <!-- @impl: preseed/agents/pi/package.json::overrides --> <!-- @impl: host/package-lock.json::node_modules/dompurify = 3.4.16 --> <!-- @impl: landing/package.json::overrides = "devalue": "5.9.4" --> <!-- @test: host/__tests__/dockerfile-dependency-integrity.test.js (pins patched versions across every affected committed runtime tree) --> <!-- @test: host/__tests__/dockerfile-dependency-integrity.test.js (REQ-OPS-054: excludes the DOMPurify IN_PLACE advisory range) --> <!-- @test: host/__tests__/dockerfile-dependency-integrity.test.js (REQ-OPS-054: excludes the six devalue serialization advisory ranges) --> <!-- @impl: package-lock.json::node_modules/source-map-js = 1.2.2 --> <!-- @impl: host/package-lock.json::node_modules/source-map-js = 1.2.2 --> <!-- @test: host/__tests__/dockerfile-dependency-integrity.test.js (REQ-OPS-054: excludes the indexed source-map section-offset advisory range) -->
+1. Committed runtime locks and overrides cannot reinstall versions below the reviewed security floors. <!-- @impl: preseed/npm-tools/package-lock.json::node_modules/ip-address --> <!-- @impl: preseed/agents/pi/package-lock.json::node_modules/ip-address --> <!-- @impl: preseed/agents/claude/browser-run-mcp/package-lock.json::node_modules/ip-address --> <!-- @impl: preseed/npm-tools/package.json::overrides --> <!-- @impl: preseed/agents/pi/package.json::overrides --> <!-- @impl: host/package-lock.json::node_modules/dompurify = 3.4.17 --> <!-- @impl: landing/package.json::overrides = "devalue": "5.9.4" --> <!-- @test: host/__tests__/dockerfile-dependency-integrity.test.js (pins patched versions across every affected committed runtime tree) --> <!-- @test: host/__tests__/dockerfile-dependency-integrity.test.js (REQ-OPS-054: excludes the DOMPurify IN_PLACE advisory range) --> <!-- @test: host/__tests__/dockerfile-dependency-integrity.test.js (REQ-OPS-054: excludes the six devalue serialization advisory ranges) --> <!-- @impl: package-lock.json::node_modules/source-map-js = 1.2.2 --> <!-- @impl: host/package-lock.json::node_modules/source-map-js = 1.2.2 --> <!-- @test: host/__tests__/dockerfile-dependency-integrity.test.js (REQ-OPS-054: excludes the indexed source-map section-offset advisory range) -->
 2. Every Claude platform package in the privileged npm runtime lock matches the exact Claude CLI manifest pin. <!-- @impl: preseed/npm-tools/package-lock.json::node_modules/@anthropic-ai/claude-code --> <!-- @test: host/__tests__/dockerfile-dependency-integrity.test.js (locks every Claude platform package at the exact CLI release) -->
-3. The Browser Run MCP, shared npm-tools, and Pi runtime locks resolve fast-uri 3.1.8 or later. <!-- @impl: preseed/agents/claude/browser-run-mcp/package-lock.json::node_modules/fast-uri = 3.1.8 --> <!-- @impl: preseed/npm-tools/package-lock.json::node_modules/fast-uri = 3.1.8 --> <!-- @impl: preseed/agents/pi/package-lock.json::node_modules/fast-uri = 3.1.8 --> <!-- @test: host/__tests__/dockerfile-dependency-integrity.test.js (pins patched versions across every affected committed runtime tree) -->
+3. The Browser Run MCP, shared npm-tools, and Pi runtime locks resolve fast-uri 3.1.8 or later. <!-- @impl: preseed/agents/claude/browser-run-mcp/package-lock.json::node_modules/fast-uri = 3.1.9 --> <!-- @impl: preseed/npm-tools/package-lock.json::node_modules/fast-uri = 3.1.9 --> <!-- @impl: preseed/agents/pi/package-lock.json::node_modules/fast-uri = 3.1.9 --> <!-- @test: host/__tests__/dockerfile-dependency-integrity.test.js (pins patched versions across every affected committed runtime tree) -->
 4. Affected npm runtime dependency trees exclude the reviewed high-severity libheif out-of-bounds write exposure. <!-- @impl: package-lock.json::node_modules/sharp = 0.35.5 --> <!-- @impl: .github/npm-tools/wrangler/package-lock.json::node_modules/sharp = 0.35.5 --> <!-- @impl: landing/package-lock.json::node_modules/sharp = 0.35.5 --> <!-- @test: host/__tests__/dockerfile-dependency-integrity.test.js (pins patched versions across every affected committed runtime tree) -->
 5. Root and workflow Wrangler undici 7.x locks resolve the fixed WebSocket decompression release (7.29.1+), and the Landing undici 8.x lock resolves 8.10.2+; manifest overrides cannot restore a vulnerable version. <!-- @impl: package.json::overrides --> <!-- @impl: .github/npm-tools/wrangler/package.json::overrides --> <!-- @impl: landing/package-lock.json::node_modules/undici --> <!-- @impl: scripts/apply-npm-security-lock-pins.mjs::main --> <!-- @test: host/__tests__/dockerfile-dependency-integrity.test.js (pins patched versions across every affected committed runtime tree) --> <!-- @test: host/__tests__/npm-security-lock-pins.test.js (replaces every vulnerable bundled security pin and preserves unrelated packages) -->
 
@@ -809,7 +810,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 1. The standalone zizmor SARIF audit runs on every pull request touching workflow files and on workflow-touching pushes to `main`; the required `workflow-audit` lane separately enforces the merge gate through PR Checks. <!-- @impl: .github/workflows/zizmor.yml::zizmor --> <!-- @impl: .github/workflows/test.yml::workflow-audit --> <!-- @test: host/__tests__/develop-required-checks.test.js (REQ-OPS-021 AC1: audits workflow changes on pull requests and main pushes and gates merges through workflow-audit) -->
 2. The audit's findings upload as SARIF to code scanning. <!-- @impl: .github/workflows/zizmor.yml::zizmor --> <!-- @manual -->
-3. An actionlint check validates every workflow file using a checksum-pinned binary, catching errors GitHub reports only as jobless validation failures. <!-- @impl: .github/workflows/test.yml::workflow-audit --> <!-- @manual -->
+3. An actionlint check validates every workflow file using a checksum-pinned binary, catching errors GitHub reports only as jobless validation failures. <!-- @impl: scripts/ci/actionlint-input.mjs::actionlintInput --> <!-- @test: host/__tests__/actionlint-input.test.js (REQ-OPS-021 AC3: real pinned actionlint retains local target, input, expression and shell failures) --> <!-- @impl: .github/workflows/test.yml::workflow-audit --> <!-- @manual -->
 4. The merge-blocking audit runs inside the required status context and fails on any surviving finding, while the branch-filtered standalone workflow records the same audit as SARIF for alert history. <!-- @impl: .github/workflows/test.yml::workflow-audit --> <!-- @impl: .github/workflows/zizmor.yml::zizmor --> <!-- @manual -->
 
 **Constraints:**
@@ -819,11 +820,13 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 - actionlint runs with its shellcheck integration enabled at `--severity=error` (syntax/error class only) to catch unparseable workflow `run:` scripts; its pyflakes integration stays disabled — deeper script hygiene is zizmor's concern.
 - The actionlint version and checksum are a shadow pin: Dependabot cannot see them, so [REQ-OPS-020](#req-ops-020-shadow-pin-version-bump-automation) bumps them weekly.
 
+- Version-bound lint input changes only self-repository use-prefix scalars in memory, preserving source bytes, scripts and diagnostics while zizmor audits originals.
+
 **Priority:** P2
 
 **Dependencies:** None.
 
-**Verification:** Automated test
+**Verification:** Projection coverage and real pinned-binary negative cases are authored; the audit lane executes the latter after checksum verification, with exact-head CI still required.
 
 **Status:** Implemented
 
@@ -1159,7 +1162,7 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 
 ### REQ-OPS-040: Selected coding-agent packaging
 
-**Intent:** The image packages exactly the shared coding-agent launchers selected by the operator.
+**Intent:** The image packages exactly the shared coding-agent launchers selected by the operator and excludes foreign native PTY prebuilds from its Linux runtime.
 
 **Applies To:** Operator
 
@@ -1169,6 +1172,8 @@ CI/CD pipeline, testing strategy, deployment workflow, container sizing, and cos
 2. Every omitted npm agent launcher is absent. <!-- @impl: Dockerfile::CODEFLARE_CODING_AGENTS --> <!-- @impl: scripts/ci/coding-agent-selection.mjs::selectedNpmManifest --> <!-- @test: host/__tests__/coding-agent-selection.test.js (derives an npm manifest containing only selected coding agents plus shared tools) --> <!-- @manual: Inspect omitted packaged-image agentVersions evidence. -->
 3. The Antigravity launcher is installed only when selected. <!-- @impl: Dockerfile::CODEFLARE_CODING_AGENTS --> <!-- @manual: Inspect packaged-image agentVersions evidence for selections with and without Antigravity. -->
 4. Installed npm agents retain only their canonical Linux x64 runtime payloads; alternate operating-system, architecture, baseline, musl, and nested esbuild payloads are removed from both shared tools and Pi's prewarm installation before image commit. <!-- @impl: scripts/ci/prune-npm-platform-artifacts.mjs::pruneNpmPlatformArtifacts --> <!-- @impl: Dockerfile::CODEFLARE_CODING_AGENTS --> <!-- @impl: scripts/ci/smoke-openvscode-sidebar-image.mjs::verifySelectedAgentPackages --> <!-- @test: host/__tests__/npm-platform-pruning.test.js (REQ-OPS-040: Linux coding-agent package pruning) --> <!-- @test: host/__tests__/coding-agent-selection.test.js (the complete-image smoke rejects alternate platform packages after pruning) --> <!-- @test: src/__tests__/ci/suite-gates.test.ts (REQ-OPS-002 AC7 + REQ-OPS-003 AC7: PR Checks never build images and deployment runs every packaged smoke gate) -->
+
+5. Native PTY dependencies omit Windows and macOS prebuilds from the Host and Pi runtime installations while retaining Linux payloads and source-built addons. <!-- @impl: scripts/ci/prune-npm-platform-artifacts.mjs::pruneNpmPlatformArtifacts --> <!-- @impl: Dockerfile::builder --> <!-- @test: host/__tests__/npm-platform-pruning.test.js (assembles a PTY runtime artifact without Windows or macOS prebuilds and preserves Linux addons) -->
 
 **Constraints:** Every packaged launcher remains exact-version lock-backed or checksum-pinned.
 

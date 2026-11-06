@@ -1,21 +1,50 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@solidjs/testing-library';
 import OperatorManagement from '../../components/OperatorManagement';
+import OperatorActivityDiagnostics from '../../components/OperatorActivityDiagnostics';
+import OperatorManagementActivity from '../../components/OperatorManagementActivity';
+import type { Session } from '../../types';
 const summary = { activityId: 'activity-1', operatorId: 'operator-1', executionStatus: 'running', cleanupStatus: 'pending', collectionStatus: 'unavailable',
   attention: false, sessionId: null, source: null, updatedAt: Date.now() };
 const json = (value: unknown, status = 200) => new Response(JSON.stringify(value), { status });
-let serve: (url: URL, init?: RequestInit) => Response;
-let preview: { name: string; version: string; guidedAssessment: boolean; guidedMode: 'repository' | 'legacy-pull-request' | null; configuredRepository?: string };
+let serve: (url: URL, init?: RequestInit) => Response | Promise<Response>;
+const ordinaryHost: Session = { id: 'ownersession1', name: 'Existing owner Host',
+  createdAt: '2026-01-01T00:00:00.000Z', lastAccessedAt: '2026-01-02T00:00:00.000Z',
+  status: 'running', lifecycle: 'running', generation: 3, revision: 7,
+  workspace: 'terminal', terminalMode: 'classic', agentType: 'bash', editorReady: false };
+let sessionRead: () => Response | Promise<Response>;
+let preview: { name: string; version: string; guidedAssessment: boolean; guidedMode: 'repository' | 'legacy-pull-request' | null; requiresSourceHost: boolean; configuredRepository?: string };
 beforeEach(() => {
   window.history.replaceState({}, '', '/operators?view=activity');
   serve = () => json({ items: [summary] });
-  preview = { name: 'Renovate Dispatcher', version: 'v0.1.2', guidedAssessment: true, guidedMode: 'legacy-pull-request' };
-  vi.stubGlobal('fetch', vi.fn((url: string, init?: RequestInit) => Promise.resolve(
-    new URL(url).pathname.endsWith('/preview') ? json(preview) : serve(new URL(url), init))));
+  sessionRead = () => json({ sessions: [] });
+  preview = { name: 'Renovate Dispatcher', version: 'v0.1.2', guidedAssessment: true, guidedMode: 'legacy-pull-request', requiresSourceHost: false };
+  vi.stubGlobal('fetch', (url: string, init?: RequestInit) => {
+    const target = new URL(url, window.location.origin);
+    if (target.pathname === '/api/sessions' && (init?.method ?? 'GET') === 'GET') {
+      // Existing authenticated D1 catalog wire: reading it grants no launch authority.
+      // POST /api/sessions falls through to the mutation ledger, never a hidden creation stub.
+      if (init?.credentials !== 'same-origin' || init?.redirect !== 'manual' || init?.body !== undefined)
+        return Promise.resolve(json({ error: 'Authenticated catalog read required' }, 403));
+      return Promise.resolve(sessionRead());
+    }
+    return Promise.resolve(target.pathname.endsWith('/preview') ? json(preview) : serve(target, init));
+  });
 });
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
 describe('REQ-OPERATOR-049: human-owned invocation and activity', () => {
+  it('shows normal Dispatcher provider-default without crashing or advertising Off or Medium', async () => {
+    serve = url => url.pathname.endsWith('/activity-1') ? json({ ...summary, checkpoint: null, result: null,
+      inferenceSelection: { source: 'pi-native', provider: 'groq', model: 'openai/gpt-oss-20b',
+        api: 'openai-completions', reasoningLevel: null, reasoningSource: 'inherited' } }) : json({ items: [summary] });
+    render(() => <OperatorManagementActivity onBackToCatalog={() => {}} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'View activity-1' }));
+    const label = await screen.findByText(/Inference:.*groq.*openai\/gpt-oss-20b/);
+    expect(label).toHaveTextContent('Provider default');
+    expect(label).not.toHaveTextContent(/Off|Medium|installation override/);
+  });
+
   it('REQ-OPERATOR-061: configured Renovate run settings make the modern target read-only and ignore malicious repository and PR URL overrides until explicit start', async () => {
     window.history.replaceState({}, '', '/operators?invoke=installation-1&repository=attacker%2Fforeign&pullRequest=42&automaticRuns=true&repetitionIntervalSeconds=1');
     preview.guidedMode = 'repository';
@@ -81,9 +110,9 @@ describe('REQ-OPERATOR-049: human-owned invocation and activity', () => {
   });
   it('returns from the guided form to the catalog without starting an activity', async () => {
     window.history.replaceState({}, '', '/operators?invoke=installation-1');
-    let admissions = 0;
+    const admissions: unknown[] = [];
     serve = (url, init) => {
-      if (url.pathname === '/api/operator-activities' && init?.method === 'POST') admissions++;
+      if (url.pathname === '/api/operator-activities' && init?.method === 'POST') admissions.push(JSON.parse(String(init.body)));
       return json({ items: [], cursor: null });
     };
     render(() => <OperatorManagement />);
@@ -91,27 +120,27 @@ describe('REQ-OPERATOR-049: human-owned invocation and activity', () => {
     expect(await screen.findByRole('heading', { name: 'Available operators', level: 2 })).toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: 'Assess a Renovate pull request' })).not.toBeInTheDocument();
     expect(window.location.search).toBe('');
-    expect(admissions).toBe(0);
+    expect(admissions).toEqual([]);
   });
   it('prefills a user-chosen read-only Renovate demo without starting it, and rejects invalid targets before preparation', async () => {
     window.history.replaceState({}, '', '/operators?invoke=installation-1&repository=nikolanovoselec%2Fkomodo&pullRequest=1253');
-    let preparations = 0;
+    const preparations: unknown[] = [];
     serve = (url, init) => {
-      if (url.pathname === '/api/operator-activities' && init?.method === 'POST') preparations++;
+      if (url.pathname === '/api/operator-activities' && init?.method === 'POST') preparations.push(JSON.parse(String(init.body)));
       return json({ items: [] });
     };
     render(() => <OperatorManagement />);
     expect(await screen.findByRole('textbox', { name: 'Repository' })).toHaveValue('nikolanovoselec/komodo');
     expect(screen.getByRole('spinbutton', { name: 'Pull request number' })).toHaveValue(1253);
-    expect(preparations).toBe(0);
+    expect(preparations).toEqual([]);
     fireEvent.input(screen.getByRole('textbox', { name: 'Repository' }), { target: { value: 'https://github.com/other/repository' } });
     fireEvent.click(screen.getByRole('button', { name: 'Start assessment' }));
     expect(await screen.findByRole('alert')).toHaveTextContent(/repository.*owner\/repository/i);
-    expect(preparations).toBe(0);
+    expect(preparations).toEqual([]);
   });
-  it('does not offer a Renovate form for an unsupported installed package', async () => {
+  it('REQ-OPERATOR-058: AC7 does not offer a Renovate form for an unsupported installed package', async () => {
     window.history.replaceState({}, '', '/operators?invoke=installation-1');
-    preview = { name: 'Another Dispatcher', version: 'v2', guidedAssessment: false, guidedMode: null };
+    preview = { name: 'Another Dispatcher', version: 'v2', guidedAssessment: false, guidedMode: null, requiresSourceHost: false };
     render(() => <OperatorManagement />);
     expect(await screen.findByText(/No guided assessment is available for Another Dispatcher/)).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Start assessment' })).not.toBeInTheDocument();
@@ -150,10 +179,12 @@ describe('REQ-OPERATOR-049: human-owned invocation and activity', () => {
     expect(await screen.findByText(/Activity start accepted/)).toBeInTheDocument();
     expect(screen.queryByText('s'.repeat(43))).not.toBeInTheDocument();
   });
-  it('does not allow another start after an uncertain response until the prepared activity is reconciled', async () => {
+  it('REQ-OPERATOR-058: AC4 does not allow another start after an uncertain response until the prepared activity is reconciled', async () => {
     window.history.replaceState({}, '', '/operators?invoke=installation-1');
     let indexed = false;
+    const writes: Array<{ path: string; body: unknown }> = [];
     serve = (url, init) => {
+      if (init?.method === 'POST') writes.push({ path: url.pathname, body: JSON.parse(String(init.body)) });
       if (url.pathname === '/api/operator-activities' && init?.method === 'POST') {
         return json({ activityId: 'activity-2', startCapability: 's'.repeat(43), startExpiresAt: Date.now() + 30000 });
       }
@@ -169,6 +200,11 @@ describe('REQ-OPERATOR-049: human-owned invocation and activity', () => {
     fireEvent.input(screen.getByRole('spinbutton', { name: 'Pull request number' }), { target: { value: '1253' } });
     fireEvent.click(screen.getByRole('button', { name: 'Start assessment' }));
     expect(await screen.findByRole('alert')).toHaveTextContent(/state could not be confirmed/i);
+    expect(writes).toEqual([
+      { path: '/api/operator-activities', body: { installationId: 'installation-1', invocation: { repository: 'nikolanovoselec/komodo', pullRequest: 1253 } } },
+      { path: '/api/operator-activities/activity-2/start', body: { capability: 's'.repeat(43) } },
+    ]);
+    submitAssessment();
     await waitFor(() => expect(screen.getByRole('button', { name: 'Refresh activity state' })).not.toBeDisabled());
     expect(screen.getByRole('button', { name: 'Start assessment' })).toBeDisabled();
     fireEvent.click(screen.getByRole('button', { name: 'Refresh activity state' }));
@@ -177,13 +213,14 @@ describe('REQ-OPERATOR-049: human-owned invocation and activity', () => {
     fireEvent.click(screen.getByRole('button', { name: 'activity-2' }));
     expect(await screen.findByRole('alert')).toHaveTextContent(/invocation requires its own grant/i);
     expect(screen.getByRole('button', { name: 'Start assessment' })).toBeDisabled();
+    expect(writes.map(value => value.path)).toEqual(['/api/operator-activities', '/api/operator-activities/activity-2/start']);
     indexed = true;
     fireEvent.click(screen.getByRole('button', { name: 'activity-2' }));
     expect(await screen.findByRole('heading', { name: 'Activity detail' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Start assessment' })).not.toBeDisabled();
   });
 
-  it('does not reconcile failed preparation against an earlier accepted activity', async () => {
+  it('REQ-OPERATOR-058: AC5 does not reconcile failed preparation against an earlier accepted activity', async () => {
     window.history.replaceState({}, '', '/operators?invoke=installation-1');
     let preparationAvailable = true;
     serve = (url, init) => {
@@ -220,6 +257,118 @@ describe('REQ-OPERATOR-049: human-owned invocation and activity', () => {
   });
 });
 
+// Intentional browser preparation/start API contracts. All other writes are retained
+// as forbidden effects, including session lifecycle and saved model/auth/settings writes.
+// Exact preparation bodies prove URL-supplied source/principal hints cannot become
+// launch authority; exact start bodies bind the explicit action to its one prepared Activity.
+function sessionIndependentLaunchFixture() {
+  window.history.replaceState({}, '', '/operators?invoke=installation-1&repository=attacker%2Foverride&pullRequest=42&sourceSession=ownersession1&sessionId=ownersession1&sessionGeneration=3&principal=attacker');
+  preview.guidedMode = 'repository';
+  preview.requiresSourceHost = false;
+  preview.configuredRepository = 'acme/configured';
+  const writes: Array<{ path: string; body: unknown }> = [];
+  serve = (url, init) => {
+    if (!['GET', 'HEAD'].includes(init?.method ?? 'GET')) {
+      writes.push({ path: url.pathname, body: JSON.parse(String(init?.body ?? 'null')) });
+      if (url.pathname === '/api/operator-activities')
+        return json({ activityId: 'prepared-source-activity', startCapability: 'k'.repeat(43), startExpiresAt: Date.now() + 30000 });
+      if (url.pathname === '/api/operator-activities/prepared-source-activity/start') return json({ ok: true });
+      return json({ error: 'No other mutation is authorized by assessment launch.' }, 403);
+    }
+    if (url.pathname === '/api/operator-activities/prepared-source-activity')
+      return json({ ...summary, activityId: 'prepared-source-activity', checkpoint: null, result: { original: 'source assessment' } });
+    return json({ items: [] });
+  };
+  return writes;
+}
+function submitAssessment() {
+  fireEvent.submit(screen.getByRole('button', { name: 'Start assessment' }).closest('form')!);
+}
+describe('REQ-OPERATOR-058: session-independent standalone guided preparation', () => {
+  // Both inference branches share this browser contract. Native ON uses owner R2;
+  // native OFF uses the account default Gateway. Neither is selected by child input
+  // or by a browser Host picker; server inference qualification lives in its own suite.
+  it.each(['repository', 'legacy-pull-request'] as const)(
+    'REQ-OPERATOR-058: AC1/3/6 empty catalog permits explicit %s launch with no source or principal in preparation', async mode => {
+      const writes = sessionIndependentLaunchFixture();
+      preview.guidedMode = mode;
+      sessionRead = () => json({ sessions: [] });
+      render(() => <OperatorManagement />);
+      const start = await screen.findByRole('button', { name: 'Start assessment' });
+      expect(start).toBeEnabled();
+      expect(screen.queryByRole('combobox', { name: /source.*host/i })).not.toBeInTheDocument();
+      expect(screen.queryByLabelText(/source.*host|source.*session|principal/i)).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /refresh.*(?:source|hosts)/i })).not.toBeInTheDocument();
+      if (mode === 'legacy-pull-request') {
+        fireEvent.input(screen.getByRole('textbox', { name: 'Repository' }), { target: { value: 'owner/legacy' } });
+        fireEvent.input(screen.getByRole('spinbutton', { name: 'Pull request number' }), { target: { value: '1253' } });
+        expect(screen.getByText(/real read-only assessment/)).toHaveTextContent(/will not merge or change/);
+      }
+      expect(writes).toEqual([]);
+      submitAssessment();
+      submitAssessment();
+      expect(await screen.findByText(/Activity start accepted/)).toBeInTheDocument();
+      expect(writes).toEqual([
+        { path: '/api/operator-activities', body: { installationId: 'installation-1', invocation: mode === 'repository'
+          ? { repository: 'acme/configured' } : { repository: 'owner/legacy', pullRequest: 1253 } } },
+        { path: '/api/operator-activities/prepared-source-activity/start', body: { capability: 'k'.repeat(43) } },
+      ]);
+      fireEvent.click(await screen.findByRole('button', { name: 'prepared-source-activity' }));
+      expect(await screen.findByRole('heading', { name: 'Activity detail' })).toBeInTheDocument();
+      expect(screen.getByText('Activity ID: prepared-source-activity')).toBeInTheDocument();
+      expect(screen.getByText(/source assessment/)).toBeInTheDocument();
+      expect(screen.queryByText('k'.repeat(43))).not.toBeInTheDocument();
+    });
+
+  it.each(['pending', 'unavailable', 'malformed', 'stopped', 'running'] as const)(
+    'REQ-OPERATOR-058: AC1 unrelated %s session catalog cannot gate launch or supply implicit source authority', async catalog => {
+      const writes = sessionIndependentLaunchFixture();
+      const pending = deferredDiagnosticResponse();
+      sessionRead = () => catalog === 'pending' ? pending.promise
+        : catalog === 'unavailable' ? json({ error: 'Catalog unavailable' }, 503)
+        : catalog === 'malformed' ? json({ sessions: [{ id: ordinaryHost.id }] })
+        : json({ sessions: [{ ...ordinaryHost, status: catalog, lifecycle: catalog }] });
+      render(() => <OperatorManagement />);
+      expect(await screen.findByRole('button', { name: 'Start assessment' })).toBeEnabled();
+      expect(screen.queryByRole('combobox', { name: /source.*host/i })).not.toBeInTheDocument();
+      expect(writes).toEqual([]);
+      submitAssessment();
+      expect(await screen.findByText(/Activity start accepted/)).toBeInTheDocument();
+      expect(writes).toEqual([
+        { path: '/api/operator-activities', body: { installationId: 'installation-1', invocation: { repository: 'acme/configured' } } },
+        { path: '/api/operator-activities/prepared-source-activity/start', body: { capability: 'k'.repeat(43) } },
+      ]);
+      pending.resolve(json({ sessions: [] }));
+    });
+
+  it.each([
+    { reason: 'expired', status: 403 },
+    { reason: 'revoked', status: 404 },
+    { reason: 'wrong installation', status: 404 },
+    { reason: 'unsupported input schema', status: 400 },
+  ])('REQ-OPERATOR-058/047: $reason preparation refusal cannot trigger start or session warmup', async ({ status }) => {
+    const writes = sessionIndependentLaunchFixture();
+    serve = (url, init) => {
+      if (init?.method === 'POST') {
+        writes.push({ path: url.pathname, body: JSON.parse(String(init.body)) });
+        return json({ error: 'Preparation denied' }, status);
+      }
+      return json({ items: [] });
+    };
+    render(() => <OperatorManagement />);
+    expect(await screen.findByRole('button', { name: 'Start assessment' })).toBeEnabled();
+    expect(writes).toEqual([]);
+    submitAssessment();
+    expect(await screen.findByRole('alert')).toHaveTextContent(status === 400 ? /invalid invocation/i : /access denied/i);
+    expect(screen.queryByText(/Activity start accepted/)).not.toBeInTheDocument();
+    // This is the browser's public mutation ledger, not an internal helper count:
+    // a denied admission may submit preparation only, never start or warm a Host.
+    expect(writes).toEqual([
+      { path: '/api/operator-activities', body: { installationId: 'installation-1', invocation: { repository: 'acme/configured' } } },
+    ]);
+  });
+});
+
 // REQ-OPERATOR-084 AC1: public v2 metadata fixtures qualify presentation, not actual SDK capture.
 // Every success below is gated by the real GET wire; no new client API is imported or mocked.
 const diagnosticJson = (value: unknown, status = 200) => new Response(JSON.stringify(value), {
@@ -244,7 +393,7 @@ const diagnosticSummary = () => ({ ...diagnosticHeaders(), capture: 'enabled',
     { status: string; rootDigest?: string; submissionDigest?: string; attemptDigest?: string },
   fence: null as null | { generation: number; timestamp: number; boundary: string; code: string; uncertain: boolean },
   diagnosis: { state: 'observed-failure', code: 'canonical-append-failed', lastConfirmedId: 'e-1' as string | null,
-    failedId: 'e-2' as string | null, nextCheck: 'inspect-failure' } });
+    failedId: 'e-2' as string | null, nextCheck: 'inspect-failure' } as import('../../api/operator-diagnostics-wire').DiagnosticSummary['diagnosis'] });
 const diagnosticEvent = (sequence: number, boundary: string, outcome: string, code = 'none') => ({
   kind: 'event', id: `e-${sequence}`, sequence, generation: 3, timestamp: 1791936000000 + sequence,
   owner: boundary === 'inference-response' ? 'host' : 'sdk', boundary, outcome, code,
@@ -281,7 +430,7 @@ const diagnosticDetail = () => ({ ...diagnosticHeaders(),
     affectedOperationsOmitted: 0, loss: ['error-truncated'], uncertainty: 'prior-effect-uncertain' } });
 const diagnosticPath = '/api/operator-activities/activity-1/diagnostics/v2';
 const diagnosticButtonName = /^(?:View diagnostics|Diagnostics)$/i;
-type DiagnosticRoute = () => Response | Promise<Response>;
+type DiagnosticRoute = (url: URL, init?: RequestInit) => Response | Promise<Response>;
 function ownedDiagnosticFixture() {
   // Keep browser download URLs in this fixture: Node's inherited object-URL
   // implementation cannot accept jsdom Blobs. Fetch/wire validation is unchanged.
@@ -311,7 +460,7 @@ function ownedDiagnosticFixture() {
       // Intentional authenticated wire contract: wrong method, credentials, selectors or v1 path cannot supply evidence.
       if (method !== 'GET' || init?.credentials !== 'same-origin' || init?.redirect !== 'manual' || init?.body !== undefined)
         return Promise.resolve(diagnosticJson({ error: 'Invalid diagnostic read.' }, 403));
-      return Promise.resolve(routes.get(url.pathname + url.search)?.() ?? diagnosticJson({ error: 'Invalid diagnostic selector.' }, 400));
+      return Promise.resolve(routes.get(url.pathname + url.search)?.(url, init) ?? diagnosticJson({ error: 'Invalid diagnostic selector.' }, 400));
     }
     if (url.pathname === '/api/operator-activities') return Promise.resolve(diagnosticJson({ items: state.activities }));
     const activity = state.activities.find(item => url.pathname === `/api/operator-activities/${item.activityId}`);
@@ -327,10 +476,16 @@ async function selectDiagnosticActivity(activityId = 'activity-1') {
   fireEvent.click(await screen.findByRole('button', { name: `View ${activityId}` }));
   expect(await screen.findByRole('heading', { name: 'Activity detail' })).toBeInTheDocument();
 }
-async function openDiagnostics() {
+async function openDiagnostics(expandTimeline = true) {
   // Baseline RED is the missing accessible button, not a nonexistent import or shape exception.
   fireEvent.click(await screen.findByRole('button', { name: diagnosticButtonName }));
-  return within(await screen.findByRole('region', { name: /^(?:Activity )?Diagnostics$/i }));
+  const panel = within(await screen.findByRole('region', { name: /^(?:Activity )?Diagnostics$/i }));
+  await waitFor(() => expect(panel.queryByText(/Loading diagnostics|Loading diagnostic history/)).not.toBeInTheDocument());
+  if (expandTimeline) {
+    const disclosure = panel.queryByText('Timeline technical details and retained records', { selector: 'summary' });
+    if (disclosure) fireEvent.click(disclosure);
+  }
+  return panel;
 }
 function deferredDiagnosticResponse() {
   let resolve!: (response: Response) => void;
@@ -340,7 +495,7 @@ function deferredDiagnosticResponse() {
 
 // All scenarios below map to planned REQ-OPERATOR-084 AC1 and its passive UI Constraints.
 describe('REQ-OPERATOR-081: AC6 retained Dispatcher diagnostics in Activity detail', () => {
-  afterEach(() => vi.useRealTimers());
+  afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); });
 
   it('opens diagnostics manually for the selected Activity via authenticated GET without changing execution or its original result', async () => {
     const { state, routes } = ownedDiagnosticFixture();
@@ -355,11 +510,18 @@ describe('REQ-OPERATOR-081: AC6 retained Dispatcher diagnostics in Activity deta
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     manual = true;
     const panel = await openDiagnostics();
-    expect(await panel.findByText(/canonical.*(?:append|persist|commit).*(?:fail|could not)|(?:fail|could not).*canonical/i)).toBeInTheDocument();
+    expect(await panel.findByText('The response could not be saved to the execution journal; a durable save was not confirmed.')).toBeVisible();
+    const summaryDetails = panel.getByText('Summary technical details', { selector: 'summary' });
+    expect(panel.getByText(/last confirmed.*e-1/i)).not.toBeVisible();
+    fireEvent.click(summaryDetails);
+    expect(panel.getByText(/last confirmed.*e-1/i)).toBeVisible();
     expect(panel.getByText(/last confirmed.*e-1/i)).toBeInTheDocument();
     expect(panel.getByText(/(?:(?:failed|unfulfilled).*(?:handoff|transition)|first failure).*e-2/i)).toBeInTheDocument();
-    expect(panel.getByText(/summary reference does not establish the earliest or originating failure/i)).toBeInTheDocument();
-    expect(panel.getByText(/(?:inspect|view|check).*failure/i)).toBeInTheDocument();
+    expect(panel.getByRole('button', { name: 'View failure evidence' })).toBeVisible();
+    fireEvent.click(summaryDetails);
+    expect(panel.getByText(/last confirmed.*e-1/i)).not.toBeVisible();
+    expect(await panel.findByRole('button', { name: 'View record e-2' })).toBeVisible();
+    expect(panel.getByText('Next: Check the failure record in the timeline to see what was recorded.')).toBeVisible();
     expect(screen.getByText(/Original result for activity-1/)).toBeInTheDocument();
     expect(screen.getAllByText(/Execution: failed · Cleanup: stopped/).length).toBeGreaterThan(0);
     expect(panel.queryByRole('button', { name: /start|retry|renew|continue|collect|replay|repair/i })).not.toBeInTheDocument();
@@ -379,7 +541,7 @@ describe('REQ-OPERATOR-081: AC6 retained Dispatcher diagnostics in Activity deta
     expect(screen.getByText(/Original result for activity-1/)).toBeInTheDocument();
     pending.resolve(diagnosticJson(state.summary));
     const panel = within(await screen.findByRole('region', { name: /^(?:Activity )?Diagnostics$/i }));
-    expect(await panel.findByText(/canonical.*(?:fail|could not)|(?:fail|could not).*canonical/i)).toBeInTheDocument();
+    expect(await panel.findByText('The response could not be saved to the execution journal; a durable save was not confirmed.')).toBeVisible();
     await waitFor(() => expect(screen.queryByText(/loading.*diagnostic/i)).not.toBeInTheDocument());
     expect(button).not.toBeDisabled();
     expect(state.mutations).toEqual([]);
@@ -399,6 +561,7 @@ describe('REQ-OPERATOR-081: AC6 retained Dispatcher diagnostics in Activity deta
     const panel = await openDiagnostics();
     const timeline = await panel.findByRole('list', { name: /(?:diagnostic )?timeline/i });
     const rows = within(timeline).getAllByRole('listitem');
+    for (const row of rows) fireEvent.click(within(row).getByText('Record technical details', { selector: 'summary' }));
     expect(rows[0]).toHaveTextContent(/(?:host|inference).*response/i);
     expect(rows[0]).toHaveTextContent(/logical.*7/i);
     expect(rows[0]).toHaveTextContent(/host.*attempt.*2/i);
@@ -409,12 +572,13 @@ describe('REQ-OPERATOR-081: AC6 retained Dispatcher diagnostics in Activity deta
     expect(rows[1]).toHaveTextContent(/host.*attempt.*3/i);
     expect(rows[1]).toHaveTextContent(/charged.*23/i);
     expect(rows[1]).toHaveTextContent('b'.repeat(64));
-    expect(await panel.findByText(/(?:host response|inference).*(?:not|does not).*(?:receipt|commit|settlement)/i)).toBeInTheDocument();
+    expect(panel.getByText('A host response does not prove that the runtime received or saved it, or that the work finished.')).toBeVisible();
     expect(state.mutations).toEqual([]);
   });
 
   it('reads a record detail with verified source links, bounded error lineage and uncertain affected effects without offering replay', async () => {
     const { state } = ownedDiagnosticFixture();
+    Object.assign(state.detail.record.error!, { transportStatus: 403, transportReason: 'execution-inactive', transportDisposition: 'authority-denied' });
     state.detail.record.source.frames.push({ ...state.detail.record.source.frames[0],
       path: 'packages/runtime/src/cloudflare/agent-coordinator.ts', line: 202, kind: 'catching' },
     { ...state.detail.record.source.frames[0], line: 103, kind: 'patch-boundary' });
@@ -425,10 +589,13 @@ describe('REQ-OPERATOR-081: AC6 retained Dispatcher diagnostics in Activity deta
     fireEvent.click(within(event).getByRole('button', { name: 'View record e-2' }));
     // The requested evidence must appear beside its record, not below the full history.
     const detail = within(await within(event).findByRole('region', { name: /record.*e-2|e-2.*record/i }));
-    expect(await detail.findByText(/TypeError/)).toBeInTheDocument();
+    expect(detail.getByText('Request failure (HTTP 403): The platform could not confirm this request belonged to an active run.')).toBeVisible();
+    fireEvent.click(detail.getByText('Record technical details', { selector: 'summary' }));
+    expect(await detail.findByText(/TypeError/)).toBeVisible();
     expect(detail.getByText(/cause.*(?:depth|truncat|bounded)/i)).toBeInTheDocument();
     expect(detail.getByText(/(?:prior|affected).*effect.*(?:uncertain|unknown)|(?:uncertain|unknown).*effect/i)).toBeInTheDocument();
-    expect(detail.getByText('9'.repeat(64))).toBeInTheDocument();
+    fireEvent.click(detail.getByText('Retained failure and completion technical details', { selector: 'summary' }));
+    expect(detail.getByText('9'.repeat(64))).toBeVisible();
     expect(detail.getByText(/(?:last|latest).*host.persisted.*e-1/i)).toBeInTheDocument();
     const links = detail.getAllByRole('link');
     expect(links.some(link => link.getAttribute('href') ===
@@ -443,6 +610,51 @@ describe('REQ-OPERATOR-081: AC6 retained Dispatcher diagnostics in Activity deta
     expect(state.mutations).toEqual([]);
   });
 
+  it.each([
+    { transportStatus: 299 }, { transportStatus: 600 }, { transportStatus: 403.5 },
+    { transportReason: 'PRIVATE_TRANSPORT_REASON' }, { transportDisposition: 'PRIVATE_TRANSPORT_DISPOSITION' },
+    { privateTransport: 'PRIVATE_TRANSPORT_FIELD' },
+  ])('rejects invalid or unknown transport metadata %j without exposing it or changing the Activity', async invalid => {
+    const { state } = ownedDiagnosticFixture();
+    Object.assign(state.detail.record.error!, invalid);
+    render(() => <OperatorManagement />);
+    await selectDiagnosticActivity();
+    const panel = await openDiagnostics();
+    fireEvent.click(await panel.findByRole('button', { name: 'View record e-2' }));
+    expect(await panel.findByRole('alert')).toHaveTextContent(/diagnostic.*(?:invalid|unavailable|could not|cannot)|(?:invalid|unavailable).*diagnostic/i);
+    expect(panel.queryByRole('region', { name: 'Record e-2' })).not.toBeInTheDocument();
+    expect(panel.queryByText(/PRIVATE_TRANSPORT/)).not.toBeInTheDocument();
+    expect(screen.getByText(/Original result for activity-1/)).toBeInTheDocument();
+    expect(state.mutations).toEqual([]);
+  });
+
+  it('REQ-OPERATOR-084: current Root journal refusal and unassociated model permit remain useful without SDK provenance', async () => {
+    const { state, routes } = ownedDiagnosticFixture();
+    state.summary.diagnosis.code = 'journal-unaccounted';
+    state.summary.diagnosis.publicCode = 'journal-unaccounted';
+    state.summary.diagnosis.journal = { gate: 'operation-binding', unresolved: 2, inspectedUnresolved: 1,
+      phase: 'final', phaseIndex: null, operationDigest: '9'.repeat(64) };
+    state.summary.fence = { generation: 3, timestamp: 1791936000000, boundary: 'settlement', code: 'journal-unaccounted', uncertain: true };
+    state.summary.provenance = { hostRevision: null, sdkBaseRuntime: null, sdkBaseAgents: null, patchSetDigest: null };
+    const operation = { ...diagnosticOperation(), status: 'reserved', association: 'unassociated',
+      responseDigest: null, operationKind: 'sdk-model-http', sdkHttp: { state: 'ready', attempts: 0 }, terminalOutcome: null };
+    state.history.records = [operation];
+    routes.set(`${diagnosticPath}/records/${operation.id}`, () => diagnosticJson({ ...diagnosticHeaders(), record: operation }));
+    render(() => <OperatorManagement />);
+    await selectDiagnosticActivity();
+    const panel = await openDiagnostics();
+    expect(await panel.findByText(/final result was received, but protected operations were not fully accounted/)).toBeInTheDocument();
+    expect(panel.getByText(/Root accounting gate: operation binding.*Unaccounted operations: 2.*Observed phase: final/)).toBeInTheDocument();
+    fireEvent.click(await panel.findByRole('button', { name: `View record ${operation.id}` }));
+    const detail = within(await panel.findByRole('region', { name: `Record ${operation.id}` }));
+    expect(detail.getByText(/Operation kind: sdk model http/)).toBeInTheDocument();
+    expect(detail.getByText(/Root model permit: ready.*Claimed sends: 0/)).toBeInTheDocument();
+    expect(detail.getByText(/completion is not confirmed/)).toBeInTheDocument();
+    expect(detail.queryByText(/Legacy operation metadata/)).not.toBeInTheDocument();
+    expect(panel.queryByText(/write was performed|vendor failed|deadline expired/i)).not.toBeInTheDocument();
+    expect(state.mutations).toEqual([]);
+  });
+
   it('REQ-OPERATOR-084 AC3: opens retained operation evidence inside the selected operation without replay or execution', async () => {
     const { state, routes } = ownedDiagnosticFixture();
     const operation = diagnosticOperation();
@@ -453,8 +665,9 @@ describe('REQ-OPERATOR-081: AC6 retained Dispatcher diagnostics in Activity deta
     const row = within(await panel.findByRole('list', { name: 'Retained operations' })).getAllByRole('listitem')[0];
     fireEvent.click(within(row).getByRole('button', { name: `View record ${operation.id}` }));
     const detail = within(await within(row).findByRole('region', { name: `Record ${operation.id}` }));
-    expect(detail.getByText(operation.operationDigest)).toBeInTheDocument();
-    expect(detail.getByText(/legacy operation.*(?:not|cannot)/i)).toBeInTheDocument();
+    fireEvent.click(detail.getByText('Operation technical details', { selector: 'summary' }));
+    expect(detail.getByText(operation.operationDigest)).toBeVisible();
+    expect(detail.getByText('Parent journal metadata does not establish an SDK attempt or originating SDK error. Missing association remains unknown.')).toBeInTheDocument();
     expect(detail.queryByRole('button', { name: /replay|repair|retry|continue|collect/i })).not.toBeInTheDocument();
     expect(state.mutations).toEqual([]);
   });
@@ -464,6 +677,7 @@ describe('REQ-OPERATOR-081: AC6 retained Dispatcher diagnostics in Activity deta
     render(() => <OperatorManagement />);
     await selectDiagnosticActivity();
     const panel = await openDiagnostics();
+    fireEvent.click(await panel.findByText('Capture and source technical details', { selector: 'summary' }));
     const coverage = within(await panel.findByRole('region', { name: /(?:capture )?(?:capabilities|coverage)/i }));
     for (const family of diagnosticFamilies) {
       const words = family.replace(/-/g, '[ -]');
@@ -515,7 +729,7 @@ describe('REQ-OPERATOR-081: AC6 retained Dispatcher diagnostics in Activity deta
     expect(state.mutations).toEqual([]);
   });
 
-  it('exports metadata in explicit resumable parts and distinguishes export exhaustion from retention loss', async () => {
+  it('Task116: one Export metadata action downloads every retained part once and preserves retention loss', async () => {
     const { state, routes } = ownedDiagnosticFixture();
     const first = diagnosticExport([diagnosticEvent(1, 'inference-response', 'completed'),
       diagnosticEvent(2, 'canonical-commit', 'failed', 'canonical-append-failed')]);
@@ -525,27 +739,248 @@ describe('REQ-OPERATOR-081: AC6 retained Dispatcher diagnostics in Activity deta
     const last = { ...first, records: [diagnosticOperation()], nextCursor: null, pageStatus: 'complete', partDigest: 'c'.repeat(64) };
     routes.set(`${diagnosticPath}/export`, () => diagnosticJson(first));
     routes.set(`${diagnosticPath}/export?cursor=export-page-two`, () => diagnosticJson(last));
+    const clicked: string[] = [];
+    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (this: HTMLAnchorElement) { clicked.push(this.download); });
     render(() => <OperatorManagement />);
     await selectDiagnosticActivity();
     const panel = await openDiagnostics();
-    const exportButton = await panel.findByRole('button', { name: /^(?:export|download)(?: diagnostics)?(?: metadata)?(?: part)?$/i });
+    fireEvent.click(panel.getByRole('button', { name: 'Export metadata' }));
+    expect(await panel.findByText(/Export traversal exhausted: all retained metadata parts read \(2 parts\)/)).toBeVisible();
+    expect(panel.getByText('Retained evidence loss remains in the download.')).toBeVisible();
+    expect(clicked).toEqual(['activity-1-diagnostics.json']);
+    expect(URL.createObjectURL).toHaveBeenCalledTimes(1);
+    const blob = vi.mocked(URL.createObjectURL).mock.calls[0][0] as Blob;
+    const content = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader(); reader.onload = () => resolve(String(reader.result)); reader.onerror = reject; reader.readAsText(blob);
+    });
+    expect(JSON.parse(content)).toMatchObject({ activityId: 'activity-1', binding: diagnosticBinding,
+      highWater: first.highWater, snapshotDigest: first.snapshotDigest, traversal: 'complete', parts: [first, last] });
+    expect(panel.getByText(/does not establish complete execution history/)).toBeVisible();
+    expect(panel.queryByRole('button', { name: /next.*part/i })).not.toBeInTheDocument();
+    expect(state.mutations).toEqual([]);
+  });
+
+  it('Task127: compact OAuth diagnosis distinguishes upstream400 from wrapper403 and links safe retained evidence', async () => {
+    const { state } = ownedDiagnosticFixture();
+    state.summary.diagnosis = { state: 'observed-failure', code: 'provider-failed', lastConfirmedId: 'e-1', failedId: 'e-2',
+      nextCheck: 'inspect-failure', sdkService: { sdkCode: 'oauth', sdkStage: 'refresh', httpStatus: 400,
+        oauthError: 'invalid_grant', exceptionCategory: 'error', requestAborted: false, wrapperStatus: 403 } };
+    state.summary.diagnosis.executionStatus = 'failed';
+    render(() => <OperatorManagement />);
+    await selectDiagnosticActivity();
+    const panel = await openDiagnostics(false);
+    expect(panel.getByText('Execution in this snapshot: failed')).toBeVisible();
+    expect(panel.getByText(/OAuth refresh failed: upstream HTTP 400 \(invalid_grant\).*platform returned HTTP 403/)).toBeVisible();
+    expect(panel.getByText(/execution owner should log in to the provider in Pi, then sync.*R2/)).toBeVisible();
+    expect(panel.getByText(/No later work is confirmed after the retained failed attempt/)).toBeVisible();
+    expect(panel.getByRole('list', { name: 'Diagnostic timeline', hidden: true })).not.toBeVisible();
+    expect(panel.getByText(/Current original-lease binding generation/)).not.toBeVisible();
+    expect(panel.queryByText(/revoked|reused|expired refresh|SDK import legacy|identities are not inferred/i)).not.toBeInTheDocument();
+    fireEvent.click(panel.getByRole('button', { name: 'View failure evidence' }));
+    expect(await panel.findByRole('region', { name: 'Record e-2' })).toBeVisible();
+    expect(state.mutations).toEqual([]);
+  });
+
+  it('Task127: a private inference conflict shows HTTP409 and safe recovery without claiming a vendor failure', async () => {
+    const { state } = ownedDiagnosticFixture();
+    state.summary.diagnosis = { state: 'observed-failure', code: 'admission-denied', lastConfirmedId: 'e-1',
+      failedId: 'e-2', nextCheck: 'inspect-failure', transportStatus: 409,
+      transportReason: 'operation-conflict', transportDisposition: 'operation-local' };
+    render(() => <OperatorManagement />);
+    await selectDiagnosticActivity();
+    const panel = await openDiagnostics(false);
+    expect(panel.getByText(/platform refused an inference request with HTTP 409 \(operation-conflict\)/)).toBeVisible();
+    expect(panel.getByText(/exact conflict condition is not retained/)).toBeVisible();
+    expect(panel.getByText(/Inspect the original operation and request comparison before retrying/)).toBeVisible();
+    expect(panel.queryByText(/model provider failed|OAuth refresh failed/)).not.toBeInTheDocument();
+    expect(state.mutations).toEqual([]);
+  });
+
+  it('Task127: empty correlation and missing source versions stay omitted when technical details are opened', async () => {
+    const { state } = ownedDiagnosticFixture();
+    Object.assign(state.detail.record, { correlation: {} });
+    state.detail.record.source.baseVersion = null;
+    render(() => <OperatorManagement />);
+    await selectDiagnosticActivity();
+    const panel = await openDiagnostics(false);
+    expect(panel.getByRole('list', { name: 'Diagnostic timeline', hidden: true })).not.toBeVisible();
+    fireEvent.click(panel.getByRole('button', { name: 'View failure evidence' }));
+    const detail = within(await panel.findByRole('region', { name: 'Record e-2' }));
+    fireEvent.click(detail.getByText('Record technical details', { selector: 'summary' }));
+    expect(detail.queryByText(/Correlation|identities are not inferred|Base version: Unavailable/)).not.toBeInTheDocument();
+    expect(detail.getByText('Source package: @flue/runtime')).toBeVisible();
+  });
+
+  it.each([{ oauthError: 'PRIVATE_VENDOR_ERROR' }, { httpStatus: 200 }, { rawBody: 'PRIVATE_AUTH_BODY' },
+    { sdkCode: 'stream', sdkStage: 'refresh' }])('Task127: rejects unsafe or contradictory SDK classification %j', async invalid => {
+    const { state } = ownedDiagnosticFixture();
+    state.summary.diagnosis.sdkService = { sdkCode: 'oauth', sdkStage: 'refresh', httpStatus: 400,
+      oauthError: 'invalid_grant', exceptionCategory: 'error', requestAborted: false, wrapperStatus: 403 };
+    Object.assign(state.summary.diagnosis.sdkService, invalid);
+    render(() => <OperatorManagement />);
+    await selectDiagnosticActivity();
+    fireEvent.click(await screen.findByRole('button', { name: diagnosticButtonName }));
+    expect(await screen.findByRole('alert')).toBeVisible();
+    expect(screen.queryByText(/PRIVATE_VENDOR_ERROR|PRIVATE_AUTH_BODY|OAuth refresh failed/)).not.toBeInTheDocument();
+  });
+
+  it('Task127: an earlier citation failure followed by later work is continued, not recovered or a new fatal cause', async () => {
+    const { state } = ownedDiagnosticFixture();
+    state.summary.diagnosis = { state: 'observed-failure', code: 'tool-failed', publicCode: 'citation-provenance',
+      lastConfirmedId: 'e-2', failedId: 'e-1', continuedId: 'e-2', nextCheck: 'inspect-failure' };
+    state.history.records = [diagnosticEvent(1, 'tool', 'failed', 'tool-failed'), diagnosticEvent(2, 'tool', 'completed')];
+    render(() => <OperatorManagement />);
+    await selectDiagnosticActivity();
+    const panel = await openDiagnostics(false);
+    expect(panel.getByText('Work continued after a failed attempt. Full recovery is not confirmed.')).toBeVisible();
+    expect(panel.getByText('Earlier attempt: A citation did not match retained source evidence.')).toBeVisible();
+    expect(panel.getByText(/Inspect the later evidence and final result before deciding/)).toBeVisible();
+    expect(panel.queryByText(/run stopped|attempt recovered|OAuth|A tool failed\./)).not.toBeInTheDocument();
+  });
+
+  it('REQ-OPERATOR-057 AC3 / 084 AC1/2/7: presents the supplied later failure without promoting an older citation failure to the current cause', async () => {
+    const { state, routes } = ownedDiagnosticFixture();
+    state.summary.diagnosis = { state: 'observed-failure', code: 'settlement-failed', executionStatus: 'failed',
+      publicCode: 'citation-provenance', lastConfirmedId: 'e-2', failedId: 'e-3', nextCheck: 'inspect-failure' };
+    const earlier = { ...diagnosticEvent(1, 'tool', 'recovered', 'tool-failed'),
+      error: { ...diagnosticError(), publicCode: 'citation-provenance' } };
+    const later = diagnosticEvent(3, 'settlement', 'failed', 'settlement-failed');
+    routes.set(`${diagnosticPath}/records/e-3`, () => diagnosticJson({ ...diagnosticHeaders(),
+      highWater: state.summary.highWater, record: later }));
+    state.summary.highWater.events = 3;
+    state.history = { ...diagnosticHistory([earlier, diagnosticEvent(2, 'tool', 'completed'), later]),
+      highWater: state.summary.highWater };
+    render(() => <OperatorManagement />);
+    await selectDiagnosticActivity();
+    const panel = await openDiagnostics(false);
+    expect(panel.getByText('The runtime did not finish with a confirmed final result.')).toBeVisible();
+    expect(panel.getByText('Execution in this snapshot: failed')).toBeVisible();
+    expect(panel.queryByText(/A citation did not match retained source evidence/)).not.toBeInTheDocument();
+    expect(panel.getByRole('button', { name: 'View failure evidence' })).toBeVisible();
+    expect(panel.getByText(/Next: Check the failure record/)).toBeVisible();
+    expect(panel.getByRole('list', { name: 'Diagnostic timeline', hidden: true })).not.toBeVisible();
+    fireEvent.click(panel.getByText('Timeline technical details and retained records', { selector: 'summary' }));
+    const timeline = within(panel.getByRole('list', { name: 'Diagnostic timeline' }));
+    expect(timeline.getByText('This step recovered from an earlier problem.')).toBeVisible();
+    expect(timeline.getByRole('button', { name: 'View record e-3' })).toBeVisible();
+    fireEvent.click(panel.getByRole('button', { name: 'View failure evidence' }));
+    const detail = within(await panel.findByRole('region', { name: 'Record e-3' }));
+    expect(detail.getByText('Finishing the work')).toBeVisible();
+    expect(state.mutations).toEqual([]);
+  });
+
+  it('REQ-OPERATOR-057 AC3 / 084 AC1/6: an old running snapshot is not a child failure or an OOM diagnosis', async () => {
+    const { state } = ownedDiagnosticFixture();
+    state.summary.capturedAt = 1;
+    state.summary.diagnosis = { state: 'evidence-incomplete', code: 'unclassified', executionStatus: 'running',
+      lastConfirmedId: 'e-1', failedId: null, nextCheck: 'inspect-platform-events' };
+    render(() => <OperatorManagement />);
+    await selectDiagnosticActivity();
+    const panel = await openDiagnostics(false);
+    expect(panel.getByText('Execution in this snapshot: running')).toBeVisible();
+    expect(panel.getByText('Evidence is incomplete; the run outcome is unconfirmed.')).toBeVisible();
+    expect(panel.getByText('Next: Inspect independently correlated platform events and evidence.')).toBeVisible();
+    expect(panel.queryByText(/out of memory|OOM|child failed|Current state:/i)).not.toBeInTheDocument();
+    expect(screen.getByText(/Original result for activity-1/)).toBeVisible();
+    expect(screen.getAllByText(/Execution: failed · Cleanup: stopped/)[0]).toBeVisible();
+    expect(state.mutations).toEqual([]);
+  });
+
+  it('REQ-OPERATOR-084 AC3/5: routine records use available boundary and outcome labels while bulk metadata stays collapsed', async () => {
+    const { state } = ownedDiagnosticFixture();
+    state.history.records = [diagnosticEvent(1, 'scheduling', 'accepted'), diagnosticEvent(2, 'delivery', 'completed')];
+    render(() => <OperatorManagement />);
+    await selectDiagnosticActivity();
+    const panel = await openDiagnostics(false);
+    expect(panel.getByRole('list', { name: 'Diagnostic timeline', hidden: true })).not.toBeVisible();
+    expect(panel.getByText('Original input digest')).not.toBeVisible();
+    fireEvent.click(panel.getByText('Timeline technical details and retained records', { selector: 'summary' }));
+    const timeline = within(panel.getByRole('list', { name: 'Diagnostic timeline' }));
+    expect(timeline.getByText('Scheduling').parentElement).toHaveTextContent('Scheduling · accepted');
+    expect(timeline.getByText('Work delivery').parentElement).toHaveTextContent('Work delivery · completed');
+    expect(timeline.queryByText(/Runtime step|A runtime step was recorded/)).not.toBeInTheDocument();
+    const row = within(timeline.getByRole('button', { name: 'View record e-1' }).closest('li')!);
+    expect(row.getByText('SDK attempt digest')).not.toBeVisible();
+    fireEvent.click(row.getByText('Record technical details', { selector: 'summary' }));
+    expect(row.getByText('SDK attempt digest')).toBeVisible();
+    expect(panel.getByRole('button', { name: 'Export metadata' })).toBeVisible();
+    expect(state.mutations).toEqual([]);
+  });
+
+  it('Task116: one action retrieves sixteen parts and all 508 retained records in one ordered download', async () => {
+    const { routes } = ownedDiagnosticFixture();
+    const parts = Array.from({ length: 16 }, (_, index) => {
+      const part = diagnosticExport(Array.from({ length: index === 15 ? 28 : 32 }, (_, offset) =>
+        diagnosticEvent(index * 32 + offset + 1, 'tool', 'completed')));
+      part.highWater = { events: 508, operations: 0 };
+      part.retention.lastSequence = 508;
+      part.partDigest = (index + 1).toString(16).padStart(64, '0');
+      part.nextCursor = index === 15 ? null : `page-${index + 1}`;
+      part.pageStatus = index === 15 ? 'complete' : 'more';
+      routes.set(`${diagnosticPath}/export${index ? `?cursor=page-${index}` : ''}`, () => diagnosticJson(part));
+      return part;
+    });
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+    render(() => <OperatorManagement />);
+    await selectDiagnosticActivity();
+    const panel = await openDiagnostics(false);
+    fireEvent.click(panel.getByRole('button', { name: 'Export metadata' }));
+    expect(await panel.findByText(/all retained metadata parts read \(16 parts\)/)).toBeVisible();
+    expect(click).toHaveBeenCalledTimes(1);
+    expect(URL.createObjectURL).toHaveBeenCalledTimes(1);
+    const blob = vi.mocked(URL.createObjectURL).mock.calls[0][0] as Blob;
+    const content = await new Promise<string>(resolve => {
+      const reader = new FileReader(); reader.onload = () => resolve(String(reader.result)); reader.readAsText(blob);
+    });
+    const saved = JSON.parse(content);
+    expect(saved.parts).toEqual(parts);
+    expect(saved.parts.flatMap((part: { records: unknown[] }) => part.records)).toHaveLength(508);
+    expect(saved).toMatchObject({ binding: diagnosticBinding, highWater: { events: 508, operations: 0 },
+      snapshotDigest: parts[0].snapshotDigest, traversal: 'complete' });
+  });
+
+  it.each(['cursor-cycle', 'binding-drift', 'high-water-drift', 'digest-drift', 'later503', 'duplicate-record', 'raw-field']) (
+    'Task116: %s aborts traversal visibly without any partial download', async fault => {
+      const { state, routes } = ownedDiagnosticFixture();
+      state.export = diagnosticExport([diagnosticEvent(1, 'tool', 'completed')]);
+      state.export.nextCursor = 'next-part'; state.export.pageStatus = 'more';
+      const next = diagnosticExport([diagnosticEvent(2, 'tool', 'completed')]);
+      if (fault === 'cursor-cycle') { next.nextCursor = 'next-part'; next.pageStatus = 'more'; }
+      if (fault === 'binding-drift') next.binding = { ...next.binding, generation: 4 };
+      if (fault === 'high-water-drift') next.highWater = { ...next.highWater, events: 3 };
+      if (fault === 'digest-drift') next.snapshotDigest = 'c'.repeat(64);
+      if (fault === 'duplicate-record') next.records = state.export.records;
+      if (fault === 'raw-field') Object.assign(next, { rawBody: 'PRIVATE_AUTH_BODY' });
+      routes.set(`${diagnosticPath}/export?cursor=next-part`, () => fault === 'later503'
+        ? diagnosticJson({ error: 'PRIVATE_AUTH_BODY' }, 503) : diagnosticJson(next));
+      const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+      render(() => <OperatorManagement />);
+      await selectDiagnosticActivity();
+      const panel = await openDiagnostics(false);
+      fireEvent.click(panel.getByRole('button', { name: 'Export metadata' }));
+      expect(await panel.findByRole('alert')).toBeVisible();
+      expect(URL.createObjectURL).not.toHaveBeenCalled();
+      expect(click).not.toHaveBeenCalled();
+      expect(panel.queryByRole('link', { name: /Save metadata/ })).not.toBeInTheDocument();
+      expect(panel.queryByText(/traversal exhausted|PRIVATE_AUTH_BODY/)).not.toBeInTheDocument();
+      expect(state.mutations).toEqual([]);
+    });
+
+  it('Task116: leaving diagnostics aborts an in-flight traversal and ignores its late response', async () => {
+    const { state, routes } = ownedDiagnosticFixture();
+    const pending = deferredDiagnosticResponse();
+    let signal: AbortSignal | null | undefined;
+    routes.set(`${diagnosticPath}/export`, (_url, init) => { signal = init?.signal; return pending.promise; });
+    const view = render(() => <OperatorActivityDiagnostics activityId="activity-1" openOnMount />);
+    const exportButton = await screen.findByRole('button', { name: 'Export metadata' });
     await waitFor(() => expect(exportButton).not.toBeDisabled());
     fireEvent.click(exportButton);
-    await waitFor(() => expect(panel.queryByText(/loading.*export/i)).not.toBeInTheDocument());
-    expect(await panel.findByText(/(?:metadata|export).*part|part.*(?:metadata|export)/i)).toBeInTheDocument();
-    expect(panel.getByText(/(?:more|next).*part|part.*(?:more|next)/i)).toBeInTheDocument();
-    expect(panel.queryByText(/export complete|all retained.*exported/i)).not.toBeInTheDocument();
-    const nextPart = await panel.findByRole('button', { name: /(?:export|download).*next.*part|next.*export.*part/i });
-    await waitFor(() => expect(nextPart).not.toBeDisabled());
-    fireEvent.click(nextPart);
-    expect(await panel.findByText(/Metadata export part 2 read\. Export traversal exhausted: all retained metadata parts read\./i)).toBeInTheDocument();
-    expect(panel.getByText(/(?:retention|retained).*loss|evicted.*5|5.*evicted/i)).toBeInTheDocument();
-    expect(panel.getByText(/does not describe complete execution history/i)).toBeInTheDocument();
-    // Reject completeness claims, not the explicit disclaimer of execution-history completeness.
-    expect(panel.queryByText(text => /complete execution history|no evidence loss/i.test(
-      text.replace(/does not describe complete execution history/i, '')))).not.toBeInTheDocument();
-    expect(panel.queryByRole('button', { name: /(?:export|download).*next.*part|next.*export.*part/i })).not.toBeInTheDocument();
-    expect(state.mutations).toEqual([]);
+    await waitFor(() => expect(signal).toBeDefined());
+    view.unmount();
+    expect(signal).toHaveProperty('aborted', true);
+    pending.resolve(diagnosticJson(state.export));
+    await Promise.resolve();
+    expect(URL.createObjectURL).not.toHaveBeenCalled();
   });
 
   it('keeps a recovered failure distinct from the successful successor and does not present it as the terminal cause', async () => {
@@ -560,7 +995,7 @@ describe('REQ-OPERATOR-081: AC6 retained Dispatcher diagnostics in Activity deta
     render(() => <OperatorManagement />);
     await selectDiagnosticActivity();
     const panel = await openDiagnostics();
-    expect(await panel.findByText(/recovered failure|failure.*recovered/i)).toBeInTheDocument();
+    expect(await panel.findByText(/failed attempt recovered/i)).toBeInTheDocument();
     expect(await panel.findByRole('list', { name: /timeline/i })).toHaveTextContent(/settlement.*completed|completed.*settlement/i);
     expect(panel.queryByText(/terminal cause.*provider|activity failed.*provider/i)).not.toBeInTheDocument();
     expect(state.mutations).toEqual([]);
@@ -583,8 +1018,7 @@ describe('REQ-OPERATOR-081: AC6 retained Dispatcher diagnostics in Activity deta
     render(() => <OperatorManagement />);
     await selectDiagnosticActivity();
     const panel = await openDiagnostics();
-    expect(await panel.findByText(/legacy.*(?:uncaptured|not captured|unavailable)|(?:uncaptured|not captured).*legacy/i,
-      { selector: 'p' })).toBeInTheDocument();
+    expect(await panel.findByText('This older run did not capture diagnostic evidence.')).toBeVisible();
     expect(panel.getByText(/(?:inspect|check).*original.*binding/i)).toBeInTheDocument();
     expect(panel.queryByText(/no failure (?:occurred|observed)|no evidence loss/i)).not.toBeInTheDocument();
     expect(screen.getByText(/Original result for activity-1/)).toBeInTheDocument();
@@ -606,9 +1040,10 @@ describe('REQ-OPERATOR-081: AC6 retained Dispatcher diagnostics in Activity deta
     render(() => <OperatorManagement />);
     await selectDiagnosticActivity();
     const panel = await openDiagnostics();
-    expect(await panel.findByText(/logging.*(?:off|disabled)|capture.*disabled/i)).toBeInTheDocument();
+    expect(await panel.findByText('Logging was off. Optional errors and timeline records were not captured.')).toBeVisible();
     expect(panel.getByText(/deadline.*expir/i)).toBeInTheDocument();
-    expect(panel.getByText(/(?:original|binding).*generation.*3|generation.*3.*(?:original|binding)/i)).toBeInTheDocument();
+    fireEvent.click(panel.getByText('Summary technical details', { selector: 'summary' }));
+    expect(panel.getByText(/(?:original|binding).*generation.*3|generation.*3.*(?:original|binding)/i)).toBeVisible();
     expect(panel.queryByText(/TypeError|canonical.*append.*failed/i)).not.toBeInTheDocument();
     expect(panel.queryByText(/no failure observed/i)).not.toBeInTheDocument();
     expect(state.mutations).toEqual([]);
@@ -628,7 +1063,9 @@ describe('REQ-OPERATOR-081: AC6 retained Dispatcher diagnostics in Activity deta
     await selectDiagnosticActivity();
     const panel = await openDiagnostics();
     expect(await panel.findByText(/(?:retention|evidence).*loss|loss.*(?:retention|evidence)/i)).toBeInTheDocument();
-    expect(panel.getByText(/(?:evicted|routine).*12|12.*(?:evicted|routine)/i)).toBeInTheDocument();
+    expect(panel.getByText('Some diagnostic metadata is missing. The retained records may not explain everything that happened. Protected runtime logs are stored separately; gaps here do not prove those logs were lost.')).not.toBeVisible();
+    fireEvent.click(panel.getByText('Evidence availability technical details', { selector: 'summary' }));
+    expect(panel.getByText(/(?:evicted|routine).*12|12.*(?:evicted|routine)/i)).toBeVisible();
     expect(panel.getByText(/(?:failure|capsule).*2.*(?:drop|lost)|(?:drop|lost).*2.*failure/i)).toBeInTheDocument();
     expect(panel.getByText(/terminal.*(?:unknown|unavailable)|(?:unknown|unavailable).*terminal/i)).toBeInTheDocument();
     expect(panel.getByText(/oversized.*1|1.*oversized/i)).toBeInTheDocument();
@@ -673,10 +1110,12 @@ describe('REQ-OPERATOR-081: AC6 retained Dispatcher diagnostics in Activity deta
     render(() => <OperatorManagement />);
     await selectDiagnosticActivity();
     const panel = await openDiagnostics();
-    expect(await panel.findByText(/SDK.*import.*(?:pending|incomplete)|(?:pending|incomplete).*SDK.*import/i)).toBeInTheDocument();
+    expect(await panel.findByText('Some runtime records have not been imported into this metadata view. This does not establish whether their original runtime logs are available.')).not.toBeVisible();
+    fireEvent.click(panel.getByText('Summary technical details', { selector: 'summary' }));
+    expect(await panel.findByText(/SDK.*import.*(?:pending|incomplete)|(?:pending|incomplete).*SDK.*import/i)).toBeVisible();
     expect(panel.getByText(/(?:local|child).*captur.*(?:not|does not|unavailable).*host.persisted.*cause|host.persist.*(?:not|unconfirmed|unavailable).*cause/i)).toBeInTheDocument();
     expect(panel.getByText(/last confirmed.*e-1/i)).toBeInTheDocument();
-    expect(panel.getByText(/(?:inspect|check|view).*SDK.*import/i)).toBeInTheDocument();
+    expect(panel.getByText('Next: Inspect the execution fence and reconcile uncertain effects before considering another run. Do not replay uncertain work.')).toBeVisible();
     expect(panel.queryByText(/canonical.*append.*failed|TypeError/i)).not.toBeInTheDocument();
     expect(panel.queryByRole('button', { name: /retry|renew|continue|replay|collect/i })).not.toBeInTheDocument();
     expect(screen.getByText(/Original result for activity-1/)).toBeInTheDocument();
@@ -734,12 +1173,12 @@ describe('REQ-OPERATOR-081: AC6 retained Dispatcher diagnostics in Activity deta
     render(() => <OperatorManagement />);
     await selectDiagnosticActivity();
     const panel = await openDiagnostics();
-    expect(await panel.findByText(/no failure observed.*(?:retained|captured).*evidence|(?:retained|captured).*evidence.*no failure observed/i)).toBeInTheDocument();
+    expect(await panel.findByText('No failure is retained; this does not confirm success.')).toBeVisible();
     const timeline = await panel.findByRole('list', { name: /timeline/i });
     const commit = within(timeline).getAllByRole('listitem')[1];
     expect(commit).toHaveTextContent(/batch.*11/i);
     expect(commit).toHaveTextContent(/record.*(?:index.*)?4/i);
-    expect(panel.queryByText(/SDK settlement completed|execution succeeded|no failure occurred/i)).not.toBeInTheDocument();
+    expect(panel.queryByText(/^(?:SDK settlement completed|execution succeeded|no failure occurred)$/i)).not.toBeInTheDocument();
     expect(screen.getAllByText(/Execution: unknown/)[0]).toBeInTheDocument();
     expect(state.mutations).toEqual([]);
   });
@@ -760,7 +1199,8 @@ describe('REQ-OPERATOR-081: AC6 retained Dispatcher diagnostics in Activity deta
     expect(screen.getByText(/Original result for activity-1/)).toBeInTheDocument();
     pending.resolve(diagnosticJson(state.detail));
     const detail = within(await panel.findByRole('region', { name: /record.*e-2|e-2.*record/i }));
-    expect(await detail.findByText(/TypeError/)).toBeInTheDocument();
+    fireEvent.click(detail.getByText('Record technical details', { selector: 'summary' }));
+    expect(await detail.findByText(/TypeError/)).toBeVisible();
     expect(panel.queryByText(/loading.*(?:record|detail)/i)).not.toBeInTheDocument();
     expect(state.mutations).toEqual([]);
   });
@@ -842,9 +1282,6 @@ describe('REQ-OPERATOR-081: AC6 retained Dispatcher diagnostics in Activity deta
     const exportButton = await panel.findByRole('button', { name: /^(?:export|download)(?: diagnostics)?(?: metadata)?(?: part)?$/i });
     await waitFor(() => expect(exportButton).not.toBeDisabled());
     fireEvent.click(exportButton);
-    const nextPart = await panel.findByRole('button', { name: /(?:export|download).*next.*part|next.*export.*part/i });
-    await waitFor(() => expect(nextPart).not.toBeDisabled());
-    fireEvent.click(nextPart);
     expect(await screen.findByRole('alert')).toHaveTextContent(/retention.*(?:changed|expired)|snapshot.*(?:expired|invalid|discard)/i);
     expect(panel.queryByText(/export complete|all retained.*exported/i)).not.toBeInTheDocument();
     expect(panel.queryByRole('button', { name: /(?:export|download).*next.*part|next.*export.*part/i })).not.toBeInTheDocument();
@@ -859,7 +1296,7 @@ describe('REQ-OPERATOR-081: AC6 retained Dispatcher diagnostics in Activity deta
     // Install the clock before opening, so any diagnostic poll registered at opening is observable.
     vi.useFakeTimers({ shouldAdvanceTime: true });
     const panel = await openDiagnostics();
-    expect(await panel.findByText(/canonical.*(?:fail|could not)|(?:fail|could not).*canonical/i)).toBeInTheDocument();
+    expect(await panel.findByText('The response could not be saved to the execution journal; a durable save was not confirmed.')).toBeVisible();
     await panel.findByRole('list', { name: /timeline/i });
     // A later server snapshot has a different user-visible diagnosis. No explicit refresh is made.
     const later = diagnosticSummary();

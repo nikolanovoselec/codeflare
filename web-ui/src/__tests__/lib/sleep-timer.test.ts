@@ -9,18 +9,25 @@ describe('parseSleepAfterMs', () => {
     expect(parseSleepAfterMs('1h')).toBe(3_600_000);
     expect(parseSleepAfterMs('2h')).toBe(7_200_000);
     expect(parseSleepAfterMs('4h')).toBe(14_400_000);
+    expect(parseSleepAfterMs('8h')).toBe(28_800_000);
+    expect(parseSleepAfterMs('12h')).toBe(43_200_000);
   });
 
   it('still maps the retired 5m value so a legacy stored pref keeps a correct countdown', () => {
     expect(parseSleepAfterMs('5m' as SleepAfterOption)).toBe(300_000);
   });
 
-  it('returns default (30m) for undefined', () => {
-    expect(parseSleepAfterMs(undefined)).toBe(1_800_000);
+  it('returns the new non-free default (1h) for undefined', () => {
+    expect(parseSleepAfterMs(undefined)).toBe(3_600_000);
   });
 });
 
 describe('getSleepTimerInfo / REQ-SESSION-013 (sleep timer countdown UI)', () => {
+  it.each([['8h', 8], ['12h', 12]] as const)('shows the final six-minute warning for %s without an early countdown', (duration, hours) => {
+    const lastInput = new Date(Date.now() - (hours * 60 - 6) * 60_000).toISOString();
+    expect(getSleepTimerInfo(lastInput, duration)).toMatchObject({ severity: 'warning', bucket: '< 10 min' });
+    expect(getSleepTimerInfo(new Date(Date.now() - 4 * 3_600_000).toISOString(), duration)).toBeNull();
+  });
   const now = Date.now();
 
   it('returns null when lastActiveAt is undefined', () => {

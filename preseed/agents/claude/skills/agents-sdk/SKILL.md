@@ -72,13 +72,23 @@ The Agents SDK provides:
 
 ## Version compatibility before upgrading
 
-Read the installed `agents` version and its release notes, not just the latest docs. Codeflare's parent Activity uses `agents@0.28.1`; immutable Flue/Dispatcher children retain `agents@0.20.1` through the explicitly validated Scheduler bridge. Do not change child pins, rebuild immutable assets or infer compatibility from the parent's version.
+Read the installed `agents` version and its release notes, not just the latest docs. Read Codeflare's parent Activity pin from root `package.json` (0.30.1 at checkpoint `8dae2161`); immutable Flue/Dispatcher children retain `agents@0.20.1` through the explicitly validated Scheduler bridge. Do not change child pins, rebuild immutable assets or infer compatibility from the parent's version.
 
 In 0.22+, private `_cf_*ForFacet` scheduling RPCs are replaced by `_cf_routeLifecycle`. In 0.23+, `dynamicAgents` is the preferred facade (the public `subAgent()` aliases remain), Lifecycle owns the job queue, and the experimental memory subpaths are removed. In 0.24, queue inspection/removal becomes asynchronous, `QueueItem.created_at` becomes `createdAt`, and queued callbacks no longer inherit the enqueuing request or connection. Old queue rows migrate on startup; upstream says the temporary migration is removed in the next minor, so do not skip the upgrade step for populated objects.
 
 In 0.25+, native async RPC initialization requires named objects; prefer `getAgentByName`. In 0.27+, Channels moves from `agents/channels` to `agents/experimental/channels`. In 0.28, Lifecycle, Scheduler, State, WebSockets and MCPClientManager are stable capabilities. These additions do not authorize changing an existing runtime's lifecycle or transport.
 
 For standalone Lifecycle hosts, install the required capabilities explicitly; do not assume Agent's state or WebSocket composition exists on every Durable Object. Keep the default WebSocket transport unless an independently authorized change requires another wire. Consult the [upstream changelog](https://github.com/cloudflare/agents/blob/main/packages/agents/CHANGELOG.md) and the version notes in the references below before copying newer examples.
+
+### Agents 0.31 migration boundary
+
+Read the [0.31.0 release and upgrade notes](https://github.com/cloudflare/agents/releases/tag/agents%400.31.0) before applying its examples. This is a compatibility guide, not authorization to change runtime pins.
+
+- MCP packages become optional peers. The release requires exact `@modelcontextprotocol/sdk@1.32.1` and `@modelcontextprotocol/server@2.3.1` for `agents/mcp` or `agents/x402`; `agents/mcp/server` needs the server package, and `agents/experimental/webmcp` needs the SDK. Check the installed peer declarations: SDK 1.32.2 does not satisfy 0.31.0's exact 1.32.1 peer. Do not bypass this with force/legacy peer resolution.
+- Import client-only helpers such as `RPCClientTransport` from `agents/mcp/client`, not `agents/mcp`.
+- Prefer `browserTool` for new browser integrations. Its model code uses `browser.cdp({ method, params, sessionId: "active" })`, not the old `cdp.send` global. Remove its `ctx` option and the `CodemodeRuntime` export only if no retained `createBrowserTools` integration needs that export; retain the `LOADER` binding and `@cloudflare/codemode` dependency for this release.
+- Read browser result `notice`, not `restarted`, `newTabs` or `calls`; `PiBrowserToolDetails` contains only `executionId` and `status`. The browser tool cannot close the browser or create Live View links. `createBrowserTools`, `createBrowserRuntime`, `BrowserConnector` and Quick Action helpers are deprecated, not removed. Keep the legacy flow if it needs approval/resume through Live View, which has no replacement yet.
+- `agents/models/ai-sdk` and `agents/models/pi-ai` are stable. This does not upgrade the installed Pi SDK or authorize a local package install.
 
 ## FIRST: Verify Installation
 

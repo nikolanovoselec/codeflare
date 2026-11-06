@@ -4,7 +4,15 @@ Fetch https://developers.cloudflare.com/agents/api-reference/browse-the-web/ for
 
 CDP-powered browser tools that let agents scrape, screenshot, and interact with web pages.
 
-## Setup
+## Agents 0.31 migration
+
+For new integrations read the [version-matched persistent-browser guide](https://github.com/cloudflare/agents/blob/agents%400.31.0/docs/agents/browse-the-web.md#persistent-browser). Prefer `browserTool({ browser: this.browser, loader: this.env.LOADER })`; use `browser.cdp({ method: "Page.navigate", params: { url }, sessionId: "active" })` inside its model code. It runs code in a fresh Dynamic Worker, without a `ctx` option or its own `CodemodeRuntime` export. Keep `LOADER` and `@cloudflare/codemode` for this release; remove `CodemodeRuntime` only when no legacy flow still uses it.
+
+Inspect result `notice` instead of `restarted`, `newTabs` or `calls`; `PiBrowserToolDetails` has only `executionId` and `status`. Closing the browser and creating Live View links are unavailable to the tool. `this.browser.session()` is the host-code path to the same browser. Keep authorization and per-conversation scope isolation; shared cookies do not grant permission to replay interrupted writes.
+
+The examples below describe the **deprecated legacy** `createBrowserTools` / connector flow, not the new `browserTool` API. Retain that flow when approval/resume through Live View is required: upstream has no replacement yet. `createBrowserRuntime`, `BrowserConnector` and Quick Actions are also deprecated.
+
+## Legacy setup
 
 ```jsonc
 // wrangler.jsonc

@@ -14,6 +14,7 @@ test('REQ-BROWSER-009 AC3: the real Chrome SDK applies six-minute page and remot
   prepareChromeTimeouts(root);
   prepareChromeTimeouts(root);
   const { McpPage } = await import(pathToFileURL(resolve(root, 'build/src/McpPage.js')).href);
+  const { ServerConfig } = await import(pathToFileURL(resolve(root, 'build/src/config/ServerConfig.js')).href);
   const { puppeteer, Locator } = await import(pathToFileURL(resolve(root, 'build/src/third_party/index.js')).href);
   const browser = await puppeteer.launch({
     executablePath: process.env.CI_CHROMIUM_EXECUTABLE,
@@ -26,12 +27,14 @@ test('REQ-BROWSER-009 AC3: the real Chrome SDK applies six-minute page and remot
   let wrapper;
   let manager;
   try {
+    const config = ServerConfig.create({ cliArgs: { wsEndpoint: browser.wsEndpoint() }, fileArgs: {} });
     const page = await browser.newPage();
-    wrapper = new McpPage(page, 1, {
+    wrapper = new McpPage(page.target(), 1, {
+      config,
       locatorClass: Locator,
-      hasNetworkBlockOrAllowlist: false,
       // Omit navigationTimeout: observe the SDK default, not a test override.
     });
+    await wrapper.init();
     wrapper.updateTimeouts();
     assert.deepEqual([page.getDefaultTimeout(), page.getDefaultNavigationTimeout()], [360_000, 360_000]);
 
@@ -45,7 +48,7 @@ test('REQ-BROWSER-009 AC3: the real Chrome SDK applies six-minute page and remot
     // CDP evaluation that never resolves observes Puppeteer's default deadline;
     // only the platform clock is accelerated, not the CDP implementation.
     const { BrowserManager } = await import(pathToFileURL(resolve(root, 'build/src/BrowserManager.js')).href);
-    manager = new BrowserManager({ wsEndpoint: browser.wsEndpoint() });
+    manager = new BrowserManager(config);
     const remote = await manager.ensureBrowser();
     const [remotePage] = await remote.pages();
     const cdp = await remotePage.createCDPSession();

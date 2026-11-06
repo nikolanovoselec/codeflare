@@ -15,6 +15,26 @@ function managedEnvironmentArea(section: unknown) {
 }
 
 describe('Environment area summaries', () => {
+  it('REQ-SETUP-023 AC3: orders areas by displayed label without changing their summaries or authoritative input', () => {
+    const configuration: AdminConfigurationResponse = {
+      mode: 'enterprise', revision: 1, applicableSections: ['securityEgress', 'mcpPortals', 'domain', 'aiRouting', 'access'],
+      activeRunId: null, latest: {}, sections: {
+        securityEgress: { strictGatewayEgress: true },
+        mcpPortals: { portals: [{ name: 'tools', url: 'https://portal.example.com/mcp' }] },
+        domain: { customDomain: 'enterprise.example.com' },
+        aiRouting: { tokenState: 'administration', dynamicRoutes: [] },
+        access: { adminUsers: ['admin@example.com'] },
+      },
+    };
+    const areas = environmentAreas(configuration);
+    expect(areas.map(area => area.label)).toEqual([
+      'Access and identity', 'AI Gateway and routing', 'Domain and DNS', 'Model Context Protocol', 'Security and egress',
+    ]);
+    expect(areas.find(area => area.section === 'mcpPortals')).toMatchObject({ summary: '1 portal', status: 'Configured' });
+    expect(configuration.applicableSections).toEqual(['securityEgress', 'mcpPortals', 'domain', 'aiRouting', 'access']);
+    expect(filterEnvironmentAreas(areas, 'gateway').map(area => area.section)).toEqual(['aiRouting', 'securityEgress']);
+  });
+
   it('REQ-SETUP-021 AC1: reports configured, disabled, and unconfigured managed-environment states', () => {
     expect(managedEnvironmentArea({ configured: true, enabled: true, activeReleaseTag: 'seed-v41' })).toMatchObject({
       summary: 'seed-v41',

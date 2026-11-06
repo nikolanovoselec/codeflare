@@ -175,6 +175,8 @@ jobs:
               - 'landing/**'
               - 'src/lib/design-ready.ts'
             pi:
+              - 'scripts/qualify-pi-mcp.mjs'
+              - 'host/__tests__/pi-mcp-stock.test.js'
               - 'scripts/patch-rpiv-question-timeout.mjs'
               - 'scripts/rpiv-question-timeout.mjs'
               - 'scripts/verify-rpiv-host-peers.mjs'
@@ -250,6 +252,8 @@ jobs:
             workflows:
               - '.github/**'
               - 'scripts/ci/workflow-tool-pins.mjs'
+              - 'scripts/ci/actionlint-input.mjs'
+              - 'host/__tests__/actionlint-input.test.js'
             dependencies:
               - 'package-lock.json'
               - 'web-ui/package-lock.json'
@@ -334,11 +338,11 @@ jobs:
           git diff --exit-code src/lib/agent-seed.generated.ts \
             || { echo "::error::agent-seed.generated.ts is stale — run 'npm run generate:agent-seed' and commit the result"; exit 1; }
 
-      - uses: ./.github/actions/install-deps
+      - uses: $/.github/actions/install-deps
         with:
           key-prefix: root
 
-      - uses: ./.github/actions/install-deps
+      - uses: $/.github/actions/install-deps
         with:
           directory: web-ui
           key-prefix: webui
@@ -386,11 +390,11 @@ jobs:
         with:
           node-version: '22'
 
-      - uses: ./.github/actions/install-deps
+      - uses: $/.github/actions/install-deps
         with:
           key-prefix: root
 
-      - uses: ./.github/actions/install-deps
+      - uses: $/.github/actions/install-deps
         with:
           directory: web-ui
           key-prefix: webui
@@ -417,29 +421,29 @@ jobs:
     timeout-minutes: 10
     strategy:
       fail-fast: false
-      max-parallel: 12
+      max-parallel: 13
       matrix:
-        # The twelve completed Workers artifacts from run 35723895426 supply the
-        # current per-file durations. Longest-first assignment uses their measured
-        # timings plus the calibrated per-file startup cost; the Node runtime is
-        # separate from this Workers-only weighted population.
+        # The twelve completed Workers artifacts from run 41877010056 supply
+        # collection and execution costs for thirteen longest-first groups.
+        # The Node runtime remains separate from this Workers-only population.
         include:
           # Generated seed files are committed and drift-checked in Quality. Running
-          # npm's `test` lifecycle here would regenerate them in all twelve isolated
+          # npm's `test` lifecycle here would regenerate them in all thirteen isolated
           # runners before every weighted group, adding duplicated startup work but
           # no coverage. `test:worker` runs the same Workers suite without that hook.
-          - { balance-group: '1/12', slug: shard-1, script: 'test:worker', tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
-          - { balance-group: '2/12', slug: shard-2, script: 'test:worker', tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
-          - { balance-group: '3/12', slug: shard-3, script: 'test:worker', tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
-          - { balance-group: '4/12', slug: shard-4, script: 'test:worker', tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
-          - { balance-group: '5/12', slug: shard-5, script: 'test:worker', tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
-          - { balance-group: '6/12', slug: shard-6, script: 'test:worker', tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
-          - { balance-group: '7/12', slug: shard-7, script: 'test:worker', tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
-          - { balance-group: '8/12', slug: shard-8, script: 'test:worker', tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
-          - { balance-group: '9/12', slug: shard-9, script: 'test:worker', tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
-          - { balance-group: '10/12', slug: shard-10, script: 'test:worker', tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
-          - { balance-group: '11/12', slug: shard-11, script: 'test:worker', tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
-          - { balance-group: '12/12', slug: shard-12, script: 'test:worker', tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
+          - { balance-group: '1/13', slug: shard-1, script: 'test:worker', tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
+          - { balance-group: '2/13', slug: shard-2, script: 'test:worker', tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
+          - { balance-group: '3/13', slug: shard-3, script: 'test:worker', tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
+          - { balance-group: '4/13', slug: shard-4, script: 'test:worker', tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
+          - { balance-group: '5/13', slug: shard-5, script: 'test:worker', tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
+          - { balance-group: '6/13', slug: shard-6, script: 'test:worker', tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
+          - { balance-group: '7/13', slug: shard-7, script: 'test:worker', tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
+          - { balance-group: '8/13', slug: shard-8, script: 'test:worker', tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
+          - { balance-group: '9/13', slug: shard-9, script: 'test:worker', tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
+          - { balance-group: '10/13', slug: shard-10, script: 'test:worker', tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
+          - { balance-group: '11/13', slug: shard-11, script: 'test:worker', tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
+          - { balance-group: '12/13', slug: shard-12, script: 'test:worker', tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
+          - { balance-group: '13/13', slug: shard-13, script: 'test:worker', tolerate-pool-crash: 'true', pre-run: '', coverage: 'true' }
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -449,7 +453,7 @@ jobs:
         with:
           node-version: '22'
 
-      - uses: ./.github/actions/install-deps
+      - uses: $/.github/actions/install-deps
         with:
           key-prefix: root
 
@@ -457,7 +461,7 @@ jobs:
         run: mkdir -p web-ui/dist
 
       - name: Run suite (fail-closed gate)
-        uses: ./.github/actions/vitest-suite
+        uses: $/.github/actions/vitest-suite
         with:
           balance-group: ${{ matrix.balance-group }}
           script: ${{ matrix.script }}
@@ -500,10 +504,6 @@ jobs:
       needs.changes.outputs.full == 'true' ||
       needs.changes.outputs.backend == 'true'
     runs-on: ${{ vars.RUNNER || 'ubuntu-24.04' }}
-    # Native workerd groups run separately from ordinary Node tests so a stuck
-    # generated facet cannot hold the complete backend lane for ten minutes.
-    # Flue needs room for setup and cleanup around its passing suite.
-    timeout-minutes: ${{ matrix.slug == 'flue' && 4 || 3 }}
     strategy:
       fail-fast: false
       max-parallel: 3
@@ -543,7 +543,7 @@ jobs:
           echo 'dbc87254189e2317d8c5e1c3032f46a49e652d8a0221d3d94a85461470fe1630  src/__tests__/operators/fixtures/dispatcher-release-brief/operator-manifest.json' | sha256sum --check --strict
           echo '9d7473fa99f09d509c13e0a0da62bde7bf91fa4cda09acd1e0b2f89cd726e803  src/__tests__/operators/fixtures/dispatcher-release-brief/operator-provenance.json' | sha256sum --check --strict
 
-      - uses: ./.github/actions/install-deps
+      - uses: $/.github/actions/install-deps
         with:
           key-prefix: root
 
@@ -551,7 +551,7 @@ jobs:
         run: mkdir -p web-ui/dist
 
       - name: Run suite (fail-closed gate)
-        uses: ./.github/actions/vitest-suite
+        uses: $/.github/actions/vitest-suite
         with:
           script: test:node
           artifact-name: backend-node-${{ matrix.slug }}
@@ -570,6 +570,13 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+
+      - name: Restore workflow audit parser
+        uses: $/.github/actions/install-deps
+        with:
+          directory: '.'
+          key-prefix: workflow-audit
+          ignore-scripts: 'true'
 
       - name: Resolve the zizmor pin
         id: zizmor-pin
@@ -676,7 +683,13 @@ jobs:
           fi
           echo "${ACTIONLINT_SHA256}  ${ACTIONLINT_ARCHIVE}" | sha256sum -c -
           tar -xzf "$ACTIONLINT_ARCHIVE" -C /tmp actionlint
-          /tmp/actionlint -color -pyflakes=
+          node scripts/ci/actionlint-input.mjs /tmp/actionlint .github/workflows/*.yml
+
+      - name: Verify actionlint syntax compatibility
+        env:
+          ACTIONLINT_BINARY: /tmp/actionlint
+          SHELLCHECK_OPTS: '--severity=error'
+        run: node --test host/__tests__/actionlint-input.test.js
 
   bundle-size:
     name: Bundle size
@@ -696,7 +709,7 @@ jobs:
         with:
           node-version: '22'
 
-      - uses: ./.github/actions/install-deps
+      - uses: $/.github/actions/install-deps
         with:
           key-prefix: root
 
@@ -745,11 +758,11 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: ./.github/actions/merge-coverage
+      - uses: $/.github/actions/merge-coverage
         with:
           artifact-pattern: 'backend-shard-*'
           artifact-prefix: 'backend-shard'
-          expected-shards: '12'
+          expected-shards: '13'
           slug: backend
           package-root: .
           changed-base: ${{ github.event.pull_request.base.sha }}
@@ -775,11 +788,11 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: ./.github/actions/merge-coverage
+      - uses: $/.github/actions/merge-coverage
         with:
           artifact-pattern: 'frontend-shard-*'
           artifact-prefix: 'frontend-shard'
-          expected-shards: '4'
+          expected-shards: '3'
           slug: frontend
           package-root: web-ui
           changed-base: ${{ github.event.pull_request.base.sha }}
@@ -816,7 +829,7 @@ jobs:
         with:
           node-version: '22'
 
-      - uses: ./.github/actions/install-deps
+      - uses: $/.github/actions/install-deps
         with:
           directory: web-ui
           key-prefix: webui
@@ -835,20 +848,18 @@ jobs:
     timeout-minutes: 10
     strategy:
       fail-fast: false
-      max-parallel: 4
-      # Measured file groups from run 35197159794 isolate the long-running
-      # frontend files and balance the remaining work across four runners so
-      # the full matrix completes in about one minute.
+      max-parallel: 3
+      # Fresh per-file durations from all four artifacts of run 41877010056
+      # redistribute the complete frontend population across three runners;
+      # the released matrix slot goes to the Workers backend.
       matrix:
         include:
-          - group: '1/4'
+          - group: '1/3'
             slug: shard-1
-          - group: '2/4'
+          - group: '2/3'
             slug: shard-2
-          - group: '3/4'
+          - group: '3/3'
             slug: shard-3
-          - group: '4/4'
-            slug: shard-4
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -858,13 +869,13 @@ jobs:
         with:
           node-version: '22'
 
-      - uses: ./.github/actions/install-deps
+      - uses: $/.github/actions/install-deps
         with:
           directory: web-ui
           key-prefix: webui
 
       - name: Run suite (fail-closed gate)
-        uses: ./.github/actions/vitest-suite
+        uses: $/.github/actions/vitest-suite
         with:
           working-directory: web-ui
           balance-group: ${{ matrix.group }}
@@ -885,11 +896,15 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Read explicit CI Node patch pin
+        id: node-pin
+        run: node scripts/ci/workflow-tool-pins.mjs github-output ci-node-22 >> "$GITHUB_OUTPUT"
+
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: '22'
+          node-version: ${{ steps.node-pin.outputs.version }}
 
-      - uses: ./.github/actions/install-deps
+      - uses: $/.github/actions/install-deps
         with:
           directory: landing
           key-prefix: landing
@@ -906,7 +921,7 @@ jobs:
 
       - name: Run suite (fail-closed gate)
         # Container-API render tests + pure-logic unit tests (landing/README.md)
-        uses: ./.github/actions/vitest-suite
+        uses: $/.github/actions/vitest-suite
         with:
           working-directory: landing
           artifact-name: landing
@@ -928,15 +943,18 @@ jobs:
         with:
           node-version: '22'
 
-      - uses: ./.github/actions/install-deps
+      - uses: $/.github/actions/install-deps
         with:
           key-prefix: root
 
-      - uses: ./.github/actions/install-deps
+      - uses: $/.github/actions/install-deps
         with:
           directory: preseed/agents/pi
           key-prefix: pi-prompt
           ignore-scripts: 'true'
+
+      - name: Qualify the real stock MCP extension and public client
+        run: node scripts/qualify-pi-mcp.mjs
 
       - name: Apply pinned Pi native display patch
         run: node scripts/patch-pi-native-model-display.mjs preseed/agents/pi/node_modules/@earendil-works/pi-coding-agent
@@ -991,7 +1009,7 @@ jobs:
       - name: Verify real Pi runtime reports
         env:
           CODEFLARE_PI_REPORT_ROOT: ${{ runner.temp }}
-        run: node --test preseed/agents/pi/test/runtime-projection.test.mjs preseed/agents/pi/test/questionnaire-timeout.test.mjs preseed/agents/pi/test/enterprise-routing.test.mjs preseed/agents/pi/test/enterprise-model-display.test.mjs preseed/agents/pi/test/native-display-patch.test.mjs preseed/agents/pi/test/consult-proxy.test.mjs preseed/agents/pi/test/todo-isolation.test.mjs
+        run: node --test preseed/agents/pi/test/runtime-projection.test.mjs preseed/agents/pi/test/questionnaire-timeout.test.mjs preseed/agents/pi/test/enterprise-routing.test.mjs preseed/agents/pi/test/enterprise-model-display.test.mjs preseed/agents/pi/test/native-display-patch.test.mjs preseed/agents/pi/test/todo-isolation.test.mjs
 
       - name: Upload Pi prompt reports
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -1016,9 +1034,9 @@ jobs:
       fail-fast: false
       max-parallel: 5
       matrix:
-        # Run every native partition once in parallel. The slowest measured
-        # partition is 41 seconds; setup plus one partition stays inside the
-        # three-minute CI completion ceiling without reducing test coverage.
+        # Run every native partition once in parallel without reducing coverage.
+        # Overlap independent host setup below to target roughly 200-second CI
+        # completion; runner and suite timings still determine actual completion.
         include:
           - { shards: '1/5', slug: shard-1 }
           - { shards: '2/5', slug: shard-2 }
@@ -1030,40 +1048,47 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Read explicit CI Node patch pin
+        id: node-pin
+        run: node scripts/ci/workflow-tool-pins.mjs github-output ci-node-26 >> "$GITHUB_OUTPUT"
+
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: '26.8.1'
+          node-version: ${{ steps.node-pin.outputs.version }}
 
-      - uses: ./.github/actions/install-deps
+      - uses: $/.github/actions/install-deps
         # wrangler-static-assets.test.js imports 'wrangler' from the ROOT
         # node_modules (module lookup walks up from host/__tests__).
         with:
           key-prefix: root
 
-      - uses: ./.github/actions/install-deps
+      - uses: $/.github/actions/install-deps
         with:
           directory: host
           key-prefix: host
 
-      - name: Install authentic Graphify MCP compatibility runtime
+      - uses: $/.github/actions/install-deps
+        with:
+          directory: preseed/agents/pi
+          key-prefix: host-pi-inference
+          ignore-scripts: 'true'
+
+      - name: Install and verify Graphify runtime and approved-packet sandbox in parallel
+        env:
+          RUNNER_ENVIRONMENT: ${{ runner.environment }}
         run: |
+          set -euo pipefail
+          # Keep errexit active inside each child; only wait handles failures.
+          (
           set -euo pipefail
           python3 -m venv "$RUNNER_TEMP/graphify-compat"
           package=$(python3 -c 'import json; p=json.load(open("host/__fixtures__/graphify-compatibility.json")); print("graphifyy[mcp] @ " + p["wheel"] + "#sha256=" + p["sha256"])')
           "$RUNNER_TEMP/graphify-compat/bin/python" -m pip install --disable-pip-version-check "$package"
           "$RUNNER_TEMP/graphify-compat/bin/python" -c 'import importlib.metadata,json; p=json.load(open("host/__fixtures__/graphify-compatibility.json")); assert importlib.metadata.version("graphifyy") == p["version"]'
           echo "GRAPHIFY_TEST_PYTHON=$RUNNER_TEMP/graphify-compat/bin/python" >> "$GITHUB_ENV"
-
-      - name: Create assets directory (wrangler.toml requires web-ui/dist)
-        # wrangler-static-assets.test.js reads wrangler.toml via unstable_readConfig,
-        # which resolves the [assets] directory; without the dir the config loads
-        # without assets and the test fails.
-        run: mkdir -p web-ui/dist
-
-      - name: Install and verify approved-packet sandbox
-        env:
-          RUNNER_ENVIRONMENT: ${{ runner.environment }}
-        run: |
+          ) &
+          graphify_pid=$!
+          (
           set -euo pipefail
           bash scripts/ci/install-approved-packet-packages.sh
           /usr/bin/bwrap --version
@@ -1104,22 +1129,48 @@ jobs:
           fi
           # The identical user/PID/network-isolated probe must succeed after setup.
           probe_sandbox
+          ) &
+          sandbox_pid=$!
+
+          # Collect BOTH statuses: a successful final wait must not mask failure.
+          graphify_status=0
+          sandbox_status=0
+          wait "$graphify_pid" || graphify_status=$?
+          wait "$sandbox_pid" || sandbox_status=$?
+          echo "Graphify runtime setup exit status: $graphify_status"
+          echo "Approved-packet sandbox setup exit status: $sandbox_status"
+          if [ "$graphify_status" -ne 0 ]; then
+            exit "$graphify_status"
+          fi
+          if [ "$sandbox_status" -ne 0 ]; then
+            exit "$sandbox_status"
+          fi
+
+      - name: Create assets directory (wrangler.toml requires web-ui/dist)
+        # wrangler-static-assets.test.js reads wrangler.toml via unstable_readConfig,
+        # which resolves the [assets] directory; without the dir the config loads
+        # without assets and the test fails.
+        run: mkdir -p web-ui/dist
 
       - name: Build host (TypeScript)
         run: npm run build
         working-directory: host
 
+      - name: Read rclone CI pin
+        id: rclone-pin
+        run: node scripts/ci/workflow-tool-pins.mjs github-output rclone >> "$GITHUB_OUTPUT"
+
       - name: Cache rclone archive
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: ${{ runner.tool_cache }}/codeflare/rclone-v1.73.5-linux-amd64.zip
-          key: ${{ runner.os }}-${{ runner.arch }}-rclone-v1.73.5-932cf4b7484de74d82b4875488e0009469fd21f9904673385184520fe11a1bf0
+          path: ${{ runner.tool_cache }}/codeflare/rclone-v${{ steps.rclone-pin.outputs.version }}-linux-amd64.zip
+          key: ${{ runner.os }}-${{ runner.arch }}-rclone-v${{ steps.rclone-pin.outputs.version }}-${{ steps.rclone-pin.outputs.sha256 }}
 
       - name: Install rclone for sync-filter behavioral tests
         env:
-          RCLONE_RELEASE_VERSION: 1.73.5
-          RCLONE_SHA256: 932cf4b7484de74d82b4875488e0009469fd21f9904673385184520fe11a1bf0
-          RCLONE_ARCHIVE: ${{ runner.tool_cache }}/codeflare/rclone-v1.73.5-linux-amd64.zip
+          RCLONE_RELEASE_VERSION: ${{ steps.rclone-pin.outputs.version }}
+          RCLONE_SHA256: ${{ steps.rclone-pin.outputs.sha256 }}
+          RCLONE_ARCHIVE: ${{ runner.tool_cache }}/codeflare/rclone-v${{ steps.rclone-pin.outputs.version }}-linux-amd64.zip
         run: |
           set -euo pipefail
           mkdir -p "$(dirname "$RCLONE_ARCHIVE")"
@@ -1174,6 +1225,8 @@ jobs:
         # native 1/5 partition appears exactly once across the parallel jobs.
         env:
           SHARDS: ${{ matrix.shards }}
+          OPERATOR_INFERENCE_TEST_SDK_ROOT: ${{ github.workspace }}/preseed/agents/pi/node_modules/@earendil-works/pi-coding-agent
+          OPERATOR_INFERENCE_TEST_AI_ENTRY: ${{ github.workspace }}/preseed/agents/pi/node_modules/@earendil-works/pi-ai/dist/index.js
         run: |
           set -euo pipefail
           part=0
@@ -1211,9 +1264,13 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Read explicit CI Node patch pin
+        id: node-pin
+        run: node scripts/ci/workflow-tool-pins.mjs github-output ci-node-26 >> "$GITHUB_OUTPUT"
+
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: '26.8.1'
+          node-version: ${{ steps.node-pin.outputs.version }}
       - name: Prepare the exact locked Chrome SDK without lifecycle scripts
         run: |
           set -euo pipefail
@@ -1262,11 +1319,15 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Read explicit CI Node patch pin
+        id: node-pin
+        run: node scripts/ci/workflow-tool-pins.mjs github-output ci-node-22 >> "$GITHUB_OUTPUT"
+
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: '22.21.1'
+          node-version: ${{ steps.node-pin.outputs.version }}
 
-      - uses: ./.github/actions/install-deps
+      - uses: $/.github/actions/install-deps
         with:
           directory: openvscode/agent-sidebar
           key-prefix: browser-ide
@@ -1299,7 +1360,7 @@ jobs:
           diff -u "$RUNNER_TEMP/sidebar-dist-first.sha256" "$RUNNER_TEMP/sidebar-dist-second.sha256"
 
       - name: Run Browser IDE agent suite (fail-closed gate)
-        uses: ./.github/actions/vitest-suite
+        uses: $/.github/actions/vitest-suite
         with:
           working-directory: openvscode/agent-sidebar
           artifact-name: browser-ide
@@ -1432,7 +1493,7 @@ jobs:
       - name: Download suite reports
         if: always()
         continue-on-error: true
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: '{backend-*,frontend-*,landing,browser-ide}'
           path: /tmp/test-artifacts

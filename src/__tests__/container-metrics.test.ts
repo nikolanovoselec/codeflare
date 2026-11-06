@@ -31,6 +31,7 @@ const testState = vi.hoisted(() => ({
   activityStatus: 200,
   healthStatus: 200,
   stopCalls: 0,
+  platformStopSignals: [] as Array<number | string | undefined>,
   stopFailuresRemaining: 0,
   scheduleCalls: [] as Array<[number, string]>,
   scheduleFailuresRemaining: 0,
@@ -221,6 +222,7 @@ vi.mock('@cloudflare/containers', () => {
         testState.stopFailuresRemaining -= 1;
         throw new Error('container stop failed');
       }
+      testState.platformStopSignals.push(_signal);
     }
 
     // Mock destroy
@@ -324,6 +326,7 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
     testState.deleteScheduleCalls = [];
     testState.abortReasons = [];
     testState.stopCalls = 0;
+    testState.platformStopSignals = [];
     testState.stopFailuresRemaining = 0;
     testState.storedSleepAfter = undefined;
     testState.storedUserEmail = undefined;
@@ -770,6 +773,22 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       expect(testState.scheduleCalls).toContainEqual([60, 'collectMetrics']);
       const projected = await mockKV.get('session:test-bucket:testsession123456', 'json') as Session;
       expect(projected.metrics?.cpu).toBe('45%');
+    });
+
+    it.each([['8h', 8], ['12h', 12]] as const)('REQ-SESSION-004: %s stays alive until its configured idle deadline and then requests SIGTERM', async (duration, hours) => {
+      let now = Date.now();
+      vi.spyOn(Date, 'now').mockImplementation(() => now);
+      testState.storedSleepAfter = duration;
+      testState.activityResult.lastInputAt = now - hours * 3_600_000 + 60_000;
+      mockKV._set('session:test-bucket:testsession123456', {
+        id: 'testsession123456', name: 'Test', userId: 'test-bucket', status: 'running', lifecycleGeneration: 0,
+        createdAt: new Date(now).toISOString(), lastAccessedAt: new Date(now).toISOString(),
+      } as Session);
+      await containerInstance.collectMetrics();
+      expect(testState.platformStopSignals).toEqual([]);
+      now += 120_000;
+      await containerInstance.collectMetrics();
+      expect(testState.platformStopSignals).toEqual(['SIGTERM']);
     });
 
     it('stops after genuine idle expiry from the persisted startup reference', async () => {
@@ -2238,10 +2257,10 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
   });
 
   describe('idle timeout resolution (REQ-OPS-006 AC1) / REQ-OPS-017 (sleepAfter fail-safe invariants)', () => {
-    it('uses fail-safe 4h default when storage has no sleepAfter', async () => {
+    it('uses fail-safe 12h default when storage has no sleepAfter', async () => {
       // Storage returns undefined for 'sleepAfter'.
-      // Class-field default is '4h' (max safe). Container has been idle for 1 hour.
-      // 1h < 4h → container should NOT be stopped.
+      // Class-field default is '12h' (max safe). Container has been idle for 1 hour.
+      // 1h < 12h → container should NOT be stopped.
       testState.storedSleepAfter = undefined;
       testState.activityResult = {
         hasActiveConnections: true,
@@ -2389,7 +2408,7 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
     it('ignores invalid stored sleepAfter values and uses class-field fallback', async () => {
       // Someone wrote a malformed value into storage. The collectMetrics
       // refresh validates against the regex and ignores invalid values,
-      // falling back to the class-field default ('4h').
+      // falling back to the class-field default ('12h').
       testState.storedSleepAfter = 'GARBAGE';
       testState.activityResult = {
         hasActiveConnections: true,
@@ -2408,7 +2427,7 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
 
       await containerInstance.collectMetrics();
 
-      // 30m < 4h fallback → no stop
+      // 30m < 12h fallback → no stop
       expect(testState.stopCalls).toBe(0);
     });
   });

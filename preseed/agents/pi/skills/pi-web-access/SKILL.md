@@ -26,6 +26,11 @@ Pick by intent, not habit:
    - **Raw HTTP: JSON APIs, custom headers, auth, non-HTML** → `curl` via bash.
    - **Page only renders with JavaScript, or is bot-protected / login-walled** → the **browser-run** skill (`browser_markdown` etc., advanced sessions only).
 
+## 0.45.0 tool compatibility
+
+- For `web_search` and `source_check`, `provider` is now a **string**, not an array. For multiple providers use, for example, `provider: "brave,exa"`; omit it for the configured default. Unknown names now return an error listing valid names rather than silently selecting `auto`. Correct the name from that error; do not silently broaden the request. Existing provider lists in `web-search.json` remain supported—this change is to tool arguments, not a reason to rewrite configuration.
+- New extraction mode, providers, routing/classification and model overrides are optional. Do not enable them, configure a gateway, or introduce paid services without explicit opt-in covering external data disclosure and cost. In particular, `fetch_content` extraction is off unless `"extract"` is added to `fetch.allowedModes`; it sends page text to Cloudflare. Availability is not consent to enable it. Preserve the public-URL-only rule below.
+
 ## Notes
 
 - Public URLs only. Never point web tools at `localhost`, private IPs, internal hosts, or anything needing the user's session/credentials.

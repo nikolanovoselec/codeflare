@@ -426,6 +426,7 @@ app.post('/start', containerStartRateLimiter, async (c) => {
       userGroups,
       routeCatalog: routeConfig.routeCatalog,
       allowPersonalPiProviders: routeConfig.allowPersonalPiProviders === true,
+      piDefaultSource: routeConfig.piDefaultSource ?? 'managed',
       defaultRoute: routeConfig.defaultRoute,
       defaultReasoning: routeConfig.defaultReasoning,
       routeContextWindows: routeConfig.routeContextWindows,

@@ -3,13 +3,13 @@
 import pathlib
 import sys
 
-VERSION = "1.73.5"
+VERSIONS = ("1.73.5", "1.75.2")
 
 
 def patch(root, version):
-    if version != VERSION:
+    if version not in VERSIONS:
         raise ValueError(f"rclone {version} is not approved for the bisync bookkeeping patch; revalidate before bumping")
-    if (root / "VERSION").read_text().strip() != f"v{VERSION}":
+    if (root / "VERSION").read_text().strip() != f"v{version}":
         raise ValueError("Unreviewed upstream version; revalidate the bookkeeping patch before bumping")
     changes = [
         ("backend/s3/s3.go", "\to.setMetaData(head)\n\n\t// Check multipart upload ETag if required", "\to.setMetaData(head)\n\n\tif o.fs.ci.UseServerModTime && (o.fs.opt.NoHead || gotETag == \"\" || head.ETag == nil || strings.Trim(*head.ETag, \"\\\"\") != strings.Trim(gotETag, \"\\\"\")) {\n\t\treturn fmt.Errorf(\"object identity changed after upload; refusing to acknowledge destination metadata\")\n\t}\n\n\t// Check multipart upload ETag if required"),
@@ -75,14 +75,24 @@ func (b *bisyncRun) WriteCompletedCopy(ctx context.Context, src, dst fs.Object) 
           '\tvar etag string\n'
           '\terr = f.copy(ctx, &req, dstBucket, dstPath, srcBucket, srcPath, srcObj, &etag)'),
          ('backend/s3/s3.go',
-          '\treturn f.NewObject(ctx, remote)\n}\n\n// Hashes',
-          '\tif f.ci.UseServerModTime {\n'
-          '\t\treturn (&Object{fs: f, remote: remote}).completedObject(ctx, etag)\n'
-          '\t}\n'
-          '\treturn f.NewObject(ctx, remote)\n'
-          '}\n'
-          '\n'
-          '// Hashes'),
+          ('\treturn f.NewObject(ctx, remote)\n}\n\n// Hashes' if version == "1.73.5" else
+           '\tdstObj, err := f.NewObject(ctx, remote)\n\tif err != nil {\n\t\treturn nil, err\n\t}'),
+          ('\tif f.ci.UseServerModTime {\n'
+           '\t\treturn (&Object{fs: f, remote: remote}).completedObject(ctx, etag)\n'
+           '\t}\n'
+           '\treturn f.NewObject(ctx, remote)\n'
+           '}\n'
+           '\n'
+           '// Hashes' if version == "1.73.5" else
+           '\tvar dstObj fs.Object\n'
+           '\tif f.ci.UseServerModTime {\n'
+           '\t\tdstObj, err = (&Object{fs: f, remote: remote}).completedObject(ctx, etag)\n'
+           '\t} else {\n'
+           '\t\tdstObj, err = f.NewObject(ctx, remote)\n'
+           '\t}\n'
+           '\tif err != nil {\n'
+           '\t\treturn nil, err\n'
+           '\t}')),
          ('backend/s3/s3.go',
           '\treturn o.fs.copy(ctx, &req, bucket, bucketPath, bucket, bucketPath, o)',
           '\tvar etag string\n'

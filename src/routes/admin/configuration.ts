@@ -1,4 +1,5 @@
 import { Hono } from 'hono';
+import { getConfiguredMcpPortals, validateMcpPortals } from '../../lib/mcp-portals';
 import type { Env } from '../../types';
 import { authMiddleware, requireAdmin, type AuthVariables } from '../../middleware/auth';
 import {
@@ -226,11 +227,26 @@ app.get('/', requireAdmin, async (c) => {
   return c.json({
     mode,
     revision: parseRevision(revisionRaw),
-    applicableSections,
-    sections,
+    applicableSections: [...applicableSections, 'mcpPortals'],
+    sections: { ...sections, mcpPortals: { portals: await getConfiguredMcpPortals(c.env.KV) } },
     activeRunId: typeof activeRun?.runId === 'string' ? activeRun.runId : null,
     latest,
   });
+});
+
+// Local instance configuration only: no setup execution, restart, or OAuth side effects.
+app.get('/mcp-portals', requireAdmin, async (c) => {
+  return c.json(await getConfiguredMcpPortals(c.env.KV));
+});
+
+app.put('/mcp-portals', requireAdmin, async (c) => {
+  let portals;
+  try { portals = validateMcpPortals(await c.req.json()); }
+  catch (reason) {
+    return c.json({ error: reason instanceof SyntaxError ? 'Invalid JSON.' : reason instanceof Error ? reason.message : 'Invalid portal configuration.' }, 400);
+  }
+  await c.env.KV.put(SETUP_KEYS.MCP_PORTALS, JSON.stringify(portals));
+  return c.json(portals);
 });
 
 export default app;

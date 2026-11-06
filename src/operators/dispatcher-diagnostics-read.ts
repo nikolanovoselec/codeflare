@@ -114,7 +114,11 @@ export async function readActivityDiagnostics(input: {
     let response: Record<string, unknown>;
     if (options.view === 'summary') {
       let failure: DiagnosticEvent | undefined;
+      let actionableFailure: DiagnosticEvent | undefined;
       let confirmed: DiagnosticEvent | undefined;
+      let progress: DiagnosticEvent | undefined;
+      const fenced = before.fence;
+      let fenceEvent: DiagnosticEvent | undefined;
       const recoveries: DiagnosticEvent[] = [];
       // Finite retained-index bound; read only metadata, not the child/journal/cache.
       const pointers = index && !unavailable ? await diagnosticPointers(input.storage) : [];
@@ -122,11 +126,26 @@ export async function readActivityDiagnostics(input: {
         .sort((a, b) => Number(a.slice(2)) - Number(b.slice(2)));
       for (const id of selected) {
         const record = await readEvent(id);
+        if (fenced && record.owner === 'host' && record.outcome === 'unknown'
+          && record.boundary === fenced.boundary && record.code === fenced.code
+          && record.generation === fenced.generation && record.timestamp >= fenced.timestamp) fenceEvent = record;
         if (record.outcome === 'failed' || record.code === 'effect-unknown') failure = record;
+        if (record.outcome === 'failed' && (record.error?.sdkService
+          || record.error?.transportReason === 'operation-conflict')) actionableFailure = record;
         if (['accepted', 'applied', 'committed', 'completed', 'released'].includes(record.outcome)) confirmed = record;
         if (record.outcome === 'recovered') recoveries.push(record);
+        if (['model', 'inference-response', 'canonical-commit', 'tool', 'effect', 'submission', 'delivery', 'continuation'].includes(record.boundary)
+          && ['started', 'accepted', 'applied', 'committed', 'completed'].includes(record.outcome)) progress = record;
       }
-      const fenced = before.fence;
+      // A generic settlement wrapper must not erase a concrete boundary cause.
+      // Later confirmed work, however, prevents that substitution.
+      if (actionableFailure && (!progress || progress.sequence <= actionableFailure.sequence)
+        && (!failure || failure.code === 'settlement-failed' || failure === actionableFailure)) failure = actionableFailure;
+      // Later productive work makes the old attempt historical, not the cause
+      // of a subsequent fence. The essential fence remains truthful even when
+      // its optional event could not be retained.
+      if (fenced && failure && failure.code !== 'effect-unknown' && progress && progress.sequence > failure.sequence
+        && fenced.timestamp >= progress.timestamp) failure = fenceEvent;
       const incomplete = unavailable || before.recorderUnavailable || health.status === 'loss' || !before.logging
         || !index || ['unknown', 'failed', 'cancel-requested'].includes(before.status ?? '') && !fenced;
       const sameOperation = (a: DiagnosticEvent, b: DiagnosticEvent) => a.generation === b.generation
@@ -154,8 +173,18 @@ export async function readActivityDiagnostics(input: {
               : before.provenance && health.sdkImport === 'pending' ? 'pending' : 'host-persisted' })),
         sdkBinding: before.rootDigest && before.submissionId ? { status: 'available', rootDigest: before.rootDigest,
           submissionDigest: hashDiagnostic(before.submissionId) } : { status: 'unavailable', reason: 'unbound' },
-        fence: fenced ?? null, diagnosis: { state, code: fenced?.code ?? failure?.code ?? 'none',
+        fence: fenced ?? null, diagnosis: { state,
+          ...(['queued', 'running', 'waiting', 'completed', 'failed', 'cancel-requested', 'unknown'].includes(before.status ?? '')
+            ? { executionStatus: before.status } : {}), code: fenced?.code ?? failure?.code ?? 'none',
           lastConfirmedId: confirmed?.id ?? null, failedId: failure?.id ?? null,
+          ...(failure?.error?.publicCode ? { publicCode: failure.error.publicCode } : {}),
+          ...(failure?.error?.sdkService ? { sdkService: failure.error.sdkService } : {}),
+          ...(failure?.error?.journal ? { journal: failure.error.journal } : {}),
+          ...(failure?.error?.transportStatus === undefined ? {} : {
+            transportStatus: failure.error.transportStatus, transportReason: failure.error.transportReason,
+            transportDisposition: failure.error.transportDisposition }),
+          ...(failure && progress && progress.sequence > failure.sequence
+            ? { continuedId: progress.id } : {}),
           nextCheck: fenced?.code === 'platform-evidence-required' ? 'inspect-platform-events'
             : fenced || failure && !recoveredFailure && !recoveryUnretained ? 'inspect-failure' : gapList.includes('sdk-import-incomplete') ? 'inspect-sdk-import'
             : gapList.includes('platform-evidence-required') ? 'inspect-platform-events' : incomplete ? 'inspect-retention-gap' : 'none' } };

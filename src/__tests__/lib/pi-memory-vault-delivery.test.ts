@@ -11,7 +11,7 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
   buildPublicExtractionRequest,
@@ -680,6 +680,8 @@ describe('REQ-MEM-014/REQ-MEM-015: public extraction transcript contracts', () =
 
 describe('REQ-MEM-001/REQ-MEM-002: root-owned memory delivery lifecycle', () => {
   it('prefers USER_TIMEZONE over TZ when both are present', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-07-01T12:00:00Z'));
     const priorTz = process.env.TZ;
     process.env.USER_TIMEZONE = 'America/New_York';
     process.env.TZ = 'UTC';
@@ -692,6 +694,7 @@ describe('REQ-MEM-001/REQ-MEM-002: root-owned memory delivery lifecycle', () => 
 
       expect(readJson(activeExecutionPath(harness, 'memory-capture')).captureTimestamp).toMatch(/-0400$/);
     } finally {
+      vi.useRealTimers();
       if (priorTz === undefined) delete process.env.TZ;
       else process.env.TZ = priorTz;
     }

@@ -157,6 +157,8 @@ describe('REQ-OPS-038: deployment coding-agent selection', () => {
 
   it('REQ-OPS-046 AC2-AC3: packaged-image smoke rejects a broken code-server js-yaml overlay', async () => {
     const fixture = mkdtempSync(join(tmpdir(), 'js-yaml-runtime-smoke-'));
+    // Image version-pin contract: exercise production defaults against pinned package metadata.
+    const pinnedVersion = readFileSync(join(ROOT, 'Dockerfile'), 'utf8').match(/CODE_SERVER_JS_YAML_VERSION="([^"]+)"/)[1];
     try {
       const runtimePath = join(fixture, 'js-yaml');
       const brokenRuntime = join(fixture, 'broken-js-yaml');
@@ -164,7 +166,7 @@ describe('REQ-OPS-038: deployment coding-agent selection', () => {
         mkdirSync(path);
         writeFileSync(
           join(path, 'package.json'),
-          JSON.stringify({ name: 'js-yaml', version: '5.4.1', main: 'index.cjs' }),
+          JSON.stringify({ name: 'js-yaml', version: pinnedVersion, main: 'index.cjs' }),
         );
       }
       writeFileSync(join(runtimePath, 'index.cjs'), 'exports.load = () => ({});\n');
@@ -177,9 +179,14 @@ describe('REQ-OPS-038: deployment coding-agent selection', () => {
       );
       writeFileSync(join(wrongVersionRuntime, 'index.cjs'), 'exports.load = () => ({});\n');
 
+      const staleRuntime = join(fixture, 'stale-js-yaml');
+      mkdirSync(staleRuntime);
+      writeFileSync(join(staleRuntime, 'package.json'), JSON.stringify({ name: 'js-yaml', version: '5.4.1', main: 'index.cjs' }));
+      writeFileSync(join(staleRuntime, 'index.cjs'), 'exports.load = () => ({});\n');
+      await assert.rejects(verifyJsYamlRuntime({ runtimePath: staleRuntime }), /must contain js-yaml 5\.4\.3/);
       assert.equal(await verifyJsYamlRuntime({ runtimePath }), runtimePath);
       await assert.rejects(verifyJsYamlRuntime({ runtimePath: brokenRuntime }), /must load js-yaml load/);
-      await assert.rejects(verifyJsYamlRuntime({ runtimePath: wrongVersionRuntime }), /must contain js-yaml 5\.4\.1/);
+      await assert.rejects(verifyJsYamlRuntime({ runtimePath: wrongVersionRuntime }), /must contain js-yaml 5\.4\.3/);
     } finally {
       rmSync(fixture, { recursive: true, force: true });
     }
@@ -223,7 +230,10 @@ describe('REQ-OPS-038: deployment coding-agent selection', () => {
         "exports.extract = async ({ cwd, file }) => copyFile(file, join(cwd, 'probe.txt'));",
         '',
       ].join('\n');
-      const expectedVersions = ['7.5.21', '7.5.22'];
+      // Both independently pinned locations must pass the actual smoke defaults.
+      const docker = readFileSync(join(ROOT, 'Dockerfile'), 'utf8');
+      const expectedVersions = ['NODE_TAR_VERSION', 'CODE_SERVER_IDE_TAR_VERSION']
+        .map(name => docker.match(new RegExp(`${name}="([^"]+)"`))[1]);
       for (const [index, runtimePath] of runtimePaths.entries()) {
         const packagePath = join(runtimePath, 'package.json');
         mkdirSync(runtimePath, { recursive: true });
@@ -231,17 +241,20 @@ describe('REQ-OPS-038: deployment coding-agent selection', () => {
         writeFileSync(join(runtimePath, 'index.cjs'), moduleSource);
       }
 
-      const verified = await verifyNodeTarRuntimes({ runtimePaths, expectedVersions, temporaryRoot: fixture });
+      const verified = await verifyNodeTarRuntimes({ runtimePaths, temporaryRoot: fixture });
       assert.deepEqual(verified, runtimePaths);
-      writeFileSync(join(runtimePaths[1], 'package.json'), JSON.stringify({ name: 'tar', version: '7.5.21', main: 'index.cjs' }));
-      await assert.rejects(verifyNodeTarRuntimes({ runtimePaths, expectedVersions, temporaryRoot: fixture }),
-        /must contain node-tar 7\.5\.22/);
+      for (const runtimePath of runtimePaths) {
+        writeFileSync(join(runtimePath, 'package.json'), JSON.stringify({ name: 'tar', version: '7.5.21', main: 'index.cjs' }));
+        await assert.rejects(verifyNodeTarRuntimes({ runtimePaths, temporaryRoot: fixture }),
+          /must contain node-tar 7\.5\.22/);
+        writeFileSync(join(runtimePath, 'package.json'), JSON.stringify({ name: 'tar', version: '7.5.22', main: 'index.cjs' }));
+      }
 
       const brokenRuntime = join(fixture, 'broken-tar');
       mkdirSync(brokenRuntime, { recursive: true });
       writeFileSync(
         join(brokenRuntime, 'package.json'),
-        JSON.stringify({ name: 'tar', version: '7.5.21', main: 'index.cjs' }),
+        JSON.stringify({ name: 'tar', version: '7.5.22', main: 'index.cjs' }),
       );
       writeFileSync(join(brokenRuntime, 'index.cjs'), 'exports.create = async () => {};\n');
 
@@ -255,6 +268,11 @@ describe('REQ-OPS-038: deployment coding-agent selection', () => {
   });
 
   it('REQ-OPS-046 AC2-AC3: packaged-image smoke rejects a broken npm pacote overlay', async () => {
+    // Intentional image-owned version-pin contract: exercise the smoke default
+    // against the Dockerfile pin, so a package bump cannot leave a stale gate.
+    const imageVersion = readFileSync(join(ROOT, 'Dockerfile'), 'utf8')
+      .match(/^\s*PACOTE_VERSION="([0-9]+\.[0-9]+\.[0-9]+)"/m)?.[1];
+    assert.ok(imageVersion, 'Dockerfile must declare the qualified Pacote pin');
     const fixture = mkdtempSync(join(tmpdir(), 'pacote-runtime-smoke-'));
     try {
       const runtimePath = join(fixture, 'pacote');
@@ -263,31 +281,39 @@ describe('REQ-OPS-038: deployment coding-agent selection', () => {
         mkdirSync(path);
         writeFileSync(
           join(path, 'package.json'),
-          JSON.stringify({ name: 'pacote', version: '21.5.1', main: 'index.cjs' }),
+          JSON.stringify({ name: 'pacote', version: imageVersion, main: 'index.cjs' }),
         );
       }
       writeFileSync(join(runtimePath, 'index.cjs'), 'exports.manifest = async () => ({});\n');
       writeFileSync(join(brokenRuntime, 'index.cjs'), 'exports.tarball = async () => {};\n');
       const wrongVersionRuntime = join(fixture, 'wrong-version-pacote');
       mkdirSync(wrongVersionRuntime);
-      writeFileSync(
-        join(wrongVersionRuntime, 'package.json'),
-        JSON.stringify({ name: 'pacote', version: '21.5.0', main: 'index.cjs' }),
-      );
       writeFileSync(join(wrongVersionRuntime, 'index.cjs'), 'exports.manifest = async () => ({});\n');
 
       assert.equal(await verifyPacoteRuntime({ runtimePath }), runtimePath);
       await assert.rejects(verifyPacoteRuntime({ runtimePath: brokenRuntime }), /must load pacote manifest/);
-      await assert.rejects(verifyPacoteRuntime({ runtimePath: wrongVersionRuntime }), /must contain pacote 21\.5\.1/);
+      for (const version of ['21.5.0', '21.5.1']) {
+        writeFileSync(join(wrongVersionRuntime, 'package.json'),
+          JSON.stringify({ name: 'pacote', version, main: 'index.cjs' }));
+        await assert.rejects(verifyPacoteRuntime({ runtimePath: wrongVersionRuntime }),
+          new RegExp(`must contain pacote ${imageVersion.replaceAll('.', '\\.')}`));
+      }
     } finally {
       rmSync(fixture, { recursive: true, force: true });
     }
   });
 
   it('REQ-OPS-051 AC3: packaged-image smoke executes exact image-owned Oxlint', () => {
-    assert.equal(verifyOxlintRuntime({ run: () => 'Version: 1.87.0\n' }), 'Version: 1.87.0');
-    for (const reported of ['Version: 1.81.0\n', 'Version: 1.85.0\n', 'Version: 1.87.0-beta.1\n', 'Version: 1.87.0.1\n']) {
-      assert.throws(() => verifyOxlintRuntime({ run: () => reported }), /must report exact version 1\.87\.0/);
+    // Intentional image-owned pin contract: exercise the production default.
+    const version = JSON.parse(readFileSync(join(ROOT, 'image/oxlint/package.json'), 'utf8')).dependencies.oxlint;
+    const expected = `Version: ${version}`;
+    assert.equal(verifyOxlintRuntime({ run: () => `${expected}\n` }), expected);
+    for (const reported of [
+      'Version: 1.81.0\n', 'Version: 1.85.0\n', 'Version: 1.87.0\n',
+      'Version: 1.87.0-beta.1\n', 'Version: 1.87.0.1\n',
+      `${expected}-beta.1\n`, `${expected}.1\n`,
+    ]) {
+      assert.throws(() => verifyOxlintRuntime({ run: () => reported }), /must report exact version/);
     }
   });
 
