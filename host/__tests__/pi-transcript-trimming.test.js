@@ -481,3 +481,16 @@ test('REQ-MEM-028 AC5: provisioned public SDK appends and disk reopen survive sa
   assert.deepEqual(replay(reopened.getBranch()), replay(manager.getBranch()));
   assert.deepEqual(fs.readdirSync(f.root), ['session.jsonl']);
 });
+
+test('REQ-MEM-028 AC5: streamed cut preserves loaded SDK state, same-path append and disk reopen', {skip:process.env.GITHUB_ACTIONS!=='true'},async t=>{
+ const manifestPath=findPackageJSON('@earendil-works/pi-coding-agent',new URL('../../preseed/agents/pi/package.json',import.meta.url));assert.ok(manifestPath);
+ const manifest=JSON.parse(fs.readFileSync(manifestPath,'utf8'));const {SessionManager}=await import(new URL(manifest.exports['.'].import,pathToFileURL(manifestPath)));
+ const f=fixture(t),manager=SessionManager.open(f.file,f.root,f.root),beforeIds=manager.getBranch().map(e=>e.id),tools=new Map();
+ const ctx={sessionManager:manager},owner=registerActiveSessionTranscriptTrimming({registerTool:x=>tools.set(x.name,x),sendMessage(){}});t.after(()=>owner.cancel());owner.markDue(ctx);const item=owner.collect(ctx);assert.ok(item);
+ const child={sessionManager:{getBranch:()=>[{type:'message',message:{role:'user',content:item.request.prompt}}]}};
+ const result=JSON.parse((await tools.get('transcript_trim').execute('cut',{operation:'trim'},undefined,undefined,child)).content[0].text);assert.equal(result.status,'trimmed');assert.equal(result.committed,true);
+ assert.deepEqual(manager.getBranch().map(e=>e.id),beforeIds);
+ const prefix=fs.readFileSync(f.file),id=manager.appendMessage({role:'user',content:'After streamed cut',timestamp:Date.now()});
+ assert.equal(manager.getSessionFile(),f.file);assert.deepEqual(fs.readFileSync(f.file).subarray(0,prefix.length),prefix);
+ const reopened=SessionManager.open(f.file,f.root,f.root);assert.equal(reopened.getEntry(id).message.content,'After streamed cut');assert.equal(reopened.getBranch().at(-1).id,id);
+});

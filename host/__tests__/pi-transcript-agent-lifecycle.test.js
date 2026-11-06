@@ -53,7 +53,12 @@ test('REQ-MEM-030 AC6: native failures reuse scoped requests through common extr
   assert.ok(fs.statSync(f.file).size > 50_000_000);
 });
 test('REQ-MEM-030 AC1: due maintenance launches at a normal boundary and scoped trim activates despite queued work', async t => {
-  const f = fixture(t), l = lifecycle(f, true); l.due();
+  const f = fixture(t);
+ // Whole-record retention uses real-sized records, not one 50 MB synthetic line.
+ f.rows[1].message.content[0].text='x'.repeat(2_004_000);
+ const parts=Array.from({length:24},(_,i)=>({type:'message',id:`old-part-${i}`,parentId:i?`old-part-${i-1}`:'old',message:{role:'assistant',content:[{type:'text',text:'x'.repeat(2_004_000)}]}}));
+ f.rows[2].parentId=parts.at(-1).id;f.rows.splice(2,0,...parts);fs.writeFileSync(f.file,jsonl(f.rows));
+ const l = lifecycle(f, true); l.due();
   for (const stopReason of ['toolUse', 'length', 'aborted', 'error']) l.emit('turn_end', { message: { role: 'assistant', stopReason, content: [] } });
   l.emit('turn_end', { message: { role: 'assistant', stopReason: 'stop', content: [{ type: 'toolCall', id: 'unfinished', name: 'read', arguments: {} }] } });
   assert.equal(l.launch(), undefined);

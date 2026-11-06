@@ -68,7 +68,7 @@ test('REQ-MEM-030 AC7: verified total target, precommit IO safety, durability di
 });
 
 test('REQ-MEM-030 AC2: one scoped local trim verifies live history before return and rejects aliases', async t => {
-  const f = fixture(t), l = lifecycle(f); l.due(); l.emit('agent_settled'); const item = l.launch();
+  const f = fixture(t);f.rows[3].message.content='Retained user '+ 'u'.repeat(19_000_000);fs.writeFileSync(f.file,jsonl(f.rows));const l = lifecycle(f); l.due(); l.emit('agent_settled'); const item = l.launch();
   const req = JSON.parse(fs.readFileSync(item.request.prompt.match(/^VARS_FILE=(.+)$/m)[1]));
   const tool = l.tools.get('transcript_trim'); assert.ok(tool);
   const child = { sessionManager: { getBranch: () => [{ type: 'message', message: { role: 'user', content: item.request.prompt } }] } };
@@ -88,8 +88,7 @@ test('REQ-MEM-030 AC2: one scoped local trim verifies live history before return
   const candidate = fs.readFileSync(f.file, 'utf8').trimEnd().split('\n').map(JSON.parse);
   const sourceRows = before.toString().trimEnd().split('\n').map(JSON.parse);
   for (const row of sourceRows.filter(row => row.id !== 'old')) assert.deepEqual(candidate.find(e => e.id === row.id), row);
-  assert.deepEqual(candidate.find(e => e.id === 'old').message.usage, f.rows[1].message.usage);
-  assert.ok(f.rows[1].message.content[0].text.startsWith(candidate.find(e => e.id === 'old').message.content[0].text));
+  assert.equal(candidate.some(e=>e.id==='old'),false,'the oldest whole record is discarded, not semantically rewritten');
 
 });
 test('REQ-MEM-030 AC3: latest Goal and Plan state, active branch and unknown content remain protected', t => {
@@ -109,9 +108,9 @@ test('REQ-MEM-030 AC3: latest Goal and Plan state, active branch and unknown con
   assert.match(commitTranscriptTrimCandidate(active, activeRequest).reason, /protected-entry/);
 });
 test('REQ-MEM-030 AC5: stale scoped work refuses rewritten history without replacing it', async t => {
-  const f = fixture(t), l = lifecycle(f); l.due(); l.emit('agent_settled'); const item = l.launch();
+  const f = fixture(t);f.rows[3].message.content='Retained user '+ 'u'.repeat(19_000_000);fs.writeFileSync(f.file,jsonl(f.rows));const l = lifecycle(f); l.due(); l.emit('agent_settled'); const item = l.launch();
   const req = JSON.parse(fs.readFileSync(item.request.prompt.match(/^VARS_FILE=(.+)$/m)[1])); f.stage(req);
-  f.rows[3].message.content = 'New historical user'; fs.writeFileSync(f.file, jsonl(f.rows));
+  f.rows[3].message.content = 'New historical user '+ 'u'.repeat(19_000_000); fs.writeFileSync(f.file, jsonl(f.rows));
   const before = fs.readFileSync(f.file);
   const child = { sessionManager: { getBranch: () => [{ type: 'message', message: { role: 'user', content: item.request.prompt } }] } };
   await assert.rejects(l.tools.get('transcript_trim').execute('stale', { operation: 'trim' }, undefined, undefined, child), /source-prefix-changed/);
@@ -136,88 +135,6 @@ test('REQ-MEM-030 AC7: total includes the unmodified append tail and rejects can
   assert.match(over.reason, /total-exceeds-target/); assert.equal(fs.statSync(f.file).size, original);
   fs.unlinkSync(req.candidateFile); fs.symlinkSync(f.file, req.candidateFile);
   assert.equal(commitTranscriptTrimCandidate(f.ctx, req).status, 'refused'); assert.equal(fs.statSync(f.file).size, original);
-});
-
-test('REQ-MEM-030 AC7: branched historical state and known argument payloads reach the total budget with an active orphan tail', async t => {
-  const f = fixture(t); f.rows.splice(1);
-  let parentId = null;
-  const add = payload => { const row = { id: `budget-${f.rows.length}`, parentId, ...payload }; f.rows.push(row); parentId = row.id; return row; };
-  for (let i = 0; i < 14; i++) {
-    const state = add({ type: 'custom', customType: 'rpiv-todo-state', data: { tasks: [{ id: i, subject: `Superseded completed phase ${i}`, description: 'd'.repeat(1_000_000), status: 'completed' }], nextId: i + 1 } });
-    const fork = parentId;
-    add({ type: 'message', message: { role: 'assistant', content: [{ type: 'text', text: 'Inactive branch completion ' + 'b'.repeat(300_000) }], usage: { input: 4, output: 3 } } });
-    parentId = fork;
-    add({ type: 'message', message: { role: 'toolResult', toolName: 'todo', toolCallId: `todo-${i}`, content: [{ type: 'text', text: `Phase ${i} completed` }], details: { ...state.data, action: 'list' } } });
-  }
-  const historical = add({ type: 'message', message: { role: 'assistant', usage: { input: 20, output: 30, cost: { total: 1 } }, content: [
-    { type: 'text', text: 'Completed migration analysis ' + 'a'.repeat(8_000_000) },
-    { type: 'toolCall', id: 'historical-write', name: 'write', arguments: { path: '/historical/report.md', content: 'Old generated report ' + 'w'.repeat(6_000_000), unknownExtension: 'preserve' }, extra: 'wire-stable' },
-    { type: 'unknown-block', opaque: 'preserve' },
-  ] } });
-  const condensedMessage = { ...historical.message, content: [
-    { type: 'text', text: 'Migration completed; decisions and outcome captured by the retained user brief.' },
-    { ...historical.message.content[1], arguments: { ...historical.message.content[1].arguments, content: 'Historical report recorded migration completion.' } },
-    historical.message.content[2],
-  ] };
-  // A string system payload is reduced as a unit. The protected current payload
-  // below leaves a valid floor plus room for retained historical prose and the
-  // concurrent append tail within the inclusive 15–25 MB acceptance window.
-  add({ type: 'message', message: { role: 'system', content: 'Retired system guidance ' + 's'.repeat(4_000_000) } });
-  const oldUser = add({ type: 'message', message: { role: 'user', content: 'Migration accepted. Keep current active work and all usage/accounting.' } });
-  add({ type: 'compaction', firstKeptEntryId: oldUser.id, summary: 'Earlier migration history ' + 'c'.repeat(4_000_000), tokensBefore: 999 });
-  parentId = 'preexisting-missing-budget-parent';
-  const activeStart = f.rows.length;
-  add({ type: 'message', message: { role: 'user', content: 'Continue current work, preserving this orphan component.' } });
-  add({ type: 'custom', customType: 'goal-state', data: { description: 'Current goal', tokensUsed: 700 } });
-  add({ type: 'custom', customType: 'rpiv-todo-state', data: { tasks: [{ id: 70, subject: 'Current task', status: 'in_progress' }], nextId: 71 } });
-  add({ type: 'custom', customType: 'plan-mode-state', data: { mode: 'implement', plan: 'Current plan' } });
-  add({ type: 'message', message: { role: 'assistant', content: [{ type: 'toolCall', id: 'current-write', name: 'write', arguments: { path: '/current', content: 'Current generated content ' + 'k'.repeat(15_000_000) } }], usage: { input: 55, output: 66 } } });
-  fs.writeFileSync(f.file, jsonl(f.rows)); assert.ok(fs.statSync(f.file).size > 50_000_000);
-  const activeRows = structuredClone(f.rows.slice(activeStart));
-  const l = lifecycle(f); l.due(); l.emit('agent_settled'); const item = l.launch();
-  const child = { sessionManager: { getBranch: () => [{ type: 'message', message: { role: 'user', content: item.request.prompt } }] } };
-  const tool = l.tools.get('transcript_trim');
-  const request = JSON.parse(fs.readFileSync(item.request.prompt.match(/^VARS_FILE=(.+)$/m)[1]));
-  const source = fs.readFileSync(f.file).subarray(0, request.sourceBytes).toString();
-  const validateMessage = (id, message) => {
-    const candidate = JSON.parse('[' + source.trimEnd().split('\n').join(',') + ']');
-    candidate.find(row => row.id === id).message = message;
-    validateTranscriptTrimCandidate(source, jsonl(candidate), 'fixture', request.branchIds);
-  };
-  for (const change of [
-    block => { block.id = 'fabricated-call'; }, block => { block.name = 'bash'; },
-    block => { block.arguments.unknownExtension = 'changed'; }, block => { block.extra = 'changed'; },
-  ]) {
-    const message = structuredClone(condensedMessage); change(message.content[1]);
-    assert.throws(() => validateMessage(historical.id, message), /opaque|envelope/);
-  }
-  const current = activeRows.at(-1); const currentMessage = structuredClone(current.message);
-  currentMessage.content[0].arguments.content = 'Not authorized';
-  assert.throws(() => validateMessage(current.id, currentMessage), /protected/);
-  l.append({ type: 'message', message: { role: 'user', content: 'Concurrent tail ' + 't'.repeat(500_000) } });
-  const tail = fs.readFileSync(f.file).subarray(request.sourceBytes).toString();
-  const result = JSON.parse((await tool.execute('trim', { operation: 'trim' }, undefined, undefined, child)).content[0].text);
-  assert.equal(result.withinTarget, true); assert.equal(result.committed, true);
-  const persisted = fs.readFileSync(f.file, 'utf8'); assertTrimWindow(Buffer.byteLength(persisted));
-  assert.ok(persisted.includes(tail));
-  const rows = persisted.trimEnd().split('\n').map(JSON.parse);
-  for (const row of activeRows) assert.deepEqual(rows.find(e => e.id === row.id), row);
-  assert.deepEqual(rows.find(e => e.id === oldUser.id), oldUser);
-  assert.equal(rows.find(e => e.id === activeRows[0].id).parentId, 'preexisting-missing-budget-parent');
-  assert.deepEqual(rows.find(e => e.id === historical.id).message.usage, historical.message.usage);
-  assert.deepEqual(rows.find(e => e.id === f.rows.find(row => row.customType === 'rpiv-todo-state').id).data.tasks, []);
-  const historicalContent = rows.find(e => e.id === historical.id).message.content;
-  const retainedText = historicalContent.find(block => block.type === 'text')?.text ?? '';
-  assert.ok(historical.message.content[0].text.startsWith(retainedText), 'retained historical prose is an original prefix, not fabricated padding');
-  assert.ok(retainedText.length < historical.message.content[0].text.length, 'obsolete prose is still reduced');
-  assert.deepEqual(historicalContent.find(block => block.type === 'unknown-block'), historical.message.content[2]);
-  const retainedCall = historicalContent.find(block => block.type === 'toolCall');
-  assert.equal(retainedCall.id, 'historical-write'); assert.equal(retainedCall.name, 'write');
-  assert.equal(retainedCall.arguments.path, '/historical/report.md');
-  assert.ok(retainedCall.arguments.content.length < historical.message.content[1].arguments.content.length);
-  assert.equal(retainedCall.arguments.unknownExtension, 'preserve'); assert.equal(retainedCall.extra, 'wire-stable');
-  assert.ok(l.sent.some(m => m.customType === 'transcript-trim-outcome' && m.details.status === 'trimmed'));
-  assert.deepEqual(fs.readdirSync(f.root), ['session.jsonl']);
 });
 
 test('REQ-MEM-030 AC7: transient postcommit readback failure resumes verification without a second write', t => {

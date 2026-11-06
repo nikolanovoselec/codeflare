@@ -562,56 +562,72 @@ function directoryOwned(r) {
   const s=fs.lstatSync(r.directory);
   if(!s.isDirectory()||s.isSymbolicLink()||s.uid!==process.getuid?.()||`${s.dev}:${s.ino}`!==r.directoryIdentity)throw Error('foreign-staging-directory');
 }
-function stage(r,file,bytes) {
-  directoryOwned(r);
-  // Names are fixed by the owner, never supplied by a model proposal.
-  try { const s=fs.lstatSync(file);if(!s.isFile()||s.isSymbolicLink()||s.nlink!==1||s.uid!==process.getuid?.())throw Error('foreign-candidate');fs.unlinkSync(file); }
-  catch(e){if(e.code!=='ENOENT')throw e;}
-  const fd=fs.openSync(file,fs.constants.O_WRONLY|fs.constants.O_CREAT|fs.constants.O_EXCL|fs.constants.O_NOFOLLOW,0o600);
-  try{fs.writeFileSync(fd,bytes);fs.fsyncSync(fd);}finally{fs.closeSync(fd);}
+const COPY_CHUNK=64*1024;
+function copyRange(fd,start,end,write) {
+  const buffer=Buffer.allocUnsafe(COPY_CHUNK);
+  for(let position=start;position<end;) {
+    const count=fs.readSync(fd,buffer,0,Math.min(buffer.length,end-position),position);
+    if(!count)throw Error('source-short-read');
+    write(buffer.subarray(0,count));position+=count;
+  }
 }
-function workerJob({action,request:r,selection=[],branchIds=r.branchIds}) {
-  const started=performance.now();
+export function hashTranscriptPrefix(file,length,io=fs) {
+  const hash=createHash('sha256'),buffer=Buffer.allocUnsafe(COPY_CHUNK),fd=io.openSync(file,fs.constants.O_RDONLY|fs.constants.O_NOFOLLOW);
+  try{for(let position=0;position<length;){const count=io.readSync(fd,buffer,0,Math.min(buffer.length,length-position),position);if(!count)throw Error('source-short-read');hash.update(buffer.subarray(0,count));position+=count;}}
+  finally{io.closeSync(fd);}
+  return hash.digest('hex');
+}
+function newlineAfter(fd,start,end) {
+  const buffer=Buffer.allocUnsafe(COPY_CHUNK);
+  for(let position=start;position<end;) {
+    const count=fs.readSync(fd,buffer,0,Math.min(buffer.length,end-position),position);
+    if(!count)throw Error('source-short-read');
+    const at=buffer.subarray(0,count).indexOf(10);if(at>=0)return position+at+1;position+=count;
+  }
+  throw Error('incomplete-jsonl');
+}
+function rawCut(fd,length,tailBytes=0) {
+  const header=newlineAfter(fd,0,length);
+  const position=Math.min(length,Math.max(header,header+length+tailBytes-MAXIMUM));
+  const cut=position===length?length:newlineAfter(fd,position,length);
+  const projectedBytes=header+length-cut+tailBytes;
+  if(projectedBytes<MINIMUM)throw Error('retained-output-below-minimum');
+  if(projectedBytes>MAXIMUM)throw Error('retained-output-above-maximum');
+  return {header,cut,cutPercent:100*(cut-header)/(length+tailBytes-header),projectedBytes};
+}
+function stageRanges(r,target,ranges,stat) {
+  directoryOwned(r);
+  try{const s=fs.lstatSync(target);if(!s.isFile()||s.isSymbolicLink()||s.nlink!==1||s.uid!==process.getuid?.())throw Error('foreign-candidate');fs.unlinkSync(target);}catch(e){if(e.code!=='ENOENT')throw e;}
+  const out=fs.openSync(target,fs.constants.O_WRONLY|fs.constants.O_CREAT|fs.constants.O_EXCL|fs.constants.O_NOFOLLOW,0o600),hash=createHash('sha256');let bytes=0;
+  try {
+    for(const [fd,start,end]of ranges)copyRange(fd,start,end,chunk=>{for(let at=0;at<chunk.length;){const written=fs.writeSync(out,chunk,at,chunk.length-at);if(!written)throw Error('staging-short-write');at+=written;}hash.update(chunk);bytes+=chunk.length;});
+    if(stat){fs.fchownSync(out,stat.uid,stat.gid);fs.fchmodSync(out,stat.mode&0o7777);}fs.fsyncSync(out);
+  }finally{fs.closeSync(out);}
+  return {bytes,sha256:hash.digest('hex')};
+}
+function workerJob({action,request:r}) {
   directoryOwned(r);const stamp=pathIdentity(r.file),stat=fs.lstatSync(r.file);
   if(stat.uid!==process.getuid?.()||stat.nlink!==1)throw Error('foreign-ownership');
-  const current=fs.readFileSync(r.file),sourceReadMs=performance.now()-started;
   if(action==='readback') {
-    if(!r.committed || r.committed.bytes<MINIMUM || r.committed.bytes>MAXIMUM || current.length<r.committed.bytes
-      ||digest(current.subarray(0,r.committed.bytes))!==r.committed.sha256)throw Error('persisted-verification-failed');
-    parseTranscript(decode(current),r.sessionId,true);return {after:r.committed.bytes,currentBytes:current.length,appendedAfterCommitBytes:current.length-r.committed.bytes,timings:{readbackMs:performance.now()-started}};
+    if(!r.committed||r.committed.bytes<MINIMUM||r.committed.bytes>MAXIMUM||stat.size<r.committed.bytes||hashTranscriptPrefix(r.file,r.committed.bytes)!==r.committed.sha256)throw Error('persisted-verification-failed');
+    return {after:r.committed.bytes,currentBytes:stat.size,appendedAfterCommitBytes:stat.size-r.committed.bytes};
   }
-  if(stamp!==r.sourcePathIdentity||current.length<r.sourceBytes||digest(current.subarray(0,r.sourceBytes))!==r.sourceSha256)throw Error('source-prefix-changed');
-  const prefix=decode(current.subarray(0,r.sourceBytes)),tail=current.subarray(r.sourceBytes);
-  if(action==='prepare') {
-    if(!Array.isArray(selection)||selection.length>categories.length||new Set(selection).size!==selection.length||selection.some(c=>!categories.includes(c)))throw Error('invalid-refinement-category');
-    const budget=Math.max(0,MAXIMUM-tail.length),preferred=Math.min(budget,Math.max(0,TARGET-tail.length));
-    const trimmed=prepareLocalTranscriptTrim(prefix,r.sessionId,r.branchIds,preferred,selection);
-    const projectedTotalBytes=trimmed.remainingBytes+tail.length,catalog=transcriptTrimCatalog(prefix,r.sessionId,r.branchIds);
-    const withinTarget=projectedTotalBytes>=MINIMUM&&projectedTotalBytes<=MAXIMUM&&trimmed.remainingBytes<=budget;
-    if(withinTarget)stage(r,r.candidateFile,trimmed.candidate);
-    const available=catalog.some(c=>c.potentialSavingsBytes>0&&!selection.includes(c.category));
-    return {requestId:r.requestId,candidateBytes:withinTarget?trimmed.remainingBytes:null,remainingBytes:trimmed.remainingBytes,
-      projectedTotalBytes,budgetBytes:budget,tailBytes:tail.length,minimumBytes:MINIMUM,targetBytes:TARGET,maximumBytes:MAXIMUM,
-      withinTarget,committed:false,status:withinTarget?'prepared':'refused',reason:withinTarget?undefined:
-        projectedTotalBytes<MINIMUM?'retained-output-below-minimum':available?'refinement-available':'protected-floor-above-maximum',
-      catalog,retained:trimmed.retention,selectedCategories:selection,sourceBytes:r.sourceBytes,
-      timings:{sourceReadMs,prepareMs:performance.now()-started},workerMaxRssKiB:process.resourceUsage().maxRSS};
-  }
-  if(action==='activation') {
-    pathIdentity(r.candidateFile);const cs=fs.lstatSync(r.candidateFile);
-    if(cs.nlink!==1||cs.uid!==stat.uid||cs.size>MAXIMUM)throw Error('foreign-or-oversized-candidate');
-    const candidate=fs.readFileSync(r.candidateFile);
-    validateTranscriptTrimCandidate(prefix,decode(candidate),r.sessionId,r.branchIds);
-    const final=Buffer.concat([candidate,tail]);
-    if(final.length<MINIMUM||final.length>MAXIMUM||final.length>=current.length)throw Error('total-outside-window');
-    validateTranscriptTrimCandidate(decode(current),decode(final),r.sessionId,branchIds);
-    const finalFile=join(r.directory,'activation.jsonl');stage(r,finalFile,final);
-    const fd=fs.openSync(finalFile,'r+');try{fs.fchownSync(fd,stat.uid,stat.gid);fs.fchmodSync(fd,stat.mode&0o7777);fs.fsyncSync(fd);}finally{fs.closeSync(fd);}
+  if(r.policy!=='oldest-prefix-percent')throw Error('obsolete-maintenance-scope');
+  for(const file of [r.candidateFile,join(r.directory,'activation.jsonl')])try{const staged=fs.lstatSync(file);if(!staged.isFile()||staged.isSymbolicLink()||staged.nlink!==1||staged.uid!==stat.uid)throw Error('foreign-candidate');}catch(e){if(e.code!=='ENOENT')throw e;}
+  if(stamp!==r.sourcePathIdentity||stat.size<r.sourceBytes||hashTranscriptPrefix(r.file,r.sourceBytes)!==r.sourceSha256)throw Error('source-prefix-changed');
+  const fd=fs.openSync(r.file,fs.constants.O_RDONLY|fs.constants.O_NOFOLLOW);
+  try {
+    const ending=Buffer.allocUnsafe(1);
+    for(const end of [r.sourceBytes,stat.size])if(fs.readSync(fd,ending,0,1,end-1)!==1||ending[0]!==10)throw Error('incomplete-jsonl');
+    const {header,cut,cutPercent,projectedBytes}=rawCut(fd,r.sourceBytes,stat.size-r.sourceBytes);
+    if(action==='prepare')return {requestId:r.requestId,status:'prepared',policy:r.policy,withinTarget:true,committed:false,
+      candidateBytes:header+r.sourceBytes-cut,remainingBytes:projectedBytes,projectedTotalBytes:projectedBytes,budgetBytes:MAXIMUM-(stat.size-r.sourceBytes),cutPercent,removedBytes:cut-header};
+    if(action!=='activation')throw Error('unknown-worker-action');
+    const finalFile=join(r.directory,'activation.jsonl');
+    const final=stageRanges(r,finalFile,[[fd,0,header],[fd,cut,stat.size]],stat);
     if(trimSourceIdentity(fs.lstatSync(r.file))!==trimSourceIdentity(stat)||pathIdentity(r.file)!==stamp)throw Error('source-or-session-changed');
-    return {finalFile,sourceIdentity:trimSourceIdentity(stat),pathIdentity:stamp,before:current.length,bytes:final.length,sha256:digest(final),
-      finalIdentity:trimSourceIdentity(fs.lstatSync(finalFile)),timings:{validationAndStagingMs:performance.now()-started}};
-  }
-  throw Error('unknown-worker-action');
+    return {finalFile,sourceIdentity:trimSourceIdentity(stat),pathIdentity:stamp,before:stat.size,bytes:final.bytes,cutPercent,sha256:final.sha256,finalIdentity:trimSourceIdentity(fs.lstatSync(finalFile))};
+  }finally{fs.closeSync(fd);}
 }
 
 const WORKER_MEMORY_BYTES=1_073_741_824;
@@ -684,7 +700,7 @@ export function runTrimWorker(job,signal,launch=fork) {
       if(settled)return;
       if(code!==0 || result===undefined) {
         let oom=false;try{oom=memoryEvents(memory.directory).oom_kill>memory.oomBefore;}catch{}
-        if(oom && error?.message!=='maintenance-canceled')error=Error('worker-memory-limit-exceeded:1073741824');
+        if(oom && error?.message!=='maintenance-canceled')error=Error('worker-oom-killed:1073741824');
         else error??=Error('worker-exited-without-result');
       } else if(result && typeof result==='object') {
         result.workerMemoryLimitBytes=WORKER_MEMORY_BYTES;

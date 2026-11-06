@@ -79,7 +79,7 @@ test('REQ-MEM-028 AC1: actual trims preserve the next twenty-prompt cadence and 
     }
     if (promptNumber === 21 || promptNumber === 41) {
       const after = fs.statSync(file).size;
-      assert.ok(before > 50_000_000); assert.ok(Math.abs(after - 20_000_000) < 100_000);
+      assert.ok(before > 50_000_000); assert.ok(after >= 15_000_000 && after <= 25_000_000);
       reductions.push({ prompt: promptNumber, before, after });
     }
     if (promptNumber === 21) {

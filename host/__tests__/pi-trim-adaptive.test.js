@@ -11,7 +11,7 @@ const jsonl=rows=>rows.map(e=>JSON.stringify(e)+'\n').join('');
 function notification(id,parentId,result){return {id,parentId,type:'custom_message',customType:'subagent-notification',display:true,content:`<task-notification>\n<task-id>native-task</task-id>\n<tool-use-id>native-call</tool-use-id>\n<status>Done</status>\n<summary>Subagent completed</summary>\n<result>${result}</result>\n<usage><total_tokens>23</total_tokens><tool_uses>1</tool_uses><duration_ms>5</duration_ms></usage>\n</task-notification>\nUnrecognized suffix: <opaque>keep exactly</opaque>`,details:{id:'native-task',description:'Completed work',status:'completed',toolUses:1,totalTokens:23,durationMs:5,resultPreview:result,opaque:{keep:'untouched'}}};}
 function fixture(t,{readbackUnavailable=false}={}){
  const dir=fs.mkdtempSync(join(tmpdir(),'trim-adaptive-'));t.after(()=>fs.rmSync(dir,{recursive:true,force:true}));const file=join(dir,'session.jsonl');
- const rows=[{type:'session',version:3,id:'adaptive'}, {id:'a',parentId:null,type:'message',message:{role:'assistant',content:[{type:'text',text:'x'.repeat(30_000_000)}]}},notification('n','a','r'.repeat(800_000)),{id:'u',parentId:'n',type:'message',message:{role:'user',content:'u'.repeat(24_000_000)}},{id:'c',parentId:'u',type:'compaction',firstKeptEntryId:'u',summary:'Current'}];fs.writeFileSync(file,jsonl(rows));
+ const rows=[{type:'session',version:3,id:'adaptive'}, {id:'a',parentId:null,type:'message',message:{role:'assistant',content:[{type:'text',text:'x'.repeat(50_100_000)}]}},notification('n','a','r'.repeat(800_000)),{id:'u',parentId:'n',type:'message',message:{role:'user',content:'u'.repeat(20_000_000)}},{id:'c',parentId:'u',type:'compaction',firstKeptEntryId:'u',summary:'Current'}];fs.writeFileSync(file,jsonl(rows));
  let selected=true;const ownerAbort=new AbortController();const ctx={signal:ownerAbort.signal,sessionManager:{getSessionId:()=>selected?'adaptive':'changed',getSessionFile:()=>file,getLeafId:()=>rows.at(-1).id,getBranch:()=>rows.slice(1)}};
  let parked=false;const recovery=join(dir,'committed.jsonl');const io={...fs,renameSync(from,to){if(parked)throw Error('replacement replay');fs.renameSync(from,to);if(readbackUnavailable&&to===file){fs.renameSync(file,recovery);parked=true;}}};
  const tools=new Map(),owner=mod.registerActiveSessionTranscriptTrimming({registerTool:x=>tools.set(x.name,x),sendMessage(){}},io);t.after(()=>owner.cancel());owner.markDue(ctx);const item=owner.collect(ctx);
@@ -20,16 +20,6 @@ function fixture(t,{readbackUnavailable=false}={}){
  const append=row=>{const e={id:'tail'+rows.length,parentId:rows.at(-1).id,timestamp:new Date().toISOString(),...row};rows.push(e);fs.appendFileSync(file,jsonl([e]));return e;};
  return {file,rows,owner,ctx,item,append,call,abortOwner(){ownerAbort.abort();},restoreReadback(){fs.renameSync(recovery,file);},switchOwner(){selected=false;}};
 }
-test('REQ-MEM-030 AC2/3/7: agent inspects a budget miss, refines a known historical payload category and activates verified persisted output',async t=>{
- const f=fixture(t),before=hash(f.file);let beats=0;const timer=setInterval(()=>beats++,5);t.after(()=>clearInterval(timer));
- const pending=f.call('prepare');assert.equal(await Promise.race([pending.then(()=>'completed'),new Promise(resolve=>setTimeout(()=>resolve('heartbeat'),25))]),'heartbeat');const duplicate=await f.call('prepare');assert.equal(duplicate.status,'inflight');assert.equal(f.owner.collect(f.ctx),undefined);const initial=await pending;assert.equal(initial.committed,false);assert.ok(initial.projectedTotalBytes>25_000_000);assert.equal(hash(f.file),before);assert.ok(beats>2,'owner event loop remains responsive during heavy planning');
- const inspection=await f.call('inspect');assert.ok(inspection.catalog.some(c=>c.category==='historical-notification-results'&&c.potentialSavingsBytes>1_000_000));
- await assert.rejects(f.call('refine',{categories:['current-user']}),/invalid|category|proposal/);assert.equal(hash(f.file),before);
- const refined=await f.call('refine',{categories:['historical-notification-results']});assert.equal(refined.withinTarget,true,JSON.stringify(refined));assert.equal(refined.committed,false);assert.equal(hash(f.file),before);
- const result=await f.call('activate');assert.equal(result.status,'trimmed');assert.equal(result.committed,true,JSON.stringify(result));assert.ok(result.after>=15_000_000&&result.after<=25_000_000);
- const persisted=fs.readFileSync(f.file,'utf8').trimEnd().split('\n').map(JSON.parse),note=persisted.find(e=>e.id==='n');assert.deepEqual(persisted.find(e=>e.id==='u'),f.rows.find(e=>e.id==='u'));assert.match(note.content,/<tool-use-id>native-call<\/tool-use-id>/);assert.match(note.content,/<status>Done<\/status>/);assert.deepEqual(note.details.opaque,{keep:'untouched'});assert.equal(note.details.totalTokens,23);assert.ok(note.content.endsWith('\nUnrecognized suffix: <opaque>keep exactly</opaque>'));
- const committed=hash(f.file);await assert.rejects(f.call('activate'),/scope|ENOENT|stale/);assert.equal(hash(f.file),committed);
-});
 test('REQ-MEM-030 AC2: abort and owner revocation during asynchronous planning never replace the source',async t=>{
  const f=fixture(t),before=hash(f.file),abort=new AbortController();const work=f.call('prepare',{},abort.signal);setTimeout(()=>{f.owner.cancel();abort.abort();},10);await assert.rejects(work,/abort|cancel|scope|ENOENT/);assert.equal(hash(f.file),before);
 });
@@ -54,7 +44,7 @@ test('REQ-MEM-030 AC2: owner abort promptly stops asynchronous CPU work without 
  await assert.rejects(work,/abort|cancel|scope/);assert.match(settled,/abort|cancel|scope/);assert.equal(hash(f.file),before);
 });
 test('REQ-MEM-030 AC7: unavailable asynchronous readback keeps a committed receipt and recovers without a second replacement',async t=>{
- const f=fixture(t,{readbackUnavailable:true});await f.call('prepare');await f.call('refine',{categories:['historical-notification-results']});
+ const f=fixture(t,{readbackUnavailable:true});await f.call('prepare');
  const result=await f.call('activate');assert.equal(result.committed,true);assert.equal(result.status,'verification-pending');
  f.restoreReadback();const committed=hash(f.file);f.owner.collect(f.ctx);f.owner.collect(f.ctx);assert.equal(hash(f.file),committed);
  await assert.rejects(f.call('activate'),/scope|ENOENT|stale/);

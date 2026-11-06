@@ -34,10 +34,8 @@ function fixture(t,userBytes=0){
 }
 
 test('REQ-MEM-030 AC7: insufficient retainable prose reports a below-minimum refusal without padding or staging',async t=>{
- const f=fixture(t),before=fingerprint(f.file),result=await f.stage();
- assert.equal(result.status,'refused');assert.equal(result.reason,'retained-output-below-minimum');
- assert.equal(result.committed,false);assert.equal(result.withinTarget,false);assert.equal(result.candidateBytes,null);
- assert.ok(result.projectedTotalBytes<15_000_000);assert.equal(fingerprint(f.file),before);
+ const f=fixture(t),before=fingerprint(f.file);
+ await assert.rejects(f.stage(),/retained-output-below-minimum/);assert.equal(fingerprint(f.file),before);
  assert.equal(fs.existsSync(f.request.candidateFile),false);
 });
 
@@ -59,17 +57,14 @@ test('REQ-MEM-030 AC6: native facts at a controlled clock keep failed trim retri
  assert.deepEqual(next(),{kind:'none'});
 });
 
-test('REQ-MEM-030 AC6: genuine protected-floor refusals report the budget reason through six attempts without writes',async t=>{
+test('REQ-MEM-030 AC6: whole-line refusals retain the six-attempt budget without writes',async t=>{
  const f=fixture(t,26_000_000);let item=f.first;
  for(let attempt=1;attempt<=6;attempt++){
   const id=f.call(item),before=fingerprint(f.file);
   assert.equal(f.collect(),undefined,'an exact native call in flight is not duplicated');
-  const result=await f.stage();
-  assert.equal(result.status,'refused');assert.equal(result.reason,'protected-floor-above-maximum');
-  assert.equal(result.committed,false);assert.equal(result.withinTarget,false);assert.equal(result.candidateBytes,null);
-  assert.ok(result.remainingBytes>25_000_000);assert.ok(result.projectedTotalBytes>25_000_000);
-  assert.equal(fingerprint(f.file),before,'irreducible protected history must remain untouched');
-  assert.equal(fs.existsSync(f.request.candidateFile),false,'over-budget output is never published');
+  await assert.rejects(f.stage(),/retained-output-below-minimum/);
+  assert.equal(fingerprint(f.file),before,'refused whole-record cuts never replace history');
+  assert.equal(fs.existsSync(f.request.candidateFile),false);
   assert.equal(f.collect(),undefined,'a refusal does not duplicate its still-running native call');
   f.done(id);const next=f.unchanged(f.collect);
   if(attempt<6){

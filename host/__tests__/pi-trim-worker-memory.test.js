@@ -25,7 +25,7 @@ test('REQ-MEM-032 AC2: direct unbounded worker startup refuses before transcript
 });
 
 test('REQ-MEM-032 AC3: kernel memory exhaustion kills only bounded workers and leaves the owner usable',{skip:process.env.GITHUB_ACTIONS!=='true'},async()=>{
- await assert.rejects(runTrimWorker({action:'exceed',ownerPid:process.pid},undefined,launch),/worker-memory-limit-exceeded:1073741824/);
+ await assert.rejects(runTrimWorker({action:'exceed',ownerPid:process.pid},undefined,launch),/worker-oom-killed:1073741824/);
  const recovered=await runTrimWorker({action:'inspect-limit',ownerPid:process.pid},undefined,launch);
  assert.equal(recovered.kernelLimitBytes,1_073_741_824);
  assert.equal(recovered.parentInside,false);
