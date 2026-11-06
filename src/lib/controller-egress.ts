@@ -68,20 +68,20 @@ export const RESPONSE_HOP_BY_HOP: readonly string[] = [
 ];
 
 /**
- * True only when the deployment is in Enterprise mode AND the setup-wizard toggle
- * is persisted `'active'` in KV. Gate-then-read mirrors {@link loadEnterpriseRouteConfig}
- * in src/lib/access.ts: a non-enterprise deploy never touches KV. Default OFF when
- * the key is absent.
+ * Resolve strict transport in Enterprise mode: only an explicit `'inactive'` or
+ * successfully read absent key (`null`) permits OFF. Unreadable or invalid policy
+ * requires strict transport, never a throw-to-direct fallback. Gate-then-read mirrors
+ * {@link loadEnterpriseRouteConfig} in src/lib/access.ts: non-enterprise never touches KV.
  */
 export async function hasStrictGatewayEgress(env: Env): Promise<boolean> {
   if (!isEnterpriseMode(env)) return false;
   try {
-    return (await env.KV?.get(SETUP_KEYS.STRICT_EGRESS)) === 'active';
+    const policy = await env.KV?.get(SETUP_KEYS.STRICT_EGRESS);
+    return policy !== null && policy !== 'inactive';
   } catch {
-    // This runs at the container-start seam (the container-interception registry); a
-    // transient KV error must not fail the start. Treat it like an absent key —
-    // default OFF — rather than throwing.
-    return false;
+    // Preserve strict interception and raw-network denial at startup when policy
+    // cannot be read; throwing or resolving OFF could allow direct egress.
+    return true;
   }
 }
 

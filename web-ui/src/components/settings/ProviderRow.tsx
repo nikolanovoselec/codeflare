@@ -3,6 +3,7 @@ import { Component, Show, For, createSignal, JSX } from 'solid-js';
 import { mdiAlertCircleOutline, mdiOpenInNew } from '@mdi/js';
 import Icon from '../Icon';
 import type { ScopeTier, TierConfig } from '../../lib/token-scopes';
+import '../../styles/connect.css';
 
 interface ProviderRowProps {
   icon: Component<{ size?: number; class?: string; style?: JSX.CSSProperties; fill?: string }>;
@@ -19,6 +20,7 @@ interface ProviderRowProps {
   message?: string | null;
   error?: string | null;
   testId?: string;
+  children?: JSX.Element;
   /** GitHub-style tier selector. When present, Connect expands instead of opening URL. */
   tierOptions?: {
     tiers: Record<ScopeTier, TierConfig>;
@@ -71,23 +73,19 @@ const ProviderRow: Component<ProviderRowProps> = (props) => {
   };
 
   return (
-    <div class="provider-row" data-testid={props.testId}>
-      <div class="provider-row-summary">
-        <span class="provider-row-icon" style={{ color: props.brandColor }} aria-hidden="true">
+    <div class="oauth-connect-card" data-testid={props.testId}>
+      <div class="oauth-connect-head">
+        <span class="oauth-connect-icon" style={{ color: props.brandColor }} aria-hidden="true">
           <ProviderIcon size={18} />
         </span>
-        <div class="provider-row-info">
-          <span class="provider-row-name">{props.name}</span>
-          <Show when={props.connected} fallback={<span class="provider-row-status">Not connected</span>}>
-            <span class="provider-row-badge" data-testid={props.testId ? `${props.testId}-badge` : undefined}>
-              Connected
-            </span>
-          </Show>
-        </div>
+        <span class="oauth-connect-name">{props.name}</span>
+        <Show when={props.connected}>
+          <span class="oauth-connect-badge" data-testid={props.testId ? `${props.testId}-badge` : undefined}>Connected</span>
+        </Show>
         <Show when={props.connected}>
           <button
             type="button"
-            class="settings-action provider-row-disconnect"
+            class="oauth-connect-disconnect"
             onClick={() => props.onDisconnect()}
             disabled={props.disconnecting}
           >
@@ -95,14 +93,12 @@ const ProviderRow: Component<ProviderRowProps> = (props) => {
           </button>
         </Show>
         <Show when={!props.connected && !expanded()}>
-          <button type="button" class="settings-action settings-action--accent provider-row-connect-btn" onClick={handleConnect}>
-            Connect to {props.name}
-            <Show when={props.externalUrl && !hasTiers() && !hasInstructions()}>
-              <Icon path={mdiOpenInNew} size={16} aria-hidden="true" />
-            </Show>
-          </button>
+          <button type="button" class="oauth-connect-btn oauth-connect-btn--connect settings-action settings-action--accent" aria-label={`Connect to ${props.name}`} onClick={handleConnect}>Connect</button>
         </Show>
       </div>
+      <Show when={props.connected && props.children}>
+        <div class="oauth-connect-body"><span class="oauth-connect-identity">{props.children}</span></div>
+      </Show>
       <Show when={props.connected && props.message}>
         <span class="provider-row-message">{props.message}</span>
       </Show>

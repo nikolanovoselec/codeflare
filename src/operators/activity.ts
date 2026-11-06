@@ -511,6 +511,8 @@ interface AdmissionState {
   webhook?: { readVerifier: string; expiresAt: number; consumed: boolean; continuedGeneration?: number };
   ownerKey?: string;
   browserCollectionConsumed?: boolean;
+  /** New owner-authorized admissions only; never backfilled by reads or recovery. */
+  dispatcherAutomaticCollectionVersion?: 1;
   updatedAt?: number;
 }
 
@@ -1261,7 +1263,10 @@ export class OperatorActivity extends Agent {
       await tx.put<AdmissionState>('admission', {
         ...state, intent: { ...intent, startVerifier: '' }, phase: 'queued', receipt,
         ...(inferenceSelection ? { inferenceSelection } : {}),
-        ...(managementReceipt?.selection.operator.profile === 'dispatcher' ? { dispatcherNativeReasoningInherited: true as const } : {}),
+        ...(managementReceipt?.selection.operator.profile === 'dispatcher' ? {
+          dispatcherNativeReasoningInherited: true as const,
+          ...(state.ownerKey ? { dispatcherAutomaticCollectionVersion: 1 as const } : {}),
+        } : {}),
         ...(readVerifier ? { webhook: { readVerifier, expiresAt: intent.deadline + 2 * 60 * 60 * 1000,
           consumed: false } } : {}), updatedAt: Date.now(),
       });
@@ -1707,6 +1712,15 @@ export class OperatorActivity extends Agent {
         return { ok: false, reason: 'stale-drive' };
       }
       const lease = await tx.get<DispatcherLease>(DISPATCHER_LEASE);
+      const automaticCollection = !!record.ownerKey && record.dispatcherAutomaticCollectionVersion === 1
+        && record.receipt && isManagementReceipt(record.receipt)
+        && record.receipt.selection.operator.profile === 'dispatcher'
+        && lease?.hosting === 'normal' && parsed.status === 'completed';
+      if (automaticCollection && (!this.#leaseMatches(record, lease, generation)
+        || !lease?.receipt || lease.receipt.submissionId !== lease.submissionId
+        || !sameDispatcherPhaseValue(await tx.get(`dispatcher:result:${generation}`), parsed.result))) {
+        return { ok: false, reason: 'invalid-update' };
+      }
       if (lease && lease.generation === generation) {
         const journal = await loadDispatcherJournal(tx, generation);
         const failedAuthentication = parsed.status === 'failed' && parsed.result === undefined && parsed.checkpoint === null
@@ -1724,7 +1738,10 @@ export class OperatorActivity extends Agent {
       const state: OperatorDriveState = {
         generation, status: parsed.status, checkpoint: parsed.checkpoint, result: parsed.result ?? null,
       };
-      await tx.put<AdmissionState>('admission', { ...record, drive: state, updatedAt: Date.now() });
+      // Commit the original result and its collection together, before any completed
+      // projection or release I/O. A crash cannot strand a new success uncollected.
+      await tx.put<AdmissionState>('admission', { ...record, drive: state,
+        ...(automaticCollection ? { browserCollectionConsumed: true } : {}), updatedAt: Date.now() });
       return { ok: true, state };
     });
     if (committed.ok) {

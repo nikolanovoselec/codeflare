@@ -462,9 +462,10 @@ export class container extends Container<Env> implements ContainerEnvState {
         });
       }
 
-      // Resolve the strict Gateway egress toggle once (REQ-ENTERPRISE-016 AC3) so buildEnvVars
-      // emits placeholder R2 creds and the interception registry wires the catch-all — both
-      // without a per-request KV read. hasStrictGatewayEgress fails closed (false) on error.
+      // Resolve strict Gateway egress once (REQ-ENTERPRISE-016 AC4) so buildEnvVars emits
+      // placeholder R2 creds and the interception registry wires the catch-all without
+      // a per-request KV read. Enterprise unreadable/invalid policy resolves true, keeping
+      // strict transport and raw-network denial even if Browser owner-reference lookup fails.
       this._strictEgress = await hasStrictGatewayEgress(this.env);
       // REQ-ENTERPRISE-016: when strict Gateway egress is active, also deny the container
       // raw (non-HTTP) egress at the platform. enableInternet=false leaves only ports

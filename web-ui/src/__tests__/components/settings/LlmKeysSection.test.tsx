@@ -57,6 +57,9 @@ describe('LlmKeysSection / REQ-AGENT-020', () => {
     expect(await screen.findByTestId('llm-openai-row')).toBeInTheDocument();
     expect(screen.getByTestId('llm-gemini-row')).toBeInTheDocument();
     expect(screen.queryByTestId('llm-keys-loading')).not.toBeInTheDocument();
+    // Intentional visible-copy contract: the row identifies the provider; the action is concise.
+    expect(screen.getByRole('button', { name: 'Connect to OpenAI' })).toHaveTextContent(/^Connect$/);
+    expect(screen.getByRole('button', { name: 'Connect to Gemini' })).toHaveTextContent(/^Connect$/);
   });
 
   it('renders only server-returned masks for connected keys', async () => {

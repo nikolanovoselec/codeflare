@@ -50,7 +50,10 @@ describe('REQ-OPERATOR-096 AC4/5/6/7: effective inference for your next manual r
     await waitFor(() => expect(status()).toHaveTextContent('saved-provider'));
     const region = screen.getByRole('region', { name: 'Your next manual run' });
     expect(status()).toHaveTextContent('saved-model'); expect(status()).toHaveTextContent('Reasoning: off');
-    expect(status()).toHaveTextContent('Native selection');
+    // Intentional user-copy contract: source heading and saved-status label are separate, with no em dash.
+    expect(within(status()).getByText('Native selection', { selector: 'strong' })).toBeVisible();
+    expect(within(status()).getByText('Saved in your R2 profile')).toBeVisible();
+    expect(status()).not.toHaveTextContent('Native selection —');
     expect(region).toHaveTextContent('not proof of OAuth');
     expect(region).toHaveTextContent('not the operator creator or another account');
     expect(region).toHaveTextContent('not an automatic fallback');
@@ -68,6 +71,8 @@ describe('REQ-OPERATOR-096 AC4/5/6/7: effective inference for your next manual r
   it('keeps managed controls normal and shows the saved installation pair rather than unsaved drafts', async () => {
     context = async () => managed; render(() => <OperatorManagement />);
     await waitFor(() => expect(status()).toHaveTextContent('Managed selection'));
+    expect(within(status()).getByText('Saved for this installation')).toBeVisible();
+    expect(status()).not.toHaveTextContent('Managed selection —');
     const route = screen.getByRole('combobox', { name: 'default Managed Gateway route' });
     expect(route).toBeEnabled();
     fireEvent.change(route, { target: { value: 'draft-route' } });

@@ -36,7 +36,7 @@ const McpPortalSettings: Component<{ onSaved?: () => void }> = (props) => {
       <h2 id="mcp-portals-heading">Portal connections</h2>
       <p>Named HTTPS MCP endpoints for both Pi modes. Names identify connections, not capabilities. Saving does not create portals, connect users, start compute or restart sessions. Connect your own account in Settings.</p>
     </div></div>
-    <Show when={loading()}><p role="status">Loading MCP portals…</p></Show>
+    <Show when={loading()}><p class="admin-status-text mcp-portal-status" role="status">Loading MCP portals…</p></Show>
     <Show when={error()}><p class="admin-inline-error" role="alert">{error()}</p></Show>
     <form class="admin-environment-form" onSubmit={(event) => void save(event)}>
       <Index each={portals()}>{(portal, index) => <div class="admin-form-grid">
@@ -53,7 +53,10 @@ const McpPortalSettings: Component<{ onSaved?: () => void }> = (props) => {
         <button type="submit" class="admin-primary-button" disabled={busy()}>{saving() ? 'Saving…' : 'Save portals'}</button>
       </div>
     </form>
-    <Show when={saved()}><p role="status">MCP portals saved. Changes apply on subsequent Pi startups. Changed or removed endpoints require reconnecting.</p></Show>
+    <Show when={saved()}><div class="admin-discovery-success mcp-portal-status" role="status">
+      <strong>MCP portals saved</strong>
+      <span>Applies on next Pi startup. Reconnect changed portals.</span>
+    </div></Show>
   </section>;
 };
 

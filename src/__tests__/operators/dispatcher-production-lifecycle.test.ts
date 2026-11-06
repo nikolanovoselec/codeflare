@@ -2965,6 +2965,111 @@ describe('normal installed Dispatcher control', () => {
     return { ok: true, detail };
   };
 
+  it.each([false, true])('REQ-OPERATOR-048/049/041: new normal success automatically collects the identical original result across reconstruction without replay (persisted settlement=%s)', persistedSettlement => fixture(async f => {
+    expect(await start(f)).toMatchObject({ ok: true });
+    const admissions = structuredClone([...f.normalTransport!.admissions.values()]);
+    const effects = [...f.sent];
+    const deadline = (await f.activity.getRuntimePlan())!.deadline;
+    // Exercise both ordinary reconstruction and a crash after immutable settlement
+    // storage but before the completion transaction. Neither may resubmit the work.
+    if (persistedSettlement) await f.mutateEvidence(async storage => {
+      const lease = (await storage.get<Record<string, unknown>>('dispatcher:lease'))!;
+      await storage.put('dispatcher:result:1', result);
+      await storage.put('dispatcher:lease', { ...lease, settledSubmissionId: lease.submissionId });
+    });
+    const activity = f.restart(); await f.drainBackground();
+    f.normalTransport!.settle('completed', [{ name: 'assessment', data: result }]);
+    await activity.reconcileDispatcherLease();
+    const detail = await activity.getBrowserDetail();
+    expect(detail).toMatchObject({ executionStatus: 'completed', collectionStatus: 'consumed', attention: false, result });
+    expect(JSON.stringify(detail!.result)).toBe(JSON.stringify(result));
+    expect(await activity.getBrowserSummary(f.proof.ownerKey)).toMatchObject({
+      executionStatus: 'completed', collectionStatus: 'consumed', attention: false });
+    const response = await diagnosticsBrowser(f)('/result');
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ collectionStatus: 'consumed', attention: false, result });
+
+    const retained = f.restart(); await f.drainBackground();
+    await retained.reconcileDispatcherLease();
+    expect(await retained.getBrowserDetail()).toMatchObject({ executionStatus: 'completed',
+      collectionStatus: 'consumed', attention: false, result, updatedAt: detail!.updatedAt });
+    expect(await retained.collectBrowserResult()).toMatchObject({ ok: true, detail: {
+      executionStatus: 'completed', collectionStatus: 'consumed', attention: false, result } });
+    expect(await retained.beginDrive()).toEqual({ ok: false, reason: 'drive-settled' });
+    expect((await retained.getRuntimePlan())!.deadline).toBe(deadline);
+    expect([...f.normalTransport!.admissions.values()]).toEqual(admissions);
+    expect(f.sent).toEqual(effects);
+  }, options));
+
+  it.each(['capability-admission', 'retained-marker'] as const)('REQ-OPERATOR-041/048: unowned management success retains explicit collection semantics (%s)', binding => fixture(async f => {
+    // Reuse the fixture's real management receipt and normal-host lifecycle, but
+    // remove its owner-index binding. The retained-marker case also exercises
+    // loss of that binding after an owner-visible admission was stamped.
+    await f.mutateEvidence(async storage => {
+      const record = (await storage.get<Record<string, unknown>>('admission'))!;
+      delete record.ownerKey;
+      if (binding === 'capability-admission') {
+        delete record.dispatcherAutomaticCollectionVersion;
+        record.phase = 'prepared';
+        record.receipt = null;
+        record.intent = { ...record.intent as object, startVerifier: await digest('s'.repeat(43)) };
+      }
+      await storage.put('admission', record);
+    });
+    let readCapability: string | undefined;
+    if (binding === 'capability-admission') {
+      const admitted = await f.activity.startWebhook('s'.repeat(43));
+      expect(admitted).toMatchObject({ ok: true, phase: 'queued', readCapability: expect.any(String) });
+      if (!admitted.ok) throw new Error('Fixture capability admission refused');
+      readCapability = admitted.readCapability;
+    }
+    expect(await start(f)).toMatchObject({ ok: true });
+    f.normalTransport!.settle('completed', [{ name: 'assessment', data: result }]);
+    await f.activity.reconcileDispatcherLease();
+    expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'completed',
+      collectionStatus: 'ready', attention: true, result });
+    expect(await f.activity.getBrowserSummary(f.proof.ownerKey)).toBeNull();
+    const admissions = structuredClone([...f.normalTransport!.admissions.values()]);
+    const activity = f.restart(); await f.drainBackground();
+    await activity.reconcileDispatcherLease();
+    if (readCapability) expect(await activity.getWebhookStatus(readCapability)).toMatchObject({
+      ok: true, terminal: true, status: 'completed', result });
+    expect(await activity.getBrowserDetail()).toMatchObject({ executionStatus: 'completed',
+      collectionStatus: 'ready', attention: true, result });
+    expect(await activity.collectBrowserResult()).toMatchObject({ ok: true, detail: {
+      collectionStatus: 'consumed', attention: false, result } });
+    expect([...f.normalTransport!.admissions.values()]).toEqual(admissions);
+    expect(f.sent).toEqual([]);
+  }, options));
+
+  it('REQ-OPERATOR-041/048: owner reads and reconstruction leave historical normal successes uncollected until explicit collection', () => fixture(async f => {
+    await start(f);
+    // Retained admissions predate automatic collection; do not migrate their policy.
+    await f.mutateEvidence(async storage => {
+      const record = (await storage.get<Record<string, unknown>>('admission'))!;
+      delete record.dispatcherAutomaticCollectionVersion;
+      await storage.put('admission', record);
+    });
+    f.normalTransport!.settle('completed', [{ name: 'assessment', data: result }]);
+    await f.activity.reconcileDispatcherLease();
+    const detail = await f.activity.getBrowserDetail();
+    expect(detail).toMatchObject({ executionStatus: 'completed', collectionStatus: 'ready', attention: true, result });
+    const admissions = structuredClone([...f.normalTransport!.admissions.values()]);
+    const activity = f.restart(); await f.drainBackground();
+    const get = diagnosticsBrowser(f);
+    for (const path of ['', '/result']) {
+      const response = await get(path);
+      expect(response.status).toBe(200);
+      expect(await response.json()).toMatchObject({ executionStatus: 'completed', collectionStatus: 'ready', attention: true, result });
+    }
+    expect(await activity.getBrowserSummary(f.proof.ownerKey)).toMatchObject({ collectionStatus: 'ready', attention: true });
+    expect(await activity.getBrowserDetail()).toEqual(detail);
+    expect(await activity.collectBrowserResult()).toMatchObject({ ok: true, detail: {
+      collectionStatus: 'consumed', attention: false, result } });
+    expect([...f.normalTransport!.admissions.values()]).toEqual(admissions);
+    expect(f.sent).toEqual([]);
+  }, options));
+
   it('REQ-OPERATOR-048: AC1/6 trusted installation starts through public keyed control without a per-Activity Loader', () => fixture(async f => {
     const started = await start(f);
     expect(started).toMatchObject({ ok: true, state: { generation: 1, status: 'running' } });
@@ -3154,7 +3259,11 @@ describe('normal installed Dispatcher control', () => {
     const empty = { repository: f.proof.repository, results: [] };
     f.normalTransport!.settle('completed', [{ name: 'assessment', data: empty }]);
     await f.activity.reconcileDispatcherLease();
+    expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'completed',
+      collectionStatus: 'consumed', attention: false, result: empty });
     const activity = f.restart(); await f.drainBackground();
+    expect(await activity.getBrowserDetail()).toMatchObject({ executionStatus: 'completed',
+      collectionStatus: 'consumed', attention: false, result: empty });
     expect(await activity.collectBrowserResult()).toMatchObject({ ok: true, detail: { executionStatus: 'completed', result: empty } });
     const parent = (await activity.getDispatcherDiagnostics(f.proof.ownerKey))!.parent;
     expect(parent.journal).toMatchObject({ count: 1, unresolved: 0 });
@@ -3826,7 +3935,7 @@ describe('normal installed Dispatcher control', () => {
       f.normalTransport!.settle(outcome);
       await f.activity.reconcileDispatcherLease();
       expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'unknown', result: null,
-        cleanupStatus: 'pending', collectionStatus: 'unavailable' });
+        cleanupStatus: 'pending', collectionStatus: 'unavailable', attention: true });
       expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });
       expect([...f.normalTransport!.admissions.values()]).toEqual(admissions);
       expect((await installedContext(f, phaseToken(f))).status).toBe(403);
@@ -3840,7 +3949,8 @@ describe('normal installed Dispatcher control', () => {
       f.normalTransport!.settle('failed');
       f.normalTransport!.changeReceipt({ [field]: field === 'acceptedAt' ? '2026-10-28T00:00:00.000Z' : 'foreign' });
       await f.activity.reconcileDispatcherLease();
-      expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'unknown', result: null });
+      expect(await f.activity.getBrowserDetail()).toMatchObject({ executionStatus: 'unknown', result: null,
+        collectionStatus: 'unavailable', attention: true });
       expect((await callback(f, 'source', source)).status).toBe(403);
       expect([...f.normalTransport!.admissions.values()]).toEqual(admissions);
       expect(await f.activity.collectBrowserResult()).toEqual({ ok: false, reason: 'not-ready' });

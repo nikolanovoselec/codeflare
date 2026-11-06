@@ -1,8 +1,8 @@
 /**
  * REQ-ENTERPRISE-016: strict Gateway egress transport primitives.
  *
- * - hasStrictGatewayEgress: true ONLY when enterprise mode AND the KV toggle is
- *   'active'; default OFF on an absent key or non-enterprise deploy.
+ * - hasStrictGatewayEgress: enterprise requires strict transport for active,
+ *   unreadable or invalid policy; explicit inactive, absent key and non-enterprise stay OFF.
  * - isAccountScopedDestination: true ONLY for THIS deployment's own account — its R2
  *   endpoint (path-style + vhost-bucket) and non-Browser account-scoped CF API paths.
  *   Browser namespaces, other accounts, and absent accountId are NOT exempt.
@@ -37,7 +37,7 @@ function makeEnv(overrides: Partial<Env> & { __kv?: Record<string, string> } = {
 // REQ-ENTERPRISE-023: Strict Gateway Egress Controller Transport
 
 describe('REQ-ENTERPRISE-016: hasStrictGatewayEgress', () => {
-  it('is true only when enterprise mode AND the KV toggle is active', async () => {
+  it('is true when enterprise mode AND the KV toggle is active', async () => {
     expect(await hasStrictGatewayEgress(makeEnv({ __kv: { [STRICT_KEY]: 'active' } }))).toBe(true);
   });
 
@@ -54,11 +54,30 @@ describe('REQ-ENTERPRISE-016: hasStrictGatewayEgress', () => {
     expect(await hasStrictGatewayEgress(env)).toBe(false);
   });
 
-  it('defaults OFF (resolves false, never throws) when the KV read rejects at the start seam', async () => {
-    // A transient KV error at the container-start seam must degrade to OFF, not fault
-    // the interception registry -> startAndWaitForPorts. Removing the try/catch makes this throw.
-    const env = { ENTERPRISE_MODE: 'active', KV: { get: async () => { throw new Error('kv unavailable'); } } } as unknown as Env;
+  it('resolves strict without throwing when the enterprise KV read rejects', async () => {
+    const env = makeEnv({ KV: { get: async () => { throw new Error('kv unavailable'); } } } as unknown as Partial<Env>);
+    await expect(hasStrictGatewayEgress(env)).resolves.toBe(true);
+  });
+
+  it('resolves strict when the enterprise KV binding is missing', async () => {
+    await expect(hasStrictGatewayEgress(makeEnv({ KV: undefined }))).resolves.toBe(true);
+  });
+
+  it.each(['', 'ACTIVE', ' active ', 'false', 'true', 'null', 'unknown', undefined, false, 0, {}])(
+    'resolves strict for malformed enterprise policy %j', async policy => {
+      const env = makeEnv({ KV: { get: async () => policy } } as unknown as Partial<Env>);
+      await expect(hasStrictGatewayEgress(env)).resolves.toBe(true);
+    },
+  );
+
+  it('remains OFF in non-enterprise mode without accessing unreadable KV', async () => {
+    const env = makeEnv({ ENTERPRISE_MODE: 'inactive' });
+    Object.defineProperty(env, 'KV', { get() { throw new Error('KV must not be accessed'); } });
     await expect(hasStrictGatewayEgress(env)).resolves.toBe(false);
+  });
+
+  it('remains OFF in non-enterprise mode with no KV binding', async () => {
+    await expect(hasStrictGatewayEgress(makeEnv({ ENTERPRISE_MODE: 'inactive', KV: undefined }))).resolves.toBe(false);
   });
 });
 

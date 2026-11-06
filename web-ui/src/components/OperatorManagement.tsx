@@ -532,7 +532,7 @@ const OperatorDetail: Component<{ detail: api.ManagementDetail; choices?: api.Ma
       : value.reason === 'installation-disabled' ? 'Blocked — this installation is not enabled for new runs.'
       : value.reason === 'policy-denied' ? 'Blocked — the saved selection is not approved by current restrictions.'
       : 'Blocked — the installed configuration is unavailable for execution.';
-    return nativeInference() ? 'Native selection — saved in your R2 profile.' : 'Managed selection — saved for this installation.';
+    return nativeInference() ? 'Native selection' : 'Managed selection';
   };
   const guidedAssessment = () => operator().profile === 'dispatcher' && currentRelease()?.name === 'Renovate Dispatcher'
     && operator().repositoryUrl.replace(/\.git$/i, '').toLowerCase() === 'https://github.com/nikolanovoselec/codeflare-operator-dispatcher';
@@ -726,13 +726,20 @@ const OperatorDetail: Component<{ detail: api.ManagementDetail; choices?: api.Ma
       <Show when={operator().profile === 'dispatcher' && installation()}>{item => <>
       <section class="operator-inference-status" aria-label="Your next manual run">
         <h3 class="type-label">Your next manual run</h3>
-        <p class="admin-status-text" role="status" aria-label="Effective inference" aria-atomic="true"
-          data-state={manualInference()?.status === 'selected' ? nativeInference() ? 'native' : 'managed' : 'unclear'}>
-          <strong>{inferenceStatus()}</strong>
-          <Show when={manualInference()?.provider && manualInference()?.model}>
-            <span>{nativeInference() ? 'Native Pi' : 'Managed Gateway'} · {manualInference()!.provider} · {manualInference()!.model} · Reasoning: {manualInference()!.reasoningLevel ?? 'Provider default'}</span>
-          </Show>
-        </p>
+        <div class="admin-connection-status" data-state={manualInference()?.status === 'selected' ? 'passed' : 'unclear'}>
+          <div class="operator-inference-card" role="status" aria-label="Effective inference" aria-atomic="true"
+            data-state={manualInference()?.status === 'selected' ? nativeInference() ? 'native' : 'managed' : 'unclear'}>
+            <div class="operator-inference-heading">
+              <strong>{inferenceStatus()}</strong>
+              <Show when={manualInference()?.status === 'selected'}>
+                <span class="operator-selection-pill">{nativeInference() ? 'Saved in your R2 profile' : 'Saved for this installation'}</span>
+              </Show>
+            </div>
+            <Show when={manualInference()?.provider && manualInference()?.model}>
+              <span class="operator-inference-model">{nativeInference() ? 'Native Pi' : 'Managed Gateway'} · {manualInference()!.provider} · {manualInference()!.model} · Reasoning: {manualInference()!.reasoningLevel ?? 'Provider default'}</span>
+            </Show>
+          </div>
+        </div>
         <p class="admin-help-text">For you as the invoking execution owner, not the operator creator or another account. Saved settings only; this is not proof of OAuth, credentials or a successful model request. Execution rechecks authority and SDK model support.</p>
         <Show when={nativeInference()}><p class="admin-help-text">Native uses your saved R2 provider, model and reasoning. Gateway settings below are not used for your next manual run and are not an automatic fallback.</p></Show>
       </section>
