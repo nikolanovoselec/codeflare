@@ -4,6 +4,8 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-11-06
 
+- Adapt context-mode 2.1.4's in-process Pi entrypoint, explicit Claude server command and `ctx_batch`/`ctx_index` interfaces while preserving disabled startup defaults, foreground ownership, native fallbacks and command-policy guards ([REQ-AGENT-076](agents.md#req-agent-076-pi-context-mode-enablement-and-tool-extension-defaults), [REQ-AGENT-089](agents.md#req-agent-089-pi-context-mode-foreground-ownership)).
+
 - Preserve the quiet Pi footer when upgrading Open TUI by explicitly disabling its new live-TPS segment, independently of the unchanged telemetry master; preserve unrelated startup preferences ([REQ-AGENT-221](agents.md#req-agent-221-pi-startup-presentation-preferences)).
 
 - Require finishing and verifying the active task before starting an unrelated request, while retaining acknowledgment, related corrections and explicit user stop/pause/priority overrides ([REQ-AGENT-200](agents.md#req-agent-200-engineering-constitution-work-continuity)).

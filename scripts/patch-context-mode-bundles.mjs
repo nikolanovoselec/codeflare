@@ -1,69 +1,37 @@
 #!/usr/bin/env node
-// Patches the installed context-mode esbuild bundles (cli.bundle.mjs +
-// server.bundle.mjs) at image-build time. Implements REQ-AGENT-076 AC5
-// (update-check disable); the createRequire shim below has no dedicated AC,
-// see AD49 in documentation/decisions/README.md and codeflare#309 for the
-// original shim bug report.
-//
-// Shared by the Dockerfile build step and
-// host/__tests__/dockerfile-context-mode-patch.test.js so the patch logic and
-// its test cannot drift, and so the test verifies the REAL patch function
-// (imported) instead of re-extracting and executing a Dockerfile heredoc.
-//
-// (1) createRequire shim (AD49 / issue #309): context-mode ships an esbuild
-//     --format=esm bundle whose CJS-require shim throws on every dynamic
-//     require('node:*') because esbuild injects no createRequire polyfill, so
-//     ctx_execute / ctx_batch_execute fail with "Dynamic require of node:fs is
-//     not supported" in both Node and Bun ESM. Prepend a 2-line createRequire
-//     shim. Load-bearing.
-// (2) update-check disable (REQ-AGENT-076 AC5): context-mode unconditionally GETs
-//     registry.npmjs.org/context-mode/latest (MCP server on boot + hourly; CLI
-//     on each ctx_stats/ctx_insight render) and prints an "Update available ...
-//     ctx_upgrade" notice whenever the fetched version differs. It exposes no env
-//     var or flag to suppress this, and a governed container is not a surface a
-//     user self-upgrades context-mode from. Repoint the probe URL to a refused
-//     local address: the probe's request 'error' handler and its 5s setTimeout
-//     both resolve the version to "unknown" (the fetch rejection is swallowed,
-//     not thrown — verified against the pinned version; re-confirm on a pin bump),
-//     so the notice never renders and no outbound npm traffic is generated.
-//
-// License posture (ELv2): we do NOT redistribute context-mode source. npm pulls
-// the package from the public registry at build time exactly as `npx -y
-// context-mode` would at runtime; this only edits the installed bundle in place.
+// Validates the two lock-backed context-mode installs against the image plugin pin.
+// v2 uses cli.mjs/server.mjs and an in-process pi/index.js (no bridge/native addon).
+// Retain ESM compatibility and update-probe suppression without rewriting bundled dependencies.
+// Implements REQ-AGENT-076 AC5; source compatibility: codeflare#309 / AD49.
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
+// Preserve pristine bytes when upstream already supplies compatibility and no probe.
+export const UPSTREAM_SHIM = 'import{createRequire as __cmRequire}from"node:module";if(typeof process.getBuiltinModule!=="function")process.getBuiltinModule=(id)=>__cmRequire(import.meta.url)(id);';
 export const SHIM_MARKER = '__ctx_createRequire';
 export const SHIM =
   "import { createRequire as __ctx_createRequire } from 'node:module';\n" +
   'var require = __ctx_createRequire(import.meta.url);\n';
 export const UPDATE_PROBE_URL = 'https://registry.npmjs.org/context-mode/latest';
 export const DISABLED_PROBE_URL = 'https://127.0.0.1:1/context-mode-update-check-disabled';
-export const BUNDLE_NAMES = ['cli.bundle.mjs', 'server.bundle.mjs'];
+export const BUNDLE_NAMES = ['cli.mjs', 'server.mjs', 'hook.mjs', 'pi/index.js', 'run.mjs', 'search.mjs'];
 
-// Pure + idempotent: returns the patched source for one bundle.
 export function patchContextModeBundle(content) {
   let out = content;
-  // (1) createRequire shim, after a shebang if present.
-  if (!out.includes(SHIM_MARKER)) {
+  const head = out.startsWith('#!') ? out.slice(out.indexOf('\n') + 1) : out;
+  if (!out.includes(SHIM_MARKER) && !head.startsWith(UPSTREAM_SHIM)) {
     if (out.startsWith('#!')) {
       const nl = out.indexOf('\n');
-      // A shebang with no trailing newline (degenerate, never a real bundle) still
-      // gets the shim AFTER the shebang line, not before it.
       out = nl === -1 ? out + '\n' + SHIM : out.slice(0, nl + 1) + SHIM + out.slice(nl + 1);
     } else {
       out = SHIM + out;
     }
   }
-  // (2) repoint every update-check probe occurrence; a no-op when the probe is
-  // absent (e.g. upstream dropped the check), so this stays safe across versions.
-  out = out.split(UPDATE_PROBE_URL).join(DISABLED_PROBE_URL);
-  return out;
+  return out.split(UPDATE_PROBE_URL).join(DISABLED_PROBE_URL);
 }
 
-// Patch and verify one installed package directory. The shim is load-bearing,
-// so an absent bundle or incomplete write fails the image build.
+// Missing required v2 entries fail the image build rather than silently skipping Pi.
 export function patchContextModeDirectory(dir) {
   for (const name of BUNDLE_NAMES) {
     const file = join(dir, name);
@@ -73,7 +41,7 @@ export function patchContextModeDirectory(dir) {
     writeFileSync(file, patchContextModeBundle(readFileSync(file, 'utf8')));
     const after = readFileSync(file, 'utf8');
     const head = after.startsWith('#!') ? after.slice(after.indexOf('\n') + 1) : after;
-    if (!head.startsWith(SHIM)) {
+    if (!head.startsWith(SHIM) && !head.startsWith(UPSTREAM_SHIM)) {
       throw new Error(`createRequire shim missing after patch in ${name}`);
     }
     if (after.split(UPDATE_PROBE_URL).length !== 1) {

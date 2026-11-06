@@ -285,20 +285,20 @@ RUN sed -i 's|http://deb.debian.org|https://deb.debian.org|g' /etc/apt/sources.l
 # code-server commit in package.json and product.json; the build verifies both
 # plus the real lib/vscode package version. Shadow Pins derives the gitlink from
 # the immutable release tag and owns the provenance and bundled dependency pins below.
-# The pinned code-server archive supplies js-yaml 5.4.3 in its upstream 5.x
+# The pinned code-server archive supplies js-yaml 5.5.0 in its upstream 5.x
 # range; do not downgrade it with the former 4.x overlay. Retain the independent
 # tar and pacote overlays pending their separate runtime verification.
 # The immutable Node artifact carries vulnerable node-tar; the integrity-pinned
 # tar overlay replaces npm's copy only. code-server retains its upstream fixed
 # IDE tar 7.5.22, independently smoke-tested. The Node image's bundled npm also carries pacote
 # 21.5.0 affected by CVE-2026-9496; an integrity-pinned 21.5.2 artifact replaces
-# that runtime copy. code-server's basic-ftp 5.3.1 is replaced with 6.2.3 for
-# CVE-2026-102990, preserving its CommonJS API for the get-uri consumer.
+# that runtime copy. code-server's basic-ftp 6.2.3 is replaced with 6.2.4 for
+# GHSA-5pm8-86m8-9m6r, preserving its CommonJS API for the get-uri consumer.
 # follow-redirects 1.16.2 fixes CVE-2026-111755/111756/116689 in its upstream 1.x API.
 # Drop each overlay after its upstream artifact contains at least the pinned
 # fixed version.
 RUN CODE_SERVER_VERSION="4.145.0" && \
-    CODE_SERVER_SHA256="NEEDS_UPDATE_SEE_PR_BODY" && \
+    CODE_SERVER_SHA256="771bf6038658034d7caf509fcc44af50f0b8bdac5e738177b6cf9c4181dd3382" && \
     CODE_SERVER_COMMIT="2cb3ad3e258891fbb51001ba465c2348d5021644" && \
     CODE_SERVER_CODE_VERSION="1.145.0" && \
     CODE_SERVER_VSCODE_COMMIT="a717861c07586a53d83b80d742cd3f59b20a6273" && \
