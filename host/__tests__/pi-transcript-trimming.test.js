@@ -487,8 +487,9 @@ test('REQ-MEM-028 AC5: streamed cut preserves loaded SDK state, same-path append
  const manifest=JSON.parse(fs.readFileSync(manifestPath,'utf8'));const {SessionManager}=await import(new URL(manifest.exports['.'].import,pathToFileURL(manifestPath)));
  const f=fixture(t);
  const naming={type:'session_info',id:'original-name',parentId:null,timestamp:'2026-01-01T00:00:00Z',name:'Preserved session title'};
- f.entries[1].parentId=naming.id;f.entries.splice(1,0,naming);fs.writeFileSync(f.file,jsonl(f.entries));
+ f.entries[0].cwd=f.root;f.entries[1].parentId=naming.id;f.entries.splice(1,0,naming);fs.writeFileSync(f.file,jsonl(f.entries));
  const manager=SessionManager.open(f.file,f.root,f.root),beforeIds=manager.getBranch().map(e=>e.id),tools=new Map();
+ const initialListing=await SessionManager.list(f.root,f.root);assert.equal(initialListing.find(e=>e.id==='fixture')?.name,'Preserved session title');
  const ctx={sessionManager:manager},owner=registerActiveSessionTranscriptTrimming({registerTool:x=>tools.set(x.name,x),sendMessage(){}});t.after(()=>owner.cancel());owner.markDue(ctx);const item=owner.collect(ctx);assert.ok(item);
  const child={sessionManager:{getBranch:()=>[{type:'message',message:{role:'user',content:item.request.prompt}}]}};
  const result=JSON.parse((await tools.get('transcript_trim').execute('cut',{operation:'trim'},undefined,undefined,child)).content[0].text);assert.equal(result.status,'trimmed');assert.equal(result.committed,true);
