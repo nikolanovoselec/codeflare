@@ -588,7 +588,7 @@ function newlineAfter(fd,start,end) {
 }
 function rawCut(fd,length,tailBytes=0) {
   const header=newlineAfter(fd,0,length);
-  const position=Math.min(length,Math.max(header,header+length+tailBytes-MAXIMUM));
+  const position=Math.min(length,Math.max(header,header+length+tailBytes-TARGET));
   const cut=position===length?length:newlineAfter(fd,position,length);
   const projectedBytes=header+length-cut+tailBytes;
   if(projectedBytes<MINIMUM)throw Error('retained-output-below-minimum');

@@ -195,7 +195,7 @@ function createSimpleTrimRequest(ctx: TrimContext, feedback = ""): TranscriptTri
   const directory=fs.mkdtempSync(join(dirname(owner.file),".transcript-trim-"));
   const request: TranscriptTrimRequest={version:1,requestId:randomUUID(),...owner,policy:"oldest-prefix-percent",
     sourceBytes:stat.size,sourceSha256,sourcePathIdentity:stamp,branchIds:ctx.sessionManager.getBranch().map(e=>e.id),
-    targetBytes:MAXIMUM,candidateBudget:MAXIMUM,directory,directoryIdentity:`${fs.lstatSync(directory).dev}:${fs.lstatSync(directory).ino}`,
+    targetBytes:TARGET,candidateBudget:MAXIMUM,directory,directoryIdentity:`${fs.lstatSync(directory).dev}:${fs.lstatSync(directory).ino}`,
     varsFile:join(directory,"request.json"),candidateFile:join(directory,"candidate.jsonl"),feedback:feedback.slice(0,2000)};
   try{fs.writeFileSync(request.varsFile,JSON.stringify(request),{flag:"wx",mode:0o600});}catch(error){cleanupRequest(request);throw error;}
   return request;
@@ -296,7 +296,7 @@ function registerTranscriptTrimTool(pi: ExtensionAPI, requestMaintenance: (ctx: 
   pi.registerTool?.({
     name: "transcript_trim",
     label: "Trim authorized old transcript payloads",
-    description: "Parent/manual use: call operation request ONLY, then forward the controller-issued background subagent request unchanged. Scheduled is not launched or completed. All other operations require that scoped worker; never probe contract or trim from the parent or invent a launch payload. The scoped worker calls trim once: keep the header, calculate one byte cutoff to leave at most 25 MB, align forward to a newline, require at least 15 MB, and stream/verify the suffix without history-record parsing.",
+    description: "Parent/manual use: call operation request ONLY, then forward the controller-issued background subagent request unchanged. Scheduled is not launched or completed. All other operations require that scoped worker; never probe contract or trim from the parent or invent a launch payload. The scoped worker calls trim once: keep the header, calculate one byte cutoff aiming for 20 MB, align forward to a newline, require at least 15 MB, and stream/verify the suffix without history-record parsing.",
     // Pi's public validator also accepts JSON Schema without TypeBox symbols.
     parameters: {
       type: "object", properties: { operation: { type: "string", enum: ["request", "trim", "contract", "prepare", "inspect", "activate"] } },
@@ -335,7 +335,7 @@ function registerTranscriptTrimTool(pi: ExtensionAPI, requestMaintenance: (ctx: 
         if (params.operation === "contract") {
           const {branchIds,...summary}=request;
           result = {request:{...summary,branchEntryCount:branchIds.length},requestId,
-            contract:"Call trim once. Keep the header; calculate one cutoff to leave at most 25 MB, align to the next newline and require at least 15 MB. Below-minimum output refuses unchanged. Stream bytes without history-record parsing or refinement."};
+            contract:"Call trim once. Keep the header; calculate one cutoff aiming for 20 MB, align to the next newline and require at least 15 MB. Below-minimum output refuses unchanged. Stream bytes without history-record parsing or refinement."};
         } else if (params.operation === "inspect") {
           result = scope.feedback ?? {status:"not-prepared",committed:false};
         } else if (["prepare","trim"].includes(params.operation)) {

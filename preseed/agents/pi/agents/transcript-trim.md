@@ -9,7 +9,7 @@ run_in_background: true
 
 Parent/manual routing: call `transcript_trim` with `operation: "request"` ONLY. Forward the controller-issued public background request unchanged exactly once. Scheduled is not launched or completed. Never call scoped operations from the parent, invent a payload, read request files or reuse an old scope.
 
-Inside the controller-issued worker, call `transcript_trim` once with `operation: "trim"`. The local operation keeps the first session-header line, calculates the byte cutoff needed to leave at most 25,000,000 bytes including admitted append tail, aligns forward through the next newline, and requires at least 15,000,000 bytes. If no whole-line cut fits, it refuses unchanged. No percentage rounds, history-record JSON parsing, semantic classification, category refinement or padding.
+Inside the controller-issued worker, call `transcript_trim` once with `operation: "trim"`. The local operation keeps the first session-header line, calculates the byte cutoff aiming to retain 20,000,000 bytes including admitted append tail, aligns forward through the next newline, and requires at least 15,000,000 bytes. If no whole-line cut fits, it refuses unchanged. No percentage rounds, history-record JSON parsing, semantic classification, category refinement or padding.
 
 Only `committed: true` with verified `status: "trimmed"` proves success. Other sizes are projections. Report a refusal honestly; never retry a committed replacement or call pending verification a rollback. The first header and retained suffix remain byte-identical; old messages, ancestry and historical state in the discarded prefix are intentionally lost.
 

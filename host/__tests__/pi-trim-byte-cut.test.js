@@ -22,10 +22,10 @@ function fixture(t,megabytes=60){
 }
 for(const size of [60,80,120])test(`REQ-MEM-028 AC3/4: one byte cutoff for ${size} MiB copies the exact header and suffix into the size window`,async t=>{
  const f=fixture(t,size),before=fs.statSync(f.file).size,body=before-header.length;
- const cut=header.length+(Math.floor((before-25_000_000)/1024)+1)*1024;
+ const cut=header.length+(Math.floor((before-20_000_000)/1024)+1)*1024;
  const expected=expectedHash(f.file,cut,before);
  const result=await f.call('trim');assert.equal(result.status,'trimmed');assert.equal(result.committed,true);assert.equal(result.cutPercent,100*(cut-header.length)/body);assert.equal(result.workerMemoryLimitBytes,1_073_741_824);assert.ok(result.workerPeakMemoryBytes>0&&result.workerPeakMemoryBytes<1_073_741_824);
- assert.ok(result.after>=15_000_000&&result.after<=25_000_000);assert.equal(result.after,header.length+before-cut);
+ assert.ok(result.after>=15_000_000&&result.after<=25_000_000);assert.equal(result.after,header.length+before-cut);assert.ok(result.after<=20_000_000&&result.after>20_000_000-1024,'one aligned cut aims at twenty MB, not the ceiling');
  assert.equal(createHash('sha256').update(fs.readFileSync(f.file)).digest('hex'),expected);
  assert.deepEqual(fs.readdirSync(join(f.file,'..')),['session.jsonl']);
 });
