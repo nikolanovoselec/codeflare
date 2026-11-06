@@ -239,7 +239,7 @@ describe('REQ-AGENT-056 / REQ-AGENT-209: Open TUI adoption and managed Usage ret
   });
 
   for (const stale of ['npm:pi-open-tui', 'npm:pi-open-tui@0.2.0',
-    { source: 'npm:pi-open-tui@0.3.12', extensions: ['extensions/open-tui/index.ts'], skills: [] }]) {
+    { source: 'npm:pi-open-tui@0.3.13', extensions: ['extensions/open-tui/index.ts'], skills: [] }]) {
     it(`REQ-AGENT-209 AC1/AC2 / REQ-AGENT-056: restored ${JSON.stringify(stale)} converges without deleting similarly named user packages`, () => {
       const user = { source: 'npm:user-extension@1.0.0', extensions: ['keep.ts'], userField: true };
       const initial = {
