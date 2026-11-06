@@ -247,7 +247,8 @@ describe('REQ-OPS-033: build dependencies have committed integrity', () => {
     for (const [lockfile, manifest] of [[npmToolsLock, npmToolsPackage], [piLock, piPackage],
       [browserRunLock, browserRunPackage]]) {
       const versions = versionsOf(lockfile, 'ip-address');
-      assert.ok(versions.length > 0, 'ip-address must be represented in each affected runtime lock');
+      assert.ok(versions.length > 0 || lockfile === npmToolsLock,
+        'ip-address must be represented unless removed from shared tools with context-mode v2');
       assert.ok(
         versions.every((version) => version.startsWith('10.') && atLeast(version, '10.5.1')),
         `ip-address versions ${versions.join(', ')} must all be patched for NAT64 local-use classification`,
@@ -286,16 +287,24 @@ describe('REQ-OPS-033: build dependencies have committed integrity', () => {
 
     for (const lockfile of [rootLock, browserRunLock, npmToolsLock, piLock]) {
       const versions = versionsOf(lockfile, 'hono');
-      assert.ok(versions.length > 0, 'hono must be represented in each affected runtime lock');
+      assert.ok(versions.length > 0 || lockfile === npmToolsLock,
+        'hono must be represented unless removed from shared tools with context-mode v2');
       assert.ok(versions.every((version) => atLeast(version, '4.12.34')));
     }
 
+    assert.ok(atLeast(npmToolsPackage.overrides.hono.replace(/^[~^]/, ''), '4.12.34'),
+      'shared-tools hono override must retain its patched floor after dependency removal');
+
     for (const lockfile of [browserRunLock, npmToolsLock, piLock]) {
       const versions = versionsOf(lockfile, 'fast-uri');
-      assert.ok(versions.length > 0, 'fast-uri must be represented in each affected runtime lock');
+      assert.ok(versions.length > 0 || lockfile === npmToolsLock,
+        'fast-uri must be represented unless removed from shared tools with context-mode v2');
       assert.ok(versions.every((version) => atLeast(version, '3.1.8')),
         'GHSA-hrr3-gc8f-f4qj security floor: encoded hosts must resolve a patched fast-uri release');
     }
+
+    assert.ok(atLeast(npmToolsPackage.overrides['fast-uri'], '3.1.8'),
+      'shared-tools fast-uri override must retain its patched floor after dependency removal');
 
     const postcssVersions = versionsOf(sidebarLock, 'postcss');
     assert.ok(postcssVersions.length > 0);
