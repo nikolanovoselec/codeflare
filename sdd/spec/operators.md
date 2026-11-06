@@ -874,6 +874,35 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 
 ---
 
+<a id="req-operator-098-automatic-owned-dispatcher-result-collection"></a>
+### REQ-OPERATOR-098: Automatic owned Dispatcher result collection
+
+**Intent:** Owners receive successful new Dispatcher results already collected, without changing historical or non-owner collection behavior.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. New owner-bound normal-host Dispatcher admissions collect the original immutable result atomically with verified successful completion, without another browser action or a completed-uncollected attention warning. <!-- @impl: src/operators/activity.ts::OperatorActivity.consumeStart --> <!-- @impl: src/operators/activity.ts::OperatorActivity.commitDrive --> <!-- @test: src/__tests__/operators/dispatcher-production-lifecycle.test.ts (REQ-OPERATOR-048/049/041: new normal success automatically collects the identical original result across reconstruction without replay (persisted settlement=%s)) -->
+2. Historical and unowned admissions retain explicit collection; reads and reconstruction do not consume their results. <!-- @impl: src/operators/activity.ts::OperatorActivity.commitDrive --> <!-- @test: src/__tests__/operators/dispatcher-production-lifecycle.test.ts (REQ-OPERATOR-041/048: owner reads and reconstruction leave historical normal successes uncollected until explicit collection) --> <!-- @test: src/__tests__/operators/dispatcher-production-lifecycle.test.ts (REQ-OPERATOR-041/048: unowned management success retains explicit collection semantics (%s)) -->
+3. Failed, unknown or foreign settlement evidence cannot gain automatic collection or clear attention. <!-- @impl: src/operators/activity.ts::OperatorActivity.commitDrive --> <!-- @test: src/__tests__/operators/dispatcher-production-lifecycle.test.ts (REQ-OPERATOR-048/057: generic serial %s receipt closes authority without assessment or successor even with an empty journal) --> <!-- @test: src/__tests__/operators/dispatcher-production-lifecycle.test.ts (REQ-OPERATOR-048/092: foreign failed receipt %s fences the original read without replacement work) -->
+
+**Constraints:**
+
+- Preserve original owner, generation, receipt, submission, input, artifact, deadline and journal fences.
+- Collection preserves assessment bytes and execution authority.
+- Neither recovery nor collection resubmits effects or fabricates cleanup proof.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-OPERATOR-048](#req-operator-048-dispatcher-execution), [REQ-OPERATOR-041](#req-operator-041-owned-activity-browser-reads)
+
+**Verification:** The anchored regressions passed exact-head CI42135374391 at a6408679; this relocation changes no behavior. Automatic-collection deployment remains pending.
+
+**Status:** Implemented
+
+---
+
 <a id="req-operator-092-resumable-dispatcher-observation"></a>
 ### REQ-OPERATOR-092: Resumable Dispatcher observation
 
@@ -1944,12 +1973,11 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 5. Operator ceilings remain editable separately from installation restrictions; changes disable installations without discarding saved policies. <!-- @test: web-ui/src/__tests__/operators/operator-source-response-suite.tsx (REQ-OPERATOR-045/049: explains limit ownership and resets inference to its default without changing other fields) --> <!-- @test: web-ui/src/__tests__/operators/operator-source-response-suite.tsx (REQ-OPERATOR-045/049: source default resets update only the selected ceiling or installation draft) --> <!-- @impl: web-ui/src/components/OperatorManagement.tsx::OperatorManagement --> <!-- @test: web-ui/src/__tests__/operators/operator-management-redesign.test.tsx (separates verified package identity from the category and keeps source replacement out of restrictions) --> <!-- @test: web-ui/src/__tests__/operators/operator-management-redesign.test.tsx (edits the operator capability ceiling after registration without silently editing an installation or keeping it enabled) --> <!-- @test: web-ui/src/__tests__/operators/operator-management-redesign.test.tsx (keeps saved missing grants, distinguishes unverified choices and shows local save feedback) --> <!-- @test: web-ui/src/__tests__/operators/operator-management-flow.test.tsx (explains global action limits and scope labels without raw capability keys or suggesting that an ID provisions resources) -->
 6. Responsive controls retain focus and scrolling for long names and errors. <!-- @impl: web-ui/src/components/OperatorManagement.tsx::OperatorManagement --> <!-- @test: web-ui/src/__tests__/operators/operator-management.test.tsx (retains the registration control and visible long error on a narrow viewport) --> <!-- @manual: Verify keyboard focus and scrolling on narrow and wide browser viewports. -->
 7. Mobile sections remain horizontal and retain save feedback beside the action without silently enabling installations. <!-- @impl: web-ui/src/components/OperatorManagement.tsx::OperatorManagement --> <!-- @test: web-ui/src/__tests__/operators/operator-management-flow.test.tsx (confirms a restriction save beside its action without silently enabling the installation) -->
-8. Newly started owner Dispatcher runs collect their original immutable result automatically with verified successful normal-host completion, without another browser action or a completed-uncollected attention warning. <!-- @impl: src/operators/activity.ts::OperatorActivity.consumeStart --> <!-- @impl: src/operators/activity.ts::OperatorActivity.commitDrive --> <!-- @test: src/__tests__/operators/dispatcher-production-lifecycle.test.ts (REQ-OPERATOR-048/049/041: new normal success automatically collects the identical original result across reconstruction without replay (persisted settlement=%s)) -->
 
 **Constraints:**
 
 - The management surface cannot grant authority beyond server-side policy.
-- Automatic successful-result collection preserves original generation, receipt, journal and immutable-result checks. Historical admissions remain non-consuming on reads/reconstruction; failed or unknown work retains attention and cannot replay. <!-- @impl: src/operators/activity.ts::OperatorActivity.commitDrive --> <!-- @test: src/__tests__/operators/dispatcher-production-lifecycle.test.ts (REQ-OPERATOR-041/048: owner reads and reconstruction leave historical normal successes uncollected until explicit collection) -->
+- Automatic result collection follows [REQ-OPERATOR-098](#req-operator-098-automatic-owned-dispatcher-result-collection).
 - Installed Dispatcher Gateway controls and Advanced drafts follow [REQ-OPERATOR-075](#req-operator-075-installation-permission-choices-and-explanation) AC4–7.
 - Operator-wide execution logging is owned by [REQ-OPERATOR-079](#req-operator-079-shared-execution-diagnostic-control).
 - Size guidance distinguishes received-response ceilings/allowances from model-input limits. <!-- @impl: web-ui/src/components/OperatorManagement.tsx::OperatorManagement --> <!-- @test: web-ui/src/__tests__/operators/operator-source-response-suite.tsx (REQ-OPERATOR-045/049: explains limit ownership and resets inference to its default without changing other fields) -->
@@ -1959,7 +1987,9 @@ Requirement IDs, obligations and verification qualifications remain stable. Hist
 - Submission attempt limit defaults/resets to1024; explicit save preserves independent inference/operation settings and original admission pins. <!-- @impl: web-ui/src/components/OperatorManagement.tsx::OperatorDetail --> <!-- @test: web-ui/src/__tests__/operators/operator-source-response-suite.tsx (REQ-OPERATOR-045/049: submission attempts %i persist independently and reset to 1024) -->
 - Max inference attempts defaults/resets to4; concise limit help explains initial-attempt inclusion, optional retry cost and unchanged write fences. <!-- @impl: web-ui/src/components/OperatorManagement.tsx::OperatorDetail --> <!-- @test: web-ui/src/__tests__/operators/operator-source-response-suite.tsx (REQ-OPERATOR-045/049: max inference attempts %i persist independently and reset to four) -->
 - Enable/Disable labels are concise; logging has standard form spacing above it. <!-- @impl: web-ui/src/components/OperatorManagement.tsx::OperatorDetail --> <!-- @manual: Verify the repeat action and logging spacing on narrow and wide viewports after delivery. -->
-- Configuration descriptions and supporting text reuse Administration's typography. Next-manual inference reuses the installed-version status card, with a white source heading, muted model details and right-aligned selected-accent saved-status pill without an em dash. Interactive Operator links and disclosures use the selected accent; warning/error/success semantics remain distinct. <!-- @impl: web-ui/src/components/OperatorManagement.tsx::OperatorDetail --> <!-- @test: web-ui/src/__tests__/operators/operator-management-inference.test.tsx (labels saved Native provider/model/reasoning as selection, not OAuth success, and preserves one collapsed inactive Gateway pair) --> <!-- @manual: Verify rendered hierarchy, status contrast, keyboard disclosure and narrow/wide layout after delivery. -->
+- Configuration descriptions and supporting text reuse Administration's typography. <!-- @impl: web-ui/src/components/OperatorManagement.tsx::OperatorDetail -->
+- Next-manual inference reuses the installed-version card, with a white heading, muted model details and right-aligned selected-accent saved-status pill without an em dash. <!-- @impl: web-ui/src/components/OperatorManagement.tsx::OperatorDetail --> <!-- @test: web-ui/src/__tests__/operators/operator-management-inference.test.tsx (labels saved Native provider/model/reasoning as selection, not OAuth success, and preserves one collapsed inactive Gateway pair) --> <!-- @manual: Verify rendered hierarchy, status contrast, keyboard disclosure and narrow/wide layout after delivery. -->
+- Operator links and disclosures use the selected accent; warning/error/success semantics remain distinct. <!-- @impl: web-ui/src/components/OperatorManagement.tsx::OperatorDetail -->
 - Catalog profile pills use the selected theme accent; detail pills and muted catalog metadata retain their colors. <!-- @impl: web-ui/src/components/OperatorManagement.tsx::OperatorManagement --> <!-- @manual: Run scripts/browser/check-operator-pill-colors.js in a real browser on the catalog and each profile's detail view under two selected accent themes; every returned color comparison must match. -->
 
 **Priority:** P0
