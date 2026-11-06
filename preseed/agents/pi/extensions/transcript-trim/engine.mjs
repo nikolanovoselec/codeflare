@@ -614,17 +614,52 @@ function workerJob({action,request:r,selection=[],branchIds=r.branchIds}) {
   throw Error('unknown-worker-action');
 }
 
+const WORKER_MEMORY_BYTES=1_073_741_824;
+const WORKER_MEMORY_ROOT='/sys/fs/cgroup/codeflare-trim-workers';
+function memoryEvents(directory) {
+  return Object.fromEntries(fs.readFileSync(join(directory,'memory.events'),'utf8').trim().split('\n').map(line=>{const [name,count]=line.split(' ');return [name,Number(count)];}));
+}
+function verifyMemoryGroup(directory,pid) {
+  if(process.platform!=='linux'||fs.statfsSync(directory).type!==0x63677270
+    ||!directory.startsWith(WORKER_MEMORY_ROOT+'/job-')
+    ||fs.realpathSync(dirname(directory))!==WORKER_MEMORY_ROOT)throw Error('worker-memory-limit-unavailable');
+  for(const group of [directory]) {
+    if(fs.readFileSync(join(group,'memory.max'),'utf8').trim()!==String(WORKER_MEMORY_BYTES)
+      ||fs.readFileSync(join(group,'memory.swap.max'),'utf8').trim()!=='0')throw Error('worker-memory-limit-unavailable');
+  }
+  if(fs.readFileSync(join(directory,'memory.oom.group'),'utf8').trim()!=='1'
+    ||!fs.readFileSync(join(directory,'cgroup.procs'),'utf8').trim().split('\n').includes(String(pid)))throw Error('worker-memory-limit-unavailable');
+}
+function createWorkerMemoryGroup() {
+  let directory;
+  try {
+    if(process.platform!=='linux'||fs.statfsSync('/sys/fs/cgroup').type!==0x63677270)throw Error();
+    try{fs.mkdirSync(WORKER_MEMORY_ROOT);}catch(e){if(e.code!=='EEXIST')throw e;}
+    // This empty controller contains trim workers only, never the Pi/host process.
+    fs.writeFileSync(join(WORKER_MEMORY_ROOT,'cgroup.subtree_control'),'+memory');
+    directory=fs.mkdtempSync(join(WORKER_MEMORY_ROOT,`job-${process.pid}-`));
+    fs.writeFileSync(join(directory,'memory.max'),String(WORKER_MEMORY_BYTES));
+    fs.writeFileSync(join(directory,'memory.swap.max'),'0');
+    fs.writeFileSync(join(directory,'memory.oom.group'),'1');
+    return {directory,oomBefore:memoryEvents(directory).oom_kill??0};
+  }catch {
+    if(directory)try{fs.rmdirSync(directory);}catch{}
+    throw Error('worker-memory-limit-unavailable');
+  }
+}
+
 /** One independently scheduled CPU job. IPC contains bounded metadata, never transcript text. */
 export function runTrimWorker(job,signal,launch=fork) {
   if(signal?.aborted)return Promise.reject(Error('maintenance-canceled'));
   return new Promise((resolve,reject)=>{
-    let child,result,error,settled=false,terminating=false;
+    let child,result,error,memory,settled=false,terminating=false;
     const cleanup=()=>{
       signal?.removeEventListener('abort',abort);
       child?.removeListener('message',message);
       child?.removeListener('error',failed);
       child?.removeListener('exit',terminal);
       child?.removeListener('close',terminal);
+      if(memory)try{fs.rmdirSync(memory.directory);}catch{}
     };
     const settle=()=>{
       if(settled)return;
@@ -635,7 +670,8 @@ export function runTrimWorker(job,signal,launch=fork) {
       if(settled)return;
       error??=e;
       // Failed spawn may emit error/close without ever emitting exit.
-      if(!child?.pid || child.exitCode!==null || child.signalCode!==null){settle();return;}
+      if(!child?.pid){settle();return;}
+      if(child.exitCode!==null || child.signalCode!==null){terminal(child.exitCode);return;}
       if(!terminating){terminating=true;try{child.kill('SIGTERM');}catch(killError){error=killError;}}
     };
     const abort=()=>failed(Error('maintenance-canceled'));
@@ -646,22 +682,44 @@ export function runTrimWorker(job,signal,launch=fork) {
     };
     const terminal=code=>{
       if(settled)return;
-      if(!error && (code!==0 || result===undefined))error=Error('worker-exited-without-result');
+      if(code!==0 || result===undefined) {
+        let oom=false;try{oom=memoryEvents(memory.directory).oom_kill>memory.oomBefore;}catch{}
+        if(oom && error?.message!=='maintenance-canceled')error=Error('worker-memory-limit-exceeded:1073741824');
+        else error??=Error('worker-exited-without-result');
+      } else if(result && typeof result==='object') {
+        result.workerMemoryLimitBytes=WORKER_MEMORY_BYTES;
+        try{result.workerPeakMemoryBytes=Number(fs.readFileSync(join(memory.directory,'memory.peak'),'utf8').trim());}catch{}
+      }
       settle();
     };
     try{
-      child=launch(fileURLToPath(import.meta.url),['--trim-worker'],{stdio:['ignore','ignore','ignore','ipc'],execArgv:[]});
+      memory=createWorkerMemoryGroup();
+      // The shell cannot exec Node until its PID is inside the verified limit.
+      child=launch(fileURLToPath(import.meta.url),['--trim-worker'],{
+        execPath:'/bin/sh',execArgv:['-c','IFS= read -r gate <&4 || exit 1; exec 4<&-; exec "$@"','codeflare-trim',process.execPath],
+        stdio:['ignore','ignore','ignore','ipc','pipe'],
+        env:{...process.env,CODEFLARE_TRIM_MEMORY_GROUP:memory.directory},
+      });
       child.on('message',message);child.on('error',failed);child.once('exit',terminal);child.once('close',terminal);
       signal?.addEventListener('abort',abort,{once:true});
+      child.stdio[4]?.on('error',failed);
       if(signal?.aborted){abort();return;}
-      try{child.send(job,e=>{if(e)failed(e);});}catch(e){failed(e);}
+      if(!child.pid)return;
+      try {
+        fs.writeFileSync(join(memory.directory,'cgroup.procs'),String(child.pid));
+        verifyMemoryGroup(memory.directory,child.pid);
+        child.stdio[4].end('go\n');
+        child.send(job,e=>{if(e)failed(e);});
+      }catch(e){failed(e);}
     }catch(e){error=e;settle();}
   });
 }
 if(process.argv[2]==='--trim-worker' && process.send && resolve(process.argv[1]??'')===fileURLToPath(import.meta.url)) {
   // This adjusts only the independent CPU process, never Pi's UI/session thread.
   let priorityReady=true;
-  try{setPriority(0,Math.max(getPriority(0),10));}catch{priorityReady=false;process.exitCode=1;process.send({ok:false,error:'worker-priority-unavailable'},()=>process.disconnect());}
+  try{verifyMemoryGroup(process.env.CODEFLARE_TRIM_MEMORY_GROUP??'',process.pid);}
+  catch{priorityReady=false;process.exitCode=1;process.send({ok:false,error:'worker-memory-limit-unavailable'},()=>process.disconnect());}
+  if(priorityReady)try{setPriority(0,Math.max(getPriority(0),10));}catch{priorityReady=false;process.exitCode=1;process.send({ok:false,error:'worker-priority-unavailable'},()=>process.disconnect());}
   if(priorityReady)process.once('message',job=>{
     let response;try{response={ok:true,value:{...workerJob(job),workerPriority:getPriority(0)}};}catch(e){const message=e instanceof Error?e.message:'';response={ok:false,error:/^[a-z][a-z0-9-]+(?::[A-Za-z0-9_-]+)?$/.test(message)?message:'invalid-transcript-or-worker-failure'};}
     process.send(response,()=>process.disconnect());

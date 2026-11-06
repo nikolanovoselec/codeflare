@@ -41,7 +41,7 @@ test('REQ-MEM-030 AC2: an inherited lower worker priority is preserved without c
  const request={sessionId:'priority',file,directory,directoryIdentity:`${fs.statSync(directory).dev}:${fs.statSync(directory).ino}`,committed:{bytes:bytes.length,sha256:createHash('sha256').update(bytes).digest('hex')}};
  const {getPriority}=await import('node:os');const parentPriority=getPriority(0);
  const preload='data:text/javascript,'+encodeURIComponent("import {setPriority} from 'node:os'; setPriority(0,19);");
- const launch=(entry,args,options)=>fork(entry,args,{...options,execArgv:['--import',preload]});
+ const launch=(entry,args,options)=>fork(entry,args,{...options,env:{...options.env,NODE_OPTIONS:'--import='+preload}});
  const result=await runTrimWorker({action:'readback',request},undefined,launch);
  assert.equal(result.workerPriority,19);
  assert.equal(getPriority(0),parentPriority);

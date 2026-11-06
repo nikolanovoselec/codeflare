@@ -875,3 +875,27 @@ Vault-based cross-session memory, automatic capture, hook delivery, and session-
 **Verification:** Existing named behavioral tests; CI qualification remains separate.
 
 **Status:** Implemented
+
+---
+
+### REQ-MEM-032: Bounded transcript-worker memory
+
+**Intent:** Transcript CPU work cannot exhaust the session through unbounded worker memory.
+
+**Applies To:** User
+
+**Acceptance Criteria:**
+
+1. Each trim worker runs within a kernel-enforced 1,073,741,824-byte memory limit with swap disabled; the Pi owner and terminal host remain outside that group. <!-- @impl: preseed/agents/pi/extensions/transcript-trim/engine.mjs::runTrimWorker --> <!-- @test: host/__tests__/pi-trim-worker-memory.test.js (REQ-MEM-032 AC1/2: kernel bounds worker memory to one GiB before work, without limiting its parent) -->
+2. Node executes only after placement inside the verified group; unavailable enforcement or direct unbounded worker startup refuses before transcript work. <!-- @impl: preseed/agents/pi/extensions/transcript-trim/engine.mjs::verifyMemoryGroup --> <!-- @impl: preseed/agents/pi/extensions/transcript-trim/engine.mjs::runTrimWorker --> <!-- @test: host/__tests__/pi-trim-worker-memory.test.js (REQ-MEM-032 AC2: direct unbounded worker startup refuses before transcript work) -->
+3. Kernel memory exhaustion terminates only bounded workers and reports a classified memory-limit failure; the owning process remains usable. <!-- @impl: preseed/agents/pi/extensions/transcript-trim/engine.mjs::runTrimWorker --> <!-- @test: host/__tests__/pi-trim-worker-memory.test.js (REQ-MEM-032 AC3: kernel memory exhaustion kills only bounded workers and leaves the owner usable) -->
+
+**Constraints:** No heap-only substitute, unbounded fallback or change to the Pi owner's memory limit; existing replacement and committed-receipt safeguards remain unchanged.
+
+**Priority:** P0
+
+**Dependencies:** [REQ-MEM-029](#req-mem-029-active-transcript-replacement-safety)
+
+**Verification:** Controlled kernel-boundary fixtures; memory-exhaustion stress runs in CI only, never the active session.
+
+**Status:** Implemented

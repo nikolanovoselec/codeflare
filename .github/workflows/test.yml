@@ -1049,6 +1049,13 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Delegate isolated trim-worker memory control
+        run: |
+          sudo sh -c 'echo +memory > /sys/fs/cgroup/cgroup.subtree_control'
+          sudo mkdir -p /sys/fs/cgroup/codeflare-trim-workers/ci-owner
+          sudo sh -c 'echo +memory > /sys/fs/cgroup/codeflare-trim-workers/cgroup.subtree_control'
+          sudo chown -R "$(id -u):$(id -g)" /sys/fs/cgroup/codeflare-trim-workers
+
       - name: Read explicit CI Node patch pin
         id: node-pin
         run: node scripts/ci/workflow-tool-pins.mjs github-output ci-node-26 >> "$GITHUB_OUTPUT"
@@ -1230,6 +1237,8 @@ jobs:
           OPERATOR_INFERENCE_TEST_AI_ENTRY: ${{ github.workspace }}/preseed/agents/pi/node_modules/@earendil-works/pi-ai/dist/index.js
         run: |
           set -euo pipefail
+          # Keep the test owner outside worker limits, inside its delegated subtree.
+          sudo sh -c 'printf "%s\n" "$1" > "$2/cgroup.procs"' sh "$$" "/sys/fs/cgroup/codeflare-trim-workers/ci-owner"
           part=0
           for shard in $SHARDS; do
             part=$((part + 1))
