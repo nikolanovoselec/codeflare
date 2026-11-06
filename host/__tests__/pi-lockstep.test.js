@@ -261,7 +261,7 @@ const WARMED_NPM_ENTRYPOINTS = [
   { variable: 'todo', package: '@juicesharp/rpiv-todo', entrypoint: 'index.ts' },
   { variable: 'web', package: 'pi-web-access', entrypoint: 'dist/index.js' },
   { variable: 'smart_compact', package: 'pi-smart-compact', entrypoint: 'dist/index.js' },
-  { variable: 'context', package: 'context-mode', entrypoint: 'build/adapters/pi/extension.js' },
+  { variable: 'context', package: 'context-mode', entrypoint: 'pi/index.js' },
 ];
 
 function runImageWarmFixture(omitPackage = '', wrongLocalPath = false) {

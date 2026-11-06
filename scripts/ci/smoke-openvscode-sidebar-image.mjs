@@ -257,7 +257,7 @@ export function verifyDeveloperTools({ exec = execFileSync } = {}) {
 
 export async function verifyJsYamlRuntime({
   runtimePath = '/opt/code-server/node_modules/js-yaml',
-  expectedVersion = '5.4.3',
+  expectedVersion = '5.5.0',
 } = {}) {
   const manifest = JSON.parse(await readFile(join(runtimePath, 'package.json'), 'utf8'));
   assert.equal(manifest.version, expectedVersion, `${runtimePath} must contain js-yaml ${expectedVersion}`);

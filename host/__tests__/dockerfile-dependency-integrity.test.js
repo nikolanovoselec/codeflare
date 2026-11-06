@@ -229,7 +229,14 @@ describe('REQ-OPS-033: build dependencies have committed integrity', () => {
     for (const [dependency, minimum] of Object.entries(floors)) {
       for (const lockfile of [npmToolsLock, piLock]) {
         const versions = versionsOf(lockfile, dependency);
-        assert.ok(versions.length > 0, `${dependency} must be represented in the lock`);
+        // context-mode v2 bundles its server dependencies, removing this package
+        // from the shared-tools tree. Retain its override against reintroduction.
+        const removedSharedServer = dependency === '@hono/node-server' && lockfile === npmToolsLock;
+        assert.ok(versions.length > 0 || removedSharedServer, `${dependency} must be represented in the lock`);
+        if (removedSharedServer) {
+          assert.ok(atLeast(npmToolsPackage.overrides[dependency], minimum),
+            `${dependency} override must retain the patched floor`);
+        }
         assert.ok(
           versions.every((version) => atLeast(version, minimum)),
           `${dependency} versions ${versions.join(', ')} must all be >= ${minimum}`,
