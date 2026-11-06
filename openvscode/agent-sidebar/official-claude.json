@@ -1,9 +1,9 @@
 {
   "namespace": "Anthropic",
   "name": "claude-code",
-  "version": "2.1.312",
+  "version": "2.1.314",
   "targetPlatform": "linux-x64",
-  "sha256": "abd23a3179e41ebb2c78d4f1f36c164782460047bc680e7c8eefc5731ec4dfe9",
+  "sha256": "bd97f320e5ea9b1ae436e2a789c5c1213695055e7d4b651b1ab7f7ba7ac55d41",
   "main": "./extension.js",
   "vscodeEngine": "^1.94.0"
 }
