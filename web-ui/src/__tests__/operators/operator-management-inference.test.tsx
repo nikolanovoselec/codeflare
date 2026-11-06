@@ -49,7 +49,7 @@ describe('REQ-OPERATOR-096 AC4/5/6/7: effective inference for your next manual r
     installations = [{ ...installation, policy: { ...policy, inference: { ...inference, allowedSources: ['managed'] } } }];
     context = async () => ({ ...native, status: 'blocked', reason: 'policy-denied' });
     render(() => <OperatorManagement />);
-    await waitFor(() => expect(status()).toHaveTextContent('Native Pi is not approved in both operator and installation restrictions'));
+    await waitFor(() => expect(status()).toHaveTextContent('Blocked: Native Pi is not approved in both operator and installation restrictions.'));
     expect(status()).toHaveTextContent('saved-provider');
     expect(writes).toEqual([]);
   });
@@ -57,7 +57,7 @@ describe('REQ-OPERATOR-096 AC4/5/6/7: effective inference for your next manual r
     context = async () => ({ ...native, provider: 'openai-codex', model: 'gpt-6.1-sol', reasoningLevel: 'medium',
       status: 'blocked', reason: 'policy-denied' });
     render(() => <OperatorManagement />);
-    await waitFor(() => expect(status()).toHaveTextContent('Medium reasoning is not approved'));
+    await waitFor(() => expect(status()).toHaveTextContent('Blocked: Medium reasoning is not approved in both operator and installation restrictions.'));
     expect(status()).toHaveTextContent('openai-codex');
     expect(status()).toHaveTextContent('Reasoning: medium');
     expect(screen.getByText(/Gateway settings — inactive/, { selector: 'summary' })).toBeInTheDocument();

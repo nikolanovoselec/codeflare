@@ -523,25 +523,25 @@ const OperatorDetail: Component<{ detail: api.ManagementDetail; choices?: api.Ma
   const inferenceStatus = () => {
     if (inferenceLoading()) return 'Loading your saved inference selection…';
     const value = manualInference();
-    if (!value || value.status === 'unavailable') return 'Selection unavailable — no fallback assumed.';
+    if (!value || value.status === 'unavailable') return 'Selection unavailable: no fallback assumed.';
     if (value.status === 'unconfigured') return value.source === 'pi-native'
-      ? 'Not configured — save a provider and model in your R2 Pi profile.' : 'Not configured — choose a Gateway route for this installation.';
-    if (value.status === 'profile') return 'Saved profile only — next-run eligibility is not established.';
+      ? 'Not configured: save a provider and model in your R2 Pi profile.' : 'Not configured: choose a Gateway route for this installation.';
+    if (value.status === 'profile') return 'Saved profile only: next-run eligibility is not established.';
     if (value.status === 'blocked' && value.reason === 'policy-denied' && value.source === 'pi-native') {
       const policies = [operator().policy, installation()?.policy];
       if (policies.some(policy => !policy?.inference?.allowedSources?.includes('pi-native'))) {
-        return 'Blocked — Native Pi is not approved in both operator and installation restrictions.';
+        return 'Blocked: Native Pi is not approved in both operator and installation restrictions.';
       }
       const level = value.reasoningLevel;
       if (level != null && policies.some(policy => !policy?.inference?.reasoningLevels.includes(level as api.PiReasoningLevel))) {
-        return `Blocked — ${level.charAt(0).toUpperCase() + level.slice(1)} reasoning is not approved in both operator and installation restrictions.`;
+        return `Blocked: ${level.charAt(0).toUpperCase() + level.slice(1)} reasoning is not approved in both operator and installation restrictions.`;
       }
     }
     if (value.status === 'blocked') return value.reason === 'invocation-denied'
-      ? 'Blocked — your account does not have invocation permission.'
-      : value.reason === 'installation-disabled' ? 'Blocked — this installation is not enabled for new runs.'
-      : value.reason === 'policy-denied' ? 'Blocked — the saved selection is not approved by current restrictions.'
-      : 'Blocked — the installed configuration is unavailable for execution.';
+      ? 'Blocked: your account does not have invocation permission.'
+      : value.reason === 'installation-disabled' ? 'Blocked: this installation is not enabled for new runs.'
+      : value.reason === 'policy-denied' ? 'Blocked: the saved selection is not approved by current restrictions.'
+      : 'Blocked: the installed configuration is unavailable for execution.';
     return nativeInference() ? 'Native selection' : 'Managed selection';
   };
   const guidedAssessment = () => operator().profile === 'dispatcher' && currentRelease()?.name === 'Renovate Dispatcher'
