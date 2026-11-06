@@ -18,7 +18,7 @@ Codeflare is the agentic engineering engine: it runs autonomous AI coding agents
 
 7. **Durable authority without dashboard wakeups** -- Owner-scoped dashboard status reads use the complete D1 session catalog without waking containers or contacting their Durable Objects. The session runtime drives generation-fenced transitions and observations; D1 owns persisted lifecycle truth. Worker routing and authentication remain separate, and unrelated KV preferences or credentials do not become session authority.
 
-8. **Stable behavioral domains** -- The seventeen domains below are canonical. Extend the owning requirement instead of creating a specification for a repair, transport adapter, deployment mode or implementation phase. Requirement IDs retain their original namespaces when relocated; acceptance criteria, constraints, statuses, fragment aliases and evidence anchors remain attached to their obligations.
+8. **Stable behavioral domains** -- The eighteen domains below are canonical. Extend the owning requirement instead of creating a specification for a repair, transport adapter, deployment mode or implementation phase. Requirement IDs retain their original namespaces when relocated; acceptance criteria, constraints, statuses, fragment aliases and evidence anchors remain attached to their obligations.
 
 ## Actors
 
@@ -54,6 +54,7 @@ When a public behavior change affects one of these operator contracts, update bo
 | [Storage](spec/storage.md) | R2 persistence, reconciliation, managed paths, conflicts and encryption-regime integration | P0 | Active |
 | [Subscription](spec/subscription.md) | Entitlement, payment, live quota accounting, historical usage and reporting | P1 | Active |
 | [Agents](spec/agents.md) | Agent selection, manifests, compiler projection, runtime adaptation and managed delivery | P1 | Active |
+| [Model Context Protocol](spec/mcp.md) | Portal registration, owner grants, client discovery/configuration, credential-isolated transport and migration | P1 | Active |
 | [GitHub](spec/github.md) | Account connection, repositories, cloning/restoration and mediated credentials | P1 | Active |
 | [Models & Routing](spec/models-and-routing.md) | Target identity, discovery, evidence, reasoning, transport, replay, caching and publication | P1 | Active |
 | [Operators](spec/operators.md) | Packages, catalog/installations, grants, activities, parent capabilities and publication fencing | P0 | Active |

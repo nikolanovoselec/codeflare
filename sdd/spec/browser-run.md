@@ -196,7 +196,7 @@ A real-browser capability for advanced-mode agents, backed by Cloudflare Browser
 
 - Same gate as the rest of Browser Run (advanced + a token carrying the `Browser Rendering - Edit` scope); the `chrome-devtools` server is the same Dockerfile-baked `chrome-devtools-mcp` binary Claude uses.
 - Bootstrap uses `~/.pi/agent/mcp.json`; builtin MCP remains disabled and pi-mcp-extension is the sole managed MCP lifecycle owner.
-- Filename migration and managed regeneration belong to [REQ-AGENT-217](agents.md#req-agent-217-lossless-pi-mcp-adapter-migration).
+- Filename migration and managed regeneration belong to [REQ-AGENT-217](mcp.md#req-agent-217-lossless-pi-mcp-adapter-migration).
 - Subsequent timeout preparation follows AC5 and [REQ-BROWSER-009](#req-browser-009-mcp-and-chrome-sdk-timeout-profile).
 - Customized server shapes, external routing and credentials remain preserved.
 - Remote inactivity is separate from RPC and REST request deadlines.
@@ -308,7 +308,7 @@ Task #114 implementation candidate follows [RED CI40255590866](https://github.co
 - Pi's six-minute deadline never resets on progress. <!-- @test: preseed/agents/pi/test/consult-proxy.test.mjs (REQ-BROWSER-009: request deadline is fixed and cancellation reaches the real server) --> <!-- @test: preseed/agents/pi/test/consult-proxy.test.mjs (REQ-BROWSER-009: configured six-minute call budget permits a response beyond thirty seconds) -->
 - Claude overrides remain browser-scoped, preserving unrelated servers and native startup/teardown safeguards.
 - Fresh Pi load creates timeout settings, never servers or credentials.
-- [REQ-AGENT-217](agents.md#req-agent-217-lossless-pi-mcp-adapter-migration) owns filename migration/regeneration before timeout preparation.
+- [REQ-AGENT-217](mcp.md#req-agent-217-lossless-pi-mcp-adapter-migration) owns filename migration/regeneration before timeout preparation.
 - Customized shapes, external routing and credentials remain unchanged.
 - Chrome emulation may multiply page waits, not the MCP budget.
 - Short stabilization/teardown timers remain unchanged.
@@ -320,7 +320,7 @@ Task #114 implementation candidate follows [RED CI40255590866](https://github.co
 
 **Priority:** P2
 
-**Dependencies:** [REQ-AGENT-217](agents.md#req-agent-217-lossless-pi-mcp-adapter-migration)
+**Dependencies:** [REQ-AGENT-217](mcp.md#req-agent-217-lossless-pi-mcp-adapter-migration)
 
 **Verification:** Focused migration and real locked-extension synthetic-server tests are authored; no local execution was performed for this handoff. Exact-head CI and deployed browser acceptance remain required.
 

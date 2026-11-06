@@ -6,6 +6,8 @@ This documentation is organized into **lanes** - each file targets a specific au
 
 The specification (`sdd/`) defines required system behavior. This documentation describes public implementation behavior and default-mode operation. Together they form a closed loop: requirements drive implementation, implementation is documented, and documentation links back to requirements.
 
+[Model Context Protocol](../sdd/spec/mcp.md) owns MCP portal and client requirements. Its operational guidance stays in [Configuration](lanes/configuration.md), [API Reference](lanes/api-reference.md) and [Preseed System](lanes/preseed.md); browser-specific behavior remains in [Browser Run](../sdd/spec/browser-run.md).
+
 ## Documentation Principles
 
 1. **Operator-focused lanes** - Each document targets a specific audience and covers one concern. An operator looking for sync troubleshooting finds it in Storage & Sync, not scattered across Architecture and Deployment.

@@ -2,6 +2,28 @@
 
 Multi-agent support, preseed system, and session modes.
 
+### Model Context Protocol requirements
+
+MCP requirements now belong to the [Model Context Protocol domain](mcp.md). Existing requirement IDs and fragment links remain valid.
+
+<a id="req-agent-226-hosted-owner-initiated-pi-mcp-oauth"></a>
+<a id="req-agent-226-worker-owned-mcp-portal-authorization"></a>
+- [REQ-AGENT-226: Worker-owned MCP portal authorization](mcp.md#req-agent-226-worker-owned-mcp-portal-authorization)
+
+<a id="req-agent-227-instance-administration-of-pi-mcp-portals"></a>
+<a id="req-agent-227-instance-administration-and-pi-use-of-mcp-portals"></a>
+<a id="req-agent-227-instance-administration-of-mcp-portals"></a>
+- [REQ-AGENT-227: Instance administration of MCP portals](mcp.md#req-agent-227-instance-administration-of-mcp-portals)
+
+<a id="req-agent-228-owner-pi-mcp-configuration-and-discovery"></a>
+- [REQ-AGENT-228: Owner Pi MCP configuration and discovery](mcp.md#req-agent-228-owner-pi-mcp-configuration-and-discovery)
+
+<a id="req-agent-229-worker-mediated-mcp-portal-transport"></a>
+- [REQ-AGENT-229: Worker-mediated MCP portal transport](mcp.md#req-agent-229-worker-mediated-mcp-portal-transport)
+
+<a id="req-agent-217-lossless-pi-mcp-adapter-migration"></a>
+- [REQ-AGENT-217: Lossless Pi MCP adapter migration](mcp.md#req-agent-217-lossless-pi-mcp-adapter-migration)
+
 ### Historical review-contract references
 
 These compatibility anchors resolve dated changelog references to retired review contracts, not current requirements or runtime behavior. Current marker-based review ingress is owned by [REQ-AGENT-171](#req-agent-171-user-scoped-review-completion-and-common-consent) and [Preseed](../../documentation/lanes/preseed.md#review-completion-prompt-or-fix-is-missing). The immutable source below preserves the former records and their verification qualifiers without restoring obsolete checkpoint or recovery machinery.
@@ -2482,114 +2504,9 @@ None.
 
 ---
 
-<a id="req-agent-226-hosted-owner-initiated-pi-mcp-oauth"></a>
-### REQ-AGENT-226: Worker-owned MCP portal authorization
 
-**Intent:** Owners authorize portal grants without delivering credentials to Pi.
 
-**Applies To:** User
 
-**Acceptance Criteria:**
-
-1. Owner browser OAuth starts PKCE with expiring state bound to owner, instance, configured portal/resource, issuer and fixed HTTPS callback. <!-- @impl: src/lib/mcp-portal-token.ts::beginMcpPortalConnect --> <!-- @test: src/__tests__/lib/mcp-portal-token.test.ts (REQ-AGENT-226 AC1: standard OAuth PKCE exchange stores only encrypted owner/portal grants) --> <!-- @test: src/__tests__/lib/mcp-portal-token.test.ts (REQ-AGENT-226 AC1: OAuth rejects issuer/resource mismatch, unsafe URLs and redirects before credential exchange) -->
-2. Invalid, expired, cancelled, wrong-owner, replayed or mismatched returns cannot save grants. <!-- @impl: src/lib/mcp-portal-token.ts::finishMcpPortalConnect --> <!-- @test: src/__tests__/lib/mcp-portal-token.test.ts (REQ-AGENT-226 AC2: callback rejects owner, instance, state, issuer, configuration and replay mismatches) --> <!-- @test: src/__tests__/lib/mcp-portal-token.test.ts (REQ-AGENT-226 AC2: disconnect %s cancels the older flow before token issuance) -->
-3. Completion and status artifacts expose no authorization code, verifier or token. <!-- @impl: src/routes/mcp-oauth.ts::createMcpOAuthRoutes --> <!-- @test: src/__tests__/routes/mcp-oauth.test.ts (REQ-AGENT-226 AC3: %s uses browser OAuth and clean owner-bound completion without compute startup) --> <!-- @test: src/__tests__/security/security-headers.test.ts (REQ-AGENT-226 AC3: full app preserves no-referrer and routes MCP returns before auth fallback) -->
-4. Dedicated owner-and-portal KV records require AES-GCM encryption with key-bound associated data; unavailable encryption and moved/plaintext records are unusable independently of GitHub/Cloudflare deploy-key records. <!-- @impl: src/lib/mcp-portal-token.ts::getMcpPortalGrant --> <!-- @test: src/__tests__/lib/mcp-portal-token.test.ts (REQ-AGENT-226 AC4: encryption is mandatory and ciphertext cannot move between owner records) -->
-5. The Worker reuses valid grants and silently refreshes expiring grants without Pi-owned credential entry. <!-- @impl: src/lib/mcp-portal-token.ts::getValidMcpPortalToken --> <!-- @test: src/__tests__/lib/mcp-portal-token.test.ts (REQ-AGENT-226 AC5: current grant refresh rotates without interactive Pi authorization) --> <!-- @test: src/__tests__/lib/mcp-portal-token.test.ts (REQ-AGENT-226 AC5: refresh token omission still permits the next silent renewal) --> <!-- @test: src/__tests__/lib/mcp-portal-token.test.ts (REQ-AGENT-226 AC5: racing rotating refreshes reuse only the current generation with lifetime=%s (disconnect=%s)) -->
-6. Missing, unrefreshable or observed disconnected/configuration-changed grants require reconnect. <!-- @impl: src/lib/mcp-portal-token.ts::getValidMcpPortalToken --> <!-- @test: src/__tests__/lib/mcp-portal-token.test.ts (REQ-AGENT-226 AC6: refresh failure and observed disconnect during refresh fail closed) -->
-7. Disconnect clears only the selected owner/portal connection while preserving unrelated credentials, including when provider revocation fails. <!-- @impl: src/lib/mcp-portal-token.ts::disconnectMcpPortal --> <!-- @test: src/__tests__/lib/mcp-portal-token.test.ts (REQ-AGENT-226 AC7: disconnect affects only selected owner/portal and never restores failed revocation) --> <!-- @test: src/__tests__/routes/mcp-oauth.test.ts (REQ-AGENT-226 AC7: same-origin disconnect clears only the authenticated owner portal) -->
-
-**Constraints:** Secrets stay Worker-only. No shared/admin grants, Access-JWT substitution, cookie copying or new issuer/channel. TLS remains verified. KV publication is non-atomic; the in-flight Disconnect race is explicitly deferred in [#1386](https://github.com/nikolanovoselec/codeflare/issues/1386).
-
-**Priority:** P1
-
-**Dependencies:** None.
-
-**Verification:** Synthetic OAuth/KV/route tests and managed CI; hosted owner SSO, downstream OAuth, refresh/revocation, CIMD-only metadata reachability and platform-log confidentiality require separate evidence.
-
-**Status:** Implemented
-
----
-
-<a id="req-agent-227-instance-administration-of-pi-mcp-portals"></a>
-<a id="req-agent-227-instance-administration-and-pi-use-of-mcp-portals"></a>
-### REQ-AGENT-227: Instance administration of MCP portals
-
-**Intent:** Administrators register portal destinations without provisioning or changing running sessions.
-
-**Applies To:** Admin
-
-**Acceptance Criteria:**
-
-1. Administration Environment lets authorized administrators read, add, edit, remove and save portal registrations; unauthorized users cannot read or change instance configuration. <!-- @impl: web-ui/src/components/admin/McpPortalSettings.tsx::McpPortalSettings --> <!-- @test: web-ui/src/__tests__/components/admin/McpPortalSettings.test.tsx (REQ-AGENT-227 AC1: administrators manage multiple named portal URLs) --> <!-- @impl: web-ui/src/components/admin/environment-areas.ts::environmentAreas --> <!-- @test: web-ui/src/__tests__/components/admin/McpEnvironment.test.tsx (REQ-AGENT-227 AC1: subsection Save persists and updates Overview and Environment status through removal) --> <!-- @test: web-ui/src/__tests__/components/admin/McpEnvironment.test.tsx (REQ-AGENT-227 AC1: normal Environment item and subsection are available in %s) --> <!-- @test: web-ui/src/__tests__/components/admin/McpEnvironment.test.tsx (REQ-AGENT-227 AC1: Overview counts all saved portals using the shared Environment item) --> <!-- @test: src/__tests__/routes/admin-configuration.test.ts (REQ-AGENT-227 AC1: Environment projection reads empty and saved portals from the existing owner in %s) --> <!-- @test: src/__tests__/routes/admin-mcp-portals.test.ts (REQ-AGENT-227 AC1: denies %s read and write) -->
-2. Registration accepts unique names and public standard-port HTTPS destinations without credentials or fragments, optionally carrying only `?codemode=search_and_execute`, and returns saved values. <!-- @impl: src/lib/mcp-portals.ts::validateMcpPortals --> <!-- @test: src/__tests__/routes/admin-mcp-portals.test.ts (REQ-AGENT-227 AC2: authorized validated configuration persists without secrets or external actions) --> <!-- @test: src/__tests__/routes/admin-mcp-portals.test.ts (REQ-AGENT-227 AC2: rejects invalid or credential-bearing configuration %#) -->
-3. Saved registration persists without provisioning resources, authenticating users, warming compute or restarting sessions. <!-- @impl: src/routes/admin/configuration.ts::app --> <!-- @test: src/__tests__/routes/admin-mcp-portals.test.ts (REQ-AGENT-227 AC3: saving does not mutate running sessions or grants) -->
-4. Removed or changed destinations cannot use mismatched stored grants. <!-- @impl: src/lib/mcp-portal-token.ts::getMcpPortalGrant --> <!-- @test: src/__tests__/lib/mcp-portal-token.test.ts (REQ-AGENT-227 AC4: %s destinations invalidate a previously saved grant) -->
-
-**Constraints:** Names identify connections, not tool relevance. Registration contains no secret/API-key field. Preserve existing administrator authorization and unrelated settings.
-
-**Priority:** P1
-
-**Dependencies:** None.
-
-**Verification:** Administration API/UI tests and managed CI; saving is not authentication, deployment or hosted acceptance.
-
-**Status:** Implemented
-
----
-
-### REQ-AGENT-228: Owner Pi MCP configuration and discovery
-
-**Intent:** Owners connect and discover approved portal tools across deployment and supported Pi modes.
-
-**Applies To:** User
-
-**Acceptance Criteria:**
-
-1. Both default/basic and advanced startup expose configured Code Mode wrappers through eager stock pi-mcp-extension registrations containing only a public placeholder, with no second client or Pi-owned portal OAuth provider. <!-- @impl: scripts/merge-pi-mcp-portals.mjs::mergePiMcpPortals --> <!-- @impl: src/container/container-env.ts::buildEnvVars --> <!-- @test: host/__tests__/pi-mcp-portals.test.js (REQ-AGENT-228 AC1: startup produces multiple eager non-secret placeholder portal connections) --> <!-- @test: host/__tests__/pi-mcp-stock.test.js (REQ-AGENT-228: stock eager placeholder connections register live Code Mode wrappers with explicit partial coverage) -->
-2. Idempotent reconciliation changes only proven managed registrations and preserves unrelated MCP configuration, stdio/local OAuth grants and stock lifecycle behavior. <!-- @impl: scripts/merge-pi-mcp-portals.mjs::mergePiMcpPortals --> <!-- @test: host/__tests__/pi-mcp-portals.test.js (REQ-AGENT-228 AC2: reconciliation preserves unrelated servers and grants) --> <!-- @test: host/__tests__/pi-mcp-stock.test.js (REQ-AGENT-228: unmanaged local OAuth retains real PKCE grant persistence, refresh and shutdown lifecycle) -->
-3. Registration changes apply on subsequent startup without rewriting running Pi configuration. <!-- @impl: src/container/container-config.ts::refreshMcpPortalConfiguration --> <!-- @test: src/__tests__/container/container-env.test.ts (REQ-AGENT-228 AC3: startup rereads changed instance portal configuration and clears removals) -->
-4. Settings offers owner Connect/status/Disconnect for multiple portal IDs across deployment, subscription and Pi modes in one shared surface, with concise guidance without troubleshooting disclosures and accessible loading/error/empty states. <!-- @impl: web-ui/src/components/settings/McpPortalsSection.tsx::McpPortalsSection --> <!-- @test: web-ui/src/__tests__/components/McpPortalsSection.test.tsx (REQ-AGENT-228 AC4: multiple portal identities connect through existing browser navigation and disconnect independently) --> <!-- @test: web-ui/src/__tests__/components/SettingsPanel.test.tsx (REQ-AGENT-228 AC4: MCP Settings is available in both Pi modes and all subscription modes (enterprise=%s)) --> <!-- @test: web-ui/src/__tests__/components/McpPortalsSection.test.tsx (REQ-AGENT-228 AC4: concise permission guidance keeps connection actions available without a troubleshooting disclosure) -->
-5. An auto-discoverable native router progressively loads connection, discovery and execution topics in both Pi modes. <!-- @impl: preseed/agents/pi/skills/mcp-portals/SKILL.md --> <!-- @manual: In each Pi mode discover the router and follow its links to load only the required topic; verify the managed artifact identity separately. -->
-6. Portal guidance requires approved-set bootstrap before selection, wrapper/inner-method distinction, live schemas, originating-portal methods, explicit partial coverage and readback before considering retries of uncertain writes. <!-- @impl: preseed/agents/pi/skills/mcp-portal-discovery/SKILL.md --> <!-- @impl: preseed/agents/pi/skills/mcp-portal-execution/SKILL.md --> <!-- @manual: Bootstrap approved synthetic portals, activate exact search/execute wrappers, inspect live schemas and originating-portal results, report missing coverage, and read back an uncertain operation before considering retry. -->
-
-**Constraints:** Availability never bypasses owner, tenant or Operator authorization. Builtin MCP remains disabled; stock pi-mcp-extension is the sole MCP owner. Preserve unrelated user/project MCP and OAuth state. Deliver skills through existing seed/Curation.
-
-**Priority:** P1
-
-**Dependencies:** [REQ-AGENT-226](#req-agent-226-worker-owned-mcp-portal-authorization), [REQ-AGENT-227](#req-agent-227-instance-administration-of-mcp-portals)
-
-**Verification:** Startup/stock-client and Settings tests plus native progressive-use inspection. CI, signed delivery, deliberate local reload and hosted acceptance are separate gates.
-
-**Status:** Implemented
-
----
-
-### REQ-AGENT-229: Worker-mediated MCP portal transport
-
-**Intent:** Owners use portal tools without exposing their real credentials to Pi.
-
-**Applies To:** User
-
-**Acceptance Criteria:**
-
-1. Only a trusted parent-bound owner grant replaces agent credentials at the exact currently approved HTTPS portal destination. <!-- @impl: src/mcp-portal-interceptor.ts::forwardMcpPortal --> <!-- @test: src/__tests__/container/mcp-portal-interception.test.ts (REQ-AGENT-229 AC1: registered portal boundary is available in all deployment modes and refuses missing owner grants (enterprise=%s)) --> <!-- @test: src/__tests__/mcp-portal-interceptor.test.ts (REQ-AGENT-229 AC4: stamps the trusted owner grant and preserves functional response streams and downstream URL context) --> <!-- @impl: src/egress-controller.ts::EgressController --> <!-- @test: src/__tests__/egress-controller.test.ts (REQ-AGENT-229 AC1: catch-all stamps only the parent owner grant and preserves MCP wire outcomes) --> <!-- @test: src/__tests__/container/mcp-portal-interception.test.ts (REQ-AGENT-229 AC1: strict catch-all keeps parent portal ownership across R2 refresh (refresh=%s)) -->
-2. Wrong owner/resource/instance/configuration bindings, Operators and redirected destinations fail closed without credential forwarding. <!-- @impl: src/mcp-portal-interceptor.ts::forwardMcpPortal --> <!-- @test: src/__tests__/mcp-portal-interceptor.test.ts (REQ-AGENT-229 AC2: rejects wrong resource, owner, Operator, instance, configuration, missing grant and strict-egress absence before sending) --> <!-- @test: src/__tests__/container/mcp-portal-interception.test.ts (REQ-AGENT-229 AC2: parent-bound Operators cannot inherit ordinary owner portal grants) --> <!-- @test: src/__tests__/egress-controller.test.ts (REQ-AGENT-229 AC2: catch-all denies %s without a protected send) --> <!-- @test: src/__tests__/egress-controller.test.ts (REQ-AGENT-229 AC2: unrelated URL and forged Host retain ordinary auth without owner lookup) --> <!-- @test: src/__tests__/container/mcp-portal-interception.test.ts (REQ-AGENT-229 AC2: strict refresh selects current configuration without adopting an old grant) --> <!-- @test: src/__tests__/container/mcp-portal-interception.test.ts (REQ-AGENT-229 AC2: parent Operator profile cannot inherit a catch-all owner grant (refresh=%s)) -->
-3. Unavailable mandatory interception or colliding outbound transports prevents startup. <!-- @impl: src/container/container-interception.ts::wireContainerInterception --> <!-- @test: src/__tests__/container/mcp-portal-interception.test.ts (REQ-AGENT-229 AC3: portal host collisions and unavailable interception fail startup rather than bypassing credential isolation) -->
-4. Upstream streams, cancellation, statuses and portal-issued downstream authorization context remain intact. <!-- @impl: src/mcp-portal-interceptor.ts::forwardMcpPortal --> <!-- @test: src/__tests__/mcp-portal-interceptor.test.ts (REQ-AGENT-229 AC4: stamps the trusted owner grant and preserves functional response streams and downstream URL context) --> <!-- @test: src/__tests__/mcp-portal-interceptor.test.ts (REQ-AGENT-229 AC4: response cancellation reaches the original upstream stream) --> <!-- @test: src/__tests__/mcp-portal-interceptor.test.ts (REQ-AGENT-229 AC4: rejects redirects without credential leakage and preserves actual upstream failure status) --> <!-- @test: src/__tests__/egress-controller.test.ts (REQ-AGENT-229 AC4: catch-all streams downstream authorization context and preserves cancellation) -->
-5. Credential maintenance never replays MCP requests after uncertain write outcomes. <!-- @impl: src/mcp-portal-interceptor.ts::forwardMcpPortal --> <!-- @test: src/__tests__/mcp-portal-interceptor.test.ts (REQ-AGENT-229 AC5: uncertain MCP writes are never replayed after response loss) --> <!-- @test: src/__tests__/egress-controller.test.ts (REQ-AGENT-229 AC5: catch-all never replays uncertain MCP writes or follows redirects) -->
-
-**Constraints:** TLS verification and strict egress remain enforced. No shared service/admin identity or agent-selected owner. GitHub upstream requires per-user authentication. Exposed write schemas are not authorization for arbitrary mutations.
-
-**Priority:** P1
-
-**Dependencies:** [REQ-AGENT-226](#req-agent-226-worker-owned-mcp-portal-authorization)
-
-**Verification:** Synthetic boundary, startup, stream and no-replay tests; hosted upstream/downstream authorization and revocation require separate evidence.
-
-**Status:** Implemented
-
----
 
 ### REQ-AGENT-050: Pi-Native `/review` Workflow Skill
 
@@ -3434,46 +3351,6 @@ None.
 
 ---
 
-### REQ-AGENT-217: Lossless Pi MCP adapter migration
-
-**Intent:** The positively selected pi-mcp-extension handoff migrates `mcp-adapter.json` to `mcp.json` without clobbering existing valid destinations or losing displaced originals; native adapter configurations are not legacy handoff inputs while the adapter is selected.
-
-**Applies To:** User
-
-**Acceptance Criteria:**
-
-1. Preparation requires positively selected stock-only global configuration; other selections preserve both MCP files and report ambiguous or unknown selection without exposing contents. <!-- @impl: preseed/agents/pi/extensions/00-mcp-adapter-config.ts::registerMcpAdapterMigration --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (REQ-AGENT-217: selected stock hands off even when the adapter is merely installed) --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (REQ-AGENT-217: configured MCP selection protects native files (adapter only)) --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (REQ-AGENT-217: configured MCP selection protects native files (dual local stock and npm adapter)) --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (REQ-AGENT-217: lazy-keep-alive handoff preserves authentication and supports the replacement lifecycle) --> <!-- @impl: preseed/agents/pi/extensions/00-mcp-adapter-config.ts::migratePiMcpAdapterConfig --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (legacy adapter migration preserves exact bytes, credentials, custom servers and 600000 browser retention) --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (REQ-AGENT-217 AC1: real startup package assembly permits stock handoff (${inventory})) --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (REQ-AGENT-217 AC1/AC2/AC7: Review exclusions preserve selected client behavior (${form}, ${owner})) --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (REQ-AGENT-217 AC1: Review exception does not authorize other exclusions (${exclusion})) -->
-2. During stock handoff, existing valid `mcp.json` destinations take precedence over legacy adapter configuration; displaced originals remain recoverable without merging conflicting credentials. <!-- @impl: preseed/agents/pi/extensions/00-mcp-adapter-config.ts::migratePiMcpAdapterConfig --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (existing adapter target wins and archives legacy bytes without leaving the deprecated filename) -->
-3. Matching, conflicting, unreadable, symlink and directory passive archives never overwrite existing data or block recovery. <!-- @impl: preseed/agents/pi/extensions/00-mcp-adapter-config.ts::preserve --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (existing migration backup is never overwritten or used to discard legacy credentials) --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (occupied symlink archive is preserved without following it or preventing recovery) --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (occupied directory archive is preserved without following it or preventing recovery) --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (unreadable passive archive cannot block custom legacy recovery) -->
-4. Malformed regular originals are archived before valid recovery; unsafe active paths/ancestors and I/O failures still fail closed without discarding user data. <!-- @impl: preseed/agents/pi/extensions/00-mcp-adapter-config.ts::migratePiMcpAdapterConfig --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (malformed existing destination is archived and recovers exact valid legacy configuration) --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (nonregular destination blocks migration and retains legacy) -->
-5. Startup does not exclude the newly active root `.pi/agent/mcp.json` from subsequent baseline/bisync; adapter originals, recovery copies and nested files remain sync-eligible. <!-- @impl: entrypoint.sh::configure_pi_mcp_adapter --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (REQ-AGENT-217: active mcp.json and recovery objects remain baseline-sync eligible) --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (REQ-AGENT-217: failed preparation does not exclude restored legacy from baseline) -->
-6. Startup reconstructs recognizable generated consult and browser entries from current runtime inputs while preserving customized configuration. <!-- @impl: entrypoint.sh::configure_pi_mcp_adapter --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (REQ-AGENT-069: fresh startup regenerates managed consult credentials while retaining custom servers and settings) --> <!-- @test: host/__tests__/entrypoint-browser-run-mcp.test.js (REQ-BROWSER-006: startup regenerates the image-owned browser endpoint and headers while preserving custom settings) -->
-7. Displaced or transformed unknown/custom originals remain recoverable before active-file deletion, including on replacement-write failure; unchanged legacy bytes survive in `mcp.json` during stock handoff. <!-- @impl: preseed/agents/pi/extensions/00-mcp-adapter-config.ts::preserve --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (startup preserves selected custom legacy originals before regenerating owned entries) --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (replacement write failure preserves the original custom adapter for recovery) -->
-
-**Constraints:**
-
-- No bucket deletion or sync redesign.
-- Installed packages are not selection evidence.
-- Exact managed exclusions of `mcp-portal-oauth.ts`, `review-enforcement.ts` and `operator-review-remote.ts` are selection-neutral; other unsupported filters fail closed without preparing files.
-- For positively selected stock handoff only, working entries survive load/reload except `lazy-keep-alive`/`lazy-keepalive` → `lazy` conversion and [timeout preparation](browser-run.md#req-browser-009-mcp-and-chrome-sdk-timeout-profile).
-- Registration does not choose a settings winner or disable either client.
-- Explicit startup handoff remains stock-only.
-- Transformed custom originals remain recoverable before replacement.
-- Stock startup and positively selected stock managed load decode selected legacy stdio `!!` by one `!`, never a valid destination's literal environment. <!-- @test: preseed/agents/pi/test/consult-proxy.test.mjs (REQ-AGENT-217: actual stdio server receives the selected schema's literal env (legacy=true, regenerate=false)) --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (REQ-AGENT-217: entrypoint preparation decodes selected custom consult env before preserved-entry merge) -->
-- Selected legacy commands/interpolation fail closed without evaluation before writes, preserving originals and content-free diagnostics; unselected expressions cannot block a valid destination. <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (REQ-AGENT-217: rejected legacy env produces a content-free managed-load diagnostic) -->
-
-- Timeout preparation preserves credentials and unrelated fields; stock lazy connections have no adapter idle timer and remote retention remains independent.
-- Managed constructors and Claude behavior remain governed by [REQ-AGENT-069](#req-agent-069-pi-consult-llm-mcp-lazy-wiring).
-
-**Priority:** P1
-
-**Dependencies:** [REQ-AGENT-069](#req-agent-069-pi-consult-llm-mcp-lazy-wiring)
-
-**Verification:** New-direction guarded migration, configured-client selection and lifecycle-conversion regressions are authored. Focused local test execution remains unverified. Exact-head CI and deployed handoff acceptance remain required. Automated test: [pi-mcp-adapter-config.test.js](../../host/__tests__/pi-mcp-adapter-config.test.js). Current-head CI remains pending.
-
-**Status:** Implemented
-
----
 
 ### REQ-AGENT-070: Claude on-demand CI monitoring policy
 

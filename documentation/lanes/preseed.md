@@ -72,7 +72,7 @@ Managed MCP portals use the unmodified stock `pi-mcp-extension` as the only conn
 
 The auto-discoverable native `mcp-portals` router progressively loads `mcp-portal-connect`, `mcp-portal-discovery` and `mcp-portal-execution`: bootstrap every approved portal before semantic selection; capability activates registered wrappers, not upstream methods; use live JSON schemas, `codemode.tools()` and actual originating-portal execute names. Report partial coverage and read back uncertain writes before retrying. These skills follow the established default+advanced manifest and Curation/seed pipeline. <!-- @impl: preseed/agents/pi/skills/mcp-portals/SKILL.md -->
 
-Source qualification, seed publication, local reload, deployment and real downstream authorization acceptance are distinct. ([REQ-AGENT-226](../../sdd/spec/agents.md#req-agent-226-worker-owned-mcp-portal-authorization), [REQ-AGENT-228](../../sdd/spec/agents.md#req-agent-228-owner-pi-mcp-configuration-and-discovery), [REQ-AGENT-229](../../sdd/spec/agents.md#req-agent-229-worker-mediated-mcp-portal-transport)).
+Source qualification, seed publication, local reload, deployment and real downstream authorization acceptance are distinct. ([REQ-AGENT-226](../../sdd/spec/mcp.md#req-agent-226-worker-owned-mcp-portal-authorization), [REQ-AGENT-228](../../sdd/spec/mcp.md#req-agent-228-owner-pi-mcp-configuration-and-discovery), [REQ-AGENT-229](../../sdd/spec/mcp.md#req-agent-229-worker-mediated-mcp-portal-transport)).
 
 The managed Pi extension packages are installed in the settings `required` set, so they load in every Pi session independently of the context-mode toggle. This includes the exact-pinned native Goal package for session-scoped autonomous completion. On resource load, `context-mode-runtime.ts` installs the enabled adapter; at each user prompt the alphabetically final `zz-tool-exposure-finalizer.ts` exposes only `read`, `bash`, `edit`, `write`, and `capability`. Every other eligible registered tool remains searchable and activates additively for the next model step only through explicit exact-tool `name` activation; search itself never activates tools.
 
@@ -356,7 +356,7 @@ clobber data or block ordinary recovery. Unsafe active paths and I/O errors fail
 closed. Existing guards are retained rather than replaced with a new sync scheme.
 The newly active `mcp.json` must not retain the old baseline/bisync exclusion;
 active configuration and recovery copies remain sync-eligible. No bucket objects
-are deleted. See [REQ-AGENT-217](../../sdd/spec/agents.md#req-agent-217-lossless-pi-mcp-adapter-migration).
+are deleted. See [REQ-AGENT-217](../../sdd/spec/mcp.md#req-agent-217-lossless-pi-mcp-adapter-migration).
 
 Known old `lazy-keep-alive` / `lazy-keepalive` lifecycle values become `lazy`.
 Lazy servers start only on explicit `mcp_connect`, not status/capability discovery.
@@ -1426,7 +1426,7 @@ The complete RPIV image compatibility and prewarm contract belongs to the [Pi pa
 - Pi reads `consult-llm` from `~/.pi/agent/mcp.json` through pi-mcp-extension after explicit connection and exact registered-tool activation.
 
 <a id="req-agent-217-preserved-clauses"></a>
-The complete lossless MCP migration contract belongs to the [Pi package reference](../references/pi-packages.md#mcp-adapter-and-consult-llm); [REQ-AGENT-217](../../sdd/spec/agents.md#req-agent-217-lossless-pi-mcp-adapter-migration) remains in Agents.
+The complete lossless MCP migration contract belongs to the [Pi package reference](../references/pi-packages.md#mcp-adapter-and-consult-llm); [REQ-AGENT-217](../../sdd/spec/mcp.md#req-agent-217-lossless-pi-mcp-adapter-migration) is owned by Model Context Protocol.
 
 ## Related Documentation
 
