@@ -3,6 +3,8 @@
 import collections
 import http.client
 import http.server
+import hashlib
+import json
 import os
 from pathlib import Path
 import socket
@@ -163,8 +165,21 @@ def test_recovery_archive_filters(run, root, server_root):
     entrypoint = (Path(__file__).resolve().parents[2] / "entrypoint.sh").read_text()
     start = entrypoint.index('if [ "${SESSION_MODE:-default}" = "advanced" ]; then')
     common = entrypoint.index("RCLONE_FILTERS_COMMON=(", start)
-    end = entrypoint.index("\nfi\n", common) + len("\nfi\n")
+    end = entrypoint.index("# ============================================================================\n# Recovery filter", common)
     filter_source = entrypoint[start:end]
+    policy_source = entrypoint[entrypoint.index("prepare_managed_resource_filter() {"):entrypoint.index("# Step 1: One-way sync FROM R2 TO local")]
+    runtime = root / "filter-runtime"
+    (runtime / "sync").mkdir(parents=True)
+    (runtime / "sync/recovery.filter").write_text("")
+    def filters_for(session_mode, sync_mode, policy="mutable", home=None, digest="", release="", sync_policy_mode="include"):
+        script = (f"SESSION_MODE={session_mode}\nSYNC_MODE={sync_mode}\nSYNC_POLICY_MODE={sync_policy_mode}\nSESSION_ID=filter-test\n"
+                  f"CODEFLARE_RUNTIME_ROOT='{runtime}'\nUSER_HOME='{home or runtime}'\n"
+                  f"MANAGED_RESOURCE_POLICY={policy}\nREMOTE_CURATION_RELEASE_DIGEST={release}\nMANAGED_RESOURCE_PATHS_DIGEST={digest}\n"
+                  'MANAGED_RESOURCE_FILTER_FILE="$CODEFLARE_RUNTIME_ROOT/sync/managed.filter"\n'
+                  'RECOVERY_FILTER_FILE="$CODEFLARE_RUNTIME_ROOT/sync/recovery.filter"\n'
+                  + filter_source + policy_source + '\ncompose_rclone_filters\nprintf "%s\\0" "${RCLONE_EFFECTIVE_FILTERS[@]}"')
+        output = subprocess.check_output(["bash", "-eu", "-c", script], timeout=10)
+        return output.decode().rstrip("\0").split("\0")
     live = {
         ".codeflare/review-state/v1/repo/branch/review.json": b"live review\n",
         ".codeflare/herdr/sessions/cf-filter-test/session.json": b"live structure\n",
@@ -190,10 +205,7 @@ def test_recovery_archive_filters(run, root, server_root):
 
     for session_mode in ("default", "advanced"):
         for sync_mode in ("none", "metadata", "full"):
-            script = (f"SESSION_MODE={session_mode}\nSYNC_MODE={sync_mode}\nSESSION_ID=filter-test\n"
-                      + filter_source + '\nprintf "%s\\0" "${RCLONE_FILTERS[@]}"')
-            output = subprocess.check_output(["bash", "-eu", "-c", script], timeout=10)
-            filters = output.decode().rstrip("\0").split("\0")
+            filters = filters_for(session_mode, sync_mode)
             expected = {name for name in live if session_mode == "advanced" or not name.startswith("Vault/")}
             listed = set(run("lsf", "fixture:filters", "-R", "--files-only", "--fast-list", *filters).decode().splitlines())
             assert listed == expected, f"Archive escaped filters in {session_mode}/{sync_mode}: {listed ^ expected}"
@@ -223,6 +235,161 @@ def test_recovery_archive_filters(run, root, server_root):
             }, "Restore/bisync downloaded remote archives"
             for name, content in archives.items():
                 assert (bucket / name).read_bytes() == content, f"Bisync changed/deleted remote archive: {name}"
+    # The actual composed production policy must also govern flat S3 keys.
+    durable = {".pi/agent/future/nested/state.opaque": b"future SDK state\0",
+               ".pi/web-search.json": b"user workflow choice\n",
+               ".pi/recovery/config-archive/original.json": b"original config\n",
+               ".pi/future-sdk/nested/state.opaque": b"future Pi state\0",
+               ".impeccable/config.json": b"tool configuration\n",
+               ".pi/agent/npm/package-lock.json": b"lock\n",
+               ".pi/agent/npm/custom/src/main.ts": b"custom source\n",
+               ".claude/mcp.migrated.archive": b"recovery\n",
+               ".pi/agent/mcp.json.migrated": b"migrated config\n",
+               ".vscode-oss-shared/sharedStorage/state.vscdb": b"durable DB bytes\0",
+               ".local/share/chrome-devtools-mcp/user-config.json": b"personal settings",
+               "Documentation/new.md": b"docs\n", "Examples/blob.bin": b"\0binary",
+               "Vault/attachment.bin": b"\0vault",
+               "Vault/graphify-out/vault-graph.json": b"graph\n",
+               "Vault/graphify-out/vault-extract-manifest.json": b"manifest\n",
+               "Vault/graphify-out/vault-extract-initialized": b"initialized\n",
+               "workspace/repo/.git/HEAD": b"git\n", "workspace/repo/untracked.bin": b"\0untracked",
+               "workspace/repo/CLAUDE.md": b"instructions\n"}
+    fallback = {"unknown-home/file": b"unknown file", ".unknown-sdk/auth.json": b"unknown config",
+                "nested/.claude/settings.json": b"nested configuration"}
+    denied = {".cache/root-state": b"cache", ".cache/nested/file": b"cache",
+              ".venv/pyvenv.cfg": b"environment", ".venv-tools/bin/python": b"environment",
+              ".impeccable/update-check.json": b"counter", ".impeccable/staleness-check.json": b"counter",
+              ".config/other/auth.json": b"excluded config", ".local/share/chrome-devtools-mcp/telemetry_state.json": b"counter", ".pi/agent/new/.cache/file": b"cache",
+              ".pi/agent/new/node_modules/package/index.js": b"dependency",
+              "Vault/graphify-out/derived.bin": b"derived",
+              ".claude.json.backup.123": b"auto backup", ".claude/backups/settings.before.json": b"auto backup",
+              ".claude/commands.bak.123": b"auto backup", ".claude/settings.json.bak123": b"auto backup",
+              ".claude/skills.bak.123/skill.md": b"auto backup", ".claude/history.jsonl": b"command history"}
+    managed = {".codeflare/managed-extensions.json": b"metadata\n",
+               ".pi/agent/extensions/managed.ts": b"managed\n"}
+    matrix_bucket = server_root / "policy-matrix"
+    for name, content in {**durable, **fallback, **denied, **managed}.items():
+        destination = matrix_bucket / name
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_bytes(content)
+    release = hashlib.sha256(b"synthetic-release").hexdigest()
+    for sync_policy_mode in ("include", "exclude"):
+        for session_mode in ("default", "advanced"):
+            for sync_mode in ("none", "metadata", "full"):
+                for curation in (False, True):
+                    for immutable in (False, True):
+                        policy = "immutable" if curation and immutable else "mutable"
+                        home = root / f"policy-home-{sync_policy_mode}-{session_mode}-{sync_mode}-{curation}-{immutable}"
+                        (home / ".codeflare").mkdir(parents=True)
+                        document = {"schemaVersion": 1, "releaseDigest": release, "resourcePolicy": policy,
+                                    "paths": sorted([*managed, ".codeflare/managed-paths.json"]), "resourceRoots": []}
+                        raw = (json.dumps(document, separators=(",", ":")) + "\n").encode()
+                        (home / ".codeflare/managed-paths.json").write_bytes(raw)
+                        filters = filters_for(session_mode, sync_mode, policy, home, hashlib.sha256(raw).hexdigest(), release, sync_policy_mode)
+                        expected = {name for name in durable if
+                                    (not name.startswith("Vault/") or session_mode == "advanced") and
+                                    (not name.startswith("workspace/") or sync_mode == "full" or
+                                     (sync_mode == "metadata" and name.endswith("/CLAUDE.md")))}
+                        if sync_policy_mode == "exclude":
+                            expected.update(fallback)
+                        if policy == "mutable":
+                            expected.update(managed)
+                        listed = set(run("lsf", "fixture:policy-matrix", "-R", "--files-only", "--fast-list", *filters).decode().splitlines())
+                        assert listed == expected, f"Production policy mismatch {sync_policy_mode}/{session_mode}/{sync_mode}/{curation}/{immutable}: {listed ^ expected}"
+                        restored = home / "restored"
+                        run("copy", "fixture:policy-matrix", str(restored), "--fast-list", *filters)
+                        for name in expected:
+                            assert (restored / name).read_bytes() == {**durable, **fallback, **managed}[name]
+                        for name in {**durable, **fallback, **denied, **managed}:
+                            assert (restored / name).exists() == (name in expected), f"Wrong restored admission: {name}"
+                        upload_bucket = f"policy-upload-{sync_policy_mode}-{session_mode}-{sync_mode}-{curation}-{immutable}"
+                        run("copy", str(restored), f"fixture:{upload_bucket}", "--fast-list", *filters)
+                        uploaded = set(run("lsf", f"fixture:{upload_bucket}", "-R", "--files-only", "--fast-list").decode().splitlines())
+                        assert uploaded == expected, f"Wrong upload admission: {uploaded ^ expected}"
+                        for name in expected:
+                            assert (server_root / upload_bucket / name).read_bytes() == {**durable, **fallback, **managed}[name]
+    for sync_policy_mode in ("include", "exclude"):
+        # Exclusive vetoes precede positives during actual S3 transfers, including
+        # the metadata overlap and a retired path carried by the policy.
+        exclusive_home = root / f"exclusive-home-{sync_policy_mode}"
+        (exclusive_home / ".codeflare").mkdir(parents=True)
+        exclusive_paths = sorted([*managed, ".codeflare/managed-paths.json", ".pi/agent/extensions/synthetic-retired.ts"])
+        raw = (json.dumps({"schemaVersion": 1, "releaseDigest": release, "resourcePolicy": "exclusive",
+                           "paths": exclusive_paths, "resourceRoots": [".pi/agent/extensions/"]}, separators=(",", ":")) + "\n").encode()
+        (exclusive_home / ".codeflare/managed-paths.json").write_bytes(raw)
+        exclusive_bucket = server_root / f"exclusive-policy-{sync_policy_mode}"
+        protected = {**managed, ".pi/agent/extensions/personal.ts": b"root protected", ".pi/agent/extensions/synthetic-retired.ts": b"retired"}
+        for name, content in protected.items():
+            for base, prefix in ((exclusive_home, b"local "), (exclusive_bucket, b"remote ")):
+                path = base / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(prefix + content)
+        adjacent = exclusive_home / ".pi/agent/extensions-adjacent/user.ts"
+        adjacent.parent.mkdir(parents=True)
+        adjacent.write_bytes(b"adjacent ordinary")
+        filters = filters_for("advanced", "full", "exclusive", exclusive_home, hashlib.sha256(raw).hexdigest(), release, sync_policy_mode)
+        exclusive_args = ("bisync", str(exclusive_home), f"fixture:exclusive-policy-{sync_policy_mode}", "--workdir", str(root / f"exclusive-state-{sync_policy_mode}"),
+                          "--use-server-modtime", "--fast-list", "--check-sync=false", "--ignore-checksum", *filters)
+        run(*exclusive_args, "--resync", "--resync-mode", "newer")
+        run(*exclusive_args)
+        for name, content in protected.items():
+            assert (exclusive_home / name).read_bytes() == b"local " + content
+            assert run("cat", f"fixture:exclusive-policy-{sync_policy_mode}/{name}") == b"remote " + content
+        assert run("cat", f"fixture:exclusive-policy-{sync_policy_mode}/.pi/agent/extensions-adjacent/user.ts") == b"adjacent ordinary"
+    # Scope changes rebaseline without deleting either side's newly excluded data;
+    # ordinary allowed deletions still converge in both directions.
+    scope_home = root / "scope-home"
+    scope_bucket = server_root / "scope-policy"
+    for base, files in ((scope_home, {".pi/agent/anchor": b"anchor", ".pi/agent/local-delete": b"delete",
+                                      "workspace/untracked.bin": b"workspace", "unknown-home/old": b"local excluded"}),
+                        (scope_bucket, {".pi/agent/remote-delete": b"delete", "unknown-home/old": b"remote excluded"})):
+        for name, content in files.items():
+            destination = base / name
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            destination.write_bytes(content)
+    def scope_sync(filters, *extra):
+        run("bisync", str(scope_home), "fixture:scope-policy", "--workdir", str(root / "scope-state"),
+            "--use-server-modtime", "--fast-list", "--check-sync=false", "--ignore-checksum", *filters, *extra)
+    filters = filters_for("advanced", "full")
+    scope_sync(filters, "--resync", "--resync-mode", "newer")
+    filters = filters_for("advanced", "none")
+    scope_sync(filters, "--resync", "--resync-mode", "newer")
+    (scope_home / ".pi/agent/local-delete").unlink()
+    run("deletefile", "fixture:scope-policy/.pi/agent/remote-delete")
+    scope_sync(filters)
+    assert not (scope_bucket / ".pi/agent/local-delete").exists()
+    assert not (scope_home / ".pi/agent/remote-delete").exists()
+    assert (scope_bucket / "workspace/untracked.bin").read_bytes() == b"workspace"
+    assert (scope_bucket / "unknown-home/old").read_bytes() == b"remote excluded"
+    assert (scope_home / "unknown-home/old").read_bytes() == b"local excluded"
+    for initial_mode, next_mode in (("include", "exclude"), ("exclude", "include")):
+        local = root / f"flip-{initial_mode}"
+        bucket_name = f"flip-{initial_mode}"
+        bucket = server_root / bucket_name
+        for base in (local, bucket):
+            for name, content in {".pi/agent/anchor": b"anchor", ".pi/agent/delete-after-flip": b"ordinary", "unknown-home/file": b"original"}.items():
+                path = base / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(content)
+        def flip_sync(filters, *extra):
+            run("bisync", str(local), f"fixture:{bucket_name}", "--workdir", str(root / f"flip-state-{initial_mode}"),
+                "--use-server-modtime", "--fast-list", "--check-sync=false", "--ignore-checksum", *filters, *extra)
+        filters = filters_for("advanced", "full", sync_policy_mode=initial_mode)
+        flip_sync(filters, "--resync", "--resync-mode", "newer")
+        if next_mode == "include":
+            (local / "unknown-home/file").write_bytes(b"independent local")
+            run("rcat", f"fixture:{bucket_name}/unknown-home/file", data=b"independent remote")
+        else:
+            os.utime(local / "unknown-home/file", (946684800, 946684800))
+            run("rcat", f"fixture:{bucket_name}/unknown-home/file", data=b"new remote")
+        filters = filters_for("advanced", "full", sync_policy_mode=next_mode)
+        flip_sync(filters, "--resync", "--resync-mode", "newer")
+        assert (local / "unknown-home/file").read_bytes() == (b"independent local" if next_mode == "include" else b"new remote")
+        assert run("cat", f"fixture:{bucket_name}/unknown-home/file") == (b"independent remote" if next_mode == "include" else b"new remote")
+        (local / ".pi/agent/delete-after-flip").unlink()
+        flip_sync(filters)
+        assert not (bucket / ".pi/agent/delete-after-flip").exists()
+    print("PASS: all 48 effective policy configurations select and restore exact flat S3 bytes")
     print("PASS: home-cache archives stay outside flat S3 listings, restore and bisync in all six mode combinations")
 
 

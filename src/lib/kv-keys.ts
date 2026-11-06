@@ -378,6 +378,7 @@ export const SETUP_KEYS = {
   // (read === 'active'); default OFF when absent. Flipping it reconciles each bucket's
   // encryption regime losslessly on its next session start (src/lib/r2-migration.ts).
   R2_SSE_DISABLED: 'setup:r2_sse_disabled',
+  SYNC_POLICY_MODE: 'setup:sync_policy_mode',
   // Enterprise-only view-only-storage toggle: when 'active', the R2 Storage Panel allows
   // open/view (inline) of safe types but blocks file downloads (attachment) so an agent or
   // user cannot bulk-exfiltrate the bucket (e.g. zip the repo and download it). Stored as

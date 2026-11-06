@@ -3,6 +3,7 @@
  * Handles POST /start, /destroy
  */
 import { Hono } from 'hono';
+import { readSyncPolicyMode } from '../../lib/sync-policy';
 import { getContainer } from '@cloudflare/containers';
 import type { Env, Session, UserPreferences, LlmKeys, DeployKeys, ManagedResourcePolicy } from '../../types';
 import { resolveSessionWorkspace, resolveTerminalMode } from '../../types';
@@ -315,6 +316,7 @@ app.post('/start', containerStartRateLimiter, async (c) => {
     const containerId = getContainerId(bucketName, sessionId);
     const shortContainerId = containerId.substring(0, CONTAINER_ID_DISPLAY_LENGTH);
     const workspaceSyncEnabled = preferences.workspaceSyncEnabled === true;
+    const syncPolicyMode = await readSyncPolicyMode(c.env.KV);
     const fastStartEnabled = preferences.fastStartEnabled !== false;
     // Free tier: locked to 15m idle timeout. All other tiers: user preference or 30m default.
     const effectiveTier = getEffectiveTier(user.subscriptionTier, user.accessTier, user.billingStatus, user.billingPeriodEnd, c.env);
@@ -438,6 +440,7 @@ app.post('/start', containerStartRateLimiter, async (c) => {
       tabConfig,
       terminalMode,
       workspaceSyncEnabled,
+      syncPolicyMode,
       fastStartEnabled,
       sessionMode,
       sessionWorkspace: resolveSessionWorkspace(sessionData.workspace),

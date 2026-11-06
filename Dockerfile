@@ -892,7 +892,8 @@ RUN mkdir -p /opt/codeflare/jiti-warm-tmp /home/user/.pi/agent && \
     TMPDIR=/opt/codeflare/jiti-warm-tmp HOME=/home/user PI_CODING_AGENT_DIR=/home/user/.pi/agent PI_OFFLINE=1 PI_SKIP_VERSION_CHECK=1 \
       node /opt/codeflare/scripts/verify-pi-lockstep.mjs --warm-jiti-entrypoints \
       /opt/codeflare/pi-agent/npm/node_modules/.bin/pi /opt/codeflare/jiti-warm-tmp/jiti "$goal_source" "$plan_source" "$open_tui_source" "$evaluate_source" "$codex_fast_source" "$subagents_source" "$mcp_source" \
-      "$advisor_source" "$ask_user_source" "$todo_source" "$web_source" "$smart_compact_source" "$context_source" /home/user/.pi/agent/extensions/*.ts && \
+      "$advisor_source" "$ask_user_source" "$todo_source" "$web_source" "$smart_compact_source" "$context_source" /home/user/.pi/agent/extensions/*.ts \
+      --dependencies /home/user/.pi/agent/extensions/transcript-trim/engine.mjs && \
     mv /opt/codeflare/jiti-warm-tmp/jiti /opt/codeflare/jiti-cache && \
     test -n "$(ls -A /opt/codeflare/jiti-cache)" && \
     for ext in /home/user/.pi/agent/extensions/*.ts; do \

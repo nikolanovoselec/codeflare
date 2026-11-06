@@ -63,7 +63,7 @@ export interface SessionStopRequest {
 }
 
 const OPERATIONAL_STORAGE_KEYS = [
-  SESSION_ID_KEY, 'bucketName', 'workspaceSyncEnabled', 'fastStartEnabled',
+  SESSION_ID_KEY, 'bucketName', 'workspaceSyncEnabled', 'syncPolicyMode', 'fastStartEnabled',
   'tabConfig', 'sessionWorkspace', 'sleepAfter', TRANSPORT_FAILURE_STREAK_KEY,
   'containerAuthToken', 'vaultKey', 'review:session-human', 'review:session-principal',
   'review:boundary-input', 'review:push-evidence', 'review:pr-creation', BROWSER_REFERENCE_KEY,
@@ -71,6 +71,7 @@ const OPERATIONAL_STORAGE_KEYS = [
 
 function clearOperationalMemory(host: LifecycleHost): void {
   host._bucketName = null;
+  host._syncPolicyMode = 'exclude';
   host._sessionId = null;
   host._r2AccessKeyId = null;
   host._r2SecretAccessKey = null;

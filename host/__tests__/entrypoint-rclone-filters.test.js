@@ -25,7 +25,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, existsSync, utimesSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -47,7 +47,7 @@ assert.equal(
 );
 
 // Slice entrypoint.sh from the VAULT_FILTER SESSION_MODE guard through the
-// closing `fi` of the SYNC_MODE branch. This faithfully exercises the same
+// policy-mode terminal rule after the SYNC_MODE branch. This faithfully exercises the same
 // filter-resolution path the container runs at boot: the SESSION_MODE
 // branch builds VAULT_FILTER, RCLONE_FILTERS_COMMON expands it in order,
 // and the SYNC_MODE branch finalizes RCLONE_FILTERS. If the file shape
@@ -60,21 +60,34 @@ function extractFilterResolution() {
   assert.ok(startIdx !== -1, 'VAULT_FILTER SESSION_MODE guard missing');
   const commonIdx = src.indexOf('RCLONE_FILTERS_COMMON=(', startIdx);
   assert.ok(commonIdx !== -1, 'RCLONE_FILTERS_COMMON header missing');
-  const fiIdx = src.indexOf('\nfi\n', commonIdx);
+  const fiIdx = src.indexOf('# ============================================================================\n# Recovery filter', commonIdx);
   assert.ok(fiIdx !== -1, 'SYNC_MODE branch fi terminator missing');
-  return src.slice(startIdx, fiIdx + 3);
+  return src.slice(startIdx, fiIdx);
 }
 
 const filterSlice = extractFilterResolution();
+const policyFunctions = extractManagedResourceFilterFunction();
+const composeFixture = `
+CODEFLARE_RUNTIME_ROOT=$(mktemp -d)
+mkdir -p "$CODEFLARE_RUNTIME_ROOT/sync"
+trap 'rm -rf "$CODEFLARE_RUNTIME_ROOT"' EXIT
+USER_HOME="$CODEFLARE_RUNTIME_ROOT"
+MANAGED_RESOURCE_FILTER_FILE="$CODEFLARE_RUNTIME_ROOT/sync/managed.filter"
+RECOVERY_FILTER_FILE="$CODEFLARE_RUNTIME_ROOT/sync/recovery.filter"
+: > "$RECOVERY_FILTER_FILE"
+${policyFunctions}
+compose_rclone_filters
+`;
 
 // Build a fixture tree that contains one representative path per filter
 // category we care about, run the real filter array against it via
 // `rclone lsf -R`, and return a verdict map { relPath: 'INCLUDED'|'EXCLUDED' }.
 //
-// Inclusion assertions add a default-deny tail so only explicit positive
-// rules survive. Exclusion assertions retain rclone's default-include behavior
-// so every requested negative rule is load-bearing.
-function verdictUnder({ sessionMode, syncMode = 'full', defaultDeny = true, extraFixtures = {} }) {
+// Exercise production default-deny and composition, without test-only rules.
+const verdictCache = new Map();
+function verdictUnder({ sessionMode, syncMode = 'full', syncPolicyMode = 'include', extraFixtures = {} }) {
+  const cacheKey = JSON.stringify({ sessionMode, syncMode, syncPolicyMode, extraFixtures });
+  if (verdictCache.has(cacheKey)) return verdictCache.get(cacheKey);
   const fx = mkdtempSync(join(tmpdir(), 'rclone-filters-'));
   mkdirSync(join(fx, 'Vault/graphify-out'), { recursive: true });
   mkdirSync(join(fx, 'Uploads'), { recursive: true });
@@ -145,17 +158,16 @@ function verdictUnder({ sessionMode, syncMode = 'full', defaultDeny = true, extr
     writeFileSync(join(fx, rel), body);
   }
 
-  const defaultRule = defaultDeny ? ' --filter "- **"' : '';
+
   const script = [
     'set -u',
     `SESSION_MODE="${sessionMode}"`,
     'SESSION_ID="abc12345"',
     `SYNC_MODE="${syncMode}"`,
+    `SYNC_POLICY_MODE="${syncPolicyMode}"`,
     filterSlice,
-    // Vault inclusion tests use a default-deny tail to prove an explicit
-    // allow-rule won. Static-exclusion tests use rclone's normal default-include
-    // behavior so a missing negative rule makes the fixture visibly INCLUDED.
-    `rclone lsf -R --files-only "\${RCLONE_FILTERS[@]}"${defaultRule} "$1" 2>/dev/null`,
+    composeFixture,
+    `rclone lsf -R --files-only "\${RCLONE_EFFECTIVE_FILTERS[@]}" "$1" 2>/dev/null`,
   ].join('\n');
 
   const res = spawnSync('bash', ['-c', script, '_', fx], { encoding: 'utf-8' });
@@ -175,6 +187,7 @@ function verdictUnder({ sessionMode, syncMode = 'full', defaultDeny = true, extr
   for (const rel of Object.keys(fixtures)) {
     verdict[rel] = kept.has(rel) ? 'INCLUDED' : 'EXCLUDED';
   }
+  verdictCache.set(cacheKey, verdict);
   return verdict;
 }
 
@@ -310,7 +323,7 @@ describe('entrypoint.sh rclone filter behavior (real) / REQ-MEM-004 (vault in R2
 
   it('REQ-IDE-002 AC6 / REQ-STOR-031 AC1: syncs bounded Browser IDE manifests and managed policy', () => {
     for (const sessionMode of ['advanced', 'default']) {
-      const v = verdictUnder({ sessionMode, defaultDeny: false });
+      const v = verdictUnder({ sessionMode });
       assert.equal(v['.codeflare/ide-ui-state.json'], 'INCLUDED');
       assert.equal(v['.codeflare/ide-extensions.json'], 'INCLUDED');
       assert.equal(v['.codeflare/managed-extensions.json'], 'INCLUDED');
@@ -340,7 +353,7 @@ describe('entrypoint.sh rclone filter behavior (real) / REQ-MEM-004 (vault in R2
     const extraFixtures = Object.fromEntries([...disposable, ...persistent].map(path => [path, 'fixture']));
     for (const sessionMode of ['advanced', 'default']) {
       for (const syncMode of ['none', 'metadata', 'full']) {
-        const v = verdictUnder({ sessionMode, syncMode, defaultDeny: false, extraFixtures });
+        const v = verdictUnder({ sessionMode, syncMode, extraFixtures });
         for (const path of disposable) assert.equal(v[path], 'EXCLUDED', `${path} must stay local in ${sessionMode}/${syncMode}`);
         for (const path of persistent) assert.equal(v[path], 'INCLUDED', `${path} must persist in ${sessionMode}/${syncMode}`);
       }
@@ -353,7 +366,7 @@ describe('entrypoint.sh rclone filter behavior (real) / REQ-MEM-004 (vault in R2
     const nested = 'Temporary/preserved/.pi/agent/work-evidence/report.json';
     for (const sessionMode of ['advanced', 'default']) {
       for (const syncMode of ['none', 'metadata', 'full']) {
-        const v = verdictUnder({ sessionMode, syncMode, defaultDeny: false, extraFixtures: {
+        const v = verdictUnder({ sessionMode, syncMode, extraFixtures: {
           [evidence]: 'disposable investigation artifact', [adjacent]: 'unrelated user file',
           [nested]: 'explicit user tray content', '.pi/agent/settings.json': '{"fixture":true}',
         } });
@@ -367,7 +380,7 @@ describe('entrypoint.sh rclone filter behavior (real) / REQ-MEM-004 (vault in R2
     const marker = '.codeflare/review-state/v1/repo/branch/pr-42-main-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.json';
     for (const sessionMode of ['advanced', 'default']) {
       for (const syncMode of ['none', 'metadata', 'full']) {
-        const v = verdictUnder({ sessionMode, syncMode, defaultDeny: false });
+        const v = verdictUnder({ sessionMode, syncMode });
         assert.equal(v[marker], 'INCLUDED', `${marker} must sync in ${sessionMode}/${syncMode}`);
         assert.equal(v['.codeflare/review-state/v2/repo/branch/private.json'], 'EXCLUDED');
         assert.equal(v['.codeflare/private-runtime.json'], 'EXCLUDED');
@@ -383,7 +396,7 @@ describe('entrypoint.sh rclone filter behavior (real) / REQ-MEM-004 (vault in R2
   // -------------------------------------------------------------------------
   it('statically excludes ephemeral caches, repo graphify-out, and R2 secrets in both modes (REQ-STOR-004 AC6 / REQ-AGENT-026 AC1)', () => {
     for (const sessionMode of ['advanced', 'default']) {
-      const v = verdictUnder({ sessionMode, defaultDeny: false });
+      const v = verdictUnder({ sessionMode });
       const excluded = [
         '.cache/rclone/junk',
         '.config/rclone/rclone.conf',
@@ -443,11 +456,13 @@ describe('REQ-STOR-011 / REQ-AGENT-223: Smart Compact settings round-trip', () =
             'SESSION_MODE="$1"',
             'SYNC_MODE="$2"',
             'SESSION_ID="abc12345"',
+            'SYNC_POLICY_MODE=include',
             filterSlice,
+            composeFixture,
             // Both endpoints are local directories. The empty config guarantees
             // no cloud credentials/configuration are used by the real rclone.
-            'rclone sync --config /dev/null "${RCLONE_FILTERS[@]}" "$3" "$4"',
-            'rclone sync --config /dev/null "${RCLONE_FILTERS[@]}" "$4" "$5"',
+            'rclone sync --config /dev/null "${RCLONE_EFFECTIVE_FILTERS[@]}" "$3" "$4"',
+            'rclone sync --config /dev/null "${RCLONE_EFFECTIVE_FILTERS[@]}" "$4" "$5"',
           ].join('\n');
           const result = spawnSync('bash', ['-c', script, '_', sessionMode, syncMode, home, remote, restored], { encoding: 'utf8' });
           assert.equal(result.status, 0, result.stderr);
@@ -564,10 +579,10 @@ describe('REQ-STOR-053: regenerable Python artifacts stay outside home sync', ()
           fixture[`${root}files/.venv`] = 'user file';
           fixture[`${root}files/.venv-ytdlp`] = 'user file';
         }
-        const verdict = verdictUnder({ sessionMode, syncMode, defaultDeny: false, extraFixtures: fixture });
+        const verdict = verdictUnder({ sessionMode, syncMode, extraFixtures: fixture });
         for (const root of roots) {
           for (const path of excluded) assert.equal(verdict[`${root}${path}`], 'EXCLUDED', `${root}${path}`);
-          const included = !(root === 'Vault/' && sessionMode === 'default') && !(root === 'workspace/repo/' && syncMode !== 'full');
+          const included = root !== '' && !(root === 'Vault/' && sessionMode === 'default') && !(root === 'workspace/repo/' && syncMode !== 'full');
           for (const path of [...retained.filter((p) => p !== '.venv' && p !== '.venv-ytdlp'), 'files/.venv', 'files/.venv-ytdlp']) {
             assert.equal(verdict[`${root}${path}`], included ? 'INCLUDED' : 'EXCLUDED', `${root}${path}`);
           }
@@ -575,4 +590,293 @@ describe('REQ-STOR-053: regenerable Python artifacts stay outside home sync', ()
       });
     }
   }
+});
+
+// Synthetic public inventory: no deployed keys, policy bytes or customer digests.
+const durablePaths = [
+  ...['.claude', '.codex', '.copilot', '.gemini', '.pi/agent', '.config/opencode'].map(root => `${root}/future-sdk/nested/new-state.opaque`),
+  '.claude.json', '.claude.json.bak.preclean', '.claude_unleashed_consent',
+  '.gitconfig', '.bash_history', '.profile', '.zshrc',
+  '.pi/agent/npm/package.json', '.pi/agent/npm/package-lock.json',
+  '.pi/agent/npm/custom-package/src/main.ts', '.claude/mcp.migrated.archive',
+  '.pi/agent/mcp.json.migrated', '.pi/agent/cache-knowledge/notes.bin',
+  '.pi/web-search.json', '.pi/recovery/config-archive/original.json',
+  '.pi/future-sdk/nested/state.opaque', '.impeccable/config.json',
+  '.vscode-oss-shared/sharedStorage/state.vscdb', '.local/share/applications/custom.desktop',
+  '.local/share/pki/nssdb/cert9.db', '.local/share/nvim/user-state',
+  '.local/share/chrome-devtools-mcp/user-config.json',
+  '.local/share/code-server/User/globalStorage/state.vscdb', '.local/bin/personal-tool',
+  'Getting Started.md', 'Documentation/new/topic.md', 'Examples/arbitrary.bin',
+  'Uploads/photo.bin', 'Temporary/notes', 'Operators/personal/config.json',
+];
+const fallbackPaths = ['unknown-home/new-file', '.unknown-sdk/auth.json', 'nested/.claude/settings.json'];
+const transientPaths = [
+  '.config/other/auth.json', '.cache/nested/durable-looking.json',
+  '.cache/root-state', '.venv/pyvenv.cfg', '.venv-tools/bin/python',
+  '.impeccable/update-check.json', '.impeccable/staleness-check.json',
+  '.pi/agent/new/deep/node_modules/pkg/index.js', '.pi/agent/new/.cache/result',
+  '.pi/agent/new/.venv/lib/module.py', '.claude/new/__pycache__/mod.pyc',
+  '.local/state/session', '.local/share/Trash/files/trash',
+  '.local/share/chrome-devtools-mcp/telemetry_state.json',
+  '.claude.json.backup.123', '.claude/backups/settings.before.json',
+  '.claude/commands.bak.123', '.claude/settings.json.bak123',
+  '.claude/skills.bak.123/skill.md', '.claude/history.jsonl',
+  ...['.npm', '.bun', '.wrangler', '.context-mode'].flatMap(cache => [`workspace/repo/${cache}/nested/state`, `.pi/agent/plugin/${cache}/nested/state`]),
+  '.config/opencode/graphify-out/graph.json', 'Uploads/project/graphify-out/graph.json',
+];
+const vaultPaths = ['Vault/attachment.bin', 'Vault/graphify-out/vault-graph.json',
+  'Vault/graphify-out/vault-extract-manifest.json', 'Vault/graphify-out/vault-extract-initialized'];
+const workspacePaths = ['workspace/repo/.git/HEAD', 'workspace/repo/.gitignore',
+  'workspace/repo/ignored.bin', 'workspace/repo/untracked', 'workspace/repo/CLAUDE.md',
+  'workspace/repo/.claude/future/settings'];
+const governedRoots = ['.claude', '.codex', '.copilot', '.gemini', '.pi/agent', '.config/opencode']
+  .flatMap(root => ['skills', 'extensions', 'commands'].map(category => `${root}/${category}/`));
+const governedPaths = [...governedRoots.map(root => `${root}managed/item`),
+  '.codeflare/managed-extensions.json', '.codeflare/managed-paths.json',
+  '.pi/agent/extensions/synthetic-retired.ts'].sort();
+
+function persistenceFixture(t, { sessionMode = 'advanced', syncMode = 'full', syncPolicyMode = 'include', policy = 'immutable' } = {}) {
+  const root = mkdtempSync(join(tmpdir(), 'persistence-policy-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const home = join(root, 'home');
+  const remote = join(root, 'remote');
+  const runtime = join(root, 'runtime');
+  for (const directory of [home, remote, join(runtime, 'sync/rclone')]) mkdirSync(directory, { recursive: true });
+  const put = (base, path, bytes) => {
+    mkdirSync(dirname(join(base, path)), { recursive: true });
+    writeFileSync(join(base, path), bytes);
+  };
+  put(home, '.pi/agent/sentinel', 'unchanged ordinary state');
+  const releaseDigest = createHash('sha256').update('synthetic-release').digest('hex');
+  const policyBytes = `${JSON.stringify({ schemaVersion: 1, releaseDigest, resourcePolicy: policy,
+    paths: governedPaths, resourceRoots: policy === 'exclusive' ? governedRoots.sort() : [] })}\n`;
+  const digest = createHash('sha256').update(policyBytes).digest('hex');
+  const config = join(root, 'rclone.conf');
+  writeFileSync(config, '[r2]\ntype = local\n');
+  writeFileSync(join(runtime, 'sync/recovery.filter'), '');
+  const source = readFileSync(ENTRYPOINT, 'utf8');
+  const shellFunction = name => source.slice(source.indexOf(`${name}() {`), source.indexOf('\n}\n', source.indexOf(`${name}() {`)) + 3);
+  const setup = `set -eu
+USER_HOME=${JSON.stringify(home)}
+CODEFLARE_RUNTIME_ROOT=${JSON.stringify(runtime)}
+SYNC_RUNTIME_DIR="$CODEFLARE_RUNTIME_ROOT/sync"
+MANAGED_RESOURCE_FILTER_FILE="$SYNC_RUNTIME_DIR/managed.filter"
+RECOVERY_FILTER_FILE="$SYNC_RUNTIME_DIR/recovery.filter"
+RCLONE_CONFIG=${JSON.stringify(config)}
+R2_BUCKET_NAME=${JSON.stringify(remote)}
+MANAGED_RESOURCE_POLICY=${policy}
+REMOTE_CURATION_RELEASE_DIGEST=${releaseDigest}
+MANAGED_RESOURCE_PATHS_DIGEST=${digest}
+SESSION_ID=abc12345
+SESSION_MODE=${sessionMode}
+SYNC_MODE=${syncMode}
+${syncPolicyMode === null ? 'unset SYNC_POLICY_MODE' : `SYNC_POLICY_MODE=${JSON.stringify(syncPolicyMode)}`}
+${filterSlice}
+${policyFunctions}
+source ${JSON.stringify(resolve(__dirname, '../../scripts/rclone-conflict-cleanup.sh'))}
+${shellFunction('initial_sync_from_r2')}
+${shellFunction('record_sync_disk_failure')}
+${shellFunction('establish_bisync_baseline')}
+${shellFunction('bisync_with_r2')}
+${shellFunction('shutdown_handler')}
+cleanup_main_transcripts() { :; }
+cleanup_remote_pi_transcript_conflicts() { :; }
+repair_hook_exec_bits() { :; }
+`;
+  const run = (commands, success = true) => {
+    const result = spawnSync('bash', ['-c', `${setup}\n${commands}`], { encoding: 'utf8', timeout: 30000 });
+    if (success) assert.equal(result.status, 0, `${result.stderr}\n${result.stdout}`);
+    else {
+      assert.notEqual(result.status, null, `fixture interrupted: ${result.error ?? result.signal}`);
+      assert.notEqual(result.status, 0);
+    }
+    return result;
+  };
+  return { home, remote, runtime, put, run, policyBytes };
+}
+
+describe('REQ-STOR-002/004/011/031/032: production persistence policy matrix', () => {
+  for (const syncPolicyMode of ['include', 'exclude']) {
+    for (const sessionMode of ['default', 'advanced']) for (const syncMode of ['none', 'metadata', 'full']) {
+      for (const curation of [false, true]) for (const immutable of [false, true]) {
+        const protectedMode = curation && immutable;
+        it(`${syncPolicyMode}/${sessionMode}/${syncMode}/curation=${curation}/immutable=${immutable}: ${protectedMode ? 'protected' : 'mutable (protected mode requires active curation and immutability)'}`, t => {
+          const fx = persistenceFixture(t, { sessionMode, syncMode, syncPolicyMode, policy: protectedMode ? 'immutable' : 'mutable' });
+          const all = [...durablePaths, ...fallbackPaths, ...transientPaths, ...vaultPaths, ...workspacePaths,
+            ...governedPaths.filter(path => path !== '.codeflare/managed-paths.json'), 'Vault/graphify-out/derived.bin'];
+          for (const path of all) fx.put(fx.home, path, Buffer.from(`synthetic:${path}\0`));
+          fx.put(fx.home, '.codeflare/managed-paths.json', fx.policyBytes);
+          const expected = new Set([
+            ...durablePaths,
+            ...(syncPolicyMode === 'exclude' ? fallbackPaths : []),
+            ...(sessionMode === 'advanced' ? vaultPaths : []),
+            ...workspacePaths.filter(path => syncMode === 'full' || (syncMode === 'metadata' && (path.endsWith('CLAUDE.md') || path.includes('/.claude/')))),
+            ...(!protectedMode ? governedPaths.filter(path => path !== '.codeflare/managed-paths.json') : []),
+          ]);
+          fx.run('compose_rclone_filters\nrclone copy --config "$RCLONE_CONFIG" "${RCLONE_EFFECTIVE_FILTERS[@]}" "$USER_HOME" "r2:$R2_BUCKET_NAME"');
+          const restored = join(fx.runtime, 'restored');
+          fx.run(`compose_rclone_filters\nrclone copy --config "$RCLONE_CONFIG" "\${RCLONE_EFFECTIVE_FILTERS[@]}" "r2:$R2_BUCKET_NAME" ${JSON.stringify(restored)}`);
+          for (const base of [fx.remote, restored]) {
+            for (const path of all) {
+              assert.equal(existsSync(join(base, path)), expected.has(path), `${syncPolicyMode}: ${path}`);
+              if (expected.has(path)) assert.deepEqual(readFileSync(join(base, path)), readFileSync(join(fx.home, path)), path);
+            }
+            assert.equal(existsSync(join(base, '.codeflare/managed-paths.json')), false, 'normal transfer never republishes the policy document');
+          }
+        });
+      }
+    }
+  }
+
+  it('REQ-STOR-011: missing policy-mode ENV defaults to Exclude and persists unknown in-scope files', t => {
+    const fx = persistenceFixture(t, { policy: 'mutable', syncPolicyMode: null });
+    for (const path of fallbackPaths) fx.put(fx.home, path, 'unknown namespace bytes');
+    fx.put(fx.home, '.config/other/auth.json', 'excluded configuration');
+    fx.run('compose_rclone_filters\nrclone copy --config "$RCLONE_CONFIG" "${RCLONE_EFFECTIVE_FILTERS[@]}" "$USER_HOME" "r2:$R2_BUCKET_NAME"');
+    for (const path of fallbackPaths) assert.equal(readFileSync(join(fx.remote, path), 'utf8'), 'unknown namespace bytes');
+    assert.equal(existsSync(join(fx.remote, '.config/other/auth.json')), false);
+  });
+
+  it('REQ-STOR-011: invalid policy-mode ENV fails closed before any copy', t => {
+    const fx = persistenceFixture(t, { policy: 'mutable', syncPolicyMode: 'not-a-policy' });
+    fx.put(fx.home, '.pi/agent/never-uploaded', 'local bytes');
+    fx.run('initial_sync_from_r2\ncompose_rclone_filters\nrclone copy --config "$RCLONE_CONFIG" "${RCLONE_EFFECTIVE_FILTERS[@]}" "$USER_HOME" "r2:$R2_BUCKET_NAME"', false);
+    assert.equal(existsSync(join(fx.remote, '.pi/agent/never-uploaded')), false);
+    assert.equal(readFileSync(join(fx.home, '.pi/agent/never-uploaded'), 'utf8'), 'local bytes');
+  });
+
+  for (const syncPolicyMode of ['include', 'exclude']) {
+    it(`REQ-STOR-031/032: bootstrap restores authority; protected baseline and repeated cycles preserve vetoed bytes and propagate ordinary deletions (${syncPolicyMode})`, t => {
+      const fx = persistenceFixture(t, { policy: 'exclusive', syncPolicyMode });
+      fx.put(fx.remote, '.codeflare/managed-paths.json', fx.policyBytes);
+      for (const root of governedRoots) {
+        fx.put(fx.remote, `${root}managed/item`, 'authoritative');
+        fx.put(fx.remote, `${root}personal/item`, 'governed extra');
+      }
+      fx.put(fx.remote, '.codeflare/managed-extensions.json', 'authoritative metadata');
+      fx.put(fx.remote, '.pi/agent/personal-state', 'remote ordinary');
+      fx.run('initial_sync_from_r2');
+      assert.equal(readFileSync(join(fx.home, governedPaths[0]), 'utf8'), 'authoritative');
+      for (const root of governedRoots) fx.put(fx.home, `${root}managed/item`, 'local protected change');
+      fx.put(fx.home, '.codeflare/managed-extensions.json', 'local metadata change');
+      fx.put(fx.home, '.pi/agent/deletion', 'delete from local');
+      fx.put(fx.remote, '.pi/agent/remote-deletion', 'delete from remote');
+      fx.run('establish_bisync_baseline');
+      rmSync(join(fx.home, '.pi/agent/deletion'));
+      rmSync(join(fx.remote, '.pi/agent/remote-deletion'));
+      fx.run('bisync_with_r2 ""\nbisync_with_r2 ""');
+      assert.equal(existsSync(join(fx.remote, '.pi/agent/deletion')), false);
+      assert.equal(existsSync(join(fx.home, '.pi/agent/remote-deletion')), false);
+      for (const root of governedRoots) {
+        assert.equal(readFileSync(join(fx.remote, `${root}managed/item`), 'utf8'), 'authoritative');
+        assert.equal(readFileSync(join(fx.home, `${root}managed/item`), 'utf8'), 'local protected change');
+      }
+      assert.equal(readFileSync(join(fx.remote, '.codeflare/managed-extensions.json'), 'utf8'), 'authoritative metadata');
+      assert.equal(readFileSync(join(fx.home, '.pi/agent/personal-state'), 'utf8'), 'remote ordinary');
+      fx.put(fx.home, '.pi/agent/final-upload', 'final local');
+      fx.put(fx.remote, '.pi/agent/final-download', 'final remote');
+      fx.run(`TERMINAL_PID=""
+  kill_pidfile_subtree() { :; }
+  pgrep() { return 1; }
+  sleep() { if [ "$1" -gt 10 ] 2>/dev/null; then command sleep 10; else command sleep "$@"; fi; }
+  set +e
+  shutdown_handler`);
+      assert.equal(readFileSync(join(fx.remote, '.pi/agent/final-upload'), 'utf8'), 'final local');
+      assert.equal(readFileSync(join(fx.home, '.pi/agent/final-download'), 'utf8'), 'final remote');
+      assert.equal(readFileSync(join(fx.remote, '.codeflare/managed-extensions.json'), 'utf8'), 'authoritative metadata');
+    });
+
+    it(`REQ-STOR-003/004/031: recovery veto wins over namespace positives and invalid policy prevents baseline and ordinary sync I/O (${syncPolicyMode})`, t => {
+      const fx = persistenceFixture(t, { syncPolicyMode });
+      fx.put(fx.home, '.codeflare/managed-paths.json', fx.policyBytes);
+      fx.put(fx.home, '.pi/agent/recovering', 'local recovery');
+      fx.put(fx.remote, '.pi/agent/recovering', 'remote recovery');
+      writeFileSync(join(fx.runtime, 'sync/recovery.filter'), '- /.pi/agent/recovering\n');
+      fx.run('establish_bisync_baseline\nbisync_with_r2 ""');
+      assert.equal(readFileSync(join(fx.home, '.pi/agent/recovering'), 'utf8'), 'local recovery');
+      assert.equal(readFileSync(join(fx.remote, '.pi/agent/recovering'), 'utf8'), 'remote recovery');
+      fx.put(fx.home, '.pi/agent/never-uploaded', 'private local bytes');
+      for (const invalid of [null, '{}\n', fx.policyBytes.replace('schemaVersion":1', 'schemaVersion":2')]) {
+        if (invalid === null) rmSync(join(fx.home, '.codeflare/managed-paths.json'), { force: true });
+        else fx.put(fx.home, '.codeflare/managed-paths.json', invalid);
+        fx.run('establish_bisync_baseline', false);
+        fx.run('bisync_with_r2 ""', false);
+        assert.equal(existsSync(join(fx.remote, '.pi/agent/never-uploaded')), false);
+      }
+    });
+  }
+
+  it('REQ-STOR-031: rejects unsafe canonical paths even with matching policy identity', t => {
+    const fx = persistenceFixture(t, { policy: 'exclusive' });
+    fx.put(fx.home, '.pi/agent/never-uploaded', 'private local bytes');
+    const base = JSON.parse(fx.policyBytes);
+    const invalidPaths = ['../escape', '.pi//agent/settings', '/absolute', '.pi/./agent/settings',
+      '.pi/agent/new\n+ /**', '.pi/agent/new\rline', '.pi/agent/new\u0000line', '.pi\\agent\\settings',
+      '.pi/agent/' + 'x'.repeat(512)];
+    for (const path of invalidPaths) {
+      for (const key of ['paths', 'resourceRoots']) {
+        const value = { ...base, [key]: [key === 'resourceRoots' ? `${path}/` : path] };
+        const bytes = `${JSON.stringify(value)}\n`;
+        const digest = createHash('sha256').update(bytes).digest('hex');
+        fx.put(fx.home, '.codeflare/managed-paths.json', bytes);
+        const result = fx.run(`MANAGED_RESOURCE_PATHS_DIGEST=${digest}\nestablish_bisync_baseline`, false);
+        assert.match(result.stderr, /managed policy path (?:is invalid|is not canonical|exceeds byte limit)/);
+        assert.equal(existsSync(join(fx.remote, '.pi/agent/never-uploaded')), false);
+      }
+    }
+  });
+  for (const initialMode of ['include', 'exclude']) {
+    const nextMode = initialMode === 'include' ? 'exclude' : 'include';
+    it(`REQ-STOR-011/045: restart policy flip ${initialMode} to ${nextMode} preserves unselected data and propagates admitted deletion`, t => {
+      const fx = persistenceFixture(t, { policy: 'mutable', syncPolicyMode: initialMode });
+      const fallback = 'unknown-home/transition.bin';
+      fx.put(fx.home, fallback, 'old local');
+      fx.put(fx.remote, fallback, 'new remote');
+      fx.put(fx.home, '.pi/agent/delete-after-transition', 'ordinary data');
+      for (const [side, date] of [['home', '2025-01-01'], ['remote', '2026-01-01']]) {
+        const time = new Date(date);
+        utimesSync(join(fx[side], fallback), time, time);
+      }
+      fx.run('establish_bisync_baseline');
+      if (initialMode === 'exclude') {
+        assert.equal(readFileSync(join(fx.home, fallback), 'utf8'), 'new remote');
+        fx.put(fx.home, fallback, 'independent local');
+        fx.put(fx.remote, fallback, 'independent remote');
+      }
+      const scope = `SYNC_POLICY_MODE=${nextMode}\n${filterSlice}\n`;
+      fx.run(scope + 'establish_bisync_baseline');
+      assert.equal(readFileSync(join(fx.home, fallback), 'utf8'), nextMode === 'exclude' ? 'new remote' : 'independent local');
+      assert.equal(readFileSync(join(fx.remote, fallback), 'utf8'), nextMode === 'exclude' ? 'new remote' : 'independent remote');
+      rmSync(join(fx.home, '.pi/agent/delete-after-transition'));
+      fx.run(scope + 'bisync_with_r2 ""');
+      assert.equal(existsSync(join(fx.remote, '.pi/agent/delete-after-transition')), false);
+    });
+  }
+
+  it('REQ-STOR-011/045: restart scope migration keeps excluded old data while admitted deletions still propagate', t => {
+    const fx = persistenceFixture(t, { policy: 'mutable', syncMode: 'full' });
+    fx.put(fx.home, 'workspace/user.bin', 'local user bytes');
+    fx.put(fx.remote, 'unknown-home/old.bin', 'existing remote excluded');
+    fx.put(fx.home, 'unknown-home/old.bin', 'existing local excluded');
+    fx.put(fx.home, '.pi/agent/live', 'ordinary live');
+    for (const winner of ['home', 'remote']) {
+      const path = `.pi/agent/newer-${winner}`;
+      for (const side of ['home', 'remote']) {
+        fx.put(fx[side], path, side === winner ? 'newest ordinary bytes' : 'older ordinary bytes');
+        const time = new Date(side === winner ? '2026-01-01' : '2025-01-01');
+        utimesSync(join(fx[side], path), time, time);
+      }
+    }
+    fx.run('establish_bisync_baseline');
+    for (const winner of ['home', 'remote']) for (const side of ['home', 'remote']) {
+      assert.equal(readFileSync(join(fx[side], `.pi/agent/newer-${winner}`), 'utf8'), 'newest ordinary bytes');
+    }
+    fx.run('SYNC_MODE=none\n' + filterSlice + '\nestablish_bisync_baseline\nbisync_with_r2 ""');
+    assert.equal(readFileSync(join(fx.remote, 'workspace/user.bin'), 'utf8'), 'local user bytes');
+    assert.equal(readFileSync(join(fx.remote, 'unknown-home/old.bin'), 'utf8'), 'existing remote excluded');
+    assert.equal(readFileSync(join(fx.home, 'unknown-home/old.bin'), 'utf8'), 'existing local excluded');
+    rmSync(join(fx.home, '.pi/agent/live'));
+    fx.run('SYNC_MODE=none\n' + filterSlice + '\nbisync_with_r2 ""');
+    assert.equal(existsSync(join(fx.remote, '.pi/agent/live')), false);
+  });
 });

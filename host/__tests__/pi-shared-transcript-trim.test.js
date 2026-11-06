@@ -3,10 +3,8 @@ import assert from 'node:assert/strict';
 import * as fs from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import {stripTypeScriptTypes} from 'node:module';
-const base=new URL('../../preseed/agents/pi/extensions/',import.meta.url),modules=new Map();
-function moduleUrl(name){if(modules.has(name))return modules.get(name);let text=stripTypeScriptTypes(fs.readFileSync(new URL(name+'.ts',base),'utf8'));text=text.replace(/from "\.\/([a-z-]+)(?:\.ts)?"/g,(_m,key)=>`from "${moduleUrl(key)}"`);const url='data:text/javascript;base64,'+Buffer.from(text).toString('base64');modules.set(name,url);return url;}
-const {registerMemoryVault}=await import(moduleUrl('memory-vault'));
+import {importPiExtension} from './fixtures/pi-extension-module.mjs';
+const {registerMemoryVault}=await importPiExtension('memory-vault');
 const jsonl=rows=>rows.map(e=>JSON.stringify(e)+'\n').join('');
 function fixture(t,{protectedFloor=false,extra=0}={}){
  const root=fs.mkdtempSync(join(tmpdir(),'shared-trim-'));t.after(()=>fs.rmSync(root,{recursive:true,force:true}));const file=join(root,'session.jsonl'),rows=[{type:'session',version:3,id:'fixture'}];fs.writeFileSync(file,jsonl(rows));

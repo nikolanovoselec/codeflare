@@ -26,6 +26,16 @@ import { fileURLToPath } from 'node:url';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ENTRYPOINT = resolve(__dirname, '../../entrypoint.sh');
 
+function syncCompositionFixture() {
+  const source = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../../entrypoint.sh'), 'utf8');
+  const functions = source.slice(source.indexOf('prepare_managed_resource_filter() {'), source.indexOf('# Step 1: One-way sync FROM R2 TO local'));
+  return `${functions}
+MANAGED_RESOURCE_FILTER_FILE="$CODEFLARE_RUNTIME_ROOT/sync/managed.filter"
+RECOVERY_FILTER_FILE="$CODEFLARE_RUNTIME_ROOT/sync/recovery-filters.txt"
+: > "$RECOVERY_FILTER_FILE"
+`;
+}
+
 function extractTopLevelFunction(name) {
   const src = readFileSync(ENTRYPOINT, 'utf8');
   const lines = src.split('\n');
@@ -35,7 +45,7 @@ function extractTopLevelFunction(name) {
   if (end === -1) throw new Error(`Could not locate end of ${name}() in entrypoint.sh`);
   const body = lines.slice(start, end + 1).join('\n');
   if (['initial_sync_from_r2', 'establish_bisync_baseline', 'bisync_with_r2'].includes(name)) {
-    return `source ${JSON.stringify(resolve(__dirname, '../../scripts/rclone-conflict-cleanup.sh'))}\n${body}`;
+    return `${syncCompositionFixture()}\nsource ${JSON.stringify(resolve(__dirname, '../../scripts/rclone-conflict-cleanup.sh'))}\n${body}`;
   }
   return body;
 }
@@ -544,6 +554,7 @@ cleanup_remote_pi_transcript_conflicts() { :; }
 record_sync_disk_failure() { :; }
 repair_hook_exec_bits() { :; }
 pgrep() { return 1; }
+timeout() { shift; "$@"; }
 rclone() {
   case "$1" in delete|deletefile) return 0;; bisync) ;; *) return 1;; esac
   printf 'ARGS:%s\\n' "$*"

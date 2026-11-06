@@ -58,7 +58,23 @@ const EnvironmentAreaFields: Component<Props> = (props) => {
       {textarea('jwtStampingDestinations', 'JWT destinations, one hostname per line', lines(jwtCurrent().destinations))}
       <Show when={jwtMode() === 'all'}><p class="admin-form-wide" role="alert">All sends the invoking human Access assertion to every otherwise allowed HTTPS destination. Recipients may echo or disclose it.</p></Show>
     </Match>
-    <Match when={props.section === 'dataGovernance'}>{toggle('governedMode', 'Enable governed storage encryption')}{toggle('viewOnlyStorage', 'Disable storage downloads')}</Match>
+    <Match when={props.section === 'dataGovernance'}>
+      {toggle('governedMode', 'Enable governed storage encryption')}
+      {toggle('viewOnlyStorage', 'Disable storage downloads')}
+      <div class="admin-form-wide">
+        <label class="admin-toggle-field"><input name="syncPolicyMode" type="checkbox"
+          checked={current().syncPolicyMode === 'include'} aria-describedby="sync-policy-help" /><span>Save only approved locations</span></label>
+        <div id="sync-policy-help">
+          <p class="admin-help-text">Sync copies selected files to R2, the persistent storage bucket used to restore them when a session container is recreated.</p>
+          <h3 class="admin-help-text">Exclude (default): save unless excluded</h3>
+          <p class="admin-help-text">With this switch off, files in locations in scope for sync are saved unless excluded. Temporary downloads or caches may accidentally end up in the storage bucket if a tool puts them in a synced location.</p>
+          <h3 class="admin-help-text">Include: save only approved locations</h3>
+          <p class="admin-help-text">With this switch on, only approved persistent locations are saved, including agent folders, Uploads and Temporary. Files elsewhere are not backed up and are not restored when the container is recreated. New nested files in approved agent folders still persist, subject to known temporary-file and cache exclusions.</p>
+          <p class="admin-help-text">Workspace sync stays off when disabled; Vault persistence still requires advanced mode. Managed-resource protections are unchanged.</p>
+          <p class="admin-help-text">Applies to all users' new or restarted sessions; sessions already running are unchanged. This change does not delete existing stored data. Review and apply below to save the policy; it does not automatically restart sessions.</p>
+        </div>
+      </div>
+    </Match>
     <Match when={props.section === 'managedEnvironment'}>
       {toggle('enabled', 'Enable managed environment', current().enabled === true)}{field('repository', 'Curation repository')}{field('personalAccessToken', 'Replacement personal access token', 'password', '')}{field('publicKey', 'Ed25519 public key (hex)', 'text', '')}{toggle('immutableResources', 'Keep managed resources immutable')}{toggle('disableUserCreatedResources', 'Disable user-created resources')}
     </Match>
@@ -117,7 +133,7 @@ export function environmentValues(section: ConfigurationSection, mode: Administr
         mode, destinations: mode === 'list' ? split(data.get('jwtStampingDestinations')) : [],
       } };
     }
-    case 'dataGovernance': return { governedMode: checked(data, 'governedMode'), viewOnlyStorage: checked(data, 'viewOnlyStorage') };
+    case 'dataGovernance': return { governedMode: checked(data, 'governedMode'), viewOnlyStorage: checked(data, 'viewOnlyStorage'), syncPolicyMode: checked(data, 'syncPolicyMode') ? 'include' : 'exclude' };
     case 'managedEnvironment': return checked(data, 'enabled') ? { enabled: true, repository: value(data, 'repository'), personalAccessToken: value(data, 'personalAccessToken'), publicKey: value(data, 'publicKey'), immutableResources: checked(data, 'immutableResources'), disableUserCreatedResources: checked(data, 'disableUserCreatedResources') } : { enabled: false };
     case 'github': return { providerType: value(data, 'providerType'), appClientId: value(data, 'appClientId'), appReplacementSecret: value(data, 'appReplacementSecret'), oauthClientId: value(data, 'oauthClientId'), oauthReplacementSecret: value(data, 'oauthReplacementSecret') };
     case 'cloudflareConnection': return { clientId: value(data, 'clientId'), replacementSecret: value(data, 'replacementSecret') };

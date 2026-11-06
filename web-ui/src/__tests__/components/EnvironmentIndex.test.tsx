@@ -143,6 +143,33 @@ beforeEach(() => {
 afterEach(() => { vi.unstubAllGlobals(); cleanup(); });
 
 describe('REQ-ENTERPRISE-031 explicit routing activation', () => {
+  it.each(['include', 'exclude'] as const)('REQ-SETUP-018: reviews human-readable sync policy %s before explicit Apply change', async syncPolicyMode => {
+    window.history.replaceState({}, '', '/admin/environment/dataGovernance');
+    api.configuration.mockResolvedValue({ mode: 'enterprise', revision: 7, applicableSections: ['dataGovernance'],
+      sections: { dataGovernance: { governedMode: false, viewOnlyStorage: false,
+        syncPolicyMode: syncPolicyMode === 'include' ? 'exclude' : 'include' } }, activeRunId: null, latest: {} });
+    api.preview.mockImplementation(async (section, baseRevision, values) => ({ section, baseRevision,
+      currentRevision: baseRevision, changes: [{ field: 'syncPolicyMode', after: values.syncPolicyMode }],
+      tasks: [{ id: 'configure_sync_policy', dependsOn: [] }], warnings: [], exclusions: [] }));
+    api.start.mockImplementation(async () => new Response(`${JSON.stringify({ type: 'snapshot', run: {
+      runId: 'saved-policy', section: 'dataGovernance', state: 'succeeded', tasks: [], resultingRevision: 8,
+    } })}\n`));
+    mount();
+    const toggle = await screen.findByRole('checkbox', { name: 'Save only approved locations' });
+    await fireEvent.click(toggle);
+    const values = { governedMode: false, viewOnlyStorage: false, syncPolicyMode };
+    await fireEvent.click(screen.getByRole('button', { name: 'Review changes' }));
+    expect(await screen.findByText(syncPolicyMode === 'include'
+      ? 'Include: save only approved locations' : 'Exclude (default): save unless excluded')).toBeVisible();
+    expect(screen.getByText('Nothing is saved until Apply change. Only the tasks listed below will run.')).toBeVisible();
+    expect(screen.getByText('Update saved-file locations')).toBeVisible();
+    expect(screen.queryByRole('heading', { name: 'Execution succeeded' })).not.toBeInTheDocument();
+    expect(api.preview).toHaveBeenCalledWith('dataGovernance', 7, values);
+    await fireEvent.click(screen.getByRole('button', { name: 'Apply change' }));
+    expect(await screen.findByRole('heading', { name: 'Execution succeeded' })).toBeVisible();
+    expect(api.start).toHaveBeenCalledWith('dataGovernance', 7, values, []);
+  });
+
   it('REQ-ENTERPRISE-093 AC1/AC2: saved connection failures show safe recovery guidance and preserve the connection for retry', async () => {
     const recovery = 'Saved routing reconciliation failed. Reload Environment settings before retrying.';
     api.catalog.mockRejectedValueOnce(new ApiError(recovery, 503, 'Service Unavailable'));

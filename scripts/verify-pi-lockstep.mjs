@@ -63,7 +63,7 @@ export function verifyJitiCacheArtifact(sourcePath, cacheDirectory) {
   return artifactPath;
 }
 
-export function warmAndVerifyJitiEntrypoints(piBinary, cacheDirectory, sourcePaths) {
+export function warmAndVerifyJitiEntrypoints(piBinary, cacheDirectory, sourcePaths, dependencyPaths = []) {
   if (!piBinary || !cacheDirectory || sourcePaths.length === 0) {
     throw new Error('Pi binary, cache directory, and at least one entrypoint are required');
   }
@@ -102,7 +102,9 @@ export function warmAndVerifyJitiEntrypoints(piBinary, cacheDirectory, sourcePat
   const nativeImports = trace.filter((line) => line.startsWith('[jiti] [native] [import] '));
   const evidence = `replay cwd=${JSON.stringify(cwd)}, cacheHits=${cacheHits.length}, nativeImports=${nativeImports.length}`;
   const artifacts = [];
-  for (const source of sourcePaths) {
+  // Dependencies are verified through their importing extension, never registered
+  // as extension factories or executed as maintenance jobs during prewarming.
+  for (const source of [...sourcePaths, ...dependencyPaths]) {
     const realSource = realpathSync(source);
     // Pinned JITI replaces the first cwd occurrence with '.', even for cwd '/'.
     // Match the exact source field, never a basename or an arbitrary path suffix.
@@ -162,8 +164,11 @@ try {
       : resolveJitiCachePath(sourcePath, cacheDirectory);
     process.stdout.write(`${artifactPath}\n`);
   } else if (args[0] === '--warm-jiti-entrypoints') {
-    const [, piBinary, cacheDirectory, ...sourcePaths] = args;
-    const artifacts = warmAndVerifyJitiEntrypoints(piBinary, cacheDirectory, sourcePaths);
+    const [, piBinary, cacheDirectory, ...paths] = args;
+    const dependencyMarker = paths.indexOf('--dependencies');
+    const sourcePaths = dependencyMarker < 0 ? paths : paths.slice(0, dependencyMarker);
+    const dependencyPaths = dependencyMarker < 0 ? [] : paths.slice(dependencyMarker + 1);
+    const artifacts = warmAndVerifyJitiEntrypoints(piBinary, cacheDirectory, sourcePaths, dependencyPaths);
     process.stdout.write(`${artifacts.join('\n')}\n`);
   } else {
     const [runtimeManifestPath, prewarmManifestPath, installedPackagePath] = args;

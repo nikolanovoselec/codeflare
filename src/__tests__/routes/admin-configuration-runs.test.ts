@@ -645,6 +645,7 @@ describe('configuration runs (REQ-SETUP-018)', () => {
     expect(terminal.tasks).toEqual([
       expect.objectContaining({ id: 'configure_r2_sse', state: 'failed' }),
       expect.objectContaining({ id: 'configure_downloads_disabled', state: 'skipped' }),
+      expect.objectContaining({ id: 'configure_sync_policy', state: 'skipped' }),
     ]);
     expect(terminal.error).toMatchObject({ retryable: true, operatorAction: expect.any(String) });
     expect(JSON.stringify(terminal)).not.toContain('secret detail');

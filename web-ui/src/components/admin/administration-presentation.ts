@@ -26,6 +26,7 @@ const TASK_LABELS: Record<string, string> = {
   configure_strict_egress: 'Update strict egress',
   configure_r2_sse: 'Update storage encryption',
   configure_downloads_disabled: 'Update download policy',
+  configure_sync_policy: 'Update saved-file locations',
   configure_managed_environment: 'Update managed environment',
   configure_github: 'Update GitHub provider',
   configure_cloudflare_connection: 'Update Cloudflare connection',
@@ -71,8 +72,8 @@ const ENVIRONMENT_CONTEXT: Record<ConfigurationSection, EnvironmentContext> = {
   },
   dataGovernance: {
     source: 'Saved storage governance settings',
-    operation: 'Updates storage encryption and download policy',
-    effect: 'Subsequent storage access follows the revised controls',
+    operation: 'Updates persistence scope, storage encryption and download policy',
+    effect: 'Saved-file locations apply to new or restarted sessions; existing stored data is not deleted',
   },
   managedEnvironment: {
     source: 'Saved managed-release settings',

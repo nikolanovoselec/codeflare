@@ -6,6 +6,7 @@
  * these so existing importers (and the spec-anchored unit tests) keep resolving
  * them from './lifecycle'.
  */
+import { parseStoredSyncPolicyMode } from '../../lib/sync-policy';
 import type { Env, SessionMode, ContainerConfigPayload, R2ConnectionConfig, UserPreferences } from '../../types';
 import { createBucketIfNotExists, getOrCreateScopedR2Token } from '../../lib/r2-admin';
 import { seedGettingStartedDocs, reconcileAgentConfigs, reseedContextModePlugin } from '../../lib/r2-seed';
@@ -51,6 +52,7 @@ function buildSetBucketNameBody(params: ContainerConfigPayload): string {
     tabConfig: params.tabConfig,
     terminalMode: params.terminalMode,
     workspaceSyncEnabled: params.workspaceSyncEnabled,
+    syncPolicyMode: parseStoredSyncPolicyMode(params.syncPolicyMode),
     fastStartEnabled: params.fastStartEnabled,
     ...(params.llmKeys?.openaiApiKey && { openaiApiKey: params.llmKeys.openaiApiKey }),
     ...(params.llmKeys?.geminiApiKey && { geminiApiKey: params.llmKeys.geminiApiKey }),

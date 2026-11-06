@@ -4,7 +4,7 @@ import * as fs from 'node:fs';
 import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { findPackageJSON, stripTypeScriptTypes } from 'node:module';
+import { findPackageJSON } from 'node:module';
 import { pathToFileURL } from 'node:url';
 import {importPiExtension} from './fixtures/pi-extension-module.mjs';
 const { registerActiveSessionTranscriptTrimming, prepareLocalTranscriptTrim, trimActiveSessionTranscript, parseTranscript, createTranscriptTrimRequest, commitTranscriptTrimCandidate }=await importPiExtension('active-session-transcript-trimming');
@@ -97,21 +97,8 @@ const replay = branch => {
   return d ? { tasks: d.tasks, nextId: d.nextId } : { tasks: [], nextId: 1 };
 };
 
-// The existing cadence module uses extensionless TS imports. As in pi-lockstep's fixture,
-// use Node's public type stripper, not an installed SDK/compiler or a live Pi process.
-const extensionDir = new URL('../../preseed/agents/pi/extensions/', import.meta.url);
-const fixtureModules = new Map();
-function fixtureModule(name) {
-  if (fixtureModules.has(name)) return fixtureModules.get(name);
-  let source = stripTypeScriptTypes(fs.readFileSync(new URL(name + '.ts', extensionDir), 'utf8'));
-  source = source.replace(/from "\.\/([a-z-]+)(?:\.ts)?"/g, (_match, dependency) => `from "${fixtureModule(dependency)}"`);
-  const url = 'data:text/javascript;base64,' + Buffer.from(source).toString('base64');
-  fixtureModules.set(name, url);
-  return url;
-}
-
 test('REQ-MEM-028 AC1: shared cadence preserves frozen capture inputs without eager delivery', async t => {
-  const { registerMemoryVault } = await import(fixtureModule('memory-vault'));
+  const { registerMemoryVault } = await importPiExtension('memory-vault');
   const f = fixture(t, [{ type: 'session', id: 'fixture' }]);
   const paths = { vaultRoot: join(f.root, 'Vault'), cacheDir: join(f.root, 'cache'), memoryCounterDir: join(f.root, 'counters'),
     memoryPromptFile: join(f.root, 'memory.md'), vaultPromptFile: join(f.root, 'vault.md'),
@@ -478,7 +465,13 @@ test('REQ-MEM-028 AC5: provisioned public SDK appends and disk reopen survive sa
   assert.equal(commitTranscriptTrimCandidate(ctx, request).status, 'trimmed');
   assert.ok(fs.statSync(f.file).size <= 20_000_000);
   assert.equal(JSON.stringify(manager.getBranch()), cacheBefore);
+  const committedPrefix = fs.readFileSync(f.file);
   append('after');
+  manager.appendCompaction('Synthetic post-trim summary', appended[0].id, 100);
+  manager.branchWithSummary(appended[0].id, 'Synthetic retained branch');
+  const branchedUser = manager.appendMessage({ role: 'user', content: 'Post-trim branch input', timestamp: Date.now() });
+  assert.deepEqual(fs.readFileSync(f.file).subarray(0, committedPrefix.length), committedPrefix);
+  assert.equal(reopen(f).find(entry => entry.id === branchedUser)?.message.content, 'Post-trim branch input');
   assert.equal(manager.getSessionFile(), f.file);
   const disk = reopen(f);
   for (const e of appended) assert.deepEqual(disk.filter(row => row.id === e.id), [e]);

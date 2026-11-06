@@ -7,6 +7,7 @@
  * enforces the strict shape; this schema only guards the transport layer.
  */
 import { z } from 'zod';
+import { syncPolicyModeSchema } from './sync-policy';
 import { ManagedResourcePolicySchema } from '../types';
 
 export const SetBucketNameBodySchema = z.object({
@@ -20,6 +21,7 @@ export const SetBucketNameBodySchema = z.object({
   tabConfig: z.array(z.object({}).passthrough()),
   terminalMode: z.enum(['classic', 'herdr']),
   workspaceSyncEnabled: z.boolean(),
+  syncPolicyMode: syncPolicyModeSchema.optional(),
   fastStartEnabled: z.boolean(),
   openaiApiKey: z.string().optional(),
   geminiApiKey: z.string().optional(),

@@ -30,7 +30,7 @@ const DESCRIPTIONS: Record<EnvironmentSection, string> = {
   codingAgents: 'Agents available for new sessions',
   browserRendering: 'Optional Browser Run credentials',
   securityEgress: 'Outbound Gateway policy',
-  dataGovernance: 'Storage encryption and download controls',
+  dataGovernance: 'Persistence scope, storage encryption and download controls',
   managedEnvironment: 'Managed releases and resource policy',
   github: 'GitHub App or OAuth provider',
   cloudflareConnection: 'Cloudflare OAuth client',
@@ -91,7 +91,7 @@ function describe(section: EnvironmentSection, raw: unknown): Pick<EnvironmentAr
     case 'dataGovernance': {
       const governed = value.governedMode === true;
       const viewOnly = value.viewOnlyStorage === true;
-      return { summary: `${governed ? 'Governed' : 'Encrypted'} · ${viewOnly ? 'view-only storage' : 'downloads allowed'}`, status: governed || viewOnly ? 'Enabled' : 'Disabled' };
+      return { summary: `${governed ? 'Governed' : 'Encrypted'} · ${viewOnly ? 'view-only storage' : 'downloads allowed'} · ${value.syncPolicyMode === 'include' ? 'approved locations only' : 'save unless excluded'}`, status: governed || viewOnly || value.syncPolicyMode === 'include' ? 'Enabled' : 'Disabled' };
     }
     case 'managedEnvironment': {
       const configured = value.configured === true;

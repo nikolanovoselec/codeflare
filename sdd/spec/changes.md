@@ -4,6 +4,10 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-11-06
 
+- Make transcript maintenance adaptive: the scoped agent inspects budget feedback, selects validated historical payload categories and activates only an accepted candidate. Move heavy preparation, validation and readback to a lower-priority CPU worker, preserve cancellation and six-attempt accounting, and recover committed readback without replay. Deliver the advanced-only helper with its owner and verify its dependency import during resource-only prewarming ([REQ-MEM-028](memory.md#req-mem-028-pi-active-transcript-size-retention), [REQ-MEM-030](memory.md#req-mem-030-visible-agent-owned-transcript-maintenance), [REQ-AGENT-210](agents.md#req-agent-210-managed-extension-startup-preparation)).
+
+- Add an explained Data governance choice between compatible Exclude persistence (default) and opt-in Include persistence restricted to approved durable namespaces. Keep agent homes forward-compatible, including Pi base configuration and recovery archives. Preserve the workspace switch, ordinary user data, canonical Vault records and non-deleting scope transitions; compose managed-resource and recovery vetoes ahead of positive rules in both policies ([REQ-STOR-011](storage.md#req-stor-011-sync-mode-controls-workspace-scope), [REQ-STOR-031](storage.md#req-stor-031-managed-resource-container-sync), [REQ-SETUP-018](setup.md#req-setup-018-stateless-environment-preview-and-bounded-execution)).
+
 - Make Pi image warming resource-only and reject extension-load errors from either cache-warming process even when the CLI exits zero; preserve exact-path fresh-process cache evidence and the legitimate recompilation of changed restored content ([REQ-AGENT-210](agents.md#req-agent-210-managed-extension-startup-preparation)).
 
 - Establish [Model Context Protocol](mcp.md) as the owner of portal authorization, administration, client discovery/configuration, transport and lossless client migration. Relocate REQ-AGENT-226–229 and REQ-AGENT-217 without changing behavior, identifiers, evidence or verification status; preserve former Agents fragment links.

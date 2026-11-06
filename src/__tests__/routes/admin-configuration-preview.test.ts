@@ -82,6 +82,58 @@ describe('POST /admin/configuration-previews (REQ-SETUP-018)', () => {
     mockAuthReject = false;
   });
 
+  it('REQ-SETUP-017/018: sync policy defaults, previews without writes, applies both modes, and preserves omitted requests', async () => {
+    const { app, kv } = createApp({ ENTERPRISE_MODE: 'active' });
+    expect(await (await app.request('/admin/configuration')).json()).toMatchObject({
+      sections: { dataGovernance: { syncPolicyMode: 'exclude' } },
+    });
+    const selections = ['include', undefined, 'exclude'] as const;
+    for (const [baseRevision, selection] of selections.entries()) {
+      const expected = selection ?? 'include';
+      const values = { governedMode: false, viewOnlyStorage: baseRevision === 1,
+        ...(selection !== undefined && { syncPolicyMode: selection }) };
+      const before = await kv.get('setup:sync_policy_mode');
+      const preview = await post(app, { section: 'dataGovernance', baseRevision, values });
+      expect(preview.status).toBe(200);
+      const plan = await preview.json() as { changes: Array<{ field: string; after: unknown }> };
+      expect(plan.changes.filter(change => change.field === 'syncPolicyMode')).toEqual(
+        selection === undefined ? [] : [expect.objectContaining({ field: 'syncPolicyMode', after: expected })]);
+      expect(await kv.get('setup:sync_policy_mode')).toBe(before);
+      const applied = await app.request('/admin/configuration-runs', { method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ section: 'dataGovernance', baseRevision, values }) });
+      expect(applied.status).toBe(200);
+      const events = (await applied.text()).trim().split('\n').map(line => JSON.parse(line));
+      expect(events.at(-1).run.state).toBe('succeeded');
+      expect(await kv.get('setup:sync_policy_mode')).toBe(expected);
+      expect(await (await app.request('/admin/configuration')).json()).toMatchObject({
+        sections: { dataGovernance: { syncPolicyMode: expected, viewOnlyStorage: baseRevision === 1 } },
+      });
+    }
+  });
+
+  it.each(['Include', '', true, null, 'all'])('REQ-SETUP-018: rejects unknown sync policy %s before mutation', async syncPolicyMode => {
+    const { app, kv } = createApp({ ENTERPRISE_MODE: 'active' });
+    await kv.put('setup:sync_policy_mode', 'include');
+    const body = { section: 'dataGovernance', baseRevision: 0,
+      values: { governedMode: true, viewOnlyStorage: true, syncPolicyMode } };
+    expect((await post(app, body)).status).toBe(400);
+    expect((await app.request('/admin/configuration-runs', { method: 'POST',
+      headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })).status).toBe(400);
+    expect(await kv.get('setup:sync_policy_mode')).toBe('include');
+    expect(await kv.get(SETUP_KEYS.R2_SSE_DISABLED)).toBeNull();
+    expect(await kv.get(ADMIN_CONFIGURATION_KEYS.REVISION)).toBeNull();
+  });
+
+  it('REQ-SETUP-017/018: malformed stored sync policy fails closed rather than selecting exclude', async () => {
+    const { app, kv } = createApp({ ENTERPRISE_MODE: 'active' });
+    await kv.put('setup:sync_policy_mode', 'Include');
+    expect((await app.request('/admin/configuration')).status).toBe(500);
+    expect((await post(app, { section: 'dataGovernance', baseRevision: 0,
+      values: { governedMode: false, viewOnlyStorage: false } })).status).not.toBe(200);
+    expect(await kv.get('setup:sync_policy_mode')).toBe('Include');
+  });
+
   it('REQ-ENTERPRISE-088 AC1: checkbox-only group grants and revocations survive preview save and reload', async () => {
     const { app, kv } = createApp({ ENTERPRISE_MODE: 'active', AIG_TOKEN: 'saved-token', AIG_GATEWAY_URL: routingGatewayUrl });
     const base = { ...enterpriseAiValues, dynamicRoutes: [], defaultRoute: { route: '', reasoning: 'off' },

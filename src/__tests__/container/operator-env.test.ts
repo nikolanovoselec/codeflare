@@ -29,6 +29,12 @@ function state(overrides: Partial<ContainerEnvState> = {}): ContainerEnvState {
 }
 
 describe('operator container environment', () => {
+  it.each(['exclude', 'include'] as const)('sync policy %s never enables restricted operator whole-home persistence', mode => {
+    const vars = buildEnvVars(state({ _operatorContainerProfile: profile, _syncPolicyMode: mode }), {} as Env);
+    expect(vars.SYNC_MODE).toBe('none');
+    expect(vars.WORKSPACE_SYNC_ENABLED).toBe('false');
+  });
+
   it('REQ-AGENT-228 AC1: restricted operators do not inherit administrator MCP portal connections', () => {
     const vars = buildEnvVars(state({ _operatorContainerProfile: profile, _sessionMode: 'advanced',
       _mcpPortals: [{ name: 'enterprise', url: 'https://mcp.example.com/mcp' }] }),

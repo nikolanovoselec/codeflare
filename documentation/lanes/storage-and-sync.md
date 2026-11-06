@@ -105,7 +105,7 @@ Hibernation, an interrupted stop request, elapsed time, or a completed final syn
 
 A managed path is an exact object key owned by the verified release inventory, a signed retirement tombstone, or one of Codeflare's synthetic policy files. Ordinary personal files do not become managed because they happen to sit in the same bucket. That distinction is what keeps a release update from turning into a bucket-wide cleanup.
 
-**Mutable** is the default when managed resources are enabled but both persistence controls are off. The release provisions its current files, while rclone may persist user edits and new files normally. A later release overwrites content at paths it still manages. If a user rewrites a managed object, the rclone upload drops its Codeflare provenance marker and transfers ownership to the user. A later retirement preserves that replacement. Mutable mode has no managed-path policy, generated exclusion filter, or Worker denial.
+**Mutable** is the default when managed resources are enabled but both persistence controls are off. The release provisions its current files, while rclone may persist user edits and new files normally. A later release overwrites content at paths it still manages. If a user rewrites a managed object, the rclone upload drops its Codeflare provenance marker and transfers ownership to the user. A later retirement preserves that replacement. Mutable mode has no managed-path protection or corresponding Worker denial; the ordinary persistence admission policy still applies.
 
 **Immutable** applies when **Immutable Resources** is enabled and **Disable User Created Resources** is disabled. Current managed paths and signed retirement tombstones are exact protected paths. Personal files elsewhere continue to persist. Container filters keep routine bisync away from protected paths; if those filters are bypassed or damaged, the Worker rejects the protected R2 mutation with S3 `403`. A file at a path introduced by a later release is replaced by managed content and protected from then on.
 
@@ -173,21 +173,39 @@ All bisync commands use `--ignore-checksum` to skip post-transfer MD5 verificati
 
 ### What's Synced vs Excluded (REQ-STOR-011)
 
+**Administration → Data governance → Save only approved locations** chooses how file locations become eligible for sync. Sync copies eligible files to R2, the persistent storage bucket used to restore them when a session container is recreated.
+
+- **Off: Exclude mode (default).** Files in locations covered by sync are saved unless explicitly excluded. This supports new tools without enrolling each new location, but temporary downloads and caches can accidentally end up in R2 when placed within sync scope.
+- **On: Include mode.** Only approved persistent namespaces are saved. Files elsewhere are not saved and cannot be restored after container recreation. Established agent homes are recursive, so new nested configuration and state files remain eligible; reviewed transient restrictions still apply.
+
+Both modes use the same workspace/session gates, managed-resource protection and reviewed cache/runtime exclusions. No mode can identify every future cache by intent. Policy changes apply to new or restarted sessions, not to an already running daemon, and do not automatically delete existing files from either side.
+
+The existing **Sync Workspace Folder** switch still selects `full` or `none` on the next session restart. Full preserves ordinary workspace content, including hidden, binary, extensionless, ignored/untracked files and Git history, subject to the existing transient exclusions. Metadata remains a direct-configuration mode, not a new UI choice. Changing scope does not delete excluded local or remote data; the existing newest-side-wins baseline establishes the new scope before ordinary deletion propagation resumes.
+
 | Path | Synced | Reason |
 |------|--------|--------|
-| `~/.claude/` | Yes | Claude credentials, config, projects for terminal sessions |
+| `~/.claude/`, `~/.codex/`, `~/.copilot/`, `~/.gemini/`, `~/.pi/`, `~/.impeccable/` | Yes, subject to transient and managed-policy vetoes | Forward-compatible agent configuration, authentication, personal resources and durable state; Pi's base-level workflow configuration and recovery archives persist too, not only `agent/`. New nested names do not require a new allowlist entry. Main-history retention and the exclusions below remain separate contracts. |
+| `~/.pi/agent/npm/package.json`, `package-lock.json`, and custom local package source | Yes | User dependency declarations and source are durable inputs; `node_modules` is a reconstructible installation, not a reason to exclude the whole npm root. |
+| `~/.pi/agent/mcp.json.migrated*` | Yes | Existing lossless recovery archives may contain original custom configuration; preservation does not run another migration. |
+| `~/.vscode-oss-shared/` | Yes | Shared application state can contain unique trust and secret-storage data; recreating an empty database does not restore it. |
+| `~/.local/share/**`, `~/.local/bin/**` | Yes, subject to the explicit exclusions below | Existing user application data and executable namespaces remain forward-compatible; known installer/download stores, logs, telemetry counters and regenerated binaries are not admitted merely because they sit here. |
+| `~/Getting Started.md`, `~/Documentation/**`, `~/Examples/**` | Yes | Product guidance and examples remain available after recreation. |
+| `~/Uploads/**`, `~/Temporary/**`, `~/Operators/**` | Yes, subject to existing ownership and transient rules | Ordinary user files retain their formats and future filenames; disposable agent checkouts and known generated state are not durable user content. Restricted Operator uploads retain their separate scoped manifest authority. |
 | `/run/codeflare/openvscode/sidebar/**` | **NO** | Browser IDE container-lifetime runtime and Claude configuration state. This path is outside the synced home tree and is removed with the container. |
 | `/run/codeflare/openvscode/data/**` | **NO** | Live session-isolated editor databases, user extension package directories, workspace/global extension state, SecretStorage, authentication, chat history, logs, WAL, and SHM stay temporary and outside sync. |
 | `~/.codeflare/ide-ui-state.json` | Yes | Bounded Browser IDE continuity for theme, keyboard layout, Explorer, and open files ([REQ-IDE-002](../../sdd/spec/browser-ide.md#req-ide-002-session-isolated-ide-not-bucket-stable), [REQ-IDE-016](../../sdd/spec/browser-ide.md#req-ide-016-bounded-ide-state-capture-and-restore-ordering)). <!-- @impl: scripts/browser-ide-ui-state.py::capture --> |
 | `~/.codeflare/ide-extensions.json` | Yes | Maximum-64-KiB Browser IDE intent manifest containing at most 50 extension identities plus bounded contributed global settings; no VSIX or extracted package bytes ([REQ-IDE-036](../../sdd/spec/browser-ide.md#req-ide-036-persistent-user-managed-extensions)). <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::captureExtensionManifest --> <!-- @impl: scripts/browser-ide-extensions.py::capture --> |
 | `~/.codeflare/herdr/sessions/*/session.json` | Yes | Herdr snapshots restore topology, cwd, focus, and native agent references. Restored Pi waits for lifecycle authority, with metadata fallback when signaling is unavailable. Pane history, sockets, logs, and process state remain excluded ([REQ-TERM-033](../../sdd/spec/terminal.md#req-term-033-durable-herdr-structural-session-recovery)). <!-- @impl: image/herdr/codeflare-herdr-terminal::prepare_runtime --> <!-- @impl: image/herdr/codeflare-herdr-terminal::wait_for_restored_agent --> <!-- @impl: entrypoint.sh::RCLONE_FILTERS_COMMON --> |
 | `~/.codeflare/review-state/v1/**` | Yes | Immutable exact-head review completion markers follow the user across clones, worktrees, sessions, replacement containers, and devices sharing the bucket. Ten markers per repository and branch remain for 30 days ([REQ-STOR-027](../../sdd/spec/storage.md#req-stor-027-review-completion-marker-sync)). <!-- @impl: entrypoint.sh::RCLONE_FILTERS_COMMON --> |
-| `~/.gitconfig` | Yes | Git configuration |
+| `~/.gitconfig`, `~/.bash_history`, `~/.profile`, `~/.zshrc`, `~/.claude.json` and existing manual configuration backups | Yes | Explicit personal configuration and continuity; generated Bash startup files remain excluded. |
 | `~/workspace/` | Depends on `SYNC_MODE` | Excluded by default (`none`). Synced when `full` or partially with `metadata`. |
 | `~/.npm/`, `~/.bun/` | **NO** | Package manager caches, regenerated |
 | `~/.cache/**` | **NO** | Home-root cache exclusion precedes positive rules, including for flat S3 listings. Manually preserved `~/.cache/codeflare-recovery/**` archives stay outside restore and bisync; they are not disposable regenerated cache. |
-| `~/.wrangler/`, `~/.config/**` | **NO** | Wrangler state (root location) + all XDG tool configs (configstore, fish, opencode, uv, rclone, wrangler-XDG) - all regenerable on first use. No codeflare-managed state lives under `~/.config/`. |
+| `~/.config/opencode/**` | Yes, subject to managed and transient rules | OpenCode is an established agent resource home; managed exact paths or Exclusive roots still override ordinary admission. |
+| `~/.wrangler/`, other `~/.config/**` | **NO** unless explicitly admitted | Preserve the existing restricted configuration scope, including exclusion of R2 transport credentials; do not infer that every possible user configuration is reconstructible. |
 | `~/.local/share/claude/**` | **NO** | Native installer version binaries (leftover data, removed from build) |
+| `~/.local/share/chrome-devtools-mcp/telemetry_state.json` | **NO** | Recreated stock telemetry timestamps, not MCP configuration or browser/task state; neighboring tool data is not blanket-excluded. |
+| `~/.impeccable/update-check.json`, `staleness-check.json` | **NO** | Regenerated update/notification-check caches; tool configuration remains eligible. |
 | `~/.local/share/uv/**`, `~/.local/bin/uv`, `~/.local/bin/uvx` | **NO** | uv tool venvs and binaries (graphifyy venv ~275MB lives at `/root/.local/share/uv` baked into the image; the user-side mirror is duplicate cruft, regenerable). |
 | `~/.context-mode/**` | **NO** | v2 shared per-project SQLite index and session cache; regenerated locally, never restored as live SQLite state. |
 | `~/.claude/context-mode/**` | **NO** | context-mode plugin FTS5 store and per-session SQLite DBs (~255MB on an active session, pure cache, regenerable by re-indexing). |
@@ -203,17 +221,19 @@ All bisync commands use `--ignore-checksum` to skip post-transfer MD5 verificati
 | `~/.pi/agent/work-evidence/**` | **NO** | Ad-hoc investigation artifacts remain local; the common root-anchored filter excludes them from restore and every bisync mode without excluding adjacent agent configuration or nested user tray content. Existing copies require explicit cleanup; exclusion alone does not delete them. |
 | `~/.pi/agent/sessions/**/*.jsonl` | Yes (partial) | Up to ten candidate JSONL files sync for `--resume` under [REQ-STOR-012](../../sdd/spec/storage.md#req-stor-012-main-session-transcript-cleanup). Task subdirs (`**/tasks/**`), disposable `.conflict*` copies, and the context-mode FTS5 store (`~/.pi/context-mode/**`) remain excluded. `~/.pi/agent/npm/node_modules/` is an image-seeded cache; see [container.md](container.md#pi-extension-npm-cache). <!-- @impl: transcript-retention.mjs::discoverTranscripts --> <!-- @impl: entrypoint.sh::RCLONE_FILTERS_COMMON --> |
 | `~/.cpan/**` | **NO** | Perl CPAN package manager cache, regenerated |
-| `~/.gemini/tmp/**` | **NO** | Legacy no-op filter retained in entrypoint (Gemini CLI agent removed; filter is harmless) |
+| `~/.gemini/tmp/**` and documented Antigravity runtime/download paths | **NO** | Antigravity uses the `.gemini` home; authentication and personal resources persist, while known temporary stores do not. |
 | `~/.local/share/opencode/log/**`, `opencode.db-shm`, `opencode.db-wal` | **NO** | OpenCode session logs and SQLite temp files |
 | `.claude/mcp-*.json` | **NO** | MCP auth cache; created and deleted within milliseconds, listing-then-missing causes bisync fatal errors. Regenerated on every connect. |
 | `~/.graphify/**` | **NO** | Per-machine global graph store (absolute paths, machine-specific). Each container builds its own from the per-repo `graphify-out/` artefacts. |
 | `**/graphify-out/**` ([REQ-AGENT-023](../../sdd/spec/agents.md#req-agent-023-knowledge-graph-capability-graphify)) | **NO** | Knowledge-graph artifacts live in the repo, not in R2: owners commit `graphify-out/` to git and clones receive it. Repos without push permission keep the graph local-only and ephemeral. R2 bisync is not in the graphify persistence path. |
-| `Vault/graphify-out/vault-graph.json`, `Vault/graphify-out/vault-extract-manifest.json` (advanced mode) | Yes | Cumulative graph source and committed extraction high-water mark persist despite the blanket graphify exclude. |
+| `Vault/graphify-out/vault-graph.json`, `Vault/graphify-out/vault-extract-manifest.json`, `Vault/graphify-out/vault-extract-initialized` (advanced mode) | Yes | Cumulative graph source, committed extraction high-water mark and initialization record persist despite the derived-graph exclusion. |
 | `Vault/Raw/Sessions/Archive.md` (advanced mode) | Yes | Deterministic image-owned cold-capture archive; ordinary Vault inclusion persists it, while semantic extraction excludes all of `Raw/Sessions/`. |
 | `Vault/graphify-out/vault-extract-manifest.*.pending.json`, `.graphify_chunk_*.json` | **NO** | Pi request-specific staging/chunks are ephemeral; only hash-validated success promotes the canonical manifest. |
 | `Vault/graphify-out/graph.html` | **NO** | Derived visualization; the served durable copy is `Vault/Raw/Graphs/vault-graph.html`. |
 
-The home-root `- /.cache/**` rule precedes all positive rules in the common filter array ([REQ-STOR-011 AC4–AC7](../../sdd/spec/storage.md#req-stor-011-sync-mode-controls-workspace-scope)). Without that precedence, unanchored `.codeflare` allow-rules also match nested keys inside `.cache/codeflare-recovery/**` during flat S3 listing. Recovery archives must remain outside initial restore, baseline and periodic bisync in every mode. Exclusion is not deletion: existing remote archives remain available for explicit preservation-first recovery or cleanup. The later unanchored cache exclusion retains the existing policy for nested caches. <!-- @impl: entrypoint.sh::RCLONE_FILTERS_COMMON -->
+The explicit home-cache rule `- /.cache/**` and nested-cache rule `- .cache/**` precede all positive rules in the common filter array ([REQ-STOR-011 AC4–AC7](../../sdd/spec/storage.md#req-stor-011-sync-mode-controls-workspace-scope)). Without that precedence, unanchored `.codeflare` allow-rules also match nested keys inside `.cache/codeflare-recovery/**` during flat S3 listing. Recovery archives must remain outside initial restore, baseline and periodic bisync in every mode. Exclusion is not deletion: existing remote archives remain available for explicit preservation-first recovery or cleanup. The later unanchored cache exclusion retains the existing policy for nested caches. <!-- @impl: entrypoint.sh::RCLONE_FILTERS_COMMON -->
+
+Preserving an existing HOME-based shared IDE database is not a change to Browser IDE's session-isolated `/run/codeflare/openvscode/data/**` boundary. That runtime remains ephemeral; eligibility for home sync also does not establish a consistent snapshot of a live SQLite database.
 
 Both Browser IDE manifests are atomic mode-`0600` regular files. The 1 MiB UI snapshot contains only allowlisted theme values, string-valued `keyboard.layout`, and key-specific canonical Explorer/open-file resources captured after code-server is reaped. The separate 64 KiB extension manifest contains lowercase IDs, exact versions, optional audit metadata, a warning acknowledgement, and bounded contributed global settings. <!-- @impl: scripts/browser-ide-ui-state.py::capture --> <!-- @impl: openvscode/agent-sidebar/src/extension-persistence.ts::captureExtensionManifest --> <!-- @impl: scripts/browser-ide-extensions.py::capture -->
 
@@ -221,9 +241,11 @@ Managed/UI-continuity keys are excluded; failed gallery restores remain as inten
 
 `vault-graph.json` is the [REQ-MEM-009](../../sdd/spec/memory.md#req-mem-009-vault-graph-accumulates-monotonically-across-extractions) source of truth; the global graph is rebuilt from it at boot. The extraction manifest prevents a restored vault from being reprocessed wholesale.
 
-The two durable `VAULT_FILTER` allow-rules precede `+ Vault/**` because rclone uses first-match semantics. `- Vault/graphify-out/**` drops derived output: `graph.json`, `graph.html`, chunks, `.graphify_labels.json`, `GRAPH_REPORT.md`, cache, and Graphify's own manifest. The published visualization remains under `Vault/Raw/Graphs/`.
+The three canonical `VAULT_FILTER` exceptions precede the derived-graph exclusion and ordinary Vault admission because rclone uses first-match semantics. `- Vault/graphify-out/**` drops derived output: `graph.json`, `graph.html`, chunks, `.graphify_labels.json`, `GRAPH_REPORT.md`, cache, and Graphify's own manifest. The published visualization remains under `Vault/Raw/Graphs/`.
 
 ### rclone Sync Modes (REQ-STOR-003)
+
+These workspace scopes are independent of the deployment-wide Include/Exclude persistence policy. Exclude mode does not turn workspace sync on, and Include mode does not narrow an enabled workspace to Git-tracked or text files.
 
 | Mode | Workspace Sync | Use Case |
 |------|---------------|----------|
@@ -248,7 +270,7 @@ In advanced mode the `VAULT_FILTER` re-includes `Vault/graphify-out/vault-graph.
 
 Python exclusions are name-based: reserve `.venv` and `.venv-*` directories for disposable environments, and keep source and dependency manifests beside them. Regular files named `.venv` or `.venv-ytdlp` are not excluded by the directory-content rules; neither are arbitrary `venv/` or `site-packages/` source directories. Existing excluded R2 objects are not purged by this change. Their removal requires separately authorized cleanup; sessions on an older image still use their previous filters ([REQ-STOR-053](../../sdd/spec/storage.md#req-stor-053-regenerable-python-artifacts-stay-outside-home-sync)). <!-- @impl: entrypoint.sh::RCLONE_FILTERS_COMMON -->
 
-The broad `.config/**` exclude subsumes older specific `.config/rclone/**` and `.config/.wrangler/**` entries. All rclone commands use `--filter` flags, not `--include`/`--exclude`.
+Ordinary rclone operations consume one composed `--filter-from` policy: verified managed vetoes first, applicable recovery vetoes next, then common transient exclusions and mode-specific positive rules, followed by Include's deny or Exclude's admission fallback. Mixing `--filter` positives with a separate `--filter-from` protection file is not equivalent: rclone groups flag families rather than honoring their textual interleaving.
 
 Memory-capture counter files used to live at `~/.memory/counter/**` and required an explicit exclude. They now live at `/tmp/.memory-counter/`, which is not synced because Cloudflare Containers use ephemeral disk; see [REQ-MEM-002](../../sdd/spec/memory.md#req-mem-002-capture-triggers-every-20-user-messages-and-on-resume).
 
@@ -325,7 +347,7 @@ When bisync/resync fails because a transient file was listed but deleted before 
 
 Only non-workspace files are auto-excluded. If the vanishing file is under `workspace/` (user code), the system retries without excluding - the file likely reappeared after a save operation completed. Known ephemeral files (`.claude/mcp-*.json` - MCP auth cache that exists for milliseconds) are statically excluded to prevent the race condition entirely.
 
-The recovery filter file starts empty on every container start and is never synced to R2. All rclone bisync/resync invocations include `--filter-from /run/codeflare/sync/recovery-filters.txt` in addition to the static filters.
+The recovery filter file starts empty on every container start and is never synced to R2. Applicable recovery rules are composed ahead of positive persistence rules in the effective policy used by bisync/resync; they are not passed as a later flag family that an earlier positive rule can bypass.
 
 **Daemon always starts:** The bisync daemon starts unconditionally after the baseline attempt - even if all baseline recovery attempts fail. A dead daemon means zero sync for the entire session. The daemon has its own recovery loop (vanishing-file recovery on each cycle + consecutive failure → resync fallback after 3 failures). This ensures sync can recover mid-session even if startup sync was disrupted.
 
@@ -401,7 +423,7 @@ return an error response (4xx) rather than any listing.
 
 ## Managed-Resource Sync Policy ([REQ-STOR-031](../../sdd/spec/storage.md#req-stor-031-managed-resource-container-sync))
 
-Protected managed environments restore one canonical `.codeflare/managed-paths.json` before baseline. The entrypoint verifies its exact digest, release, mode, schema, and canonical bytes, then excludes managed exact paths from every bisync. Exclusive mode also excludes each governed resource root. Mutable transition removes stale local policy/filter state before baseline. These filters keep normal bisync convergent; Worker-side mutation denial remains authoritative if root tampers with them. Exclusive enablement is destructive for personal objects inside governed roots and must reconcile only while the user's sessions are stopped.
+Protected managed environments restore one canonical `.codeflare/managed-paths.json` before baseline. The entrypoint verifies its exact digest, release, mode, schema, and canonical bytes, then excludes managed exact paths from every bisync, including paths also matched by a positive namespace rule. Exclusive mode also excludes each governed resource root. Initial authoritative restoration is distinct from the protected baseline and ordinary sync; missing or incomplete required protection does not permit unrestricted fallback. Mutable transition removes stale local policy/filter state before baseline. These filters keep normal bisync convergent; Worker-side mutation denial remains authoritative if root tampers with them. Exclusive enablement is destructive for personal objects inside governed roots and must reconcile only while the user's sessions are stopped.
 
 <a id="startup--steady-state-sync-performance"></a>
 ## Performance Characteristics
