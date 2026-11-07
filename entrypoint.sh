@@ -125,7 +125,7 @@ export TERM
 configure_fast_start_environment() {
     if [ "${FAST_CLI_START:-true}" = "false" ]; then
         # Unset Dockerfile-level vars so tools CAN auto-update
-        unset DISABLE_AUTOUPDATER OPENCODE_DISABLE_AUTOUPDATE COPILOT_AUTO_UPDATE DISABLE_INSTALLATION_CHECKS PI_OFFLINE PI_SKIP_VERSION_CHECK
+        unset DISABLE_AUTOUPDATER OPENCODE_DISABLE_AUTOUPDATE COPILOT_AUTO_UPDATE DISABLE_INSTALLATION_CHECKS PI_SKIP_VERSION_CHECK
     else
         # Ensure all disable vars are set (use bundled versions)
         export DISABLE_AUTOUPDATER=1
@@ -134,6 +134,9 @@ configure_fast_start_environment() {
         export PI_OFFLINE=1
         export PI_SKIP_VERSION_CHECK=1
     fi
+    # Extension packages never update/install automatically, regardless of Fast Start.
+    # Supported Pi offline mode also suppresses automatic model-catalog refreshes.
+    export PI_OFFLINE=1
 }
 configure_fast_start_environment
 
@@ -3276,10 +3279,6 @@ update_pi_and_codex_when_fast_start_disabled() {
             echo "[entrypoint] Fast Start disabled; Pi version before update: $before_pi"
         else
             echo "[entrypoint] ERROR: Could not read Pi version before update"
-            update_failed=1
-        fi
-        if ! npm_config_cache="$update_cache" PI_OFFLINE= PI_SKIP_VERSION_CHECK= pi update --extensions; then
-            echo "[entrypoint] ERROR: Pi package update failed"
             update_failed=1
         fi
     else

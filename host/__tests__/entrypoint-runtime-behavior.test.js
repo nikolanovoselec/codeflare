@@ -417,9 +417,8 @@ describe('entrypoint production helpers', () => {
       '[entrypoint] Fast Start disabled; Codex version before update: codex-cli 0.151.0',
       '[entrypoint] Fast Start disabled; Pi version after update: pi 0.84.4',
       '[entrypoint] Fast Start disabled; Codex version after update: codex-cli 0.151.0',
-      'off:unset:unset:unset:unset:unset:unset',
+      'off:1:unset:unset:unset:unset:unset',
       'npm:view @earendil-works/pi-coding-agent@latest version',
-      'pi:update --extensions offline= skip=',
       'npm:view @openai/codex@latest version',
       'npm:install --prefix /opt/codeflare/npm-tools --omit=dev --save-exact --ignore-scripts --no-audit --no-fund @earendil-works/pi-coding-agent@0.85.1 @openai/codex@0.151.0',
     ]);
@@ -672,7 +671,7 @@ describe('entrypoint production helpers', () => {
   });
   }
 
-  it('REQ-AGENT-206: Fast Start OFF surfaces Pi package and agent runtime update failures', () => {
+  it('REQ-AGENT-206: Fast Start OFF surfaces agent runtime update failures without updating extensions', () => {
     const script = `${extractFunction('update_pi_and_codex_when_fast_start_disabled')}\n` +
       `pi() { [ "$1" = "--version" ] && { echo 'pi 0.84.4'; return 0; }; return 7; }\n` +
       `codex() { echo 'codex-cli 0.150.1'; }\n` +
@@ -683,7 +682,7 @@ describe('entrypoint production helpers', () => {
     const result = spawnSync('bash', ['-c', script], { encoding: 'utf8' });
 
     assert.equal(result.status, 0, result.stderr);
-    assert.match(result.stdout, /ERROR: Pi package update failed/);
+    assert.doesNotMatch(result.stdout, /Pi package update/);
     assert.match(result.stdout, /ERROR: Pi runtime update failed/);
     assert.match(result.stdout, /ERROR: Codex runtime update failed/);
     assert.match(result.stdout, /update-failed/);
