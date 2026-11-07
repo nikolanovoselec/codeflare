@@ -4840,6 +4840,7 @@ None.
 4. The root applies a review fix only after the user approves it. <!-- @impl: preseed/agents/claude/commands/review.md::Review ownership (binding) --> <!-- @impl: preseed/agents/pi/skills/review/SKILL.md::Review ownership (binding) --> <!-- @manual -->
 5. Interactive triage records exactly one decision for each surfaced finding. <!-- @impl: preseed/agents/claude/commands/review.md::Phase 8: Interactive Triage --> <!-- @impl: preseed/agents/pi/skills/review/SKILL.md::Phase 8: Interactive triage --> <!-- @manual -->
 6. Defer, ignore, and technical-debt decisions persist to `sdd/.review-decisions.md`. <!-- @impl: preseed/agents/claude/commands/review.md::Phase 9: Save Triage Results + Append to .review-decisions --> <!-- @impl: preseed/agents/pi/skills/review/SKILL.md::Phase 9: Save triage results + append to .review-decisions --> <!-- @manual -->
+7. Technical-debt records preserve optional accepted limits and revisit triggers through triage, history and approved issues; irrelevant fields are omitted and applicable unestablished values remain explicitly unknown. <!-- @impl: preseed/agents/claude/commands/review.md::Optional technical-debt context --> <!-- @impl: preseed/agents/pi/skills/review/SKILL.md::Optional technical-debt context --> <!-- @manual: Check debt output with known, applicable-but-unknown and irrelevant metadata; confirm history and approved issue bodies preserve supplied values without inventing thresholds or adding another tracker. -->
 
 **Constraints:**
 

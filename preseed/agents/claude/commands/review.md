@@ -905,6 +905,12 @@ For each finding or batch of related findings, use `AskUserQuestion` with these 
 **For cluster findings (CF-NNN-cluster):**
 The default options are presented for the cluster as a whole. The user's decision applies to ALL locations in the cluster. A "Split" option breaks the cluster into individual findings if the user wants per-location decisions.
 
+### Optional technical-debt context
+
+When technical debt has an accepted operating limit or revisit condition, retain it from existing evidence or the user's triage answer as **Accepted limit** and **Revisit trigger**. These are optional metadata, not additional triage decisions. Omit irrelevant fields; write `Unknown` for an applicable field whose value is not established. Never invent thresholds, dates, approval or operating assumptions, and do not add a question solely to populate these fields.
+
+Carry applicable values through the existing cycle report, technical-debt history entry and approved GitHub issue. Do not generalize a member-specific limit across a cluster. Older entries remain valid without backfilling. This metadata neither waives security/correctness requirements nor changes severity, scope, repeat filtering or permission to create issues; it introduces no separate ledger or mandatory comment convention.
+
 ### Batching Rules
 
 - **CRITICAL**: ask individually unless exact duplicates
@@ -1004,6 +1010,8 @@ Format:
   - **Severity:** [severity]
   - **Area:** [module/component]
   - **Why deferred:** [reason]
+  - **Accepted limit:** [when applicable: established limit/assumption, otherwise Unknown]
+  - **Revisit trigger:** [when applicable: established condition for reassessment, otherwise Unknown]
   - **Suggested remediation:** [approach]
 
 [...repeat for each Tech Debt finding]
@@ -1055,6 +1063,10 @@ append a section like:
 - **Suggested action:** <suggestion from finding>
 - **Sunset hint:** If 3 cycles in a row see this same decision, consider promoting to ADR.
 
+For Technical Debt decisions only, preserve applicable **Accepted limit** and
+**Revisit trigger** values from the debt entry in this history entry, including
+`Unknown`. Omit irrelevant fields and do not add them to Defer/Ignore entries.
+
 For cluster findings (CF-NNN-cluster) whose decision was NOT Split: expand to one
 entry per location in the cluster. Each entry shares the same Reason. This makes
 Q1's per-location lookup trivial in cycle N+1.
@@ -1093,7 +1105,8 @@ You are updating architecture decisions and creating GitHub issues from a codeba
    - If not found, append a new AD subsection at the end of the Decisions section with the next available AD number
 
 3. For each "Technical Debt" entry:
-   - Create a GitHub issue using: `gh issue create --label "technical-debt" --title "TD: [title]" --body "[description + remediation]"`
+   - Create a GitHub issue using: `gh issue create --label "technical-debt" --title "TD: [title]" --body "[description + remediation + applicable accepted limit and revisit trigger]"`
+   - Preserve applicable debt metadata from the cycle report verbatim, including `Unknown`; do not infer new limits or triggers.
    - Do NOT write tech debt to any documentation file
 
 IMPORTANT: Read documentation/decisions/README.md fully before editing. Use the Edit tool for AD insertions.
