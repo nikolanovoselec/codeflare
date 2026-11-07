@@ -20,6 +20,8 @@ Do not call `consult_llm` unless the user's current request explicitly asks to c
 
 If the user asks for a generic second opinion without naming external LLMs, ask what they want. Do not call `consult_llm`, and do not invoke advisor unless the user explicitly asks for advisor.
 
+Cold MCP discovery may briefly start the server and read its tool catalogue. That is not consultation and never authorizes `tools/call` or external inference. The explicit-request gate above remains mandatory.
+
 ## Step 1 — Choose the model
 
 **If the user named a specific model** ("ask gpt-5.5…", "use gemini-3.1-pro…") → use that exact model ID, no dialog.

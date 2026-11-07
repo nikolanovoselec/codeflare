@@ -111,6 +111,7 @@ async function fixture(t, { unavailable = false, oauth = false } = {}) {
       ...(unavailable ? { 'codeflare-portal-unavailable': { ...server, url: 'https://unavailable.example/mcp' } } : {}) } };
   const requests = [];
   const sessions = new Set(), grants = [];
+  let expiredIssuerAccess = false;
   const metadata = { issuer: 'https://local-oauth.example', authorization_endpoint: 'https://local-oauth.example/authorize',
     token_endpoint: 'https://local-oauth.example/token', registration_endpoint: 'https://local-oauth.example/register',
     response_types_supported: ['code'], grant_types_supported: ['authorization_code', 'refresh_token'],
@@ -141,7 +142,9 @@ async function fixture(t, { unavailable = false, oauth = false } = {}) {
           refresh_token: 'synthetic-local-refresh', token_type: 'Bearer', expires_in: 3600 });
       }
       assert.equal(u.pathname, '/mcp');
-      if (!['Bearer synthetic-local-access', 'Bearer synthetic-refreshed-access'].includes(request.headers.get('Authorization'))) {
+      const authorizationHeader = request.headers.get('Authorization');
+      const expired = expiredIssuerAccess && authorizationHeader === 'Bearer synthetic-local-access';
+      if (expired || !['Bearer synthetic-local-access', 'Bearer synthetic-refreshed-access'].includes(authorizationHeader)) {
         return new Response(null, { status: 401, headers: {
           'WWW-Authenticate': 'Bearer resource_metadata="https://local-oauth.example/.well-known/oauth-protected-resource"' } });
       }
@@ -151,7 +154,8 @@ async function fixture(t, { unavailable = false, oauth = false } = {}) {
       assert.equal(u.pathname, '/mcp', 'managed portal must never initiate Pi OAuth discovery');
       assert.equal(request.headers.get('Authorization'), 'Bearer codeflare-mcp-portal');
     }
-    const observation = { host: u.hostname, method: request.method, session: request.headers.get('mcp-session-id') };
+    const observation = { host: u.hostname, method: request.method, session: request.headers.get('mcp-session-id'),
+      ...(oauth ? { refreshedAccess: request.headers.get('Authorization') === 'Bearer synthetic-refreshed-access' } : {}) };
     requests.push(observation);
     if (u.hostname === 'unavailable.example') return new Response(null, { status: 401,
       headers: { 'WWW-Authenticate': 'Bearer resource_metadata="https://unavailable.example/.well-known/oauth-protected-resource"' } });
@@ -224,6 +228,7 @@ async function fixture(t, { unavailable = false, oauth = false } = {}) {
       session.extensionRunner.createToolContext('qualification', undefined));
   };
   return { home, name, requests, session, call, shutdown, grants, oauthApi, serverUrl: server.url,
+    expireIssuerAccess() { expiredIssuerAccess = true; },
     authorization(url) { authorization = new URL(url); return authorization; },
     holdNextCall() {
       let arrived, release;
@@ -327,17 +332,23 @@ test('REQ-AGENT-228: unmanaged local OAuth retains real PKCE grant persistence, 
     assert.equal(encrypted.join('').includes(secret), false, 'credential envelope contains no plaintext grant');
     assert.equal(JSON.stringify(f.session.messages).includes(secret), false, 'Pi messages disclose no grant secrets');
   }
-  // Public native API expires this synthetic grant; the real adapter/SDK must refresh it.
+  // Expire both persisted credentials and issuer acceptance; a real MCP call must refresh.
   await f.oauthApi.updateMcpOAuthTokensForUrl(f.name, f.serverUrl,
     { ...persisted.tokens, expiresAt: Math.floor(Date.now() / 1000) - 60 }, storage);
+  f.expireIssuerAccess();
   const connected = await f.call({ connect: f.name });
   assert.equal(connected.details.error, undefined, JSON.stringify(connected));
-  assert.ok(f.grants.includes('refresh_token'), 'issuer receives the native refresh grant');
-  assert.equal(inspect().tokens.accessToken, 'synthetic-refreshed-access');
   const discovery = await f.call({ search: 'portal_codemode_execute', server: f.name });
   const tool = discovery.details.matches[0]?.tool;
   assert.ok(tool);
   assert.match(JSON.stringify(await f.call({ tool, server: f.name, args: { code: 'async () => ({ ok: true })' } })), /same-portal synthetic result/);
+  assert.ok(f.grants.includes('refresh_token'), 'issuer receives the native refresh grant');
+  assert.equal(inspect().tokens.accessToken, 'synthetic-refreshed-access');
+  assert.ok(f.requests.some(row => row.rpc?.method === 'tools/call' && row.refreshedAccess),
+    'the actual MCP operation reaches the issuer using refreshed authorization');
+  const refreshedEnvelope = retainedFiles(join(f.home, '.pi/agent/mcp-oauth-encrypted')).join('');
+  assert.equal(refreshedEnvelope.includes('synthetic-refreshed-access'), false);
+  assert.equal(refreshedEnvelope.includes('synthetic-local-refresh'), false);
   await until(() => f.requests.some(row => row.method === 'GET' && !row.aborted && !row.cancelled));
   await f.shutdown();
   await until(() => f.requests.filter(row => row.method === 'GET').every(row => row.aborted || row.cancelled));

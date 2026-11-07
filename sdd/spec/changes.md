@@ -4,6 +4,8 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-11-07
 
+- Clarify native MCP cold discovery as metadata-only: lazy startup remains deferred, and external consultation still requires an explicit user request ([REQ-AGENT-069](agents.md#req-agent-069-pi-consult-llm-mcp-lazy-wiring)).
+
 - Reuse observed fresh same-generation portal renewals and avoid returning stale access tokens after refresh publication, retaining disconnect/configuration fences and metadata-only request failure diagnostics ([REQ-AGENT-226](mcp.md#req-agent-226-worker-owned-mcp-portal-authorization)).
 
 - Restore the previous unmodified native MCP adapter as the sole managed owner, with guarded stock-to-native configuration handoff, deferred discovery, ten-minute idle disconnect and honest progress-resetting six-minute request semantics; portal OAuth remains on Cloudflare ([REQ-AGENT-217](mcp.md#req-agent-217-lossless-pi-mcp-adapter-migration), [REQ-AGENT-228](mcp.md#req-agent-228-owner-pi-mcp-configuration-and-discovery), [REQ-BROWSER-009](browser-run.md#req-browser-009-mcp-and-chrome-sdk-timeout-profile)).

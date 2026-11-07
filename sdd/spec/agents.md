@@ -3323,14 +3323,14 @@ None.
 ---
 ### REQ-AGENT-069: Pi consult-llm MCP lazy wiring
 
-**Intent:** Pi must reach consult-llm through the native adapter without starting `consult-llm-mcp` until the user explicitly asks for external LLM input.
+**Intent:** Pi must reach consult-llm through the native adapter without requesting external LLM inference until the user explicitly asks.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. Pi exposes consult-llm through the native MCP proxy and deferred tools after explicit connection, followed by live discovery and exact-name activation. <!-- @impl: entrypoint.sh::configure_consult_llm --> <!-- @impl: entrypoint.sh::_merge_consult_llm_mcp --> <!-- @test: preseed/agents/pi/test/consult-proxy.test.mjs (REQ-AGENT-069 AC1/AC2: native consult stays lazy until requested and supports exact capability activation) -->
-2. Fresh managed Pi configuration starts its `lifecycle:"lazy"` consult entry only on explicit connection; existing user entries and startup-setting precedence remain preserved except for [REQ-BROWSER-009](browser-run.md#req-browser-009-mcp-and-chrome-sdk-timeout-profile) timeout preparation. <!-- @impl: entrypoint.sh::configure_consult_llm --> <!-- @test: preseed/agents/pi/test/consult-proxy.test.mjs (REQ-AGENT-069 AC1/AC2: native consult stays lazy until requested and supports exact capability activation) --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (REQ-AGENT-069: adding consult preserves existing native user startup settings and unrelated servers) -->
+1. Pi exposes consult-llm through the native MCP proxy and deferred tools after explicit connection, followed by live discovery and exact-name activation. <!-- @impl: entrypoint.sh::configure_consult_llm --> <!-- @impl: entrypoint.sh::_merge_consult_llm_mcp --> <!-- @test: preseed/agents/pi/test/consult-proxy.test.mjs (REQ-AGENT-069 AC1/AC2: native cold discovery is metadata-only until explicit consultation and supports exact capability activation) -->
+2. Fresh managed Pi configuration defers lazy startup; cold runtime initialization may discover metadata, but cannot invoke consultation. Existing user entries and startup-setting precedence remain preserved except for [REQ-BROWSER-009](browser-run.md#req-browser-009-mcp-and-chrome-sdk-timeout-profile) timeout preparation. <!-- @impl: entrypoint.sh::configure_consult_llm --> <!-- @test: preseed/agents/pi/test/consult-proxy.test.mjs (REQ-AGENT-069 AC1/AC2: native cold discovery is metadata-only until explicit consultation and supports exact capability activation) --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (REQ-AGENT-069: adding consult preserves existing native user startup settings and unrelated servers) -->
 3. Startup regenerates standard managed consult credentials with the existing lazy constructor; customized entries, user settings and unrelated servers remain preserved except for [REQ-BROWSER-009](browser-run.md#req-browser-009-mcp-and-chrome-sdk-timeout-profile) timeout preparation. <!-- @impl: entrypoint.sh::configure_pi_mcp_adapter --> <!-- @impl: entrypoint.sh::_merge_consult_llm_mcp --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (REQ-AGENT-217 AC6: actual startup regenerates proven managed consult and browser from fresh inputs (${origin})) --> <!-- @impl: entrypoint.sh::_remove_disabled_consult_llm --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (REQ-AGENT-069: ${mode} startup preserves customized native consult while retaining Claude cleanup) -->
 4. The replacement preserves unrelated user MCP servers in the same file. <!-- @impl: entrypoint.sh::_merge_consult_llm_mcp --> <!-- @manual -->
 
@@ -3346,7 +3346,7 @@ None.
 
 **Dependencies:** [REQ-AGENT-031](#req-agent-031-consult-llm-key-isolation-subscription-backend-and-multi-agent-parity), [REQ-AGENT-067](#req-agent-067-consult-llm-invocation-and-model-selection-behavior)
 
-**Verification:** Automated bootstrap and actual locked-extension direct-tool/start-on-connect regressions cover AC1–2, with existing-user startup-setting preservation. Their execution remains subject to exact-head CI; migration evidence belongs to REQ-AGENT-217. Startup regeneration has anchored host regressions; manual verification remains on AC4–5.
+**Verification:** Automated bootstrap and actual locked-extension metadata-only discovery/direct-tool regressions cover AC1–2, with existing-user startup-setting preservation. Their execution remains subject to exact-head CI; migration evidence belongs to REQ-AGENT-217. Startup regeneration has anchored host regressions; manual verification remains on AC4–5.
 
 **Status:** Implemented
 

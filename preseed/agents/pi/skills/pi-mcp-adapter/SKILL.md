@@ -15,6 +15,8 @@ disable-model-invocation: true
 3. Search using `{"search":"<capability words>","limit":12,"offset":0}`; inspect a returned definition using `{"describe":"<exact returned tool name>"}`. Never manufacture prefixes, names or argument schemas.
 4. Execute with `{"tool":"<exact returned tool name>","args":{}}`, filling arguments from that live definition. Search-activated direct tools can also be found and activated through `capability`; activation alone does not establish a connection or permission.
 
+Deferred startup is not a prohibition on cold discovery: the first gateway operation may briefly start uncached servers to read metadata. This never authorizes consultation or other tool actions; keep their user-request gates.
+
 Global configuration is `<agent dir>/mcp-adapter.json`; trusted project overrides follow upstream precedence. `/mcp-adapter` manages connections; managed portal authorization still belongs in Codeflare Settings. Do not use Pi's `/mcp-auth` for managed portals or copy credentials between clients.
 
 ## Lifetime, timeouts and errors

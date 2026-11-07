@@ -93,16 +93,23 @@ async function until(predicate, milliseconds = 10000) {
   while (!predicate()) { if (Date.now() >= deadline) throw new Error('Synthetic server outcome did not arrive'); await delay(20); }
 }
 
-test('REQ-AGENT-069 AC1/AC2: native consult stays lazy until requested and supports exact capability activation', { timeout: 20000 }, async t => {
+test('REQ-AGENT-069 AC1/AC2: native cold discovery is metadata-only until explicit consultation and supports exact capability activation', { timeout: 20000 }, async t => {
   const f = await fixture(t);
+  assert.deepEqual(f.observations(), [], 'session startup remains deferred');
   await f.call('mcp');
-  assert.deepEqual(f.observations(), [], 'status must not start consult');
+  const metadataMethods = f.observations().filter(row => row.event === 'rpc').map(row => row.method);
+  assert.ok(metadataMethods.includes('initialize'));
+  assert.ok(metadataMethods.includes('tools/list'));
+  const allowedMetadata = new Set(['initialize', 'notifications/initialized', 'tools/list', 'resources/list', 'prompts/list', 'ping']);
+  assert.ok(metadataMethods.every(method => allowedMetadata.has(method)), 'cold discovery is metadata-only');
+  assert.deepEqual(f.observations().filter(row => row.event === 'called'), [], 'discovery cannot invoke external consultation');
   await f.connect();
   const discovery = await f.call('capability', { query: 'tool:synthetic consult' });
   assert.equal(discovery.details.recommended?.name, f.name());
   const activated = await f.call('capability', { name: f.name() });
   assert.ok(activated);
   assert.ok(f.session.getActiveToolNames().includes(f.name()));
+  assert.deepEqual(f.observations().filter(row => row.event === 'called'), [], 'connection and tool activation do not invoke consultation');
   const result = await f.consult({ operation: 'answer' });
   assert.match(JSON.stringify(result.content), /Fixture external answer/);
 });
@@ -117,20 +124,20 @@ test('REQ-BROWSER-009: native request timeout resets on progress and cancellatio
   const progress = await f.consult({ operation: 'progress', delayMs: 2500 });
   assert.match(JSON.stringify(progress.content), /Fixture external answer/);
   const silent = await f.consult({ operation: 'answer', delayMs: 2500 });
-  assert.equal(silent.isError, true); assert.match(JSON.stringify(silent), /timeout|timed out/i);
+  assert.equal(silent.details.error, 'call_failed'); assert.match(JSON.stringify(silent), /timeout|timed out/i);
   const controller = new AbortController();
   const receiptOffset = f.observations().length;
   const request = f.consult({ operation: 'answer', delayMs: 4000 }, controller.signal);
   await until(() => f.observations().slice(receiptOffset).some(row => row.event === 'called' && row.operation === 'answer'));
   controller.abort();
   const cancelled = await request;
-  assert.equal(cancelled.isError, true); assert.match(JSON.stringify(cancelled), /cancel|abort/i);
+  assert.equal(cancelled.details.error, 'aborted'); assert.match(JSON.stringify(cancelled), /cancel|abort/i);
   await until(() => f.observations().some(row => row.event === 'cancelled' && row.operation === 'answer'));
 });
 
 test('REQ-AGENT-069: transport recovery never replays an uncertain mutation and shutdown releases child processes', { timeout: 25000 }, async t => {
   const f = await fixture(t); await f.connect();
-  assert.equal((await f.consult({ operation: 'uncertain-mutation' })).isError, true);
+  assert.equal((await f.consult({ operation: 'uncertain-mutation' })).details.error, 'call_failed');
   await f.connect();
   assert.match(JSON.stringify((await f.consult({ operation: 'answer' })).content), /Fixture external answer/);
   assert.equal(f.observations().filter(row => row.event === 'mutated').length, 1, 'uncertain effect occurs once');

@@ -130,7 +130,7 @@ Plan's exact-version transform resolves helper availability and configured polic
 
 The Pi inventory restores exact-pinned `pi-mcp-adapter@5.3.1`, with `index.ts` as its warm target. Pi remains 1.5.0 and existing unrelated SDK/security overrides stay unchanged. Installed archive integrity and real-client behavior are qualified independently of manifest edits.
 
-Startup removes the replaced stock npm registration and retains `-builtin:mcp`, leaving one managed lifecycle owner. Native `mcp-adapter.json` supports proxy discovery/execution and deferred direct tools. Managed portals use lazy ten-minute idle cleanup, public placeholder headers and `auth: false`; all real portal OAuth remains on Cloudflare. Active calls prevent idle closure, cached discovery survives it, and the next call reconnects.
+Startup removes the replaced stock npm registration and retains `-builtin:mcp`, leaving one managed lifecycle owner. Native `mcp-adapter.json` supports proxy discovery/execution and deferred direct tools. Managed portals use lazy ten-minute idle cleanup, public placeholder headers and `auth: false`; all real portal OAuth remains on Cloudflare. Active calls prevent idle closure, cached discovery survives it, and the next call reconnects. Deferred startup still permits a metadata-only discovery pass when the gateway runtime first initializes. External consultation remains explicitly user-gated.
 
 `requestTimeoutMs: 360000` is the adapter's progress-resetting request timeout, not a fixed total deadline. Browser navigation can use 120000ms where supported; provider retention remains twenty minutes. Unmanaged local OAuth uses the adapter's own supported storage and is not a reason to import another client's grants.
 

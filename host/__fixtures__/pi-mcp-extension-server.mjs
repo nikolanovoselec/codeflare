@@ -11,6 +11,7 @@ const input = createInterface({ input: process.stdin });
 input.on('close', () => { for (const { timers } of pending.values()) timers.forEach(clearTimeout); });
 for await (const line of input) {
   const request = JSON.parse(line);
+  record({ event: 'rpc', method: request.method });
   if (request.method === 'notifications/cancelled') {
     const operation = pending.get(request.params.requestId);
     record({ event: 'cancelled', operation: operation?.operation });
