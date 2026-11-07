@@ -2,6 +2,11 @@
 
 Semantic changes to the specification. Git history captures diffs; this file captures intent.
 
+## 2026-11-07
+
+- Keep Pi automatic extension package checks suppressed independently of Fast Start and remove unattended extension updating from the runtime updater; preserve governed image/lock delivery and explicit runtime update behavior ([REQ-AGENT-206](agents.md#req-agent-206-fast-start-off-runtime-updates)).
+- Carry the normal Dispatcher Activity/generation/profile authority through strict Native SDK egress, rechecking current owner and hosting-specific selection without requiring legacy credential bindings or changing Gateway routing ([REQ-OPERATOR-007](operators.md#req-operator-007-operator-aware-inference-selection), [REQ-OPERATOR-047](operators.md#req-operator-047-generic-directed-profile-admission)).
+
 ## 2026-11-06
 
 - Preserve complete selected-provider SDK request auth (headers, endpoint and environment) through Dispatcher’s existing private capability, retaining legacy token replies and owner/CAS/privacy fences without changing managed Gateway routing ([REQ-OPERATOR-007](operators.md#req-operator-007-operator-aware-inference-selection), [REQ-OPERATOR-047](operators.md#req-operator-047-generic-directed-profile-admission)).

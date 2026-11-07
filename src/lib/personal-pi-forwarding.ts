@@ -10,7 +10,6 @@ import { classifyCloudflareCredentials } from './cloudflare-credentials';
 import { ENTERPRISE_BROWSER_TOKEN_PLACEHOLDER } from './constants';
 import { validateNativePiEgress } from '../operators/native-pi-profile';
 import { nativePiAuthFailure, type OperatorPiAuthDescriptor, type SafePiAuthFailure } from '../operators/pi-auth-failure';
-import { parseNativeOperatorInference } from '../operators/inference-selection';
 
 interface PersonalPiReference { bucket: string; sessionId: string; user: string; generation?: number }
 export interface PersonalPiProps {
@@ -51,7 +50,9 @@ async function authorizeDispatcherNative(env: Env, scope: NonNullable<PersonalPi
       || scope.generation <= 0 || !/^[a-f0-9]{64}$/.test(scope.profileDigest) || !env.OPERATOR_ACTIVITY) return false;
     const selected = await env.OPERATOR_ACTIVITY.getByName(scope.activityId)
       .dispatcherNativeEgressCurrent(scope.generation, scope.profileDigest);
-    return selected !== null && parseNativeOperatorInference(selected).profileDigest === scope.profileDigest;
+    // The trusted Activity validates its hosting-specific selection and live authority.
+    // Normal SDK provider-default reasoning is null, unlike the legacy binding schema.
+    return selected !== null && selected.source === 'pi-native' && selected.profileDigest === scope.profileDigest;
   } catch { return false; }
 }
 

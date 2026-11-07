@@ -16,6 +16,7 @@ import { DispatcherRefusal } from './dispatcher-refusal';
 import { sdkServiceFailureSchema, type SdkServiceFailure } from './dispatcher-diagnostics-wire';
 import { emitRaw } from '../../host/src/operator-raw-logging';
 import { PiAuthRequiredError, safePiAuthFailure } from './pi-auth-failure';
+import type { PersonalPiProps } from '../lib/personal-pi-forwarding';
 
 export interface SdkInput {
   generation: number;
@@ -25,7 +26,7 @@ export interface SdkInput {
   signal?: AbortSignal;
   observeFailure?: (failure: SdkServiceFailure) => void;
   exports?: Parameters<typeof createDispatcherOperation>[0]['exports'] & {
-    EgressController?: (input: { props: { strict: boolean } }) => Fetcher;
+    EgressController?: (input: { props: { strict: boolean; operatorDispatcherNative?: PersonalPiProps['operatorDispatcherNative'] } }) => Fetcher;
   };
 }
 type Owner = Awaited<ReturnType<typeof dispatcherSdkOwnerContext>>;
@@ -215,7 +216,9 @@ export async function forwardDispatcherSdkHttp(input: SdkInput & {
     await sameOwner(input, owner);
     if (strict) {
       if (!input.env.EGRESS || !input.exports?.EgressController) throw new Error('SDK strict transport unavailable');
-      const transport = input.exports.EgressController({ props: { strict: true } });
+      const transport = input.exports.EgressController({ props: { strict: true,
+        operatorDispatcherNative: { activityId: input.plan.activityId, generation: input.generation,
+          profileDigest: input.selection.profileDigest } } });
       response = await transport.fetch(request);
     } else response = await fetch(request);
   }

@@ -18,6 +18,7 @@ import { type ConfiguredDispatcherInference, discoverDispatcherOwnerProfile, dis
 import { setLogLevel } from '../../lib/logger';
 import { connectionSecret, normalCallback } from './fixtures/normal-dispatcher';
 import { nativePiAuthFailure } from '../../operators/pi-auth-failure';
+import { EgressController } from '../../egress-controller';
 
 // Metadata-only Root: replace the external container lifecycle base, not Root's
 // ownership/credential coordination. Native DO storage and RPC remain real; no
@@ -1665,6 +1666,47 @@ describe('REQ-OPERATOR-007/047/048: protected SDK-prepared HTTP, not Parent mode
     await denied(await modelFetch(f, permit.permitId, request, 'partial-sdk'), [403, 404, 409]);
     expect(paid).toEqual([sdkBody]);
   }));
+
+  it.each([false, true].flatMap(loggingEnabled => [false, true].map(nativeProviderDefault => ({ loggingEnabled, nativeProviderDefault }))))('REQ-OPERATOR-007/047: normal Native SDK HTTP crosses real strict egress with Activity authority (logging: $loggingEnabled, default: $nativeProviderDefault)', ({ loggingEnabled, nativeProviderDefault }) => lane(async f => {
+    await admitted(f);
+    f.environment.ENTERPRISE_MODE = 'active';
+    const originalGet = f.environment.KV.get.bind(f.environment.KV);
+    vi.spyOn(f.environment.KV, 'get').mockImplementation((async (key: string, ...args: unknown[]) =>
+      key === SETUP_KEYS.STRICT_EGRESS ? 'active' : Reflect.apply(originalGet, f.environment.KV, [key, ...args])) as typeof f.environment.KV.get);
+    const outgoing: Request[] = [];
+    const original = globalThis.fetch;
+    vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
+      const request = new Request(input, init);
+      if (request.url !== 'https://api.openai.com/v1/responses') return original(request);
+      outgoing.push(request.clone());
+      return new Response('native SDK original stream', { headers: { 'content-type': 'text/event-stream' } });
+    });
+    const permit = await json(await modelAdmission(f));
+    const response = await modelFetch(f, permit.permitId, { url: 'https://api.openai.com/v1/responses', method: 'POST',
+      headers: [['authorization', `Bearer ${oldOAuth.access}`], ['content-type', 'application/json']], bodyBase64: encodeBody(sdkBody) });
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe('native SDK original stream');
+    expect(outgoing.map(request => request.url)).toEqual(['https://api.openai.com/v1/responses']);
+    expect(outgoing[0].headers.get('authorization')).toBe(`Bearer ${oldOAuth.access}`);
+    expect(await outgoing[0].text()).toBe(sdkBody);
+  }, true, true, { loggingEnabled, nativeProviderDefault }));
+
+  it.each(['generation', 'profile', 'revoked-owner'] as const)('REQ-OPERATOR-047: normal Native strict egress refuses %s before provider I/O', fault => lane(async f => {
+    await admitted(f);
+    f.environment.ENTERPRISE_MODE = 'active';
+    const selected = (await f.activity.getRuntimePlan())!.configuredSelection!;
+    if (fault === 'revoked-owner') f.revokeSession();
+    const props = { strict: true, operatorDispatcherNative: { activityId: f.activityId,
+      generation: fault === 'generation' ? 2 : 1,
+      profileDigest: fault === 'profile' ? 'f'.repeat(64) : selected.profileDigest } };
+    const outgoing: string[] = [];
+    const controller = new EgressController({ props } as unknown as ExecutionContext, { ...f.environment,
+      EGRESS: { fetch: async (request: Request) => { outgoing.push(request.url); return new Response('must not send'); } } } as Env);
+    const response = await controller.fetch(new Request('https://api.openai.com/v1/responses', { method: 'POST',
+      headers: { authorization: `Bearer ${oldOAuth.access}`, 'content-type': 'application/json' }, body: sdkBody }));
+    expect(response.status).toBe(403);
+    expect(outgoing).toEqual([]);
+  }, true, true));
 
   it('unavailable strict-egress policy refuses native SDK HTTP without a direct paid request', () => lane(async f => {
     await admitted(f);
