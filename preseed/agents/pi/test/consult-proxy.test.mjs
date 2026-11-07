@@ -40,10 +40,11 @@ async function fixture(t, serverTimeout, environmentCase) {
   const receipt = join(home, 'receipt.jsonl');
   const configPath = join(directory, 'mcp-adapter.json');
   // Native schema decodes !! once; stock schema treats both bangs literally.
-  const selectedPath = environmentCase && !environmentCase.legacy ? join(directory, 'mcp.json') : configPath;
+  const stockSchema = environmentCase && !environmentCase.legacy;
+  const selectedPath = stockSchema ? join(directory, 'mcp.json') : configPath;
   writeFileSync(selectedPath, JSON.stringify({ settings: { requestTimeoutMs: 360000, deferWithMissingMetadata: true }, mcpServers: {
     'consult-llm': { command: process.execPath, args: [join(repo, 'host/__fixtures__/pi-mcp-extension-server.mjs'), receipt, ...(environmentCase ? [environmentCase.expected] : [])],
-      lifecycle: 'lazy', directTools: 'search', idleTimeout: 10,
+      lifecycle: 'lazy', ...(stockSchema ? {} : { directTools: 'search', idleTimeout: 10 }),
       ...(environmentCase ? { env: { CODEFLARE_SYNTHETIC_LITERAL: environmentCase.input } } : {}),
       ...(serverTimeout ? { requestTimeoutMs: serverTimeout } : {}) },
   } }));
@@ -56,10 +57,13 @@ async function fixture(t, serverTimeout, environmentCase) {
   const { createMcpAdapter } = await import(pathToFileURL(join(home, 'extension.mjs')).href);
   const { capabilityExtension } = await import(pathToFileURL(join(home, 'capability.mjs')).href);
   const sdk = await import(pathToFileURL(join(dependencies, '@earendil-works/pi-coding-agent/dist/index.js')).href);
+  sdk.initTheme();
+  const nativeConfig = JSON.parse(readFileSync(configPath, 'utf8'));
+  if (stockSchema) Object.assign(nativeConfig.mcpServers['consult-llm'], { directTools: 'search', idleTimeout: 10 });
   const settingsManager = sdk.SettingsManager.inMemory({ packages: [], extensions: ['-builtin:mcp'] });
   const loader = new sdk.DefaultResourceLoader({ cwd: home, agentDir: directory, settingsManager,
     noExtensions: true, noSkills: true, noPromptTemplates: true, noThemes: true, noContextFiles: true,
-    extensionFactories: [createMcpAdapter({ config: JSON.parse(readFileSync(configPath, 'utf8')) }), capabilityExtension] });
+    extensionFactories: [createMcpAdapter({ config: nativeConfig }), capabilityExtension] });
   await loader.reload(); assert.deepEqual(loader.getExtensions().errors, []);
   const modelRuntime = await sdk.ModelRuntime.create({ authPath: join(home, 'auth.json'), modelsPath: join(home, 'models.json') });
   ({ session } = await sdk.createAgentSession({ cwd: home, agentDir: directory, resourceLoader: loader, settingsManager,

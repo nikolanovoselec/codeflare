@@ -200,6 +200,7 @@ async function fixture(t, { unavailable = false, oauth = false } = {}) {
     return Response.json({ jsonrpc: '2.0', id: message.id, result }, { headers });
   };
   const sdk = await import(pathToFileURL(join(sdkRoot, 'dist/index.js')).href);
+  sdk.initTheme();
   const { createMcpAdapter } = await import(pathToFileURL(join(home, 'extension.mjs')).href);
   const settingsManager = sdk.SettingsManager.inMemory({ packages: [], extensions: ['-builtin:mcp'] });
   const loader = new sdk.DefaultResourceLoader({ cwd: home, agentDir, settingsManager,
