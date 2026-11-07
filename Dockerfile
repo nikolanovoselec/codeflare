@@ -32,7 +32,7 @@ WORKDIR /src/rclone
 RUN curl -fsSL https://codeload.github.com/rclone/rclone/tar.gz/refs/tags/v1.75.2 -o /tmp/rclone.tar.gz \
     && echo "68afd7f68c84bd978966feae2116339aa7bf454b39c573910c462e87c3774d5a  /tmp/rclone.tar.gz" | sha256sum -c - \
     && tar --strip-components=1 -xzf /tmp/rclone.tar.gz && rm /tmp/rclone.tar.gz \
-    && go mod edit -require=google.golang.org/grpc@v1.85.0 -require=github.com/klauspost/compress@v1.20.3 \
+    && go mod edit -require=google.golang.org/grpc@v1.85.0 -require=github.com/klauspost/compress@v1.20.3 -require=golang.org/x/net@v0.62.0 \
     && go mod tidy
 COPY scripts/patch-rclone-bisync.py /tmp/patch-rclone-bisync.py
 COPY scripts/prepare-rclone-s3-fixture.py /tmp/prepare-rclone-s3-fixture.py
@@ -47,7 +47,23 @@ RUN mkdir -p /out \
     && cp /tmp/rclone-bookkeeping_test.go cmd/bisync/codeflare_bookkeeping_test.go \
     && gofmt -w cmd/bisync/codeflare_bookkeeping_test.go \
     && go test ./cmd/bisync -run '^TestCodeflare' -count=1 \
-    && go build -trimpath -ldflags '-s -w -X github.com/rclone/rclone/fs.Version=v1.75.2-codeflare-bisync1' -o /out/rclone .
+    && go build -trimpath -ldflags '-s -w -X github.com/rclone/rclone/fs.Version=v1.75.2-codeflare-bisync1' -o /out/rclone . \
+    && for binary in /out/rclone-unpatched /out/rclone; do \
+         go version -m "$binary" | grep -E 'dep[[:space:]]+golang.org/x/net[[:space:]]+v0\.62\.0([[:space:]]|$)' || exit 1; \
+       done
+
+# ---- Same gh release with the fixed HTML parser dependency (CVE-2026-78661) ----
+FROM rclone-builder AS gh-builder
+WORKDIR /src/gh
+RUN curl -fsSL "https://codeload.github.com/cli/cli/tar.gz/63837fb778d6a39f02be0ce76ff89f2bc8d74bdc" -o /tmp/gh-src.tar.gz && \
+    echo "1a64dc5be667fa8c6458c0e639292ee1a5e215854705db267882e1bcf865b335  /tmp/gh-src.tar.gz" | sha256sum -c - && \
+    tar --strip-components=1 -xzf /tmp/gh-src.tar.gz && rm /tmp/gh-src.tar.gz && \
+    go mod edit -require=golang.org/x/net@v0.62.0 && go mod tidy && \
+    GH_VERSION=2.103.3-codeflare-xnet1 SOURCE_DATE_EPOCH=1793037767 GO_LDFLAGS="-s -w" go run script/build.go bin/gh && \
+    cp bin/gh /out/gh && \
+    go version -m /out/gh | grep -E '^/out/gh: go1\.27\.3$' && \
+    go version -m /out/gh | grep -E 'dep[[:space:]]+golang.org/x/net[[:space:]]+v0\.62\.0([[:space:]]|$)' && \
+    /out/gh --version
 
 # ---- Unchanged lazygit release rebuilt with the pinned, fixed Go toolchain ----
 FROM rclone-builder AS lazygit-builder
@@ -493,7 +509,10 @@ RUN GH_VERSION="2.103.3" && \
     echo "${GH_SHA256}  /tmp/gh.deb" | sha256sum -c - && \
     dpkg -i /tmp/gh.deb && \
     gh --version | grep -F "gh version ${GH_VERSION}" && \
-    rm /tmp/gh.deb
+    rm /tmp/gh.deb /usr/bin/gh
+# Retain official support files; replace only the dependency-rebuilt executable.
+COPY --from=gh-builder /out/gh /usr/bin/gh
+RUN gh --version | grep -F "gh version 2.103.3-codeflare-xnet1"
 
 # Privileged npm tools execute user code, hold OAuth tokens, or participate in
 # image builds. Install from one committed lock so exact package bytes and
