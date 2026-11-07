@@ -144,7 +144,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 **Acceptance Criteria:**
 
 1. The first real-user prompt of a resumed session with an uncaptured memory tail performs one Vault content-hash check. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh::RESUME_VAULT_CHECK --> <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::registerMemoryVault --> <!-- @test: host/__tests__/memory-capture-hook.test.js (resume hash-checks Vault and arms extraction only when content changed) --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (captures only the uncaptured tail and hash-checks Vault on the first resumed prompt) -->
-2. Regular Vault content-hash checks occur at each crossed 20-real-user-prompt epoch. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh::VAULT_EVERY --> <!-- @impl: preseed/agents/pi/extensions/memory-vault-helpers.ts::shouldCheckVault --> <!-- @test: host/__tests__/memory-capture-hook.test.js (hash-checks Vault at prompt 20 without starting memory capture early) --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (hash-checks at prompt 20 and launches only when Vault content changed) -->
+2. Claude checks each crossed twenty-prompt epoch; Pi reuses the memory-counter trigger, including resume and transcript rebase. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh::VAULT_EVERY --> <!-- @impl: preseed/agents/pi/extensions/memory-vault.ts::registerMemoryVault --> <!-- @test: host/__tests__/memory-capture-hook.test.js (hash-checks Vault at prompt 20 without starting memory capture early) --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (hash-checks after twenty new memory prompts and launches only when Vault content changed) --> <!-- @test: src/__tests__/lib/pi-memory-vault-delivery.test.ts (REQ-VAULT-031 AC2: shared memory cadence checks companions while capture remains pending) -->
 3. Claude advances its successful Vault-check counter after the manifest scanner succeeds, including when no content changed. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh::arm_vault_check --> <!-- @test: host/__tests__/memory-capture-hook.test.js (advances the Vault check counter when a successful scan finds no changes) -->
 4. A failed manifest scan does not block the active user prompt. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh::arm_vault_check --> <!-- @test: host/__tests__/memory-capture-hook.test.js (retries the Vault hash check on the next prompt after a partial file-read failure) -->
 5. A failed manifest scan leaves the successful-check counter unchanged. <!-- @impl: preseed/agents/claude/plugins/codeflare-memory/scripts/memory-capture.sh::arm_vault_check --> <!-- @test: host/__tests__/memory-capture-hook.test.js (retries the Vault hash check on the next prompt after a partial file-read failure) -->
@@ -154,7 +154,7 @@ Persistent Obsidian-style note vault: agent-written session captures plus user-c
 **Constraints:**
 
 - Generated and internal content exclusions remain governed by [REQ-VAULT-003](#req-vault-003-user-curated-edits-use-bounded-prompt-cadenced-ingestion).
-- An unchanged successful scan is a no-op and still advances the successful-check counter.
+- Claude advances its successful-check counter even when a successful scan finds no changes.
 - No polling extraction daemon runs.
 
 **Priority:** P0

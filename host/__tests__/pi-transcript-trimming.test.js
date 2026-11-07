@@ -120,7 +120,6 @@ test('REQ-MEM-028 AC1: shared cadence preserves frozen capture inputs without ea
   assert.equal(sent.length, 0);
   assert.equal(fs.readFileSync(join(paths.memoryCounterDir, 'fixture.vars'), 'utf8'), frozen);
   assert.deepEqual(fs.readdirSync(paths.memoryCounterDir).sort(), filesBefore);
-  assert.equal(fs.readFileSync(join(paths.memoryCounterDir, 'fixture.vault-count'), 'utf8'), '40');
   assert.equal(fs.readFileSync(join(paths.memoryCounterDir, 'fixture.count'), 'utf8'), '1');
   assert.deepEqual(fs.readdirSync(paths.cacheDir).map(name => [name, fs.readFileSync(join(paths.cacheDir, name), 'utf8')]), frozenCache);
   assert.equal(sent.length, 0); // Scheduling never launches extraction or a model turn.

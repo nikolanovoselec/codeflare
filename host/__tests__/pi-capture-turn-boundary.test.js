@@ -28,7 +28,7 @@ test('REQ-MEM-015 AC3: frozen capture dispatch and correlated finalization progr
   const vars=join(paths.cacheDir,`memory-capture.fixture.${pointer.requestId}.vars`),frozen=fs.readFileSync(vars);
   const request=JSON.parse(frozen);assert.equal(request.promptCount,21);
   const launch=sent.find(m=>m.customType==='background-extraction-launch');assert.ok(launch);
-  assert.equal(fs.readFileSync(join(paths.memoryCounterDir,'fixture.vault-count'),'utf8'),'21');
+  assert.ok(launch.details.items.some(item => item.jobType === 'memory-capture'));
   emit('turn_end',stop);emit('agent_settled');
   assert.deepEqual(sent.filter(m=>m.customType==='background-extraction-launch'),[launch]);
   assert.ok(fs.readFileSync(vars).equals(frozen));assert.equal(fs.readFileSync(join(paths.memoryCounterDir,'fixture.count'),'utf8'),'1');

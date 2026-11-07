@@ -4,6 +4,8 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-11-07
 
+- Pi memory capture, Vault checks and size-eligible trimming now share the memory progress baseline and transcript rebase handling; legacy Vault counters cannot stall maintenance ([REQ-MEM-002](memory.md#req-mem-002-capture-triggers-every-20-user-messages-and-on-resume), [REQ-VAULT-031](vault.md#req-vault-031-vault-hash-checks-follow-successful-prompt-cadence)).
+
 - Recover existing owner portal authorization through Worker refresh and browser SSO, preserving active-session navigation, credential isolation and explicit Disconnect without restarting Pi ([REQ-AGENT-226](mcp.md#req-agent-226-worker-owned-mcp-portal-authorization)).
 
 - Clarify native MCP cold discovery as metadata-only: lazy startup remains deferred, and external consultation still requires an explicit user request ([REQ-AGENT-069](agents.md#req-agent-069-pi-consult-llm-mcp-lazy-wiring)).

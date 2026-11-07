@@ -41,7 +41,6 @@ import {
   realUserPromptFingerprint,
   sessionId,
   shouldCapture,
-  shouldCheckVault,
   vaultManifestChanges,
   withCurrentPrompt,
   type ActiveExtractionRequest,
@@ -172,10 +171,6 @@ function isChildSession(ctx: any): boolean {
 
 function counterPath(paths: MemoryVaultPaths, session: string): string {
   return join(paths.memoryCounterDir, `${session}.count`);
-}
-
-function vaultCheckCounterPath(paths: MemoryVaultPaths, session: string): string {
-  return join(paths.memoryCounterDir, `${session}.vault-count`);
 }
 
 interface MemoryProgress {
@@ -746,14 +741,13 @@ export function registerMemoryVault(pi: MemoryVaultPi, dependencies: MemoryVault
     const rebased = currentCount < progress.promptCount || (progress.transcriptFingerprint !== undefined
       && realUserPromptFingerprint(messages, progress.promptCount) !== progress.transcriptFingerprint);
     const lastCount = rebased ? 0 : progress.promptCount;
-    const vaultCountFile = vaultCheckCounterPath(paths, session);
     const resumed = isResumedSession(counterExists, currentCount);
-    const previousVaultCount = readCount(vaultCountFile);
-    const crossedVaultCadence = shouldCheckVault(previousVaultCount, currentCount);
-    if (crossedVaultCadence) trimming.markDue(ctx);
-    if ((resumed && !existsSync(vaultCountFile)) || crossedVaultCadence) {
+    const cadenceDue = rebased || resumed || shouldCapture(currentCount - lastCount);
+    const cadenceKey = `cadence:${session}:${progress.promptCount}:${progress.transcriptFingerprint ?? ""}:${Math.floor((currentCount - lastCount) / MEMORY_EVERY_N_PROMPTS)}`;
+    if (cadenceDue && !queuedLaunches.has(cadenceKey)) {
+      queuedLaunches.add(cadenceKey);
+      trimming.markDue(ctx);
       detectNewVaultRequestWhenNoneExists(paths, dependencies, session);
-      writeFileSync(vaultCountFile, String(currentCount), "utf8");
     }
     const active = readActiveMemoryRequest(paths, session);
     if (active) {
@@ -788,7 +782,6 @@ export function registerMemoryVault(pi: MemoryVaultPi, dependencies: MemoryVault
 
     if (!rebased && isFirstMessage(counterExists, currentCount) && progress.promptCount === 0) {
       writeFileSync(countFile, String(currentCount), "utf8");
-      writeFileSync(vaultCountFile, "0", "utf8");
       bestEffortMergeGraphs(paths);
       return;
     }

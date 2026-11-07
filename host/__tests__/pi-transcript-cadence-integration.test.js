@@ -94,7 +94,6 @@ test('REQ-MEM-028 AC1: actual trims preserve the next twenty-prompt cadence and 
   assert.ok(frozenCache.length > 0); assert.ok(frozenVars.length > 0);
   assert.deepEqual(snapshot(paths.cacheDir), frozenCache);
   assert.equal(fs.readFileSync(join(paths.memoryCounterDir, 'fixture.vars'), 'utf8'), frozenVars);
-  assert.equal(fs.readFileSync(join(paths.memoryCounterDir, 'fixture.vault-count'), 'utf8'), '40');
   assert.equal(fs.readFileSync(join(paths.memoryCounterDir, 'fixture.count'), 'utf8'), '1');
   const persisted = fs.readFileSync(file, 'utf8').trimEnd().split('\n').map(line => JSON.parse(line));
   assert.deepEqual(persisted.filter(entry => entry.message?.role === 'user').map(entry => entry.message.content),
