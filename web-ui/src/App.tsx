@@ -86,6 +86,8 @@ const AppContent: Component = () => {
   const revalidateAuthAfterResume = async () => {
     if (!initialAuthSettled || resumeCheckInFlight || redirecting() || disposed) return;
     resumeCheckInFlight = true;
+    portalRecovery?.dispose();
+    portalRecovery = undefined;
     try {
       const user = await getUser();
       recoverPortals(user.email);
@@ -98,7 +100,8 @@ const AppContent: Component = () => {
 
   const handleVisibilityChange = () => {
     if (document.visibilityState === 'hidden') {
-      portalRecovery?.pause();
+      portalRecovery?.dispose();
+      portalRecovery = undefined;
       wasHidden = true;
       return;
     }
