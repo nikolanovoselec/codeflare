@@ -4,6 +4,8 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-11-07
 
+- Record policy provenance and timing decisions in existing idle metrics logs without adding storage I/O, settings or endpoints, so fallback and timing uncertainty can be distinguished during reproduction ([REQ-OPS-017](operations.md#req-ops-017-sleepafter-fail-safe-invariants)).
+
 - Keep valid input-based idle expiry independent of unavailable no-input startup timing while preserving conservative no-input recovery ([REQ-SESSION-004](session-lifecycle.md#req-session-004-idle-containers-sleep-after-configurable-timeout), [REQ-SESSION-034](session-lifecycle.md#req-session-034-durable-idle-baseline-survives-coordinator-reconstruction)).
 
 - Remove the bulk extension-update command from the runtime updater while preserving Fast Start network behavior, missing configured-package restoration, model-catalog refreshes and governed image/lock delivery ([REQ-AGENT-206](agents.md#req-agent-206-fast-start-off-runtime-updates)).

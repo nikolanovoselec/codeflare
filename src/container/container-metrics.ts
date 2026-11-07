@@ -1234,14 +1234,18 @@ export async function collectMetrics(
   // (b) some code path wrote 'sleepAfter' to storage without updating the
   // cache. Storage is the authoritative source.
   let idleTimeoutPref = '12h';
+  let policySource: 'stored' | 'missing' | 'invalid' | 'read-failed' = 'missing';
   try {
     const stored = await ctx.storage.get<string>('sleepAfter');
     if (stored && /^(5m|15m|30m|1h|2h|4h|8h|12h)$/.test(stored)) {
       idleTimeoutPref = stored;
+      policySource = 'stored';
     } else {
+      policySource = stored === undefined ? 'missing' : 'invalid';
       logger.warn('collectMetrics: sleepAfter missing or invalid; selecting fail-safe 12h', { stored });
     }
   } catch (err) {
+    policySource = 'read-failed';
     logger.warn('collectMetrics: failed to read sleepAfter; selecting fail-safe 12h', {
       error: err instanceof Error ? err.message : String(err),
     });
@@ -1325,7 +1329,17 @@ export async function collectMetrics(
         }
       }
       const referenceTime = observedInputAt ?? containerStartedAt;
-      const idleMs = Date.now() - referenceTime;
+      const checkedAt = Date.now();
+      const idleMs = checkedAt - referenceTime;
+      // Metadata only: distinguish policy fallback from timing uncertainty or
+      // genuine activity without adding I/O ahead of a required idle stop.
+      logger.info('collectMetrics: idle policy decision', {
+        durableObjectId: ctx.id.toString(), sessionId: state._sessionId,
+        idleTimeoutPref, policySource, checkedAt, observedInputAt,
+        referenceTime: canEnforceIdle ? referenceTime : null,
+        canEnforceIdle,
+        decision: !canEnforceIdle ? 'timing-unavailable' : idleMs > sleepMs ? 'stop' : 'continue',
+      });
       if (canEnforceIdle && idleMs > sleepMs) {
         logger.info('collectMetrics: idle exceeded threshold, stopping', { idleMs, sleepMs, idleTimeoutPref, referenceTime });
         await drainAgentEventsBeforeStop(state, ctx, env, CONTAINER_POLL_BUDGET_MS);

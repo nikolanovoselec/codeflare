@@ -243,6 +243,8 @@ Settings saves `sleepAfter` in KV `user-prefs:{bucketName}`. Start reads prefere
 
 No-input enforcement reuses durable `containerStartedAt` across reconstruction. Missing/invalid baseline gets one persisted fallback; unreadable/unpersistable no-input timing skips idle termination while observation continues. A valid input timestamp independently remains eligible for expiry without startup-baseline reads or writes ([REQ-SESSION-034](../../sdd/spec/session-lifecycle.md#req-session-034-durable-idle-baseline-survives-coordinator-reconstruction)).
 
+After each successful host observation, `collectMetrics: idle policy decision` records the session/DO identity, resolved timeout and stored/fallback provenance, check/input/reference timestamps, enforcement eligibility and stop/continue/timing-unavailable decision. It contains no raw terminal input, endpoint or credential data. This supports reproduction; it does not establish an earlier incident's cause. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> [REQ-OPS-017](../../sdd/spec/operations.md#req-ops-017-sleepafter-fail-safe-invariants).
+
 Card/header warnings appear below ten minutes (warning), below five (critical), hidden for stopped/no timestamp. Running projections use current-run `lastInputAt` or current-run start, never prior-run input; non-running context retains lifecycle `lastActiveAt`. Countdown changes cannot grant Stop/restart authority. <!-- @impl: src/routes/session/crud.ts --> <!-- @impl: src/routes/session/lifecycle.ts --> [REQ-SESSION-013](../../sdd/spec/session-lifecycle.md#req-session-013-sleep-timer-countdown-ui), [REQ-SESSION-036](../../sdd/spec/session-lifecycle.md#req-session-036-header-sleep-countdown-presentation).
 
 ### Managed curation startup boundary
