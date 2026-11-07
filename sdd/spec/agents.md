@@ -1345,7 +1345,7 @@ The former REQ-AGENT-131 Usage installation and warming workflow is retired. [Re
 1. `/review` launches the six existing specialist roles (security, architecture, code quality, dead code, test gaps, documentation) in one parallel wave. <!-- @manual: Run `/review --diff --deep` on a clean fixture branch; observe one parallel wave of the six existing specialist types followed by Reality Filter, confirm every subagent returns a report without changing `git status`, and confirm only the root writes review artifacts or applies an explicitly approved fix. -->
 2. The complete specialist reports are cross-referenced and deduplicated. <!-- @manual -->
 3. Canonical findings are filtered against accepted architecture decisions. <!-- @manual -->
-4. A sequential Reality Filter evaluates every still-active finding. <!-- @manual -->
+4. A sequential Reality Filter evaluates every still-active finding; concrete evidence that a recorded revisit trigger is met reopens evaluation even without source changes. <!-- @impl: preseed/agents/claude/commands/review.md::Q1: Repeat-offender drop --> <!-- @impl: preseed/agents/pi/skills/review/SKILL.md::Q1: Repeat-offender drop --> <!-- @manual: Supply an unchanged-file deferral with a recorded trigger; verify met-trigger evidence causes re-evaluation, while unknown evidence is not invented or treated as proof of expiry. -->
 5. Optional external verification covers HIGH and CRITICAL findings. <!-- @manual -->
 
 **Constraints:**

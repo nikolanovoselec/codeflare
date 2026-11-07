@@ -26,7 +26,7 @@ Resolve one scope before any reviewer or enforcement pass starts. Return the sco
 For `diff`, validate the range and obtain the lane-owned file list and hunks in one call:
 
 ```bash
-node ~/.claude/skills/review-scope/scripts/build-review-packet.mjs \
+node ~/.claude/skills/review-scope/scripts/build-review-packet.mjs --with-evidence \
   --repo <absolute-root> --scope diff --range <base>..<head> --lane <code-reviewer|spec-reviewer|doc-updater>
 ```
 
@@ -35,6 +35,7 @@ For `all`, omit `--range` and pass `--scope all`. The packet contains:
 - `files`: lane-owned changed files (`diff`) or tracked lane files (`all`);
 - `patch`: lane-owned changed hunks for `diff`, empty for `all`;
 - `changedInputs`: cross-lane inputs as `{ path, hunks }`, where each hunk carries exact old/new line ranges;
+- `evidence`: resolved anchor/caller/configuration/index lookups; inspect the bodies against claims, not merely symbol existence. Missing evidence is unknown, never a pass; gather only the focused missing evidence.
 - the normalized scope, work set, lane, and ancestry-validated range.
 
 Build and consume the packet in the same Bash call: pipe the CLI's stdout into the processing program and parse it in memory. Never persist the packet, return a packet path, echo raw packet JSON, or rebuild it in a later call. The packet is the evidence transport — it exists so that scoped evidence reaches you without raw scan output entering the conversation.

@@ -1,171 +1,228 @@
 # Contributing to Codeflare
 
-This guide owns contributor setup, development practice, behavioral verification, and pull-request expectations. Product setup belongs to [README](README.md); exact workflow behavior belongs to [CI/CD](documentation/lanes/ci-cd.md).
+Use this guide to prepare a change, choose the relevant checks, and submit a pull request to the public Codeflare repository. Product setup belongs in the [README](README.md); verification details belong in [CI/CD and Testing](documentation/lanes/ci-cd.md).
 
-## Scope
+- [Choose the right scope](#choose-the-right-scope)
+- [Set up a working copy](#set-up-a-working-copy)
+- [Find the source](#find-the-source)
+- [Make a focused change](#development-workflow)
+- [Verify your change](#running-tests)
+- [Submit and respond to review](#submitting-changes)
+- [License and contribution policy](#license)
 
-Contributions may change runtime behavior, tests, canonical documentation, package-local integration, or delivery controls. Keep each fact in its owning collection and link rather than duplicating contracts. Generated, vendored, archived, and runtime-payload files change only through their generator or owning upstream workflow.
+## Choose the right scope
 
-## License
+For bugs, proposals, and codebase questions, open an issue in this repository. Describe the expected behavior, what you observed, and the relevant version or commit. Do not include credentials, customer data, or private deployment details.
 
-Codeflare is licensed under [PolyForm Noncommercial 1.0.0](LICENSE). By submitting a contribution, you agree that your work will be distributed under the same license. Commercial use, resale, or paid hosted offerings require a separate written license from the maintainer.
+**For suspected vulnerabilities, do not open a public issue.** Use the reporting route in [SECURITY.md](SECURITY.md).
 
-## Getting Started
+| Contribution | Public contribution path |
+|---|---|
+| Worker, frontend, container host, compiler, or runtime | Change the relevant Codeflare source, tests, and public documentation. |
+| Landing or Browser IDE package | Start with the [Landing reference](landing/README.md) or [Browser IDE reference](openvscode/README.md). Keep system-wide contracts in their owning documentation. |
+| Documentation | Update the existing document that owns the subject; link to it rather than duplicating its contract. |
+| Image-baked agent fallback or shared agent infrastructure | State whether the change affects the baked fallback, compiler, runtime, or shared sources. Explain the compatibility and alignment implications in the PR. |
+| Deployment-managed content or private operations | Describe the public behavior or interface impact in a Codeflare issue or PR. Maintainers coordinate any private changes and publishing separately. |
 
-### Prerequisites
+Public contributors do not need access to private curation or operator repositories, and are not expected to run private workflows. Managed content and non-default operational procedures have private owners; they are not public contribution prerequisites. Keep secrets and private operational instructions out of this repository.
 
-Use Git, GitHub access to your fork, and Node.js with npm. The [CI workflow](.github/workflows/test.yml) and package manifests select the required runtime and dependency versions. Cloudflare credentials are required only for changes that need an integration deployment; never commit them.
+Codeflare owns the compiler, runtime, seed ABI, runtime dependency locks, and baked seed. Deployment-managed content is maintained separately; editing the baked fallback alone does not update an active managed deployment. Required shared-source alignment must not be left stale: identify affected copies for maintainer coordination. Source changes, signed publication, and runtime activation are separate stages; a public PR does not establish that private publication or deployment has occurred.
 
-### Fork and install
+## Set up a working copy
 
-1. **Fork** this repository on GitHub.
-2. **Clone** your fork locally:
-   ```bash
-   git clone https://github.com/<your-username>/codeflare.git
-   cd codeflare
-   ```
-3. **Install dependencies** for each package you will change or verify:
-   ```bash
-   npm install
-   (cd web-ui && npm install)
-   (cd host && npm install)
-   (cd landing && npm install)
-   (cd openvscode/agent-sidebar && npm install)
-   ```
+### Runtime and package requirements
 
-## Project Structure
+Use Git, GitHub access to your fork, and Node.js with npm appropriate to the package and verification lane you are changing. There is no single repository-wide Node version:
 
-| Directory | Purpose | Technology |
-|-----------|---------|------------|
-| `src/` | Backend (Cloudflare Worker) | TypeScript, Hono, Zod |
-| `src/timekeeper/` | Per-user usage tracking Durable Object | TypeScript |
-| `src/container/` | Container lifecycle Durable Object | TypeScript |
-| `src/routes/admin/` | Admin-only API routes (tier management) | TypeScript, Hono |
-| `web-ui/` | Frontend SPA | SolidJS, xterm.js, Vite |
-| `host/` | Container terminal server | Node.js, node-pty |
-| `stress/` | k6 load test suites | JavaScript, k6 |
-| `preseed/tutorials/` | Tutorial content seeded into new workspaces | Markdown |
-| `scripts/` | Build and maintenance utilities | Node.js |
-| `.github/workflows/` | CI/CD pipelines | GitHub Actions |
+- The [PR Checks workflow](.github/workflows/test.yml) selects Node 22 for several backend/frontend jobs and uses governed patch pins for other jobs, including Node 26 for host tests.
+- The [workflow tool pins](.github/workflow-tool-pins.json) own the governed CI patches. Use the workflow to determine which pin applies; not every job consumes a patch pin.
+- The [Browser IDE extension manifest](openvscode/agent-sidebar/package.json) declares its own Node engine. That embedded extension requirement is distinct from the host CI runtime.
 
-For a full architecture overview, see [documentation/lanes/architecture.md](documentation/lanes/architecture.md).
+Read the affected package manifest, committed lockfile, and corresponding workflow job before installing. These references describe source requirements, not a qualified workstation support matrix or a guarantee that every integration path works locally.
+
+### Fork and branch
+
+Fork the [public Codeflare repository](https://github.com/nikolanovoselec/codeflare) on GitHub. Then clone your fork and create a feature branch from upstream `develop`:
+
+```bash
+git clone https://github.com/<your-username>/codeflare.git
+cd codeflare
+git remote add upstream https://github.com/nikolanovoselec/codeflare.git
+git fetch upstream develop
+git switch -c fix/describe-your-change upstream/develop
+```
+
+For an existing clone, reuse its upstream remote if already configured. Use a descriptive branch prefix such as `feat/`, `fix/`, `refactor/`, `test/`, or `docs/`.
+
+### Install only what you need
+
+The commands below are for a contributor workstation. In a managed Codeflare agent session, follow the [managed execution boundary](#managed-execution-and-ci) instead.
+
+**All examples below start at the repository root**, unless explicitly labelled otherwise. Parenthesized package commands run in independent subshells, so they do not change the working directory for the next command.
+
+Install root dependencies:
+
+```bash
+npm ci
+```
+
+Then select only the packages needed for your change or its checks; this is not a mandatory all-package checklist:
+
+```bash
+(cd web-ui && npm ci)
+(cd host && npm ci)
+(cd landing && npm ci)
+(cd openvscode/agent-sidebar && npm ci)
+```
+
+`npm ci` installs from the committed lockfile and may run lifecycle scripts, including native dependency setup. Do not regenerate lockfiles incidentally. Intentional dependency updates must keep the owning manifest and lockfile coherent and follow the repository's dependency workflow.
+
+Local overrides are described in [`.dev.vars.example`](.dev.vars.example). Some development paths require configured services or credentials; integration deployment requires authorized credentials and is separate from ordinary contribution setup. Never commit real values.
+
+## Find the source
+
+| Path | Owns |
+|---|---|
+| `src/` | Cloudflare Worker routes, authentication, storage, and Durable Objects |
+| `web-ui/` | SolidJS application and terminal UI |
+| `host/` | Container terminal server and host integration tests |
+| `landing/` | Astro landing pages and browser behavior |
+| `openvscode/` | Browser IDE extension and agent projection packages |
+| `preseed/` | Image-baked workspace content and agent fallback inputs |
+| `scripts/` | Seed generation, compilation, and maintenance utilities |
+| `stress/` | k6 integration workloads; not routine workstation checks |
+| `.github/workflows/` | Public CI, release, and deployment workflows |
+| `sdd/` | Requirements, acceptance criteria, and evidence anchors |
+| `documentation/` | Canonical technical references and architecture decisions |
+
+See [Architecture](documentation/lanes/architecture.md) for system boundaries. A documentation **lane** is the existing reference that owns one subject. A **REQ** is a stable requirement in the [specification](sdd/README.md), with acceptance criteria and links to implementation and test evidence.
 
 <a id="development"></a>
 ## Development Workflow
 
-### Requirements and behavioral tests
+### Requirements and behavioral evidence
 
-For behavior changes, update the owning SDD requirement first, write a behavioral test that fails when the implementation is absent or broken, and keep changed `@impl`/`@test` anchors adjacent to the acceptance criteria they support. Do not use UI copy or source-text matching as a substitute for observable behavior.
+For a functional behavior change, map the complete intended behavior to the owning requirements before editing implementation. Update the acceptance criteria first, add the complete failing behavioral test suite for the approved change in one test-only phase, then implement to green. Record the failing-test evidence, keep tests and the green implementation together in the submitted change, and obtain final exact-head CI. Follow the current task's approved CI sequence rather than pushing an incomplete RED-only batch. Keep changed `@impl` and `@test` anchors adjacent to the acceptance criteria they support; leave no touched requirement partially satisfied.
+
+Tests must observe the required behavior, not merely match source text, private calls, or implementation structure. Exact copy or structure assertions are appropriate only when they are intentional contracts with a related observable outcome.
+
+Do not manufacture failing tests or impose RED/GREEN on documentation, wording, formatting, workflow maintenance, or dependency/version changes that do not change specified functional behavior. Use the appropriate existing checks and CI gates for those changes.
 
 ### Implementation and documentation
 
-Make the smallest implementation that satisfies the acceptance criteria. Update the canonical owner lane, its package reference where package-local mechanics changed, and `sdd/spec/changes.md` when the required behavior changed.
+Keep each PR focused. Preserve unrelated work and behavior; avoid drive-by refactors and formatting churn. Update the owning documentation lane and package reference when their contracts change, and update `sdd/spec/changes.md` when required product behavior changes.
+
+Generated, vendored, archived, and runtime-payload files must be changed through their generator or owning upstream workflow. Read the relevant source and configuration before editing generated output. For agent infrastructure shared with managed content, identify required alignment and compatibility work rather than assuming automatic synchronization.
+
+Follow surrounding formatting. TypeScript, SolidJS signals, Hono routing, and Zod boundary validation are established patterns in their respective packages. **oxlint is the configured linter**, not a replacement formatting policy; do not introduce unrelated formatting tools or changes.
+
+### Workstation development servers
+
+Run these long-lived processes in **separate terminals**, each starting at the repository root. They are package entry points, not a complete integration-environment recipe.
+
+Terminal 1 — Worker development server through Wrangler:
 
 ```bash
-npm run dev                        # Run backend locally (requires wrangler)
-cd web-ui && npm run dev           # Frontend dev server (Vite)
+npm run dev
+```
+
+Terminal 2 — frontend Vite development server:
+
+```bash
+(cd web-ui && npm run dev)
 ```
 
 ## Running Tests
 
-Codeflare has package-specific behavioral suites. Run the suites affected by your change; GitHub Actions is the authoritative full verification environment:
+### Managed execution and CI
+
+The following commands document package scripts for contributor workstations. They do not authorize local execution in a managed Codeflare agent session. In managed sessions, [AGENTS.md](AGENTS.md) requires the [safe-local-checks route](preseed/agents/claude/skills/safe-local-checks/SKILL.md) for approved bounded local checks; installs, servers, package test scripts, builds, and type checks remain CI-only. Do not bypass those restrictions to follow a workstation example.
+
+GitHub Actions is authoritative for full verification against the exact PR head. Its diff classification selects the affected lanes and reconciles their reports. A local result is supplemental evidence, not an equivalent CI verdict or deployed integration acceptance. See the [CI catalogue](documentation/lanes/ci-cd.md) for current gates and coverage limits.
+
+### Workers and Node are separate root suites
+
+From the repository root on a contributor workstation:
 
 ```bash
-# Backend unit tests (Vitest + @cloudflare/vitest-pool-workers)
+# Workers behavioral suite; npm automatically runs pretest first.
 npm test
 
-# Frontend unit tests (Vitest + jsdom + SolidJS Testing Library)
-cd web-ui && npm test
-
-# Host unit tests (Node.js test runner)
-cd host && npm test
-
-# Landing behavior (Vitest)
-cd landing && npm test
-
-# Browser IDE extension behavior (Vitest)
-cd openvscode/agent-sidebar && npm test
+# Separate Node-owned suite; prepare explicitly before this named script.
+npm run pretest
+npm run test:node
 ```
+
+The [Workers configuration](vitest.config.ts) excludes files owned by the [Node configuration](vitest.node.config.ts). `npm test` alone therefore does not cover the root Node suite. Choose both when the change spans their contracts.
+
+Root `pretest` generates tutorial and agent seed files and checks Pi extensions; it can update generated source files. The `test:node` script does **not** automatically invoke `pretest`. CI explicitly prepares seeds before running it and also creates the assets directory required by Wrangler. Consult the corresponding workflow job for additional suite inputs; the two commands above do not reproduce the complete CI job. Review generated changes rather than treating preparation as read-only.
 
 <a id="rate-limit-tests"></a>
 <a id="subscription-and-usage-tests"></a>
 ### Verification by change
 
-| Change | Minimum affected verification | Canonical detail |
+Every command in this table starts at the repository root. Select the affected suites and checks; this table is not a substitute for CI's complete diff classification.
+
+| Change | Workstation package command or check | Reference |
 |---|---|---|
-| Worker routes, auth, storage, subscription, or Durable Objects | Root behavioral suite plus affected type/lint checks | [CI/CD — Backend Tests](documentation/lanes/ci-cd.md#backend-tests) |
-| Frontend behavior | `web-ui` behavioral suite plus affected type/lint checks | [CI/CD — Frontend Tests](documentation/lanes/ci-cd.md#frontend-tests) |
-| Container host, entrypoint, or documentation contracts | `host` suite | [CI/CD — Host Tests](documentation/lanes/ci-cd.md#host-tests) |
-| Landing package | `landing` suite | [Landing package reference](landing/README.md#develop-and-verify) |
-| Browser IDE or Claude projection | `openvscode/agent-sidebar` suite | [Browser IDE package reference](openvscode/README.md#develop-and-verify) |
-| Rate-limit or load-model behavior | Affected backend tests; run k6 only against a prepared integration target | [CI & Testing: load testing](documentation/lanes/ci-cd.md#load-testing) |
+| Worker routes, auth, storage, usage, or Durable Objects | `npm test`; affected root lint/type checks | [Backend tests](documentation/lanes/ci-cd.md#backend-tests) |
+| Node-owned root behavior, generated seeds, or CI gate scripts | `npm run pretest` followed by `npm run test:node`; affected static checks | [Node suite configuration](vitest.node.config.ts) |
+| Frontend behavior | `(cd web-ui && npm test)`; frontend lint/type checks | [Frontend tests](documentation/lanes/ci-cd.md#frontend-tests) |
+| Container host, entrypoint, or documentation contracts | `(cd host && npm test)` with the required host inputs | [Host tests](documentation/lanes/ci-cd.md#host-tests) |
+| Landing package | `(cd landing && npm test)` | [Landing verification](landing/README.md#develop-and-verify) |
+| Browser IDE extension or Claude projection | `(cd openvscode/agent-sidebar && npm test)`; package dependency/type checks | [Browser IDE verification](openvscode/README.md#develop-and-verify) |
+| Rate-limit or load-model behavior | Affected backend suites; k6 only as separately authorized integration work | [Load-testing safety](documentation/lanes/ci-cd.md#load-testing) |
 
-GitHub Actions classifies the complete diff and remains the authoritative exact-head result. File names and shard membership may change; use package scripts and the CI catalogue rather than maintaining a second named-test inventory here.
+Host CI installs root and host dependencies plus inspected Pi inputs, prepares additional runtime/sandbox dependencies, and applies an image-only exclusion ledger. A bare host package run does not reproduce that environment or complete-image checks. Do not interpret unavailable prerequisites or retired transport workloads as passing evidence. Integration and Enterprise Integration acceptance remain separate requirements where applicable.
 
-### Linting and Type Checking
+### Lint and type checks
+
+These are workstation package commands, all starting at the repository root:
 
 ```bash
-npm run lint                       # Backend (oxlint)
-cd web-ui && npm run lint          # Frontend (oxlint)
-npm run typecheck                  # Backend (tsc --noEmit)
-cd web-ui && npm run typecheck     # Frontend
+npm run lint
+(cd web-ui && npm run lint)
+npm run typecheck
+(cd web-ui && npm run typecheck)
 ```
 
-## Code Style
-
-- **TypeScript** with strict mode enabled across all layers.
-- **Behavioral tests** assert observable contracts. Backend, frontend, landing, and Browser IDE packages use Vitest; host uses Node's test runner.
-- **SolidJS** for the frontend -- not React. Reactivity is signal-based. See `web-ui/src/stores/` for patterns.
-- **Hono** as the backend router on Cloudflare Workers.
-- **Zod** for input validation on both backend (`src/lib/schemas.ts`) and frontend (`web-ui/src/lib/schemas.ts`).
-- **oxlint** for linting. Run `npm run lint` before submitting.
-- No Prettier or ESLint -- oxlint handles it.
+Other packages expose different scripts; use their manifests and package references rather than assuming every package has the same checks.
 
 ## Submitting Changes
 
-### Branch Naming
+Use the commit format `<type>: <description>`, where the type is `feat`, `fix`, `refactor`, `docs`, `test`, `chore`, `perf`, or `ci`. Keep the description specific to the change.
 
-Use descriptive branch names with a prefix:
+Open a public pull request from your feature branch against **`develop`**. Include:
 
-- `feat/` -- new features
-- `fix/` -- bug fixes
-- `refactor/` -- code restructuring
-- `test/` -- test additions or fixes
-- `docs/` -- documentation changes
+- **What and why:** the problem and the focused correction.
+- **Behavior and ownership:** affected packages, REQ links when applicable, and public documentation updates.
+- **Verification:** checks actually run, their outcomes, and the head they cover. List checks not run and why; do not present planned checks as completed evidence.
+- **Boundaries:** known limitations, integration acceptance still needed, and any maintainer-owned private coordination. Do not include private values or procedures.
 
-Example: `fix/websocket-reconnect-race-condition`
+Respond to review findings, explain disagreements with evidence, and apply accepted corrections within the PR's scope. After updates, obtain checks for the updated head; an earlier green run does not verify later changes. Required workflows classify the diff and evaluate the affected lint, type, test, security, dependency, workflow, and package lanes.
 
-### Pull Request Process
-
-1. Create a feature branch from `develop`.
-2. For behavior changes, update the owning REQ and write a failing behavioral test before implementation; keep changed `@impl` and `@test` anchors truthful.
-3. Make the smallest implementation and documentation change that satisfies the acceptance criteria.
-4. Run affected tests, lint, and type checks where your environment supports them; GitHub Actions remains authoritative.
-5. Open a pull request against `develop` with a clear description, verification evidence, and REQ backlinks where applicable.
-6. Required checks classify the diff and run the affected lint, type, test, security, dependency, workflow, and package lanes against the exact PR head.
-
-### What Makes a Good PR
-
-- **Focused scope** -- one logical change per PR.
-- **Tests included** -- especially for bug fixes (prove the bug existed, prove it is fixed).
-- **No unrelated changes** -- avoid drive-by refactors or formatting cleanups.
-- **Clear description** -- explain *what* changed and *why*.
+Managed Codeflare agents also follow the [PR-boundary review protocol](preseed/agents/pi/skills/git-review-pipeline/SKILL.md). Those agent mechanics are not an additional private-access requirement for public contributors. Check and promotion details remain in [CI/CD and Testing](documentation/lanes/ci-cd.md#merge-and-promotion-gates); this guide does not establish an approval count or review turnaround guarantee.
 
 ## Security
 
-If you discover a security vulnerability, **do not open a public issue**. Report it via [GitHub's private vulnerability reporting](https://github.com/nikolanovoselec/codeflare/security/advisories/new). See [SECURITY.md](SECURITY.md) for details.
+Report vulnerabilities through [SECURITY.md](SECURITY.md), not public issues or PRs. Keep sensitive reproduction evidence in the private reporting channel specified there.
 
-An automated penetration test runs weekly against production (`pentest.yml`). If you make changes to authentication, CORS, security headers, or routing, you can trigger it manually from `Actions` > `Pentest` > `Run workflow` to verify nothing regressed. See [CI & Testing: security probes](documentation/lanes/ci-cd.md#security-probes) for current methodology and coverage limits; individual runs are dated evidence, not security certification.
+Production security probes are operator-controlled, not routine PR verification. Any live probe requires explicit authorization and operator coordination; do not trigger production probes as a contribution check. The [security-probe methodology](documentation/lanes/ci-cd.md#security-probes) describes their limited coverage. Probe results do not replace affected tests or integration acceptance and are not security certification.
 
-**Deployment secrets and non-default configuration.** Real secrets, non-default deployment variables, operator token-permission matrices, GitHub Environments, provider registrations, and customer runbooks do not belong in this repository. Their owners live in the private [Codeflare operator library](https://github.com/nikolanovoselec/codeflare-private/blob/main/docs/README.md). If a change affects one of those contracts, clone the private repository with `gh repo clone nikolanovoselec/codeflare-private`, update its owning document in the same work, and deliver that repository separately. Never copy customer values into either repository. See the [public/private documentation boundary](documentation/README.md#publicprivate-documentation-boundary).
+## License
 
-**Managed Environment content.** Deployment-managed skills, rules, hooks, agents, scripts, plugins, and company extension requirements do not belong in this repository either — their runtime master is the private [codeflare-curation](https://github.com/nikolanovoselec/codeflare-curation) repo. `preseed/agents/**` here is only the image-baked fallback baseline. To add or change curated content, clone `codeflare-curation`, make the change there, and open a PR there; a signed release published from its protected workflow is what actually reaches deployments. Change this repository only when the task is explicitly about the image fallback, or about the shared compiler and runtime ABI, which stay Codeflare-owned and must land here before the curation repo advances its compiler pin. See [Managed curation ownership](documentation/lanes/preseed.md#managed-curation-ownership).
+Codeflare is licensed under [PolyForm Noncommercial 1.0.0](LICENSE).
 
-## Questions
+By submitting a contribution, you agree that your work will be distributed under the same license.
 
-Open an issue for questions about the codebase, architecture, or contribution process.
+Commercial use, resale, or paid hosted offerings require a separate written license from the maintainer.
 
-**Related Documentation:**
-- [Documentation](documentation/README.md) - Full technical reference
-- [README.md](README.md) - Product overview and setup
-- [CI & Testing: load testing](documentation/lanes/ci-cd.md#load-testing) - Load-test safety and execution
+## Questions and references
+
+Open an issue in this repository for questions about public contribution scope, architecture, or the development process. Private repository access is not required to ask for maintainer coordination.
+
+- [README](README.md) — product overview and default setup
+- [Documentation index](documentation/README.md) — technical ownership and references
+- [Specification](sdd/README.md) — required behavior and evidence
+- [CI/CD and Testing](documentation/lanes/ci-cd.md) — verification gates and limitations
+- [Security policy](SECURITY.md) — vulnerability reporting

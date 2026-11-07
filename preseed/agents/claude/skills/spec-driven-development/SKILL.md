@@ -38,6 +38,7 @@ The user only invokes `/sdd` directly to:
 ```
 sdd/
 ├── README.md            # Vision, principles, actors, domain index, "Out of Scope" section
+├── .review-decisions.md # Existing user-invoked review decision history; not the live queue
 └── spec/
     ├── {domain}.md      # Requirements per feature area
     ├── glossary.md      # Canonical term definitions
@@ -79,7 +80,7 @@ pending.md         # In-flight work and known gaps (NOT requirements)
 
 The enforcement check (one walk, one rule) lives in `doc-enforce-lanes` § Layout conformance.
 
-**Dotfile reduction.** The nested schema consolidates four prior dotfiles (`.review-needed.md`, `.coverage-report.md`, `.last-clean-run.md`, `.review-decisions.md`) into one `.review-queue.md`. `/sdd clean` audit lives in commit history (`git log --grep='\[sdd-clean\]'` + commit bodies). `/review` cross-run dedup, when needed, is derived from `git log --grep='\[review\]'`.
+**Review state ownership.** The nested live escalation queue is `spec/.review-queue.md`, replacing `.review-needed.md`, `.coverage-report.md` and `.last-clean-run.md`. User-invoked `/review` retains its existing append-only `sdd/.review-decisions.md` under both layouts; it records approved per-finding decisions for cross-run dedup, not unresolved enforcement work. Do not merge history into the live queue, delete existing decisions or introduce another ledger. `/sdd clean` audit remains in commit history (`git log --grep='\[sdd-clean\]'` plus commit bodies).
 
 ## REQ format
 

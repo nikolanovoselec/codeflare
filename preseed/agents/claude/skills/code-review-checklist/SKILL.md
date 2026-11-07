@@ -19,6 +19,8 @@ not runtime configuration.
 
 **Code quality (HIGH)** — functions over ~50 lines; files over ~800; nesting deeper than 4 (early returns, extracted helpers); unhandled rejections and empty catch blocks; mutation where immutable operations belong; leftover `console.log`; new code paths without tests; dead code, unused imports, unreachable branches.
 
+**Size and complexity heuristics.** The ~50-line function, ~800-line file, nesting-depth and similar thresholds are prompts to inspect, not independent grounds for a HIGH finding or a split. Require concrete ownership, coupling, shared-state, testability or maintenance impact. Recommend boundaries by responsibility, not raw line count.
+
 **Test quality (HIGH)** — the `tdd-enforce` policy is binding whenever a test file appears in the diff (`*.test.*`, `*.spec.*`, `test_*.py`, `*_test.go`). Apply its antipattern catalogue and severity table; findings roll into this review. Not applying it when test files are in the diff is HIGH `tdd-enforce-skill-not-invoked`. The gut-check governs regardless of category: *if I delete or break the implementation this test covers, does it fail?*
 
 **React/Next.js (HIGH)** — only when `react`/`next` is in `package.json` or `.tsx`/`.jsx` files are in the diff; skip entirely on Go, Rust, Python, Vue, Svelte, vanilla-DOM, CLI, library or embedded projects. Incomplete `useEffect`/`useMemo`/`useCallback` dependency arrays; setState during render; array index as key on reorderable lists; props drilled 3+ levels; missing memoisation on expensive work; `useState`/`useEffect` in Server Components; data fetching with no loading or error state; stale closures in handlers.
@@ -49,6 +51,8 @@ jq -c 'select(.name == "Bash" and (.input.command | test("(^|&&\\s*)git\\s+push\
 ```
 
 **Performance (MEDIUM)** — O(n²) where O(n log n) or better is available; missing memoisation; whole-library imports where tree-shakeable ones exist; repeated expensive computation without caching; unoptimised images; synchronous I/O in async contexts.
+
+**Performance and concurrency evidence.** When relevant to a finding, state the expected load or concurrency supported by source, callers, configuration or documented requirements, and the concrete failure scenario: wrong behavior, a race, duplicate workers or unbounded growth. Connect that evidence to the consequence; do not invent scale requirements or require a workload paragraph for every clean review.
 
 **Best practices (LOW)** — TODO/FIXME without an issue reference; exported functions without docs; single-letter names in non-trivial contexts; magic numbers; formatting inconsistent with the file.
 
