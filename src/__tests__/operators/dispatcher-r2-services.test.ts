@@ -963,11 +963,13 @@ describe('REQ-OPERATOR-007/047/048/058: owner R2 configured-service HTTP contrac
     const response = await credentials(f, { operation: 'read', providerId: selection.provider });
     expect(response.status).toBe(200);
     const value = await json(response);
-    expect(value).toMatchObject({ auth: { apiKey: oldOAuth.access } });
     if (selection.provider === 'kimi-coding') {
-      expect(value.auth.headers).toEqual(expect.any(Object));
-      expect(value.auth.headers).not.toEqual({});
-    } else expect(value.auth.baseUrl).toMatch(/^https:\/\//);
+      expect(new Headers(value.auth.headers).get('authorization')).toBe(`Bearer ${oldOAuth.access}`);
+      expect(value.auth).not.toHaveProperty('apiKey');
+    } else {
+      expect(value.auth.apiKey).toBe(oldOAuth.access);
+      expect(value.auth.baseUrl).toMatch(/^https:\/\//);
+    }
     expect(JSON.stringify(value)).not.toContain(oldOAuth.refresh);
     expect(JSON.stringify(value)).not.toContain(other.key);
     expect(exchanges).toEqual([]);
@@ -1040,8 +1042,8 @@ describe('REQ-OPERATOR-007/047/048/058: owner R2 configured-service HTTP contrac
     expect(await f.activity.getBrowserDetail()).not.toHaveProperty('authFailure');
   }));
 
-  it('returns only the selected saved API key, without evaluating or exporting provider metadata', () => lane(async (f, store) => {
-    const saved = { type: 'api_key', key: `${canary}_selected_api_key`, env: { PRIVATE: `${canary}_private_env` } };
+  it('returns the legacy selected API-key reply when SDK request metadata is absent', () => lane(async (f, store) => {
+    const saved = { type: 'api_key', key: `${canary}_selected_api_key` };
     store.put(authKey, { [providerId]: saved, other });
     await admitted(f);
     expect(await json(await read(f))).toEqual({ apiKey: saved.key });
