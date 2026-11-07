@@ -287,10 +287,12 @@ async function refreshSessionStatusesOnce(forceManagedReleaseCheck: boolean): Pr
       // the 'initializing' status. The accepted D1 start can still be converging.
       if (session.status === 'initializing' || isSessionInitializingFn(session.id)) continue;
 
-      // Guard 3: Delayed negative evidence cannot stop a newly started session or a
-      // session whose terminal transport still owns a socket/retry loop. Manual
-      // stop and persisted-state 4503 bypass this path in session.ts/terminal.ts.
-      if (remote.status === 'stopped' && session.status !== 'stopping' && shouldRetainNegativeKvFn(session.id)) continue;
+      // Legacy unordered negatives cannot override local transport ownership.
+      // After the startup guard, an accepted generation/revision-fenced D1
+      // stop must not be vetoed by a lingering socket/retry loop.
+      if (remote.status === 'stopped' && session.status !== 'stopping'
+        && (remote.generation === undefined || remote.revision === undefined || isWithinStartupGuard(session.id))
+        && shouldRetainNegativeKvFn(session.id)) continue;
 
       // Apply the ordered D1 lifecycle projection. Transport ownership remains
       // local, so uncertainty never disposes mounted terminal/editor state.

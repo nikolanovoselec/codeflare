@@ -1532,7 +1532,8 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       mockContainerRuntime.running = sdkRunning;
       if (!sdkRunning) mockTcpPortFetch.mockResolvedValue(new Response('healthy'));
       let resolveExit!: () => void;
-      mockContainerRuntime.monitor.mockImplementation(() => new Promise<void>((resolve) => { resolveExit = resolve; }));
+      let rejectExit!: (error: unknown) => void;
+      mockContainerRuntime.monitor.mockImplementation(() => new Promise<void>((resolve, reject) => { resolveExit = resolve; rejectExit = reject; }));
       const instance = new ContainerClass(mockCtx as any, mockEnv);
       await vi.waitFor(() => expect(instance._sessionId).toBe(sessionId));
       await vi.waitFor(() => expect(resolveExit).toBeDefined());
@@ -1540,7 +1541,7 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
         resolveExit();
         await vi.waitFor(async () => expect((await kv.get(key, 'json') as { status: string }).status).toBe('stopped'));
       };
-      return { kv, key, completeExit, resolveExit, persisted, instance };
+      return { kv, key, completeExit, resolveExit, rejectExit, persisted, instance };
     }
 
     async function reconstruct() {
@@ -1568,13 +1569,16 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       expect(persisted.has('monitoredExitGeneration')).toBe(false);
     });
 
-    it('confirms an explicit nonzero process exit from the low-level monitor', async () => {
+    it.each([
+      'container exited with unexpected exit code: 137',
+      'Runtime signalled the container to exit due to a new version rollout: 143',
+    ])('confirms an explicit nonzero process exit from the low-level monitor: %s', async (message) => {
       const { kv, key } = await attachedMonitor(13);
       let rejectExit!: (error: unknown) => void;
       mockContainerRuntime.monitor.mockImplementation(() => new Promise<void>((_, reject) => { rejectExit = reject; }));
       await reconstruct();
       await vi.waitFor(() => expect(rejectExit).toBeDefined());
-      rejectExit(new Error('container exited with unexpected exit code: 137'));
+      rejectExit(new Error(message));
       await vi.waitFor(async () => expect((await kv.get(key, 'json') as { status: string }).status).toBe('stopped'));
     });
 
@@ -1669,8 +1673,8 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       expect((await kv.get(key, 'json') as { status: string }).status).toBe('stopped');
     });
 
-    it('cannot stop a replacement when the old monitor resolves late', async () => {
-      const { kv, key, resolveExit, persisted, instance } = await attachedMonitor(7);
+    it.each(['resolved exit', 'rollout exit'] as const)('cannot stop a replacement when the old monitor completes late: %s', async (completion) => {
+      const { kv, key, resolveExit, rejectExit, persisted, instance } = await attachedMonitor(7);
       let retryScheduled!: () => void;
       const retry = new Promise<void>((resolve) => { retryScheduled = resolve; });
       vi.spyOn(instance, 'schedule').mockImplementation(async () => { retryScheduled(); return {} as Awaited<ReturnType<typeof instance.schedule>>; });
@@ -1678,7 +1682,8 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
         id: sessionId, userId: owner, status: 'running', lifecycleGeneration: 8,
         createdAt: '2026-01-01T00:00:00.000Z', lastAccessedAt: '2026-01-01T00:00:00.000Z',
       });
-      resolveExit();
+      if (completion === 'rollout exit') rejectExit(new Error('Runtime signalled the container to exit due to a new version rollout: 143'));
+      else resolveExit();
       await retry;
       expect(persisted.get('monitoredExitGeneration')).toEqual({ owner, session: sessionId, generation: 7 });
       expect(await kv.get(key, 'json')).toMatchObject({ status: 'running', lifecycleGeneration: 8 });

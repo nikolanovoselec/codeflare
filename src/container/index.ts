@@ -367,10 +367,10 @@ export class container extends Container<Env> implements ContainerEnvState {
     try {
       const exit = runtime.monitor();
       void exit.then(recordExit, error => {
-        // The pinned SDK 0.3.7 recognizes these explicit exit messages.
+        // Trust explicit exit messages from this attached monitor, including rollouts.
         // Bare numbers, no-instance and transport failures are not proof here.
         const exitCode = error instanceof Error
-          ? /^(?:container exited with unexpected exit code:|runtime signalled the container to exit:)\s*(\d+)$/i.exec(error.message)?.[1]
+          ? /^(?:container exited with unexpected exit code:|runtime signalled the container to exit(?: due to a new version rollout)?:)\s*(\d+)$/i.exec(error.message)?.[1]
           : undefined;
         if (exitCode !== undefined && Number.isSafeInteger(Number(exitCode)) && Number(exitCode) >= 0) {
           void recordExit();
