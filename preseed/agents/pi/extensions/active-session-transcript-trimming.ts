@@ -16,6 +16,7 @@ const TARGET = 20_000_000;
 const MAXIMUM = 25_000_000;
 type Entry = Record<string, any>;
 type Identity = { sessionId: string; file: string };
+export type TranscriptTrimIdentity = Identity & { requestId: string };
 type TrimContext = { sessionManager: {
   getSessionId(): string;
   getSessionFile(): string | undefined;
@@ -362,7 +363,8 @@ function registerTranscriptTrimTool(pi: ExtensionAPI, requestMaintenance: (ctx: 
   });
 }
 
-export function registerActiveSessionTranscriptTrimming(pi: ExtensionAPI, io: typeof fs = fs) {
+export function registerActiveSessionTranscriptTrimming(pi: ExtensionAPI, io: typeof fs = fs,
+  checkpoint?: (owner: TranscriptTrimIdentity, phase: "before" | "verified" | "refused", ctx?: TrimContext) => void) {
   let due: Identity | undefined, request: TranscriptTrimRequest | undefined;
   const receipts = new Map<string, TranscriptTrimRequest>();
   const receiptWorkers = new Map<string, AbortController>();
@@ -377,7 +379,10 @@ export function registerActiveSessionTranscriptTrimming(pi: ExtensionAPI, io: ty
     for(const worker of receiptWorkers.values())worker.abort();
     // Release scheduling ownership, but retain committed work for read-only
     // verification when its own session is loaded again. Never replay a write.
-    if (request) { const scope = trimActivations.get(request.requestId); scope?.controller?.abort(); trimActivations.delete(request.requestId); }
+    if (request) {
+      try { checkpoint?.(request, "refused"); } catch { /* Cancellation revokes checkpoint authority too. */ }
+      const scope = trimActivations.get(request.requestId); scope?.controller?.abort(); trimActivations.delete(request.requestId);
+    }
     if (request?.committed) receipts.set(request.requestId, request);
     else if (request) cleanupRequest(request);
     request = undefined; due = undefined;
@@ -400,6 +405,7 @@ export function registerActiveSessionTranscriptTrimming(pi: ExtensionAPI, io: ty
       if(!cleanupRequest(receipt,io))throw new Error("staging-cleanup-pending");
       receipts.delete(receipt.requestId);
       if(request===receipt){request=undefined;due=undefined;}
+      try { checkpoint?.(receipt, "verified", ctx); } catch { /* Checkpoint failure keeps ordinary rebase recovery. */ }
       report({status:"trimmed",before:receipt.committed!.before,after:verified.after,currentBytes:verified.currentBytes,
         appendedAfterCommitBytes:verified.appendedAfterCommitBytes,...(receipt.committed!.warning?{reason:receipt.committed!.warning}:{})});
     }).catch(error=>report({status:"verification-pending",before:receipt.committed!.before,after:receipt.committed!.bytes,
@@ -413,10 +419,16 @@ export function registerActiveSessionTranscriptTrimming(pi: ExtensionAPI, io: ty
     const valid = () => !ownerSignal.aborted && request === authorized
       && trimActivations.get(authorized.requestId)?.request === authorized && same(identity(ctx),authorized);
     const publish = (result: TrimResult) => {
+      if (result.status !== "trimmed") {
+        try { checkpoint?.(authorized, "refused", ctx); } catch { /* Unverified work keeps ordinary rebase recovery. */ }
+      }
       if (authorized.committed) {
         if (result.status !== "trimmed") receipts.set(authorized.requestId,authorized);
         else receipts.delete(authorized.requestId);
         if (request === authorized) { request=undefined;due=undefined; }
+      }
+      if (result.status === "trimmed" && !ownerSignal.aborted && same(identity(ctx),authorized)) {
+        try { checkpoint?.(authorized, "verified", ctx); } catch { /* Never turn a checkpoint failure into trim success recovery. */ }
       }
       try { if (!ownerSignal.aborted && same(identity(ctx),authorized)) outcome(result); } catch { /* UI delivery cannot undo a committed receipt. */ }
       return result;
@@ -432,6 +444,7 @@ export function registerActiveSessionTranscriptTrimming(pi: ExtensionAPI, io: ty
           if(authorized.branchIds.some((id,i)=>branch[i]!==id))throw new Error("branch-changed");
           const name=ctx.sessionManager.getSessionName?.();
           const sessionInfo=name?{type:"session_info",id:randomUUID(),parentId:null,timestamp:new Date().toISOString(),name}:undefined;
+          checkpoint?.(authorized, "before", ctx);
           const prepared:any=await runTrimWorker({action:"activation",request:authorized,branchIds:branch,sessionInfo},signal);
           // Short owner-only commit fence: no transcript parse/reduction/copy here.
           if(!valid() || signal?.aborted || !isDeepStrictEqual(branch,ctx.sessionManager.getBranch().map(e=>e.id))

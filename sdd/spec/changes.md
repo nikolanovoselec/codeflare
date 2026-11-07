@@ -4,6 +4,8 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-11-07
 
+- Preserve successful memory coverage across verified local trimming without an immediate duplicate capture or loss of later uncaptured prompts; retain recovery for unrelated history replacement ([REQ-MEM-025](memory.md#req-mem-025-pi-capture-follows-transcript-epochs)).
+
 - Pi memory capture, Vault checks and size-eligible trimming now share the memory progress baseline and transcript rebase handling; legacy Vault counters cannot stall maintenance ([REQ-MEM-002](memory.md#req-mem-002-capture-triggers-every-20-user-messages-and-on-resume), [REQ-VAULT-031](vault.md#req-vault-031-vault-hash-checks-follow-successful-prompt-cadence)).
 
 - Recover existing owner portal authorization through Worker refresh and browser SSO, preserving active-session navigation, credential isolation and explicit Disconnect without restarting Pi ([REQ-AGENT-226](mcp.md#req-agent-226-worker-owned-mcp-portal-authorization)).
