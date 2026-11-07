@@ -991,13 +991,18 @@ function startConsult(home, restoredLegacy, overrides = {}) {
     if (start < 0 || end < 0) throw new Error(`missing production helper ${name}`);
     return lines.slice(start, end + 1).join('\n');
   }
-  const functions = ['configure_pi_mcp_adapter', '_merge_consult_llm_mcp', '_remove_consult_llm_mcp', '_remove_disabled_consult_llm', 'configure_consult_llm'].map(functionSource).join('\n');
+  const functions = ['configure_pi_mcp_adapter', '_merge_consult_llm_mcp', '_remove_consult_llm_mcp', '_remove_disabled_consult_llm', 'configure_consult_llm', 'configure_pi_mcp_portals'].map(functionSource).join('\n')
+    .replace('/opt/codeflare/merge-pi-mcp-portals.mjs', join(repo, 'scripts/merge-pi-mcp-portals.mjs'));
   const entrypoint = lines.join('\n');
   const browserStart = entrypoint.indexOf('if [ "${SESSION_MODE:-default}" = "advanced" ] \\\n   && [ -n "${CLOUDFLARE_API_TOKEN:-}" ]');
   const browserEnd = entrypoint.indexOf('    # Claude (~/.claude.json) - the cheap one-shot', browserStart);
   if (browserStart < 0 || browserEnd < 0) throw new Error('Missing production browser registration');
   const browser = entrypoint.slice(browserStart, browserEnd) + '\nfi';
   return spawnSync('bash', ['-c', `${functions}\nRCLONE_FILTERS=(--filter "+ /.pi/**" --filter "+ **")\nconfigure_pi_mcp_adapter "$MIGRATION_MODULE"\nconfigure_consult_llm
+if [ -n "\${CODEFLARE_MCP_PORTALS_JSON:-}" ]; then
+  coding_agent_is_selected() { return 0; }
+  configure_pi_mcp_portals
+fi
 if [ "\${QUALIFY_BROWSER:-0}" = "1" ]; then
 ${browser}
 fi
@@ -1028,7 +1033,7 @@ fi`], {
     encoding: 'utf8',
     env: { ...process.env, USER_HOME: home, USER_CLAUDE_JSON: join(home, '.claude.json'),
       MIGRATION_MODULE: join(repo, 'preseed/agents/pi/extensions/00-mcp-adapter-config.ts'),
-      RESTORED_LEGACY: restoredLegacy || '', CODEFLARE_OPENAI_API_KEY: 'synthetic-openai', CODEFLARE_GEMINI_API_KEY: '', ENTERPRISE_MODE: '', ...overrides,
+      RESTORED_LEGACY: restoredLegacy || '', CODEFLARE_OPENAI_API_KEY: 'synthetic-openai', CODEFLARE_GEMINI_API_KEY: '', ENTERPRISE_MODE: '', CODEFLARE_MCP_PORTALS_JSON: '', ...overrides,
     },
   });
 }
@@ -1246,5 +1251,153 @@ for (const customization of ['CA', 'arguments', 'headers', 'auth', 'keep-alive',
     const prepared = JSON.parse(readFileSync(f.legacy, 'utf8'));
     assert.deepEqual(prepared.mcpServers, { ...servers, 'chrome-devtools': { ...browser, requestTimeoutMs: 360000 } });
     assertArchived(f, 'mcp-adapter.json.migrated', original);
+  });
+}
+
+function restoredManagedPair() {
+  const portals = [{ name: 'synthetic', url: 'https://portal.example.test/mcp?codemode=search_and_execute' }];
+  const portal = 'codeflare-portal-synthetic';
+  const native = { mcpServers: { ...generatedServers(true),
+    [portal]: { url: portals[0].url, headers: { Authorization: 'Bearer codeflare-mcp-portal' }, auth: false,
+      lifecycle: 'lazy', idleTimeout: 10, requestTimeoutMs: 360000, directTools: 'search' },
+    unrelated: { command: 'synthetic-custom', env: { TOKEN: '!!synthetic-native', NODE_EXTRA_CA_CERTS: '/synthetic/ca.pem' } },
+  }, settings: { requestTimeoutMs: 360000, deferWithMissingMetadata: true, autoAuth: false }, _codeflareMcpPortals: portals };
+  const stock = { mcpServers: { ...generatedServers(),
+    [portal]: { url: portals[0].url, transport: 'streamable-http', headers: { Authorization: 'Bearer codeflare-mcp-portal' }, lifecycle: 'eager' },
+    missing: { command: 'synthetic-missing', env: { TOKEN: '!synthetic-literal' } },
+  }, settings: { requestTimeoutMs: 360000 }, _codeflareMcpPortals: portals };
+  stock.mcpServers['chrome-devtools'].requestTimeoutMs = 360000;
+  return { native, stock, portals, portal };
+}
+
+for (const shape of ['stock', 'native-shaped', 'marker-order']) {
+  test(`REQ-AGENT-217 AC2/AC4/AC7: dual restored managed defaults retain native authority and retire exact obsolete source (${shape})`, async t => {
+    const f = await fixture(t);
+    f.selectAdapter();
+    const { native, stock } = restoredManagedPair();
+    if (shape === 'native-shaped') {
+      for (const name of ['chrome-devtools', 'consult-llm', 'codeflare-portal-synthetic']) stock.mcpServers[name] = structuredClone(native.mcpServers[name]);
+    }
+    if (shape === 'marker-order') {
+      const second = { name: 'second', url: 'https://second.example.test/mcp' };
+      native._codeflareMcpPortals.push(second);
+      stock._codeflareMcpPortals = [...native._codeflareMcpPortals].reverse().map(({ name, url }) => ({ url, name }));
+    }
+    const original = JSON.stringify(stock, null, 1) + '\n';
+    writeFileSync(f.legacy, JSON.stringify(native));
+    writeFileSync(f.target, original);
+    const auth = join(f.directory, 'mcp-auth.json');
+    const authBytes = 'synthetic-private-auth-store';
+    writeFileSync(auth, authBytes);
+    const read = fs.readFileSync;
+    try {
+      fs.readFileSync = (path, ...args) => {
+        if (path === auth) throw new Error('Auth store must never be read');
+        return read(path, ...args);
+      };
+      syncBuiltinESMExports();
+      const warnings = [];
+      const pi = { on(event, handler) {
+        if (event === 'session_start') handler({}, { ui: { notify: message => warnings.push(message) } });
+      } };
+      f.load(pi);
+      assert.equal(existsSync(f.target), false);
+      assertArchived(f, 'mcp.json.migrated', original);
+      assert.deepEqual(JSON.parse(readFileSync(f.legacy, 'utf8')), { ...native,
+        mcpServers: { ...native.mcpServers, missing: { command: 'synthetic-missing', env: { TOKEN: '!!synthetic-literal' } } } });
+      const once = readFileSync(f.legacy, 'utf8');
+      const inventory = readdirSync(f.directory).sort();
+      f.load(pi);
+      assert.equal(readFileSync(f.legacy, 'utf8'), once);
+      assert.deepEqual(readdirSync(f.directory).sort(), inventory);
+      assert.deepEqual(warnings, []);
+    } finally { fs.readFileSync = read; syncBuiltinESMExports(); }
+    assert.equal(readFileSync(auth, 'utf8'), authBytes);
+  });
+}
+
+for (const enterprise of [false, true]) {
+  test(`REQ-AGENT-217 AC2/AC6/AC7: actual dual-file startup refreshes managed constructors and portals (enterprise=${enterprise})`, async t => {
+    const f = await fixture(t);
+    const { native, stock, portals, portal } = restoredManagedPair();
+    const original = JSON.stringify(stock);
+    writeFileSync(f.legacy, JSON.stringify(native));
+    writeFileSync(f.target, original);
+    const overrides = { QUALIFY_BROWSER: '1', SESSION_MODE: 'advanced', CLOUDFLARE_API_TOKEN: 'synthetic-current-browser',
+      CLOUDFLARE_ACCOUNT_ID: 'synthetic-current-account', CODEFLARE_OPENAI_API_KEY: 'synthetic-current-consult',
+      ENTERPRISE_MODE: enterprise ? 'active' : '', CODEFLARE_MCP_PORTALS_JSON: JSON.stringify(portals) };
+    for (let startup = 0; startup < 2; startup++) {
+      const result = startConsult(f.home, undefined, overrides);
+      assert.equal(result.status, 0, result.stderr);
+      assert.doesNotMatch(result.stdout + result.stderr, /migration skipped|portal configuration skipped/);
+      assert.equal(existsSync(f.target), false);
+      const prepared = JSON.parse(readFileSync(f.legacy, 'utf8'));
+      assert.deepEqual(prepared.settings, native.settings);
+      assert.deepEqual(prepared.mcpServers.unrelated, native.mcpServers.unrelated);
+      assert.deepEqual(prepared.mcpServers[portal], native.mcpServers[portal]);
+      assert.deepEqual(prepared.mcpServers.missing, { command: 'synthetic-missing', env: { TOKEN: '!!synthetic-literal' } });
+      if (enterprise) assert.equal(prepared.mcpServers['consult-llm'], undefined);
+      else assert.equal(prepared.mcpServers['consult-llm'].env.OPENAI_API_KEY, 'synthetic-current-consult');
+      const browser = prepared.mcpServers['chrome-devtools'];
+      assert.equal(browser.args[0], '--wsEndpoint=wss://api.cloudflare.com/client/v4/accounts/synthetic-current-account/browser-rendering/devtools/browser?keep_alive=1200000');
+      assert.deepEqual(JSON.parse(browser.args[1].slice('--wsHeaders='.length)), { Authorization: 'Bearer synthetic-current-browser' });
+      assert.equal(browser.requestTimeoutMs, 360000);
+      assert.equal(browser.idleTimeout, 10);
+      assert.equal(browser.directTools, 'search');
+      assertArchived(f, 'mcp.json.migrated', original);
+    }
+  });
+}
+
+for (const side of ['native', 'stock']) for (const change of [
+  'portal-header', 'portal-url', 'portal-CA', 'portal-unknown', 'portal-policy', 'portal-auth', 'portal-unmarked',
+  'browser-CA', 'browser-args', 'browser-policy', 'consult-custom-env',
+]) {
+  test(`REQ-AGENT-217 AC4: dual-file custom collision preserves both originals (${side}, ${change})`, async t => {
+    const f = await fixture(t);
+    const pair = restoredManagedPair();
+    const selected = pair[side];
+    const portal = selected.mcpServers[pair.portal];
+    const browser = selected.mcpServers['chrome-devtools'];
+    if (change === 'portal-header') portal.headers.Authorization = 'Bearer synthetic-custom';
+    if (change === 'portal-url') portal.url = 'https://custom.example.test/mcp';
+    if (change === 'portal-CA') portal.caFile = '/synthetic/ca.pem';
+    if (change === 'portal-unknown') portal.custom = 'synthetic';
+    if (change === 'portal-policy') portal.requestTimeoutMs = 2345;
+    if (change === 'portal-auth') portal.auth = { type: 'oauth', clientSecret: 'synthetic-private' };
+    if (change === 'portal-unmarked') delete selected._codeflareMcpPortals;
+    if (change === 'browser-CA') browser.env = { NODE_EXTRA_CA_CERTS: '/synthetic/ca.pem' };
+    if (change === 'browser-args') browser.args.push('--synthetic-custom');
+    if (change === 'browser-policy') browser.requestTimeoutMs = 2345;
+    if (change === 'consult-custom-env') selected.mcpServers['consult-llm'].env.CUSTOM = 'synthetic-private';
+    const nativeBytes = JSON.stringify(pair.native);
+    const stockBytes = JSON.stringify(pair.stock);
+    writeFileSync(f.legacy, nativeBytes);
+    writeFileSync(f.target, stockBytes);
+    const inventory = readdirSync(f.directory).sort();
+    assert.equal(f.native(true), false);
+    assert.equal(readFileSync(f.legacy, 'utf8'), nativeBytes);
+    assert.equal(readFileSync(f.target, 'utf8'), stockBytes);
+    assert.deepEqual(readdirSync(f.directory).sort(), inventory);
+  });
+}
+
+for (const duplicate of ['absent-native', 'custom-native', 'unknown-stock']) {
+  test(`REQ-AGENT-217 AC4: native-shaped obsolete entries do not broaden stock schema (${duplicate})`, async t => {
+    const f = await fixture(t);
+    const { native, stock, portal } = restoredManagedPair();
+    stock.mcpServers[portal] = structuredClone(native.mcpServers[portal]);
+    if (duplicate === 'absent-native') delete native.mcpServers[portal];
+    if (duplicate === 'custom-native') native.mcpServers[portal].headers.Authorization = 'Bearer synthetic-custom';
+    if (duplicate === 'unknown-stock') stock.mcpServers[portal].custom = true;
+    const nativeBytes = JSON.stringify(native);
+    const stockBytes = JSON.stringify(stock);
+    writeFileSync(f.legacy, nativeBytes);
+    writeFileSync(f.target, stockBytes);
+    const inventory = readdirSync(f.directory).sort();
+    assert.equal(f.native(), false);
+    assert.equal(readFileSync(f.legacy, 'utf8'), nativeBytes);
+    assert.equal(readFileSync(f.target, 'utf8'), stockBytes);
+    assert.deepEqual(readdirSync(f.directory).sort(), inventory);
   });
 }

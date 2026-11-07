@@ -267,6 +267,27 @@ function validPortalMarker(value: unknown): boolean {
   });
 }
 
+// A marker alone does not own a customized portal or its credentials. Recognize
+// only the image's placeholder registration and default stock/native policies.
+function ownedPortal(name: string, server: unknown, marker: unknown): boolean {
+  if (!validPortalMarker(marker) || !server || typeof server !== "object" || Array.isArray(server)) return false;
+  const value = server as Record<string, unknown>;
+  const portals = marker as { name: string; url: string }[];
+  if (!portals.some(portal => name === `codeflare-portal-${portal.name}` && value.url === portal.url)
+    || !Object.keys(value).every(key => ["url", "headers", "transport", "type", "httpTransport", "auth",
+      "lifecycle", "idleTimeout", "requestTimeoutMs", "directTools"].includes(key))) return false;
+  const headers = value.headers;
+  return !!headers && typeof headers === "object" && !Array.isArray(headers)
+    && Object.keys(headers).length === 1
+    && (headers as Record<string, unknown>).Authorization === "Bearer codeflare-mcp-portal"
+    && [value.transport, value.type, value.httpTransport].every(entry => entry === undefined || entry === "streamable-http")
+    && (value.auth === undefined || value.auth === false)
+    && (value.lifecycle === "lazy" || value.lifecycle === "eager")
+    && (value.idleTimeout === undefined || value.idleTimeout === 10)
+    && (value.requestTimeoutMs === undefined || value.requestTimeoutMs === 360000)
+    && (value.directTools === undefined || value.directTools === "search");
+}
+
 // Only translate the shared, evidenced public subset. Unknown stock fields may
 // change security or execution semantics and must not be silently dropped.
 function stockToAdapter(value: Config): Config {
@@ -364,11 +385,23 @@ export function preparePiMcpAdapterConfig(directory: string, regenerateManaged =
       }
     };
     if (stockConfig) {
+      // Discard only proven obsolete generated duplicates from the working copy,
+      // before strict stock translation. The snapshot remains byte-exact for
+      // archival; missing/custom servers still pass through normal collision guards.
+      for (const [name, server] of Object.entries(stockConfig.mcpServers || {})) {
+        const current = value.mcpServers?.[name];
+        if (ownedServer(name, server) && ownedServer(name, current)
+          || ownedPortal(name, server, stockConfig._codeflareMcpPortals)
+            && ownedPortal(name, current, value._codeflareMcpPortals)) delete stockConfig.mcpServers![name];
+      }
       const translated = stockToAdapter(stockConfig);
       if (translated._codeflareMcpPortals !== undefined) {
-        if (value._codeflareMcpPortals !== undefined
-          && JSON.stringify(value._codeflareMcpPortals) !== JSON.stringify(translated._codeflareMcpPortals)) return false;
-        value._codeflareMcpPortals = translated._codeflareMcpPortals;
+        if (value._codeflareMcpPortals !== undefined) {
+          const current = value._codeflareMcpPortals as { name: string; url: string }[];
+          const incoming = translated._codeflareMcpPortals as { name: string; url: string }[];
+          if (current.length !== incoming.length
+            || !incoming.every(portal => current.some(entry => entry.name === portal.name && entry.url === portal.url))) return false;
+        } else value._codeflareMcpPortals = translated._codeflareMcpPortals;
       }
       for (const key of ["settings", "mcpServers"] as const) {
         const incoming = translated[key] as Record<string, unknown> | undefined;

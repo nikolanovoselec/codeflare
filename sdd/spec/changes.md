@@ -4,6 +4,8 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-11-07
 
+- Retire restored obsolete MCP configuration after exact archival instead of rejecting known generated duplicates. Keep valid native definitions authoritative, import missing supported legacy servers and retain genuine custom-conflict, credential, path and concurrency guards. The native adapter pin, portal transport, browser retention and successful-only sync exclusion remain unchanged ([REQ-AGENT-217](mcp.md#req-agent-217-lossless-pi-mcp-adapter-migration)).
+
 - Complete the review refinements with evidenced workload/concurrency scenarios, responsibility-based maintainability findings and clear consequences. Re-evaluate deferred findings when concrete evidence meets their recorded revisit trigger, preserve existing decision history separately from the live queue, and consume evidence-enabled review packets in memory across both runtimes ([REQ-AGENT-015](agents.md#req-agent-015-review-command-for-multi-perspective-codebase-review), [REQ-AGENT-088](agents.md#req-agent-088-user-invoked-review-ownership-and-triage)).
 
 - Sharpen the shared Engineering Constitution with explicit reuse preferences, complete caller/fixture impact tracing and owning-path fixes. Consolidate wording without removing existing testing, security, authorization, continuity or review obligations; retain readability and required safeguards rather than minimizing line count ([REQ-AGENT-065](agents.md#req-agent-065-engineering-constitution-preseeded-to-all-agents)).
