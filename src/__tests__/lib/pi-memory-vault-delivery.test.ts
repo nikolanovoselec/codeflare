@@ -1300,7 +1300,7 @@ describe('Pi memory-owned extraction cadence', () => {
     await harness.emit('session_shutdown');
   });
 
-  it('REQ-MEM-025 AC3: re-arms all three jobs when exhausted memory history is replaced', async () => {
+  it.each([3, 20])('REQ-MEM-025 AC3: re-arms all three jobs when exhausted history is replaced with %i prompts', async retainedCount => {
     const harness = makeHarness();
     await harness.emit('session_start');
     writeFileSync(memoryCounterPath(harness), '0');
@@ -1311,17 +1311,17 @@ describe('Pi memory-owned extraction cadence', () => {
     const entries = parseSessionEntries(readFileSync(harness.sessionFile, 'utf8'));
     writeFileSync(harness.sessionFile, `${entries.filter((entry: any) =>
       entry.type !== 'message' || entry.message?.role !== 'user').map((entry) => JSON.stringify(entry)).join('\n')}\n`);
-    for (let ordinal = 1; ordinal <= 3; ordinal += 1) {
+    for (let ordinal = 1; ordinal <= retainedCount; ordinal += 1) {
       appendEntry(harness.sessionFile, userMessage(`replacement history ${ordinal}`));
     }
     writeFileSync(join(harness.paths.vaultRoot, 'Notes', 'replacement.md'), 'changed\n');
     makeTrimEligible(harness);
-    await harness.emit('before_agent_start', { prompt: 'replacement history 3' });
+    await harness.emit('before_agent_start', { prompt: `replacement history ${retainedCount}` });
     await harness.emit('agent_settled');
     const batch = deliveredItems(harness).slice(before);
     expect(batch.map((item) => item.jobType)).toEqual(['memory-capture', 'vault-extract', 'transcript-trim']);
     expect(latestLaunch(harness.pi, 'memory-capture').requestId).not.toBe(exhausted.requestId);
-    expect(launchedMemoryRequest(harness).promptCount).toBe(3);
+    expect(launchedMemoryRequest(harness).promptCount).toBe(retainedCount);
     expect(launchedMemoryRequest(harness).transcript).toContain('replacement history 1');
     expect(readFileSync(memoryCounterPath(harness), 'utf8')).toBe('0');
     await harness.emit('agent_settled');

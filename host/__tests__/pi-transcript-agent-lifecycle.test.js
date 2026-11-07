@@ -25,7 +25,13 @@ test('REQ-MEM-030 AC1: shared owner revokes scoped activation on fork shutdown r
     assert.equal(fs.existsSync(req.directory), false, event);
     const child = { sessionManager: { getBranch: () => [{ type: 'message', message: { role: 'user', content: item.request.prompt } }] } };
     await assert.rejects(l.tools.get('transcript_trim').execute('revoked', { operation: 'trim' }, undefined, undefined, child));
-    l.emit('agent_settled'); assert.equal(l.launch(), item, event);
+    l.emit('agent_settled');
+    if (event === 'session_start') {
+      const fresh = l.launch();
+      assert.notEqual(fresh.requestId, item.requestId);
+      assert.equal(fresh.request.subagent_type, 'transcript-trim');
+      await assert.rejects(l.tools.get('transcript_trim').execute('still-revoked', { operation: 'trim' }, undefined, undefined, child));
+    } else assert.equal(l.launch(), item, event);
     assert.ok(fs.readFileSync(f.file).subarray(0, before.length).equals(before), event);
     assert.ok(fs.statSync(f.file).size > 50_000_000);
   }

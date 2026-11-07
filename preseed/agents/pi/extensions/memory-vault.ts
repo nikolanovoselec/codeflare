@@ -772,6 +772,10 @@ export function registerMemoryVault(pi: MemoryVaultPi, dependencies: MemoryVault
           timezone: process.env.USER_TIMEZONE || process.env.TZ || undefined,
         });
         if (replacement) {
+          if (activePrefixChanged) {
+            trimming.markDue(ctx);
+            detectNewVaultRequestWhenNoneExists(paths, dependencies, session);
+          }
           safeUnlink(active.executionPath);
           safeUnlink(requestChunkPath(paths, active.request.requestId));
           safeUnlink(requestWorkingChunkPath(paths, active.request.requestId));
