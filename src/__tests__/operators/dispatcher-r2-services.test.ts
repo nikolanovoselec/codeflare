@@ -1669,6 +1669,7 @@ describe('REQ-OPERATOR-007/047/048: protected SDK-prepared HTTP, not Parent mode
 
   it.each([false, true].flatMap(loggingEnabled => [false, true].flatMap(nativeProviderDefault => [
     { destination: 'catalog', url: 'https://api.openai.com/v1/responses' },
+    { destination: 'codex', url: 'https://chatgpt.com/backend-api/codex/responses' },
     { destination: 'custom', url: 'https://custom.example.test/native/stream' },
   ].map(endpoint => ({ loggingEnabled, nativeProviderDefault, ...endpoint })))))(
     'REQ-OPERATOR-007/047: strict Native SDK forwards $destination endpoints (logging: $loggingEnabled, default: $nativeProviderDefault)',
