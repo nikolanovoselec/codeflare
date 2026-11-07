@@ -73,6 +73,7 @@ vi.mock('@cloudflare/containers', () => {
     };
     env: Record<string, unknown>;
     envVars: Record<string, string> | undefined;
+    ready: Promise<void> = Promise.resolve();
 
     constructor() {
       this.ctx = {
@@ -190,7 +191,10 @@ vi.mock('@cloudflare/containers', () => {
             }
           } };
         })(),
-        blockConcurrencyWhile: async (fn: () => Promise<void>) => fn(),
+        blockConcurrencyWhile: (fn: () => Promise<void>) => {
+          this.ready = fn();
+          return this.ready;
+        },
         abort: (reason: string): never => {
           testState.abortReasons.push(reason);
           throw new Error('mock Durable Object abort');
@@ -290,10 +294,7 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       idFromName: vi.fn(() => ({ toString: () => 'tk-id' })),
       get: vi.fn(() => timekeeperStub),
     };
-    await vi.waitFor(
-      () => expect((containerInstance as unknown as { _userEmail: string | null })._userEmail).toBe('quota@example.com'),
-      { timeout: 1000 },
-    );
+    await (containerInstance as unknown as { ready: Promise<void> }).ready;
     return timekeeperStub;
   };
 
@@ -353,6 +354,7 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
     testState.storageStore.set('observationSequence', -1);
 
     containerInstance = createContainerInstance();
+    await (containerInstance as unknown as { ready: Promise<void> }).ready;
   });
 
   afterEach(() => {
@@ -960,7 +962,13 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       testState.storageGetFailures.add(TRANSPORT_RECOVERY_KEY);
       testState.scheduleFailuresRemaining = 1;
 
-      await expect(containerInstance.collectMetrics()).rejects.toThrow('schedule failed');
+      // Observe the single failing tick immediately and retain its rejection
+      // as an outcome that can be asserted without another rejected promise.
+      const observed = containerInstance.collectMetrics().then(
+        () => ({ ok: true }),
+        error => ({ ok: false, error }),
+      );
+      expect(await observed).toMatchObject({ ok: false, error: new Error('schedule failed') });
 
       expect(testState.scheduleCalls).toEqual([]);
       expect(testState.callOrder).toEqual([]);

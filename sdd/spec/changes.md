@@ -4,6 +4,10 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-11-07
 
+- Wire bounded, generation-fenced unreachable recovery into production: preserve the 120-second incident deadline, use native SIGTERM, and escalate after the existing 135-second shutdown budget to one same-generation destruction attempt. Failed or unconfirmed destruction retains ownership and manual recovery; source implementation and automated coverage do not establish CI or hosted acceptance ([REQ-SESSION-021](session-lifecycle.md#req-session-021-complete-transport-failure-opens-one-unreachable-incident), [REQ-SESSION-024](session-lifecycle.md#req-session-024-recovery-deadline-and-termination-intent-are-durable), [REQ-SESSION-032](session-lifecycle.md#req-session-032-final-notification-drain-precedes-shutdown-sync)).
+
+- Change managed Goal startup pacing from three to five minutes through the existing configuration, preserving unrelated preferences and the existing five-attempt retry policy without modifying the Goal extension or either Constitution ([REQ-AGENT-129](agents.md#req-agent-129-goal-continuation-settings-policy)).
+
 - Preserve successful memory coverage across verified local trimming without an immediate duplicate capture or loss of later uncaptured prompts; retain recovery for unrelated history replacement ([REQ-MEM-025](memory.md#req-mem-025-pi-capture-follows-transcript-epochs)).
 
 - Pi memory capture, Vault checks and size-eligible trimming now share the memory progress baseline and transcript rebase handling; legacy Vault counters cannot stall maintenance ([REQ-MEM-002](memory.md#req-mem-002-capture-triggers-every-20-user-messages-and-on-resume), [REQ-VAULT-031](vault.md#req-vault-031-vault-hash-checks-follow-successful-prompt-cadence)).

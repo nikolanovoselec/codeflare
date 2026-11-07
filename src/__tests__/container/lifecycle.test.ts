@@ -265,11 +265,13 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       });
       mockEnv.KV = { get: mockKvGet, put: mockKvPut };
 
-      mockStorage.get.mockImplementation(async (key: string) => {
-        if (key === 'bucketName') return 'test-bucket';
-        if (key === '_sessionId') return 'sess123';
-        return null;
-      });
+      const records = new Map<string, unknown>([
+        ['bucketName', 'test-bucket'], ['_sessionId', 'sess123'],
+        ['lifecycleGeneration', 0], ['observationSequence', -1],
+      ]);
+      mockStorage.get.mockImplementation(async key => records.get(key));
+      mockStorage.put.mockImplementation(async (key: string, value: unknown) => { records.set(key, value); });
+      mockStorage.delete.mockImplementation(async (key: string) => { records.delete(key); });
 
       // Container reads not-running when the error fires.
       mockContainerRuntime.running = false;
@@ -288,7 +290,9 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       // Confirmation window opened in DO storage.
       expect(mockStorage.put).toHaveBeenCalledWith('metricsNotRunningSince', expect.any(Number));
       // A collectMetrics tick is re-armed so the window gets evaluated.
-      expect(scheduleSpy).toHaveBeenCalledWith(60, 'collectMetrics');
+      expect(scheduleSpy).toHaveBeenCalledWith(60, 'collectMetrics', {
+        ownerKey: 'test-bucket', sessionId: 'sess123', generation: 0,
+      });
     });
 
     it('onError does NOT write stopped while the container is still running (startup error guard)', async () => {
@@ -702,12 +706,14 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       });
       mockEnv.KV = { get: mockKvGet, put: mockKvPut };
 
-      mockStorage.get.mockImplementation(async (key: string) => {
-        if (key === 'bucketName') return 'test-bucket';
-        if (key === '_sessionId') return 'sess123';
-        if (key === 'sleepAfter') return storedSleepAfter;
-        return null;
-      });
+      const records = new Map<string, unknown>([
+        ['bucketName', 'test-bucket'], ['_sessionId', 'sess123'],
+        ['sleepAfter', storedSleepAfter], ['lifecycleGeneration', 0],
+        ['observationSequence', -1], ['containerStartedAt', Date.now()],
+      ]);
+      mockStorage.get.mockImplementation(async key => records.get(key));
+      mockStorage.put.mockImplementation(async (key: string, value: unknown) => { records.set(key, value); });
+      mockStorage.delete.mockImplementation(async (key: string) => { records.delete(key); });
 
       const instance = new ContainerClass(mockCtx as any, mockEnv);
       await vi.waitFor(() => {
@@ -776,9 +782,9 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       const instance = await createRunningInstance('5m');
       instance.idleTimeoutPref = '5m'; // explicit short pref, otherwise 12h default never trips
 
-      // Manually age the container's started-at so the fallback reference
-      // time pushes idleMs past the 5m configured threshold.
-      (instance as any).containerStartedAt = Date.now() - 600_000;
+      // Age the durable fallback reference and clear the cache, as on DO reconstruction.
+      await mockStorage.put('containerStartedAt', Date.now() - 600_000);
+      instance.containerStartedAt = 0;
 
       mockTcpPortFetch.mockResolvedValueOnce(new Response(JSON.stringify({
         hasActiveConnections: true,

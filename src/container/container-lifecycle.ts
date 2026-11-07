@@ -306,7 +306,7 @@ async function terminateUnreachable(host: LifecycleHost, observed: D1Session, ex
         // SDK 0.3.7 stop() skips this signal when its running hint is false.
         if (!execution.isCurrent()) return false;
         try { runtime.signal(15); }
-        catch (error) { host.logger.error('signal_failed', { ...evidence, errorClass: 'signal_failed' }); throw error; }
+        catch (error) { host.logger.error('signal_failed', undefined, { ...evidence, errorClass: 'signal_failed' }); throw error; }
         host.logger.info('signal_accepted', evidence);
         await bounded(repository.recordTerminationSignal(ownerKey, sessionId, generation, intentId,
           new Date(Date.now()).toISOString()));
@@ -333,14 +333,14 @@ async function terminateUnreachable(host: LifecycleHost, observed: D1Session, ex
     });
     host._unreachableDestroy = { generation, intentId, completion };
     void completion.catch(() => {
-      host.logger.error('recovery_termination_failed: retry Stop or KILL', { ...evidence, errorClass: 'termination_failed' });
+      host.logger.error('recovery_termination_failed: retry Stop or KILL', undefined, { ...evidence, errorClass: 'termination_failed' });
     });
     await bounded(completion);
     return false;
   } catch {
     // Privacy-safe and actionable. Provider, D1, or cancellation failure never
     // releases ownership; normal Retry Stop/KILL remains available.
-    host.logger.error('recovery_termination_failed: retry Stop or KILL', { ...evidence, errorClass: 'termination_failed' });
+    host.logger.error('recovery_termination_failed: retry Stop or KILL', undefined, { ...evidence, errorClass: 'termination_failed' });
     return automaticRetry && execution.isCurrent();
   }
 }
@@ -691,11 +691,11 @@ export async function confirmMonitoredExit(
 
 /** An SDK onStop can be synthetic after DO reconstruction; it is not exit proof. */
 export async function onStop(host: LifecycleHost): Promise<void> {
+  const shutdownElapsedMs = host._shutdownStartedAt > 0 ? Date.now() - host._shutdownStartedAt : null;
+  host.logger.info('Container SDK stop observed (exit unverified)', { shutdownElapsedMs });
   const epoch = host._teardownEpoch;
   const execution = await captureMetricsExecution(host.ctx, undefined, () => host._teardownEpoch === epoch);
   if (!execution || !execution.isCurrent()) return;
-  const shutdownElapsedMs = host._shutdownStartedAt > 0 ? Date.now() - host._shutdownStartedAt : null;
-  host.logger.info('Container SDK stop observed (exit unverified)', { shutdownElapsedMs });
   let shutdownRequested: unknown;
   try { shutdownRequested = await host.ctx.storage.get(SHUTDOWN_REQUESTED_KEY); } catch { return; }
   let current: D1Session | null = null;
@@ -717,7 +717,7 @@ export async function onStop(host: LifecycleHost): Promise<void> {
       ownerKey: execution.ownerKey, sessionId: execution.sessionId, generation: execution.generation,
     });
   } catch (error) {
-    host.logger.error('Container stop retry alarm unavailable', { sessionId: execution.sessionId,
+    host.logger.error('Container stop retry alarm unavailable', undefined, { sessionId: execution.sessionId,
       lifecycleGeneration: execution.generation, errorClass: 'schedule_failed' });
     throw error;
   }

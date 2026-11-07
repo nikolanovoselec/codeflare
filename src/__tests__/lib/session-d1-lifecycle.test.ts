@@ -431,6 +431,7 @@ describe('REQ-SESSION-018/020–026/035: bounded unreachable runtime ownership',
     const stored = new Map<string, unknown>([['bucketName', owner], ['_sessionId', id], ['lifecycleGeneration', 1],
       ['observationSequence', 0], ['containerAuthToken', 'test-token'], ['sleepAfter', '12h']]);
     const effects: string[] = [];
+    const hostRequests: Array<{ url: string; final: boolean }> = [];
     let response: () => Promise<Response> = async () => { throw new Error('Connection refused'); };
     let provider: () => Promise<void> = async () => { effects.push('destroy-complete'); };
     const storage = { get: async (key: string) => stored.get(key), put: async (key: string, value: unknown) => { stored.set(key, value); },
@@ -438,6 +439,8 @@ describe('REQ-SESSION-018/020–026/035: bounded unreachable runtime ownership',
     const ctx = { id: { toString: () => 'fixture' }, storage: { ...storage,
       transaction: async (work: (tx: typeof storage) => Promise<unknown>) => work(storage) },
       container: { running: false, getTcpPort: () => ({ fetch: async (_url: string, init?: RequestInit) => {
+        const body = typeof init?.body === 'string' ? JSON.parse(init.body) as { final?: boolean } : {};
+        hostRequests.push({ url: _url, final: body.final === true });
         expect(new Headers(init?.headers).get('Authorization')).toBe('Bearer test-token');
         return response();
       } }), signal: (signal: number) => { effects.push(`signal:${signal}`); }, destroy: () => { effects.push('destroy'); return provider(); } },
@@ -458,7 +461,7 @@ describe('REQ-SESSION-018/020–026/035: bounded unreachable runtime ownership',
     const tick = async () => { alarms.length = 0; try { await collectMetrics(host as never, pin); } catch (error) {
       if (!(error instanceof Error && error.message === 'fixture reset')) throw error;
     } };
-    return { host, ctx, stored, effects, schedules, alarms, logs, tick, time: (value: number) => { now = value; },
+    return { host, ctx, stored, effects, hostRequests, schedules, alarms, logs, tick, time: (value: number) => { now = value; },
       respond: (value: () => Promise<Response>) => { response = value; }, provider: (value: () => Promise<void>) => { provider = value; } };
   }
 
@@ -617,7 +620,7 @@ describe('REQ-SESSION-018/020–026/035: bounded unreachable runtime ownership',
       f.host.env.USAGE_DB = { prepare: () => {
         const failed = { bind: () => failed, run: async () => { throw Error('D1 unavailable'); }, first: async () => { throw Error('D1 unavailable'); } };
         return failed;
-      } } as D1Database;
+      } } as unknown as D1Database;
       for (const delta of [0, 120_000, 255_000]) { f.time(at + delta); await f.tick(); }
       expect(f.effects).toEqual([]);
       expect(await repository().getSession(owner, id)).toMatchObject({ lifecycleState: 'running' });
@@ -773,6 +776,8 @@ describe('REQ-SESSION-018/020–026/035: bounded unreachable runtime ownership',
       f.time(at + 254_999); await f.tick(); expect(f.effects).not.toContain('destroy');
       f.time(at + 255_000); await f.tick();
       expect(f.effects.slice(-2)).toEqual(['destroy', 'destroy-complete']);
+      expect(f.hostRequests.some(request => request.url === 'http://localhost/internal/final-sync')).toBe(false);
+      expect(f.hostRequests.some(request => request.url === 'http://localhost/internal/agent-events/drain' && request.final)).toBe(false);
       expect(await repository().getSession(owner, id)).toMatchObject({ lifecycleState: 'stopped' });
       expect(f.host._usageSeconds).toBe(0);
       expect(f.effects).not.toContain('sdk-stop'); expect(f.effects).not.toContain('sdk-destroy');

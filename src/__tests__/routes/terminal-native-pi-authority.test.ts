@@ -511,6 +511,10 @@ describe('warm terminal native Pi authority', () => {
       return statement;
     };
     const starting = onStart(f.host);
+    const observedStart = starting.then(
+      () => ({ ok: true }),
+      error => ({ ok: false, error }),
+    );
     let stopping: Promise<void> | undefined;
     try {
       await projectionCommitted;
@@ -533,7 +537,7 @@ describe('warm terminal native Pi authority', () => {
       stopping = destroy(f.host);
       await cleanupWaiting;
       releaseProjection();
-      await starting;
+      expect(await observedStart).toMatchObject({ ok: false, error: expect.any(Error) });
       await expect(bindReviewSessionHuman(f.host, { bucket: owner.bucket, sessionId: owner.sessionId,
         generation: 1, human: f.freshHuman, accessJwt: freshJwt })).rejects.toThrow();
       await expect(openReviewSessionHuman(f.host, ref)).rejects.toThrow();
@@ -542,7 +546,7 @@ describe('warm terminal native Pi authority', () => {
     } finally {
       releaseProjection();
       releaseCleanup();
-      await Promise.all([starting, stopping]);
+      await Promise.all([observedStart, stopping]);
     }
   });
 
