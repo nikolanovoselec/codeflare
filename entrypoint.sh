@@ -3035,13 +3035,13 @@ function configure() {
   const limits = ownRecord(settings.continuationLimits) ?? {};
   const missingVisibility = !hasOwn(settings, 'toolVisibility');
   const missingAutomaticTurns = !hasOwn(limits, 'automaticTurns');
-  const needsMinInterval = limits.minIntervalMs !== 180_000;
+  const needsMinInterval = limits.minIntervalMs !== 300_000;
   if (!missingVisibility && !missingAutomaticTurns && !needsMinInterval) return;
 
   const nextLimits = {
     ...limits,
     ...(missingAutomaticTurns ? { automaticTurns: 10 } : {}),
-    minIntervalMs: 180_000,
+    minIntervalMs: 300_000,
   };
   const nextSettings = {
     ...settings,

@@ -19,6 +19,7 @@ export interface D1Session extends AuthoritySession {
   lastStartedAt?: string;
   lastActiveAt?: string;
   transitionedAt?: string;
+  lifecycleReason?: string;
   editorReady: boolean;
   editorReadyError: boolean;
   cpu?: string;
@@ -32,6 +33,8 @@ export interface D1Session extends AuthoritySession {
   unreachableDeadlineMs?: number;
   terminationIntentId?: string;
   terminationGeneration?: number;
+  terminationClaimedAt?: string;
+  terminationSignalAcceptedAt?: string;
   boundaryActivityId?: string;
 }
 
@@ -52,12 +55,15 @@ function fromRow(row: SessionRow): D1Session {
     lifecycleGeneration: Number(row.lifecycle_generation), responseRevision: Number(row.response_revision), observationSequence: Number(row.observation_sequence),
     lastStartedAt: optional(row.last_started_at as string | null), lastActiveAt: optional(row.last_active_at as string | null),
     transitionedAt: optional(row.transitioned_at as string | null),
+    lifecycleReason: optional(row.lifecycle_reason as string | null),
     editorReady: row.editor_ready === 1, editorReadyError: row.editor_ready_error === 1,
     cpu: optional(row.cpu as string | null), memory: optional(row.memory as string | null), disk: optional(row.disk as string | null),
     syncStatus: optional(row.sync_status as string | null), metricsObservedAt: optional(row.metrics_observed_at as string | null), lastInputAt: optional(row.last_input_at as string | null),
     unreachableIncidentId: optional(row.unreachable_incident_id as string | null), unreachableFirstObservedAt: optional(row.unreachable_first_observed_at as string | null),
     unreachableDeadlineMs: row.unreachable_deadline_ms === null ? undefined : Number(row.unreachable_deadline_ms),
     terminationIntentId: optional(row.termination_intent_id as string | null), terminationGeneration: row.termination_generation === null ? undefined : Number(row.termination_generation),
+    terminationClaimedAt: optional(row.termination_claimed_at as string | null),
+    terminationSignalAcceptedAt: optional(row.termination_signal_accepted_at as string | null),
     boundaryActivityId: optional(row.boundary_activity_id as string | null),
   };
 }
@@ -112,6 +118,90 @@ export class D1SessionRepository implements SessionAuthority {
         AND EXISTS (SELECT 1 FROM session_cutover WHERE id=1 AND state='complete')`)
       .bind(ownerKey, sessionId, transitionedAt).run();
     return result.meta.changes === 1 ? this.getSession(ownerKey, sessionId) : null;
+  }
+
+  /** Exceptional-path read only: a missing acknowledgement is not permission to signal. */
+  private async reconcileRuntime(ownerKey: string, sessionId: string): Promise<D1Session | null> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      return await Promise.race([this.getSession(ownerKey, sessionId), new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error('D1 lifecycle reconciliation deadline exceeded')), 10_000);
+      })]);
+    } finally { if (timer !== undefined) clearTimeout(timer); }
+  }
+
+  /** UPDATE-only: retries join the first durable incident, never restart its deadline. */
+  async observeUnreachable(ownerKey: string, sessionId: string, generation: number, sequence: number,
+    incidentId: string, observedAtMs: number): Promise<D1Session | null> {
+    try {
+      await this.db.prepare(`UPDATE runtime_sessions SET lifecycle_state='unreachable',
+        unreachable_incident_id=COALESCE(unreachable_incident_id,?5),
+        unreachable_first_observed_at=COALESCE(unreachable_first_observed_at,?6),
+        unreachable_deadline_ms=COALESCE(unreachable_deadline_ms,?7),
+        lifecycle_reason='host_transport_loss', observation_sequence=?4, response_revision=response_revision+1
+        WHERE owner_key=?1 AND session_id=?2 AND lifecycle_generation=?3 AND ?4>observation_sequence
+          AND lifecycle_state IN ('starting','running','unreachable') AND termination_intent_id IS NULL`)
+        .bind(ownerKey, sessionId, generation, sequence, incidentId, new Date(observedAtMs).toISOString(), observedAtMs + 120_000).run();
+    } catch { /* An acknowledged reconciliation read below is the only authority after ambiguity. */ }
+    const current = await this.reconcileRuntime(ownerKey, sessionId);
+    return current?.lifecycleGeneration === generation && current.unreachableIncidentId !== undefined
+      && current.unreachableDeadlineMs !== undefined
+      && ((current.lifecycleState === 'unreachable' && current.observationSequence === sequence)
+        || current.lifecycleState === 'stopping') ? current : null;
+  }
+
+  async recoverUnreachable(ownerKey: string, sessionId: string, generation: number, sequence: number,
+    incidentId: string, observedAt: string): Promise<boolean> {
+    try {
+      const result = await this.db.prepare(`UPDATE runtime_sessions SET lifecycle_state='running', unreachable_incident_id=NULL,
+        unreachable_first_observed_at=NULL, unreachable_deadline_ms=NULL, lifecycle_reason=NULL,
+        observation_sequence=?4, metrics_observed_at=?6, response_revision=response_revision+1
+        WHERE owner_key=?1 AND session_id=?2 AND lifecycle_generation=?3 AND ?4>observation_sequence
+          AND lifecycle_state='unreachable' AND unreachable_incident_id=?5 AND termination_intent_id IS NULL`)
+        .bind(ownerKey, sessionId, generation, sequence, incidentId, observedAt).run();
+      if (result.meta.changes === 1) return true;
+    } catch { /* Reconcile an accepted write whose acknowledgement was lost. */ }
+    const current = await this.reconcileRuntime(ownerKey, sessionId);
+    return current?.lifecycleGeneration === generation && current.observationSequence === sequence
+      && current.lifecycleState === 'running' && current.unreachableIncidentId === undefined;
+  }
+
+  async claimUnreachableTermination(ownerKey: string, sessionId: string, generation: number, incidentId: string,
+    deadlineMs: number, intentId: string, nowMs: number): Promise<D1Session | null> {
+    try {
+      await this.db.prepare(`UPDATE runtime_sessions SET lifecycle_state='stopping',
+        termination_intent_id=?6, termination_generation=?3, termination_claimed_at=?7,
+        transitioned_at=?7, lifecycle_reason='recovery_expiry', response_revision=response_revision+1
+        WHERE owner_key=?1 AND session_id=?2 AND lifecycle_generation=?3
+          AND lifecycle_state='unreachable' AND unreachable_incident_id=?4 AND unreachable_deadline_ms=?5
+          AND ?5<=?8 AND termination_intent_id IS NULL`)
+        .bind(ownerKey, sessionId, generation, incidentId, deadlineMs, intentId, new Date(nowMs).toISOString(), nowMs).run();
+    } catch { /* A read must prove this exact claim; an error never authorizes a native effect. */ }
+    const current = await this.reconcileRuntime(ownerKey, sessionId);
+    return current?.lifecycleGeneration === generation && current.lifecycleState === 'stopping'
+      && current.unreachableIncidentId === incidentId && current.unreachableDeadlineMs === deadlineMs
+      && current.terminationGeneration === generation && current.terminationIntentId === intentId ? current : null;
+  }
+
+  async recordTerminationSignal(ownerKey: string, sessionId: string, generation: number, intentId: string, acceptedAt: string): Promise<boolean> {
+    const result = await this.db.prepare(`UPDATE runtime_sessions SET termination_signal_accepted_at=COALESCE(termination_signal_accepted_at,?5),
+      response_revision=response_revision+1 WHERE owner_key=?1 AND session_id=?2 AND lifecycle_generation=?3
+        AND lifecycle_state='stopping' AND termination_generation=?3 AND termination_intent_id=?4
+        AND boundary_activity_id IS NULL`).bind(ownerKey, sessionId, generation, intentId, acceptedAt).run();
+    return result.meta.changes === 1;
+  }
+
+  /** Only an acknowledged winning CAS authorizes automatic force; ambiguity consumes the attempt, never grants it. */
+  async markRecoveryForceStarted(ownerKey: string, sessionId: string, generation: number, intentId: string,
+    incidentId: string, deadlineMs: number): Promise<boolean> {
+    const result = await this.db.prepare(`UPDATE runtime_sessions SET lifecycle_reason='recovery_force_started',
+      response_revision=response_revision+1
+      WHERE owner_key=?1 AND session_id=?2 AND lifecycle_generation=?3
+        AND lifecycle_state='stopping' AND termination_generation=?3 AND termination_intent_id=?4
+        AND unreachable_incident_id=?5 AND unreachable_deadline_ms=?6
+        AND lifecycle_reason='recovery_expiry' AND boundary_activity_id IS NULL`)
+      .bind(ownerKey, sessionId, generation, intentId, incidentId, deadlineMs).run();
+    return result.meta.changes === 1;
   }
 
   async claimStop(ownerKey: string, sessionId: string, intentId: string, claimedAt: string, expectedGeneration?: number): Promise<D1Session | null> {
@@ -201,7 +291,7 @@ export class D1SessionRepository implements SessionAuthority {
       editor_ready_error=?12, metrics_observed_at=?13, observation_sequence=?4,
       response_revision=response_revision+1
       WHERE owner_key=?1 AND session_id=?2 AND lifecycle_generation=?3 AND ?4>observation_sequence
-        AND lifecycle_state IN ('starting','running','unreachable')
+        AND lifecycle_state IN ('starting','running') AND unreachable_incident_id IS NULL
         AND termination_intent_id IS NULL`)
       .bind(ownerKey, sessionId, generation, sequence, projection.lifecycleState ?? null,
         projection.lastInputAt ?? null, projection.cpu ?? null, projection.memory ?? null, projection.disk ?? null,
@@ -220,9 +310,14 @@ export class D1SessionRepository implements SessionAuthority {
     return result.meta.changes === 1;
   }
 
-  async updateTrackedClones(ownerKey: string, sessionId: string, clones: TrackedClone[]): Promise<boolean> {
+  async updateTrackedClones(ownerKey: string, sessionId: string, clones: TrackedClone[],
+    observation?: { generation: number; sequence: number }): Promise<boolean> {
     const result = await this.db.prepare(`UPDATE runtime_sessions SET clones_json=?3, response_revision=response_revision+1
-      WHERE owner_key=?1 AND session_id=?2`).bind(ownerKey, sessionId, JSON.stringify(clones)).run();
+      WHERE owner_key=?1 AND session_id=?2
+        AND (?4 IS NULL OR (lifecycle_generation=?4 AND ?5>observation_sequence
+          AND lifecycle_state IN ('starting','running') AND unreachable_incident_id IS NULL
+          AND termination_intent_id IS NULL))`)
+      .bind(ownerKey, sessionId, JSON.stringify(clones), observation?.generation ?? null, observation?.sequence ?? null).run();
     return result.meta.changes === 1;
   }
 

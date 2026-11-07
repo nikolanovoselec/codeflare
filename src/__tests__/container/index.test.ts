@@ -1555,6 +1555,19 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       return instance;
     }
 
+    it('REQ-SESSION-024: an old scheduled generation cannot observe or signal the replacement', async () => {
+      const { instance, kv, key, persisted } = await attachedMonitor(12);
+      persisted.set('lifecycleGeneration', 13);
+      kv._set(key, { id: sessionId, userId: owner, status: 'running', lifecycleGeneration: 13 });
+      const effects: string[] = [];
+      mockTcpPortFetch.mockImplementation(async () => { effects.push('probe'); throw Error('old alarm'); });
+      mockContainerRuntime.signal.mockImplementation(() => { effects.push('signal'); });
+      mockContainerRuntime.destroy.mockImplementation(async () => { effects.push('destroy'); });
+      await instance.collectMetrics({ ownerKey: owner, sessionId, generation: 12 });
+      expect(effects).toEqual([]);
+      expect(await kv.get(key, 'json')).toMatchObject({ status: 'running', lifecycleGeneration: 13 });
+    });
+
     it('does not release ownership after a transport monitor rejection', async () => {
       const { kv, key, persisted } = await attachedMonitor(12);
       let rejectExit!: (error: unknown) => void;

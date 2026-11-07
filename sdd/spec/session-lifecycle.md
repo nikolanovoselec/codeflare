@@ -1001,12 +1001,12 @@ None.
 
 **Acceptance Criteria:**
 
-1. A complete bounded host-transport failure conditionally opens one incident for the current generation and persists `unreachable`, incident identity, first-observed time and an absolute deadline 120 seconds later.
-2. Opening an incident occurs before Durable Object reset or reconstruction and leaves the container and PTY untouched.
-3. Repeated failures join the existing incident and never move its first-observed time or deadline.
-4. D1 failure is treated as persistence uncertainty and never opens a transport incident.
-5. `unreachable` retains workload ownership, counts toward best-effort capacity and blocks destructive managed reconciliation.
-6. Accelerated recovery work remains non-billable and does not create another quota or usage source.
+1. A complete bounded host-transport failure conditionally opens one incident for the current generation and persists `unreachable`, incident identity, first-observed time and an absolute deadline 120 seconds later. <!-- @impl: src/lib/session-repository.ts::D1SessionRepository.observeUnreachable = 120_000 --> <!-- @test: src/__tests__/lib/session-d1-lifecycle.test.ts (persists the first complete failure, joins replay/reconstruction without extending its 120s deadline) -->
+2. Opening an incident occurs before Durable Object reset or reconstruction and leaves the container and PTY untouched. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @test: src/__tests__/lib/session-d1-lifecycle.test.ts (D1 remains authoritative across both bounded reconstructions and exhaustion, without restarting the incident) -->
+3. Repeated failures join the existing incident and never move its first-observed time or deadline. <!-- @impl: src/lib/session-repository.ts::D1SessionRepository.observeUnreachable --> <!-- @test: src/__tests__/lib/session-d1-lifecycle.test.ts (persists the first complete failure, joins replay/reconstruction without extending its 120s deadline) -->
+4. D1 failure is treated as persistence uncertainty and never opens a transport incident. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @test: src/__tests__/lib/session-d1-lifecycle.test.ts (D1 outage or ambiguous failed projection cannot authorize reconstruction, SIGTERM or force) -->
+5. `unreachable` retains workload ownership, counts toward best-effort capacity and blocks destructive managed reconciliation. <!-- @impl: src/lib/session-authority.ts::countWorkloadOwningSessions --> <!-- @impl: src/lib/session-helpers.ts::hasOwningSessionContainer --> <!-- @test: src/__tests__/lib/session-d1-lifecycle.test.ts (an unreachable workload retains capacity and managed reconciliation ownership) -->
+6. Accelerated recovery work remains non-billable and does not create another quota or usage source. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @test: src/__tests__/lib/session-d1-lifecycle.test.ts (all failure, reconstruction, recovery and stopping ticks skip actual Timekeeper I/O and quota-stop drains) -->
 
 **Constraints:** The deadline is earliest termination eligibility, not guaranteed exit time.
 
@@ -1014,9 +1014,9 @@ None.
 
 **Dependencies:** [REQ-SESSION-018](#req-session-018-d1-lifecycle-evidence-is-generation-fenced), [REQ-SESSION-020](#req-session-020-runtime-observation-is-bounded-and-projected-once)
 
-**Verification:** Planned bounded failure, D1 outage and ownership tests.
+**Verification:** Automated test ([D1 persistence and production recovery coverage](../../src/__tests__/lib/session-d1-lifecycle.test.ts)); hosted acceptance remains pending.
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
@@ -1029,12 +1029,12 @@ None.
 
 **Acceptance Criteria:**
 
-1. A reconstructed Durable Object performs one bounded primary-consistent D1 recovery read and adopts only its previously assigned generation, incident and absolute deadline.
-2. Reconstruction probes the existing container through retained SDK/process identity and never invokes Start or allocates another generation.
-3. A qualifying host response proves transport reachability; a valid snapshot separately determines whether metrics and activity may be projected.
-4. Recovery conditionally clears the same incident and returns `unreachable` to `running` without replacing the container or PTY.
-5. Reconstruction failure or another transport failure retains the same incident and deadline.
-6. Old callbacks, alarms and reconstruction work cannot adopt a newer generation.
+1. A reconstructed Durable Object performs one bounded primary-consistent D1 recovery read and adopts only its previously assigned generation, incident and absolute deadline. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @test: src/__tests__/lib/session-d1-lifecycle.test.ts (D1 remains authoritative across both bounded reconstructions and exhaustion, without restarting the incident) -->
+2. Reconstruction probes the existing container through retained SDK/process identity and never invokes Start or allocates another generation. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @test: src/__tests__/lib/session-d1-lifecycle.test.ts (SDK false uses an authenticated no-start probe; HTTP and malformed JSON are reachability, not incidents) -->
+3. A qualifying host response proves transport reachability; a valid snapshot separately determines whether metrics and activity may be projected. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @test: src/__tests__/lib/session-d1-lifecycle.test.ts (a healthy host with a failed D1 projection or local timing read never opens a transport incident) -->
+4. Recovery conditionally clears the same incident and returns `unreachable` to `running` without replacing the container or PTY. <!-- @impl: src/lib/session-repository.ts::D1SessionRepository.recoverUnreachable --> <!-- @test: src/__tests__/lib/session-d1-lifecycle.test.ts (recovers on any same-incident host response before deadline without an ordinary projection bypass) -->
+5. Reconstruction failure or another transport failure retains the same incident and deadline. <!-- @impl: src/lib/session-repository.ts::D1SessionRepository.observeUnreachable --> <!-- @test: src/__tests__/lib/session-d1-lifecycle.test.ts (D1 remains authoritative across both bounded reconstructions and exhaustion, without restarting the incident) -->
+6. Old callbacks, alarms and reconstruction work cannot adopt a newer generation. <!-- @impl: src/container/container-metrics.ts::captureMetricsExecution --> <!-- @test: src/__tests__/lib/session-d1-lifecycle.test.ts (a late failed observation and old alarm cannot affect a replacement generation) -->
 
 **Constraints:** Existing Durable Object reconstruction and PTY reattachment behavior is preserved.
 
@@ -1042,9 +1042,9 @@ None.
 
 **Dependencies:** [REQ-SESSION-021](#req-session-021-complete-transport-failure-opens-one-unreachable-incident)
 
-**Verification:** Planned reconstruction, process-identity and deadline-survival tests.
+**Verification:** Automated test ([Reconstruction and deadline-survival coverage](../../src/__tests__/lib/session-d1-lifecycle.test.ts), [pinned alarm coverage](../../src/__tests__/container/index.test.ts)); hosted acceptance remains pending.
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
@@ -1057,10 +1057,10 @@ None.
 
 **Acceptance Criteria:**
 
-1. Accelerated transport-recovery probes add no billable usage and do not ping Timekeeper.
-2. D1 persistence-reconciliation work adds no billable usage and does not change quota.
-3. Unreachable time and stopping retries do not create a second accounting source.
-4. Ordinary classified-input idle policy and Timekeeper authority remain unchanged.
+1. Accelerated transport-recovery probes add no billable usage and do not ping Timekeeper. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @test: src/__tests__/lib/session-d1-lifecycle.test.ts (all failure, reconstruction, recovery and stopping ticks skip actual Timekeeper I/O and quota-stop drains) -->
+2. D1 persistence-reconciliation work adds no billable usage and does not change quota. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @test: src/__tests__/lib/session-d1-lifecycle.test.ts (a hung %s is bounded and nonbillable; late SQL cannot overwrite a newer %s) -->
+3. Unreachable time and stopping retries do not create a second accounting source. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @test: src/__tests__/lib/session-d1-lifecycle.test.ts (all failure, reconstruction, recovery and stopping ticks skip actual Timekeeper I/O and quota-stop drains) -->
+4. Ordinary classified-input idle policy and Timekeeper authority remain unchanged. <!-- @impl: src/container/container-metrics.ts::collectMetrics --> <!-- @test: src/__tests__/lib/session-d1-lifecycle.test.ts (an exhausted incident recovers without billing, then ordinary healthy usage and the single projection resume) -->
 
 **Constraints:** Accounting remains owned by the existing usage subsystem.
 
@@ -1068,9 +1068,9 @@ None.
 
 **Dependencies:** [REQ-SESSION-021](#req-session-021-complete-transport-failure-opens-one-unreachable-incident)
 
-**Verification:** Planned metrics accounting tests.
+**Verification:** Automated test ([Recovery, persistence and stopping accounting coverage](../../src/__tests__/lib/session-d1-lifecycle.test.ts)); hosted acceptance remains pending.
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
@@ -1085,12 +1085,12 @@ None.
 
 **Acceptance Criteria:**
 
-1. D1 retains incident identity, first-observed time, absolute deadline, lifecycle generation and termination intent until recovery or confirmed exit resolves them.
-2. At the first available execution at or after the deadline, the current owner conditionally claims `stopping` for the same generation and incident.
-3. Outstanding termination intent blocks Start until confirmed exit or a reviewed reconciliation resolves it.
-4. Immediately before signalling, execution rechecks generation ownership and cannot signal a replacement generation.
-5. Stop signalling uses the low-level SIGTERM path even when the SDK `running` flag is transiently false; retries are bounded and duplicate-safe.
-6. Signal acceptance retains `stopping`; only a generation-fenced positive process-exit monitor observation or awaited destroy confirming exit transitions to `stopped`. <!-- @impl: src/lib/session-runtime-policy.ts::confirmProcessExit --> <!-- @test: src/__tests__/lib/session-unreachable-policy.test.ts (signal acceptance is not exit; confirmed matching exit alone reports stopped) --> <!-- @test: src/__tests__/lib/session-d1-lifecycle.test.ts (REQ-SESSION-035: aged Stop ownership remains fenced until its current-generation exit is confirmed) -->
+1. D1 retains incident identity, first-observed time, absolute deadline, lifecycle generation and termination intent until recovery or confirmed exit resolves them. <!-- @impl: src/lib/session-repository.ts::D1SessionRepository.observeUnreachable --> <!-- @test: src/__tests__/lib/session-d1-lifecycle.test.ts (persists the first complete failure, joins replay/reconstruction without extending its 120s deadline) -->
+2. At the first available execution at or after the deadline, the current owner conditionally claims `stopping` for the same generation and incident. <!-- @impl: src/lib/session-repository.ts::D1SessionRepository.claimUnreachableTermination --> <!-- @test: src/__tests__/lib/session-d1-lifecycle.test.ts (claims only the exact expired incident, blocks Start, and never treats signal acceptance as exit) -->
+3. Outstanding termination intent blocks Start until confirmed exit or a reviewed reconciliation resolves it. <!-- @impl: src/lib/session-repository.ts::D1SessionRepository.start --> <!-- @test: src/__tests__/lib/session-d1-lifecycle.test.ts (claims only the exact expired incident, blocks Start, and never treats signal acceptance as exit) -->
+4. Immediately before signalling, execution rechecks generation ownership and cannot signal a replacement generation. <!-- @impl: src/container/container-lifecycle.ts::terminateUnreachable --> <!-- @test: src/__tests__/lib/session-d1-lifecycle.test.ts (a teardown epoch change during D1 authorization prevents a stale native %s) -->
+5. Recovery uses low-level SIGTERM even when the SDK `running` flag is transiently false. Unconfirmed termination escalates to same-generation native destruction after the existing 135-second shutdown budget; failed destruction retains actionable `stopping` ownership. <!-- @impl: src/container/container-lifecycle.ts::terminateUnreachable = 135_000 --> <!-- @test: src/__tests__/lib/session-d1-lifecycle.test.ts (first failed probe is nonbillable, survives reconstruction, signals at 120s even with SDK false, destroys only after 135s grace) -->
+6. Signal acceptance retains `stopping`; only a generation-fenced positive process-exit monitor observation or awaited destroy confirming exit transitions to `stopped`. <!-- @impl: src/lib/session-repository.ts::D1SessionRepository.confirmStopped --> <!-- @test: src/__tests__/lib/session-d1-lifecycle.test.ts (first failed probe is nonbillable, survives reconstruction, signals at 120s even with SDK false, destroys only after 135s grace) -->
 
 **Constraints:** Exactly-once external signalling is not promised. Established final-event, final-sync and teardown deadlines are unchanged.
 
@@ -1098,9 +1098,9 @@ None.
 
 **Dependencies:** [REQ-SESSION-022](#req-session-022-unreachable-recovery-preserves-process-identity)
 
-**Verification:** Planned deadline, duplicate-signal, replacement-generation and confirmed-exit tests.
+**Verification:** Automated test ([Deadline, finite force, manual recovery and confirmed-exit coverage](../../src/__tests__/lib/session-d1-lifecycle.test.ts)); hosted acceptance remains pending.
 
-**Status:** Planned
+**Status:** Implemented
 
 ---
 
