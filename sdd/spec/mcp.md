@@ -29,9 +29,13 @@ Operational guidance remains in [Configuration](../../documentation/lanes/config
 
 **Constraints:**
 
-- Secrets stay Worker-only. No shared/admin grants, Access-JWT substitution, cookie copying or new issuer/channel. TLS remains verified.
-- Automatic recovery never creates initial/new-destination grants or undoes Disconnect. Transient failures do not initiate OAuth; cancelled returns do not loop.
-- Provider login, consent and MFA remain authoritative. Canonical session restoration uses existing ownership checks; MCP writes are never replayed.
+- Secrets stay Worker-only.
+- No shared/admin grants, Access-JWT substitution, cookie copying or new issuer/channel.
+- TLS remains verified.
+- Automatic recovery never creates initial/new-destination grants or undoes Disconnect.
+- Transient failures do not initiate OAuth; cancelled returns do not loop.
+- Provider login, consent and MFA remain authoritative.
+- Canonical session restoration uses existing ownership checks; MCP writes are never replayed.
 - KV publication is non-atomic; the in-flight Disconnect race is explicitly deferred in [#1386](https://github.com/nikolanovoselec/codeflare/issues/1386).
 
 **Priority:** P1
