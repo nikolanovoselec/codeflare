@@ -4,6 +4,8 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-11-06
 
+- Preserve complete selected-provider SDK request auth (headers, endpoint and environment) through Dispatcher’s existing private capability, retaining legacy token replies and owner/CAS/privacy fences without changing managed Gateway routing ([REQ-OPERATOR-007](operators.md#req-operator-007-operator-aware-inference-selection), [REQ-OPERATOR-047](operators.md#req-operator-047-generic-directed-profile-admission)).
+
 - Separate normal Dispatcher Native R2 reasoning inheritance from Gateway reasoning configuration in preview and execution, retaining Native source/owner/generation authorization and unchanged Gateway/Conductor behavior ([REQ-OPERATOR-007](operators.md#req-operator-007-operator-aware-inference-selection), [REQ-OPERATOR-075](operators.md#req-operator-075-installation-permission-choices-and-explanation), [REQ-OPERATOR-096](operators.md#req-operator-096-next-manual-dispatcher-inference-preview)).
 
 - Restore configured Renovate repository readback and explicit Save for both supported package contracts, and name a known Native reasoning approval gap without changing saved defaults or restrictions ([REQ-OPERATOR-061](operators.md#req-operator-061-prospective-admin-session-renovate-scan), [REQ-OPERATOR-096](operators.md#req-operator-096-next-manual-dispatcher-inference-preview)).

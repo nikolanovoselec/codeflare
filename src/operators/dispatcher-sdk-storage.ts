@@ -328,16 +328,17 @@ export async function handleDispatcherSdkCredentials(storage: DurableObjectStora
       return { ...file, auth, raw };
     };
     let saved = await snapshot();
-    if (saved.raw.type === 'api_key') {
+    const savedCredential = (): Credential => {
+      if (saved.raw.type !== 'api_key') return oauthCredential(saved.raw);
       const key = saved.raw.key;
-      if (typeof key !== 'string' || !key.trim() || key.startsWith('!') || /[\r\n\x00]/.test(key)) deny();
-      const latest = await snapshot();
-      if (latest.etag !== saved.etag || JSON.stringify(latest.raw) !== JSON.stringify(saved.raw)) deny(409);
-      return { apiKey: key };
-    }
-    oauthCredential(saved.raw);
+      if (typeof key !== 'string' || !key.trim() || key.trimStart().startsWith('!') || /[\r\n\x00]/.test(key)) deny();
+      const values = saved.raw.env;
+      if (values !== undefined && (!object(values) || Object.values(values).some(value => typeof value !== 'string'))) deny();
+      return { type: 'api_key', key, ...(values === undefined ? {} : { env: values as Record<string, string> }) };
+    };
+    const initial = savedCredential();
     const provider = builtinProviders().find(provider => provider.id === selected.defaultProvider);
-    if (!provider?.auth.oauth) deny();
+    if (!provider || (initial.type === 'api_key' ? !provider.auth.apiKey : !provider.auth.oauth)) deny();
     let storageFailure: unknown;
     const storageOperation = async <T>(operation: () => Promise<T>): Promise<T> => {
       try { return await operation(); }
@@ -350,7 +351,7 @@ export async function handleDispatcherSdkCredentials(storage: DurableObjectStora
       read: id => storageOperation(async () => {
         checkProvider(id);
         if (io.signal.aborted) deny();
-        return oauthCredential(saved.raw);
+        return savedCredential();
       }),
       modify: (id, fn) => {
         const pending = (async () => {
@@ -403,10 +404,13 @@ export async function handleDispatcherSdkCredentials(storage: DurableObjectStora
     }
     const latest = await snapshot();
     if (latest.etag !== saved.etag || JSON.stringify(latest.raw) !== JSON.stringify(saved.raw)) deny(409);
-    if (!resolved || resolved.env && Object.keys(resolved.env).length
-      || Object.keys(resolved.auth).some(key => key !== 'apiKey')) deny();
+    if (!resolved) deny();
     const apiKey = resolved.auth.apiKey;
-    if (typeof apiKey !== 'string' || !apiKey.trim() || /[\r\n\x00]/.test(apiKey)) deny();
-    return { apiKey };
+    if (apiKey !== undefined && (typeof apiKey !== 'string' || !apiKey.trim() || /[\r\n\x00]/.test(apiKey))) deny();
+    if (apiKey !== undefined && Object.keys(resolved.auth).every(key => key === 'apiKey')
+      && !Object.keys(resolved.env ?? {}).length) return { apiKey };
+    // Only SDK-derived request auth crosses RPC, never stored OAuth state or
+    // status metadata. Normalize records to ordinary JSON objects for RPC.
+    return JSON.parse(JSON.stringify({ auth: resolved.auth, ...(resolved.env ? { env: resolved.env } : {}) }));
   });
 }

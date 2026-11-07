@@ -952,17 +952,53 @@ describe('REQ-OPERATOR-007/047/048/058: owner R2 configured-service HTTP contrac
   }));
 
   it.each([
-    { provider: 'kimi-coding', model: 'kimi-for-coding', api: 'anthropic-messages', reasoningLevel: 'low' },
+    { provider: 'kimi-coding', model: 'kimi-for-coding', api: 'openai-completions', reasoningLevel: 'low' },
     { provider: 'github-copilot', model: 'gpt-4o', api: 'openai-completions', reasoningLevel: 'low' },
-  ])('SDK $provider auth requiring headers/baseUrl is refused rather than silently flattened', selection => lane(async (f, store) => {
+  ])('REQ-OPERATOR-007/047: preserves SDK $provider OAuth request metadata without flattening or credential mutation', selection => lane(async (f, store) => {
     store.put(settingsKey, { defaultProvider: selection.provider, defaultModel: selection.model });
-    store.put(authKey, { [selection.provider]: oldOAuth, other });
+    const saved = { [selection.provider]: oldOAuth, other };
+    store.put(authKey, saved);
     await admitted(f);
     const exchanges = oauthBoundary();
-    await denied(await credentials(f, { operation: 'read', providerId: selection.provider }));
+    const response = await credentials(f, { operation: 'read', providerId: selection.provider });
+    expect(response.status).toBe(200);
+    const value = await json(response);
+    expect(value).toMatchObject({ auth: { apiKey: oldOAuth.access } });
+    if (selection.provider === 'kimi-coding') {
+      expect(value.auth.headers).toEqual(expect.any(Object));
+      expect(value.auth.headers).not.toEqual({});
+    } else expect(value.auth.baseUrl).toMatch(/^https:\/\//);
+    expect(JSON.stringify(value)).not.toContain(oldOAuth.refresh);
+    expect(JSON.stringify(value)).not.toContain(other.key);
     expect(exchanges).toEqual([]);
-    expect(store.value(authKey)).toEqual({ [selection.provider]: oldOAuth, other });
+    expect(store.value(authKey)).toEqual(saved);
+    for (const evidence of [await f.activity.getBrowserDetail(), await diagnosticTraversal(diagnosticsBrowser(f))]) {
+      const visible = JSON.stringify(evidence);
+      for (const secret of [oldOAuth.access, oldOAuth.refresh, other.key]) expect(visible).not.toContain(secret);
+    }
   }, true, false, { nativeSelection: selection }));
+
+  it('REQ-OPERATOR-007/047: preserves SDK-resolved API-key request environment without mutation or ambient fallback', () => lane(async (f, store) => {
+    const secret = 'synthetic-provider-request-env';
+    const saved = { [providerId]: { type: 'api_key', key: oldOAuth.access, env: { SDK_REQUEST_CONTEXT: secret } }, other };
+    store.put(authKey, saved);
+    await admitted(f);
+    expect(await json(await read(f))).toEqual({ auth: { apiKey: oldOAuth.access }, env: { SDK_REQUEST_CONTEXT: secret } });
+    expect(store.value(authKey)).toEqual(saved);
+    for (const evidence of [await f.activity.getBrowserDetail(), await diagnosticTraversal(diagnosticsBrowser(f))]) {
+      const visible = JSON.stringify(evidence);
+      for (const value of [secret, oldOAuth.access, other.key]) expect(visible).not.toContain(value);
+    }
+  }));
+
+  it.each(['invalid', { REQUEST_SECRET: { invalid: 'nested' } }])(
+    'REQ-OPERATOR-047: malformed saved API-key environment %j releases no auth', value => lane(async (f, store) => {
+      const saved = { [providerId]: { type: 'api_key', key: oldOAuth.access, env: value }, other };
+      store.put(authKey, saved);
+      await admitted(f);
+      await denied(await read(f));
+      expect(store.value(authKey)).toEqual(saved);
+    }));
 
   it.each(['enterpriseUrl', 'tokenEndpoint', 'env'] as const)('untrusted OAuth %s cannot choose private exchange destinations', field => lane(async (f, store) => {
     await admitted(f);
