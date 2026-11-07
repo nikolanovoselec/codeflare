@@ -26,7 +26,7 @@ Global configuration is `<agent dir>/mcp-adapter.json`; trusted project override
 - For browser navigation, supply `120000` ms when the live tool schema supports it. Browser provider retention, MCP idle lifetime, request timeout and website authentication are separate.
 - Do not add health pings or auth/retention workarounds. Preserve configured commands, CA, custom overrides, headers and credentials. Never print secrets or credential-bearing URLs.
 - An expired MCP session can reconnect, but an uncertain failed write is not safe to repeat. Read back its outcome before considering another mutation.
-- Managed `MCP_RECONNECT_REQUIRED` means inspect/reconnect the portal in Settings; switching clients or reconnecting transport does not prove the grant is repaired. Interactive login requires explicit current-user authorization.
+- Managed `MCP_RECONNECT_REQUIRED` is resolved by Worker refresh or owner browser-SSO recovery in the authenticated app; inspect Settings if provider interaction remains required; switching clients or reconnecting transport does not prove the grant is repaired. Interactive login requires explicit current-user authorization.
 
 ## Configuration ownership
 

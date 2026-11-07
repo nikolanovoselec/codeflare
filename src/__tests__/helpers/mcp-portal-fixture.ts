@@ -88,6 +88,11 @@ export async function mcpPortalFixture() {
     readConnection(value: string | null | undefined) { connectionView = value; },
     afterConnectionWrite(value: () => Promise<void>) { afterConnectionWrite = value; },
     get authorization() { return authorization!; },
+    visitAuthorization(value: string) {
+      const url = new URL(value);
+      if (url.origin !== issuer || url.pathname !== '/authorize') throw Error('Unexpected synthetic authorization');
+      authorization = url;
+    },
     cimd() { cimd = true; dcr = false; },
     bothRegistrations() { cimd = true; dcr = true; },
     omitRefreshOnRenewal() { omitRefreshedToken = true; },

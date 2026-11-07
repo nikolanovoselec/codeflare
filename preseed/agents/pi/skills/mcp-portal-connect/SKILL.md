@@ -11,7 +11,7 @@ disable-model-invocation: true
 1. Administration → Environment registers unique portal IDs and public HTTPS MCP endpoints on the standard port; IP addresses and private-suffix hosts are unsupported. It does not provision a portal, start compute, or authenticate a user. A name is identity only, not a description of the catalogue.
 2. Settings → MCP lists all configured portals. Choose **Connect MCP portal** for each owner-approved portal. The browser navigates through the portal's standard OAuth/SSO flow. Consent, MFA or login may still be required. No popup or browser-cookie copying is needed.
 3. Codeflare stores the real portal access/refresh grant encrypted in dedicated owner/portal KV records. Pi receives only a public placeholder header. No real token, verifier or code belongs in Pi's environment, config, arguments, transcript, auth store or model context.
-4. Settings shows connected portal IDs and offers Disconnect per portal. Connected means a stored grant, not proof every upstream tool is reachable or permitted. Expired/revoked grants need reconnect in Settings. URL changes invalidate the old binding; never migrate it to a different resource.
+4. Settings shows connected portal IDs and offers Disconnect per portal. Connected means a stored grant, not proof every upstream tool is reachable or permitted. Existing grants renew through Worker refresh and the authenticated app’s browser SSO recovery; Pi credentials and running configuration stay unchanged. Provider login, consent or MFA may still require interaction. URL changes invalidate the old binding; never migrate it to a different resource.
 
 Dynamic client registration is preferred where available. For a CIMD-only issuer, the administrator must verify external reachability of `/auth/mcp/client-metadata`; an anonymous Worker handler does not bypass edge Access. Do not provision a bypass or change grants as a connection workaround.
 
@@ -34,7 +34,7 @@ Report which approved portal catalogues are available and which are missing or f
 ## Diagnosis
 
 - Unregistered wrapper: finish connection/bootstrap, then discover/activate it; activation alone does not connect a server.
-- `MCP_RECONNECT_REQUIRED`: reconnect that portal in Settings. Do not substitute another owner's token, a Root Access JWT or a service token.
+- `MCP_RECONNECT_REQUIRED`: the authenticated app can recover an existing grant through browser SSO; keep that app open. If provider interaction is required or recovery failed, inspect the connection in Settings. Do not substitute another owner's token, a Root Access JWT or a service token.
 - Configuration/destination/redirect denial: verify the administrator's exact HTTPS endpoint and restart after correction; do not broaden egress or disable TLS.
 - An upstream downstream-server OAuth URL must be opened only with the owner's authorization and kept with its originating portal context. Do not claim hosted downstream acceptance from source or synthetic tests.
 

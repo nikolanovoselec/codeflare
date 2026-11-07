@@ -258,3 +258,48 @@ describe('Worker-owned MCP portal OAuth', () => {
     await expect(portalOAuthFetch(redirect)('https://portal.example/token', { method: 'POST', body: 'synthetic-secret' })).rejects.toThrow(/redirect/);
   });
 });
+
+
+describe('Generation-fenced MCP recovery entry', () => {
+  it.each(['missing', 'tombstone', 'generation', 'configuration', 'other-owner'] as const)(
+    'REQ-AGENT-226 AC6 / REQ-AGENT-228 AC4: expected recovery generation rejects %s before provider I/O', async change => {
+      const f = await mcpPortalFixture(); await f.begin(); await f.finish();
+      const original = (await getMcpPortalGrant(f.env, 'owner', portal))!;
+      if (change === 'missing') await f.kv.delete('mcp-portal:owner:owner:portal:fixture');
+      if (change === 'tombstone') await disconnectMcpPortal(f.env, 'owner', portal, f.send);
+      if (change === 'generation') { await f.begin(); await f.finish(); }
+      if (change === 'configuration') await f.kv.put(SETUP_KEYS.MCP_PORTALS, '[]');
+      const forbidden: typeof fetch = async () => { throw Error('Unexpected provider I/O'); };
+      await expect(beginMcpPortalConnect(f.env, change === 'other-owner' ? 'other' : 'owner', portal, instance, forbidden, original.id))
+        .rejects.toThrow(/MCP (connection|portal configuration) changed/);
+      expect((await f.kv.list({ prefix: 'mcp-portal:pending:' })).keys).toHaveLength(0);
+    });
+
+  it.each(['disconnect', 'configuration', 'generation'] as const)(
+    'REQ-AGENT-226 AC6: observed %s during recovery discovery cannot mint a pending authorization', async change => {
+      const f = await mcpPortalFixture(); await f.begin(); await f.finish();
+      const original = (await getMcpPortalGrant(f.env, 'owner', portal))!;
+      f.beforeDiscovery(async () => {
+        if (change === 'disconnect') await disconnectMcpPortal(f.env, 'owner', portal, f.send);
+        if (change === 'configuration') await f.kv.put(SETUP_KEYS.MCP_PORTALS, '[]');
+        if (change === 'generation') { await f.begin(); await f.finish(); }
+      });
+      await expect(beginMcpPortalConnect(f.env, 'owner', portal, instance, f.send, original.id)).rejects.toThrow(/connection changed/);
+      expect((await f.kv.list({ prefix: 'mcp-portal:pending:' })).keys).toHaveLength(0);
+      if (change !== 'generation') expect(await getMcpPortalGrant(f.env, 'owner', portal)).toBeNull();
+    });
+
+  it.each(['disconnect', 'configuration', 'generation'] as const)(
+    'REQ-AGENT-226 AC6: observed %s after recovery begin cannot replace the current connection at callback', async change => {
+      const f = await mcpPortalFixture(); await f.begin(); await f.finish();
+      const original = (await getMcpPortalGrant(f.env, 'owner', portal))!;
+      const authorization = new URL(await beginMcpPortalConnect(f.env, 'owner', portal, instance, f.send, original.id));
+      if (change === 'disconnect') await disconnectMcpPortal(f.env, 'owner', portal, f.send);
+      if (change === 'configuration') await f.kv.put(SETUP_KEYS.MCP_PORTALS, '[]');
+      if (change === 'generation') { await f.begin(); await f.finish(); }
+      await expect(finishMcpPortalConnect(f.env, 'owner', instance, authorization.searchParams.get('state')!, 'synthetic-code', undefined, f.send)).rejects.toThrow();
+      const current = await getMcpPortalGrant(f.env, 'owner', portal);
+      if (change === 'generation') expect(current?.id).not.toBe(original.id);
+      else expect(current).toBeNull();
+    });
+});

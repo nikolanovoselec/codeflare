@@ -10,6 +10,7 @@ import { storageStore } from './stores/storage';
 import { terminalStore } from './stores/terminal';
 import { AGENT_OPTIONS, ENTERPRISE_AGENT_TYPES } from './lib/agent-catalog';
 import { logger } from './lib/logger';
+import { createMcpPortalRecovery } from './lib/mcp-portal-recovery';
 import './styles/app.css';
 
 // Lazy-load the onboarding landing page (only needed when onboarding mode is active)
@@ -58,21 +59,36 @@ const AppContent: Component = () => {
   let initialAuthSettled = false;
   let resumeCheckInFlight = false;
   let wasHidden = document.visibilityState === 'hidden';
+  let disposed = false;
+  let recoveryOwner: string | undefined;
+  let portalRecovery: ReturnType<typeof createMcpPortalRecovery> | undefined;
 
   const markAuthRedirect = (err: unknown): boolean => {
     if (err instanceof ApiError && (err.authRedirect || err.status === 401)) {
       if (!err.authRedirect) redirectExpiredSession();
       setRedirecting(true);
+      portalRecovery?.dispose();
       return true;
     }
     return false;
   };
 
+  const recoverPortals = (owner: string) => {
+    if (disposed || redirecting()) return;
+    if (!portalRecovery || owner !== recoveryOwner) {
+      portalRecovery?.dispose();
+      recoveryOwner = owner;
+      portalRecovery = createMcpPortalRecovery(owner, url => window.location.assign(url), markAuthRedirect);
+    }
+    void portalRecovery.check();
+  };
+
   const revalidateAuthAfterResume = async () => {
-    if (!initialAuthSettled || resumeCheckInFlight || redirecting()) return;
+    if (!initialAuthSettled || resumeCheckInFlight || redirecting() || disposed) return;
     resumeCheckInFlight = true;
     try {
-      await getUser();
+      const user = await getUser();
+      recoverPortals(user.email);
     } catch (err) {
       markAuthRedirect(err);
     } finally {
@@ -82,6 +98,7 @@ const AppContent: Component = () => {
 
   const handleVisibilityChange = () => {
     if (document.visibilityState === 'hidden') {
+      portalRecovery?.pause();
       wasHidden = true;
       return;
     }
@@ -131,6 +148,7 @@ const AppContent: Component = () => {
         window.location.href = '/app/onboarding';
         return;
       }
+      recoverPortals(user.email);
     } catch (err) {
       logger.warn('Failed to get user info:', err);
       // SaaS mode: pending/blocked users get 403 from requireActiveUser
@@ -164,6 +182,8 @@ const AppContent: Component = () => {
   });
 
   onCleanup(() => {
+    disposed = true;
+    portalRecovery?.dispose();
     document.removeEventListener('visibilitychange', handleVisibilityChange);
     window.removeEventListener('pageshow', handlePageShow);
     sessionStore.stopAllPolling();

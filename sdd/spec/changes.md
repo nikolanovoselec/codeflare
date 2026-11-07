@@ -4,6 +4,8 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-11-07
 
+- Recover existing owner portal authorization through Worker refresh and browser SSO, preserving active-session navigation, credential isolation and explicit Disconnect without restarting Pi ([REQ-AGENT-226](mcp.md#req-agent-226-worker-owned-mcp-portal-authorization)).
+
 - Clarify native MCP cold discovery as metadata-only: lazy startup remains deferred, and external consultation still requires an explicit user request ([REQ-AGENT-069](agents.md#req-agent-069-pi-consult-llm-mcp-lazy-wiring)).
 
 - Reuse observed fresh same-generation portal renewals and avoid returning stale access tokens after refresh publication, retaining disconnect/configuration fences and metadata-only request failure diagnostics ([REQ-AGENT-226](mcp.md#req-agent-226-worker-owned-mcp-portal-authorization)).

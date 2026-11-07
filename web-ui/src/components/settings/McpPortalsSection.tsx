@@ -61,7 +61,7 @@ const McpPortalsSection: Component = () => {
         </div>}</For>
       </div>
     </Show>
-    <p class="settings-hint type-hint">MCP portals bring tools and authentication together in a unified, governed surface. Restart Pi after adding or connecting a portal to load its tools.</p>
+    <p class="settings-hint type-hint">Portal connections renew automatically using your browser session. No Pi restart is needed for renewal.</p>
   </>;
 };
 export default McpPortalsSection;

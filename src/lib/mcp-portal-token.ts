@@ -79,11 +79,18 @@ function validTokens(tokens: OAuthTokens): void {
   if (!tokens.access_token || tokens.token_type.toLowerCase() !== 'bearer' || !/^[A-Za-z0-9._~+/-]+=*$/.test(tokens.access_token)
     || (tokens.expires_in !== undefined && (!Number.isFinite(tokens.expires_in) || tokens.expires_in <= 0))) throw new Error('Invalid MCP portal grant');
 }
-export async function beginMcpPortalConnect(env: Env, owner: string, portal: McpPortal, instance: string, send: typeof fetch = fetch): Promise<string> {
+export async function beginMcpPortalConnect(env: Env, owner: string, portal: McpPortal, instance: string, send: typeof fetch = fetch,
+  expectedGrantId?: string): Promise<string> {
   await encryption(env); publicHttps(instance); publicHttps(portal.url);
   if (!await configured(env, portal)) throw new Error('MCP portal configuration changed');
   // An in-flight Connect may not adopt a later Disconnect as its starting generation.
   const previous = await read<Connection>(env, connectionKey(owner, portal.name));
+  if (expectedGrantId !== undefined) {
+    const bound = await getMcpPortalGrant(env, owner, portal);
+    if (!bound || bound.id !== expectedGrantId || previous?.id !== expectedGrantId || bound.instance !== instance) {
+      throw new Error('MCP connection changed');
+    }
+  }
   const fetchFn = portalOAuthFetch(send);
   // Learn the portal's standard protected-resource metadata challenge, without credentials.
   const probe = await fetchFn(portal.url, { headers: { Accept: 'application/json, text/event-stream' } });
@@ -105,6 +112,10 @@ export async function beginMcpPortalConnect(env: Env, owner: string, portal: Mcp
     scope: discovery.resourceMetadata?.scopes_supported?.join(' '),
   });
   if (authorizationUrl.origin !== publicHttps(discovery.authorizationServerMetadata!.authorization_endpoint!).origin) throw new Error('MCP authorization destination mismatch');
+  if (expectedGrantId !== undefined) {
+    const bound = await getMcpPortalGrant(env, owner, portal);
+    if (!bound || bound.id !== expectedGrantId || bound.instance !== instance) throw new Error('MCP connection changed');
+  }
   const pending: Pending = { owner, portal, instance, id: random(), discovery, client, resource, state, verifier: codeVerifier,
     expiresAt: Date.now() + 300_000, previous: previous?.id ?? null };
   await env.KV.put(pendingKey(state), await encryptForKV(JSON.stringify(pending), await encryption(env), pendingKey(state)), { expirationTtl: 300 });
