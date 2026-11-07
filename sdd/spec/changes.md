@@ -4,7 +4,9 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-11-07
 
-- Keep Pi automatic extension package checks suppressed independently of Fast Start and remove unattended extension updating from the runtime updater; preserve governed image/lock delivery and explicit runtime update behavior ([REQ-AGENT-206](agents.md#req-agent-206-fast-start-off-runtime-updates)).
+- Keep valid input-based idle expiry independent of unavailable no-input startup timing while preserving conservative no-input recovery ([REQ-SESSION-004](session-lifecycle.md#req-session-004-idle-containers-sleep-after-configurable-timeout), [REQ-SESSION-034](session-lifecycle.md#req-session-034-durable-idle-baseline-survives-coordinator-reconstruction)).
+
+- Remove the bulk extension-update command from the runtime updater while preserving Fast Start network behavior, missing configured-package restoration, model-catalog refreshes and governed image/lock delivery ([REQ-AGENT-206](agents.md#req-agent-206-fast-start-off-runtime-updates)).
 - Carry the normal Dispatcher Activity/generation/profile authority through strict egress for catalogued personal-provider hosts, retaining validated generic strict forwarding for custom SDK endpoints and current owner checks without legacy credential bindings or Gateway routing changes ([REQ-OPERATOR-007](operators.md#req-operator-007-operator-aware-inference-selection), [REQ-OPERATOR-047](operators.md#req-operator-047-generic-directed-profile-admission)).
 
 ## 2026-11-06

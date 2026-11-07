@@ -417,7 +417,7 @@ describe('entrypoint production helpers', () => {
       '[entrypoint] Fast Start disabled; Codex version before update: codex-cli 0.151.0',
       '[entrypoint] Fast Start disabled; Pi version after update: pi 0.84.4',
       '[entrypoint] Fast Start disabled; Codex version after update: codex-cli 0.151.0',
-      'off:1:unset:unset:unset:unset:unset',
+      'off:unset:unset:unset:unset:unset:unset',
       'npm:view @earendil-works/pi-coding-agent@latest version',
       'npm:view @openai/codex@latest version',
       'npm:install --prefix /opt/codeflare/npm-tools --omit=dev --save-exact --ignore-scripts --no-audit --no-fund @earendil-works/pi-coding-agent@0.85.1 @openai/codex@0.151.0',

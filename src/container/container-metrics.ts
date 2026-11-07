@@ -1287,7 +1287,7 @@ export async function collectMetrics(
       state.lastSeenInputAt = observedInputAt;
       let canEnforceIdle = true;
       let containerStartedAt = state.containerStartedAt;
-      if (!Number.isFinite(containerStartedAt) || containerStartedAt <= 0) {
+      if (observedInputAt === null && (!Number.isFinite(containerStartedAt) || containerStartedAt <= 0)) {
         let persistedStartedAt: number | undefined;
         try {
           persistedStartedAt = await ctx.storage.get<number>('containerStartedAt');

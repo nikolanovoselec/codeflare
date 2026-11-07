@@ -1199,7 +1199,6 @@ The former REQ-AGENT-131 Usage installation and warming workflow is retired. [Re
 2. When enabled, Codeflare applies supported environment and interactive-launch update suppressors before agent startup. <!-- @impl: entrypoint.sh::configure_fast_start_environment --> <!-- @impl: entrypoint.sh::configure_tab_autostart --> <!-- @impl: image/herdr/codeflare-herdr-terminal::bootstrap --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-012/REQ-AGENT-206: Fast Start controls suppression and updates Pi and Codex) --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-012: Classic Codex launch honors Fast Start without changing user settings) --> <!-- @test: host/__tests__/herdr-launcher.test.js (REQ-AGENT-012: Herdr Codex launch honors Fast Start without changing tab configuration) -->
 3. Codeflare removes only its own settings-file suppressor and preserves an operator-owned Codex version preference. <!-- @impl: entrypoint.sh::configure_fast_start_tool_settings --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-012: disabled Fast Start removes only Codeflare-managed settings suppressors) -->
 4. Users can toggle the preference from the session defaults area of the application settings. <!-- @test: src/__tests__/routes/preferences.test.ts (Preferences Routes) --> <!-- @manual -->
-5. Pi automatic extension package network checks stay suppressed independently of Fast Start. <!-- @impl: entrypoint.sh::configure_fast_start_environment --> <!-- @test: host/__tests__/entrypoint-runtime-behavior.test.js (REQ-AGENT-012/REQ-AGENT-206: Fast Start controls suppression and updates Pi and Codex) -->
 
 **Constraints:**
 
@@ -1235,8 +1234,7 @@ The former REQ-AGENT-131 Usage installation and warming workflow is retired. [Re
 **Constraints:**
 
 - Runtimes omitted from the selected image remain omitted.
-- User-added Pi packages absent from the image cache require explicit installation; governed package/lock delivery remains unchanged.
-- Pi offline suppression also disables automatic model-catalog refreshes; it is not a sandbox for arbitrary extension code.
+- Restored user-added Pi packages outside the image cache may require Fast Start Off once; governed package/lock delivery remains unchanged.
 - Temporary update downloads use the Codeflare runtime filesystem and are removed after the attempt.
 - Dependency-repair failure stays visible; it is not reported as a successful runtime update.
 

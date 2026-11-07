@@ -775,6 +775,35 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       expect(projected.metrics?.cpu).toBe('45%');
     });
 
+    it.each(['missing', 'unreadable', 'unpersistable'] as const)(
+      'REQ-SESSION-004/034: valid input enforces its 1h deadline with %s startup timing',
+      async fault => {
+        let now = Date.now();
+        vi.spyOn(Date, 'now').mockImplementation(() => now);
+        testState.storedSleepAfter = '1h';
+        testState.activityResult.lastInputAt = now;
+        mockKV._set('session:test-bucket:testsession123456', {
+          id: 'testsession123456', name: 'Test', userId: 'test-bucket', status: 'running', lifecycleGeneration: 0,
+          createdAt: new Date(now).toISOString(), lastAccessedAt: new Date(now).toISOString(),
+        } as Session);
+        await containerInstance.collectMetrics();
+
+        // Reconstructed timing state has no usable startup reference, but the
+        // authenticated host still supplies genuine input timing evidence.
+        (containerInstance as unknown as { containerStartedAt: number }).containerStartedAt = 0;
+        testState.storageStore.delete('containerStartedAt');
+        if (fault === 'unreadable') testState.storageGetFailures.add('containerStartedAt');
+        if (fault === 'unpersistable') testState.storagePutFailures.add('containerStartedAt');
+        testState.activityResult.lastInputAt = now - 59 * 60_000;
+
+        await containerInstance.collectMetrics();
+        expect(testState.platformStopSignals).toEqual([]);
+        now += 2 * 60_000;
+        await containerInstance.collectMetrics();
+        expect(testState.platformStopSignals).toEqual(['SIGTERM']);
+      },
+    );
+
     it.each([['8h', 8], ['12h', 12]] as const)('REQ-SESSION-004: %s stays alive until its configured idle deadline and then requests SIGTERM', async (duration, hours) => {
       let now = Date.now();
       vi.spyOn(Date, 'now').mockImplementation(() => now);
