@@ -3556,7 +3556,10 @@ process.exitCode = preparePiMcpAdapterConfig(process.argv[3], true) ? 0 : 1;
 PI_MCP_MIGRATION
     then
         PI_MCP_CONFIG_READY=1
-        # The active mcp-adapter.json and custom recovery files remain durably synced.
+        # Initial restore has finished. Do not resurrect the retired root stock
+        # config during baseline/bisync; native, recovery and nested files still sync.
+        # Prepend before broad Pi includes because rclone uses first-match rules.
+        RCLONE_FILTERS=(--filter "- /.pi/agent/mcp.json" "${RCLONE_FILTERS[@]}")
     else
         echo "[entrypoint] WARNING: Pi MCP config migration skipped; user files preserved"
     fi

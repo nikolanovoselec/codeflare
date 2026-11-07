@@ -148,6 +148,7 @@ Operational guidance remains in [Configuration](../../documentation/lanes/config
 **Constraints:**
 
 - No bucket deletion or sync redesign.
+- Only successful native handoff excludes the obsolete root `.pi/agent/mcp.json` from subsequent baseline/bisync; initial restore and failed preparation retain its eligibility. <!-- @impl: entrypoint.sh::configure_pi_mcp_adapter --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (REQ-AGENT-217: active native configuration and recovery objects remain baseline-sync eligible) --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (REQ-AGENT-217: failed native preparation blocks Pi shell merge without excluding restored files from baseline) -->
 - Installed packages are not selection evidence.
 - Exact managed exclusions of `mcp-portal-oauth.ts`, `review-enforcement.ts` and `operator-review-remote.ts` are selection-neutral; other unsupported filters fail closed without preparing files.
 - Native lifecycle settings remain native; managed timeout preparation follows [REQ-BROWSER-009](browser-run.md#req-browser-009-mcp-and-chrome-sdk-timeout-profile).

@@ -997,7 +997,7 @@ function startConsult(home, restoredLegacy, overrides = {}) {
   const browserEnd = entrypoint.indexOf('    # Claude (~/.claude.json) - the cheap one-shot', browserStart);
   if (browserStart < 0 || browserEnd < 0) throw new Error('Missing production browser registration');
   const browser = entrypoint.slice(browserStart, browserEnd) + '\nfi';
-  return spawnSync('bash', ['-c', `${functions}\nconfigure_pi_mcp_adapter "$MIGRATION_MODULE"\nconfigure_consult_llm
+  return spawnSync('bash', ['-c', `${functions}\nRCLONE_FILTERS=(--filter "+ /.pi/**" --filter "+ **")\nconfigure_pi_mcp_adapter "$MIGRATION_MODULE"\nconfigure_consult_llm
 if [ "\${QUALIFY_BROWSER:-0}" = "1" ]; then
 ${browser}
 fi
@@ -1073,14 +1073,16 @@ test('REQ-AGENT-217: active native configuration and recovery objects remain bas
   writeFileSync(join(remoteAgent, 'mcp.json'), '{"mcpServers":{"stock":{"command":"stock"}}}');
   writeFileSync(join(remoteAgent, 'mcp.json.migrated.baseline'), 'remote recovery bytes');
   writeFileSync(join(remoteAgent, 'nested', 'mcp-adapter.json'), 'nested unrelated bytes');
+  writeFileSync(join(remoteAgent, 'nested', 'mcp.json'), 'nested stock config bytes');
   const stock = '{"mcpServers":{"before":{"command":"before"}}}';
   writeFileSync(f.target, stock);
   const result = startConsult(f.home, restored);
   assert.equal(result.status, 0, result.stderr);
   assert.equal(readFileSync(f.legacy, 'utf8'), remoteNative);
-  assert.equal(readFileSync(f.target, 'utf8'), '{"mcpServers":{"stock":{"command":"stock"}}}');
+  assert.equal(existsSync(f.target), false, 'successful migration prevents obsolete root stock config from returning');
   assert.equal(readFileSync(join(f.directory, 'mcp.json.migrated.baseline'), 'utf8'), 'remote recovery bytes');
   assert.equal(readFileSync(join(f.directory, 'nested', 'mcp-adapter.json'), 'utf8'), 'nested unrelated bytes');
+  assert.equal(readFileSync(join(f.directory, 'nested', 'mcp.json'), 'utf8'), 'nested stock config bytes');
   assertArchived(f, 'mcp.json.migrated', stock);
 });
 

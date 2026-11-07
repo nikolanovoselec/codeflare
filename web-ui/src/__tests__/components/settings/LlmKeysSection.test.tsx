@@ -1,25 +1,22 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@solidjs/testing-library';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@solidjs/testing-library';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('../../../api/client', () => ({
   getLlmKeys: vi.fn(),
   updateLlmKeys: vi.fn(),
-  deleteLlmKeys: vi.fn(),
 }));
 
 import LlmKeysSection from '../../../components/settings/LlmKeysSection';
-import { deleteLlmKeys, getLlmKeys, updateLlmKeys } from '../../../api/client';
+import { getLlmKeys, updateLlmKeys } from '../../../api/client';
 
 const mockGetLlmKeys = vi.mocked(getLlmKeys);
 const mockUpdateLlmKeys = vi.mocked(updateLlmKeys);
-const mockDeleteLlmKeys = vi.mocked(deleteLlmKeys);
 
 describe('LlmKeysSection / REQ-AGENT-020', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockGetLlmKeys.mockResolvedValue({});
     mockUpdateLlmKeys.mockResolvedValue({});
-    mockDeleteLlmKeys.mockResolvedValue(undefined);
   });
 
   afterEach(() => cleanup());
@@ -88,20 +85,45 @@ describe('LlmKeysSection / REQ-AGENT-020', () => {
     expect(document.body.textContent).not.toContain('sk-full-secret-wxyz');
   });
 
-  it('clears every key through the clear-all API and updates the visible state after success', async () => {
-    mockGetLlmKeys.mockResolvedValue({
-      openaiApiKey: '****7890',
-      geminiApiKey: '****abcd',
+  it('REQ-AGENT-020 AC3: per-provider Disconnect removes keys without a bulk action', async () => {
+    const saved: { openaiApiKey?: string; geminiApiKey?: string } = {
+      openaiApiKey: '****7890', geminiApiKey: '****abcd',
+    };
+    mockGetLlmKeys.mockResolvedValue({ ...saved });
+    mockUpdateLlmKeys.mockImplementation(async (changes) => {
+      for (const key of ['openaiApiKey', 'geminiApiKey'] as const) {
+        if (changes[key] === null) delete saved[key];
+      }
+      return { ...saved };
     });
     render(() => <LlmKeysSection />);
-    await screen.findByTestId('llm-keys-clear-all');
+    await screen.findByTestId('llm-openai-mask');
 
-    fireEvent.click(screen.getByTestId('llm-keys-clear-all'));
+    // Intentional UI contract: credential removal belongs to each provider row.
+    expect(screen.queryByRole('button', { name: 'Clear all keys' })).not.toBeInTheDocument();
+    fireEvent.click(within(screen.getByTestId('llm-openai-row')).getByRole('button', { name: 'Disconnect' }));
+    expect(await screen.findByRole('button', { name: 'Connect to OpenAI' })).toBeInTheDocument();
+    expect(screen.getByTestId('llm-gemini-mask')).toHaveTextContent('****abcd');
+    expect(saved).toEqual({ geminiApiKey: '****abcd' });
 
-    await waitFor(() => expect(mockDeleteLlmKeys).toHaveBeenCalledOnce());
-    await waitFor(() => expect(screen.queryByTestId('llm-openai-mask')).not.toBeInTheDocument());
+    fireEvent.click(within(screen.getByTestId('llm-gemini-row')).getByRole('button', { name: 'Disconnect' }));
+    expect(await screen.findByRole('button', { name: 'Connect to Gemini' })).toBeInTheDocument();
     expect(screen.queryByTestId('llm-gemini-mask')).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Connect to OpenAI' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Connect to Gemini' })).toBeInTheDocument();
+    expect(saved).toEqual({});
+  });
+
+  it('REQ-AGENT-020 AC3: failed Disconnect preserves both connected providers', async () => {
+    mockGetLlmKeys.mockResolvedValue({ openaiApiKey: '****7890', geminiApiKey: '****abcd' });
+    mockUpdateLlmKeys.mockRejectedValue(new Error('Could not disconnect.'));
+    render(() => <LlmKeysSection />);
+    await screen.findByTestId('llm-openai-mask');
+
+    const disconnect = within(screen.getByTestId('llm-openai-row')).getByRole('button', { name: 'Disconnect' });
+    fireEvent.click(disconnect);
+    expect(disconnect).toBeDisabled();
+    await waitFor(() => expect(disconnect).toBeEnabled());
+    expect(screen.getByTestId('llm-openai-mask')).toHaveTextContent('****7890');
+    expect(screen.getByTestId('llm-gemini-mask')).toHaveTextContent('****abcd');
+    expect(screen.queryByRole('button', { name: 'Connect to OpenAI' })).not.toBeInTheDocument();
   });
 });
