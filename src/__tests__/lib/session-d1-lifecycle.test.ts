@@ -442,7 +442,7 @@ describe('REQ-SESSION-018/020–026/035: bounded unreachable runtime ownership',
         const body = typeof init?.body === 'string' ? JSON.parse(init.body) as { final?: boolean } : {};
         hostRequests.push({ url: _url, final: body.final === true });
         expect(new Headers(init?.headers).get('Authorization')).toBe('Bearer test-token');
-        return response();
+        return await response();
       } }), signal: (signal: number) => { effects.push(`signal:${signal}`); }, destroy: () => { effects.push('destroy'); return provider(); } },
       abort: () => { effects.push('reset'); throw Error('fixture reset'); } };
     const host = { ctx, env: { USAGE_DB: db }, _bucketName: owner, _sessionId: id, _containerAuthToken: 'test-token',

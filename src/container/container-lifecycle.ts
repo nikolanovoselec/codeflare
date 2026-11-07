@@ -372,7 +372,7 @@ export async function collectMetrics(host: LifecycleHost, delivered?: MetricsPin
       // SDK schedules are one-shot rows on the existing alarm. Replace this
       // callback's rows so an SDK stop callback cannot duplicate the reaper.
       host.deleteSchedules(method);
-      return host.schedule(delaySec, method, pin);
+      return await host.schedule(delaySec, method, pin);
     },
     idleTimeoutPref: host.idleTimeoutPref,
     setIdleTimeoutPref: (next: string) => { host.idleTimeoutPref = next; },
