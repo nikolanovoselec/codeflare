@@ -433,7 +433,7 @@ sudo apt-get install -yqq --no-install-recommends \
 
 **Symptom:** A Pi package installed during a session is missing after container restart.
 
-**Cause:** Pi stays offline for automatic package checks in both Fast Start modes. A user-added package absent from the image cache therefore requires explicit installation.
+**Cause:** Pi stays offline for automatic package checks in both Fast Start modes ([REQ-AGENT-012](../../sdd/spec/agents.md#req-agent-012-fast-cli-start-configurable)). A user-added package absent from the image cache therefore requires explicit installation.
 
 **Fix:** Check `pi list`, then explicitly run `PI_OFFLINE=0 pi install 'npm:<package>@<exact-version>'` using the missing user-added package's reviewed name and exact version. Run `/reload` afterward. The environment override affects only that manual command; normal startup/reload remains offline. Do not change image-owned managed package pins.
 
