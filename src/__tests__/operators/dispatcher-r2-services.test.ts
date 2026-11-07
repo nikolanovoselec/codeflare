@@ -1667,29 +1667,36 @@ describe('REQ-OPERATOR-007/047/048: protected SDK-prepared HTTP, not Parent mode
     expect(paid).toEqual([sdkBody]);
   }));
 
-  it.each([false, true].flatMap(loggingEnabled => [false, true].map(nativeProviderDefault => ({ loggingEnabled, nativeProviderDefault }))))('REQ-OPERATOR-007/047: normal Native SDK HTTP crosses real strict egress with Activity authority (logging: $loggingEnabled, default: $nativeProviderDefault)', ({ loggingEnabled, nativeProviderDefault }) => lane(async f => {
-    await admitted(f);
-    f.environment.ENTERPRISE_MODE = 'active';
-    const originalGet = f.environment.KV.get.bind(f.environment.KV);
-    vi.spyOn(f.environment.KV, 'get').mockImplementation((async (key: string, ...args: unknown[]) =>
-      key === SETUP_KEYS.STRICT_EGRESS ? 'active' : Reflect.apply(originalGet, f.environment.KV, [key, ...args])) as typeof f.environment.KV.get);
-    const outgoing: Request[] = [];
-    const original = globalThis.fetch;
-    vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
-      const request = new Request(input, init);
-      if (request.url !== 'https://api.openai.com/v1/responses') return original(request);
-      outgoing.push(request.clone());
-      return new Response('native SDK original stream', { headers: { 'content-type': 'text/event-stream' } });
-    });
-    const permit = await json(await modelAdmission(f));
-    const response = await modelFetch(f, permit.permitId, { url: 'https://api.openai.com/v1/responses', method: 'POST',
-      headers: [['authorization', `Bearer ${oldOAuth.access}`], ['content-type', 'application/json']], bodyBase64: encodeBody(sdkBody) });
-    expect(response.status).toBe(200);
-    expect(await response.text()).toBe('native SDK original stream');
-    expect(outgoing.map(request => request.url)).toEqual(['https://api.openai.com/v1/responses']);
-    expect(outgoing[0].headers.get('authorization')).toBe(`Bearer ${oldOAuth.access}`);
-    expect(await outgoing[0].text()).toBe(sdkBody);
-  }, true, true, { loggingEnabled, nativeProviderDefault }));
+  it.each([false, true].flatMap(loggingEnabled => [false, true].flatMap(nativeProviderDefault => [
+    { destination: 'catalog', url: 'https://api.openai.com/v1/responses' },
+    { destination: 'custom', url: 'https://custom.example.test/native/stream' },
+  ].map(endpoint => ({ loggingEnabled, nativeProviderDefault, ...endpoint })))))(
+    'REQ-OPERATOR-007/047: strict Native SDK forwards $destination endpoints (logging: $loggingEnabled, default: $nativeProviderDefault)',
+    ({ loggingEnabled, nativeProviderDefault, url }) => lane(async f => {
+      await admitted(f);
+      f.environment.ENTERPRISE_MODE = 'active';
+      const originalGet = f.environment.KV.get.bind(f.environment.KV);
+      const policy = vi.spyOn(f.environment.KV, 'get').mockImplementation((async (key: string, ...args: unknown[]) =>
+        key === SETUP_KEYS.STRICT_EGRESS ? 'active' : Reflect.apply(originalGet, f.environment.KV, [key, ...args])) as typeof f.environment.KV.get);
+      try {
+        const outgoing: Request[] = [];
+        const original = globalThis.fetch;
+        vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
+          const request = new Request(input, init);
+          if (request.url !== url) return original(request);
+          outgoing.push(request.clone());
+          return new Response('native SDK original stream', { headers: { 'content-type': 'text/event-stream' } });
+        });
+        const permit = await json(await modelAdmission(f));
+        const response = await modelFetch(f, permit.permitId, { url, method: 'POST',
+          headers: [['authorization', `Bearer ${oldOAuth.access}`], ['content-type', 'application/json']], bodyBase64: encodeBody(sdkBody) });
+        expect(response.status).toBe(200);
+        expect(await response.text()).toBe('native SDK original stream');
+        expect(outgoing.map(request => request.url)).toEqual([url]);
+        expect(outgoing[0].headers.get('authorization')).toBe(`Bearer ${oldOAuth.access}`);
+        expect(await outgoing[0].text()).toBe(sdkBody);
+      } finally { policy.mockRestore(); }
+    }, true, true, { loggingEnabled, nativeProviderDefault }));
 
   it.each(['generation', 'profile', 'revoked-owner'] as const)('REQ-OPERATOR-047: normal Native strict egress refuses %s before provider I/O', fault => lane(async f => {
     await admitted(f);

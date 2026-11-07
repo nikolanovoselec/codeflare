@@ -17,6 +17,7 @@ import { sdkServiceFailureSchema, type SdkServiceFailure } from './dispatcher-di
 import { emitRaw } from '../../host/src/operator-raw-logging';
 import { PiAuthRequiredError, safePiAuthFailure } from './pi-auth-failure';
 import type { PersonalPiProps } from '../lib/personal-pi-forwarding';
+import { isPersonalPiDestination } from '../lib/personal-pi-destinations';
 
 export interface SdkInput {
   generation: number;
@@ -216,9 +217,13 @@ export async function forwardDispatcherSdkHttp(input: SdkInput & {
     await sameOwner(input, owner);
     if (strict) {
       if (!input.env.EGRESS || !input.exports?.EgressController) throw new Error('SDK strict transport unavailable');
+      // Catalogued personal-provider hosts need the Activity-owned native scope.
+      // Custom SDK endpoints retain validated generic strict forwarding; the same
+      // owner/current checks enclose both paths without widening the legacy allowlist.
       const transport = input.exports.EgressController({ props: { strict: true,
-        operatorDispatcherNative: { activityId: input.plan.activityId, generation: input.generation,
-          profileDigest: input.selection.profileDigest } } });
+        ...(isPersonalPiDestination(url, input.env) ? { operatorDispatcherNative: {
+          activityId: input.plan.activityId, generation: input.generation,
+          profileDigest: input.selection.profileDigest } } : {}) } });
       response = await transport.fetch(request);
     } else response = await fetch(request);
   }
