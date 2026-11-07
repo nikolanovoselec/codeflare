@@ -15,7 +15,7 @@ const key = (name) => `codeflare-portal-${name}`;
 function fixture(t) {
   const directory = mkdtempSync(join(tmpdir(), 'pi-mcp-portals-'));
   t.after(() => rmSync(directory, { recursive: true, force: true }));
-  const configPath = join(directory, '.pi', 'agent', 'mcp.json');
+  const configPath = join(directory, '.pi', 'agent', 'mcp-adapter.json');
   mkdirSync(join(directory, '.pi', 'agent'), { recursive: true });
   return {
     directory, configPath,
@@ -24,12 +24,12 @@ function fixture(t) {
   };
 }
 
-test('REQ-AGENT-228 AC1: startup produces multiple eager non-secret placeholder portal connections', (t) => {
+test('REQ-AGENT-228 AC1: startup produces multiple idle-disconnecting non-secret placeholder portal connections', (t) => {
   const f = fixture(t);
   assert.equal(f.run(), true);
   const saved = f.read();
   for (const portal of portals) {
-    assert.deepEqual(saved.mcpServers[key(portal.name)], { url: portal.url, transport: 'streamable-http', headers: { Authorization: 'Bearer codeflare-mcp-portal' }, lifecycle: 'eager' });
+    assert.deepEqual(saved.mcpServers[key(portal.name)], { url: portal.url, headers: { Authorization: 'Bearer codeflare-mcp-portal' }, auth: false, lifecycle: 'lazy', idleTimeout: 10, requestTimeoutMs: 360000, directTools: 'search' });
   }
   const first = readFileSync(f.configPath, 'utf8');
   f.run();
@@ -60,7 +60,7 @@ test('REQ-AGENT-228 AC2: reconciliation preserves unrelated servers and grants',
   f.run({ portalsJson: JSON.stringify(updated) });
   const changed = f.read();
   assert.equal(changed.mcpServers[key('codeflare_enterprise')], undefined);
-  assert.equal(changed.mcpServers[key('github')].auth, undefined);
+  assert.equal(changed.mcpServers[key('github')].auth, false);
   assert.deepEqual(changed.mcpServers.user_oauth, withAuth.mcpServers.user_oauth);
   assert.deepEqual(changed.settings, unrelated.settings);
   assert.deepEqual(changed.customSetting, unrelated.customSetting);
@@ -87,6 +87,15 @@ test('REQ-AGENT-228 AC2: unproven prefixed names and modified registrations are 
   writeFileSync(f.configPath, changedBytes);
   assert.throws(() => f.run({ portalsJson: '[]' }), /changed/);
   assert.equal(readFileSync(f.configPath, 'utf8'), changedBytes);
+});
+
+test('REQ-AGENT-228 AC2: added managed request-header commands are preserved rather than claimed', t => {
+  const f = fixture(t); f.run();
+  const config = f.read();
+  config.mcpServers[key('github')].requestHeadersCommand = { command: 'user-owned-header-provider' };
+  const bytes = JSON.stringify(config); writeFileSync(f.configPath, bytes);
+  assert.throws(() => f.run(), /changed/);
+  assert.equal(readFileSync(f.configPath, 'utf8'), bytes);
 });
 
 test('REQ-AGENT-228 AC1: both supported Pi modes bootstrap while invalid modes and incomplete migration preserve files', (t) => {
@@ -128,8 +137,8 @@ test('REQ-AGENT-228 AC1: public HTTPS on the standard port remains supported', t
   const f = fixture(t);
   const configured = [{ name: 'public', url: 'https://portal.example.com:443/mcp?codemode=search_and_execute' }];
   assert.equal(f.run({ portalsJson: JSON.stringify(configured) }), true);
-  assert.deepEqual(f.read().mcpServers[key('public')], { url: configured[0].url, transport: 'streamable-http',
-    headers: { Authorization: 'Bearer codeflare-mcp-portal' }, lifecycle: 'eager' });
+  assert.deepEqual(f.read().mcpServers[key('public')], { url: configured[0].url,
+    headers: { Authorization: 'Bearer codeflare-mcp-portal' }, auth: false, lifecycle: 'lazy', idleTimeout: 10, requestTimeoutMs: 360000, directTools: 'search' });
 });
 
 test('REQ-AGENT-228 AC2: malformed input leaves configuration byte-identical', (t) => {

@@ -17,7 +17,7 @@ Managed Browser Run is Advanced-only and requires configured Browser Rendering a
 
 ## Decision order (cheapest that does the job)
 
-1. **Static / normal page** → `WebFetch`, or `ctx_fetch_and_index` (context-mode) when the page is large or you only want specific facts (keeps the bytes out of your context). Fast and cheap.
+1. **Static / normal page** → `WebFetch`, or `ctx_index({ url: "https://…" })` (context-mode) when the page is large or you only want specific facts (keeps the bytes out of your context). Fast and cheap.
 2. **Raw HTTP / JSON API** → `curl` via Bash.
 3. **Blocked or JS-only, but you only need to READ it** → `browser_markdown` (clean Markdown — smallest, best for content), `browser_content` (rendered HTML/DOM), or `browser_scrape` (specific CSS selectors). One-shot, no session — **prefer this over chrome-devtools whenever you don't need to interact.** Don't retry `WebFetch` on a page you already know needs JS.
 4. **You need to INTERACT** — navigate a multi-step flow, click/fill, take a screenshot, test a viewport → the `chrome-devtools` browser. This is where e2e lives; see the `browser-e2e` skill.

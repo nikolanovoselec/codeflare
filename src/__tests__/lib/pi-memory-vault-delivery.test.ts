@@ -20,6 +20,7 @@ import {
   parseActiveExtractionRequest,
   parseMemoryCaptureRequest,
   parseSessionEntries,
+  realUserPromptCount,
   parseVaultExtractRequest,
   type ExtractionJob,
   type PublicExtractionRequest,
@@ -60,6 +61,7 @@ interface SentMessage {
   options?: { deliverAs?: 'followUp'; triggerTurn?: boolean };
 }
 
+type DeliveryJob = ExtractionJob | 'transcript-trim';
 type Handler = (event: unknown, ctx: TestContext) => void | Promise<void>;
 interface TestContext {
   cwd: string;
@@ -67,6 +69,8 @@ interface TestContext {
     getSessionFile(): string;
     getSessionId(): string;
     getHeader(): Record<string, unknown>;
+    getBranch?(): readonly Record<string, unknown>[];
+    getEntries?(): readonly Record<string, unknown>[];
   };
 }
 
@@ -149,7 +153,7 @@ function userMessage(content: string, timestamp = '2026-07-14T09:00:00.000Z'): R
 
 function toolCall(
   toolUseId: string,
-  job: ExtractionJob,
+  job: DeliveryJob,
   request: PublicExtractionRequest,
   timestamp = '2026-07-14T09:45:00.000Z',
   overrides: Record<string, unknown> = {},
@@ -227,6 +231,7 @@ function makeHarness(options: { child?: boolean; existingVault?: boolean } = {})
   writeFileSync(paths.vaultPromptFile, '# vault fixture\n', 'utf8');
   writeFileSync(sessionFile, `${JSON.stringify({
     type: 'session',
+    version: 3,
     id: sessionId,
     cwd: root,
     ...(options.child ? { parentSession: '/tmp/parent.jsonl' } : {}),
@@ -321,7 +326,7 @@ function activeExecutionPath(harness: Harness, job: ExtractionJob): string {
     : join(harness.paths.cacheDir, `vault-extract.pi.${requestId}.vars`);
 }
 
-function latestLaunchMessage(pi: FakePi, job: ExtractionJob): SentMessage {
+function latestLaunchMessage(pi: FakePi, job: DeliveryJob): SentMessage {
   const sent = [...pi.sent].reverse().find((candidate) =>
     candidate.message.customType === 'background-extraction-launch'
     && candidate.message.details?.items?.some((item) => item.jobType === job));
@@ -343,7 +348,7 @@ function extractionJobLines(content: string | undefined): string[] {
   return String(content ?? '').split('\n').filter((line) => /^- `(?:memory-capture|vault-extract)`/.test(line));
 }
 
-function latestLaunch(pi: FakePi, job: ExtractionJob): { requestId: string; reminder: number; request: PublicExtractionRequest } {
+function latestLaunch(pi: FakePi, job: DeliveryJob): { requestId: string; reminder: number; request: PublicExtractionRequest } {
   const sent = latestLaunchMessage(pi, job);
   const item = sent.message.details?.items?.find((candidate) => candidate.jobType === job);
   if (!item) throw new Error(`missing ${job} launch`);
@@ -358,12 +363,14 @@ async function appendPrompt(harness: Harness, ordinal: number): Promise<void> {
 
 async function triggerVaultCheck(harness: Harness): Promise<void> {
   mkdirSync(dirname(memoryCounterPath(harness)), { recursive: true });
-  writeFileSync(memoryCounterPath(harness), '20', 'utf8');
-  writeFileSync(vaultCheckCounterPath(harness), '0', 'utf8');
-  for (let ordinal = 1; ordinal <= 20; ordinal += 1) {
-    appendEntry(harness.sessionFile, userMessage(`vault cadence ${ordinal}`));
+  if (!existsSync(memoryCounterPath(harness))) writeFileSync(memoryCounterPath(harness), '0', 'utf8');
+  // Reuse the memory cadence even when its earlier request is still pending.
+  const messages = parseSessionEntries(readFileSync(harness.sessionFile, 'utf8'))
+    .map((entry: any) => entry.message).filter(Boolean);
+  const currentCount = realUserPromptCount(messages);
+  for (let ordinal = currentCount + 1; ordinal <= currentCount + 20; ordinal += 1) {
+    await appendPrompt(harness, ordinal);
   }
-  await harness.emit('before_agent_start', { prompt: 'vault cadence 20' });
 }
 
 function launchedMemoryRequest(harness: Harness, pi = harness.pi): Record<string, any> {
@@ -423,7 +430,7 @@ async function completeMemoryCapture(harness: Harness): Promise<string> {
   return target;
 }
 
-async function failExactAttempts(harness: Harness, job: ExtractionJob): Promise<void> {
+async function failExactAttempts(harness: Harness, job: DeliveryJob): Promise<void> {
   await harness.emit('agent_settled');
   for (let attempt = 1; attempt <= 6; attempt += 1) {
     const launch = latestLaunch(harness.pi, job);
@@ -431,6 +438,27 @@ async function failExactAttempts(harness: Harness, job: ExtractionJob): Promise<
     appendEntry(harness.sessionFile, toolCall(toolUseId, job, launch.request), notification(toolUseId, 'Error'));
     await harness.emit('agent_settled');
   }
+}
+
+// Only request delivery is exercised: no worker or real transcript replacement.
+function makeTrimEligible(harness: Harness): void {
+  const line = `${JSON.stringify({ type: 'custom', customType: 'fixture-padding', data: 'x'.repeat(1_000_000) })}\n`;
+  for (let index = 0; index < 50; index += 1) appendFileSync(harness.sessionFile, line);
+  harness.ctx.sessionManager.getBranch = () => [];
+  harness.ctx.sessionManager.getEntries = () => parseSessionEntries(readFileSync(harness.sessionFile, 'utf8'));
+}
+
+function deliveredItems(harness: Harness): Array<Record<string, unknown>> {
+  return harness.pi.sent.filter((sent) => sent.message.customType === 'background-extraction-launch')
+    .flatMap((sent) => modelVisibleLaunchItems(sent));
+}
+
+async function completeVaultCapture(harness: Harness): Promise<void> {
+  const launch = latestLaunch(harness.pi, 'vault-extract');
+  const callId = nextId('successful-vault');
+  writePostCommitChunk(harness, launch.requestId);
+  appendEntry(harness.sessionFile, toolCall(callId, 'vault-extract', launch.request), notification(callId));
+  await harness.emit('agent_settled');
 }
 
 afterEach(() => {
@@ -1248,8 +1276,201 @@ describe('REQ-MEM-001/REQ-MEM-002: root-owned memory delivery lifecycle', () => 
   });
 });
 
+describe('Pi memory-owned extraction cadence', () => {
+  it('REQ-VAULT-031 AC2: shared memory cadence checks companions while capture remains pending', async () => {
+    const harness = makeHarness();
+    await harness.emit('session_start');
+    writeFileSync(memoryCounterPath(harness), '0');
+    for (let ordinal = 1; ordinal <= 20; ordinal += 1) await appendPrompt(harness, ordinal);
+    await harness.emit('agent_settled');
+    const frozen = launchedMemoryRequest(harness);
+    const before = deliveredItems(harness).length;
+    writeFileSync(join(harness.paths.vaultRoot, 'Notes', 'pending-change.md'), 'changed\n');
+    makeTrimEligible(harness);
+    for (let ordinal = 21; ordinal <= 40; ordinal += 1) {
+      appendEntry(harness.sessionFile, userMessage(`real prompt ${ordinal}`));
+    }
+    for (let repeat = 0; repeat < 2; repeat += 1) {
+      await harness.emit('before_agent_start', { prompt: 'real prompt 40' });
+      await harness.emit('agent_settled');
+    }
+    expect(deliveredItems(harness).slice(before).map(item => item.jobType)).toEqual(['vault-extract', 'transcript-trim']);
+    expect(launchedMemoryRequest(harness)).toEqual(frozen);
+    expect(readFileSync(memoryCounterPath(harness), 'utf8')).toBe('0');
+    await harness.emit('session_shutdown');
+  });
+
+  it.each([3, 20])('REQ-MEM-025 AC3: re-arms all three jobs when exhausted history is replaced with %i prompts', async retainedCount => {
+    const harness = makeHarness();
+    await harness.emit('session_start');
+    writeFileSync(memoryCounterPath(harness), '0');
+    for (let ordinal = 1; ordinal <= 20; ordinal += 1) await appendPrompt(harness, ordinal);
+    await failExactAttempts(harness, 'memory-capture');
+    const exhausted = latestLaunch(harness.pi, 'memory-capture');
+    const before = deliveredItems(harness).length;
+    const entries = parseSessionEntries(readFileSync(harness.sessionFile, 'utf8'));
+    writeFileSync(harness.sessionFile, `${entries.filter((entry: any) =>
+      entry.type !== 'message' || entry.message?.role !== 'user').map((entry) => JSON.stringify(entry)).join('\n')}\n`);
+    for (let ordinal = 1; ordinal <= retainedCount; ordinal += 1) {
+      appendEntry(harness.sessionFile, userMessage(`replacement history ${ordinal}`));
+    }
+    writeFileSync(join(harness.paths.vaultRoot, 'Notes', 'replacement.md'), 'changed\n');
+    makeTrimEligible(harness);
+    await harness.emit('before_agent_start', { prompt: `replacement history ${retainedCount}` });
+    await harness.emit('agent_settled');
+    const batch = deliveredItems(harness).slice(before);
+    expect(batch.map((item) => item.jobType)).toEqual(['memory-capture', 'vault-extract', 'transcript-trim']);
+    expect(latestLaunch(harness.pi, 'memory-capture').requestId).not.toBe(exhausted.requestId);
+    expect(launchedMemoryRequest(harness).promptCount).toBe(retainedCount);
+    expect(launchedMemoryRequest(harness).transcript).toContain('replacement history 1');
+    expect(readFileSync(memoryCounterPath(harness), 'utf8')).toBe('0');
+    await harness.emit('agent_settled');
+    expect(deliveredItems(harness).slice(before)).toEqual(batch);
+    await harness.emit('session_shutdown');
+  });
+
+  it('REQ-MEM-002 AC4: baselines the first prompt and arms all three jobs only after twenty new prompts', async () => {
+    const harness = makeHarness();
+    await harness.emit('session_start');
+    writeFileSync(join(harness.paths.vaultRoot, 'Notes', 'changed.md'), 'changed\n');
+    for (let ordinal = 1; ordinal <= 20; ordinal += 1) await appendPrompt(harness, ordinal);
+    await harness.emit('agent_settled');
+    expect(deliveredItems(harness)).toEqual([]);
+    expect(readFileSync(memoryCounterPath(harness), 'utf8')).toBe('1');
+
+    makeTrimEligible(harness);
+    await appendPrompt(harness, 21);
+    await harness.emit('agent_settled');
+    expect(deliveredItems(harness).map((item) => item.jobType))
+      .toEqual(['memory-capture', 'vault-extract', 'transcript-trim']);
+    expect(harness.pi.sent.filter(sent => sent.message.customType === 'background-extraction-launch')
+      .map(sent => modelVisibleLaunchItems(sent).map(item => item.jobType)))
+      .toEqual([['memory-capture', 'vault-extract', 'transcript-trim']]);
+    expect(launchedMemoryRequest(harness).promptCount).toBe(21);
+    expect(launchedMemoryRequest(harness).transcript).not.toContain('real prompt 1\n');
+    await harness.emit('session_shutdown');
+  });
+
+  it.each(['shortened', 'rewritten'])(
+    'REQ-MEM-025 AC3: arms all three jobs for %s history despite a legacy Vault count of 741',
+    async (history) => {
+      const harness = makeHarness();
+      await harness.emit('session_start');
+      if (history === 'rewritten') {
+        writeFileSync(memoryCounterPath(harness), '0');
+        for (let ordinal = 1; ordinal <= 20; ordinal += 1) await appendPrompt(harness, ordinal);
+        await harness.emit('agent_settled');
+        await completeMemoryCapture(harness);
+      } else {
+        writeFileSync(memoryCounterPath(harness), '1013');
+      }
+      const before = deliveredItems(harness).length;
+      writeFileSync(vaultCheckCounterPath(harness), '741');
+      writeFileSync(harness.sessionFile, `${JSON.stringify({ type: 'session', version: 3, id: harness.sessionId })}\n`);
+      const count = history === 'shortened' ? 3 : 20;
+      for (let ordinal = 1; ordinal <= count; ordinal += 1) {
+        appendEntry(harness.sessionFile, userMessage(`retained history ${ordinal}`));
+      }
+      const changed = join(harness.paths.vaultRoot, 'Notes', 'after-rewrite.md');
+      writeFileSync(changed, 'changed\n');
+      makeTrimEligible(harness);
+      await harness.emit('before_agent_start', { prompt: `retained history ${count}` });
+      await harness.emit('agent_settled');
+      const batch = deliveredItems(harness).slice(before);
+      expect(batch.map((item) => item.jobType)).toEqual(['memory-capture', 'vault-extract', 'transcript-trim']);
+      expect(launchedMemoryRequest(harness)).toMatchObject({ promptCount: count });
+      expect(launchedMemoryRequest(harness).transcript).toContain('retained history 1');
+      expect(launchedMemoryRequest(harness).transcript).not.toContain('real prompt');
+      expect(readJson(activeExecutionPath(harness, 'vault-extract')).changedFiles).toEqual([changed]);
+      expect(readFileSync(memoryCounterPath(harness), 'utf8')).toBe(history === 'shortened' ? '1013' : '20');
+      expect(readFileSync(vaultCheckCounterPath(harness), 'utf8')).toBe('741');
+      await harness.emit('agent_settled');
+      await harness.emit('before_agent_start', { prompt: `retained history ${count}` });
+      await harness.emit('agent_settled');
+      expect(deliveredItems(harness).slice(before)).toEqual(batch);
+      await harness.emit('session_shutdown');
+    },
+  );
+
+  it('REQ-VAULT-031 AC2: uses twenty prompts from memory success rather than an absolute bucket', async () => {
+    const harness = makeHarness();
+    await harness.emit('session_start');
+    await startRebasedCapture(harness);
+    await completeMemoryCapture(harness);
+    const before = deliveredItems(harness).length;
+    writeFileSync(vaultCheckCounterPath(harness), '741');
+    const changed = join(harness.paths.vaultRoot, 'Notes', 'next-batch.md');
+    writeFileSync(changed, 'changed\n');
+    for (let ordinal = 4; ordinal <= 22; ordinal += 1) await appendPrompt(harness, ordinal);
+    for (const content of ['<task-notification>done</task-notification>', 'PROMPT_FILE=/tmp/fixture']) {
+      appendEntry(harness.sessionFile, userMessage(content), notification('unrelated-worker'));
+      await harness.emit('before_agent_start', { prompt: content });
+    }
+    await harness.emit('agent_settled');
+    expect(deliveredItems(harness).slice(before)).toEqual([]);
+    expect(readFileSync(memoryCounterPath(harness), 'utf8')).toBe('3');
+
+    makeTrimEligible(harness);
+    await appendPrompt(harness, 23);
+    await harness.emit('agent_settled');
+    expect(deliveredItems(harness).slice(before).map((item) => item.jobType))
+      .toEqual(['memory-capture', 'vault-extract', 'transcript-trim']);
+    expect(launchedMemoryRequest(harness).promptCount).toBe(23);
+    expect(launchedMemoryRequest(harness).transcript).toContain('real prompt 4');
+    expect(launchedMemoryRequest(harness).transcript).not.toContain('retained conversation');
+    const trim = latestLaunch(harness.pi, 'transcript-trim');
+    const varsFile = trim.request.prompt.match(/^VARS_FILE=(.+)$/m)![1];
+    expect(readJson(varsFile)).toMatchObject({ targetBytes: 20_000_000, candidateBudget: 25_000_000 });
+    await harness.emit('session_shutdown');
+  });
+
+  it('REQ-MEM-002 AC5: re-arms companions once at memory GIVEUP plus twenty real prompts', async () => {
+    const harness = makeHarness();
+    await harness.emit('session_start');
+    writeFileSync(memoryCounterPath(harness), '0');
+    const changed = join(harness.paths.vaultRoot, 'Notes', 'retry-batch.md');
+    writeFileSync(changed, 'first\n');
+    for (let ordinal = 1; ordinal <= 20; ordinal += 1) await appendPrompt(harness, ordinal);
+    await harness.emit('agent_settled');
+    await completeVaultCapture(harness);
+    // The first batch was below the size threshold. A pending or failed memory
+    // job must not independently discover later Vault edits or this size growth.
+    makeTrimEligible(harness);
+    writeFileSync(changed, 'second\n');
+    const beforeFailure = deliveredItems(harness).length;
+    await failExactAttempts(harness, 'memory-capture');
+    expect(deliveredItems(harness).slice(beforeFailure).filter((item) => item.jobType !== 'memory-capture')).toEqual([]);
+    const exhausted = latestLaunch(harness.pi, 'memory-capture');
+    const before = deliveredItems(harness).length;
+    for (let ordinal = 21; ordinal <= 39; ordinal += 1) {
+      appendEntry(harness.sessionFile, userMessage(`real prompt ${ordinal}`));
+    }
+    await harness.emit('before_agent_start', { prompt: 'real prompt 39' });
+    for (let repeat = 0; repeat < 2; repeat += 1) {
+      appendEntry(harness.sessionFile, notification('synthetic'), userMessage('<task-notification>done</task-notification>'));
+      await harness.emit('before_agent_start', { prompt: '<task-notification>done</task-notification>' });
+      await harness.emit('agent_settled');
+    }
+    expect(deliveredItems(harness).slice(before)).toEqual([]);
+    expect(readFileSync(memoryCounterPath(harness), 'utf8')).toBe('0');
+    await appendPrompt(harness, 40);
+    await harness.emit('agent_settled');
+    const batch = deliveredItems(harness).slice(before);
+    expect(batch.map((item) => item.jobType)).toEqual(['memory-capture', 'vault-extract', 'transcript-trim']);
+    expect(latestLaunch(harness.pi, 'memory-capture').requestId).not.toBe(exhausted.requestId);
+    expect(launchedMemoryRequest(harness).promptCount).toBe(40);
+    await completeVaultCapture(harness);
+    writeFileSync(changed, 'third\n');
+    await harness.emit('before_agent_start', { prompt: 'real prompt 40' });
+    await harness.emit('agent_settled');
+    expect(deliveredItems(harness).slice(before)).toEqual(batch);
+    expect(readFileSync(memoryCounterPath(harness), 'utf8')).toBe('0');
+    await harness.emit('session_shutdown');
+  });
+});
+
 describe('REQ-VAULT-027: transactional Pi Vault extraction delivery / REQ-VAULT-028 (vault-edit isolation after launch)', () => {
-  it('hash-checks at prompt 20 and launches only when Vault content changed', async () => {
+  it('hash-checks after twenty new memory prompts and launches only when Vault content changed', async () => {
     const unchanged = makeHarness();
     await unchanged.emit('session_start');
     await triggerVaultCheck(unchanged);

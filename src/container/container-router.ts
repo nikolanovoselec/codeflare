@@ -55,6 +55,7 @@ interface SetBucketNameBody {
   r2AccountId?: string;
   r2Endpoint?: string;
   workspaceSyncEnabled?: boolean;
+  syncPolicyMode?: import('../lib/sync-policy').SyncPolicyMode;
   fastStartEnabled?: boolean;
   tabConfig?: TabConfig[];
   openaiApiKey?: string;
@@ -173,7 +174,7 @@ export function dispatchInternalRoute(
 /** Handle POST /_internal/setBucketName. */
 async function handleSetBucketName(host: ContainerHost, request: Request): Promise<Response> {
   try {
-    const { bucketName, sessionId, userEmail, userGroups, routeCatalog, allowPersonalPiProviders, piDefaultSource, defaultRoute, defaultReasoning, routeContextWindows, routeReasoningLevels, modelDisplayNames, promptCacheTargets, r2AccessKeyId, r2SecretAccessKey, r2AccountId, r2Endpoint, workspaceSyncEnabled, fastStartEnabled, tabConfig, openaiApiKey, geminiApiKey, githubToken, cloudflareApiToken, cloudflareAccountId, encryptionKey, r2SseDisabled, remoteCurationActive, remoteCurationReleaseDigest, remoteCurationManifestDigest, managedResourcePolicy, managedResourcePathsDigest, sessionMode, sessionWorkspace, terminalMode, userTimezone, gitCloneRepo, gitCloneRef, gitCloneTargets, sleepAfter: sleepAfterPref } =
+    const { bucketName, sessionId, userEmail, userGroups, routeCatalog, allowPersonalPiProviders, piDefaultSource, defaultRoute, defaultReasoning, routeContextWindows, routeReasoningLevels, modelDisplayNames, promptCacheTargets, r2AccessKeyId, r2SecretAccessKey, r2AccountId, r2Endpoint, workspaceSyncEnabled, syncPolicyMode, fastStartEnabled, tabConfig, openaiApiKey, geminiApiKey, githubToken, cloudflareApiToken, cloudflareAccountId, encryptionKey, r2SseDisabled, remoteCurationActive, remoteCurationReleaseDigest, remoteCurationManifestDigest, managedResourcePolicy, managedResourcePathsDigest, sessionMode, sessionWorkspace, terminalMode, userTimezone, gitCloneRepo, gitCloneRef, gitCloneTargets, sleepAfter: sleepAfterPref } =
       await request.json() as SetBucketNameBody;
 
     const resourceIdentityError = managedResourcePolicy === undefined && managedResourcePathsDigest !== undefined
@@ -188,7 +189,7 @@ async function handleSetBucketName(host: ContainerHost, request: Request): Promi
           : null;
     const validationError = resourceIdentityError ?? validateBucketNameInput({
       bucketName, sessionId, r2AccessKeyId, r2SecretAccessKey, r2AccountId, r2Endpoint,
-      workspaceSyncEnabled, fastStartEnabled, sessionMode, sessionWorkspace, terminalMode, routeReasoningLevels, modelDisplayNames, promptCacheTargets, piDefaultSource,
+      workspaceSyncEnabled, syncPolicyMode, fastStartEnabled, sessionMode, sessionWorkspace, terminalMode, routeReasoningLevels, modelDisplayNames, promptCacheTargets, piDefaultSource,
     });
     if (validationError) {
       return new Response(JSON.stringify({ error: validationError }), {
@@ -241,7 +242,7 @@ async function handleSetBucketName(host: ContainerHost, request: Request): Promi
       // Without this, preference changes made between sessions are lost.
       const prefsChanged = await applyPrefsOnRestart(host, host.ctx.storage, {
         sessionId, userEmail, userGroups, routeCatalog, allowPersonalPiProviders: allowPersonalPiProviders === true, piDefaultSource: piDefaultSource ?? 'managed', defaultRoute, defaultReasoning, routeContextWindows, routeReasoningLevels, modelDisplayNames, promptCacheTargets,
-        workspaceSyncEnabled, fastStartEnabled, tabConfig,
+        workspaceSyncEnabled, syncPolicyMode, fastStartEnabled, tabConfig,
         openaiApiKey, geminiApiKey, githubToken, cloudflareApiToken, cloudflareAccountId,
         encryptionKey, r2SseDisabled, remoteCurationActive, remoteCurationReleaseDigest, remoteCurationManifestDigest,
         managedResourcePolicy, managedResourcePathsDigest, sessionMode, sessionWorkspace, terminalMode, userTimezone,
@@ -338,6 +339,7 @@ async function handleSetBucketName(host: ContainerHost, request: Request): Promi
       r2AccountId,
       r2Endpoint,
       workspaceSyncEnabled,
+      syncPolicyMode,
       fastStartEnabled,
       tabConfig,
       openaiApiKey,

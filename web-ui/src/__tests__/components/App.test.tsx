@@ -1,10 +1,17 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor, cleanup } from '@solidjs/testing-library';
 import type { JSX } from 'solid-js';
+import { ApiError } from '../../api/fetch-helper';
 
 const getSetupStatusMock = vi.fn();
 const getUserMock = vi.fn();
 const getOnboardingConfigMock = vi.fn();
+const getPortalsMock = vi.fn().mockResolvedValue([]);
+const recoverPortalMock = vi.fn();
+vi.mock('../../api/mcp-portals', () => ({
+  getMcpPortalStatuses: (...args: unknown[]) => getPortalsMock(...args),
+  recoverMcpPortal: (...args: unknown[]) => recoverPortalMock(...args),
+}));
 
 vi.mock('../../api/client', () => ({
   getSetupStatus: (...args: unknown[]) => getSetupStatusMock(...args),
@@ -60,6 +67,9 @@ vi.mock('../../components/admin/SubscriptionManagement', () => ({
 vi.mock('../../stores/session', () => ({
   sessionStore: {
     stopAllPolling: vi.fn(),
+    setEnterpriseMode: vi.fn(),
+    setSaasMode: vi.fn(),
+    setAllowedAgents: vi.fn(),
   },
 }));
 
@@ -192,4 +202,131 @@ describe('App onboarding routing', () => {
       expect(screen.getByTestId('onboarding-landing')).toBeInTheDocument();
     });
   });
+});
+
+describe('REQ-AGENT-226 AC6: authenticated app portal recovery', () => {
+  let visibility: DocumentVisibilityState;
+  let originalVisibility: PropertyDescriptor | undefined;
+  let originalLocation: Location;
+  let providerNavigation: string[];
+  const owner = { email: 'owner@example.com', authenticated: true, role: 'user' };
+  const providerUrl = 'https://portal.example/authorize?state=synthetic-owner-state';
+  function deferred<T>() {
+    let resolve!: (value: T) => void;
+    let reject!: (error: unknown) => void;
+    const promise = new Promise<T>((yes, no) => { resolve = yes; reject = no; });
+    return { promise, resolve, reject };
+  }
+  function changeVisibility(value: DocumentVisibilityState) {
+    visibility = value;
+    document.dispatchEvent(new Event('visibilitychange'));
+  }
+  beforeEach(() => {
+    vi.clearAllMocks();
+    window.history.replaceState({}, '', '/app/session/abcdef0123456789');
+    sessionStorage.clear();
+    window.scrollTo = vi.fn() as unknown as typeof window.scrollTo;
+    getSetupStatusMock.mockResolvedValue({ configured: true });
+    getUserMock.mockResolvedValue({ email: 'owner@example.com', authenticated: true, role: 'user' });
+    getPortalsMock.mockResolvedValue([{ name: 'alpha', url: 'https://alpha.example/mcp', connected: true }]);
+    recoverPortalMock.mockResolvedValue({ state: 'unavailable' });
+    visibility = 'visible';
+    originalVisibility = Object.getOwnPropertyDescriptor(document, 'visibilityState');
+    Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => visibility });
+    originalLocation = window.location;
+    providerNavigation = [];
+    Object.defineProperty(window, 'location', { configurable: true, value: {
+      get href() { return originalLocation.href; }, get pathname() { return originalLocation.pathname; },
+      get search() { return originalLocation.search; }, get hash() { return originalLocation.hash; },
+      get origin() { return originalLocation.origin; },
+      assign: (url: string) => { providerNavigation.push(url); }, replace: () => {}, reload: () => {},
+      toString: () => originalLocation.href,
+    } });
+  });
+  afterEach(() => {
+    cleanup();
+    Object.defineProperty(window, 'location', { configurable: true, value: originalLocation });
+    if (originalVisibility) Object.defineProperty(document, 'visibilityState', originalVisibility);
+    else Reflect.deleteProperty(document, 'visibilityState');
+    getPortalsMock.mockResolvedValue([]); sessionStorage.clear();
+  });
+
+  it('silently renews the owner grant with Settings closed and keeps the active session', async () => {
+    let grantReady = false;
+    recoverPortalMock.mockImplementation(async () => { grantReady = true; return { state: 'ready' }; });
+    render(() => <App />);
+    expect(await screen.findByTestId('layout')).toBeInTheDocument();
+    await waitFor(() => expect(grantReady).toBe(true));
+    expect(window.location.pathname).toBe('/app/session/abcdef0123456789');
+    expect(screen.queryByText('Authentication Error')).not.toBeInTheDocument();
+  });
+
+  it('does not renew portal grants when browser owner authentication fails', async () => {
+    let grantReady = false;
+    getUserMock.mockRejectedValue(new Error('not authenticated'));
+    recoverPortalMock.mockImplementation(async () => { grantReady = true; return { state: 'ready' }; });
+    render(() => <App />);
+    await screen.findByTestId('layout'); // Existing DEV auth fallback does not confer owner authority.
+    expect(grantReady).toBe(false);
+  });
+
+  it.each(['rejected', 'changed-owner'] as const)(
+    'discards an old recovery response while resume owner authentication is pending (%s)', async outcome => {
+      const recovery = deferred<{ state: 'authorization'; url: string }>();
+      const authentication = deferred<typeof owner>();
+      let oldRequestPending = true;
+      let requestEntered = false;
+      let currentOwnerRecovered = false;
+      recoverPortalMock.mockImplementation(async () => {
+        if (oldRequestPending) {
+          oldRequestPending = false; requestEntered = true;
+          return recovery.promise;
+        }
+        currentOwnerRecovered = true;
+        return { state: 'ready' };
+      });
+      render(() => <App />);
+      await screen.findByTestId('layout');
+      await waitFor(() => expect(requestEntered).toBe(true));
+      changeVisibility('hidden');
+      getUserMock.mockImplementationOnce(() => authentication.promise);
+      changeVisibility('visible');
+      recovery.resolve({ state: 'authorization', url: providerUrl });
+      await recovery.promise;
+      await Promise.resolve();
+      expect(providerNavigation).toEqual([]);
+      expect(currentOwnerRecovered).toBe(false);
+      if (outcome === 'rejected') {
+        authentication.reject(new ApiError('Owner session expired', 401, 'Unauthorized'));
+        await screen.findByTestId('auth-redirecting');
+      } else {
+        authentication.resolve({ ...owner, email: 'other-owner@example.com' });
+        await waitFor(() => expect(currentOwnerRecovered).toBe(true));
+      }
+      expect(providerNavigation).toEqual([]);
+    });
+
+  it('resumes recovery on authenticated BFCache Back without remounting or repeating authorization', async () => {
+    getPortalsMock.mockResolvedValue([
+      { name: 'alpha', url: 'https://alpha.example/mcp', connected: true },
+      { name: 'beta', url: 'https://beta.example/mcp', connected: true },
+    ]);
+    let betaRecovered = false;
+    recoverPortalMock.mockImplementation(async (name: string, authorize: boolean) => {
+      if (name === 'alpha') return authorize ? { state: 'authorization', url: providerUrl } : { state: 'unavailable' };
+      betaRecovered = true;
+      return { state: 'ready' };
+    });
+    render(() => <App />);
+    const layout = await screen.findByTestId('layout');
+    await waitFor(() => expect(providerNavigation).toEqual([providerUrl]));
+    expect(betaRecovered).toBe(false);
+    const back = new Event('pageshow');
+    Object.defineProperty(back, 'persisted', { value: true });
+    window.dispatchEvent(back);
+    await waitFor(() => expect(betaRecovered).toBe(true));
+    expect(screen.getByTestId('layout')).toBe(layout);
+    expect(providerNavigation).toEqual([providerUrl]);
+  });
+
 });

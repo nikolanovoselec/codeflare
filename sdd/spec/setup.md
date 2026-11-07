@@ -512,6 +512,8 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 5. Browser Run remains optional with no enable flag: no stored pair is valid, while a configured state requires account ID plus saved token. <!-- @impl: src/routes/admin/configuration.ts::app --> <!-- @test: src/__tests__/routes/admin-configuration.test.ts (returns enterprise credential sources without exposing secret bytes) --> <!-- @test: src/__tests__/routes/admin-configuration.test.ts (prefers Administration secret state and reads direct latest summaries without listing Activity) -->
 6. Default, Onboarding, and SaaS preserve existing Users behavior; SaaS preserves Subscription Tiers; Enterprise continues rejecting both backend resources. <!-- @impl: src/routes/users.ts::app --> <!-- @impl: src/routes/admin/tiers.ts::app --> <!-- @test: src/__tests__/routes/enterprise-route-hardening.test.ts (REQ-ENTERPRISE-009 AC1: /api/users fails closed in enterprise mode) --> <!-- @test: src/__tests__/routes/enterprise-route-hardening.test.ts (REQ-ENTERPRISE-009 AC5: admin tier config routes 403 in enterprise mode) -->
 
+7. Data governance exposes the deployment-wide saved sync policy as `exclude` or `include`, defaulting to `exclude` when no value has been stored; the policy is non-secret and does not change workspace scope or managed-resource authority. <!-- @impl: src/routes/admin/configuration.ts::app --> <!-- @test: src/__tests__/routes/admin-configuration-preview.test.ts (REQ-SETUP-017/018: sync policy defaults, previews without writes, applies both modes, and preserves omitted requests) -->
+
 **Constraints:** Reuse Setup readers and existing mode owners. Configuration reads do not list Activity records.
 
 **Priority:** P0
@@ -565,6 +567,7 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 5. Task failure stops dependent work, marks remaining tasks skipped, records operator action, and never performs automatic rollback or replay. <!-- @impl: src/routes/admin/configuration-runs.ts::default --> <!-- @test: src/__tests__/routes/admin-configuration-runs.test.ts (configuration runs (REQ-SETUP-018)) -->
 6. A stale 15-minute active pointer is recovered as `interrupted`; the accepted cross-isolate KV race remains bounded by idempotent operations and revision checks. <!-- @impl: src/routes/admin/configuration-runs.ts::recoverInterruptedRun --> <!-- @test: src/__tests__/routes/admin-configuration-runs.test.ts (configuration runs (REQ-SETUP-018)) -->
 7. Setup and routine execution check each other's existing admission pointers, while first-run `POST /api/setup/configure` keeps its observable sequence and outcome. <!-- @impl: src/routes/setup/index.ts::default --> <!-- @impl: src/routes/admin/configuration-runs.ts::default --> <!-- @test: src/__tests__/setup-ac-coverage.test.ts (REQ-SETUP-018 AC7: Setup refuses to overlap an active Environment run) -->
+
 
 **Constraints:** Eleven known sections use one discriminated union. No JSON Patch, stored preview, workflow engine, coordinator Durable Object, or generic rollback layer.
 
@@ -1598,3 +1601,29 @@ First-time setup wizard, deployment modes, custom domain configuration, bootstra
 **Status:** Implemented
 
 ---
+
+### REQ-SETUP-028: Administration persistence policy selection
+
+**Intent:** Administrators understand and save the existing persistence-policy choice without changing unrelated governance.
+
+**Applies To:** Admin
+
+**Acceptance Criteria:**
+
+1. An explicit sync-policy selection persists and reloads in either direction through the existing Data governance preview/apply workflow. <!-- @impl: src/lib/admin-configuration.ts::executeConfigurationTask --> <!-- @impl: src/routes/admin/configuration.ts::app --> <!-- @test: src/__tests__/routes/admin-configuration-preview.test.ts (REQ-SETUP-017/018: sync policy defaults, previews without writes, applies both modes, and preserves omitted requests) -->
+2. An older client omitting the policy preserves the saved selection. <!-- @impl: src/lib/admin-configuration.ts::validateConfigurationValues --> <!-- @test: src/__tests__/routes/admin-configuration-preview.test.ts (REQ-SETUP-017/018: sync policy defaults, previews without writes, applies both modes, and preserves omitted requests) -->
+3. Invalid submitted policy values reject without configuration mutation. <!-- @impl: src/lib/admin-configuration.ts::validateConfigurationValues --> <!-- @impl: src/lib/admin-configuration.ts::sectionSchemas --> <!-- @test: src/__tests__/routes/admin-configuration-preview.test.ts (REQ-SETUP-018: rejects unknown sync policy %s before mutation) -->
+4. Malformed stored policy does not silently select Exclude. <!-- @impl: src/lib/sync-policy.ts::parseStoredSyncPolicyMode --> <!-- @test: src/__tests__/routes/admin-configuration-preview.test.ts (REQ-SETUP-017/018: malformed stored sync policy fails closed rather than selecting exclude) -->
+5. The selector explains R2 restoration in ordinary language: Exclude can persist temporary downloads within sync scope; Include cannot restore files outside approved locations. <!-- @impl: web-ui/src/components/admin/EnvironmentAreaFields.tsx::EnvironmentAreaFields --> <!-- @test: web-ui/src/__tests__/components/EnvironmentAreaFields.test.tsx (Data governance copy contract: accessible persistence choice %s explains consequences and submits both directions) -->
+6. Copy explains that new nested agent files remain eligible, workspace and managed restrictions remain, and changing policy does not delete existing stored files. <!-- @impl: web-ui/src/components/admin/EnvironmentAreaFields.tsx::EnvironmentAreaFields --> <!-- @test: web-ui/src/__tests__/components/EnvironmentAreaFields.test.tsx (Data governance copy contract: accessible persistence choice %s explains consequences and submits both directions) -->
+7. The saved policy applies to new or restarted sessions, not running daemons; saving does not automatically restart sessions. <!-- @impl: web-ui/src/components/admin/EnvironmentAreaFields.tsx::EnvironmentAreaFields --> <!-- @test: web-ui/src/__tests__/components/EnvironmentAreaFields.test.tsx (Data governance copy contract: accessible persistence choice %s explains consequences and submits both directions) -->
+
+**Constraints:** Reuse the existing Data governance workflow without hot-changing running daemons.
+
+**Priority:** P1
+
+**Dependencies:** [REQ-SETUP-017](#req-setup-017-mode-aware-administration-configuration-read), [REQ-SETUP-018](#req-setup-018-stateless-environment-preview-and-bounded-execution)
+
+**Verification:** Existing named behavioral tests; CI qualification remains separate.
+
+**Status:** Implemented

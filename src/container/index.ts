@@ -26,6 +26,7 @@
  * container-interception.ts (the outbound-HTTPS interception registry wired
  * pre-start).
  */
+import { parseStoredSyncPolicyMode } from '../lib/sync-policy';
 import { Container } from '@cloudflare/containers';
 import { captureRawValue } from '../../host/src/operator-raw-logging';
 import { DispatcherSdkStorageError, handleDispatcherSdkCredentials, type DispatcherSdkCredentialResult, type SdkStorageScope, type SdkCredentialAuthority } from '../operators/dispatcher-sdk-storage';
@@ -197,6 +198,7 @@ export class container extends Container<Env> implements ContainerEnvState {
   _r2AccessKeyId: string | null = null;
   _r2SecretAccessKey: string | null = null;
   _workspaceSyncEnabled: boolean = false;
+  _syncPolicyMode: import('../lib/sync-policy').SyncPolicyMode = 'exclude';
   _fastStartEnabled: boolean = true;
   _tabConfig: TabConfig[] | null = null;
   _openaiApiKey: string | null = null;
@@ -389,6 +391,7 @@ export class container extends Container<Env> implements ContainerEnvState {
     // Load bucket name from storage on startup and update envVars
     this.ctx.blockConcurrencyWhile(async () => {
       this._bucketName = await this.ctx.storage.get<string>('bucketName') || null;
+      this._syncPolicyMode = parseStoredSyncPolicyMode(await this.ctx.storage.get('syncPolicyMode'));
       const storedWorkspaceSyncEnabled = await this.ctx.storage.get<boolean>('workspaceSyncEnabled');
       if (typeof storedWorkspaceSyncEnabled === 'boolean') {
         this._workspaceSyncEnabled = storedWorkspaceSyncEnabled;
@@ -734,7 +737,8 @@ export class container extends Container<Env> implements ContainerEnvState {
       // RPC requires ordinary objects, not the safe snapshot's null-prototype dictionaries.
       const cause = captured && typeof captured === 'object' && Object.hasOwn(captured, 'cause')
         ? { cause: JSON.parse(JSON.stringify((captured as Record<string, unknown>).cause)) } : {};
-      return { ok: false, status, message: error.message, stack: error.stack, ...cause };
+      return { ok: false, status, message: error.message, stack: error.stack, ...cause,
+        ...(error.authFailure ? { authFailure: error.authFailure } : {}) };
     }
   }
 

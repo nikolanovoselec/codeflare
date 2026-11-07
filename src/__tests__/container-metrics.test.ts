@@ -775,6 +775,76 @@ describe('Container Metrics / REQ-SESSION-004 (idle timeout extension via collec
       expect(projected.metrics?.cpu).toBe('45%');
     });
 
+    it.each(['missing', 'unreadable', 'unpersistable'] as const)(
+      'REQ-SESSION-004/034: valid input enforces its 1h deadline with %s startup timing',
+      async fault => {
+        let now = Date.now();
+        vi.spyOn(Date, 'now').mockImplementation(() => now);
+        testState.storedSleepAfter = '1h';
+        testState.activityResult.lastInputAt = now;
+        mockKV._set('session:test-bucket:testsession123456', {
+          id: 'testsession123456', name: 'Test', userId: 'test-bucket', status: 'running', lifecycleGeneration: 0,
+          createdAt: new Date(now).toISOString(), lastAccessedAt: new Date(now).toISOString(),
+        } as Session);
+        await containerInstance.collectMetrics();
+
+        // Reconstructed timing state has no usable startup reference, but the
+        // authenticated host still supplies genuine input timing evidence.
+        (containerInstance as unknown as { containerStartedAt: number }).containerStartedAt = 0;
+        testState.storageStore.delete('containerStartedAt');
+        if (fault === 'unreadable') testState.storageGetFailures.add('containerStartedAt');
+        if (fault === 'unpersistable') testState.storagePutFailures.add('containerStartedAt');
+        testState.activityResult.lastInputAt = now - 59 * 60_000;
+
+        await containerInstance.collectMetrics();
+        expect(testState.platformStopSignals).toEqual([]);
+        now += 2 * 60_000;
+        await containerInstance.collectMetrics();
+        expect(testState.platformStopSignals).toEqual(['SIGTERM']);
+      },
+    );
+
+    it.each([
+      { provenance: 'stored', value: '1h', readFailure: false, noInput: false, decision: 'stop' },
+      { provenance: 'missing', value: undefined, readFailure: false, noInput: false, decision: 'continue' },
+      { provenance: 'invalid', value: 'INVALID_POLICY_CANARY', readFailure: false, noInput: false, decision: 'continue' },
+      { provenance: 'read-failed', value: '1h', readFailure: true, noInput: false, decision: 'continue' },
+      { provenance: 'stored', value: '1h', readFailure: false, noInput: true, decision: 'timing-unavailable' },
+    ])('idle decision diagnostic contract: $provenance / $decision', async scenario => {
+      const now = Date.now();
+      vi.spyOn(Date, 'now').mockReturnValue(now);
+      mockKV._set('session:test-bucket:testsession123456', {
+        id: 'testsession123456', name: 'Test', userId: 'test-bucket', status: 'running', lifecycleGeneration: 0,
+        createdAt: new Date(now).toISOString(), lastAccessedAt: new Date(now).toISOString(),
+      } as Session);
+      await containerInstance.collectMetrics();
+      testState.storedSleepAfter = scenario.value;
+      testState.activityResult.lastInputAt = scenario.noInput ? null : now - 2 * 3_600_000;
+      if (scenario.readFailure) testState.storageGetFailures.add('sleepAfter');
+      if (scenario.noInput) {
+        (containerInstance as unknown as { containerStartedAt: number }).containerStartedAt = 0;
+        testState.storageGetFailures.add('containerStartedAt');
+      }
+      const emitted: unknown[] = [];
+      mockLogger.info.mockImplementation((message: string, data?: Record<string, unknown>) => {
+        if (message === 'collectMetrics: idle policy decision') emitted.push(data);
+      });
+      try {
+        await containerInstance.collectMetrics();
+        // Closed metadata contract: no raw input, policy contents, credentials,
+        // endpoints or other incidental host-observation data may be emitted.
+        expect(emitted).toContainEqual({
+          durableObjectId: 'mock-do-id', sessionId: 'testsession123456',
+          idleTimeoutPref: scenario.provenance === 'stored' ? '1h' : '12h',
+          policySource: scenario.provenance, checkedAt: now,
+          observedInputAt: scenario.noInput ? null : now - 2 * 3_600_000,
+          referenceTime: scenario.noInput ? null : now - 2 * 3_600_000,
+          canEnforceIdle: !scenario.noInput, decision: scenario.decision,
+        });
+        expect(testState.platformStopSignals).toEqual(scenario.decision === 'stop' ? ['SIGTERM'] : []);
+      } finally { mockLogger.info.mockReset(); }
+    });
+
     it.each([['8h', 8], ['12h', 12]] as const)('REQ-SESSION-004: %s stays alive until its configured idle deadline and then requests SIGTERM', async (duration, hours) => {
       let now = Date.now();
       vi.spyOn(Date, 'now').mockImplementation(() => now);

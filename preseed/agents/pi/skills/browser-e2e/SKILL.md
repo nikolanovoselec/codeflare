@@ -5,11 +5,11 @@ description: Verify a deployed UI in a browser for interaction, mobile layout, a
 
 # Browser e2e (Pi)
 
-Verify your **own** deployed app the way a person would: open it in a real browser, interact with it, look at what actually rendered, and judge whether it satisfies the requirement — instead of asserting on brittle selectors. Backed by Cloudflare Browser Run (headless Chrome) through the **`chrome-devtools`** server, which Pi reaches via **pi-mcp-extension direct tools**. Pi has full parity with Claude Code here — same interactive toolset.
+Verify your **own** deployed app the way a person would: open it in a real browser, interact with it, look at what actually rendered, and judge whether it satisfies the requirement — instead of asserting on brittle selectors. Backed by Cloudflare Browser Run (headless Chrome) through the **`chrome-devtools`** server, which Pi reaches via **pi-mcp-adapter direct tools**. Pi has full parity with Claude Code here — same interactive toolset.
 
 This is the **semantic** half of e2e. A scripted test in CI proves a fixed invariant (`expect(price).toBe('$9')`) and breaks when the copy changes; this proves *"does the thing actually work and look right?"* and survives wording/layout changes. Use both: deterministic invariants belong in CI; judgment ("the login flows seamlessly from the landing", "this caption is clipped mid-word on mobile", "the empty state reads wrong") belongs here.
 
-Only available in Pro (advanced) sessions with a Cloudflare API token carrying the **Browser Rendering – Edit** scope. If explicit `mcp_connect` cannot reach the configured `chrome-devtools` server, browser e2e is not enabled — you can still do a **read-only** check with the native `browser_markdown` (judge rendered content/structure), but you cannot drive a flow; otherwise fall back to reasoning over the code and CI.
+Only available in Pro (advanced) sessions with a Cloudflare API token carrying the **Browser Rendering – Edit** scope. If explicit native `mcp` connection cannot reach the configured `chrome-devtools` server, browser e2e is not enabled — you can still do a **read-only** check with the native `browser_markdown` (judge rendered content/structure), but you cannot drive a flow; otherwise fall back to reasoning over the code and CI.
 
 ## Two depths — pick by what the acceptance criterion needs
 
@@ -18,7 +18,7 @@ Only available in Pro (advanced) sessions with a Cloudflare API token carrying t
 
 ## How to use (interactive direct tools)
 
-Read the `pi-mcp-adapter` skill, explicitly connect `chrome-devtools` with `mcp_connect({ name: "chrome-devtools" })`, then use `capability` to discover and activate exact registered tool names. Never guess names or call the old proxy:
+Read the `pi-mcp-adapter` skill, activate native `mcp` and connect with `{"connect":"chrome-devtools"}`, then search/describe its live tools or discover and activate verified deferred tools through `capability`. Invoke proxy calls with `tool`/`args`, or direct wrappers with their own arguments. Never guess names:
 
 1. `resize_page` to a mobile viewport (e.g. `390 x 844`) — or `emulate` — when verifying responsive behavior. **Check mobile first.**
 2. `navigate_page` to the deployed URL with an explicit 120000 ms timeout supported by the live schema. For JS-heavy pages, let it settle (wait for network idle) before reading.

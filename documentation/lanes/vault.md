@@ -40,7 +40,7 @@ Three owners write to the vault:
 - The **image-owned compactor** folds cold capture files into deterministic `Raw/Sessions/Archive.md`; it is not an agent ([REQ-MEM-023](../../sdd/spec/memory.md#req-mem-023-cold-session-captures-compact-without-losing-memory)). <!-- @impl: scripts/compact-session-captures.mjs::buildSessionArchive -->
 - **The user** edits notes via SilverBullet or any tool that writes under `Notes/`, `References/`, `Inbox/`, or `Journal/`. Attachments land next to the referencing note; `Raw/Pasted/` remains an optional hand-organised archive.
 
-Vault content hashes are checked on resumed-tail capture and at each crossed 20-real-user-prompt epoch. Changed content signals one bounded background extraction; unchanged content is a no-op, and no polling extraction daemon runs. The global contribution contains cumulative Vault knowledge plus at most one repository: the active checkout when that checkout has a graph. Runtime-native Graphify tools select their documented query scope; current source outranks stale graph evidence.
+Pi checks Vault content hashes at the existing memory-counter trigger, including resumed or rebased history; the same batch arms size-eligible trimming. Claude retains resumed-tail and crossed twenty-prompt epoch checks. Changed content signals one bounded background extraction; unchanged content is a no-op, and no polling extraction daemon runs. The global contribution contains cumulative Vault knowledge plus at most one repository: the active checkout when that checkout has a graph. Runtime-native Graphify tools select their documented query scope; current source outranks stale graph evidence.
 
 ### Uploads and Temporary folders
 
@@ -134,7 +134,7 @@ Linking convention enforced in the prompt: concepts go in `[[wikilinks]]` so gra
 
 Implements [REQ-MEM-009](../../sdd/spec/memory.md#req-mem-009-vault-graph-accumulates-monotonically-across-extractions) (monotonic vault graph accumulation across extractions).
 
-Vault extraction is prompt-cadenced rather than polled. Every resumed-tail capture performs a hash check, and regular checks occur at each crossed 20-real-user-prompt epoch. Change detection remains a **content-hash manifest**, not a file mtime ([AD94](../decisions/README.md#ad94-content-hash-manifest-for-vault-extract-change-detection-mtime-is-reset-by-the-r2-restore)): the boot R2 restore rewrites every vault file's mtime to download-time, so mtime detection would re-extract unchanged content. The state:
+Vault extraction is prompt-cadenced rather than polled. Pi shares memory’s successful-progress counter and prefix rebase handling for capture, Vault checks and size-eligible trimming; pending jobs keep their independent delivery guards. Claude retains resumed-tail and crossed twenty-prompt epoch checks. Change detection remains a **content-hash manifest**, not a file mtime ([AD94](../decisions/README.md#ad94-content-hash-manifest-for-vault-extract-change-detection-mtime-is-reset-by-the-r2-restore)): the boot R2 restore rewrites every vault file's mtime to download-time, so mtime detection would re-extract unchanged content. The state:
 
 | File | Written by | Used by |
 |---|---|---|
@@ -654,7 +654,9 @@ resume detection. No bisync filter is required because `/tmp` is not
 synced in the first place. The `MEMCAP_COUNTER_DIR` env var overrides
 the default for hermetic tests; production never sets it.
 
-On Pi, `/tmp/.memory-counter` keeps `<sessionId>.count` for the successful prompt count, `<sessionId>.progress.json` for ephemeral prefix-fingerprint progress, and `<sessionId>.vars` for the active request pointer. A shorter transcript or a changed captured prefix immediately re-arms capture from retained history without deleting transcripts or older notes; exact in-flight work remains frozen, and replaced-epoch GIVEUP work may be replaced immediately ([REQ-MEM-025](../../sdd/spec/memory.md#req-mem-025-pi-capture-follows-transcript-epochs)). Only exact successful native completion with the required note/chunk commits rebased progress; the newest successful capture metadata restores it after a recycle, so an older larger count cannot block capture again. Ordinary appends retain the twenty-prompt cadence ([REQ-MEM-026](../../sdd/spec/memory.md#req-mem-026-capture-resume-and-durable-pi-progress)).
+On Pi, `/tmp/.memory-counter` keeps `<sessionId>.count` for the successful prompt count, `<sessionId>.progress.json` for ephemeral prefix-fingerprint progress, and `<sessionId>.vars` for the active request pointer. Unrecognized shortening or captured-prefix replacement immediately re-arms retained-history capture; verified own trimming preserves surviving captured coverage and leaves later uncaptured prompts eligible. Exact in-flight work remains frozen, and replaced-epoch GIVEUP work may be replaced immediately ([REQ-MEM-025](../../sdd/spec/memory.md#req-mem-025-pi-capture-follows-transcript-epochs)).
+
+Verified own trimming may translate checkpoint frontmatter without rewriting capture bodies or unrelated metadata. Only exact successful native completion with the required note/chunk commits newly captured progress; the newest successful capture metadata restores it after a recycle, so an older larger count cannot block capture again. Ordinary appends retain the twenty-prompt cadence ([REQ-MEM-026](../../sdd/spec/memory.md#req-mem-026-capture-resume-and-durable-pi-progress)).
 
 Post-compaction recall in both runtimes reserves each exact `Source:` path before spending its per-extract UTF-8 budget on title or body; a block is omitted if that metadata cannot fit ([REQ-MEM-019](../../sdd/spec/memory.md#req-mem-019-post-compaction-recall-of-recent-session-extracts)).
 

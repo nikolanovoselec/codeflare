@@ -5,7 +5,7 @@
  * agents only produce notes/graphs and report native completion.
  */
 import { randomUUID } from "node:crypto";
-import { registerActiveSessionTranscriptTrimming } from "./active-session-transcript-trimming";
+import { registerActiveSessionTranscriptTrimming, type TranscriptTrimIdentity } from "./active-session-transcript-trimming";
 import { execFileSync } from "node:child_process";
 import {
   existsSync,
@@ -29,6 +29,7 @@ import {
   isChildSessionFirstLine,
   isChildSessionHeader,
   isFirstMessage,
+  isRealUserPrompt,
   isGraphifyExtractionChunk,
   isResumedSession,
   isSyntheticPrompt,
@@ -41,7 +42,6 @@ import {
   realUserPromptFingerprint,
   sessionId,
   shouldCapture,
-  shouldCheckVault,
   vaultManifestChanges,
   withCurrentPrompt,
   type ActiveExtractionRequest,
@@ -174,13 +174,11 @@ function counterPath(paths: MemoryVaultPaths, session: string): string {
   return join(paths.memoryCounterDir, `${session}.count`);
 }
 
-function vaultCheckCounterPath(paths: MemoryVaultPaths, session: string): string {
-  return join(paths.memoryCounterDir, `${session}.vault-count`);
-}
-
 interface MemoryProgress {
   promptCount: number;
   transcriptFingerprint?: string;
+  captureFilename?: string;
+  captureTimestamp?: string;
 }
 
 function progressPath(paths: MemoryVaultPaths, session: string): string {
@@ -202,7 +200,7 @@ function captureInstant(value: string): number {
 }
 
 // Restore the latest capture, not the largest count from a previous transcript epoch.
-function latestCapturedPromptCount(paths: MemoryVaultPaths, session: string): MemoryProgress {
+function latestCapturedPromptCount(paths: MemoryVaultPaths, session: string, matching?: MemoryProgress): MemoryProgress {
   const sessionsDir = join(paths.vaultRoot, "Raw", "Sessions");
   let latest: MemoryProgress = { promptCount: 0 };
   let latestInstant = -Infinity;
@@ -223,12 +221,24 @@ function latestCapturedPromptCount(paths: MemoryVaultPaths, session: string): Me
       const instant = captureInstant(timestamp);
       if (instant < latestInstant || (instant === latestInstant && name <= latestName)) continue;
       const transcriptFingerprint = frontmatter.match(/^captured_prompt_fingerprint:[ \t]*([0-9a-f]{64})[ \t]*$/m)?.[1];
-      latest = { promptCount: capturedCount, ...(transcriptFingerprint ? { transcriptFingerprint } : {}) };
+      if (matching && (capturedCount !== matching.promptCount || transcriptFingerprint !== matching.transcriptFingerprint)) continue;
+      latest = { promptCount: capturedCount, captureFilename: name, captureTimestamp: timestamp.replace(/^"(.*)"$/, "$1"),
+        ...(transcriptFingerprint ? { transcriptFingerprint } : {}) };
       latestInstant = instant;
       latestName = name;
     }
   } catch { /* no durable captures yet */ }
   return latest;
+}
+
+function committedMemoryProgress(paths: MemoryVaultPaths, session: string): MemoryProgress {
+  const countFile = counterPath(paths, session);
+  const counterExists = existsSync(countFile);
+  const savedCount = readCount(countFile);
+  const saved = counterExists ? readMemoryProgress(paths, session, savedCount) : undefined;
+  if (saved) return saved;
+  const durable = latestCapturedPromptCount(paths, session);
+  return !counterExists || durable.promptCount === savedCount ? durable : { promptCount: savedCount };
 }
 
 function memoryActiveVarsPath(paths: MemoryVaultPaths, session: string): string {
@@ -426,8 +436,9 @@ function vaultSuccessQualifies(paths: MemoryVaultPaths, request: VaultExtractReq
   return request.changedFiles.length === 0 || requestChunkQualifies(paths, request.requestId);
 }
 
-function persistCaptureProgress(paths: MemoryVaultPaths, request: MemoryCaptureRequest): void {
-  const target = captureOutputPath(paths, request);
+function persistCaptureProgress(paths: MemoryVaultPaths, request: Pick<MemoryCaptureRequest,
+  "sessionId" | "captureFilename" | "captureTimestamp" | "promptCount" | "transcriptFingerprint">): void {
+  const target = join(paths.vaultRoot, "Raw", "Sessions", request.captureFilename);
   const content = readFileSync(target, "utf8");
   const existing = content.match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/);
   const otherMetadata = existing ? existing[1].split(/\r?\n/).filter((line) =>
@@ -445,12 +456,26 @@ function persistCaptureProgress(paths: MemoryVaultPaths, request: MemoryCaptureR
   renameSync(temporaryPath, target);
 }
 
+type TranslatedCapture = { requestId: string; progress: MemoryProgress };
+
+function captureProgress(request: MemoryCaptureRequest, entries: any[], translated?: TranslatedCapture): MemoryProgress {
+  return translated?.requestId === request.requestId
+    && realUserPromptCount(entries) >= translated.progress.promptCount
+    && realUserPromptFingerprint(entries, translated.progress.promptCount) === translated.progress.transcriptFingerprint
+    ? translated.progress : request;
+}
+
+function cadenceWindowKey(session: string, progress: MemoryProgress, currentCount: number, lastCount = progress.promptCount): string {
+  return `cadence:${session}:${progress.promptCount}:${progress.transcriptFingerprint ?? ""}:${Math.floor((currentCount - lastCount) / MEMORY_EVERY_N_PROMPTS)}`;
+}
+
 function finalizeMemorySuccess(
   paths: MemoryVaultPaths,
   dependencies: MemoryVaultDependencies,
   entries: any[],
   session: string,
-): void {
+  translated?: TranslatedCapture,
+): MemoryProgress | undefined {
   const active = readActiveMemoryRequest(paths, session);
   if (!active) return;
   const facts = extractionTranscriptFacts({
@@ -465,16 +490,19 @@ function finalizeMemorySuccess(
   if (currentPointer?.requestId !== active.pointer.requestId) return;
   // Commit the frozen prefix, even when its count is lower than an older epoch.
   // Durable metadata precedes ephemeral state so a restart can recover this success.
-  persistCaptureProgress(paths, active.request);
-  writeFileSync(counterPath(paths, active.request.sessionId), String(active.request.promptCount), "utf8");
+  // A verified own trim may translate the frozen boundary, never the uncaptured tail.
+  const progress = captureProgress(active.request, entries, translated);
+  persistCaptureProgress(paths, { ...active.request, ...progress });
+  writeFileSync(counterPath(paths, active.request.sessionId), String(progress.promptCount), "utf8");
   writeJsonAtomic(progressPath(paths, active.request.sessionId), {
-    promptCount: active.request.promptCount,
-    ...(active.request.transcriptFingerprint ? { transcriptFingerprint: active.request.transcriptFingerprint } : {}),
+    promptCount: progress.promptCount,
+    ...(progress.transcriptFingerprint ? { transcriptFingerprint: progress.transcriptFingerprint } : {}),
   });
   safeUnlink(memoryActiveVarsPath(paths, active.request.sessionId));
   safeUnlink(active.executionPath);
   safeUnlink(requestChunkPath(paths, active.request.requestId));
   safeUnlink(requestWorkingChunkPath(paths, active.request.requestId));
+  return progress !== active.request ? progress : undefined;
 }
 
 function refreshPendingVaultRequest(
@@ -704,11 +732,88 @@ export function registerMemoryVault(pi: MemoryVaultPi, dependencies: MemoryVault
   const { paths } = dependencies;
   let lastMessages: any[] = [];
   const queuedLaunches = new Set<string>();
-  const trimming = registerActiveSessionTranscriptTrimming(pi as unknown as ExtensionAPI);
-  for (const event of ["session_before_switch", "session_before_fork", "session_shutdown"]) pi.on(event, trimming.cancel);
+  let translatedCapture: TranslatedCapture | undefined;
+  const aliasServicedWindow = (session: string, before: MemoryProgress, beforeCount: number, after: MemoryProgress, afterCount: number) => {
+    // Only carry a window that was actually serviced; a later crossing stays new.
+    if (queuedLaunches.has(cadenceWindowKey(session, before, beforeCount))) {
+      queuedLaunches.add(cadenceWindowKey(session, after, afterCount));
+    }
+  };
+  let trimCheckpoint: { owner: TranscriptTrimIdentity; verify(): void } | undefined;
+  const sameTrim = (a: TranscriptTrimIdentity, b: TranscriptTrimIdentity) => a.requestId === b.requestId
+    && a.sessionId === b.sessionId && a.file === b.file;
+  const trimming = registerActiveSessionTranscriptTrimming(pi as unknown as ExtensionAPI, undefined, (owner, phase, ctx) => {
+    if (phase !== "before") {
+      if (!trimCheckpoint || !sameTrim(trimCheckpoint.owner, owner)) return;
+      const proof = trimCheckpoint;
+      trimCheckpoint = undefined;
+      if (phase === "verified" && ctx && sessionId(ctx) === owner.sessionId
+        && ctx.sessionManager.getSessionFile() === owner.file) proof.verify();
+      return;
+    }
+    if (!ctx || sessionId(ctx) !== owner.sessionId || ctx.sessionManager.getSessionFile() !== owner.file) return;
+    const session = owner.sessionId;
+    const source = readSessionEntries(ctx).filter(isRealUserPrompt);
+    // Published notes are not acceptance authority when the committed cursor exists.
+    const baseline = existsSync(counterPath(paths, session)) ? committedMemoryProgress(paths, session) : { promptCount: 0 };
+    const active = readActiveMemoryRequest(paths, session)?.request;
+    // Bind only checkpoints whose complete prefix still matches before our write.
+    // An arbitrary earlier shortening/rewrite must retain REQ-MEM-025 recovery.
+    const bind = (progress: MemoryProgress | undefined) => {
+      if (!progress?.transcriptFingerprint || progress.promptCount < 1 || source.length < progress.promptCount
+        || realUserPromptFingerprint(source, progress.promptCount) !== progress.transcriptFingerprint) return undefined;
+      const captured = source.slice(0, progress.promptCount);
+      const frontier = captured.at(-1);
+      if (typeof frontier?.id !== "string") return undefined;
+      return () => {
+        const retained = readSessionEntries(ctx).filter(isRealUserPrompt);
+        const index = retained.findIndex(entry => entry.id === frontier.id);
+        if (index < 0 || retained.filter(entry => entry.id === frontier.id).length !== 1) return undefined;
+        const prefix = retained.slice(0, index + 1);
+        const suffix = captured.slice(captured.length - prefix.length);
+        if (prefix.length > captured.length || prefix.some((entry, i) => entry.id !== suffix[i]?.id)
+          || realUserPromptFingerprint(prefix, prefix.length) !== realUserPromptFingerprint(suffix, suffix.length)) return undefined;
+        return { promptCount: prefix.length, transcriptFingerprint: realUserPromptFingerprint(prefix, prefix.length) };
+      };
+    };
+    const baselineTranslation = bind(baseline);
+    const activeFrontier = active ? captureProgress(active, source, translatedCapture) : undefined;
+    const activeTranslation = bind(activeFrontier);
+    trimCheckpoint = { owner: { requestId: owner.requestId, sessionId: session, file: owner.file }, verify: () => {
+      if (sessionId(ctx) !== session || ctx.sessionManager.getSessionFile() !== owner.file) return;
+      const late = activeTranslation?.();
+      if (active && late) translatedCapture = { requestId: active.requestId, progress: late };
+      // Success may have completed while the trim worker was running.
+      const committed = committedMemoryProgress(paths, session);
+      const completedActive = active && activeFrontier && (
+        (committed.promptCount === activeFrontier.promptCount && committed.transcriptFingerprint === activeFrontier.transcriptFingerprint)
+        || (committed.promptCount === active.promptCount && committed.transcriptFingerprint === active.transcriptFingerprint));
+      const before = completedActive ? committed : baseline;
+      const after = completedActive ? late : baselineTranslation?.();
+      if (!after || committed.promptCount !== before.promptCount || committed.transcriptFingerprint !== before.transcriptFingerprint
+        || !existsSync(counterPath(paths, session))) return;
+      const successful = latestCapturedPromptCount(paths, session, committed);
+      if (!successful.captureFilename || !successful.captureTimestamp) return;
+      persistCaptureProgress(paths, { sessionId: session, captureFilename: successful.captureFilename,
+        captureTimestamp: successful.captureTimestamp, ...after });
+      writeJsonAtomic(progressPath(paths, session), after);
+      writeFileSync(counterPath(paths, session), String(after.promptCount), "utf8");
+      const retainedCount = realUserPromptCount(readSessionEntries(ctx));
+      aliasServicedWindow(session, before, retainedCount + before.promptCount - after.promptCount, after, retainedCount);
+    } };
+  });
+  const cancelTrimming = () => {
+    trimCheckpoint = undefined;
+    trimming.cancel();
+  };
+  const resetSessionTrimming = () => {
+    translatedCapture = undefined;
+    cancelTrimming();
+  };
+  for (const event of ["session_before_switch", "session_before_fork", "session_shutdown"]) pi.on(event, resetSessionTrimming);
 
   pi.on("session_start", (_event, ctx) => {
-    trimming.cancel();
+    resetSessionTrimming();
     if (isChildSession(ctx)) return;
     queuedLaunches.clear();
     const vaultExisted = existsSync(paths.vaultRoot);
@@ -725,6 +830,10 @@ export function registerMemoryVault(pi: MemoryVaultPi, dependencies: MemoryVault
 
   const reconcileEligibility = (ctx: any, prompt?: string) => {
     if (isChildSession(ctx)) return;
+    // A rename may precede asynchronous readback. Do not stage a recovery capture
+    // in that short window; the existing next owner boundary reconciles it.
+    if (trimCheckpoint?.owner.sessionId === sessionId(ctx)
+      && trimCheckpoint.owner.file === ctx.sessionManager.getSessionFile()) return;
     ensureDirs(paths);
     const entries = readSessionEntries(ctx);
     const session = sessionId(ctx);
@@ -734,26 +843,20 @@ export function registerMemoryVault(pi: MemoryVaultPi, dependencies: MemoryVault
 
     const countFile = counterPath(paths, session);
     const counterExists = existsSync(countFile);
-    const savedCount = readCount(countFile);
-    let progress = counterExists ? readMemoryProgress(paths, session, savedCount) : undefined;
-    if (!progress) {
-      const durable = latestCapturedPromptCount(paths, session);
-      progress = !counterExists || durable.promptCount === savedCount ? durable : { promptCount: savedCount };
-    }
+    const progress = committedMemoryProgress(paths, session);
     const persistedMessages = sessionMessages(entries, lastMessages);
     const messages = prompt === undefined ? persistedMessages : withCurrentPrompt(persistedMessages, prompt);
     const currentCount = realUserPromptCount(messages);
     const rebased = currentCount < progress.promptCount || (progress.transcriptFingerprint !== undefined
       && realUserPromptFingerprint(messages, progress.promptCount) !== progress.transcriptFingerprint);
     const lastCount = rebased ? 0 : progress.promptCount;
-    const vaultCountFile = vaultCheckCounterPath(paths, session);
     const resumed = isResumedSession(counterExists, currentCount);
-    const previousVaultCount = readCount(vaultCountFile);
-    const crossedVaultCadence = shouldCheckVault(previousVaultCount, currentCount);
-    if (crossedVaultCadence) trimming.markDue(ctx);
-    if ((resumed && !existsSync(vaultCountFile)) || crossedVaultCadence) {
+    const cadenceDue = rebased || resumed || shouldCapture(currentCount - lastCount);
+    const cadenceKey = cadenceWindowKey(session, progress, currentCount, lastCount);
+    if (cadenceDue && !queuedLaunches.has(cadenceKey)) {
+      queuedLaunches.add(cadenceKey);
+      trimming.markDue(ctx);
       detectNewVaultRequestWhenNoneExists(paths, dependencies, session);
-      writeFileSync(vaultCountFile, String(currentCount), "utf8");
     }
     const active = readActiveMemoryRequest(paths, session);
     if (active) {
@@ -764,10 +867,12 @@ export function registerMemoryVault(pi: MemoryVaultPi, dependencies: MemoryVault
         now: dependencies.now(),
         successQualifies: () => memorySuccessQualifies(paths, active.request),
       });
-      const activePrefixChanged = currentCount < active.request.promptCount
-        || (active.request.transcriptFingerprint !== undefined
-          && realUserPromptFingerprint(messages, active.request.promptCount) !== active.request.transcriptFingerprint);
-      if (facts.giveup && (activePrefixChanged || shouldCapture(currentCount - active.request.promptCount))) {
+      const frontier = captureProgress(active.request, messages, translatedCapture);
+      if (frontier === active.request && translatedCapture?.requestId === active.request.requestId) translatedCapture = undefined;
+      const activePrefixChanged = currentCount < frontier.promptCount
+        || (frontier.transcriptFingerprint !== undefined
+          && realUserPromptFingerprint(messages, frontier.promptCount) !== frontier.transcriptFingerprint);
+      if (facts.giveup && (activePrefixChanged || shouldCapture(currentCount - frontier.promptCount))) {
         const replacement = createMemoryRequest({
           paths,
           dependencies,
@@ -778,6 +883,10 @@ export function registerMemoryVault(pi: MemoryVaultPi, dependencies: MemoryVault
           timezone: process.env.USER_TIMEZONE || process.env.TZ || undefined,
         });
         if (replacement) {
+          if (activePrefixChanged) {
+            trimming.markDue(ctx);
+            detectNewVaultRequestWhenNoneExists(paths, dependencies, session);
+          }
           safeUnlink(active.executionPath);
           safeUnlink(requestChunkPath(paths, active.request.requestId));
           safeUnlink(requestWorkingChunkPath(paths, active.request.requestId));
@@ -788,7 +897,6 @@ export function registerMemoryVault(pi: MemoryVaultPi, dependencies: MemoryVault
 
     if (!rebased && isFirstMessage(counterExists, currentCount) && progress.promptCount === 0) {
       writeFileSync(countFile, String(currentCount), "utf8");
-      writeFileSync(vaultCountFile, "0", "utf8");
       bestEffortMergeGraphs(paths);
       return;
     }
@@ -815,7 +923,13 @@ export function registerMemoryVault(pi: MemoryVaultPi, dependencies: MemoryVault
     ensureDirs(paths);
     const entries = readSessionEntries(ctx);
     const session = sessionId(ctx);
-    finalizeMemorySuccess(paths, dependencies, entries, session);
+    const beforeTranslation = translatedCapture ? committedMemoryProgress(paths, session) : undefined;
+    const translatedSuccess = finalizeMemorySuccess(paths, dependencies, entries, session, translatedCapture);
+    if (translatedSuccess && beforeTranslation) {
+      const count = realUserPromptCount(entries);
+      aliasServicedWindow(session, beforeTranslation, count, translatedSuccess, count);
+    }
+    if (translatedCapture && !readActiveMemoryRequest(paths, session)) translatedCapture = undefined;
     finalizeVaultSuccess(paths, dependencies, entries, session);
     // Queued real prompts may cross a boundary inside the current agent run.
     // Reconcile at the existing completed-turn/settlement owner, without a new wakeup.
@@ -829,12 +943,12 @@ export function registerMemoryVault(pi: MemoryVaultPi, dependencies: MemoryVault
   };
   pi.on("turn_end", (event, ctx) => {
     const message = event.message;
-    if (event.outcome === "aborted" || ctx.signal?.aborted) { trimming.cancel(); return; }
+    if (event.outcome === "aborted" || ctx.signal?.aborted) { cancelTrimming(); return; }
     if (message?.role !== "assistant" || message.stopReason !== "stop"
       || !Array.isArray(message.content) || message.content.some((block: any) => block.type === "toolCall")) return;
     advanceExtraction(ctx);
   });
-  pi.on("agent_settled", (event, ctx) => { if (event?.aborted || ctx.signal?.aborted) trimming.cancel(); else advanceExtraction(ctx); });
+  pi.on("agent_settled", (event, ctx) => { if (event?.aborted || ctx.signal?.aborted) cancelTrimming(); else advanceExtraction(ctx); });
 }
 
 export default function memoryVault(pi: ExtensionAPI): void {

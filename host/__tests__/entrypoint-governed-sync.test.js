@@ -16,6 +16,16 @@ import { fileURLToPath } from 'node:url';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const entrypoint = readFileSync(resolve(__dirname, '../../entrypoint.sh'), 'utf8');
 
+function syncCompositionFixture() {
+  const source = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../../entrypoint.sh'), 'utf8');
+  const functions = source.slice(source.indexOf('prepare_managed_resource_filter() {'), source.indexOf('# Step 1: One-way sync FROM R2 TO local'));
+  return `${functions}
+MANAGED_RESOURCE_FILTER_FILE="$CODEFLARE_RUNTIME_ROOT/sync/managed.filter"
+RECOVERY_FILTER_FILE="$CODEFLARE_RUNTIME_ROOT/sync/recovery-filters.txt"
+: > "$RECOVERY_FILTER_FILE"
+`;
+}
+
 function runtimeEnv(base) {
   const root = join(base, '.runtime');
   const syncRuntimeDir = join(root, 'sync');
@@ -39,7 +49,7 @@ function extractBefore(startMarker, nextMarker, label) {
   if (end === -1) throw new Error(`${label}: next marker not found in entrypoint.sh`);
   const fragment = entrypoint.slice(start, end);
   return ['initial_sync_from_r2() {', 'establish_bisync_baseline() {', 'bisync_with_r2() {'].includes(startMarker)
-    ? `source ${JSON.stringify(resolve(__dirname, '../../scripts/rclone-conflict-cleanup.sh'))}\n${fragment}`
+    ? `${syncCompositionFixture()}\nsource ${JSON.stringify(resolve(__dirname, '../../scripts/rclone-conflict-cleanup.sh'))}\n${fragment}`
     : fragment;
 }
 
@@ -491,10 +501,19 @@ describe('REQ-STOR-017 AC6: retired Pi review extensions stay outside R2 sync', 
     for (const call of syncCalls) {
       for (const name of retired) {
         const pattern = `- .pi/agent/extensions/${name}`;
-        assert.ok(
-          call.some((arg, index) => arg === '--filter' && call[index + 1] === pattern),
-          `${call[0]} omitted ${pattern}`,
-        );
+        const filter = call[call.indexOf('--filter-from') + 1];
+        const fixture = mkdtempSync(join(tmpdir(), 'governed-exclusion-'));
+        const relative = pattern.slice(2).replace(/^\//, '').replaceAll('**', 'repo').replaceAll('*', 'item');
+        const target = relative.endsWith('/') ? `${relative}file.txt` : relative;
+        mkdirSync(dirname(join(fixture, target)), { recursive: true });
+        writeFileSync(join(fixture, target), 'excluded');
+        mkdirSync(join(fixture, '.pi/agent'), { recursive: true });
+        writeFileSync(join(fixture, '.pi/agent/settings.json'), '{}');
+        const listed = spawnSync('rclone', ['lsf', '-R', '--files-only', '--filter-from', filter, fixture], { encoding: 'utf8' });
+        rmSync(fixture, { recursive: true, force: true });
+        assert.equal(listed.status, 0, listed.stderr);
+        assert.equal(listed.stdout.includes(target), false, `${call[0]} admitted ${target}`);
+        assert.ok(listed.stdout.includes('.pi/agent/settings.json'));
       }
     }
   });
@@ -512,10 +531,19 @@ describe('REQ-STOR-012: child transcripts stay outside R2 sync', () => {
     const syncCalls = calls.filter((call) => call[0] === 'sync' || call[0] === 'bisync');
     for (const call of syncCalls) {
       for (const pattern of exclusions) {
-        assert.ok(
-          call.some((arg, index) => arg === '--filter' && call[index + 1] === pattern),
-          `${call[0]} omitted ${pattern}`,
-        );
+        const filter = call[call.indexOf('--filter-from') + 1];
+        const fixture = mkdtempSync(join(tmpdir(), 'governed-exclusion-'));
+        const relative = pattern.slice(2).replace(/^\//, '').replaceAll('**', 'repo').replaceAll('*', 'item');
+        const target = relative.endsWith('/') ? `${relative}file.txt` : relative;
+        mkdirSync(dirname(join(fixture, target)), { recursive: true });
+        writeFileSync(join(fixture, target), 'excluded');
+        mkdirSync(join(fixture, '.pi/agent'), { recursive: true });
+        writeFileSync(join(fixture, '.pi/agent/settings.json'), '{}');
+        const listed = spawnSync('rclone', ['lsf', '-R', '--files-only', '--filter-from', filter, fixture], { encoding: 'utf8' });
+        rmSync(fixture, { recursive: true, force: true });
+        assert.equal(listed.status, 0, listed.stderr);
+        assert.equal(listed.stdout.includes(target), false, `${call[0]} admitted ${target}`);
+        assert.ok(listed.stdout.includes('.pi/agent/settings.json'));
       }
     }
   });

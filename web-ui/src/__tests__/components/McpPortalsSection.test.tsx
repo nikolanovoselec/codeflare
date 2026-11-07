@@ -22,7 +22,7 @@ describe('Settings MCP connections', () => {
     render(() => <McpPortalsSection />);
     expect(screen.getByRole('status')).toHaveTextContent('Loading portals');
     await screen.findByText('alpha');
-    expect(screen.getByText('MCP portals bring tools and authentication together in a unified, governed surface. Restart Pi after adding or connecting a portal to load its tools.')).toBeVisible();
+    expect(screen.getByText('Portal connections renew automatically using your browser session. No Pi restart is needed for renewal.')).toBeVisible();
     const connections = screen.getByRole('group', { name: 'MCP portals' });
     expect(within(connections).getByText('alpha')).toBeVisible();
     expect(within(connections).getByText('beta')).toBeVisible();
@@ -64,7 +64,7 @@ describe('Settings MCP connections', () => {
   it('REQ-AGENT-228 AC4: concise permission guidance keeps connection actions available without a troubleshooting disclosure', async () => {
     render(() => <McpPortalsSection />);
     const connect = await screen.findByRole('button', { name: 'Connect Model Context Protocol portal beta' });
-    expect(screen.getByText('MCP portals bring tools and authentication together in a unified, governed surface. Restart Pi after adding or connecting a portal to load its tools.')).toBeVisible();
+    expect(screen.getByText('Portal connections renew automatically using your browser session. No Pi restart is needed for renewal.')).toBeVisible();
     expect(screen.queryByText('Portal setup and connection help')).not.toBeInTheDocument();
     expect(connect).toBeEnabled();
     expect(connect).toHaveAttribute('data-href', '/auth/mcp/connect/beta');
@@ -79,7 +79,7 @@ describe('Settings MCP connections', () => {
     expect(await screen.findByText('Authorization returned. Check the connection status below.')).toBeVisible();
     expect(await screen.findByTestId('mcp-alpha-connected-badge')).toBeVisible();
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
-    expect(screen.getByText('MCP portals bring tools and authentication together in a unified, governed surface. Restart Pi after adding or connecting a portal to load its tools.')).toBeVisible();
+    expect(screen.getByText('Portal connections renew automatically using your browser session. No Pi restart is needed for renewal.')).toBeVisible();
   });
 
   it('REQ-AGENT-228 AC4: a return marker cannot override disconnected status or remove unrelated navigation state', async () => {

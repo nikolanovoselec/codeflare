@@ -10,6 +10,10 @@ const providerId = z.string().min(1).max(512).refine(value => [...value].every(c
   character.charCodeAt(0) >= 0x20 && character.charCodeAt(0) !== 0x7f));
 export const safePiAuthFailureSchema = z.strictObject({ code: z.literal('PI_LOGIN_REQUIRED'),
   reason: z.enum(['missing', 'expired', 'rejected']), provider: providerId });
+export function piAuthFailureTitle(failure: z.infer<typeof safePiAuthFailureSchema>): string {
+  return failure.reason === 'missing' ? `Native Pi credentials required for ${failure.provider}`
+    : `Provider authentication ${failure.reason} · ${failure.provider}`;
+}
 export const piLoginRecoveryCopy = 'Check the saved provider login or API key used by this run. If credentials were updated, wait for successful synchronization to R2, then explicitly retry. No automatic retry or provider fallback occurs.';
 const piReasoningLevel = z.enum(['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']);
 export const inferenceSelectionSchema = z.union([

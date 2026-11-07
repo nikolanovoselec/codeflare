@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { readSyncPolicyMode, syncPolicyModeSchema } from './sync-policy';
 import type { Env } from '../types';
 import { AgentTypeSchema } from '../types';
 import { getAllUsers } from './access-policy';
@@ -164,7 +165,7 @@ const sectionSchemas: Record<ConfigurationSection, z.ZodType<ConfigurationValues
     replacementToken: replacementSecret,
   }).strict(),
   securityEgress: z.object({ strictGatewayEgress: z.boolean(), jwtStamping: jwtStampingPolicySchema }).strict(),
-  dataGovernance: z.object({ governedMode: z.boolean(), viewOnlyStorage: z.boolean() }).strict(),
+  dataGovernance: z.object({ governedMode: z.boolean(), viewOnlyStorage: z.boolean(), syncPolicyMode: syncPolicyModeSchema.optional() }).strict(),
   managedEnvironment: z.discriminatedUnion('enabled', [
     z.object({ enabled: z.literal(false) }).strict(),
     z.object({
@@ -218,6 +219,7 @@ const TASKS: Record<ConfigurationSection, ConfigurationTask[]> = {
   dataGovernance: [
     { id: 'configure_r2_sse', dependsOn: [] },
     { id: 'configure_downloads_disabled', dependsOn: [] },
+    { id: 'configure_sync_policy', dependsOn: [] },
   ],
   managedEnvironment: [{ id: 'configure_managed_environment', dependsOn: [] }],
   github: [{ id: 'configure_github', dependsOn: [] }],
@@ -552,6 +554,7 @@ async function readCurrentConfigurationValues(
       return {
         governedMode: (await env.KV.get(SETUP_KEYS.R2_SSE_DISABLED)) === 'active',
         viewOnlyStorage: (await env.KV.get(SETUP_KEYS.DOWNLOADS_DISABLED)) === 'active',
+        syncPolicyMode: await readSyncPolicyMode(env.KV),
       };
     case 'managedEnvironment':
       return parseJson(await env.KV.get(SETUP_KEYS.MANAGED_ENVIRONMENT_CONFIG), { enabled: false }) as ConfigurationValues;
@@ -585,6 +588,11 @@ export async function validateConfigurationValues(
   let values: ConfigurationValues;
   try {
     values = normalizeValues(section, mode, parsed.data);
+    // Older clients omit this field while editing the other governance controls.
+    // Omission preserves the saved mode; only absent storage selects Exclude.
+    if (section === 'dataGovernance' && values.syncPolicyMode === undefined) {
+      values.syncPolicyMode = await readSyncPolicyMode(env.KV);
+    }
   } catch (error) {
     return { fieldErrors: { settings: [error instanceof Error ? error.message : 'Invalid settings'] } };
   }
@@ -1041,6 +1049,11 @@ export async function executeConfigurationTask(
       return;
     case 'configure_r2_sse':
       await env.KV.put(SETUP_KEYS.R2_SSE_DISABLED, values.governedMode === true ? 'active' : 'inactive');
+      return;
+    case 'configure_sync_policy':
+      if (values.syncPolicyMode !== undefined) {
+        await env.KV.put(SETUP_KEYS.SYNC_POLICY_MODE, syncPolicyModeSchema.parse(values.syncPolicyMode));
+      }
       return;
     case 'configure_downloads_disabled':
       await env.KV.put(SETUP_KEYS.DOWNLOADS_DISABLED, values.viewOnlyStorage === true ? 'active' : 'inactive');

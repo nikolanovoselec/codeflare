@@ -433,9 +433,9 @@ sudo apt-get install -yqq --no-install-recommends \
 
 **Symptom:** A Pi package installed during a session is missing after container restart.
 
-**Cause:** `PI_OFFLINE=1` (set when Fast Start is ON, the default) prevents `pi update` from running, so packages not in the image cache are absent until Fast Start is disabled.
+**Cause:** Fast Start ON sets Pi offline, preventing installation of configured user-added packages absent from the image cache ([REQ-AGENT-012](../../sdd/spec/agents.md#req-agent-012-fast-cli-start-configurable)).
 
-**Fix:** Disable Fast Start in Settings, restart the session so `pi update` runs, then re-enable Fast Start.
+**Fix:** Disable Fast Start and restart the session so Pi can restore missing configured packages, then re-enable Fast Start if desired. This permits missing-package installation, not a forced bulk extension update. Do not change image-owned managed package pins.
 
 ### Managed Environment Is Stale, Degraded, or Update Pending
 

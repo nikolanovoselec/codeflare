@@ -112,7 +112,8 @@ describe('entrypoint.sh vault boot behavior (real) / REQ-MEM-004 (vault R2 sync 
         echo "VAULT_INIT $(date +%s%N)" >> "${logFile}"
         return 0
       }
-      relay_managed_pi_extensions() { :; }
+      prepare_managed_resource_filter() { :; }
+relay_managed_pi_extensions() { :; }
       release_agent_pty_after_fast_start_updates() { :; }
       renice() { :; }
       ionice() { :; }

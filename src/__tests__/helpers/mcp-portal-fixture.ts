@@ -8,6 +8,20 @@ export const instance = 'https://instance.example';
 export const access = 'SYNTHETIC-MCP-ACCESS', refresh = 'SYNTHETIC-MCP-REFRESH';
 export async function mcpPortalFixture() {
   const kv = createMockKV();
+  // Opaque encrypted read views model KV propagation without decrypting grants.
+  const connectionKey = 'mcp-portal:owner:owner:portal:fixture';
+  let connectionView: string | null | undefined;
+  let afterConnectionWrite: (() => Promise<void>) | undefined;
+  const get = kv.get.getMockImplementation()!;
+  const put = kv.put.getMockImplementation()!;
+  kv.get.mockImplementation(async (key, type) => key === connectionKey && connectionView !== undefined
+    ? connectionView : get(key, type));
+  kv.put.mockImplementation(async (key, value, opts) => {
+    await put(key, value, opts);
+    if (key === connectionKey && afterConnectionWrite) {
+      const action = afterConnectionWrite; afterConnectionWrite = undefined; await action();
+    }
+  });
   await kv.put(SETUP_KEYS.MCP_PORTALS, JSON.stringify([portal]));
   await kv.put(SETUP_KEYS.CUSTOM_DOMAIN, 'instance.example');
   const env = { KV: kv, ENCRYPTION_KEY: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=' } as unknown as Env;
@@ -16,7 +30,7 @@ export async function mcpPortalFixture() {
   let beforeToken: (() => Promise<void>) | undefined;
   let beforeDiscovery: (() => Promise<void>) | undefined;
   let beforeRefreshRejection: (() => Promise<void>) | undefined;
-  let rotatingRefresh = false, currentRefresh = refresh;
+  let rotatingRefresh = false, currentRefresh = refresh, noRefreshToken = false;
   const issuedByCode = new Map<string, { resource: string; clientId: string }>();
   const send: typeof fetch = async (input, init) => {
     const request = new Request(input, init), url = new URL(request.url);
@@ -57,7 +71,7 @@ export async function mcpPortalFixture() {
         issuedByCode.set(body.get('code')!, { resource, clientId: body.get('client_id')! });
       }
       return Response.json({ access_token: token,
-        ...(body.get('grant_type') === 'refresh_token' && omitRefreshedToken ? {} : { refresh_token: currentRefresh }),
+        ...(noRefreshToken || (body.get('grant_type') === 'refresh_token' && omitRefreshedToken) ? {} : { refresh_token: currentRefresh }),
         token_type: 'Bearer', expires_in: expiresIn });
     }
     throw new Error('Unexpected synthetic OAuth path');
@@ -70,10 +84,19 @@ export async function mcpPortalFixture() {
     return finishMcpPortalConnect(env, owner, instance, authorization.searchParams.get('state')!, 'synthetic-code', undefined, send);
   };
   return { env, kv, send, begin, finish,
+    async connectionSnapshot() { return await get(connectionKey) as string; },
+    readConnection(value: string | null | undefined) { connectionView = value; },
+    afterConnectionWrite(value: () => Promise<void>) { afterConnectionWrite = value; },
     get authorization() { return authorization!; },
+    visitAuthorization(value: string) {
+      const url = new URL(value);
+      if (url.origin !== issuer || url.pathname !== '/authorize') throw Error('Unexpected synthetic authorization');
+      authorization = url;
+    },
     cimd() { cimd = true; dcr = false; },
     bothRegistrations() { cimd = true; dcr = true; },
     omitRefreshOnRenewal() { omitRefreshedToken = true; },
+    withoutRefreshToken() { noRefreshToken = true; },
     expiry(seconds: number) { expiresIn = seconds; }, rejectRefresh() { rejectRefresh = true; },
     resource(value: string) { resource = value; }, issuer(value: string) { issuer = value; },
     beforeToken(value: () => Promise<void>) { beforeToken = value; },

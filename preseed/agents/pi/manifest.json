@@ -798,5 +798,10 @@
       "default",
       "advanced"
     ]
+  },
+  "extensions/transcript-trim/engine.mjs": {
+    "modes": [
+      "advanced"
+    ]
   }
 }

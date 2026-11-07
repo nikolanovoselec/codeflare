@@ -527,20 +527,21 @@ describe('workspaceSyncEnabled scope (REQ-STOR-011)', () => {
     // breaks loudly.
     const startIdx = entrypoint.indexOf('RCLONE_FILTERS_COMMON=(');
     assert.ok(startIdx !== -1, 'RCLONE_FILTERS_COMMON header missing');
-    const fiIdx = entrypoint.indexOf('\nfi\n', startIdx);
+    const fiIdx = entrypoint.indexOf('# ============================================================================\n# Recovery filter', startIdx);
     assert.ok(fiIdx !== -1, 'SYNC_MODE branch fi terminator missing');
-    const slice = entrypoint.slice(startIdx, fiIdx + 3);
+    const slice = entrypoint.slice(startIdx, fiIdx);
 
     const script = [
       'set -u',
       `SYNC_MODE="${scope}"`,
+      'VAULT_FILTER=()',
       slice,
       // After sourcing, RCLONE_FILTERS is populated. Test each candidate
       // path through `rclone --dry-run lsf` and print one line per path
       // showing whether it survived the filter set.
       'for path in "workspace/foo.txt" "workspace/CLAUDE.md" "workspace/.claude/settings.json" "workspace/.git/HEAD"; do',
-      '  if rclone --dry-run "${RCLONE_FILTERS[@]}" lsf --files-only "$1" --include "$path" >/dev/null 2>&1; then',
-      '    matched=$(rclone "${RCLONE_FILTERS[@]}" lsf --files-only "$1" 2>/dev/null | grep -F "$path" || true)',
+      '  if rclone --dry-run "${RCLONE_FILTERS[@]}" lsf -R --files-only "$1" >/dev/null 2>&1; then',
+      '    matched=$(rclone "${RCLONE_FILTERS[@]}" lsf -R --files-only "$1" 2>/dev/null | grep -F "$path" || true)',
       '    if [ -n "$matched" ]; then echo "INCLUDED $path"; else echo "EXCLUDED $path"; fi',
       '  else',
       '    echo "EXCLUDED $path"',

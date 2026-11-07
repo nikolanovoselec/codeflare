@@ -34,6 +34,23 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
 describe('REQ-OPERATOR-049: human-owned invocation and activity', () => {
+  it.each(['openai', 'anthropic', 'xai', 'kimi-coding'])('REQ-OPERATOR-057 AC5: management explains missing %s credentials without generic attention', async provider => {
+    const missing = { ...summary, executionStatus: 'unknown', attention: true,
+      authFailure: { code: 'PI_LOGIN_REQUIRED', reason: 'missing', provider } };
+    serve = url => url.pathname.endsWith('/activity-1') ? json({ ...missing, checkpoint: null, result: null,
+      loggingEnabled: false }) : json({ items: [missing] });
+    render(() => <OperatorManagementActivity onBackToCatalog={() => {}} />);
+    expect(await screen.findByText(`Native Pi credentials required for ${provider}`)).toBeInTheDocument();
+    expect(screen.queryByText('Needs attention')).not.toBeInTheDocument();
+    fireEvent.click(await screen.findByRole('button', { name: 'View activity-1' }));
+    const alert = await screen.findByRole('alert');
+    expect(within(alert).getByText(`Native Pi credentials required for ${provider}`)).toBeInTheDocument();
+    expect(alert).toHaveTextContent(/saved provider login or API key/i);
+    expect(alert).toHaveTextContent(/synchronization to R2/i);
+    expect(screen.queryByText('Needs attention')).not.toBeInTheDocument();
+    expect(screen.getAllByText(/Execution: unknown/).length).toBeGreaterThan(0);
+  });
+
   it('shows normal Dispatcher provider-default without crashing or advertising Off or Medium', async () => {
     serve = url => url.pathname.endsWith('/activity-1') ? json({ ...summary, checkpoint: null, result: null,
       inferenceSelection: { source: 'pi-native', provider: 'groq', model: 'openai/gpt-oss-20b',

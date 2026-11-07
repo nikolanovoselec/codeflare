@@ -6,6 +6,7 @@ import { createR2Client, getR2Url } from '../lib/r2-client';
 import { getRegimeState } from '../lib/r2-regime-state';
 import { computeKeyMd5, getSseHeaders } from '../lib/r2-sse';
 import { SETUP_KEYS } from '../lib/kv-keys';
+import type { SafePiAuthFailure } from './pi-auth-failure';
 
 // The SDK's opaque OAuth imports are not discovered by Worker bundling.
 // Its public static-flow registration preserves SDK-owned resolution and refresh.
@@ -20,6 +21,7 @@ export interface SdkStorageScope {
   model?: string;
 }
 export class DispatcherSdkStorageError extends Error {
+  declare authFailure?: SafePiAuthFailure;
   constructor(public readonly status: number, message = 'Private SDK storage unavailable', options?: ErrorOptions) { super(message, options); }
 }
 /** A missing saved selection is distinct from a denied or unavailable storage read. */
@@ -27,7 +29,7 @@ export class DispatcherSdkSettingsUnconfiguredError extends DispatcherSdkStorage
   constructor() { super(403, 'Saved Dispatcher selection is not configured'); }
 }
 export type DispatcherSdkCredentialResult = { ok: true; value: unknown | null }
-  | { ok: false; status: 403 | 409 | 413; message: string; stack?: string; cause?: unknown };
+  | { ok: false; status: 403 | 409 | 413; message: string; stack?: string; cause?: unknown; authFailure?: SafePiAuthFailure };
 type JsonObject = Record<string, unknown>;
 const LIMIT = 1024 * 1024;
 const AUTH = '.pi/agent/auth.json';
@@ -318,20 +320,25 @@ export async function handleDispatcherSdkCredentials(storage: DurableObjectStora
       const file = await io.read(AUTH);
       const auth = file.bytes ? json(file.bytes) : {};
       const raw = Object.hasOwn(auth, selected.defaultProvider) ? auth[selected.defaultProvider] : undefined;
-      if (!object(raw)) deny();
+      if (!object(raw)) {
+        const error = new DispatcherSdkStorageError(403);
+        error.authFailure = { code: 'PI_LOGIN_REQUIRED', reason: 'missing', provider: selected.defaultProvider };
+        throw error;
+      }
       return { ...file, auth, raw };
     };
     let saved = await snapshot();
-    if (saved.raw.type === 'api_key') {
+    const savedCredential = (): Credential => {
+      if (saved.raw.type !== 'api_key') return oauthCredential(saved.raw);
       const key = saved.raw.key;
-      if (typeof key !== 'string' || !key.trim() || key.startsWith('!') || /[\r\n\x00]/.test(key)) deny();
-      const latest = await snapshot();
-      if (latest.etag !== saved.etag || JSON.stringify(latest.raw) !== JSON.stringify(saved.raw)) deny(409);
-      return { apiKey: key };
-    }
-    oauthCredential(saved.raw);
+      if (typeof key !== 'string' || !key.trim() || key.trimStart().startsWith('!') || /[\r\n\x00]/.test(key)) deny();
+      const values = saved.raw.env;
+      if (values !== undefined && (!object(values) || Object.values(values).some(value => typeof value !== 'string'))) deny();
+      return { type: 'api_key', key, ...(values === undefined ? {} : { env: values as Record<string, string> }) };
+    };
+    const initial = savedCredential();
     const provider = builtinProviders().find(provider => provider.id === selected.defaultProvider);
-    if (!provider?.auth.oauth) deny();
+    if (!provider || (initial.type === 'api_key' ? !provider.auth.apiKey : !provider.auth.oauth)) deny();
     let storageFailure: unknown;
     const storageOperation = async <T>(operation: () => Promise<T>): Promise<T> => {
       try { return await operation(); }
@@ -344,7 +351,7 @@ export async function handleDispatcherSdkCredentials(storage: DurableObjectStora
       read: id => storageOperation(async () => {
         checkProvider(id);
         if (io.signal.aborted) deny();
-        return oauthCredential(saved.raw);
+        return savedCredential();
       }),
       modify: (id, fn) => {
         const pending = (async () => {
@@ -397,10 +404,13 @@ export async function handleDispatcherSdkCredentials(storage: DurableObjectStora
     }
     const latest = await snapshot();
     if (latest.etag !== saved.etag || JSON.stringify(latest.raw) !== JSON.stringify(saved.raw)) deny(409);
-    if (!resolved || resolved.env && Object.keys(resolved.env).length
-      || Object.keys(resolved.auth).some(key => key !== 'apiKey')) deny();
+    if (!resolved) deny();
     const apiKey = resolved.auth.apiKey;
-    if (typeof apiKey !== 'string' || !apiKey.trim() || /[\r\n\x00]/.test(apiKey)) deny();
-    return { apiKey };
+    if (apiKey !== undefined && (typeof apiKey !== 'string' || !apiKey.trim() || /[\r\n\x00]/.test(apiKey))) deny();
+    if (apiKey !== undefined && Object.keys(resolved.auth).every(key => key === 'apiKey')
+      && !Object.keys(resolved.env ?? {}).length) return { apiKey };
+    // Only SDK-derived request auth crosses RPC, never stored OAuth state or
+    // status metadata. Normalize records to ordinary JSON objects for RPC.
+    return JSON.parse(JSON.stringify({ auth: resolved.auth, ...(resolved.env ? { env: resolved.env } : {}) }));
   });
 }

@@ -2648,6 +2648,13 @@ export class OperatorActivity extends Agent {
         this.#sdkHttpControllers.delete(controller); controller.abort();
       }
     } catch (error) {
+      if (error instanceof PiAuthRequiredError) {
+        try {
+          if (!request.signal.aborted && await this.#dispatcherSdkCurrent(generation, lease, modelScope)) {
+            await this.#nativeLoginStop(generation, error.authFailure);
+          }
+        } catch { /* Preserve the original private refusal if authority or projection is unavailable. */ }
+      }
       if (error instanceof DispatcherRefusal) return dispatcherRefusal(error.reason, error.reason === 'operation-conflict' ? 409 : 403);
       return dispatcherRefusal(error instanceof z.ZodError || error instanceof SyntaxError ? 'request-invalid' : 'execution-inactive');
     }
@@ -3113,9 +3120,22 @@ export class OperatorActivity extends Agent {
     return { lease: lease!, plan, prepared, selection };
   }
 
-  /** Trusted EgressController recheck: nonsecret selection only, never a new admission or auth read. */
-  async dispatcherNativeEgressCurrent(generation: number, profileDigest: string): Promise<NativeOperatorInference | null> {
+  /** Trusted EgressController recheck: current hosting-specific authority; never exports credentials. */
+  async dispatcherNativeEgressCurrent(generation: number, profileDigest: string): Promise<NativeOperatorInference | ConfiguredDispatcherInference | null> {
     try {
+      const lease = await this.ctx.storage.get<DispatcherLease>(DISPATCHER_LEASE);
+      if (lease?.hosting === 'normal') {
+        const current = () => this.#dispatcherDeliveryCurrent(generation, undefined, true);
+        const selected = lease.configuredSelection;
+        if (selected?.source !== 'pi-native' || selected.profileDigest !== profileDigest || !await current()) return null;
+        const plan = await this.getRuntimePlan();
+        if (!plan) return null;
+        await dispatcherSdkOwnerContext({ generation, plan, env: this.#appEnv, current }, selected);
+        const live = await this.ctx.storage.get<DispatcherLease>(DISPATCHER_LEASE);
+        if (live?.hosting !== 'normal' || live.configuredSelection?.source !== 'pi-native'
+          || live.configuredSelection.profileDigest !== profileDigest || !await current()) return null;
+        return live.configuredSelection;
+      }
       const current = await this.#nativeAuthority(generation);
       const bound = this.#nativeBindings.get(generation);
       if (!bound || current.selection.profileDigest !== profileDigest) return null;

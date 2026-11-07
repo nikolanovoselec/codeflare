@@ -183,10 +183,10 @@ describe('REQ-OPS-038: deployment coding-agent selection', () => {
       mkdirSync(staleRuntime);
       writeFileSync(join(staleRuntime, 'package.json'), JSON.stringify({ name: 'js-yaml', version: '5.4.1', main: 'index.cjs' }));
       writeFileSync(join(staleRuntime, 'index.cjs'), 'exports.load = () => ({});\n');
-      await assert.rejects(verifyJsYamlRuntime({ runtimePath: staleRuntime }), /must contain js-yaml 5\.4\.3/);
+      await assert.rejects(verifyJsYamlRuntime({ runtimePath: staleRuntime }), /must contain js-yaml 5\.5\.0/);
       assert.equal(await verifyJsYamlRuntime({ runtimePath }), runtimePath);
       await assert.rejects(verifyJsYamlRuntime({ runtimePath: brokenRuntime }), /must load js-yaml load/);
-      await assert.rejects(verifyJsYamlRuntime({ runtimePath: wrongVersionRuntime }), /must contain js-yaml 5\.4\.3/);
+      await assert.rejects(verifyJsYamlRuntime({ runtimePath: wrongVersionRuntime }), /must contain js-yaml 5\.5\.0/);
     } finally {
       rmSync(fixture, { recursive: true, force: true });
     }

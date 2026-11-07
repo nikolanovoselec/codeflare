@@ -667,7 +667,7 @@ describe('REQ-OPERATOR-007/049/075: installed Dispatcher model settings', () => 
     expect(screen.queryByRole('combobox', { name: 'test Pi reasoning' })).not.toBeInTheDocument();
     expect(screen.queryByRole('checkbox', { name: /allow .*reasoning|allow Gateway route/ })).not.toBeInTheDocument();
     expect(screen.getAllByRole('combobox', { name: 'test Managed Gateway route' })).toHaveLength(1);
-    expect(screen.getByText(/Reasoning approvals are shared with an already-approved Native source/)).toBeVisible();
+    expect(screen.getByText(/Gateway configuration does not restrict Native Pi reasoning/)).toBeVisible();
     expect(state.writes).toEqual([]);
   });
 

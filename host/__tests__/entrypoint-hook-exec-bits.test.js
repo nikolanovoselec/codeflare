@@ -21,6 +21,9 @@ import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+// Isolate unmanaged lifecycle behavior; real policy composition is covered by the rclone matrix.
+const unmanagedPolicyFixture = "prepare_managed_resource_filter() { :; }\ncompose_rclone_filters() { RCLONE_EFFECTIVE_FILTERS=(\"${RCLONE_FILTERS[@]}\"); }";
+
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const entrypoint = readFileSync(resolve(__dirname, '../../entrypoint.sh'), 'utf8');
 
@@ -84,6 +87,7 @@ function runSuccessfulBisync(home) {
     "R2_BUCKET_NAME='bucket'",
     `RCLONE_CONFIG=${JSON.stringify(join(home, 'rclone.conf'))}`,
     `RECOVERY_FILTER_FILE=${JSON.stringify(recoveryFile)}`,
+    unmanagedPolicyFixture,
     'RCLONE_FILTERS=()',
     `source ${JSON.stringify(resolve(__dirname, '../../scripts/rclone-conflict-cleanup.sh'))}`,
     'pgrep() { return 1; }',

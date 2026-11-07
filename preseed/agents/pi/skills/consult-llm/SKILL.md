@@ -6,7 +6,7 @@ disable-model-invocation: true
 
 # Consult LLM (Pi): Query External AI Models
 
-Query external LLM providers through the configured `consult-llm` server using pi-mcp-extension direct tools and present their responses for comparison. Two providers are available: **OpenAI** (GPT) and **Google Gemini**.
+Query external LLM providers through the configured `consult-llm` server using the native MCP adapter proxy or discovered deferred tools and present their responses for comparison. Two providers are available: **OpenAI** (GPT) and **Google Gemini**.
 
 The server picks the backend automatically — for OpenAI it uses your **Codex subscription** when you are logged into Codex (no API spend), otherwise your OpenAI API key; for Gemini it uses your Gemini API key. Keys/login are managed in **Settings → LLM API Keys** (and `codex login`) and take effect on the next session start.
 
@@ -19,6 +19,8 @@ Do not call `consult_llm` unless the user's current request explicitly asks to c
 - proactive sanity checks chosen by the assistant.
 
 If the user asks for a generic second opinion without naming external LLMs, ask what they want. Do not call `consult_llm`, and do not invoke advisor unless the user explicitly asks for advisor.
+
+Cold MCP discovery may briefly start the server and read its tool catalogue. That is not consultation and never authorizes `tools/call` or external inference. The explicit-request gate above remains mandatory.
 
 ## Step 1 — Choose the model
 
@@ -48,7 +50,7 @@ If the log can't be read, say exact model discovery is unavailable this session 
 
 1. Identify what to discuss — a code/architecture question, a file or function to review, or a design decision.
 2. Build a context-rich, one-shot prompt; attach relevant file paths via the `files` parameter when code is involved (include everything needed — the consult is one-shot).
-3. Explicitly connect `consult-llm` with `mcp_connect({ name: "consult-llm" })`; discover and activate the exact registered consult tool through `capability`, then call it with the chosen `model` (a selector for "latest", or the exact ID the user named/picked). Set `task_mode`: `"review"` for code review, `"plan"` for architecture, `"debug"` for troubleshooting, `"general"` otherwise.
+3. Activate native `mcp`, explicitly connect with `{"connect":"consult-llm"}`, and search/describe the exact consult tool. Call through its `tool`/`args` proxy envelope or activate its verified deferred wrapper through `capability`, then invoke it with the chosen `model` (a selector for "latest", or the exact ID the user named/picked). Set `task_mode`: `"review"` for code review, `"plan"` for architecture, `"debug"` for troubleshooting, `"general"` otherwise.
 
 ## Step 3 — Present and synthesize
 
@@ -64,7 +66,7 @@ If the log can't be read, say exact model discovery is unavailable this session 
 
 ## Troubleshooting
 
-If the configured `consult-llm` server/tool is unavailable through `mcp_status`, explicit `mcp_connect`, and exact registered-tool activation:
+If the configured `consult-llm` server/tool is unavailable through native `mcp` status/search, explicit connection, and exact tool discovery:
 
 1. Confirm your OpenAI/Gemini keys are saved in **Settings → LLM API Keys** (or that you are logged into Codex for OpenAI).
 2. Restart your session — keys and CLI logins apply at session start.

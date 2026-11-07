@@ -31,7 +31,7 @@ Every `/review` subagent runs with `review_mode=report-only` and returns its com
   ```
 - **Plan entry:** Pi has no EnterPlanMode primitive. Invoke the `Plan` agent OR produce an explicit written plan and wait for explicit user approval before any source/test/config edit.
 - **Root-owned phases:** Phase 7 external verification (when available), Phase 8 user triage, and Phase 9-10 persistence/mutations run in the main session. All reviewer phases use report-only subagents and return their reports to the root.
-- **Shell:** in context-mode sessions route shell through `ctx_execute` / `ctx_batch_execute`; otherwise use Bash directly. Both produce identical output.
+- **Shell:** in context-mode sessions route shell through `ctx_execute` / `ctx_batch`; otherwise use Bash directly. Both produce identical output. In context-mode v2, `ctx_batch` takes `commands: ["shell command"]` (strings, not labeled objects); inspect the live schema.
 
 ## Context preservation
 

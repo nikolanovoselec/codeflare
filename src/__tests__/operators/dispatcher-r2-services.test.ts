@@ -18,6 +18,7 @@ import { type ConfiguredDispatcherInference, discoverDispatcherOwnerProfile, dis
 import { setLogLevel } from '../../lib/logger';
 import { connectionSecret, normalCallback } from './fixtures/normal-dispatcher';
 import { nativePiAuthFailure } from '../../operators/pi-auth-failure';
+import { EgressController } from '../../egress-controller';
 
 // Metadata-only Root: replace the external container lifecycle base, not Root's
 // ownership/credential coordination. Native DO storage and RPC remain real; no
@@ -454,14 +455,45 @@ describe('REQ-OPERATOR-007/047/048/058: owner R2 configured-service HTTP contrac
     expect(store.value(settingsKey)).toEqual(saved);
   }));
 
-  it('denies unapproved saved R2 High rather than substituting approved legacy installation Low', () => lane(async (f, store) => {
-    store.put(settingsKey, { defaultProvider: providerId, defaultModel: logical.model, defaultThinkingLevel: 'high' });
+  it.each(['medium', 'high'])('REQ-OPERATOR-007: normal Native admits saved R2 %s independently of Gateway Low', level => lane(async (f, store) => {
+    store.put(settingsKey, { defaultProvider: providerId, defaultModel: logical.model, defaultThinkingLevel: level });
     const saved = store.value(settingsKey);
-    expect(await start(f)).toMatchObject({ ok: true, state: { status: 'unknown' } });
-    expect((await f.activity.getRuntimePlan())?.configuredSelection).toBeUndefined();
-    expect(f.normalTransport!.requests.filter(request => request.path === '/control/dispatch')).toEqual([]);
+    const original = (await f.activity.getRuntimePlan())!.receipt;
+    if (!('selection' in original)) throw new Error('Expected management receipt');
+    const policies = structuredClone([original.selection.operator.policy, original.selection.installation.policy]);
+    expect(policies.map(policy => policy.inference?.reasoningLevels)).toEqual([['low'], ['low']]);
+    await admitted(f);
+    expect((await f.activity.getRuntimePlan())?.configuredSelection).toMatchObject({ source: 'pi-native', reasoningLevel: level });
+    expect((await f.activity.getBrowserDetail())?.inferenceSelection).toMatchObject({ reasoningLevel: level, reasoningSource: 'inherited' });
+    expect((await modelAdmission(f)).status).toBe(200);
+    const retained = (await f.activity.getRuntimePlan())!.receipt;
+    if (!('selection' in retained)) throw new Error('Expected management receipt');
+    expect([retained.selection.operator.policy, retained.selection.installation.policy]).toEqual(policies);
     expect(store.value(settingsKey)).toEqual(saved);
   }));
+
+  it.each((['original-operator', 'original-installation', 'current-operator', 'current-installation'] as const)
+    .flatMap(scope => (['source', 'inference'] as const).map(check => ({ scope, check }))))(
+    'REQ-OPERATOR-007/047: normal Native retains $scope $check authorization', ({ scope, check }) => lane(async f => {
+      await admitted(f);
+      const plan = (await f.activity.getRuntimePlan())!;
+      if (!('selection' in plan.receipt)) throw new Error('Expected management receipt');
+      const current = await f.environment.OPERATOR_REGISTRY!.getByName('registry')
+        .resolveManagementExecution(plan.receipt.selection.installation.id);
+      if (!current.ok) throw new Error('Expected current grants');
+      if (scope.startsWith('current-')) {
+        const policy = scope === 'current-operator' ? current.value.operator.policy : current.value.installation.policy;
+        if (check === 'source') policy.inference!.allowedSources = ['managed'];
+        else policy.capabilities = policy.capabilities.filter(value => value !== 'inference');
+      } else await f.mutateEvidence(async storage => {
+        const state = (await storage.get<any>('admission'))!;
+        const policy = scope === 'original-operator' ? state.receipt.selection.operator.policy : state.receipt.selection.installation.policy;
+        if (check === 'source') policy.inference.allowedSources = ['managed'];
+        else policy.capabilities = policy.capabilities.filter((value: string) => value !== 'inference');
+        await storage.put('admission', state);
+      });
+      await denied(await modelAdmission(f));
+    }));
 
   it('later owner R2 reasoning changes do not replace the original admitted identity across reconstruction', () => lane(async (f, store) => {
     await admitted(f);
@@ -921,17 +953,55 @@ describe('REQ-OPERATOR-007/047/048/058: owner R2 configured-service HTTP contrac
   }));
 
   it.each([
-    { provider: 'kimi-coding', model: 'kimi-for-coding', api: 'anthropic-messages', reasoningLevel: 'low' },
+    { provider: 'kimi-coding', model: 'kimi-for-coding', api: 'openai-completions', reasoningLevel: 'low' },
     { provider: 'github-copilot', model: 'gpt-4o', api: 'openai-completions', reasoningLevel: 'low' },
-  ])('SDK $provider auth requiring headers/baseUrl is refused rather than silently flattened', selection => lane(async (f, store) => {
+  ])('REQ-OPERATOR-007/047: preserves SDK $provider OAuth request metadata without flattening or credential mutation', selection => lane(async (f, store) => {
     store.put(settingsKey, { defaultProvider: selection.provider, defaultModel: selection.model });
-    store.put(authKey, { [selection.provider]: oldOAuth, other });
+    const saved = { [selection.provider]: oldOAuth, other };
+    store.put(authKey, saved);
     await admitted(f);
     const exchanges = oauthBoundary();
-    await denied(await credentials(f, { operation: 'read', providerId: selection.provider }));
+    const response = await credentials(f, { operation: 'read', providerId: selection.provider });
+    expect(response.status).toBe(200);
+    const value = await json(response);
+    if (selection.provider === 'kimi-coding') {
+      expect(new Headers(value.auth.headers).get('authorization')).toBe(`Bearer ${oldOAuth.access}`);
+      expect(value.auth).not.toHaveProperty('apiKey');
+    } else {
+      expect(value.auth.apiKey).toBe(oldOAuth.access);
+      expect(value.auth.baseUrl).toMatch(/^https:\/\//);
+    }
+    expect(JSON.stringify(value)).not.toContain(oldOAuth.refresh);
+    expect(JSON.stringify(value)).not.toContain(other.key);
     expect(exchanges).toEqual([]);
-    expect(store.value(authKey)).toEqual({ [selection.provider]: oldOAuth, other });
+    expect(store.value(authKey)).toEqual(saved);
+    for (const evidence of [await f.activity.getBrowserDetail(), await diagnosticTraversal(diagnosticsBrowser(f))]) {
+      const visible = JSON.stringify(evidence);
+      for (const secret of [oldOAuth.access, oldOAuth.refresh, other.key]) expect(visible).not.toContain(secret);
+    }
   }, true, false, { nativeSelection: selection }));
+
+  it('REQ-OPERATOR-007/047: preserves SDK-resolved API-key request environment without mutation or ambient fallback', () => lane(async (f, store) => {
+    const secret = 'synthetic-provider-request-env';
+    const saved = { [providerId]: { type: 'api_key', key: oldOAuth.access, env: { SDK_REQUEST_CONTEXT: secret } }, other };
+    store.put(authKey, saved);
+    await admitted(f);
+    expect(await json(await read(f))).toEqual({ auth: { apiKey: oldOAuth.access }, env: { SDK_REQUEST_CONTEXT: secret } });
+    expect(store.value(authKey)).toEqual(saved);
+    for (const evidence of [await f.activity.getBrowserDetail(), await diagnosticTraversal(diagnosticsBrowser(f))]) {
+      const visible = JSON.stringify(evidence);
+      for (const value of [secret, oldOAuth.access, other.key]) expect(visible).not.toContain(value);
+    }
+  }));
+
+  it.each(['invalid', { REQUEST_SECRET: { invalid: 'nested' } }])(
+    'REQ-OPERATOR-047: malformed saved API-key environment %j releases no auth', value => lane(async (f, store) => {
+      const saved = { [providerId]: { type: 'api_key', key: oldOAuth.access, env: value }, other };
+      store.put(authKey, saved);
+      await admitted(f);
+      await denied(await read(f));
+      expect(store.value(authKey)).toEqual(saved);
+    }));
 
   it.each(['enterpriseUrl', 'tokenEndpoint', 'env'] as const)('untrusted OAuth %s cannot choose private exchange destinations', field => lane(async (f, store) => {
     await admitted(f);
@@ -941,8 +1011,40 @@ describe('REQ-OPERATOR-007/047/048/058: owner R2 configured-service HTTP contrac
     expect(exchanges).toEqual([]);
   }));
 
-  it('returns only the selected saved API key, without evaluating or exporting provider metadata', () => lane(async (f, store) => {
-    const saved = { type: 'api_key', key: `${canary}_selected_api_key`, env: { PRIVATE: `${canary}_private_env` } };
+  it.each([
+    { selection: logical, credential: undefined, loggingEnabled: false },
+    { selection: { provider: 'anthropic', model: 'claude-sonnet-4-5', api: 'anthropic-messages', reasoningLevel: 'low' }, credential: undefined, loggingEnabled: true },
+    { selection: { provider: 'xai', model: 'grok-4', api: 'openai-completions', reasoningLevel: 'low' }, credential: 'not-a-credential-record', loggingEnabled: false },
+    { selection: { provider: 'kimi-coding', model: 'kimi-k2.5', api: 'anthropic-messages', reasoningLevel: 'low' }, credential: undefined, loggingEnabled: false },
+  ])('REQ-OPERATOR-057 AC5/6: missing $selection.provider credential reaches owner recovery without settling a reserved operation', ({ selection, credential, loggingEnabled }) => lane(async (f, store) => {
+    const saved = { ...(credential === undefined ? {} : { [selection.provider]: credential }), other };
+    store.put(settingsKey, { defaultProvider: selection.provider, defaultModel: selection.model, defaultThinkingLevel: 'low' });
+    store.put(authKey, saved);
+    await admitted(f);
+    await json(await modelAdmission(f));
+    await denied(await credentials(f, { operation: 'read', providerId: selection.provider }));
+    const authFailure = { code: 'PI_LOGIN_REQUIRED', reason: 'missing', provider: selection.provider };
+    expect(await f.activity.getBrowserSummary(f.proof.ownerKey)).toMatchObject({ authFailure });
+    expect(await f.activity.getBrowserDetail()).toMatchObject({ authFailure, result: null, collectionStatus: 'unavailable' });
+    await denied(await modelAdmission(f, 'later-inference'), [403, 404, 409]);
+    f.normalTransport!.settle('failed');
+    await f.activity.reconcileDispatcherLease();
+    expect(await f.activity.getBrowserSummary(f.proof.ownerKey)).toMatchObject({ authFailure, executionStatus: 'unknown' });
+    expect(await f.activity.getBrowserDetail()).toMatchObject({ result: null, collectionStatus: 'unavailable' });
+    expect(store.value(authKey)).toEqual(saved);
+    expect(JSON.stringify(await f.activity.getBrowserDetail())).not.toContain(canary);
+  }, true, false, { loggingEnabled, nativeSelection: selection }));
+
+  it('REQ-OPERATOR-057 AC6: an unavailable auth-file read is not diagnosed as missing native credentials', () => lane(async (f, store) => {
+    await admitted(f);
+    store.override(path => path.endsWith(authKey) ? new Response(null, { status: 403 }) : undefined);
+    await denied(await read(f));
+    expect(await f.activity.getBrowserSummary(f.proof.ownerKey)).not.toHaveProperty('authFailure');
+    expect(await f.activity.getBrowserDetail()).not.toHaveProperty('authFailure');
+  }));
+
+  it('returns the legacy selected API-key reply when SDK request metadata is absent', () => lane(async (f, store) => {
+    const saved = { type: 'api_key', key: `${canary}_selected_api_key` };
     store.put(authKey, { [providerId]: saved, other });
     await admitted(f);
     expect(await json(await read(f))).toEqual({ apiKey: saved.key });
@@ -1564,6 +1666,55 @@ describe('REQ-OPERATOR-007/047/048: protected SDK-prepared HTTP, not Parent mode
     await denied(await modelFetch(f, permit.permitId, request, 'partial-sdk'), [403, 404, 409]);
     expect(paid).toEqual([sdkBody]);
   }));
+
+  it.each([false, true].flatMap(loggingEnabled => [false, true].flatMap(nativeProviderDefault => [
+    { destination: 'catalog', url: 'https://api.openai.com/v1/responses' },
+    { destination: 'codex', url: 'https://chatgpt.com/backend-api/codex/responses' },
+    { destination: 'custom', url: 'https://custom.example.test/native/stream' },
+  ].map(endpoint => ({ loggingEnabled, nativeProviderDefault, ...endpoint })))))(
+    'REQ-OPERATOR-007/047: strict Native SDK forwards $destination endpoints (logging: $loggingEnabled, default: $nativeProviderDefault)',
+    ({ loggingEnabled, nativeProviderDefault, url }) => lane(async f => {
+      await admitted(f);
+      f.environment.ENTERPRISE_MODE = 'active';
+      const originalGet = f.environment.KV.get.bind(f.environment.KV);
+      const policy = vi.spyOn(f.environment.KV, 'get').mockImplementation((async (key: string, ...args: unknown[]) =>
+        key === SETUP_KEYS.STRICT_EGRESS ? 'active' : Reflect.apply(originalGet, f.environment.KV, [key, ...args])) as typeof f.environment.KV.get);
+      try {
+        const outgoing: Request[] = [];
+        const original = globalThis.fetch;
+        vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
+          const request = new Request(input, init);
+          if (request.url !== url) return original(request);
+          outgoing.push(request.clone());
+          return new Response('native SDK original stream', { headers: { 'content-type': 'text/event-stream' } });
+        });
+        const permit = await json(await modelAdmission(f));
+        const response = await modelFetch(f, permit.permitId, { url, method: 'POST',
+          headers: [['authorization', `Bearer ${oldOAuth.access}`], ['content-type', 'application/json']], bodyBase64: encodeBody(sdkBody) });
+        expect(response.status).toBe(200);
+        expect(await response.text()).toBe('native SDK original stream');
+        expect(outgoing.map(request => request.url)).toEqual([url]);
+        expect(outgoing[0].headers.get('authorization')).toBe(`Bearer ${oldOAuth.access}`);
+        expect(await outgoing[0].text()).toBe(sdkBody);
+      } finally { policy.mockRestore(); }
+    }, true, true, { loggingEnabled, nativeProviderDefault }));
+
+  it.each(['generation', 'profile', 'revoked-owner'] as const)('REQ-OPERATOR-047: normal Native strict egress refuses %s before provider I/O', fault => lane(async f => {
+    await admitted(f);
+    f.environment.ENTERPRISE_MODE = 'active';
+    const selected = (await f.activity.getRuntimePlan())!.configuredSelection!;
+    if (fault === 'revoked-owner') f.revokeSession();
+    const props = { strict: true, operatorDispatcherNative: { activityId: f.activityId,
+      generation: fault === 'generation' ? 2 : 1,
+      profileDigest: fault === 'profile' ? 'f'.repeat(64) : selected.profileDigest } };
+    const outgoing: string[] = [];
+    const controller = new EgressController({ props } as unknown as ExecutionContext, { ...f.environment,
+      EGRESS: { fetch: async (request: Request) => { outgoing.push(request.url); return new Response('must not send'); } } } as Env);
+    const response = await controller.fetch(new Request('https://api.openai.com/v1/responses', { method: 'POST',
+      headers: { authorization: `Bearer ${oldOAuth.access}`, 'content-type': 'application/json' }, body: sdkBody }));
+    expect(response.status).toBe(403);
+    expect(outgoing).toEqual([]);
+  }, true, true));
 
   it('unavailable strict-egress policy refuses native SDK HTTP without a direct paid request', () => lane(async f => {
     await admitted(f);

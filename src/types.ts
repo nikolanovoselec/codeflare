@@ -460,6 +460,7 @@ export interface ContainerConfigPayload {
   tabConfig: TabConfig[];
   terminalMode: TerminalMode;
   workspaceSyncEnabled: boolean;
+  syncPolicyMode?: import('./lib/sync-policy').SyncPolicyMode;
   fastStartEnabled: boolean;
   sessionMode: string;
   sessionWorkspace: SessionWorkspace;

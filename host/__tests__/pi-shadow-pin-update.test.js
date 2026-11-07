@@ -6,7 +6,7 @@ import { spawnSync } from 'node:child_process';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
-for (const name of ['pi-mcp-extension', 'pi-open-tui', 'pi-smart-compact']) {
+for (const name of ['pi-mcp-adapter', 'pi-open-tui', 'pi-smart-compact']) {
 test(`REQ-OPS-054 AC6: the real Pi updater preserves aligned pins and startup filters (${name})`, () => {
   const workflow = readFileSync(new URL('../../.github/workflows/bump-shadow-pins.yml', import.meta.url), 'utf8');
   const scripts = [...workflow.matchAll(/node <<'NODE'\n([\s\S]*?)\n\s*NODE/g)]

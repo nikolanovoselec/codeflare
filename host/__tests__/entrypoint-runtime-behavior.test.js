@@ -10,6 +10,16 @@ import { fileURLToPath } from 'node:url';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ENTRYPOINT = resolve(__dirname, '../../entrypoint.sh');
 
+function syncCompositionFixture() {
+  const source = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../../entrypoint.sh'), 'utf8');
+  const functions = source.slice(source.indexOf('prepare_managed_resource_filter() {'), source.indexOf('# Step 1: One-way sync FROM R2 TO local'));
+  return `${functions}
+MANAGED_RESOURCE_FILTER_FILE="$CODEFLARE_RUNTIME_ROOT/sync/managed.filter"
+RECOVERY_FILTER_FILE="$CODEFLARE_RUNTIME_ROOT/sync/recovery-filters.txt"
+: > "$RECOVERY_FILTER_FILE"
+`;
+}
+
 function runtimeEnv(env = {}) {
   const runtimeRoot = env.CODEFLARE_RUNTIME_ROOT ?? mkdtempSync(join(tmpdir(), 'entrypoint-runtime-'));
   mkdirSync(join(runtimeRoot, 'sync'), { recursive: true });
@@ -32,7 +42,7 @@ function extractFunction(name) {
   if (end === -1) throw new Error(`Could not locate the end of ${name}()`);
   const body = lines.slice(start, end + 1).join('\n');
   if (['initial_sync_from_r2', 'establish_bisync_baseline', 'bisync_with_r2'].includes(name)) {
-    return `source ${JSON.stringify(resolve(__dirname, '../../scripts/rclone-conflict-cleanup.sh'))}\n${body}`;
+    return `${syncCompositionFixture()}\nsource ${JSON.stringify(resolve(__dirname, '../../scripts/rclone-conflict-cleanup.sh'))}\n${body}`;
   }
   return body;
 }
@@ -70,8 +80,6 @@ const EXPECTED_PLAN_MODE_SETTINGS = {
     'get_search_content',
     'source_check',
     'web_search',
-    'ctx_execute_file',
-    'ctx_fetch_and_index',
     'ctx_index',
     'ctx_search',
     'graphify_explain',
@@ -90,7 +98,7 @@ describe('entrypoint production helpers', () => {
       icons: { mode: 'ascii' }, thinkingPeek: { lines: 2 },
       footerSegments: { cwd: false, hostname: false, sessionName: true, gitBranch: false,
         gitStatus: false, gitCommit: false, runtime: false, context: true, tokens: false,
-        cost: false, extensionStatuses: true, capitalizeProviderName: false },
+        cost: false, liveTps: false, extensionStatuses: true, capitalizeProviderName: false },
       telemetry: { enabled: false, tps: true, ttft: true, duration: true, tokens: true, stalls: true, cost: true },
     };
     const env = { USER_HOME: home };
@@ -411,7 +419,6 @@ describe('entrypoint production helpers', () => {
       '[entrypoint] Fast Start disabled; Codex version after update: codex-cli 0.151.0',
       'off:unset:unset:unset:unset:unset:unset',
       'npm:view @earendil-works/pi-coding-agent@latest version',
-      'pi:update --extensions offline= skip=',
       'npm:view @openai/codex@latest version',
       'npm:install --prefix /opt/codeflare/npm-tools --omit=dev --save-exact --ignore-scripts --no-audit --no-fund @earendil-works/pi-coding-agent@0.85.1 @openai/codex@0.151.0',
     ]);
@@ -664,7 +671,7 @@ describe('entrypoint production helpers', () => {
   });
   }
 
-  it('REQ-AGENT-206: Fast Start OFF surfaces Pi package and agent runtime update failures', () => {
+  it('REQ-AGENT-206: Fast Start OFF surfaces agent runtime update failures without updating extensions', () => {
     const script = `${extractFunction('update_pi_and_codex_when_fast_start_disabled')}\n` +
       `pi() { [ "$1" = "--version" ] && { echo 'pi 0.84.4'; return 0; }; return 7; }\n` +
       `codex() { echo 'codex-cli 0.150.1'; }\n` +
@@ -675,7 +682,7 @@ describe('entrypoint production helpers', () => {
     const result = spawnSync('bash', ['-c', script], { encoding: 'utf8' });
 
     assert.equal(result.status, 0, result.stderr);
-    assert.match(result.stdout, /ERROR: Pi package update failed/);
+    assert.doesNotMatch(result.stdout, /Pi package update/);
     assert.match(result.stdout, /ERROR: Pi runtime update failed/);
     assert.match(result.stdout, /ERROR: Codex runtime update failed/);
     assert.match(result.stdout, /update-failed/);

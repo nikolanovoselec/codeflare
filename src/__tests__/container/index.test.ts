@@ -882,6 +882,46 @@ describe('container DO class / REQ-SESSION-002 (one container per session) / REQ
       expect(instance.idleTimeoutPref).toBe('12h');
     });
 
+    it('REQ-SESSION-008: sync policy survives initial configuration, both restart directions, and DO wake', async () => {
+      const persisted = new Map<string, unknown>();
+      mockStorage.get.mockImplementation(async (key: string) => persisted.get(key));
+      mockStorage.put.mockImplementation(async (key: string, value: unknown) => { persisted.set(key, value); });
+      let instance = new ContainerClass(mockCtx as any, mockEnv);
+      await mockCtx.blockConcurrencyWhile.mock.results.at(-1)!.value;
+      const initial = await instance.fetch(new Request('http://container/_internal/setBucketName', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ bucketName: 'test-bucket', workspaceSyncEnabled: false }),
+      }));
+      expect(initial.status).toBe(200);
+      expect(instance.envVars?.SYNC_POLICY_MODE).toBe('exclude');
+      for (const syncPolicyMode of ['include', 'exclude', 'include']) {
+        const response = await instance.fetch(new Request('http://container/_internal/setBucketName', {
+          method: 'POST', headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ bucketName: 'test-bucket', syncPolicyMode, workspaceSyncEnabled: false }),
+        }));
+        expect(response.status).toBe(409);
+        expect(persisted.get('syncPolicyMode')).toBe(syncPolicyMode);
+        expect(instance.envVars?.SYNC_POLICY_MODE).toBe(syncPolicyMode);
+        expect(instance.envVars?.SYNC_MODE).toBe('none');
+        instance = new ContainerClass(mockCtx as any, mockEnv);
+        await mockCtx.blockConcurrencyWhile.mock.results.at(-1)!.value;
+        expect(instance.envVars?.SYNC_POLICY_MODE).toBe(syncPolicyMode);
+        expect(instance.envVars?.SYNC_MODE).toBe('none');
+      }
+      for (const syncPolicyMode of ['Include', null, true, '']) {
+        const response = await instance.fetch(new Request('http://container/_internal/setBucketName', {
+          method: 'POST', headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ bucketName: 'test-bucket', syncPolicyMode }),
+        }));
+        expect(response.status).toBe(400);
+        expect(persisted.get('syncPolicyMode')).toBe('include');
+        expect(instance.envVars?.SYNC_POLICY_MODE).toBe('include');
+      }
+      persisted.set('syncPolicyMode', 'Include');
+      new ContainerClass(mockCtx as any, mockEnv);
+      await expect(mockCtx.blockConcurrencyWhile.mock.results.at(-1)!.value).rejects.toThrow(/sync policy/i);
+    });
+
     it('calls blockConcurrencyWhile in constructor', () => {
       new ContainerClass(mockCtx as any, mockEnv);
       expect(mockCtx.blockConcurrencyWhile).toHaveBeenCalledTimes(1);

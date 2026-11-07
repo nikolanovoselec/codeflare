@@ -95,6 +95,18 @@ function setRunSettings(repository: string, automaticRuns: boolean, repetitionIn
 }
 
 describe('configured Renovate run settings', () => {
+  it.each(['3', '4'])('REQ-OPERATOR-061: intent %s exposes the saved repository and Save action without a read mutation', async intentVersion => {
+    state.releases[0].intentVersion = intentVersion;
+    setRunSettings('acme/saved-project', false, 3600);
+    const installed = await open();
+    const group = await settings();
+    expect(repository(group)).toHaveValue('acme/saved-project');
+    expect(save()).toBeEnabled();
+    expect(within(installed).queryByRole('textbox', { name: 'Repository to assess' })).not.toBeInTheDocument();
+    expect(within(installed).queryByRole('spinbutton', { name: 'Pull request to assess' })).not.toBeInTheDocument();
+    expect(writes).toEqual([]);
+  });
+
   it('REQ-OPERATOR-061: configured Renovate run settings default to an unset required repository, automatic off and 3600 seconds without a read mutation', async () => {
     await open();
     const group = await settings();
@@ -147,7 +159,8 @@ describe('configured Renovate run settings', () => {
     expect(state.installations[0].enabled).toBe(false);
   });
 
-  it('REQ-OPERATOR-061: configured Renovate run settings save the public wire contract, reload retained values and isolate other installations until explicit re-enable', async () => {
+  it.each(['3', '4'])('REQ-OPERATOR-061: intent %s run settings save the public wire contract, reload retained values and isolate other installations until explicit re-enable', async intentVersion => {
+    state.releases[0].intentVersion = intentVersion;
     const before = structuredClone(state);
     await open();
     const group = await settings();

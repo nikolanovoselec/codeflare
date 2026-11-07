@@ -252,7 +252,7 @@ function commandText(event: any): string {
   const input = event?.input ?? event?.params ?? event?.args ?? {};
   if (typeof input.command === "string") return input.command;
   if (typeof input.code === "string") return input.code;
-  if (Array.isArray(input.commands)) return input.commands.map((cmd: any) => String(cmd?.command ?? "")).join("\n");
+  if (Array.isArray(input.commands)) return input.commands.map((cmd: any) => typeof cmd === "string" ? cmd : String(cmd?.command ?? "")).join("\n");
   return "";
 }
 
@@ -265,8 +265,8 @@ function commandText(event: any): string {
 function shellCommandText(event: any): string {
   const input = event?.input ?? event?.params ?? event?.args ?? {};
   if (typeof input.command === "string") return input.command;
-  if (input.language === "shell" && typeof input.code === "string") return input.code;
-  if (Array.isArray(input.commands)) return input.commands.map((cmd: any) => (cmd && typeof cmd.command === "string" ? cmd.command : "")).join("\n");
+  if (["shell", "sh", "bash", "zsh", "dash", "ksh", "fish"].includes(input.language) && typeof input.code === "string") return input.code;
+  if (Array.isArray(input.commands)) return input.commands.map((cmd: any) => (typeof cmd === "string" ? cmd : cmd && typeof cmd.command === "string" ? cmd.command : "")).join("\n");
   return "";
 }
 

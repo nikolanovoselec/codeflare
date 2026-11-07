@@ -7,7 +7,7 @@ import OperatorActivityPages from './OperatorActivityPages';
 import OperatorActivityResult from './OperatorActivityResult';
 import OperatorActivityDiagnostics from './OperatorActivityDiagnostics';
 import { acknowledgeOperatorActivities, cancelOperatorActivity, getOperatorActivity, listOperatorActivities,
-  piLoginRecoveryCopy, type OperatorActivityDetail } from '../api/operator-activities';
+  piAuthFailureTitle, piLoginRecoveryCopy, type OperatorActivityDetail } from '../api/operator-activities';
 import '../styles/operator-dropdown.css';
 
 interface Props { enabled: boolean }
@@ -151,11 +151,11 @@ const OperatorActivityButton: Component<Props> = props => {
                   <div class="operator-activity-list"><Show when={visible().length} fallback={<p class="operator-activity-state">{activities()?.items.length ? 'No matching runs' : 'No activity'}</p>}>
                     <For each={visible()}>{item => <article class="operator-activity-item">
                       <div><strong>{item.operatorName || item.operatorId}</strong><span class="operator-run-status" data-status={item.executionStatus}>{item.executionStatus}</span></div>
-                      <Show when={item.authFailure}>{failure => <p>Provider authentication {failure().reason} · {failure().provider}</p>}</Show>
+                      <Show when={item.authFailure}>{failure => <p>{piAuthFailureTitle(failure())}</p>}</Show>
                       <div><Show when={item.context || item.source}><p>{item.context || item.source}</p></Show><Show when={item.version}><small>{item.version}</small></Show></div>
                       <small>Updated {updatedDate(item.updatedAt).toLocaleString()}<Show when={stale(item.updatedAt) && workingStates.has(item.executionStatus)}> · Last observation may be stale</Show></small>
                       <Show when={item.resultSummary} fallback={<small>Outcome details unavailable</small>}>{counts => <div class="operator-run-outcomes"><span>{counts().merged} merged</span><span>{counts().notMerged} not merged</span><Show when={counts().deferred}><span>{counts().deferred} deferred</span></Show><Show when={counts().unknown}><span>{counts().unknown} unknown</span></Show></div>}</Show>
-                      <Show when={item.progress}><p>{item.progress}</p></Show><Show when={item.attention}><span class="operator-activity-attention">Needs attention</span></Show>
+                      <Show when={item.progress}><p>{item.progress}</p></Show><Show when={item.attention && !item.authFailure}><span class="operator-activity-attention">Needs attention</span></Show>
                       <nav><button type="button" aria-label={`View ${item.activityId}`} onClick={() => select(item.activityId)}>View details</button><Show when={item.sessionId}>{id => <a href={`/app?session=${encodeURIComponent(id())}`}>Open session</a>}</Show>
                         <Show when={workingStates.has(item.executionStatus) && item.executionStatus !== 'unknown'}><button type="button" disabled={cancelling() === item.activityId} aria-label={`Cancel ${item.activityId}`} onClick={() => void cancel(item.activityId)}>Cancel</button></Show></nav>
                     </article>}</For>
@@ -170,10 +170,10 @@ const OperatorActivityButton: Component<Props> = props => {
                   {value => <div class="operator-activity-detail"><h3>{value().operatorName || value().operatorId}</h3><Show when={value().context}><p>{value().context}</p></Show>
                     <Show when={value().version}><p>Version: {value().version}</p></Show><p>Execution: {value().executionStatus}</p>
                     <Show when={nativeSelection(value().inferenceSelection)}>{selection => <p>Inference: Pi built-in providers · {selection().provider} / {selection().model} · {reasoningLabel(selection().reasoningLevel)}<Show when={selection().reasoningLevel !== null}> ({selection().reasoningSource === 'installation' ? 'installation override' : selection().reasoningSource === 'default' ? 'Medium default' : selection().reasoningSource ? 'inherited Pi default' : 'reasoning origin unavailable'})</Show></p>}</Show>
-                    <Show when={value().authFailure}>{failure => <div role="alert"><p>Provider authentication {failure().reason} · {failure().provider}</p><p>{piLoginRecoveryCopy}</p></div>}</Show>
+                    <Show when={value().authFailure}>{failure => <div role="alert"><p>{piAuthFailureTitle(failure())}</p><p>{piLoginRecoveryCopy}</p></div>}</Show>
                     <h4>Result</h4><Show when={value().result != null} fallback={<p>{value().executionStatus === 'unknown' ? 'Outcome unknown' : value().executionStatus === 'failed' ? 'Activity failed without a result' : value().executionStatus === 'completed' ? 'Result unavailable' : 'Result pending'}</p>}><OperatorActivityResult result={value().result} /></Show>
                     <div class="operator-run-metadata"><p>Cleanup: {value().cleanupStatus === 'released' ? 'SDK release confirmed' : value().cleanupStatus}</p><p>Collection: {value().collectionStatus}</p>
-                      <Show when={value().attention}><p class="operator-activity-attention">Needs attention</p></Show><Show when={value().progress}><p>Progress: {value().progress}</p></Show><Show when={value().checkpoint != null}><p>Checkpoint saved. Work may still be in progress.</p></Show>
+                      <Show when={value().attention && !value().authFailure}><p class="operator-activity-attention">Needs attention</p></Show><Show when={value().progress}><p>Progress: {value().progress}</p></Show><Show when={value().checkpoint != null}><p>Checkpoint saved. Work may still be in progress.</p></Show>
                       <p>Activity ID: <span class="operator-full-id">{value().activityId}</span></p><button type="button" onClick={() => void copyId()}>Copy activity ID</button>
                       <small>Updated {updatedDate(value().updatedAt).toLocaleString()}<Show when={stale(value().updatedAt) && workingStates.has(value().executionStatus)}> · Last observation may be stale</Show></small></div>
                     <button type="button" aria-expanded={diagnostics()} onClick={() => setDiagnostics(value => !value)}>{diagnostics() ? 'Hide diagnostics' : 'View diagnostics'}</button><Show when={diagnostics()}><OperatorActivityDiagnostics activityId={value().activityId} openOnMount /></Show>

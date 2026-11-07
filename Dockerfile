@@ -32,7 +32,7 @@ WORKDIR /src/rclone
 RUN curl -fsSL https://codeload.github.com/rclone/rclone/tar.gz/refs/tags/v1.75.2 -o /tmp/rclone.tar.gz \
     && echo "68afd7f68c84bd978966feae2116339aa7bf454b39c573910c462e87c3774d5a  /tmp/rclone.tar.gz" | sha256sum -c - \
     && tar --strip-components=1 -xzf /tmp/rclone.tar.gz && rm /tmp/rclone.tar.gz \
-    && go mod edit -require=google.golang.org/grpc@v1.85.0 -require=github.com/klauspost/compress@v1.20.3 \
+    && go mod edit -require=google.golang.org/grpc@v1.85.0 -require=github.com/klauspost/compress@v1.20.3 -require=golang.org/x/net@v0.62.0 \
     && go mod tidy
 COPY scripts/patch-rclone-bisync.py /tmp/patch-rclone-bisync.py
 COPY scripts/prepare-rclone-s3-fixture.py /tmp/prepare-rclone-s3-fixture.py
@@ -47,7 +47,23 @@ RUN mkdir -p /out \
     && cp /tmp/rclone-bookkeeping_test.go cmd/bisync/codeflare_bookkeeping_test.go \
     && gofmt -w cmd/bisync/codeflare_bookkeeping_test.go \
     && go test ./cmd/bisync -run '^TestCodeflare' -count=1 \
-    && go build -trimpath -ldflags '-s -w -X github.com/rclone/rclone/fs.Version=v1.75.2-codeflare-bisync1' -o /out/rclone .
+    && go build -trimpath -ldflags '-s -w -X github.com/rclone/rclone/fs.Version=v1.75.2-codeflare-bisync1' -o /out/rclone . \
+    && for binary in /out/rclone-unpatched /out/rclone; do \
+         go version -m "$binary" | grep -E 'dep[[:space:]]+golang.org/x/net[[:space:]]+v0\.62\.0([[:space:]]|$)' || exit 1; \
+       done
+
+# ---- Same gh release with the fixed HTML parser dependency (CVE-2026-78661) ----
+FROM rclone-builder AS gh-builder
+WORKDIR /src/gh
+RUN curl -fsSL "https://codeload.github.com/cli/cli/tar.gz/63837fb778d6a39f02be0ce76ff89f2bc8d74bdc" -o /tmp/gh-src.tar.gz && \
+    echo "1a64dc5be667fa8c6458c0e639292ee1a5e215854705db267882e1bcf865b335  /tmp/gh-src.tar.gz" | sha256sum -c - && \
+    tar --strip-components=1 -xzf /tmp/gh-src.tar.gz && rm /tmp/gh-src.tar.gz && \
+    go mod edit -require=golang.org/x/net@v0.62.0 && go mod tidy && \
+    GH_VERSION=2.103.3-codeflare-xnet1 SOURCE_DATE_EPOCH=1793037767 GO_LDFLAGS="-s -w" go run script/build.go bin/gh && \
+    cp bin/gh /out/gh && \
+    go version -m /out/gh | grep -E '^/out/gh: go1\.27\.3$' && \
+    go version -m /out/gh | grep -E 'dep[[:space:]]+golang.org/x/net[[:space:]]+v0\.62\.0([[:space:]]|$)' && \
+    /out/gh --version
 
 # ---- Unchanged lazygit release rebuilt with the pinned, fixed Go toolchain ----
 FROM rclone-builder AS lazygit-builder
@@ -285,24 +301,24 @@ RUN sed -i 's|http://deb.debian.org|https://deb.debian.org|g' /etc/apt/sources.l
 # code-server commit in package.json and product.json; the build verifies both
 # plus the real lib/vscode package version. Shadow Pins derives the gitlink from
 # the immutable release tag and owns the provenance and bundled dependency pins below.
-# The pinned code-server archive supplies js-yaml 5.4.3 in its upstream 5.x
+# The pinned code-server archive supplies js-yaml 5.5.0 in its upstream 5.x
 # range; do not downgrade it with the former 4.x overlay. Retain the independent
 # tar and pacote overlays pending their separate runtime verification.
 # The immutable Node artifact carries vulnerable node-tar; the integrity-pinned
 # tar overlay replaces npm's copy only. code-server retains its upstream fixed
 # IDE tar 7.5.22, independently smoke-tested. The Node image's bundled npm also carries pacote
 # 21.5.0 affected by CVE-2026-9496; an integrity-pinned 21.5.2 artifact replaces
-# that runtime copy. code-server's basic-ftp 5.3.1 is replaced with 6.2.3 for
-# CVE-2026-102990, preserving its CommonJS API for the get-uri consumer.
+# that runtime copy. code-server's basic-ftp 6.2.3 is replaced with 6.2.4 for
+# GHSA-5pm8-86m8-9m6r, preserving its CommonJS API for the get-uri consumer.
 # follow-redirects 1.16.2 fixes CVE-2026-111755/111756/116689 in its upstream 1.x API.
 # Drop each overlay after its upstream artifact contains at least the pinned
 # fixed version.
-RUN CODE_SERVER_VERSION="4.144.0" && \
-    CODE_SERVER_SHA256="710f749c40a0f3d0ab3be09c0de65314e5c2907cc50646f5fbc0f24c0e8fba2d" && \
-    CODE_SERVER_COMMIT="ee31cdbe02c07b3ba718007f221d14c890696c61" && \
-    CODE_SERVER_CODE_VERSION="1.144.0" && \
-    CODE_SERVER_VSCODE_COMMIT="2c33b50b16c472efe58357d1d2a8a5414bc23fbf" && \
-    CODE_SERVER_JS_YAML_VERSION="5.4.3" && \
+RUN CODE_SERVER_VERSION="4.145.0" && \
+    CODE_SERVER_SHA256="771bf6038658034d7caf509fcc44af50f0b8bdac5e738177b6cf9c4181dd3382" && \
+    CODE_SERVER_COMMIT="2cb3ad3e258891fbb51001ba465c2348d5021644" && \
+    CODE_SERVER_CODE_VERSION="1.145.0" && \
+    CODE_SERVER_VSCODE_COMMIT="a717861c07586a53d83b80d742cd3f59b20a6273" && \
+    CODE_SERVER_JS_YAML_VERSION="5.5.0" && \
     CODE_SERVER_IDE_TAR_VERSION="7.5.22" && \
     NODE_TAR_VERSION="7.5.22" && \
     NODE_TAR_SHA512="3053bf433bed00e9896e484e6824ef6c670537d2fd6fe26e9c8b03c1a2a58d239d70b31e6b7349d64f54b33feb8dd7d25d3ab875fcdf792ed6e29e1838000778" && \
@@ -314,8 +330,8 @@ RUN CODE_SERVER_VERSION="4.144.0" && \
     UNDICI_IDE_SHA512="d372ab31b8c814359047944d3eb4b0ddb775af5d89a7215097dff2c6351b26daa48e6965a82e65163661eae8deb8908aafc10e42f456f3bd8ecbf6b3fa72d8c6" && \
     PACOTE_VERSION="21.5.2" && \
     PACOTE_SHA512="ae27c15dac0332fde72ef0015abd644e94a4d148de8254d3e15b7db7c9d4f714a77dd65c093cbe14e8cee938175804bbee521f6d9951925d9e29071d634fbe8c" && \
-    BASIC_FTP_VERSION="6.2.3" && \
-    BASIC_FTP_SHA512="4fb198b50d9e28950de583911bb03cbb659f07d24c3746b8ff0977308eb8aaadaa4d17dadc55f3a0dab40c3a23643903c92b5c2fe4e47cab33e091c4671e6419" && \
+    BASIC_FTP_VERSION="6.2.4" && \
+    BASIC_FTP_SHA512="e8008a390c5296fe7191ae22d37ba37e770dafdaa9e7264d2b7bb4fb25054c05381df1b901eced082f7e47523d766f28abed6fb78459edc2114c1add1ea2f69b" && \
     FOLLOW_REDIRECTS_VERSION="1.16.2" && \
     FOLLOW_REDIRECTS_SHA512="fe454fd94f33e7de886b483016bc3221ea3be2d6b9695992794d457c050c0267043f910fef3c9d99a83748b88deb835a44a79fde5c6cabb8bf83b96d2500c6a3" && \
     SHELL_QUOTE_VERSION="1.12.0" && \
@@ -493,7 +509,10 @@ RUN GH_VERSION="2.103.3" && \
     echo "${GH_SHA256}  /tmp/gh.deb" | sha256sum -c - && \
     dpkg -i /tmp/gh.deb && \
     gh --version | grep -F "gh version ${GH_VERSION}" && \
-    rm /tmp/gh.deb
+    rm /tmp/gh.deb /usr/bin/gh
+# Retain official support files; replace only the dependency-rebuilt executable.
+COPY --from=gh-builder /out/gh /usr/bin/gh
+RUN gh --version | grep -F "gh version 2.103.3-codeflare-xnet1"
 
 # Privileged npm tools execute user code, hold OAuth tokens, or participate in
 # image builds. Install from one committed lock so exact package bytes and
@@ -631,15 +650,12 @@ RUN cd /opt/codeflare/pi-agent/npm && \
     npm cache clean --force && \
     rm -rf /root/.npm /var/lib/apt/lists/*
 
-# Patch the lock-installed context-mode esbuild bundles in place via
-# scripts/patch-context-mode-bundles.mjs (the SAME module host/__tests__ imports,
-# so the patch logic and its test cannot drift). Implements REQ-AGENT-005 AC5
-# (createRequire shim, codeflare#309) + AC8 (npm update-check notice disable); the
-# full rationale lives in that script's header. Done at build time so the patched
-# bundles ship in the image — no runtime extraction, no per-session bunx download,
-# no first-call delay. License posture (ELv2): we do NOT redistribute context-mode
-# source; npm pulls it from the public registry at build time through the
-# committed lock, and we only edit the installed bundle in place.
+# Validate both lock-installed context-mode v2 copies against the plugin pin,
+# retain ESM compatibility / update-probe suppression (REQ-AGENT-076 AC5),
+# then exercise the published CLI/MCP and built-in SQLite without setup/upgrade.
+# Node 26 satisfies upstream's >=24.15.0 floor; Pi v2 is in-process, not a bridge.
+# npm registry bytes are installed through committed locks; only installed bundles
+# are transformed, never redistributed as preseed source (AD49 / ELv2).
 COPY preseed/agents/claude/plugins/context-mode/.claude-plugin/plugin.json /tmp/context-mode-plugin.json
 # Pi's published shrinkwrap can retain nested dependencies despite outer overrides.
 # Replace both nested runtime copies from the already integrity-verified archive.
@@ -653,6 +669,7 @@ RUN for BRACE_DIR in \
     done && rm -f /usr/local/share/codeflare-brace-expansion.tgz /tmp/undici-npm.tgz /tmp/undici-ide.tgz
 
 COPY scripts/patch-context-mode-bundles.mjs /tmp/patch-context-mode-bundles.mjs
+COPY scripts/qualify-context-mode.mjs /tmp/qualify-context-mode.mjs
 RUN <<'EOF'
 set -e
 VER=$(jq -r '.version // empty' /tmp/context-mode-plugin.json)
@@ -665,12 +682,14 @@ fi
 CTX_DIR="/opt/codeflare/npm-tools/node_modules/context-mode"
 PI_CTX_DIR="/opt/codeflare/pi-agent/npm/node_modules/context-mode"
 node /tmp/patch-context-mode-bundles.mjs "$VER" "$CTX_DIR" "$PI_CTX_DIR"
-# Smoke-test BOTH bundles in BOTH installs so a regression in server.bundle.mjs surfaces
-# at build time. cli.bundle.mjs is exercised by `--version`.
+# Smoke-test BOTH bundles in BOTH installs so a regression in server.mjs surfaces
+# at build time. cli.mjs is exercised by `--version`.
 context-mode --version
-node -e "import('/opt/codeflare/npm-tools/node_modules/context-mode/server.bundle.mjs').catch(e => { console.error('[Dockerfile] FATAL: server.bundle.mjs import failed:', e.message); process.exit(1); }).then(() => console.log('[Dockerfile] server.bundle.mjs imports cleanly'))"
-node -e "import('/opt/codeflare/pi-agent/npm/node_modules/context-mode/server.bundle.mjs').catch(e => { console.error('[Dockerfile] FATAL: Pi server.bundle.mjs import failed:', e.message); process.exit(1); }).then(() => console.log('[Dockerfile] Pi server.bundle.mjs imports cleanly'))"
-rm -f /tmp/context-mode-plugin.json /tmp/patch-context-mode-bundles.mjs
+node -e "import('/opt/codeflare/npm-tools/node_modules/context-mode/server.mjs').catch(e => { console.error('[Dockerfile] FATAL: server.mjs import failed:', e.message); process.exit(1); }).then(() => console.log('[Dockerfile] server.mjs imports cleanly'))"
+node -e "import('/opt/codeflare/pi-agent/npm/node_modules/context-mode/server.mjs').catch(e => { console.error('[Dockerfile] FATAL: Pi server.mjs import failed:', e.message); process.exit(1); }).then(() => console.log('[Dockerfile] Pi server.mjs imports cleanly'))"
+node /tmp/qualify-context-mode.mjs "$CTX_DIR"
+node /tmp/qualify-context-mode.mjs "$PI_CTX_DIR"
+rm -f /tmp/context-mode-plugin.json /tmp/patch-context-mode-bundles.mjs /tmp/qualify-context-mode.mjs
 npm cache clean --force
 rm -rf /root/.npm
 EOF
@@ -862,10 +881,10 @@ COPY scripts/merge-pi-mcp-portals.mjs /opt/codeflare/merge-pi-mcp-portals.mjs
 #   preseed package.json so a version bump there warms the right set automatically.
 #   The warm artifacts under /home/user/.pi are removed after the cache is moved
 #   out, so nothing is baked into /home/user.
-# - The pi run exits non-zero on the missing-LLM-key model call AFTER
-#   extensions load (|| true); the mv + final test fail the build if the cache
-#   came out empty, so a pi CLI change that breaks the warm-up is caught at
-#   build, not as a silent startup regression in production.
+# - Use only --list-models resource loading, never a completion prompt. The
+#   explicit pass below includes every local TS file as well as npm entrypoints;
+#   no preliminary discovery/prompt pass is needed. Loader errors fail the build
+#   even when Pi itself exits zero.
 # - Fail-closed completeness check: explicitly load all managed entrypoints and
 #   local files at their runtime paths, then require actual cache hits and no
 #   misses (including dependencies) in a second fresh Pi process. Native JS uses
@@ -882,18 +901,18 @@ RUN mkdir -p /opt/codeflare/jiti-warm-tmp /home/user/.pi/agent && \
     evaluate_source="/opt/codeflare/pi-agent/npm/node_modules/pi-evaluate/extensions/evaluate.ts" && \
     codex_fast_source="/opt/codeflare/pi-agent/npm/node_modules/@calesennett/pi-codex-fast/extensions/codex-fast.ts" && \
     subagents_source="/opt/codeflare/pi-agent/npm/node_modules/@gotgenes/pi-subagents/src/index.ts" && \
-    mcp_source="/opt/codeflare/pi-agent/npm/node_modules/pi-mcp-extension/src/index.ts" && \
+    mcp_source="/opt/codeflare/pi-agent/npm/node_modules/pi-mcp-adapter/index.ts" && \
     advisor_source="/opt/codeflare/pi-agent/npm/node_modules/@juicesharp/rpiv-advisor/index.ts" && \
     ask_user_source="/opt/codeflare/pi-agent/npm/node_modules/@juicesharp/rpiv-ask-user-question/index.ts" && \
     todo_source="/opt/codeflare/pi-agent/npm/node_modules/@juicesharp/rpiv-todo/index.ts" && \
     web_source="/opt/codeflare/pi-agent/npm/node_modules/pi-web-access/dist/index.js" && \
     smart_compact_source="/opt/codeflare/pi-agent/npm/node_modules/pi-smart-compact/dist/index.js" && \
-    context_source="/opt/codeflare/pi-agent/npm/node_modules/context-mode/build/adapters/pi/extension.js" && \
-    (TMPDIR=/opt/codeflare/jiti-warm-tmp HOME=/home/user PI_CODING_AGENT_DIR=/home/user/.pi/agent PI_OFFLINE=1 PI_SKIP_VERSION_CHECK=1 timeout 240 /opt/codeflare/pi-agent/npm/node_modules/.bin/pi -p "warm" || true) && \
+    context_source="/opt/codeflare/pi-agent/npm/node_modules/context-mode/pi/index.js" && \
     TMPDIR=/opt/codeflare/jiti-warm-tmp HOME=/home/user PI_CODING_AGENT_DIR=/home/user/.pi/agent PI_OFFLINE=1 PI_SKIP_VERSION_CHECK=1 \
       node /opt/codeflare/scripts/verify-pi-lockstep.mjs --warm-jiti-entrypoints \
       /opt/codeflare/pi-agent/npm/node_modules/.bin/pi /opt/codeflare/jiti-warm-tmp/jiti "$goal_source" "$plan_source" "$open_tui_source" "$evaluate_source" "$codex_fast_source" "$subagents_source" "$mcp_source" \
-      "$advisor_source" "$ask_user_source" "$todo_source" "$web_source" "$smart_compact_source" "$context_source" /home/user/.pi/agent/extensions/*.ts && \
+      "$advisor_source" "$ask_user_source" "$todo_source" "$web_source" "$smart_compact_source" "$context_source" /home/user/.pi/agent/extensions/*.ts \
+      --dependencies /home/user/.pi/agent/extensions/transcript-trim/engine.mjs && \
     mv /opt/codeflare/jiti-warm-tmp/jiti /opt/codeflare/jiti-cache && \
     test -n "$(ls -A /opt/codeflare/jiti-cache)" && \
     for ext in /home/user/.pi/agent/extensions/*.ts; do \

@@ -103,8 +103,8 @@ describe('entrypoint context-mode preseed gate / REQ-AGENT-005 + REQ-AGENT-076 (
     );
     assert.deepEqual(
       claudeJson.mcpServers['context-mode'].args,
-      [],
-      'no version arg - global install IS the pinned version'
+      ['server', '--agent', 'claude-code'],
+      'v2 requires an explicit server command and Claude project identity'
     );
   });
 
@@ -117,7 +117,7 @@ describe('entrypoint context-mode preseed gate / REQ-AGENT-005 + REQ-AGENT-076 (
       'context-mode MCP must be registered for ALL users so ctx_* tools are universally available'
     );
     assert.equal(claudeJson.mcpServers['context-mode'].command, 'context-mode');
-    assert.deepEqual(claudeJson.mcpServers['context-mode'].args, []);
+    assert.deepEqual(claudeJson.mcpServers['context-mode'].args, ['server', '--agent', 'claude-code']);
   });
 
   it('manifest present: PLUGINS_CONFIG enables context-mode plugin', () => {
@@ -171,7 +171,7 @@ describe('entrypoint context-mode preseed gate / REQ-AGENT-005 + REQ-AGENT-076 (
     const { claudeJson } = buildHarness(cwd, '{}', true);
     const cm = claudeJson.mcpServers['context-mode'];
     assert.equal(cm.command, 'context-mode');
-    assert.equal(cm.args.length, 0, 'args must be empty - no version pin');
+    assert.deepEqual(cm.args, ['server', '--agent', 'claude-code'], 'explicit v2 server - no version pin');
     assert.ok(
       !JSON.stringify(cm).includes('@'),
       'no @<version> anywhere in the MCP entry'

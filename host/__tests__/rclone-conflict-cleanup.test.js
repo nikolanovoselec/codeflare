@@ -6,6 +6,9 @@ import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+// Isolate unmanaged lifecycle behavior; real policy composition is covered by the rclone matrix.
+const unmanagedPolicyFixture = "prepare_managed_resource_filter() { :; }\ncompose_rclone_filters() { RCLONE_EFFECTIVE_FILTERS=(\"${RCLONE_FILTERS[@]}\"); }";
+
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const helper = join(repo, 'scripts/rclone-conflict-cleanup.sh');
 const entrypoint = readFileSync(join(repo, 'entrypoint.sh'), 'utf8');
@@ -127,6 +130,7 @@ it('REQ-STOR-054 AC3: cleanup follows the sync attempt without masking its failu
   const f = fixture(t);
   for (const status of [0, 7, 124]) {
     const result = f.run(`
+${unmanagedPolicyFixture}
 RCLONE_FILTERS=()
 RECOVERY_FILTER_FILE=/dev/null
 cleanup_main_transcripts() { :; }
@@ -206,6 +210,7 @@ cleanup_rclone_conflicts ${quote(f.local)} r2:bucket/scope ${status} 1`, { DELET
 });
 
 const transferHarness = `
+${unmanagedPolicyFixture}
 RCLONE_FILTERS=()
 RECOVERY_FILTER_FILE=/dev/null
 record_sync_disk_failure() { :; }
@@ -239,7 +244,8 @@ ${name}
 
 it('REQ-STOR-054 AC6: ordinary cleanup uses the existing thirty-second network bound', t => {
   const f = fixture(t), bound = join(f.root, 'bound');
-  const r = f.run(`timeout() { printf '%s' "$1" > ${quote(bound)}; shift; command timeout 1 "$@"; }
+  const r = f.run(`date() { printf '100\\n'; }
+timeout() { printf '%s' "$1" > ${quote(bound)}; shift; command timeout 1 "$@"; }
 cleanup_rclone_conflicts ${quote(f.local)} r2:bucket/scope 0`, { DELETE_STALL: '1' });
   assert.equal(r.status, 124, r.stderr);
   assert.equal(readFileSync(bound, 'utf8'), '30');

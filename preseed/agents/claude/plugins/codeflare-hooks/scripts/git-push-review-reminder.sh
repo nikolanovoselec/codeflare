@@ -24,8 +24,8 @@ MERGE_STATE_FILE="$SESSION_DIR/$TOOL_KEY.merge-before.json"
 command_text() {
   printf '%s' "$INPUT" | jq -r '
     if (.tool_input.command // "") != "" then .tool_input.command
-    elif (.tool_input.language // "") == "shell" and (.tool_input.code // "") != "" then .tool_input.code
-    elif (.tool_input.commands | type? == "array") then [.tool_input.commands[]?.command // empty] | join("; ")
+    elif ((.tool_input.language // "") | IN("shell", "sh", "bash", "zsh", "dash", "ksh", "fish")) and (.tool_input.code // "") != "" then .tool_input.code
+    elif (.tool_input.commands | type? == "array") then [.tool_input.commands[]? | if type == "string" then . else .command // empty end] | join("; ")
     else empty end
   ' 2>/dev/null
 }
