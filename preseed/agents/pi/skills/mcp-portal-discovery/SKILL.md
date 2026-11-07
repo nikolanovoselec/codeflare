@@ -1,6 +1,6 @@
 ---
 name: mcp-portal-discovery
-description: Bootstrap all approved portals, activate exact registered Pi wrappers and search live Code Mode catalogues with explicit partial coverage.
+description: Discover approved portal catalogues through the native MCP adapter and search live Code Mode definitions with explicit partial coverage.
 disable-model-invocation: true
 ---
 
@@ -10,10 +10,12 @@ First follow [connect/bootstrap](../mcp-portal-connect/SKILL.md). Never choose a
 
 ## Two discovery layers
 
-1. `capability` searches/activates **registered Pi tools**. For each connected portal, find its actual prefixed `portal_codemode_search` and `portal_codemode_execute` wrappers. Prefix sanitization/collision handling is stock-extension-owned; never guess or truncate the registered name.
-2. The search wrapper searches the **remote portal catalogue**. Its upstream methods are not separate registered Pi tools, so repeatedly searching `capability` for an inner method will not find one.
+1. Native `mcp` searches its cached registered-server catalogues. Use its live `search` schema to find the actual originating portal's Code Mode search/execute tools, then `describe` the exact returned name. Search-activated deferred tools may also be discovered and activated through `capability`. Names and collision handling belong to the adapter; never guess or truncate them.
+2. The portal search tool searches the **remote inner catalogue**. Its upstream methods are not separate Pi tools; repeatedly searching `capability` for an inner method cannot discover them.
 
-Read each activated wrapper's **live JSON input schema first**. If it exposes `code: string`, a JSON call can look like this (adapt the schema, not just the name):
+To call a discovered wrapper through the proxy, use `{"tool":"<exact returned search tool>","args":{}}` with schema-valid arguments. A direct activated wrapper receives only its own arguments, not this proxy envelope.
+
+Read each discovered wrapper's **live JSON input schema first**. If it exposes `code: string`, a JSON call can look like this (adapt the schema, not just the name):
 
 ```json
 {"code":"async () => { const tools = await codemode.tools(); return tools.filter(t => /issue|repository/i.test(JSON.stringify(t))); }"}

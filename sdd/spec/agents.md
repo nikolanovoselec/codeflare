@@ -3323,15 +3323,15 @@ None.
 ---
 ### REQ-AGENT-069: Pi consult-llm MCP lazy wiring
 
-**Intent:** Pi must reach consult-llm through pi-mcp-extension without starting `consult-llm-mcp` until the user explicitly asks for external LLM input.
+**Intent:** Pi must reach consult-llm through the native adapter without starting `consult-llm-mcp` until the user explicitly asks for external LLM input.
 
 **Applies To:** User
 
 **Acceptance Criteria:**
 
-1. Pi exposes consult-llm through pi-mcp-extension direct tools after explicit `mcp_connect`, followed by discovery and exact-name activation through `capability`. <!-- @impl: entrypoint.sh::configure_consult_llm --> <!-- @impl: entrypoint.sh::_merge_consult_llm_mcp --> <!-- @test: preseed/agents/pi/test/consult-proxy.test.mjs (REQ-AGENT-069 AC1/AC2: direct consult starts only on explicit connect and supports exact capability activation) -->
-2. Fresh managed Pi configuration starts its `lifecycle:"lazy"` consult entry only on explicit connection; existing user entries and startup-setting precedence remain preserved except for [REQ-BROWSER-009](browser-run.md#req-browser-009-mcp-and-chrome-sdk-timeout-profile) timeout preparation. <!-- @impl: entrypoint.sh::configure_consult_llm --> <!-- @test: preseed/agents/pi/test/consult-proxy.test.mjs (REQ-AGENT-069 AC1/AC2: direct consult starts only on explicit connect and supports exact capability activation) --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (REQ-AGENT-069: adding consult preserves existing user startup settings and unrelated servers) -->
-3. Startup regenerates standard managed consult credentials with the existing lazy constructor; customized entries, user settings and unrelated servers remain preserved except for [REQ-BROWSER-009](browser-run.md#req-browser-009-mcp-and-chrome-sdk-timeout-profile) timeout preparation. <!-- @impl: entrypoint.sh::configure_pi_mcp_adapter --> <!-- @impl: entrypoint.sh::_merge_consult_llm_mcp --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (REQ-AGENT-069: fresh startup regenerates managed consult credentials while retaining custom servers and settings) --> <!-- @impl: entrypoint.sh::_remove_disabled_consult_llm --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (REQ-AGENT-069: no-provider startup preserves customized Pi consult while retaining Claude cleanup) --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (REQ-AGENT-069: enterprise startup preserves customized Pi consult while retaining Claude cleanup) -->
+1. Pi exposes consult-llm through the native MCP proxy and deferred tools after explicit connection, followed by live discovery and exact-name activation. <!-- @impl: entrypoint.sh::configure_consult_llm --> <!-- @impl: entrypoint.sh::_merge_consult_llm_mcp --> <!-- @test: preseed/agents/pi/test/consult-proxy.test.mjs (REQ-AGENT-069 AC1/AC2: native consult stays lazy until requested and supports exact capability activation) -->
+2. Fresh managed Pi configuration starts its `lifecycle:"lazy"` consult entry only on explicit connection; existing user entries and startup-setting precedence remain preserved except for [REQ-BROWSER-009](browser-run.md#req-browser-009-mcp-and-chrome-sdk-timeout-profile) timeout preparation. <!-- @impl: entrypoint.sh::configure_consult_llm --> <!-- @test: preseed/agents/pi/test/consult-proxy.test.mjs (REQ-AGENT-069 AC1/AC2: native consult stays lazy until requested and supports exact capability activation) --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (REQ-AGENT-069: adding consult preserves existing native user startup settings and unrelated servers) -->
+3. Startup regenerates standard managed consult credentials with the existing lazy constructor; customized entries, user settings and unrelated servers remain preserved except for [REQ-BROWSER-009](browser-run.md#req-browser-009-mcp-and-chrome-sdk-timeout-profile) timeout preparation. <!-- @impl: entrypoint.sh::configure_pi_mcp_adapter --> <!-- @impl: entrypoint.sh::_merge_consult_llm_mcp --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (REQ-AGENT-217 AC6: actual startup regenerates proven managed consult and browser from fresh inputs (${origin})) --> <!-- @impl: entrypoint.sh::_remove_disabled_consult_llm --> <!-- @test: host/__tests__/pi-mcp-adapter-config.test.js (REQ-AGENT-069: ${mode} startup preserves customized native consult while retaining Claude cleanup) -->
 4. The replacement preserves unrelated user MCP servers in the same file. <!-- @impl: entrypoint.sh::_merge_consult_llm_mcp --> <!-- @manual -->
 
 5. Claude's existing owned-entry replacement remains unchanged. <!-- @impl: entrypoint.sh::_merge_consult_llm_mcp --> <!-- @manual -->
@@ -3340,7 +3340,7 @@ None.
 
 - The Claude server carries no Pi-only `lifecycle` field.
 - Transport recovery must not replay an uncertain mutating call; cancellation reaches the server and session shutdown releases its child processes. <!-- @test: preseed/agents/pi/test/consult-proxy.test.mjs (REQ-AGENT-069: transport recovery never replays an uncertain mutation and shutdown releases child processes) -->
-- Consult requires an explicit user request, `mcp_connect`, discovery and exact direct-tool activation.
+- Consult requires an explicit user request and native MCP connection/discovery; callers use the proxy or activate the exact discovered deferred tool.
 
 **Priority:** P1
 

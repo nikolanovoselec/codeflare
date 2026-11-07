@@ -23,7 +23,7 @@ The authoritative inventory is [`preseed/agents/pi/package.json`](../../preseed/
 | `pi-smart-compact` | Provider-neutral native-pressure compaction, without a competing footer or memory stack |
 | `context-mode` | Disabled at container start; foreground-owned after explicit `/ctx on` |
 | `pi-evaluate` | User-invoked reporting skill, no tool or command |
-| `pi-mcp-extension` | Direct MCP tools, one managed connection owner and lossless legacy migration |
+| `pi-mcp-adapter` | Cached/deferred MCP discovery, idle cleanup and one managed connection owner |
 | `pi-web-access` | Web retrieval and headless-safe default search workflow |
 
 ## Loading and warm compatibility
@@ -128,15 +128,15 @@ Plan's exact-version transform resolves helper availability and configured polic
 
 ## MCP extension and consult-llm
 
-The Pi inventory replaces `pi-mcp-adapter` with exact-pinned `pi-mcp-extension@1.12.1`; its declared warm target is `src/index.ts`. The replacement requires MCP SDK `>=1.32.2`, and the Pi, image-tools and Browser Run manifests align on that approved SDK. Lock regeneration from the final combined source tree and image verification remain required; a changed manifest alone is not installed acceptance.
+The Pi inventory restores exact-pinned `pi-mcp-adapter@5.3.1`, with `index.ts` as its warm target. Pi remains 1.5.0 and existing unrelated SDK/security overrides stay unchanged. Installed archive integrity and real-client behavior are qualified independently of manifest edits.
 
-The replacement is the sole managed MCP owner. Startup removes the retired npm registration and retains `-builtin:mcp` without altering unrelated extension selections. It reads `~/.pi/agent/mcp.json`, exposes direct MCP tools, and uses explicit lazy connections rather than the old adapter's proxy or idle-disconnect policy. Managed requests use a fixed `360000` ms deadline; progress does not restart it.
+Startup removes the replaced stock npm registration and retains `-builtin:mcp`, leaving one managed lifecycle owner. Native `mcp-adapter.json` supports proxy discovery/execution and deferred direct tools. Managed portals use lazy ten-minute idle cleanup, public placeholder headers and `auth: false`; all real portal OAuth remains on Cloudflare. Active calls prevent idle closure, cached discovery survives it, and the next call reconnects.
 
-Pi's generated `consult-llm` entry now receives literal provider-key environment values, without the retired adapter's leading-bang encoding. Claude's entry is unchanged. Recognizable generated entries regenerate from current inputs; customized entries, credentials and unrelated configuration survive migration. Consult remains user-gated and lazy; unsupported Enterprise or unavailable-provider startup removes its skill surface without disclosing credentials.
+`requestTimeoutMs: 360000` is the adapter's progress-resetting request timeout, not a fixed total deadline. Browser navigation can use 120000ms where supported; provider retention remains twenty minutes. Unmanaged local OAuth uses the adapter's own supported storage and is not a reason to import another client's grants.
 
-The managed migration helper retains its compatibility filename, but its explicit stock handoff migrates in the new direction: `mcp-adapter.json` to active `mcp.json`. Default extension registration performs that preparation only when global configured packages/extensions positively select stock alone; installed folders are not selection evidence. Adapter-only selection preserves its native file without stock fields or environment decoding. Dual or unknown selections preserve both files and emit a content-free warning, without choosing or disabling a client. Empty package extension lists and known exact exclusions are honored; unsupported filters remain unknown ([REQ-AGENT-217](../../sdd/spec/mcp.md#req-agent-217-lossless-pi-mcp-adapter-migration), [registerMcpAdapterMigration](../../preseed/agents/pi/extensions/00-mcp-adapter-config.ts#L327)).
+Guarded native preparation translates supported stock configuration, preserves original bytes, and rejects collisions or unsupported expressions before losing data. Completed handoff retires the stock active filename only after archival and native commit. Native settings preserve valid lifecycle choices and unrelated fields; known generated consult/browser entries regenerate from current startup inputs. Literal leading bangs are escaped rather than executed. Explicit stock-only loading remains supported; dual or unknown selection chooses no owner. Active configuration/recovery files remain sync-eligible. See [REQ-AGENT-217](../../sdd/spec/mcp.md#req-agent-217-lossless-pi-mcp-adapter-migration).
 
-Valid active stock configuration takes precedence; displaced or transformed custom originals and malformed regular files remain recoverable outside active names. Unsafe active paths and I/O errors fail closed without overwriting user data. The active `mcp.json` is no longer excluded from baseline/bisync, so restored user configuration remains durable. No bucket objects are deleted. Installed loading, curation publication and deployed activation remain separate gates.
+Client qualification covers actual Pi proxy/deferred exposure, placeholder transport, idle reconnect, stdio cancellation/progress timeout behavior, uncertain-write non-replay and unmanaged OAuth. It does not prove why an existing hosted portal grant failed, publish curation, deploy an image or activate the current process.
 
 ## User workflows and retirement
 

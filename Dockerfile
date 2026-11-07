@@ -901,7 +901,7 @@ RUN mkdir -p /opt/codeflare/jiti-warm-tmp /home/user/.pi/agent && \
     evaluate_source="/opt/codeflare/pi-agent/npm/node_modules/pi-evaluate/extensions/evaluate.ts" && \
     codex_fast_source="/opt/codeflare/pi-agent/npm/node_modules/@calesennett/pi-codex-fast/extensions/codex-fast.ts" && \
     subagents_source="/opt/codeflare/pi-agent/npm/node_modules/@gotgenes/pi-subagents/src/index.ts" && \
-    mcp_source="/opt/codeflare/pi-agent/npm/node_modules/pi-mcp-extension/src/index.ts" && \
+    mcp_source="/opt/codeflare/pi-agent/npm/node_modules/pi-mcp-adapter/index.ts" && \
     advisor_source="/opt/codeflare/pi-agent/npm/node_modules/@juicesharp/rpiv-advisor/index.ts" && \
     ask_user_source="/opt/codeflare/pi-agent/npm/node_modules/@juicesharp/rpiv-ask-user-question/index.ts" && \
     todo_source="/opt/codeflare/pi-agent/npm/node_modules/@juicesharp/rpiv-todo/index.ts" && \

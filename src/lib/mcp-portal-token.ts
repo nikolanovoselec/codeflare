@@ -144,34 +144,69 @@ export async function getMcpPortalGrant(env: Env, owner: string, portal: McpPort
   validateDiscovery(grant.discovery, portal); validTokens(grant.tokens);
   return grant;
 }
-export async function getValidMcpPortalToken(env: Env, owner: string, portal: McpPortal, send: typeof fetch = fetch): Promise<string | null> {
-  const grant = await getMcpPortalGrant(env, owner, portal);
-  if (!grant) return null;
+export interface McpPortalTokenFailure {
+  reason: 'lookup-unavailable' | 'lookup-throws' | 'no-refresh-token' | 'refresh-error' | 'concurrent-change' | 'readback-rejected';
+  detail?: 'timeout' | 'other' | 'invalid_grant' | 'invalid_client' | 'invalid_request' | 'unauthorized_client'
+    | 'unsupported_grant_type' | 'invalid_scope' | 'invalid_target' | 'server_error' | 'temporarily_unavailable';
+}
+function refreshErrorDetail(error: unknown): McpPortalTokenFailure['detail'] {
+  if (error instanceof Error && error.name === 'TimeoutError') return 'timeout';
+  const code = error && typeof error === 'object' && 'errorCode' in error ? error.errorCode : undefined;
+  switch (code) {
+    case 'invalid_grant': case 'invalid_client': case 'invalid_request': case 'unauthorized_client':
+    case 'unsupported_grant_type': case 'invalid_scope': case 'invalid_target': case 'server_error': case 'temporarily_unavailable': return code;
+    default: return 'other';
+  }
+}
+function changedTokens(current: PortalGrant, original: PortalGrant): boolean {
+  return current.tokens.access_token !== original.tokens.access_token
+    || current.tokens.refresh_token !== original.tokens.refresh_token || current.expiresAt !== original.expiresAt;
+}
+function renewedGrant(current: PortalGrant | null, original: PortalGrant): current is PortalGrant {
+  return !!current && current.id === original.id && changedTokens(current, original)
+    && (!current.expiresAt || current.expiresAt > Date.now());
+}
+export async function getValidMcpPortalToken(env: Env, owner: string, portal: McpPortal, send: typeof fetch = fetch,
+  report?: (failure: McpPortalTokenFailure) => void): Promise<string | null> {
+  const fail = (reason: McpPortalTokenFailure['reason'], detail?: McpPortalTokenFailure['detail']) => {
+    report?.({ reason, ...(detail ? { detail } : {}) }); return null;
+  };
+  let grant: PortalGrant | null;
+  try { grant = await getMcpPortalGrant(env, owner, portal); }
+  catch (error) { fail('lookup-throws'); throw error; }
+  if (!grant) return fail('lookup-unavailable');
   if (!grant.expiresAt || grant.expiresAt > Date.now() + 60_000) return grant.tokens.access_token;
-  if (!grant.tokens.refresh_token) return null;
+  if (!grant.tokens.refresh_token) return fail('no-refresh-token');
+  let stage: 'refresh' | 'publication' = 'refresh';
   try {
     const tokens = await refreshAuthorization(grant.discovery.authorizationServerUrl, {
       metadata: grant.discovery.authorizationServerMetadata, clientInformation: grant.client, refreshToken: grant.tokens.refresh_token,
       resource: grant.resource, fetchFn: portalOAuthFetch(send),
     });
     validTokens(tokens);
+    stage = 'publication';
     const current = await getMcpPortalGrant(env, owner, portal);
-    if (!current || current.id !== grant.id || current.tokens.access_token !== grant.tokens.access_token) return null;
+    if (!current || current.id !== grant.id) return fail('concurrent-change');
+    if (changedTokens(current, grant)) {
+      return renewedGrant(current, grant) ? current.tokens.access_token : fail('concurrent-change');
+    }
     const updated: PortalGrant = { ...grant, tokens, expiresAt: tokens.expires_in ? Date.now() + tokens.expires_in * 1000 : undefined };
     await write(env, connectionKey(owner, portal.name), { id: grant.id, grant: updated });
-    // Re-read to reject observed disconnect/config changes. KV is not an atomic CAS store.
+    // Reject observed disconnect/config changes; KV is not an atomic CAS store.
     const after = await getMcpPortalGrant(env, owner, portal);
-    return after?.id === grant.id ? after.tokens.access_token : null;
-  } catch {
-    // Another request may have renewed a single-use refresh token first. Reuse
-    // only an observed fresh grant in the same generation; never retry the write.
+    if (!after || after.id !== grant.id) return fail('readback-rejected');
+    if (renewedGrant(after, grant)) return after.tokens.access_token;
+    // An unchanged same-generation read may lag our completed write. Never send
+    // its old access token instead of the successful refresh result.
+    return !changedTokens(after, grant) ? updated.tokens.access_token : fail('readback-rejected');
+  } catch (error) {
+    // A losing rotating refresh before winner publication remains fail-closed.
+    // Only an observed renewed same-generation grant is safe; never retry writes.
     try {
       const current = await getMcpPortalGrant(env, owner, portal);
-      const renewed = current && (current.tokens.access_token !== grant.tokens.access_token
-        || current.tokens.refresh_token !== grant.tokens.refresh_token || current.expiresAt !== grant.expiresAt);
-      return current?.id === grant.id && renewed && (!current.expiresAt || current.expiresAt > Date.now())
-        ? current.tokens.access_token : null;
-    } catch { return null; }
+      if (renewedGrant(current, grant)) return current.tokens.access_token;
+    } catch { /* No usable observed renewal. */ }
+    return stage === 'refresh' ? fail('refresh-error', refreshErrorDetail(error)) : fail('readback-rejected');
   }
 }
 export async function disconnectMcpPortal(env: Env, owner: string, portal: McpPortal, send: typeof fetch = fetch): Promise<void> {

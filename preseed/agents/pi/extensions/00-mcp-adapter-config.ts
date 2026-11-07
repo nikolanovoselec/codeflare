@@ -1,4 +1,5 @@
-import { constants, closeSync, fstatSync, lstatSync, openSync, readFileSync, unlinkSync, writeFileSync, type Stats } from "node:fs";
+import { constants, closeSync, fstatSync, linkSync, lstatSync, openSync, readFileSync, renameSync, unlinkSync, writeFileSync, type Stats } from "node:fs";
+import { randomUUID } from "node:crypto";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 
@@ -65,9 +66,15 @@ function ownedServer(name: string, server: unknown): boolean {
   const value = server as Record<string, unknown>;
   const command = Object.entries(ownedCommands()).find(([owned]) => name === owned)?.[1];
   if (!command || value.command !== command) return false;
+  // These exact public defaults are part of the managed constructor, not
+  // permission to discard custom per-server policy or authentication fields.
+  if (value.requestTimeoutMs !== undefined && value.requestTimeoutMs !== 360000
+    || value.idleTimeout !== undefined && value.idleTimeout !== 10
+    || value.directTools !== undefined && value.directTools !== "search") return false;
+  const managedFields = ["requestTimeoutMs", "idleTimeout", "directTools"];
   if (name === "chrome-devtools") {
     const args = value.args;
-    if (!Object.keys(value).every(key => ["command", "args", "lifecycle"].includes(key))
+    if (!Object.keys(value).every(key => ["command", "args", "lifecycle", ...managedFields].includes(key))
       || (value.lifecycle !== undefined && value.lifecycle !== "lazy")
       || !Array.isArray(args) || args.length !== 2) return false;
     const endpoint = args.find(arg => typeof arg === "string" && arg.startsWith("--wsEndpoint="));
@@ -80,7 +87,7 @@ function ownedServer(name: string, server: unknown): boolean {
     } catch { return false; }
   }
   const env = value.env;
-  return Object.keys(value).every(key => ["command", "args", "env", "lifecycle"].includes(key))
+  return Object.keys(value).every(key => ["command", "args", "env", "lifecycle", ...managedFields].includes(key))
     && (value.args === undefined || (Array.isArray(value.args) && value.args.length === 0))
     && (value.lifecycle === undefined || value.lifecycle === "lazy")
     && (env === undefined || (!!env && typeof env === "object" && !Array.isArray(env)
@@ -155,7 +162,8 @@ function prepareBrowserTimeouts(value: Config): boolean {
       if (url.protocol !== "wss:" || url.hostname !== "api.cloudflare.com"
         || url.port || url.username || url.password
         || !/^\/client\/v4\/accounts\/[^/]+\/browser-rendering\/devtools\/browser$/.test(url.pathname)) return arg;
-      // Browser inactivity is independent of the fixed six-minute RPC budget.
+      // Browser inactivity is independent of the six-minute request timeout.
+      // SDK progress notifications may reset that timeout; it is not a total deadline.
       if (url.searchParams.getAll("keep_alive").length === 1 && url.searchParams.get("keep_alive") === "1200000") return arg;
       url.searchParams.set("keep_alive", "1200000"); changed = true;
       return "--wsEndpoint=" + url.toString();
@@ -229,6 +237,193 @@ export function migratePiMcpAdapterConfig(directory: string, regenerateManaged =
   } catch {
     // Never include config contents or credential-bearing parse errors.
     return false;
+  }
+}
+
+// The credential-free ownership marker has the same public {name,url} contract
+// as the managed portal reconciler. It is not authority to read an auth store.
+function validPortalMarker(value: unknown): boolean {
+  if (!Array.isArray(value)) return false;
+  const names = new Set<string>();
+  const destinations = new Set<string>();
+  return value.every(portal => {
+    if (!portal || typeof portal !== "object" || Array.isArray(portal)
+      || Object.keys(portal).sort().join(",") !== "name,url"
+      || typeof portal.name !== "string" || !/^[a-z][a-z0-9_-]{0,63}$/.test(portal.name)
+      || names.has(portal.name) || typeof portal.url !== "string" || portal.url.length > 512
+      || !/^https:\/\//i.test(portal.url) || /[\s\u0000-\u001f\u007f]/.test(portal.url)
+      || portal.url.split("/")[2]?.includes("@")) return false;
+    try {
+      const url = new URL(portal.url);
+      if (url.protocol !== "https:" || url.username || url.password || portal.url.includes("#")
+        || url.port && url.port !== "443" || !url.hostname.includes(".")
+        || [".local", ".internal", ".localhost"].some(suffix => url.hostname.endsWith(suffix))
+        || /^[\d.]+$/.test(url.hostname) || url.hostname.includes(":")
+        || [...url.searchParams].some(([key, entry]) => key !== "codemode" || entry !== "search_and_execute")
+        || url.searchParams.getAll("codemode").length > 1 || destinations.has(url.href)) return false;
+      names.add(portal.name); destinations.add(url.href);
+      return true;
+    } catch { return false; }
+  });
+}
+
+// Only translate the shared, evidenced public subset. Unknown stock fields may
+// change security or execution semantics and must not be silently dropped.
+function stockToAdapter(value: Config): Config {
+  const record = (entry: unknown): entry is Record<string, unknown> =>
+    !!entry && typeof entry === "object" && !Array.isArray(entry);
+  if (!Object.keys(value).every(key => ["mcpServers", "settings", "_codeflareMcpPortals"].includes(key))) throw Error("Unsupported schema");
+  if (value._codeflareMcpPortals !== undefined && !validPortalMarker(value._codeflareMcpPortals)) throw Error("Invalid ownership marker");
+  if (value.settings !== undefined && (!record(value.settings)
+    || !Object.entries(value.settings).every(([key, entry]) =>
+      key === "requestTimeoutMs" && typeof entry === "number" && Number.isFinite(entry) && entry > 0
+      || key === "deferWithMissingMetadata" && typeof entry === "boolean"))) throw Error("Unsupported settings");
+  const literal = (entry: unknown, secret = false): string => {
+    if (typeof entry !== "string" || /\$\{|\$env:|\{env:/.test(entry)
+      || entry.startsWith("~")) throw Error("Unsupported expression");
+    // Old env/headers reserve ! for command secrets. Escape stock literals once.
+    return secret && entry.startsWith("!") ? `!${entry}` : entry;
+  };
+  const servers: Record<string, unknown> = Object.create(null);
+  for (const [name, candidate] of Object.entries(value.mcpServers || {})) {
+    if (!record(candidate) || !Object.keys(candidate).every(key => ["command", "args", "env", "cwd", "url", "headers",
+      "caFile", "lifecycle", "requestTimeoutMs", "transport", "type"].includes(key))) throw Error("Unsupported server");
+    const server = { ...candidate };
+    const stdio = typeof server.command === "string" && server.command.length > 0;
+    const remote = typeof server.url === "string" && server.url.length > 0;
+    if (stdio === remote) throw Error("Ambiguous transport");
+    if (server.transport !== undefined && server.type !== undefined && server.transport !== server.type) throw Error("Ambiguous transport");
+    const transport = server.transport ?? server.type;
+    if (transport !== undefined && !(stdio ? transport === "stdio" : ["http", "streamable-http", "sse"].includes(transport as string))) throw Error("Unsupported transport");
+    delete server.transport; delete server.type;
+    if (stdio && (server.headers !== undefined || server.caFile !== undefined)
+      || remote && ["args", "env", "cwd"].some(key => server[key] !== undefined)) throw Error("Ambiguous transport");
+    for (const key of ["command", "cwd", "url", "caFile"]) if (server[key] !== undefined) server[key] = literal(server[key]);
+    if (server.args !== undefined) {
+      if (!Array.isArray(server.args)) throw Error("Invalid arguments");
+      server.args = server.args.map(entry => literal(entry));
+    }
+    for (const key of ["env", "headers"]) if (server[key] !== undefined) {
+      if (!record(server[key])) throw Error("Invalid secret map");
+      server[key] = Object.fromEntries(Object.entries(server[key]).map(([key, entry]) => [key, literal(entry, true)]));
+    }
+    if (server.lifecycle !== undefined && !["lazy", "eager"].includes(server.lifecycle as string)) throw Error("Unsupported lifecycle");
+    if (server.requestTimeoutMs !== undefined && (typeof server.requestTimeoutMs !== "number"
+      || !Number.isFinite(server.requestTimeoutMs) || server.requestTimeoutMs <= 0)) throw Error("Invalid timeout");
+    if (remote) {
+      server.httpTransport = transport === "sse" ? "sse" : "streamable-http";
+      // Stock entries without explicit OAuth must not enable old auto-OAuth.
+      server.auth = false;
+    }
+    Object.defineProperty(servers, name, { value: server, enumerable: true, writable: true, configurable: true });
+  }
+  return { ...(value.settings === undefined ? {} : { settings: value.settings }), mcpServers: servers,
+    ...(value._codeflareMcpPortals === undefined ? {} : { _codeflareMcpPortals: value._codeflareMcpPortals }) };
+}
+
+// Native handoff never reads auth stores or evaluates expressions. Only an
+// active stock file is an input; its exact archive is passive recovery, not state.
+// A conflicting server/settings key is not authority to choose a winner.
+export function preparePiMcpAdapterConfig(directory: string, regenerateManaged = false): boolean {
+  let temporary: string | undefined;
+  try {
+    if (!isAbsolute(directory)) return false;
+    const parents: { path: string; info: Stats }[] = [];
+    for (let path = resolve(directory); ; path = dirname(path)) {
+      const info = stat(path);
+      if (!info?.isDirectory() || info.isSymbolicLink()) return false;
+      parents.push({ path, info });
+      if (dirname(path) === path) break;
+    }
+    const nativePath = join(directory, "mcp-adapter.json");
+    const stockPath = join(directory, "mcp.json");
+    const native = read(nativePath);
+    const stock = read(stockPath);
+    const selection = read(join(directory, "settings.json"));
+    const nativeConfig: Config | undefined = native ? config(native.bytes) : {};
+    const stockConfig = stock ? config(stock.bytes) : undefined;
+    if (!nativeConfig || stock && !stockConfig) return false;
+    const value = nativeConfig;
+    if (value._codeflareMcpPortals !== undefined && !validPortalMarker(value._codeflareMcpPortals)) return false;
+    for (const candidate of Object.values(value.mcpServers || {})) {
+      if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) return false;
+      const server = candidate as Record<string, unknown>;
+      if ([server.command, server.url, server.socket].filter(entry => typeof entry === "string" && entry.length > 0).length !== 1) return false;
+      if (server.args !== undefined && (!Array.isArray(server.args) || !server.args.every(entry => typeof entry === "string"))) return false;
+      for (const key of ["env", "headers"]) if (server[key] !== undefined && (!server[key] || typeof server[key] !== "object"
+        || Array.isArray(server[key]) || !Object.values(server[key]).every(entry => typeof entry === "string"))) return false;
+    }
+    if (value.settings !== undefined && (!value.settings || typeof value.settings !== "object" || Array.isArray(value.settings))) return false;
+    const prepareNativeTimeouts = (selected: Config) => {
+      prepareBrowserTimeouts(selected);
+      const browser = selected.mcpServers?.["chrome-devtools"];
+      if (browser && typeof browser === "object" && !Array.isArray(browser)) {
+        const entry = browser as Record<string, unknown>;
+        entry.requestTimeoutMs = 360000;
+        if (entry.lifecycle === undefined) entry.lifecycle = "lazy";
+      }
+    };
+    if (stockConfig) {
+      const translated = stockToAdapter(stockConfig);
+      if (translated._codeflareMcpPortals !== undefined) {
+        if (value._codeflareMcpPortals !== undefined
+          && JSON.stringify(value._codeflareMcpPortals) !== JSON.stringify(translated._codeflareMcpPortals)) return false;
+        value._codeflareMcpPortals = translated._codeflareMcpPortals;
+      }
+      for (const key of ["settings", "mcpServers"] as const) {
+        const incoming = translated[key] as Record<string, unknown> | undefined;
+        const current = value[key] as Record<string, unknown> | undefined;
+        for (const [name, entry] of Object.entries(incoming || {})) {
+          if (key === "settings" && name === "requestTimeoutMs") continue;
+          if (current && Object.hasOwn(current, name) && JSON.stringify(current[name]) !== JSON.stringify(entry)) return false;
+        }
+        if (incoming) value[key] = { ...incoming, ...current };
+      }
+    }
+    // Startup refreshes only positively recognized image constructors. Check
+    // ownership before timeout normalization could hide a custom policy value.
+    if (regenerateManaged) {
+      for (const name of Object.keys(ownedCommands())) {
+        if (ownedServer(name, value.mcpServers?.[name])) delete value.mcpServers![name];
+      }
+    }
+    prepareNativeTimeouts(value);
+    // The adapter otherwise warms cold lazy catalogues during startup. Default
+    // only after merging so an explicit stock or native false remains authoritative.
+    const settings = value.settings as Record<string, unknown>;
+    if (!Object.hasOwn(settings, "deferWithMissingMetadata")) settings.deferWithMissingMetadata = true;
+    // requestTimeoutMs is public in 5.3.1; idleTimeout is MINUTES (default 10).
+    // Leave custom idle and unrelated per-server timeout overrides untouched.
+    const sameNative = native && JSON.stringify(config(native.bytes)) === JSON.stringify(value);
+    const bytes = sameNative ? native.bytes : Buffer.from(`${JSON.stringify(value, null, 2)}\n`);
+    const inputsSafe = () => parents.every(({ path, info }) => {
+      const current = stat(path);
+      return current?.isDirectory() && current.dev === info.dev && current.ino === info.ino;
+    }) && (stock ? unchanged(stock) : !stat(stockPath))
+      && (selection ? unchanged(selection) : !stat(join(directory, "settings.json")));
+    const safe = () => inputsSafe() && (native ? unchanged(native) : !stat(nativePath));
+    if (!safe()) return false;
+    if (!sameNative) {
+      temporary = join(directory, `.mcp-adapter.${randomUUID()}.tmp`);
+      writeFileSync(temporary, bytes, { flag: "wx", mode: native ? native.info.mode & 0o777 : 0o600 });
+      if (!safe()) return false;
+    }
+    // Preserve the exact active source before either committing or retiring it.
+    if (stock) preserve(stock, `${stockPath}.migrated`);
+    if (!safe()) return false;
+    if (!sameNative) {
+      if (native) preserve(native, `${nativePath}.migrated`);
+      if (!safe()) return false;
+      if (native) renameSync(temporary!, nativePath);
+      else linkSync(temporary!, nativePath); // Atomic no-clobber creation.
+    }
+    const prepared = read(nativePath);
+    if (!prepared || !prepared.bytes.equals(bytes) || !unchanged(prepared) || !inputsSafe()) return false;
+    if (stock) unlinkSync(stockPath);
+    return true;
+  } catch { return false; }
+  finally {
+    if (temporary) { try { unlinkSync(temporary); } catch { /* Renamed or already absent. */ } }
   }
 }
 
@@ -332,14 +527,13 @@ type ExtensionAPI = {
 export default function registerMcpAdapterMigration(pi: ExtensionAPI, env = process.env): void {
   const directory = env.PI_CODING_AGENT_DIR || join(env.HOME || homedir(), ".pi", "agent");
   const client = configuredMcpClient(directory);
-  if (client === "adapter") return;
   if (!client) {
     pi.on?.("session_start", (_event, ctx) => {
       ctx.ui.notify("MCP config handoff skipped: client selection is ambiguous or unknown; configuration files were preserved. Inspect global package and extension selections.", "warning");
     });
     return;
   }
-  if (!migratePiMcpAdapterConfig(directory, false, true)) {
+  if (!(client === "adapter" ? preparePiMcpAdapterConfig(directory) : migratePiMcpAdapterConfig(directory, false, true))) {
     pi.on?.("session_start", (_event, ctx) => {
       ctx.ui.notify("MCP config handoff skipped: inspect legacy environment expressions and configuration paths; user data was preserved.", "warning");
     });

@@ -4,6 +4,10 @@ Semantic changes to the specification. Git history captures diffs; this file cap
 
 ## 2026-11-07
 
+- Reuse observed fresh same-generation portal renewals and avoid returning stale access tokens after refresh publication, retaining disconnect/configuration fences and metadata-only request failure diagnostics ([REQ-AGENT-226](mcp.md#req-agent-226-worker-owned-mcp-portal-authorization)).
+
+- Restore the previous unmodified native MCP adapter as the sole managed owner, with guarded stock-to-native configuration handoff, deferred discovery, ten-minute idle disconnect and honest progress-resetting six-minute request semantics; portal OAuth remains on Cloudflare ([REQ-AGENT-217](mcp.md#req-agent-217-lossless-pi-mcp-adapter-migration), [REQ-AGENT-228](mcp.md#req-agent-228-owner-pi-mcp-configuration-and-discovery), [REQ-BROWSER-009](browser-run.md#req-browser-009-mcp-and-chrome-sdk-timeout-profile)).
+
 - Record policy provenance and timing decisions in existing idle metrics logs without adding storage I/O, settings or endpoints, so fallback and timing uncertainty can be distinguished during reproduction ([REQ-OPS-017](operations.md#req-ops-017-sleepafter-fail-safe-invariants)).
 
 - Keep valid input-based idle expiry independent of unavailable no-input startup timing while preserving conservative no-input recovery ([REQ-SESSION-004](session-lifecycle.md#req-session-004-idle-containers-sleep-after-configurable-timeout), [REQ-SESSION-034](session-lifecycle.md#req-session-034-durable-idle-baseline-survives-coordinator-reconstruction)).

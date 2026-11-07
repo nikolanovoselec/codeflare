@@ -17,23 +17,19 @@ Dynamic client registration is preferred where available. For a CIMD-only issuer
 
 ## Bootstrap before selecting tools
 
-Managed entries are `codeflare-portal-<ID>` in `mcp.json`, eager streamable HTTP connections with `Authorization: Bearer codeflare-mcp-portal`. Both supported Pi modes use the stock MCP extension; builtin MCP is disabled to avoid duplicate clients. Restart Pi after adding a portal registration. Do not edit npm, the local OAuth store or unrelated stdio/project servers.
+Managed entries are `codeflare-portal-<ID>` in `mcp-adapter.json`: lazy HTTP connections with ten-minute idle disconnect, `requestTimeoutMs: 360000`, deferred direct-tool search, `auth: false` and only `Authorization: Bearer codeflare-mcp-portal`. Both supported Pi modes use the native adapter; builtin MCP stays disabled. OAuth and refresh remain on Cloudflare. Do not edit npm, import OAuth stores or change unrelated servers.
 
-Use `capability` to activate the actual `mcp_status` tool, inspect its live schema and call it (empty-object example when supported):
-
-```json
-{}
-```
-
-Reconcile **every configured managed portal** against connected state before searching for task relevance. If a previously unavailable portal can now connect, activate the exact `mcp_connect` name and use its live schema (stock shape):
+Activate the native `mcp` tool through `capability` and inspect its live schema. Call `{}` to reconcile every approved portal against catalogue availability, not merely connected state. Valid cached discovery remains useful while disconnected. When a portal's metadata is missing or its tools need live access, use the schema-supported connection shape:
 
 ```json
-{"name":"codeflare-portal-<configured-ID>"}
+{"connect":"codeflare-portal-<configured-ID>"}
 ```
+
+The adapter reconnects on a tool call after idle shutdown. Its six-minute request timeout resets on progress; it is not a fixed wall-clock ceiling. Do not keep all servers connected just to search cached catalogues.
 
 This does not authorize login or remote mutations. Missing grants produce a Settings reconnect requirement, not a request to paste a token or run Pi-owned `/mcp:auth` for managed portals. Unmanaged local OAuth retains its normal stock lifecycle.
 
-List connected, disconnected and failed IDs explicitly. Continue only with an explicit partial-coverage statement when not all approved portals connect. Do not infer relevance from names. Do not start/warm a Codeflare compute session merely to qualify a portal.
+Report which approved portal catalogues are available and which are missing or failed. A deliberately idle-disconnected server is not itself failed coverage; stale/unavailable metadata or unsuccessful live discovery is. Continue with an explicit partial-coverage statement when coverage is incomplete. Do not infer relevance from names. Do not start/warm a Codeflare compute session merely to qualify a portal.
 
 ## Diagnosis
 

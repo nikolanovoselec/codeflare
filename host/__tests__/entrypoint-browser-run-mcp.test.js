@@ -1,69 +1,43 @@
-// Verifies REQ-BROWSER-001 AC5 and REQ-BROWSER-006 AC5 by executing the
-// Browser Run entrypoint block and inspecting both generated MCP configs.
+// Execute the actual startup functions; generated configuration is the contract.
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const entrypoint = readFileSync(resolve(__dirname, '../../entrypoint.sh'), 'utf8');
-
-function extractBrowserRunBlock() {
-  const start = entrypoint.indexOf(
-    '# Configure Browser Run (Cloudflare Browser Rendering) as a real-browser'
-  );
-  if (start === -1) throw new Error('Browser Run block marker not found in entrypoint.sh');
-  const end = entrypoint.indexOf('# Configure Claude Code settings.json', start);
-  if (end === -1) throw new Error('Browser Run block end marker not found');
-  return entrypoint.slice(start, end);
+const here = dirname(fileURLToPath(import.meta.url));
+const entrypoint = readFileSync(resolve(here, '../../entrypoint.sh'), 'utf8');
+function generatedBrowserConfigs({ native, stock, claude: initialClaude } = {}) {
+  const home = mkdtempSync(join(tmpdir(), 'browser-run-entrypoint-'));
+  try {
+    const directory = join(home, '.pi/agent'); mkdirSync(directory, { recursive: true });
+    const claudePath = join(home, '.claude.json'), nativePath = join(directory, 'mcp-adapter.json'), stockPath = join(directory, 'mcp.json');
+    writeFileSync(claudePath, JSON.stringify(initialClaude ?? {}));
+    if (native !== undefined) writeFileSync(nativePath, JSON.stringify(native));
+    if (stock !== undefined) writeFileSync(stockPath, JSON.stringify(stock));
+    const migrationStart = entrypoint.indexOf('configure_pi_mcp_adapter() {');
+    const migrationEnd = entrypoint.indexOf('\n}', migrationStart) + 2;
+    const start = entrypoint.indexOf('# Configure Browser Run (Cloudflare Browser Rendering) as a real-browser');
+    const end = entrypoint.indexOf('# Configure Claude Code settings.json', start);
+    assert.ok(migrationStart >= 0 && start >= 0 && end > start, 'startup fixture extraction');
+    const script = `set -e\nUSER_HOME="${home}"\nUSER_CLAUDE_JSON="${claudePath}"\nSESSION_MODE=advanced\nCLOUDFLARE_API_TOKEN=test-token\nCLOUDFLARE_ACCOUNT_ID=test-account\n${entrypoint.slice(migrationStart, migrationEnd)}\nconfigure_pi_mcp_adapter "${resolve(here, '../../preseed/agents/pi/extensions/00-mcp-adapter-config.ts')}"\n${entrypoint.slice(start, end)}`;
+    const result = spawnSync('bash', ['-c', script], { encoding: 'utf8' });
+    assert.equal(result.status, 0, result.stderr);
+    return { claude: JSON.parse(readFileSync(claudePath, 'utf8')),
+      pi: existsSync(nativePath) ? JSON.parse(readFileSync(nativePath, 'utf8')) : undefined,
+      stockBytes: existsSync(stockPath) ? readFileSync(stockPath, 'utf8') : undefined,
+      archive: existsSync(stockPath + '.migrated') ? readFileSync(stockPath + '.migrated', 'utf8') : undefined };
+  } finally { rmSync(home, { recursive: true, force: true }); }
 }
-
-function generatedBrowserConfigs({ legacy, target, claude: initialClaude } = {}) {
-  const userHome = mkdtempSync(join(tmpdir(), 'browser-run-entrypoint-'));
-  const claudeJsonPath = join(userHome, '.claude.json');
-  mkdirSync(join(userHome, '.pi', 'agent'), { recursive: true });
-  writeFileSync(claudeJsonPath, JSON.stringify(initialClaude ?? {}));
-  const legacyPath = join(userHome, '.pi', 'agent', 'mcp-adapter.json');
-  const targetPath = join(userHome, '.pi', 'agent', 'mcp.json');
-  if (legacy !== undefined) writeFileSync(legacyPath, JSON.stringify(legacy));
-  if (target !== undefined) writeFileSync(targetPath, JSON.stringify(target));
-  const migrationStart = entrypoint.indexOf('configure_pi_mcp_adapter() {');
-  const migrationEnd = entrypoint.indexOf('\n}', migrationStart) + 2;
-  const migrationFunction = entrypoint.slice(migrationStart, migrationEnd);
-
-  const script = `
-set -e
-USER_HOME="${userHome}"
-USER_CLAUDE_JSON="${claudeJsonPath}"
-SESSION_MODE=advanced
-CLOUDFLARE_API_TOKEN=test-token
-CLOUDFLARE_ACCOUNT_ID=test-account
-${migrationFunction}
-configure_pi_mcp_adapter "${resolve(__dirname, '../../preseed/agents/pi/extensions/00-mcp-adapter-config.ts')}"
-${extractBrowserRunBlock()}
-`;
-  const result = spawnSync('bash', ['-c', script], { encoding: 'utf8' });
-  if (result.status !== 0) {
-    throw new Error(`Browser Run harness exited ${result.status}: ${result.stderr}`);
-  }
-
-  return {
-    claude: JSON.parse(readFileSync(claudeJsonPath, 'utf8')),
-    pi: JSON.parse(readFileSync(targetPath, 'utf8')),
-    legacyBytes: target === undefined || legacy === undefined ? undefined : readFileSync(join(userHome, '.pi', 'agent', 'mcp-adapter.json.migrated'), 'utf8'),
-  };
-}
-
-function wsEndpoint(config) {
-  const arg = config.mcpServers['chrome-devtools'].args.find((value) =>
-    value.startsWith('--wsEndpoint=')
-  );
-  assert.ok(arg, 'chrome-devtools config must include a WebSocket endpoint');
-  return arg.slice('--wsEndpoint='.length);
-}
+const wsEndpoint = config => {
+  const arg = config.mcpServers['chrome-devtools'].args.find(value => value.startsWith('--wsEndpoint='));
+  assert.ok(arg); return arg.slice('--wsEndpoint='.length);
+};
+const browser = (command = 'custom-browser', lifecycle = 'lazy') => ({ command, args: [
+  '--wsEndpoint=wss://api.cloudflare.com/client/v4/accounts/test-account/browser-rendering/devtools/browser?keep_alive=600000&custom=keep',
+  '--wsHeaders={"Authorization":"Bearer synthetic-user-token"}',
+], lifecycle });
 
 describe('entrypoint Browser Run MCP registration', () => {
   it('REQ-BROWSER-009 AC7: Claude browser MCP calls receive six minutes without changing unrelated servers', () => {
@@ -71,89 +45,77 @@ describe('entrypoint Browser Run MCP registration', () => {
     const { claude } = generatedBrowserConfigs({ claude: { mcpServers: { custom }, unrelated: true } });
     assert.equal(claude.mcpServers['chrome-devtools'].timeout, 360000);
     assert.equal(claude.mcpServers['browser-run'].timeout, 360000);
-    assert.deepEqual(claude.mcpServers.custom, custom);
-    assert.equal(claude.unrelated, true);
+    assert.deepEqual(claude.mcpServers.custom, custom); assert.equal(claude.unrelated, true);
   });
   it('REQ-BROWSER-001 AC5: Claude gives browser continuity a bounded twenty-minute inactivity window', () => {
-    const { claude } = generatedBrowserConfigs();
-    assert.equal(new URL(wsEndpoint(claude)).searchParams.get('keep_alive'), '1200000');
+    assert.equal(new URL(wsEndpoint(generatedBrowserConfigs().claude)).searchParams.get('keep_alive'), '1200000');
   });
-
   it('REQ-BROWSER-006 AC5: Pi separates twenty-minute browser inactivity from six-minute RPC requests', () => {
     const { pi } = generatedBrowserConfigs();
     assert.equal(new URL(wsEndpoint(pi)).searchParams.get('keep_alive'), '1200000');
     assert.equal(pi.mcpServers['chrome-devtools'].lifecycle, 'lazy');
+    assert.equal(pi.mcpServers['chrome-devtools'].idleTimeout, 10);
     assert.equal(pi.settings.requestTimeoutMs, 360000);
-    assert.equal(pi.mcpServers['chrome-devtools'].requestTimeoutMs ?? pi.settings.requestTimeoutMs, 360000);
+    assert.equal(pi.settings.deferWithMissingMetadata, true);
+    assert.equal(pi.mcpServers['chrome-devtools'].requestTimeoutMs, 360000);
   });
-
-  function checkManagedBrowser(location, keepAlive = '600000') {
-    const initial = { mcpServers: {
-      'chrome-devtools': { command: 'chrome-devtools-mcp', args: [
-        `--wsEndpoint=wss://api.cloudflare.com/client/v4/accounts/test-account/browser-rendering/devtools/browser?keep_alive=${keepAlive}&custom=keep`,
-        '--wsHeaders={"Authorization":"Bearer synthetic-user-token"}',
-      ], lifecycle: 'lazy' }, custom: { command: 'custom', env: { TOKEN: 'synthetic-secret' } },
-    }, settings: { custom: true } };
-    const { pi } = generatedBrowserConfigs({ [location]: initial });
+  it('REQ-BROWSER-006 AC5: native browser continuity preserves credentials, custom settings and unrelated servers', () => {
+    const original = browser();
+    const custom = { command: 'custom', env: { TOKEN: 'synthetic-secret' } };
+    const { pi } = generatedBrowserConfigs({ native: { mcpServers: { 'chrome-devtools': original, custom }, settings: { custom: true } } });
     const endpoint = new URL(wsEndpoint(pi));
     assert.deepEqual(endpoint.searchParams.getAll('keep_alive'), ['1200000']);
     assert.equal(endpoint.searchParams.get('custom'), 'keep');
-    assert.deepEqual(pi.mcpServers['chrome-devtools'].args.slice(1), initial.mcpServers['chrome-devtools'].args.slice(1));
-    assert.deepEqual(pi.mcpServers.custom, initial.mcpServers.custom);
-    assert.deepEqual(pi.settings, { ...initial.settings, requestTimeoutMs: 360000 });
-  }
-
-  it('REQ-BROWSER-006 AC5: legacy Cloudflare browser configuration gets bounded continuity without changing credentials', () => checkManagedBrowser('legacy'));
-  it('REQ-BROWSER-006 AC5: target Cloudflare browser configuration gets bounded continuity without changing credentials', () => checkManagedBrowser('target'));
-
-  it('REQ-BROWSER-006 AC5: duplicate retention parameters normalize to one bounded continuity window', () => checkManagedBrowser('target', '180000&keep_alive=600000'));
-
-  it('REQ-BROWSER-009 AC1/AC2/AC4: startup aligns an existing Chrome RPC override while preserving auth and normalizing supported lifecycle', () => {
-    const browser = { command: 'chrome-devtools-mcp', args: [
-      '--wsEndpoint=wss://api.cloudflare.com/client/v4/accounts/test-account/browser-rendering/devtools/browser?keep_alive=180000&custom=keep',
-      '--wsHeaders={"Authorization":"Bearer synthetic-custom-token"}',
-    ], lifecycle: 'lazy-keep-alive', requestTimeoutMs: 600000 };
-    const custom = { command: 'custom', requestTimeoutMs: 2000, env: { TOKEN: 'synthetic-secret' } };
-    const { pi } = generatedBrowserConfigs({ target: { mcpServers: { 'chrome-devtools': browser, custom }, settings: { custom: true } } });
+    assert.deepEqual(pi.mcpServers['chrome-devtools'].args.slice(1), original.args.slice(1));
+    assert.deepEqual(pi.mcpServers.custom, custom); assert.equal(pi.settings.custom, true);
+  });
+  it('REQ-BROWSER-006 AC5: duplicate retention parameters normalize to one bounded continuity window', () => {
+    const original = browser(); original.args[0] += '&keep_alive=180000';
+    const { pi } = generatedBrowserConfigs({ native: { mcpServers: { 'chrome-devtools': original } } });
+    assert.deepEqual(new URL(wsEndpoint(pi)).searchParams.getAll('keep_alive'), ['1200000']);
+  });
+  it('REQ-BROWSER-009 AC1/AC2/AC4: startup aligns Chrome RPC timeout while preserving native lifecycle and auth', () => {
+    const original = { ...browser('custom-browser', 'lazy-keep-alive'), requestTimeoutMs: 600000 };
+    const custom = { command: 'custom', requestTimeoutMs: 2000 };
+    const { pi } = generatedBrowserConfigs({ native: { mcpServers: { 'chrome-devtools': original, custom } } });
     assert.equal(pi.settings.requestTimeoutMs, 360000);
-    assert.equal(pi.settings.custom, true);
     assert.equal(pi.mcpServers['chrome-devtools'].requestTimeoutMs, 360000);
-    assert.equal(pi.mcpServers['chrome-devtools'].lifecycle, 'lazy');
-    assert.deepEqual(pi.mcpServers['chrome-devtools'].args.slice(1), browser.args.slice(1));
-    assert.equal(new URL(wsEndpoint(pi)).searchParams.get('custom'), 'keep');
+    assert.equal(pi.mcpServers['chrome-devtools'].lifecycle, 'lazy-keep-alive');
+    assert.deepEqual(pi.mcpServers['chrome-devtools'].args.slice(1), original.args.slice(1));
     assert.deepEqual(pi.mcpServers.custom, custom);
   });
-
   it('REQ-BROWSER-006: startup regenerates the image-owned browser endpoint and headers while preserving custom settings', () => {
-    const target = { mcpServers: {
-      'chrome-devtools': { command: '/opt/codeflare/bin/chrome-devtools-mcp', args: [
-        '--wsEndpoint=wss://api.cloudflare.com/client/v4/accounts/old-account/browser-rendering/devtools/browser?keep_alive=600000',
-        '--wsHeaders={"Authorization":"Bearer synthetic-stale-managed-token"}',
-      ], lifecycle: 'lazy' }, custom: { command: 'custom', env: { TOKEN: 'synthetic-custom-token' } },
-    }, settings: { custom: true } };
-    const { pi } = generatedBrowserConfigs({ target });
+    const original = browser('/opt/codeflare/bin/chrome-devtools-mcp');
+    original.args[0] = original.args[0].replace('/test-account/', '/old-account/');
+    const custom = { command: 'custom', env: { TOKEN: 'synthetic-custom-token' } };
+    const { pi } = generatedBrowserConfigs({ native: { mcpServers: { 'chrome-devtools': original, custom }, settings: { custom: true } } });
     assert.equal(new URL(wsEndpoint(pi)).pathname, '/client/v4/accounts/test-account/browser-rendering/devtools/browser');
-    assert.equal(new URL(wsEndpoint(pi)).searchParams.get('keep_alive'), '1200000');
     const headers = pi.mcpServers['chrome-devtools'].args.find(arg => arg.startsWith('--wsHeaders='));
     assert.equal(JSON.parse(headers.slice('--wsHeaders='.length)).Authorization, 'Bearer test-token');
-    assert.deepEqual(pi.mcpServers.custom, target.mcpServers.custom);
-    assert.deepEqual(pi.settings, { ...target.settings, requestTimeoutMs: 360000 });
+    assert.deepEqual(pi.mcpServers.custom, custom); assert.equal(pi.settings.custom, true);
   });
-
-  it('REQ-BROWSER-006: legacy migration preserves user browser retention and custom server credentials', () => {
-    const legacy = { mcpServers: {
-      'chrome-devtools': { command: 'custom-browser', args: ['--wsEndpoint=wss://example.test/?keep_alive=600000'], lifecycle: 'lazy' },
-      custom: { command: 'custom', env: { TOKEN: 'synthetic-secret' } },
-    }, settings: { custom: true } };
-    const { pi } = generatedBrowserConfigs({ legacy });
-    assert.deepEqual(pi, { ...legacy, settings: { ...legacy.settings, requestTimeoutMs: 360000 } });
+  it('REQ-BROWSER-006: native custom endpoints and unrelated credentials survive startup unchanged', () => {
+    const original = { command: 'custom-browser', args: ['--wsEndpoint=wss://example.test/?keep_alive=600000'], lifecycle: 'lazy' };
+    const custom = { command: 'custom', env: { TOKEN: 'synthetic-secret' } };
+    const { pi } = generatedBrowserConfigs({ native: { mcpServers: { 'chrome-devtools': original, custom } } });
+    assert.deepEqual(pi.mcpServers['chrome-devtools'].args, original.args);
+    assert.deepEqual(pi.mcpServers.custom, custom);
   });
-
-  it('REQ-BROWSER-006: adapter destination wins without merging or losing archived legacy settings', () => {
-    const legacy = { mcpServers: { old: { command: 'old' } } };
-    const target = { mcpServers: { 'chrome-devtools': { command: 'preferred', args: ['--wsEndpoint=wss://example.test/?keep_alive=600000'] } } };
-    const { pi, legacyBytes } = generatedBrowserConfigs({ legacy, target });
-    assert.deepEqual(pi, { ...target, settings: { requestTimeoutMs: 360000 } });
-    assert.equal(legacyBytes, JSON.stringify(legacy));
+  it('REQ-AGENT-217: compatible stock browser handoff preserves archived originals and adds unrelated servers', () => {
+    const original = { ...browser(), transport: 'stdio' };
+    const stock = { mcpServers: { 'chrome-devtools': original, extra: { command: 'extra' } } };
+    const { pi, stockBytes, archive } = generatedBrowserConfigs({ stock });
+    assert.equal(stockBytes, undefined);
+    assert.equal(archive, JSON.stringify(stock));
+    assert.deepEqual(pi.mcpServers.extra, { command: 'extra' });
+    assert.deepEqual(pi.mcpServers['chrome-devtools'].args.slice(1), original.args.slice(1));
+  });
+  it('REQ-AGENT-217: conflicting native and stock browser entries remain untouched', () => {
+    const native = { mcpServers: { 'chrome-devtools': { command: 'native-browser' } } };
+    const stock = { mcpServers: { 'chrome-devtools': { command: 'different-stock-browser' } } };
+    const result = generatedBrowserConfigs({ native, stock });
+    assert.deepEqual(result.pi, native);
+    assert.equal(result.stockBytes, JSON.stringify(stock));
+    assert.equal(result.archive, undefined);
   });
 });

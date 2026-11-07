@@ -3122,7 +3122,7 @@ const required = [
   'npm:@juicesharp/rpiv-ask-user-question@2.15.0',
   'npm:@juicesharp/rpiv-todo@2.15.0',
   'npm:pi-web-access@0.46.0',
-  'npm:pi-mcp-extension@1.12.1',
+  'npm:pi-mcp-adapter@5.3.1',
   'npm:pi-evaluate@0.1.5',
   'npm:pi-smart-compact@10.7.3',
   'npm:@narumitw/pi-goal@0.54.13',
@@ -3140,12 +3140,26 @@ const defaultPackages = [
 // The graphify wrapper conflicts with first-party graphify-native tools. The glla package is
 // replaced by @narumitw/pi-goal and would otherwise keep loading from persisted user settings.
 // Unlike disabled packages these are dropped and never re-added, so upgrades load cleanly.
-const removedPackageIds = new Set(['npm:@gaodes/pi-graphify', 'npm:pi-goal-list-loop-audit', 'npm:pi-caveman', 'npm:@narumitw/pi-usage', 'npm:pi-mcp-adapter']);
+const removedPackageIds = new Set(['npm:@gaodes/pi-graphify', 'npm:pi-goal-list-loop-audit', 'npm:pi-caveman', 'npm:@narumitw/pi-usage', 'npm:pi-mcp-extension']);
 function sourceOf(entry) {
   if (typeof entry === 'string') return entry;
   return entry && typeof entry.source === 'string' ? entry.source : undefined;
 }
+function managedMcpIdentity(source) {
+  const paths = require('path');
+  const base = paths.dirname(path);
+  const resolved = paths.resolve(base, source);
+  for (const name of ['pi-mcp-extension', 'pi-mcp-adapter']) {
+    for (const directory of ['npm/node_modules', 'local-mcp-runtime/npm/node_modules']) {
+      const root = paths.join(base, directory, name);
+      if (resolved === root || resolved === paths.join(root, 'index.ts')
+        || resolved === paths.join(root, 'src/index.ts')) return `npm:${name}`;
+    }
+  }
+}
 function identity(source) {
+  const mcp = managedMcpIdentity(source);
+  if (mcp) return mcp;
   // Restored homes may retain this earlier local installation alongside npm.
   // Treat only its known managed location as the same identity before Pi starts;
   // the required npm entry replaces the registration without deleting any files.
@@ -3186,11 +3200,12 @@ const reviewExclusions = !selectorReady && !remoteReady ? []
     .map(name => `-${require('path').join(reviewDir, name)}`);
 const managedReviewPaths = ['review-enforcement.ts', 'operator-review-remote.ts']
   .map(name => `-${require('path').join(reviewDir, name)}`);
-// The replacement extension is the sole managed MCP lifecycle owner, including the first session.
+// The adapter is the sole managed MCP lifecycle owner, including the first session.
 // Native Pi MCP would otherwise connect the same configured servers eagerly.
 const nativeMcpPaths = new Set(['builtin:mcp', '+builtin:mcp', '-builtin:mcp']);
 const extensions = Array.isArray(settings.extensions)
-  ? settings.extensions.filter(item => !managedReviewPaths.includes(item) && !nativeMcpPaths.has(item)) : [];
+  ? settings.extensions.filter(item => !managedReviewPaths.includes(item) && !nativeMcpPaths.has(item)
+    && !(typeof item === 'string' && managedMcpIdentity(item.replace(/^[+!-]/, '')))) : [];
 fs.writeFileSync(path, JSON.stringify({ ...settings, packages: [...byName.values()],
   extensions: [...extensions, '-builtin:mcp', ...reviewExclusions] }, null, 2) + '\n');
 NODE
@@ -3536,12 +3551,12 @@ configure_pi_mcp_adapter() {
     PI_MCP_CONFIG_READY=0
     if node --input-type=module - "$module" "$USER_HOME/.pi/agent" <<'PI_MCP_MIGRATION'
 import { pathToFileURL } from 'node:url';
-const { migratePiMcpAdapterConfig } = await import(pathToFileURL(process.argv[2]).href);
-process.exitCode = migratePiMcpAdapterConfig(process.argv[3], true, true) ? 0 : 1;
+const { preparePiMcpAdapterConfig } = await import(pathToFileURL(process.argv[2]).href);
+process.exitCode = preparePiMcpAdapterConfig(process.argv[3], true) ? 0 : 1;
 PI_MCP_MIGRATION
     then
         PI_MCP_CONFIG_READY=1
-        # The active mcp.json and custom recovery files remain durably synced.
+        # The active mcp-adapter.json and custom recovery files remain durably synced.
     else
         echo "[entrypoint] WARNING: Pi MCP config migration skipped; user files preserved"
     fi
@@ -3556,7 +3571,7 @@ configure_pi_mcp_portals() {
     PI_MCP_CONFIG_READY="$PI_MCP_CONFIG_READY" \
     SESSION_MODE="${SESSION_MODE:-default}" \
     CODEFLARE_MCP_PORTALS_JSON="${CODEFLARE_MCP_PORTALS_JSON:-[]}" \
-        node /opt/codeflare/merge-pi-mcp-portals.mjs "$USER_HOME/.pi/agent/mcp.json"
+        node /opt/codeflare/merge-pi-mcp-portals.mjs "$USER_HOME/.pi/agent/mcp-adapter.json"
 }
 configure_pi_mcp_portals || echo "[entrypoint] WARNING: Pi MCP portal configuration skipped; existing files preserved"
 
@@ -3648,14 +3663,15 @@ configure_consult_llm() {
         "$(jq -n --argjson env "$env_obj" '{"mcpServers":{"consult-llm":{"command":"consult-llm-mcp","args":[],"env":$env}}}')" \
         "Claude Code"
 
-    # The replacement MCP extension reads mcp.json and receives literal env
-    # values; the retired adapter's command-backed leading-bang encoding does
-    # not apply. Keep this server lazy and preserve custom existing entries.
-    local pi_env_obj="$env_obj"
+    # The native adapter reads mcp-adapter.json. Escape leading bangs so
+    # restored literal environment values never become command-backed secrets.
+    # Keep consult lazy and preserve custom existing entries.
+    local pi_env_obj
+    pi_env_obj=$(printf '%s' "$env_obj" | jq 'with_entries(.value |= if type == "string" and startswith("!") then "!" + . else . end)')
     if [ "${PI_MCP_CONFIG_READY:-0}" = "1" ]; then
         mkdir -p "$USER_HOME/.pi/agent"
-        _merge_consult_llm_mcp "$USER_HOME/.pi/agent/mcp.json" \
-            "$(jq -n --argjson env "$pi_env_obj" '{"settings":{"requestTimeoutMs":360000},"mcpServers":{"consult-llm":{"command":"consult-llm-mcp","args":[],"env":$env,"lifecycle":"lazy"}}}')" \
+        _merge_consult_llm_mcp "$USER_HOME/.pi/agent/mcp-adapter.json" \
+            "$(jq -n --argjson env "$pi_env_obj" '{"settings":{"requestTimeoutMs":360000},"mcpServers":{"consult-llm":{"command":"consult-llm-mcp","args":[],"env":$env,"lifecycle":"lazy","idleTimeout":10,"requestTimeoutMs":360000,"directTools":"search"}}}')" \
             "Pi" "1"
     fi
 }
@@ -4310,7 +4326,7 @@ echo "[entrypoint] graphify MCP server registered in .claude.json (version $GRAP
 # (navigate, click, fill, take_screenshot, take_snapshot, resize_page for a
 # mobile viewport) — the foundation the browser-e2e skill rests on:
 #   - Claude Code: registered in ~/.claude.json mcpServers (canonical MCP path).
-#   - Pi: registered in ~/.pi/agent/mcp.json; pi-mcp-extension owns the MCP connection
+#   - Pi: registered in ~/.pi/agent/mcp-adapter.json; pi-mcp-adapter owns the MCP connection
 #     through direct MCP tools after explicit lazy connection, like consult-llm
 #     above. The request deadline is fixed at six minutes. Pi ALSO keeps its
 #     native browser_* tools (the REST Quick
@@ -4379,12 +4395,12 @@ if [ "${SESSION_MODE:-default}" = "advanced" ] \
     fi
     echo "[entrypoint] chrome-devtools MCP server registered in .claude.json (Cloudflare Browser Run)"
 
-    # Pi uses the same interactive server through the replacement MCP owner.
+    # Pi uses the same interactive server through the native MCP adapter.
     # Lazy servers connect only on explicit request; direct MCP tools coexist
     # with the native one-shot browser_* REST read surface.
     BROWSER_MCP_PI=$(jq -n --arg bin "$CDP_MCP_BIN" --arg ep "$CDP_WS_ENDPOINT" --arg hdr "$CDP_WS_HEADERS" \
-        '{mcpServers:{"chrome-devtools":{command:$bin,args:[("--wsEndpoint=" + $ep),("--wsHeaders=" + $hdr)],lifecycle:"lazy",requestTimeoutMs:360000}}}')
-    PI_MCP_JSON="$USER_HOME/.pi/agent/mcp.json"
+        '{mcpServers:{"chrome-devtools":{command:$bin,args:[("--wsEndpoint=" + $ep),("--wsHeaders=" + $hdr)],lifecycle:"lazy",idleTimeout:10,requestTimeoutMs:360000,directTools:"search"}}}')
+    PI_MCP_JSON="$USER_HOME/.pi/agent/mcp-adapter.json"
     if [ "${PI_MCP_CONFIG_READY:-0}" = "1" ]; then
         mkdir -p "$USER_HOME/.pi/agent"
         if [ -f "$PI_MCP_JSON" ] && jq -e '.mcpServers | has("chrome-devtools")' "$PI_MCP_JSON" >/dev/null 2>&1; then
@@ -4420,13 +4436,13 @@ NODE
             if jq --argjson mcp "$BROWSER_MCP_PI" '. * $mcp' "$PI_MCP_JSON" > "$TMP_JSON" 2>/dev/null; then
                 mv "$TMP_JSON" "$PI_MCP_JSON"
             else
-                echo "[entrypoint] WARNING: Could not merge chrome-devtools MCP config into Pi mcp.json (malformed?)"
+                echo "[entrypoint] WARNING: Could not merge chrome-devtools MCP config into Pi mcp-adapter.json (malformed?)"
                 rm -f "$TMP_JSON"
             fi
         else
             echo "$BROWSER_MCP_PI" | jq '.' > "$PI_MCP_JSON"
         fi
-        echo "[entrypoint] chrome-devtools MCP server registered in Pi mcp.json (Cloudflare Browser Run)"
+        echo "[entrypoint] chrome-devtools MCP server registered in Pi mcp-adapter.json (Cloudflare Browser Run)"
     fi
 
     # Claude (~/.claude.json) - the cheap one-shot page-read surface (markdown /
@@ -4455,7 +4471,7 @@ else
     # or credential change.
     remove_owned_browser_mcp_servers "$USER_CLAUDE_JSON" '["chrome-devtools","browser-run"]'
     if [ "${PI_MCP_CONFIG_READY:-0}" = "1" ]; then
-        remove_owned_browser_mcp_servers "$USER_HOME/.pi/agent/mcp.json" '["chrome-devtools"]'
+        remove_owned_browser_mcp_servers "$USER_HOME/.pi/agent/mcp-adapter.json" '["chrome-devtools"]'
     fi
     rm -rf "$USER_HOME/.claude/skills/browser-run" "$USER_HOME/.claude/skills/browser-e2e" \
            "$USER_HOME/.pi/agent/skills/browser-run" "$USER_HOME/.pi/agent/skills/browser-e2e" 2>/dev/null || true

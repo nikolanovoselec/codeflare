@@ -326,9 +326,9 @@ it('REQ-AGENT-069 / REQ-AGENT-217: restored managed MCP registrations converge t
   const first = runAssembly(JSON.stringify(initial));
   const second = runAssembly(JSON.stringify(first));
   assert.deepEqual(second, first, 'restored package ownership remains idempotent');
-  assert.deepEqual(first.packages.filter(entry => /^npm:pi-mcp-extension(?:@|$)/.test(sourceOf(entry))),
-    [`npm:pi-mcp-extension@${piPackage.dependencies['pi-mcp-extension']}`]);
-  assert.ok(!first.packages.some(entry => /^npm:pi-mcp-adapter(?:@|$)/.test(sourceOf(entry))));
+  assert.deepEqual(first.packages.filter(entry => /^npm:pi-mcp-adapter(?:@|$)/.test(sourceOf(entry))),
+    [`npm:pi-mcp-adapter@${piPackage.dependencies['pi-mcp-adapter']}`]);
+  assert.ok(!first.packages.some(entry => /^npm:pi-mcp-extension(?:@|$)/.test(sourceOf(entry))));
   assert.deepEqual(first.extensions, ['owner-mcp-extension.ts', '-builtin:mcp']);
   assert.ok(first.packages.includes('npm:pi-mcp-adapter-extra@1.0.0'));
   assert.ok(first.packages.includes('./custom/pi-mcp-adapter'));
@@ -336,3 +336,27 @@ it('REQ-AGENT-069 / REQ-AGENT-217: restored managed MCP registrations converge t
   assert.deepEqual(first.auth, initial.auth);
   assert.deepEqual(first.customPreference, initial.customPreference);
 });
+
+for (const form of ['absolute', 'relative']) {
+  it(`REQ-AGENT-217: startup retires duplicated managed stock runtime aliases (${form})`, () => {
+    const settings = runAssembly(directory => {
+      const root = form === 'absolute' ? directory + '/' : './';
+      return JSON.stringify({ packages: [
+        'npm:pi-mcp-extension@1.12.1',
+        root + 'local-mcp-runtime/npm/node_modules/pi-mcp-extension',
+        { source: root + 'npm/node_modules/pi-mcp-extension/src/index.ts' },
+        root + 'npm/node_modules/pi-mcp-adapter',
+        'npm:owner-mcp-extension@1.0.0',
+      ], extensions: [
+        root + 'local-mcp-runtime/npm/node_modules/pi-mcp-extension/src/index.ts',
+        '+' + root + 'npm/node_modules/pi-mcp-extension/src/index.ts',
+        'owner-extension.ts',
+      ], customPreference: true });
+    });
+    assert.deepEqual(settings.packages.map(sourceOf).filter(source => /pi-mcp-(?:adapter|extension)/.test(source)),
+      [`npm:pi-mcp-adapter@${piPackage.dependencies['pi-mcp-adapter']}`]);
+    assert.ok(settings.packages.includes('npm:owner-mcp-extension@1.0.0'));
+    assert.deepEqual(settings.extensions, ['owner-extension.ts', '-builtin:mcp']);
+    assert.equal(settings.customPreference, true);
+  });
+}

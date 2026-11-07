@@ -161,6 +161,83 @@ describe('Worker-owned MCP portal OAuth', () => {
     }
   });
 
+  it('REQ-AGENT-226 AC5: successful refresh reuses an observed same-generation renewal before publication', async () => {
+    const f = await mcpPortalFixture(); f.expiry(30); await f.begin(); await f.finish();
+    const old = await f.connectionSnapshot();
+    f.expiry(3600);
+    expect(await getValidMcpPortalToken(f.env, 'owner', portal, f.send)).toBe(`${access}-ROTATED`);
+    const winner = await f.connectionSnapshot();
+    f.readConnection(old);
+    const send: typeof fetch = async (input, init) => {
+      const response = await f.send(input, init);
+      f.readConnection(winner); return response;
+    };
+    expect(await getValidMcpPortalToken(f.env, 'owner', portal, send)).toBe(`${access}-ROTATED`);
+    f.readConnection(undefined);
+    expect(await getValidMcpPortalToken(f.env, 'owner', portal, f.send)).toBe(`${access}-ROTATED`);
+  });
+
+  it('REQ-AGENT-226 AC5: stale encrypted readback after refresh publication never returns the old access token', async () => {
+    const f = await mcpPortalFixture(); f.expiry(30); await f.begin(); await f.finish();
+    const old = await f.connectionSnapshot(); f.expiry(3600);
+    f.afterConnectionWrite(async () => { f.readConnection(old); });
+    expect(await getValidMcpPortalToken(f.env, 'owner', portal, f.send)).toBe(`${access}-ROTATED`);
+    f.readConnection(undefined);
+    expect(await getValidMcpPortalToken(f.env, 'owner', portal, f.send)).toBe(`${access}-ROTATED`);
+  });
+
+  it.each(['disconnect', 'configuration', 'generation'] as const)(
+    'REQ-AGENT-226 AC6: observed %s after refresh publication rejects the refresh result', async change => {
+      const f = await mcpPortalFixture(); f.expiry(30); await f.begin(); await f.finish(); f.expiry(3600);
+      f.afterConnectionWrite(async () => {
+        if (change === 'disconnect') await disconnectMcpPortal(f.env, 'owner', portal, f.send);
+        if (change === 'configuration') await f.kv.put(SETUP_KEYS.MCP_PORTALS, '[]');
+        if (change === 'generation') { await f.begin(); await f.finish(); }
+      });
+      expect(await getValidMcpPortalToken(f.env, 'owner', portal, f.send)).toBeNull();
+    });
+
+  it.each(['configuration', 'generation'] as const)(
+    'REQ-AGENT-226 AC6: observed %s before refresh publication rejects the refresh result', async change => {
+      const f = await mcpPortalFixture(); f.expiry(30); await f.begin(); await f.finish(); f.expiry(3600);
+      const send: typeof fetch = async (input, init) => {
+        const response = await f.send(input, init);
+        if (change === 'configuration') await f.kv.put(SETUP_KEYS.MCP_PORTALS, '[]');
+        else { await f.begin(); await f.finish(); }
+        return response;
+      };
+      expect(await getValidMcpPortalToken(f.env, 'owner', portal, send)).toBeNull();
+    });
+
+  it.each(['before', 'after'] as const)(
+    'REQ-AGENT-226 AC6: an expired same-generation renewal observed %s publication is unusable', async timing => {
+      const f = await mcpPortalFixture(); f.expiry(30); await f.begin(); await f.finish();
+      const old = await f.connectionSnapshot();
+      expect(await getValidMcpPortalToken(f.env, 'owner', portal, f.send)).toBe(`${access}-ROTATED`);
+      const expiredRenewal = await f.connectionSnapshot();
+      const clock = vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 31_000);
+      try {
+        f.readConnection(old); f.expiry(3600);
+        if (timing === 'after') f.afterConnectionWrite(async () => { f.readConnection(expiredRenewal); });
+        const send: typeof fetch = async (input, init) => {
+          const response = await f.send(input, init);
+          if (timing === 'before') f.readConnection(expiredRenewal);
+          return response;
+        };
+        expect(await getValidMcpPortalToken(f.env, 'owner', portal, send)).toBeNull();
+      } finally { clock.mockRestore(); f.readConnection(undefined); }
+    });
+
+  it('REQ-AGENT-226 AC6: rotating refresh rejection before winner publication never falls back to the old token', async () => {
+    const f = await mcpPortalFixture(); f.expiry(30); await f.begin(); await f.finish();
+    const old = await f.connectionSnapshot(); f.rotateRefresh(); f.expiry(3600);
+    expect(await getValidMcpPortalToken(f.env, 'owner', portal, f.send)).toBe(`${access}-ROTATED`);
+    f.readConnection(old);
+    expect(await getValidMcpPortalToken(f.env, 'owner', portal, f.send)).toBeNull();
+    f.readConnection(undefined);
+    expect(await getValidMcpPortalToken(f.env, 'owner', portal, f.send)).toBe(`${access}-ROTATED`);
+  });
+
   it('REQ-AGENT-226 AC7: disconnect affects only selected owner/portal and never restores failed revocation', async () => {
     const f = await mcpPortalFixture(); await f.begin(); await f.finish(); await f.begin('other'); await f.finish('other');
     await f.kv.put('deploy-keys:owner', 'unrelated-GitHub-Cloudflare-state');

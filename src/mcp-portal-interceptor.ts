@@ -1,7 +1,11 @@
 import { WorkerEntrypoint } from 'cloudflare:workers';
 import type { Env } from './types';
 import { getConfiguredMcpPortals, type McpPortal } from './lib/mcp-portals';
-import { getMcpPortalGrant, getValidMcpPortalToken } from './lib/mcp-portal-token';
+import { getValidMcpPortalToken } from './lib/mcp-portal-token';
+
+import { createLogger } from './lib/logger';
+
+const logger = createLogger('mcp-portal-interceptor');
 
 export interface McpPortalInterceptorProps { bucket: string; portals: McpPortal[]; strict?: boolean; operator?: boolean }
 const denied = (status: number, code: string) => Response.json({ code, error: 'MCP portal unavailable. Connect or reconnect this portal in Settings.' },
@@ -19,9 +23,9 @@ export async function forwardMcpPortal(request: Request, env: Env, props: McpPor
   if (props.strict && !env.EGRESS) return denied(503, 'MCP_EGRESS_UNAVAILABLE');
   let token: string | null;
   try {
-    const grant = await getMcpPortalGrant(env, props.bucket, portal);
-    if (!grant) return denied(401, 'MCP_RECONNECT_REQUIRED');
-    token = await getValidMcpPortalToken(env, props.bucket, portal, send);
+    token = await getValidMcpPortalToken(env, props.bucket, portal, send, failure => {
+      logger.warn('MCP credential unavailable', { portalId: portal.name, ...failure });
+    });
   } catch { return denied(401, 'MCP_RECONNECT_REQUIRED'); }
   if (!token) return denied(401, 'MCP_RECONNECT_REQUIRED');
   const headers = new Headers();
