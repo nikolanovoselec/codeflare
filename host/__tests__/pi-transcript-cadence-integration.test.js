@@ -102,7 +102,7 @@ test('REQ-MEM-028 AC1: actual trims preserve the next twenty-prompt cadence and 
   assert.equal(messages.filter(([m]) => m.customType === 'transcript-trim-outcome' && m.details.status === 'trimmed').length, 2);
 });
 
-for (const order of ['capture-before-trim', 'trim-before-capture', 'capture-failed', 'published-before-native-success', 'cancel-switch', 'external-rewrite', 'frontier-removed', 'exhausted-after-trim', 'exhausted-rewrite-after-trim', 'serviced-companion-window']) {
+for (const order of ['capture-before-trim', 'trim-before-capture', 'capture-failed', 'published-before-native-success', 'cancel-switch', 'external-rewrite', 'frontier-removed', 'exhausted-after-trim', 'exhausted-rewrite-after-trim', 'serviced-companion-window', 'second-trim-success', 'exhausted-second-trim', 'abort-after-trim-success', 'exhausted-abort-after-trim']) {
   test(`own verified trim translates only the successful frontier: ${order}`, async t => {
     const { registerMemoryVault } = await importPiExtension('memory-vault');
     const { realUserPromptFingerprint, parseSessionEntries } = await importPiExtension('memory-vault-helpers');
@@ -249,6 +249,64 @@ for (const order of ['capture-before-trim', 'trim-before-capture', 'capture-fail
     }
     assert.equal(result.status, 'trimmed');
     assert.equal(parseSessionEntries(fs.readFileSync(file, 'utf8')).filter(e => e.message?.role === 'user').length, 87);
+    const secondTrim = order === 'second-trim-success' || order === 'exhausted-second-trim';
+    const sameSessionAbort = order === 'abort-after-trim-success' || order === 'exhausted-abort-after-trim';
+    if (secondTrim || sameSessionAbort) {
+      assert.equal(result.committed, true);
+      assert.equal(fs.readFileSync(countFile, 'utf8'), '64');
+      assert.equal(fs.readFileSync(varsFile, 'utf8'), frozen, 'verified first trim leaves raw 147 immutable');
+      append({ type: 'custom_message', customType: 'subagent-notification', content: `<tool-use-id>${trim.requestId}</tool-use-id><status>Done</status>` });
+      emit('agent_settled');
+    }
+    if (secondTrim) {
+      // Add only non-prompt payload, keeping all existing prompt IDs and content.
+      // The real byte-cut engine removes prompts 64..99 on the next trim.
+      const disk = parseSessionEntries(fs.readFileSync(file, 'utf8'));
+      const originalPrompts = disk.filter(e => e.message?.role === 'user');
+      const before100 = disk.findIndex(e => e.message?.content === 'prompt 100');
+      assert.ok(before100 > 0);
+      disk.splice(before100, 0,
+        { type: 'message', id: 'second-trim-old-tool', parentId: disk[before100 - 1].id,
+          message: { role: 'toolResult', toolCallId: 'old-read', toolName: 'read', content: 't'.repeat(32_000_000) } },
+        { type: 'custom', id: 'second-trim-padding', parentId: 'second-trim-old-tool', customType: 'retained-padding', data: 'p'.repeat(19_000_000) });
+      fs.writeFileSync(file, jsonl(disk));
+      assert.deepEqual(parseSessionEntries(fs.readFileSync(file, 'utf8')).filter(e => e.message?.role === 'user'),
+        originalPrompts, 'payload growth preserves prompt identity and content');
+      const scheduled = JSON.parse((await tools.get('transcript_trim').execute('request-second-trim', { operation: 'request' }, undefined, undefined, ctx)).content[0].text);
+      assert.equal(scheduled.status, 'scheduled');
+      emit('agent_settled');
+      const second = launches('transcript-trim').at(-1);
+      assert.notEqual(second.requestId, trim.requestId);
+      append({ type: 'custom_message', customType: 'background-extraction-launch', details: { items: [second] } });
+      append({ type: 'message', message: { role: 'assistant', content: [{ type: 'toolCall', id: second.requestId, name: 'subagent', arguments: second.request }] } });
+      const secondChild = { sessionManager: { getBranch: () => [{ type: 'message', message: { role: 'user', content: second.request.prompt } }] } };
+      const twice = JSON.parse((await tools.get('transcript_trim').execute('second-trim', { operation: 'trim' }, undefined, undefined, secondChild)).content[0].text);
+      assert.equal(twice.status, 'trimmed');
+      assert.equal(twice.committed, true);
+      const retained = parseSessionEntries(fs.readFileSync(file, 'utf8'));
+      assert.deepEqual(retained.filter(e => e.message?.role === 'user'), originalPrompts.slice(36),
+        'second actual byte cut retains the exact prompts 100..150, including three uncaptured prompts');
+      assert.equal(retained.filter(e => e.message?.role === 'user').length, 51);
+      append({ type: 'custom_message', customType: 'subagent-notification', content: `<tool-use-id>${second.requestId}</tool-use-id><status>Done</status>` });
+      emit('agent_settled');
+      assert.equal(messages.filter(([m]) => m.customType === 'transcript-trim-outcome' && m.details.status === 'trimmed').length, 2);
+    }
+    if (sameSessionAbort) {
+      emit('turn_end', { outcome: 'aborted' });
+      emit('agent_settled', { aborted: true });
+    }
+    if (secondTrim || sameSessionAbort) {
+      const committed = secondTrim ? 28 : 64;
+      const disk = parseSessionEntries(fs.readFileSync(file, 'utf8'));
+      const progress = JSON.parse(fs.readFileSync(progressFile, 'utf8'));
+      assert.equal(fs.readFileSync(countFile, 'utf8'), String(committed));
+      assert.equal(progress.promptCount, committed);
+      assert.equal(progress.transcriptFingerprint, realUserPromptFingerprint(disk, committed));
+      assert.match(fs.readFileSync(oldNote, 'utf8'), new RegExp(`captured_prompt_count: ${committed}\\n`));
+      assert.match(fs.readFileSync(oldNote, 'utf8'), /fixture_metadata: keep exactly\n---\nPrevious capture body\n$/);
+      assert.equal(fs.readFileSync(varsFile, 'utf8'), frozen, 'translated coverage never mutates frozen raw 147 request');
+      assert.equal(JSON.parse(fs.readFileSync(activeFile, 'utf8')).requestId, request.requestId);
+    }
     if (order.startsWith('exhausted-')) {
       let callId = 'memory-call';
       for (let attempt = 1; attempt <= 6; attempt++) {
@@ -268,7 +326,7 @@ for (const order of ['capture-before-trim', 'trim-before-capture', 'capture-fail
       append({ type: 'custom_message', ...giveup });
       emit('agent_settled');
       assert.equal(fs.readFileSync(varsFile, 'utf8'), frozen, 'own trim cannot immediately re-arm exhausted work');
-      assert.equal(fs.readFileSync(countFile, 'utf8'), '64', 'failed capture never advances committed progress');
+      assert.equal(fs.readFileSync(countFile, 'utf8'), secondTrim ? '28' : '64', 'failed capture never advances committed progress');
       assert.equal(launches('memory-capture').length, 6);
       if (order === 'exhausted-rewrite-after-trim') {
         const disk = parseSessionEntries(fs.readFileSync(file, 'utf8'));
@@ -283,11 +341,16 @@ for (const order of ['capture-before-trim', 'trim-before-capture', 'capture-fail
         append({ type: 'message', message: { role: 'user', content: `prompt ${n}` } }); emit('agent_settled');
         assert.equal(JSON.parse(fs.readFileSync(activeFile, 'utf8')).requestId, request.requestId,
           'nineteen later real prompts do not re-arm exhausted work');
+        if (secondTrim || sameSessionAbort) assert.equal(fs.readFileSync(varsFile, 'utf8'), frozen);
       }
       append({ type: 'message', message: { role: 'user', content: 'prompt 167' } }); emit('agent_settled');
       const nextId = JSON.parse(fs.readFileSync(activeFile, 'utf8')).requestId;
       assert.notEqual(nextId, request.requestId, 'twentieth later real prompt re-arms exhausted work');
-      assert.equal(JSON.parse(fs.readFileSync(join(paths.cacheDir, `memory-capture.fixture.${nextId}.vars`), 'utf8')).promptCount, 104);
+      const next = JSON.parse(fs.readFileSync(join(paths.cacheDir, `memory-capture.fixture.${nextId}.vars`), 'utf8'));
+      assert.equal(next.promptCount, secondTrim ? 68 : 104);
+      if (secondTrim || sameSessionAbort) {
+        assert.match(next.transcript, /prompt 148/); assert.match(next.transcript, /prompt 167/);
+      }
       return;
     }
     if (order === 'serviced-companion-window') {
@@ -295,9 +358,9 @@ for (const order of ['capture-before-trim', 'trim-before-capture', 'capture-fail
       emit('agent_settled');
       assert.equal(launches('vault-extract').length, 1, 'own trim does not recheck a serviced companion window');
     }
-    if (order === 'trim-before-capture' || order === 'serviced-companion-window') {
+    if (order === 'trim-before-capture' || order === 'serviced-companion-window' || secondTrim || sameSessionAbort) {
       assert.equal(fs.readFileSync(varsFile, 'utf8'), frozen, 'trim cannot mutate frozen request');
-      assert.equal(fs.readFileSync(countFile, 'utf8'), '64');
+      assert.equal(fs.readFileSync(countFile, 'utf8'), secondTrim ? '28' : '64');
       publish();
     } else if (order === 'published-before-native-success') {
       emit('agent_settled');
@@ -320,8 +383,16 @@ for (const order of ['capture-before-trim', 'trim-before-capture', 'capture-fail
       return;
     }
     emit('agent_settled');
-    assert.equal(fs.readFileSync(countFile, 'utf8'), '84');
-    assert.match(fs.readFileSync(note, 'utf8'), /captured_prompt_count: 84\n/);
+    assert.equal(fs.readFileSync(countFile, 'utf8'), secondTrim ? '48' : '84');
+    assert.match(fs.readFileSync(note, 'utf8'), secondTrim ? /captured_prompt_count: 48\n/ : /captured_prompt_count: 84\n/);
+    if (secondTrim || sameSessionAbort) {
+      const captured = secondTrim ? 48 : 84;
+      const disk = parseSessionEntries(fs.readFileSync(file, 'utf8'));
+      const progress = JSON.parse(fs.readFileSync(progressFile, 'utf8'));
+      assert.equal(progress.promptCount, captured);
+      assert.equal(progress.transcriptFingerprint, realUserPromptFingerprint(disk, captured));
+      assert.equal(disk.filter(e => e.message?.role === 'user').length - captured, 3, '148..150 remain uncaptured');
+    }
     assert.match(fs.readFileSync(note, 'utf8'), /fixture_metadata: keep exactly\n/);
     assert.ok(fs.readFileSync(note, 'utf8').endsWith('# Captured immutable body\n' + request.transcript));
     assert.ok(!fs.existsSync(activeFile), 'no immediate duplicate capture');
@@ -334,7 +405,7 @@ for (const order of ['capture-before-trim', 'trim-before-capture', 'capture-fail
     append({ type: 'message', message: { role: 'user', content: 'prompt 167' } }); emit('agent_settled');
     const nextId = JSON.parse(fs.readFileSync(activeFile, 'utf8')).requestId;
     const next = JSON.parse(fs.readFileSync(join(paths.cacheDir, `memory-capture.fixture.${nextId}.vars`), 'utf8'));
-    assert.equal(next.promptCount, 104);
+    assert.equal(next.promptCount, secondTrim ? 68 : 104);
     if (order === 'serviced-companion-window') {
       assert.equal(launches('vault-extract').length, 2, 'next genuine twenty-prompt crossing checks the changed Vault');
       const vault = launches('vault-extract').at(-1);

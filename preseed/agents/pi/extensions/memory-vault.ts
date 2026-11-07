@@ -777,16 +777,19 @@ export function registerMemoryVault(pi: MemoryVaultPi, dependencies: MemoryVault
       };
     };
     const baselineTranslation = bind(baseline);
-    const activeTranslation = bind(active);
+    const activeFrontier = active ? captureProgress(active, source, translatedCapture) : undefined;
+    const activeTranslation = bind(activeFrontier);
     trimCheckpoint = { owner: { requestId: owner.requestId, sessionId: session, file: owner.file }, verify: () => {
       if (sessionId(ctx) !== session || ctx.sessionManager.getSessionFile() !== owner.file) return;
       const late = activeTranslation?.();
       if (active && late) translatedCapture = { requestId: active.requestId, progress: late };
       // Success may have completed while the trim worker was running.
       const committed = committedMemoryProgress(paths, session);
-      const before = active && committed.promptCount === active.promptCount
-        && committed.transcriptFingerprint === active.transcriptFingerprint ? active : baseline;
-      const after = before === active ? late : baselineTranslation?.();
+      const completedActive = active && activeFrontier && (
+        (committed.promptCount === activeFrontier.promptCount && committed.transcriptFingerprint === activeFrontier.transcriptFingerprint)
+        || (committed.promptCount === active.promptCount && committed.transcriptFingerprint === active.transcriptFingerprint));
+      const before = completedActive ? committed : baseline;
+      const after = completedActive ? late : baselineTranslation?.();
       if (!after || committed.promptCount !== before.promptCount || committed.transcriptFingerprint !== before.transcriptFingerprint
         || !existsSync(counterPath(paths, session))) return;
       const successful = latestCapturedPromptCount(paths, session, committed);
@@ -801,13 +804,16 @@ export function registerMemoryVault(pi: MemoryVaultPi, dependencies: MemoryVault
   });
   const cancelTrimming = () => {
     trimCheckpoint = undefined;
-    translatedCapture = undefined;
     trimming.cancel();
   };
-  for (const event of ["session_before_switch", "session_before_fork", "session_shutdown"]) pi.on(event, cancelTrimming);
+  const resetSessionTrimming = () => {
+    translatedCapture = undefined;
+    cancelTrimming();
+  };
+  for (const event of ["session_before_switch", "session_before_fork", "session_shutdown"]) pi.on(event, resetSessionTrimming);
 
   pi.on("session_start", (_event, ctx) => {
-    cancelTrimming();
+    resetSessionTrimming();
     if (isChildSession(ctx)) return;
     queuedLaunches.clear();
     const vaultExisted = existsSync(paths.vaultRoot);
